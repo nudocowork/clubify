@@ -262,7 +262,8 @@ export function PremiumDashboard() {
             </span>
           )}
           <span className="text-xs text-sky-200">
-            (vs {data.banner.newCustomers.lastMonth} mes anterior)
+            (vs. mes anterior: {data.banner.newCustomers.lastMonth}{' '}
+            {data.banner.newCustomers.lastMonth === 1 ? 'cliente' : 'clientes'})
           </span>
         </div>
       </div>

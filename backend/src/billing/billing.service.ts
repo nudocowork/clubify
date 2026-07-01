@@ -5,8 +5,17 @@ import { GrowBusinessService } from '../integrations/grow-business.service';
 import { SmsTemplatesService } from './sms-templates.service';
 import { fmtSmsDate } from './sms-templates';
 
-const PAUSE_NOTICE_DAYS = 2;     // D+2 desde último intento fallido → aviso
-const PAUSE_DAYS = 4;            // D+4 → suspender
+// Secuencia de mora (PDF 2026-07-01, P4). Día 0 = 1er cobro fallido o fecha
+// de cobro vencida (lo que ocurra). El cron diario cuenta días calendario:
+//   D+1 → recordatorio · D+2 → último aviso "mañana se pausa" · D+3 → suspender.
+const OVERDUE_REMINDER_DAY = 1;  // D+1 recordatorio
+const OVERDUE_NOTICE_DAY = 2;    // D+2 aviso de pausa
+const PAUSE_DAYS = 3;            // D+3 → suspender
+// Más allá de este umbral asumimos data legacy (currentPeriodEnd viejo que
+// nunca avanzó) y NO auto-suspendemos por la vía de "fecha vencida", para no
+// pausar en masa cuentas antiguas al desplegar. La vía de cobro fallido
+// (failedPaymentCount>0) no tiene este tope: es señal explícita de Hotmart.
+const STALE_OVERDUE_CAP_DAYS = 60;
 
 export type TrialStatus = {
   status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'EXPIRED' | 'CANCELED';
@@ -267,9 +276,9 @@ export class BillingService {
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async dailyCron() {
     const r = await this.runDailyCheck();
-    if (r.suspendedCount > 0 || r.autoPausedCount > 0) {
+    if (r.suspendedCount > 0 || r.autoPausedCount > 0 || r.overdueReminderCount > 0) {
       this.logger.log(
-        `Daily cron: trial-suspended=${r.suspendedCount} auto-paused=${r.autoPausedCount} reminders=${r.reminderCount} pause-notices=${r.pauseNoticeCount}`,
+        `Daily cron: trial-suspended=${r.suspendedCount} auto-paused=${r.autoPausedCount} reminders-precharge=${r.reminderCount} overdue-reminders=${r.overdueReminderCount} pause-notices=${r.pauseNoticeCount}`,
       );
     }
   }
@@ -303,15 +312,17 @@ export class BillingService {
     }
 
     // ────────── Secuencia SMS de notificaciones de cobro Hotmart ──────────
+    // D-1 antes del cobro (pre-cobro, informativo).
     const reminderCount = await this.sendPaymentReminders(now);
-    const pauseNoticeCount = await this.sendPausePendingNotices(now);
-    const autoPausedCount = await this.suspendOverdueAccounts(now);
+    // Secuencia de mora D+1/D+2/D+3 (recordatorio → aviso → suspensión).
+    const dunning = await this.processOverdueAccounts(now);
 
     return {
       suspendedCount: expiredTrials.length,
       reminderCount,
-      pauseNoticeCount,
-      autoPausedCount,
+      overdueReminderCount: dunning.reminders,
+      pauseNoticeCount: dunning.notices,
+      autoPausedCount: dunning.suspended,
     };
   }
 
@@ -379,104 +390,142 @@ export class BillingService {
   }
 
   /**
-   * D+2 desde último intento fallido: SMS "tu cuenta se pausará en 2 días".
+   * Secuencia de mora D+1/D+2/D+3 (P4 PDF 2026-07-01). Corre a diario.
+   * Un negocio está en mora si:
+   *   (a) tiene cobros fallidos (failedPaymentCount>0) — señal de Hotmart, o
+   *   (b) su fecha de cobro programada (currentPeriodEnd) ya pasó sin un pago
+   *       nuevo que la renueve. Este chequeo (b) NO depende de recibir el
+   *       webhook de falla de Hotmart — era la causa raíz del caso que quedó
+   *       4 días sin pausar (Hotmart no envió el evento de cobro fallido).
+   * dueSince = inicio de la mora; daysOverdue en días CALENDARIO:
+   *   D+1 → recordatorio · D+2 → aviso "mañana se pausa" · D+3 → suspender.
+   * Solo negocios Clubify/Hotmart; las marcas blancas se renuevan con créditos
+   * (cron de renovaciones) y tienen su propia suspensión.
    */
-  private async sendPausePendingNotices(now: Date) {
-    const cutoff = new Date(
-      now.getTime() - PAUSE_NOTICE_DAYS * 24 * 60 * 60 * 1000,
-    );
+  private async processOverdueAccounts(now: Date) {
+    const dayMs = 24 * 60 * 60 * 1000;
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
-        failedPaymentCount: { gt: 0 },
-        lastPaymentAttemptAt: { lt: cutoff },
-        OR: [
-          { pausePendingNoticeSentAt: null },
-          // Re-aviso si el último intento falló otra vez después del último aviso
-          { pausePendingNoticeSentAt: { lt: cutoff } },
+        AND: [
+          {
+            OR: [{ whiteLabelId: null }, { whiteLabel: { slug: 'clubify' } }],
+          },
+          {
+            OR: [
+              { failedPaymentCount: { gt: 0 } },
+              { currentPeriodEnd: { lt: now } },
+            ],
+          },
         ],
       },
       select: {
         id: true,
         brandName: true,
+        failedPaymentCount: true,
         lastPaymentAttemptAt: true,
-        pausePendingNoticeSentAt: true,
+        currentPeriodEnd: true,
+        lastChargeAt: true,
       },
     });
 
-    let sent = 0;
+    let reminders = 0;
+    let notices = 0;
+    let suspended = 0;
+
     for (const t of candidates) {
-      if (!t.lastPaymentAttemptAt) continue;
-      const target = await this.resolveBillingTarget(t.id);
-      if (!target) continue;
-      const pauseDate = new Date(
-        t.lastPaymentAttemptAt.getTime() + PAUSE_DAYS * 24 * 60 * 60 * 1000,
+      // Inicio de la mora (día 0).
+      let dueSince: Date | null = null;
+      let byFailure = false;
+      if ((t.failedPaymentCount ?? 0) > 0 && t.lastPaymentAttemptAt) {
+        dueSince = t.lastPaymentAttemptAt;
+        byFailure = true;
+      } else if (
+        t.currentPeriodEnd &&
+        t.currentPeriodEnd.getTime() < now.getTime()
+      ) {
+        // Fecha de cobro vencida y NO renovada (sin pago posterior al ciclo).
+        const renewed =
+          t.lastChargeAt != null &&
+          t.lastChargeAt.getTime() >= t.currentPeriodEnd.getTime();
+        if (!renewed) dueSince = t.currentPeriodEnd;
+      }
+      if (!dueSince) continue;
+
+      const daysOverdue = Math.floor(
+        (now.getTime() - dueSince.getTime()) / dayMs,
       );
-      const message = await this.smsTemplates.render('account_will_pause', {
-        brandName: t.brandName,
-        pauseDate: fmtSmsDate(pauseDate),
-      });
-      const r = await this.growBusiness.sendSmsWithCreds(
-        target.creds,
-        target.phone,
-        message,
-      );
-      if (r.ok) {
+      if (daysOverdue < OVERDUE_REMINDER_DAY) continue;
+
+      const pauseDate = new Date(dueSince.getTime() + PAUSE_DAYS * dayMs);
+
+      if (daysOverdue >= PAUSE_DAYS) {
+        // Tope de seguridad SOLO para la vía "fecha vencida" (no la de falla
+        // explícita de Hotmart): evita pausar en masa cuentas legacy con
+        // currentPeriodEnd viejo que nunca avanzó.
+        if (!byFailure && daysOverdue > STALE_OVERDUE_CAP_DAYS) {
+          this.logger.warn(
+            `Tenant ${t.brandName} (${t.id}) vencido hace ${daysOverdue}d por fecha (posible data legacy) — NO auto-pausado. Revisar manual.`,
+          );
+          continue;
+        }
         await this.prisma.tenant.update({
           where: { id: t.id },
-          data: { pausePendingNoticeSentAt: now },
+          data: { status: 'SUSPENDED', suspendedAt: now },
         });
-        sent++;
-        this.logger.log(
-          `SMS "pausa pendiente" enviado a ${t.brandName} (${target.phone})`,
-        );
-      } else {
+        suspended++;
+        const target = await this.resolveBillingTarget(t.id);
+        if (target) {
+          const message = await this.smsTemplates.render('account_paused', {
+            brandName: t.brandName,
+          });
+          this.growBusiness
+            .sendSmsWithCreds(target.creds, target.phone, message)
+            .catch((e) =>
+              this.logger.warn(
+                `SMS "pausada" falló para ${t.brandName}: ${e?.message ?? e}`,
+              ),
+            );
+        }
         this.logger.warn(
-          `SMS "pausa pendiente" falló para ${t.brandName}: ${r.message ?? 'unknown'}`,
+          `Tenant ${t.brandName} (${t.id}) auto-pausado: pago no resuelto en ${daysOverdue} día(s)` +
+            `${byFailure ? ' (cobro fallido)' : ' (fecha vencida)'}.`,
         );
-      }
-    }
-    return sent;
-  }
-
-  /**
-   * D+4 desde último intento fallido sin pago: pausar cuenta + SMS "pausada".
-   */
-  private async suspendOverdueAccounts(now: Date) {
-    const cutoff = new Date(now.getTime() - PAUSE_DAYS * 24 * 60 * 60 * 1000);
-    const candidates = await this.prisma.tenant.findMany({
-      where: {
-        status: 'ACTIVE',
-        failedPaymentCount: { gt: 0 },
-        lastPaymentAttemptAt: { lt: cutoff },
-      },
-      select: { id: true, brandName: true },
-    });
-
-    let suspended = 0;
-    for (const t of candidates) {
-      await this.prisma.tenant.update({
-        where: { id: t.id },
-        data: { status: 'SUSPENDED', suspendedAt: now },
-      });
-      suspended++;
-      const target = await this.resolveBillingTarget(t.id);
-      if (target) {
-        const message = await this.smsTemplates.render('account_paused', {
+      } else if (daysOverdue === OVERDUE_NOTICE_DAY) {
+        const target = await this.resolveBillingTarget(t.id);
+        if (!target) continue;
+        const message = await this.smsTemplates.render('account_will_pause', {
           brandName: t.brandName,
+          pauseDate: fmtSmsDate(pauseDate),
         });
-        this.growBusiness
-          .sendSmsWithCreds(target.creds, target.phone, message)
-          .catch((e) =>
-            this.logger.warn(
-              `SMS "pausada" falló para ${t.brandName}: ${e?.message ?? e}`,
-            ),
-          );
+        const r = await this.growBusiness.sendSmsWithCreds(
+          target.creds,
+          target.phone,
+          message,
+        );
+        if (r.ok) {
+          notices++;
+          this.logger.log(`SMS D+2 "pausa mañana" → ${t.brandName}`);
+        }
+      } else if (daysOverdue === OVERDUE_REMINDER_DAY) {
+        const target = await this.resolveBillingTarget(t.id);
+        if (!target) continue;
+        const message = await this.smsTemplates.render(
+          'payment_overdue_reminder',
+          { brandName: t.brandName, pauseDate: fmtSmsDate(pauseDate) },
+        );
+        const r = await this.growBusiness.sendSmsWithCreds(
+          target.creds,
+          target.phone,
+          message,
+        );
+        if (r.ok) {
+          reminders++;
+          this.logger.log(`SMS D+1 recordatorio → ${t.brandName}`);
+        }
       }
-      this.logger.warn(
-        `Tenant ${t.brandName} (${t.id}) auto-pausado por pago no resuelto en ${PAUSE_DAYS} días`,
-      );
     }
-    return suspended;
+
+    return { reminders, notices, suspended };
   }
 }

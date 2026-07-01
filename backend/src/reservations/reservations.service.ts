@@ -494,17 +494,11 @@ export class ReservationsService {
         this.logger.warn(`notifyTenant falló (reservationId=${reservation.id}): ${(e as Error).message}`),
       );
     }
-    // FIX 2026-06-12: side effects de status final en create. Antes solo
-    // update() los disparaba, por lo que reservas creadas directamente con
-    // status=CONFIRMED se perdían el SMS de confirmación, y status=SEATED
-    // (walk-ins) no recibían el sello de fidelización.
-    if (initStatus === 'CONFIRMED') {
-      this.notifyCustomerConfirmed(reservation.id).catch((e) =>
-        this.logger.warn(
-          `notifyCustomerConfirmed falló (reservationId=${reservation.id}): ${(e as Error).message}`,
-        ),
-      );
-    }
+    // FIX 2026-06-12: side effects de status final en create.
+    // PDF 2026-07-01 (P5): en el flujo de reservas NUNCA se le manda un mensaje
+    // al cliente final. Todo aviso automático va SOLO al negocio (notifyTenant
+    // arriba + recordatorio del cron). Antes, un status inicial CONFIRMED
+    // disparaba un SMS al cliente (notifyCustomerConfirmed) — se elimina.
     if (initStatus === 'SEATED' || initStatus === 'COMPLETED') {
       this.grantReservationStamp(reservation.id).catch((e) =>
         this.logger.warn(
@@ -529,12 +523,12 @@ export class ReservationsService {
       tableId: patch.tableId === null ? null : patch.tableId,
     };
     let grantStamp = false;
-    let notifyConfirmed = false;
     if (patch.status && patch.status !== r.status) {
       data.status = patch.status;
       if (patch.status === 'CONFIRMED' && !r.confirmedAt) {
         data.confirmedAt = now;
-        notifyConfirmed = true;
+        // PDF 2026-07-01 (P5): NO se avisa al cliente al confirmar. El negocio
+        // gestiona el seguimiento manualmente. (Antes: notifyCustomerConfirmed.)
       }
       if (patch.status === 'SEATED' && !r.seatedAt) {
         data.seatedAt = now;
@@ -559,13 +553,6 @@ export class ReservationsService {
       this.grantReservationStamp(updated.id).catch((e) =>
         this.logger.warn(
           `grantReservationStamp falló (reservationId=${updated.id}): ${(e as Error).message}`,
-        ),
-      );
-    }
-    if (notifyConfirmed) {
-      this.notifyCustomerConfirmed(updated.id).catch((e) =>
-        this.logger.warn(
-          `notifyCustomerConfirmed falló (reservationId=${updated.id}): ${(e as Error).message}`,
         ),
       );
     }
@@ -1240,39 +1227,10 @@ export class ReservationsService {
   //               NOTIFICACIONES AL CLIENTE
   // ============================================================
 
-  /** Notifica al cliente cuando el negocio confirma su reserva.
-   *  Mensaje incluye fecha, hora, party, nombre del negocio + link de
-   *  cancelación firmado. Fire-and-forget. */
-  private async notifyCustomerConfirmed(reservationId: string) {
-    const r = await this.prisma.reservation.findUnique({
-      where: { id: reservationId },
-      select: {
-        tenantId: true,
-        customerName: true,
-        customerPhone: true,
-        party: true,
-        date: true,
-        time: true,
-        zone: { select: { name: true } },
-        tenant: { select: { brandName: true } },
-      },
-    });
-    if (!r) return;
-    const dateStr = r.date.toISOString().slice(0, 10);
-    const partyStr = `${r.party} ${r.party === 1 ? 'persona' : 'personas'}`;
-    const zoneStr = r.zone?.name ? ` (${r.zone.name})` : '';
-    const cancelToken = this.signCancelToken(reservationId);
-    const passToken = this.signPassToken(reservationId);
-    const brand = await this.brand.resolveTenant(r.tenantId);
-    const cancelUrl = `${brand.websiteUrl}/r/cancelar/${cancelToken}`;
-    const passUrl = `${brand.websiteUrl}/r/pase/${passToken}`;
-    const body =
-      `✅ ¡Tu reserva está confirmada!\n` +
-      `${r.tenant.brandName} te espera el ${dateStr} a las ${r.time} para ${partyStr}${zoneStr}.\n\n` +
-      `📱 Tu pase digital: ${passUrl}\n` +
-      `❌ Cancelar: ${cancelUrl}`;
-    await this.growBusiness.sendSms(r.tenantId, r.customerPhone, body);
-  }
+  // PDF 2026-07-01 (P5): ELIMINADO notifyCustomerConfirmed. En el flujo de
+  // reservas NUNCA se contacta al cliente final por SMS/WhatsApp; todo aviso
+  // automático va al negocio (notifyTenant + recordatorio del cron). El cliente
+  // obtiene su pase digital vía la respuesta web/QR, no por mensaje.
 
   /** Self-cancel desde link en SMS. Verifica token, marca CANCELLED y
    *  avisa al tenant. Idempotente: si ya está cancelada, devuelve el
@@ -1381,28 +1339,10 @@ export class ReservationsService {
     await this.growBusiness.sendSms(r.tenantId, dest, body);
   }
 
-  /** Notifica al cliente cuando el negocio cancela su reserva. */
-  private async notifyCustomerCancelled(reservationId: string) {
-    const r = await this.prisma.reservation.findUnique({
-      where: { id: reservationId },
-      select: {
-        tenantId: true,
-        customerName: true,
-        customerPhone: true,
-        date: true,
-        time: true,
-        tenant: { select: { brandName: true, whatsappPhone: true, phone: true } },
-      },
-    });
-    if (!r) return;
-    const dateStr = r.date.toISOString().slice(0, 10);
-    const contact = r.tenant.whatsappPhone || r.tenant.phone || '';
-    const contactStr = contact ? `\nContacta a ${r.tenant.brandName}: ${contact}` : '';
-    const body =
-      `Hola ${r.customerName}, tu reserva en ${r.tenant.brandName} para el ${dateStr} a las ${r.time} fue cancelada.${contactStr}\n` +
-      `Lamentamos las molestias.`;
-    await this.growBusiness.sendSms(r.tenantId, r.customerPhone, body);
-  }
+  // PDF 2026-07-01 (P5): ELIMINADO notifyCustomerCancelled (antes avisaba al
+  // cliente final por SMS). Nunca se contacta al cliente en el flujo de
+  // reservas. La cancelación del cliente sí avisa al negocio
+  // (notifyTenantOfCustomerCancellation, arriba).
 
   // ============================================================
   //                  LOYALTY: sello por reserva

@@ -51,6 +51,16 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
       'Clubify: Tu pago de {brandName} falló. Actualiza tu tarjeta o reintenta en la pasarela de pago para no pausar tu cuenta.',
   },
   {
+    id: 'payment_overdue_reminder',
+    label: 'Recordatorio de pago vencido (D+1)',
+    description:
+      'Se envía 1 día después de un cobro fallido o de la fecha de cobro vencida, si el pago sigue pendiente.',
+    vars: ['brandName', 'pauseDate'],
+    group: 'cliente',
+    default:
+      'Clubify: El pago de {brandName} sigue pendiente. Regularízalo en la pasarela para evitar la pausa del {pauseDate}.',
+  },
+  {
     id: 'account_will_pause',
     label: 'Aviso de pausa (D+2)',
     description:

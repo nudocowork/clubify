@@ -872,6 +872,14 @@ export class AdminReportsService {
     const commWhere = wlId
       ? { referralUse: { tenant: { whiteLabelId: wlId } } }
       : {};
+    // P3 (PDF 2026-07-01): un Grupo Empresarial se factura/cuenta como UN solo
+    // negocio (su plan), no como la suma de sus negocios miembros. Por eso:
+    //  - excluimos los tenants miembros (businessGroupId != null) de las
+    //    consultas de facturado/MRR/clientes nuevos, y
+    //  - agregamos los grupos como unidades propias (precio canónico de su
+    //    periodicidad, ya que el grupo no tiene precio individual).
+    const groupWhere = wlId ? { whiteLabelId: wlId } : {};
+    const notGroupMember = { businessGroupId: null };
 
     const now = new Date();
     const { from, to } = resolveDateRange(opts.range, opts.from, opts.to, now);
@@ -933,6 +941,10 @@ export class AdminReportsService {
       lastTenants,
       lastCommissions,
       mapLocations,
+      groupsPaidInRange,
+      newGroupsCurrent,
+      newGroupsPrev,
+      groupsActive,
     ] = await Promise.all([
       // Tenants ACTIVE con periodicidad y fecha de último ciclo, para
       // billing por plan + MRR + facturado en rango.
@@ -943,6 +955,7 @@ export class AdminReportsService {
             { currentPeriodEnd: null },
             { currentPeriodEnd: { gte: now } },
           ],
+          ...notGroupMember,
           ...tenantWhere,
         },
         select: {
@@ -962,6 +975,7 @@ export class AdminReportsService {
       this.prisma.tenant.findMany({
         where: {
           lastChargeAt: { gte: from, lte: to },
+          ...notGroupMember,
           ...tenantWhere,
         },
         select: {
@@ -976,6 +990,7 @@ export class AdminReportsService {
         where: {
           status: 'ACTIVE',
           createdAt: { gte: startThisMonth, lte: now },
+          ...notGroupMember,
           ...tenantWhere,
         },
       }),
@@ -983,6 +998,7 @@ export class AdminReportsService {
         where: {
           status: 'ACTIVE',
           createdAt: { gte: startLastMonth, lte: endLastMonth },
+          ...notGroupMember,
           ...tenantWhere,
         },
       }),
@@ -1071,6 +1087,38 @@ export class AdminReportsService {
           },
         },
       }),
+      // P3: Grupos Empresariales como unidades de facturación propias.
+      // Cobrados en el rango (fecha de cobro real del grupo).
+      this.prisma.businessGroup.findMany({
+        where: {
+          deletedAt: null,
+          lastChargeAt: { gte: from, lte: to },
+          ...groupWhere,
+        },
+        select: { planPeriodicity: true },
+      }),
+      // Grupos nuevos (ACTIVE) este mes / mes anterior → cuentan como clientes.
+      this.prisma.businessGroup.count({
+        where: {
+          deletedAt: null,
+          status: 'ACTIVE',
+          createdAt: { gte: startThisMonth, lte: now },
+          ...groupWhere,
+        },
+      }),
+      this.prisma.businessGroup.count({
+        where: {
+          deletedAt: null,
+          status: 'ACTIVE',
+          createdAt: { gte: startLastMonth, lte: endLastMonth },
+          ...groupWhere,
+        },
+      }),
+      // Grupos ACTIVE (para MRR + serie mensual), con su periodicidad y alta.
+      this.prisma.businessGroup.findMany({
+        where: { deletedAt: null, status: 'ACTIVE', ...groupWhere },
+        select: { planPeriodicity: true, createdAt: true },
+      }),
     ]);
 
     // FIX 2026-06-07: MRR = suma de equivalencia mensual real del bundle
@@ -1084,7 +1132,13 @@ export class AdminReportsService {
         const period = PERIODS[normalizePeriod(t.planPeriodicity)];
         // FIX 2026-06-16 (#18): normaliza el pago REAL del ciclo a mensual.
         return s + billedAmountFor(t) / period.months;
-      }, 0),
+      }, 0) +
+        // P3: cada Grupo Empresarial ACTIVE aporta su equivalencia mensual
+        // (precio canónico de su periodicidad / meses), como 1 unidad.
+        groupsActive.reduce((s, g) => {
+          const period = PERIODS[normalizePeriod(g.planPeriodicity)];
+          return s + period.bundlePrice / period.months;
+        }, 0),
     );
 
     // #16 (2026-06-16): se eliminó la métrica "Conversión Trial → Cliente".
@@ -1158,6 +1212,15 @@ export class AdminReportsService {
         billedAcc[key].amount += amount;
       }
     }
+    // P3: cada Grupo Empresarial cobrado en el rango suma como 1 negocio en la
+    // tarjeta de su plan (precio canónico de la periodicidad del grupo).
+    for (const g of groupsPaidInRange) {
+      const key = normalizePeriod(g.planPeriodicity);
+      const amount = PERIODS[key].bundlePrice;
+      billedUsd += amount;
+      billedAcc[key].count += 1;
+      billedAcc[key].amount += amount;
+    }
     billedUsd = round2(billedUsd);
 
     const billedByPlan = Object.entries(PERIODS).map(([key, meta]) => ({
@@ -1187,7 +1250,7 @@ export class AdminReportsService {
     );
     const [allTenantsForMrr, commForSeries, pastDueCount, cancelledCount] = await Promise.all([
       this.prisma.tenant.findMany({
-        where: { deletedAt: null, status: 'ACTIVE', ...tenantWhere },
+        where: { deletedAt: null, status: 'ACTIVE', ...notGroupMember, ...tenantWhere },
         select: {
           createdAt: true,
           planPeriodicity: true,
@@ -1249,6 +1312,12 @@ export class AdminReportsService {
         const period = PERIODS[normalizePeriod(t.planPeriodicity)];
         mrr += billedAmountFor(t) / period.months;
       }
+      // P3: grupos ACTIVE creados on/before el mes → 1 unidad c/u (canónico).
+      for (const g of groupsActive) {
+        if (new Date(g.createdAt).getTime() >= mEnd.getTime()) continue;
+        const period = PERIODS[normalizePeriod(g.planPeriodicity)];
+        mrr += period.bundlePrice / period.months;
+      }
       // Comisiones del mes (reales).
       let paid = 0;
       let pending = 0;
@@ -1301,11 +1370,13 @@ export class AdminReportsService {
       cancelled: cancelledCount,
     };
 
+    // P3: clientes nuevos incluye Grupos Empresariales como 1 negocio c/u.
+    const newCustCurrent = newCustomersCurrent + newGroupsCurrent;
+    const newCustPrev = newCustomersPrev + newGroupsPrev;
     // Variación clientes nuevos mes a mes.
-    const deltaPct = newCustomersPrev
+    const deltaPct = newCustPrev
       ? Math.round(
-          ((newCustomersCurrent - newCustomersPrev) / newCustomersPrev) *
-            1000,
+          ((newCustCurrent - newCustPrev) / newCustPrev) * 1000,
         ) / 10
       : null;
 
@@ -1370,8 +1441,8 @@ export class AdminReportsService {
         billedUsd,
         billedByPlan,
         newCustomers: {
-          currentMonth: newCustomersCurrent,
-          lastMonth: newCustomersPrev,
+          currentMonth: newCustCurrent,
+          lastMonth: newCustPrev,
           deltaPct,
         },
       },

@@ -9,6 +9,7 @@ import { BusinessGroupStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { addPlanPeriod } from '../common/plan-period';
+import { ReferralsService } from '../referrals/referrals.service';
 
 export type CreateGroupDto = {
   name: string;
@@ -28,7 +29,33 @@ export type UpdateGroupDto = Partial<CreateGroupDto>;
 @Injectable()
 export class BusinessGroupsService {
   private readonly logger = new Logger(BusinessGroupsService.name);
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private referrals: ReferralsService,
+  ) {}
+
+  /** P1 (PDF 2026-07-01): genera la comisión del grupo (1 × bruto del plan)
+   *  al recipiente asignado. Best-effort + idempotente (dedup por grupo,
+   *  recipiente y periodo). Se llama al activarse/cobrarse el grupo (manual o
+   *  Hotmart) y al asignarle un recipiente estando ya activo — así el flujo
+   *  "asigno a Sara y Nico → aparece su comisión" funciona sin esperar al
+   *  próximo webhook de Hotmart. */
+  private async tryGenerateGroupCommission(groupId: string) {
+    try {
+      const res = await this.referrals.generateGroupCommission({ groupId });
+      if (res.generated) {
+        this.logger.log(`Comisión de grupo ${groupId} generada.`);
+      } else {
+        this.logger.log(
+          `Comisión de grupo ${groupId} no generada: ${res.reason}`,
+        );
+      }
+    } catch (e) {
+      this.logger.error(
+        `generateGroupCommission(${groupId}) falló: ${(e as Error)?.message}`,
+      );
+    }
+  }
 
   /** Aislamiento: el admin de marca solo ve/edita los grupos de SU marca.
    *  Clubify global (whiteLabelId null) ve los grupos sin marca. */
@@ -158,7 +185,13 @@ export class BusinessGroupsService {
       }
     }
     await this.prisma.businessGroup.update({ where: { id }, data });
-    return this.get(id, user);
+    const fresh = await this.get(id, user);
+    // P1: si se asignó/actualizó el recipiente y el grupo ya está ACTIVE
+    // (cobrado este periodo), genera su comisión de una vez. Idempotente.
+    if (dto.referralCodeId !== undefined && dto.referralCodeId?.trim() && fresh.status === 'ACTIVE') {
+      await this.tryGenerateGroupCommission(id);
+    }
+    return fresh;
   }
 
   /** Soft-delete del grupo. Los negocios NO se borran: se desvinculan (quedan
@@ -231,7 +264,11 @@ export class BusinessGroupsService {
     const group = await this.get(id, user);
     await this.applyStatus(group.id, status, {
       currentPeriodEnd: group.currentPeriodEnd,
+      // Activación manual = el admin confirma que el grupo pagó → cuenta como
+      // cobro (sella lastChargeAt) y genera la comisión del grupo.
+      bumpCharge: status === 'ACTIVE',
     });
+    if (status === 'ACTIVE') await this.tryGenerateGroupCommission(group.id);
     return this.get(id, user);
   }
 
