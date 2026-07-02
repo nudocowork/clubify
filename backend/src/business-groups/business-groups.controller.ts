@@ -11,9 +11,11 @@ import {
   IsArray,
   IsEmail,
   IsIn,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
+  Min,
 } from 'class-validator';
 import { BusinessGroupStatus } from '@prisma/client';
 import { BusinessGroupsService } from './business-groups.service';
@@ -29,6 +31,7 @@ class CreateGroupBody {
   @IsOptional() @IsString() @MaxLength(30) responsiblePhone?: string;
   @IsOptional() @IsString() @MaxLength(120) hotmartSubscriberCode?: string;
   @IsOptional() @IsIn(PERIODS) planPeriodicity?: string;
+  @IsOptional() @IsNumber() @Min(0) priceUsd?: number | null;
   @IsOptional() @IsString() nextChargeDate?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) tenantIds?: string[];
   @IsOptional() @IsString() @MaxLength(64) referralCodeId?: string;
@@ -41,6 +44,7 @@ class UpdateGroupBody {
   @IsOptional() @IsString() @MaxLength(30) responsiblePhone?: string;
   @IsOptional() @IsString() @MaxLength(120) hotmartSubscriberCode?: string;
   @IsOptional() @IsIn(PERIODS) planPeriodicity?: string;
+  @IsOptional() @IsNumber() @Min(0) priceUsd?: number | null;
   @IsOptional() @IsString() nextChargeDate?: string;
   @IsOptional() @IsString() @MaxLength(64) referralCodeId?: string;
 }

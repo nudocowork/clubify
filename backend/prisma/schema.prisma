@@ -4310,6 +4310,11 @@ model BusinessGroup {
   /// Código de suscripción Hotmart del grupo (fuente de verdad del cobro).
   hotmartSubscriberCode String?
   planPeriodicity       String?
+  /// Precio REAL que paga el grupo por periodo (no-canónico). Un grupo suele
+  /// ser N negocios × su mensualidad (ej: 3 × $50 = $150 MENSUAL). Base de la
+  /// comisión (%×priceUsd) y del facturado. Null → cae al canónico de la
+  /// periodicidad. (2026-07-02)
+  priceUsd              Decimal?            @db.Decimal(10, 2)
   currentPeriodEnd      DateTime?
   status                BusinessGroupStatus @default(ACTIVE)
   failedPaymentCount    Int                 @default(0)

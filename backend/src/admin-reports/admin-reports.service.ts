@@ -1110,7 +1110,7 @@ export class AdminReportsService {
           lastChargeAt: { gte: from, lte: to },
           ...groupWhere,
         },
-        select: { planPeriodicity: true },
+        select: { planPeriodicity: true, priceUsd: true },
       }),
       // Grupos nuevos (ACTIVE) este mes / mes anterior → cuentan como clientes.
       this.prisma.businessGroup.count({
@@ -1132,7 +1132,7 @@ export class AdminReportsService {
       // Grupos ACTIVE (para MRR + serie mensual), con su periodicidad y alta.
       this.prisma.businessGroup.findMany({
         where: { deletedAt: null, status: 'ACTIVE', ...groupWhere },
-        select: { planPeriodicity: true, createdAt: true },
+        select: { planPeriodicity: true, createdAt: true, priceUsd: true },
       }),
     ]);
 
@@ -1152,7 +1152,8 @@ export class AdminReportsService {
         // (precio canónico de su periodicidad / meses), como 1 unidad.
         groupsActive.reduce((s, g) => {
           const period = PERIODS[normalizePeriod(g.planPeriodicity)];
-          return s + period.bundlePrice / period.months;
+          const gp = Number(g.priceUsd) > 0 ? Number(g.priceUsd) : period.bundlePrice;
+          return s + gp / period.months;
         }, 0),
     );
 
@@ -1231,7 +1232,9 @@ export class AdminReportsService {
     // tarjeta de su plan (precio canónico de la periodicidad del grupo).
     for (const g of groupsPaidInRange) {
       const key = normalizePeriod(g.planPeriodicity);
-      const amount = PERIODS[key].bundlePrice;
+      // Precio real del grupo (priceUsd, ej: 3×$50=$150) o canónico si null.
+      const amount =
+        Number(g.priceUsd) > 0 ? Number(g.priceUsd) : PERIODS[key].bundlePrice;
       billedUsd += amount;
       billedAcc[key].count += 1;
       billedAcc[key].amount += amount;
@@ -1327,11 +1330,12 @@ export class AdminReportsService {
         const period = PERIODS[normalizePeriod(t.planPeriodicity)];
         mrr += billedAmountFor(t) / period.months;
       }
-      // P3: grupos ACTIVE creados on/before el mes → 1 unidad c/u (canónico).
+      // P3: grupos ACTIVE creados on/before el mes → 1 unidad c/u (priceUsd o canónico).
       for (const g of groupsActive) {
         if (new Date(g.createdAt).getTime() >= mEnd.getTime()) continue;
         const period = PERIODS[normalizePeriod(g.planPeriodicity)];
-        mrr += period.bundlePrice / period.months;
+        const gp = Number(g.priceUsd) > 0 ? Number(g.priceUsd) : period.bundlePrice;
+        mrr += gp / period.months;
       }
       // Comisiones del mes (reales).
       let paid = 0;
@@ -1545,7 +1549,7 @@ export class AdminReportsService {
       }),
       this.prisma.businessGroup.findMany({
         where: { deletedAt: null, lastChargeAt: { gte: from, lte: to }, ...groupWhere },
-        select: { id: true, name: true, planPeriodicity: true, lastChargeAt: true },
+        select: { id: true, name: true, planPeriodicity: true, priceUsd: true, lastChargeAt: true },
       }),
     ]);
 
@@ -1588,9 +1592,10 @@ export class AdminReportsService {
     }
     for (const g of groups) {
       const key = normalizePeriod(g.planPeriodicity);
+      const amount = Number(g.priceUsd) > 0 ? Number(g.priceUsd) : PERIODS[key].bundlePrice;
       rows.push({
         kind: 'group', id: g.id, name: g.name, plan: key,
-        amountUsd: round2(PERIODS[key].bundlePrice), paidAt: g.lastChargeAt, status: '—',
+        amountUsd: round2(amount), paidAt: g.lastChargeAt, status: '—',
       });
     }
     rows.sort((a, b) => (b.paidAt?.getTime() ?? 0) - (a.paidAt?.getTime() ?? 0));

@@ -18,6 +18,9 @@ export type CreateGroupDto = {
   responsiblePhone?: string;
   hotmartSubscriberCode?: string;
   planPeriodicity?: string;
+  // Precio real del grupo por periodo (ej: 3 negocios × $50 = $150 MENSUAL).
+  // Base de la comisión y del facturado. null = usar canónico de la periodicidad.
+  priceUsd?: number | null;
   nextChargeDate?: string;
   tenantIds?: string[];
   // Punto 2: recipiente de la comisión del grupo (ReferralCode). '' o null = quitar.
@@ -140,6 +143,8 @@ export class BusinessGroupsService {
         responsiblePhone: dto.responsiblePhone?.trim() || null,
         hotmartSubscriberCode: dto.hotmartSubscriberCode?.trim() || null,
         planPeriodicity: dto.planPeriodicity || null,
+        priceUsd:
+          dto.priceUsd != null && Number(dto.priceUsd) > 0 ? Number(dto.priceUsd) : null,
         referralCodeId: dto.referralCodeId?.trim() || null,
         currentPeriodEnd,
         status: 'ACTIVE',
@@ -170,6 +175,9 @@ export class BusinessGroupsService {
       data.hotmartSubscriberCode = dto.hotmartSubscriberCode?.trim() || null;
     if (dto.planPeriodicity !== undefined)
       data.planPeriodicity = dto.planPeriodicity || null;
+    if (dto.priceUsd !== undefined)
+      data.priceUsd =
+        dto.priceUsd != null && Number(dto.priceUsd) > 0 ? Number(dto.priceUsd) : null;
     if (dto.referralCodeId !== undefined) {
       const rid = dto.referralCodeId?.trim() || null;
       data.referralCode = rid ? { connect: { id: rid } } : { disconnect: true };

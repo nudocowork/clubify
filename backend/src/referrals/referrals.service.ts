@@ -4416,7 +4416,7 @@ export class ReferralsService {
   }): Promise<{ generated: boolean; reason?: string }> {
     const group = await this.prisma.businessGroup.findUnique({
       where: { id: args.groupId },
-      select: { id: true, name: true, referralCodeId: true, planPeriodicity: true, lastChargeAt: true },
+      select: { id: true, name: true, referralCodeId: true, planPeriodicity: true, priceUsd: true, lastChargeAt: true },
     });
     if (!group?.referralCodeId) return { generated: false, reason: 'grupo-sin-recipiente' };
     const code = await this.prisma.referralCode.findUnique({
@@ -4424,8 +4424,12 @@ export class ReferralsService {
       select: { id: true, commissionPercent: true, isActive: true },
     });
     if (!code || code.isActive === false) return { generated: false, reason: 'code-inactivo' };
-    // BRUTO = precio canónico de la periodicidad del grupo (el plan, antes de fees).
-    const base = await this.recalc.getCommissionBase(null, group.planPeriodicity ?? null);
+    // BRUTO = precio REAL del grupo (priceUsd, ej: 3×$50=$150) si está seteado;
+    // sino cae al canónico de la periodicidad.
+    const base =
+      group.priceUsd != null && Number(group.priceUsd) > 0
+        ? Number(group.priceUsd)
+        : await this.recalc.getCommissionBase(null, group.planPeriodicity ?? null);
     const pct = Number(code.commissionPercent ?? 0);
     if (!(base > 0) || !(pct > 0)) return { generated: false, reason: 'base-o-pct-0' };
     const amount = Math.round(base * pct) / 100;

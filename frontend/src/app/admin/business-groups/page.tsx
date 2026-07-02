@@ -26,6 +26,7 @@ type Group = {
   responsiblePhone: string | null;
   hotmartSubscriberCode: string | null;
   planPeriodicity: string | null;
+  priceUsd: number | string | null;
   currentPeriodEnd: string | null;
   status: GroupStatus;
   tenants: GroupTenant[];
@@ -216,6 +217,7 @@ function GroupFormModal({
     responsiblePhone: '',
     hotmartSubscriberCode: '',
     planPeriodicity: '',
+    priceUsd: '',
     nextChargeDate: '',
   });
   const [saving, setSaving] = useState(false);
@@ -234,6 +236,7 @@ function GroupFormModal({
           responsiblePhone: f.responsiblePhone.trim() || undefined,
           hotmartSubscriberCode: f.hotmartSubscriberCode.trim() || undefined,
           planPeriodicity: f.planPeriodicity || undefined,
+          priceUsd: f.priceUsd.trim() ? Number(f.priceUsd) : undefined,
           nextChargeDate: f.nextChargeDate
             ? new Date(f.nextChargeDate).toISOString()
             : undefined,
@@ -288,6 +291,21 @@ function GroupFormModal({
               ))}
             </select>
           </div>
+          <div>
+            <label className="label">Precio del grupo (USD)</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step="0.01"
+              value={f.priceUsd}
+              onChange={(e) => set('priceUsd', e.target.value)}
+              placeholder="ej: 150 (3 × $50)"
+            />
+            <div className="text-[11px] text-mute mt-1">
+              Precio real del grupo por periodo. Vacío = canónico de la periodicidad.
+            </div>
+          </div>
           <div className="col-span-2">
             <label className="label">{t('fieldNextChargeDate')}</label>
             <input className="input" type="date" value={f.nextChargeDate} onChange={(e) => set('nextChargeDate', e.target.value)} />
@@ -322,6 +340,37 @@ function GroupDetailModal({
   const [addId, setAddId] = useState('');
   const [affiliates, setAffiliates] = useState<AffiliateOption[]>([]);
   const [savingRecipient, setSavingRecipient] = useState(false);
+  // Precio real + periodicidad del grupo (editable). Ej: 3×$50 = $150 MENSUAL.
+  const [priceDraft, setPriceDraft] = useState('');
+  const [periodDraft, setPeriodDraft] = useState('');
+  const [savingPrice, setSavingPrice] = useState(false);
+
+  async function savePriceAndPeriod() {
+    setSavingPrice(true);
+    try {
+      await api(`/admin/business-groups/${groupId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          priceUsd: priceDraft.trim() ? Number(priceDraft) : null,
+          planPeriodicity: periodDraft || null,
+        }),
+      });
+      toast('Precio y periodicidad actualizados', 'success');
+      await reload();
+      onChanged();
+    } catch (e: any) {
+      toast(e?.message || tc('error'), 'error');
+    } finally {
+      setSavingPrice(false);
+    }
+  }
+
+  // Sincroniza los drafts cuando carga/recarga el grupo.
+  useEffect(() => {
+    if (!g) return;
+    setPriceDraft(g.priceUsd != null ? String(Number(g.priceUsd)) : '');
+    setPeriodDraft(g.planPeriodicity ?? '');
+  }, [g?.priceUsd, g?.planPeriodicity]);
 
   useEffect(() => {
     Promise.all([
@@ -497,12 +546,52 @@ function GroupDetailModal({
               <Info label={t('hotmartCodeShort')} value={g.hotmartSubscriberCode || '—'} />
             </div>
 
+            {/* Precio real + periodicidad del grupo (ej: 3 negocios × $50 = $150 MENSUAL) */}
+            <div className="rounded-xl border border-line p-3 mb-4 bg-bg2">
+              <div className="text-sm font-semibold mb-1">Precio y periodicidad</div>
+              <div className="text-xs text-mute mb-2">
+                Precio real que paga el grupo por periodo (ej: 3 negocios × $50 = $150 MENSUAL).
+                Es la base de la comisión y del facturado. Vacío = precio canónico de la periodicidad.
+              </div>
+              <div className="flex gap-2 items-end flex-wrap">
+                <div className="flex-1 min-w-[120px]">
+                  <label className="label">Precio (USD)</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={priceDraft}
+                    onChange={(e) => setPriceDraft(e.target.value)}
+                    placeholder="150"
+                  />
+                </div>
+                <div className="flex-1 min-w-[120px]">
+                  <label className="label">{t('fieldPeriodicity')}</label>
+                  <select className="input" value={periodDraft} onChange={(e) => setPeriodDraft(e.target.value)}>
+                    <option value="">—</option>
+                    {PERIODS.map((p) => (
+                      <option key={p} value={p}>{t(PERIODICITY_LABEL_KEY[p])}</option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={savingPrice}
+                  onClick={savePriceAndPeriod}
+                >
+                  {savingPrice ? 'Guardando…' : 'Guardar'}
+                </button>
+              </div>
+            </div>
+
             {/* Punto 2: recipiente de la comisión del grupo (%×bruto en cada cobro) */}
             <div className="rounded-xl border border-line p-3 mb-4 bg-bg2">
               <div className="text-sm font-semibold mb-1">Comisión del grupo</div>
               <div className="text-xs text-mute mb-2">
-                Al cobrarse el grupo, se genera 1 comisión = % del código × precio del
-                plan ({g.planPeriodicity ? t(PERIODICITY_LABEL_KEY[g.planPeriodicity] ?? g.planPeriodicity) : 'periodicidad'}).
+                Al cobrarse el grupo, se genera 1 comisión = % del código × {g.priceUsd != null && Number(g.priceUsd) > 0 ? `$${Number(g.priceUsd)}` : 'precio del plan'}
+                {' '}({g.planPeriodicity ? t(PERIODICITY_LABEL_KEY[g.planPeriodicity] ?? g.planPeriodicity) : 'periodicidad'}).
                 {g.referralCode
                   ? ` Actual: ${g.referralCode.ownerName ?? g.referralCode.code} (${g.referralCode.role} · ${g.referralCode.commissionPercent}%).`
                   : ' Sin recipiente: no genera comisión.'}
