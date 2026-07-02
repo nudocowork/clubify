@@ -95,6 +95,18 @@ export class AdminReportsController {
     return this.svc.dashboardMetricsV2(user, { range, from, to });
   }
 
+  /** P2 (PDF 2026-07-02): lista de empresas (y grupos) que componen el "Monto
+   *  facturado" del rango — para auditar exactamente qué se contabiliza. */
+  @Get('dashboard/billed-companies')
+  billedCompanies(
+    @CurrentUser() user: AuthUser,
+    @Query('range') range?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.svc.billedCompanies(user, { range, from, to });
+  }
+
   // ─────────── Créditos por marca (Fase 3 · #6 / #7) ───────────
   /** Resumen de créditos de la marca del admin + links de compra +
    *  historial. 403 si el admin es global (Clubify). */

@@ -878,7 +878,7 @@ export class AdminReportsService {
     const wlId = user.whiteLabelId ?? null;
 
     // Caché corta por (marca, rango) para que alternar rangos no recompute todo.
-    const cacheKey = `${wlId ?? 'global'}::${opts.range ?? 'this-month'}::${opts.from ?? ''}::${opts.to ?? ''}`;
+    const cacheKey = `${wlId ?? 'global'}::${opts.range ?? 'last-30'}::${opts.from ?? ''}::${opts.to ?? ''}`;
     const cached = this.dashCache.get(cacheKey);
     const nowMs = Date.now();
     if (cached && nowMs - cached.at < this.DASH_TTL_MS) return cached.payload;
@@ -1448,7 +1448,7 @@ export class AdminReportsService {
 
     const payload = {
       range: {
-        kind: opts.range ?? 'this-month',
+        kind: opts.range ?? 'last-30',
         from,
         to,
       },
@@ -1493,6 +1493,114 @@ export class AdminReportsService {
 
     this.dashCache.set(cacheKey, { at: nowMs, payload });
     return payload;
+  }
+
+  // ============================================================
+  //   "VER EMPRESAS" (P2 PDF 2026-07-02) — auditoría del facturado
+  // ============================================================
+  //
+  // Devuelve la lista EXACTA de negocios (y grupos) que componen el "Monto
+  // facturado" del rango — misma lógica que dashboardMetricsV2 (mismo
+  // billedAmountFor + fallback legacy + grupos como 1 unidad). Sirve para
+  // auditar qué se está contando (incluido verificar el grupo empresarial).
+  async billedCompanies(
+    user: AuthUser,
+    opts: { range?: string; from?: string; to?: string } = {},
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const wlId = user.whiteLabelId ?? null;
+    const tenantWhere = wlId ? { whiteLabelId: wlId } : {};
+    const groupWhere = wlId ? { whiteLabelId: wlId } : {};
+    const now = new Date();
+    const { from, to } = resolveDateRange(opts.range, opts.from, opts.to, now);
+
+    const landingPlans = await this.settings.getLandingPlans();
+    const PERIODS: Record<string, { months: number; label: string; bundlePrice: number }> = {
+      MENSUAL: { months: 1, label: 'Mensual', bundlePrice: landingPlans.mensual.price },
+      TRIMESTRAL: { months: 3, label: 'Trimestral', bundlePrice: landingPlans.trimestral.price },
+      SEMESTRAL: { months: 6, label: 'Semestral', bundlePrice: landingPlans.semestral.price },
+      ANUAL: { months: 12, label: 'Anual', bundlePrice: landingPlans.anual.price },
+    };
+    const normalizePeriod = normalizePlanPeriod;
+    const billedAmountFor = (t: { planPeriodicity: string | null; subscriptionPriceUsd: unknown }) => {
+      const real = Number(t.subscriptionPriceUsd);
+      if (Number.isFinite(real) && real > 0) return real;
+      return PERIODS[normalizePeriod(t.planPeriodicity)].bundlePrice;
+    };
+
+    const [paidTenants, activeNoCharge, groups] = await Promise.all([
+      this.prisma.tenant.findMany({
+        where: { businessGroupId: null, lastChargeAt: { gte: from, lte: to }, ...tenantWhere },
+        select: { id: true, brandName: true, planPeriodicity: true, subscriptionPriceUsd: true, lastChargeAt: true, status: true },
+      }),
+      this.prisma.tenant.findMany({
+        where: {
+          status: 'ACTIVE',
+          businessGroupId: null,
+          lastChargeAt: null,
+          OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { gte: now } }],
+          ...tenantWhere,
+        },
+        select: { id: true, brandName: true, planPeriodicity: true, subscriptionPriceUsd: true, currentPeriodEnd: true, createdAt: true },
+      }),
+      this.prisma.businessGroup.findMany({
+        where: { deletedAt: null, lastChargeAt: { gte: from, lte: to }, ...groupWhere },
+        select: { id: true, name: true, planPeriodicity: true, lastChargeAt: true },
+      }),
+    ]);
+
+    type Row = {
+      kind: 'business' | 'group';
+      id: string;
+      name: string;
+      plan: string;
+      amountUsd: number;
+      paidAt: Date | null;
+      status: string;
+      estimated?: boolean;
+    };
+    const rows: Row[] = [];
+    for (const t of paidTenants) {
+      rows.push({
+        kind: 'business', id: t.id, name: t.brandName,
+        plan: normalizePeriod(t.planPeriodicity), amountUsd: round2(billedAmountFor(t)),
+        paidAt: t.lastChargeAt, status: t.status,
+      });
+    }
+    // Fallback legacy (mismo criterio que el panel): ACTIVE sin lastChargeAt
+    // cuyo pago estimado (currentPeriodEnd − meses, o createdAt) cae en el rango.
+    for (const t of activeNoCharge) {
+      const key = normalizePeriod(t.planPeriodicity);
+      const period = PERIODS[key];
+      const cpe = t.currentPeriodEnd ?? null;
+      const approx = cpe ? new Date(cpe) : t.createdAt ? new Date(t.createdAt) : null;
+      if (cpe && approx) {
+        approx.setDate(1);
+        approx.setMonth(approx.getMonth() - period.months);
+      }
+      if (!approx) continue;
+      if (approx.getTime() >= from.getTime() && approx.getTime() <= to.getTime()) {
+        rows.push({
+          kind: 'business', id: t.id, name: t.brandName, plan: key,
+          amountUsd: round2(billedAmountFor(t)), paidAt: null, status: 'ACTIVE', estimated: true,
+        });
+      }
+    }
+    for (const g of groups) {
+      const key = normalizePeriod(g.planPeriodicity);
+      rows.push({
+        kind: 'group', id: g.id, name: g.name, plan: key,
+        amountUsd: round2(PERIODS[key].bundlePrice), paidAt: g.lastChargeAt, status: '—',
+      });
+    }
+    rows.sort((a, b) => (b.paidAt?.getTime() ?? 0) - (a.paidAt?.getTime() ?? 0));
+    const total = round2(rows.reduce((s, r) => s + r.amountUsd, 0));
+    return {
+      range: { kind: opts.range ?? 'last-30', from, to },
+      total,
+      count: rows.length,
+      companies: rows,
+    };
   }
 
   // ============================================================
@@ -1817,8 +1925,9 @@ function resolveDateRange(
       from = new Date(now.getTime() - 30 * 86400_000);
       break;
     case 'this-quarter': {
-      const q = Math.floor(now.getMonth() / 3);
-      from = new Date(now.getFullYear(), q * 3, 1);
+      // PDF 2026-07-02 (P1): "Este trimestre" = ÚLTIMOS 3 MESES (rolling), no el
+      // trimestre calendario. Antes arrancaba el 1° del trimestre en curso.
+      from = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
       break;
     }
     case 'this-year':
@@ -1829,9 +1938,14 @@ function resolveDateRange(
       const t = toIso ? new Date(toIso) : now;
       return { from, to: t };
     }
+    // 'this-month' se quitó del panel (redundante con 'last-30'). Se mantiene el
+    // caso por compatibilidad, pero el default ahora es 'last-30'.
     case 'this-month':
-    default:
       from = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    case 'last-30-default':
+    default:
+      from = new Date(now.getTime() - 30 * 86400_000);
       break;
   }
   return { from, to };

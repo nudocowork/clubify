@@ -33,15 +33,15 @@ import { usd, fmtDate } from './shared';
 type RangeKind =
   | 'today'
   | 'this-week'
-  | 'this-month'
   | 'last-30'
   | 'this-quarter'
   | 'this-year';
 
+// PDF 2026-07-02 (P1): se quitó "Este mes" (redundante con "Últimos 30 días").
+// "Este trimestre" ahora muestra los últimos 3 meses (lógica en el backend).
 const RANGE_OPTIONS: { value: RangeKind; label: string }[] = [
   { value: 'today', label: 'Hoy' },
   { value: 'this-week', label: 'Esta semana' },
-  { value: 'this-month', label: 'Este mes' },
   { value: 'last-30', label: 'Últimos 30 días' },
   { value: 'this-quarter', label: 'Este trimestre' },
   { value: 'this-year', label: 'Este año' },
@@ -104,10 +104,39 @@ type DashboardResp = {
   generatedAt: string;
 };
 
+type BilledCompany = {
+  kind: 'business' | 'group';
+  id: string;
+  name: string;
+  plan: string;
+  amountUsd: number;
+  paidAt: string | null;
+  status: string;
+  estimated?: boolean;
+};
+type BilledCompaniesResp = {
+  range: { kind: string; from: string; to: string };
+  total: number;
+  count: number;
+  companies: BilledCompany[];
+};
+
 export function PremiumDashboard() {
-  const [range, setRange] = useState<RangeKind>('this-month');
+  const [range, setRange] = useState<RangeKind>('last-30');
   const [data, setData] = useState<DashboardResp | null>(null);
   const [loading, setLoading] = useState(true);
+  // P2: modal "Ver empresas" — lista exacta de negocios/grupos del facturado.
+  const [showCompanies, setShowCompanies] = useState(false);
+  const [companies, setCompanies] = useState<BilledCompaniesResp | null>(null);
+  const [companiesLoading, setCompaniesLoading] = useState(false);
+  const openCompanies = () => {
+    setShowCompanies(true);
+    setCompaniesLoading(true);
+    api<BilledCompaniesResp>(`/admin/dashboard/billed-companies?range=${range}`)
+      .then((r) => setCompanies(r))
+      .catch(() => setCompanies(null))
+      .finally(() => setCompaniesLoading(false));
+  };
   // #17: los montos financieros se muestran OCULTOS por defecto. El 👁
   // los revela. La preferencia se persiste en localStorage por dispositivo.
   const [showAmounts, setShowAmounts] = useState(false);
@@ -174,6 +203,81 @@ export function PremiumDashboard() {
 
   return (
     <div className="relative">
+      {/* P2: Modal "Ver empresas" — auditoría del facturado del rango. */}
+      {showCompanies && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto"
+          onClick={() => setShowCompanies(false)}
+        >
+          <div
+            className="bg-card w-full max-w-2xl rounded-2xl shadow-md2 mt-10 mb-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-line">
+              <div>
+                <div className="font-bold text-lg">Empresas facturadas</div>
+                <div className="text-xs text-mute">
+                  Rango: {RANGE_OPTIONS.find((r) => r.value === range)?.label} ·{' '}
+                  {companies ? `${companies.count} unidades · total ${usd(companies.total)}` : '…'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCompanies(false)}
+                className="text-mute hover:text-ink text-xl leading-none px-2"
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto">
+              {companiesLoading && (
+                <div className="p-6 text-center text-mute text-sm">Cargando…</div>
+              )}
+              {!companiesLoading && companies && companies.companies.length === 0 && (
+                <div className="p-6 text-center text-mute text-sm">
+                  No hay empresas facturadas en este rango.
+                </div>
+              )}
+              {!companiesLoading && companies && companies.companies.length > 0 && (
+                <table className="w-full text-sm">
+                  <thead className="text-[11px] uppercase tracking-wider text-mute bg-bg2 sticky top-0">
+                    <tr>
+                      <th className="text-left px-4 py-2">Empresa</th>
+                      <th className="text-left px-2 py-2">Plan</th>
+                      <th className="text-right px-2 py-2">Monto</th>
+                      <th className="text-left px-4 py-2">Pago</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {companies.companies.map((c) => (
+                      <tr key={`${c.kind}-${c.id}`} className="border-t border-line">
+                        <td className="px-4 py-2">
+                          {c.kind === 'group' && (
+                            <span className="mr-1" title="Grupo empresarial">👥</span>
+                          )}
+                          {c.name}
+                          {c.estimated && (
+                            <span className="ml-1 text-[10px] text-amber-500" title="Estimado (sin fecha de cobro registrada)">
+                              ~est
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-2 py-2 text-mute capitalize">{c.plan.toLowerCase()}</td>
+                        <td className="px-2 py-2 text-right font-semibold">{usd(c.amountUsd)}</td>
+                        <td className="px-4 py-2 text-mute">
+                          {c.paidAt ? fmtDate(c.paidAt) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Background sutil gradient */}
       <div
         className="absolute inset-0 -z-10 pointer-events-none"
@@ -197,7 +301,14 @@ export function PremiumDashboard() {
               Rango: {RANGE_OPTIONS.find((r) => r.value === range)?.label}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={openCompanies}
+              className="bg-white/10 border border-white/30 text-white rounded-pill px-3 py-2 text-sm font-semibold focus:outline-none hover:bg-white/20 transition"
+            >
+              🏢 Ver empresas
+            </button>
             <button
               type="button"
               onClick={toggleAmounts}
