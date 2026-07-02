@@ -2119,6 +2119,16 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
       : '',
   );
   const [savingPrice, setSavingPrice] = useState(false);
+  // Re-sincroniza el campo cuando el tenant se recarga (tras guardar o un
+  // cambio externo). Sin esto, useState congelaba el valor inicial y el campo
+  // parecía "no actualizarse" aunque el precio SÍ se hubiera guardado.
+  useEffect(() => {
+    setSubPrice(
+      tenant.subscriptionPriceUsd != null
+        ? String(Number(tenant.subscriptionPriceUsd))
+        : '',
+    );
+  }, [tenant.subscriptionPriceUsd]);
 
   async function saveSubPrice() {
     const trimmed = subPrice.trim();
@@ -2150,6 +2160,41 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
   async function apply() {
     const graceChanged = gracePeriodDays !== (tenant.gracePeriodDays ?? 0);
     const modeChanged = mode !== currentMode;
+    // El "Precio real pagado" vive en esta tarjeta; antes SOLO se guardaba con
+    // su botón "Guardar precio" y "Aplicar cambio" lo ignoraba → el usuario
+    // editaba el precio, daba "Aplicar cambio" y no se actualizaba. Ahora
+    // "Aplicar cambio" también persiste el precio si cambió.
+    const currentPriceStr =
+      tenant.subscriptionPriceUsd != null
+        ? String(Number(tenant.subscriptionPriceUsd))
+        : '';
+    const priceChanged = subPrice.trim() !== currentPriceStr;
+    if (priceChanged) {
+      const trimmed = subPrice.trim();
+      const value = trimmed === '' ? null : Number(trimmed);
+      if (value != null && (!Number.isFinite(value) || value < 0)) {
+        toast(t('invalidPrice'), 'error');
+        return;
+      }
+      setSaving(true);
+      try {
+        await api(`/tenants/${tenant.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ subscriptionPriceUsd: value }),
+        });
+      } catch (e: any) {
+        toast(e.message || t('couldNotSave'), 'error');
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+      // Si SOLO cambió el precio (sin tocar modo ni gracia), listo.
+      if (!graceChanged && !modeChanged) {
+        toast(t('commissionPriceSaved'), 'success');
+        onChange();
+        return;
+      }
+    }
     // Solo cambia la gracia (mismo modo): usamos PATCH /tenants/:id sin tocar
     // trialEndsAt ni el ciclo de cobro. Útil para extender gracia sin reset.
     if (graceChanged && !modeChanged) {
