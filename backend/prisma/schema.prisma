@@ -2344,6 +2344,11 @@ model Commission {
   currency             String                  @default("USD")
   status               CommissionStatus        @default(PENDING)
   paidAt               DateTime?
+  // Momento en que la comisión se DESBLOQUEA (PENDING → APPROVED): 15 días
+  // DESPUÉS del pago real en Hotmart (Tenant.lastChargeAt / la fecha del cobro
+  // del grupo), NO desde createdAt de la comisión ni la creación de la cuenta.
+  // Null en comisiones legacy → fallback a createdAt + 15 días. (P3 2026-07-02)
+  availableAt          DateTime?
   // Nota interna del super admin (ej: "Pagado vía Wise", "Cliente
   // contactado el 2026-05-12, prometió pagar"). Visible solo en panel.
   notes                String?                 @db.Text

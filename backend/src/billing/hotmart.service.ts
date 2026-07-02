@@ -1420,7 +1420,7 @@ export class HotmartService {
     // descuento si aplicó cupón). El precio original lo sacamos del plan.
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: opts.tenantId },
-      select: { plan: { select: { priceMonthly: true } } },
+      select: { plan: { select: { priceMonthly: true } }, lastChargeAt: true },
     });
     const originalPrice = Number(tenant?.plan?.priceMonthly ?? 0);
     const amountPaid = opts.paidAmount && opts.paidAmount > 0 ? opts.paidAmount : originalPrice;
@@ -1428,6 +1428,12 @@ export class HotmartService {
       this.logger.warn(`Skip comisión: sin precio para tenant=${opts.tenantId}`);
       return;
     }
+    // P3 2026-07-02: la comisión se desbloquea 15 días DESPUÉS del pago real en
+    // Hotmart (Tenant.lastChargeAt, seteado por activatePurchase antes de esto).
+    const HOLD_MS = 15 * 86400000;
+    const commissionAvailableAt = new Date(
+      (tenant?.lastChargeAt ?? new Date()).getTime() + HOLD_MS,
+    );
 
     // 1) Comisión DIRECTA (+ posible INDIRECTA al influencer parent).
     const use = await this.prisma.referralUse.findFirst({
@@ -1500,6 +1506,7 @@ export class HotmartService {
               externalTxId: opts.transactionId ?? null,
               recipientCodeId: use.referralCode.id,
               periodKey: monthKey(),
+              availableAt: commissionAvailableAt,
             },
           })
           .catch((e: any) => {
@@ -1569,6 +1576,7 @@ export class HotmartService {
                 externalTxId: opts.transactionId ?? null,
                 recipientCodeId: parent.id,
                 periodKey: monthKey(),
+                availableAt: commissionAvailableAt,
               },
             })
             .catch((e: any) => {
@@ -1591,12 +1599,16 @@ export class HotmartService {
 
     // 2) Comisión SOCIO (10% global). Aplica SIEMPRE, exista o no
     // un código de referido. Solo si el super admin configuró el socio.
-    await this.generateSocioCommission(opts.tenantId, socioBase).catch((e) =>
+    await this.generateSocioCommission(opts.tenantId, socioBase, commissionAvailableAt).catch((e) =>
       this.logger.warn(`Comisión socio falló: ${(e as Error).message}`),
     );
   }
 
-  private async generateSocioCommission(tenantId: string, amountPaid: number) {
+  private async generateSocioCommission(
+    tenantId: string,
+    amountPaid: number,
+    availableAt?: Date,
+  ) {
     const socioRow = await this.prisma.setting.findUnique({
       where: { key: 'referrals.socioCodeId' },
     });
@@ -1637,6 +1649,7 @@ export class HotmartService {
           status: 'PENDING',
           recipientCodeId: socio.id,
           periodKey: monthKey(),
+          availableAt: availableAt ?? null,
         },
       })
       .catch((e: any) => {

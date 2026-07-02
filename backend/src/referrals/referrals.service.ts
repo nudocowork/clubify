@@ -29,17 +29,26 @@ const COMMISSION_HOLD_DAYS = 15;
 // cron recurrente; algunas funciones definen su propio `round2` local).
 const round2mod = (n: number) => Math.round(n * 100) / 100;
 
+// Fecha efectiva de desbloqueo de una comisión: la almacenada `availableAt`
+// (= pago Hotmart + 15 días, P3 2026-07-02) o, para comisiones legacy sin ese
+// campo, el fallback histórico createdAt + COMMISSION_HOLD_DAYS.
+function effectiveAvailableAt(c: {
+  availableAt?: Date | null;
+  createdAt: Date;
+}): Date {
+  if (c.availableAt) return new Date(c.availableAt);
+  return new Date(new Date(c.createdAt).getTime() + COMMISSION_HOLD_DAYS * 86400000);
+}
+
 // Días restantes hasta que una comisión se desbloquee (0 si ya está
 // disponible). Para status APPROVED/PAID = 0; para PENDING = lo que falte
-// para createdAt + COMMISSION_HOLD_DAYS.
+// para su fecha efectiva de disponibilidad.
 function daysRemainingUntilAvailable(
-  createdAt: Date,
+  c: { availableAt?: Date | null; createdAt: Date },
   status: string,
 ): number {
   if (status !== 'PENDING') return 0;
-  const availableAt =
-    new Date(createdAt).getTime() + COMMISSION_HOLD_DAYS * 86400000;
-  const diffMs = availableAt - Date.now();
+  const diffMs = effectiveAvailableAt(c).getTime() - Date.now();
   if (diffMs <= 0) return 0;
   return Math.ceil(diffMs / 86400000);
 }
@@ -315,13 +324,17 @@ export class ReferralsService {
    */
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async promotePendingToApproved() {
-    const cutoff = new Date(
-      Date.now() - COMMISSION_HOLD_DAYS * 24 * 60 * 60 * 1000,
-    );
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - COMMISSION_HOLD_DAYS * 86400000);
     const res = await this.prisma.commission.updateMany({
       where: {
         status: 'PENDING',
-        createdAt: { lte: cutoff },
+        // P3 2026-07-02: desbloquea por availableAt (= pago Hotmart + 15d).
+        // Fallback legacy (availableAt null): createdAt + 15d.
+        OR: [
+          { availableAt: { lte: now } },
+          { availableAt: null, createdAt: { lte: cutoff } },
+        ],
       },
       data: { status: 'APPROVED' as CommissionStatus },
     });
@@ -363,6 +376,7 @@ export class ReferralsService {
             currentPeriodEnd: true,
             planPeriodicity: true,
             subscriptionPriceUsd: true,
+            lastChargeAt: true,
             plan: { select: { priceMonthly: true } },
           },
         },
@@ -426,6 +440,11 @@ export class ReferralsService {
               status: 'PENDING',
               recipientCodeId,
               periodKey: monthKey(),
+              // P3 2026-07-02: desbloqueo 15d después del pago real en Hotmart.
+              availableAt: new Date(
+                (use.tenant?.lastChargeAt ?? new Date()).getTime() +
+                  COMMISSION_HOLD_DAYS * 86400000,
+              ),
             },
           });
           created += 1;
@@ -2115,13 +2134,18 @@ export class ReferralsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
     const HOLD_DAYS = COMMISSION_HOLD_DAYS;
-    const cutoff = new Date(Date.now() - HOLD_DAYS * 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - HOLD_DAYS * 86400000);
 
-    // Auto-promover PENDING → APPROVED si cumplió 30 días
+    // Auto-promover PENDING → APPROVED cuando cumplió el hold. P3 2026-07-02:
+    // por availableAt (pago Hotmart + 15d); fallback legacy a createdAt + 15d.
     await this.prisma.commission.updateMany({
       where: {
         status: 'PENDING',
-        createdAt: { lte: cutoff },
+        OR: [
+          { availableAt: { lte: now } },
+          { availableAt: null, createdAt: { lte: cutoff } },
+        ],
       },
       data: { status: 'APPROVED' },
     });
@@ -2171,9 +2195,7 @@ export class ReferralsService {
     const items = filtered.map((c) => {
       const r = c.referralUse?.referralCode;
       const t = c.referralUse?.tenant;
-      const availableAt = new Date(
-        new Date(c.createdAt).getTime() + HOLD_DAYS * 24 * 60 * 60 * 1000,
-      );
+      const availableAt = effectiveAvailableAt(c);
       return {
         id: c.id,
         amount: Number(c.amount),
@@ -4298,6 +4320,17 @@ export class ReferralsService {
     });
     if (!use) return { generated: 0, skipped: 0 };
 
+    // P3 2026-07-02: la comisión se desbloquea 15 días DESPUÉS del pago real en
+    // Hotmart (Tenant.lastChargeAt), no desde su createdAt. En el flujo webhook
+    // lastChargeAt ya quedó seteado a la fecha del cobro justo antes de esto.
+    const tPay = await this.prisma.tenant.findUnique({
+      where: { id: args.tenantId },
+      select: { lastChargeAt: true },
+    });
+    const availableAt = new Date(
+      (tPay?.lastChargeAt ?? new Date()).getTime() + COMMISSION_HOLD_DAYS * 86400000,
+    );
+
     const txId = args.hotmartTransactionId ?? null;
 
     let generated = 0;
@@ -4341,6 +4374,7 @@ export class ReferralsService {
                 hotmartTransactionId: txId,
                 externalTxId: txId,
                 periodKey,
+                availableAt,
                 // Snapshot contable congelado (Fase 4).
                 distributionMode: mode,
                 baseAmountUsd: args.paymentAmountUsd,
@@ -4382,7 +4416,7 @@ export class ReferralsService {
   }): Promise<{ generated: boolean; reason?: string }> {
     const group = await this.prisma.businessGroup.findUnique({
       where: { id: args.groupId },
-      select: { id: true, name: true, referralCodeId: true, planPeriodicity: true },
+      select: { id: true, name: true, referralCodeId: true, planPeriodicity: true, lastChargeAt: true },
     });
     if (!group?.referralCodeId) return { generated: false, reason: 'grupo-sin-recipiente' };
     const code = await this.prisma.referralCode.findUnique({
@@ -4423,6 +4457,10 @@ export class ReferralsService {
         currency: 'USD',
         status: 'PENDING',
         periodKey,
+        // P3 2026-07-02: desbloqueo 15d después del cobro del grupo en Hotmart.
+        availableAt: new Date(
+          (group.lastChargeAt ?? now).getTime() + COMMISSION_HOLD_DAYS * 86400000,
+        ),
         hotmartTransactionId: args.hotmartTransactionId ?? null,
       },
     });
@@ -5104,22 +5142,14 @@ export class ReferralsService {
         status: c.status,
         createdAt: c.createdAt,
         // Fecha en que una comisión PENDING pasa a APPROVED (disponible para
-        // pagar). El front la muestra como "disponible el …" en las que están
-        // pendientes por aprobar.
-        availableAt: new Date(
-          c.createdAt.getTime() + COMMISSION_HOLD_DAYS * 86400000,
-        ),
+        // pagar) = pago Hotmart + 15d (availableAt), fallback createdAt+15d.
+        availableAt: effectiveAvailableAt(c),
         // Días que faltan para desbloquear (0 si ya disponible/pagada).
-        daysRemaining: daysRemainingUntilAvailable(c.createdAt, c.status),
+        daysRemaining: daysRemainingUntilAvailable(c, c.status),
         // Próxima fecha posible de cobro (día 15 o último del mes), contada
         // desde que la comisión esté disponible.
         nextPayoutDate: nextPayoutDate(
-          new Date(
-            Math.max(
-              Date.now(),
-              c.createdAt.getTime() + COMMISSION_HOLD_DAYS * 86400000,
-            ),
-          ),
+          new Date(Math.max(Date.now(), effectiveAvailableAt(c).getTime())),
         ),
         paidAt: c.paidAt,
         notes: c.notes,
@@ -5229,7 +5259,7 @@ export class ReferralsService {
 
     const c = await this.prisma.commission.findUnique({
       where: { id: commissionId },
-      select: { id: true, status: true, createdAt: true, amount: true },
+      select: { id: true, status: true, createdAt: true, availableAt: true, amount: true },
     });
     if (!c) throw new NotFoundException('Comisión no encontrada');
 
@@ -5243,7 +5273,7 @@ export class ReferralsService {
       };
     }
 
-    const daysEliminated = daysRemainingUntilAvailable(c.createdAt, c.status);
+    const daysEliminated = daysRemainingUntilAvailable(c, c.status);
 
     const updated = await this.prisma.commission.update({
       where: { id: commissionId },
