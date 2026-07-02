@@ -1290,6 +1290,11 @@ model Pass {
   customer          Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
   serialNumber      String          @unique
   qrToken           String          @unique
+  /// Tokens QR ANTERIORES de este pass (o de pases fusionados en este). El
+  /// scanner también resuelve por acá para que un código ya instalado en la
+  /// billetera del cliente NUNCA deje de escanear, aunque el pass se haya
+  /// fusionado/regenerado. Ver scanner.service.findByQrToken + customers.merge.
+  legacyQrTokens    String[]        @default([])
   authToken         String
   stampsCount       Int             @default(0)
   pointsBalance     Decimal         @default(0) @db.Decimal(12, 2)

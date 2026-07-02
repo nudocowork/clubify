@@ -407,12 +407,25 @@ export class CustomersService {
             },
           });
           if (dup) {
-            // Sumar stamps y puntos al pass del keeper, mover stamps históricos, borrar el pass src
+            // Sumar stamps y puntos al pass del keeper, mover stamps históricos, borrar el pass src.
+            // FIX 2026-07-01: preservamos el qrToken (y los legacy) del pass que
+            // se borra dentro de legacyQrTokens del keeper. Así, la tarjeta que
+            // el cliente fusionado YA tiene instalada en su billetera sigue
+            // escaneando (el scanner resuelve por legacyQrTokens) → el código
+            // nunca se "desactualiza" tras una fusión.
+            const preservedTokens = Array.from(
+              new Set([
+                ...dup.legacyQrTokens,
+                ...sp.legacyQrTokens,
+                sp.qrToken,
+              ]),
+            ).filter((t) => t && t !== dup.qrToken);
             await tx.pass.update({
               where: { id: dup.id },
               data: {
                 stampsCount: dup.stampsCount + sp.stampsCount,
                 pointsBalance: Number(dup.pointsBalance) + Number(sp.pointsBalance),
+                legacyQrTokens: preservedTokens,
               },
             });
             await tx.stamp.updateMany({

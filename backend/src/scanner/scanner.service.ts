@@ -70,7 +70,18 @@ export class ScannerService {
     // Token opaco actual: `QR-<nanoid>`. Búsqueda directa por índice @unique.
     // No es un JWT (sin puntos) → evita el verify innecesario.
     if (value.includes('.')) return null;
-    return this.prisma.pass.findUnique({ where: { qrToken: value }, include: this.passInclude });
+    const direct = await this.prisma.pass.findUnique({
+      where: { qrToken: value },
+      include: this.passInclude,
+    });
+    if (direct) return direct;
+    // Fallback: token ANTERIOR (pass fusionado/regenerado). Garantiza que un
+    // código ya instalado en la billetera del cliente NUNCA deje de escanear
+    // aunque su pass se haya fusionado en otro (customers.merge) o rotado.
+    return this.prisma.pass.findFirst({
+      where: { legacyQrTokens: { has: value } },
+      include: this.passInclude,
+    });
   }
 
   private async findByJwt(value: string) {

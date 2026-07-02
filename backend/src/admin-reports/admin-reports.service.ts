@@ -37,6 +37,14 @@ export class AdminReportsService {
     private wlNotifications: WhiteLabelNotificationsService,
   ) {}
 
+  // P (PDF 2026-07-01): caché corta del dashboard por (marca, rango). Al
+  // cambiar de rango en el panel se recomputaba TODO (tenants/comisiones/mapa,
+  // que no dependen del rango) → sensación de lag. Con TTL de 45s, alternar
+  // entre rangos ya vistos es instantáneo. Keyed por wlId → sin fugas entre
+  // marcas. Singleton NestJS: seguro guardar estado acá (no es 'use client').
+  private dashCache = new Map<string, { at: number; payload: unknown }>();
+  private readonly DASH_TTL_MS = 45_000;
+
   // ============================================================
   //                  REPORTES POR EMBAJADOR
   // ============================================================
@@ -868,6 +876,13 @@ export class AdminReportsService {
     // que antes). tenantWhere → modelos con whiteLabelId (Tenant); commWhere →
     // Commission (cuelga del tenant vía referralUse).
     const wlId = user.whiteLabelId ?? null;
+
+    // Caché corta por (marca, rango) para que alternar rangos no recompute todo.
+    const cacheKey = `${wlId ?? 'global'}::${opts.range ?? 'this-month'}::${opts.from ?? ''}::${opts.to ?? ''}`;
+    const cached = this.dashCache.get(cacheKey);
+    const nowMs = Date.now();
+    if (cached && nowMs - cached.at < this.DASH_TTL_MS) return cached.payload;
+
     const tenantWhere = wlId ? { whiteLabelId: wlId } : {};
     const commWhere = wlId
       ? { referralUse: { tenant: { whiteLabelId: wlId } } }
@@ -1431,7 +1446,7 @@ export class AdminReportsService {
     events.sort((a, b) => b.when.getTime() - a.when.getTime());
     const recentIncome = events.slice(0, 15);
 
-    return {
+    const payload = {
       range: {
         kind: opts.range ?? 'this-month',
         from,
@@ -1475,6 +1490,9 @@ export class AdminReportsService {
         })),
       generatedAt: now,
     };
+
+    this.dashCache.set(cacheKey, { at: nowMs, payload });
+    return payload;
   }
 
   // ============================================================
