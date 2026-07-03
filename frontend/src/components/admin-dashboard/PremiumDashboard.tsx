@@ -290,15 +290,31 @@ export function PremiumDashboard() {
       {/* Banner principal azul */}
       <div className="rounded-2xl bg-gradient-to-br from-sky-700 via-sky-700 to-indigo-700 text-white p-5 md:p-7 shadow-md2 mb-5">
         <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
-          <div>
-            <div className="text-[11px] uppercase tracking-wider text-sky-200 font-semibold">
-              Monto facturado
+          <div className="flex items-start gap-6 flex-wrap">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-sky-200 font-semibold">
+                Monto facturado
+              </div>
+              <div className="text-4xl md:text-5xl font-bold tracking-tight mt-1">
+                {money(data.banner.billedUsd)}
+              </div>
+              <div className="text-xs text-sky-200 mt-1">
+                Cobrado en: {RANGE_OPTIONS.find((r) => r.value === range)?.label}
+              </div>
             </div>
-            <div className="text-4xl md:text-5xl font-bold tracking-tight mt-1">
-              {money(data.banner.billedUsd)}
-            </div>
-            <div className="text-xs text-sky-200 mt-1">
-              Rango: {RANGE_OPTIONS.find((r) => r.value === range)?.label}
+            {/* Ingreso recurrente (MRR): SIEMPRE visible, no depende del rango.
+                Refleja las mensualidades/recurrencia de los negocios activos aun
+                cuando el rango (ej. "Hoy") no tenga cobros. */}
+            <div className="md:border-l md:border-white/20 md:pl-6">
+              <div className="text-[11px] uppercase tracking-wider text-sky-200 font-semibold">
+                Ingreso recurrente / mes
+              </div>
+              <div className="text-3xl md:text-4xl font-bold tracking-tight mt-1">
+                {money(data.kpis.mrrUsd)}
+              </div>
+              <div className="text-xs text-sky-200 mt-1">
+                Mensualidades recurrentes (MRR)
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
