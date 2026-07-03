@@ -210,7 +210,7 @@ export function PremiumDashboard() {
           onClick={() => setShowCompanies(false)}
         >
           <div
-            className="bg-card w-full max-w-2xl rounded-2xl shadow-md2 mt-10 mb-10"
+            className="bg-surface border border-line w-full max-w-2xl rounded-2xl shadow-md2 mt-10 mb-10"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-4 border-b border-line">
