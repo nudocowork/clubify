@@ -10,11 +10,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { messages, MessageKey } from './messages';
+export type { MessageKey } from './messages';
 
-export type Locale = 'es' | 'en' | 'pt' | 'en-GB' | 'en-US' | 'pt-BR';
-type BaseLocale = 'es' | 'en' | 'pt';
+export type Locale = 'es' | 'en' | 'pt' | 'it' | 'en-GB' | 'en-US' | 'pt-BR';
+type BaseLocale = 'es' | 'en' | 'pt' | 'it';
 
-export const LOCALES: Locale[] = ['es', 'en', 'pt', 'en-GB', 'en-US', 'pt-BR'];
+export const LOCALES: Locale[] = ['es', 'en', 'pt', 'it', 'en-GB', 'en-US', 'pt-BR'];
 
 // #24 (2026-06-17): orden + set de banderas que se MUESTRA en el switcher:
 // 1) Inglaterra 2) Estados Unidos 3) Español 4) Portugués. `LOCALES` se
@@ -27,6 +28,7 @@ const BASE_LOCALE: Record<Locale, BaseLocale> = {
   es: 'es',
   en: 'en',
   pt: 'pt',
+  it: 'it',
   'en-GB': 'en',
   'en-US': 'en',
   'pt-BR': 'pt',
@@ -36,6 +38,7 @@ export const LOCALE_NAMES: Record<Locale, string> = {
   es: 'Español',
   en: 'English',
   pt: 'Português',
+  it: 'Italiano',
   'en-GB': 'English (UK)',
   'en-US': 'English (US)',
   'pt-BR': 'Português (BR)',
@@ -45,6 +48,7 @@ export const LOCALE_FLAGS: Record<Locale, string> = {
   es: '🇪🇸',
   en: '🇺🇸',
   pt: '🇧🇷',
+  it: '🇮🇹',
   'en-GB': '🇬🇧',
   'en-US': '🇺🇸',
   'pt-BR': '🇧🇷',
@@ -69,6 +73,7 @@ function detectInitial(): Locale {
   const lower = nav.toLowerCase();
   if (lower.startsWith('en')) return 'en';
   if (lower.startsWith('pt')) return 'pt';
+  if (lower.startsWith('it')) return 'it';
   return 'es';
 }
 

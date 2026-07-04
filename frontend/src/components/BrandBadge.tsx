@@ -42,7 +42,19 @@ export function BrandBadge({
     ? `${brand.websiteUrl}?utm_source=storefront&utm_medium=badge`
     : '#';
 
-  const Mark = (
+  // Mini favicon de la marca: si el backend manda icono/logo, lo mostramos como
+  // imagen; si no, caemos al cuadrito con la inicial. Antes SIEMPRE se dibujaba
+  // la inicial aunque hubiera favicon (el logo "no aparecía" bajo el formulario).
+  const markImg = brand.iconUrl || brand.logoUrl || null;
+  const Mark = markImg ? (
+    <img
+      src={markImg}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className="w-3.5 h-3.5 rounded-[4px] object-contain bg-white flex-none"
+    />
+  ) : (
     <span
       className="w-3.5 h-3.5 rounded-[4px] text-white flex items-center justify-center font-bold text-[8px]"
       style={{ background: color }}

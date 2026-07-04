@@ -1,7 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { DISPLAY_LOCALES, LOCALE_FLAGS, LOCALE_NAMES, useLocale } from '@/lib/i18n';
+import {
+  DISPLAY_LOCALES,
+  LOCALE_FLAGS,
+  LOCALE_NAMES,
+  useLocale,
+  type Locale,
+} from '@/lib/i18n';
 
 /**
  * Switcher flotante de idioma. Pensado para páginas públicas (storefront,
@@ -10,12 +16,19 @@ import { DISPLAY_LOCALES, LOCALE_FLAGS, LOCALE_NAMES, useLocale } from '@/lib/i1
  */
 export function LanguageSwitcher({
   variant = 'floating',
+  extraLocales,
 }: {
   variant?: 'floating' | 'inline';
+  /** Idiomas adicionales a los DISPLAY_LOCALES por defecto, para marcas que
+   *  ofrecen más idiomas (ej. Sellea agrega italiano). Se anexan sin duplicar. */
+  extraLocales?: Locale[];
 }) {
   const [locale, setLocale] = useLocale();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const localesToShow = extraLocales?.length
+    ? [...DISPLAY_LOCALES, ...extraLocales.filter((l) => !DISPLAY_LOCALES.includes(l))]
+    : DISPLAY_LOCALES;
 
   useEffect(() => {
     if (!open) return;
@@ -69,7 +82,7 @@ export function LanguageSwitcher({
               : 'absolute mt-1.5 left-0 min-w-[140px] rounded-xl bg-white shadow-lg border border-line overflow-hidden z-50'
           }
         >
-          {DISPLAY_LOCALES.map((l) => {
+          {localesToShow.map((l) => {
             const active = l === locale;
             return (
               <button

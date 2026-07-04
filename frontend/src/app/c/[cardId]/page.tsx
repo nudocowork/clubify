@@ -3,6 +3,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   useTransition,
@@ -10,7 +11,7 @@ import {
 import { useParams, useRouter } from 'next/navigation';
 import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
-import { useLocale, useT } from '@/lib/i18n';
+import { useLocale, useT, type MessageKey } from '@/lib/i18n';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -60,14 +61,16 @@ const COUNTRIES = [
   { code: 'US', flag: '🇺🇸', name: 'USA', dial: '1' },
 ];
 
-const TYPE_LABEL: Record<string, string> = {
-  STAMPS: 'Tarjeta de sellos',
-  POINTS: 'Tarjeta de puntos',
-  DISCOUNT: 'Tarjeta de descuento',
-  MEMBERSHIP: 'Membresía',
-  COUPON: 'Cupón',
-  GIFT: 'Regalo',
-  MULTI: 'Múltiple',
+// Tipo de tarjeta → clave i18n (se traduce con tt según el idioma activo).
+// Antes era un mapa hardcodeado en español → no se traducía en /en, /pt, /it.
+const TYPE_LABEL_KEY: Record<string, MessageKey> = {
+  STAMPS: 'card.type_stamps',
+  POINTS: 'card.type_points',
+  DISCOUNT: 'card.type_discount',
+  MEMBERSHIP: 'card.type_membership',
+  COUPON: 'card.type_coupon',
+  GIFT: 'card.type_gift',
+  MULTI: 'card.type_multi',
 };
 
 // Cache SWR en localStorage: la primera visita paga el fetch; visitas
@@ -129,6 +132,7 @@ const BrandHeader = memo(function BrandHeader({
    *  propio, para no mostrar la inicial pelada. Nunca Clubify para otra marca. */
   brandLogoUrl?: string | null;
 }) {
+  const tt = useT();
   const ready = !!card;
   const primary = card?.primaryColor || card?.tenant.primaryColor || '#22C55E';
   const secondary = card?.secondaryColor || '#15803D';
@@ -159,11 +163,11 @@ const BrandHeader = memo(function BrandHeader({
           <div className="flex-1 min-w-0">
             <div className="text-[10px] sm:text-xs uppercase tracking-wider opacity-80">
               {ready
-                ? TYPE_LABEL[card!.type] || 'Tarjeta'
-                : 'Programa de fidelización'}
+                ? tt(TYPE_LABEL_KEY[card!.type] ?? 'card.type_default')
+                : tt('card.program_default')}
             </div>
             <div className="font-bold text-base sm:text-lg leading-tight truncate">
-              {ready ? card!.tenant.brandName : verifying ? 'Verificando…' : ' '}
+              {ready ? card!.tenant.brandName : verifying ? tt('card.verifying') : ' '}
             </div>
           </div>
         </div>
@@ -204,25 +208,20 @@ const DAY_OPTIONS = Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
     {d}
   </option>
 ));
-const MONTH_NAMES = [
-  'Enero',
-  'Febrero',
-  'Marzo',
-  'Abril',
-  'Mayo',
-  'Junio',
-  'Julio',
-  'Agosto',
-  'Septiembre',
-  'Octubre',
-  'Noviembre',
-  'Diciembre',
-];
-const MONTH_OPTIONS = MONTH_NAMES.map((m, i) => (
-  <option key={m} value={i + 1}>
-    {m}
-  </option>
-));
+// Nombres de mes traducidos según el idioma activo (Intl) — antes estaban
+// hardcodeados en español y no se traducían en /en, /pt, /it.
+function monthOptionsFor(locale: string) {
+  const fmt = new Intl.DateTimeFormat(locale || 'es', { month: 'long' });
+  return Array.from({ length: 12 }, (_, i) => {
+    const name = fmt.format(new Date(2020, i, 1));
+    const label = name.charAt(0).toUpperCase() + name.slice(1);
+    return (
+      <option key={i + 1} value={i + 1}>
+        {label}
+      </option>
+    );
+  });
+}
 
 // =============================================================
 //  FormFields — TODO el state del formulario vive ACÁ
@@ -273,6 +272,8 @@ const FormFields = memo(function FormFields({
   onSubmit: (data: SubmitPayload) => Promise<void>;
 }) {
   const tt = useT();
+  const [locale] = useLocale();
+  const monthOptions = useMemo(() => monthOptionsFor(locale), [locale]);
   // El prefijo telefónico arranca en el país del negocio. El cliente puede
   // cambiarlo, pero el default refleja la ubicación de la subcuenta.
   const [country, setCountry] = useState(defaultCountry);
@@ -300,11 +301,11 @@ const FormFields = memo(function FormFields({
     e.preventDefault();
     setErr(null);
     if (!ready) {
-      setErr('Verificando tu tarjeta, intenta de nuevo en un segundo.');
+      setErr(tt('card.verify_retry'));
       return;
     }
     if (!accept) {
-      setErr('Tienes que aceptar para continuar');
+      setErr(tt('card.must_accept'));
       return;
     }
     // Validaciones de submit (NUNCA en cada keystroke). Phone replace
@@ -312,7 +313,7 @@ const FormFields = memo(function FormFields({
     const dial = selectedCountry?.dial ?? '57';
     const phoneFull = `+${dial}${phone.replace(/\D/g, '')}`;
     if (phoneFull.length < 10) {
-      setErr('Teléfono inválido');
+      setErr(tt('card.invalid_phone'));
       return;
     }
     let birthday: string | undefined;
@@ -330,7 +331,7 @@ const FormFields = memo(function FormFields({
         birthday,
       });
     } catch (e: any) {
-      setErr(e?.message || 'Error');
+      setErr(e?.message || tt('common.error'));
       setSubmitting(false);
     }
   }
@@ -429,11 +430,11 @@ const FormFields = memo(function FormFields({
               onChange={(e) => setBdayMonth(e.target.value)}
             >
               <option value="">{tt('card.birth_month')}</option>
-              {MONTH_OPTIONS}
+              {monthOptions}
             </select>
           </div>
           <div className="text-[11px] text-mute mt-1">
-            Te enviamos un regalo el día de tu cumple 🎁
+            {tt('card.birthday_gift_hint')}
           </div>
         </div>
 
@@ -444,7 +445,7 @@ const FormFields = memo(function FormFields({
             checked={accept}
             onChange={(e) => setAccept(e.target.checked)}
           />
-          <span>Acepto recibir notificaciones vía Push.</span>
+          <span>{tt('card.push_consent')}</span>
         </label>
 
         {err && (
@@ -458,12 +459,12 @@ const FormFields = memo(function FormFields({
           disabled={submitting || !fullName || !phone || !accept || !ready}
           className="w-full justify-center text-sm sm:text-base py-3.5 rounded-pill font-semibold text-white shadow-md transition disabled:opacity-50 hover:opacity-95 active:scale-[0.97] mt-1 touch-manipulation [-webkit-tap-highlight-color:transparent]"
           style={{ background: primary }}
-          title={!ready ? 'Verificando datos del negocio…' : undefined}
+          title={!ready ? tt('card.verifying_business') : undefined}
         >
           {submitting
             ? tt('card.submitting')
             : !ready
-            ? 'Verificando…'
+            ? tt('card.verifying')
             : tt('card.submit') + ' →'}
         </button>
       </div>
@@ -652,7 +653,7 @@ export default function EnrollPage() {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.message || 'No pudimos crear tu tarjeta');
+        throw new Error(j.message || tt('card.create_failed'));
       }
       const body: { passId: string } = await res.json();
       router.push(`/w/${body.passId}?welcome=1`);
@@ -668,9 +669,9 @@ export default function EnrollPage() {
       <main className="min-h-screen bg-bg flex items-center justify-center px-5">
         <div className="card card-pad text-center max-w-sm animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="text-5xl mb-3">📡</div>
-          <h1 className="text-xl font-bold">Conexión lenta</h1>
+          <h1 className="text-xl font-bold">{tt('card.slow_title')}</h1>
           <p className="text-mute text-sm mt-2">
-            No pudimos cargar la tarjeta. Revisa tu conexión y reintenta.
+            {tt('card.slow_msg')}
           </p>
           <button
             type="button"
@@ -680,7 +681,7 @@ export default function EnrollPage() {
               setRetryCount((c) => c + 1);
             }}
           >
-            🔄 Reintentar
+            {tt('card.retry')}
           </button>
         </div>
         <LanguageSwitcher />
@@ -735,7 +736,7 @@ export default function EnrollPage() {
         {ready && card!.terms && (
           <details className="mt-4 text-xs text-mute px-2 animate-in fade-in duration-300">
             <summary className="cursor-pointer hover:text-ink">
-              Términos y condiciones
+              {tt('card.terms')}
             </summary>
             <p className="mt-2 leading-relaxed">{card!.terms}</p>
           </details>
@@ -754,7 +755,14 @@ export default function EnrollPage() {
             }
           }
         />
-        <LanguageSwitcher />
+        {/* Sellea ofrece italiano además de los idiomas por defecto. */}
+        <LanguageSwitcher
+          extraLocales={
+            /sellea/i.test(`${brand?.name ?? ''} ${brand?.websiteUrl ?? ''}`)
+              ? ['it']
+              : undefined
+          }
+        />
       </div>
     </main>
   );
