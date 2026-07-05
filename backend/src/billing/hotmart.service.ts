@@ -851,6 +851,11 @@ export class HotmartService {
     payload: HotmartWebhookPayload,
   ) {
     const wasSuspended = tenant.status === 'SUSPENDED';
+    // Si el tenant YA estaba ACTIVE antes de este webhook, es una RENOVACIÓN o
+    // un re-envío/reintento de Hotmart, NO una compra nueva. Se usa abajo para
+    // no volver a disparar la alerta "🎉 Nueva compra Clubify" (que llegaba a
+    // clientes que compraron días antes — bug PDF 854).
+    const wasActive = tenant.status === 'ACTIVE';
     const subscriberCode = payload.data?.subscription?.subscriber?.code;
     const transactionId = payload.data?.purchase?.transaction;
     // E (2026-06-12): Hotmart es la fuente oficial de fechas. Si
@@ -1014,6 +1019,8 @@ export class HotmartService {
       // preservado (puede ser null en casos edge — el fan-out maneja eso).
       nextCharge: nextCharge ?? tenant.currentPeriodEnd ?? new Date(),
       transactionId,
+      // Renovación / re-webhook de cliente ya activo → NO reenviar "Nueva compra".
+      isRenewal: wasActive,
     }).catch((e) =>
       this.logger.warn(`postPurchaseFanOut falló: ${(e as Error).message}`),
     );
@@ -1938,8 +1945,9 @@ export class HotmartService {
     brandName: string;
     nextCharge: Date;
     transactionId?: string;
+    isRenewal?: boolean;
   }) {
-    const { tenantId, brandName, nextCharge, transactionId } = opts;
+    const { tenantId, brandName, nextCharge, transactionId, isRenewal } = opts;
 
     // Datos extra del tenant para enriquecer la alerta + CrmContact.
     const fullTenant = await this.prisma.tenant.findUnique({
@@ -1954,16 +1962,24 @@ export class HotmartService {
     const email = fullTenant?.email ?? '';
     const whatsappPhone = fullTenant?.whatsappPhone ?? null;
 
-    // C2.1 — Alerta al equipo comercial.
-    await this.alerts
-      .sendTeamAlert(
-        `🎉 Nueva compra Clubify\nCliente: ${brandName}\nEmail: ${email}\nPlan: ${planName}\nPróximo cobro: ${nextCharge.toLocaleDateString('es-CO')}`,
-      )
-      .catch((e) =>
-        this.logger.warn(
-          `sendTeamAlert post-purchase falló: ${(e as Error)?.message ?? e}`,
-        ),
+    // C2.1 — Alerta al equipo comercial. SOLO en compra NUEVA. En renovaciones
+    // o re-webhooks de un cliente ya activo NO se reenvía (antes llegaba "Nueva
+    // compra" a clientes que compraron días antes — bug PDF 854).
+    if (!isRenewal) {
+      await this.alerts
+        .sendTeamAlert(
+          `🎉 Nueva compra Clubify\nCliente: ${brandName}\nEmail: ${email}\nPlan: ${planName}\nPróximo cobro: ${nextCharge.toLocaleDateString('es-CO')}`,
+        )
+        .catch((e) =>
+          this.logger.warn(
+            `sendTeamAlert post-purchase falló: ${(e as Error)?.message ?? e}`,
+          ),
+        );
+    } else {
+      this.logger.log(
+        `postPurchaseFanOut: renovación/re-webhook de ${brandName} — se omite alerta "Nueva compra".`,
       );
+    }
 
     // C2.2 — CrmContact en el pipeline del afiliado atribuido. Si no hay
     // ReferralUse o el afiliado no tiene Pipeline/Stage, lo dejamos diferido
