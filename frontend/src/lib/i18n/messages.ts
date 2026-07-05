@@ -38,9 +38,9 @@ export const messages = {
       'Esta tienda no está activa en este momento. Contacta directamente al negocio o intenta más tarde.',
     'storefront.tab_menu': 'Menú',
     'storefront.tab_promos': 'Promociones',
-    'storefront.menu_empty_title': 'Pronto publicamos el menú',
+    'storefront.menu_empty_title': 'Cargando menú digital',
     'storefront.menu_empty_sub':
-      'Mientras tanto, escríbenos por WhatsApp para hacer tu pedido.',
+      'Por favor, espere mientras se carga el menú.',
     'storefront.menu_chat_wa': 'Hablar por WhatsApp →',
     'storefront.promos_empty_title': 'No hay promos activas',
     'storefront.promos_empty_sub':
@@ -158,6 +158,7 @@ export const messages = {
     'wallet.cashback_balance': 'Saldo cashback',
     'wallet.visits_count': '{{n}} visitas',
     'wallet.tier': 'Nivel',
+    'wallet.terms': 'Condiciones',
 
     // Reviews (/r/[slug])
     'review.title': '¿Cómo estuvo tu experiencia?',
@@ -221,9 +222,9 @@ export const messages = {
       'This shop is not active right now. Reach out to the business directly or try again later.',
     'storefront.tab_menu': 'Menu',
     'storefront.tab_promos': 'Promotions',
-    'storefront.menu_empty_title': 'Menu coming soon',
+    'storefront.menu_empty_title': 'Digital Menu Loading',
     'storefront.menu_empty_sub':
-      'In the meantime, message us on WhatsApp to place your order.',
+      'Kindly wait while the Menu loads.',
     'storefront.menu_chat_wa': 'Chat on WhatsApp →',
     'storefront.promos_empty_title': 'No active promotions',
     'storefront.promos_empty_sub':
@@ -323,7 +324,7 @@ export const messages = {
     'card.verifying_business': 'Verifying business details…',
     'card.verify_retry': 'Verifying your card, please try again in a second.',
     'card.invalid_phone': 'Invalid phone number',
-    'card.birthday_gift_hint': 'We send you a gift on your birthday 🎁',
+    'card.birthday_gift_hint': "We'll send you a special gift on your Birthday! 🎁",
     'card.push_consent': 'I agree to receive Push notifications.',
     'card.terms': 'Terms and conditions',
     'card.slow_title': 'Slow connection',
@@ -341,6 +342,7 @@ export const messages = {
     'wallet.cashback_balance': 'Cashback balance',
     'wallet.visits_count': '{{n}} visits',
     'wallet.tier': 'Tier',
+    'wallet.terms': 'Terms',
 
     // Reviews
     'review.title': 'How was your experience?',
@@ -404,9 +406,9 @@ export const messages = {
       'Esta loja não está ativa no momento. Entre em contato com o negócio ou tente mais tarde.',
     'storefront.tab_menu': 'Cardápio',
     'storefront.tab_promos': 'Promoções',
-    'storefront.menu_empty_title': 'Em breve publicamos o cardápio',
+    'storefront.menu_empty_title': 'Carregando menu digital',
     'storefront.menu_empty_sub':
-      'Enquanto isso, escreva pelo WhatsApp para fazer seu pedido.',
+      'Por favor, aguarde enquanto o menu carrega.',
     'storefront.menu_chat_wa': 'Falar no WhatsApp →',
     'storefront.promos_empty_title': 'Sem promoções ativas',
     'storefront.promos_empty_sub':
@@ -524,6 +526,7 @@ export const messages = {
     'wallet.cashback_balance': 'Saldo cashback',
     'wallet.visits_count': '{{n}} visitas',
     'wallet.tier': 'Nível',
+    'wallet.terms': 'Condições',
 
     // Reviews
     'review.title': 'Como foi sua experiência?',
@@ -587,9 +590,9 @@ export const messages = {
       'Questo negozio non è attivo in questo momento. Contatta direttamente l\'attività o riprova più tardi.',
     'storefront.tab_menu': 'Menu',
     'storefront.tab_promos': 'Promozioni',
-    'storefront.menu_empty_title': 'Menu in arrivo',
+    'storefront.menu_empty_title': 'Caricamento menu digitale',
     'storefront.menu_empty_sub':
-      'Nel frattempo, scrivici su WhatsApp per fare il tuo ordine.',
+      'Attendi mentre il menu si carica.',
     'storefront.menu_chat_wa': 'Scrivi su WhatsApp →',
     'storefront.promos_empty_title': 'Nessuna promozione attiva',
     'storefront.promos_empty_sub':
@@ -707,6 +710,7 @@ export const messages = {
     'wallet.cashback_balance': 'Saldo cashback',
     'wallet.visits_count': '{{n}} visite',
     'wallet.tier': 'Livello',
+    'wallet.terms': 'Condizioni',
 
     // Reviews
     'review.title': 'Com\'è stata la tua esperienza?',

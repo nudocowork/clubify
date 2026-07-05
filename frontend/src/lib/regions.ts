@@ -125,8 +125,18 @@ const PERU_REGIONS: Region[] = [
   { name: 'Ica', cities: ['Ica', 'Chincha Alta'] },
   { name: 'Loreto', cities: ['Iquitos'] },
   { name: 'San Martín', cities: ['Tarapoto'] },
-  { name: 'Cajamarca', cities: ['Cajamarca'] },
+  { name: 'Cajamarca', cities: ['Cajamarca', 'Jaén'] },
   { name: 'Puno', cities: ['Puno', 'Juliaca'] },
+  { name: 'Apurímac', cities: ['Abancay', 'Andahuaylas', 'Chincheros'] },
+  { name: 'Amazonas', cities: ['Chachapoyas', 'Bagua'] },
+  { name: 'Ayacucho', cities: ['Ayacucho', 'Huanta'] },
+  { name: 'Huancavelica', cities: ['Huancavelica'] },
+  { name: 'Huánuco', cities: ['Huánuco', 'Tingo María'] },
+  { name: 'Madre de Dios', cities: ['Puerto Maldonado'] },
+  { name: 'Moquegua', cities: ['Moquegua', 'Ilo'] },
+  { name: 'Pasco', cities: ['Cerro de Pasco', 'Oxapampa'] },
+  { name: 'Tumbes', cities: ['Tumbes'] },
+  { name: 'Ucayali', cities: ['Pucallpa'] },
 ];
 
 const ECUADOR_REGIONS: Region[] = [

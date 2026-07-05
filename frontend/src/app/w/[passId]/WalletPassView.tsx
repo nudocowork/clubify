@@ -115,7 +115,7 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
         {data.card.terms && (
           <div className="card card-pad mt-6">
             <div className="text-[11px] uppercase tracking-[0.12em] text-mute font-semibold">
-              Condiciones
+              {tt('wallet.terms')}
             </div>
             <div className="text-sm mt-2 leading-relaxed">{data.card.terms}</div>
           </div>

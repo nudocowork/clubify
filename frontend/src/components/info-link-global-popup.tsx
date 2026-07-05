@@ -13,6 +13,7 @@ import {
   popupScheduleMatches,
   type InfoLinkPopup,
 } from '@/lib/info-link-extras';
+import { useT } from '@/lib/i18n';
 
 const SESSION_KEY_PREFIX = 'info_link_popup_seen_';
 
@@ -53,6 +54,7 @@ export function InfoLinkGlobalPopup({
   popups?: InfoLinkPopup[] | null;
   primary: string;
 }) {
+  const tt = useT();
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   const all = combineInfoLinkPopups(config, popups);
@@ -147,7 +149,7 @@ export function InfoLinkGlobalPopup({
               onClick={() => setActiveIndex(null)}
               className="w-full py-2 text-xs text-mute hover:text-ink"
             >
-              Cerrar
+              {tt('common.close')}
             </button>
           </div>
         </div>
