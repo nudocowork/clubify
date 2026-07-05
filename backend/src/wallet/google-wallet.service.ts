@@ -3,6 +3,7 @@ import { sign } from 'jsonwebtoken';
 import * as fs from 'fs';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
+import { passLabels } from './pass-labels';
 
 /**
  * Google Wallet integration end-to-end.
@@ -57,35 +58,36 @@ export class GoogleWalletService {
   /** Header field equivalente al de Apple — varía por tipo de tarjeta. */
   private buildBalance(pass: any): { balance: { string?: string; int?: number }; label: string } {
     const t = pass.card.type;
+    const L = passLabels(pass.customer?.locale);
     if (t === 'CASHBACK') {
       const v = Math.round(Number(pass.cashbackBalance ?? 0));
       return {
         balance: { string: `$${v.toLocaleString('es-CO')}` },
-        label: 'Saldo cashback',
+        label: L.cashback,
       };
     }
     if (t === 'VISITS') {
       return {
         balance: { string: `${pass.visitsCount ?? 0}/${pass.card.visitsRequired ?? 10}` },
-        label: 'Visitas',
+        label: L.visits,
       };
     }
     if (t === 'POINTS') {
       return {
         balance: { int: Math.round(Number(pass.pointsBalance ?? 0)) },
-        label: 'Puntos',
+        label: L.points,
       };
     }
     if (t === 'MEMBERSHIP') {
       return {
-        balance: { string: pass.currentTier || 'Miembro' },
-        label: 'Nivel',
+        balance: { string: pass.currentTier || L.member_default },
+        label: L.tier,
       };
     }
     if (t === 'DISCOUNT') {
       return {
         balance: { string: `${pass.card.discountPercent ?? 10}%` },
-        label: 'Descuento',
+        label: L.discount,
       };
     }
     // COUPON single-use: balance es el estado del cupón.
@@ -93,13 +95,13 @@ export class GoogleWalletService {
     if (t === 'COUPON') {
       const redeemed = pass.status === 'COMPLETED';
       return {
-        balance: { string: redeemed ? 'REDIMIDO' : 'DISPONIBLE' },
-        label: 'Cupón',
+        balance: { string: redeemed ? L.coupon_redeemed : L.coupon_available },
+        label: L.coupon,
       };
     }
     return {
       balance: { string: `${pass.stampsCount}/${pass.card.stampsRequired ?? 10}` },
-      label: 'Sellos',
+      label: L.stamps,
     };
   }
 
@@ -135,6 +137,7 @@ export class GoogleWalletService {
   /** Construye el LoyaltyObject para inline JWT o REST API. */
   private buildObject(pass: any, classId: string, objectId: string) {
     const card = pass.card;
+    const L = passLabels(pass.customer?.locale);
     const balance = this.buildBalance(pass);
 
     // textModulesData: equivalente a backFields del .pkpass.
@@ -144,42 +147,42 @@ export class GoogleWalletService {
     if (card.rewardText) {
       textModules.push({
         id: 'reward',
-        header: 'RECOMPENSA',
+        header: L.reward,
         body: card.rewardText,
       });
     }
     if (pass.customer?.fullName) {
       textModules.push({
         id: 'customer',
-        header: 'CLIENTE',
+        header: L.customer,
         body: pass.customer.fullName,
       });
     }
     if (card.howToEarnText) {
       textModules.push({
         id: 'how-to-earn',
-        header: 'Cómo ganar',
+        header: L.how_to_earn,
         body: card.howToEarnText,
       });
     }
     if (card.rewardDescText) {
       textModules.push({
         id: 'reward-desc',
-        header: 'Detalles',
+        header: L.details,
         body: card.rewardDescText,
       });
     }
     if (card.businessName) {
       textModules.push({
         id: 'business',
-        header: 'Negocio',
+        header: L.business,
         body: card.businessName,
       });
     }
     if (card.terms && card.termsEnabled !== false) {
       textModules.push({
         id: 'terms',
-        header: 'Términos y condiciones',
+        header: L.terms,
         body: card.terms,
       });
     }
@@ -210,7 +213,7 @@ export class GoogleWalletService {
             uri: `${apiUrl}/api/passes/${pass.id}/hero.png?v=${cacheBust}`,
           },
           contentDescription: {
-            defaultValue: { language: 'es', value: 'Acumula sellos' },
+            defaultValue: { language: 'es', value: L.accumulate },
           },
         },
       });
@@ -222,7 +225,7 @@ export class GoogleWalletService {
             uri: `${apiUrl}/api/passes/${pass.id}/strip.png?v=${cacheBust}`,
           },
           contentDescription: {
-            defaultValue: { language: 'es', value: 'Tus sellos' },
+            defaultValue: { language: 'es', value: L.stamps },
           },
         },
       });
@@ -422,49 +425,45 @@ export class GoogleWalletService {
    */
   private buildNotificationText(pass: any): { header: string; body: string } {
     const t = pass.card.type;
+    const L = passLabels(pass.customer?.locale);
+    const fill = (tmpl: string, v: string) => tmpl.replace('%@', v);
     const brand =
       pass.card.walletBrandName?.trim() ||
       pass.tenant?.brandName ||
       pass.card.name ||
-      'Tu tarjeta';
+      L.loyalty_card;
     if (t === 'CASHBACK') {
       const v = Math.round(Number(pass.cashbackBalance ?? 0));
-      return {
-        header: brand,
-        body: `Saldo cashback: $${v.toLocaleString('es-CO')}`,
-      };
+      return { header: brand, body: fill(L.balance_change, `$${v.toLocaleString('es-CO')}`) };
     }
     if (t === 'VISITS') {
       return {
         header: brand,
-        body: `Visitas: ${pass.visitsCount ?? 0}/${pass.card.visitsRequired ?? 10}`,
+        body: fill(L.visits_change, `${pass.visitsCount ?? 0}/${pass.card.visitsRequired ?? 10}`),
       };
     }
     if (t === 'POINTS') {
       return {
         header: brand,
-        body: `Tienes ${Math.round(Number(pass.pointsBalance ?? 0))} puntos`,
+        body: fill(L.points_change, `${Math.round(Number(pass.pointsBalance ?? 0))}`),
       };
     }
     if (t === 'MEMBERSHIP') {
-      return { header: brand, body: `Nivel: ${pass.currentTier || 'Miembro'}` };
+      return { header: brand, body: fill(L.tier_change, pass.currentTier || L.member_default) };
     }
     if (t === 'DISCOUNT') {
-      return {
-        header: brand,
-        body: `Descuento ${pass.card.discountPercent ?? 10}% disponible`,
-      };
+      return { header: brand, body: `${L.discount}: ${pass.card.discountPercent ?? 10}%` };
     }
     if (t === 'COUPON') {
       const redeemed = pass.status === 'COMPLETED';
       return {
         header: brand,
-        body: redeemed ? 'Cupón redimido' : 'Cupón disponible',
+        body: `${L.coupon}: ${redeemed ? L.coupon_redeemed : L.coupon_available}`,
       };
     }
     return {
       header: brand,
-      body: `Sellos: ${pass.stampsCount ?? 0}/${pass.card.stampsRequired ?? 10}`,
+      body: fill(L.stamps_change, `${pass.stampsCount ?? 0}/${pass.card.stampsRequired ?? 10}`),
     };
   }
 
@@ -541,8 +540,24 @@ export class GoogleWalletService {
       // En modo silent (refresh global masivo) lo OMITIMOS: la clase/objeto ya
       // quedaron actualizados (logo/strip/branding), pero no spameamos al
       // cliente con una notificación.
+      // Anti-spam (PDF 854): el texto genérico "Sellos: 0/12" se disparaba en
+      // enrollment/refresh (sin progreso) y saturaba al cliente. Ahora el
+      // genérico SOLO notifica si hay progreso REAL que anunciar (>0). Con
+      // mensaje custom (bienvenida/cumpleaños/promo) siempre notifica.
+      const hasCustomMsg = !!opts.message?.body;
+      const ct = pass.card.type;
+      const genericWorthNotifying =
+        ct === 'STAMPS' || ct === 'HYBRID' || ct === 'DISCOUNT' || ct === 'GIFT' || ct === 'MULTI'
+          ? (pass.stampsCount ?? 0) > 0
+          : ct === 'VISITS'
+          ? (pass.visitsCount ?? 0) > 0
+          : ct === 'POINTS'
+          ? Number(pass.pointsBalance ?? 0) > 0
+          : ct === 'CASHBACK'
+          ? Number(pass.cashbackBalance ?? 0) > 0
+          : true;
       let notified = false;
-      if (!opts.silent)
+      if (!opts.silent && (hasCustomMsg || genericWorthNotifying))
       try {
         // Si el caller pasó un mensaje custom (ej. saludo de cumpleaños con el
         // nombre del cliente), lo usamos; sino el texto genérico por tipo de

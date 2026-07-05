@@ -889,6 +889,10 @@ model Customer {
   fullName   String
   birthday   DateTime? @db.Date
   externalId String?
+  // Idioma elegido por el cliente al enrolarse (es|en|pt|it). Se usa para
+  // localizar el pase de wallet (Apple/Google). Default 'es' → clientes
+  // existentes no cambian. (PDF 854)
+  locale     String    @default("es")
 
   // Extended for v2
   firstOrderAt      DateTime?

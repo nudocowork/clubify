@@ -646,11 +646,16 @@ export default function EnrollPage() {
         typeof window !== 'undefined'
           ? new URLSearchParams(window.location.search).get('utm') ?? undefined
           : undefined;
-      const res = await fetch(`${API}/api/passes/enroll/${cardId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...data, utmSlug }),
-      });
+      // ?locale= → el backend persiste Customer.locale para localizar el pase
+      // de wallet (Apple/Google) en el idioma que el cliente eligió aquí.
+      const res = await fetch(
+        `${API}/api/passes/enroll/${cardId}?locale=${encodeURIComponent(locale)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...data, utmSlug }),
+        },
+      );
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j.message || tt('card.create_failed'));

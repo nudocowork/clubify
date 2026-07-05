@@ -6,6 +6,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { GoogleWalletService } from './google-wallet.service';
 import { resolveStampIconRenderer } from './stamp-icons';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
+import { passLabels, type PassLocale, normalizePassLocale } from './pass-labels';
 
 /**
  * Genera pases para Apple Wallet (.pkpass) y Google Wallet (save link).
@@ -101,7 +102,10 @@ export class WalletService {
     const passBrand = await this.brand.resolveTenant(pass.tenantId);
     const passBrandHref = passBrand.websiteUrl;
     const passBrandDomain = passBrand.websiteUrl.replace(/^https?:\/\//, '');
-    const cardName = (pass.card.name || 'Tarjeta de fidelización').trim() || 'Tarjeta';
+    // Idioma del cliente (persistido al enrolarse). Localiza TODOS los labels
+    // del pase (Apple). Default 'es' para clientes sin locale. (PDF 854)
+    const L = passLabels(pass.customer?.locale);
+    const cardName = (pass.card.name || L.loyalty_card).trim() || L.loyalty_card;
     const description = cardName;
 
     // Para que Apple Wallet muestre banner "Tu pase de X cambió", el .pkpass
@@ -125,7 +129,7 @@ export class WalletService {
     });
     const lastMsgValue = latestNotif
       ? `${latestNotif.title}\n${latestNotif.body}`.trim().slice(0, 200)
-      : 'Aún no hay mensajes';
+      : L.no_messages;
 
     const passJson = {
       formatVersion: 1,
@@ -164,7 +168,7 @@ export class WalletService {
       locations: pass.tenant.locations.map((l) => ({
         latitude: Number(l.latitude),
         longitude: Number(l.longitude),
-        relevantText: l.walletRelevantText?.trim() || `Estás cerca de ${brandName}`,
+        relevantText: l.walletRelevantText?.trim() || L.near_place(brandName),
       })),
       maxDistance: pass.tenant.locations.reduce(
         (max, l) => Math.max(max, l.radiusMeters || 300),
@@ -177,28 +181,28 @@ export class WalletService {
         // pintado dentro del strip image como badge — así no hay overlap
         // visual con el logoText (brand name) que ocupa el mismo row.
         headerFields:
-          pass.card.type === 'COUPON' ? [] : [this.buildHeaderField(pass)],
+          pass.card.type === 'COUPON' ? [] : [this.buildHeaderField(pass, L)],
         // primaryFields vacío → el strip image actúa de hero principal sin
         // texto encima.
         primaryFields: [],
         secondaryFields: [
-          { key: 'reward', label: 'RECOMPENSA', value: pass.card.rewardText || '—' },
+          { key: 'reward', label: L.reward, value: pass.card.rewardText || '—' },
         ],
         auxiliaryFields: [
-          { key: 'member', label: 'CLIENTE', value: pass.customer.fullName },
+          { key: 'member', label: L.customer, value: pass.customer.fullName },
         ],
         backFields: [
           {
             // Mensaje del último push de marketing — al cambiar muestra
             // banner en lockscreen automático.
             key: 'lastMessage',
-            label: 'Último mensaje',
+            label: L.last_message,
             value: lastMsgValue,
             changeMessage: '%@',
           },
-          { key: 'serial', label: 'Número de tarjeta', value: pass.serialNumber },
-          { key: 'terms', label: 'Condiciones', value: pass.card.terms || '—' },
-          { key: 'contact', label: 'Contacto', value: brandName },
+          { key: 'serial', label: L.card_number, value: pass.serialNumber },
+          { key: 'terms', label: L.terms, value: pass.card.terms || '—' },
+          { key: 'contact', label: L.contact, value: brandName },
           {
             // Apple Wallet detecta URLs en value y las hace clickeables.
             // El usuario tap el ⓘ del pase, ve "Creado por <marca>" con el
@@ -369,7 +373,10 @@ export class WalletService {
    * Calcula el header field principal del pkpass según el tipo de tarjeta.
    * Cada tipo muestra el dato relevante (sellos / saldo / visitas / tier).
    */
-  private buildHeaderField(pass: any): {
+  private buildHeaderField(
+    pass: any,
+    L: ReturnType<typeof passLabels>,
+  ): {
     key: string;
     label: string;
     value: string;
@@ -380,34 +387,34 @@ export class WalletService {
       const bal = Math.round(Number(pass.cashbackBalance ?? 0));
       return {
         key: 'cashback',
-        label: 'SALDO',
+        label: L.balance,
         value: `$${bal.toLocaleString('es-CO')}`,
-        changeMessage: 'Saldo: %@',
+        changeMessage: L.balance_change,
       };
     }
     if (t === 'VISITS') {
       return {
         key: 'visits',
-        label: 'VISITAS',
+        label: L.visits,
         value: `${pass.visitsCount ?? 0} / ${pass.card.visitsRequired ?? 10}`,
-        changeMessage: 'Visitas: %@',
+        changeMessage: L.visits_change,
       };
     }
     if (t === 'POINTS') {
       const pts = Math.round(Number(pass.pointsBalance ?? 0));
       return {
         key: 'points',
-        label: 'PUNTOS',
+        label: L.points,
         value: `${pts}`,
-        changeMessage: 'Puntos: %@',
+        changeMessage: L.points_change,
       };
     }
     if (t === 'MEMBERSHIP') {
       return {
         key: 'tier',
-        label: 'NIVEL',
-        value: pass.currentTier || 'Miembro',
-        changeMessage: 'Nuevo nivel: %@',
+        label: L.tier,
+        value: pass.currentTier || L.member_default,
+        changeMessage: L.tier_change,
       };
     }
     // COUPON: single-use. El header muestra el estado del cupón, no
@@ -418,17 +425,17 @@ export class WalletService {
       const redeemed = pass.status === 'COMPLETED';
       return {
         key: 'coupon',
-        label: 'CUPÓN',
-        value: redeemed ? 'REDIMIDO' : 'DISPONIBLE',
-        changeMessage: 'Cupón: %@',
+        label: L.coupon,
+        value: redeemed ? L.coupon_redeemed : L.coupon_available,
+        changeMessage: L.coupon_change,
       };
     }
     // STAMPS / HYBRID / DISCOUNT / GIFT / MULTI: comportamiento clásico de sellos.
     return {
       key: 'stamps',
-      label: 'SELLOS',
+      label: L.stamps,
       value: `${pass.stampsCount} / ${pass.card.stampsRequired ?? 10}`,
-      changeMessage: 'Sellos: %@',
+      changeMessage: L.stamps_change,
     };
   }
 
@@ -456,9 +463,10 @@ export class WalletService {
     const sharp = (await import('sharp')).default;
     const pass = await this.prisma.pass.findUnique({
       where: { id: passId },
-      include: { card: true },
+      include: { card: true, customer: { select: { locale: true } } },
     });
     if (!pass) return null;
+    const L = passLabels(pass.customer?.locale);
     const t = pass.card.type;
     if (t !== 'STAMPS' && t !== 'HYBRID' && t !== 'VISITS') return null;
     const required =
@@ -473,7 +481,7 @@ export class WalletService {
 
     const W = 1032;
     const H = 336;
-    const title = 'Acumula sellos y obtén beneficios';
+    const title = L.accumulate;
 
     // Tres columnas equidistantes ocupando 60% del ancho centrado.
     const colsAreaY = 200;
@@ -489,17 +497,17 @@ export class WalletService {
     const stats = [
       {
         icon: '<path d="M-18 -20 h36 v40 h-36 z M-18 -12 h36 M-12 -16 h6 M-2 -16 h6 M10 -16 h6 M-12 -8 h6 M-2 -8 h6 M10 -8 h6 M-12 0 h6 M-2 0 h6 M10 0 h6 M-12 8 h6 M-2 8 h6 M10 8 h6" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/>',
-        label: 'Sellos faltantes',
-        value: `${remaining} ${remaining === 1 ? 'sello' : 'sellos'}`,
+        label: L.missing_stamps,
+        value: L.stamps_left(remaining),
       },
       {
         icon: '<path d="M-18 -4 h36 v20 h-36 z M-18 -4 h36 v-6 h-36 z M0 -10 v26 M-12 -10 a6 6 0 1 1 12 0 a6 6 0 1 1 12 0" stroke="white" stroke-width="2.5" fill="none" stroke-linejoin="round"/>',
-        label: 'Recompensas',
-        value: '0 premios',
+        label: L.rewards,
+        value: L.rewards_count(0),
       },
       {
         icon: '<path d="M-14 -16 h28 v8 a14 14 0 0 1 -14 14 a14 14 0 0 1 -14 -14 z M-14 -10 h-6 v4 a6 6 0 0 0 6 6 M14 -10 h6 v4 a6 6 0 0 1 -6 6 M-6 12 h12 v6 h-12 z" stroke="white" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round"/>',
-        label: 'Premio siguiente',
+        label: L.next_reward,
         value: rewardText.length > 22 ? rewardText.slice(0, 20) + '…' : rewardText,
       },
     ];

@@ -154,8 +154,14 @@ export class PassesController {
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('enroll/:cardId')
-  enroll(@Param('cardId') cardId: string, @Body() body: EnrollBody) {
-    return this.svc.enrollPublic(cardId, body);
+  enroll(
+    @Param('cardId') cardId: string,
+    @Body() body: EnrollBody,
+    @Query('locale') locale?: string,
+  ) {
+    // El idioma elegido por el cliente en /c/[cardId] llega como ?locale=;
+    // se persiste en Customer.locale para localizar su pase de wallet.
+    return this.svc.enrollPublic(cardId, { ...body, locale });
   }
 
   /**

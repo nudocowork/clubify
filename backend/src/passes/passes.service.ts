@@ -10,6 +10,7 @@ import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AutomationsService } from '../automations/automations.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
+import { normalizePassLocale } from '../wallet/pass-labels';
 
 /**
  * Token que va dentro del barcode (PDF417) del pase de wallet.
@@ -219,8 +220,10 @@ export class PassesService {
       phone: string;
       birthday?: string;
       utmSlug?: string;
+      locale?: string;
     },
   ) {
+    const localeNorm = normalizePassLocale(dto.locale);
     const card = await this.prisma.card.findUnique({
       where: { id: cardId },
       include: { tenant: { select: { id: true, status: true } } },
@@ -277,6 +280,7 @@ export class PassesService {
             phone: phoneNorm,
             email: email ?? undefined,
             birthday: validBday ?? undefined,
+            locale: localeNorm,
           },
         });
       } catch (e: any) {
@@ -294,16 +298,19 @@ export class PassesService {
     } else if (
       customer.fullName !== dto.fullName.trim() ||
       (email && !customer.email) ||
-      (validBday && !customer.birthday)
+      (validBday && !customer.birthday) ||
+      (customer as { locale?: string }).locale !== localeNorm
     ) {
       // Actualizar nombre si cambió, email si lo deja por primera vez,
-      // birthday si lo deja por primera vez (no sobreescribe si ya estaba).
+      // birthday si lo deja por primera vez (no sobreescribe si ya estaba),
+      // y el idioma al que el cliente eligió ahora (para localizar el pase).
       customer = await this.prisma.customer.update({
         where: { id: customer.id },
         data: {
           fullName: dto.fullName.trim(),
           email: email ?? customer.email,
           birthday: validBday ?? customer.birthday,
+          locale: localeNorm,
         },
       });
     }
