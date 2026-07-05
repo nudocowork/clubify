@@ -1462,7 +1462,18 @@ export class HotmartService {
 
     if (use) {
       const last = use.commissions[0];
-      const recent = last && (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25;
+      // FIX 2026-07-05 (comisiones de renovación no se generaban): el guard de
+      // "ventana <25 días" es SOLO un fallback para cuando NO hay transactionId
+      // (no podemos deduplicar con precisión). Con transactionId, la dedup exacta
+      // por externalTxId (duplicateByTx, abajo) ya cubre los reintentos de
+      // webhook, y CADA cobro nuevo (tx distinta) DEBE generar su comisión aunque
+      // el ciclo anterior sea reciente. Antes, un cobro mensual que llegaba a los
+      // ~21 días (ej. Quipao/Wok Explosivo) se saltaba como "duplicado" y
+      // Sara/nico no cobraban su comisión de la renovación.
+      const recent =
+        !opts.transactionId &&
+        last &&
+        (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25;
 
       // Dedup por transactionId: si ya hay una Commission con el mismo
       // externalTxId (mismo evento Hotmart procesado dos veces, o el
@@ -1599,7 +1610,12 @@ export class HotmartService {
 
     // 2) Comisión SOCIO (10% global). Aplica SIEMPRE, exista o no
     // un código de referido. Solo si el super admin configuró el socio.
-    await this.generateSocioCommission(opts.tenantId, socioBase, commissionAvailableAt).catch((e) =>
+    await this.generateSocioCommission(
+      opts.tenantId,
+      socioBase,
+      commissionAvailableAt,
+      opts.transactionId,
+    ).catch((e) =>
       this.logger.warn(`Comisión socio falló: ${(e as Error).message}`),
     );
   }
@@ -1608,6 +1624,7 @@ export class HotmartService {
     tenantId: string,
     amountPaid: number,
     availableAt?: Date,
+    transactionId?: string | null,
   ) {
     const socioRow = await this.prisma.setting.findUnique({
       where: { key: 'referrals.socioCodeId' },
@@ -1637,8 +1654,24 @@ export class HotmartService {
           include: { commissions: { orderBy: { createdAt: 'desc' }, take: 1 } },
         });
     }
+    // Dedup exacta por transacción: si ya existe una comisión socio con este
+    // mismo externalTxId, es un reintento del webhook → skip.
+    if (transactionId) {
+      const existingTx = await this.prisma.commission.findFirst({
+        where: { externalTxId: transactionId, referralUseId: use.id },
+        select: { id: true },
+      });
+      if (existingTx) return;
+    }
+    // FIX 2026-07-05: la ventana <25 días es solo fallback SIN transactionId.
+    // Con tx, cada cobro genera su comisión socio (antes se saltaban las
+    // renovaciones mensuales que caían a ~21 días del ciclo anterior).
     const last = use.commissions[0];
-    if (last && (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25) {
+    if (
+      !transactionId &&
+      last &&
+      (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25
+    ) {
       return; // mismo ciclo
     }
     await this.prisma.commission
@@ -1647,6 +1680,7 @@ export class HotmartService {
           referralUseId: use.id,
           amount,
           status: 'PENDING',
+          externalTxId: transactionId ?? null,
           recipientCodeId: socio.id,
           periodKey: monthKey(),
           availableAt: availableAt ?? null,
