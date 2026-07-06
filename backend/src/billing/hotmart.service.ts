@@ -851,11 +851,16 @@ export class HotmartService {
     payload: HotmartWebhookPayload,
   ) {
     const wasSuspended = tenant.status === 'SUSPENDED';
-    // Si el tenant YA estaba ACTIVE antes de este webhook, es una RENOVACIÓN o
-    // un re-envío/reintento de Hotmart, NO una compra nueva. Se usa abajo para
-    // no volver a disparar la alerta "🎉 Nueva compra Clubify" (que llegaba a
-    // clientes que compraron días antes — bug PDF 854).
-    const wasActive = tenant.status === 'ACTIVE';
+    // La alerta "🎉 Nueva compra Clubify" (equipo de onboarding) va SOLO en la
+    // PRIMERA compra Hotmart del tenant. Señal robusta: no tenía transacción
+    // Hotmart previa (hotmartTransactionId null). Un re-envío/reintento de
+    // Hotmart o una renovación ya traen el tx seteado → se omite.
+    //
+    // FIX 2026-07-06: antes usábamos status==='ACTIVE' como "renovación", pero
+    // los negocios que se crean ACTIVE (activación por créditos) ANTES de su
+    // primer cobro quedaban marcados como renovación y la alerta de la venta
+    // nueva NO se enviaba. hotmartTransactionId sí distingue bien.
+    const isFirstHotmartPurchase = !tenant.hotmartTransactionId;
     const subscriberCode = payload.data?.subscription?.subscriber?.code;
     const transactionId = payload.data?.purchase?.transaction;
     // E (2026-06-12): Hotmart es la fuente oficial de fechas. Si
@@ -1019,8 +1024,9 @@ export class HotmartService {
       // preservado (puede ser null en casos edge — el fan-out maneja eso).
       nextCharge: nextCharge ?? tenant.currentPeriodEnd ?? new Date(),
       transactionId,
-      // Renovación / re-webhook de cliente ya activo → NO reenviar "Nueva compra".
-      isRenewal: wasActive,
+      // Solo "Nueva compra" en la 1ra compra Hotmart. Renovación/re-webhook
+      // (tenant con tx previa) → se omite la alerta.
+      isRenewal: !isFirstHotmartPurchase,
     }).catch((e) =>
       this.logger.warn(`postPurchaseFanOut falló: ${(e as Error).message}`),
     );
