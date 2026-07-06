@@ -38,12 +38,28 @@ export class ChannelsService {
     if (!phone) return '';
 
     const items = (order.items as any[])
-      .map(
-        (i) =>
+      .map((i) => {
+        // PROMOCIÓN: mostramos nombre, precio anterior → precio de promo y la
+        // descripción (PDF 1254). El objeto promo lo persiste orders.service.
+        if (i.promo) {
+          const orig = i.promo.originalPrice;
+          const promoPrice = i.promo.promoPrice ?? i.unitPrice;
+          const priceLine =
+            orig != null && orig > promoPrice
+              ? `~${formatMoney(orig, tenant.currency, tenant.currencySymbol)}~ → ${formatMoney(promoPrice, tenant.currency, tenant.currencySymbol)}`
+              : formatMoney(i.lineTotal, tenant.currency, tenant.currencySymbol);
+          return (
+            `• ${i.qty}x 🎁 ${i.promo.name} — ${priceLine}` +
+            (i.promo.description ? `\n   📝 ${i.promo.description}` : '') +
+            (i.note ? `\n   ↳ ${i.note}` : '')
+          );
+        }
+        return (
           `• ${i.qty}x ${i.name} — ${formatMoney(i.lineTotal, tenant.currency, tenant.currencySymbol)}` +
           renderExtras(i, tenant) +
-          (i.note ? `\n   ↳ ${i.note}` : ''),
-      )
+          (i.note ? `\n   ↳ ${i.note}` : '')
+        );
+      })
       .join('\n');
 
     const fulfillment = {

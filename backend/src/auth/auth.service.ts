@@ -1064,8 +1064,16 @@ export class AuthService {
       }
     }
 
-    // 4. Clubify (default): null.
-    return null;
+    // 4. Clubify (default): ID EXPLÍCITO, no null. FIX PDF 1254: antes los
+    // signups de Clubify quedaban con whiteLabelId=null y algunas vistas los
+    // contaban y otras no (Samuel 56 vs Javier 54, faltaba Veterinaria Moran).
+    // Con el ID explícito, TODOS los tenants tienen marca y el conteo es
+    // consistente. El scope de Clubify ya matchea id + null, así que no rompe
+    // nada legacy.
+    const clubify = await this.prisma.whiteLabel
+      .findFirst({ where: { slug: 'clubify' }, select: { id: true } })
+      .catch(() => null);
+    return clubify?.id ?? null;
   }
 
   async signup(dto: {

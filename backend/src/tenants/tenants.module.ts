@@ -8,6 +8,7 @@ import { AuditModule } from '../audit/audit.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { BillingModule } from '../billing/billing.module';
 import { ReferralsModule } from '../referrals/referrals.module';
+import { CommissionRecalcModule } from '../referrals/commission-recalc.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { ReferralsModule } from '../referrals/referrals.module';
     // tenants en el futuro. Por ahora es one-way pero el forwardRef
     // protege a futuro.
     forwardRef(() => ReferralsModule),
+    CommissionRecalcModule,
   ],
   providers: [TenantsService],
   controllers: [

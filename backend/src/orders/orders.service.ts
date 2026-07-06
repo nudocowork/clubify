@@ -43,6 +43,15 @@ export type OrderItem = {
   unitPrice: number;
   lineTotal: number;
   note?: string;
+  // Metadata cuando el item es una PROMOCIÓN (productId 'promo:<id>'). Se usa
+  // para el mensaje de WhatsApp: nombre, precio anterior, precio de promo y
+  // descripción. (PDF 1254)
+  promo?: {
+    name: string;
+    originalPrice: number | null;
+    promoPrice: number;
+    description: string | null;
+  } | null;
 };
 
 /**
@@ -358,8 +367,16 @@ export class OrdersService {
           ? { availableForDelivery: true }
           : {};
 
-    // Resolver productos y precios actuales (anti-tampering)
-    const productIds = dto.items.map((i) => i.productId);
+    // Resolver productos y precios actuales (anti-tampering). Los items de
+    // PROMOCIÓN llegan con productId 'promo:<id>' → se resuelven aparte contra
+    // la tabla Promotion (antes el backend los buscaba como producto y tiraba
+    // "Producto promo:… no disponible" → el pedido fallaba). PDF 1254.
+    const productIds = dto.items
+      .map((i) => i.productId)
+      .filter((id) => !id.startsWith('promo:'));
+    const promoIds = dto.items
+      .filter((i) => i.productId.startsWith('promo:'))
+      .map((i) => i.productId.slice('promo:'.length));
     const products = await this.prisma.product.findMany({
       where: {
         tenantId: tenant.id,
@@ -370,10 +387,52 @@ export class OrdersService {
       include: { variants: true, extras: true },
     });
     const map = new Map(products.map((p) => [p.id, p]));
+    const promos = promoIds.length
+      ? await this.prisma.promotion.findMany({
+          where: { tenantId: tenant.id, id: { in: promoIds }, isActive: true },
+        })
+      : [];
+    const promoMap = new Map(promos.map((p) => [p.id, p]));
 
     const items: OrderItem[] = [];
     let subtotal = 0;
     for (const i of dto.items) {
+      // --- Item de PROMOCIÓN ---
+      if (i.productId.startsWith('promo:')) {
+        const promo = promoMap.get(i.productId.slice('promo:'.length));
+        if (!promo)
+          throw new BadRequestException('Promoción no disponible');
+        const orig =
+          promo.originalPrice != null ? Number(promo.originalPrice) : null;
+        const val = promo.value != null ? Number(promo.value) : 0;
+        // Mismo cálculo que el storefront (anti-tampering: no confiamos en el
+        // unitPrice que manda el cliente).
+        let finalPrice: number | null = null;
+        if (promo.type === 'DISCOUNT_AMOUNT' && val > 0) finalPrice = val;
+        else if (promo.type === 'DISCOUNT_PCT' && val > 0 && orig != null)
+          finalPrice = Math.round(orig * (1 - val / 100));
+        const unit = finalPrice ?? orig ?? 0;
+        const qty = Math.max(1, Math.min(50, i.qty));
+        const lineTotal = unit * qty;
+        subtotal += lineTotal;
+        items.push({
+          productId: i.productId,
+          variantId: null,
+          extras: [],
+          qty,
+          name: `🎁 ${promo.name}`,
+          unitPrice: unit,
+          lineTotal,
+          note: i.note,
+          promo: {
+            name: promo.name,
+            originalPrice: orig,
+            promoPrice: unit,
+            description: promo.description?.trim() || null,
+          },
+        });
+        continue;
+      }
       const p = map.get(i.productId);
       if (!p) throw new BadRequestException(`Producto ${i.productId} no disponible`);
       let unit = Number(p.basePrice);

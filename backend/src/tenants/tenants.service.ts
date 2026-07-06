@@ -13,6 +13,7 @@ import { AuthService } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
 import { ReferralsService } from '../referrals/referrals.service';
+import { CommissionRecalcService } from '../referrals/commission-recalc.service';
 import { addPlanPeriod } from '../common/plan-period';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { QueueService } from '../jobs/queue.service';
@@ -146,6 +147,7 @@ export class TenantsService {
     private referrals: ReferralsService,
     private queue: QueueService,
     private growBusiness: GrowBusinessService,
+    private recalc: CommissionRecalcService,
   ) {}
 
   /**
@@ -732,6 +734,37 @@ export class TenantsService {
     ) {
       this.referrals
         .recalcTenantSplit(id, null, 'subscription_price_change')
+        .catch(() => undefined);
+    }
+    // PDF 1254: si cambió la PERIODICIDAD del plan (ej. Trimestral → Semestral),
+    // la comisión debe reflejar el nuevo plan. La base es el precio; cuando el
+    // precio guardado NO era custom (era el canónico del plan anterior o null),
+    // lo movemos al canónico del NUEVO plan y recalculamos. Un precio custom se
+    // respeta (no se pisa). Si el admin mandó un precio explícito en este mismo
+    // update, ese gana y no tocamos nada acá.
+    if (
+      dto.planPeriodicity !== undefined &&
+      dto.planPeriodicity !== (before as any).planPeriodicity
+    ) {
+      if (dto.subscriptionPriceUsd === undefined) {
+        const oldCanon = await this.recalc.getBundlePrice(
+          (before as any).planPeriodicity ?? null,
+        );
+        const cur = Number((before as any).subscriptionPriceUsd ?? NaN);
+        const priceWasCanonicalOrNull =
+          !Number.isFinite(cur) || (oldCanon > 0 && cur === oldCanon);
+        if (priceWasCanonicalOrNull) {
+          const newCanon = await this.recalc.getBundlePrice(dto.planPeriodicity);
+          if (newCanon > 0) {
+            await this.prisma.tenant.update({
+              where: { id },
+              data: { subscriptionPriceUsd: newCanon },
+            });
+          }
+        }
+      }
+      this.referrals
+        .recalcTenantSplit(id, null, 'plan_periodicity_change')
         .catch(() => undefined);
     }
     // Mismo refresh de wallet que updateMine: si el admin cambió logo/colores/
