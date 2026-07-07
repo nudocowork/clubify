@@ -9,7 +9,7 @@
 // importantes que necesitan invalidar TODA la cache de los clientes.
 // Cada vez que cambia, el SW activate purga las caches viejas y los clientes
 // vuelven a descargar todo fresh.
-const VERSION = 'v15-2026-06-05-no-reload-first-install-transactional-bypass';
+const VERSION = 'v16-2026-07-07-login-app-bypass-purge-stale';
 const SHELL_CACHE = `clubify-shell-${VERSION}`;
 const ASSET_CACHE = `clubify-assets-${VERSION}`;
 
@@ -105,6 +105,23 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/prueba') ||
     url.pathname.startsWith('/trial') ||
     url.pathname.startsWith('/admin/') ||
+    // v16 2026-07-07: las páginas de la app (login + paneles) SIEMPRE frescas
+    // desde red. Sin esto, /login era network-first CON fallback a caché: tras
+    // un deploy, el HTML viejo cacheado referenciaba chunks /_next/static con
+    // hash muerto (404) → React no hidrataba → el input de correo quedaba
+    // "congelado" (SSR sin JS). /admin/ ya estaba excluido; faltaban el resto.
+    url.pathname === '/login' ||
+    url.pathname.startsWith('/login/') ||
+    url.pathname === '/app' ||
+    url.pathname.startsWith('/app/') ||
+    url.pathname === '/affiliate' ||
+    url.pathname.startsWith('/affiliate/') ||
+    url.pathname === '/domicilios' ||
+    url.pathname.startsWith('/domicilios/') ||
+    url.pathname === '/superadmin' ||
+    url.pathname.startsWith('/superadmin/') ||
+    url.pathname === '/forgot' ||
+    url.pathname.startsWith('/forgot/') ||
     url.pathname.startsWith('/_next/data/')
   ) {
     return;
