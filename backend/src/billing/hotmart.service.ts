@@ -57,7 +57,9 @@ export type HotmartWebhookPayload = {
       approved_date?: number;
       // Hotmart manda el monto pagado en USD aquí. Lo usamos para calcular
       // la comisión del referido. Si no viene, caemos a plan.priceMonthly.
-      price?: { value?: number; currency_code?: string };
+      // OJO: Hotmart manda la moneda como `currency_value` (ej. "PAB", "COP",
+      // "USD"), y a veces `currency_code`. Revisamos ambos.
+      price?: { value?: number; currency_code?: string; currency_value?: string };
       // Oferta específica del checkout. Varias ofertas pueden compartir el mismo
       // productId (ej. packs de 1/10/20 créditos) → el offer.code distingue cuál.
       offer?: { code?: string; description?: string };
@@ -131,7 +133,15 @@ export class HotmartService {
     const value = price?.value;
     if (typeof value !== 'number' || value <= 0) return null;
 
-    const ccy = (price?.currency_code || '').toUpperCase();
+    // FIX 2026-07-07 (ALTIERI): Hotmart manda la moneda como `currency_value`
+    // (no `currency_code`). ALTIERI pagó 291.15 PAB → sin este check se tomaba
+    // como USD e inflaba la comisión ($29.12 vs $27.80). La regla del negocio:
+    // SIEMPRE el precio pactado (canónico) sin importar en qué moneda pagó.
+    const ccy = (
+      price?.currency_code ||
+      price?.currency_value ||
+      ''
+    ).toUpperCase();
     if (ccy && ccy !== 'USD') {
       this.logger.warn(
         `Hotmart ${ctx}: value=${value} en ${ccy} (no USD) — uso canónico ${canonicalUsd}.`,
