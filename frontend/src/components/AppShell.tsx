@@ -117,6 +117,9 @@ export default function AppShell({
   const router = useRouter();
   const pathname = usePathname();
   const branding = useBranding();
+  // PDF 1254: último locale de negocio aplicado (para no re-sincronizar el
+  // mismo, pero SÍ cuando se cambia de negocio dentro del mismo mount).
+  const lastSyncedLocaleRef = useRef<string | null>(null);
   const [user, setUser] = useState<any>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [impersonation, setImpersonation] = useState<ReturnType<typeof getImpersonationBackup>>(null);
@@ -431,6 +434,27 @@ export default function AppShell({
           communityEnabled: t?.communityEnabled ?? true,
           whiteLabelBranding: t?.whiteLabelBranding ?? null,
         });
+        // PDF 1254 — idioma POR NEGOCIO: si el idioma activo del panel (cookie
+        // NEXT_LOCALE) difiere del idioma del NEGOCIO, lo aplicamos y
+        // refrescamos UNA sola vez. Así, al entrar a un negocio, el panel se ve
+        // en su idioma, independiente de otros negocios. El guard evita loops.
+        const tenantLocale: string | undefined = t?.locale;
+        const activeLocale =
+          document.cookie.match(/(?:^|;\s*)NEXT_LOCALE=([^;]+)/)?.[1] ?? '';
+        if (
+          tenantLocale &&
+          tenantLocale !== activeLocale &&
+          lastSyncedLocaleRef.current !== tenantLocale
+        ) {
+          lastSyncedLocaleRef.current = tenantLocale;
+          fetch('/api/locale', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ locale: tenantLocale }),
+          })
+            .then(() => router.refresh())
+            .catch(() => {});
+        }
       })
       .catch(() => null);
   }, [variant, pathname]);

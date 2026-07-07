@@ -475,6 +475,10 @@ model Tenant {
   /// defaults locale-aware.
   country                     String               @default("CO")
   timezone                    String               @default("America/Bogota")
+  /// Idioma del NEGOCIO (PDF 1254): maneja el panel y el default del
+  /// storefront/clientes. Cada negocio es independiente. Valores: es|en|pt|it
+  /// (o variantes en-GB/en-US/pt-BR). Default 'es'.
+  locale                      String               @default("es")
   instagramUrl                String?
   facebookUrl                 String?
   mapsUrl                     String?

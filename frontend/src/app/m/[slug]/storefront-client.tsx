@@ -32,7 +32,7 @@ import {
   type StorefrontPopupItem,
   resolveActiveMenuPopup,
 } from '@/lib/storefront-popups';
-import { useLocale, useT } from '@/lib/i18n';
+import { useLocale, useT, configureTenantLocale } from '@/lib/i18n';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { MenuBookViewer } from '@/components/menu/MenuBookViewer';
 import {
@@ -80,6 +80,8 @@ type StorefrontBrand = {
 type Storefront = {
   id: string;
   brandName: string;
+  /** Idioma del negocio (default del storefront para sus clientes). PDF 1254. */
+  locale?: string;
   /** Marca blanca del negocio (atribución/web/logo). El badge "Hecho con X"
    *  hereda de acá — nunca Clubify por defecto. */
   brand?: StorefrontBrand | null;
@@ -434,7 +436,13 @@ function StorefrontPublicInner() {
           return r.json();
         })
         .then((data) => {
-          if (!cancelled) setS(data);
+          if (!cancelled) {
+            setS(data);
+            // PDF 1254: idioma POR NEGOCIO. Aísla el idioma del cliente por
+            // slug y usa el idioma del negocio como default. Si el cliente ya
+            // eligió uno para ESTE negocio, se respeta (clave namespaced).
+            configureTenantLocale(slug, data?.locale);
+          }
         })
         .catch((e: Error) => {
           if (!cancelled) setLoadError(e.message || 'No disponible');

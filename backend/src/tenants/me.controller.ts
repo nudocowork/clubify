@@ -30,6 +30,8 @@ import { PrismaService } from '../common/prisma/prisma.service';
 
 class UpdateMyBody {
   @IsOptional() @IsString() brandName?: string;
+  // Idioma del negocio (panel + default storefront). PDF 1254.
+  @IsOptional() @IsString() locale?: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() whatsappPhone?: string;
   @IsOptional() @IsString() whatsappOrdersPhone?: string;

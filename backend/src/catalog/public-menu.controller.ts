@@ -218,6 +218,9 @@ export class PublicMenuController {
       currency: t.currency,
       currencySymbol: t.currencySymbol ?? null,
       country: t.country ?? 'CO',
+      // Idioma del negocio (PDF 1254): el storefront lo usa como default para
+      // los clientes de ESTE negocio (independiente de otros negocios).
+      locale: (t as { locale?: string }).locale ?? 'es',
       description,
       heroImageUrl: t.storefront?.heroImageUrl ?? null,
       blocks: t.storefront?.blocks ?? [],

@@ -1088,7 +1088,7 @@
     "noChanges": "Sin cambios",
     "brandNameUpdated": "Nombre del negocio actualizado",
     "language": "Idioma",
-    "languageDesc": "Aplica al panel y se sincroniza entre tus dispositivos.",
+    "languageDesc": "Idioma de este negocio: aplica al panel y a tus clientes. Es independiente de otros negocios.",
     "changePassword": "Cambiar contraseña",
     "changePasswordDesc": "Después de cambiarla seguirás logueado, pero los demás dispositivos van a pedir login otra vez.",
     "currentPassword": "Contraseña actual",

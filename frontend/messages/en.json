@@ -1088,7 +1088,7 @@
     "noChanges": "No changes",
     "brandNameUpdated": "Business name updated",
     "language": "Language",
-    "languageDesc": "Applies to the panel and syncs across your devices.",
+    "languageDesc": "This business's language: applies to the panel and your customers. Independent from other businesses.",
     "changePassword": "Change password",
     "changePasswordDesc": "After changing it you'll stay logged in, but your other devices will ask you to log in again.",
     "currentPassword": "Current password",

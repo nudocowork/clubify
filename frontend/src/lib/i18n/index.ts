@@ -56,12 +56,38 @@ export const LOCALE_FLAGS: Record<Locale, string> = {
 
 const STORAGE_KEY = 'clubify:locale';
 
+// PDF 1254 — idioma POR NEGOCIO en el storefront público. El idioma del CLIENTE
+// se guarda con una clave namespaced por negocio (`clubify:locale:<slug>`) y,
+// si el cliente no eligió uno, se usa el idioma del NEGOCIO (Tenant.locale) en
+// vez de navigator.language. Así, cambiar el idioma en un negocio NO afecta a
+// otros negocios ni al panel.
+let _tenantSlug: string | null = null;
+let _tenantDefault: Locale | null = null;
+
+function storageKey(): string {
+  return _tenantSlug ? `clubify:locale:${_tenantSlug}` : STORAGE_KEY;
+}
+
+/** Normaliza un string de locale (ej. Tenant.locale) a un Locale válido. */
+function coerceLocale(raw?: string | null): Locale | null {
+  if (!raw) return null;
+  if ((LOCALES as string[]).includes(raw)) return raw as Locale;
+  const lower = raw.toLowerCase();
+  if (lower.startsWith('en')) return 'en';
+  if (lower.startsWith('pt')) return 'pt';
+  if (lower.startsWith('it')) return 'it';
+  if (lower.startsWith('es')) return 'es';
+  return null;
+}
+
 function detectInitial(): Locale {
   if (typeof window === 'undefined') return 'es';
   try {
-    const stored = localStorage.getItem(STORAGE_KEY) as Locale | null;
+    const stored = localStorage.getItem(storageKey()) as Locale | null;
     if (stored && LOCALES.includes(stored)) return stored;
   } catch {}
+  // Con negocio configurado, su idioma es el default (no navigator).
+  if (_tenantDefault) return _tenantDefault;
   const nav =
     typeof navigator !== 'undefined' ? navigator.language : 'es';
   // Detect specific variants first (en-GB, en-US, pt-BR), fall back to
@@ -117,12 +143,31 @@ function markHydrated() {
   }
 }
 
+/**
+ * PDF 1254: el storefront público llama esto al montar con el slug del negocio
+ * y su idioma (Tenant.locale). Aísla el idioma del CLIENTE por negocio (clave
+ * namespaced) y usa el idioma del negocio como default si el cliente no eligió.
+ * Re-deriva el locale activo y notifica a los consumers una vez.
+ */
+export function configureTenantLocale(slug: string, defaultLocale?: string) {
+  const normalized = coerceLocale(defaultLocale);
+  const changed = _tenantSlug !== slug || _tenantDefault !== normalized;
+  _tenantSlug = slug || null;
+  _tenantDefault = normalized;
+  if (!changed && _hydrated) return;
+  const next = detectInitial();
+  _detected = next;
+  _hydrated = true;
+  if (typeof document !== 'undefined') document.documentElement.lang = next;
+  Array.from(listeners).forEach((fn) => fn(next));
+}
+
 export function setLocale(l: Locale) {
   if (_detected === l && _hydrated) return; // no-op si ya estaba en ese locale
   _detected = l;
   _hydrated = true;
   try {
-    localStorage.setItem(STORAGE_KEY, l);
+    localStorage.setItem(storageKey(), l);
   } catch {}
   if (typeof document !== 'undefined') {
     document.documentElement.lang = l;

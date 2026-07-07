@@ -4,6 +4,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { DISPLAY_LOCALES, LOCALE_LABELS, type Locale } from '@/i18n/config';
+import { api } from '@/lib/api';
 
 /**
  * Selector de idioma para next-intl (landing público + panel).
@@ -41,6 +42,15 @@ export function LanguageSwitcherIntl({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ locale }),
       });
+      // PANEL (PDF 1254): el idioma es del NEGOCIO. Lo persistimos en
+      // Tenant.locale para que sea independiente por negocio y aplique también
+      // al storefront/clientes de ese negocio. (En 'header' es solo la sesión.)
+      if (variant === 'panel') {
+        await api('/tenants/me', {
+          method: 'PATCH',
+          body: JSON.stringify({ locale }),
+        }).catch(() => {});
+      }
     } catch {
       // Si falla el POST igual hacemos refresh — el cookie no se setea,
       // pero al menos no rompemos UX. El próximo POST exitoso resuelve.

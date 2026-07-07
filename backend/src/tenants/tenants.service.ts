@@ -105,6 +105,7 @@ export type UpdateTenantDto = Partial<{
 
 export type UpdateMyTenantDto = Partial<{
   brandName: string;
+  locale: string;
   phone: string;
   whatsappPhone: string;
   whatsappOrdersPhone: string;
