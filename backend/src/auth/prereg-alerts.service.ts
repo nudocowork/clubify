@@ -35,6 +35,35 @@ export class PreregAlertsService {
     private growBusiness: GrowBusinessService,
   ) {}
 
+  // Circuit-breaker anti-repetición (bug 2026-07-06: alertas de compra/
+  // onboarding llegando repetidamente). Evita reenviar una alerta con la MISMA
+  // clave (tipo + email) dentro de una ventana corta, sin importar quién la
+  // dispare (webhook, cron, reintento, doble submit). En memoria: suficiente
+  // para cortar bursts; se complementa con guards de DB donde existen.
+  private readonly recentAlerts = new Map<string, number>();
+  private readonly ALERT_DEDUP_MS = 10 * 60 * 1000;
+
+  private isDuplicateAlert(key: string): boolean {
+    const now = Date.now();
+    const last = this.recentAlerts.get(key);
+    if (last && now - last < this.ALERT_DEDUP_MS) return true;
+    this.recentAlerts.set(key, now);
+    if (this.recentAlerts.size > 1000) {
+      for (const [k, t] of this.recentAlerts)
+        if (now - t > this.ALERT_DEDUP_MS) this.recentAlerts.delete(k);
+    }
+    return false;
+  }
+
+  /** Clave estable ignorando timestamps/números variables: primera línea
+   *  (tipo de mensaje) + email del cuerpo. */
+  private alertKey(body: string): string {
+    const email =
+      body.match(/[\w.+-]+@[\w.-]+\.[\w.-]+/)?.[0]?.toLowerCase() ?? '';
+    const firstLine = body.split('\n')[0].slice(0, 60);
+    return `${firstLine}::${email}`;
+  }
+
   /**
    * Dispara los SMS. Fire-and-forget recomendado por el caller — el
    * service captura sus propios errores y no propaga.
@@ -49,6 +78,31 @@ export class PreregAlertsService {
     campaignName?: string | null;
   }): Promise<void> {
     try {
+      // GUARD anti-repetición: si este user YA fue alertado (o hubo una alerta
+      // idéntica reciente), no reenviamos. Antes se seteaba preregAlertedAt
+      // DESPUÉS de enviar pero no se chequeaba al entrar → doble llamada =
+      // "Nuevo preregistro" duplicado.
+      const already = await this.prisma.user
+        .findUnique({
+          where: { id: opts.userId },
+          select: { preregAlertedAt: true },
+        })
+        .catch(() => null);
+      if (
+        already?.preregAlertedAt &&
+        Date.now() - already.preregAlertedAt.getTime() < 24 * 60 * 60 * 1000
+      ) {
+        this.logger.log(
+          `prereg alert ya enviado para user=${opts.userId} — skip`,
+        );
+        return;
+      }
+      if (this.isDuplicateAlert(`prereg::${opts.customerEmail.toLowerCase()}`)) {
+        this.logger.warn(
+          `prereg alert idéntico reciente para ${opts.customerEmail} — skip (anti-spam)`,
+        );
+        return;
+      }
       // Resolver subcuenta GB a usar.
       const account = await this.resolveAccount();
       if (!account) {
@@ -117,6 +171,15 @@ export class PreregAlertsService {
     total: number;
   }> {
     try {
+      // Anti-repetición: no reenviar una alerta idéntica (mismo tipo+email)
+      // dentro de la ventana. Corta bursts de "Nueva compra"/"Pago SIN cuenta"
+      // sin importar el disparador (bug 2026-07-06).
+      if (this.isDuplicateAlert(this.alertKey(body))) {
+        this.logger.warn(
+          'sendTeamAlert: alerta idéntica reciente — skip (anti-spam)',
+        );
+        return { ok: true, sent: 0, total: 0 };
+      }
       const account = await this.resolveAccount();
       if (!account) {
         this.logger.warn('sendTeamAlert: sin GrowBusinessAccount');
@@ -168,6 +231,15 @@ export class PreregAlertsService {
     activateUrl: string;
   }): Promise<{ ok: boolean; channel: 'whatsapp' | 'sms' | 'none' }> {
     try {
+      // Anti-repetición: no reenviar el link de activación al mismo comprador
+      // dentro de la ventana (bug 2026-07-06: mensaje de onboarding al cliente
+      // repetido). Defensa extra al recoveryNotifiedAt del caller.
+      if (this.isDuplicateAlert(`buyer-activation::${opts.email.toLowerCase()}`)) {
+        this.logger.warn(
+          `sendBuyerActivationLink: link idéntico reciente para ${opts.email} — skip (anti-spam)`,
+        );
+        return { ok: false, channel: 'none' };
+      }
       const phone = normalizeBuyerPhone(opts.phone);
       if (!phone) {
         this.logger.warn(
