@@ -1115,6 +1115,165 @@ export class DeliveryService {
     });
     return this.chatList(d.orderId);
   }
+
+  // ───────── Chat DIRECTO negocio↔empresa por NEGOCIO (PDF 1254) ─────────
+  // A diferencia del chat de arriba (por pedido), este es una conversación
+  // continua entre un negocio y su empresa de domicilios, independiente de
+  // cualquier pedido puntual.
+
+  private async companyMsgThread(deliveryCompanyId: string, tenantId: string) {
+    const msgs = await this.prisma.deliveryCompanyMessage.findMany({
+      where: { deliveryCompanyId, tenantId },
+      orderBy: { createdAt: 'asc' },
+      take: 300,
+    });
+    return msgs.map((m) => ({
+      id: m.id,
+      senderRole: m.senderRole,
+      senderName: m.senderName,
+      body: m.body,
+      createdAt: m.createdAt,
+    }));
+  }
+
+  private async assertCompanyTenantLink(
+    deliveryCompanyId: string,
+    tenantId: string,
+  ) {
+    const link = await this.prisma.deliveryCompanyTenant.findUnique({
+      where: { deliveryCompanyId_tenantId: { deliveryCompanyId, tenantId } },
+      select: { id: true },
+    });
+    if (!link)
+      throw new BadRequestException(
+        'El negocio no está vinculado a esta empresa de domicilios.',
+      );
+  }
+
+  /** Último mensaje por (company, tenant) para pintar la lista de chats. */
+  private async lastCompanyMsg(deliveryCompanyId: string, tenantId: string) {
+    return this.prisma.deliveryCompanyMessage.findFirst({
+      where: { deliveryCompanyId, tenantId },
+      orderBy: { createdAt: 'desc' },
+      select: { body: true, createdAt: true, senderRole: true },
+    });
+  }
+
+  // --- Lado EMPRESA (portal /domicilios): lista de chats, uno por negocio ---
+  async companyBusinessChats(user: AuthUser) {
+    const companyId = this.assertCompanyUser(user);
+    const links = await this.prisma.deliveryCompanyTenant.findMany({
+      where: { deliveryCompanyId: companyId },
+      select: { tenant: { select: { id: true, brandName: true, slug: true } } },
+    });
+    const rows = await Promise.all(
+      links.map(async (l) => {
+        const last = await this.lastCompanyMsg(companyId, l.tenant.id);
+        return {
+          tenantId: l.tenant.id,
+          brandName: l.tenant.brandName,
+          slug: l.tenant.slug,
+          lastMessage: last?.body ?? null,
+          lastAt: last?.createdAt ?? null,
+          lastSenderRole: last?.senderRole ?? null,
+        };
+      }),
+    );
+    rows.sort(
+      (a, b) => (b.lastAt?.getTime() ?? 0) - (a.lastAt?.getTime() ?? 0),
+    );
+    return rows;
+  }
+
+  async companyBusinessChatList(user: AuthUser, tenantId: string) {
+    const companyId = this.assertCompanyUser(user);
+    await this.assertCompanyTenantLink(companyId, tenantId);
+    return this.companyMsgThread(companyId, tenantId);
+  }
+
+  async companyBusinessChatPost(
+    user: AuthUser,
+    tenantId: string,
+    body: string,
+  ) {
+    const companyId = this.assertCompanyUser(user);
+    await this.assertCompanyTenantLink(companyId, tenantId);
+    const text = this.cleanBody(body);
+    const company = await this.prisma.deliveryCompany.findUnique({
+      where: { id: companyId },
+      select: { name: true },
+    });
+    await this.prisma.deliveryCompanyMessage.create({
+      data: {
+        deliveryCompanyId: companyId,
+        tenantId,
+        senderRole: 'COMPANY',
+        senderName: company?.name ?? 'Domicilios',
+        body: text,
+      },
+    });
+    return this.companyMsgThread(companyId, tenantId);
+  }
+
+  // --- Lado NEGOCIO (/app): empresa(s) asignada(s) + chat directo ---
+  private tenantIdOf(user: AuthUser): string {
+    if (!user.tenantId) throw new BadRequestException('Sin negocio en sesión.');
+    return user.tenantId;
+  }
+
+  async businessDeliveryCompanies(user: AuthUser) {
+    const tenantId = this.tenantIdOf(user);
+    const links = await this.prisma.deliveryCompanyTenant.findMany({
+      where: { tenantId },
+      select: { deliveryCompany: { select: { id: true, name: true } } },
+    });
+    const rows = await Promise.all(
+      links.map(async (l) => {
+        const last = await this.lastCompanyMsg(l.deliveryCompany.id, tenantId);
+        return {
+          companyId: l.deliveryCompany.id,
+          name: l.deliveryCompany.name,
+          lastMessage: last?.body ?? null,
+          lastAt: last?.createdAt ?? null,
+          lastSenderRole: last?.senderRole ?? null,
+        };
+      }),
+    );
+    rows.sort(
+      (a, b) => (b.lastAt?.getTime() ?? 0) - (a.lastAt?.getTime() ?? 0),
+    );
+    return rows;
+  }
+
+  async businessCompanyChatList(user: AuthUser, companyId: string) {
+    const tenantId = this.tenantIdOf(user);
+    await this.assertCompanyTenantLink(companyId, tenantId);
+    return this.companyMsgThread(companyId, tenantId);
+  }
+
+  async businessCompanyChatPost(
+    user: AuthUser,
+    companyId: string,
+    body: string,
+  ) {
+    const tenantId = this.tenantIdOf(user);
+    await this.assertCompanyTenantLink(companyId, tenantId);
+    const text = this.cleanBody(body);
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { brandName: true },
+    });
+    await this.prisma.deliveryCompanyMessage.create({
+      data: {
+        deliveryCompanyId: companyId,
+        tenantId,
+        senderRole: 'BUSINESS',
+        senderName: t?.brandName ?? 'Negocio',
+        body: text,
+      },
+    });
+    return this.companyMsgThread(companyId, tenantId);
+  }
 }
 
 const ORDER_SELECT = {

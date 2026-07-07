@@ -1,10 +1,11 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, downloadFile } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { DirectChatList, type ChatPeer } from '@/components/DirectChatList';
 import { getOrdersSocket } from '@/lib/socket';
 import { toast } from '@/components/Toast';
 import {
@@ -318,6 +319,30 @@ export default function OrdersBoard() {
     return { avgMin, lateCount };
   }, [filteredBoard]);
 
+  // PDF 1254: empresa(s) de domicilios asignada(s) a este negocio, para el
+  // canal directo de chat. Vacío = no se muestra el widget.
+  const fetchDeliveryCompanies = useCallback(
+    () =>
+      api<
+        Array<{
+          companyId: string;
+          name: string;
+          lastMessage: string | null;
+          lastAt: string | null;
+        }>
+      >('/delivery-business/delivery-companies').then((rs) =>
+        (rs ?? []).map(
+          (r): ChatPeer => ({
+            id: r.companyId,
+            name: r.name,
+            lastMessage: r.lastMessage,
+            lastAt: r.lastAt,
+          }),
+        ),
+      ),
+    [],
+  );
+
   return (
     <div>
       <div className="page-head">
@@ -464,6 +489,21 @@ export default function OrdersBoard() {
           }}
         />
       )}
+
+      {/* PDF 1254: canal directo con la empresa de domicilios asignada. Solo
+          se muestra si el negocio tiene una empresa asignada. */}
+      <div className="mb-4">
+        <DirectChatList
+          fetchPeers={fetchDeliveryCompanies}
+          chatPath={(companyId) =>
+            `/delivery-business/delivery-companies/${companyId}/chat`
+          }
+          meRole="BUSINESS"
+          title="🛵 Tu empresa de domicilios"
+          emptyText=""
+          hideWhenEmpty
+        />
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         {COLS.map((col) => (

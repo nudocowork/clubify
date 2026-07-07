@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { DeliveryChat, type ChatMessage } from '@/components/DeliveryChat';
+import { DirectChatList, type ChatPeer } from '@/components/DirectChatList';
 
 type Order = {
   code: string;
@@ -144,6 +145,28 @@ export default function DeliveryBoardPage() {
     }
   }
 
+  const fetchBusinessChats = useCallback(
+    () =>
+      api<
+        Array<{
+          tenantId: string;
+          brandName: string;
+          lastMessage: string | null;
+          lastAt: string | null;
+        }>
+      >('/delivery-portal/business-chats').then((rs) =>
+        (rs ?? []).map(
+          (r): ChatPeer => ({
+            id: r.tenantId,
+            name: r.brandName,
+            lastMessage: r.lastMessage,
+            lastAt: r.lastAt,
+          }),
+        ),
+      ),
+    [],
+  );
+
   return (
     <div>
       {stats && (
@@ -154,6 +177,15 @@ export default function DeliveryBoardPage() {
           <StatChip label="Pendiente" value={`$${stats.commissionPending.toFixed(2)}`} />
         </div>
       )}
+
+      {/* PDF 1254: chats directos por NEGOCIO (independiente de los pedidos). */}
+      <DirectChatList
+        fetchPeers={fetchBusinessChats}
+        chatPath={(tenantId) => `/delivery-portal/business-chats/${tenantId}`}
+        meRole="COMPANY"
+        title="💬 Chats por negocio"
+        emptyText="Aún no tienes negocios asignados para chatear."
+      />
 
       {claimable.length > 0 && (
         <section className="mb-5">

@@ -108,4 +108,27 @@ export class DeliveryPortalController {
   ) {
     return this.svc.companyChatPost(user, id, body.body);
   }
+
+  // ─── Chat directo POR NEGOCIO (PDF 1254): lista de chats + conversación ───
+  @Get('business-chats')
+  businessChats(@CurrentUser() user: AuthUser) {
+    return this.svc.companyBusinessChats(user);
+  }
+
+  @Get('business-chats/:tenantId')
+  businessChatList(
+    @CurrentUser() user: AuthUser,
+    @Param('tenantId') tenantId: string,
+  ) {
+    return this.svc.companyBusinessChatList(user, tenantId);
+  }
+
+  @Post('business-chats/:tenantId')
+  businessChatPost(
+    @CurrentUser() user: AuthUser,
+    @Param('tenantId') tenantId: string,
+    @Body() body: ChatBody,
+  ) {
+    return this.svc.companyBusinessChatPost(user, tenantId, body.body);
+  }
 }

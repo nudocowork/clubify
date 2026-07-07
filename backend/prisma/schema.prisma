@@ -655,6 +655,7 @@ model Tenant {
   // negocio + seguimientos logísticos de sus pedidos.
   deliveryCompanyLinks DeliveryCompanyTenant[]
   deliveries           Delivery[]
+  deliveryCompanyMessages DeliveryCompanyMessage[]
 
   @@index([status])
   @@index([stripeCustomerId])
@@ -4112,6 +4113,8 @@ model DeliveryCompany {
   /// Cuentas de login (role=DELIVERY_COMPANY) que operan esta empresa (Fase 2).
   admins        User[] @relation("DeliveryCompanyAdmin")
   commissions   DeliveryCommission[]
+  /// Chat directo negocio↔empresa (por negocio, no por pedido). PDF 1254.
+  businessMessages DeliveryCompanyMessage[]
 
   @@index([whiteLabelId])
   @@index([isActive])
@@ -4225,6 +4228,25 @@ model DeliveryMessage {
   createdAt  DateTime         @default(now())
 
   @@index([orderId, createdAt])
+}
+
+/// Chat DIRECTO negocio↔empresa de domicilios, a nivel de NEGOCIO (no por
+/// pedido). PDF 1254: la empresa ve una conversación por cada negocio que
+/// atiende, y el negocio un canal directo con su empresa asignada.
+model DeliveryCompanyMessage {
+  id                String           @id @default(uuid())
+  deliveryCompanyId String
+  deliveryCompany   DeliveryCompany  @relation(fields: [deliveryCompanyId], references: [id], onDelete: Cascade)
+  tenantId          String
+  tenant            Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Solo BUSINESS | COMPANY en este canal (el cliente no participa).
+  senderRole        DeliveryChatRole
+  senderName        String?
+  body              String
+  createdAt         DateTime         @default(now())
+
+  @@index([deliveryCompanyId, tenantId, createdAt])
+  @@index([tenantId, createdAt])
 }
 
 /// Quién envía un mensaje del chat de domicilio.

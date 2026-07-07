@@ -30,4 +30,27 @@ export class DeliveryBusinessController {
   ) {
     return this.svc.businessChatPost(user, orderId, body.body);
   }
+
+  // ─── Canal directo con la empresa de domicilios asignada (PDF 1254) ───
+  @Get('delivery-companies')
+  companies(@CurrentUser() user: AuthUser) {
+    return this.svc.businessDeliveryCompanies(user);
+  }
+
+  @Get('delivery-companies/:companyId/chat')
+  companyChatList(
+    @CurrentUser() user: AuthUser,
+    @Param('companyId') companyId: string,
+  ) {
+    return this.svc.businessCompanyChatList(user, companyId);
+  }
+
+  @Post('delivery-companies/:companyId/chat')
+  companyChatPost(
+    @CurrentUser() user: AuthUser,
+    @Param('companyId') companyId: string,
+    @Body() body: ChatBody,
+  ) {
+    return this.svc.businessCompanyChatPost(user, companyId, body.body);
+  }
 }
