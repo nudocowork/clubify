@@ -10,6 +10,11 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { ChannelsService } from '../channels/channels.service';
 import { WalletService } from '../wallet/wallet.service';
+import { GrowBusinessService } from '../integrations/grow-business.service';
+import {
+  brandGrowCreds,
+  BRAND_GROW_SELECT,
+} from '../integrations/brand-sms-creds.util';
 
 export type AutomationEvent =
   | 'STAMP_ADDED'
@@ -31,6 +36,8 @@ export type Trigger = { type: AutomationEvent; days?: number };
 export type Condition = { field: string; op: 'eq' | 'gt' | 'lt' | 'in' | 'contains'; value: any };
 export type Action =
   | { type: 'SEND_WHATSAPP_LINK'; templateId?: string; body: string }
+  | { type: 'SEND_SMS'; body: string }
+  | { type: 'SEND_WHATSAPP'; body: string }
   | { type: 'SEND_PUSH'; title: string; body: string }
   | { type: 'ADD_STAMPS'; cardId?: string; amount: number }
   | { type: 'APPLY_PROMO'; promoId: string };
@@ -51,6 +58,7 @@ export class AutomationsService {
     private prisma: PrismaService,
     private channels: ChannelsService,
     private wallet: WalletService,
+    private growBusiness: GrowBusinessService,
   ) {}
 
   // ========== CRUD ==========
@@ -198,6 +206,48 @@ export class AutomationsService {
         });
         break;
       }
+      // SMS / WhatsApp server-side vía Grow Business. AISLAMIENTO POR MARCA:
+      // se envía desde las creds propias del negocio, o si no tiene, desde la
+      // subcuenta GHL de SU marca blanca. NUNCA cae a Clubify ni a otra marca;
+      // sin creds → no se envía (se registra y sigue).
+      case 'SEND_SMS':
+      case 'SEND_WHATSAPP': {
+        if (!customerId) {
+          this.logger.warn(
+            `${action.type} (rule ${ruleId}) sin customerId — se omite`,
+          );
+          break;
+        }
+        const customer = await this.prisma.customer.findUnique({
+          where: { id: customerId },
+          select: { phone: true },
+        });
+        const phone = customer?.phone?.trim();
+        if (!phone) {
+          this.logger.warn(
+            `${action.type} (rule ${ruleId}) cliente sin teléfono — se omite`,
+          );
+          break;
+        }
+        const creds = await this.resolveCustomerSmsCreds(tenantId);
+        if (!creds) {
+          this.logger.warn(
+            `${action.type} (rule ${ruleId}) sin credenciales Grow Business (negocio ni marca) — se omite`,
+          );
+          break;
+        }
+        const body = await this.renderTemplate(action.body, payload);
+        if (action.type === 'SEND_SMS') {
+          await this.growBusiness.sendSmsWithCreds(creds, phone, body);
+        } else {
+          await this.growBusiness.sendWhatsAppWithCreds(
+            { locationId: creds.locationId, apiKey: creds.apiKey },
+            phone,
+            body,
+          );
+        }
+        break;
+      }
       case 'SEND_PUSH': {
         // FIX: antes de Fase C+5, las plantillas con {{customerName}},
         // {{businessName}}, {{cardName}}, {{rewardText}}, etc. se guardaban
@@ -318,6 +368,36 @@ export class AutomationsService {
         // Stub — en MVP las promos se aplican automáticamente al cart, no por rule
         break;
     }
+  }
+
+  /**
+   * Credenciales Grow Business para enviar SMS/WhatsApp de una automatización,
+   * AISLADAS POR MARCA: creds propias del negocio → subcuenta GHL de su marca
+   * blanca → null. Nunca la cuenta de Clubify ni la de otra marca. Un negocio
+   * de Clubify sin creds propias tampoco envía (mismo criterio de aislamiento).
+   */
+  private async resolveCustomerSmsCreds(tenantId: string): Promise<{
+    locationId: string;
+    apiKey: string;
+    switchNumber: number | null;
+  } | null> {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        growBusinessLocationId: true,
+        growBusinessApiKey: true,
+        growBusinessSwitchNumber: true,
+        whiteLabel: { select: BRAND_GROW_SELECT },
+      },
+    });
+    if (tenant?.growBusinessLocationId && tenant.growBusinessApiKey) {
+      return {
+        locationId: tenant.growBusinessLocationId,
+        apiKey: tenant.growBusinessApiKey,
+        switchNumber: tenant.growBusinessSwitchNumber ?? null,
+      };
+    }
+    return brandGrowCreds(tenant?.whiteLabel);
   }
 
   private async renderTemplate(body: string, payload: any) {

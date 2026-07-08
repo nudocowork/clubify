@@ -424,6 +424,8 @@ function RuleDrawer({
                   onChange={(e) => updateAction(i, { type: e.target.value })}
                 >
                   <option value="SEND_PUSH">{t('actionSendPush')}</option>
+                  <option value="SEND_SMS">SMS</option>
+                  <option value="SEND_WHATSAPP">WhatsApp</option>
                   <option value="ADD_STAMPS">{t('actionAddStamps')}</option>
                 </select>
                 {a.type === 'SEND_PUSH' && (
@@ -440,6 +442,21 @@ function RuleDrawer({
                       value={a.body ?? ''}
                       onChange={(e) => updateAction(i, { body: e.target.value })}
                     />
+                  </>
+                )}
+                {(a.type === 'SEND_SMS' || a.type === 'SEND_WHATSAPP') && (
+                  <>
+                    <textarea
+                      className="input"
+                      placeholder="Mensaje… puedes usar {{customerName}}, {{businessName}}…"
+                      value={a.body ?? ''}
+                      onChange={(e) => updateAction(i, { body: e.target.value })}
+                    />
+                    <p className="text-xs text-mute mt-1">
+                      Se envía al teléfono del cliente desde la subcuenta de Grow
+                      Business del negocio (o, si no tiene, la de su marca). Si no
+                      hay ninguna configurada, no se envía.
+                    </p>
                   </>
                 )}
                 {a.type === 'ADD_STAMPS' && (
