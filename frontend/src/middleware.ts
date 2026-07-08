@@ -14,6 +14,9 @@ const RESERVED_HOSTS = new Set([
   'app.clubify.app',
   'admin.clubify.app',
   'api.clubify.app',
+  // Dominio dedicado del panel Super Admin (PLATFORM_OWNER).
+  'soyfidelity.com',
+  'www.soyfidelity.com',
 ]);
 
 // Dominios raíz de Clubify donde *.<root> son subdominios de tenants.
@@ -240,6 +243,35 @@ export async function middleware(req: NextRequest) {
   if (url.pathname === '/favicon.ico' && host && !RESERVED_HOSTS.has(host)) {
     const fav = await resolveBrandFavicon(host);
     if (fav) return NextResponse.redirect(fav, 307);
+  }
+
+  // ────────── Dominio dedicado del Super Admin: soyfidelity.com ──────────
+  // El master admin (rol PLATFORM_OWNER) vive SOLO en soyfidelity.com:
+  //  - soyfidelity.com/            → página "en construcción" (landing pendiente).
+  //  - soyfidelity.com/login       → login del master admin (→ /superadmin).
+  //  - resto de rutas del dominio  → se sirven normal (/superadmin, assets…).
+  //  - En CUALQUIER otro dominio, /superadmin se BLOQUEA y redirige aquí, para
+  //    que el panel de plataforma no quede expuesto en soyclubify.com ni en los
+  //    dominios de marcas blancas. (localhost queda exento para desarrollo.)
+  const isSuperadminHost =
+    host === 'soyfidelity.com' || host === 'www.soyfidelity.com';
+  const isDevHost = host === 'localhost' || host === '127.0.0.1';
+
+  if (isSuperadminHost) {
+    if (url.pathname === '/' || url.pathname === '') {
+      const rewrite = url.clone();
+      rewrite.pathname = '/en-construccion';
+      return NextResponse.rewrite(rewrite);
+    }
+    return NextResponse.next();
+  }
+
+  if (
+    !isDevHost &&
+    (url.pathname === '/superadmin' || url.pathname.startsWith('/superadmin/'))
+  ) {
+    const dest = new URL(url.pathname + url.search, 'https://soyfidelity.com');
+    return NextResponse.redirect(dest, 307);
   }
 
   // ────────── Panel de marca blanca por path: /admin/<slug> ──────────
