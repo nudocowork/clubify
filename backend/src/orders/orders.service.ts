@@ -1096,6 +1096,10 @@ export class OrdersService {
         customer: true,
         events: { orderBy: { createdAt: 'desc' } },
         location: true,
+        // Presencia del delivery → el panel gatea el "Chat del domicilio":
+        // solo aparece si el pedido tiene un delivery real asignado (negocio en
+        // una red de domicilios), no con solo fulfillment=DELIVERY.
+        delivery: { select: { status: true } },
       },
     });
     if (!o) throw new NotFoundException();

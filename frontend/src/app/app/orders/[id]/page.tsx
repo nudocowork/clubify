@@ -55,6 +55,8 @@ type Order = {
   customer: { id: string; fullName: string; phone: string; email: string | null };
   events: OrderEvent[];
   location: { id: string; name: string } | null;
+  // Presencia del delivery: el chat del domicilio solo aparece si existe.
+  delivery: { status: string } | null;
 };
 
 const STATUS_LABEL_KEY: Record<string, string> = {
@@ -287,7 +289,7 @@ export default function OrderDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
         {/* Items */}
         <div className="space-y-4">
-          {o.fulfillment === 'DELIVERY' && (
+          {o.delivery && o.delivery.status !== 'CANCELLED' && (
             <div className="card card-pad">
               <h3 className="font-semibold mb-3">💬 Chat del domicilio</h3>
               <DeliveryChat
