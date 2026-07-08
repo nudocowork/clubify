@@ -914,6 +914,71 @@ export class SuperAdminService {
     };
   }
 
+  // -------- Subcuenta SMS (Grow Business) por marca --------
+
+  /** Devuelve la subcuenta SMS de la marca con el apiKey ENMASCARADO. */
+  async getBrandSmsAccount(id: string) {
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      select: {
+        growBusinessLocationId: true,
+        growBusinessApiKey: true,
+        growBusinessSwitchNumber: true,
+      },
+    });
+    if (!wl) throw new NotFoundException();
+    return {
+      locationId: wl.growBusinessLocationId,
+      apiKeyMask: maskSecret(wl.growBusinessApiKey),
+      switchNumber: wl.growBusinessSwitchNumber,
+      connected: !!(wl.growBusinessLocationId && wl.growBusinessApiKey),
+    };
+  }
+
+  /** Setea la subcuenta SMS de la marca. apiKey se CIFRA server-side; vacío =
+   *  limpiar; enmascarado / ya cifrado = conservar. */
+  async updateBrandSmsAccount(
+    id: string,
+    body: {
+      locationId?: string | null;
+      apiKey?: string | null;
+      switchNumber?: number | null;
+    },
+    actorId: string,
+  ) {
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      select: { name: true },
+    });
+    if (!wl) throw new NotFoundException();
+
+    const data: Record<string, any> = {};
+    if (body.locationId !== undefined) {
+      data.growBusinessLocationId = body.locationId?.trim() || null;
+    }
+    if (body.switchNumber !== undefined) {
+      data.growBusinessSwitchNumber = body.switchNumber ?? null;
+    }
+    if (body.apiKey !== undefined) {
+      const v = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
+      if (v === '') {
+        data.growBusinessApiKey = null; // limpiar explícito
+      } else if (!v.includes('•') && !isEncrypted(v)) {
+        data.growBusinessApiKey = encryptSecret(v); // nuevo secreto → cifrar
+      }
+      // enmascarado / ya cifrado → conservar (no tocar)
+    }
+
+    await this.prisma.whiteLabel.update({ where: { id }, data });
+    await this.logAction(
+      actorId,
+      'superadmin.white_label.sms_account',
+      `whiteLabel:${id}`,
+      { whiteLabelName: wl.name, changed: Object.keys(data) },
+    );
+    return this.getBrandSmsAccount(id);
+  }
+
   // -------- Links de pago por marca (CRUD) --------
 
   async listPaymentLinks(whiteLabelId: string) {

@@ -664,6 +664,8 @@ function Drawer({
 
               <PaymentGatewayConfig whiteLabelId={w.id} onSaved={onChanged} />
 
+              <BrandSmsAccountConfig whiteLabelId={w.id} onSaved={onChanged} />
+
               <HotmartCreditConfig whiteLabelId={w.id} onSaved={onChanged} />
 
               <PlanPeriodicitiesConfig
@@ -1650,6 +1652,135 @@ function HotmartCreditConfig({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Subcuenta Grow Business (GoHighLevel) de la MARCA — desde donde salen TODOS
+ *  los SMS de sus negocios (cobros, domicilio, reseñas). apiKey se guarda
+ *  cifrado server-side; se muestra enmascarado. */
+function BrandSmsAccountConfig({
+  whiteLabelId,
+  onSaved,
+}: {
+  whiteLabelId: string;
+  onSaved: (msg: string) => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [locationId, setLocationId] = useState('');
+  const [switchNumber, setSwitchNumber] = useState('');
+  const [apiKeyMask, setApiKeyMask] = useState<string | null>(null);
+  const [apiKeyNew, setApiKeyNew] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const d = await api(`/superadmin/white-labels/${whiteLabelId}/sms-account`);
+      if (d) {
+        setLocationId(d.locationId ?? '');
+        setSwitchNumber(d.switchNumber != null ? String(d.switchNumber) : '');
+        setApiKeyMask(d.apiKeyMask ?? null);
+        setApiKeyNew('');
+      }
+    } catch {
+      /* noop */
+    } finally {
+      setLoading(false);
+    }
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [whiteLabelId]);
+
+  async function save() {
+    setBusy(true);
+    try {
+      const body: Record<string, unknown> = {
+        locationId: locationId.trim() || null,
+        switchNumber: switchNumber.trim() ? Number(switchNumber) : null,
+      };
+      if (apiKeyNew.trim()) body.apiKey = apiKeyNew.trim();
+      await api(`/superadmin/white-labels/${whiteLabelId}/sms-account`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      onSaved('Subcuenta SMS actualizada');
+      await load();
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error al guardar subcuenta SMS');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div>
+        <SectionTitle>Subcuenta SMS de la marca (Grow Business)</SectionTitle>
+        <div className="mt-2 text-sm" style={{ color: '#9aa4af' }}>Cargando…</div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <SectionTitle>Subcuenta SMS de la marca (Grow Business)</SectionTitle>
+      <div className="mt-2 space-y-3">
+        <div
+          className="rounded-lg p-3 text-xs"
+          style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}
+        >
+          Los SMS de los negocios de esta marca (cobros, domicilio, reseñas)
+          salen de esta subcuenta. Si se deja vacía, los negocios sin
+          credenciales propias no envían SMS — nunca sale de la cuenta de Clubify.
+        </div>
+        <Field label="Location ID (ID de la subcuenta)">
+          <input
+            value={locationId}
+            onChange={(e) => setLocationId(e.target.value)}
+            placeholder="ej. mgAdQO7Rg7KiBRxuSs6M"
+            className="font-mono"
+            style={payInput}
+          />
+        </Field>
+        <Field label="API key / Integración privada (pit-…)">
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={apiKeyNew}
+            onChange={(e) => setApiKeyNew(e.target.value)}
+            placeholder={
+              apiKeyMask
+                ? `Actual: ${apiKeyMask} — deja vacío para conservar`
+                : 'pit-…'
+            }
+            className="font-mono"
+            style={payInput}
+          />
+        </Field>
+        <Field label="Switch number (prioridad del número · opcional)">
+          <input
+            value={switchNumber}
+            onChange={(e) => setSwitchNumber(e.target.value.replace(/\D/g, ''))}
+            placeholder="ej. 1 (subcuenta de un solo número)"
+            className="font-mono"
+            style={payInput}
+          />
+        </Field>
+        <button
+          onClick={save}
+          disabled={busy}
+          className="text-sm font-semibold rounded-[9px] py-2 px-4 transition"
+          style={{
+            border: '2px solid #16a34a',
+            background: '#16a34a',
+            color: 'white',
+            opacity: busy ? 0.6 : 1,
+          }}
+        >
+          {busy ? 'Guardando…' : 'Guardar subcuenta SMS'}
+        </button>
+      </div>
     </div>
   );
 }

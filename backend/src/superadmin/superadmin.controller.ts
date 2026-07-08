@@ -55,6 +55,15 @@ class PaymentConfigBody {
   @IsOptional() @IsObject() config?: Record<string, any>;
 }
 
+// Subcuenta Grow Business (GoHighLevel) de la MARCA — desde donde salen los SMS
+// de sus negocios. apiKey se cifra server-side. Vacío = limpiar; enmascarado
+// (con •) o ya cifrado = conservar.
+class BrandSmsAccountBody {
+  @IsOptional() @IsString() @MaxLength(120) locationId?: string | null;
+  @IsOptional() @IsString() @MaxLength(300) apiKey?: string | null;
+  @IsOptional() @IsInt() @Min(1) @Max(99) switchNumber?: number | null;
+}
+
 class PaymentLinkBody {
   @IsIn(['HOTMART', 'STRIPE', 'MANUAL']) gateway!: 'HOTMART' | 'STRIPE' | 'MANUAL';
   // Opcional: si no llega, el service usa "Plan {Periodicidad}" como default.
@@ -207,6 +216,22 @@ export class SuperAdminController {
   @Patch('white-labels/:id/payment-config')
   updatePaymentConfig(@Param('id') id: string, @Body() body: PaymentConfigBody, @CurrentUser() user: AuthUser) {
     return this.svc.updatePaymentConfig(id, body, user.id);
+  }
+
+  // -------- Subcuenta SMS (Grow Business) por marca --------
+
+  @Get('white-labels/:id/sms-account')
+  getBrandSmsAccount(@Param('id') id: string) {
+    return this.svc.getBrandSmsAccount(id);
+  }
+
+  @Patch('white-labels/:id/sms-account')
+  updateBrandSmsAccount(
+    @Param('id') id: string,
+    @Body() body: BrandSmsAccountBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.updateBrandSmsAccount(id, body, user.id);
   }
 
   @Get('white-labels/:id/payment-links')
