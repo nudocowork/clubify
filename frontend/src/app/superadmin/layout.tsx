@@ -5,9 +5,24 @@ import Link from 'next/link';
 import { api, clearSession, getUser } from '@/lib/api';
 
 type Badges = { whiteLabels?: number; billing?: number };
+type Cfg = { name: string; tagline: string; logoUrl: string; primaryColor: string };
 
 type NavItem = { href: string; label: string; icon: string; badge?: number };
 type NavGroup = { label: string; items: NavItem[] };
+
+// Cache del branding de la plataforma. Se lee SÍNCRONO en el estado inicial
+// para que el primer paint ya use el color final (azul) y no el fallback →
+// evita el flash verde→azul (FOUC) al recargar. Se refresca desde el API.
+const CFG_CACHE_KEY = 'superadmin_cfg_v1';
+function readCachedCfg(): Cfg | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(CFG_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as Cfg) : null;
+  } catch {
+    return null;
+  }
+}
 
 function buildNavGroups(badges: Badges): NavGroup[] {
   return [
@@ -44,8 +59,9 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
   const [user, setUser] = useState<any>(null);
   const [badges, setBadges] = useState<Badges>({});
   // #2: branding configurable del Master Admin (nombre/tagline/logo/color)
-  // desde /superadmin/configuracion. Sin hardcodes.
-  const [cfg, setCfg] = useState<{ name: string; tagline: string; logoUrl: string; primaryColor: string } | null>(null);
+  // desde /superadmin/configuracion. Inicial = caché de localStorage (síncrono)
+  // para pintar en azul desde el primer render y evitar el flash.
+  const [cfg, setCfg] = useState<Cfg | null>(readCachedCfg);
 
   useEffect(() => {
     const u = getUser();
@@ -57,17 +73,26 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
     api<Badges>('/superadmin/sidebar-badges')
       .then(setBadges)
       .catch(() => null);
-    api<{ name: string; tagline: string; logoUrl: string; primaryColor: string }>('/superadmin/config')
-      .then(setCfg)
+    api<Cfg>('/superadmin/config')
+      .then((c) => {
+        setCfg(c);
+        try {
+          window.localStorage.setItem(CFG_CACHE_KEY, JSON.stringify(c));
+        } catch {
+          /* localStorage no disponible — se ignora */
+        }
+      })
       .catch(() => null);
   }, [router]);
 
   if (!user) return null;
   const NAV_GROUPS = buildNavGroups(badges);
-  const brandName = cfg?.name || 'Fidelia';
-  const brandTagline = cfg?.tagline || 'Software de Fidelización · Super Admin';
+  // Fallbacks = valores reales de la plataforma (Fidelity / azul) para que el
+  // primer paint sin caché tampoco muestre verde. El API igual los sobreescribe.
+  const brandName = cfg?.name || 'Fidelity';
+  const brandTagline = cfg?.tagline || 'Software de Fidelización';
   const brandLogo = cfg?.logoUrl || '';
-  const pc = cfg?.primaryColor || '#22c55e';
+  const pc = cfg?.primaryColor || '#0a90bd';
 
   function isActive(href: string) {
     if (href === '/superadmin') return pathname === '/superadmin';
