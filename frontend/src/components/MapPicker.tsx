@@ -10,31 +10,16 @@ export type MapPickResult = {
 };
 
 const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
-const MAP_API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
-/** Resuelve la API key de Google Maps de la marca por host (branding-by-host).
- *  Cae a la env global (Clubify) si el host no es de una marca o no tiene key.
- *  En el dominio de una marca la key global de Clubify está restringida por
- *  referrer y Google la rechaza — por eso cada marca debe usar la suya. */
-async function resolveMapsKey(): Promise<string> {
-  if (typeof window === 'undefined') return API_KEY;
-  const host = (window.location.host || '').toLowerCase().split(':')[0];
-  const isClubify =
-    !host || host === 'localhost' || host.startsWith('127.') ||
-    host.endsWith('soyclubify.com') || host.endsWith('clubify.app');
-  if (!isClubify) {
-    try {
-      const r = await fetch(
-        `${MAP_API}/api/superadmin-public/white-labels/branding-by-host?host=${encodeURIComponent(host)}`,
-      );
-      if (r.ok) {
-        const d = await r.json();
-        if (d?.mapsApiKey) return d.mapsApiKey as string;
-      }
-    } catch {
-      /* cae a la env */
-    }
-  }
+/** UNA sola API key de Google Maps para TODAS las marcas blancas — misma
+ *  lógica sin depender del dominio/host ni de una key por marca (2026-07-07).
+ *  El requisito para que cargue en cualquier marca (presente o futura) es que
+ *  esta key global tenga los dominios de las marcas en su lista de referrers
+ *  HTTP en Google Cloud (Application restrictions → HTTP referrers), con Maps
+ *  JavaScript API + Places API + Geocoding API habilitadas. Si el mapa no
+ *  carga en un dominio, es porque ese dominio falta en la allowlist de la key,
+ *  NO un problema de código. */
+function resolveMapsKey(): string {
   return API_KEY;
 }
 
@@ -99,7 +84,7 @@ export function MapPicker({
     let cancelled = false;
     (async () => {
       try {
-        const key = await resolveMapsKey();
+        const key = resolveMapsKey();
         const g = await loadGoogleMaps(key);
         if (cancelled || !containerRef.current) return;
 
@@ -196,10 +181,13 @@ export function MapPicker({
         <div className="font-semibold mb-1">Google Maps no está configurado</div>
         <div>{loadErr}</div>
         <div className="text-xs mt-2 text-amber-800/80">
-          En el dominio de una marca, configura su Google Maps API key en Master
-          Admin → Marca → Branding (restringida a su dominio, con Maps JavaScript
-          API + Places API habilitadas). Sin ella, la key global de Clubify es
-          rechazada por Google en otros dominios (RefererNotAllowedMapError).
+          Este dominio no está autorizado en la API key de Google Maps. En
+          Google Cloud → Credenciales → (la key de Maps) → Restricciones de
+          aplicación → Referrers HTTP, agrega este dominio (ej.{' '}
+          <code>tudominio.com/*</code> y <code>*.tudominio.com/*</code>) y
+          habilita Maps JavaScript API + Places API + Geocoding API. Es la MISMA
+          key para todas las marcas (RefererNotAllowedMapError = falta el
+          dominio en la allowlist).
         </div>
       </div>
     );

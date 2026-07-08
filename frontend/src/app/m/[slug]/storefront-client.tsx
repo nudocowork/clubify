@@ -159,11 +159,18 @@ type Category = {
  *  en el mismo proceso Node se pisaban el símbolo, causando leak cross-tenant).
  *  Ahora cada callsite recibe el override como argumento. */
 function fmt(n: number, currency = 'COP', symbolOverride: string | null = null) {
+  // Decimales SOLO si el precio realmente los tiene: 1.500 → "1.500",
+  // 100,50 → "100,50", 20.500,80 → "20.500,80". Nunca redondeamos: si el
+  // negocio puso $10,15 el cliente ve $10,15 (antes maximumFractionDigits:0
+  // convertía 10,15 → 11). Vale para toda moneda (COP/PEN/USD/…).
+  const hasFractional = Math.abs(n - Math.trunc(n)) > 0.0001;
+  const frac = hasFractional ? 2 : 0;
   try {
     const parts = new Intl.NumberFormat('es-CO', {
       style: 'currency',
       currency,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: frac,
+      maximumFractionDigits: frac,
     }).formatToParts(n);
     const sym = symbolOverride?.trim();
     if (sym) {
@@ -172,7 +179,7 @@ function fmt(n: number, currency = 'COP', symbolOverride: string | null = null) 
     return parts.map((p) => p.value).join('');
   } catch {
     const sym = symbolOverride?.trim();
-    return `${sym || '$'}${n.toFixed(0)}`;
+    return `${sym || '$'}${n.toFixed(frac)}`;
   }
 }
 
@@ -928,7 +935,7 @@ function StorefrontPublicInner() {
                       }
                     } else if (p.type === 'DISCOUNT_PCT' && val > 0) {
                       badge = `-${val}%`;
-                      if (orig) finalPrice = Math.round(orig * (1 - val / 100));
+                      if (orig) finalPrice = Math.round(orig * (1 - val / 100) * 100) / 100;
                     } else if (p.type === 'BUY_X_GET_Y') {
                       badge = tt('storefront.promo_buy_x_get_y');
                     } else if (p.type === 'FREE_ITEM') {

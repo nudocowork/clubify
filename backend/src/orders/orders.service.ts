@@ -410,7 +410,9 @@ export class OrdersService {
         let finalPrice: number | null = null;
         if (promo.type === 'DISCOUNT_AMOUNT' && val > 0) finalPrice = val;
         else if (promo.type === 'DISCOUNT_PCT' && val > 0 && orig != null)
-          finalPrice = Math.round(orig * (1 - val / 100));
+          // Redondeo a 2 decimales (no a entero): un 15% sobre $45,50 debe
+          // dar $38,68, no $39. Mismo cálculo exacto que el storefront.
+          finalPrice = Math.round(orig * (1 - val / 100) * 100) / 100;
         const unit = finalPrice ?? orig ?? 0;
         const qty = Math.max(1, Math.min(50, i.qty));
         const lineTotal = unit * qty;

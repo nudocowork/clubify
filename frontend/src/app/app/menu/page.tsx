@@ -1780,11 +1780,14 @@ function AdicionalesModal({
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
           <input
-            type="number"
+            type="text"
+            inputMode="decimal"
             className="input w-28"
             placeholder={t('price')}
             value={form.price}
-            onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
+            onChange={(e) =>
+              setForm({ ...form, price: parsePriceInput(e.target.value) ?? 0 })
+            }
           />
           <button className="btn-primary" disabled={busy} title={editingId ? t('saveChanges') : t('add')}>
             <Icon name={editingId ? 'check' : 'plus'} />
@@ -2229,7 +2232,8 @@ function ProductDrawer({
                   }}
                 />
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   className="input w-28"
                   placeholder={
                     (form.variantPriceMode ?? 'DELTA') === 'ABSOLUTE'
@@ -2239,7 +2243,10 @@ function ProductDrawer({
                   value={v.priceDelta}
                   onChange={(e) => {
                     const arr = [...(form.variants ?? [])];
-                    arr[i] = { ...v, priceDelta: Number(e.target.value) };
+                    arr[i] = {
+                      ...v,
+                      priceDelta: parsePriceInput(e.target.value) ?? 0,
+                    };
                     update('variants', arr);
                   }}
                 />

@@ -285,17 +285,23 @@ function formatMoney(
   symbolOverride?: string | null,
 ) {
   const sym = symbolOverride?.trim();
+  // Decimales SOLO si el precio los tiene (10,15 → "10,15"; 1.500 → "1.500").
+  // Nunca redondear: el total del pedido en WhatsApp debe reflejar el precio
+  // exacto que puso el negocio, sin convertir 10,15 → 11.
+  const hasFractional = Math.abs(n - Math.trunc(n)) > 0.0001;
+  const frac = hasFractional ? 2 : 0;
   try {
     const parts = new Intl.NumberFormat('es-CO', {
       style: 'currency',
       currency,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: frac,
+      maximumFractionDigits: frac,
     }).formatToParts(n);
     if (sym) {
       return parts.map((p) => (p.type === 'currency' ? sym : p.value)).join('');
     }
     return parts.map((p) => p.value).join('');
   } catch {
-    return `${sym || currency} ${n.toFixed(0)}`;
+    return `${sym || currency} ${n.toFixed(frac)}`;
   }
 }

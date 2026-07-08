@@ -382,11 +382,147 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
   );
 }
 
+const MONTHS_ES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+];
+
+/** Modal para que el NEGOCIO corrija los datos que el cliente pudo digitar
+ *  mal al registrarse: nombre, correo y día/mes de cumpleaños. Usa el
+ *  PATCH /customers/:id existente (scoped por tenant). El cumpleaños se
+ *  guarda con año centinela 2000 (solo día/mes, igual que el enrolamiento);
+ *  si se deja vacío, no se toca la fecha actual. */
+function EditCustomerModal({
+  customer,
+  onClose,
+  onSaved,
+}: {
+  customer: Customer;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const bd = customer.birthday ? new Date(customer.birthday) : null;
+  const validBd = bd && !Number.isNaN(bd.getTime()) ? bd : null;
+  const [fullName, setFullName] = useState(customer.fullName);
+  const [email, setEmail] = useState(customer.email ?? '');
+  const [day, setDay] = useState(validBd ? String(validBd.getUTCDate()) : '');
+  const [month, setMonth] = useState(
+    validBd ? String(validBd.getUTCMonth() + 1) : '',
+  );
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    const name = fullName.trim();
+    if (!name) {
+      toast('El nombre no puede quedar vacío', 'error');
+      return;
+    }
+    // Día/mes: ambos o ninguno. Si solo uno está puesto, avisamos.
+    if ((day && !month) || (!day && month)) {
+      toast('Elige día y mes del cumpleaños (o deja ambos vacíos)', 'error');
+      return;
+    }
+    const body: {
+      fullName: string;
+      email: string | null;
+      birthday?: string;
+    } = {
+      fullName: name,
+      email: email.trim() || null,
+    };
+    if (day && month) {
+      body.birthday = `2000-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+    setBusy(true);
+    try {
+      await api(`/customers/${customer.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+      toast('Datos actualizados', 'success');
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo guardar', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="card card-pad w-full max-w-md"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="font-semibold text-lg mb-4">Editar datos del cliente</div>
+
+        <label className="label">Nombre completo</label>
+        <input
+          className="input w-full"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          placeholder="Nombre y apellido"
+        />
+
+        <label className="label mt-3">Correo</label>
+        <input
+          className="input w-full"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="correo@ejemplo.com (opcional)"
+        />
+
+        <label className="label mt-3">Cumpleaños</label>
+        <div className="flex gap-2">
+          <select
+            className="input flex-1"
+            value={day}
+            onChange={(e) => setDay(e.target.value)}
+          >
+            <option value="">Día</option>
+            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+          <select
+            className="input flex-[2]"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+          >
+            <option value="">Mes</option>
+            {MONTHS_ES.map((m, i) => (
+              <option key={m} value={i + 1}>{m}</option>
+            ))}
+          </select>
+        </div>
+        <p className="text-[11px] text-mute mt-1">
+          Solo día y mes — el cumpleaños dispara el saludo automático.
+        </p>
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button className="btn-ghost" onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <button className="btn-primary" onClick={save} disabled={busy}>
+            {busy ? 'Guardando…' : 'Guardar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function CustomerDetail() {
   const t = useTranslations('app_customers_id');
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [c, setC] = useState<Customer | null>(null);
+  const [editing, setEditing] = useState(false);
   const [tenantMoney, setTenantMoney] = useState<{ currency: string; currencySymbol: string | null }>({
     currency: 'COP',
     currencySymbol: null,
@@ -441,6 +577,13 @@ export default function CustomerDetail() {
 
   return (
     <div>
+      {editing && (
+        <EditCustomerModal
+          customer={c}
+          onClose={() => setEditing(false)}
+          onSaved={load}
+        />
+      )}
       <div className="page-head">
         <h1 className="page-title">
           <Link href="/app/customers" className="text-mute hover:text-ink">
@@ -459,6 +602,13 @@ export default function CustomerDetail() {
               <Icon name="send" /> WhatsApp
             </a>
           )}
+          <button
+            onClick={() => setEditing(true)}
+            className="btn-ghost text-sm font-semibold px-4 py-2 inline-flex items-center gap-1.5"
+            title="Editar nombre, correo o cumpleaños"
+          >
+            <Icon name="edit" size={14} /> Editar
+          </button>
           <button
             onClick={deleteCustomer}
             disabled={deleting}
