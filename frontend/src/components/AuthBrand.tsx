@@ -55,6 +55,22 @@ export function useAuthBrand(): { brand: AuthBrand; loading: boolean } {
 
   useEffect(() => {
     const host = (window.location.host || '').toLowerCase().split(':')[0];
+    // Dominio del master admin (soyfidelity.com): las pantallas de auth deben
+    // mostrar "Fidelity", no el logo de Clubify. Sin logoUrl → BrandMark pinta
+    // el nombre como texto (identidad de la plataforma, no una marca blanca).
+    if (host === 'soyfidelity.com' || host === 'www.soyfidelity.com') {
+      setBrand({
+        slug: 'fidelity',
+        name: 'Fidelity',
+        logoUrl: null,
+        iconUrl: null,
+        faviconUrl: null,
+        primaryColor: '#2563EB',
+        secondaryColor: null,
+      });
+      setLoading(false);
+      return;
+    }
     if (!host || isClubifyHost(host)) {
       setBrand(null);
       setLoading(false);

@@ -263,6 +263,20 @@ export async function middleware(req: NextRequest) {
       rewrite.pathname = '/en-construccion';
       return NextResponse.rewrite(rewrite);
     }
+    // "Entrar como empresa" navega a soyfidelity.com/admin/<slug>; sin este
+    // rewrite Next servía /admin/<slug> como ruta inexistente → 404. Aquí lo
+    // reescribimos al panel /admin (con el slug en header) igual que en los
+    // demás hosts, pero ANTES del next() de abajo. Sin re-login (el token de
+    // impersonación ya está en soyfidelity.com).
+    const saAdmin = url.pathname.match(/^\/admin\/([^/]+)(\/.*)?$/);
+    if (saAdmin && !RESERVED_ADMIN_ROUTES.has(saAdmin[1])) {
+      const rest = saAdmin[2] ?? '';
+      const rewrite = url.clone();
+      rewrite.pathname = `/admin${rest}`;
+      const reqHeaders = new Headers(req.headers);
+      reqHeaders.set('x-wl-slug', saAdmin[1]);
+      return NextResponse.rewrite(rewrite, { request: { headers: reqHeaders } });
+    }
     return NextResponse.next();
   }
 
