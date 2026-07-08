@@ -1516,7 +1516,7 @@ export class TenantsService {
             // Features que la marca incluye → lista "Tu suscripción incluye".
             subscriptionFeatureKeys: true,
             modules: {
-              where: { module: { in: ['REVIEWS', 'COMMUNITY'] } },
+              where: { module: { in: ['REVIEWS', 'COMMUNITY', 'REFERRALS'] } },
               select: { module: true, enabled: true },
             },
           },
@@ -1531,10 +1531,18 @@ export class TenantsService {
     const mods = t.whiteLabel?.modules ?? [];
     const reviewsModule = mods.find((m) => m.module === 'REVIEWS');
     const communityModule = mods.find((m) => m.module === 'COMMUNITY');
+    const referralsModule = mods.find((m) => m.module === 'REFERRALS');
     return {
       ...t,
       whiteLabelCreditsUnlimited: t.whiteLabel?.creditsUnlimited ?? false,
       reviewsEnabled: reviewsModule ? reviewsModule.enabled : true,
+      // Módulo REFERRALS de la marca. Un negocio de una marca blanca NO debe
+      // ver "Referidos" si su marca lo tiene apagado (ej. Sellea). Marca con
+      // registro = su flag; marca sin registro = false (oculto); sin marca
+      // (legacy = Clubify, que lo tiene ON) = true. Espeja communityEnabled.
+      referralsEnabled: t.whiteLabel
+        ? (referralsModule?.enabled ?? false)
+        : true,
       // Módulo COMMUNITY (Comunidad/Lab). Marca con registro = su flag; marca
       // sin registro de COMMUNITY = false (oculto). Sin marca (legacy) = true
       // (los negocios legacy son de Clubify, que sí tiene Comunidad).

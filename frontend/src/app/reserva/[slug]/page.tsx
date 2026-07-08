@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { PhoneInput } from '@/components/PhoneInput';
 
 type Info = {
   brandName: string;
@@ -528,12 +529,9 @@ export default function PublicReservation() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
-              <input
-                className="input mb-2"
-                placeholder="Teléfono de contacto · +52"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
+              <div className="mb-2">
+                <PhoneInput value={phone} onChange={setPhone} />
+              </div>
               <textarea
                 className="input mb-2"
                 rows={3}

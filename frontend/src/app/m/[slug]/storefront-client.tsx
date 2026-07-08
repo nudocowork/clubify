@@ -18,6 +18,7 @@ import {
 } from '@/lib/cart';
 import { Icon } from '@/components/Icon';
 import { Barcode } from '@/components/Barcode';
+import { PhoneInput } from '@/components/PhoneInput';
 import {
   ProductBadge,
   PrimaryProductBadge,
@@ -1850,12 +1851,9 @@ function CheckoutSheet({
             </div>
             <div>
               <label className="label">{tt('checkout.whatsapp')}</label>
-              <input
-                className="input"
-                placeholder="+57 ..."
+              <PhoneInput
                 value={form.phone}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                required
+                onChange={(v) => setForm({ ...form, phone: v })}
               />
             </div>
             {!lockedTable && (
@@ -2203,14 +2201,9 @@ function CardLookup({ slug, primary }: { slug: string; primary: string }) {
           <p className="text-sm text-mute mb-4">
             {tt('storefront.lookup_sub')}
           </p>
-          <input
-            className="input mb-3 text-center"
-            placeholder="+57 300 1234567"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            inputMode="tel"
-            required
-          />
+          <div className="mb-3 text-left">
+            <PhoneInput value={phone} onChange={setPhone} />
+          </div>
           <button
             type="submit"
             disabled={loading || phone.replace(/\D/g, '').length < 7}

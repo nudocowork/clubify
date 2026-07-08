@@ -137,6 +137,12 @@ export default function MarcasBlancasPage() {
 
   async function toggleStatus(w: WhiteLabel) {
     const next = w.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+    if (next === 'SUSPENDED') {
+      const ok = window.confirm(
+        `¿Suspender la marca "${w.name}"?\n\nSus negocios dejarán de funcionar (acceso bloqueado) hasta que la reactives.`,
+      );
+      if (!ok) return;
+    }
     try {
       await api(`/superadmin/white-labels/${w.id}/status`, {
         method: 'PATCH',
@@ -483,6 +489,12 @@ function Drawer({
   async function toggleStatus() {
     if (!w) return;
     const next = w.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+    if (next === 'SUSPENDED') {
+      const ok = window.confirm(
+        `¿Suspender la marca "${w.name}"?\n\nSus negocios dejarán de funcionar (acceso bloqueado) hasta que la reactives.`,
+      );
+      if (!ok) return;
+    }
     try {
       await api(`/superadmin/white-labels/${w.id}/status`, {
         method: 'PATCH',

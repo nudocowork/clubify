@@ -169,6 +169,10 @@ export default function AppShell({
     // Módulo COMMUNITY de la marca: gatea la sección Comunidad/Lab en el panel
     // del negocio (genérico por marca). Default true mientras carga (sin flicker).
     communityEnabled?: boolean;
+    // Módulo REFERRALS de la marca: gatea el item "Referidos" del panel del
+    // negocio. Si la marca lo tiene apagado (ej. Sellea) no aparece. Default
+    // true mientras carga (sin flicker).
+    referralsEnabled?: boolean;
     // Branding de la marca blanca para pintar el panel /app (logo + colores).
     // null = Clubify → defaults. Evita el verde + logo Clubify en otra marca.
     whiteLabelBranding?: {
@@ -432,6 +436,7 @@ export default function AppShell({
           whiteLabelSlug: t?.whiteLabelSlug ?? null,
           whiteLabelName: t?.whiteLabelName ?? null,
           communityEnabled: t?.communityEnabled ?? true,
+          referralsEnabled: t?.referralsEnabled ?? true,
           whiteLabelBranding: t?.whiteLabelBranding ?? null,
         });
         // PDF 1254 — idioma POR NEGOCIO: si el idioma activo del panel (cookie
@@ -702,7 +707,11 @@ export default function AppShell({
                 { href: '/app/staff', label: 'Equipo de trabajo', icon: 'users', module: 'staff' },
                 { href: '/app/billing', label: 'Suscripción', icon: 'card' },
                 { href: '/app/settings', label: 'Configuraciones', icon: 'gear' },
-                { href: '/app/referrals', label: 'Referidos', icon: 'gift' },
+                // "Referidos" se gatea por el módulo REFERRALS de la MARCA del
+                // negocio. Si la marca lo tiene apagado (ej. Sellea) no aparece.
+                ...(tenantInfo?.referralsEnabled !== false
+                  ? [{ href: '/app/referrals', label: 'Referidos', icon: 'gift' as const }]
+                  : []),
               ],
             },
             // Comunidad (Lab + Tutoriales) se gatea por el módulo COMMUNITY de
