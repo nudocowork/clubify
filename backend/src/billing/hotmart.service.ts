@@ -767,7 +767,7 @@ export class HotmartService {
         });
         // SMS aviso de falla (best-effort)
         this.smsTemplates
-          .render('payment_failed', { brandName: tenant.brandName })
+          .render('payment_failed', { brandName: tenant.brandName }, tenant.id)
           .then((msg) =>
             this.notifyOwner(tenant.id, tenant.brandName, msg),
           )
@@ -1007,7 +1007,7 @@ export class HotmartService {
     // reactivada"; si no, "pago confirmado" (con info del próximo cobro).
     if (wasSuspended) {
       this.smsTemplates
-        .render('account_reactivated', { brandName: tenant.brandName })
+        .render('account_reactivated', { brandName: tenant.brandName }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
     } else {
@@ -1018,7 +1018,7 @@ export class HotmartService {
         .render('payment_confirmed', {
           brandName: tenant.brandName,
           nextChargeInfo,
-        })
+        }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
     }

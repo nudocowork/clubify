@@ -46,7 +46,14 @@ export class TwoFactorService {
   async setup(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, totpSecret: true, totpEnabledAt: true },
+      select: {
+        id: true,
+        email: true,
+        totpSecret: true,
+        totpEnabledAt: true,
+        whiteLabelId: true,
+        tenantId: true,
+      },
     });
     if (!user) throw new NotFoundException('User');
     if (user.totpEnabledAt) {
@@ -61,12 +68,37 @@ export class TwoFactorService {
       data: { totpSecret: secret },
     });
 
+    // El issuer aparece en la app autenticadora (Google Authenticator/Authy).
+    // Un usuario de una marca blanca (Sellea) debe ver el nombre de SU marca.
+    const issuer = await this.resolveBrandName(user.whiteLabelId, user.tenantId);
     const otpauth = generateURI({
-      issuer: 'Clubify',
+      issuer,
       label: user.email,
       secret,
     });
     return { secret, otpauth };
+  }
+
+  /** Nombre de la marca del usuario (whiteLabelId directo o vía tenant).
+   *  Sin marca → "Clubify". Evita filtrar "Clubify" en el 2FA de marcas blancas. */
+  private async resolveBrandName(
+    whiteLabelId: string | null | undefined,
+    tenantId: string | null | undefined,
+  ): Promise<string> {
+    if (whiteLabelId) {
+      const wl = await this.prisma.whiteLabel.findUnique({
+        where: { id: whiteLabelId },
+        select: { name: true },
+      });
+      if (wl?.name?.trim()) return wl.name.trim();
+    } else if (tenantId) {
+      const t = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { whiteLabel: { select: { name: true } } },
+      });
+      if (t?.whiteLabel?.name?.trim()) return t.whiteLabel.name.trim();
+    }
+    return 'Clubify';
   }
 
   /**

@@ -135,6 +135,12 @@ export class StaffController {
       where: { id: user.tenantId },
     });
     if (tenant) {
+      const emailBrand = tenant.whiteLabelId
+        ? await this.prisma.whiteLabel.findUnique({
+            where: { id: tenant.whiteLabelId },
+            select: { name: true },
+          })
+        : null;
       const tpl = welcomeStaffTemplate({
         tenant: {
           brandName: tenant.brandName,
@@ -143,6 +149,7 @@ export class StaffController {
           whatsappPhone: tenant.whatsappPhone,
           slug: tenant.slug,
         },
+        brand: emailBrand?.name ? { name: emailBrand.name } : null,
         fullName: created.fullName,
         email: created.email,
         tempPassword,

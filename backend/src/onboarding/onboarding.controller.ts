@@ -25,8 +25,10 @@ import {
   isValidCategorySlug,
 } from '../common/business-categories';
 
-const WELCOME_POPUP_MESSAGE =
-  'Hola acabo de adquirir Clubify, quiero agendar una sesión personalizada para mayor entendimiento de la plataforma.';
+// Mensaje pre-llenado del popup de bienvenida. La marca ({brand}) se resuelve
+// del negocio (Sellea/Clubify) para no filtrar "Clubify" a marcas blancas.
+const welcomePopupMessage = (brand: string) =>
+  `Hola acabo de adquirir ${brand}, quiero agendar una sesión personalizada para mayor entendimiento de la plataforma.`;
 
 class AddressBody {
   @IsString() @MinLength(1) @MaxLength(120) name!: string;
@@ -74,6 +76,7 @@ export class OnboardingController {
           businessAddressOnboardedAt: true,
           businessCategoryOnboardedAt: true,
           businessCategorySlug: true,
+          whiteLabel: { select: { name: true } },
         },
       }),
       this.prisma.location.count({ where: { tenantId: user.tenantId } }),
@@ -107,7 +110,7 @@ export class OnboardingController {
       // datos del welcome
       welcomeImageUrl: branding.welcomePopupImageUrl,
       welcomeSupportPhone: branding.supportWhatsapp,
-      welcomeMessage: WELCOME_POPUP_MESSAGE,
+      welcomeMessage: welcomePopupMessage(t.whiteLabel?.name?.trim() || 'Clubify'),
       // datos del category
       categories: BUSINESS_CATEGORIES.map((c) => ({
         slug: c.slug,

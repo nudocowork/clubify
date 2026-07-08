@@ -204,7 +204,7 @@ export class StripeService {
       },
     });
     this.smsTemplates
-      .render('payment_failed', { brandName: tenant.brandName })
+      .render('payment_failed', { brandName: tenant.brandName }, tenant.id)
       .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
       .catch(() => null);
     return { ok: true, action: 'payment_failed' };
@@ -219,7 +219,7 @@ export class StripeService {
       data: { status: 'SUSPENDED', suspendedAt: new Date() },
     });
     this.smsTemplates
-      .render('account_paused', { brandName: tenant.brandName })
+      .render('account_paused', { brandName: tenant.brandName }, tenant.id)
       .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
       .catch(() => null);
     return { ok: true, action: 'suspended' };
@@ -261,13 +261,13 @@ export class StripeService {
     // Si venía SUSPENDED → "cuenta reactivada"; si no → "pago confirmado".
     if (wasSuspended) {
       this.smsTemplates
-        .render('account_reactivated', { brandName: tenant.brandName })
+        .render('account_reactivated', { brandName: tenant.brandName }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
     } else {
       const nextChargeInfo = nextCharge ? ` Próximo cobro: ${fmtSmsDate(nextCharge)}.` : '';
       this.smsTemplates
-        .render('payment_confirmed', { brandName: tenant.brandName, nextChargeInfo })
+        .render('payment_confirmed', { brandName: tenant.brandName, nextChargeInfo }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
     }

@@ -256,7 +256,7 @@ export class PreregAlertsService {
         ? `Hola ${opts.name.split(' ')[0]} 👋`
         : 'Hola 👋';
       const body =
-        `${greeting} Recibimos tu pago de Clubify 🎉.\n\n` +
+        `${greeting} Recibimos tu pago 🎉.\n\n` +
         `Para activar tu cuenta en 30 segundos, entra aquí:\n${opts.activateUrl}\n\n` +
         `Importante: usa el mismo correo del pago (${opts.email}) para que se active al instante.`;
 

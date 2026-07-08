@@ -57,8 +57,10 @@ class TrialPolicyDto {
   @IsInt() @Min(0) @Max(365) maxTrialDaysNoCredits!: number;
 }
 
-const WELCOME_POPUP_MESSAGE =
-  'Hola acabo de adquirir Clubify, quiero agendar una sesión personalizada para mayor entendimiento de la plataforma.';
+// Mensaje pre-llenado del popup de bienvenida. La marca ({brand}) se resuelve
+// del negocio (Sellea/Clubify) para no filtrar "Clubify" a marcas blancas.
+const welcomePopupMessage = (brand: string) =>
+  `Hola acabo de adquirir ${brand}, quiero agendar una sesión personalizada para mayor entendimiento de la plataforma.`;
 
 @Controller()
 export class SettingsController {
@@ -170,7 +172,11 @@ export class SettingsController {
       this.svc.getBranding(),
       this.prisma.tenant.findUnique({
         where: { id: user.tenantId },
-        select: { status: true, welcomePopupSeenAt: true },
+        select: {
+          status: true,
+          welcomePopupSeenAt: true,
+          whiteLabel: { select: { name: true } },
+        },
       }),
     ]);
     const shouldShow =
@@ -183,7 +189,7 @@ export class SettingsController {
       shouldShow,
       imageUrl: branding.welcomePopupImageUrl,
       supportPhone: branding.supportWhatsapp,
-      message: WELCOME_POPUP_MESSAGE,
+      message: welcomePopupMessage(t?.whiteLabel?.name?.trim() || 'Clubify'),
     };
   }
 

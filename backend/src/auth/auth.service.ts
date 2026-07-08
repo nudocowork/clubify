@@ -302,7 +302,7 @@ export class AuthService {
         metadata: { reason: user ? 'inactive' : 'no_account' },
       });
       throw new UnauthorizedException(
-        'No existe una cuenta de Clubify con este email. Pídele al dueño que te invite.',
+        'No existe una cuenta con este email. Pídele al dueño que te invite.',
       );
     }
 
@@ -395,6 +395,32 @@ export class AuthService {
     return exact.length === 1 ? exact[0] : null;
   }
 
+  /**
+   * Nombre de la marca de un usuario (admin de marca → user.whiteLabelId;
+   * dueño/staff de negocio → tenant.whiteLabel). Sin marca → "Clubify".
+   * Se usa para que los SMS/mensajes de auth muestren la marca correcta y no
+   * filtren "Clubify" a marcas blancas.
+   */
+  private async resolveBrandNameForUser(user: {
+    whiteLabelId?: string | null;
+    tenantId?: string | null;
+  }): Promise<string> {
+    if (user.whiteLabelId) {
+      const wl = await this.prisma.whiteLabel.findUnique({
+        where: { id: user.whiteLabelId },
+        select: { name: true },
+      });
+      if (wl?.name?.trim()) return wl.name.trim();
+    } else if (user.tenantId) {
+      const t = await this.prisma.tenant.findUnique({
+        where: { id: user.tenantId },
+        select: { whiteLabel: { select: { name: true } } },
+      });
+      if (t?.whiteLabel?.name?.trim()) return t.whiteLabel.name.trim();
+    }
+    return 'Clubify';
+  }
+
   async requestPasswordResetSms(phone: string) {
     const normalized = phone.replace(/\D/g, '').trim();
     if (normalized.length < 7) return { ok: true };
@@ -413,8 +439,11 @@ export class AuthService {
 
       const account = await this.resolveDefaultSmsAccount();
       if (account) {
+        // Marca del usuario: un admin/dueño de marca blanca (Sellea) debe ver
+        // el nombre de SU marca, nunca "Clubify".
+        const brandName = await this.resolveBrandNameForUser(user);
         const body =
-          `Tu código para restablecer la contraseña en Clubify es: ${code}\n\n` +
+          `Tu código para restablecer la contraseña en ${brandName} es: ${code}\n\n` +
           `Vence en 10 minutos. Si no fuiste tú, ignora este mensaje.`;
         try {
           await this.growBusiness.sendSmsWithCreds(
@@ -1291,7 +1320,14 @@ export class AuthService {
       );
     }
 
-    // Welcome email best-effort (no bloqueante)
+    // Welcome email best-effort (no bloqueante). Resolvemos la marca del negocio
+    // para que el asunto/cuerpo digan "Sellea" y no "Clubify" en marcas blancas.
+    const welcomeBrandRow = await this.prisma.tenant
+      .findUnique({
+        where: { id: tenant.id },
+        select: { whiteLabel: { select: { name: true } } },
+      })
+      .catch(() => null);
     this.email.send({
       to: email,
       ...welcomeOwnerTemplate({
@@ -1299,6 +1335,9 @@ export class AuthService {
         fullName: dto.fullName.trim(),
         trialEndsAt,
         appUrl: this.appConfig.APP_URL,
+        brand: welcomeBrandRow?.whiteLabel?.name
+          ? { name: welcomeBrandRow.whiteLabel.name }
+          : null,
       }),
     });
 

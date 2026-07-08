@@ -367,7 +367,7 @@ export class BillingService {
       const message = await this.smsTemplates.render('payment_reminder_tomorrow', {
         brandName: t.brandName,
         chargeDate: fmtSmsDate(t.currentPeriodEnd),
-      });
+      }, t.id);
       const r = await this.growBusiness.sendSmsWithCreds(
         target.creds,
         target.phone,
@@ -478,7 +478,7 @@ export class BillingService {
         if (target) {
           const message = await this.smsTemplates.render('account_paused', {
             brandName: t.brandName,
-          });
+          }, t.id);
           this.growBusiness
             .sendSmsWithCreds(target.creds, target.phone, message)
             .catch((e) =>
@@ -497,7 +497,7 @@ export class BillingService {
         const message = await this.smsTemplates.render('account_will_pause', {
           brandName: t.brandName,
           pauseDate: fmtSmsDate(pauseDate),
-        });
+        }, t.id);
         const r = await this.growBusiness.sendSmsWithCreds(
           target.creds,
           target.phone,
@@ -513,6 +513,7 @@ export class BillingService {
         const message = await this.smsTemplates.render(
           'payment_overdue_reminder',
           { brandName: t.brandName, pauseDate: fmtSmsDate(pauseDate) },
+          t.id,
         );
         const r = await this.growBusiness.sendSmsWithCreds(
           target.creds,

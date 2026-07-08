@@ -204,12 +204,13 @@ export class TenantMeController {
     }
     const t = await this.prisma.tenant.findUnique({
       where: { id: user.tenantId },
-      select: { brandName: true },
+      select: { brandName: true, whiteLabel: { select: { name: true } } },
     });
+    const platform = t?.whiteLabel?.name?.trim() || 'Clubify';
     const body =
       '🧪 Test de alertas de pago\n\n' +
       `Negocio: ${t?.brandName ?? '—'}\n` +
-      'Si recibes este SMS, los recordatorios de pago de Clubify están listos.';
+      `Si recibes este SMS, los recordatorios de pago de ${platform} están listos.`;
     const result = await this.growBusiness.sendSmsWithCreds(
       target.creds,
       target.phone,

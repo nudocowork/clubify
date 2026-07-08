@@ -634,6 +634,14 @@ export class OrdersService {
     // Email transaccional al cliente (best-effort)
     if (customer.email) {
       const trackingUrl = `${process.env.APP_URL ?? 'http://localhost:4848'}/o/${order.code}`;
+      // Marca del negocio para el pie del email ("Hecho con {marca}", nunca
+      // "Clubify" en marcas blancas).
+      const emailBrand = tenant.whiteLabelId
+        ? await this.prisma.whiteLabel.findUnique({
+            where: { id: tenant.whiteLabelId },
+            select: { name: true },
+          })
+        : null;
       const tpl = orderCreatedTemplate({
         tenant: {
           brandName: tenant.brandName,
@@ -642,6 +650,7 @@ export class OrdersService {
           whatsappPhone: tenant.whatsappPhone,
           slug: tenant.slug,
         },
+        brand: emailBrand?.name ? { name: emailBrand.name } : null,
         customerName: customer.fullName,
         code: order.code,
         total,
@@ -1411,6 +1420,12 @@ export class OrdersService {
     ]);
     if (!tenant || !customer?.email) return;
     const trackingUrl = `${process.env.APP_URL ?? 'http://localhost:4848'}/o/${code}`;
+    const emailBrand = tenant.whiteLabelId
+      ? await this.prisma.whiteLabel.findUnique({
+          where: { id: tenant.whiteLabelId },
+          select: { name: true },
+        })
+      : null;
     const tplArgs = {
       tenant: {
         brandName: tenant.brandName,
@@ -1419,6 +1434,7 @@ export class OrdersService {
         whatsappPhone: tenant.whatsappPhone,
         slug: tenant.slug,
       },
+      brand: emailBrand?.name ? { name: emailBrand.name } : null,
       customerName: customer.fullName,
       code,
       trackingUrl,

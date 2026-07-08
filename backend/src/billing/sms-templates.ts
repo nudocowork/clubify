@@ -24,70 +24,73 @@ export type SmsTemplateDef = {
 
 export const SMS_TEMPLATES: SmsTemplateDef[] = [
   // ───────── Cliente final (negocio que paga directo a Hotmart) ─────────
+  // El prefijo {platform} = nombre de la MARCA del negocio (Sellea/Clubify),
+  // resuelto por SmsTemplatesService.render desde el tenant. NUNCA hardcodear
+  // "Clubify" aquí: un negocio de una marca blanca debe ver el nombre de SU marca.
   {
     id: 'payment_reminder_tomorrow',
     label: 'Recordatorio de cobro (D-1)',
     description: 'Se envía 1 día antes del cobro recurrente en la pasarela de pago.',
-    vars: ['brandName', 'chargeDate'],
+    vars: ['platform', 'brandName', 'chargeDate'],
     group: 'cliente',
     default:
-      'Clubify: Tu cobro de {brandName} es mañana ({chargeDate}). Verifica tu tarjeta en la pasarela de pago si cambió.',
+      '{platform}: Tu cobro de {brandName} es mañana ({chargeDate}). Verifica tu tarjeta en la pasarela de pago si cambió.',
   },
   {
     id: 'payment_confirmed',
     label: 'Pago confirmado',
     description: 'Se envía cuando Hotmart aprueba un pago.',
-    vars: ['brandName', 'nextChargeInfo'],
+    vars: ['platform', 'brandName', 'nextChargeInfo'],
     group: 'cliente',
-    default: 'Clubify: Pago de {brandName} recibido.{nextChargeInfo} ¡Gracias!',
+    default: '{platform}: Pago de {brandName} recibido.{nextChargeInfo} ¡Gracias!',
   },
   {
     id: 'payment_failed',
     label: 'Pago falló',
     description: 'Se envía cuando Hotmart reporta un pago fallido.',
-    vars: ['brandName'],
+    vars: ['platform', 'brandName'],
     group: 'cliente',
     default:
-      'Clubify: Tu pago de {brandName} falló. Actualiza tu tarjeta o reintenta en la pasarela de pago para no pausar tu cuenta.',
+      '{platform}: Tu pago de {brandName} falló. Actualiza tu tarjeta o reintenta en la pasarela de pago para no pausar tu cuenta.',
   },
   {
     id: 'payment_overdue_reminder',
     label: 'Recordatorio de pago vencido (D+1)',
     description:
       'Se envía 1 día después de un cobro fallido o de la fecha de cobro vencida, si el pago sigue pendiente.',
-    vars: ['brandName', 'pauseDate'],
+    vars: ['platform', 'brandName', 'pauseDate'],
     group: 'cliente',
     default:
-      'Clubify: El pago de {brandName} sigue pendiente. Regularízalo en la pasarela para evitar la pausa del {pauseDate}.',
+      '{platform}: El pago de {brandName} sigue pendiente. Regularízalo en la pasarela para evitar la pausa del {pauseDate}.',
   },
   {
     id: 'account_will_pause',
     label: 'Aviso de pausa (D+2)',
     description:
       'Se envía si el pago no se regulariza antes de la fecha de pausa.',
-    vars: ['brandName', 'pauseDate'],
+    vars: ['platform', 'brandName', 'pauseDate'],
     group: 'cliente',
     default:
-      'Clubify: Si no se regulariza el pago de {brandName} antes del {pauseDate}, tu cuenta se pausará automáticamente.',
+      '{platform}: Si no se regulariza el pago de {brandName} antes del {pauseDate}, tu cuenta se pausará automáticamente.',
   },
   {
     id: 'account_paused',
     label: 'Cuenta pausada',
     description: 'Se envía cuando la cuenta se pausa por falta de pago.',
-    vars: ['brandName'],
+    vars: ['platform', 'brandName'],
     group: 'cliente',
     default:
-      'Clubify: Tu cuenta de {brandName} quedó pausada por falta de pago. Reactiva en la pasarela de pago para volver al instante.',
+      '{platform}: Tu cuenta de {brandName} quedó pausada por falta de pago. Reactiva en la pasarela de pago para volver al instante.',
   },
   {
     id: 'account_reactivated',
     label: 'Cuenta reactivada',
     description:
       'Se envía cuando una cuenta pausada/suspendida vuelve a estar activa tras un pago (Hotmart o Stripe).',
-    vars: ['brandName'],
+    vars: ['platform', 'brandName'],
     group: 'cliente',
     default:
-      'Clubify: Tu cuenta de {brandName} fue reactivada correctamente. Ya puedes ingresar a tu panel.',
+      '{platform}: Tu cuenta de {brandName} fue reactivada correctamente. Ya puedes ingresar a tu panel.',
   },
 
   // ───────── Marca blanca (notificaciones de créditos desde Clubify) ─────────

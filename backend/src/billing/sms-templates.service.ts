@@ -59,15 +59,40 @@ export class SmsTemplatesService {
 
   /**
    * Renderiza el texto final de una plantilla (override o default) con sus
-   * variables interpoladas. Lo usan billing/hotmart al enviar.
+   * variables interpoladas. Lo usan billing/hotmart/stripe al enviar.
+   *
+   * `tenantId` (opcional): resuelve la var {platform} = nombre de la MARCA del
+   * negocio (Sellea/Clubify) para el prefijo de los SMS de cobro. Sin tenantId
+   * (o negocio sin marca) cae a "Clubify". Esto evita que un negocio de una
+   * marca blanca reciba SMS que digan "Clubify".
    */
-  async render(id: string, vars: Record<string, string>): Promise<string> {
+  async render(
+    id: string,
+    vars: Record<string, string>,
+    tenantId?: string,
+  ): Promise<string> {
     const def = SMS_TEMPLATES.find((t) => t.id === id);
     if (!def) return '';
     const row = await this.prisma.setting.findUnique({
       where: { key: this.key(id) },
     });
     const tpl = row?.value?.trim() || def.default;
-    return interpolateSms(tpl, vars);
+    const merged = { ...vars };
+    if (!('platform' in merged)) {
+      merged.platform = await this.resolvePlatform(tenantId);
+    }
+    return interpolateSms(tpl, merged);
+  }
+
+  /** Nombre de la marca del negocio para el prefijo {platform}. */
+  private async resolvePlatform(tenantId?: string): Promise<string> {
+    if (!tenantId) return 'Clubify';
+    const t = await this.prisma.tenant
+      .findUnique({
+        where: { id: tenantId },
+        select: { whiteLabel: { select: { name: true } } },
+      })
+      .catch(() => null);
+    return t?.whiteLabel?.name?.trim() || 'Clubify';
   }
 }

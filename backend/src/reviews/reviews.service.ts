@@ -15,7 +15,7 @@ const DEFAULT_REVIEW_ALERT_TEMPLATE =
   'Teléfono: {customerPhone}\n' +
   'Calificación: {rating}/5\n\n' +
   'Comentario:\n{feedback}\n\n' +
-  'Revisar en Clubify:\n{feedbackUrl}';
+  'Revisar en {platform}:\n{feedbackUrl}';
 
 function renderTemplate(
   tpl: string,
@@ -182,6 +182,7 @@ export class ReviewsService {
         id: true,
         brandName: true,
         slug: true,
+        whiteLabel: { select: { name: true } },
         phone: true,
         whatsappPhone: true,
         reviewAlertsEnabled: true,
@@ -300,6 +301,7 @@ export class ReviewsService {
       tenant.reviewAlertsTemplate?.trim() || DEFAULT_REVIEW_ALERT_TEMPLATE;
     const feedbackUrl = `https://app.soyclubify.com/app/reviews?focus=${feedback.id}`;
     const body = renderTemplate(template, {
+      platform: tenant.whiteLabel?.name?.trim() || 'Clubify',
       businessName: tenant.brandName || tenant.slug,
       storeName: tenant.brandName || tenant.slug,
       customerName: feedback.customerName || 'Anónimo',

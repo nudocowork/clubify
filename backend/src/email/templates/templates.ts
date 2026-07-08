@@ -22,7 +22,16 @@ function shell(opts: {
   // Para emails de marca blanca, ocultamos el crédito "Hecho con Clubify"
   // (la marca no debe mostrar Clubify). Default: visible.
   platformCredit?: boolean;
+  // Marca de la PLATAFORMA para el crédito del pie. Si es una marca blanca
+  // (Sellea), el pie dice "Hecho con Sellea" (texto, sin link a soyclubify).
+  // Sin platform → "Hecho con Clubify" (link a soyclubify.com) como default.
+  platform?: { name: string } | null;
 }) {
+  const platformName = opts.platform?.name?.trim() || 'Clubify';
+  const platformCreditHtml =
+    opts.platform && platformName !== 'Clubify'
+      ? `<span style="font-size:11px;color:#9CA3AF">Hecho con ${platformName}</span>`
+      : `<span style="font-size:11px;color:#9CA3AF">Hecho con <a href="https://soyclubify.com" style="color:#6366F1;text-decoration:none;font-weight:600">Clubify</a></span>`;
   const primary = opts.tenant.primaryColor ?? '#6366F1';
   const logo = opts.tenant.logoUrl
     ? `<img src="${opts.tenant.logoUrl}" alt="${opts.tenant.brandName}" style="max-height:40px;border-radius:8px"/>`
@@ -48,11 +57,7 @@ function shell(opts: {
       </td></tr>
       <tr><td style="padding:18px 28px;background:#F9FAFB;border-top:1px solid #E5E7EB;font-size:12px;color:#6B7280;text-align:center">
         ${opts.footer ? `${opts.footer}<br/>` : `Enviado por ${opts.tenant.brandName}<br/>`}
-        ${
-          opts.platformCredit === false
-            ? ''
-            : `<span style="font-size:11px;color:#9CA3AF">Hecho con <a href="https://soyclubify.com" style="color:#6366F1;text-decoration:none;font-weight:600">Clubify</a></span>`
-        }
+        ${opts.platformCredit === false ? '' : platformCreditHtml}
       </td></tr>
     </table>
   </td></tr>
@@ -69,6 +74,7 @@ export function orderCreatedTemplate(args: {
   total: number;
   items: { name: string; qty: number; lineTotal: number }[];
   trackingUrl: string;
+  brand?: { name: string } | null;
 }) {
   const itemsRows = args.items
     .map(
@@ -91,6 +97,7 @@ export function orderCreatedTemplate(args: {
         </table>
       `,
       cta: { label: 'Seguir mi pedido →', href: args.trackingUrl },
+      platform: args.brand ?? null,
     }),
   };
 }
@@ -100,6 +107,7 @@ export function orderConfirmedTemplate(args: {
   customerName: string;
   code: string;
   trackingUrl: string;
+  brand?: { name: string } | null;
 }) {
   return {
     subject: `Pedido #${args.code} confirmado · estamos preparándolo`,
@@ -112,6 +120,7 @@ export function orderConfirmedTemplate(args: {
         <p style="margin:0 0 16px;color:#374151;line-height:1.55">Hola ${args.customerName}, ya estamos preparando tu pedido <b>#${args.code}</b>. Te volvemos a escribir cuando esté listo.</p>
       `,
       cta: { label: 'Seguir el pedido →', href: args.trackingUrl },
+      platform: args.brand ?? null,
     }),
   };
 }
@@ -120,6 +129,7 @@ export function orderReadyTemplate(args: {
   tenant: Tenant;
   customerName: string;
   code: string;
+  brand?: { name: string } | null;
 }) {
   return {
     subject: `Tu pedido #${args.code} está listo 🎉`,
@@ -131,6 +141,7 @@ export function orderReadyTemplate(args: {
         <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">¡Tu pedido está listo! 🎉</h2>
         <p style="margin:0 0 16px;color:#374151;line-height:1.55">Hola ${args.customerName}, tu pedido <b>#${args.code}</b> ya está esperandote.</p>
       `,
+      platform: args.brand ?? null,
     }),
   };
 }
@@ -141,6 +152,7 @@ export function welcomeStaffTemplate(args: {
   email: string;
   tempPassword: string;
   loginUrl: string;
+  brand?: { name: string } | null;
 }) {
   return {
     subject: `Bienvenido al equipo de ${args.tenant.brandName}`,
@@ -158,6 +170,7 @@ export function welcomeStaffTemplate(args: {
         <p style="margin:16px 0 0;color:#6B7280;font-size:13px">Cambia tu contraseña apenas ingreses. Si recibiste este email por error, ignóralo.</p>
       `,
       cta: { label: 'Ingresar al panel →', href: args.loginUrl },
+      platform: args.brand ?? null,
     }),
   };
 }
@@ -279,18 +292,22 @@ export function welcomeOwnerTemplate(args: {
   fullName: string;
   trialEndsAt: Date | null;
   appUrl: string;
+  // Marca del negocio (Sellea/Clubify). Sin brand → "Clubify" (default).
+  brand?: { name: string } | null;
 }) {
   const firstName = args.fullName.split(' ')[0];
+  const brandName = args.brand?.name ?? 'Clubify';
   return {
-    subject: `Bienvenido a Clubify, ${firstName}`,
+    subject: `Bienvenido a ${brandName}, ${firstName}`,
     text: `Tu cuenta de ${args.tenant.brandName} ya está creada. Completa el pago en Hotmart y entras al panel a vender. ${args.appUrl}/app`,
     html: shell({
       tenant: args.tenant,
+      platform: args.brand ?? null,
       preheader: `Completa el pago para activar ${args.tenant.brandName}`,
       body: `
         <h2 style="margin:0 0 12px;font-size:24px;font-weight:700">¡Bienvenido, ${firstName}!</h2>
         <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          Tu cuenta de <b>${args.tenant.brandName}</b> en Clubify ya está creada.
+          Tu cuenta de <b>${args.tenant.brandName}</b> en ${brandName} ya está creada.
           Solo falta completar el pago seguro en Hotmart para activarla.
         </p>
         <div style="background:linear-gradient(135deg,#6366F1,#A855F7);border-radius:14px;padding:18px 20px;color:#fff">
