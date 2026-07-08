@@ -64,6 +64,20 @@ class BrandSmsAccountBody {
   @IsOptional() @IsInt() @Min(1) @Max(99) switchNumber?: number | null;
 }
 
+// Override de una plantilla de mensaje (Automatizaciones). Vacío = volver al
+// default del catálogo (borra el override de la marca).
+class BrandMessageTemplateBody {
+  @IsOptional() @IsString() @MaxLength(2000) text?: string | null;
+}
+
+// Carpetas de Automatizaciones por marca.
+class AutomationFolderBody {
+  @IsString() @MaxLength(60) name!: string;
+}
+class MoveTemplateBody {
+  @IsString() @MaxLength(80) folderId!: string;
+}
+
 class PaymentLinkBody {
   @IsIn(['HOTMART', 'STRIPE', 'MANUAL']) gateway!: 'HOTMART' | 'STRIPE' | 'MANUAL';
   // Opcional: si no llega, el service usa "Plan {Periodicidad}" como default.
@@ -232,6 +246,66 @@ export class SuperAdminController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.svc.updateBrandSmsAccount(id, body, user.id);
+  }
+
+  // -------- Automatizaciones: plantillas de mensajes por marca --------
+
+  @Get('white-labels/:id/message-templates')
+  getBrandMessageTemplates(@Param('id') id: string) {
+    return this.svc.getBrandMessageTemplates(id);
+  }
+
+  @Patch('white-labels/:id/message-templates/:templateId')
+  updateBrandMessageTemplate(
+    @Param('id') id: string,
+    @Param('templateId') templateId: string,
+    @Body() body: BrandMessageTemplateBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.updateBrandMessageTemplate(
+      id,
+      templateId,
+      body.text ?? null,
+      user.id,
+    );
+  }
+
+  @Patch('white-labels/:id/message-templates/:templateId/folder')
+  moveAutomationTemplate(
+    @Param('id') id: string,
+    @Param('templateId') templateId: string,
+    @Body() body: MoveTemplateBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.moveAutomationTemplate(id, templateId, body.folderId, user.id);
+  }
+
+  @Post('white-labels/:id/automation-folders')
+  createAutomationFolder(
+    @Param('id') id: string,
+    @Body() body: AutomationFolderBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.createAutomationFolder(id, body.name, user.id);
+  }
+
+  @Patch('white-labels/:id/automation-folders/:folderId')
+  renameAutomationFolder(
+    @Param('id') id: string,
+    @Param('folderId') folderId: string,
+    @Body() body: AutomationFolderBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.renameAutomationFolder(id, folderId, body.name, user.id);
+  }
+
+  @Delete('white-labels/:id/automation-folders/:folderId')
+  deleteAutomationFolder(
+    @Param('id') id: string,
+    @Param('folderId') folderId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.deleteAutomationFolder(id, folderId, user.id);
   }
 
   @Get('white-labels/:id/payment-links')

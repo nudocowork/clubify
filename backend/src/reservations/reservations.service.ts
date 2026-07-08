@@ -11,6 +11,7 @@ import { ReservationStatus, ReservationChannel } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { resolveBrandTemplate } from '../integrations/brand-message-templates';
 import { WalletService } from '../wallet/wallet.service';
 import { PassesService } from '../passes/passes.service';
 import { AppConfigService } from '../common/config/app-config.service';
@@ -834,6 +835,7 @@ export class ReservationsService {
         phone: true,
         growBusinessLocationId: true,
         growBusinessApiKey: true,
+        whiteLabelId: true,
       },
     });
     // PDF Software 2026-06-29: el aviso de reserva va al "Número receptor de
@@ -857,7 +859,8 @@ export class ReservationsService {
         zone: { select: { name: true } },
       },
     });
-    const body = this.buildReservationNotifyBody({
+    const body = await this.buildReservationNotifyBody({
+      whiteLabelId: tenant?.whiteLabelId ?? null,
       brandName: tenant?.brandName ?? '',
       customerName: reservation.customerName,
       customerPhone: reservation.customerPhone,
@@ -895,8 +898,14 @@ export class ReservationsService {
     }
   }
 
-  /** Cuerpo del SMS/WhatsApp de aviso de reserva (compartido con la prueba). */
-  private buildReservationNotifyBody(d: {
+  /**
+   * Cuerpo del SMS/WhatsApp de aviso de reserva. Usa la plantilla `op_reservation_new`
+   * (personalizable por marca en Master Admin → Automatizaciones); los fragmentos
+   * condicionales (zona/mesa/notas) se pre-calculan como tokens `{...Line}` para
+   * que sin override el texto quede idéntico al histórico.
+   */
+  private async buildReservationNotifyBody(d: {
+    whiteLabelId: string | null;
     brandName: string;
     customerName: string;
     customerPhone: string;
@@ -906,22 +915,23 @@ export class ReservationsService {
     notes: string | null;
     zoneName: string | null;
     tableNumber: string | null;
-  }): string {
+  }): Promise<string> {
     const dateStr = d.date.toISOString().slice(0, 10);
-    const zoneStr = d.zoneName ? `\n📍 Zona: ${d.zoneName}` : '';
-    const tableStr = d.tableNumber ? `\n🍽️ Mesa: ${d.tableNumber}` : '';
-    const notesStr = d.notes ? `\n📝 Notas: ${d.notes}` : '';
-    return (
-      `🔔 NUEVA RESERVA · ${d.brandName}\n` +
-      `Cliente: ${d.customerName}\n` +
-      `📞 ${d.customerPhone}\n` +
-      `👥 ${d.party} personas\n` +
-      `📅 ${dateStr} a las ${d.time}` +
-      zoneStr +
-      tableStr +
-      notesStr +
-      `\n\nConfirma manualmente con el cliente.`
-    );
+    return resolveBrandTemplate(this.prisma, {
+      id: 'op_reservation_new',
+      whiteLabelId: d.whiteLabelId,
+      vars: {
+        brandName: d.brandName,
+        customerName: d.customerName,
+        customerPhone: d.customerPhone,
+        party: String(d.party),
+        date: dateStr,
+        time: d.time,
+        zoneLine: d.zoneName ? `\n📍 Zona: ${d.zoneName}` : '',
+        tableLine: d.tableNumber ? `\n🍽️ Mesa: ${d.tableNumber}` : '',
+        notesLine: d.notes ? `\n📝 Notas: ${d.notes}` : '',
+      },
+    });
   }
 
   /**
@@ -1329,13 +1339,29 @@ export class ReservationsService {
     const dest = r.tenant?.whatsappPhone || r.tenant?.phone;
     if (!dest) return;
     const dateStr = r.date.toISOString().slice(0, 10);
-    const zoneStr = r.zone?.name ? ` · ${r.zone.name}` : '';
-    const body =
-      `❌ RESERVA CANCELADA POR EL CLIENTE\n` +
-      `${r.customerName} canceló su reserva.\n` +
-      `📅 ${dateStr} a las ${r.time}${zoneStr} · ${r.party} pax\n` +
-      `📞 ${r.customerPhone}\n` +
-      `El slot vuelve a estar disponible.`;
+    const whiteLabelId =
+      r.tenant?.whiteLabelId ??
+      (
+        await this.prisma.tenant
+          .findUnique({
+            where: { id: r.tenantId },
+            select: { whiteLabelId: true },
+          })
+          .catch(() => null)
+      )?.whiteLabelId ??
+      null;
+    const body = await resolveBrandTemplate(this.prisma, {
+      id: 'op_reservation_cancelled',
+      whiteLabelId,
+      vars: {
+        customerName: r.customerName,
+        date: dateStr,
+        time: r.time,
+        zoneLine: r.zone?.name ? ` · ${r.zone.name}` : '',
+        party: String(r.party),
+        customerPhone: r.customerPhone,
+      },
+    });
     await this.growBusiness.sendSms(r.tenantId, dest, body);
   }
 

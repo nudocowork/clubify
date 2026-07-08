@@ -9,14 +9,12 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
+import {
+  REVIEW_ALERT_DEFAULT,
+  resolveBrandTemplateText,
+} from '../integrations/brand-message-templates';
 
-const DEFAULT_REVIEW_ALERT_TEMPLATE =
-  '⚠️ Nueva reseña privada en {businessName}\n\n' +
-  'Cliente: {customerName}\n' +
-  'Teléfono: {customerPhone}\n' +
-  'Calificación: {rating}/5\n\n' +
-  'Comentario:\n{feedback}\n\n' +
-  'Revisar en {platform}:\n{feedbackUrl}';
+const DEFAULT_REVIEW_ALERT_TEMPLATE = REVIEW_ALERT_DEFAULT;
 
 function renderTemplate(
   tpl: string,
@@ -181,6 +179,7 @@ export class ReviewsService {
       where: { id: tenantId },
       select: {
         id: true,
+        whiteLabelId: true,
         brandName: true,
         slug: true,
         whiteLabel: { select: { name: true, ...BRAND_GROW_SELECT } },
@@ -300,8 +299,16 @@ export class ReviewsService {
       return;
     }
 
+    // Precedencia: plantilla propia del negocio > override de la marca
+    // (Master Admin → Automatizaciones) > default del catálogo.
     const template =
-      tenant.reviewAlertsTemplate?.trim() || DEFAULT_REVIEW_ALERT_TEMPLATE;
+      tenant.reviewAlertsTemplate?.trim() ||
+      (await resolveBrandTemplateText(
+        this.prisma,
+        'op_review_alert',
+        tenant.whiteLabelId,
+      )) ||
+      DEFAULT_REVIEW_ALERT_TEMPLATE;
     const feedbackUrl = `https://app.soyclubify.com/app/reviews?focus=${feedback.id}`;
     const body = renderTemplate(template, {
       platform: tenant.whiteLabel?.name?.trim() || 'Clubify',

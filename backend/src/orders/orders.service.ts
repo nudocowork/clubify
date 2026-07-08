@@ -25,6 +25,7 @@ import { EmailService } from '../email/email.service';
 import { WalletService } from '../wallet/wallet.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
+import { resolveBrandTemplate } from '../integrations/brand-message-templates';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import {
@@ -158,6 +159,7 @@ export class OrdersService {
         where: { id: tenantId },
         select: {
           id: true,
+          whiteLabelId: true,
           brandName: true,
           currencySymbol: true,
           whatsappDeliveryPhone: true,
@@ -245,15 +247,23 @@ export class OrdersService {
         delivered: '✔️ Pedido ENTREGADO',
       };
 
-      const body =
-        `${eventLabel[eventKey]}\n\n` +
-        `Negocio: ${tenant.brandName}\n` +
-        `Pedido: #${order.code}\n` +
-        `Total: ${tenant.currencySymbol?.trim() || '$'}${Number(order.total).toLocaleString('es-CO')}\n` +
-        `Cliente: ${order.customer?.fullName ?? 'Anónimo'}\n` +
-        (order.customer?.phone ? `Tel: ${order.customer.phone}\n` : '') +
-        (addr ? `Dirección: ${addr}\n` : '') +
-        (order.customerNote ? `\nNota: ${order.customerNote}` : '');
+      // Plantilla `op_delivery_alert` (personalizable por marca en Master Admin →
+      // Automatizaciones). Los fragmentos condicionales van pre-calculados como
+      // tokens `{...Line}` → sin override el texto queda idéntico al histórico.
+      const body = await resolveBrandTemplate(this.prisma, {
+        id: 'op_delivery_alert',
+        whiteLabelId: tenant.whiteLabelId,
+        vars: {
+          eventLabel: eventLabel[eventKey],
+          brandName: tenant.brandName ?? '',
+          code: order.code,
+          total: `${tenant.currencySymbol?.trim() || '$'}${Number(order.total).toLocaleString('es-CO')}`,
+          customerName: order.customer?.fullName ?? 'Anónimo',
+          telLine: order.customer?.phone ? `Tel: ${order.customer.phone}\n` : '',
+          addrLine: addr ? `Dirección: ${addr}\n` : '',
+          noteLine: order.customerNote ? `\nNota: ${order.customerNote}` : '',
+        },
+      });
 
       // Idempotencia: si ya mandamos ESTE eventKey para este order, skip.
       // El filtro en payload debe ser por (orderId AND eventKey) — sino el

@@ -6,6 +6,12 @@ import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../email/email.service';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 import { encryptSecret, maskSecret, isEncrypted } from '../common/crypto/secret-box';
+import {
+  brandMsgCatalog,
+  brandMsgTplKey,
+  globalMsgTplKey,
+  SYSTEM_FOLDERS,
+} from '../integrations/brand-message-templates';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash } from 'crypto';
 
@@ -977,6 +983,263 @@ export class SuperAdminService {
       { whiteLabelName: wl.name, changed: Object.keys(data) },
     );
     return this.getBrandSmsAccount(id);
+  }
+
+  // -------- Automatizaciones: plantillas de mensajes por marca --------
+
+  // --- Carpetas de Automatizaciones (personalizadas + asignación por marca) ---
+
+  private async readJsonSetting<T>(key: string, fallback: T): Promise<T> {
+    const row = await this.prisma.setting
+      .findUnique({ where: { key } })
+      .catch(() => null);
+    if (!row?.value) return fallback;
+    try {
+      return JSON.parse(row.value) as T;
+    } catch {
+      return fallback;
+    }
+  }
+  private async writeJsonSetting(key: string, value: unknown): Promise<void> {
+    const v = JSON.stringify(value);
+    await this.prisma.setting.upsert({
+      where: { key },
+      update: { value: v },
+      create: { key, value: v },
+    });
+  }
+  private customFoldersKey(wlId: string) {
+    return `autom.folders.${wlId}`;
+  }
+  private assignKey(wlId: string) {
+    return `autom.assign.${wlId}`;
+  }
+
+  /**
+   * Lista las carpetas + plantillas de mensajes (SMS/WhatsApp) que la marca
+   * puede ver y editar. Cada plantilla trae el texto EFECTIVO (override de la
+   * marca > override global > default), su carpeta (asignación por marca o la de
+   * sistema) y su `status` (active = ya se envía / pending = editable, envío por
+   * cablear). Las carpetas = sistema (Administrativa/Cobros/Operativas) + las
+   * personalizadas que la marca haya creado.
+   */
+  async getBrandMessageTemplates(id: string) {
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        modules: { select: { module: true, enabled: true } },
+      },
+    });
+    if (!wl) throw new NotFoundException();
+
+    const catalog = brandMsgCatalog();
+    const keys: string[] = [];
+    for (const t of catalog) {
+      keys.push(brandMsgTplKey(id, t.id), globalMsgTplKey(t.id));
+    }
+    const rows = await this.prisma.setting.findMany({
+      where: { key: { in: keys } },
+    });
+    const byKey = new Map(rows.map((r) => [r.key, r.value]));
+
+    const customFolders = await this.readJsonSetting<
+      { id: string; name: string }[]
+    >(this.customFoldersKey(id), []);
+    const assign = await this.readJsonSetting<Record<string, string>>(
+      this.assignKey(id),
+      {},
+    );
+    const folderIds = new Set([
+      ...SYSTEM_FOLDERS.map((f) => f.id),
+      ...customFolders.map((f) => f.id),
+    ]);
+    const folders = [
+      ...SYSTEM_FOLDERS.map((f) => ({ id: f.id, name: f.name, system: true })),
+      ...customFolders.map((f) => ({ id: f.id, name: f.name, system: false })),
+    ];
+
+    const smsEnabled = wl.modules.some(
+      (m) => m.module === 'GROW_BUSINESS_SMS' && m.enabled,
+    );
+    const templates = catalog.map((t) => {
+      const brand = byKey.get(brandMsgTplKey(id, t.id))?.trim() || null;
+      const global = byKey.get(globalMsgTplKey(t.id))?.trim() || null;
+      // Carpeta: asignación de la marca si existe y sigue siendo válida; si no,
+      // la de sistema del catálogo.
+      const assigned = assign[t.id];
+      const folderId = assigned && folderIds.has(assigned) ? assigned : t.folder;
+      return {
+        id: t.id,
+        label: t.folderLabel || t.label,
+        description: t.description,
+        vars: t.vars,
+        folderId,
+        status: t.status,
+        channel: t.channel,
+        audience: t.audience,
+        default: t.default,
+        text: brand || global || t.default,
+        isBrandCustom: !!brand,
+        source: brand ? 'brand' : global ? 'global' : 'default',
+      };
+    });
+    return { smsEnabled, folders, templates };
+  }
+
+  /** Crea una carpeta personalizada para la marca. */
+  async createAutomationFolder(id: string, name: string, actorId: string) {
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      select: { name: true },
+    });
+    if (!wl) throw new NotFoundException();
+    const clean = (name ?? '').trim();
+    if (!clean) throw new BadRequestException('Nombre de carpeta vacío');
+    const folders = await this.readJsonSetting<{ id: string; name: string }[]>(
+      this.customFoldersKey(id),
+      [],
+    );
+    const folderId = `f_${randomBytes(4).toString('hex')}`;
+    folders.push({ id: folderId, name: clean.slice(0, 60) });
+    await this.writeJsonSetting(this.customFoldersKey(id), folders);
+    await this.logAction(
+      actorId,
+      'superadmin.white_label.automation_folder.create',
+      `whiteLabel:${id}`,
+      { whiteLabelName: wl.name, folderId, name: clean },
+    );
+    return this.getBrandMessageTemplates(id);
+  }
+
+  /** Renombra una carpeta personalizada. */
+  async renameAutomationFolder(
+    id: string,
+    folderId: string,
+    name: string,
+    actorId: string,
+  ) {
+    const clean = (name ?? '').trim();
+    if (!clean) throw new BadRequestException('Nombre de carpeta vacío');
+    const folders = await this.readJsonSetting<{ id: string; name: string }[]>(
+      this.customFoldersKey(id),
+      [],
+    );
+    const f = folders.find((x) => x.id === folderId);
+    if (!f) throw new NotFoundException('Carpeta no encontrada');
+    f.name = clean.slice(0, 60);
+    await this.writeJsonSetting(this.customFoldersKey(id), folders);
+    await this.logAction(
+      actorId,
+      'superadmin.white_label.automation_folder.rename',
+      `whiteLabel:${id}`,
+      { folderId, name: clean },
+    );
+    return this.getBrandMessageTemplates(id);
+  }
+
+  /** Borra una carpeta personalizada; sus workflows vuelven a su carpeta de sistema. */
+  async deleteAutomationFolder(id: string, folderId: string, actorId: string) {
+    if (SYSTEM_FOLDERS.some((f) => f.id === folderId)) {
+      throw new BadRequestException('No se puede borrar una carpeta de sistema');
+    }
+    const folders = await this.readJsonSetting<{ id: string; name: string }[]>(
+      this.customFoldersKey(id),
+      [],
+    );
+    const next = folders.filter((f) => f.id !== folderId);
+    await this.writeJsonSetting(this.customFoldersKey(id), next);
+    // Quitar asignaciones que apuntaban a la carpeta borrada.
+    const assign = await this.readJsonSetting<Record<string, string>>(
+      this.assignKey(id),
+      {},
+    );
+    let changed = false;
+    for (const k of Object.keys(assign)) {
+      if (assign[k] === folderId) {
+        delete assign[k];
+        changed = true;
+      }
+    }
+    if (changed) await this.writeJsonSetting(this.assignKey(id), assign);
+    await this.logAction(
+      actorId,
+      'superadmin.white_label.automation_folder.delete',
+      `whiteLabel:${id}`,
+      { folderId },
+    );
+    return this.getBrandMessageTemplates(id);
+  }
+
+  /** Mueve un workflow (plantilla) a una carpeta (de sistema o personalizada). */
+  async moveAutomationTemplate(
+    id: string,
+    templateId: string,
+    folderId: string,
+    actorId: string,
+  ) {
+    const def = brandMsgCatalog().find((t) => t.id === templateId);
+    if (!def) throw new NotFoundException('Plantilla no encontrada');
+    const customFolders = await this.readJsonSetting<
+      { id: string; name: string }[]
+    >(this.customFoldersKey(id), []);
+    const valid =
+      SYSTEM_FOLDERS.some((f) => f.id === folderId) ||
+      customFolders.some((f) => f.id === folderId);
+    if (!valid) throw new NotFoundException('Carpeta no encontrada');
+    const assign = await this.readJsonSetting<Record<string, string>>(
+      this.assignKey(id),
+      {},
+    );
+    if (folderId === def.folder) {
+      delete assign[templateId]; // volver al default = sin override
+    } else {
+      assign[templateId] = folderId;
+    }
+    await this.writeJsonSetting(this.assignKey(id), assign);
+    await this.logAction(
+      actorId,
+      'superadmin.white_label.automation_template.move',
+      `whiteLabel:${id}`,
+      { templateId, folderId },
+    );
+    return this.getBrandMessageTemplates(id);
+  }
+
+  /** Guarda (o limpia, con texto vacío) el override de una plantilla por marca. */
+  async updateBrandMessageTemplate(
+    id: string,
+    templateId: string,
+    text: string | null | undefined,
+    actorId: string,
+  ) {
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      select: { name: true },
+    });
+    if (!wl) throw new NotFoundException();
+    const def = brandMsgCatalog().find((t) => t.id === templateId);
+    if (!def) throw new NotFoundException('Plantilla no encontrada');
+
+    const key = brandMsgTplKey(id, templateId);
+    const trimmed = (text ?? '').trim();
+    if (!trimmed) {
+      await this.prisma.setting.deleteMany({ where: { key } });
+    } else {
+      await this.prisma.setting.upsert({
+        where: { key },
+        update: { value: trimmed },
+        create: { key, value: trimmed },
+      });
+    }
+    await this.logAction(
+      actorId,
+      'superadmin.white_label.message_template',
+      `whiteLabel:${id}`,
+      { whiteLabelName: wl.name, templateId, cleared: !trimmed },
+    );
+    return this.getBrandMessageTemplates(id);
   }
 
   // -------- Links de pago por marca (CRUD) --------

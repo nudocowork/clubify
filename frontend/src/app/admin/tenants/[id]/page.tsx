@@ -756,7 +756,13 @@ export default function TenantDetail() {
         {isSuperAdmin && (
           <CollapsibleSection title={tr('sectionBilling')} className="md:col-span-2">
             <BillingCard tenant={t} onChange={load} />
-            <HotmartSimulatorCard tenant={t} onChange={load} />
+            {/* Simulador Hotmart (QA): Hotmart es SOLO de Clubify. En negocios de
+                marcas blancas (Stripe/manual) no aplica y solo confunde → se
+                oculta. El ciclo de suscripción de esas marcas se gestiona desde
+                Master Admin → Marcas → Automatizaciones. */}
+            {!t.brandCredits?.isWhiteLabel && (
+              <HotmartSimulatorCard tenant={t} onChange={load} />
+            )}
           </CollapsibleSection>
         )}
 

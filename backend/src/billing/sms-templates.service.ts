@@ -5,6 +5,7 @@ import {
   interpolateSms,
   SmsTemplateDef,
 } from './sms-templates';
+import { brandMsgTplKey } from '../integrations/brand-message-templates';
 
 /**
  * Plantillas SMS editables sin redeploy. Los overrides se guardan en la tabla
@@ -58,13 +59,18 @@ export class SmsTemplatesService {
   }
 
   /**
-   * Renderiza el texto final de una plantilla (override o default) con sus
-   * variables interpoladas. Lo usan billing/hotmart/stripe al enviar.
+   * Renderiza el texto final de una plantilla con sus variables interpoladas.
+   * Lo usan billing/hotmart/stripe al enviar.
    *
-   * `tenantId` (opcional): resuelve la var {platform} = nombre de la MARCA del
-   * negocio (Sellea/Clubify) para el prefijo de los SMS de cobro. Sin tenantId
-   * (o negocio sin marca) cae a "Clubify". Esto evita que un negocio de una
-   * marca blanca reciba SMS que digan "Clubify".
+   * PRECEDENCIA del texto: override de la MARCA del negocio (`sms.wl.<wlId>.<id>`,
+   * editable en Master Admin → Marcas → Automatizaciones) > override GLOBAL
+   * (`sms.<id>`, panel Integraciones) > `default` del registro. Si nadie edita,
+   * el texto es idéntico al hardcodeado.
+   *
+   * `tenantId` (opcional): resuelve la marca del negocio → var {platform}
+   * (Sellea/Clubify) y el override por marca. Sin tenantId (o negocio sin marca)
+   * cae a "Clubify" y solo aplica el override global. Esto evita que un negocio
+   * de una marca blanca reciba SMS que digan "Clubify".
    */
   async render(
     id: string,
@@ -73,26 +79,36 @@ export class SmsTemplatesService {
   ): Promise<string> {
     const def = SMS_TEMPLATES.find((t) => t.id === id);
     if (!def) return '';
-    const row = await this.prisma.setting.findUnique({
+    const brand = await this.resolveTenantBrand(tenantId);
+    const brandRow = brand?.id
+      ? await this.prisma.setting.findUnique({
+          where: { key: brandMsgTplKey(brand.id, id) },
+        })
+      : null;
+    const globalRow = await this.prisma.setting.findUnique({
       where: { key: this.key(id) },
     });
-    const tpl = row?.value?.trim() || def.default;
+    const tpl =
+      brandRow?.value?.trim() || globalRow?.value?.trim() || def.default;
     const merged = { ...vars };
     if (!('platform' in merged)) {
-      merged.platform = await this.resolvePlatform(tenantId);
+      merged.platform = brand?.name || 'Clubify';
     }
     return interpolateSms(tpl, merged);
   }
 
-  /** Nombre de la marca del negocio para el prefijo {platform}. */
-  private async resolvePlatform(tenantId?: string): Promise<string> {
-    if (!tenantId) return 'Clubify';
+  /** Marca (id + nombre) del negocio, para el override por marca y {platform}. */
+  private async resolveTenantBrand(
+    tenantId?: string,
+  ): Promise<{ id: string; name: string } | null> {
+    if (!tenantId) return null;
     const t = await this.prisma.tenant
       .findUnique({
         where: { id: tenantId },
-        select: { whiteLabel: { select: { name: true } } },
+        select: { whiteLabel: { select: { id: true, name: true } } },
       })
       .catch(() => null);
-    return t?.whiteLabel?.name?.trim() || 'Clubify';
+    if (!t?.whiteLabel) return null;
+    return { id: t.whiteLabel.id, name: (t.whiteLabel.name || '').trim() };
   }
 }
