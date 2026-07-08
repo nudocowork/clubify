@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 
 const DEFAULT_REVIEW_ALERT_TEMPLATE =
   '⚠️ Nueva reseña privada en {businessName}\n\n' +
@@ -182,7 +183,7 @@ export class ReviewsService {
         id: true,
         brandName: true,
         slug: true,
-        whiteLabel: { select: { name: true } },
+        whiteLabel: { select: { name: true, ...BRAND_GROW_SELECT } },
         phone: true,
         whatsappPhone: true,
         reviewAlertsEnabled: true,
@@ -228,9 +229,11 @@ export class ReviewsService {
         switchNumber: tenant.growBusinessSwitchNumber,
       };
     }
+    // Capa MARCA: subcuenta GHL de la marca blanca (nunca la de Clubify).
+    if (!creds) creds = brandGrowCreds(tenant.whiteLabel);
     if (!creds) {
       this.log.warn(
-        `[review-alert] tenant=${tenantId} enabled pero sin credenciales (ni subcuenta global ni propias)`,
+        `[review-alert] tenant=${tenantId} enabled pero sin credenciales (ni subcuenta global ni propias ni de la marca)`,
       );
       return;
     }

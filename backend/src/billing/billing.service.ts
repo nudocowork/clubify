@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { SmsTemplatesService } from './sms-templates.service';
 import { fmtSmsDate } from './sms-templates';
 
@@ -91,6 +92,7 @@ export class BillingService {
         growBusinessLocationId: true,
         growBusinessApiKey: true,
         growBusinessSwitchNumber: true,
+        whiteLabel: { select: BRAND_GROW_SELECT },
       },
     });
     if (!tenant || !tenant.billingAlertsEnabled) return null;
@@ -120,6 +122,9 @@ export class BillingService {
         switchNumber: tenant.growBusinessSwitchNumber,
       };
     }
+    // Capa MARCA: si el negocio no tiene cuenta asignada ni creds propias, usa
+    // la subcuenta GHL de su marca blanca (nunca la de Clubify).
+    if (!creds) creds = brandGrowCreds(tenant.whiteLabel);
     if (!creds) return null;
 
     const phone =

@@ -3958,6 +3958,13 @@ model WhiteLabel {
   /// Cloud de la marca). El mapa del panel la usa; sin ella cae a la env global
   /// de Clubify. Es una key pública (se expone al cliente), no un secreto.
   mapsApiKey      String?
+  /// Subcuenta de Grow Business (GoHighLevel) de la MARCA. TODOS los SMS de los
+  /// negocios de esta marca (cobros, domicilio, reseñas) salen de acá cuando el
+  /// negocio no tiene creds propias — nunca de la cuenta de Clubify. apiKey se
+  /// guarda CIFRADO (secret-box). switchNumber = prioridad del número (opcional).
+  growBusinessLocationId   String?
+  growBusinessApiKey       String?
+  growBusinessSwitchNumber Int?
   /// Identidad visual extendida de la marca (manual de marca). Todos opcionales.
   /// Logo HEADER (lockup horizontal ~3:1) — landing, login y páginas públicas.
   logoUrl         String?

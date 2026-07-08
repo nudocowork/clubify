@@ -24,6 +24,7 @@ import { OrdersGateway } from './orders.gateway';
 import { EmailService } from '../email/email.service';
 import { WalletService } from '../wallet/wallet.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import {
@@ -167,6 +168,7 @@ export class OrdersService {
           growBusinessLocationId: true,
           growBusinessApiKey: true,
           growBusinessSwitchNumber: true,
+          whiteLabel: { select: BRAND_GROW_SELECT },
         },
       });
       if (!tenant || !tenant.deliveryAlertsEnabled) return;
@@ -222,9 +224,11 @@ export class OrdersService {
           switchNumber: tenant.growBusinessSwitchNumber,
         };
       }
+      // Capa MARCA: subcuenta GHL de la marca blanca (nunca la de Clubify).
+      if (!creds) creds = brandGrowCreds(tenant.whiteLabel);
       if (!creds) {
         this.logger.warn(
-          `[delivery-alert] tenant=${tenantId} enabled pero sin creds (ni subcuenta ni propias)`,
+          `[delivery-alert] tenant=${tenantId} enabled pero sin creds (ni subcuenta ni propias ni de la marca)`,
         );
         return;
       }
