@@ -56,6 +56,10 @@ type NavItem = {
   /** Solo visible para Clubify / plataforma (config global tipo Branding).
    *  Se oculta cuando la marca activa es una marca blanca distinta. */
   clubifyOnly?: boolean;
+  /** Si está seteado, el item (sidebar admin) solo se muestra si la MARCA activa
+   *  tiene ese módulo habilitado (ej. 'GROW_BUSINESS_SMS' para Automatizaciones).
+   *  Con brandModules sin resolver (Clubify/global) se muestra. */
+  requiresBrandModule?: string;
 };
 type NavGroup = { section: string; items: NavItem[]; badge?: string };
 
@@ -578,6 +582,9 @@ export default function AppShell({
                     ]
                   : []),
                 { href: '/admin/users', label: 'Administradores', icon: 'users', hideForMarketing: true },
+                // Automatizaciones (mensajes SMS/WhatsApp editables + carpetas).
+                // Solo si la marca tiene el módulo GROW_BUSINESS_SMS habilitado.
+                { href: '/admin/automatizaciones', label: 'Automatizaciones', icon: 'bell', hideForMarketing: true, requiresBrandModule: 'GROW_BUSINESS_SMS' },
                 // #5: Branding e Integraciones SMS son config de PLATAFORMA
                 // (landing de Clubify, tabla Setting global). Una marca blanca
                 // gestiona su identidad desde Master Admin → Marcas, no acá, así
@@ -620,7 +627,12 @@ export default function AppShell({
           const isOtherBrand = !!brandSlug && brandSlug !== 'clubify';
           const visibleItem = (it: NavItem) =>
             (!isOtherBrand || !it.clubifyOnly) &&
-            (!isMarketing || !it.hideForMarketing);
+            (!isMarketing || !it.hideForMarketing) &&
+            // Gate por módulo de la marca (ej. Automatizaciones ↔ GROW_BUSINESS_SMS).
+            // brandModules null (Clubify/global sin resolver) → se muestra.
+            (!it.requiresBrandModule ||
+              !brandModules ||
+              brandModules.includes(it.requiresBrandModule));
           return adminGroups
             .filter(moduleAllowed)
             .map((g) => ({ ...g, items: g.items.filter(visibleItem) }))
