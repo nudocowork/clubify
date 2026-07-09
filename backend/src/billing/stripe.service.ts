@@ -4,6 +4,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { BillingService } from './billing.service';
 import { SmsTemplatesService } from './sms-templates.service';
+import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { addPlanPeriod } from '../common/plan-period';
 import { fmtSmsDate } from './sms-templates';
 import { decryptSecret } from '../common/crypto/secret-box';
@@ -218,10 +219,31 @@ export class StripeService {
       where: { id: tenant.id },
       data: { status: 'SUSPENDED', suspendedAt: new Date() },
     });
-    this.smsTemplates
-      .render('account_paused', { brandName: tenant.brandName }, tenant.id)
-      .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
-      .catch(() => null);
+    // Stage 4 (PDF734): si la marca activó "Cancelación" (admin_cancellation),
+    // se envía ese texto; si no, el aviso de pausa de siempre. OFF por defecto.
+    const sentAdmin = await isBrandTemplateSendEnabled(
+      this.prisma,
+      'admin_cancellation',
+      brand.whiteLabelId,
+    )
+      .then(async (enabled) => {
+        if (!enabled) return false;
+        const msg = await this.smsTemplates.render(
+          'admin_cancellation',
+          { brandName: tenant.brandName },
+          tenant.id,
+        );
+        if (!msg) return false;
+        await this.notifyOwner(tenant.id, tenant.brandName, msg);
+        return true;
+      })
+      .catch(() => false);
+    if (!sentAdmin) {
+      this.smsTemplates
+        .render('account_paused', { brandName: tenant.brandName }, tenant.id)
+        .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+    }
     return { ok: true, action: 'suspended' };
   }
 

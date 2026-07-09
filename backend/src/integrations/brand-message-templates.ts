@@ -289,6 +289,43 @@ export function brandMsgTplKey(whiteLabelId: string, id: string): string {
 export function globalMsgTplKey(id: string): string {
   return `sms.${id}`;
 }
+// Stage 4 (PDF734): flag de ACTIVACIÓN de envío de las plantillas 'pending'
+// (admin_*: reembolso, chargeback, cancelación, mover-fecha, disputa). Por
+// marca (o global). Ausente/≠'true' = OFF.
+export function brandMsgEnabledKey(whiteLabelId: string, id: string): string {
+  return `sms.enabled.wl.${whiteLabelId}.${id}`;
+}
+export function globalMsgEnabledKey(id: string): string {
+  return `sms.enabled.${id}`;
+}
+
+/**
+ * ¿El ENVÍO de una plantilla está activado para esta marca? Las 'active'
+ * (cobros/operativas) siempre envían. Las 'pending' (admin_*) están OFF por
+ * defecto y solo envían si la marca (o global) las activó explícitamente.
+ */
+export async function isBrandTemplateSendEnabled(
+  prisma: Pick<PrismaService, 'setting'>,
+  id: string,
+  whiteLabelId?: string | null,
+): Promise<boolean> {
+  const def = brandMsgCatalog().find((t) => t.id === id);
+  if (!def) return false;
+  if (def.status !== 'pending') return true;
+  const keys = [globalMsgEnabledKey(id)];
+  if (whiteLabelId) keys.unshift(brandMsgEnabledKey(whiteLabelId, id));
+  const rows = await prisma.setting
+    .findMany({ where: { key: { in: keys } } })
+    .catch(() => [] as { key: string; value: string }[]);
+  const byKey = new Map(rows.map((r) => [r.key, r.value]));
+  if (
+    whiteLabelId &&
+    byKey.get(brandMsgEnabledKey(whiteLabelId, id))?.trim() === 'true'
+  ) {
+    return true;
+  }
+  return byKey.get(globalMsgEnabledKey(id))?.trim() === 'true';
+}
 
 /**
  * Texto efectivo (SIN interpolar) de una plantilla: override de la marca >

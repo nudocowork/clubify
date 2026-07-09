@@ -8,7 +8,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
 import {
   CurrentUser,
@@ -25,6 +25,9 @@ class FolderBody {
 }
 class MoveBody {
   @IsString() @MaxLength(80) folderId!: string;
+}
+class EnabledBody {
+  @IsBoolean() enabled!: boolean;
 }
 
 /**
@@ -68,6 +71,20 @@ export class AdminAutomationsController {
       await this.resolveBrandId(user),
       templateId,
       body.text ?? null,
+      user.id,
+    );
+  }
+
+  @Patch('message-templates/:templateId/enabled')
+  async setEnabled(
+    @Param('templateId') templateId: string,
+    @Body() body: EnabledBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.setBrandTemplateEnabled(
+      await this.resolveBrandId(user),
+      templateId,
+      body.enabled,
       user.id,
     );
   }

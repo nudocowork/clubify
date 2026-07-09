@@ -10,6 +10,8 @@ import {
   brandMsgCatalog,
   brandMsgTplKey,
   globalMsgTplKey,
+  brandMsgEnabledKey,
+  globalMsgEnabledKey,
   SYSTEM_FOLDERS,
 } from '../integrations/brand-message-templates';
 import * as argon2 from 'argon2';
@@ -1037,7 +1039,12 @@ export class SuperAdminService {
     const catalog = brandMsgCatalog();
     const keys: string[] = [];
     for (const t of catalog) {
-      keys.push(brandMsgTplKey(id, t.id), globalMsgTplKey(t.id));
+      keys.push(
+        brandMsgTplKey(id, t.id),
+        globalMsgTplKey(t.id),
+        brandMsgEnabledKey(id, t.id),
+        globalMsgEnabledKey(t.id),
+      );
     }
     const rows = await this.prisma.setting.findMany({
       where: { key: { in: keys } },
@@ -1070,6 +1077,13 @@ export class SuperAdminService {
       // la de sistema del catálogo.
       const assigned = assign[t.id];
       const folderId = assigned && folderIds.has(assigned) ? assigned : t.folder;
+      // Envío activado: las 'active' siempre; las 'pending' (admin_*) solo si la
+      // marca (o global) las activó explícitamente.
+      const enabled =
+        t.status !== 'pending'
+          ? true
+          : byKey.get(brandMsgEnabledKey(id, t.id))?.trim() === 'true' ||
+            byKey.get(globalMsgEnabledKey(t.id))?.trim() === 'true';
       return {
         id: t.id,
         label: t.folderLabel || t.label,
@@ -1077,6 +1091,7 @@ export class SuperAdminService {
         vars: t.vars,
         folderId,
         status: t.status,
+        enabled,
         channel: t.channel,
         audience: t.audience,
         default: t.default,
@@ -1086,6 +1101,40 @@ export class SuperAdminService {
       };
     });
     return { smsEnabled, folders, templates };
+  }
+
+  /**
+   * Activa/desactiva el ENVÍO de una plantilla 'pending' (admin_*) para la marca
+   * (Stage 4 PDF734). OFF por defecto. Las plantillas 'active' no se togglean.
+   */
+  async setBrandTemplateEnabled(
+    id: string,
+    templateId: string,
+    enabled: boolean,
+    actorId: string,
+  ) {
+    const def = brandMsgCatalog().find((t) => t.id === templateId);
+    if (!def) throw new NotFoundException('Plantilla no encontrada');
+    if (def.status !== 'pending') {
+      throw new BadRequestException('Esta plantilla ya está activa');
+    }
+    const key = brandMsgEnabledKey(id, templateId);
+    if (enabled) {
+      await this.prisma.setting.upsert({
+        where: { key },
+        update: { value: 'true' },
+        create: { key, value: 'true' },
+      });
+    } else {
+      await this.prisma.setting.deleteMany({ where: { key } });
+    }
+    await this.logAction(
+      actorId,
+      'superadmin.white_label.automation.toggle_send',
+      `whiteLabel:${id}`,
+      { templateId, enabled },
+    );
+    return this.getBrandMessageTemplates(id);
   }
 
   /** Crea una carpeta personalizada para la marca. */

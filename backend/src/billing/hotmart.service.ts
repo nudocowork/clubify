@@ -11,6 +11,7 @@ import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 import { addPlanPeriod } from '../common/plan-period';
 import { SmsTemplatesService } from './sms-templates.service';
+import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 import { BusinessGroupsService } from '../business-groups/business-groups.service';
 import { fmtSmsDate } from './sms-templates';
@@ -187,6 +188,43 @@ export class HotmartService {
       this.logger.warn(
         `SMS Hotmart falló para ${brandName}: ${r.message ?? 'unknown'}`,
       );
+    }
+  }
+
+  /**
+   * Stage 4 (PDF734): envía (best-effort) una plantilla administrativa (admin_*)
+   * al dueño SOLO si la marca la activó en el panel de Automatizaciones. OFF por
+   * defecto. Aislada por marca — notifyOwner usa las creds propias/subcuenta de
+   * la marca, nunca las de Clubify. Devuelve true si se envió.
+   */
+  private async maybeSendAdminNotice(
+    tenant: { id: string; brandName: string },
+    templateId: string,
+  ): Promise<boolean> {
+    try {
+      const row = await this.prisma.tenant.findUnique({
+        where: { id: tenant.id },
+        select: { whiteLabelId: true },
+      });
+      const enabled = await isBrandTemplateSendEnabled(
+        this.prisma,
+        templateId,
+        row?.whiteLabelId ?? null,
+      );
+      if (!enabled) return false;
+      const msg = await this.smsTemplates.render(
+        templateId,
+        { brandName: tenant.brandName },
+        tenant.id,
+      );
+      if (!msg) return false;
+      await this.notifyOwner(tenant.id, tenant.brandName, msg);
+      return true;
+    } catch (e) {
+      this.logger.warn(
+        `maybeSendAdminNotice(${templateId}) falló: ${(e as Error).message}`,
+      );
+      return false;
     }
   }
 
@@ -765,13 +803,18 @@ export class HotmartService {
             paymentFailureNoticeSentAt: now,
           },
         });
-        // SMS aviso de falla (best-effort)
-        this.smsTemplates
-          .render('payment_failed', { brandName: tenant.brandName }, tenant.id)
-          .then((msg) =>
-            this.notifyOwner(tenant.id, tenant.brandName, msg),
-          )
-          .catch(() => null);
+        // SMS aviso de falla (best-effort). Si es PROTEST y la marca activó
+        // "Pago en disputa" (admin_protest), se envía ese texto en su lugar.
+        const sentProtest =
+          event === 'PURCHASE_PROTEST'
+            ? await this.maybeSendAdminNotice(tenant, 'admin_protest')
+            : false;
+        if (!sentProtest) {
+          this.smsTemplates
+            .render('payment_failed', { brandName: tenant.brandName }, tenant.id)
+            .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+            .catch(() => null);
+        }
         // Aviso a la cadena de atribución (embajador → influencer → admin)
         // si el dueño activó las notificaciones de pago fallido.
         this.notifyReferralChain(tenant.id, tenant.brandName, 'PAYMENT_FAILED').catch(
@@ -807,6 +850,14 @@ export class HotmartService {
         this.notifyReferralChain(tenant.id, tenant.brandName, 'CHURNED').catch(
           () => null,
         );
+        // Stage 4: aviso admin al dueño si la marca lo activó (OFF por defecto).
+        const adminNoticeId =
+          event === 'PURCHASE_REFUNDED'
+            ? 'admin_refunded'
+            : event === 'PURCHASE_CHARGEBACK'
+              ? 'admin_chargeback'
+              : 'admin_cancellation';
+        this.maybeSendAdminNotice(tenant, adminNoticeId).catch(() => null);
         return { ok: true, action: 'suspended' };
       }
 
@@ -818,6 +869,10 @@ export class HotmartService {
             data: { currentPeriodEnd: new Date(next) },
           });
         }
+        // Stage 4: aviso "Mover próximo cobro" si la marca lo activó.
+        this.maybeSendAdminNotice(tenant, 'admin_charge_date_moved').catch(
+          () => null,
+        );
         return { ok: true, action: 'updated_next_charge' };
       }
 

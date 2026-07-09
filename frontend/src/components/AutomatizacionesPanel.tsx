@@ -17,6 +17,7 @@ type BrandMsgTemplate = {
   vars: string[];
   folderId: string;
   status: 'active' | 'pending';
+  enabled: boolean;
   channel: string;
   audience: string;
   default: string;
@@ -70,6 +71,23 @@ export default function AutomatizacionesPanel() {
       toast(e.message ?? 'Error al guardar el mensaje', 'error');
     } finally {
       setSavingId(null);
+    }
+  }
+
+  async function toggleSend(id: string, enabled: boolean) {
+    setBusy(true);
+    try {
+      applyData(
+        await api(`/admin/automations/message-templates/${id}/enabled`, {
+          method: 'PATCH',
+          body: JSON.stringify({ enabled }),
+        }),
+      );
+      toast(enabled ? 'Envío activado' : 'Envío desactivado', 'success');
+    } catch (e: any) {
+      toast(e.message ?? 'Error al cambiar el envío', 'error');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -169,7 +187,8 @@ export default function AutomatizacionesPanel() {
         Los mensajes SMS/WhatsApp que el sistema envía a tus negocios, organizados
         en carpetas. Personaliza el texto; deja el campo vacío y guarda para volver
         al default. Los tokens <code>{'{token}'}</code> se reemplazan al enviar. Los
-        marcados <b>“Envío por activar”</b> son editables pero aún no se envían.
+        marcados <b>“Envío por activar”</b> son editables; abre uno y pulsa{' '}
+        <b>“Activar envío”</b> para que empiece a enviarse.
       </div>
 
       {loading ? (
@@ -252,10 +271,18 @@ export default function AutomatizacionesPanel() {
                               {t.status === 'pending' ? (
                                 <span
                                   className="text-[10px] font-bold px-2 py-0.5 rounded-[6px]"
-                                  style={{ background: '#fef3c7', color: '#92400e' }}
-                                  title="Editable, pero su envío se activa en un paso posterior"
+                                  style={
+                                    t.enabled
+                                      ? { background: '#dcfce7', color: '#15803d' }
+                                      : { background: '#fef3c7', color: '#92400e' }
+                                  }
+                                  title={
+                                    t.enabled
+                                      ? 'El envío de este mensaje está activo'
+                                      : 'Editable, pero su envío está desactivado'
+                                  }
                                 >
-                                  Envío por activar
+                                  {t.enabled ? 'Envío activo' : 'Envío por activar'}
                                 </span>
                               ) : (
                                 t.isBrandCustom && (
@@ -334,6 +361,24 @@ export default function AutomatizacionesPanel() {
                                     }}
                                   >
                                     Restaurar default
+                                  </button>
+                                )}
+                                {t.status === 'pending' && (
+                                  <button
+                                    onClick={() => toggleSend(t.id, !t.enabled)}
+                                    disabled={busy}
+                                    className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
+                                    style={
+                                      t.enabled
+                                        ? {
+                                            background: 'white',
+                                            color: '#b45309',
+                                            border: '1px solid #fde68a',
+                                          }
+                                        : { background: '#0ea5e9', color: 'white' }
+                                    }
+                                  >
+                                    {t.enabled ? 'Desactivar envío' : 'Activar envío'}
                                   </button>
                                 )}
                                 <label

@@ -5,7 +5,10 @@ import {
   interpolateSms,
   SmsTemplateDef,
 } from './sms-templates';
-import { brandMsgTplKey } from '../integrations/brand-message-templates';
+import {
+  brandMsgTplKey,
+  brandMsgCatalog,
+} from '../integrations/brand-message-templates';
 
 /**
  * Plantillas SMS editables sin redeploy. Los overrides se guardan en la tabla
@@ -77,7 +80,12 @@ export class SmsTemplatesService {
     vars: Record<string, string>,
     tenantId?: string,
   ): Promise<string> {
-    const def = SMS_TEMPLATES.find((t) => t.id === id);
+    // Busca en el registro de cobro (SMS_TEMPLATES) y, si no está, en el
+    // catálogo de marca (admin_*/operativas) — así los mensajes administrativos
+    // también se renderizan con {platform} y la precedencia marca>global>default.
+    const def =
+      SMS_TEMPLATES.find((t) => t.id === id) ??
+      brandMsgCatalog().find((t) => t.id === id);
     if (!def) return '';
     const brand = await this.resolveTenantBrand(tenantId);
     const brandRow = brand?.id
