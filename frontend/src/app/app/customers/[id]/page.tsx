@@ -147,14 +147,25 @@ function fmtBirthday(s: string | null) {
   });
 }
 
+const COUPON_TYPES = ['COUPON', 'DISCOUNT', 'GIFT'];
+const isCouponLike = (type?: string) => COUPON_TYPES.includes(type ?? '');
+
 function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
   const t = useTranslations('app_customers_id');
   const [busy, setBusy] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+  const [moreAmount, setMoreAmount] = useState(2);
+  const [morePin, setMorePin] = useState('');
   const required = p.card.stampsRequired ?? 10;
   const stamps = p.card.type === 'STAMPS' ? p.stampsCount : 0;
   const remaining = Math.max(0, required - stamps);
   const pct = p.card.type === 'STAMPS' ? Math.min(100, (stamps / required) * 100) : 0;
   const canRedeem = p.card.type === 'STAMPS' && stamps >= required;
+  // El bloque de acciones se muestra mientras el pase esté operable. Un pase de
+  // sellos LLENO queda en status COMPLETED (backend), así que si solo miráramos
+  // ACTIVE el botón de redimir desaparecería justo cuando el premio está listo.
+  const operable = p.status === 'ACTIVE' || p.status === 'COMPLETED';
+  const couponRedeemed = p.status === 'COMPLETED';
 
   async function addStamp() {
     // Fix 2026-06-10: el backend exige `purchaseAmount` para STAMPS/
@@ -205,6 +216,59 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
         }),
       });
       toast(t('rewardRedeemed'), 'success');
+      onChange();
+    } catch (e: any) {
+      toast(e.message || t('redeemFailed'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // "Más sellos": agrega N sellos de una (2-30) validando el PIN del escáner.
+  // Mismo flujo que la app móvil — el backend exige el PIN cuando amount > 1.
+  async function addMoreStamps() {
+    const amount = Math.floor(Number(moreAmount));
+    if (!Number.isFinite(amount) || amount < 2 || amount > 30) {
+      toast(t('moreStampsInvalid'), 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api('/stamps', {
+        method: 'POST',
+        body: JSON.stringify({
+          passId: p.id,
+          action: 'STAMP',
+          amount,
+          ...(morePin.trim() ? { pin: morePin.trim() } : {}),
+        }),
+      });
+      toast(t('moreStampsAdded'), 'success');
+      setShowMore(false);
+      setMorePin('');
+      setMoreAmount(2);
+      onChange();
+    } catch (e: any) {
+      toast(e.message || t('stampAddFailed'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Redimir tarjeta de cupón/descuento/regalo (mismo endpoint que el premio).
+  async function redeemCoupon() {
+    if (!confirm(t('redeemCouponConfirm'))) return;
+    setBusy(true);
+    try {
+      await api('/stamps', {
+        method: 'POST',
+        body: JSON.stringify({
+          passId: p.id,
+          action: 'REDEEM',
+          note: 'Cupón redimido desde panel',
+        }),
+      });
+      toast(t('couponRedeemed'), 'success');
       onChange();
     } catch (e: any) {
       toast(e.message || t('redeemFailed'), 'error');
@@ -316,8 +380,8 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
             ))}
           </div>
 
-          {p.status === 'ACTIVE' && (
-            <div className="flex gap-2 mt-3">
+          {operable && (
+            <div className="flex flex-wrap gap-2 mt-3">
               <button
                 onClick={addStamp}
                 disabled={busy || canRedeem}
@@ -325,6 +389,18 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
                 title={canRedeem ? t('redeemFirstTitle') : t('addStampTitle')}
               >
                 {t('addStampBtn')}
+              </button>
+              <button
+                onClick={() => {
+                  setMoreAmount(2);
+                  setMorePin('');
+                  setShowMore(true);
+                }}
+                disabled={busy || canRedeem}
+                className="flex-1 btn-ghost text-xs justify-center disabled:opacity-50"
+                title={t('moreStampsTitle')}
+              >
+                {t('moreStampsBtn')}
               </button>
               <button
                 onClick={redeem}
@@ -347,6 +423,25 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
         <div className="mt-3 flex items-center justify-between">
           <span className="text-xs text-mute">{t('balance')}</span>
           <span className="font-bold text-lg">{t('points', { count: p.pointsBalance })}</span>
+        </div>
+      )}
+
+      {isCouponLike(p.card.type) && (
+        <div className="mt-3">
+          {couponRedeemed ? (
+            <div className="text-xs text-mute font-semibold text-center py-2">
+              {t('couponAlreadyRedeemed')}
+            </div>
+          ) : (
+            <button
+              onClick={redeemCoupon}
+              disabled={busy}
+              className="w-full text-xs justify-center font-semibold rounded-pill px-3 py-2 inline-flex items-center gap-1.5 bg-ok text-white hover:bg-ok/90 disabled:opacity-50"
+              title={t('redeemCouponBtn')}
+            >
+              {t('redeemCouponBtn')}
+            </button>
+          )}
         </div>
       )}
 
@@ -378,6 +473,63 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
           {t('viewGoogleObjectBtn')}
         </button>
       </div>
+
+      {showMore && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={() => !busy && setShowMore(false)}
+        >
+          <div
+            className="bg-bg rounded-2xl p-4 w-full max-w-xs shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-semibold text-sm mb-3">{t('moreStampsTitle')}</div>
+            <label className="block text-xs text-mute mb-1">
+              {t('moreStampsCount')}
+            </label>
+            <input
+              type="number"
+              min={2}
+              max={30}
+              value={moreAmount}
+              onChange={(e) => setMoreAmount(Number(e.target.value))}
+              className="input w-full mb-3"
+              autoFocus
+            />
+            <label className="block text-xs text-mute mb-1">
+              {t('moreStampsPin')}
+            </label>
+            <input
+              type="password"
+              inputMode="numeric"
+              value={morePin}
+              onChange={(e) => setMorePin(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !busy) addMoreStamps();
+              }}
+              className="input w-full mb-4"
+              placeholder="••••"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowMore(false)}
+                disabled={busy}
+                className="flex-1 btn-ghost text-xs justify-center"
+              >
+                {t('cancel')}
+              </button>
+              <button
+                onClick={addMoreStamps}
+                disabled={busy}
+                className="flex-1 text-xs justify-center font-semibold rounded-pill px-3 py-2 bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50"
+              >
+                {t('moreStampsSubmit')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

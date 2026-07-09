@@ -166,6 +166,10 @@ export default function CardDetail() {
 
   const [passSearch, setPassSearch] = useState('');
   const [stampingPassId, setStampingPassId] = useState<string | null>(null);
+  // Modal "Más sellos" (cantidad + PIN) para un pase concreto.
+  const [moreTarget, setMoreTarget] = useState<string | null>(null);
+  const [moreAmt, setMoreAmt] = useState(2);
+  const [morePin, setMorePin] = useState('');
   const [editing, setEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<'detail' | 'analytics'>('detail');
   const filteredPasses = useMemo(() => {
@@ -210,6 +214,59 @@ export default function CardDetail() {
     }
   }
 
+  // "Más sellos": agrega N sellos (2-30) con el PIN del escáner (backend lo
+  // exige cuando amount > 1). Igual que la app móvil.
+  async function addMoreStampsFor(passId: string) {
+    const amount = Math.floor(Number(moreAmt));
+    if (!Number.isFinite(amount) || amount < 2 || amount > 30) {
+      toast(t('moreStampsInvalid'), 'error');
+      return;
+    }
+    setStampingPassId(passId);
+    try {
+      await api('/stamps', {
+        method: 'POST',
+        body: JSON.stringify({
+          passId,
+          action: 'STAMP',
+          amount,
+          ...(morePin.trim() ? { pin: morePin.trim() } : {}),
+        }),
+      });
+      toast(t('moreStampsAdded'), 'success');
+      setMoreTarget(null);
+      setMorePin('');
+      setMoreAmt(2);
+      load();
+    } catch (e: any) {
+      toast(e.message || t('updateFailed'), 'error');
+    } finally {
+      setStampingPassId(null);
+    }
+  }
+
+  // Redimir: premio de tarjeta de sellos o cupón (mismo endpoint REDEEM).
+  async function redeemPass(passId: string, coupon: boolean) {
+    if (!confirm(coupon ? t('redeemCouponConfirm') : t('redeemConfirm'))) return;
+    setStampingPassId(passId);
+    try {
+      await api('/stamps', {
+        method: 'POST',
+        body: JSON.stringify({
+          passId,
+          action: 'REDEEM',
+          note: coupon ? 'Cupón redimido desde panel' : 'Canje desde panel',
+        }),
+      });
+      toast(coupon ? t('couponRedeemed') : t('rewardRedeemed'), 'success');
+      load();
+    } catch (e: any) {
+      toast(e.message || t('redeemFailed'), 'error');
+    } finally {
+      setStampingPassId(null);
+    }
+  }
+
   const stats = useMemo(() => {
     const total = passesOfCard.length;
     const active = passesOfCard.filter((p) => p.status === 'ACTIVE').length;
@@ -239,6 +296,7 @@ export default function CardDetail() {
 
   if (!card) return <div className="text-mute">{t('loading')}</div>;
   const required = card.stampsRequired ?? 10;
+  const isCoupon = ['COUPON', 'DISCOUNT', 'GIFT'].includes(card.type);
 
   return (
     <div>
@@ -397,8 +455,48 @@ export default function CardDetail() {
                           >
                             +
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMoreAmt(2);
+                              setMorePin('');
+                              setMoreTarget(p.id);
+                            }}
+                            disabled={busyRow}
+                            className="h-7 px-2 rounded-full border border-line text-mute text-[11px] font-semibold hover:text-brand hover:border-brand disabled:opacity-30"
+                            title={t('moreStampsTitle')}
+                          >
+                            {t('moreStampsTitleShort')}
+                          </button>
+                          {p.stampsCount >= required && (
+                            <button
+                              type="button"
+                              onClick={() => redeemPass(p.id, false)}
+                              disabled={busyRow}
+                              className="h-7 px-2.5 rounded-full bg-ok text-white text-[11px] font-semibold hover:bg-ok/90 disabled:opacity-50"
+                              title={t('redeemBtn')}
+                            >
+                              {t('redeemShort')}
+                            </button>
+                          )}
                         </>
                       )}
+                      {isCoupon &&
+                        (p.status === 'COMPLETED' ? (
+                          <span className="text-[11px] text-mute font-semibold">
+                            {t('couponAlreadyRedeemed')}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => redeemPass(p.id, true)}
+                            disabled={busyRow}
+                            className="h-7 px-2.5 rounded-full bg-ok text-white text-[11px] font-semibold hover:bg-ok/90 disabled:opacity-50"
+                            title={t('redeemCouponBtn')}
+                          >
+                            {t('redeemShort')}
+                          </button>
+                        ))}
                       <span
                         className={`badge text-[10px] ${
                           p.status === 'ACTIVE'
@@ -528,6 +626,63 @@ export default function CardDetail() {
             load();
           }}
         />
+      )}
+      {moreTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={() => setMoreTarget(null)}
+        >
+          <div
+            className="bg-bg rounded-2xl p-4 w-full max-w-xs shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-semibold text-sm mb-3">
+              {t('moreStampsTitle')}
+            </div>
+            <label className="block text-xs text-mute mb-1">
+              {t('moreStampsCount')}
+            </label>
+            <input
+              type="number"
+              min={2}
+              max={30}
+              value={moreAmt}
+              onChange={(e) => setMoreAmt(Number(e.target.value))}
+              className="input w-full mb-3"
+              autoFocus
+            />
+            <label className="block text-xs text-mute mb-1">
+              {t('moreStampsPin')}
+            </label>
+            <input
+              type="password"
+              inputMode="numeric"
+              value={morePin}
+              onChange={(e) => setMorePin(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') addMoreStampsFor(moreTarget);
+              }}
+              className="input w-full mb-4"
+              placeholder="••••"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setMoreTarget(null)}
+                className="flex-1 btn-ghost text-xs justify-center"
+              >
+                {t('cancel')}
+              </button>
+              <button
+                onClick={() => addMoreStampsFor(moreTarget)}
+                disabled={stampingPassId === moreTarget}
+                className="flex-1 text-xs justify-center font-semibold rounded-pill px-3 py-2 bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50"
+              >
+                {t('moreStampsSubmit')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
         </>
       )}
