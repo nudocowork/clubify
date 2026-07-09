@@ -376,6 +376,23 @@ export class PassesService {
       throw e;
     }
 
+    // Hook PASS_CREATED — dispara el mensaje de bienvenida (automatización).
+    // BUG PDF734: la auto-inscripción del storefront (enrollPublic) es el
+    // camino REAL del cliente y NO emitía el evento → la regla "Bienvenida"
+    // marcaba 0 ejecuciones y el push nunca llegaba (Android e iOS). Solo en
+    // pase NUEVO: los existentes ya hicieron return arriba (no re-saludar en
+    // reinstalaciones).
+    this.automations
+      .emit('PASS_CREATED', {
+        tenantId: card.tenantId,
+        customerId: customer.id,
+        cardId,
+        passId: tmp.id,
+        customerName: customer.fullName,
+        cardName: card.name,
+      })
+      .catch(() => null);
+
     return { passId: tmp.id, customerId: customer.id, isNew: true };
   }
 

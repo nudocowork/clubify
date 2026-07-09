@@ -531,6 +531,11 @@ model Tenant {
   paymentReminderSentFor      DateTime?
   paymentFailureNoticeSentAt  DateTime?
   pausePendingNoticeSentAt    DateTime?
+  // Serie pre-cobro (PDF734): idempotencia por ciclo de los recordatorios
+  // amables "7 días antes" y "mismo día del cobro". Igualamos a
+  // currentPeriodEnd al enviar, para no repetir si el cron corre 2 veces.
+  preReminder7dSentFor        DateTime?
+  preReminderTodaySentFor     DateTime?
   // Cuándo el dueño cerró el popup de bienvenida ("agendar sesión
   // personalizada"). Si null, todavía no lo vio → se le muestra al
   // entrar al panel. Para tenants que ya existían se backfilllea con

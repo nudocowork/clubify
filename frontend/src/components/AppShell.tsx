@@ -536,7 +536,10 @@ export default function AppShell({
                 { href: '/admin/tenants', label: 'Negocios', icon: 'store' },
                 { href: '/admin/business-groups', label: 'Grupos Empresariales', icon: 'store', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/map', label: 'Mapa', icon: 'pin', hideForMarketing: true },
-                { href: '/admin/trials', label: 'Trials', icon: 'gift' },
+                // Trials es exclusivo de Clubify: las marcas blancas no tienen
+                // periodo de prueba (se activan por créditos), así que se oculta
+                // para cualquier marca ≠ clubify (mismo gating que Branding).
+                { href: '/admin/trials', label: 'Trials', icon: 'gift', clubifyOnly: true },
               ],
             },
             {

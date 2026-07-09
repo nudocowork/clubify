@@ -77,8 +77,11 @@ export const REVIEW_ALERT_DEFAULT =
 const BILLING_FOLDER: Record<string, { folder: string; folderLabel?: string }> = {
   payment_confirmed: { folder: 'administrativa', folderLabel: 'Pago aprobado' },
   payment_failed: { folder: 'administrativa', folderLabel: 'Pago demorado' },
+  payment_reminder_7d: { folder: 'cobros' },
   payment_reminder_tomorrow: { folder: 'cobros' },
+  payment_due_today: { folder: 'cobros' },
   payment_overdue_reminder: { folder: 'cobros' },
+  payment_not_processed_2d: { folder: 'cobros' },
   account_will_pause: { folder: 'cobros' },
   account_paused: { folder: 'cobros' },
   account_reactivated: { folder: 'cobros' },

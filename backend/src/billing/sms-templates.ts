@@ -27,14 +27,34 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
   // El prefijo {platform} = nombre de la MARCA del negocio (Sellea/Clubify),
   // resuelto por SmsTemplatesService.render desde el tenant. NUNCA hardcodear
   // "Clubify" aquí: un negocio de una marca blanca debe ver el nombre de SU marca.
+  // Serie pre-cobro (PDF734) — tono personal 1:1 al dueño ({ownerName}).
+  // Solo negocios Clubify (el cron filtra la marca). {platform} = "Clubify".
   {
-    id: 'payment_reminder_tomorrow',
-    label: 'Recordatorio de cobro (D-1)',
-    description: 'Se envía 1 día antes del cobro recurrente en la pasarela de pago.',
-    vars: ['platform', 'brandName', 'chargeDate'],
+    id: 'payment_reminder_7d',
+    label: 'Recordatorio de cobro (7 días antes)',
+    description: 'Se envía 7 días antes de la renovación. Tono personal al dueño.',
+    vars: ['platform', 'ownerName'],
     group: 'cliente',
     default:
-      '{platform}: Tu cobro de {brandName} es mañana ({chargeDate}). Verifica tu tarjeta en la pasarela de pago si cambió.',
+      'Hola {ownerName} 👋 Te escribo para recordarte que en 7 días se renueva tu suscripción de {platform}. Verifica que tengas saldo disponible en tu tarjeta para que el pago pase sin problema 🙌 Cualquier cosa estoy aquí para ayudarte.',
+  },
+  {
+    id: 'payment_reminder_tomorrow',
+    label: 'Recordatorio de cobro (1 día antes)',
+    description: 'Se envía 1 día antes de la renovación. Tono personal al dueño.',
+    vars: ['platform', 'ownerName', 'brandName', 'chargeDate'],
+    group: 'cliente',
+    default:
+      'Hola {ownerName} 👋 Te escribo porque mañana se renueva tu suscripción de {platform}. Revisa que tu tarjeta tenga saldo para que no pierdas acceso a tu cuenta. Si tienes alguna duda, me dices…',
+  },
+  {
+    id: 'payment_due_today',
+    label: 'Recordatorio de cobro (mismo día)',
+    description: 'Se envía el día en que se procesa la renovación. Tono personal al dueño.',
+    vars: ['platform', 'ownerName'],
+    group: 'cliente',
+    default:
+      'Hola {ownerName} 👋 Te escribo porque hoy se procesa el pago de tu suscripción de {platform}. Si ya tienes saldo, no tienes que hacer nada, todo sigue normal ✅ Si no tienes saldo, tu pago no se va a procesar y lo más probable es que pierdas acceso a tu cuenta. Cualquier cosa estoy aquí para ayudarte.',
   },
   {
     id: 'payment_confirmed',
@@ -64,10 +84,20 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
       '{platform}: El pago de {brandName} sigue pendiente. Regularízalo en la pasarela para evitar la pausa del {pauseDate}.',
   },
   {
-    id: 'account_will_pause',
-    label: 'Aviso de pausa (D+2)',
+    id: 'payment_not_processed_2d',
+    label: 'Pago no procesado (2 días después)',
     description:
-      'Se envía si el pago no se regulariza antes de la fecha de pausa.',
+      'Se envía 2 días después de la fecha de cobro si el pago no se procesó. Tono personal al dueño. Reemplaza al aviso de pausa (D+2) en la secuencia.',
+    vars: ['platform', 'ownerName'],
+    group: 'cliente',
+    default:
+      'Hola {ownerName} 👋 Te escribo porque el pago de tu suscripción de {platform} no pudo procesarse. Necesito que actualices o confirmes el saldo de tu tarjeta para que no se te suspenda la cuenta y tus clientes dejen de recibir tus notificaciones push. Escríbeme y en 2 minutos lo resolvemos 🙌',
+  },
+  {
+    id: 'account_will_pause',
+    label: 'Aviso de pausa (legacy)',
+    description:
+      'Aviso corto de pausa. La secuencia ahora usa "Pago no procesado (2 días después)"; se mantiene editable por compatibilidad.',
     vars: ['platform', 'brandName', 'pauseDate'],
     group: 'cliente',
     default:

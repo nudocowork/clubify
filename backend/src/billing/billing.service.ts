@@ -5,6 +5,7 @@ import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { SmsTemplatesService } from './sms-templates.service';
 import { fmtSmsDate } from './sms-templates';
+import { addPlanPeriod } from '../common/plan-period';
 
 // Secuencia de mora (PDF 2026-07-01, P4). Día 0 = 1er cobro fallido o fecha
 // de cobro vencida (lo que ocurra). El cron diario cuenta días calendario:
@@ -316,19 +317,244 @@ export class BillingService {
       this.logger.warn(`Tenant ${t.brandName} (${t.id}) suspended: trial expired`);
     }
 
-    // ────────── Secuencia SMS de notificaciones de cobro Hotmart ──────────
-    // D-1 antes del cobro (pre-cobro, informativo).
-    const reminderCount = await this.sendPaymentReminders(now);
-    // Secuencia de mora D+1/D+2/D+3 (recordatorio → aviso → suspensión).
+    // ────── Serie pre-cobro (PDF734): 7 días antes · 1 día antes · mismo día ──────
+    const reminder7dCount = await this.sendPreChargeReminder7d(now);
+    const reminderCount = await this.sendPaymentReminders(now); // D-1
+    const reminderTodayCount = await this.sendPreChargeReminderToday(now); // día del cobro
+    // Secuencia de mora D+1/D+2/D+3 (recordatorio → "no procesado" → suspensión).
     const dunning = await this.processOverdueAccounts(now);
 
     return {
       suspendedCount: expiredTrials.length,
-      reminderCount,
+      reminderCount: reminder7dCount + reminderCount + reminderTodayCount,
       overdueReminderCount: dunning.reminders,
       pauseNoticeCount: dunning.notices,
       autoPausedCount: dunning.suspended,
     };
+  }
+
+  /**
+   * Blindaje anti-desincronización (BUG PDF734 — Quipao Bubble Tea).
+   * ¿El ciclo actual ya está pagado aunque los campos de billing hayan
+   * quedado desincronizados? Señales:
+   *   - lastChargeAt >= currentPeriodEnd → el cobro ya ocurrió en/después de
+   *     la fecha registrada como "próximo cobro" → esa fecha quedó vieja.
+   *   - currentPeriodEnd está ANTES de un período completo después del último
+   *     cobro exitoso → Hotmart cobró pero no avanzó la fecha (margen 2 días
+   *     por drift de fechas de la pasarela).
+   * En ambos casos el pago YA entró: no hay que recordar ni mandar mora.
+   */
+  private paidButStale(t: {
+    lastChargeAt: Date | null;
+    currentPeriodEnd: Date | null;
+    planPeriodicity: string | null;
+  }): boolean {
+    if (!t.lastChargeAt || !t.currentPeriodEnd) return false;
+    if (t.lastChargeAt.getTime() >= t.currentPeriodEnd.getTime()) return true;
+    const dayMs = 24 * 60 * 60 * 1000;
+    const expectedNext = addPlanPeriod(t.lastChargeAt, t.planPeriodicity);
+    return t.currentPeriodEnd.getTime() < expectedNext.getTime() - 2 * dayMs;
+  }
+
+  /**
+   * Auto-sana un ciclo ya pagado con fecha vieja: avanza currentPeriodEnd a
+   * (último cobro + período del plan), limpia el contador de fallos y resetea
+   * los flags de recordatorio/pausa. Deja el estado consistente para el
+   * próximo cron y para el dashboard, y frena los SMS erróneos.
+   */
+  private async healStaleCharge(
+    now: Date,
+    t: {
+      id: string;
+      brandName: string;
+      currentPeriodEnd: Date | null;
+      lastChargeAt: Date | null;
+      planPeriodicity: string | null;
+    },
+  ) {
+    if (!t.lastChargeAt) return;
+    const nextCharge = this.nextChargeAfterPayment(now, t);
+    await this.prisma.tenant.update({
+      where: { id: t.id },
+      data: {
+        currentPeriodEnd: nextCharge,
+        failedPaymentCount: 0,
+        lastPaymentAttemptAt: t.lastChargeAt,
+        paymentReminderSentFor: null,
+        pausePendingNoticeSentAt: null,
+      },
+    });
+    this.logger.warn(
+      `Billing self-heal ${t.brandName} (${t.id}): pago ya recibido (lastChargeAt=${t.lastChargeAt.toISOString()}) con currentPeriodEnd viejo → avanzado a ${nextCharge.toISOString()}; mora/recordatorios reseteados.`,
+    );
+  }
+
+  /**
+   * Próximo cobro para un ciclo YA pagado con fecha vieja. Preserva el día de
+   * cobro original: parte de currentPeriodEnd (o del último pago) y avanza por
+   * períodos COMPLETOS hasta que la fecha sea un ciclo real DESPUÉS del último
+   * pago (no re-cobra el ciclo recién pagado) y quede en el futuro.
+   * Ej. Quipao: pago 04/07, currentPeriodEnd viejo 09/07 (mensual) → 09/08.
+   */
+  private nextChargeAfterPayment(
+    now: Date,
+    t: {
+      currentPeriodEnd: Date | null;
+      lastChargeAt: Date | null;
+      planPeriodicity: string | null;
+    },
+  ): Date {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const period = t.planPeriodicity;
+    const expectedNext = t.lastChargeAt
+      ? addPlanPeriod(t.lastChargeAt, period)
+      : addPlanPeriod(now, period);
+    let next = new Date(t.currentPeriodEnd ?? expectedNext);
+    let guard = 0;
+    // Un ciclo real después del último pago (mismo umbral que paidButStale).
+    while (
+      next.getTime() < expectedNext.getTime() - 2 * dayMs &&
+      guard++ < 120
+    ) {
+      next = addPlanPeriod(next, period);
+    }
+    // Salvaguarda para data legacy muy vieja: empujar al futuro.
+    while (next.getTime() <= now.getTime() && guard++ < 240) {
+      next = addPlanPeriod(next, period);
+    }
+    return next;
+  }
+
+  /** Nombre de pila del dueño (TENANT_OWNER) para los SMS de tono personal. */
+  private async ownerFirstName(tenantId: string): Promise<string> {
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      select: { fullName: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const full = (owner?.fullName || '').trim();
+    return full ? full.split(/\s+/)[0] : '';
+  }
+
+  /**
+   * D-7: aviso amable 7 días antes de la renovación (solo Clubify).
+   * Idempotencia por ciclo con preReminder7dSentFor === currentPeriodEnd.
+   */
+  private async sendPreChargeReminder7d(now: Date) {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const from = new Date(now.getTime() + 7 * dayMs);
+    const to = new Date(now.getTime() + 8 * dayMs);
+    const candidates = await this.prisma.tenant.findMany({
+      where: {
+        status: 'ACTIVE',
+        currentPeriodEnd: { gte: from, lt: to },
+        OR: [{ whiteLabelId: null }, { whiteLabel: { slug: 'clubify' } }],
+      },
+      select: {
+        id: true,
+        brandName: true,
+        currentPeriodEnd: true,
+        lastChargeAt: true,
+        planPeriodicity: true,
+        preReminder7dSentFor: true,
+      },
+    });
+    let sent = 0;
+    for (const t of candidates) {
+      if (!t.currentPeriodEnd) continue;
+      if (this.paidButStale(t)) {
+        await this.healStaleCharge(now, t);
+        continue;
+      }
+      if (
+        t.preReminder7dSentFor &&
+        t.preReminder7dSentFor.getTime() === t.currentPeriodEnd.getTime()
+      ) {
+        continue;
+      }
+      const target = await this.resolveBillingTarget(t.id);
+      if (!target) continue;
+      const ownerName = await this.ownerFirstName(t.id);
+      const message = await this.smsTemplates.render(
+        'payment_reminder_7d',
+        { ownerName },
+        t.id,
+      );
+      const r = await this.growBusiness.sendSmsWithCreds(
+        target.creds,
+        target.phone,
+        message,
+      );
+      if (r.ok) {
+        await this.prisma.tenant.update({
+          where: { id: t.id },
+          data: { preReminder7dSentFor: t.currentPeriodEnd },
+        });
+        sent++;
+        this.logger.log(`SMS D-7 → ${t.brandName} (${target.phone})`);
+      }
+    }
+    return sent;
+  }
+
+  /**
+   * D-0: aviso el mismo día en que se procesa la renovación (solo Clubify).
+   * Idempotencia por ciclo con preReminderTodaySentFor === currentPeriodEnd.
+   */
+  private async sendPreChargeReminderToday(now: Date) {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const to = new Date(now.getTime() + dayMs);
+    const candidates = await this.prisma.tenant.findMany({
+      where: {
+        status: 'ACTIVE',
+        currentPeriodEnd: { gte: now, lt: to },
+        OR: [{ whiteLabelId: null }, { whiteLabel: { slug: 'clubify' } }],
+      },
+      select: {
+        id: true,
+        brandName: true,
+        currentPeriodEnd: true,
+        lastChargeAt: true,
+        planPeriodicity: true,
+        preReminderTodaySentFor: true,
+      },
+    });
+    let sent = 0;
+    for (const t of candidates) {
+      if (!t.currentPeriodEnd) continue;
+      if (this.paidButStale(t)) {
+        await this.healStaleCharge(now, t);
+        continue;
+      }
+      if (
+        t.preReminderTodaySentFor &&
+        t.preReminderTodaySentFor.getTime() === t.currentPeriodEnd.getTime()
+      ) {
+        continue;
+      }
+      const target = await this.resolveBillingTarget(t.id);
+      if (!target) continue;
+      const ownerName = await this.ownerFirstName(t.id);
+      const message = await this.smsTemplates.render(
+        'payment_due_today',
+        { ownerName },
+        t.id,
+      );
+      const r = await this.growBusiness.sendSmsWithCreds(
+        target.creds,
+        target.phone,
+        message,
+      );
+      if (r.ok) {
+        await this.prisma.tenant.update({
+          where: { id: t.id },
+          data: { preReminderTodaySentFor: t.currentPeriodEnd },
+        });
+        sent++;
+        this.logger.log(`SMS día-de-cobro → ${t.brandName} (${target.phone})`);
+      }
+    }
+    return sent;
   }
 
   /**
@@ -353,23 +579,32 @@ export class BillingService {
         id: true,
         brandName: true,
         currentPeriodEnd: true,
+        lastChargeAt: true,
+        planPeriodicity: true,
         paymentReminderSentFor: true,
       },
     });
 
     let sent = 0;
     for (const t of candidates) {
+      if (!t.currentPeriodEnd) continue;
+      // Blindaje anti-desincronización (PDF734): si el ciclo ya está pagado
+      // (Hotmart cobró pero la fecha quedó vieja), sanamos y no recordamos.
+      if (this.paidButStale(t)) {
+        await this.healStaleCharge(now, t);
+        continue;
+      }
       if (
         t.paymentReminderSentFor &&
-        t.currentPeriodEnd &&
         t.paymentReminderSentFor.getTime() === t.currentPeriodEnd.getTime()
       ) {
         continue; // ya enviado para este ciclo
       }
-      if (!t.currentPeriodEnd) continue;
       const target = await this.resolveBillingTarget(t.id);
       if (!target) continue;
+      const ownerName = await this.ownerFirstName(t.id);
       const message = await this.smsTemplates.render('payment_reminder_tomorrow', {
+        ownerName,
         brandName: t.brandName,
         chargeDate: fmtSmsDate(t.currentPeriodEnd),
       }, t.id);
@@ -431,6 +666,7 @@ export class BillingService {
         lastPaymentAttemptAt: true,
         currentPeriodEnd: true,
         lastChargeAt: true,
+        planPeriodicity: true,
       },
     });
 
@@ -439,6 +675,13 @@ export class BillingService {
     let suspended = 0;
 
     for (const t of candidates) {
+      // Blindaje anti-desincronización (PDF734): si el pago ya entró pero la
+      // fecha/contador quedaron viejos, sanamos y NO mandamos mora. Esto
+      // distingue "pagó pero la fecha no avanzó" (skip) de "mora real" (dun).
+      if (this.paidButStale(t)) {
+        await this.healStaleCharge(now, t);
+        continue;
+      }
       // Inicio de la mora (día 0).
       let dueSince: Date | null = null;
       let byFailure = false;
@@ -499,10 +742,14 @@ export class BillingService {
       } else if (daysOverdue === OVERDUE_NOTICE_DAY) {
         const target = await this.resolveBillingTarget(t.id);
         if (!target) continue;
-        const message = await this.smsTemplates.render('account_will_pause', {
-          brandName: t.brandName,
-          pauseDate: fmtSmsDate(pauseDate),
-        }, t.id);
+        // PDF734: D+2 usa el mensaje personal "pago no procesado" (antes era
+        // el aviso corto account_will_pause).
+        const ownerName = await this.ownerFirstName(t.id);
+        const message = await this.smsTemplates.render(
+          'payment_not_processed_2d',
+          { ownerName },
+          t.id,
+        );
         const r = await this.growBusiness.sendSmsWithCreds(
           target.creds,
           target.phone,
@@ -510,7 +757,7 @@ export class BillingService {
         );
         if (r.ok) {
           notices++;
-          this.logger.log(`SMS D+2 "pausa mañana" → ${t.brandName}`);
+          this.logger.log(`SMS D+2 "no procesado" → ${t.brandName}`);
         }
       } else if (daysOverdue === OVERDUE_REMINDER_DAY) {
         const target = await this.resolveBillingTarget(t.id);
