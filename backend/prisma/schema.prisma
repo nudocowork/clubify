@@ -1843,6 +1843,114 @@ model AutomationRun {
   @@index([ruleId, executedAt])
 }
 
+// Fase B (PDF734): workflows multipaso por tenant. A diferencia de
+// AutomationRule (1 evento → N acciones instantáneas), un workflow es una
+// SECUENCIA ordenada de pasos con esperas (enviar → esperar días/horas →
+// enviar …). Un disparador inscribe al cliente (AutomationEnrollment) y un cron
+// avanza los pasos. `steps` = array JSON ordenado de pasos
+// (SEND_SMS/SEND_WHATSAPP/SEND_PUSH/WAIT).
+model AutomationWorkflow {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  description String   @default("")
+  triggerType String
+  triggerDays Int?
+  steps       Json     @default("[]")
+  isActive    Boolean  @default(false)
+  stats       Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  enrollments AutomationEnrollment[]
+
+  @@index([tenantId, isActive])
+}
+
+// Inscripción de un cliente en un workflow. `stepIndex` = próximo paso a
+// ejecutar; `nextRunAt` = cuándo debe correr (los WAIT lo empujan al futuro).
+// status: active | done | stopped. Unique (workflowId, customerId) = un pase por
+// cliente por workflow (base; re-inscripción se hará en un incremento posterior).
+model AutomationEnrollment {
+  id         String             @id @default(cuid())
+  workflowId String
+  workflow   AutomationWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  tenantId   String
+  customerId String
+  stepIndex  Int                @default(0)
+  status     String             @default("active")
+  nextRunAt  DateTime
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  @@unique([workflowId, customerId])
+  @@index([status, nextRunAt])
+  @@index([tenantId])
+}
+
+// ── WORKFLOWS DE MARCA BLANCA (panel /admin/automatizaciones) ───────────────
+// Motor durable por @Cron: un NEGOCIO (Tenant) de la marca entra al workflow y
+// avanza por nodos (SMS al dueño por la subcuenta de la marca, esperas, ramas).
+model BrandWorkflow {
+  id           String   @id @default(uuid())
+  whiteLabelId String
+  name         String
+  folderId     String?
+  status       String   @default("draft") // draft | published
+  trigger      Json     @default("{}") // { type, filters }
+  rootId       String? // primer nodo
+  nodes        Json     @default("{}") // { [id]: { id, type, config, next, yes, no } }
+  drip         Json     @default("{}")
+  sendWindow   Json     @default("{}")
+  reentry      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([whiteLabelId, status])
+}
+
+model BrandWorkflowFolder {
+  id           String   @id @default(uuid())
+  whiteLabelId String
+  name         String
+  position     Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([whiteLabelId])
+}
+
+model BrandWorkflowEnrollment {
+  id            String    @id @default(uuid())
+  workflowId    String
+  tenantId      String // negocio inscrito
+  status        String    @default("active") // active | waiting | completed | removed | error
+  currentNodeId String?
+  resumeAt      DateTime?
+  waitKind      String?
+  context       Json      @default("{}")
+  enteredAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  completedAt   DateTime?
+
+  @@index([status, resumeAt])
+  @@index([workflowId, tenantId])
+}
+
+model BrandWorkflowLog {
+  id           String   @id @default(uuid())
+  workflowId   String
+  whiteLabelId String
+  tenantId     String?
+  nodeId       String?
+  nodeType     String
+  message      String   @default("")
+  status       String // sent | skipped | failed | info
+  result       String?
+  createdAt    DateTime @default(now())
+
+  @@index([workflowId, createdAt])
+}
+
 // ============================================================
 //                       CHANNELS (v2)
 // ============================================================

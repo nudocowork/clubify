@@ -51,6 +51,22 @@ export type RuleDto = {
   isActive?: boolean;
 };
 
+// ===== Fase B: workflows multipaso (secuencia con esperas) =====
+export type WorkflowStep =
+  | { type: 'SEND_SMS'; body: string }
+  | { type: 'SEND_WHATSAPP'; body: string }
+  | { type: 'SEND_PUSH'; title: string; body: string }
+  | { type: 'WAIT'; unit: 'minutes' | 'hours' | 'days'; amount: number };
+
+export type WorkflowDto = {
+  name: string;
+  description?: string;
+  triggerType: AutomationEvent;
+  triggerDays?: number;
+  steps: WorkflowStep[];
+  isActive?: boolean;
+};
+
 @Injectable()
 export class AutomationsService {
   private logger = new Logger(AutomationsService.name);
@@ -122,6 +138,60 @@ export class AutomationsService {
     return { ok: true };
   }
 
+  // ========== Workflows multipaso (Fase B) — CRUD ==========
+
+  async listWorkflows(user: AuthUser, override?: string) {
+    const tid = this.tid(user, override);
+    return this.prisma.automationWorkflow.findMany({
+      where: { tenantId: tid },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createWorkflow(user: AuthUser, dto: WorkflowDto, override?: string) {
+    const tid = this.tid(user, override);
+    return this.prisma.automationWorkflow.create({
+      data: {
+        tenantId: tid,
+        name: dto.name,
+        description: dto.description ?? '',
+        triggerType: dto.triggerType,
+        triggerDays: dto.triggerDays ?? null,
+        steps: (dto.steps ?? []) as any,
+        isActive: dto.isActive ?? false,
+      },
+    });
+  }
+
+  async updateWorkflow(user: AuthUser, id: string, dto: Partial<WorkflowDto>) {
+    const wf = await this.prisma.automationWorkflow.findUnique({ where: { id } });
+    if (!wf) throw new NotFoundException();
+    if (user.role !== 'SUPER_ADMIN' && wf.tenantId !== user.tenantId) {
+      throw new ForbiddenException();
+    }
+    return this.prisma.automationWorkflow.update({
+      where: { id },
+      data: {
+        name: dto.name ?? undefined,
+        description: dto.description ?? undefined,
+        triggerType: dto.triggerType ?? undefined,
+        triggerDays: dto.triggerDays === undefined ? undefined : dto.triggerDays,
+        steps: dto.steps ? (dto.steps as any) : undefined,
+        isActive: dto.isActive === undefined ? undefined : dto.isActive,
+      },
+    });
+  }
+
+  async removeWorkflow(user: AuthUser, id: string) {
+    const wf = await this.prisma.automationWorkflow.findUnique({ where: { id } });
+    if (!wf) throw new NotFoundException();
+    if (user.role !== 'SUPER_ADMIN' && wf.tenantId !== user.tenantId) {
+      throw new ForbiddenException();
+    }
+    await this.prisma.automationWorkflow.delete({ where: { id } });
+    return { ok: true };
+  }
+
   // ========== Motor de eventos ==========
 
   /**
@@ -168,6 +238,125 @@ export class AutomationsService {
         await this.logRun(rule.id, payload, 'FAILED', e.message);
       }
     }
+
+    // Fase B: además de las reglas de 1 paso, este evento puede INSCRIBIR al
+    // cliente en workflows multipaso (secuencias con esperas). Best-effort.
+    await this.enrollForEvent(eventType, payload).catch((e) =>
+      this.logger.warn(`enrollForEvent(${eventType}) falló: ${e?.message}`),
+    );
+  }
+
+  /**
+   * Inscribe al cliente del evento en los workflows activos cuyo disparador
+   * coincide. Un pase por cliente por workflow (unique) — un re-disparo no
+   * re-inscribe (se afinará en un incremento posterior). El primer paso corre
+   * en el próximo tick del cron.
+   */
+  private async enrollForEvent(eventType: AutomationEvent, payload: any) {
+    const tenantId = payload?.tenantId;
+    const customerId = payload?.customerId;
+    if (!tenantId || !customerId) return; // los workflows enrolan CLIENTES
+    const workflows = await this.prisma.automationWorkflow.findMany({
+      where: { tenantId, isActive: true, triggerType: eventType },
+      select: { id: true, steps: true },
+    });
+    for (const wf of workflows) {
+      const steps = (wf.steps as WorkflowStep[]) ?? [];
+      if (!steps.length) continue;
+      try {
+        await this.prisma.automationEnrollment.create({
+          data: {
+            workflowId: wf.id,
+            tenantId,
+            customerId,
+            stepIndex: 0,
+            status: 'active',
+            nextRunAt: new Date(),
+          },
+        });
+      } catch (e: any) {
+        if (e?.code === 'P2002') continue; // ya inscrito
+        throw e;
+      }
+    }
+  }
+
+  /**
+   * Cron (cada 5 min): avanza los workflows multipaso. Procesa las inscripciones
+   * vencidas (nextRunAt <= now): ejecuta los pasos de envío consecutivos y, al
+   * toparse con un WAIT, reprograma nextRunAt al futuro; al terminar marca 'done'.
+   * Si el workflow está pausado (isActive=false) la inscripción no avanza.
+   */
+  @Cron('*/5 * * * *')
+  async processWorkflowTick() {
+    const now = new Date();
+    const due = await this.prisma.automationEnrollment.findMany({
+      where: { status: 'active', nextRunAt: { lte: now } },
+      include: { workflow: true },
+      take: 200,
+      orderBy: { nextRunAt: 'asc' },
+    });
+    for (const enr of due) {
+      if (!enr.workflow || !enr.workflow.isActive) continue; // pausado
+      try {
+        await this.processEnrollment(enr, enr.workflow);
+      } catch (e) {
+        this.logger.warn(
+          `workflow tick enr ${enr.id} falló: ${(e as Error).message}`,
+        );
+      }
+    }
+  }
+
+  private async processEnrollment(
+    enr: {
+      id: string;
+      tenantId: string;
+      customerId: string;
+      stepIndex: number;
+    },
+    workflow: { id: string; steps: any },
+  ) {
+    const steps = (workflow.steps as WorkflowStep[]) ?? [];
+    let idx = enr.stepIndex;
+    const now = new Date();
+    const dayMs = 24 * 60 * 60 * 1000;
+    // Ejecuta pasos de envío consecutivos hasta toparse con un WAIT o el final.
+    while (idx < steps.length) {
+      const step = steps[idx];
+      if (step && step.type === 'WAIT') {
+        const unitMs =
+          step.unit === 'days' ? dayMs : step.unit === 'hours' ? 3600000 : 60000;
+        const amount = Math.max(1, Math.min(365, Number(step.amount) || 1));
+        await this.prisma.automationEnrollment.update({
+          where: { id: enr.id },
+          data: {
+            stepIndex: idx + 1,
+            nextRunAt: new Date(now.getTime() + amount * unitMs),
+          },
+        });
+        return; // esperamos hasta el próximo vencimiento
+      }
+      // Paso de envío — reusa executeAction con payload mínimo.
+      try {
+        await this.executeAction(
+          step as Action,
+          { tenantId: enr.tenantId, customerId: enr.customerId },
+          `wf:${workflow.id}`,
+        );
+      } catch (e) {
+        this.logger.warn(
+          `workflow ${workflow.id} paso ${idx} (${(step as any)?.type}) falló: ${
+            (e as Error).message
+          }`,
+        );
+      }
+      idx++;
+    }
+    await this.prisma.automationEnrollment.update({
+      where: { id: enr.id },
+      data: { stepIndex: idx, status: 'done', nextRunAt: now },
+    });
   }
 
   private matchCondition(c: Condition, payload: any): boolean {

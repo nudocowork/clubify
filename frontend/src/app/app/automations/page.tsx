@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -129,6 +130,9 @@ export default function AutomationsPage() {
           <span className="page-crumb">{t('crumbRules', { count: list.length })}</span>
         </h1>
         <div className="flex gap-2">
+          <Link className="btn-ghost" href="/app/automations/workflows">
+            <Icon name="spark" /> Workflows
+          </Link>
           <button
             className="btn-ghost"
             onClick={() => setShowTemplates(true)}

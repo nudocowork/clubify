@@ -8,7 +8,14 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsArray, IsBoolean, IsObject, IsOptional, IsString } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsNumber,
+  IsObject,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { AutomationsService, AUTOMATION_TEMPLATES } from './automations.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -19,6 +26,15 @@ class RuleBody {
   @IsObject() trigger!: any;
   @IsOptional() @IsArray() conditions?: any[];
   @IsArray() actions!: any[];
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+class WorkflowBody {
+  @IsString() name!: string;
+  @IsOptional() @IsString() description?: string;
+  @IsString() triggerType!: string;
+  @IsOptional() @IsNumber() triggerDays?: number;
+  @IsArray() steps!: any[];
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
@@ -40,6 +56,39 @@ export class AutomationsController {
     @Query('tenantId') tenantId?: string,
   ) {
     return this.svc.createFromTemplate(user, id, body ?? {}, tenantId);
+  }
+
+  // ===== Workflows multipaso (Fase B) — rutas de 2 segmentos, no colisionan
+  // con las de regla simple (:id de 1 segmento). =====
+  @Get('workflows')
+  listWorkflows(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.listWorkflows(user, tenantId);
+  }
+
+  @Post('workflows')
+  createWorkflow(
+    @CurrentUser() user: AuthUser,
+    @Body() body: WorkflowBody,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.createWorkflow(user, body as any, tenantId);
+  }
+
+  @Patch('workflows/:id')
+  updateWorkflow(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: Partial<WorkflowBody>,
+  ) {
+    return this.svc.updateWorkflow(user, id, body as any);
+  }
+
+  @Delete('workflows/:id')
+  removeWorkflow(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.removeWorkflow(user, id);
   }
 
   @Get()
