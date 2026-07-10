@@ -93,7 +93,17 @@ export class BillingService {
         growBusinessLocationId: true,
         growBusinessApiKey: true,
         growBusinessSwitchNumber: true,
-        whiteLabel: { select: BRAND_GROW_SELECT },
+        whiteLabel: {
+          select: {
+            ...BRAND_GROW_SELECT,
+            // P6 (PDF245): la subcuenta de la MARCA solo se usa si tiene el
+            // módulo GROW_BUSINESS_SMS activo.
+            modules: {
+              where: { module: 'GROW_BUSINESS_SMS' },
+              select: { enabled: true },
+            },
+          },
+        },
       },
     });
     if (!tenant || !tenant.billingAlertsEnabled) return null;
@@ -123,9 +133,15 @@ export class BillingService {
         switchNumber: tenant.growBusinessSwitchNumber,
       };
     }
-    // Capa MARCA: si el negocio no tiene cuenta asignada ni creds propias, usa
-    // la subcuenta GHL de su marca blanca (nunca la de Clubify).
-    if (!creds) creds = brandGrowCreds(tenant.whiteLabel);
+    // Capa MARCA (P6 PDF245): la subcuenta GHL de la marca blanca solo se usa si
+    // la marca tiene el módulo GROW_BUSINESS_SMS ACTIVO (nunca la de Clubify).
+    // Las creds propias del negocio y la subcuenta global asignada no dependen
+    // del módulo (ya se resolvieron arriba).
+    if (!creds) {
+      const smsModuleOn =
+        tenant.whiteLabel?.modules?.some((m) => m.enabled) ?? false;
+      if (smsModuleOn) creds = brandGrowCreds(tenant.whiteLabel);
+    }
     if (!creds) return null;
 
     const phone =
@@ -447,6 +463,7 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
+        isCampaignHost: false,
         currentPeriodEnd: { gte: from, lt: to },
         OR: [{ whiteLabelId: null }, { whiteLabel: { slug: 'clubify' } }],
       },
@@ -507,6 +524,7 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
+        isCampaignHost: false,
         currentPeriodEnd: { gte: now, lt: to },
         OR: [{ whiteLabelId: null }, { whiteLabel: { slug: 'clubify' } }],
       },
@@ -567,6 +585,7 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
+        isCampaignHost: false,
         currentPeriodEnd: { gte: inOneDay, lt: inTwoDays },
         // El recordatorio "revisa tu tarjeta en Hotmart" solo aplica a
         // negocios que pagan DIRECTO a la pasarela (Clubify). Las marcas
@@ -647,6 +666,7 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
+        isCampaignHost: false,
         AND: [
           {
             OR: [{ whiteLabelId: null }, { whiteLabel: { slug: 'clubify' } }],
