@@ -332,9 +332,9 @@ export class DeliveryService {
               : new Prisma.Decimal(order.deliveryAmount),
         },
       });
-      if (companyId) {
-        await this.notifyCompanyNewDelivery(companyId, order.id).catch(() => null);
-      }
+      // (El aviso a la empresa se hace por separado: "nuevo pedido" al crearse
+      // y "listo para recoger" al pasar a READY — ver onDeliveryOrderCreated /
+      // notifyCompanyReadyForPickup.)
       this.logger.log(
         `Delivery creado order=${order.id} company=${companyId ?? 'sin-asignar'} id=${created.id}`,
       );
@@ -490,6 +490,94 @@ export class DeliveryService {
         body,
       )
       .catch(() => null);
+  }
+
+  /**
+   * PDF245 P2 — al CREARSE un pedido a domicilio: crea el seguimiento (para que
+   * aparezca en el panel de la empresa) y avisa a las empresas habilitadas
+   * "Hay un nuevo pedido - #X. Revisa el panel.". Best-effort.
+   */
+  async onDeliveryOrderCreated(orderId: string): Promise<void> {
+    try {
+      await this.ensureForOrder(orderId);
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: {
+          code: true,
+          fulfillment: true,
+          mode: true,
+          tenantId: true,
+          tenant: { select: { brandName: true } },
+        },
+      });
+      if (!order) return;
+      const isDelivery =
+        order.fulfillment === 'DELIVERY' || order.mode === 'DELIVERY';
+      if (!isDelivery) return;
+
+      const links = await this.prisma.deliveryCompanyTenant.findMany({
+        where: { tenantId: order.tenantId, deliveryCompany: { isActive: true } },
+        select: { deliveryCompany: { select: { whatsapp: true } } },
+      });
+      const phones = links
+        .map((l) => l.deliveryCompany?.whatsapp)
+        .filter((p): p is string => !!p && p.trim().length >= 6);
+      if (phones.length === 0) return;
+
+      const account = await this.resolveGrowAccount();
+      if (!account) return;
+      const body =
+        `🛵 Hay un nuevo pedido - #${order.code}\n` +
+        `Negocio: ${order.tenant?.brandName ?? '—'}\n` +
+        `Revisa el panel.`;
+      for (const phone of phones) {
+        const wa = await this.growBusiness
+          .sendWhatsAppWithCreds(
+            { locationId: account.locationId, apiKey: account.apiKey },
+            phone,
+            body,
+          )
+          .catch(() => ({ ok: false as const }));
+        if (!wa.ok) {
+          await this.growBusiness
+            .sendSmsWithCreds(
+              {
+                locationId: account.locationId,
+                apiKey: account.apiKey,
+                switchNumber: account.switchNumber,
+              },
+              phone,
+              body,
+            )
+            .catch(() => null);
+        }
+      }
+    } catch (e) {
+      this.logger.warn(
+        `onDeliveryOrderCreated order=${orderId} falló: ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Aviso "listo para recoger" a la empresa asignada (o la default si aún no se
+   * reclamó). Se llama cuando el pedido pasa a READY. Best-effort.
+   */
+  async notifyCompanyReadyForPickup(orderId: string): Promise<void> {
+    try {
+      const d = await this.prisma.delivery.findUnique({
+        where: { orderId },
+        select: { deliveryCompanyId: true, tenantId: true },
+      });
+      if (!d) return;
+      const companyId =
+        d.deliveryCompanyId ?? (await this.resolveDefaultCompany(d.tenantId));
+      if (companyId) await this.notifyCompanyNewDelivery(companyId, orderId);
+    } catch (e) {
+      this.logger.warn(
+        `notifyCompanyReadyForPickup order=${orderId} falló: ${(e as Error).message}`,
+      );
+    }
   }
 
   /** Resuelve la subcuenta global de Grow Business (igual que prereg alerts). */
@@ -800,7 +888,7 @@ export class DeliveryService {
       },
       orderBy: { createdAt: 'desc' },
       take: 200,
-      include: { order: { select: ORDER_SELECT } },
+      include: { order: { select: ORDER_SELECT }, vehicle: true },
     });
 
     // Reclamables: sin empresa, esperando repartidor, de un negocio habilitado.
@@ -813,7 +901,7 @@ export class DeliveryService {
           },
           orderBy: { createdAt: 'desc' },
           take: 100,
-          include: { order: { select: ORDER_SELECT } },
+          include: { order: { select: ORDER_SELECT }, vehicle: true },
         })
       : [];
 
@@ -845,7 +933,12 @@ export class DeliveryService {
     return { ok: true };
   }
 
-  /** Edita los datos del repartidor / dirección / precio de un domicilio propio. */
+  /**
+   * Edita un domicilio propio: elige la MOTO de la flota (PDF245 P1) + ETA +
+   * dirección. Al elegir moto, se copia el conductor/placa como snapshot en
+   * courier*; la empresa solo escribe el "Tiempo estimado de entrega". El monto
+   * del domicilio ya NO se pide acá (se acuerda con la empresa por fuera).
+   */
   async updatePortalDelivery(
     user: AuthUser,
     deliveryId: string,
@@ -856,6 +949,7 @@ export class DeliveryService {
       address?: string;
       deliveryValue?: number | null;
       etaMinutes?: number | null;
+      vehicleId?: string | null;
     },
   ) {
     const companyId = this.assertCompanyUser(user);
@@ -864,27 +958,116 @@ export class DeliveryService {
       select: { id: true },
     });
     if (!d) throw new NotFoundException('Domicilio no encontrado');
-    await this.prisma.delivery.update({
-      where: { id: deliveryId },
+
+    const data: Prisma.DeliveryUpdateInput = {};
+    if (dto.vehicleId !== undefined) {
+      if (dto.vehicleId) {
+        const v = await this.prisma.deliveryVehicle.findFirst({
+          where: { id: dto.vehicleId, deliveryCompanyId: companyId },
+          select: { plate: true, driverName: true, driverPhone: true },
+        });
+        if (!v) throw new BadRequestException('Moto no encontrada en tu flota.');
+        data.vehicle = { connect: { id: dto.vehicleId } };
+        data.courierName = v.driverName;
+        data.courierPhone = v.driverPhone ?? null;
+        data.courierPlate = v.plate;
+      } else {
+        data.vehicle = { disconnect: true };
+      }
+    }
+    // Campos sueltos (edición manual / compat) solo si NO se eligió una moto.
+    if (data.vehicle === undefined) {
+      if (dto.courierName !== undefined)
+        data.courierName = dto.courierName.trim() || null;
+      if (dto.courierPhone !== undefined)
+        data.courierPhone = dto.courierPhone.trim() || null;
+      if (dto.courierPlate !== undefined)
+        data.courierPlate = dto.courierPlate.trim() || null;
+    }
+    if (dto.address !== undefined) data.address = dto.address.trim() || null;
+    if (dto.etaMinutes !== undefined) data.etaMinutes = dto.etaMinutes ?? null;
+    // deliveryValue ya no se pide al asignar; se acepta solo si llega explícito.
+    if (dto.deliveryValue !== undefined) {
+      data.deliveryValue =
+        dto.deliveryValue == null ? null : new Prisma.Decimal(dto.deliveryValue);
+    }
+
+    await this.prisma.delivery.update({ where: { id: deliveryId }, data });
+    return this.getPortalDelivery(user, deliveryId);
+  }
+
+  // ─────────────────── Flota de motos de la empresa (PDF245 P1) ───────────────────
+
+  async listVehicles(user: AuthUser) {
+    const companyId = this.assertCompanyUser(user);
+    const vehicles = await this.prisma.deliveryVehicle.findMany({
+      where: { deliveryCompanyId: companyId },
+      orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
+    });
+    return vehicles.map(serializeVehicle);
+  }
+
+  async createVehicle(
+    user: AuthUser,
+    dto: { plate: string; driverName: string; driverPhone?: string },
+  ) {
+    const companyId = this.assertCompanyUser(user);
+    const plate = (dto.plate ?? '').trim();
+    const driverName = (dto.driverName ?? '').trim();
+    if (!plate) throw new BadRequestException('La placa es obligatoria.');
+    if (!driverName) throw new BadRequestException('El nombre del conductor es obligatorio.');
+    const v = await this.prisma.deliveryVehicle.create({
       data: {
-        courierName:
-          dto.courierName === undefined ? undefined : dto.courierName.trim() || null,
-        courierPhone:
-          dto.courierPhone === undefined ? undefined : dto.courierPhone.trim() || null,
-        courierPlate:
-          dto.courierPlate === undefined ? undefined : dto.courierPlate.trim() || null,
-        address: dto.address === undefined ? undefined : dto.address.trim() || null,
-        deliveryValue:
-          dto.deliveryValue === undefined
-            ? undefined
-            : dto.deliveryValue == null
-              ? null
-              : new Prisma.Decimal(dto.deliveryValue),
-        etaMinutes:
-          dto.etaMinutes === undefined ? undefined : dto.etaMinutes ?? null,
+        deliveryCompanyId: companyId,
+        plate,
+        driverName,
+        driverPhone: dto.driverPhone?.trim() || null,
       },
     });
-    return this.getPortalDelivery(user, deliveryId);
+    return serializeVehicle(v);
+  }
+
+  async updateVehicle(
+    user: AuthUser,
+    vehicleId: string,
+    dto: {
+      plate?: string;
+      driverName?: string;
+      driverPhone?: string;
+      isActive?: boolean;
+    },
+  ) {
+    const companyId = this.assertCompanyUser(user);
+    const owned = await this.prisma.deliveryVehicle.findFirst({
+      where: { id: vehicleId, deliveryCompanyId: companyId },
+      select: { id: true },
+    });
+    if (!owned) throw new NotFoundException('Moto no encontrada.');
+    const v = await this.prisma.deliveryVehicle.update({
+      where: { id: vehicleId },
+      data: {
+        plate: dto.plate === undefined ? undefined : dto.plate.trim(),
+        driverName:
+          dto.driverName === undefined ? undefined : dto.driverName.trim(),
+        driverPhone:
+          dto.driverPhone === undefined ? undefined : dto.driverPhone.trim() || null,
+        isActive: dto.isActive === undefined ? undefined : dto.isActive,
+      },
+    });
+    return serializeVehicle(v);
+  }
+
+  async removeVehicle(user: AuthUser, vehicleId: string) {
+    const companyId = this.assertCompanyUser(user);
+    const owned = await this.prisma.deliveryVehicle.findFirst({
+      where: { id: vehicleId, deliveryCompanyId: companyId },
+      select: { id: true },
+    });
+    if (!owned) throw new NotFoundException('Moto no encontrada.');
+    // Borrado real. Los domicilios que la referencian conservan el snapshot
+    // (courierName/courierPlate); el FK vehicleId queda en null (onDelete SetNull).
+    await this.prisma.deliveryVehicle.delete({ where: { id: vehicleId } });
+    return { ok: true };
   }
 
   /** Avanza el estado logístico respetando la máquina de estados. */
@@ -913,7 +1096,7 @@ export class DeliveryService {
     }
     if (next === 'COURIER_ASSIGNED' && !d.courierName) {
       throw new BadRequestException(
-        'Asigna primero el nombre del repartidor antes de marcar "Moto asignada".',
+        'Asigna primero una moto de tu flota antes de marcar "Moto asignada".',
       );
     }
 
@@ -993,7 +1176,7 @@ export class DeliveryService {
     const companyId = this.assertCompanyUser(user);
     const d = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, deliveryCompanyId: companyId },
-      include: { order: { select: ORDER_SELECT } },
+      include: { order: { select: ORDER_SELECT }, vehicle: true },
     });
     if (!d) throw new NotFoundException('Domicilio no encontrado');
     return serializeDelivery(d, false);
@@ -1295,6 +1478,16 @@ function serializeDelivery(d: any, claimable: boolean) {
     courierPhone: d.courierPhone,
     courierPlate: d.courierPlate,
     etaMinutes: d.etaMinutes,
+    vehicleId: d.vehicleId ?? null,
+    vehicle: d.vehicle
+      ? {
+          id: d.vehicle.id,
+          plate: d.vehicle.plate,
+          driverName: d.vehicle.driverName,
+          driverPhone: d.vehicle.driverPhone ?? null,
+          isActive: d.vehicle.isActive,
+        }
+      : null,
     address: d.address ?? addressToText(d.order?.deliveryAddress),
     deliveryValue: d.deliveryValue == null ? null : Number(d.deliveryValue),
     assignedAt: d.assignedAt,
@@ -1316,6 +1509,17 @@ function serializeDelivery(d: any, claimable: boolean) {
           businessSlug: d.order.tenant?.slug ?? null,
         }
       : null,
+  };
+}
+
+function serializeVehicle(v: any) {
+  return {
+    id: v.id,
+    plate: v.plate,
+    driverName: v.driverName,
+    driverPhone: v.driverPhone ?? null,
+    isActive: v.isActive,
+    createdAt: v.createdAt,
   };
 }
 

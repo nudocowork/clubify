@@ -14,6 +14,14 @@ type Order = {
   businessName: string | null;
   businessSlug: string | null;
 };
+type Vehicle = {
+  id: string;
+  plate: string;
+  driverName: string;
+  driverPhone: string | null;
+  isActive: boolean;
+  createdAt: string;
+};
 type Delivery = {
   id: string;
   status: DeliveryStatus;
@@ -21,6 +29,13 @@ type Delivery = {
   courierPhone: string | null;
   courierPlate: string | null;
   etaMinutes: number | null;
+  vehicleId: string | null;
+  vehicle: {
+    id: string;
+    plate: string;
+    driverName: string;
+    driverPhone: string | null;
+  } | null;
   address: string | null;
   deliveryValue: number | null;
   createdAt: string;
@@ -72,6 +87,15 @@ export default function DeliveryBoardPage() {
     commissionTotal: number;
     commissionPending: number;
   } | null>(null);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+
+  const loadVehicles = useCallback(async () => {
+    try {
+      setVehicles((await api<Vehicle[]>('/delivery-portal/vehicles')) ?? []);
+    } catch {
+      /* noop */
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -91,9 +115,10 @@ export default function DeliveryBoardPage() {
   }, []);
   useEffect(() => {
     load();
+    loadVehicles();
     const t = setInterval(load, 25000);
     return () => clearInterval(t);
-  }, [load]);
+  }, [load, loadVehicles]);
 
   const filtered = useMemo(() => {
     return mine.filter((d) => {
@@ -145,6 +170,29 @@ export default function DeliveryBoardPage() {
     }
   }
 
+  async function addVehicle(v: {
+    plate: string;
+    driverName: string;
+    driverPhone?: string;
+  }) {
+    await api('/delivery-portal/vehicles', {
+      method: 'POST',
+      body: JSON.stringify(v),
+    });
+    await loadVehicles();
+  }
+  async function toggleVehicle(id: string, isActive: boolean) {
+    await api(`/delivery-portal/vehicles/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ isActive }),
+    });
+    await loadVehicles();
+  }
+  async function removeVehicle(id: string) {
+    await api(`/delivery-portal/vehicles/${id}`, { method: 'DELETE' });
+    await loadVehicles();
+  }
+
   const fetchBusinessChats = useCallback(
     () =>
       api<
@@ -178,6 +226,14 @@ export default function DeliveryBoardPage() {
         </div>
       )}
 
+      {/* PDF245 P1: flota de motos de la empresa. */}
+      <FleetSection
+        vehicles={vehicles}
+        onAdd={addVehicle}
+        onToggle={toggleVehicle}
+        onRemove={removeVehicle}
+      />
+
       {/* PDF 1254: chats directos por NEGOCIO (independiente de los pedidos). */}
       <DirectChatList
         fetchPeers={fetchBusinessChats}
@@ -197,6 +253,7 @@ export default function DeliveryBoardPage() {
               <DeliveryCard
                 key={d.id}
                 d={d}
+                vehicles={vehicles.filter((v) => v.isActive)}
                 busy={busy === d.id}
                 onClaim={() => claim(d.id)}
                 onMove={() => {}}
@@ -245,6 +302,7 @@ export default function DeliveryBoardPage() {
           <DeliveryCard
             key={d.id}
             d={d}
+            vehicles={vehicles.filter((v) => v.isActive)}
             busy={busy === d.id}
             onClaim={() => {}}
             onMove={(to) => move(d.id, to)}
@@ -258,12 +316,14 @@ export default function DeliveryBoardPage() {
 
 function DeliveryCard({
   d,
+  vehicles,
   busy,
   onClaim,
   onMove,
   onSave,
 }: {
   d: Delivery;
+  vehicles: Vehicle[];
   busy: boolean;
   onClaim: () => void;
   onMove: (to: DeliveryStatus) => void;
@@ -271,11 +331,8 @@ function DeliveryCard({
 }) {
   const [open, setOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const [courierName, setCourierName] = useState(d.courierName ?? '');
-  const [courierPhone, setCourierPhone] = useState(d.courierPhone ?? '');
-  const [courierPlate, setCourierPlate] = useState(d.courierPlate ?? '');
+  const [vehicleId, setVehicleId] = useState(d.vehicleId ?? '');
   const [address, setAddress] = useState(d.address ?? '');
-  const [price, setPrice] = useState(d.deliveryValue == null ? '' : String(d.deliveryValue));
   const [eta, setEta] = useState(d.etaMinutes == null ? '' : String(d.etaMinutes));
 
   const sc = STATUS_COLOR[d.status];
@@ -334,33 +391,64 @@ function DeliveryCard({
               className="mt-3 text-[13px] font-semibold"
               style={{ color: '#0ea5e9' }}
             >
-              {open ? '▾ Ocultar datos del repartidor' : '▸ Datos del repartidor / precio'}
+              {open ? '▾ Ocultar asignación' : '▸ Asignar moto / tiempo de entrega'}
             </button>
           )}
           {open && (
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <input className={inp} placeholder="Nombre repartidor" value={courierName} onChange={(e) => setCourierName(e.target.value)} />
-              <input className={inp} placeholder="Teléfono" value={courierPhone} onChange={(e) => setCourierPhone(e.target.value)} />
-              <input className={inp} placeholder="Placa" value={courierPlate} onChange={(e) => setCourierPlate(e.target.value)} />
-              <input className={inp} placeholder="ETA (min)" type="number" value={eta} onChange={(e) => setEta(e.target.value)} />
-              <input className={inp + ' col-span-2'} placeholder="Dirección" value={address} onChange={(e) => setAddress(e.target.value)} />
-              <input className={inp + ' col-span-2'} placeholder="Precio del domicilio (USD)" type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} />
+            <div className="mt-2 space-y-2">
+              <label className="block text-[11px] font-semibold" style={{ color: '#64748b' }}>
+                Moto asignada
+              </label>
+              {vehicles.length === 0 ? (
+                <div
+                  className="text-[12px] rounded-[10px] px-3 py-2"
+                  style={{ color: '#a16207', background: '#fef9c3' }}
+                >
+                  No tienes motos en tu flota. Agrégalas arriba en “🛵 Mi flota”.
+                </div>
+              ) : (
+                <select
+                  className={inp}
+                  value={vehicleId}
+                  onChange={(e) => setVehicleId(e.target.value)}
+                >
+                  <option value="">— Elegir moto —</option>
+                  {vehicles.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.driverName} · {v.plate}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <label className="block text-[11px] font-semibold" style={{ color: '#64748b' }}>
+                Tiempo estimado de entrega (min)
+              </label>
+              <input
+                className={inp}
+                type="number"
+                placeholder="Ej. 25"
+                value={eta}
+                onChange={(e) => setEta(e.target.value)}
+              />
+              <input
+                className={inp}
+                placeholder="Dirección (opcional)"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+              />
               <button
                 onClick={() =>
                   onSave({
-                    courierName,
-                    courierPhone,
-                    courierPlate,
+                    vehicleId: vehicleId || null,
                     address,
-                    deliveryValue: price.trim() === '' ? null : Number(price),
                     etaMinutes: eta.trim() === '' ? null : Number(eta),
                   } as any)
                 }
                 disabled={busy}
-                className="col-span-2 text-sm font-semibold rounded-[10px] py-2"
+                className="w-full text-sm font-semibold rounded-[10px] py-2"
                 style={{ background: '#f1f5f9', color: '#16241c', opacity: busy ? 0.6 : 1 }}
               >
-                Guardar datos
+                Guardar
               </button>
             </div>
           )}
@@ -425,6 +513,151 @@ function DeliveryCard({
 
 const inp =
   'w-full rounded-[10px] px-3 py-2.5 text-sm outline-none border border-[#dfe3e8] focus:border-[#0ea5e9] bg-white';
+
+function FleetSection({
+  vehicles,
+  onAdd,
+  onToggle,
+  onRemove,
+}: {
+  vehicles: Vehicle[];
+  onAdd: (v: {
+    plate: string;
+    driverName: string;
+    driverPhone?: string;
+  }) => Promise<void>;
+  onToggle: (id: string, isActive: boolean) => Promise<void>;
+  onRemove: (id: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [plate, setPlate] = useState('');
+  const [driverName, setDriverName] = useState('');
+  const [driverPhone, setDriverPhone] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function add() {
+    if (!plate.trim() || !driverName.trim()) {
+      alert('Placa y conductor son obligatorios.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await onAdd({
+        plate: plate.trim(),
+        driverName: driverName.trim(),
+        driverPhone: driverPhone.trim() || undefined,
+      });
+      setPlate('');
+      setDriverName('');
+      setDriverPhone('');
+    } catch (e: any) {
+      alert(e?.message ?? 'No se pudo agregar.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const activeCount = vehicles.filter((v) => v.isActive).length;
+  return (
+    <section
+      className="mb-4 rounded-[14px] p-4"
+      style={{ background: 'white', border: '1px solid #e7e9ec' }}
+    >
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between"
+      >
+        <span className="font-bold text-[14px]" style={{ color: '#16241c' }}>
+          🛵 Mi flota{' '}
+          <span style={{ color: '#9aa4af', fontWeight: 500 }}>
+            ({activeCount} {activeCount === 1 ? 'activa' : 'activas'})
+          </span>
+        </span>
+        <span style={{ color: '#9aa4af' }}>{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            <input
+              className={inp}
+              placeholder="Placa"
+              value={plate}
+              onChange={(e) => setPlate(e.target.value)}
+            />
+            <input
+              className={inp}
+              placeholder="Conductor"
+              value={driverName}
+              onChange={(e) => setDriverName(e.target.value)}
+            />
+            <input
+              className={inp}
+              placeholder="Teléfono (opcional)"
+              value={driverPhone}
+              onChange={(e) => setDriverPhone(e.target.value)}
+            />
+          </div>
+          <button
+            onClick={add}
+            disabled={saving}
+            className="text-sm font-semibold text-white rounded-[10px] py-2 px-4"
+            style={{ background: '#22c55e', opacity: saving ? 0.6 : 1 }}
+          >
+            {saving ? '…' : '+ Agregar moto'}
+          </button>
+          {vehicles.length === 0 ? (
+            <div className="text-[12.5px]" style={{ color: '#9aa4af' }}>
+              Aún no tienes motos. Agrega la primera arriba.
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {vehicles.map((v) => (
+                <div
+                  key={v.id}
+                  className="flex items-center justify-between gap-2 rounded-[10px] px-3 py-2"
+                  style={{
+                    background: v.isActive ? '#f8fafc' : '#f1f5f9',
+                    opacity: v.isActive ? 1 : 0.55,
+                  }}
+                >
+                  <div className="min-w-0">
+                    <div
+                      className="text-[13px] font-semibold"
+                      style={{ color: '#16241c' }}
+                    >
+                      {v.driverName} · {v.plate}
+                    </div>
+                    {v.driverPhone && (
+                      <div className="text-[11px]" style={{ color: '#6b7785' }}>
+                        {v.driverPhone}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0 text-[11px] font-semibold">
+                    <button
+                      onClick={() => onToggle(v.id, !v.isActive)}
+                      style={{ color: '#0ea5e9' }}
+                    >
+                      {v.isActive ? 'Desactivar' : 'Activar'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm('¿Quitar esta moto de la flota?')) onRemove(v.id);
+                      }}
+                      style={{ color: '#b91c1c' }}
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function StatChip({ label, value }: { label: string; value: string }) {
   return (

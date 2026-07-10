@@ -638,6 +638,9 @@ export class OrdersService {
     this.maybeNotifyDeliveryAlert(tenant.id, order.id, 'created').catch(
       () => null,
     );
+    // PDF245 P2: si es domicilio, crea el seguimiento (para que aparezca en el
+    // panel de la empresa) y avisa "Hay un nuevo pedido - #X. Revisa el panel".
+    this.delivery.onDeliveryOrderCreated(order.id).catch(() => null);
 
     this.broadcast(order.id).catch((e) =>
       this.logger.warn(
@@ -1326,7 +1329,12 @@ export class OrdersService {
     // logístico (si es pedido de domicilio) y avisamos a la empresa asignada;
     // al entregar/cancelar reflejamos el estado. Best-effort (no rompe el flujo).
     if (next === 'READY') {
-      this.delivery.ensureForOrder(id).catch(() => null);
+      // Asegura el seguimiento (idempotente) y avisa "listo para recoger" a la
+      // empresa asignada (o la default). El "nuevo pedido" ya se avisó al crear.
+      this.delivery
+        .ensureForOrder(id)
+        .then(() => this.delivery.notifyCompanyReadyForPickup(id))
+        .catch(() => null);
     } else if (next === 'DELIVERED') {
       this.delivery.markDelivered(id).catch(() => null);
     } else if (next === 'CANCELLED') {

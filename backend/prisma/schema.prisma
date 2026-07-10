@@ -180,17 +180,17 @@ enum PaymentMethodKind {
 // datos antes de habilitarlo (no queremos pagar a una cuenta mal
 // digitada). Solo APPROVED entra en la lista "Listo por pagar".
 enum PaymentProfileStatus {
-  NONE             // no llenó el form todavía
-  PENDING_REVIEW   // llenó pero admin no validó
+  NONE // no llenó el form todavía
+  PENDING_REVIEW // llenó pero admin no validó
   APPROVED
   REJECTED
 }
 
 // Estado del batch de pago al afiliado.
 enum CommissionPayoutStatus {
-  PROCESSING       // admin creó el row pero todavía no marcó como pagado
-  PAID             // admin transfirió + adjuntó comprobante
-  REVERSED         // hubo error, se revirtió (las commissions vuelven a APPROVED)
+  PROCESSING // admin creó el row pero todavía no marcó como pagado
+  PAID // admin transfirió + adjuntó comprobante
+  REVERSED // hubo error, se revirtió (las commissions vuelven a APPROVED)
 }
 
 // Tracking de pago granular sobre Commission (independiente del status
@@ -345,24 +345,24 @@ model RefreshToken {
 }
 
 model Tenant {
-  id                          String               @id @default(uuid())
+  id                          String                     @id @default(uuid())
   /// Marca Blanca a la que pertenece este negocio (Nivel 3 → Nivel 2).
   /// Nullable solo durante el backfill — todos los tenants existentes se
   /// asignan a la marca "Clubify" en la migration de 2026-06-13.
   whiteLabelId                String?
-  whiteLabel                  WhiteLabel?          @relation(fields: [whiteLabelId], references: [id], onDelete: SetNull)
+  whiteLabel                  WhiteLabel?                @relation(fields: [whiteLabelId], references: [id], onDelete: SetNull)
   /// Grupo Empresarial al que pertenece (varios negocios, una sola suscripción
   /// Hotmart). Null = sin grupo (negocio individual). El estado financiero del
   /// grupo cascadea al status de sus negocios.
   businessGroupId             String?
-  businessGroup               BusinessGroup?       @relation(fields: [businessGroupId], references: [id], onDelete: SetNull)
+  businessGroup               BusinessGroup?             @relation(fields: [businessGroupId], references: [id], onDelete: SetNull)
   /// Modo de reparto de comisión del vendedor (Fase 3). Default = descuento del
   /// upline (comportamiento histórico). El modo se CONGELA en cada comisión al
   /// generarla, así cambiarlo no altera comisiones pasadas.
   commissionDistributionMode  CommissionDistributionMode @default(DISCOUNT_FROM_INFLUENCER)
   name                        String
   brandName                   String
-  slug                        String               @unique
+  slug                        String                     @unique
   email                       String
   phone                       String?
   whatsappPhone               String?
@@ -376,7 +376,7 @@ model Tenant {
   // WhatsApp" al final del formulario privado para escalar quejas
   // directamente. Independiente de whatsappPhone (que es el WhatsApp
   // general del negocio para pedidos/contacto).
-  whatsappFeedbackEnabled     Boolean              @default(false)
+  whatsappFeedbackEnabled     Boolean                    @default(false)
   /// Número en formato libre (E.164 recomendado: +57...). Si vacío con
   /// enabled=true, el botón no se muestra.
   whatsappFeedbackNumber      String?
@@ -407,23 +407,23 @@ model Tenant {
   // walletLogoUrl/logoUrl, así que el diseño visual del pase no cambia.
   // Fallback: pushLogoUrl → walletLogoUrl → logoUrl. Cuadrado recomendado.
   pushLogoUrl                 String?
-  primaryColor                String               @default("#22C55E")
-  secondaryColor              String               @default("#15803D")
-  status                      TenantStatus         @default(TRIAL)
+  primaryColor                String                     @default("#22C55E")
+  secondaryColor              String                     @default("#15803D")
+  status                      TenantStatus               @default(TRIAL)
   /// Si true, el tenant está en modo demo bloqueado: cualquier usuario
   /// que NO sea SUPER_ADMIN puede ver el panel y navegar pero no puede
   /// modificar nada (POST/PATCH/PUT/DELETE rechazados con 423 Locked).
   /// Pensado para crear cuentas demo que los embajadores logean y muestran
   /// a prospects sin riesgo de que toquen el contenido curado.
-  isLocked                    Boolean              @default(false)
+  isLocked                    Boolean                    @default(false)
   lockedAt                    DateTime?
-  lockedReason                String?              @db.Text
+  lockedReason                String?                    @db.Text
   // Categoría del rubro (restaurante, autolavado, barbería, etc.) — define
   // qué módulos del panel ve el dueño. Lista en common/business-categories.ts.
   // Nullable por compat con tenants viejos; en runtime cae a 'restaurant'.
   businessCategorySlug        String?
   planId                      String
-  plan                        Plan                 @relation(fields: [planId], references: [id])
+  plan                        Plan                       @relation(fields: [planId], references: [id])
   // Periodicidad del plan (MENSUAL|TRIMESTRAL|SEMESTRAL|ANUAL). NO afecta
   // billing real (ese lo dicta Hotmart). Solo se usa para CRM / reporting
   // / filtros en /admin/tenants. Nullable porque tenants pre-2026-06-04
@@ -437,7 +437,7 @@ model Tenant {
   // legacy del link de $50 (esos negocios pagaron 50, no 68): al setearlo
   // (auto desde webhook o manual desde /admin/tenants) las comisiones
   // dejan de sobre-estimarse.
-  subscriptionPriceUsd        Decimal?             @db.Decimal(10, 2)
+  subscriptionPriceUsd        Decimal?                   @db.Decimal(10, 2)
   // M4 (2026-06-04): override del rate-limit "1 sello cada 24h" por pass.
   // null = 1 (default histórico). N >= 1 permite hasta N sellos/pass/día.
   // El bypass SUPER_ADMIN sigue intacto. Pensado para campañas
@@ -448,16 +448,16 @@ model Tenant {
   // los links de Tutoriales (sidebar TENANT_OWNER) y Academia Clubify
   // (sidebar afiliados). Default true — el negocio los ve a menos que
   // SUPER_ADMIN lo apague desde /admin/tenants/[id].
-  tutorialsEnabled            Boolean              @default(true)
-  academyEnabled              Boolean              @default(true)
+  tutorialsEnabled            Boolean                    @default(true)
+  academyEnabled              Boolean                    @default(true)
   /// Reservations module 2026-06-12. Default OFF — el SUPER_ADMIN lo
   /// activa por tenant. Cuando false el sidebar oculta el módulo y el
   /// endpoint público /reserva/:slug devuelve 404.
-  reservationsEnabled         Boolean              @default(false)
+  reservationsEnabled         Boolean                    @default(false)
   /// Horarios disponibles para reservas online (HH:MM 24h, ej. ["13:00","13:30","21:00"]).
   /// Si vacío, el backend cae al default histórico (turnos almuerzo + cena).
   /// El frontend público los muestra en formato 12h (1:00 p.m.) automáticamente.
-  reservationSlots            String[]             @default([])
+  reservationSlots            String[]                   @default([])
   // Bloque 5 (2026-06-12): soft-delete con "conservar historial".
   // Si está seteado, el tenant queda inaccesible (no aparece en list/
   // login) pero las relaciones (Order/Commission/ReferralUse) se
@@ -465,7 +465,7 @@ model Tenant {
   // posible vía DELETE (cascade) eligiendo "eliminar todo" en el modal.
   deletedAt                   DateTime?
   referredByCode              String?
-  currency                    String               @default("COP")
+  currency                    String                     @default("COP")
   /// Override opcional del símbolo monetario. Si está null, se usa el
   /// símbolo automático de Intl según la moneda (COP → "$", EUR → "€").
   /// Útil para Bs, Ref., Pts o símbolos custom. Max 8 caracteres.
@@ -473,12 +473,12 @@ model Tenant {
   /// País del negocio (ISO 3166-1 alpha-2, ej: "CO", "MX", "AR"). Usado
   /// para resolver el dropdown dinámico de estados/provincias y para
   /// defaults locale-aware.
-  country                     String               @default("CO")
-  timezone                    String               @default("America/Bogota")
+  country                     String                     @default("CO")
+  timezone                    String                     @default("America/Bogota")
   /// Idioma del NEGOCIO (PDF 1254): maneja el panel y el default del
   /// storefront/clientes. Cada negocio es independiente. Valores: es|en|pt|it
   /// (o variantes en-GB/en-US/pt-BR). Default 'es'.
-  locale                      String               @default("es")
+  locale                      String                     @default("es")
   instagramUrl                String?
   facebookUrl                 String?
   mapsUrl                     String?
@@ -505,7 +505,7 @@ model Tenant {
   trialStartedAt              DateTime?
   trialEndsAt                 DateTime?
   // Días extra después de trialEndsAt antes de suspender (editable por super admin).
-  gracePeriodDays             Int                  @default(0)
+  gracePeriodDays             Int                        @default(0)
   currentPeriodEnd            DateTime?
   hotmartSubscriberCode       String?
   hotmartTransactionId        String?
@@ -513,7 +513,7 @@ model Tenant {
   /// matchear renovaciones del webhook (análogo a hotmartSubscriberCode).
   stripeCustomerId            String?
   stripeSubscriptionId        String?
-  failedPaymentCount          Int                  @default(0)
+  failedPaymentCount          Int                        @default(0)
   lastPaymentAttemptAt        DateTime?
   // E (2026-06-12): timestamp del último pago aprobado real (approved_date
   // del payload Hotmart). Útil para reportes y debugging — antes solo
@@ -563,10 +563,10 @@ model Tenant {
   /// threshold se envía un SMS al teléfono configurado (o al owner
   /// fallback) con el detalle del feedback. Aditivo — los tenants
   /// existentes quedan con enabled=false hasta configurarlo.
-  reviewAlertsEnabled         Boolean              @default(false)
+  reviewAlertsEnabled         Boolean                    @default(false)
   /// Rating umbral inclusive. Default 3 = dispara para 1, 2 y 3 ⭐.
   /// Si bajás a 2, solo 1 y 2 ⭐ disparan.
-  reviewAlertsThreshold       Int                  @default(3)
+  reviewAlertsThreshold       Int                        @default(3)
   /// Teléfono destino del SMS. Null = usa fallback (owner.phone →
   /// whatsappPhone → phone). Útil para mandar la alerta a un encargado
   /// distinto del owner registrado.
@@ -581,11 +581,11 @@ model Tenant {
   /// admin conecte UNA subcuenta y la asigne a múltiples negocios.
   /// Null = usa creds del tenant directo (comportamiento legacy).
   reviewAlertsAccountId       String?
-  reviewAlertsAccount         GrowBusinessAccount? @relation("ReviewAlertsAccount", fields: [reviewAlertsAccountId], references: [id], onDelete: SetNull)
+  reviewAlertsAccount         GrowBusinessAccount?       @relation("ReviewAlertsAccount", fields: [reviewAlertsAccountId], references: [id], onDelete: SetNull)
   /// SMS administrativos (recordatorios de pago, impago, suspensión).
   /// Default true para no romper comportamiento legacy — billing
   /// siempre venía mandando. El owner lo puede apagar desde su panel.
-  billingAlertsEnabled        Boolean              @default(true)
+  billingAlertsEnabled        Boolean                    @default(true)
   /// Teléfono destino del SMS de billing. Null = fallback (owner.phone
   /// → whatsappPhone → phone), igual que antes.
   billingAlertsPhone          String?
@@ -593,11 +593,11 @@ model Tenant {
   /// reviewAlertsAccountId pero para mensajes administrativos. Null =
   /// fallback a credenciales propias del tenant (legacy).
   billingAlertsAccountId      String?
-  billingAlertsAccount        GrowBusinessAccount? @relation("BillingAlertsAccount", fields: [billingAlertsAccountId], references: [id], onDelete: SetNull)
+  billingAlertsAccount        GrowBusinessAccount?       @relation("BillingAlertsAccount", fields: [billingAlertsAccountId], references: [id], onDelete: SetNull)
   /// SMS automáticos a empresas de domicilio cuando un pedido delivery
   /// cambia de estado. Default false (feature opt-in — sino spamearíamos
   /// a tenants existentes que no la pidieron).
-  deliveryAlertsEnabled       Boolean              @default(false)
+  deliveryAlertsEnabled       Boolean                    @default(false)
   /// Array JSON de teléfonos destino. Permite mandar la misma alerta a
   /// varias empresas/personas en paralelo. Cuando no hay nada, se cae
   /// al whatsappDeliveryPhone histórico si está configurado.
@@ -610,57 +610,65 @@ model Tenant {
   /// Subcuenta global compartida para SMS de delivery. Mismo patrón
   /// que review/billing. Null = creds del tenant.
   deliveryAlertsAccountId     String?
-  deliveryAlertsAccount       GrowBusinessAccount? @relation("DeliveryAlertsAccount", fields: [deliveryAlertsAccountId], references: [id], onDelete: SetNull)
-  createdAt                   DateTime             @default(now())
+  deliveryAlertsAccount       GrowBusinessAccount?       @relation("DeliveryAlertsAccount", fields: [deliveryAlertsAccountId], references: [id], onDelete: SetNull)
+  /// Cuponera / Living Card: true si este tenant es el "de sistema" que
+  /// respalda una campaña de beneficios (BenefitCampaign). Se EXCLUYE de
+  /// métricas del panel, cobros/mora y listados de negocios — no es un
+  /// negocio real, solo hospeda Customer(miembros)/Card/Location/Pass.
+  isCampaignHost              Boolean                    @default(false)
+  createdAt                   DateTime                   @default(now())
 
-  users               User[]
-  cards               Card[]
-  customers           Customer[]
-  passes              Pass[]
-  locations           Location[]
-  stamps              Stamp[]
-  walletNotifications Notification[]
-  recurringNotifications RecurringNotification[]
-  reservationZones    ReservationZone[]
-  reservationTables   ReservationTable[]
-  reservations        Reservation[]
-  reservationEvents   ReservationEvent[]
-  eventAttendees      EventAttendee[]
-  automations         AutomationRule[]
-  referralUses        ReferralUse[]
-  categories          Category[]
-  products            Product[]
-  adicionales         Adicional[]
-  carts               Cart[]
-  orders              Order[]
-  promotions          Promotion[]
-  channelConfigs      ChannelConfig[]
-  messages            Message[]
-  templates           MessageTemplate[]
-  storefront          Storefront?
-  menuBookSections    MenuBookSection[]
-  infoLinks           InfoLink[]
-  events              Event[]
-  reviewFeedbacks     ReviewFeedback[]
-  reviewQrTargets     ReviewQrTarget[]
-  reminders           Reminder[]
-  suppliers           Supplier[]
-  frequentProducts    FrequentProduct[]
-  purchaseOrders      PurchaseOrder[]
-  badges              Badge[]
-  qrPosters           QrPoster[]
-  menuTranslations    MenuTranslation[]
+  users                   User[]
+  cards                   Card[]
+  customers               Customer[]
+  passes                  Pass[]
+  locations               Location[]
+  stamps                  Stamp[]
+  walletNotifications     Notification[]
+  recurringNotifications  RecurringNotification[]
+  reservationZones        ReservationZone[]
+  reservationTables       ReservationTable[]
+  reservations            Reservation[]
+  reservationEvents       ReservationEvent[]
+  eventAttendees          EventAttendee[]
+  automations             AutomationRule[]
+  referralUses            ReferralUse[]
+  categories              Category[]
+  products                Product[]
+  adicionales             Adicional[]
+  carts                   Cart[]
+  orders                  Order[]
+  promotions              Promotion[]
+  channelConfigs          ChannelConfig[]
+  messages                Message[]
+  templates               MessageTemplate[]
+  storefront              Storefront?
+  menuBookSections        MenuBookSection[]
+  infoLinks               InfoLink[]
+  events                  Event[]
+  reviewFeedbacks         ReviewFeedback[]
+  reviewQrTargets         ReviewQrTarget[]
+  reminders               Reminder[]
+  suppliers               Supplier[]
+  frequentProducts        FrequentProduct[]
+  purchaseOrders          PurchaseOrder[]
+  badges                  Badge[]
+  qrPosters               QrPoster[]
+  menuTranslations        MenuTranslation[]
   // Cotizaciones que se convirtieron en este tenant (closed-loop signup
   // con qt=<publicToken> en el URL).
-  fromQuotes          Quote[]           @relation("QuoteConvertedToTenant")
+  fromQuotes              Quote[]                  @relation("QuoteConvertedToTenant")
   // Item 6 sprint: excepciones de comisión configuradas para este tenant
   // (1 por nivel de la cadena: influencer/embajador/vendedor).
-  commissionExceptions CommissionException[]
+  commissionExceptions    CommissionException[]
   // Red de Domicilios (Fase 1, 2026-06-29): empresas habilitadas para este
   // negocio + seguimientos logísticos de sus pedidos.
-  deliveryCompanyLinks DeliveryCompanyTenant[]
-  deliveries           Delivery[]
+  deliveryCompanyLinks    DeliveryCompanyTenant[]
+  deliveries              Delivery[]
   deliveryCompanyMessages DeliveryCompanyMessage[]
+  // Cuponera / Living Card: campaña que respalda este tenant (1:1, solo si
+  // isCampaignHost=true).
+  benefitCampaign         BenefitCampaign?
 
   @@index([status])
   @@index([stripeCustomerId])
@@ -726,21 +734,21 @@ model HotmartWebhookEvent {
 /// consume al crear la cuenta (match por email) y activa el tenant. Aislado
 /// por whiteLabelId: el consume solo matchea pendientes de la misma marca.
 model PendingStripePayment {
-  id                 String    @id @default(uuid())
+  id                   String    @id @default(uuid())
   /// Email del comprador (lowercased) — clave de match con el signup.
-  email              String
-  whiteLabelId       String?
-  stripeCustomerId   String?
+  email                String
+  whiteLabelId         String?
+  stripeCustomerId     String?
   stripeSubscriptionId String?
-  stripePriceId      String?
+  stripePriceId        String?
   /// Tipo de evento Stripe (checkout.session.completed | invoice.paid).
-  event              String
+  event                String
   /// Payload completo del evento para re-ejecutar la activación.
-  rawPayload         Json
-  consumedAt         DateTime?
-  recoveryNotifiedAt DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  rawPayload           Json
+  consumedAt           DateTime?
+  recoveryNotifiedAt   DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   @@index([email])
   @@index([whiteLabelId])
@@ -835,16 +843,16 @@ model User {
   // Item 6 sprint: excepciones de comisión por cliente — quién las creó
   // y quién las editó (audit). Ambas son SetNull, no Cascade, para no
   // perder el historial si se elimina al admin que las hizo.
-  commissionExceptionsCreated CommissionException[]          @relation("CommissionExceptionCreator")
-  commissionExceptionsChanged CommissionExceptionHistory[]   @relation("CommissionExceptionHistoryChanger")
+  commissionExceptionsCreated CommissionException[]        @relation("CommissionExceptionCreator")
+  commissionExceptionsChanged CommissionExceptionHistory[] @relation("CommissionExceptionHistoryChanger")
 
   // Clubify Lab (item 13 sprint): propuestas de comunidad. Cada user
   // puede crear propuestas, votar y comentar. SUPER_ADMIN/MARKETING
   // también figuran en lastStatusChangedBy cuando mueven el status.
-  labProposals          LabProposal[] @relation("LabProposalAuthor")
-  labProposalsChanged   LabProposal[] @relation("LabProposalLastStatusChanger")
-  labVotes              LabVote[]
-  labComments           LabComment[]  @relation("LabCommentAuthor")
+  labProposals        LabProposal[] @relation("LabProposalAuthor")
+  labProposalsChanged LabProposal[] @relation("LabProposalLastStatusChanger")
+  labVotes            LabVote[]
+  labComments         LabComment[]  @relation("LabCommentAuthor")
 
   // Difusión interna (Broadcasts): SUPER_ADMIN crea piezas dirigidas a
   // equipos comerciales; cada user registra qué piezas leyó.
@@ -852,10 +860,10 @@ model User {
   broadcastReads    BroadcastRead[]
 
   // Fase D 2026-06-07: sistema de pago de comisiones.
-  paymentProfile        PaymentProfile?
+  paymentProfile         PaymentProfile?
   paymentProfilesChanged PaymentProfile[]   @relation("PaymentProfileReviewer")
-  commissionPayouts     CommissionPayout[] @relation("CommissionPayoutRecipient")
-  commissionPayoutsPaid CommissionPayout[] @relation("CommissionPayoutPaidBy")
+  commissionPayouts      CommissionPayout[] @relation("CommissionPayoutRecipient")
+  commissionPayoutsPaid  CommissionPayout[] @relation("CommissionPayoutPaidBy")
 
   // Fase F 2026-06-07: cada staff puede estar asociado a una sede.
   // Permite rankings de sellos por sede + miembro. Null = sin sede
@@ -865,17 +873,17 @@ model User {
 
   // Master Admin (2026-06-13): invitaciones a otros PLATFORM_OWNERs que
   // creó este user, y la (única) invitación que aceptó si fue invitado.
-  platformOwnerInvitesSent     PlatformOwnerInvite[] @relation("PlatformOwnerInviteInviter")
-  platformOwnerInviteAccepted  PlatformOwnerInvite[] @relation("PlatformOwnerInviteAcceptor")
+  platformOwnerInvitesSent    PlatformOwnerInvite[] @relation("PlatformOwnerInviteInviter")
+  platformOwnerInviteAccepted PlatformOwnerInvite[] @relation("PlatformOwnerInviteAcceptor")
 
   // Master Admin (2026-06-13): admins SUPER_ADMIN dedicados de una
   // marca blanca. NULL = no es admin de una marca (usuario normal).
   // Cuando un SUPER_ADMIN tiene whiteLabelId, sólo ve datos de los
   // tenants de esa marca; no necesita tenantId propio.
-  whiteLabelId    String?
-  whiteLabel      WhiteLabel? @relation("WhiteLabelAdmin", fields: [whiteLabelId], references: [id], onDelete: SetNull)
-  whiteLabelAdminInvitesSent     WhiteLabelAdminInvite[] @relation("WhiteLabelAdminInviteInviter")
-  whiteLabelAdminInviteAccepted  WhiteLabelAdminInvite[] @relation("WhiteLabelAdminInviteAcceptor")
+  whiteLabelId                  String?
+  whiteLabel                    WhiteLabel?             @relation("WhiteLabelAdmin", fields: [whiteLabelId], references: [id], onDelete: SetNull)
+  whiteLabelAdminInvitesSent    WhiteLabelAdminInvite[] @relation("WhiteLabelAdminInviteInviter")
+  whiteLabelAdminInviteAccepted WhiteLabelAdminInvite[] @relation("WhiteLabelAdminInviteAcceptor")
 
   // Red de Domicilios — Fase 2 (2026-06-30): cuenta de una empresa de
   // domicilios (role=DELIVERY_COMPANY). NULL = usuario normal. Su portal ve
@@ -927,15 +935,18 @@ model Customer {
 
   createdAt DateTime @default(now())
 
-  passes   Pass[]
-  stamps   Stamp[]
-  carts    Cart[]
-  orders   Order[]
-  messages Message[]
-  notifications Notification[]
-  badges   CustomerBadge[]
-  reservations Reservation[]
-  eventAttendees EventAttendee[]
+  passes            Pass[]
+  stamps            Stamp[]
+  carts             Cart[]
+  orders            Order[]
+  messages          Message[]
+  notifications     Notification[]
+  badges            CustomerBadge[]
+  reservations      Reservation[]
+  eventAttendees    EventAttendee[]
+  // Cuponera / Living Card: membresías de este cliente (cuando el tenant es
+  // el "de sistema" de una campaña). Un Customer normal no tiene ninguna.
+  livingMemberships LivingMembership[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, phone])
@@ -950,29 +961,29 @@ model Customer {
 /// Las mesas se agrupan por zona en el plano y en los filtros del
 /// flujo público de reserva. type sirve para iconos/UX, no para lógica.
 model ReservationZone {
-  id        String                @id @default(uuid())
-  tenantId  String
-  tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id           String             @id @default(uuid())
+  tenantId     String
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// Multi-sede (2026-06-12): si null = todas las sedes / single-location tenant.
-  locationId String?
-  location   Location?            @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  name      String
-  slug      String
+  locationId   String?
+  location     Location?          @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  name         String
+  slug         String
   /// INDOOR | OUTDOOR | BAR | PRIVATE — para UX en el flujo público.
-  type      String                @default("INDOOR")
-  position  Int                   @default(0)
+  type         String             @default("INDOOR")
+  position     Int                @default(0)
   /// Geometría EXPLÍCITA del recuadro de la zona en el plano (modo editor).
   /// NULL = "auto": el recuadro se deriva de las posiciones de las mesas
   /// (computeZoneBox en el frontend). Cuando el dueño mueve/redimensiona la
   /// zona, se guardan estas coordenadas y dejan de depender de las mesas.
-  posX      Int?
-  posY      Int?
-  width     Int?
-  height    Int?
-  isActive  Boolean               @default(true)
-  tables    ReservationTable[]
+  posX         Int?
+  posY         Int?
+  width        Int?
+  height       Int?
+  isActive     Boolean            @default(true)
+  tables       ReservationTable[]
   reservations Reservation[]
-  createdAt DateTime              @default(now())
+  createdAt    DateTime           @default(now())
 
   @@unique([tenantId, slug])
   @@index([tenantId, isActive])
@@ -983,29 +994,29 @@ model ReservationZone {
 /// shape: ROUND (default) | RECT | BAR. Si shape != ROUND, width/height
 /// vienen del editor; en ROUND se calculan desde seats.
 model ReservationTable {
-  id        String                @id @default(uuid())
-  tenantId  String
-  tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  zoneId    String?
-  zone      ReservationZone?      @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  id           String           @id @default(uuid())
+  tenantId     String
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  zoneId       String?
+  zone         ReservationZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
   /// Multi-sede (2026-06-12): denormalizado de zone.locationId pero opcional
   /// permite mesas sin zona en una sede específica.
-  locationId String?
-  location   Location?            @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  locationId   String?
+  location     Location?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
   /// Etiqueta visible al cliente y al admin. Puede ser número "1", "12" o texto "Barra", "VIP".
-  number    String
-  seats     Int                   @default(4)
-  shape     String                @default("ROUND")
-  posX      Int                   @default(0)
-  posY      Int                   @default(0)
-  width     Int?
-  height    Int?
+  number       String
+  seats        Int              @default(4)
+  shape        String           @default("ROUND")
+  posX         Int              @default(0)
+  posY         Int              @default(0)
+  width        Int?
+  height       Int?
   /// Bloqueada fuera de servicio (mantenimiento, reservada por evento).
   /// No aparece como disponible para clientes ni para la auto-asignación.
-  isBlocked Boolean               @default(false)
-  isActive  Boolean               @default(true)
+  isBlocked    Boolean          @default(false)
+  isActive     Boolean          @default(true)
   reservations Reservation[]
-  createdAt DateTime              @default(now())
+  createdAt    DateTime         @default(now())
 
   @@index([tenantId, isActive])
   @@index([zoneId])
@@ -1018,18 +1029,18 @@ model ReservationTable {
 /// customerName/customerPhone/customerEmail. Cuando el admin confirma se
 /// puede asignar tableId/zoneId opcionalmente.
 model Reservation {
-  id            String              @id @default(uuid())
-  tenantId      String
-  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id         String            @id @default(uuid())
+  tenantId   String
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// Multi-sede (2026-06-12). Tipicamente heredado de zone.locationId al crear.
-  locationId    String?
-  location      Location?           @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  zoneId        String?
-  zone          ReservationZone?    @relation(fields: [zoneId], references: [id], onDelete: SetNull)
-  tableId       String?
-  table         ReservationTable?   @relation(fields: [tableId], references: [id], onDelete: SetNull)
-  customerId    String?
-  customer      Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  locationId String?
+  location   Location?         @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  zoneId     String?
+  zone       ReservationZone?  @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  tableId    String?
+  table      ReservationTable? @relation(fields: [tableId], references: [id], onDelete: SetNull)
+  customerId String?
+  customer   Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   customerName  String
   customerPhone String
@@ -1039,20 +1050,20 @@ model Reservation {
   date          DateTime
   /// Hora local en formato HH:MM 24h (combinada con tenant.timezone si existe).
   time          String
-  notes         String?             @db.Text
+  notes         String?  @db.Text
 
-  status        ReservationStatus   @default(PENDING)
-  channel       ReservationChannel  @default(WEB)
+  status  ReservationStatus  @default(PENDING)
+  channel ReservationChannel @default(WEB)
 
   /// Marca cuando el equipo confirmó manualmente con el cliente.
-  confirmedAt   DateTime?
-  seatedAt      DateTime?
-  completedAt   DateTime?
-  cancelledAt   DateTime?
+  confirmedAt DateTime?
+  seatedAt    DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
 
   /// Idempotency del WhatsApp al negocio — si llegan 2 webhooks del mismo
   /// botón "Crear reserva" del flujo público no avisamos 2 veces.
-  notifiedAt    DateTime?
+  notifiedAt DateTime?
 
   /// Recordatorio SMS/WhatsApp al cliente 24h antes de la reserva.
   /// El cron lo claimea atómicamente al disparar para evitar dobles envíos.
@@ -1063,8 +1074,8 @@ model Reservation {
   /// caso de re-status changes. Null = todavía no recibió sello.
   stampGrantedAt DateTime?
 
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([tenantId, date, status])
   @@index([tableId])
@@ -1095,29 +1106,29 @@ enum ReservationChannel {
 /// Tienen capacidad fija (en lugar de mesas), horario start/end y
 /// pueden tener precio. Los clientes se registran via attendees.
 model ReservationEvent {
-  id             String              @id @default(uuid())
-  tenantId       String
-  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  locationId     String?
-  location       Location?           @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  name           String
-  description    String?             @db.Text
-  coverImageUrl  String?
+  id            String          @id @default(uuid())
+  tenantId      String
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  locationId    String?
+  location      Location?       @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  name          String
+  description   String?         @db.Text
+  coverImageUrl String?
   /// Fecha del evento en UTC mediodía (mismo patrón que Reservation.date).
-  date           DateTime
+  date          DateTime
   /// Hora de inicio HH:MM 24h (local del tenant).
-  startTime      String
+  startTime     String
   /// Hora estimada de fin HH:MM 24h.
-  endTime        String
+  endTime       String
   /// Cupo máximo de asistentes.
-  capacity       Int
+  capacity      Int
   /// Precio del evento (opcional). Si null, es gratis.
-  price          Decimal?            @db.Decimal(12, 2)
-  priceCurrency  String              @default("MXN")
-  status         EventStatus         @default(DRAFT)
-  attendees      EventAttendee[]
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  price         Decimal?        @db.Decimal(12, 2)
+  priceCurrency String          @default("MXN")
+  status        EventStatus     @default(DRAFT)
+  attendees     EventAttendee[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   @@index([tenantId, date, status])
   @@index([locationId])
@@ -1127,22 +1138,22 @@ model ReservationEvent {
 /// scoped al evento — no usa table/zone porque la capacidad es global
 /// del evento, no por mesa.
 model EventAttendee {
-  id             String              @id @default(uuid())
-  tenantId       String
-  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  eventId        String
-  event          ReservationEvent    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  customerId     String?
-  customer       Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  customerName   String
-  customerPhone  String
-  customerEmail  String?
+  id            String           @id @default(uuid())
+  tenantId      String
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  eventId       String
+  event         ReservationEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  customerId    String?
+  customer      Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerName  String
+  customerPhone String
+  customerEmail String?
   /// Cantidad de personas que asisten bajo este registro (ej. 2 entradas).
-  party          Int                 @default(1)
-  notes          String?             @db.Text
-  status         AttendeeStatus      @default(CONFIRMED)
-  checkInAt      DateTime?
-  createdAt      DateTime            @default(now())
+  party         Int              @default(1)
+  notes         String?          @db.Text
+  status        AttendeeStatus   @default(CONFIRMED)
+  checkInAt     DateTime?
+  createdAt     DateTime         @default(now())
 
   @@index([eventId])
   @@index([tenantId])
@@ -1259,15 +1270,15 @@ model Card {
   stampIcon           String    @default("☕")
   createdAt           DateTime  @default(now())
 
-  passes              Pass[]
-  notifications       Notification[]
-  recurringNotifications RecurringNotification[]
-  utmLinks            CardUtmLink[]
-  popupForStorefronts Storefront[]   @relation("StorefrontPopupCard")
+  passes                  Pass[]
+  notifications           Notification[]
+  recurringNotifications  RecurringNotification[]
+  utmLinks                CardUtmLink[]
+  popupForStorefronts     Storefront[]            @relation("StorefrontPopupCard")
   // M9: Card como CTA de popups del Menú Libro (global + por sección + por página).
-  bookPopupForStorefronts Storefront[]      @relation("StorefrontBookPopupCard")
-  popupForBookSections    MenuBookSection[] @relation("MenuBookSectionPopupCard")
-  popupForBookPages       MenuBookPage[]    @relation("MenuBookPagePopupCard")
+  bookPopupForStorefronts Storefront[]            @relation("StorefrontBookPopupCard")
+  popupForBookSections    MenuBookSection[]       @relation("MenuBookSectionPopupCard")
+  popupForBookPages       MenuBookPage[]          @relation("MenuBookPagePopupCard")
 
   @@index([tenantId])
   @@index([locationId])
@@ -1394,44 +1405,44 @@ model Stamp {
 }
 
 model Location {
-  id                 String   @id @default(uuid())
-  tenantId           String
-  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name               String
-  address            String   @default("")
-  latitude           Decimal  @db.Decimal(10, 7)
-  longitude          Decimal  @db.Decimal(10, 7)
-  radiusMeters       Int      @default(300)
+  id                  String   @id @default(uuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name                String
+  address             String   @default("")
+  latitude            Decimal  @db.Decimal(10, 7)
+  longitude           Decimal  @db.Decimal(10, 7)
+  radiusMeters        Int      @default(300)
   // Texto que aparece en el lock screen del iPhone cuando el cliente está
   // dentro del radio (Apple Wallet `locations[].relevantText`). Si null,
   // cae al default "Estás cerca de {brandName}".
-  walletRelevantText String?
+  walletRelevantText  String?
   // #20 (2026-06-17): link EXACTO de Google Maps de esta sede (share URL del
   // lugar). Si está set, los botones "Dirección" del infolink (y otros) abren
   // exactamente este lugar en vez de una búsqueda por texto/coordenadas.
-  mapsUrl            String?
+  mapsUrl             String?
   // #3 (2026-06-18): administrador de esta sede. Si una reseña queda por
   // debajo del umbral, la alerta SMS va a este teléfono (de la sede) en vez
   // del administrador general del negocio. Null = usa el destino global.
-  adminName          String?
-  adminPhone         String?
+  adminName           String?
+  adminPhone          String?
   // Sedes por estado (2026-06-21): estado/región de la sede → llave de ruteo
   // de pedidos de domicilio (matchea el `departamento` que elige el cliente en
   // el checkout). Null = sede sin estado (no entra al ruteo por estado).
-  state              String?
+  state               String?
   // Número de WhatsApp donde llegan los PEDIDOS de esta sede. Si null, el
   // ruteo cae a adminPhone → número de pedidos del negocio → fallback.
   ordersWhatsappPhone String?
-  isActive           Boolean  @default(true)
-  createdAt          DateTime @default(now())
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
 
-  stamps          Stamp[]
-  orders          Order[]
-  cards           Card[]
-  reviewQrTargets ReviewQrTarget[]
+  stamps            Stamp[]
+  orders            Order[]
+  cards             Card[]
+  reviewQrTargets   ReviewQrTarget[]
   // Fase F 2026-06-07: usuarios del tenant pueden estar asociados a una
   // sede para rankings de sellos por miembro+ubicación.
-  staffUsers      User[] @relation("UserLocation")
+  staffUsers        User[]             @relation("UserLocation")
   // Multi-sede reservas (2026-06-12)
   reservationZones  ReservationZone[]
   reservationTables ReservationTable[]
@@ -1476,30 +1487,30 @@ model Notification {
 /// los días + hora configurados. Cuando dispara crea una `Notification`
 /// con triggerType=SCHEDULED como audit trail del envío real.
 model RecurringNotification {
-  id           String   @id @default(uuid())
-  tenantId     String
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  cardId       String?
-  card         Card?    @relation(fields: [cardId], references: [id], onDelete: SetNull)
-  title        String
-  body         String
-  segment      Json?
+  id               String    @id @default(uuid())
+  tenantId         String
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cardId           String?
+  card             Card?     @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  title            String
+  body             String
+  segment          Json?
   /// Días de la semana en los que dispara. 0=Domingo, 1=Lunes...6=Sábado.
   /// Array vacío = configurada pero sin días → nunca dispara (defensa).
-  daysOfWeek   Int[]
+  daysOfWeek       Int[]
   /// Hora local en formato "HH:MM" 24h. Combinado con `timezone` para
   /// calcular el instante exacto. Validación en el DTO.
-  timeOfDay    String
+  timeOfDay        String
   /// IANA timezone (ej "America/Bogota"). Default al TZ del founder.
   /// Permite que un tenant en CDMX dispare a las 10am local sin que
   /// importe la hora del servidor.
-  timezone     String   @default("America/Bogota")
-  isActive     Boolean  @default(true)
+  timezone         String    @default("America/Bogota")
+  isActive         Boolean   @default(true)
   /// Última vez que el cron disparó esta recurrencia. Sirve como
   /// idempotency dentro del mismo día calendario en `timezone`.
   lastDispatchedAt DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([tenantId, isActive])
 }
@@ -1548,29 +1559,29 @@ model Category {
 }
 
 model Product {
-  id            String   @id @default(uuid())
-  tenantId      String
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                   String    @id @default(uuid())
+  tenantId             String
+  tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// 2026-06-12 (Bloque 2 i18n batch): nullable para que tenants sin
   /// categorías creadas puedan agregar productos. Cuando la categoría
   /// se elimina, los productos quedan huérfanos (SetNull) en lugar de
   /// borrarse — el dueño decide si crearles una categoría nueva o
   /// dejarlos como "Sin categoría" en storefront.
-  categoryId    String?
-  category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  name          String
-  description   String   @default("")
-  basePrice     Decimal  @db.Decimal(10, 2)
+  categoryId           String?
+  category             Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  name                 String
+  description          String    @default("")
+  basePrice            Decimal   @db.Decimal(10, 2)
   /// Modo del precio en el storefront público:
   ///  - "FIXED" (default): muestra basePrice como precio único.
   ///  - "RANGE": muestra "Desde basePrice — hasta priceMax". Útil para
   ///    servicios variables (barbería, spa) o productos con tamaños
   ///    sin variantes formales. basePrice queda como mínimo del rango.
-  priceMode     String   @default("FIXED")
+  priceMode            String    @default("FIXED")
   /// Precio máximo del rango. Solo se usa cuando priceMode='RANGE'.
   /// Null cuando FIXED. Si priceMode='RANGE' y priceMax es null, el
   /// frontend trata como FIXED de fallback.
-  priceMax      Decimal? @db.Decimal(10, 2)
+  priceMax             Decimal?  @db.Decimal(10, 2)
   /// Cómo se interpreta el precio de las VARIANTES/tamaños del producto:
   ///  - "DELTA" (default): cada variante SUMA su `priceDelta` al `basePrice`
   ///    (ej. base $20 + "Grande" +$10 = $30). Comportamiento histórico.
@@ -1578,27 +1589,27 @@ model Product {
   ///    al base (ej. "Pequeña" $20, "Mediana" $30, "Grande" $40). El número
   ///    guardado en `ProductVariant.priceDelta` es el precio final, no un delta.
   /// Los extras siempre SUMAN encima del precio resultante en ambos modos.
-  variantPriceMode String @default("DELTA")
-  imageUrl      String?
-  tags          String[]
-  isAvailable   Boolean  @default(true)
+  variantPriceMode     String    @default("DELTA")
+  imageUrl             String?
+  tags                 String[]
+  isAvailable          Boolean   @default(true)
   /// Visibilidad en cada uno de los dos menús públicos separados:
   /// `/m/<slug>` (mesa) y `/m/<slug>/delivery`. Default true en ambos para
   /// que productos creados antes de la separación sigan apareciendo en los
   /// dos canales; el dueño los apaga manualmente desde el modal de producto.
-  availableForMesa     Boolean @default(true)
-  availableForDelivery Boolean @default(true)
+  availableForMesa     Boolean   @default(true)
+  availableForDelivery Boolean   @default(true)
   /// Marca el producto como "Recomendado". Aparece en una sección virtual
   /// arriba de las categorías en el menú público para empujar las ventas.
-  isRecommended Boolean  @default(false)
-  position      Int      @default(0)
-  timesOrdered  Int      @default(0)
+  isRecommended        Boolean   @default(false)
+  position             Int       @default(0)
+  timesOrdered         Int       @default(0)
   /// Stock disponible. NULL = sin tracking de inventario (siempre disponible).
   /// 0 = agotado, se auto-deshabilita en storefront.
-  stock         Int?
+  stock                Int?
   /// Umbral para alerta "stock bajo". NULL = sin alerta.
-  stockAlert    Int?
-  createdAt     DateTime @default(now())
+  stockAlert           Int?
+  createdAt            DateTime  @default(now())
 
   variants ProductVariant[]
   extras   ProductExtra[]
@@ -1691,36 +1702,36 @@ model Cart {
 }
 
 model Order {
-  id              String       @id @default(uuid())
-  tenantId        String
-  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customerId      String
-  customer        Customer     @relation(fields: [customerId], references: [id])
-  code            String       @unique
-  items           Json
-  subtotal        Decimal      @db.Decimal(10, 2)
-  discount        Decimal      @default(0) @db.Decimal(10, 2)
+  id             String       @id @default(uuid())
+  tenantId       String
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId     String
+  customer       Customer     @relation(fields: [customerId], references: [id])
+  code           String       @unique
+  items          Json
+  subtotal       Decimal      @db.Decimal(10, 2)
+  discount       Decimal      @default(0) @db.Decimal(10, 2)
   // Monto del delivery sumado al total. null = no aplica (pickup,
   // dine-in, o delivery "acordado con el proveedor" desde el menú
   // público — el cliente y el negocio coordinan el monto por WhatsApp
   // sin que el panel lo cobre automáticamente).
-  deliveryAmount  Decimal?     @db.Decimal(10, 2)
-  total           Decimal      @db.Decimal(10, 2)
-  status          OrderStatus  @default(PENDING)
-  channel         OrderChannel @default(WHATSAPP_LINK)
-  fulfillment     Fulfillment  @default(PICKUP)
+  deliveryAmount Decimal?     @db.Decimal(10, 2)
+  total          Decimal      @db.Decimal(10, 2)
+  status         OrderStatus  @default(PENDING)
+  channel        OrderChannel @default(WHATSAPP_LINK)
+  fulfillment    Fulfillment  @default(PICKUP)
   /// Discriminador explícito del menú público desde donde se generó la orden:
   /// 'MESA' o 'DELIVERY'. Es redundante con `fulfillment`/`deliveryAddress`
   /// pero permite reportes y filtros sin inferir. Nullable para back compat
   /// con órdenes previas a la separación de menús (2026-06-06).
-  mode            String?
+  mode           String?
 
   tableNumber     String?
   deliveryAddress Json?
   customerNote    String?
   locationId      String?
-  location        Location?    @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  appliedPromos   Json         @default("[]")
+  location        Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  appliedPromos   Json      @default("[]")
   whatsappLink    String?
 
   // Pagos online (v3)
@@ -1742,11 +1753,11 @@ model Order {
   ratingComment String?
   ratedAt       DateTime?
 
-  events      OrderEvent[]
-  stamps      Stamp[]
-  redemptions PromotionRedemption[]
+  events           OrderEvent[]
+  stamps           Stamp[]
+  redemptions      PromotionRedemption[]
   // Red de Domicilios (Fase 1, 2026-06-29): seguimiento logístico 1:1 (opcional).
-  delivery    Delivery?
+  delivery         Delivery?
   // Chat del domicilio (Fase 3B): hilo cliente↔negocio↔empresa.
   deliveryMessages DeliveryMessage[]
 
@@ -2154,14 +2165,14 @@ enum MenuLayout {
 // las secciones flipbook quedan persistidas pero no se renderizan.
 
 model MenuBookSection {
-  id               String   @id @default(uuid())
-  tenantId         String
-  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  title            String
+  id                String   @id @default(uuid())
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title             String
   // Orden visual. Más bajo aparece primero en la navegación superior y
   // las páginas se concatenan en este orden.
-  sortOrder        Int      @default(0)
-  isActive         Boolean  @default(true)
+  sortOrder         Int      @default(0)
+  isActive          Boolean  @default(true)
   // Popup que aparece al entrar a esta sección (M3 2026-06-04). Misma
   // shape que MenuBookPage.popup* para consistencia. Si popupEnabled=
   // false el resto se ignora.
@@ -2169,20 +2180,20 @@ model MenuBookSection {
   // M9 (2026-06-06): popupType extiende a 3 modos (EXTERNAL_LINK / CARD /
   // IMAGE). NULL = EXTERNAL_LINK por back compat. Ver comentario en
   // Storefront.bookPopupType para detalle.
-  popupEnabled       Boolean  @default(false)
-  popupTitle         String?
-  popupDescription   String?  @db.Text
-  popupImageUrl      String?
-  popupButtonText    String?
-  popupButtonUrl     String?
-  popupButtonColor   String?
-  popupType          String?
-  popupCardId        String?
-  popupCard          Card?    @relation("MenuBookSectionPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
-  popupCardCtaLabel  String?
-  popupImageCaption  String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  popupEnabled      Boolean  @default(false)
+  popupTitle        String?
+  popupDescription  String?  @db.Text
+  popupImageUrl     String?
+  popupButtonText   String?
+  popupButtonUrl    String?
+  popupButtonColor  String?
+  popupType         String?
+  popupCardId       String?
+  popupCard         Card?    @relation("MenuBookSectionPopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
+  popupCardCtaLabel String?
+  popupImageCaption String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   pages MenuBookPage[]
 
@@ -2204,18 +2215,18 @@ model MenuBookPage {
   //
   // M9 (2026-06-06): popupType extiende a 3 modos (EXTERNAL_LINK / CARD /
   // IMAGE). NULL = EXTERNAL_LINK por back compat.
-  popupEnabled       Boolean @default(false)
-  popupTitle         String?
-  popupDescription   String? @db.Text
-  popupImageUrl      String?
-  popupButtonText    String?
-  popupButtonUrl     String?
-  popupButtonColor   String? // hex, default lo decide el front
-  popupType          String?
-  popupCardId        String?
-  popupCard          Card?   @relation("MenuBookPagePopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
-  popupCardCtaLabel  String?
-  popupImageCaption  String?
+  popupEnabled      Boolean @default(false)
+  popupTitle        String?
+  popupDescription  String? @db.Text
+  popupImageUrl     String?
+  popupButtonText   String?
+  popupButtonUrl    String?
+  popupButtonColor  String? // hex, default lo decide el front
+  popupType         String?
+  popupCardId       String?
+  popupCard         Card?   @relation("MenuBookPagePopupCard", fields: [popupCardId], references: [id], onDelete: SetNull)
+  popupCardCtaLabel String?
+  popupImageCaption String?
 
   @@index([sectionId, sortOrder])
 }
@@ -2307,82 +2318,82 @@ enum CampaignStatus {
 }
 
 model ReferralCode {
-  id                    String         @id @default(uuid())
-  code                  String         @unique
+  id                             String         @id @default(uuid())
+  code                           String         @unique
   // Slug corto y human-friendly para links `/ref/<slug>`. Único, opcional.
   // Default: lowercase(code) backfill en migration. Customizable desde admin.
-  slug                  String?        @unique
-  ownerName             String
-  ownerEmail            String
-  ownerWhatsapp         String
+  slug                           String?        @unique
+  ownerName                      String
+  ownerEmail                     String
+  ownerWhatsapp                  String
   // #37 (2026-06-16): país del afiliado (code ISO-2, p.ej. "CO"). Capturado
   // en el autoregistro público y en la creación manual. Nullable porque los
   // codes legacy no lo tienen.
-  country               String?
-  ownerUserId           String?
-  ownerUser             User?          @relation(fields: [ownerUserId], references: [id])
+  country                        String?
+  ownerUserId                    String?
+  ownerUser                      User?          @relation(fields: [ownerUserId], references: [id])
   // Marca blanca dueña del afiliado. Los referidos son 100% independientes
   // por marca: cada Master Admin de marca ve SOLO sus influencers/embajadores/
   // vendedores. Nullable solo durante el backfill (los existentes se asignan
   // a "Clubify"). onDelete SetNull para no perder el código si se borra la
   // marca.
-  whiteLabelId          String?
-  whiteLabel            WhiteLabel?    @relation("WhiteLabelReferralCodes", fields: [whiteLabelId], references: [id], onDelete: SetNull)
-  commissionPercent     Decimal        @default(20) @db.Decimal(5, 2)
-  role                  ReferralRole   @default(INFLUENCER)
+  whiteLabelId                   String?
+  whiteLabel                     WhiteLabel?    @relation("WhiteLabelReferralCodes", fields: [whiteLabelId], references: [id], onDelete: SetNull)
+  commissionPercent              Decimal        @default(20) @db.Decimal(5, 2)
+  role                           ReferralRole   @default(INFLUENCER)
   // Si role=AMBASSADOR, parentCodeId apunta al ReferralCode del influencer
   // dueño de la campaña. Cuando un cliente usa este código, además de la
   // comisión directa del embajador, generamos una comisión indirecta para
   // el influencer (5% por defecto).
-  parentCodeId          String?
-  parentCode            ReferralCode?  @relation("AmbassadorParent", fields: [parentCodeId], references: [id], onDelete: SetNull)
-  ambassadors           ReferralCode[] @relation("AmbassadorParent")
+  parentCodeId                   String?
+  parentCode                     ReferralCode?  @relation("AmbassadorParent", fields: [parentCodeId], references: [id], onDelete: SetNull)
+  ambassadors                    ReferralCode[] @relation("AmbassadorParent")
   // VENDOR sub-jerarquía: cuando role=AMBASSADOR y allowVendors=true,
   // el embajador puede crear vendedores debajo suyo. `maxCommissionPercent`
   // es el tope que puede repartir entre vendedores (default 25 enforced en
   // aplicación si null).
-  allowVendors          Boolean        @default(false)
-  maxCommissionPercent  Decimal?       @db.Decimal(5, 2)
+  allowVendors                   Boolean        @default(false)
+  maxCommissionPercent           Decimal?       @db.Decimal(5, 2)
   // % por defecto que se aplica a los vendedores creados desde el
   // self-register link `/seller/register/<ambassadorCode>`. El embajador
   // lo configura desde su panel /affiliate/team. Si null, default 10%.
   // Backend valida: 0 < value <= maxCommissionPercent (??25) - usadoActivo.
-  defaultVendorCommissionPercent Decimal? @db.Decimal(5, 2)
+  defaultVendorCommissionPercent Decimal?       @db.Decimal(5, 2)
   // Solo se setea cuando role=VENDOR. FK self-relation al embajador padre.
   // El vendedor cobra su % directo y el embajador recibe SU % menos lo
   // del vendedor en el 3-way split del webhook Hotmart.
-  parentEmbajadorCodeId String?
-  parentEmbajadorCode   ReferralCode?  @relation("VendorEmbajador", fields: [parentEmbajadorCodeId], references: [id], onDelete: SetNull)
-  childVendors          ReferralCode[] @relation("VendorEmbajador")
+  parentEmbajadorCodeId          String?
+  parentEmbajadorCode            ReferralCode?  @relation("VendorEmbajador", fields: [parentEmbajadorCodeId], references: [id], onDelete: SetNull)
+  childVendors                   ReferralCode[] @relation("VendorEmbajador")
   // Si pertenece a una campaña (los embajadores siempre, los influencers
   // pueden ser titulares de su propia campaña).
-  campaignId            String?
-  campaign              Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  isActive              Boolean        @default(true)
+  campaignId                     String?
+  campaign                       Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  isActive                       Boolean        @default(true)
   // Cuándo se aprobó el embajador (cuando un INFLUENCER lo crea desde su
   // panel). Si null y la config requiere aprobación, queda invisible al
   // generar comisiones hasta que el admin apruebe. Para códigos creados
   // por el super admin se setea a createdAt automáticamente.
-  approvedAt            DateTime?
+  approvedAt                     DateTime?
   // Etiqueta de origen del afiliado (?source=X en /refer). Solo informativa.
-  source                String?
-  createdAt             DateTime       @default(now())
+  source                         String?
+  createdAt                      DateTime       @default(now())
 
   uses                   ReferralUse[]
   visits                 ReferralVisit[]
-  ownerOfCampaign        Campaign?         @relation("CampaignOwner")
+  ownerOfCampaign        Campaign?             @relation("CampaignOwner")
   /// Materiales de apoyo scope a este influencer (visibles solo a sus
   /// embajadores). Vacío para mayoría — los materiales globales no van acá.
-  scopedSupportMaterials SupportMaterial[] @relation("SupportMaterialScope")
+  scopedSupportMaterials SupportMaterial[]     @relation("SupportMaterialScope")
   /// Atribuciones donde este code es el vendor (role=VENDOR). Inverso de
   /// Commission.vendorCode. Solo se usa para listings/reporting.
-  vendorCommissions      Commission[]      @relation("CommissionVendor")
+  vendorCommissions      Commission[]          @relation("CommissionVendor")
   /// Commissions cuya persona destinataria es este code (3-way split).
   /// Inverso de Commission.recipientCode. Permite query directo "todas
   /// las commissions del influencer X" sin walkear el referralUse.
-  receivedCommissions    Commission[]      @relation("CommissionRecipient")
+  receivedCommissions    Commission[]          @relation("CommissionRecipient")
   /// Grupos empresariales donde este code es el recipiente de comisión (Punto 2).
-  recipientGroups        BusinessGroup[]   @relation("BusinessGroupRecipient")
+  recipientGroups        BusinessGroup[]       @relation("BusinessGroupRecipient")
   /// Item 6 sprint: excepciones de comisión cuya recipientCodeId apunta
   /// a este code (= aplican al % que ESTE code cobraría normalmente).
   commissionExceptions   CommissionException[]
@@ -2452,19 +2463,19 @@ model ReferralUse {
 }
 
 model Commission {
-  id                   String                  @id @default(uuid())
+  id                   String                      @id @default(uuid())
   // Nullable (Punto 2, 2026-07-01): las comisiones a nivel GRUPO EMPRESARIAL no
   // cuelgan de un tenant/referralUse; usan businessGroupId. Para comisiones
   // normales (por tenant) SIEMPRE va seteado.
   referralUseId        String?
-  referralUse          ReferralUse?            @relation(fields: [referralUseId], references: [id], onDelete: Cascade)
+  referralUse          ReferralUse?                @relation(fields: [referralUseId], references: [id], onDelete: Cascade)
   // Grupo Empresarial dueño de la comisión (1 comisión por el bruto del grupo).
   // Mutuamente excluyente con referralUseId. Null = comisión normal por tenant.
   businessGroupId      String?
-  businessGroup        BusinessGroup?          @relation(fields: [businessGroupId], references: [id], onDelete: SetNull)
-  amount               Decimal                 @db.Decimal(10, 2)
-  currency             String                  @default("USD")
-  status               CommissionStatus        @default(PENDING)
+  businessGroup        BusinessGroup?              @relation(fields: [businessGroupId], references: [id], onDelete: SetNull)
+  amount               Decimal                     @db.Decimal(10, 2)
+  currency             String                      @default("USD")
+  status               CommissionStatus            @default(PENDING)
   paidAt               DateTime?
   // Momento en que la comisión se DESBLOQUEA (PENDING → APPROVED): 15 días
   // DESPUÉS del pago real en Hotmart (Tenant.lastChargeAt / la fecha del cobro
@@ -2473,7 +2484,7 @@ model Commission {
   availableAt          DateTime?
   // Nota interna del super admin (ej: "Pagado vía Wise", "Cliente
   // contactado el 2026-05-12, prometió pagar"). Visible solo en panel.
-  notes                String?                 @db.Text
+  notes                String?                     @db.Text
   // Marca de contacto al cliente cuando hubo pago fallido — se setea
   // desde la tab "Pendientes por pagar" para llevar registro.
   clientContactedAt    DateTime?
@@ -2490,20 +2501,20 @@ model Commission {
   // de atribución incluye un VENDOR). Null cuando no había vendedor.
   // En el 3-way split el vendor también tiene SU propia Commission row.
   vendorCodeId         String?
-  vendorCode           ReferralCode?           @relation("CommissionVendor", fields: [vendorCodeId], references: [id], onDelete: SetNull)
+  vendorCode           ReferralCode?               @relation("CommissionVendor", fields: [vendorCodeId], references: [id], onDelete: SetNull)
   // Tracking granular de pago: PENDING (nada pagado), PARTIAL (pagado
   // parcial), PAID (pagado >= amount). Independiente de `status` que
   // refleja el flow de aprobación.
-  paymentStatus        CommissionPaymentStatus @default(PENDING)
+  paymentStatus        CommissionPaymentStatus     @default(PENDING)
   // Monto efectivamente pagado al afiliado, para tracking de pagos
   // parciales. Sirve para reconciliación contable. Default 0.
-  amountPaid           Decimal                 @default(0) @db.Decimal(10, 2)
+  amountPaid           Decimal                     @default(0) @db.Decimal(10, 2)
   // SNAPSHOT contable (Fase 4): se congelan al generar la comisión y NO se
   // recalculan. Permiten auditar exactamente con qué se calculó. Nullable =
   // comisiones legacy generadas antes del overhaul.
   distributionMode     CommissionDistributionMode?
-  baseAmountUsd        Decimal?                @db.Decimal(10, 2)
-  appliedPercent       Decimal?                @db.Decimal(5, 2)
+  baseAmountUsd        Decimal?                    @db.Decimal(10, 2)
+  appliedPercent       Decimal?                    @db.Decimal(5, 2)
   // Recipient del 3-way split: el ReferralCode QUE RECIBE esta commission.
   // En un sale con vendedor, se generan 3 Commission rows pointing al
   // mismo referralUseId pero distinto recipientCodeId (uno por persona:
@@ -2512,7 +2523,7 @@ model Commission {
   // Backwards-compat null: rows viejas (pre-3-way) lo tienen null y se
   // resuelven derivándolo del use.code.
   recipientCodeId      String?
-  recipientCode        ReferralCode?           @relation("CommissionRecipient", fields: [recipientCodeId], references: [id], onDelete: SetNull)
+  recipientCode        ReferralCode?               @relation("CommissionRecipient", fields: [recipientCodeId], references: [id], onDelete: SetNull)
   // Fase D 2026-06-07: link al batch de pago que liquidó esta commission.
   // SetNull: si se borra el payout, la commission vuelve a estar
   // "pendiente de pago" sin perder historial.
@@ -2523,8 +2534,13 @@ model Commission {
   // Nullable por backwards-compat con filas pre-migration que tienen
   // recipientCodeId también null. Los inserts nuevos siempre lo setean.
   periodKey            String?
-  createdAt            DateTime                @default(now())
+  createdAt            DateTime                    @default(now())
 
+  // 2026-06-12: previene duplicados a nivel DB. PostgreSQL trata NULLs
+  // como distintos, así que filas legacy con recipientCodeId/periodKey
+  // null no chocan. Para filas nuevas (ambos NOT NULL) garantiza
+  // unicidad y race-safety atómica vs el código de aplicación.
+  @@unique([referralUseId, recipientCodeId, periodKey])
   @@index([status])
   @@index([externalTxId])
   @@index([vendorCodeId])
@@ -2535,11 +2551,6 @@ model Commission {
   // /admin/commissions y /admin/commissions/payments.
   @@index([paymentStatus])
   @@index([paymentStatus, createdAt])
-  // 2026-06-12: previene duplicados a nivel DB. PostgreSQL trata NULLs
-  // como distintos, así que filas legacy con recipientCodeId/periodKey
-  // null no chocan. Para filas nuevas (ambos NOT NULL) garantiza
-  // unicidad y race-safety atómica vs el código de aplicación.
-  @@unique([referralUseId, recipientCodeId, periodKey])
 }
 
 // ============================================================
@@ -3723,24 +3734,24 @@ model SequenceExecution {
 /// vendedor) solo para ese tenant. Aplica a comisiones futuras + PENDING;
 /// las ya PAID no se tocan salvo override manual del SUPER_ADMIN.
 model CommissionException {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// El ReferralCode al que se le aplica la excepción (influencer/embajador/
   /// vendedor). Un mismo tenant puede tener excepciones distintas por cada
   /// rol en la cadena (ej: 20% para el embajador y 5% para el influencer).
   recipientCodeId String
   recipientCode   ReferralCode @relation(fields: [recipientCodeId], references: [id], onDelete: Cascade)
-  customPercent   Decimal  @db.Decimal(5, 2)
-  reason          String?  @db.Text
-  isActive        Boolean  @default(true)
+  customPercent   Decimal      @db.Decimal(5, 2)
+  reason          String?      @db.Text
+  isActive        Boolean      @default(true)
   createdById     String?
-  createdBy       User?    @relation("CommissionExceptionCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdBy       User?        @relation("CommissionExceptionCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
   /// Historial de cambios — un row nuevo por cada update.
-  history         CommissionExceptionHistory[]
+  history CommissionExceptionHistory[]
 
   @@unique([tenantId, recipientCodeId])
   @@index([tenantId])
@@ -3750,17 +3761,17 @@ model CommissionException {
 /// Snapshot audit del cambio de excepción — para responder "¿quién la
 /// puso al 20%, cuándo y por qué?".
 model CommissionExceptionHistory {
-  id              String   @id @default(cuid())
+  id              String              @id @default(cuid())
   exceptionId     String
   exception       CommissionException @relation(fields: [exceptionId], references: [id], onDelete: Cascade)
-  previousPercent Decimal? @db.Decimal(5, 2)
-  newPercent      Decimal  @db.Decimal(5, 2)
+  previousPercent Decimal?            @db.Decimal(5, 2)
+  newPercent      Decimal             @db.Decimal(5, 2)
   previousActive  Boolean?
   newActive       Boolean
-  reason          String?  @db.Text
+  reason          String?             @db.Text
   changedById     String?
-  changedBy       User?    @relation("CommissionExceptionHistoryChanger", fields: [changedById], references: [id], onDelete: SetNull)
-  changedAt       DateTime @default(now())
+  changedBy       User?               @relation("CommissionExceptionHistoryChanger", fields: [changedById], references: [id], onDelete: SetNull)
+  changedAt       DateTime            @default(now())
 
   @@index([exceptionId, changedAt])
 }
@@ -3773,7 +3784,7 @@ model CommissionExceptionHistory {
 // votación pública → las más votadas entran al roadmap.
 
 enum LabCategory {
-  CLIENTS    /// Para negocios: tarjetas, Wallet, Delivery, QR, automatizaciones, etc.
+  CLIENTS /// Para negocios: tarjetas, Wallet, Delivery, QR, automatizaciones, etc.
   AFFILIATES /// Para embajadores/influencers/vendedores: CRM, comisiones, prospectos, etc.
 }
 
@@ -3785,47 +3796,47 @@ enum LabPriority {
 }
 
 enum LabStatus {
-  PENDING        /// propuesta nueva, no pública aún
-  REJECTED       /// equipo rechazó (no pública)
-  EVALUATING     /// en evaluación pública post-aprobación
-  APPROVED       /// aprobada para roadmap
+  PENDING /// propuesta nueva, no pública aún
+  REJECTED /// equipo rechazó (no pública)
+  EVALUATING /// en evaluación pública post-aprobación
+  APPROVED /// aprobada para roadmap
   IN_DEVELOPMENT /// en desarrollo
-  IN_TESTING     /// en pruebas
-  IMPLEMENTED    /// implementada
+  IN_TESTING /// en pruebas
+  IMPLEMENTED /// implementada
 }
 
 enum LabVoteKind {
-  LIKE          /// Me gusta
-  NEED          /// La necesito
+  LIKE /// Me gusta
+  NEED /// La necesito
   HIGH_PRIORITY /// Alta prioridad
-  DISLIKE       /// No la considero necesaria
+  DISLIKE /// No la considero necesaria
 }
 
 model LabProposal {
-  id              String      @id @default(cuid())
-  title           String
-  description     String      @db.Text
-  category        LabCategory
-  priority        LabPriority @default(MEDIUM)
-  expectedBenefit String?     @db.Text
-  status          LabStatus   @default(PENDING)
+  id                    String      @id @default(cuid())
+  title                 String
+  description           String      @db.Text
+  category              LabCategory
+  priority              LabPriority @default(MEDIUM)
+  expectedBenefit       String?     @db.Text
+  status                LabStatus   @default(PENDING)
   /// URL de un adjunto opcional (imagen/PDF/video subido a R2).
-  attachmentUrl   String?
-  attachmentKind  String? /// 'image' | 'pdf' | 'video' | 'document'
-  authorId        String
-  author          User        @relation("LabProposalAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  attachmentUrl         String?
+  attachmentKind        String? /// 'image' | 'pdf' | 'video' | 'document'
+  authorId              String
+  author                User        @relation("LabProposalAuthor", fields: [authorId], references: [id], onDelete: Cascade)
   /// Si fue rechazada, motivo opcional para el autor.
-  rejectionReason String?     @db.Text
+  rejectionReason       String?     @db.Text
   /// Counter denormalizado (sino las queries de "top votadas" se hacen lentas).
-  votesScore      Int         @default(0)
-  votesCount      Int         @default(0)
-  commentsCount   Int         @default(0)
+  votesScore            Int         @default(0)
+  votesCount            Int         @default(0)
+  commentsCount         Int         @default(0)
   /// Snapshot del último admin que cambió status (para mostrar quién lo movió).
   lastStatusChangedById String?
-  lastStatusChangedBy   User?     @relation("LabProposalLastStatusChanger", fields: [lastStatusChangedById], references: [id], onDelete: SetNull)
+  lastStatusChangedBy   User?       @relation("LabProposalLastStatusChanger", fields: [lastStatusChangedById], references: [id], onDelete: SetNull)
   lastStatusChangedAt   DateTime?
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
 
   votes    LabVote[]
   comments LabComment[]
@@ -3961,53 +3972,53 @@ model BroadcastRead {
 // Día oficial de pago: 15 de cada mes (countdown en panel afiliado).
 
 model PaymentProfile {
-  id              String                @id @default(uuid())
-  userId          String                @unique
-  user            User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status          PaymentProfileStatus  @default(NONE)
+  id               String               @id @default(uuid())
+  userId           String               @unique
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status           PaymentProfileStatus @default(NONE)
   // Datos del titular (común a ambos métodos).
-  firstName       String?
-  lastName        String?
-  phoneCountry    String?               // ej: "+57"
-  phone           String?               // ej: "3001112233"
-  method          PaymentMethodKind?
+  firstName        String?
+  lastName         String?
+  phoneCountry     String? // ej: "+57"
+  phone            String? // ej: "3001112233"
+  method           PaymentMethodKind?
   // BINANCE
-  binanceEmail    String?
-  binancePhone    String?               // opcional
-  binanceNote     String?               // observación opcional
+  binanceEmail     String?
+  binancePhone     String? // opcional
+  binanceNote      String? // observación opcional
   // BANK
-  bankCountry     String?
-  bankName        String?
-  bankAccountType String?               // "ahorros" | "corriente" | etc
-  bankAccountNo   String?
-  bankHolderName  String?
-  bankHolderDoc   String?               // doc del titular (opcional)
-  bankNote        String?               // observación opcional
+  bankCountry      String?
+  bankName         String?
+  bankAccountType  String? // "ahorros" | "corriente" | etc
+  bankAccountNo    String?
+  bankHolderName   String?
+  bankHolderDoc    String? // doc del titular (opcional)
+  bankNote         String? // observación opcional
   // Razón de rechazo si status = REJECTED. Visible al afiliado para
   // que corrija (el SUPER_ADMIN la setea desde el panel admin).
-  rejectionReason String?               @db.Text
+  rejectionReason  String?              @db.Text
   reviewedByUserId String?
   reviewedBy       User?                @relation("PaymentProfileReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
   reviewedAt       DateTime?
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   @@index([status])
 }
 
 model CommissionPayout {
-  id              String                  @id @default(uuid())
+  id              String                 @id @default(uuid())
   // El afiliado que recibe el pago.
   recipientUserId String
-  recipientUser   User                    @relation("CommissionPayoutRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
+  recipientUser   User                   @relation("CommissionPayoutRecipient", fields: [recipientUserId], references: [id], onDelete: Cascade)
   // amount = BRUTO (suma de comisiones). feeUsd = costo de retiro (3 si el
   // bruto < 50, sino 0). netUsd = lo efectivamente transferido (bruto − fee).
   // Spec costo de retiro 2026-06-15. Nullable/default para backwards-compat.
-  amount          Decimal                 @db.Decimal(10, 2)
-  feeUsd          Decimal                 @default(0) @db.Decimal(10, 2)
-  netUsd          Decimal?                @db.Decimal(10, 2)
-  currency        String                  @default("USD")
-  status          CommissionPayoutStatus  @default(PROCESSING)
+  amount          Decimal                @db.Decimal(10, 2)
+  feeUsd          Decimal                @default(0) @db.Decimal(10, 2)
+  netUsd          Decimal?               @db.Decimal(10, 2)
+  currency        String                 @default("USD")
+  status          CommissionPayoutStatus @default(PROCESSING)
   // Snapshot del método al momento del pago (Binance / Bank) para que
   // si después el afiliado cambia su perfil, el histórico no se mute.
   methodSnapshot  Json
@@ -4017,12 +4028,12 @@ model CommissionPayout {
   proofMimeType   String?
   // Quién marcó el pago como hecho (admin).
   paidByUserId    String?
-  paidBy          User?                   @relation("CommissionPayoutPaidBy", fields: [paidByUserId], references: [id], onDelete: SetNull)
+  paidBy          User?                  @relation("CommissionPayoutPaidBy", fields: [paidByUserId], references: [id], onDelete: SetNull)
   paidAt          DateTime?
-  notes           String?                 @db.Text
+  notes           String?                @db.Text
   items           CommissionPayoutItem[]
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
 
   @@index([recipientUserId])
   @@index([status])
@@ -4058,19 +4069,19 @@ model CommissionPayoutItem {
 // PLATFORM_OWNER (Mauricio, etc.) es el único con visión global.
 
 model WhiteLabel {
-  id              String          @id @default(uuid())
-  name            String          // "Clubify", "LoyalMX", etc.
-  slug            String          @unique // "clubify", "loyalmx"
+  id                       String           @id @default(uuid())
+  name                     String // "Clubify", "LoyalMX", etc.
+  slug                     String           @unique // "clubify", "loyalmx"
   /// Dominio principal de marketing/landing (ej "clubify.app").
-  domain          String?
+  domain                   String?
   /// Dominio del panel de cuenta (ej "app.clubify.app").
-  appDomain       String?
+  appDomain                String?
   /// Color hex del avatar / botones primarios de la marca.
-  primaryColor    String          @default("#16a34a")
+  primaryColor             String           @default("#16a34a")
   /// API key de Google Maps (browser key, restringida por referrer en el Google
   /// Cloud de la marca). El mapa del panel la usa; sin ella cae a la env global
   /// de Clubify. Es una key pública (se expone al cliente), no un secreto.
-  mapsApiKey      String?
+  mapsApiKey               String?
   /// Subcuenta de Grow Business (GoHighLevel) de la MARCA. TODOS los SMS de los
   /// negocios de esta marca (cobros, domicilio, reseñas) salen de acá cuando el
   /// negocio no tiene creds propias — nunca de la cuenta de Clubify. apiKey se
@@ -4080,115 +4091,117 @@ model WhiteLabel {
   growBusinessSwitchNumber Int?
   /// Identidad visual extendida de la marca (manual de marca). Todos opcionales.
   /// Logo HEADER (lockup horizontal ~3:1) — landing, login y páginas públicas.
-  logoUrl         String?
+  logoUrl                  String?
   /// Logo DASHBOARD (cuadrado ~1:1) — sidebar/header del panel admin. Si no
   /// hay, cae a logoUrl y, en última instancia, al avatar de inicial.
-  iconUrl         String?
+  iconUrl                  String?
   /// Favicon (cuadrado) — pestaña del navegador + PWA. Cae a iconUrl/logoUrl.
-  faviconUrl      String?
+  faviconUrl               String?
   /// Imagen de previsualización al compartir el enlace de la marca (Open Graph /
   /// Twitter Card) en WhatsApp/redes. Si null, se usa el logo de la marca; nunca
   /// la imagen de Clubify. Recomendado 1200×630.
-  shareImageUrl   String?
+  shareImageUrl            String?
   /// Color secundario / tinta (textos y fondos oscuros).
-  secondaryColor  String?
+  secondaryColor           String?
   /// Color de fondos suaves (crema).
-  backgroundColor String?
+  backgroundColor          String?
   /// Color de apoyo / accent oscuro.
-  supportColor    String?
+  supportColor             String?
   /// Handle de Instagram público (ej "@selleala").
-  instagram       String?
+  instagram                String?
   /// Email de contacto público de la marca (ej "hola@selleala.com").
-  contactEmail    String?
+  contactEmail             String?
   /// Letra inicial mostrada en el avatar cuadrado.
-  initial         String?
+  initial                  String?
   /// WhatsApp del botón "Agendar demo" de la landing de la marca (ej.
   /// "+17865832760"). Si null, la landing usa su fallback. NO hardcodear el
   /// número en la página — cada marca define el suyo acá.
-  demoButtonWhatsApp String?
+  demoButtonWhatsApp       String?
   /// Email del admin principal (queda informativo; los logins reales son
   /// User con role SUPER_ADMIN o TENANT_OWNER bajo esta marca).
-  adminEmail      String?
-  status          WhiteLabelStatus @default(ACTIVE)
+  adminEmail               String?
+  status                   WhiteLabelStatus @default(ACTIVE)
 
   /// Pasarela de pago activa de la marca. Cada marca cobra de forma
   /// independiente con SU propia cuenta. HOTMART | STRIPE | MANUAL.
   /// MANUAL = sin cobro automático (activaciones/suspensiones a mano).
-  paymentGateway  PaymentGateway   @default(HOTMART)
+  paymentGateway PaymentGateway @default(HOTMART)
   /// Config de la pasarela (Json). Secretos guardados CIFRADOS (enc:v1:...);
   /// campos no-secretos en plano. Forma por gateway:
   ///   HOTMART: { apiKey, clientId, clientSecret, webhookSecret, webhookUrl, productCode }
   ///   STRIPE:  { publishableKey, secretKey, webhookSecret, webhookUrl, customerPortalUrl }
   /// Nunca se devuelve en plano al frontend: los secretos van enmascarados.
-  paymentConfig   Json?
+  paymentConfig  Json?
 
   /// Créditos disponibles para gastar en activaciones / renovaciones
   /// de sus negocios. 1 crédito = 30 días de servicio. Acumulativos,
   /// no vencen. Se descuentan automáticamente.
-  creditsAvailable Int            @default(0)
+  creditsAvailable Int     @default(0)
   /// Créditos comprometidos (negocios próximos a renovar dentro de la
   /// ventana). Calculado por proceso periódico.
-  creditsCommitted Int            @default(0)
+  creditsCommitted Int     @default(0)
   /// Créditos usados acumulados (auditoría).
-  creditsUsed      Int            @default(0)
+  creditsUsed      Int     @default(0)
   /// Si está en true, la marca tiene créditos ilimitados — el cron de
   /// renovaciones no le descuenta y los packs Hotmart que matchean su
   /// adminEmail se ignoran (la compra queda como ASSIGNED igual, pero
   /// no incrementa creditsAvailable). Para partners especiales o demos.
-  creditsUnlimited Boolean        @default(false)
+  creditsUnlimited Boolean @default(false)
 
   /// Periodicidades de plan que ofrece la marca (MENSUAL/TRIMESTRAL/SEMESTRAL/
   /// ANUAL). Configurable por marca en Master Admin → controla qué opciones de
   /// periodicidad muestra el form "Nuevo negocio". Default = las 4 (Clubify).
-  planPeriodicities String[]      @default(["MENSUAL", "TRIMESTRAL", "SEMESTRAL", "ANUAL"])
+  planPeriodicities String[] @default(["MENSUAL", "TRIMESTRAL", "SEMESTRAL", "ANUAL"])
 
   /// Features que la marca incluye en su suscripción → la lista "Tu suscripción
   /// incluye" del panel de billing muestra SOLO estas (keys i18n, ej.
   /// "featUnlimitedOrders"). Vacío = lista completa por defecto (Clubify). Cada
   /// marca define qué ofrece su plan; nunca se muestran features que no incluye.
-  subscriptionFeatureKeys String[]  @default([])
+  subscriptionFeatureKeys String[] @default([])
   /// Costo de instalación/implementación (USD) mostrado en la página de precios
   /// de la marca. Null = no se muestra línea de instalación.
-  installationFeeUsd      Decimal?  @db.Decimal(10, 2)
+  installationFeeUsd      Decimal? @db.Decimal(10, 2)
   /// Precio PROMOCIONAL de instalación (USD). Si está, la página muestra el fee
   /// original tachado y este como "PRECIO PROMOCIONAL", y lo suma al total hoy.
-  installationPromoUsd    Decimal?  @db.Decimal(10, 2)
+  installationPromoUsd    Decimal? @db.Decimal(10, 2)
 
   /// Teléfono al que la plataforma (Clubify) le manda los SMS de créditos
   /// a esta marca blanca (compra acreditada / saldo bajo / negocios
   /// pendientes por falta de créditos). El remitente es la subcuenta global
   /// de Grow Business de Clubify. Null = no se le notifica por SMS.
-  notifyPhone     String?
+  notifyPhone              String?
   /// Marca de tiempo del último SMS "saldo bajo (≤2 créditos)" enviado. Se
   /// limpia (null) al recargar créditos para poder volver a avisar. Evita
   /// spamear el mismo aviso en cada consumo.
-  lowCreditsNotifiedAt    DateTime?
+  lowCreditsNotifiedAt     DateTime?
   /// Marca de tiempo del último SMS "tenés negocios pendientes por falta de
   /// créditos". Se limpia al recargar / cuando ya no hay pendientes.
   pendingClientsNotifiedAt DateTime?
 
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relaciones — todo lo "scoped" a una marca blanca cuelga de acá.
-  tenants         Tenant[]
-  modules         WhiteLabelModule[]
-  knowledgeEntries KnowledgeEntry[]    @relation("WhiteLabelKnowledge")
-  referralCodes   ReferralCode[]       @relation("WhiteLabelReferralCodes")
-  creditTransactions CreditTransaction[]
+  tenants                Tenant[]
+  modules                WhiteLabelModule[]
+  knowledgeEntries       KnowledgeEntry[]        @relation("WhiteLabelKnowledge")
+  referralCodes          ReferralCode[]          @relation("WhiteLabelReferralCodes")
+  creditTransactions     CreditTransaction[]
   /// Users con role SUPER_ADMIN vinculados directamente a esta marca
   /// (no atados a un tenant específico). Ven todos los tenants de la
   /// marca, gestionan branding, etc. Es la cuenta admin "de la marca".
-  admins          User[]               @relation("WhiteLabelAdmin")
-  adminInvites    WhiteLabelAdminInvite[]
+  admins                 User[]                  @relation("WhiteLabelAdmin")
+  adminInvites           WhiteLabelAdminInvite[]
   hotmartCreditPurchases HotmartCreditPurchase[]
-  hotmartCreditLinks HotmartCreditLink[] @relation("WhiteLabelCreditLinks")
-  businessGroups  BusinessGroup[]      @relation("WhiteLabelGroups")
-  paymentLinks    WhiteLabelPaymentLink[]
+  hotmartCreditLinks     HotmartCreditLink[]     @relation("WhiteLabelCreditLinks")
+  businessGroups         BusinessGroup[]         @relation("WhiteLabelGroups")
+  paymentLinks           WhiteLabelPaymentLink[]
   // Red de Domicilios (Fase 1, 2026-06-29): empresas logísticas que "pertenecen"
   // a la marca + marcas donde una empresa (de cualquier dueño) está habilitada.
-  deliveryCompanies     DeliveryCompany[]
-  deliveryCompanyBrands DeliveryCompanyBrand[]
+  deliveryCompanies      DeliveryCompany[]
+  deliveryCompanyBrands  DeliveryCompanyBrand[]
+  // Cuponera / Living Card: campañas de beneficios comunitarios de la marca.
+  benefitCampaigns       BenefitCampaign[]
 
   @@index([status])
 }
@@ -4203,38 +4216,40 @@ model WhiteLabel {
 /// Empresa de domicilios. La crea/gestiona el Master Admin. Opera para las
 /// marcas (`brands`) y negocios (`tenants`) que se le habiliten.
 model DeliveryCompany {
-  id            String   @id @default(uuid())
+  id                    String      @id @default(uuid())
   /// Marca blanca "dueña" de la gestión de esta empresa (informativo / scoping
   /// del Master Admin de marca). Las marcas/negocios donde realmente opera se
   /// definen en `brands`/`tenants`. Null = gestionada por Clubify (plataforma).
-  whiteLabelId  String?
-  whiteLabel    WhiteLabel? @relation(fields: [whiteLabelId], references: [id], onDelete: SetNull)
-  name          String
-  logoUrl       String?
-  whatsapp      String?
-  city          String?
+  whiteLabelId          String?
+  whiteLabel            WhiteLabel? @relation(fields: [whiteLabelId], references: [id], onDelete: SetNull)
+  name                  String
+  logoUrl               String?
+  whatsapp              String?
+  city                  String?
   /// Nombre del responsable / contacto de la empresa.
-  responsible   String?
-  email         String?
+  responsible           String?
+  email                 String?
   /// Comisión FIJA de la plataforma por domicilio entregado (Fase 4). Es lo que
   /// la empresa "aporta" por entrega; la empresa se queda con el valor del
   /// domicilio que le cobra al cliente. USD. Null/0 = no genera comisión.
-  commissionPerDelivery Decimal? @db.Decimal(10, 2)
+  commissionPerDelivery Decimal?    @db.Decimal(10, 2)
   /// % de esa comisión que va a la MARCA BLANCA del negocio; el resto va al
   /// Master Admin. Configurable por empresa (Fase 4). Default 0 = todo al Master.
-  brandSharePct Int     @default(0)
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  brandSharePct         Int         @default(0)
+  isActive              Boolean     @default(true)
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
 
-  brands        DeliveryCompanyBrand[]
-  tenants       DeliveryCompanyTenant[]
-  deliveries    Delivery[]
+  brands           DeliveryCompanyBrand[]
+  tenants          DeliveryCompanyTenant[]
+  deliveries       Delivery[]
   /// Cuentas de login (role=DELIVERY_COMPANY) que operan esta empresa (Fase 2).
-  admins        User[] @relation("DeliveryCompanyAdmin")
-  commissions   DeliveryCommission[]
+  admins           User[]                   @relation("DeliveryCompanyAdmin")
+  commissions      DeliveryCommission[]
   /// Chat directo negocio↔empresa (por negocio, no por pedido). PDF 1254.
   businessMessages DeliveryCompanyMessage[]
+  /// Flota de motos/vehículos de la empresa (PDF245 P1).
+  vehicles         DeliveryVehicle[]
 
   @@index([whiteLabelId])
   @@index([isActive])
@@ -4276,31 +4291,57 @@ model Delivery {
   tenant            Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   deliveryCompanyId String?
   deliveryCompany   DeliveryCompany? @relation(fields: [deliveryCompanyId], references: [id], onDelete: SetNull)
+  /// Moto de la flota asignada al domicilio (PDF245 P1). Los campos courier*
+  /// quedan como snapshot poblado desde la moto elegida.
+  vehicleId         String?
+  vehicle           DeliveryVehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
 
-  status            DeliveryStatus   @default(WAITING_COURIER)
+  status        DeliveryStatus @default(WAITING_COURIER)
   /// Datos que registra la empresa (Fase 2): repartidor, dirección, precio.
-  courierName       String?
-  courierPhone      String?
-  courierPlate      String?
-  etaMinutes        Int?
-  address           String?
+  courierName   String?
+  courierPhone  String?
+  courierPlate  String?
+  etaMinutes    Int?
+  address       String?
   /// Valor del domicilio. Se registra en Fase 1; las comisiones (split
   /// empresa/marca/master) llegan en la Fase 4. USD.
-  deliveryValue     Decimal?         @db.Decimal(10, 2)
+  deliveryValue Decimal?       @db.Decimal(10, 2)
 
   // Timestamps por estado.
-  assignedAt        DateTime?
-  pickedUpAt        DateTime?
-  onTheWayAt        DateTime?
-  deliveredAt       DateTime?
-  cancelledAt       DateTime?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  assignedAt  DateTime?
+  pickedUpAt  DateTime?
+  onTheWayAt  DateTime?
+  deliveredAt DateTime?
+  cancelledAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  commission        DeliveryCommission?
+  commission DeliveryCommission?
 
   @@index([tenantId, status])
   @@index([deliveryCompanyId, status])
+  @@index([vehicleId])
+}
+
+/// Moto/vehículo de la flota de una empresa de domicilios (PDF245 P1). La
+/// empresa gestiona su flota desde el portal y elige una moto al asignar un
+/// domicilio; solo debe indicar el ETA ("Tiempo estimado de entrega").
+model DeliveryVehicle {
+  id                String          @id @default(cuid())
+  deliveryCompanyId String
+  company           DeliveryCompany @relation(fields: [deliveryCompanyId], references: [id], onDelete: Cascade)
+  /// Placa de la moto.
+  plate             String
+  /// Nombre del conductor.
+  driverName        String
+  driverPhone       String?
+  isActive          Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  deliveries        Delivery[]
+
+  @@index([deliveryCompanyId, isActive])
 }
 
 /// Comisión de plataforma generada por un domicilio ENTREGADO (Fase 4). Monto
@@ -4378,12 +4419,12 @@ enum DeliveryChatRole {
 
 /// Estados logísticos del repartidor (Order.status cubre recibido/preparando/listo).
 enum DeliveryStatus {
-  WAITING_COURIER  // Esperando domiciliario (pedido listo, sin moto asignada)
+  WAITING_COURIER // Esperando domiciliario (pedido listo, sin moto asignada)
   COURIER_ASSIGNED // Moto asignada
-  PICKED_UP        // Pedido recogido
-  ON_THE_WAY       // En camino
-  DELIVERED        // Entregado
-  CANCELLED        // Cancelado
+  PICKED_UP // Pedido recogido
+  ON_THE_WAY // En camino
+  DELIVERED // Entregado
+  CANCELLED // Cancelado
 }
 
 enum WhiteLabelStatus {
@@ -4396,6 +4437,8 @@ enum PaymentGateway {
   HOTMART
   STRIPE
   MANUAL
+  /// Cuponera / Living Card: suscripción recurrente de membresías (preapproval).
+  MERCADOPAGO
 }
 
 /// Periodicidad de un link/plan de pago. CUSTOM = link personalizado.
@@ -4491,12 +4534,12 @@ model BusinessGroup {
 /// flujo. Catálogo cerrado: REFERIDOS / PEDIDOS / GROW_BUSINESS_SMS
 /// (puede crecer luego).
 model WhiteLabelModule {
-  id           String        @id @default(uuid())
+  id           String     @id @default(uuid())
   whiteLabelId String
-  whiteLabel   WhiteLabel    @relation(fields: [whiteLabelId], references: [id], onDelete: Cascade)
+  whiteLabel   WhiteLabel @relation(fields: [whiteLabelId], references: [id], onDelete: Cascade)
   module       ModuleKey
-  enabled      Boolean       @default(true)
-  updatedAt    DateTime      @updatedAt
+  enabled      Boolean    @default(true)
+  updatedAt    DateTime   @updatedAt
 
   @@unique([whiteLabelId, module])
   @@index([module])
@@ -4519,7 +4562,7 @@ model CreditTransaction {
   whiteLabelId String
   whiteLabel   WhiteLabel            @relation(fields: [whiteLabelId], references: [id], onDelete: Cascade)
   type         CreditTransactionType
-  amount       Int                   // positivo en compra, negativo en consumo
+  amount       Int // positivo en compra, negativo en consumo
   note         String?               @db.Text
   /// ID del negocio (Tenant) si el movimiento se aplicó por una renovación
   /// específica. Null para compras manuales y ajustes administrativos.
@@ -4541,19 +4584,19 @@ enum CreditTransactionType {
 /// packs de créditos. El admin de la marca blanca los muestra a sus
 /// clientes; el dueño de la plataforma los configura aquí.
 model HotmartCreditLink {
-  id        String   @id @default(uuid())
+  id               String      @id @default(uuid())
   /// Cantidad de créditos que entrega el link.
-  credits   Int
+  credits          Int
   /// Etiqueta visible ("1 crédito · mensual", "5 créditos · ahorro").
-  label     String
+  label            String
   /// URL del checkout de Hotmart.
-  url       String
+  url              String
   /// Precio en MXN (mostrado a clientes). Opcional.
-  price     Decimal? @db.Decimal(12, 2)
-  currency  String   @default("MXN")
+  price            Decimal?    @db.Decimal(12, 2)
+  currency         String      @default("MXN")
   /// Orden de despliegue.
-  position  Int      @default(0)
-  isActive  Boolean  @default(true)
+  position         Int         @default(0)
+  isActive         Boolean     @default(true)
   /// productId de Hotmart (`payload.data.product.id`). Cuando el webhook
   /// recibe un PURCHASE_APPROVED y este matchea, acreditamos automáticamente
   /// los créditos a la marca cuyo adminEmail = buyer.email.
@@ -4566,9 +4609,9 @@ model HotmartCreditLink {
   /// Marca blanca PROPIETARIA de este pack. La acreditación identifica la marca
   /// por (productId + offerCode) → este link → whiteLabelId, INDEPENDIENTE del
   /// correo del comprador (2026-06-23). null = pack global/legacy (→ Clubify).
-  whiteLabelId String?
-  whiteLabel   WhiteLabel? @relation("WhiteLabelCreditLinks", fields: [whiteLabelId], references: [id], onDelete: Cascade)
-  updatedAt DateTime @updatedAt
+  whiteLabelId     String?
+  whiteLabel       WhiteLabel? @relation("WhiteLabelCreditLinks", fields: [whiteLabelId], references: [id], onDelete: Cascade)
+  updatedAt        DateTime    @updatedAt
 
   purchases HotmartCreditPurchase[]
 
@@ -4584,24 +4627,24 @@ model HotmartCreditLink {
 /// UNASSIGNED y el PLATFORM_OWNER la reasigna manualmente desde
 /// /superadmin/creditos.
 model HotmartCreditPurchase {
-  id              String     @id @default(uuid())
-  transactionId   String     @unique
+  id               String             @id @default(uuid())
+  transactionId    String             @unique
   /// productId de Hotmart (`payload.data.product.id`). Nullable porque
   /// las rows legacy (pre-2026-06-14) podían tener este valor en NULL.
   hotmartProductId String?
-  creditLinkId    String?
-  creditLink      HotmartCreditLink? @relation(fields: [creditLinkId], references: [id], onDelete: SetNull)
-  credits         Int
-  buyerEmail      String
-  whiteLabelId    String?
-  whiteLabel      WhiteLabel? @relation(fields: [whiteLabelId], references: [id], onDelete: SetNull)
+  creditLinkId     String?
+  creditLink       HotmartCreditLink? @relation(fields: [creditLinkId], references: [id], onDelete: SetNull)
+  credits          Int
+  buyerEmail       String
+  whiteLabelId     String?
+  whiteLabel       WhiteLabel?        @relation(fields: [whiteLabelId], references: [id], onDelete: SetNull)
   /// ASSIGNED = créditos acreditados a una marca · UNASSIGNED = pendiente de
   /// reasignación manual · REFUNDED = pendiente cuando llegue evento de refund.
-  status          String     @default("UNASSIGNED")
+  status           String             @default("UNASSIGNED")
   /// Payload original del webhook (para debugging). Required en DB.
-  rawPayload      Json
-  createdAt       DateTime   @default(now())
-  assignedAt      DateTime?
+  rawPayload       Json
+  createdAt        DateTime           @default(now())
+  assignedAt       DateTime?
 
   @@index([status])
   @@index([whiteLabelId])
@@ -4611,18 +4654,18 @@ model HotmartCreditPurchase {
 /// Integraciones globales de la plataforma (NO marcas blancas). Ejemplo:
 /// GrowBusiness SMS. Editables desde /superadmin/integraciones.
 model PlatformIntegration {
-  id        String   @id @default(uuid())
+  id          String   @id @default(uuid())
   /// Identificador de la integración ("grow_business").
-  key       String   @unique
+  key         String   @unique
   /// Nombre visible ("GrowBusiness").
-  name      String
+  name        String
   description String?  @db.Text
   /// Si está conectada y operativa.
-  status    String   @default("DISCONNECTED")
+  status      String   @default("DISCONNECTED")
   /// Credenciales/datos serializados (API key, config). En lectura se
   /// expone enmascarada al frontend.
-  config    Json     @default("{}")
-  updatedAt DateTime @updatedAt
+  config      Json     @default("{}")
+  updatedAt   DateTime @updatedAt
 }
 
 /// Invitaciones para sumar SUPER_ADMINs a una marca blanca específica.
@@ -4630,21 +4673,21 @@ model PlatformIntegration {
 /// invitado queda como User role=SUPER_ADMIN, whiteLabelId=<marca>,
 /// tenantId=null. Sólo ve los tenants de su marca.
 model WhiteLabelAdminInvite {
-  id            String     @id @default(uuid())
-  whiteLabelId  String
-  whiteLabel    WhiteLabel @relation(fields: [whiteLabelId], references: [id], onDelete: Cascade)
-  email         String
-  fullName      String
+  id           String     @id @default(uuid())
+  whiteLabelId String
+  whiteLabel   WhiteLabel @relation(fields: [whiteLabelId], references: [id], onDelete: Cascade)
+  email        String
+  fullName     String
   /// Hash SHA-256 del token. El token plano sólo se envía en el email.
-  tokenHash     String     @unique
-  invitedById   String
-  invitedBy     User       @relation("WhiteLabelAdminInviteInviter", fields: [invitedById], references: [id])
-  expiresAt     DateTime
-  acceptedAt    DateTime?
-  acceptedById  String?
-  acceptedBy    User?      @relation("WhiteLabelAdminInviteAcceptor", fields: [acceptedById], references: [id])
-  revokedAt     DateTime?
-  createdAt     DateTime   @default(now())
+  tokenHash    String     @unique
+  invitedById  String
+  invitedBy    User       @relation("WhiteLabelAdminInviteInviter", fields: [invitedById], references: [id])
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  acceptedById String?
+  acceptedBy   User?      @relation("WhiteLabelAdminInviteAcceptor", fields: [acceptedById], references: [id])
+  revokedAt    DateTime?
+  createdAt    DateTime   @default(now())
 
   @@index([whiteLabelId])
   @@index([email])
@@ -4657,20 +4700,195 @@ model WhiteLabelAdminInvite {
 /// y queda creado como User con role=PLATFORM_OWNER. Una invitación se
 /// puede revocar mientras siga pendiente.
 model PlatformOwnerInvite {
-  id          String    @id @default(uuid())
-  email       String
-  fullName    String
+  id           String    @id @default(uuid())
+  email        String
+  fullName     String
   /// Hash SHA-256 del token. El token plano sólo se envía en el email.
-  tokenHash   String    @unique
-  invitedById String
-  invitedBy   User      @relation("PlatformOwnerInviteInviter", fields: [invitedById], references: [id])
-  expiresAt   DateTime
-  acceptedAt  DateTime?
+  tokenHash    String    @unique
+  invitedById  String
+  invitedBy    User      @relation("PlatformOwnerInviteInviter", fields: [invitedById], references: [id])
+  expiresAt    DateTime
+  acceptedAt   DateTime?
   acceptedById String?
-  acceptedBy  User?     @relation("PlatformOwnerInviteAcceptor", fields: [acceptedById], references: [id])
-  revokedAt   DateTime?
-  createdAt   DateTime  @default(now())
+  acceptedBy   User?     @relation("PlatformOwnerInviteAcceptor", fields: [acceptedById], references: [id])
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
 
   @@index([email])
   @@index([acceptedAt, revokedAt])
+}
+
+// ============================================================
+//   CUPONERA / LIVING CARD (Fase 1) — campañas de beneficios comunitarios
+// ------------------------------------------------------------
+//   Marketplace de beneficios tipo Cuponatic: un miembro paga una membresía
+//   y recibe una tarjeta digital en Wallet con la que redime beneficios en
+//   negocios aliados. NO confundir con `model Campaign` (afiliados/referidos).
+//   La campaña se respalda en un Tenant "de sistema" (Tenant.isCampaignHost)
+//   para reusar TODO el stack Wallet (Card/Pass/Customer/Location/push).
+// ============================================================
+
+enum BenefitCampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+}
+
+enum MembershipInterval {
+  MONTHLY
+  ANNUAL
+}
+
+enum MembershipStatus {
+  PENDING
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum MembershipSource {
+  MANUAL
+  MERCADOPAGO
+}
+
+enum MembershipOrderStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+/// Una campaña de beneficios comunitaria (la primera = "Living Card").
+model BenefitCampaign {
+  id           String                @id @default(uuid())
+  /// Marca dueña de la campaña (aislamiento). Null = Clubify.
+  whiteLabelId String?
+  whiteLabel   WhiteLabel?           @relation(fields: [whiteLabelId], references: [id], onDelete: SetNull)
+  /// Tenant "de sistema" que respalda la campaña (isCampaignHost=true). Aquí
+  /// viven los Customer (miembros), el Card (plantilla) y los Location.
+  tenantId     String                @unique
+  tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Plantilla visual de la tarjeta Living Card (un Card del tenant de sistema).
+  /// Null hasta que el admin la diseña por primera vez.
+  cardId       String?
+  name         String
+  slug         String                @unique
+  status       BenefitCampaignStatus @default(DRAFT)
+  welcomeText  String                @default("")
+  /// Branding del marketplace + credenciales MercadoPago (secretos CIFRADOS con
+  /// secret-box). Forma: { mp: { accessToken(enc), webhookSecret(enc), publicKey },
+  /// marketplace: {...} }.
+  config       Json                  @default("{}")
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  plans       MembershipPlan[]
+  categories  BenefitCategory[]
+  memberships LivingMembership[]
+  orders      MembershipOrder[]
+
+  @@index([whiteLabelId])
+}
+
+/// Plan de acceso a una campaña (Basic/Plus/VIP/Builder).
+model MembershipPlan {
+  id                  String             @id @default(uuid())
+  campaignId          String
+  campaign            BenefitCampaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name                String
+  level               Int                @default(0)
+  /// Precio en la unidad menor de la moneda. COP no tiene decimales → son pesos.
+  priceCents          Int                @default(0)
+  currency            String             @default("COP")
+  interval            MembershipInterval @default(MONTHLY)
+  /// Nº de beneficios incluidos. Null = ilimitado.
+  benefitsAllowance   Int?
+  description         String             @default("")
+  isActive            Boolean            @default(true)
+  sortOrder           Int                @default(0)
+  /// Id del plan de preapproval en MercadoPago (si se asocia a un plan MP).
+  mpPreapprovalPlanId String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  memberships LivingMembership[]
+  orders      MembershipOrder[]
+
+  @@index([campaignId])
+}
+
+/// Membresía de un cliente (Customer del tenant de sistema) a una campaña.
+model LivingMembership {
+  id              String           @id @default(uuid())
+  campaignId      String
+  campaign        BenefitCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customerId      String
+  customer        Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  planId          String?
+  plan            MembershipPlan?  @relation(fields: [planId], references: [id], onDelete: SetNull)
+  status          MembershipStatus @default(PENDING)
+  source          MembershipSource @default(MANUAL)
+  memberLevel     Int              @default(0)
+  activatedAt     DateTime?
+  expiresAt       DateTime?
+  /// Pass emitido (Wallet). Se llena al activar la membresía.
+  passId          String?
+  mpPreapprovalId String?
+  mpPayerId       String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([campaignId, customerId])
+  @@index([customerId])
+  @@index([status])
+}
+
+/// Categoría de beneficios administrable (Restaurantes, Cafés, Living Kids…).
+model BenefitCategory {
+  id         String          @id @default(uuid())
+  campaignId String
+  campaign   BenefitCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  name       String
+  slug       String
+  icon       String          @default("")
+  sortOrder  Int             @default(0)
+  isActive   Boolean         @default(true)
+  createdAt  DateTime        @default(now())
+
+  @@unique([campaignId, slug])
+  @@index([campaignId])
+}
+
+/// Orden de pago de una membresía (provider-agnóstico; hoy MercadoPago).
+model MembershipOrder {
+  id          String                @id @default(uuid())
+  campaignId  String
+  campaign    BenefitCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  planId      String?
+  plan        MembershipPlan?       @relation(fields: [planId], references: [id], onDelete: SetNull)
+  customerId  String?
+  email       String                @default("")
+  amountCents Int                   @default(0)
+  currency    String                @default("COP")
+  status      MembershipOrderStatus @default(PENDING)
+  provider    PaymentGateway        @default(MERCADOPAGO)
+  /// Referencia externa (preapproval id / payment id de MercadoPago).
+  providerRef String?
+  rawPayload  Json                  @default("{}")
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@index([campaignId])
+  @@index([providerRef])
+}
+
+/// Idempotencia del webhook MercadoPago (análogo a StripeWebhookEvent).
+model MercadopagoWebhookEvent {
+  id          String   @id @default(uuid())
+  eventId     String   @unique
+  eventType   String
+  campaignId  String?
+  payload     Json
+  processedAt DateTime @default(now())
+
+  @@index([campaignId, eventType, processedAt])
 }
