@@ -114,16 +114,28 @@ export function DeliveryAlertsCard<T extends DeliveryAlertsData>({
   async function test() {
     setTesting(true);
     try {
+      // Enviamos los teléfonos que están EN PANTALLA (aunque no se haya dado
+      // "Guardar cambios" aún) para probar exactamente lo que el usuario ve.
       const res = await api<{
         ok: boolean;
         total: number;
         okCount: number;
         results: { phone: string; ok: boolean; message: string | null }[];
-      }>(testPath, { method: 'POST' });
+      }>(testPath, { method: 'POST', body: JSON.stringify({ phones }) });
       if (res?.ok) {
-        toast(`SMS enviado a ${res.okCount}/${res.total} destinos`, 'success');
+        toast(
+          `SMS aceptado por el proveedor para ${res.okCount}/${res.total} número(s). ` +
+            'Si no llega en 1-2 min, verifica que la subcuenta pueda enviar SMS a ese país.',
+          'success',
+        );
       } else {
-        toast('Ningún SMS pudo enviarse — revisa credenciales y números', 'error');
+        const firstErr = res?.results?.find((r) => !r.ok)?.message;
+        toast(
+          firstErr
+            ? `No se pudo enviar: ${firstErr}`
+            : 'Ningún SMS pudo enviarse — revisa credenciales y números',
+          'error',
+        );
       }
     } catch (e: unknown) {
       toast((e as Error).message || 'No se pudo probar', 'error');

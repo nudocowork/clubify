@@ -10,6 +10,10 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import {
+  brandGrowCreds,
+  BRAND_GROW_SELECT,
+} from '../integrations/brand-sms-creds.util';
 import { BillingService } from '../billing/billing.service';
 import {
   IsBoolean,
@@ -94,6 +98,12 @@ class UpdateMyBody {
   @IsOptional() @IsInt() @Min(1) @Max(20) maxStampsPerDay?: number;
 }
 
+// Body opcional del test de alertas de domicilio: permite probar los teléfonos
+// que están EN PANTALLA (aunque el usuario no haya dado "Guardar cambios" aún).
+class DeliveryTestBody {
+  @IsOptional() phones?: string[];
+}
+
 @Controller('tenants/me')
 @Roles('TENANT_OWNER', 'TENANT_STAFF')
 export class TenantMeController {
@@ -109,7 +119,10 @@ export class TenantMeController {
    *  el array está vacío). Útil para validar antes de recibir un
    *  pedido real. */
   @Post('delivery-alerts/test')
-  async testDeliveryAlert(@CurrentUser() user: AuthUser) {
+  async testDeliveryAlert(
+    @CurrentUser() user: AuthUser,
+    @Body() body: DeliveryTestBody,
+  ) {
     if (!user.tenantId) throw new ForbiddenException();
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: user.tenantId },
@@ -122,15 +135,26 @@ export class TenantMeController {
         growBusinessLocationId: true,
         growBusinessApiKey: true,
         growBusinessSwitchNumber: true,
+        // Fallback a la subcuenta de la MARCA — igual que el envío real
+        // (orders.service.maybeNotifyDeliveryAlert). Sin esto, un negocio de
+        // marca blanca que envía por la subcuenta de su marca no podía probar.
+        whiteLabel: { select: BRAND_GROW_SELECT },
       },
     });
     if (!tenant) throw new ForbiddenException();
 
-    const phones: string[] = Array.isArray(tenant.deliveryAlertsPhones)
+    // Prioridad de teléfonos: los que llegan del panel (aún sin "Guardar
+    // cambios") > los persistidos > whatsappDeliveryPhone. Así "Probar SMS"
+    // prueba EXACTAMENTE lo que el usuario ve en pantalla.
+    const fromBody = Array.isArray(body?.phones)
+      ? body.phones.filter((p) => typeof p === 'string' && p.trim().length >= 6)
+      : [];
+    const fromDb = Array.isArray(tenant.deliveryAlertsPhones)
       ? (tenant.deliveryAlertsPhones as string[]).filter(
           (p) => typeof p === 'string' && p.trim().length >= 6,
         )
       : [];
+    const phones = (fromBody.length > 0 ? fromBody : fromDb).map((p) => p.trim());
     if (phones.length === 0 && tenant.whatsappDeliveryPhone) {
       phones.push(tenant.whatsappDeliveryPhone);
     }
@@ -165,26 +189,42 @@ export class TenantMeController {
         switchNumber: tenant.growBusinessSwitchNumber,
       };
     }
+    // Último recurso: subcuenta GHL de la marca blanca (nunca Clubify).
+    if (!creds) creds = brandGrowCreds(tenant.whiteLabel);
     if (!creds) {
       throw new BadRequestException(
         'Sin credenciales — asigna una subcuenta o conecta Grow Business para el negocio.',
       );
     }
 
-    const body =
+    const smsBody =
       '🧪 Test de alerta de domicilio\n\n' +
       `Negocio: ${tenant.brandName}\n` +
       'Si recibiste este SMS, las alertas de pedidos delivery están listas.';
     const results = await Promise.all(
       phones.map(async (p) => {
         const r = await this.growBusiness
-          .sendSmsWithCreds(creds!, p, body)
+          .sendSmsWithCreds(creds!, p, smsBody)
           .catch((e) => ({ ok: false as const, message: e?.message }));
-        return { phone: p, ok: r.ok, message: !r.ok ? (r as any).message : null };
+        return {
+          phone: p,
+          ok: r.ok,
+          id: (r as any).id ?? null,
+          message: !r.ok ? (r as any).message : null,
+        };
       }),
     );
     const okCount = results.filter((r) => r.ok).length;
-    return { ok: okCount > 0, total: phones.length, okCount, results };
+    // Nota: ok = el proveedor (Grow Business) ACEPTÓ el mensaje. La entrega al
+    // teléfono depende del operador/país (ej. Venezuela +58 puede requerir que
+    // la subcuenta tenga habilitado el SMS internacional a ese país).
+    return {
+      ok: okCount > 0,
+      total: phones.length,
+      okCount,
+      results,
+      note: 'accepted_by_provider',
+    };
   }
 
   /** Test del SMS de billing — manda un mensaje genérico al teléfono de
