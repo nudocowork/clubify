@@ -163,8 +163,22 @@ function mergeWhereAndIn(args: any, tenantIds: string[], model: string) {
  * pertenezca a la marca; las escrituras ambiguas (sin tenantId) se bloquean
  * — el SUPER_ADMIN debe entrar al negocio específico para crearlas.
  */
-function guardWhiteLabelCreate(args: any, tenantIds: string[], model: string) {
+function guardWhiteLabelCreate(
+  args: any,
+  tenantIds: string[],
+  model: string,
+  whiteLabelId?: string | null,
+) {
   const tid = args?.data?.tenantId;
+  // Caso especial User (PDF245 P9): un admin/marketing DE MARCA se identifica
+  // por `whiteLabelId` (no `tenantId`), igual que el modelo Tenant se identifica
+  // por `id`. Permitimos crearlo sin tenantId cuando su `whiteLabelId` coincide
+  // con la marca activa del scope. Así Sellea puede crear administradores
+  // internos de su marca desde /admin/users sin bajar a un negocio.
+  if (model === 'User' && tid == null) {
+    const wl = args?.data?.whiteLabelId;
+    if (whiteLabelId && wl === whiteLabelId) return args;
+  }
   if (tid == null) {
     throw new ForbiddenException(
       `Escritura en ${model} bloqueada en modo marca-blanca sin tenantId explícito: entrá al negocio específico para crear registros.`,
@@ -267,7 +281,12 @@ export function tenantMiddleware(): Prisma.Middleware {
         params.args =
           scope.kind === 'tenant'
             ? injectCreateData(params.args, scope.tenantId, model)
-            : guardWhiteLabelCreate(params.args, scope.tenantIds, model);
+            : guardWhiteLabelCreate(
+                params.args,
+                scope.tenantIds,
+                model,
+                scope.whiteLabelId,
+              );
         break;
 
       case 'createMany':

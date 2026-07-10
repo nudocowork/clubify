@@ -14,6 +14,8 @@ import {
   globalMsgEnabledKey,
   SYSTEM_FOLDERS,
 } from '../integrations/brand-message-templates';
+import { GrowBusinessService } from '../integrations/grow-business.service';
+import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash } from 'crypto';
 
@@ -25,6 +27,19 @@ const PAYMENT_SECRET_FIELDS = new Set([
   'webhookSecret',
   'secretKey',
 ]);
+
+// Validación de formato de claves Stripe (PDF245 P5). Evita guardar un valor
+// equivocado — p.ej. pegar el Destination ID del webhook (`ed_...`) en el campo
+// de Secret Key. Solo se valida cuando la pasarela es STRIPE y llega un valor
+// nuevo en plano.
+const STRIPE_KEY_FORMATS: Record<
+  string,
+  { re: RegExp; label: string; hint: string }
+> = {
+  secretKey: { re: /^sk_(live|test)_/, label: 'Secret Key', hint: '"sk_live_" (o sk_test_)' },
+  publishableKey: { re: /^pk_(live|test)_/, label: 'Publishable Key', hint: '"pk_live_" (o pk_test_)' },
+  webhookSecret: { re: /^whsec_/, label: 'Webhook Secret', hint: '"whsec_"' },
+};
 
 export type PaymentConfigDto = {
   gateway?: PaymentGateway;
@@ -115,6 +130,7 @@ export class SuperAdminService {
     private audit: AuditService,
     private email: EmailService,
     private wlNotifications: WhiteLabelNotificationsService,
+    private grow: GrowBusinessService,
   ) {}
 
   /** PLATFORM_OWNER entra al panel de una marca blanca como su SUPER_ADMIN.
@@ -244,8 +260,9 @@ export class SuperAdminService {
         },
         orderBy: { name: 'asc' },
       }),
-      this.prisma.tenant.count({ where: { status: 'ACTIVE' } }),
-      this.prisma.tenant.count({ where: { status: 'SUSPENDED' } }),
+      // isCampaignHost: excluye el tenant de sistema de Cuponera del conteo.
+      this.prisma.tenant.count({ where: { status: 'ACTIVE', isCampaignHost: false } }),
+      this.prisma.tenant.count({ where: { status: 'SUSPENDED', isCampaignHost: false } }),
       // "Pendiente de activación" = trial expirado o sin currentPeriodEnd
       this.prisma.tenant.count({
         where: {
@@ -889,6 +906,23 @@ export class SuperAdminService {
       for (const [k, rawV] of Object.entries(dto.config)) {
         if (rawV === undefined) continue;
         const v = typeof rawV === 'string' ? rawV.trim() : rawV;
+        // Validación de formato Stripe: solo valores NUEVOS en plano (no
+        // vacíos/enmascarados/ya cifrados) y solo si la pasarela es STRIPE.
+        if (
+          dto.gateway === 'STRIPE' &&
+          typeof v === 'string' &&
+          v !== '' &&
+          !isEncrypted(v) &&
+          !v.includes('•')
+        ) {
+          const rule = STRIPE_KEY_FORMATS[k];
+          if (rule && !rule.re.test(v)) {
+            throw new BadRequestException(
+              `El campo "${rule.label}" debe empezar con ${rule.hint}. ` +
+                'Revisa que no hayas pegado otro valor (por ejemplo el Destination ID del webhook).',
+            );
+          }
+        }
         if (PAYMENT_SECRET_FIELDS.has(k)) {
           // Vacío / enmascarado / ya cifrado = "sin cambios" → conservar.
           if (v == null || v === '') continue;
@@ -1013,6 +1047,9 @@ export class SuperAdminService {
   private customFoldersKey(wlId: string) {
     return `autom.folders.${wlId}`;
   }
+  private testPhoneKey(wlId: string) {
+    return `autom.testphone.${wlId}`;
+  }
   private assignKey(wlId: string) {
     return `autom.assign.${wlId}`;
   }
@@ -1032,6 +1069,7 @@ export class SuperAdminService {
         id: true,
         name: true,
         modules: { select: { module: true, enabled: true } },
+        ...BRAND_GROW_SELECT,
       },
     });
     if (!wl) throw new NotFoundException();
@@ -1100,7 +1138,75 @@ export class SuperAdminService {
         source: brand ? 'brand' : global ? 'global' : 'default',
       };
     });
-    return { smsEnabled, folders, templates };
+    const testPhone =
+      (await this.prisma.setting
+        .findUnique({ where: { key: this.testPhoneKey(id) } })
+        .catch(() => null))?.value ?? '';
+    const growConnected = !!brandGrowCreds(wl);
+    return { smsEnabled, growConnected, testPhone, folders, templates };
+  }
+
+  /** Guarda el número de prueba de la marca (para el botón "Probar"). */
+  async setBrandTestPhone(id: string, phone: string, actorId: string) {
+    const p = (phone ?? '').trim();
+    const key = this.testPhoneKey(id);
+    if (!p) await this.prisma.setting.deleteMany({ where: { key } });
+    else
+      await this.prisma.setting.upsert({
+        where: { key },
+        update: { value: p },
+        create: { key, value: p },
+      });
+    void actorId;
+    return { ok: true, phone: p };
+  }
+
+  /** Envía un SMS de PRUEBA (texto de una plantilla, con valores demo) al número
+   *  de prueba guardado, usando la subcuenta de Grow Business de la marca. */
+  async testBrandMessage(
+    id: string,
+    templateId: string,
+    text: string | null | undefined,
+  ) {
+    const def = brandMsgCatalog().find((t) => t.id === templateId);
+    if (!def) throw new NotFoundException('Plantilla no encontrada');
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      select: { name: true, ...BRAND_GROW_SELECT },
+    });
+    if (!wl) throw new NotFoundException();
+    const creds = brandGrowCreds(wl);
+    if (!creds)
+      throw new BadRequestException(
+        'La marca no tiene subcuenta de Grow Business conectada.',
+      );
+    const phone =
+      (await this.prisma.setting
+        .findUnique({ where: { key: this.testPhoneKey(id) } })
+        .catch(() => null))?.value ?? '';
+    if (!phone.trim())
+      throw new BadRequestException('Guarda un número de prueba primero.');
+
+    const brandName = wl.name || 'Clubify';
+    const demo: Record<string, string> = {
+      platform: brandName,
+      brandName,
+      ownerName: 'Prueba',
+      customerName: 'Cliente',
+      businessName: brandName,
+      chargeDate: 'hoy',
+      date: 'hoy',
+      amount: '$50',
+      rating: '5',
+      feedback: 'Excelente',
+      feedbackUrl: 'https://ejemplo.com',
+    };
+    const body = (text ?? def.default).replace(
+      /\{(\w+)\}/g,
+      (_m, k: string) => demo[k] ?? '',
+    );
+    const res = await this.grow.sendSmsWithCreds(creds, phone.trim(), body);
+    return { ok: res.ok, message: res.ok ? undefined : (res as { message?: string }).message };
   }
 
   /**

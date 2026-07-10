@@ -41,7 +41,7 @@ export type TenantCtx = {
  */
 export type EnforcedScope =
   | { kind: 'tenant'; tenantId: string }
-  | { kind: 'whiteLabel'; tenantIds: string[] }
+  | { kind: 'whiteLabel'; tenantIds: string[]; whiteLabelId: string | null }
   | null;
 
 const storage = new AsyncLocalStorage<TenantCtx>();
@@ -93,7 +93,11 @@ export const TenantContext = {
     // tenants ya resuelto por el interceptor. Prioridad sobre el bypass
     // global de SUPER_ADMIN.
     if (ctx.whiteLabelTenantIds) {
-      return { kind: 'whiteLabel', tenantIds: ctx.whiteLabelTenantIds };
+      return {
+        kind: 'whiteLabel',
+        tenantIds: ctx.whiteLabelTenantIds,
+        whiteLabelId: ctx.whiteLabelId ?? null,
+      };
     }
     if (ctx.role === 'SUPER_ADMIN' || ctx.role === 'MARKETING') return null;
     if (ctx.tenantId) return { kind: 'tenant', tenantId: ctx.tenantId };

@@ -1488,8 +1488,13 @@ export class OrdersService {
 
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      select: { total: true },
+      select: { total: true, fulfillment: true },
     });
+    // BUG PDF245: un pedido a DOMICILIO NO debe emitir pase ni sumar sello
+    // automáticamente. El cliente ya se creó (en createPublic, SIN pase); si
+    // tiene tarjeta, el negocio decide cuándo sellar; si no, no se le inventa
+    // un pase. Solo mesa/mostrador/pickup mantienen el auto-sello.
+    if (order?.fulfillment === 'DELIVERY') return;
     const orderTotal = Number(order?.total ?? 0);
 
     for (const card of cards) {
