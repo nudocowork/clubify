@@ -9,7 +9,7 @@
 // importantes que necesitan invalidar TODA la cache de los clientes.
 // Cada vez que cambia, el SW activate purga las caches viejas y los clientes
 // vuelven a descargar todo fresh.
-const VERSION = 'v26-2026-07-10-service-reservations-fase2-panel';
+const VERSION = 'v27-2026-07-10-service-reservations-fase3-public';
 const SHELL_CACHE = `clubify-shell-${VERSION}`;
 const ASSET_CACHE = `clubify-assets-${VERSION}`;
 
@@ -65,6 +65,7 @@ self.addEventListener('activate', (event) => {
             pn.startsWith('/c/') ||
             pn.startsWith('/r/') ||
             pn.startsWith('/q/') ||
+            pn.startsWith('/cita/') ||
             pn.startsWith('/signup') ||
             pn.startsWith('/prueba') ||
             pn.startsWith('/trial')
@@ -101,6 +102,7 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/c/') ||
     url.pathname.startsWith('/r/') ||
     url.pathname.startsWith('/q/') ||
+    url.pathname.startsWith('/cita/') ||
     url.pathname.startsWith('/signup') ||
     url.pathname.startsWith('/prueba') ||
     url.pathname.startsWith('/trial') ||

@@ -74,18 +74,21 @@ export default function ServiciosPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [availability, setAvailability] = useState<Avail[]>([]);
   const [timezone, setTimezone] = useState('America/Bogota');
+  const [slug, setSlug] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadConfig = useCallback(async () => {
     try {
       const c = await api<{
         timezone: string;
+        slug: string | null;
         services: Service[];
         availability: Avail[];
       }>('/service-reservations/config');
       setServices(c?.services ?? []);
       setAvailability(c?.availability ?? []);
       setTimezone(c?.timezone ?? 'America/Bogota');
+      setSlug(c?.slug ?? null);
     } catch {
       /* noop */
     } finally {
@@ -99,9 +102,30 @@ export default function ServiciosPage() {
   return (
     <div className="max-w-3xl">
       <h1 className="text-xl font-bold m-0 mb-1">Reservas de servicios</h1>
-      <p className="text-xs mb-4" style={{ color: '#9aa4af' }}>
+      <p className="text-xs mb-3" style={{ color: '#9aa4af' }}>
         Configura tus servicios y horarios, y gestiona la agenda de citas.
       </p>
+      {slug && (
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-[10px] px-3 py-2 mb-4 text-xs"
+          style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}
+        >
+          <span>🔗 Link para tus clientes:</span>
+          <code className="font-mono">{`${typeof window !== 'undefined' ? window.location.origin : ''}/cita/${slug}`}</code>
+          <button
+            onClick={() => {
+              navigator.clipboard
+                ?.writeText(`${window.location.origin}/cita/${slug}`)
+                .then(() => toast('Link copiado', 'success'))
+                .catch(() => null);
+            }}
+            className="ml-auto font-semibold"
+            style={{ color: '#1d4ed8' }}
+          >
+            Copiar
+          </button>
+        </div>
+      )}
 
       <div className="flex gap-2 mb-4">
         {(

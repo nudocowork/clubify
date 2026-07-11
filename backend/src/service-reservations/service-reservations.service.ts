@@ -105,7 +105,7 @@ export class ServiceReservationsService {
     const [tenant, services, availability] = await Promise.all([
       this.prisma.tenant.findUnique({
         where: { id: tid },
-        select: { serviceReservationsEnabled: true, timezone: true },
+        select: { serviceReservationsEnabled: true, timezone: true, slug: true },
       }),
       this.prisma.service.findMany({
         where: { tenantId: tid },
@@ -119,6 +119,7 @@ export class ServiceReservationsService {
     return {
       enabled: tenant?.serviceReservationsEnabled ?? false,
       timezone: tenant?.timezone ?? 'America/Bogota',
+      slug: tenant?.slug ?? null,
       services,
       availability,
     };
@@ -377,6 +378,80 @@ export class ServiceReservationsService {
       }
     }
     return { slots };
+  }
+
+  // ───────────────── Público (reserva del cliente) — Fase 3 ─────────────────
+
+  /** Resuelve el tenant por slug si tiene reservas de servicios habilitadas. */
+  private async resolveEnabledTenant(slug: string): Promise<string> {
+    const t = await this.prisma.tenant.findUnique({
+      where: { slug },
+      select: { id: true, status: true, serviceReservationsEnabled: true },
+    });
+    if (!t || t.status === 'SUSPENDED' || !t.serviceReservationsEnabled) {
+      throw new NotFoundException('Reservas de servicios no disponibles.');
+    }
+    return t.id;
+  }
+
+  /** Info pública del negocio + servicios activos (para la página de reserva). */
+  async publicInfo(slug: string) {
+    const t = await this.prisma.tenant.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        serviceReservationsEnabled: true,
+        timezone: true,
+        logoUrl: true,
+        primaryColor: true,
+      },
+    });
+    if (!t || t.status === 'SUSPENDED' || !t.serviceReservationsEnabled) {
+      throw new NotFoundException('Reservas de servicios no disponibles.');
+    }
+    const services = await this.prisma.service.findMany({
+      where: { tenantId: t.id, isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        durationMin: true,
+        priceCents: true,
+      },
+    });
+    return {
+      businessName: t.brandName,
+      logoUrl: t.logoUrl,
+      primaryColor: t.primaryColor,
+      timezone: t.timezone,
+      services,
+    };
+  }
+
+  async publicSlots(slug: string, serviceId: string, dateStr: string) {
+    const tid = await this.resolveEnabledTenant(slug);
+    return this.getAvailableSlots(tid, serviceId, dateStr);
+  }
+
+  async publicBook(
+    slug: string,
+    dto: {
+      serviceId: string;
+      startAt: string;
+      customerName: string;
+      customerPhone: string;
+      notes?: string;
+    },
+  ) {
+    const tid = await this.resolveEnabledTenant(slug);
+    const appt = await this.createAppointment(tid, {
+      ...dto,
+      status: 'confirmed',
+    });
+    return { ok: true, id: appt.id, startAt: appt.startAt, endAt: appt.endAt };
   }
 
   // ───────────────── Citas ─────────────────
