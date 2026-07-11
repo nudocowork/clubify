@@ -104,6 +104,12 @@ class DeliveryTestBody {
   @IsOptional() phones?: string[];
 }
 
+// Igual para el test de alertas de reseña — permite probar uno o varios
+// números en pantalla (PDF454). Si no llegan, cae al teléfono configurado.
+class ReviewTestBody {
+  @IsOptional() phones?: string[];
+}
+
 @Controller('tenants/me')
 @Roles('TENANT_OWNER', 'TENANT_STAFF')
 export class TenantMeController {
@@ -268,7 +274,10 @@ export class TenantMeController {
    *  end-to-end (credenciales + número destino) antes de confiar en una
    *  reseña real. Requiere reviewAlertsEnabled + Grow Business conectado. */
   @Post('review-alerts/test')
-  async testReviewAlert(@CurrentUser() user: AuthUser) {
+  async testReviewAlert(
+    @CurrentUser() user: AuthUser,
+    @Body() body: ReviewTestBody,
+  ) {
     if (!user.tenantId) throw new ForbiddenException();
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: user.tenantId },
@@ -285,11 +294,16 @@ export class TenantMeController {
         growBusinessLocationId: true,
         growBusinessApiKey: true,
         growBusinessSwitchNumber: true,
+        // Fallback a la subcuenta de la MARCA — igual que el envío real
+        // (reviews.service.maybeNotifyReviewAlert). Sin esto, un negocio de
+        // marca blanca (Sellea) que envía por la subcuenta de su marca NO
+        // recibía nada al probar aunque el envío real sí funciona (PDF454).
+        whiteLabel: { select: BRAND_GROW_SELECT },
       },
     });
     if (!tenant) throw new ForbiddenException();
 
-    // Mismo orden que reviews.service: subcuenta global > creds tenant.
+    // Mismo orden que reviews.service: subcuenta global > creds tenant > marca.
     let creds: {
       locationId: string;
       apiKey: string;
@@ -315,42 +329,65 @@ export class TenantMeController {
         switchNumber: tenant.growBusinessSwitchNumber,
       };
     }
+    // Último recurso: subcuenta GHL de la marca blanca (nunca Clubify).
+    if (!creds) creds = brandGrowCreds(tenant.whiteLabel);
     if (!creds) {
       throw new BadRequestException(
-        'No hay subcuenta Grow Business asignada ni credenciales propias para este negocio.',
+        'Sin credenciales — asigna una subcuenta o conecta Grow Business para el negocio.',
       );
     }
 
-    let toPhone = tenant.reviewAlertsPhone?.trim() || '';
-    if (!toPhone) {
-      const owner = await this.prisma.user.findFirst({
-        where: { tenantId: tenant.id, role: 'TENANT_OWNER' },
-        select: { phone: true },
-      });
-      toPhone =
-        owner?.phone?.trim() ||
-        tenant.whatsappPhone?.trim() ||
-        tenant.phone?.trim() ||
-        '';
+    // Teléfonos destino: los que llegan del panel (aunque no se haya guardado)
+    // > el override persistido > owner/whatsapp/phone. Permite varios números.
+    const fromBody = Array.isArray(body?.phones)
+      ? body.phones.filter((p) => typeof p === 'string' && p.trim().length >= 6)
+      : [];
+    const phones = fromBody.map((p) => p.trim());
+    if (phones.length === 0) {
+      let fallback = tenant.reviewAlertsPhone?.trim() || '';
+      if (!fallback) {
+        const owner = await this.prisma.user.findFirst({
+          where: { tenantId: tenant.id, role: 'TENANT_OWNER' },
+          select: { phone: true },
+        });
+        fallback =
+          owner?.phone?.trim() ||
+          tenant.whatsappPhone?.trim() ||
+          tenant.phone?.trim() ||
+          '';
+      }
+      if (fallback) phones.push(fallback);
     }
-    if (!toPhone) {
+    if (phones.length === 0) {
       throw new BadRequestException(
-        'Sin teléfono destino configurado (ni override ni owner ni whatsappPhone).',
+        'Sin teléfono destino — agrega al menos uno antes de probar.',
       );
     }
-    const body =
+
+    const smsBody =
       '🧪 Test de alerta de reseñas\n\n' +
       `Negocio: ${tenant.brandName}\n` +
       'Si recibes este SMS, la conexión está lista. Actívala con el toggle.';
-    const result = await this.growBusiness.sendSmsWithCreds(
-      creds,
-      toPhone,
-      body,
+    const results = await Promise.all(
+      phones.map(async (p) => {
+        const r = await this.growBusiness
+          .sendSmsWithCreds(creds!, p, smsBody)
+          .catch((e) => ({ ok: false as const, message: e?.message }));
+        return {
+          phone: p,
+          ok: r.ok,
+          id: (r as any).id ?? null,
+          message: !r.ok ? (r as any).message : null,
+        };
+      }),
     );
+    const okCount = results.filter((r) => r.ok).length;
     return {
-      ok: result.ok,
-      toPhone,
-      response: result,
+      ok: okCount > 0,
+      total: phones.length,
+      okCount,
+      results,
+      note: 'accepted_by_provider',
     };
   }
 

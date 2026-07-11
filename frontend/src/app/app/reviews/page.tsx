@@ -580,17 +580,25 @@ function ReviewAlertsCard({
   async function test() {
     setTesting(true);
     try {
-      const res = await api<{ ok: boolean; toPhone: string; response: any }>(
-        '/tenants/me/review-alerts/test',
-        { method: 'POST' },
-      );
+      // Prueba el número EN PANTALLA (aunque no se haya guardado). Si está
+      // vacío, el backend cae al configurado. El backend resuelve creds:
+      // subcuenta global > propias del negocio > subcuenta de la MARCA (PDF454).
+      const res = await api<{
+        ok: boolean;
+        total: number;
+        okCount: number;
+        results: { phone: string; ok: boolean; message: string | null }[];
+      }>('/tenants/me/review-alerts/test', {
+        method: 'POST',
+        body: JSON.stringify({ phones: phone.trim() ? [phone.trim()] : [] }),
+      });
       if (res.ok) {
-        toast(t('testSmsSent', { phone: res.toPhone }), 'success');
+        const to = res.results?.find((r) => r.ok)?.phone || phone.trim();
+        toast(t('testSmsSent', { phone: to }), 'success');
       } else {
-        toast(
-          t('testSmsFailed', { detail: res.response?.message || t('noDetail') }),
-          'error',
-        );
+        const detail =
+          res.results?.find((r) => !r.ok)?.message || t('noDetail');
+        toast(t('testSmsFailed', { detail }), 'error');
       }
     } catch (e: any) {
       toast(e.message || t('couldNotTest'), 'error');

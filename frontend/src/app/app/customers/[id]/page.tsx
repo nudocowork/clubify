@@ -156,6 +156,7 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
   const [showMore, setShowMore] = useState(false);
   const [moreAmount, setMoreAmount] = useState(2);
   const [morePin, setMorePin] = useState('');
+  const [morePurchase, setMorePurchase] = useState('');
   const required = p.card.stampsRequired ?? 10;
   const stamps = p.card.type === 'STAMPS' ? p.stampsCount : 0;
   const remaining = Math.max(0, required - stamps);
@@ -232,6 +233,14 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
       toast(t('moreStampsInvalid'), 'error');
       return;
     }
+    // El backend exige `purchaseAmount` para STAMPS/VISITS/HYBRID (igual que
+    // 1 sello). Sin monto devolvía "Monto de compra requerido" y no agregaba
+    // los sellos — por eso "Más sellos" parecía no funcionar (PDF454).
+    const purchaseAmount = Number(morePurchase.replace(',', '.'));
+    if (!Number.isFinite(purchaseAmount) || purchaseAmount <= 0) {
+      toast(t('invalidAmount'), 'error');
+      return;
+    }
     setBusy(true);
     try {
       await api('/stamps', {
@@ -240,6 +249,7 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
           passId: p.id,
           action: 'STAMP',
           amount,
+          purchaseAmount,
           ...(morePin.trim() ? { pin: morePin.trim() } : {}),
         }),
       });
@@ -247,6 +257,7 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
       setShowMore(false);
       setMorePin('');
       setMoreAmount(2);
+      setMorePurchase('');
       onChange();
     } catch (e: any) {
       toast(e.message || t('stampAddFailed'), 'error');
@@ -496,6 +507,17 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
               onChange={(e) => setMoreAmount(Number(e.target.value))}
               className="input w-full mb-3"
               autoFocus
+            />
+            <label className="block text-xs text-mute mb-1">
+              {t('moreStampsAmount')}
+            </label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={morePurchase}
+              onChange={(e) => setMorePurchase(e.target.value)}
+              className="input w-full mb-3"
+              placeholder="0"
             />
             <label className="block text-xs text-mute mb-1">
               {t('moreStampsPin')}
