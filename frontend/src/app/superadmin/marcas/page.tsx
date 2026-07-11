@@ -68,6 +68,7 @@ const MODULE_LABELS: Record<string, string> = {
   ORDERS: 'Pedidos',
   GROW_BUSINESS_SMS: 'GrowBusiness SMS',
   REVIEWS: 'Reseñas',
+  SERVICE_RESERVATIONS: 'Reservas de servicios',
 };
 
 // Features de la suscripción (lista "Tu suscripción incluye" del panel billing).

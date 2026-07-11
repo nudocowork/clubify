@@ -1135,6 +1135,9 @@ function AcademyTogglesCard({
   const [reservations, setReservations] = useState<boolean>(
     tenant.reservationsEnabled ?? false,
   );
+  const [serviceReservations, setServiceReservations] = useState<boolean>(
+    tenant.serviceReservationsEnabled ?? false,
+  );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -1148,6 +1151,7 @@ function AcademyTogglesCard({
           tutorialsEnabled: tutorials,
           academyEnabled: academy,
           reservationsEnabled: reservations,
+          serviceReservationsEnabled: serviceReservations,
         }),
       });
       setMsg({ ok: true, text: t('changesSaved') });
@@ -1212,6 +1216,22 @@ function AcademyTogglesCard({
               {t.rich('enableReservationsHelp', {
                 code: (chunks) => <code>{chunks}</code>,
               })}
+            </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={serviceReservations}
+            onChange={(e) => setServiceReservations(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">Reservas de servicios (citas)</div>
+            <div className="text-xs text-mute leading-snug">
+              Habilita el agendamiento de servicios (barbería, spa, clínica…) para
+              este negocio: catálogo de servicios, horarios y agenda de citas.
             </div>
           </div>
         </label>

@@ -64,6 +64,8 @@ import { BroadcastsModule } from './broadcasts/broadcasts.module';
 import { ReservationsModule } from './reservations/reservations.module';
 import { SuperAdminModule } from './superadmin/superadmin.module';
 import { DeliveryModule } from './delivery/delivery.module';
+import { CuponeraModule } from './cuponera/cuponera.module';
+import { ServiceReservationsModule } from './service-reservations/service-reservations.module';
 
 @Module({
   imports: [
@@ -136,6 +138,8 @@ import { DeliveryModule } from './delivery/delivery.module';
     ReservationsModule,
     SuperAdminModule,
     DeliveryModule,
+    CuponeraModule,
+    ServiceReservationsModule,
   ],
   providers: [
     // Sin esto, `ThrottlerModule.forRoot()` y los `@Throttle({...})` por

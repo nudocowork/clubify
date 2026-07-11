@@ -454,6 +454,10 @@ model Tenant {
   /// activa por tenant. Cuando false el sidebar oculta el módulo y el
   /// endpoint público /reserva/:slug devuelve 404.
   reservationsEnabled         Boolean                    @default(false)
+  /// Reservas de SERVICIOS (citas). PDF245 P7 — distinto de reservas de mesa.
+  /// Se activa por negocio desde Master Admin / panel de marca (módulo
+  /// SERVICE_RESERVATIONS). false = oculto en el panel y público 404.
+  serviceReservationsEnabled  Boolean                    @default(false)
   /// Horarios disponibles para reservas online (HH:MM 24h, ej. ["13:00","13:30","21:00"]).
   /// Si vacío, el backend cae al default histórico (turnos almuerzo + cena).
   /// El frontend público los muestra en formato 12h (1:00 p.m.) automáticamente.
@@ -4344,6 +4348,76 @@ model DeliveryVehicle {
   @@index([deliveryCompanyId, isActive])
 }
 
+// ─── Reservas de SERVICIOS (citas/agenda) — PDF245 P7 ───
+// Distinto de las reservas de MESA. Un cliente agenda un Service (duración fija)
+// en un slot disponible. MVP: disponibilidad a nivel NEGOCIO (sin profesional).
+
+/// Servicio agendable (ej. "Corte de cabello", 30 min).
+model Service {
+  id           String        @id @default(cuid())
+  tenantId     String
+  name         String
+  description  String?
+  durationMin  Int           @default(30)
+  priceCents   Int?
+  isActive     Boolean       @default(true)
+  sortOrder    Int           @default(0)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  appointments Appointment[]
+
+  @@index([tenantId, isActive])
+}
+
+/// Horario semanal disponible del negocio (una fila por franja). Tiempos en
+/// minutos desde medianoche en la timezone del tenant (ej. 540=09:00, 1080=18:00).
+model ServiceAvailability {
+  id        String   @id @default(cuid())
+  tenantId  String
+  weekday   Int // 0=domingo … 6=sábado
+  startMin  Int
+  endMin    Int
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, weekday])
+}
+
+/// Excepción para un día puntual: cerrado todo el día o con horario especial.
+model ServiceException {
+  id        String   @id @default(cuid())
+  tenantId  String
+  date      DateTime @db.Date
+  closed    Boolean  @default(true)
+  startMin  Int?
+  endMin    Int?
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, date])
+}
+
+/// Cita agendada. startAt/endAt en UTC (instante absoluto). status =
+/// pending|confirmed|completed|cancelled|no_show.
+model Appointment {
+  id             String    @id @default(cuid())
+  tenantId       String
+  serviceId      String
+  service        Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  customerId     String?
+  customerName   String
+  customerPhone  String
+  startAt        DateTime
+  endAt          DateTime
+  status         String    @default("confirmed")
+  notes          String?
+  reminderSentAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([tenantId, startAt])
+  @@index([serviceId, startAt])
+}
+
 /// Comisión de plataforma generada por un domicilio ENTREGADO (Fase 4). Monto
 /// FIJO por empresa (DeliveryCompany.commissionPerDelivery), repartido entre la
 /// marca blanca y el Master Admin según brandSharePct (snapshot). 1 por delivery.
@@ -4550,6 +4624,9 @@ enum ModuleKey {
   ORDERS
   GROW_BUSINESS_SMS
   REVIEWS
+  // Reservas de servicios (citas/agenda para barberías, spas, peluquerías,
+  // clínicas…). PDF245 P7. Distinto de las reservas de MESA.
+  SERVICE_RESERVATIONS
   // Sección Comunidad / Lab / Tutoriales. Habilitado solo para Clubify por
   // ahora; cada marca blanca lo enciende/apaga por config (sin tocar código).
   COMMUNITY

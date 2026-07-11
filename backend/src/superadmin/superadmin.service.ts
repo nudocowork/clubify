@@ -1959,7 +1959,7 @@ export class SuperAdminService {
    *  los 3 módulos. Si la marca no tiene una fila de
    *  WhiteLabelModule para un módulo, asumimos enabled=false. */
   async modulesMatrix() {
-    const ALL_MODULES: ModuleKey[] = ['REFERRALS', 'ORDERS', 'GROW_BUSINESS_SMS', 'REVIEWS'];
+    const ALL_MODULES: ModuleKey[] = ['REFERRALS', 'ORDERS', 'GROW_BUSINESS_SMS', 'REVIEWS', 'SERVICE_RESERVATIONS'];
     const whiteLabels = await this.prisma.whiteLabel.findMany({
       orderBy: { name: 'asc' },
       include: {

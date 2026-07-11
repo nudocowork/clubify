@@ -106,6 +106,8 @@ class UpdateTenantBody {
   @IsOptional() @IsBoolean() academyEnabled?: boolean;
   // Reservations module gate (2026-06-12).
   @IsOptional() @IsBoolean() reservationsEnabled?: boolean;
+  // Reservas de SERVICIOS (citas) gate — PDF245 P7.
+  @IsOptional() @IsBoolean() serviceReservationsEnabled?: boolean;
 }
 
 @Controller('tenants')
