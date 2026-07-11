@@ -151,6 +151,42 @@ export class ServiceReservationsService {
     return n > 0;
   }
 
+  /** El cliente que agenda queda en la lista de Clientes del negocio: match por
+   *  teléfono (exacto o últimos 10 dígitos) o crea uno nuevo. NO emite pase ni
+   *  suma sello (respeta PDF734). Devuelve el id o null si no se pudo. */
+  private async matchOrCreateCustomer(
+    tenantId: string,
+    fullName: string,
+    phone: string,
+  ): Promise<string | null> {
+    const phoneNorm = (phone || '').replace(/\s/g, '').trim();
+    if (phoneNorm.length < 6) return null;
+    const last10 = phoneNorm.replace(/\D/g, '').slice(-10);
+    let c = await this.prisma.customer
+      .findUnique({ where: { tenantId_phone: { tenantId, phone: phoneNorm } } })
+      .catch(() => null);
+    if (!c && last10.length >= 8) {
+      c = await this.prisma.customer
+        .findFirst({ where: { tenantId, phone: { endsWith: last10 } } })
+        .catch(() => null);
+    }
+    if (c) return c.id;
+    try {
+      const created = await this.prisma.customer.create({
+        data: { tenantId, fullName: fullName || 'Cliente', phone: phoneNorm },
+      });
+      return created.id;
+    } catch (e: any) {
+      if (e?.code === 'P2002') {
+        const again = await this.prisma.customer
+          .findUnique({ where: { tenantId_phone: { tenantId, phone: phoneNorm } } })
+          .catch(() => null);
+        return again?.id ?? null;
+      }
+      return null;
+    }
+  }
+
   async listProviders(user: AuthUser, override?: string) {
     const tid = this.tid(user, override);
     return this.prisma.serviceProvider.findMany({
@@ -171,7 +207,12 @@ export class ServiceReservationsService {
   async updateProvider(
     user: AuthUser,
     id: string,
-    dto: { name?: string; isActive?: boolean; sortOrder?: number },
+    dto: {
+      name?: string;
+      isActive?: boolean;
+      sortOrder?: number;
+      serviceIds?: string[];
+    },
   ) {
     const tid = this.tid(user);
     const owned = await this.prisma.serviceProvider.findFirst({
@@ -185,6 +226,10 @@ export class ServiceReservationsService {
         name: dto.name === undefined ? undefined : dto.name.trim(),
         isActive: dto.isActive === undefined ? undefined : dto.isActive,
         sortOrder: dto.sortOrder === undefined ? undefined : dto.sortOrder,
+        serviceIds:
+          dto.serviceIds === undefined
+            ? undefined
+            : dto.serviceIds.filter((x) => typeof x === 'string'),
       },
     });
   }
@@ -531,7 +576,7 @@ export class ServiceReservationsService {
       this.prisma.serviceProvider.findMany({
         where: { tenantId: t.id, isActive: true },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-        select: { id: true, name: true },
+        select: { id: true, name: true, serviceIds: true },
       }),
     ]);
     return {
@@ -722,9 +767,14 @@ export class ServiceReservationsService {
         throw new BadRequestException('Elige un profesional.');
       const p = await this.prisma.serviceProvider.findFirst({
         where: { id: providerId, tenantId, isActive: true },
-        select: { id: true },
+        select: { id: true, serviceIds: true },
       });
       if (!p) throw new BadRequestException('Profesional no válido.');
+      // serviceIds vacío = hace todos; si no, debe incluir el servicio.
+      if (p.serviceIds.length > 0 && !p.serviceIds.includes(dto.serviceId))
+        throw new BadRequestException(
+          'Ese profesional no realiza este servicio.',
+        );
     } else {
       providerId = null;
     }
@@ -753,12 +803,17 @@ export class ServiceReservationsService {
     if (clash)
       throw new BadRequestException('Ese horario ya está ocupado. Elige otro.');
 
+    // Extra: el cliente que agenda queda en la lista de Clientes del negocio
+    // (match por teléfono). NO se emite pase ni se suma sello (respeta PDF734).
+    const customerId =
+      dto.customerId ?? (await this.matchOrCreateCustomer(tenantId, name, phone));
+
     const appt = await this.prisma.appointment.create({
       data: {
         tenantId,
         serviceId: dto.serviceId,
         providerId,
-        customerId: dto.customerId ?? null,
+        customerId,
         customerName: name,
         customerPhone: phone,
         startAt: start,

@@ -16,7 +16,7 @@ type Service = {
   priceCents: number | null;
 };
 type Slot = { startAt: string; label: string };
-type Provider = { id: string; name: string };
+type Provider = { id: string; name: string; serviceIds: string[] };
 type Info = {
   businessName: string;
   logoUrl: string | null;
@@ -66,7 +66,23 @@ export default function CitaPage() {
   const accent = info?.primaryColor || '#0ea5e9';
   const service = info?.services.find((s) => s.id === serviceId) || null;
 
-  const hasProviders = (info?.providers?.length ?? 0) > 0;
+  // Profesionales que hacen el servicio elegido (serviceIds vacío = todos).
+  const providersForService = (info?.providers ?? []).filter(
+    (p) => p.serviceIds.length === 0 || p.serviceIds.includes(serviceId),
+  );
+  const hasProviders = providersForService.length > 0;
+  // Si el profesional elegido no hace el nuevo servicio, resetea al primero.
+  useEffect(() => {
+    if (
+      hasProviders &&
+      (!providerId || !providersForService.some((p) => p.id === providerId))
+    ) {
+      setProviderId(providersForService[0].id);
+    }
+    if (!hasProviders && providerId) setProviderId('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceId, info]);
+
   const loadSlots = useCallback(async () => {
     if (!serviceId || !date) return;
     if (hasProviders && !providerId) return;
@@ -226,7 +242,7 @@ export default function CitaPage() {
               Con quién
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {info!.providers.map((p) => (
+              {providersForService.map((p) => (
                 <button
                   key={p.id}
                   onClick={() => setProviderId(p.id)}

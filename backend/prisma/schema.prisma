@@ -4389,13 +4389,15 @@ model ServiceAvailability {
 /// Profesional que atiende citas (barbero/estilista) — Fase 5. Cada uno tiene
 /// su propia disponibilidad y agenda.
 model ServiceProvider {
-  id        String   @id @default(cuid())
-  tenantId  String
-  name      String
-  isActive  Boolean  @default(true)
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  tenantId   String
+  name       String
+  /// Servicios que realiza (ids de Service). Vacío = hace TODOS. Fase 5 extra.
+  serviceIds String[] @default([])
+  isActive   Boolean  @default(true)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([tenantId, isActive])
 }

@@ -23,7 +23,13 @@ type Avail = {
   startMin: number;
   endMin: number;
 };
-type Provider = { id: string; name: string; isActive: boolean; sortOrder: number };
+type Provider = {
+  id: string;
+  name: string;
+  isActive: boolean;
+  sortOrder: number;
+  serviceIds: string[];
+};
 type Exception = {
   id: string;
   date: string;
@@ -169,7 +175,7 @@ export default function ServiciosPage() {
       ) : tab === 'servicios' ? (
         <ServicesTab services={services} onChange={loadConfig} />
       ) : tab === 'profesionales' ? (
-        <ProvidersTab providers={providers} onChange={loadConfig} />
+        <ProvidersTab providers={providers} services={services} onChange={loadConfig} />
       ) : tab === 'horarios' ? (
         <ScheduleTab
           availability={availability}
@@ -288,13 +294,38 @@ function ServicesTab({
 // ───────────────────── Tab: Profesionales ─────────────────────
 function ProvidersTab({
   providers,
+  services,
   onChange,
 }: {
   providers: Provider[];
+  services: Service[];
   onChange: () => void;
 }) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+
+  async function patchProvider(id: string, dto: any) {
+    try {
+      await api(`/service-reservations/providers/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(dto),
+      });
+      onChange();
+    } catch (e: any) {
+      toast(e.message ?? 'Error', 'error');
+    }
+  }
+  // Servicios de un profesional: [] = hace todos. Al togglear, normaliza a []
+  // si termina haciendo todos.
+  function toggleService(p: Provider, sid: string) {
+    const base = p.serviceIds.length === 0 ? services.map((s) => s.id) : p.serviceIds;
+    const next = base.includes(sid)
+      ? base.filter((x) => x !== sid)
+      : [...base, sid];
+    const normalized =
+      services.length > 0 && next.length >= services.length ? [] : next;
+    patchProvider(p.id, { serviceIds: normalized });
+  }
   async function add() {
     if (!name.trim()) {
       toast('Escribe el nombre', 'error');
@@ -359,15 +390,42 @@ function ProvidersTab({
         </div>
       ) : (
         <div className="space-y-1.5">
-          {providers.map((p) => (
-            <div key={p.id} className="flex items-center justify-between gap-2 p-3 rounded-[12px]" style={{ background: 'white', border: '1px solid #e7e9ec', opacity: p.isActive ? 1 : 0.6 }}>
-              <div className="text-sm font-semibold" style={{ color: '#16241c' }}>{p.name}</div>
-              <div className="flex items-center gap-3 text-[11px] font-semibold">
-                <button onClick={() => toggle(p)} style={{ color: '#0ea5e9' }}>{p.isActive ? 'Desactivar' : 'Activar'}</button>
-                <button onClick={() => remove(p)} style={{ color: '#b91c1c' }}>Quitar</button>
+          {providers.map((p) => {
+            const doesAll = p.serviceIds.length === 0;
+            return (
+              <div key={p.id} className="p-3 rounded-[12px]" style={{ background: 'white', border: '1px solid #e7e9ec', opacity: p.isActive ? 1 : 0.6 }}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold" style={{ color: '#16241c' }}>{p.name}</div>
+                  <div className="flex items-center gap-3 text-[11px] font-semibold">
+                    <button onClick={() => toggle(p)} style={{ color: '#0ea5e9' }}>{p.isActive ? 'Desactivar' : 'Activar'}</button>
+                    <button onClick={() => remove(p)} style={{ color: '#b91c1c' }}>Quitar</button>
+                  </div>
+                </div>
+                {services.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-[11px] mb-1" style={{ color: '#9aa4af' }}>
+                      Servicios que hace{doesAll ? ' (todos)' : ''}:
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {services.map((s) => {
+                        const on = doesAll || p.serviceIds.includes(s.id);
+                        return (
+                          <button
+                            key={s.id}
+                            onClick={() => toggleService(p, s.id)}
+                            className="text-[11px] font-semibold rounded-[8px] px-2 py-1"
+                            style={on ? { background: '#0ea5e9', color: 'white' } : { background: '#f1f5f9', color: '#334155' }}
+                          >
+                            {s.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -55,6 +55,7 @@ class ProviderUpdateBody {
   @IsOptional() @IsString() @MaxLength(80) name?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsInt() sortOrder?: number;
+  @IsOptional() @IsArray() serviceIds?: string[];
 }
 class ExceptionBody {
   @IsString() date!: string; // YYYY-MM-DD
