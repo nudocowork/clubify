@@ -45,6 +45,16 @@ class AvailabilityRow {
 }
 class AvailabilityBody {
   @IsArray() rows!: AvailabilityRow[];
+  // Profesional dueño del horario (Fase 5). Ausente/null = nivel negocio.
+  @IsOptional() @IsString() @MaxLength(40) providerId?: string | null;
+}
+class ProviderBody {
+  @IsString() @MaxLength(80) name!: string;
+}
+class ProviderUpdateBody {
+  @IsOptional() @IsString() @MaxLength(80) name?: string;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @IsInt() sortOrder?: number;
 }
 class ExceptionBody {
   @IsString() date!: string; // YYYY-MM-DD
@@ -57,6 +67,7 @@ class AppointmentBody {
   @IsString() startAt!: string; // ISO UTC
   @IsString() @MaxLength(120) customerName!: string;
   @IsString() @MaxLength(40) customerPhone!: string;
+  @IsOptional() @IsString() @MaxLength(40) providerId?: string | null;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
 }
 class StatusBody {
@@ -103,14 +114,40 @@ export class ServiceReservationsController {
     return this.svc.removeService(user, id);
   }
 
-  // ─── Disponibilidad ───
+  // ─── Profesionales (Fase 5) ───
+  @Get('providers')
+  listProviders(@CurrentUser() user: AuthUser, @Query('tenantId') t?: string) {
+    return this.svc.listProviders(user, t);
+  }
+  @Post('providers')
+  createProvider(
+    @CurrentUser() user: AuthUser,
+    @Body() body: ProviderBody,
+    @Query('tenantId') t?: string,
+  ) {
+    return this.svc.createProvider(user, body.name, t);
+  }
+  @Patch('providers/:id')
+  updateProvider(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: ProviderUpdateBody,
+  ) {
+    return this.svc.updateProvider(user, id, body);
+  }
+  @Delete('providers/:id')
+  removeProvider(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.removeProvider(user, id);
+  }
+
+  // ─── Disponibilidad (por negocio o por profesional) ───
   @Put('availability')
   setAvailability(
     @CurrentUser() user: AuthUser,
     @Body() body: AvailabilityBody,
     @Query('tenantId') t?: string,
   ) {
-    return this.svc.setAvailability(user, body.rows, t);
+    return this.svc.setAvailability(user, body.rows, body.providerId ?? null, t);
   }
 
   // ─── Excepciones ───
@@ -137,9 +174,10 @@ export class ServiceReservationsController {
     @CurrentUser() user: AuthUser,
     @Query('serviceId') serviceId: string,
     @Query('date') date: string,
+    @Query('providerId') providerId?: string,
     @Query('tenantId') t?: string,
   ) {
-    return this.svc.slotsForUser(user, serviceId, date, t);
+    return this.svc.slotsForUser(user, serviceId, date, providerId, t);
   }
 
   @Get('appointments')

@@ -16,12 +16,14 @@ type Service = {
   priceCents: number | null;
 };
 type Slot = { startAt: string; label: string };
+type Provider = { id: string; name: string };
 type Info = {
   businessName: string;
   logoUrl: string | null;
   primaryColor: string | null;
   timezone: string;
   services: Service[];
+  providers: Provider[];
 };
 
 const todayStr = () => {
@@ -37,6 +39,7 @@ export default function CitaPage() {
   const [info, setInfo] = useState<Info | null>(null);
   const [state, setState] = useState<'loading' | 'ok' | 'notfound'>('loading');
   const [serviceId, setServiceId] = useState('');
+  const [providerId, setProviderId] = useState('');
   const [date, setDate] = useState(todayStr());
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -54,6 +57,7 @@ export default function CitaPage() {
       .then((d: Info) => {
         setInfo(d);
         setServiceId(d.services[0]?.id ?? '');
+        setProviderId(d.providers?.[0]?.id ?? '');
         setState('ok');
       })
       .catch(() => setState('notfound'));
@@ -62,13 +66,16 @@ export default function CitaPage() {
   const accent = info?.primaryColor || '#0ea5e9';
   const service = info?.services.find((s) => s.id === serviceId) || null;
 
+  const hasProviders = (info?.providers?.length ?? 0) > 0;
   const loadSlots = useCallback(async () => {
     if (!serviceId || !date) return;
+    if (hasProviders && !providerId) return;
     setLoadingSlots(true);
     setSlot('');
     try {
+      const q = `serviceId=${serviceId}&date=${date}${providerId ? `&providerId=${providerId}` : ''}`;
       const r = await fetch(
-        `${API}/api/public/service-reservations/${slug}/slots?serviceId=${serviceId}&date=${date}`,
+        `${API}/api/public/service-reservations/${slug}/slots?${q}`,
       );
       const d = r.ok ? await r.json() : { slots: [] };
       setSlots(d?.slots ?? []);
@@ -77,7 +84,7 @@ export default function CitaPage() {
     } finally {
       setLoadingSlots(false);
     }
-  }, [slug, serviceId, date]);
+  }, [slug, serviceId, date, providerId, hasProviders]);
   useEffect(() => {
     if (state === 'ok') loadSlots();
   }, [state, loadSlots]);
@@ -101,6 +108,7 @@ export default function CitaPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             serviceId,
+            providerId: providerId || undefined,
             startAt: slot,
             customerName: name.trim(),
             customerPhone: phone.trim(),
@@ -210,6 +218,31 @@ export default function CitaPage() {
             </div>
           )}
         </div>
+
+        {/* Profesional (si el negocio tiene) */}
+        {hasProviders && (
+          <div>
+            <div className="text-xs font-bold uppercase mb-2" style={{ color: '#6b7280' }}>
+              Con quién
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {info!.providers.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setProviderId(p.id)}
+                  className="text-[13px] font-semibold rounded-[10px] px-3 py-1.5"
+                  style={
+                    providerId === p.id
+                      ? { background: accent, color: 'white' }
+                      : { background: '#f1f5f9', color: '#334155' }
+                  }
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Fecha + horario */}
         <div>

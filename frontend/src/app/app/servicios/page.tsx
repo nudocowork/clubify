@@ -16,7 +16,14 @@ type Service = {
   isActive: boolean;
   sortOrder: number;
 };
-type Avail = { id?: string; weekday: number; startMin: number; endMin: number };
+type Avail = {
+  id?: string;
+  providerId?: string | null;
+  weekday: number;
+  startMin: number;
+  endMin: number;
+};
+type Provider = { id: string; name: string; isActive: boolean; sortOrder: number };
 type Exception = {
   id: string;
   date: string;
@@ -27,6 +34,7 @@ type Exception = {
 type Appt = {
   id: string;
   serviceId: string;
+  providerId: string | null;
   customerName: string;
   customerPhone: string;
   startAt: string;
@@ -70,9 +78,12 @@ const todayStr = () => {
 };
 
 export default function ServiciosPage() {
-  const [tab, setTab] = useState<'servicios' | 'horarios' | 'agenda'>('servicios');
+  const [tab, setTab] = useState<
+    'servicios' | 'profesionales' | 'horarios' | 'agenda'
+  >('servicios');
   const [services, setServices] = useState<Service[]>([]);
   const [availability, setAvailability] = useState<Avail[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
   const [timezone, setTimezone] = useState('America/Bogota');
   const [slug, setSlug] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,9 +95,11 @@ export default function ServiciosPage() {
         slug: string | null;
         services: Service[];
         availability: Avail[];
+        providers: Provider[];
       }>('/service-reservations/config');
       setServices(c?.services ?? []);
       setAvailability(c?.availability ?? []);
+      setProviders(c?.providers ?? []);
       setTimezone(c?.timezone ?? 'America/Bogota');
       setSlug(c?.slug ?? null);
     } catch {
@@ -131,6 +144,7 @@ export default function ServiciosPage() {
         {(
           [
             ['servicios', 'Servicios'],
+            ['profesionales', 'Profesionales'],
             ['horarios', 'Horarios'],
             ['agenda', 'Agenda'],
           ] as [typeof tab, string][]
@@ -154,10 +168,16 @@ export default function ServiciosPage() {
         <div className="text-sm" style={{ color: '#9aa4af' }}>Cargando…</div>
       ) : tab === 'servicios' ? (
         <ServicesTab services={services} onChange={loadConfig} />
+      ) : tab === 'profesionales' ? (
+        <ProvidersTab providers={providers} onChange={loadConfig} />
       ) : tab === 'horarios' ? (
-        <ScheduleTab availability={availability} onSaved={loadConfig} />
+        <ScheduleTab
+          availability={availability}
+          providers={providers}
+          onSaved={loadConfig}
+        />
       ) : (
-        <AgendaTab services={services} timezone={timezone} />
+        <AgendaTab services={services} providers={providers} timezone={timezone} />
       )}
     </div>
   );
@@ -265,21 +285,129 @@ function ServicesTab({
   );
 }
 
+// ───────────────────── Tab: Profesionales ─────────────────────
+function ProvidersTab({
+  providers,
+  onChange,
+}: {
+  providers: Provider[];
+  onChange: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function add() {
+    if (!name.trim()) {
+      toast('Escribe el nombre', 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api('/service-reservations/providers', {
+        method: 'POST',
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      setName('');
+      toast('Profesional agregado', 'success');
+      onChange();
+    } catch (e: any) {
+      toast(e.message ?? 'Error', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function toggle(p: Provider) {
+    try {
+      await api(`/service-reservations/providers/${p.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: !p.isActive }),
+      });
+      onChange();
+    } catch (e: any) {
+      toast(e.message ?? 'Error', 'error');
+    }
+  }
+  async function remove(p: Provider) {
+    if (!confirm(`¿Quitar a ${p.name}? Se borra su horario (las citas se conservan).`))
+      return;
+    try {
+      await api(`/service-reservations/providers/${p.id}`, { method: 'DELETE' });
+      onChange();
+    } catch (e: any) {
+      toast(e.message ?? 'Error', 'error');
+    }
+  }
+  return (
+    <div className="space-y-4">
+      <div className="p-3 rounded-[12px]" style={{ background: 'white', border: '1px solid #e7e9ec' }}>
+        <div className="text-xs font-bold uppercase mb-2" style={{ color: '#6b7280' }}>
+          Nuevo profesional
+        </div>
+        <div className="flex gap-2">
+          <input className={inp} placeholder="Nombre (ej. Juan)" value={name} onChange={(e) => setName(e.target.value)} />
+          <button onClick={add} disabled={busy} className="text-sm font-semibold text-white rounded-[10px] py-2 px-4 shrink-0" style={{ background: '#16a34a', opacity: busy ? 0.6 : 1 }}>
+            {busy ? '…' : '+ Agregar'}
+          </button>
+        </div>
+        <div className="text-[11px] mt-2" style={{ color: '#9aa4af' }}>
+          Con profesionales, cada uno tiene su propio horario y los clientes eligen
+          con quién agendar. Sin profesionales, la agenda es a nivel negocio.
+        </div>
+      </div>
+      {providers.length === 0 ? (
+        <div className="text-sm rounded-lg px-3 py-6 text-center" style={{ color: '#9aa4af', border: '1px dashed #e5e7eb' }}>
+          Sin profesionales — la agenda funciona a nivel negocio.
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {providers.map((p) => (
+            <div key={p.id} className="flex items-center justify-between gap-2 p-3 rounded-[12px]" style={{ background: 'white', border: '1px solid #e7e9ec', opacity: p.isActive ? 1 : 0.6 }}>
+              <div className="text-sm font-semibold" style={{ color: '#16241c' }}>{p.name}</div>
+              <div className="flex items-center gap-3 text-[11px] font-semibold">
+                <button onClick={() => toggle(p)} style={{ color: '#0ea5e9' }}>{p.isActive ? 'Desactivar' : 'Activar'}</button>
+                <button onClick={() => remove(p)} style={{ color: '#b91c1c' }}>Quitar</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ───────────────────── Tab: Horarios ─────────────────────
 function ScheduleTab({
   availability,
+  providers,
   onSaved,
 }: {
   availability: Avail[];
+  providers: Provider[];
   onSaved: () => void;
 }) {
-  // Estado local agrupado por día.
-  const [rows, setRows] = useState<Avail[]>(availability);
+  const activeProviders = providers.filter((p) => p.isActive);
+  // '' = horario a nivel negocio (cuando no hay profesionales).
+  const [selectedProvider, setSelectedProvider] = useState<string>('');
+  // Estado local agrupado por día, filtrado por el profesional seleccionado.
+  const [rows, setRows] = useState<Avail[]>([]);
   const [saving, setSaving] = useState(false);
   const [exceptions, setExceptions] = useState<Exception[]>([]);
   const [excDate, setExcDate] = useState(todayStr());
 
-  useEffect(() => setRows(availability), [availability]);
+  // Si hay profesionales, por defecto edita el primero; sino, nivel negocio.
+  useEffect(() => {
+    if (activeProviders.length > 0 && !selectedProvider) {
+      setSelectedProvider(activeProviders[0].id);
+    }
+    if (activeProviders.length === 0 && selectedProvider) {
+      setSelectedProvider('');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providers]);
+
+  useEffect(() => {
+    const pid = selectedProvider || null;
+    setRows(availability.filter((r) => (r.providerId ?? null) === pid));
+  }, [availability, selectedProvider]);
   const loadExc = useCallback(async () => {
     try {
       setExceptions((await api<Exception[]>('/service-reservations/exceptions')) ?? []);
@@ -318,6 +446,7 @@ function ScheduleTab({
       await api('/service-reservations/availability', {
         method: 'PUT',
         body: JSON.stringify({
+          providerId: selectedProvider || null,
           rows: rows.map((r) => ({ weekday: r.weekday, startMin: r.startMin, endMin: r.endMin })),
         }),
       });
@@ -354,8 +483,21 @@ function ScheduleTab({
   return (
     <div className="space-y-4">
       <div className="p-3 rounded-[12px]" style={{ background: 'white', border: '1px solid #e7e9ec' }}>
-        <div className="text-xs font-bold uppercase mb-2" style={{ color: '#6b7280' }}>
-          Horario semanal
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="text-xs font-bold uppercase" style={{ color: '#6b7280' }}>
+            Horario semanal
+          </div>
+          {activeProviders.length > 0 && (
+            <select
+              value={selectedProvider}
+              onChange={(e) => setSelectedProvider(e.target.value)}
+              className="text-[12px] rounded-[8px] border border-[#dfe3e8] px-2 py-1"
+            >
+              {activeProviders.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          )}
         </div>
         <div className="space-y-2">
           {WEEKDAYS.map((w) => (
@@ -413,11 +555,15 @@ function ScheduleTab({
 // ───────────────────── Tab: Agenda ─────────────────────
 function AgendaTab({
   services,
+  providers,
   timezone,
 }: {
   services: Service[];
+  providers: Provider[];
   timezone: string;
 }) {
+  const providerName = (id: string | null) =>
+    id ? providers.find((p) => p.id === id)?.name ?? null : null;
   const [date, setDate] = useState(todayStr());
   const [appts, setAppts] = useState<Appt[]>([]);
   const [loading, setLoading] = useState(true);
@@ -489,6 +635,7 @@ function AgendaTab({
                     </div>
                     <div className="text-[12.5px]" style={{ color: '#6b7785' }}>
                       {a.customerName} · {a.customerPhone}
+                      {providerName(a.providerId) ? ` · 👤 ${providerName(a.providerId)}` : ''}
                     </div>
                     {a.notes && <div className="text-[11px] mt-0.5" style={{ color: '#9aa4af' }}>{a.notes}</div>}
                   </div>
@@ -513,6 +660,7 @@ function AgendaTab({
       {showNew && (
         <NewAppointmentModal
           services={services.filter((s) => s.isActive)}
+          providers={providers.filter((p) => p.isActive)}
           defaultDate={date}
           onClose={() => setShowNew(false)}
           onCreated={() => {
@@ -527,16 +675,19 @@ function AgendaTab({
 
 function NewAppointmentModal({
   services,
+  providers,
   defaultDate,
   onClose,
   onCreated,
 }: {
   services: Service[];
+  providers: Provider[];
   defaultDate: string;
   onClose: () => void;
   onCreated: () => void;
 }) {
   const [serviceId, setServiceId] = useState(services[0]?.id ?? '');
+  const [providerId, setProviderId] = useState(providers[0]?.id ?? '');
   const [date, setDate] = useState(defaultDate);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [slot, setSlot] = useState('');
@@ -547,11 +698,13 @@ function NewAppointmentModal({
 
   const loadSlots = useCallback(async () => {
     if (!serviceId || !date) return;
+    if (providers.length > 0 && !providerId) return;
     setLoadingSlots(true);
     setSlot('');
     try {
+      const q = `serviceId=${serviceId}&date=${date}${providerId ? `&providerId=${providerId}` : ''}`;
       const r = await api<{ slots: Slot[] }>(
-        `/service-reservations/slots?serviceId=${serviceId}&date=${date}`,
+        `/service-reservations/slots?${q}`,
       );
       setSlots(r?.slots ?? []);
     } catch {
@@ -559,7 +712,7 @@ function NewAppointmentModal({
     } finally {
       setLoadingSlots(false);
     }
-  }, [serviceId, date]);
+  }, [serviceId, date, providerId, providers.length]);
   useEffect(() => {
     loadSlots();
   }, [loadSlots]);
@@ -567,6 +720,10 @@ function NewAppointmentModal({
   async function create() {
     if (!serviceId || !slot) {
       toast('Elige servicio y horario', 'error');
+      return;
+    }
+    if (providers.length > 0 && !providerId) {
+      toast('Elige un profesional', 'error');
       return;
     }
     if (!name.trim() || phone.trim().length < 6) {
@@ -579,6 +736,7 @@ function NewAppointmentModal({
         method: 'POST',
         body: JSON.stringify({
           serviceId,
+          providerId: providerId || undefined,
           startAt: slot,
           customerName: name.trim(),
           customerPhone: phone.trim(),
@@ -603,6 +761,16 @@ function NewAppointmentModal({
             <option key={s.id} value={s.id}>{s.name} ({s.durationMin} min)</option>
           ))}
         </select>
+        {providers.length > 0 && (
+          <>
+            <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>Profesional</label>
+            <select className={inp + ' mb-2'} value={providerId} onChange={(e) => setProviderId(e.target.value)}>
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </>
+        )}
         <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>Fecha</label>
         <input type="date" className={inp + ' mb-2'} value={date} onChange={(e) => setDate(e.target.value)} />
         <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>Horario</label>

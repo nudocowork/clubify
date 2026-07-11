@@ -4373,14 +4373,31 @@ model Service {
 /// Horario semanal disponible del negocio (una fila por franja). Tiempos en
 /// minutos desde medianoche en la timezone del tenant (ej. 540=09:00, 1080=18:00).
 model ServiceAvailability {
+  id         String   @id @default(cuid())
+  tenantId   String
+  /// Profesional dueño de la franja (Fase 5). null = disponibilidad a nivel
+  /// NEGOCIO (cuando no hay profesionales configurados).
+  providerId String?
+  weekday    Int // 0=domingo … 6=sábado
+  startMin   Int
+  endMin     Int
+  createdAt  DateTime @default(now())
+
+  @@index([tenantId, providerId, weekday])
+}
+
+/// Profesional que atiende citas (barbero/estilista) — Fase 5. Cada uno tiene
+/// su propia disponibilidad y agenda.
+model ServiceProvider {
   id        String   @id @default(cuid())
   tenantId  String
-  weekday   Int // 0=domingo … 6=sábado
-  startMin  Int
-  endMin    Int
+  name      String
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@index([tenantId, weekday])
+  @@index([tenantId, isActive])
 }
 
 /// Excepción para un día puntual: cerrado todo el día o con horario especial.
@@ -4403,6 +4420,8 @@ model Appointment {
   tenantId       String
   serviceId      String
   service        Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  /// Profesional asignado (Fase 5). null = negocio sin profesionales.
+  providerId     String?
   customerId     String?
   customerName   String
   customerPhone  String
@@ -4410,12 +4429,15 @@ model Appointment {
   endAt          DateTime
   status         String    @default("confirmed")
   notes          String?
+  /// Token para que el cliente gestione (reagendar/cancelar) su cita — Fase 5.
+  manageToken    String?   @unique
   reminderSentAt DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
   @@index([tenantId, startAt])
   @@index([serviceId, startAt])
+  @@index([providerId, startAt])
 }
 
 /// Comisión de plataforma generada por un domicilio ENTREGADO (Fase 4). Monto

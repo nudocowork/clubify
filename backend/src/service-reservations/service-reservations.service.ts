@@ -13,6 +13,7 @@ import {
   brandGrowCreds,
   BRAND_GROW_SELECT,
 } from '../integrations/brand-sms-creds.util';
+import { randomBytes } from 'crypto';
 
 const APPT_STATUSES = [
   'pending',
@@ -113,7 +114,7 @@ export class ServiceReservationsService {
 
   async getConfig(user: AuthUser, override?: string) {
     const tid = this.tid(user, override);
-    const [tenant, services, availability] = await Promise.all([
+    const [tenant, services, availability, providers] = await Promise.all([
       this.prisma.tenant.findUnique({
         where: { id: tid },
         select: { serviceReservationsEnabled: true, timezone: true, slug: true },
@@ -126,6 +127,10 @@ export class ServiceReservationsService {
         where: { tenantId: tid },
         orderBy: [{ weekday: 'asc' }, { startMin: 'asc' }],
       }),
+      this.prisma.serviceProvider.findMany({
+        where: { tenantId: tid },
+        orderBy: [{ isActive: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+      }),
     ]);
     return {
       enabled: tenant?.serviceReservationsEnabled ?? false,
@@ -133,7 +138,73 @@ export class ServiceReservationsService {
       slug: tenant?.slug ?? null,
       services,
       availability,
+      providers,
     };
+  }
+
+  // ───────────────── Profesionales (Fase 5) ─────────────────
+
+  private async hasActiveProviders(tenantId: string): Promise<boolean> {
+    const n = await this.prisma.serviceProvider.count({
+      where: { tenantId, isActive: true },
+    });
+    return n > 0;
+  }
+
+  async listProviders(user: AuthUser, override?: string) {
+    const tid = this.tid(user, override);
+    return this.prisma.serviceProvider.findMany({
+      where: { tenantId: tid },
+      orderBy: [{ isActive: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  async createProvider(user: AuthUser, name: string, override?: string) {
+    const tid = this.tid(user, override);
+    const clean = (name ?? '').trim();
+    if (!clean) throw new BadRequestException('El nombre es obligatorio.');
+    return this.prisma.serviceProvider.create({
+      data: { tenantId: tid, name: clean },
+    });
+  }
+
+  async updateProvider(
+    user: AuthUser,
+    id: string,
+    dto: { name?: string; isActive?: boolean; sortOrder?: number },
+  ) {
+    const tid = this.tid(user);
+    const owned = await this.prisma.serviceProvider.findFirst({
+      where: { id, tenantId: tid },
+      select: { id: true },
+    });
+    if (!owned) throw new NotFoundException('Profesional no encontrado.');
+    return this.prisma.serviceProvider.update({
+      where: { id },
+      data: {
+        name: dto.name === undefined ? undefined : dto.name.trim(),
+        isActive: dto.isActive === undefined ? undefined : dto.isActive,
+        sortOrder: dto.sortOrder === undefined ? undefined : dto.sortOrder,
+      },
+    });
+  }
+
+  async removeProvider(user: AuthUser, id: string) {
+    const tid = this.tid(user);
+    const owned = await this.prisma.serviceProvider.findFirst({
+      where: { id, tenantId: tid },
+      select: { id: true },
+    });
+    if (!owned) throw new NotFoundException('Profesional no encontrado.');
+    // Borra el profesional y su disponibilidad. Las citas conservan providerId
+    // (histórico) — quedan sin profesional "vivo" pero visibles en la agenda.
+    await this.prisma.$transaction([
+      this.prisma.serviceAvailability.deleteMany({
+        where: { tenantId: tid, providerId: id },
+      }),
+      this.prisma.serviceProvider.delete({ where: { id } }),
+    ]);
+    return { ok: true };
   }
 
   // ───────────────── Servicios (CRUD) ─────────────────
@@ -227,13 +298,23 @@ export class ServiceReservationsService {
 
   // ───────────────── Disponibilidad semanal ─────────────────
 
-  /** Reemplaza TODO el horario semanal por el set enviado. */
+  /** Reemplaza el horario semanal del negocio (providerId null) o de UN
+   *  profesional (Fase 5) por el set enviado. */
   async setAvailability(
     user: AuthUser,
     rows: { weekday: number; startMin: number; endMin: number }[],
+    providerId?: string | null,
     override?: string,
   ) {
     const tid = this.tid(user, override);
+    const pid = providerId || null;
+    if (pid) {
+      const owned = await this.prisma.serviceProvider.findFirst({
+        where: { id: pid, tenantId: tid },
+        select: { id: true },
+      });
+      if (!owned) throw new BadRequestException('Profesional no válido.');
+    }
     const clean = (rows ?? [])
       .filter(
         (r) =>
@@ -248,18 +329,21 @@ export class ServiceReservationsService {
       )
       .map((r) => ({
         tenantId: tid,
+        providerId: pid,
         weekday: r.weekday,
         startMin: Math.round(r.startMin),
         endMin: Math.round(r.endMin),
       }));
     await this.prisma.$transaction([
-      this.prisma.serviceAvailability.deleteMany({ where: { tenantId: tid } }),
+      this.prisma.serviceAvailability.deleteMany({
+        where: { tenantId: tid, providerId: pid },
+      }),
       ...(clean.length
         ? [this.prisma.serviceAvailability.createMany({ data: clean })]
         : []),
     ]);
     return this.prisma.serviceAvailability.findMany({
-      where: { tenantId: tid },
+      where: { tenantId: tid, providerId: pid },
       orderBy: [{ weekday: 'asc' }, { startMin: 'asc' }],
     });
   }
@@ -321,14 +405,21 @@ export class ServiceReservationsService {
     user: AuthUser,
     serviceId: string,
     dateStr: string,
+    providerId?: string,
     override?: string,
   ) {
     const tid = this.tid(user, override);
-    return this.getAvailableSlots(tid, serviceId, dateStr);
+    return this.getAvailableSlots(tid, serviceId, dateStr, providerId || null);
   }
 
-  /** Slots disponibles para un servicio en una fecha (TZ del tenant). */
-  async getAvailableSlots(tenantId: string, serviceId: string, dateStr: string) {
+  /** Slots disponibles para un servicio en una fecha (TZ del tenant). Si hay
+   *  profesional, usa SU disponibilidad y agenda; si no, la del negocio. */
+  async getAvailableSlots(
+    tenantId: string,
+    serviceId: string,
+    dateStr: string,
+    providerId?: string | null,
+  ) {
     if (!isValidDateStr(dateStr))
       throw new BadRequestException('Fecha inválida (YYYY-MM-DD).');
     const tenant = await this.prisma.tenant.findUnique({
@@ -355,7 +446,7 @@ export class ServiceReservationsService {
     } else {
       const weekday = weekdayInTz(dateStr, tz);
       const av = await this.prisma.serviceAvailability.findMany({
-        where: { tenantId, weekday },
+        where: { tenantId, weekday, providerId: providerId ?? null },
       });
       windows = av.map((a) => ({ startMin: a.startMin, endMin: a.endMin }));
     }
@@ -368,6 +459,9 @@ export class ServiceReservationsService {
         tenantId,
         status: { notIn: ['cancelled', 'no_show'] },
         startAt: { gte: dayStart, lt: dayEnd },
+        // Con profesional: solo bloquea SU agenda. Sin profesional: toda la
+        // agenda del negocio (un solo recurso).
+        ...(providerId ? { providerId } : {}),
       },
       select: { startAt: true, endAt: true },
     });
@@ -422,29 +516,42 @@ export class ServiceReservationsService {
     if (!t || t.status === 'SUSPENDED' || !t.serviceReservationsEnabled) {
       throw new NotFoundException('Reservas de servicios no disponibles.');
     }
-    const services = await this.prisma.service.findMany({
-      where: { tenantId: t.id, isActive: true },
-      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        durationMin: true,
-        priceCents: true,
-      },
-    });
+    const [services, providers] = await Promise.all([
+      this.prisma.service.findMany({
+        where: { tenantId: t.id, isActive: true },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          durationMin: true,
+          priceCents: true,
+        },
+      }),
+      this.prisma.serviceProvider.findMany({
+        where: { tenantId: t.id, isActive: true },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        select: { id: true, name: true },
+      }),
+    ]);
     return {
       businessName: t.brandName,
       logoUrl: t.logoUrl,
       primaryColor: t.primaryColor,
       timezone: t.timezone,
       services,
+      providers, // vacío = negocio sin profesionales (no se elige)
     };
   }
 
-  async publicSlots(slug: string, serviceId: string, dateStr: string) {
+  async publicSlots(
+    slug: string,
+    serviceId: string,
+    dateStr: string,
+    providerId?: string,
+  ) {
     const tid = await this.resolveEnabledTenant(slug);
-    return this.getAvailableSlots(tid, serviceId, dateStr);
+    return this.getAvailableSlots(tid, serviceId, dateStr, providerId || null);
   }
 
   async publicBook(
@@ -454,6 +561,7 @@ export class ServiceReservationsService {
       startAt: string;
       customerName: string;
       customerPhone: string;
+      providerId?: string | null;
       notes?: string;
     },
   ) {
@@ -462,7 +570,105 @@ export class ServiceReservationsService {
       ...dto,
       status: 'confirmed',
     });
-    return { ok: true, id: appt.id, startAt: appt.startAt, endAt: appt.endAt };
+    return {
+      ok: true,
+      id: appt.id,
+      startAt: appt.startAt,
+      endAt: appt.endAt,
+      manageToken: appt.manageToken,
+    };
+  }
+
+  // ───────────────── Gestión por el cliente (token) — Fase 5 ─────────────────
+
+  /** Vista pública de una cita por su token (para reagendar/cancelar). */
+  async getByToken(token: string) {
+    const a = await this.prisma.appointment.findUnique({
+      where: { manageToken: token },
+      include: { service: { select: { id: true, name: true, durationMin: true } } },
+    });
+    if (!a) throw new NotFoundException('Cita no encontrada.');
+    const [tenant, provider] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: a.tenantId },
+        select: { brandName: true, slug: true, timezone: true, primaryColor: true, logoUrl: true },
+      }),
+      a.providerId
+        ? this.prisma.serviceProvider.findUnique({
+            where: { id: a.providerId },
+            select: { name: true },
+          })
+        : Promise.resolve(null),
+    ]);
+    return {
+      status: a.status,
+      startAt: a.startAt,
+      endAt: a.endAt,
+      customerName: a.customerName,
+      serviceId: a.serviceId,
+      serviceName: a.service?.name ?? null,
+      providerId: a.providerId,
+      providerName: provider?.name ?? null,
+      businessName: tenant?.brandName ?? null,
+      slug: tenant?.slug ?? null,
+      timezone: tenant?.timezone ?? 'America/Bogota',
+      primaryColor: tenant?.primaryColor ?? null,
+      logoUrl: tenant?.logoUrl ?? null,
+    };
+  }
+
+  async cancelByToken(token: string) {
+    const a = await this.prisma.appointment.findUnique({
+      where: { manageToken: token },
+      select: { id: true, status: true, startAt: true },
+    });
+    if (!a) throw new NotFoundException('Cita no encontrada.');
+    if (a.status === 'cancelled')
+      return { ok: true, status: 'cancelled' };
+    if (a.status === 'completed' || a.status === 'no_show')
+      throw new BadRequestException('Esta cita ya no se puede cancelar.');
+    await this.prisma.appointment.update({
+      where: { id: a.id },
+      data: { status: 'cancelled' },
+    });
+    return { ok: true, status: 'cancelled' };
+  }
+
+  /** Reagenda a un nuevo horario (mismo servicio y profesional). */
+  async rescheduleByToken(token: string, newStartAtIso: string) {
+    const a = await this.prisma.appointment.findUnique({
+      where: { manageToken: token },
+      include: { service: { select: { durationMin: true } } },
+    });
+    if (!a) throw new NotFoundException('Cita no encontrada.');
+    if (a.status === 'cancelled' || a.status === 'completed' || a.status === 'no_show')
+      throw new BadRequestException('Esta cita ya no se puede reagendar.');
+    const start = new Date(newStartAtIso);
+    if (Number.isNaN(start.getTime()))
+      throw new BadRequestException('Fecha/hora inválida.');
+    if (start.getTime() <= Date.now())
+      throw new BadRequestException('Elige un horario futuro.');
+    const end = new Date(start.getTime() + (a.service?.durationMin ?? 30) * 60000);
+    const clash = await this.prisma.appointment.findFirst({
+      where: {
+        tenantId: a.tenantId,
+        id: { not: a.id },
+        status: { notIn: ['cancelled', 'no_show'] },
+        startAt: { lt: end },
+        endAt: { gt: start },
+        ...(a.providerId ? { providerId: a.providerId } : {}),
+      },
+      select: { id: true },
+    });
+    if (clash)
+      throw new BadRequestException('Ese horario ya está ocupado. Elige otro.');
+    const updated = await this.prisma.appointment.update({
+      where: { id: a.id },
+      data: { startAt: start, endAt: end, status: 'confirmed', reminderSentAt: null },
+    });
+    // Nueva confirmación con el horario actualizado.
+    this.notifyAppointment(updated, 'confirm').catch(() => null);
+    return { ok: true, startAt: updated.startAt, endAt: updated.endAt };
   }
 
   // ───────────────── Citas ─────────────────
@@ -496,6 +702,7 @@ export class ServiceReservationsService {
       customerName: string;
       customerPhone: string;
       customerId?: string | null;
+      providerId?: string | null;
       notes?: string;
       status?: ApptStatus;
     },
@@ -505,6 +712,23 @@ export class ServiceReservationsService {
       select: { id: true, durationMin: true },
     });
     if (!service) throw new BadRequestException('Servicio no válido.');
+
+    // Profesional (Fase 5): si el negocio tiene profesionales activos, es
+    // obligatorio elegir uno válido; si no, la cita es a nivel negocio.
+    let providerId: string | null = dto.providerId || null;
+    const hasProviders = await this.hasActiveProviders(tenantId);
+    if (hasProviders) {
+      if (!providerId)
+        throw new BadRequestException('Elige un profesional.');
+      const p = await this.prisma.serviceProvider.findFirst({
+        where: { id: providerId, tenantId, isActive: true },
+        select: { id: true },
+      });
+      if (!p) throw new BadRequestException('Profesional no válido.');
+    } else {
+      providerId = null;
+    }
+
     const start = new Date(dto.startAt);
     if (Number.isNaN(start.getTime()))
       throw new BadRequestException('Fecha/hora inválida.');
@@ -514,13 +738,15 @@ export class ServiceReservationsService {
     if (!name || phone.length < 6)
       throw new BadRequestException('Nombre y teléfono del cliente requeridos.');
 
-    // Anti-doble-reserva: sin citas activas que se solapen.
+    // Anti-doble-reserva: sin citas activas que se solapen (del profesional si
+    // hay, o del negocio si no).
     const clash = await this.prisma.appointment.findFirst({
       where: {
         tenantId,
         status: { notIn: ['cancelled', 'no_show'] },
         startAt: { lt: end },
         endAt: { gt: start },
+        ...(providerId ? { providerId } : {}),
       },
       select: { id: true },
     });
@@ -531,6 +757,7 @@ export class ServiceReservationsService {
       data: {
         tenantId,
         serviceId: dto.serviceId,
+        providerId,
         customerId: dto.customerId ?? null,
         customerName: name,
         customerPhone: phone,
@@ -538,6 +765,7 @@ export class ServiceReservationsService {
         endAt: end,
         status: dto.status ?? 'confirmed',
         notes: dto.notes?.trim() || null,
+        manageToken: randomBytes(16).toString('hex'),
       },
     });
     // Fase 4: SMS de confirmación al cliente (best-effort, aislado por marca).
@@ -553,6 +781,7 @@ export class ServiceReservationsService {
       startAt: string;
       customerName: string;
       customerPhone: string;
+      providerId?: string | null;
       notes?: string;
     },
     override?: string,
@@ -620,6 +849,7 @@ export class ServiceReservationsService {
       startAt: Date;
       customerName: string;
       customerPhone: string;
+      manageToken?: string | null;
     },
     kind: 'confirm' | 'reminder',
   ) {
@@ -648,10 +878,14 @@ export class ServiceReservationsService {
       const { fecha, hora } = this.fmtWhen(appt.startAt, tz);
       const svc = service?.name ?? 'tu servicio';
       const firstName = (appt.customerName || '').trim().split(/\s+/)[0] || '';
+      const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+      const manageLine = appt.manageToken
+        ? ` Gestiona/reagenda: ${appUrl}/cita/gestion/${appt.manageToken}`
+        : '';
       const body =
         kind === 'confirm'
-          ? `${tenant.brandName}: ${firstName ? firstName + ', tu' : 'Tu'} cita de ${svc} quedó confirmada para el ${fecha} a las ${hora}. ¡Te esperamos!`
-          : `${tenant.brandName}: Recordatorio — tu cita de ${svc} es el ${fecha} a las ${hora}.`;
+          ? `${tenant.brandName}: ${firstName ? firstName + ', tu' : 'Tu'} cita de ${svc} quedó confirmada para el ${fecha} a las ${hora}. ¡Te esperamos!${manageLine}`
+          : `${tenant.brandName}: Recordatorio — tu cita de ${svc} es el ${fecha} a las ${hora}.${manageLine}`;
       await this.growBusiness
         .sendSmsWithCreds(creds, appt.customerPhone, body)
         .catch(() => null);
