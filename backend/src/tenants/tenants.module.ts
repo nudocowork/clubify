@@ -9,6 +9,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
 import { BillingModule } from '../billing/billing.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { CommissionRecalcModule } from '../referrals/commission-recalc.module';
+import { OnboardingSyncModule } from '../onboarding-sync/onboarding-sync.module';
 
 @Module({
   imports: [
@@ -16,6 +17,9 @@ import { CommissionRecalcModule } from '../referrals/commission-recalc.module';
     AuditModule,
     IntegrationsModule,
     BillingModule,
+    // Fase D: TenantsService dispara el webhook business.activated (one-way,
+    // OnboardingSyncModule no importa TenantsModule → sin ciclo).
+    OnboardingSyncModule,
     // forwardRef por posible ciclo: ReferralsModule podría depender de
     // tenants en el futuro. Por ahora es one-way pero el forwardRef
     // protege a futuro.

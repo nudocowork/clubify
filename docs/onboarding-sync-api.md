@@ -1,6 +1,6 @@
 # Onboarding → Clubify — Sync API (contrato de integración)
 
-> **Estado:** Fases A (diccionario) + B (token por negocio) + **C (endpoints de sync) LIVE** · Fase D (webhook) pendiente.
+> **Estado:** Fases A (diccionario) + B (token) + C (endpoints) + **D (webhook `business.activated`) — TODAS LIVE.**
 > El onboarding se adapta a estos nombres/endpoints; Clubify NO se reestructura.
 > Fuente de verdad: `backend/prisma/schema.prisma`. Nombres y tipos copiados **tal cual** existen hoy.
 
@@ -202,16 +202,32 @@ curl -X POST https://api.soyclubify.com/api/sync/products \
   -d '[{"name":"Latte","basePrice":12000,"categoryName":"Bebidas","isRecommended":true}]'
 ```
 
-## FASE D — Webhook de activación (plan)
+## FASE D — Webhook de activación (LIVE)
 
-Al pasar un negocio a `ACTIVE` (por `/sync/activate` o desde el panel), Clubify hace `POST` a una URL configurable:
+Cuando un negocio pasa a `ACTIVE` — vía **`POST /sync/activate`** o al **activarlo desde el panel/simulador** (Master Admin) — Clubify hace un `POST` firmado a una URL configurable:
+
 ```json
-{ "event": "business.activated", "business_id": "<tenant.id>", "name": "<brandName>", "phone": "<tenant.phone>", "activated_at": "<iso>" }
+{
+  "event": "business.activated",
+  "business_id": "<Tenant.id>",
+  "name": "<brandName>",
+  "phone": "<Tenant.phone>",
+  "slug": "<Tenant.slug>",
+  "activated_at": "<ISO>",
+  "sent_at": "<ISO>"
+}
 ```
-- URL + secreto de firma configurables (Setting global o `WhiteLabel`).
-- Firma: header `X-Clubify-Signature: sha256=<hmac(secret, rawBody)>`.
+
+**Headers:** `Content-Type: application/json` · `X-Clubify-Event: business.activated` · `X-Clubify-Signature: sha256=<hmac_sha256(secret, rawBody)>`.
+
+**Verificar la firma** (ejemplo Node): `crypto.createHmac('sha256', SECRET).update(rawBody).digest('hex')` y comparar con el valor tras `sha256=`.
+
+**Configuración (Master Admin → `/superadmin/integraciones` → "Webhook de Onboarding"):** URL destino + secreto de firma + toggle "Activo" + botón **Probar** (envía un `webhook.test`). También por API (`@Roles PLATFORM_OWNER`): `GET/PUT /onboarding-webhook`, `POST /onboarding-webhook/test`. Config global en `Setting` (`onboarding.webhook.url|secret|enabled`).
+
+- **Best-effort:** el envío es fire-and-forget con timeout de 6 s; si falla, **nunca** rompe ni retrasa la activación (solo queda un warning en logs).
 - Clubify solo **emite**; el onboarding reacciona con su propia mensajería.
+- Si el toggle está apagado o no hay URL, no se envía nada.
 
 ---
 
-**Estado del build:** A (diccionario) ✅ · B (token+guard) ✅ LIVE · C (endpoints por entidad) ✅ LIVE · **D (webhook `business.activated`) pendiente** — se dispara desde `POST /sync/activate` (ver `OnboardingSyncService.activate`, ya marcado con el TODO).
+**Estado del build:** A (diccionario) ✅ · B (token+guard) ✅ · C (endpoints por entidad) ✅ · D (webhook `business.activated`) ✅ — **TODO LIVE.** Se dispara desde `POST /sync/activate` y desde la activación por panel/simulador; se configura en `/superadmin/integraciones`.

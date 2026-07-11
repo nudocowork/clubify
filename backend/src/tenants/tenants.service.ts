@@ -12,6 +12,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
+import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
 import { addPlanPeriod } from '../common/plan-period';
@@ -149,6 +150,7 @@ export class TenantsService {
     private queue: QueueService,
     private growBusiness: GrowBusinessService,
     private recalc: CommissionRecalcService,
+    private onboardingWebhook: OnboardingWebhookService,
   ) {}
 
   /**
@@ -406,7 +408,8 @@ export class TenantsService {
     const where = await this.brandTenantWhere(user?.whiteLabelId ?? null);
     const tenants = await this.prisma.tenant.findMany({
       // Bloque 5 (2026-06-12): excluir soft-deleted del listado admin.
-      where: { deletedAt: null, ...where },
+      // isCampaignHost: el tenant de sistema de Cuponera no es un negocio real.
+      where: { deletedAt: null, isCampaignHost: false, ...where },
       include: {
         plan: true,
         businessGroup: { select: { id: true, name: true, status: true } },
@@ -926,6 +929,10 @@ export class TenantsService {
     // Invalidamos el cache del TenantStatusGuard — sino las escrituras de este
     // tenant siguen 402 hasta 30s después del switch a TRIAL/ACTIVE/free.
     invalidateTenantStatusCache(id);
+    // Fase D (Onboarding Sync): al ACTIVAR por panel/simulador, avisamos al
+    // onboarding con el webhook saliente `business.activated`. Fire-and-forget,
+    // best-effort — jamás rompe ni retrasa la activación.
+    if (activatesNow) void this.onboardingWebhook.emitBusinessActivated(id);
     // Audit 2026-06-08: cambiar billing manualmente puede convertir a
     // un tenant en cortesía (free) o forzar paid sin pago real. Trazable.
     this.audit.log({

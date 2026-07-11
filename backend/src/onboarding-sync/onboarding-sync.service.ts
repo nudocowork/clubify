@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { OnboardingWebhookService } from './onboarding-webhook.service';
 
 // Onboarding Sync API — Fase C. Escrituras por entidad, TODAS scoped al
 // tenantId que resuelve el token (nunca del body). Upsert NO destructivo: crea
@@ -43,7 +44,10 @@ function dateOrNull(v: unknown): Date | null {
 
 @Injectable()
 export class OnboardingSyncService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly webhook: OnboardingWebhookService,
+  ) {}
 
   // ── 1. Datos del negocio ──────────────────────────────────────────────
   async syncBusiness(tenantId: string, b: any) {
@@ -395,7 +399,8 @@ export class OnboardingSyncService {
       create: { tenantId, isPublished: true },
       update: { isPublished: true },
     });
-    // Fase D: aquí se disparará el webhook saliente `business.activated`.
+    // Fase D: webhook saliente `business.activated` (fire-and-forget, best-effort).
+    void this.webhook.emitBusinessActivated(tenantId);
     return {
       ok: true,
       business_id: t.id,
