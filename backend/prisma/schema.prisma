@@ -4442,6 +4442,26 @@ model Appointment {
   @@index([providerId, startAt])
 }
 
+/// Token de integración POR NEGOCIO (Onboarding Sync API, Fase B). Permiso
+/// ÚNICO sobre su `tenantId` — nunca una API key global. Se guarda solo el
+/// sha256 del token (`tokenHash`); el valor en claro se muestra una vez al
+/// generarlo. Se revoca con `revokedAt`. Autenticación: `Authorization: Bearer <token>`.
+model OnboardingToken {
+  id         String    @id @default(uuid())
+  tenantId   String
+  /// sha256 (hex) del token en claro. El claro nunca se persiste.
+  tokenHash  String    @unique
+  /// Etiqueta libre para distinguir varios tokens del mismo negocio.
+  label      String    @default("Onboarding")
+  /// Últimos 4 caracteres del token en claro — para reconocer cuál es en la lista.
+  lastFour   String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  @@index([tenantId])
+}
+
 /// Comisión de plataforma generada por un domicilio ENTREGADO (Fase 4). Monto
 /// FIJO por empresa (DeliveryCompany.commissionPerDelivery), repartido entre la
 /// marca blanca y el Master Admin según brandSharePct (snapshot). 1 por delivery.
