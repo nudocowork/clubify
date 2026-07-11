@@ -173,10 +173,19 @@ export default function GestionCitaPage() {
           )}
           {state === 'ok' && appt && (
             <>
-              {appt.status === 'cancelled' ? (
+              {['cancelled', 'completed', 'no_show'].includes(appt.status) ? (
                 <div className="text-center py-6">
-                  <div className="text-4xl mb-2">🚫</div>
-                  <div className="font-bold">Cita cancelada</div>
+                  <div className="text-4xl mb-2">
+                    {appt.status === 'cancelled' ? '🚫' : appt.status === 'completed' ? '✅' : '⌛'}
+                  </div>
+                  <div className="font-bold">
+                    {appt.status === 'cancelled'
+                      ? 'Cita cancelada'
+                      : appt.status === 'completed'
+                        ? 'Cita completada'
+                        : 'No asististe a esta cita'}
+                  </div>
+                  <div className="text-sm mt-1" style={{ color: '#9aa4af' }}>{appt.serviceName}</div>
                 </div>
               ) : (
                 <>

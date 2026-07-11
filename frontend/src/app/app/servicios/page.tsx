@@ -459,6 +459,13 @@ function ScheduleTab({
     if (activeProviders.length === 0 && selectedProvider) {
       setSelectedProvider('');
     }
+    // Si el profesional seleccionado quedó inactivo/borrado, reencuadra.
+    if (
+      selectedProvider &&
+      !activeProviders.some((p) => p.id === selectedProvider)
+    ) {
+      setSelectedProvider(activeProviders[0]?.id ?? '');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providers]);
 
@@ -754,9 +761,25 @@ function NewAppointmentModal({
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
 
+  // Solo profesionales que hacen el servicio elegido (serviceIds vacío = todos).
+  const providersForService = providers.filter(
+    (p) => p.serviceIds.length === 0 || p.serviceIds.includes(serviceId),
+  );
+  // Al cambiar de servicio, si el profesional elegido no lo hace, resetea.
+  useEffect(() => {
+    if (
+      providersForService.length > 0 &&
+      !providersForService.some((p) => p.id === providerId)
+    ) {
+      setProviderId(providersForService[0].id);
+    }
+    if (providersForService.length === 0 && providerId) setProviderId('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceId]);
+
   const loadSlots = useCallback(async () => {
     if (!serviceId || !date) return;
-    if (providers.length > 0 && !providerId) return;
+    if (providersForService.length > 0 && !providerId) return;
     setLoadingSlots(true);
     setSlot('');
     try {
@@ -770,7 +793,8 @@ function NewAppointmentModal({
     } finally {
       setLoadingSlots(false);
     }
-  }, [serviceId, date, providerId, providers.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceId, date, providerId, providersForService.length]);
   useEffect(() => {
     loadSlots();
   }, [loadSlots]);
@@ -780,7 +804,7 @@ function NewAppointmentModal({
       toast('Elige servicio y horario', 'error');
       return;
     }
-    if (providers.length > 0 && !providerId) {
+    if (providersForService.length > 0 && !providerId) {
       toast('Elige un profesional', 'error');
       return;
     }
@@ -819,15 +843,20 @@ function NewAppointmentModal({
             <option key={s.id} value={s.id}>{s.name} ({s.durationMin} min)</option>
           ))}
         </select>
-        {providers.length > 0 && (
+        {providersForService.length > 0 && (
           <>
             <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>Profesional</label>
             <select className={inp + ' mb-2'} value={providerId} onChange={(e) => setProviderId(e.target.value)}>
-              {providers.map((p) => (
+              {providersForService.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
           </>
+        )}
+        {providers.length > 0 && providersForService.length === 0 && (
+          <div className="text-[12px] rounded-[10px] px-2 py-1.5 mb-2" style={{ color: '#a16207', background: '#fef9c3' }}>
+            Ningún profesional realiza este servicio. Asígnalo en la pestaña Profesionales.
+          </div>
         )}
         <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>Fecha</label>
         <input type="date" className={inp + ' mb-2'} value={date} onChange={(e) => setDate(e.target.value)} />

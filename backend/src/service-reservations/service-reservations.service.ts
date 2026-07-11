@@ -83,6 +83,18 @@ function weekdayInTz(dateStr: string, timezone: string): number {
   return map[wd] ?? 0;
 }
 
+/** 'YYYY-MM-DD' de un instante UTC en la timezone del tenant. */
+function dateStrInTz(d: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 function minutesToLabel(m: number): string {
   const h = Math.floor(m / 60);
   const mi = m % 60;
@@ -478,6 +490,13 @@ export class ServiceReservationsService {
     });
     if (!service) return { slots: [] as { startAt: string; label: string }[] };
 
+    // Si el negocio tiene profesionales activos, hay que elegir uno: sin
+    // providerId no hay slots reservables (evita mostrar/permitir slots de
+    // "nivel negocio" que luego el book rechazaría). Alinea slots ↔ reserva.
+    if (!providerId && (await this.hasActiveProviders(tenantId))) {
+      return { slots: [] };
+    }
+
     const date = new Date(`${dateStr}T00:00:00.000Z`);
     const exc = await this.prisma.serviceException.findFirst({
       where: { tenantId, date },
@@ -694,6 +713,22 @@ export class ServiceReservationsService {
     if (start.getTime() <= Date.now())
       throw new BadRequestException('Elige un horario futuro.');
     const end = new Date(start.getTime() + (a.service?.durationMin ?? 30) * 60000);
+    // El nuevo horario debe ser un slot real disponible (mismo servicio y
+    // profesional). Cierra el hueco de reagendar fuera de hora vía API.
+    const tzRow = await this.prisma.tenant.findUnique({
+      where: { id: a.tenantId },
+      select: { timezone: true },
+    });
+    const dateStr = dateStrInTz(start, tzRow?.timezone || 'America/Bogota');
+    const avail = await this.getAvailableSlots(
+      a.tenantId,
+      a.serviceId,
+      dateStr,
+      a.providerId,
+    );
+    if (!avail.slots.some((s) => s.startAt === start.toISOString())) {
+      throw new BadRequestException('Ese horario no está disponible. Elige otro.');
+    }
     const clash = await this.prisma.appointment.findFirst({
       where: {
         tenantId: a.tenantId,
@@ -788,8 +823,25 @@ export class ServiceReservationsService {
     if (!name || phone.length < 6)
       throw new BadRequestException('Nombre y teléfono del cliente requeridos.');
 
-    // Anti-doble-reserva: sin citas activas que se solapen (del profesional si
-    // hay, o del negocio si no).
+    // El horario DEBE ser un slot real disponible (dentro del horario, futuro,
+    // no ocupado). Cierra el hueco de reservar fuera de hora / en el pasado vía
+    // API directa. Reusa el motor de slots (respeta franjas, excepciones, TZ).
+    const tzRow = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { timezone: true },
+    });
+    const dateStr = dateStrInTz(start, tzRow?.timezone || 'America/Bogota');
+    const avail = await this.getAvailableSlots(
+      tenantId,
+      dto.serviceId,
+      dateStr,
+      providerId,
+    );
+    if (!avail.slots.some((s) => s.startAt === start.toISOString())) {
+      throw new BadRequestException('Ese horario no está disponible. Elige otro.');
+    }
+
+    // Anti-doble-reserva (guard de carrera; los slots ya excluyen ocupados).
     const clash = await this.prisma.appointment.findFirst({
       where: {
         tenantId,

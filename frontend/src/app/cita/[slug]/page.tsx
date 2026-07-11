@@ -71,6 +71,9 @@ export default function CitaPage() {
     (p) => p.serviceIds.length === 0 || p.serviceIds.includes(serviceId),
   );
   const hasProviders = providersForService.length > 0;
+  const businessHasProviders = (info?.providers?.length ?? 0) > 0;
+  // Negocio con profesionales pero ninguno hace este servicio → no reservable.
+  const noProviderForService = businessHasProviders && !hasProviders;
   // Si el profesional elegido no hace el nuevo servicio, resetea al primero.
   useEffect(() => {
     if (
@@ -257,6 +260,13 @@ export default function CitaPage() {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {noProviderForService && (
+          <div className="text-[13px] rounded-[10px] px-3 py-2" style={{ color: '#a16207', background: '#fef9c3' }}>
+            Este servicio no tiene un profesional disponible por ahora. Prueba con
+            otro servicio.
           </div>
         )}
 
