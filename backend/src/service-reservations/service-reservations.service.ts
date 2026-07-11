@@ -2,10 +2,17 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { GrowBusinessService } from '../integrations/grow-business.service';
+import {
+  brandGrowCreds,
+  BRAND_GROW_SELECT,
+} from '../integrations/brand-sms-creds.util';
 
 const APPT_STATUSES = [
   'pending',
@@ -87,7 +94,11 @@ function isValidDateStr(s: string): boolean {
 
 @Injectable()
 export class ServiceReservationsService {
-  constructor(private prisma: PrismaService) {}
+  private logger = new Logger(ServiceReservationsService.name);
+  constructor(
+    private prisma: PrismaService,
+    private growBusiness: GrowBusinessService,
+  ) {}
 
   private tid(user: AuthUser, override?: string): string {
     if (user.role === 'SUPER_ADMIN' || user.role === 'PLATFORM_OWNER') {
@@ -516,7 +527,7 @@ export class ServiceReservationsService {
     if (clash)
       throw new BadRequestException('Ese horario ya está ocupado. Elige otro.');
 
-    return this.prisma.appointment.create({
+    const appt = await this.prisma.appointment.create({
       data: {
         tenantId,
         serviceId: dto.serviceId,
@@ -529,6 +540,9 @@ export class ServiceReservationsService {
         notes: dto.notes?.trim() || null,
       },
     });
+    // Fase 4: SMS de confirmación al cliente (best-effort, aislado por marca).
+    this.notifyAppointment(appt, 'confirm').catch(() => null);
+    return appt;
   }
 
   /** Alta de cita desde el panel (scopeada al negocio del usuario). */
@@ -557,5 +571,117 @@ export class ServiceReservationsService {
     });
     if (!owned) throw new NotFoundException('Cita no encontrada.');
     return this.prisma.appointment.update({ where: { id }, data: { status } });
+  }
+
+  // ───────────────── Notificaciones (Fase 4) ─────────────────
+
+  /** Creds SMS del negocio: propias > subcuenta de su marca blanca > NADA.
+   *  Nunca la de Clubify (mismo aislamiento que las automatizaciones). */
+  private credsForTenant(tenant: {
+    growBusinessLocationId?: string | null;
+    growBusinessApiKey?: string | null;
+    growBusinessSwitchNumber?: number | null;
+    whiteLabel?: {
+      growBusinessLocationId?: string | null;
+      growBusinessApiKey?: string | null;
+      growBusinessSwitchNumber?: number | null;
+    } | null;
+  }): { locationId: string; apiKey: string; switchNumber: number | null } | null {
+    if (tenant?.growBusinessLocationId && tenant?.growBusinessApiKey) {
+      return {
+        locationId: tenant.growBusinessLocationId,
+        apiKey: tenant.growBusinessApiKey,
+        switchNumber: tenant.growBusinessSwitchNumber ?? null,
+      };
+    }
+    return brandGrowCreds(tenant?.whiteLabel);
+  }
+
+  private fmtWhen(d: Date, tz: string) {
+    const fecha = new Intl.DateTimeFormat('es-CO', {
+      timeZone: tz,
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    }).format(d);
+    const hora = new Intl.DateTimeFormat('es-CO', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(d);
+    return { fecha, hora };
+  }
+
+  /** SMS de confirmación / recordatorio de una cita al cliente (best-effort). */
+  private async notifyAppointment(
+    appt: {
+      tenantId: string;
+      serviceId: string;
+      startAt: Date;
+      customerName: string;
+      customerPhone: string;
+    },
+    kind: 'confirm' | 'reminder',
+  ) {
+    try {
+      const [tenant, service] = await Promise.all([
+        this.prisma.tenant.findUnique({
+          where: { id: appt.tenantId },
+          select: {
+            brandName: true,
+            timezone: true,
+            growBusinessLocationId: true,
+            growBusinessApiKey: true,
+            growBusinessSwitchNumber: true,
+            whiteLabel: { select: BRAND_GROW_SELECT },
+          },
+        }),
+        this.prisma.service.findUnique({
+          where: { id: appt.serviceId },
+          select: { name: true },
+        }),
+      ]);
+      if (!tenant) return;
+      const creds = this.credsForTenant(tenant);
+      if (!creds) return; // sin creds propias ni de marca → no se envía
+      const tz = tenant.timezone || 'America/Bogota';
+      const { fecha, hora } = this.fmtWhen(appt.startAt, tz);
+      const svc = service?.name ?? 'tu servicio';
+      const firstName = (appt.customerName || '').trim().split(/\s+/)[0] || '';
+      const body =
+        kind === 'confirm'
+          ? `${tenant.brandName}: ${firstName ? firstName + ', tu' : 'Tu'} cita de ${svc} quedó confirmada para el ${fecha} a las ${hora}. ¡Te esperamos!`
+          : `${tenant.brandName}: Recordatorio — tu cita de ${svc} es el ${fecha} a las ${hora}.`;
+      await this.growBusiness
+        .sendSmsWithCreds(creds, appt.customerPhone, body)
+        .catch(() => null);
+    } catch (e) {
+      this.logger.warn(
+        `notifyAppointment(${kind}) falló: ${(e as Error).message}`,
+      );
+    }
+  }
+
+  /** Cron: recordatorio de citas que empiezan dentro de las próximas ~3h.
+   *  Idempotente por Appointment.reminderSentAt. */
+  @Cron('*/30 * * * *')
+  async remindUpcomingAppointments() {
+    const now = new Date();
+    const horizon = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    const due = await this.prisma.appointment.findMany({
+      where: {
+        status: 'confirmed',
+        reminderSentAt: null,
+        startAt: { gt: now, lte: horizon },
+      },
+      take: 200,
+      orderBy: { startAt: 'asc' },
+    });
+    for (const a of due) {
+      await this.notifyAppointment(a, 'reminder');
+      await this.prisma.appointment
+        .update({ where: { id: a.id }, data: { reminderSentAt: new Date() } })
+        .catch(() => null);
+    }
   }
 }
