@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
@@ -89,6 +90,17 @@ export class StorefrontService {
   async update(user: AuthUser, dto: StorefrontDto, override?: string) {
     const tid = this.tid(user, override);
     const customDomain = this.normalizeDomain(dto.customDomain);
+    // Si se asigna un dominio, evitar chocar con el @unique de otro storefront
+    // (sino Prisma tira P2002 → 500 crudo). Devolvemos un 409 claro (PDF123).
+    if (customDomain) {
+      const taken = await this.prisma.storefront.findFirst({
+        where: { customDomain, tenantId: { not: tid } },
+        select: { tenantId: true },
+      });
+      if (taken) {
+        throw new ConflictException('Ese dominio ya está en uso por otro negocio.');
+      }
+    }
     // M9: validar shape efectivo del bookPopup (post-patch) ANTES del upsert
     // para no dejar payloads incoherentes en DB. Solo si el dto toca alguno
     // de los campos relevantes — sino dejamos pasar (PATCH parcial común).
