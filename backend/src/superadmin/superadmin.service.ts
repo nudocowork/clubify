@@ -769,7 +769,11 @@ export class SuperAdminService {
           installationPromoUsd: dto.installationPromoUsd ?? null,
           modules: {
             create: [
-              { module: 'REFERRALS', enabled: true },
+              // REFERRALS nace APAGADO: el programa de referidos es 100%
+              // branding Clubify (link soyclubify.com, textos "Clubify") y aún
+              // no es marca-consciente → una marca nueva no debe verlo hasta
+              // habilitarlo a mano. Evita la fuga de marca que reportó Sellea.
+              { module: 'REFERRALS', enabled: false },
               { module: 'ORDERS', enabled: true },
               { module: 'GROW_BUSINESS_SMS', enabled: true },
               { module: 'REVIEWS', enabled: true },

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
@@ -47,23 +48,32 @@ const STATUS_LABEL_KEY: Record<Use['status'], { labelKey: string; cls: string }>
 
 export default function TenantReferrals() {
   const t = useTranslations('app_referrals');
+  const router = useRouter();
   const [data, setData] = useState<MyReferrals | null>(null);
   const [loading, setLoading] = useState(true);
   // WhatsApp de soporte de la marca del negocio (Sellea), no el de Clubify.
   const [supportWa, setSupportWa] = useState('573167689240');
 
   useEffect(() => {
-    api<MyReferrals>('/referrals/me')
-      .then(setData)
-      .catch(() => setData({ codes: [], totals: { signedUp: 0, converted: 0, paidUsd: 0, pendingUsd: 0 } }))
-      .finally(() => setLoading(false));
-    api<{ brandSupportWhatsApp?: string | null }>('/tenants/me')
+    // Guard: el programa de referidos es branding Clubify y se gatea por el
+    // módulo REFERRALS de la marca. Si la marca lo tiene apagado (ej. Sellea),
+    // ni el sidebar ni el Cmd+K lo muestran, pero la URL directa igual llegaría
+    // aquí → redirigimos al dashboard para no filtrar branding Clubify.
+    api<{ brandSupportWhatsApp?: string | null; referralsEnabled?: boolean }>('/tenants/me')
       .then((tn) => {
+        if (tn?.referralsEnabled === false) {
+          router.replace('/app');
+          return;
+        }
         const d = (tn?.brandSupportWhatsApp || '').replace(/[^0-9]/g, '');
         if (d) setSupportWa(d);
       })
       .catch(() => null);
-  }, []);
+    api<MyReferrals>('/referrals/me')
+      .then(setData)
+      .catch(() => setData({ codes: [], totals: { signedUp: 0, converted: 0, paidUsd: 0, pendingUsd: 0 } }))
+      .finally(() => setLoading(false));
+  }, [router]);
 
   function copyLink(link: string) {
     try {
