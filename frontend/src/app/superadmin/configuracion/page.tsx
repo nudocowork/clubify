@@ -125,7 +125,7 @@ function BrandingForm({ config, onSaved }: { config: PlatformConfig; onSaved: ()
           <input
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="Fidelia"
+            placeholder="Fidelity"
             className="w-full"
             style={inputStyle}
           />

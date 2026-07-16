@@ -1216,7 +1216,7 @@ export default function AppShell({
         {/* Banner cuando un PLATFORM_OWNER impersona una marca — visible en admin y app */}
         {impersonation && impersonation.user?.role === 'PLATFORM_OWNER' && (
           <div className="bg-emerald-700 text-emerald-50 px-4 py-2 text-[13px] flex items-center gap-2 flex-wrap">
-            <span className="font-semibold">🏛 Modo plataforma · Fidelia</span>
+            <span className="font-semibold">🏛 Modo plataforma · Fidelity</span>
             <span className="opacity-90">
               Estás dentro de <b>{impersonation.tenant?.brandName ?? 'esta marca'}</b> como super admin.
             </span>
@@ -1226,9 +1226,9 @@ export default function AppShell({
                 router.push('/superadmin');
               }}
               className="ml-auto bg-emerald-900 text-emerald-100 px-3 py-1 rounded-md text-xs font-semibold hover:bg-emerald-950 transition"
-              title="Volver al panel de Fidelia"
+              title="Volver al panel de Fidelity"
             >
-              ← Volver a Fidelia
+              ← Volver a Fidelity
             </button>
           </div>
         )}
