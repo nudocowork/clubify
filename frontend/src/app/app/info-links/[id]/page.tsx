@@ -1,6 +1,8 @@
 'use client';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
+import { PhoneInput } from '@/components/PhoneInput';
+import { useTenantCountry } from '@/lib/useTenantCountry';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -177,6 +179,7 @@ export default function InfoLinkEditor() {
   // null = modal cerrado.
   const [coverEditingIdx, setCoverEditingIdx] = useState<number | null>(null);
   const t = useTranslations('app_info_links_id');
+  const country = useTenantCountry();
 
   async function load() {
     const l = await api<InfoLink>(`/info-links/${id}`);
@@ -877,11 +880,10 @@ export default function InfoLinkEditor() {
                   )}
                   {b.type === 'WHATSAPP' && (
                     <div className="col-span-full grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-2">
-                      <input
-                        className="input"
-                        placeholder="+57 300 000 0000"
+                      <PhoneInput
                         value={b.waPhone ?? ''}
-                        onChange={(e) => updateButton(i, { waPhone: e.target.value })}
+                        onChange={(v) => updateButton(i, { waPhone: v })}
+                        defaultCountry={country}
                       />
                       <input
                         className="input"

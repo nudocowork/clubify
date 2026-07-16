@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { PhoneInput } from '@/components/PhoneInput';
+import { useTenantCountry } from '@/lib/useTenantCountry';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
@@ -46,6 +48,7 @@ type DailyKpis = {
 
 export default function AgendaPage() {
   const t = useTranslations('app_reservations');
+  const country = useTenantCountry();
   const [date, setDate] = useState(todayISO());
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [kpis, setKpis] = useState<DailyKpis | null>(null);
@@ -542,13 +545,14 @@ export default function AgendaPage() {
               value={newForm.customerName}
               onChange={(v) => setNewForm({ ...newForm, customerName: v })}
             />
-            <Input
-              label={t('fieldPhone')}
-              required
-              value={newForm.customerPhone}
-              onChange={(v) => setNewForm({ ...newForm, customerPhone: v })}
-              placeholder="+52 55 0000 0000"
-            />
+            <div>
+              <label className="label">{t('fieldPhone')}</label>
+              <PhoneInput
+                value={newForm.customerPhone}
+                onChange={(v) => setNewForm({ ...newForm, customerPhone: v })}
+                defaultCountry={country}
+              />
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <NumberInput
                 label={t('fieldPax')}

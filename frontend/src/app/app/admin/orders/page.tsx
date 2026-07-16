@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { PhoneInput } from '@/components/PhoneInput';
+import { useTenantCountry } from '@/lib/useTenantCountry';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -40,6 +42,7 @@ const UNITS = ['kg', 'g', 'lb', 'L', 'ml', 'un', 'caja', 'paquete', 'docena'];
 
 export default function OrdersGeneratorPage() {
   const t = useTranslations('app_admin_orders');
+  const country = useTenantCountry();
   const [stats, setStats] = useState<Stats | null>(null);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [frequent, setFrequent] = useState<FrequentProduct[]>([]);
@@ -465,13 +468,10 @@ export default function OrdersGeneratorPage() {
                 />
               </Field>
               <Field label={t('fieldWhatsappSms')}>
-                <input
-                  className="input"
-                  placeholder="+57 300 000 0000"
+                <PhoneInput
                   value={supplierForm.phone}
-                  onChange={(e) =>
-                    setSupplierForm({ ...supplierForm, phone: e.target.value })
-                  }
+                  onChange={(v) => setSupplierForm({ ...supplierForm, phone: v })}
+                  defaultCountry={country}
                 />
               </Field>
               <div className="col-span-2">

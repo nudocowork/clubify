@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { PhoneInput } from '@/components/PhoneInput';
+import { useTenantCountry } from '@/lib/useTenantCountry';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -112,6 +114,7 @@ function todayISO() {
 
 export default function ReportesPage() {
   const t = useTranslations('app_reservations_reportes');
+  const country = useTenantCountry();
   const [tab] = useState<'agenda' | 'plano' | 'metricas'>('metricas');
   const setTab = (_: any) => {};
   const [date, setDate] = useState(todayISO());
@@ -547,12 +550,10 @@ export default function ReportesPage() {
               </div>
               <div>
                 <label className="label">{t('fieldPhone')}</label>
-                <input
-                  className="input"
+                <PhoneInput
                   value={form.customerPhone}
-                  onChange={(e) => setForm({ ...form, customerPhone: e.target.value })}
-                  required
-                  placeholder="+52 55 0000 0000"
+                  onChange={(v) => setForm({ ...form, customerPhone: v })}
+                  defaultCountry={country}
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">

@@ -8,6 +8,7 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { LanguageSwitcherIntl } from '@/components/LanguageSwitcherIntl';
 import { PhoneInput } from '@/components/PhoneInput';
+import { useTenantCountry } from '@/lib/useTenantCountry';
 
 type Profile = {
   id: string;
@@ -553,12 +554,10 @@ export default function SettingsPage() {
         <p className="text-xs text-mute mt-1">{t('resvReceiverDesc')}</p>
         <div className="mt-4">
           <label className="label">{t('resvReceiverLabel')}</label>
-          <input
-            className="input"
+          <PhoneInput
             value={resvPhone}
-            onChange={(e) => setResvPhone(e.target.value)}
-            placeholder="+57 300 000 0000"
-            inputMode="tel"
+            onChange={(v) => setResvPhone(v)}
+            defaultCountry={country}
           />
           <p className="text-[11px] text-mute mt-1">{t('resvReceiverHint')}</p>
         </div>
@@ -1236,6 +1235,7 @@ function BillingAlertsCard({
   onSaved: (updatedTenant: TenantMe) => void;
 }) {
   const t = useTranslations('app_settings');
+  const country = useTenantCountry();
   const [enabled, setEnabled] = useState<boolean>(true);
   const [phone, setPhone] = useState<string>('');
   const [saving, setSaving] = useState(false);
@@ -1335,13 +1335,10 @@ function BillingAlertsCard({
               {t('destinationPhoneHint')}
             </span>
           </label>
-          <input
-            type="tel"
-            className="input"
-            placeholder="+57 300 000 0000"
+          <PhoneInput
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            maxLength={40}
+            onChange={(v) => setPhone(v)}
+            defaultCountry={country}
           />
         </div>
 
