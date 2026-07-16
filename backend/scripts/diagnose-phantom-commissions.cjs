@@ -23,7 +23,7 @@ const day = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
     id: true, amount: true, status: true, createdAt: true, availableAt: true,
     externalTxId: true, hotmartTransactionId: true, periodKey: true, notes: true,
     recipientCode: { select: { role: true, code: true } },
-    referralUse: { select: { tenant: { select: { name: true, brandName: true, planPeriodicity: true } } } },
+    referralUse: { select: { tenant: { select: { name: true, brandName: true, planPeriodicity: true, lastChargeAt: true, currentPeriodEnd: true, hotmartTransactionId: true } } } },
   };
   const isPhantom = (c) => !c.externalTxId && !c.hotmartTransactionId;
 
@@ -70,7 +70,8 @@ const day = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
   console.log(`Total candidatas a fantasma: ${recent.length} · Suma $${recent.reduce((s, c) => s + Number(c.amount), 0).toFixed(2)}\n`);
   for (const c of recent) {
     const tn = c.referralUse?.tenant;
-    console.log(`  🚩 ${day(c.createdAt)} · ${(tn?.brandName || tn?.name || '?').slice(0,28).padEnd(28)} · ${(tn?.planPeriodicity||'MENSUAL').padEnd(10)} · ${(c.recipientCode?.role||'?').padEnd(10)} · $${money(c.amount).padStart(7)} · ${c.status.padEnd(8)} · avail=${day(c.availableAt)}`);
+    console.log(`  🚩 ${day(c.createdAt)} · ${(tn?.brandName || tn?.name || '?').slice(0,26).padEnd(26)} · ${(tn?.planPeriodicity||'MENSUAL').padEnd(10)} · ${(c.recipientCode?.role||'?').padEnd(10)} · $${money(c.amount).padStart(7)} · ${c.status.padEnd(8)} · avail=${day(c.availableAt)}`);
+    console.log(`        tenant: lastCharge=${day(tn?.lastChargeAt)} · periodEnd=${day(tn?.currentPeriodEnd)} · hotmartTx=${tn?.hotmartTransactionId ? 'sí' : 'NO'}`);
   }
 
   await p.$disconnect();
