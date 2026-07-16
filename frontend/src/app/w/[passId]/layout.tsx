@@ -23,7 +23,7 @@ export async function generateMetadata({
     });
     if (!res.ok) {
       return {
-        title: 'Mi tarjeta · Clubify',
+        title: 'Mi tarjeta',
         description: 'Tu tarjeta de fidelización digital.',
       };
     }
