@@ -69,13 +69,25 @@ export function PhoneInput({
   onChange,
   placeholder = 'Número sin prefijo',
   disabled,
+  defaultCountry,
 }: {
   value: string;
   onChange: (combined: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** ISO alpha-2 del país del NEGOCIO (Tenant.country). Cuando el campo está
+   *  vacío, la bandera inicial es la de este país en vez del default Colombia.
+   *  Si el value ya trae un número con prefijo, se respeta el país de ese valor. */
+  defaultCountry?: string;
 }) {
-  const initial = useMemo(() => parseValue(value), []);
+  const initial = useMemo(() => {
+    if (!(value ?? '').trim() && defaultCountry) {
+      const c = COUNTRIES.find((x) => x.code === defaultCountry.toUpperCase());
+      if (c) return { country: c, rest: '' };
+    }
+    return parseValue(value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const [country, setCountry] = useState<Country>(initial.country);
   const [number, setNumber] = useState<string>(initial.rest);
@@ -97,6 +109,16 @@ export function PhoneInput({
     setNumber(parsed.rest);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
+
+  // Si el país del negocio (defaultCountry) llega async DESPUÉS del mount y el
+  // campo sigue vacío, adoptamos esa bandera — sin pisar lo que el usuario tocó.
+  useEffect(() => {
+    if (!defaultCountry) return;
+    if ((value ?? '').trim() || number.trim()) return;
+    const c = COUNTRIES.find((x) => x.code === defaultCountry.toUpperCase());
+    if (c && c.code !== country.code) setCountry(c);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultCountry]);
 
   useEffect(() => {
     // Si el número está vacío, emitir string vacío — NO solo el dial.
