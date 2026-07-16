@@ -345,7 +345,18 @@ export class ReferralsService {
     }
   }
 
-  @Cron(CronExpression.EVERY_DAY_AT_4AM)
+  // DESACTIVADO 2026-07-16 (comisiones fantasma / dinero): este cron creaba
+  // comisiones de RENOVACIÓN por CALENDARIO — solo miraba `currentPeriodEnd > now`
+  // + una ventana de meses, SIN verificar un pago real de Hotmart. Cuando
+  // `currentPeriodEnd` se empujaba al futuro sin cobro (healStaleCharge, acciones
+  // manuales de admin, drift de la fecha de próximo cobro de Hotmart), fabricaba
+  // comisiones de renovaciones que nunca se cobraron (Birria Leon, Buenos Diaz,
+  // Mykoz, &N Coffee, Cocoa...). El webhook de Hotmart YA genera la comisión de
+  // renovación en cada cobro VERIFICADO (activatePurchase → generateCommissions*,
+  // dedup por transacción), así que este reconciliador de calendario es redundante
+  // y solo introducía falsos positivos. Regla del negocio: comisión SOLO con pago
+  // validado por Hotmart. Se quita el @Cron (ya no se agenda). NO reactivar sin
+  // gating por transacción Hotmart real del ciclo.
   async reconcileRecurringCommissions() {
     const now = new Date();
 
