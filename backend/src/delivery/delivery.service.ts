@@ -318,6 +318,17 @@ export class DeliveryService {
       if (!isDelivery) return;
       if (order.delivery) return; // ya existe
 
+      // Negocio SIN empresa de domicilios vinculada → NO creamos seguimiento:
+      // no hay a quién avisar ni con quién chatear. Antes se creaba el Delivery
+      // con companyId=null, lo que encendía el "Chat del domicilio" fantasma en
+      // negocios que ni siquiera tienen el sistema de domicilios (PDF454). Con
+      // ≥1 empresa vinculada sí lo creamos (resolveDefaultCompany asigna la
+      // única, o deja null para asignación manual en el portal).
+      const activeCompanies = await this.prisma.deliveryCompanyTenant.count({
+        where: { tenantId: order.tenantId, deliveryCompany: { isActive: true } },
+      });
+      if (activeCompanies === 0) return;
+
       const companyId = await this.resolveDefaultCompany(order.tenantId);
       const created = await this.prisma.delivery.create({
         data: {

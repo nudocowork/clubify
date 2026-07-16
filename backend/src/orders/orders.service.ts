@@ -1109,10 +1109,11 @@ export class OrdersService {
         customer: true,
         events: { orderBy: { createdAt: 'desc' } },
         location: true,
-        // Presencia del delivery → el panel gatea el "Chat del domicilio":
-        // solo aparece si el pedido tiene un delivery real asignado (negocio en
-        // una red de domicilios), no con solo fulfillment=DELIVERY.
-        delivery: { select: { status: true } },
+        // Presencia del delivery + empresa → el panel gatea el "Chat del
+        // domicilio": solo aparece si el pedido tiene una EMPRESA de domicilios
+        // asignada (no solo fulfillment=DELIVERY, ni un delivery huérfano sin
+        // empresa). Ver PDF454. deliveryCompanyId null = aún sin asignar.
+        delivery: { select: { status: true, deliveryCompanyId: true } },
       },
     });
     if (!o) throw new NotFoundException();

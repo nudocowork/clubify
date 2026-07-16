@@ -171,7 +171,7 @@ export function MessageEditor({
           <button
             key={v.token}
             type="button"
-            className="text-xs px-2 py-1 rounded-full bg-brand-soft text-brand hover:bg-brand hover:text-white transition"
+            className="text-xs px-2 py-1 rounded-full bg-brand-soft text-slate-800 hover:bg-brand hover:text-white transition"
             onClick={() => insertAtCursor(v.token)}
             title={`Inserta ${v.token}`}
           >

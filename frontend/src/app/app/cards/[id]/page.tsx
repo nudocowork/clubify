@@ -170,6 +170,7 @@ export default function CardDetail() {
   const [moreTarget, setMoreTarget] = useState<string | null>(null);
   const [moreAmt, setMoreAmt] = useState(2);
   const [morePin, setMorePin] = useState('');
+  const [morePurchase, setMorePurchase] = useState('');
   const [editing, setEditing] = useState(false);
   const [activeTab, setActiveTab] = useState<'detail' | 'analytics'>('detail');
   const filteredPasses = useMemo(() => {
@@ -222,6 +223,14 @@ export default function CardDetail() {
       toast(t('moreStampsInvalid'), 'error');
       return;
     }
+    // El backend exige `purchaseAmount` para STAMPS/VISITS/HYBRID (igual que
+    // 1 sello). Sin monto no agregaba los sellos y "Más sellos" parecía no
+    // funcionar (PDF454).
+    const purchaseAmount = Number(morePurchase.replace(',', '.'));
+    if (!Number.isFinite(purchaseAmount) || purchaseAmount <= 0) {
+      toast(t('invalidAmount'), 'error');
+      return;
+    }
     setStampingPassId(passId);
     try {
       await api('/stamps', {
@@ -230,6 +239,7 @@ export default function CardDetail() {
           passId,
           action: 'STAMP',
           amount,
+          purchaseAmount,
           ...(morePin.trim() ? { pin: morePin.trim() } : {}),
         }),
       });
@@ -237,6 +247,7 @@ export default function CardDetail() {
       setMoreTarget(null);
       setMorePin('');
       setMoreAmt(2);
+      setMorePurchase('');
       load();
     } catch (e: any) {
       toast(e.message || t('updateFailed'), 'error');
@@ -651,6 +662,17 @@ export default function CardDetail() {
               onChange={(e) => setMoreAmt(Number(e.target.value))}
               className="input w-full mb-3"
               autoFocus
+            />
+            <label className="block text-xs text-mute mb-1">
+              {t('moreStampsAmount')}
+            </label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={morePurchase}
+              onChange={(e) => setMorePurchase(e.target.value)}
+              className="input w-full mb-3"
+              placeholder="0"
             />
             <label className="block text-xs text-mute mb-1">
               {t('moreStampsPin')}

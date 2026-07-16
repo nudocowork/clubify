@@ -281,11 +281,11 @@ export default function OrderStatus() {
           </div>
         )}
 
-        {/* El chat del domicilio SOLO aparece si el pedido tiene un delivery
-            REAL asignado (order.delivery != null) — es decir, el negocio está
-            en una red de domicilios. Antes salía con solo fulfillment=DELIVERY,
-            apareciendo en negocios (ej. de Sellea) que NO usan domicilios. */}
-        {!cancelled && order.delivery && order.delivery.status !== 'CANCELLED' && (
+        {/* El chat del domicilio SOLO aparece si el pedido tiene una EMPRESA de
+            domicilios asignada (order.delivery.deliveryCompany) — no basta con
+            fulfillment=DELIVERY ni un delivery huérfano sin empresa. Antes salía
+            en negocios (ej. de Sellea) que NO usan domicilios (PDF454). */}
+        {!cancelled && order.delivery && order.delivery.deliveryCompany && order.delivery.status !== 'CANCELLED' && (
           <div className="card card-pad mb-4">
             <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">
               💬 Chat del domicilio

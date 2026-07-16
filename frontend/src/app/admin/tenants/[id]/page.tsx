@@ -33,8 +33,10 @@ export default function TenantDetail() {
   const [brandSaving, setBrandSaving] = useState(false);
   // PDF 925: editar info del negocio (email/WhatsApp/slug) desde el detalle.
   const [infoEditing, setInfoEditing] = useState(false);
-  const [infoDraft, setInfoDraft] = useState({ email: '', whatsappPhone: '', slug: '' });
+  const [infoDraft, setInfoDraft] = useState({ email: '', whatsappPhone: '', slug: '', customDomain: '' });
   const [infoSaving, setInfoSaving] = useState(false);
+  // PDF123: dominio personalizado del negocio (vive en Storefront.customDomain).
+  const [sfDomain, setSfDomain] = useState<string | null>(null);
   // MARKETING ve la página pero sin acciones de billing/status — esos
   // endpoints son SUPER_ADMIN only y mostrarían "Permisos insuficientes"
   // al click. Esconderlos limpia UX en lugar de fallar fuerte.
@@ -52,6 +54,15 @@ export default function TenantDetail() {
       const data = await api<any>(`/tenants/${id}`);
       setT(data);
       setExtraLocations(data.maxLocationsOverride ?? '');
+      // Dominio personalizado (SUPER_ADMIN puede leerlo por tenantId). Opcional.
+      try {
+        const sf = await api<{ customDomain: string | null }>(
+          `/storefront?tenantId=${id}`,
+        );
+        setSfDomain(sf?.customDomain ?? null);
+      } catch {
+        /* storefront opcional — no bloquea la vista */
+      }
     } catch (e: any) {
       toast(e.message || tr('errorLoadingTenant'), 'error');
     }
@@ -110,6 +121,7 @@ export default function TenantDetail() {
       email: t?.email ?? '',
       whatsappPhone: t?.whatsappPhone ?? '',
       slug: t?.slug ?? '',
+      customDomain: sfDomain ?? '',
     });
     setInfoEditing(true);
   }
@@ -122,16 +134,28 @@ export default function TenantDetail() {
     if (email && email !== (t?.email ?? '')) payload.email = email;
     if (whatsappPhone !== (t?.whatsappPhone ?? '')) payload.whatsappPhone = whatsappPhone;
     if (slug && slug !== (t?.slug ?? '')) payload.slug = slug;
-    if (Object.keys(payload).length === 0) {
+    // Dominio personalizado → Storefront.customDomain (PDF123). Se guarda por el
+    // endpoint de storefront con ?tenantId (SUPER_ADMIN puede cross-tenant).
+    const domain = infoDraft.customDomain.trim().toLowerCase();
+    const domainChanged = domain !== (sfDomain ?? '');
+    if (Object.keys(payload).length === 0 && !domainChanged) {
       setInfoEditing(false);
       return;
     }
     setInfoSaving(true);
     try {
-      await api(`/tenants/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(payload),
-      });
+      if (Object.keys(payload).length > 0) {
+        await api(`/tenants/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        });
+      }
+      if (domainChanged) {
+        await api(`/storefront?tenantId=${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ customDomain: domain || null }),
+        });
+      }
       toast(tr('infoUpdated'), 'success');
       setInfoEditing(false);
       await load();
@@ -574,6 +598,23 @@ export default function TenantDetail() {
                   <dd className="font-mono text-xs">{t.slug}</dd>
                 </div>
                 <div className="flex justify-between">
+                  <dt className="text-mute">Dominio</dt>
+                  <dd className="font-medium">
+                    {sfDomain ? (
+                      <a
+                        href={`https://${sfDomain}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-brand hover:underline font-mono text-xs"
+                      >
+                        {sfDomain}
+                      </a>
+                    ) : (
+                      '—'
+                    )}
+                  </dd>
+                </div>
+                <div className="flex justify-between">
                   <dt className="text-mute">{tr('created')}</dt>
                   <dd className="font-medium">
                     {new Date(t.createdAt).toLocaleDateString('es-CO', {
@@ -649,6 +690,22 @@ export default function TenantDetail() {
                 </div>
                 <p className="text-[11px] text-mute mt-1 leading-snug">
                   {tr('slugHint')}
+                </p>
+              </div>
+              <div>
+                <label className="label">Dominio personalizado</label>
+                <input
+                  className="input font-mono text-xs"
+                  value={infoDraft.customDomain}
+                  placeholder="birrialeon.com"
+                  onChange={(e) =>
+                    setInfoDraft((d) => ({ ...d, customDomain: e.target.value }))
+                  }
+                />
+                <p className="text-[11px] text-mute mt-1 leading-snug">
+                  Dominio propio del negocio (ej: birrialeon.com). Debe apuntar por
+                  DNS a Vercel y agregarse al proyecto. Vacío = usa el enlace /m/ por
+                  defecto.
                 </p>
               </div>
               <div className="flex gap-2 pt-1">

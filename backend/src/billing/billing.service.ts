@@ -702,6 +702,22 @@ export class BillingService {
         await this.healStaleCharge(now, t);
         continue;
       }
+      // FIX PDF123 (mora fantasma a suscriptor activo): un `failedPaymentCount`
+      // viejo (desincronización) con el ciclo AÚN vigente (currentPeriodEnd en el
+      // futuro) NO es mora — la cuenta está al día. Antes la vía "byFailure"
+      // dunneaba igual y le mandaba "pago pendiente / cobro mañana" a quien ya
+      // pagó (Quipao). Limpiamos el contador stale y saltamos.
+      if (
+        (t.failedPaymentCount ?? 0) > 0 &&
+        t.currentPeriodEnd &&
+        t.currentPeriodEnd.getTime() > now.getTime()
+      ) {
+        await this.prisma.tenant.update({
+          where: { id: t.id },
+          data: { failedPaymentCount: 0 },
+        });
+        continue;
+      }
       // Inicio de la mora (día 0).
       let dueSince: Date | null = null;
       let byFailure = false;

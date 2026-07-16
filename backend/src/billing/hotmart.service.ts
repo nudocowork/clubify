@@ -928,6 +928,15 @@ export class HotmartService {
     const isFirstHotmartPurchase = !tenant.hotmartTransactionId;
     const subscriberCode = payload.data?.subscription?.subscriber?.code;
     const transactionId = payload.data?.purchase?.transaction;
+    // FIX PDF123 (cobro duplicado): Hotmart dispara PURCHASE_APPROVED y — días
+    // después, al cerrar la ventana de garantía — PURCHASE_COMPLETE para la MISMA
+    // transacción. Ambos entran acá con eventIds distintos (pasan el claimEvent) y
+    // mandaban "Pago recibido" DOS veces. Si esta transacción ya es la que el
+    // tenant tiene guardada, es un re-aviso del mismo pago: reactivamos igual
+    // (idempotente) pero NO reenviamos el SMS. Una renovación real trae otro
+    // transaction → sí notifica.
+    const alreadyConfirmedTx =
+      !!transactionId && transactionId === tenant.hotmartTransactionId;
     // E (2026-06-12): Hotmart es la fuente oficial de fechas. Si
     // date_next_charge NO viene en una RENOVACIÓN, NO inventamos +30
     // días — preservamos currentPeriodEnd existente. Antes el +30 local
@@ -1065,7 +1074,7 @@ export class HotmartService {
         .render('account_reactivated', { brandName: tenant.brandName }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
-    } else {
+    } else if (!alreadyConfirmedTx) {
       const nextChargeInfo = nextCharge
         ? ` Próximo cobro: ${fmtSmsDate(nextCharge)}.`
         : '';

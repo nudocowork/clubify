@@ -199,7 +199,7 @@ export default function AffiliatePanel() {
             title="Volver al panel anterior"
           >
             {impersonation.user?.role === 'PLATFORM_OWNER'
-              ? '← Volver a Fidelia'
+              ? '← Volver a Fidelity'
               : '← Volver al admin'}
           </button>
         </div>

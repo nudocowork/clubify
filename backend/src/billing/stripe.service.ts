@@ -262,6 +262,13 @@ export class StripeService {
       const periodicity = await this.resolvePeriodicity(whiteLabelId, ctx.priceId, tenant.planPeriodicity);
       nextCharge = addPlanPeriod(new Date(), periodicity);
     }
+    // FIX PDF123 (cobro duplicado): si el webhook se re-procesa para el MISMO
+    // período (Stripe puede reintentar/duplicar), no reenviamos "Pago recibido".
+    // Un período nuevo (renovación) trae otra fecha → sí notifica.
+    const alreadyConfirmedPeriod =
+      !!nextCharge &&
+      !!tenant.currentPeriodEnd &&
+      nextCharge.getTime() === tenant.currentPeriodEnd.getTime();
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
@@ -286,7 +293,7 @@ export class StripeService {
         .render('account_reactivated', { brandName: tenant.brandName }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
-    } else {
+    } else if (!alreadyConfirmedPeriod) {
       const nextChargeInfo = nextCharge ? ` Próximo cobro: ${fmtSmsDate(nextCharge)}.` : '';
       this.smsTemplates
         .render('payment_confirmed', { brandName: tenant.brandName, nextChargeInfo }, tenant.id)

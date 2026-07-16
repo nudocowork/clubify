@@ -158,6 +158,45 @@ function mergeWhereAndIn(args: any, tenantIds: string[], model: string) {
 }
 
 /**
+ * Modo marca blanca, modelo User (PDF245 / Sellea): un admin o marketing DE
+ * MARCA vive con `tenantId = null` + `whiteLabelId = <marca>` (no baja a un
+ * negocio concreto), igual que `guardWhiteLabelCreate` ya permite crearlo. El
+ * scoping genérico `tenantId IN (negocios)` lo excluiría de los LISTADOS → el
+ * admin se crea pero "no aparece". Aquí acotamos a la marca por unión:
+ * usuarios de los negocios de la marca ∪ admins de la marca sin tenant.
+ */
+function mergeWhereAndInUser(
+  args: any,
+  tenantIds: string[],
+  whiteLabelId: string | null | undefined,
+  model: string,
+) {
+  args = args ?? {};
+  const existing = args.where;
+  const et = existing?.tenantId;
+  if (typeof et === 'string') {
+    // ya restringida a un tenant escalar: validar pertenencia a la marca
+    if (!tenantIds.includes(et)) {
+      throw new ForbiddenException(
+        `Cross-brand query bloqueada en ${model}: where.tenantId=${et.slice(
+          0,
+          8,
+        )}… fuera de la marca activa.`,
+      );
+    }
+    return args;
+  }
+  const brandFilter = {
+    OR: [
+      { tenantId: { in: tenantIds } },
+      ...(whiteLabelId ? [{ whiteLabelId, tenantId: null }] : []),
+    ],
+  };
+  args.where = existing ? { AND: [existing, brandFilter] } : brandFilter;
+  return args;
+}
+
+/**
  * Modo marca blanca, escrituras (decisión A): no hay un tenantId único que
  * inyectar. Permitimos solo escrituras con `data.tenantId` EXPLÍCITO que
  * pertenezca a la marca; las escrituras ambiguas (sin tenantId) se bloquean
@@ -274,7 +313,14 @@ export function tenantMiddleware(): Prisma.Middleware {
         params.args =
           scope.kind === 'tenant'
             ? mergeWhereAnd(params.args, scope.tenantId, model)
-            : mergeWhereAndIn(params.args, scope.tenantIds, model);
+            : model === 'User'
+              ? mergeWhereAndInUser(
+                  params.args,
+                  scope.tenantIds,
+                  scope.whiteLabelId,
+                  model,
+                )
+              : mergeWhereAndIn(params.args, scope.tenantIds, model);
         break;
 
       case 'create':

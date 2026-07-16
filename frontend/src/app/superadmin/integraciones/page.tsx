@@ -70,6 +70,8 @@ export default function IntegracionesPage() {
 
       <SmsTemplatesSection onToast={flashToast} />
 
+      <OnboardingWebhookCard onToast={flashToast} />
+
       {editKey && (
         <ConfigureModal
           integration={items.find((i) => i.key === editKey)!}
@@ -90,6 +92,186 @@ export default function IntegracionesPage() {
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+// Fase D (Onboarding Sync): config del webhook saliente `business.activated`.
+function OnboardingWebhookCard({ onToast }: { onToast: (m: string) => void }) {
+  const [url, setUrl] = useState('');
+  const [secret, setSecret] = useState('');
+  const [enabled, setEnabled] = useState(false);
+  const [hasSecret, setHasSecret] = useState(false);
+  const [secretLast4, setSecretLast4] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  async function load() {
+    try {
+      const c = await api<{
+        url: string;
+        enabled: boolean;
+        hasSecret: boolean;
+        secretLast4: string | null;
+      }>('/onboarding-webhook');
+      setUrl(c.url || '');
+      setEnabled(!!c.enabled);
+      setHasSecret(!!c.hasSecret);
+      setSecretLast4(c.secretLast4 ?? null);
+      setSecret('');
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const body: any = { url: url.trim(), enabled };
+      if (secret.trim()) body.secret = secret.trim();
+      await api('/onboarding-webhook', { method: 'PUT', body: JSON.stringify(body) });
+      onToast('Webhook guardado');
+      load();
+    } catch (e: any) {
+      onToast(e?.message || 'No se pudo guardar');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function test() {
+    setTesting(true);
+    try {
+      const r = await api<{ ok: boolean; message: string }>('/onboarding-webhook/test', {
+        method: 'POST',
+      });
+      onToast(r.message);
+    } catch (e: any) {
+      onToast(e?.message || 'No se pudo probar');
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  return (
+    <div
+      className="rounded-[14px] p-5 mt-4"
+      style={{
+        background: 'white',
+        border: '1px solid #e7e9ec',
+        boxShadow: '0 1px 2px rgba(16,24,40,.04)',
+      }}
+    >
+      <div className="flex items-start gap-4">
+        <div
+          className="w-12 h-12 rounded-[10px] flex items-center justify-center text-2xl shrink-0"
+          style={{ background: '#e0f2fe', color: '#0369a1' }}
+        >
+          🔔
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="m-0 text-[15px] font-bold" style={{ color: '#16241c' }}>
+              Webhook de Onboarding
+            </h3>
+            <span
+              className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+              style={
+                enabled
+                  ? { background: '#dcfce7', color: '#15803d' }
+                  : { background: '#f1f5f9', color: '#64748b' }
+              }
+            >
+              {enabled ? 'Activo' : 'Inactivo'}
+            </span>
+          </div>
+          <p className="text-[13px] mt-1 mb-3" style={{ color: '#6b7785' }}>
+            Clubify hace un POST firmado a esta URL cuando un negocio se ACTIVA
+            (evento <code>business.activated</code>). Firma en el header{' '}
+            <code>X-Clubify-Signature: sha256=…</code> (HMAC del cuerpo con el secreto).
+          </p>
+
+          {loading ? (
+            <p className="text-sm" style={{ color: '#9aa4af' }}>
+              Cargando…
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="text-[12px] font-semibold" style={{ color: '#475569' }}>
+                  URL del webhook
+                </label>
+                <input
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://onboarding.tudominio.com/webhooks/clubify"
+                  className="w-full mt-1 px-3 py-2 rounded-[10px] text-sm"
+                  style={{ border: '1px solid #dfe3e8' }}
+                />
+              </div>
+              <div>
+                <label className="text-[12px] font-semibold" style={{ color: '#475569' }}>
+                  Secreto de firma{' '}
+                  {hasSecret && (
+                    <span style={{ color: '#9aa4af', fontWeight: 400 }}>
+                      (guardado ····{secretLast4})
+                    </span>
+                  )}
+                </label>
+                <input
+                  value={secret}
+                  onChange={(e) => setSecret(e.target.value)}
+                  type="password"
+                  placeholder={
+                    hasSecret ? 'Dejar vacío = no cambiar' : 'Pega un secreto (lo compartes con el onboarding)'
+                  }
+                  className="w-full mt-1 px-3 py-2 rounded-[10px] text-sm"
+                  style={{ border: '1px solid #dfe3e8' }}
+                />
+              </div>
+              <label
+                className="flex items-center gap-2 text-sm cursor-pointer"
+                style={{ color: '#334155' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(e) => setEnabled(e.target.checked)}
+                />
+                Enviar el webhook al activar un negocio
+              </label>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={save}
+                  disabled={saving}
+                  className="text-sm font-semibold text-white rounded-[10px] px-4 py-2"
+                  style={{ background: '#0ea5e9', opacity: saving ? 0.6 : 1 }}
+                >
+                  {saving ? 'Guardando…' : 'Guardar'}
+                </button>
+                <button
+                  onClick={test}
+                  disabled={testing || !url.trim()}
+                  className="text-sm font-semibold rounded-[10px] px-4 py-2"
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    color: '#334155',
+                    opacity: testing || !url.trim() ? 0.6 : 1,
+                  }}
+                >
+                  {testing ? 'Probando…' : 'Probar'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

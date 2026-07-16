@@ -110,18 +110,18 @@ export class PromotionsService {
     for (const p of promos) {
       const cond = (p.conditions as any) || {};
 
-      // Skip "descuento fantasma": una promo de tipo DISCOUNT_AMOUNT/PCT
-      // con `originalPrice` set es una promo de PRODUCTO (precio antes/
-      // después para mostrar en el menú público) — NO un descuento
-      // auto-aplicable al carrito completo. Antes, este case
-      // aplicaba `saved = min(value, subtotal)` y descontaba el precio
-      // promo de cada pedido, generando descuentos inexplicables en
-      // Nudo Cowork y otros tenants con promos de producto. Para que
-      // un descuento se aplique al carrito el dueño debe usar productIds
-      // explícito en conditions o un tipo distinto sin originalPrice.
+      // Skip "descuento fantasma": una promo DISCOUNT_AMOUNT/PCT SIN
+      // `productIds` es una promo de PRODUCTO (precio promo para mostrar en
+      // el menú) o una promo mal configurada — NO un descuento auto-aplicable
+      // a TODO el carrito. Si se dejara pasar, `saved = min(value, subtotal)`
+      // descuenta el "precio promo" de cada pedido → descuentos inexplicables
+      // (Piatto Presto restaba -$52 a todo el carrito; Nudo Cowork igual).
+      // ANTES el guard exigía `originalPrice !== null`, pero el formulario deja
+      // "Precio regular" opcional → con originalPrice=null el guard no atrapaba
+      // la promo y volvía el descuento fantasma (PDF454). Ahora: un descuento
+      // solo se aplica al carrito si tiene `productIds` explícito en conditions.
       if (
         (p.type === 'DISCOUNT_AMOUNT' || p.type === 'DISCOUNT_PCT') &&
-        p.originalPrice !== null &&
         !cond.productIds?.length
       ) {
         continue;
