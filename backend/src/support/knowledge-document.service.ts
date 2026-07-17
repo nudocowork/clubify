@@ -309,7 +309,7 @@ function chunkText(text: string, target: number, overlap: number): string[] {
   const chunks: string[] = [];
   let i = 0;
   while (i < cleaned.length) {
-    let end = i + target;
+    const end = i + target;
     if (end >= cleaned.length) {
       chunks.push(cleaned.slice(i).trim());
       break;
