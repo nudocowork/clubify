@@ -4,6 +4,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { ReservationsService } from '../reservations/reservations.service';
+import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 
 const QR_RESERVATION_PROTOCOL = 'clubify-reservation:';
 
@@ -57,13 +58,27 @@ export class ScannerService {
       take: 10,
     });
 
-    return { pass, recent };
+    // Wallet V3 — flags de la marca para el escáner (mostrar/ocultar -1, etc).
+    const walletAdvanced = resolveWalletAdvanced(
+      (pass as any).tenant?.whiteLabel?.walletAdvanced,
+    );
+
+    return { pass, recent, walletAdvanced };
   }
 
   private passInclude = {
     card: true,
     customer: true,
-    tenant: { select: { brandName: true, primaryColor: true, logoUrl: true } },
+    tenant: {
+      select: {
+        brandName: true,
+        primaryColor: true,
+        logoUrl: true,
+        // Wallet V3 — permisos de la marca para gatear el escáner (botón -1,
+        // ver historial/auditoría). Aislado por el whiteLabel del tenant.
+        whiteLabel: { select: { walletAdvanced: true } },
+      },
+    },
   } as const;
 
   private async findByQrToken(value: string) {

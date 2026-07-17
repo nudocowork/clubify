@@ -9,6 +9,7 @@ import { GamificationService } from '../badges/gamification.service';
 import { AutomationsService } from '../automations/automations.service';
 import { PassesService } from '../passes/passes.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
+import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 
 export type StampDto = {
   passId: string;
@@ -43,7 +44,11 @@ export class StampsService {
     private brand: WhitelabelBrandService,
   ) {}
 
-  async record(user: AuthUser, dto: StampDto) {
+  async record(
+    user: AuthUser,
+    dto: StampDto,
+    meta?: { ip?: string | null; device?: string | null },
+  ) {
     const pass = await this.prisma.pass.findUnique({
       where: { id: dto.passId },
       include: { card: true },
@@ -53,6 +58,19 @@ export class StampsService {
       throw new ForbiddenException();
     }
     if (pass.status === 'REVOKED') throw new BadRequestException('Pass is revoked');
+
+    // Wallet V3 — gate de marca: restar sellos (-1) solo si la marca lo permite
+    // ("Wallet Avanzado" → removeStamps). Aislado por el whiteLabel del tenant.
+    if (dto.action === 'STAMP_REMOVE') {
+      const brand = await this.prisma.tenant.findUnique({
+        where: { id: pass.tenantId },
+        select: { whiteLabel: { select: { walletAdvanced: true } } },
+      });
+      const wa = resolveWalletAdvanced(brand?.whiteLabel?.walletAdvanced);
+      if (!wa.removeStamps) {
+        throw new ForbiddenException('Restar sellos no está habilitado para esta marca.');
+      }
+    }
 
     // Enforcement de fecha de vencimiento de la tarjeta. Bloqueamos
     // STAMP/POINTS_ADD/POINTS_DEDUCT/REDEEM cuando el pass está vencido,
@@ -186,9 +204,13 @@ export class StampsService {
     let newVisits = pass.visitsCount;
 
     switch (dto.action) {
-      case 'STAMP':
-        newStamps = pass.stampsCount + Number(amount);
+      case 'STAMP': {
+        // Wallet V3 — tope superior: nunca más del máximo configurado
+        // (stampsRequired). Cards sin máximo (null) no se topan.
+        const cap = pass.card.stampsRequired ?? Number.MAX_SAFE_INTEGER;
+        newStamps = Math.min(cap, pass.stampsCount + Number(amount));
         break;
+      }
       case 'POINTS_ADD':
         newPoints = new Prisma.Decimal(pass.pointsBalance).add(amount);
         break;
@@ -226,6 +248,16 @@ export class StampsService {
         }
         break;
       case 'REFUND':
+        if (pass.card.type === 'VISITS') {
+          newVisits = Math.max(0, pass.visitsCount - Number(amount));
+        } else {
+          newStamps = Math.max(0, pass.stampsCount - Number(amount));
+        }
+        break;
+      case 'STAMP_REMOVE':
+        // Wallet V3 — resta manual desde el escáner (-1). Piso 0. Para VISITS
+        // resta visitas; para el resto, sellos. (No requiere purchaseAmount ni
+        // pasa el rate-limit — esas guardas solo aplican a STAMP/VISIT.)
         if (pass.card.type === 'VISITS') {
           newVisits = Math.max(0, pass.visitsCount - Number(amount));
         } else {
@@ -420,6 +452,9 @@ export class StampsService {
           note: isCouponRedeem
             ? (dto.note ?? 'Cupón redimido — transformado a tarjeta de sellos')
             : dto.note,
+          // Wallet V3 — auditoría de ajustes manuales (ip + navegador/dispositivo).
+          ip: meta?.ip ?? null,
+          device: meta?.device ?? null,
         },
       });
       const updated = await tx.pass.update({
@@ -867,5 +902,58 @@ export class StampsService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+  }
+
+  /**
+   * Wallet V3 — Historial/Auditoría de ajustes de sellos del negocio.
+   * Negocio (owner/staff): su propio tenant. Master Admin (SUPER_ADMIN): ?tenantId.
+   * Gate por marca: si `showHistory` está apagado, el negocio no lo ve (Master
+   * Admin siempre). `ip`/`device` solo se exponen si `showAudit` (o super admin).
+   */
+  async auditLog(user: AuthUser, opts: { tenantId?: string; limit?: number }) {
+    const isSuper = user.role === 'SUPER_ADMIN';
+    const tenantId = isSuper ? opts.tenantId || user.tenantId : user.tenantId;
+    if (!tenantId) throw new BadRequestException('tenantId requerido');
+
+    const brand = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { whiteLabel: { select: { walletAdvanced: true } } },
+    });
+    const wa = resolveWalletAdvanced(brand?.whiteLabel?.walletAdvanced);
+    if (!isSuper && !wa.showHistory) {
+      return { enabled: false, showAudit: false, rows: [] as any[] };
+    }
+    const canSeeAudit = isSuper || wa.showAudit;
+
+    const rows = await this.prisma.stamp.findMany({
+      where: {
+        tenantId,
+        action: { in: ['STAMP', 'STAMP_REMOVE', 'REFUND', 'REDEEM', 'VISIT'] },
+      },
+      include: {
+        operator: { select: { fullName: true, email: true } },
+        customer: { select: { fullName: true } },
+        location: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(Math.max(opts.limit ?? 100, 1), 300),
+    });
+
+    return {
+      enabled: true,
+      showAudit: canSeeAudit,
+      rows: rows.map((s) => ({
+        id: s.id,
+        createdAt: s.createdAt,
+        action: s.action,
+        amount: Number(s.amount),
+        note: s.note ?? null,
+        operator: s.operator?.fullName || s.operator?.email || null,
+        customer: s.customer?.fullName ?? null,
+        location: s.location?.name ?? null,
+        ip: canSeeAudit ? s.ip ?? null : null,
+        device: canSeeAudit ? s.device ?? null : null,
+      })),
+    };
   }
 }

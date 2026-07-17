@@ -7,6 +7,7 @@ import { api, getUser, startImpersonation } from '@/lib/api';
 import { GrowBusinessCard } from '@/components/GrowBusinessCard';
 import { ReferralAssignmentCard } from '@/components/ReferralAssignmentCard';
 import { DeliveryAlertsCard } from '@/components/DeliveryAlertsCard';
+import { StampAuditTable } from '@/components/StampAuditTable';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import {
@@ -827,6 +828,13 @@ export default function TenantDetail() {
               {t.hasVendor && <CommissionModeCard tenant={t} onSaved={load} />}
             </>
           )}
+
+        {/* Wallet V3 — Historial/Auditoría de sellos del negocio (con IP/dispositivo). */}
+        {isSuperAdmin && (
+          <CollapsibleSection title="Historial de sellos" className="md:col-span-2">
+            <StampAuditTable tenantId={t.id} />
+          </CollapsibleSection>
+        )}
 
         {/* #23 (2026-06-16): las secciones avanzadas se agrupan en acordeones
             colapsados para reducir el scroll. Info/Plan/Referidos quedan

@@ -199,6 +199,9 @@ export default function AppShell({
     // negocio. Si la marca lo tiene apagado (ej. Sellea) no aparece. Default
     // true mientras carga (sin flicker).
     referralsEnabled?: boolean;
+    // Wallet V3 — permisos "Wallet Avanzado" de la marca (gatea Historial de
+    // sellos, etc). null/clave ausente = activo (heredado).
+    walletAdvanced?: Record<string, boolean> | null;
     // Branding de la marca blanca para pintar el panel /app (logo + colores).
     // null = Clubify → defaults. Evita el verde + logo Clubify en otra marca.
     whiteLabelBranding?: {
@@ -481,6 +484,7 @@ export default function AppShell({
           whiteLabelName: t?.whiteLabelName ?? null,
           communityEnabled: t?.communityEnabled ?? true,
           referralsEnabled: t?.referralsEnabled ?? true,
+          walletAdvanced: t?.walletAdvanced ?? null,
           whiteLabelBranding: t?.whiteLabelBranding ?? null,
         });
         // PDF 1254 — idioma POR NEGOCIO: si el idioma activo del panel (cookie
@@ -709,6 +713,10 @@ export default function AppShell({
                 { href: '/app/cards', label: 'Tarjetas', icon: 'card', module: 'cards' },
                 { href: '/app/customers', label: 'Clientes', icon: 'users', module: 'customers' },
                 { href: '/scan', label: 'Escáner', icon: 'qr', module: 'scanner' },
+                // Wallet V3 — Historial de sellos, si la marca lo permite.
+                ...(tenantInfo?.walletAdvanced?.showHistory !== false
+                  ? [{ href: '/app/historial-sellos', label: 'Historial de sellos', icon: 'clock' as const }]
+                  : []),
                 { href: '/app/notifications', label: 'Push', icon: 'bell', module: 'push' },
                 { href: '/app/reviews', label: 'Reseña de Google', icon: 'spark' },
               ],

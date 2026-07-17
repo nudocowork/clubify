@@ -285,6 +285,23 @@ export default function ScanPage() {
     }
   }
 
+  // Wallet V3 — restar un sello (-1) con confirmación. Piso 0 (el backend
+  // también lo garantiza). Gateado por la marca (walletAdvanced.removeStamps).
+  async function removeStamp() {
+    if (!data?.pass) return;
+    const isVisits = data.pass.card?.type === 'VISITS';
+    const current = isVisits ? data.pass.visitsCount ?? 0 : data.pass.stampsCount ?? 0;
+    if (current <= 0) {
+      setErr(isVisits ? 'El cliente no tiene visitas que restar.' : 'El cliente no tiene sellos que restar.');
+      playScanError();
+      return;
+    }
+    if (!confirm(isVisits ? '¿Seguro que deseas eliminar una visita?' : '¿Seguro que deseas eliminar un sello?')) {
+      return;
+    }
+    await act('STAMP_REMOVE', 1);
+  }
+
   // ─── Login inline cuando no hay sesión ───
   if (!user) {
     return (
@@ -626,6 +643,17 @@ export default function ScanPage() {
                     🔐 Más sellos
                   </button>
                 </div>
+                {/* Wallet V3 — restar sello (-1). Solo si la marca lo permite. */}
+                {data.walletAdvanced?.removeStamps !== false && (
+                  <button
+                    className="btn-ghost w-full justify-center py-3 text-sm mt-2"
+                    style={{ color: '#dc2626' }}
+                    disabled={busy || (data.pass.stampsCount ?? 0) <= 0}
+                    onClick={removeStamp}
+                  >
+                    − Restar sello
+                  </button>
+                )}
               </>
             )}
 
@@ -649,6 +677,17 @@ export default function ScanPage() {
                 >
                   <Icon name="gift" /> Canjear recompensa
                 </button>
+                {/* Wallet V3 — restar visita (-1). Solo si la marca lo permite. */}
+                {data.walletAdvanced?.removeStamps !== false && (
+                  <button
+                    className="btn-ghost w-full justify-center py-3 text-sm mt-2"
+                    style={{ color: '#dc2626' }}
+                    disabled={busy || (data.pass.visitsCount ?? 0) <= 0}
+                    onClick={removeStamp}
+                  >
+                    − Restar visita
+                  </button>
+                )}
               </>
             )}
 
