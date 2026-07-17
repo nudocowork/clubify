@@ -293,7 +293,26 @@ export class TenantsService {
     // del admin. Un admin de otra marca NO puede impersonar este negocio.
     const tenant = await this.prisma.tenant.findFirst({
       where: { id: tenantId },
-      select: { id: true, brandName: true, slug: true, status: true },
+      select: {
+        id: true,
+        brandName: true,
+        slug: true,
+        status: true,
+        // Branding de la marca blanca del negocio → el frontend lo guarda en el
+        // backup de impersonation (sessionStorage) para sembrar el panel /app
+        // con logo/color/nombre reales en el PRIMER paint (anti-flash FODT).
+        // Sin esto, /app pinta el verde Clubify + logo genérico + "Mi Negocio"
+        // hasta que responde el fetch async de /tenants/me.
+        whiteLabel: {
+          select: {
+            slug: true,
+            name: true,
+            primaryColor: true,
+            logoUrl: true,
+            iconUrl: true,
+          },
+        },
+      },
     });
     if (!tenant) throw new NotFoundException('Negocio no encontrado');
 
@@ -339,7 +358,20 @@ export class TenantsService {
         role: owner.role,
         tenantId: owner.tenantId,
       },
-      tenant,
+      tenant: {
+        id: tenant.id,
+        brandName: tenant.brandName,
+        slug: tenant.slug,
+        status: tenant.status,
+        // Seed anti-flash para el panel /app (ver comentario del select).
+        // primaryColor = color de la MARCA BLANCA (no del negocio), que es la
+        // identidad que hereda el panel /app.
+        whiteLabelSlug: tenant.whiteLabel?.slug ?? null,
+        whiteLabelName: tenant.whiteLabel?.name ?? null,
+        primaryColor: tenant.whiteLabel?.primaryColor ?? null,
+        logoUrl: tenant.whiteLabel?.logoUrl ?? null,
+        iconUrl: tenant.whiteLabel?.iconUrl ?? null,
+      },
     };
   }
 

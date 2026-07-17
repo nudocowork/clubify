@@ -388,7 +388,19 @@ export default function TenantDetail() {
                     startImpersonation({
                       accessToken: res.accessToken,
                       user: res.user,
-                      tenant: { id: res.tenant.id, brandName: res.tenant.brandName },
+                      tenant: {
+                        id: res.tenant.id,
+                        brandName: res.tenant.brandName,
+                        // Seed anti-flash del panel /app: branding de la marca
+                        // blanca del negocio (color/logo/nombre) → el panel
+                        // pinta la identidad real desde el primer frame.
+                        primaryColor: res.tenant.primaryColor ?? undefined,
+                        slug: res.tenant.slug,
+                        whiteLabelSlug: res.tenant.whiteLabelSlug ?? null,
+                        whiteLabelName: res.tenant.whiteLabelName ?? null,
+                        logoUrl: res.tenant.logoUrl ?? null,
+                        iconUrl: res.tenant.iconUrl ?? null,
+                      },
                     });
                     toast(tr('enteringBusiness', { name: res.tenant.brandName }), 'success');
                     router.push('/app');

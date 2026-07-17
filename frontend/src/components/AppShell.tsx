@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, clearSession, getUser, getImpersonationBackup, stopImpersonation } from '@/lib/api';
 import { Icon } from './Icon';
 import { NotificationBell } from './NotificationBell';
@@ -21,6 +21,12 @@ import {
   resolveMainSectionLabel,
   type BusinessModule,
 } from '@/lib/business-categories';
+
+// useLayoutEffect avisa en SSR (no corre en server). Alias isomórfico: en
+// cliente corre SÍNCRONO antes del primer paint (para sembrar el branding sin
+// flash); en server cae a useEffect (no-op visual, sin warning).
+const useIsomorphicLayoutEffect =
+  typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 type IconName = Parameters<typeof Icon>[0]['name'];
 
@@ -127,6 +133,20 @@ export default function AppShell({
   const [user, setUser] = useState<any>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [impersonation, setImpersonation] = useState<ReturnType<typeof getImpersonationBackup>>(null);
+  // Seed anti-flash (FODT) del panel /app. Al entrar por "Entrar al negocio"
+  // (impersonation) el backup en sessionStorage YA trae el branding de la marca
+  // blanca del negocio (color/logo/nombre). Lo leemos ANTES del primer paint
+  // (useLayoutEffect) → el panel sale con la identidad real desde el frame 1,
+  // sin esperar el fetch async de /tenants/me (que causaba el flash del verde
+  // Clubify + logo genérico + "Mi Negocio").
+  const [appSeed, setAppSeed] = useState<{
+    brandName: string | null;
+    whiteLabelSlug: string | null;
+    name: string | null;
+    color: string | null;
+    icon: string | null;
+    logo: string | null;
+  } | null>(null);
   const [planName, setPlanName] = useState<string | null>(null);
   // Branding de la marca activa resuelto por slug (para login directo a
   // /admin/<slug> donde no hay pila de impersonación con el branding).
@@ -258,6 +278,23 @@ export default function AppShell({
   useEffect(() => {
     setImpersonation(getImpersonationBackup());
   }, [pathname]);
+
+  // Pre-paint: siembra el branding del negocio impersonado en el panel /app
+  // (ver appSeed). Corre síncrono antes del primer frame → sin flash del tema
+  // verde por defecto ni de "Mi Negocio".
+  useIsomorphicLayoutEffect(() => {
+    if (variant !== 'app') return;
+    const t = getImpersonationBackup()?.tenant;
+    if (!t) return;
+    setAppSeed({
+      brandName: t.brandName ?? null,
+      whiteLabelSlug: t.whiteLabelSlug ?? null,
+      name: t.whiteLabelName ?? null,
+      color: t.primaryColor ?? null,
+      icon: t.iconUrl ?? null,
+      logo: t.logoUrl ?? null,
+    });
+  }, [variant, pathname]);
 
   // Resuelve branding + módulos de la marca activa por slug (de la pila de
   // impersonación o de la URL /admin/<slug>). Se fetchea SIEMPRE que haya una
@@ -866,9 +903,29 @@ export default function AppShell({
         }
       : null;
 
+  // Marca del panel /app derivada del SEED de impersonation (leído pre-paint).
+  // Se usa mientras /tenants/me aún no responde → evita el flash. Solo marcas
+  // ≠ clubify con branding propio (Clubify = verde, es el default correcto).
+  const appSeedBrand =
+    variant === 'app' &&
+    appSeed?.whiteLabelSlug &&
+    appSeed.whiteLabelSlug !== 'clubify' &&
+    (appSeed.color || appSeed.icon || appSeed.logo)
+      ? {
+          name: appSeed.name || appSeed.brandName || 'Marca',
+          color: appSeed.color || null,
+          icon: appSeed.icon || null,
+          logo: appSeed.logo || null,
+        }
+      : null;
+
+  // Marca efectiva del panel /app: lo confirmado por /tenants/me tiene
+  // prioridad; si aún no cargó, el seed de impersonation (primer paint).
+  const appBrand = appWlBrand ?? appSeedBrand;
+
   const activeBrand =
     variant === 'app'
-      ? appWlBrand
+      ? appBrand
       : variant !== 'admin'
         ? null
         : impersonation?.tenant?.brandName?.trim()
@@ -895,9 +952,10 @@ export default function AppShell({
   const panelThemeColor =
     (variant === 'admin' && brandSlug && brandSlug !== 'clubify' && activeBrand?.color
       ? activeBrand.color
-      : // Panel del negocio (/app) de una marca blanca → su color propio.
-        variant === 'app' && appWlBrand?.color
-        ? appWlBrand.color
+      : // Panel del negocio (/app) de una marca blanca → su color propio
+        // (confirmado o del seed de impersonation → primer paint sin flash).
+        variant === 'app' && appBrand?.color
+        ? appBrand.color
         : null) ||
     // Fallback al color resuelto en server (host) → primer paint sin flash.
     serverBrandColor ||
@@ -925,7 +983,22 @@ export default function AppShell({
       ? // Prioridad: marca confirmada por el cliente → marca resuelta en SSR
         //   (host/slug, sin flash) → Clubify.
         activeBrand?.name || serverBrandName || 'Admin Clubify'
-      : tenantInfo?.brandName?.trim() || serverBrandName || 'Mi Negocio';
+      : // Panel /app: nombre del NEGOCIO confirmado → seed de impersonation →
+        //   marca por host (SSR) → placeholder.
+        tenantInfo?.brandName?.trim() ||
+        appSeed?.brandName?.trim() ||
+        serverBrandName ||
+        'Mi Negocio';
+
+  // Parte B (skeleton neutro): en /app, si el nombre del negocio aún NO se
+  // conoce (sin /tenants/me, sin seed, sin marca por host) mostramos un
+  // placeholder neutro en vez del texto "Mi Negocio" — que nunca es el nombre
+  // real de ningún negocio. Así no se ve una identidad equivocada.
+  const appNameLoading =
+    variant === 'app' &&
+    !tenantInfo?.brandName?.trim() &&
+    !appSeed?.brandName?.trim() &&
+    !serverBrandName;
 
   const renderBrandMark = (size: number) => {
     // 1) Logo DASHBOARD cuadrado → caja size×size (encaja perfecto, sin deformar).
@@ -1002,7 +1075,11 @@ export default function AppShell({
         {renderBrandMark(42)}
         <div className="flex-1 min-w-0">
           <div className="font-bold text-white text-[15px] leading-tight truncate">
-            {brandTitle}
+            {appNameLoading ? (
+              <span className="inline-block h-3.5 w-28 max-w-full rounded bg-white/20 animate-pulse align-middle" />
+            ) : (
+              brandTitle
+            )}
           </div>
           <div className="text-[11px] text-sidebar-mute">Panel de Control</div>
         </div>
@@ -1186,7 +1263,13 @@ export default function AppShell({
         </button>
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {renderBrandMark(28)}
-          <div className="font-semibold text-sm truncate">{brandTitle}</div>
+          <div className="font-semibold text-sm truncate">
+            {appNameLoading ? (
+              <span className="inline-block h-3 w-24 max-w-full rounded bg-white/25 animate-pulse align-middle" />
+            ) : (
+              brandTitle
+            )}
+          </div>
         </div>
         {variant === 'app' && <NotificationBell />}
       </header>

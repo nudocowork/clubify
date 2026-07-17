@@ -124,8 +124,18 @@ type ImpersonationBackup = {
   user: any;
   // Para impersonación de marca blanca, `tenant` lleva el branding de la
   // marca activa (nombre + color + slug) para que el panel /admin se pinte
-  // con la identidad de esa marca, no la de Clubify.
-  tenant?: { id: string; brandName: string; primaryColor?: string; slug?: string };
+  // con la identidad de esa marca, no la de Clubify. Los campos whiteLabel*
+  // + logo/icon siembran el panel /app en el primer paint (anti-flash FODT).
+  tenant?: {
+    id: string;
+    brandName: string;
+    primaryColor?: string;
+    slug?: string;
+    whiteLabelSlug?: string | null;
+    whiteLabelName?: string | null;
+    logoUrl?: string | null;
+    iconUrl?: string | null;
+  };
   affiliate?: { codeId: string; code: string; ownerName: string; role: string };
   startedAt: string;
 };
@@ -169,7 +179,16 @@ function writeImpersonationStack(stack: ImpersonationBackup[]) {
 export function startImpersonation(opts: {
   accessToken: string;
   user: any;
-  tenant?: { id: string; brandName: string; primaryColor?: string; slug?: string };
+  tenant?: {
+    id: string;
+    brandName: string;
+    primaryColor?: string;
+    slug?: string;
+    whiteLabelSlug?: string | null;
+    whiteLabelName?: string | null;
+    logoUrl?: string | null;
+    iconUrl?: string | null;
+  };
   affiliate?: { codeId: string; code: string; ownerName: string; role: string };
 }) {
   const currentToken = getToken();

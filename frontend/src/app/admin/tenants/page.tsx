@@ -93,7 +93,17 @@ export default function TenantsPage() {
       startImpersonation({
         accessToken: res.accessToken,
         user: res.user,
-        tenant: { id: res.tenant.id, brandName: res.tenant.brandName },
+        tenant: {
+          id: res.tenant.id,
+          brandName: res.tenant.brandName,
+          // Seed anti-flash del panel /app (branding de la marca blanca).
+          primaryColor: res.tenant.primaryColor ?? undefined,
+          slug: res.tenant.slug,
+          whiteLabelSlug: res.tenant.whiteLabelSlug ?? null,
+          whiteLabelName: res.tenant.whiteLabelName ?? null,
+          logoUrl: res.tenant.logoUrl ?? null,
+          iconUrl: res.tenant.iconUrl ?? null,
+        },
       });
       toast(t('toastEntering', { name: res.tenant.brandName }), 'success');
       router.push('/app');
