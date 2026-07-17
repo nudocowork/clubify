@@ -152,6 +152,7 @@ export class AuthService {
       fullName: string;
       whiteLabelId?: string | null;
       deliveryCompanyId?: string | null;
+      allyBusinessId?: string | null;
     },
     ip: string | undefined,
     opts: {
@@ -185,6 +186,8 @@ export class AuthService {
       whiteLabelId: user.whiteLabelId ?? null,
       // Empresa de domicilios (role=DELIVERY_COMPANY). null = no aplica.
       deliveryCompanyId: user.deliveryCompanyId ?? null,
+      // Negocio aliado (role=ALLY_BUSINESS). null = no aplica.
+      allyBusinessId: user.allyBusinessId ?? null,
     };
 
     const accessToken =

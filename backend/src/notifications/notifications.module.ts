@@ -9,5 +9,6 @@ import { WalletModule } from '../wallet/wallet.module';
   imports: [WalletModule],
   providers: [NotificationsService, RecurringNotificationsService],
   controllers: [NotificationsController, RecurringNotificationsController],
+  exports: [NotificationsService],
 })
 export class NotificationsModule {}

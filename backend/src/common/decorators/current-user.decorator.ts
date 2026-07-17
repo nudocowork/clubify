@@ -17,6 +17,9 @@ export type AuthUser = {
   /** Empresa de domicilios de la sesión (role=DELIVERY_COMPANY). El portal
    *  /domicilios scopea sus domicilios a esta empresa. (Fase 2, 2026-06-30) */
   deliveryCompanyId?: string | null;
+  /** Negocio aliado de la sesión (role=ALLY_BUSINESS). El portal
+   *  /cuponera/negocio scopea a esta ficha. (Cuponera Fase 2) */
+  allyBusinessId?: string | null;
 };
 
 export const CurrentUser = createParamDecorator(

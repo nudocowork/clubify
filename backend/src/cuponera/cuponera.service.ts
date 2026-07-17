@@ -1,0 +1,1675 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { BenefitCampaign, MembershipPlan, AllyStatus } from '@prisma/client';
+import * as argon2 from 'argon2';
+import { nanoid } from 'nanoid';
+import { PrismaService } from '../common/prisma/prisma.service';
+import { CardsService, CardDto } from '../cards/cards.service';
+import { PassesService } from '../passes/passes.service';
+import { LocationsService } from '../locations/locations.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { WalletService } from '../wallet/wallet.service';
+import { AuthUser } from '../common/decorators/current-user.decorator';
+
+/** Slug de la campaña (usado en el marketplace público /cuponera). */
+const LIVING_CAMPAIGN_SLUG = 'living-card';
+/** Slug del Tenant "de sistema" que respalda la campaña. Distinto del de la
+ *  campaña para NO colisionar jamás con un negocio real. */
+const SYSTEM_TENANT_SLUG = 'sys-living-card';
+
+type EnrollInput = {
+  fullName: string;
+  phone: string;
+  email?: string | null;
+  planId?: string | null;
+  source?: 'MANUAL' | 'MERCADOPAGO';
+  mp?: { preapprovalId?: string; payerId?: string; expiresAt?: string | Date };
+};
+
+export type AllyProfileDto = {
+  name?: string;
+  description?: string;
+  logoUrl?: string;
+  coverUrl?: string;
+  photos?: string[];
+  address?: string;
+  city?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  hours?: Record<string, any>;
+  whatsapp?: string;
+  instagram?: string;
+  website?: string;
+};
+
+export type BenefitType =
+  | 'PERCENT_OFF'
+  | 'AMOUNT_OFF'
+  | 'TWO_FOR_ONE'
+  | 'FREEBIE'
+  | 'PRODUCT'
+  | 'OTHER';
+
+export type BenefitDto = {
+  type?: BenefitType;
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  terms?: string;
+  percentOff?: number | null;
+  amountOffCents?: number | null;
+  normalPriceCents?: number | null;
+  memberPriceCents?: number | null;
+  currency?: string;
+  validFrom?: string | null;
+  validUntil?: string | null;
+  maxRedemptions?: number | null;
+  maxPerMember?: number | null;
+  status?: 'DRAFT' | 'ACTIVE' | 'PAUSED';
+  categoryId?: string | null;
+};
+
+export type StampProgramDto = {
+  name?: string;
+  description?: string;
+  imageUrl?: string;
+  stampsRequired?: number;
+  rewardText?: string;
+  maxPerDay?: number;
+  categoryId?: string | null;
+  status?: 'ACTIVE' | 'PAUSED';
+};
+
+/**
+ * Cuponera / Living Card (Fase 1). Orquesta la campaña de beneficios sobre un
+ * Tenant "de sistema" (Tenant.isCampaignHost) para reusar TODO el stack Wallet:
+ * el Card es la plantilla visual, cada miembro es un Customer y su tarjeta un
+ * Pass normal (QR, push, geofence). NO confundir con `campaigns/` (afiliados).
+ */
+@Injectable()
+export class CuponeraService {
+  private logger = new Logger(CuponeraService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private cards: CardsService,
+    private passes: PassesService,
+    private locations: LocationsService,
+    private notifications: NotificationsService,
+    private wallet: WalletService,
+  ) {}
+
+  // ---------------------------------------------------------------------------
+  // Helpers de infraestructura (tenant de sistema, marca, plan gratis)
+  // ---------------------------------------------------------------------------
+
+  private _clubifyWlId: string | null | undefined;
+  private async clubifyWlId(): Promise<string | null> {
+    if (this._clubifyWlId !== undefined) return this._clubifyWlId;
+    const wl = await this.prisma.whiteLabel.findFirst({
+      where: { slug: 'clubify' },
+      select: { id: true },
+    });
+    this._clubifyWlId = wl?.id ?? null;
+    return this._clubifyWlId;
+  }
+
+  private async ensureFreePlan() {
+    const existing = await this.prisma.plan.findUnique({
+      where: { name: 'Sin plan' },
+    });
+    if (existing) return existing;
+    return this.prisma.plan.create({
+      data: { name: 'Sin plan', priceMonthly: 0, isActive: true },
+    });
+  }
+
+  /** Usuario sintético SUPER_ADMIN para reusar CardsService (que scopea por
+   *  rol/tenant). No corresponde a ninguna sesión real. */
+  private sysUser(): AuthUser {
+    return {
+      id: 'system-cuponera',
+      email: 'system@cuponera',
+      role: 'SUPER_ADMIN',
+      tenantId: null,
+      whiteLabelId: null,
+    };
+  }
+
+  /** Crea/recupera el Tenant de sistema que respalda la campaña. */
+  private async ensureSystemTenant(name: string) {
+    const existing = await this.prisma.tenant.findUnique({
+      where: { slug: SYSTEM_TENANT_SLUG },
+    });
+    if (existing) {
+      if (!existing.isCampaignHost) {
+        await this.prisma.tenant.update({
+          where: { id: existing.id },
+          data: { isCampaignHost: true },
+        });
+      }
+      return existing;
+    }
+    const plan = await this.ensureFreePlan();
+    const wlId = await this.clubifyWlId();
+    return this.prisma.tenant.create({
+      data: {
+        name,
+        brandName: name,
+        slug: SYSTEM_TENANT_SLUG,
+        email: 'campaign+living-card@clubify.app',
+        planId: plan.id,
+        whiteLabelId: wlId,
+        status: 'ACTIVE',
+        isCampaignHost: true,
+        hotmartSubscriberCode: `campaign-${SYSTEM_TENANT_SLUG}`,
+        primaryColor: '#0a90bd',
+        secondaryColor: '#075e7d',
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Campaña + tarjeta
+  // ---------------------------------------------------------------------------
+
+  /** Idempotente: crea la campaña Living Card (y su tenant de sistema) si no
+   *  existe todavía. Es el punto de entrada de casi todo. */
+  async ensureLivingCampaign(): Promise<BenefitCampaign> {
+    const existing = await this.prisma.benefitCampaign.findUnique({
+      where: { slug: LIVING_CAMPAIGN_SLUG },
+    });
+    if (existing) return existing;
+
+    const tenant = await this.ensureSystemTenant('Living Card');
+    const wlId = await this.clubifyWlId();
+    return this.prisma.benefitCampaign.create({
+      data: {
+        whiteLabelId: wlId,
+        tenantId: tenant.id,
+        name: 'Living Card',
+        slug: LIVING_CAMPAIGN_SLUG,
+        status: 'DRAFT',
+        welcomeText: 'Bienvenido a Living Card',
+      },
+    });
+  }
+
+  /** Asegura que exista la tarjeta Wallet (plantilla) de la campaña. Si el
+   *  admin aún no la diseñó, crea una MEMBERSHIP mínima con la marca de la
+   *  campaña para poder emitir pases desde ya. */
+  private async ensureLivingCard(campaign: BenefitCampaign) {
+    if (campaign.cardId) {
+      const c = await this.prisma.card.findUnique({
+        where: { id: campaign.cardId },
+      });
+      if (c) return c;
+    }
+    const card = await this.cards.create(
+      this.sysUser(),
+      {
+        type: 'MEMBERSHIP',
+        name: campaign.name,
+        businessName: campaign.name,
+        walletBrandName: campaign.name,
+        primaryColor: '#0a90bd',
+        secondaryColor: '#075e7d',
+        rewardText: 'Beneficios exclusivos para miembros',
+        tiers: [{ name: 'Miembro', threshold: 0 }],
+        tierMetric: 'stamps',
+      } as CardDto,
+      campaign.tenantId,
+    );
+    await this.prisma.benefitCampaign.update({
+      where: { id: campaign.id },
+      data: { cardId: card.id },
+    });
+    return card;
+  }
+
+  /** Diseña (crea o actualiza) la tarjeta Wallet de la campaña. Reusa
+   *  CardsService.update → encola wallet.push a todos los pases activos. */
+  async designCard(dto: CardDto) {
+    const campaign = await this.ensureLivingCampaign();
+    if (campaign.cardId) {
+      const existing = await this.prisma.card.findUnique({
+        where: { id: campaign.cardId },
+      });
+      if (existing) return this.cards.update(this.sysUser(), campaign.cardId, dto);
+    }
+    const card = await this.cards.create(this.sysUser(), dto, campaign.tenantId);
+    await this.prisma.benefitCampaign.update({
+      where: { id: campaign.id },
+      data: { cardId: card.id },
+    });
+    return card;
+  }
+
+  /** Estado completo para el panel Master Admin. */
+  async getCampaignAdmin() {
+    const campaign = await this.ensureLivingCampaign();
+    const [card, plans, categories] = await Promise.all([
+      campaign.cardId
+        ? this.prisma.card.findUnique({ where: { id: campaign.cardId } })
+        : null,
+      this.prisma.membershipPlan.findMany({
+        where: { campaignId: campaign.id },
+        orderBy: { sortOrder: 'asc' },
+      }),
+      this.prisma.benefitCategory.findMany({
+        where: { campaignId: campaign.id },
+        orderBy: { sortOrder: 'asc' },
+      }),
+    ]);
+    const cfg = (campaign.config as any) || {};
+    return {
+      campaign: {
+        id: campaign.id,
+        name: campaign.name,
+        slug: campaign.slug,
+        status: campaign.status,
+        welcomeText: campaign.welcomeText,
+        cardId: campaign.cardId,
+        marketplace: cfg.marketplace ?? {},
+        mpConfigured: !!cfg.mp?.accessToken,
+      },
+      card,
+      plans,
+      categories,
+    };
+  }
+
+  async updateCampaign(dto: {
+    name?: string;
+    welcomeText?: string;
+    status?: 'DRAFT' | 'ACTIVE' | 'PAUSED';
+    marketplace?: Record<string, any>;
+  }) {
+    const campaign = await this.ensureLivingCampaign();
+    if (dto.status === 'ACTIVE') await this.ensureLivingCard(campaign);
+    const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+    if (dto.marketplace) cfg.marketplace = { ...(cfg.marketplace || {}), ...dto.marketplace };
+    return this.prisma.benefitCampaign.update({
+      where: { id: campaign.id },
+      data: {
+        name: dto.name ?? undefined,
+        welcomeText: dto.welcomeText ?? undefined,
+        status: dto.status ?? undefined,
+        config: cfg as any,
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Planes de membresía
+  // ---------------------------------------------------------------------------
+
+  async listPlans() {
+    const campaign = await this.ensureLivingCampaign();
+    return this.prisma.membershipPlan.findMany({
+      where: { campaignId: campaign.id },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  async createPlan(dto: {
+    name: string;
+    priceCents: number;
+    currency?: string;
+    interval?: 'MONTHLY' | 'ANNUAL';
+    level?: number;
+    benefitsAllowance?: number | null;
+    description?: string;
+    sortOrder?: number;
+    isActive?: boolean;
+  }) {
+    const campaign = await this.ensureLivingCampaign();
+    return this.prisma.membershipPlan.create({
+      data: {
+        campaignId: campaign.id,
+        name: dto.name,
+        priceCents: Math.max(0, Math.round(dto.priceCents || 0)),
+        currency: dto.currency || 'COP',
+        interval: dto.interval || 'MONTHLY',
+        level: dto.level ?? 0,
+        benefitsAllowance: dto.benefitsAllowance ?? null,
+        description: dto.description || '',
+        sortOrder: dto.sortOrder ?? 0,
+        isActive: dto.isActive ?? true,
+      },
+    });
+  }
+
+  async updatePlan(id: string, dto: Partial<Parameters<CuponeraService['createPlan']>[0]>) {
+    const campaign = await this.ensureLivingCampaign();
+    await this.assertPlan(campaign.id, id);
+    return this.prisma.membershipPlan.update({
+      where: { id },
+      data: {
+        name: dto.name ?? undefined,
+        priceCents:
+          dto.priceCents != null ? Math.max(0, Math.round(dto.priceCents)) : undefined,
+        currency: dto.currency ?? undefined,
+        interval: dto.interval ?? undefined,
+        level: dto.level ?? undefined,
+        benefitsAllowance:
+          dto.benefitsAllowance === undefined ? undefined : dto.benefitsAllowance,
+        description: dto.description ?? undefined,
+        sortOrder: dto.sortOrder ?? undefined,
+        isActive: dto.isActive ?? undefined,
+      },
+    });
+  }
+
+  async deletePlan(id: string) {
+    const campaign = await this.ensureLivingCampaign();
+    await this.assertPlan(campaign.id, id);
+    await this.prisma.membershipPlan.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  private async assertPlan(campaignId: string, id: string) {
+    const plan = await this.prisma.membershipPlan.findFirst({
+      where: { id, campaignId },
+    });
+    if (!plan) throw new NotFoundException('Plan no encontrado');
+    return plan;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Categorías de beneficios
+  // ---------------------------------------------------------------------------
+
+  async listCategories() {
+    const campaign = await this.ensureLivingCampaign();
+    return this.prisma.benefitCategory.findMany({
+      where: { campaignId: campaign.id },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  async createCategory(dto: { name: string; icon?: string; sortOrder?: number }) {
+    const campaign = await this.ensureLivingCampaign();
+    const slug = this.slugify(dto.name);
+    return this.prisma.benefitCategory.create({
+      data: {
+        campaignId: campaign.id,
+        name: dto.name,
+        slug,
+        icon: dto.icon || '',
+        sortOrder: dto.sortOrder ?? 0,
+      },
+    });
+  }
+
+  async updateCategory(
+    id: string,
+    dto: { name?: string; icon?: string; sortOrder?: number; isActive?: boolean },
+  ) {
+    const campaign = await this.ensureLivingCampaign();
+    const cat = await this.prisma.benefitCategory.findFirst({
+      where: { id, campaignId: campaign.id },
+    });
+    if (!cat) throw new NotFoundException('Categoría no encontrada');
+    return this.prisma.benefitCategory.update({
+      where: { id },
+      data: {
+        name: dto.name ?? undefined,
+        slug: dto.name ? this.slugify(dto.name) : undefined,
+        icon: dto.icon ?? undefined,
+        sortOrder: dto.sortOrder ?? undefined,
+        isActive: dto.isActive ?? undefined,
+      },
+    });
+  }
+
+  async deleteCategory(id: string) {
+    const campaign = await this.ensureLivingCampaign();
+    const cat = await this.prisma.benefitCategory.findFirst({
+      where: { id, campaignId: campaign.id },
+    });
+    if (!cat) throw new NotFoundException('Categoría no encontrada');
+    await this.prisma.benefitCategory.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Miembros (alta manual + emisión de tarjeta)
+  // ---------------------------------------------------------------------------
+
+  private computeExpiry(
+    plan: MembershipPlan | null,
+    override?: string | Date,
+  ): Date | null {
+    if (override) return new Date(override);
+    if (!plan) return null;
+    const d = new Date();
+    if (plan.interval === 'ANNUAL') d.setFullYear(d.getFullYear() + 1);
+    else d.setMonth(d.getMonth() + 1);
+    return d;
+  }
+
+  /** Da de alta (o reactiva) un miembro y le emite su tarjeta Living Card.
+   *  Usado tanto por el alta MANUAL (Master Admin) como por el pago (MP). */
+  async enrollMember(input: EnrollInput) {
+    const campaign = await this.ensureLivingCampaign();
+    const card = await this.ensureLivingCard(campaign);
+    const tenantId = campaign.tenantId;
+
+    const phoneNorm = (input.phone || '').replace(/\s/g, '').trim();
+    if (phoneNorm.replace(/\D/g, '').length < 8) {
+      throw new BadRequestException('Teléfono inválido');
+    }
+    const email = input.email?.trim().toLowerCase() || null;
+    const last10 = phoneNorm.replace(/\D/g, '').slice(-10);
+
+    // Match-or-create Customer del tenant de sistema por teléfono (exacto, luego
+    // por últimos 10 dígitos para tolerar formatos).
+    let customer = await this.prisma.customer
+      .findUnique({ where: { tenantId_phone: { tenantId, phone: phoneNorm } } })
+      .catch(() => null);
+    if (!customer && last10.length >= 8) {
+      customer = await this.prisma.customer.findFirst({
+        where: { tenantId, phone: { contains: last10 } },
+      });
+    }
+    if (!customer) {
+      customer = await this.prisma.customer.create({
+        data: { tenantId, fullName: input.fullName, phone: phoneNorm, email },
+      });
+    }
+
+    const plan = input.planId
+      ? await this.prisma.membershipPlan.findFirst({
+          where: { id: input.planId, campaignId: campaign.id },
+        })
+      : null;
+    const expiresAt = this.computeExpiry(plan, input.mp?.expiresAt);
+
+    // Emite el pase (idempotente por [cardId, customerId]) → dispara PASS_CREATED.
+    const pass = await this.passes.issueInternal(card.id, customer.id);
+
+    const membership = await this.prisma.livingMembership.upsert({
+      where: {
+        campaignId_customerId: { campaignId: campaign.id, customerId: customer.id },
+      },
+      update: {
+        planId: plan?.id ?? undefined,
+        status: 'ACTIVE',
+        source: input.source ?? 'MANUAL',
+        memberLevel: plan?.level ?? 0,
+        activatedAt: new Date(),
+        expiresAt,
+        passId: pass.id,
+        ...(input.mp?.preapprovalId ? { mpPreapprovalId: input.mp.preapprovalId } : {}),
+        ...(input.mp?.payerId ? { mpPayerId: input.mp.payerId } : {}),
+      },
+      create: {
+        campaignId: campaign.id,
+        customerId: customer.id,
+        planId: plan?.id ?? null,
+        status: 'ACTIVE',
+        source: input.source ?? 'MANUAL',
+        memberLevel: plan?.level ?? 0,
+        activatedAt: new Date(),
+        expiresAt,
+        passId: pass.id,
+        mpPreapprovalId: input.mp?.preapprovalId ?? null,
+        mpPayerId: input.mp?.payerId ?? null,
+      },
+    });
+
+    return {
+      membershipId: membership.id,
+      customerId: customer.id,
+      passId: pass.id,
+      status: membership.status,
+    };
+  }
+
+  async listMembers() {
+    const campaign = await this.ensureLivingCampaign();
+    const rows = await this.prisma.livingMembership.findMany({
+      where: { campaignId: campaign.id },
+      include: {
+        customer: {
+          select: { id: true, fullName: true, phone: true, email: true },
+        },
+        plan: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    return rows.map((m) => ({
+      id: m.id,
+      status: m.status,
+      source: m.source,
+      memberLevel: m.memberLevel,
+      activatedAt: m.activatedAt,
+      expiresAt: m.expiresAt,
+      passId: m.passId,
+      customer: m.customer,
+      plan: m.plan,
+    }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Métricas base
+  // ---------------------------------------------------------------------------
+
+  async metrics() {
+    const campaign = await this.ensureLivingCampaign();
+    const [members, activeMembers, cardsIssued, walletInstalled, plans, categories] =
+      await Promise.all([
+        this.prisma.livingMembership.count({ where: { campaignId: campaign.id } }),
+        this.prisma.livingMembership.count({
+          where: { campaignId: campaign.id, status: 'ACTIVE' },
+        }),
+        this.prisma.pass.count({ where: { tenantId: campaign.tenantId } }),
+        this.prisma.pass.count({
+          where: { tenantId: campaign.tenantId, walletInstalledAt: { not: null } },
+        }),
+        this.prisma.membershipPlan.count({ where: { campaignId: campaign.id } }),
+        this.prisma.benefitCategory.count({ where: { campaignId: campaign.id } }),
+      ]);
+    return { members, activeMembers, cardsIssued, walletInstalled, plans, categories };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Público (marketplace + "mi tarjeta")
+  // ---------------------------------------------------------------------------
+
+  async getPublicCampaign() {
+    const campaign = await this.ensureLivingCampaign();
+    const [plans, categories, stampPrograms] = await Promise.all([
+      this.prisma.membershipPlan.findMany({
+        where: { campaignId: campaign.id, isActive: true },
+        orderBy: { sortOrder: 'asc' },
+      }),
+      this.prisma.benefitCategory.findMany({
+        where: { campaignId: campaign.id, isActive: true },
+        orderBy: { sortOrder: 'asc' },
+      }),
+      this.prisma.stampProgram.findMany({
+        where: { campaignId: campaign.id, status: 'ACTIVE' },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    const cfg = (campaign.config as any) || {};
+    return {
+      name: campaign.name,
+      slug: campaign.slug,
+      status: campaign.status,
+      welcomeText: campaign.welcomeText,
+      marketplace: cfg.marketplace ?? {},
+      stampPrograms: stampPrograms.map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        stampsRequired: p.stampsRequired,
+        rewardText: p.rewardText,
+      })),
+      plans: plans.map((p) => ({
+        id: p.id,
+        name: p.name,
+        priceCents: p.priceCents,
+        currency: p.currency,
+        interval: p.interval,
+        description: p.description,
+        benefitsAllowance: p.benefitsAllowance,
+        level: p.level,
+      })),
+      categories: categories.map((c) => ({
+        id: c.id,
+        name: c.name,
+        slug: c.slug,
+        icon: c.icon,
+      })),
+    };
+  }
+
+  /** "Mi tarjeta": busca los pases activos del miembro por teléfono (mismo
+   *  patrón que passes.findByPhonePublic, pero por el tenant de sistema). */
+  async findCardByPhone(phoneRaw: string) {
+    const campaign = await this.ensureLivingCampaign();
+    const digits = (phoneRaw || '').replace(/\D/g, '');
+    if (digits.length < 7) return { passes: [] };
+    const tail = digits.slice(-10);
+
+    const customers = await this.prisma.customer.findMany({
+      where: { tenantId: campaign.tenantId, phone: { contains: tail } },
+      select: { id: true, fullName: true },
+    });
+    if (!customers.length) return { passes: [] };
+
+    const passes = await this.prisma.pass.findMany({
+      where: {
+        tenantId: campaign.tenantId,
+        customerId: { in: customers.map((c) => c.id) },
+        status: 'ACTIVE',
+      },
+      include: { customer: { select: { fullName: true } } },
+      orderBy: { issuedAt: 'desc' },
+    });
+
+    return {
+      passes: passes.map((p) => ({
+        id: p.id,
+        serialNumber: p.serialNumber,
+        memberName: p.customer.fullName,
+      })),
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Negocios aliados (Fase 2)
+  // ---------------------------------------------------------------------------
+
+  private async uniqueAllySlug(base: string): Promise<string> {
+    let slug = base || 'negocio';
+    let i = 1;
+    // AllyBusiness.slug es único global. Si choca, sufijo incremental.
+    while (await this.prisma.allyBusiness.findUnique({ where: { slug } })) {
+      slug = `${base}-${++i}`;
+    }
+    return slug;
+  }
+
+  private async assertCategory(campaignId: string, categoryId?: string | null) {
+    if (!categoryId) return null;
+    const cat = await this.prisma.benefitCategory.findFirst({
+      where: { id: categoryId, campaignId },
+    });
+    if (!cat) throw new BadRequestException('Categoría inválida');
+    return cat.id;
+  }
+
+  /** Crea un negocio aliado + su cuenta de login (role=ALLY_BUSINESS). */
+  async createAlly(dto: {
+    name: string;
+    email: string;
+    ownerFullName: string;
+    password?: string;
+    categoryId?: string | null;
+    whatsapp?: string;
+    city?: string;
+    description?: string;
+  }) {
+    const campaign = await this.ensureLivingCampaign();
+    const categoryId = await this.assertCategory(campaign.id, dto.categoryId);
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) throw new BadRequestException('Ya existe un usuario con ese email');
+
+    const slug = await this.uniqueAllySlug(this.slugify(dto.name));
+    const tempPassword = dto.password || nanoid(10);
+    const passwordHash = await argon2.hash(tempPassword);
+
+    const ally = await this.prisma.allyBusiness.create({
+      data: {
+        campaignId: campaign.id,
+        name: dto.name,
+        slug,
+        categoryId,
+        whatsapp: dto.whatsapp || null,
+        city: dto.city || '',
+        description: dto.description || '',
+        status: 'PENDING',
+        admins: {
+          create: {
+            email,
+            passwordHash,
+            fullName: dto.ownerFullName,
+            role: 'ALLY_BUSINESS',
+          },
+        },
+      },
+      include: { admins: { select: { id: true, email: true, fullName: true } } },
+    });
+
+    return {
+      ally,
+      loginEmail: email,
+      tempPassword: dto.password ? undefined : tempPassword,
+    };
+  }
+
+  async listAllies() {
+    const campaign = await this.ensureLivingCampaign();
+    const rows = await this.prisma.allyBusiness.findMany({
+      where: { campaignId: campaign.id },
+      include: {
+        category: { select: { id: true, name: true } },
+        admins: { select: { email: true } },
+        _count: { select: { admins: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    return rows;
+  }
+
+  private async assertAlly(campaignId: string, id: string) {
+    const ally = await this.prisma.allyBusiness.findFirst({
+      where: { id, campaignId },
+    });
+    if (!ally) throw new NotFoundException('Negocio aliado no encontrado');
+    return ally;
+  }
+
+  async setAllyStatus(id: string, status: AllyStatus) {
+    const campaign = await this.ensureLivingCampaign();
+    await this.assertAlly(campaign.id, id);
+    return this.prisma.allyBusiness.update({ where: { id }, data: { status } });
+  }
+
+  /** Edición de la ficha por el admin (desde Master Admin) o por el propio
+   *  negocio (portal). `byOwner` limita el scope al ally de la sesión. */
+  private allyUpdatableData(dto: AllyProfileDto) {
+    return {
+      name: dto.name ?? undefined,
+      description: dto.description ?? undefined,
+      logoUrl: dto.logoUrl ?? undefined,
+      coverUrl: dto.coverUrl ?? undefined,
+      photos: dto.photos ? (dto.photos as any) : undefined,
+      address: dto.address ?? undefined,
+      city: dto.city ?? undefined,
+      latitude: dto.latitude ?? undefined,
+      longitude: dto.longitude ?? undefined,
+      hours: dto.hours ? (dto.hours as any) : undefined,
+      whatsapp: dto.whatsapp ?? undefined,
+      instagram: dto.instagram ?? undefined,
+      website: dto.website ?? undefined,
+    };
+  }
+
+  async updateAllyByAdmin(id: string, dto: AllyProfileDto & { categoryId?: string | null }) {
+    const campaign = await this.ensureLivingCampaign();
+    await this.assertAlly(campaign.id, id);
+    const categoryId =
+      dto.categoryId === undefined
+        ? undefined
+        : await this.assertCategory(campaign.id, dto.categoryId);
+    return this.prisma.allyBusiness.update({
+      where: { id },
+      data: { ...this.allyUpdatableData(dto), ...(categoryId !== undefined ? { categoryId } : {}) },
+    });
+  }
+
+  // --- Portal del negocio aliado ---
+
+  async getAllyForPortal(user: AuthUser) {
+    if (!user.allyBusinessId) throw new ForbiddenException('Sesión sin negocio aliado');
+    const ally = await this.prisma.allyBusiness.findUnique({
+      where: { id: user.allyBusinessId },
+      include: { category: { select: { id: true, name: true } } },
+    });
+    if (!ally) throw new NotFoundException('Negocio no encontrado');
+    return ally;
+  }
+
+  async updateAllyProfile(user: AuthUser, dto: AllyProfileDto) {
+    if (!user.allyBusinessId) throw new ForbiddenException('Sesión sin negocio aliado');
+    return this.prisma.allyBusiness.update({
+      where: { id: user.allyBusinessId },
+      data: this.allyUpdatableData(dto),
+    });
+  }
+
+  // --- Público (marketplace de negocios) ---
+
+  async listPublicAllies(categorySlug?: string) {
+    const campaign = await this.ensureLivingCampaign();
+    const allies = await this.prisma.allyBusiness.findMany({
+      where: {
+        campaignId: campaign.id,
+        status: 'APPROVED',
+        ...(categorySlug ? { category: { slug: categorySlug } } : {}),
+      },
+      include: { category: { select: { name: true, slug: true, icon: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    return allies.map((a) => ({
+      slug: a.slug,
+      name: a.name,
+      description: a.description,
+      logoUrl: a.logoUrl,
+      coverUrl: a.coverUrl,
+      city: a.city,
+      category: a.category,
+    }));
+  }
+
+  async getPublicAlly(slug: string) {
+    const campaign = await this.ensureLivingCampaign();
+    const a = await this.prisma.allyBusiness.findFirst({
+      where: { slug, campaignId: campaign.id, status: 'APPROVED' },
+      include: { category: { select: { name: true, slug: true, icon: true } } },
+    });
+    if (!a) throw new NotFoundException('Negocio no encontrado');
+    return {
+      slug: a.slug,
+      name: a.name,
+      description: a.description,
+      logoUrl: a.logoUrl,
+      coverUrl: a.coverUrl,
+      photos: a.photos,
+      address: a.address,
+      city: a.city,
+      latitude: a.latitude != null ? Number(a.latitude) : null,
+      longitude: a.longitude != null ? Number(a.longitude) : null,
+      hours: a.hours,
+      whatsapp: a.whatsapp,
+      instagram: a.instagram,
+      website: a.website,
+      category: a.category,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Beneficios / promociones (Fase 3)
+  // ---------------------------------------------------------------------------
+
+  private benefitData(dto: BenefitDto) {
+    const opt = <T>(v: T | undefined) => (v === undefined ? undefined : v);
+    return {
+      type: opt(dto.type) as any,
+      description: opt(dto.description),
+      imageUrl: opt(dto.imageUrl),
+      terms: opt(dto.terms),
+      percentOff: opt(dto.percentOff),
+      amountOffCents: opt(dto.amountOffCents),
+      normalPriceCents: opt(dto.normalPriceCents),
+      memberPriceCents: opt(dto.memberPriceCents),
+      currency: opt(dto.currency),
+      validFrom:
+        dto.validFrom === undefined ? undefined : dto.validFrom ? new Date(dto.validFrom) : null,
+      validUntil:
+        dto.validUntil === undefined ? undefined : dto.validUntil ? new Date(dto.validUntil) : null,
+      maxRedemptions: opt(dto.maxRedemptions),
+      maxPerMember: opt(dto.maxPerMember),
+    };
+  }
+
+  private benefitInWindow(b: { validFrom: Date | null; validUntil: Date | null }): boolean {
+    const now = Date.now();
+    if (b.validFrom && b.validFrom.getTime() > now) return false;
+    if (b.validUntil && b.validUntil.getTime() < now) return false;
+    return true;
+  }
+
+  private publicBenefitWhere(campaignId: string) {
+    const now = new Date();
+    return {
+      campaignId,
+      status: 'ACTIVE' as const,
+      approval: 'APPROVED' as const,
+      ally: { status: 'APPROVED' as const },
+      AND: [
+        { OR: [{ validFrom: null }, { validFrom: { lte: now } }] },
+        { OR: [{ validUntil: null }, { validUntil: { gte: now } }] },
+      ],
+    };
+  }
+
+  // --- Beneficios del aliado (portal) ---
+
+  async listAllyBenefits(user: AuthUser) {
+    const ally = await this.getAllyForPortal(user);
+    return this.prisma.benefit.findMany({
+      where: { allyBusinessId: ally.id },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createAllyBenefit(user: AuthUser, dto: BenefitDto) {
+    const ally = await this.getAllyForPortal(user);
+    const campaign = await this.ensureLivingCampaign();
+    const categoryId = await this.assertCategory(campaign.id, dto.categoryId);
+    const needsApproval = !!(campaign.config as any)?.requireBenefitApproval;
+    if (!dto.title?.trim()) throw new BadRequestException('Título requerido');
+    return this.prisma.benefit.create({
+      data: {
+        campaignId: campaign.id,
+        allyBusinessId: ally.id,
+        categoryId,
+        title: dto.title!.trim(),
+        status: (dto.status as any) ?? 'ACTIVE',
+        approval: needsApproval ? 'PENDING' : 'APPROVED',
+        ...this.benefitData(dto),
+        type: (dto.type as any) ?? 'PERCENT_OFF',
+      },
+    });
+  }
+
+  private async assertAllyBenefit(allyId: string, id: string) {
+    const b = await this.prisma.benefit.findFirst({ where: { id, allyBusinessId: allyId } });
+    if (!b) throw new NotFoundException('Beneficio no encontrado');
+    return b;
+  }
+
+  async updateAllyBenefit(user: AuthUser, id: string, dto: BenefitDto) {
+    const ally = await this.getAllyForPortal(user);
+    await this.assertAllyBenefit(ally.id, id);
+    const campaign = await this.ensureLivingCampaign();
+    const categoryId =
+      dto.categoryId === undefined ? undefined : await this.assertCategory(campaign.id, dto.categoryId);
+    return this.prisma.benefit.update({
+      where: { id },
+      data: {
+        ...this.benefitData(dto),
+        ...(dto.title !== undefined ? { title: dto.title } : {}),
+        ...(categoryId !== undefined ? { categoryId } : {}),
+        ...(dto.status ? { status: dto.status as any } : {}),
+      },
+    });
+  }
+
+  async deleteAllyBenefit(user: AuthUser, id: string) {
+    const ally = await this.getAllyForPortal(user);
+    await this.assertAllyBenefit(ally.id, id);
+    await this.prisma.benefit.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  // --- Beneficios (admin de campaña) ---
+
+  async listAllBenefits() {
+    const campaign = await this.ensureLivingCampaign();
+    return this.prisma.benefit.findMany({
+      where: { campaignId: campaign.id },
+      include: {
+        ally: { select: { id: true, name: true } },
+        category: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+  }
+
+  async setBenefitApproval(id: string, approval: 'PENDING' | 'APPROVED' | 'REJECTED') {
+    const campaign = await this.ensureLivingCampaign();
+    const b = await this.prisma.benefit.findFirst({ where: { id, campaignId: campaign.id } });
+    if (!b) throw new NotFoundException('Beneficio no encontrado');
+    return this.prisma.benefit.update({ where: { id }, data: { approval } });
+  }
+
+  async setRequireBenefitApproval(value: boolean) {
+    const campaign = await this.ensureLivingCampaign();
+    const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+    cfg.requireBenefitApproval = value;
+    await this.prisma.benefitCampaign.update({
+      where: { id: campaign.id },
+      data: { config: cfg as any },
+    });
+    return { ok: true, requireBenefitApproval: value };
+  }
+
+  // --- Público (marketplace de beneficios) ---
+
+  private publicBenefitShape(b: any, full = false) {
+    return {
+      id: b.id,
+      type: b.type,
+      title: b.title,
+      description: b.description,
+      imageUrl: b.imageUrl,
+      percentOff: b.percentOff,
+      amountOffCents: b.amountOffCents,
+      normalPriceCents: b.normalPriceCents,
+      memberPriceCents: b.memberPriceCents,
+      currency: b.currency,
+      validUntil: b.validUntil,
+      ally: b.ally,
+      category: b.category,
+      ...(full ? { terms: b.terms, validFrom: b.validFrom, maxPerMember: b.maxPerMember } : {}),
+    };
+  }
+
+  async listPublicBenefits(categorySlug?: string) {
+    const campaign = await this.ensureLivingCampaign();
+    const benefits = await this.prisma.benefit.findMany({
+      where: {
+        ...this.publicBenefitWhere(campaign.id),
+        ...(categorySlug ? { category: { slug: categorySlug } } : {}),
+      },
+      include: {
+        ally: { select: { name: true, slug: true, city: true, logoUrl: true } },
+        category: { select: { name: true, slug: true, icon: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return benefits.map((b) => this.publicBenefitShape(b));
+  }
+
+  async getPublicBenefit(id: string) {
+    const campaign = await this.ensureLivingCampaign();
+    const b = await this.prisma.benefit.findFirst({
+      where: { id, ...this.publicBenefitWhere(campaign.id) },
+      include: {
+        ally: { select: { name: true, slug: true, city: true, address: true, logoUrl: true, whatsapp: true } },
+        category: { select: { name: true, slug: true, icon: true } },
+      },
+    });
+    if (!b) throw new NotFoundException('Beneficio no disponible');
+    return this.publicBenefitShape(b, true);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Canje por QR (Fase 3)
+  // ---------------------------------------------------------------------------
+
+  private async resolvePass(tenantId: string, qrToken: string) {
+    const token = (qrToken || '').trim();
+    if (!token) return null;
+    return this.prisma.pass.findFirst({
+      where: {
+        tenantId,
+        OR: [{ qrToken: token }, { legacyQrTokens: { has: token } }, { serialNumber: token }],
+      },
+    });
+  }
+
+  /** El aliado escanea el QR del miembro → devuelve al miembro + los beneficios
+   *  del negocio con su disponibilidad (para elegir cuál canjear). */
+  async scanMember(user: AuthUser, qrToken: string) {
+    const ally = await this.getAllyForPortal(user);
+    const campaign = await this.ensureLivingCampaign();
+    const pass = await this.resolvePass(campaign.tenantId, qrToken);
+    if (!pass) throw new NotFoundException('Tarjeta no encontrada');
+
+    const [customer, membership, benefits] = await Promise.all([
+      this.prisma.customer.findUnique({
+        where: { id: pass.customerId },
+        select: { fullName: true },
+      }),
+      this.prisma.livingMembership.findFirst({
+        where: { campaignId: campaign.id, customerId: pass.customerId },
+        include: { plan: { select: { name: true } } },
+      }),
+      this.prisma.benefit.findMany({
+        where: { allyBusinessId: ally.id, status: 'ACTIVE', approval: 'APPROVED' },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const active = membership?.status === 'ACTIVE';
+    const counts = benefits.length
+      ? await this.prisma.redemption.groupBy({
+          by: ['benefitId'],
+          where: { customerId: pass.customerId, benefitId: { in: benefits.map((b) => b.id) } },
+          _count: true,
+        })
+      : [];
+    const used = new Map(counts.map((c) => [c.benefitId, c._count]));
+
+    // Sellos comunitarios aplicables a este aliado + progreso del miembro.
+    const programs = await this.prisma.stampProgram.findMany({
+      where: this.allyStampWhere(campaign.id, ally.categoryId),
+      orderBy: { createdAt: 'desc' },
+    });
+    const progIds = programs.map((p) => p.id);
+    const stampCards = progIds.length
+      ? await this.prisma.stampCard.findMany({
+          where: { customerId: pass.customerId, programId: { in: progIds } },
+        })
+      : [];
+    const cardByProg = new Map(stampCards.map((c) => [c.programId, c]));
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const dayEvents = progIds.length
+      ? await this.prisma.stampEvent.groupBy({
+          by: ['programId'],
+          where: { customerId: pass.customerId, programId: { in: progIds }, action: 'STAMP', createdAt: { gte: since } },
+          _count: true,
+        })
+      : [];
+    const dayByProg = new Map(dayEvents.map((e) => [e.programId, e._count]));
+
+    return {
+      passId: pass.id,
+      memberName: customer?.fullName ?? '',
+      membershipActive: active,
+      membershipStatus: membership?.status ?? 'NONE',
+      planName: membership?.plan?.name ?? null,
+      stampPrograms: programs.map((p) => {
+        const card = cardByProg.get(p.id);
+        const count = card?.stampsCount ?? 0;
+        const today = dayByProg.get(p.id) ?? 0;
+        return {
+          id: p.id,
+          name: p.name,
+          stampsCount: count,
+          stampsRequired: p.stampsRequired,
+          rewardText: p.rewardText,
+          rewardReady: count >= p.stampsRequired,
+          canStamp: active && today < p.maxPerDay,
+        };
+      }),
+      benefits: benefits.map((b) => {
+        const mine = used.get(b.id) ?? 0;
+        const perMemberLeft = b.maxPerMember == null ? null : Math.max(0, b.maxPerMember - mine);
+        const totalLeft =
+          b.maxRedemptions == null ? null : Math.max(0, b.maxRedemptions - b.redemptionCount);
+        const canRedeem =
+          active &&
+          this.benefitInWindow(b) &&
+          (perMemberLeft == null || perMemberLeft > 0) &&
+          (totalLeft == null || totalLeft > 0);
+        return {
+          id: b.id,
+          title: b.title,
+          type: b.type,
+          perMemberLeft,
+          totalLeft,
+          canRedeem,
+        };
+      }),
+    };
+  }
+
+  /** Registra el canje (valida membresía + vigencia + límites + anti-doble con
+   *  advisory lock para serializar canjes concurrentes del mismo beneficio). */
+  async redeemBenefit(
+    user: AuthUser,
+    dto: { passId?: string; qrToken?: string; benefitId: string },
+  ) {
+    const ally = await this.getAllyForPortal(user);
+    const campaign = await this.ensureLivingCampaign();
+
+    const pass = dto.passId
+      ? await this.prisma.pass.findFirst({
+          where: { id: dto.passId, tenantId: campaign.tenantId },
+        })
+      : await this.resolvePass(campaign.tenantId, dto.qrToken || '');
+    if (!pass) throw new NotFoundException('Tarjeta no encontrada');
+
+    const membership = await this.prisma.livingMembership.findFirst({
+      where: { campaignId: campaign.id, customerId: pass.customerId },
+    });
+    if (!membership || membership.status !== 'ACTIVE') {
+      throw new BadRequestException('La membresía no está activa');
+    }
+
+    const benefit = await this.prisma.benefit.findFirst({
+      where: { id: dto.benefitId, allyBusinessId: ally.id, campaignId: campaign.id },
+    });
+    if (!benefit) throw new NotFoundException('Beneficio no encontrado');
+    if (benefit.status !== 'ACTIVE' || benefit.approval !== 'APPROVED') {
+      throw new BadRequestException('Beneficio no disponible');
+    }
+    if (!this.benefitInWindow(benefit)) {
+      throw new BadRequestException('Beneficio fuera de vigencia');
+    }
+
+    const redemption = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtext($1))`,
+        `cuponera-redeem:${benefit.id}`,
+      );
+      if (benefit.maxRedemptions != null) {
+        const total = await tx.redemption.count({ where: { benefitId: benefit.id } });
+        if (total >= benefit.maxRedemptions) {
+          throw new BadRequestException('Se agotaron los canjes de este beneficio');
+        }
+      }
+      if (benefit.maxPerMember != null) {
+        const mine = await tx.redemption.count({
+          where: { benefitId: benefit.id, customerId: pass.customerId },
+        });
+        if (mine >= benefit.maxPerMember) {
+          throw new BadRequestException('Este miembro ya usó este beneficio');
+        }
+      }
+      const red = await tx.redemption.create({
+        data: {
+          campaignId: campaign.id,
+          benefitId: benefit.id,
+          allyBusinessId: ally.id,
+          customerId: pass.customerId,
+          passId: pass.id,
+          operatorUserId: user.id,
+        },
+      });
+      await tx.benefit.update({
+        where: { id: benefit.id },
+        data: { redemptionCount: { increment: 1 } },
+      });
+      return red;
+    });
+
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: pass.customerId },
+      select: { fullName: true },
+    });
+    return {
+      ok: true,
+      redemptionId: redemption.id,
+      benefitTitle: benefit.title,
+      memberName: customer?.fullName ?? '',
+    };
+  }
+
+  async allyRedemptions(user: AuthUser) {
+    const ally = await this.getAllyForPortal(user);
+    const rows = await this.prisma.redemption.findMany({
+      where: { allyBusinessId: ally.id },
+      include: {
+        benefit: { select: { title: true } },
+        customer: { select: { fullName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      at: r.createdAt,
+      benefit: r.benefit.title,
+      member: r.customer.fullName,
+    }));
+  }
+
+  async allyMetrics(user: AuthUser) {
+    const ally = await this.getAllyForPortal(user);
+    const [benefits, activeBenefits, redemptions, uniq] = await Promise.all([
+      this.prisma.benefit.count({ where: { allyBusinessId: ally.id } }),
+      this.prisma.benefit.count({
+        where: { allyBusinessId: ally.id, status: 'ACTIVE', approval: 'APPROVED' },
+      }),
+      this.prisma.redemption.count({ where: { allyBusinessId: ally.id } }),
+      this.prisma.redemption.findMany({
+        where: { allyBusinessId: ally.id },
+        distinct: ['customerId'],
+        select: { customerId: true },
+      }),
+    ]);
+    return { benefits, activeBenefits, redemptions, uniqueMembers: uniq.length };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sellos comunitarios (Fase 5)
+  // ---------------------------------------------------------------------------
+
+  async listStampPrograms() {
+    const campaign = await this.ensureLivingCampaign();
+    return this.prisma.stampProgram.findMany({
+      where: { campaignId: campaign.id },
+      include: { category: { select: { name: true } }, _count: { select: { cards: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createStampProgram(dto: StampProgramDto) {
+    const campaign = await this.ensureLivingCampaign();
+    const categoryId = await this.assertCategory(campaign.id, dto.categoryId);
+    if (!dto.name?.trim()) throw new BadRequestException('Nombre requerido');
+    return this.prisma.stampProgram.create({
+      data: {
+        campaignId: campaign.id,
+        categoryId,
+        name: dto.name.trim(),
+        description: dto.description ?? '',
+        imageUrl: dto.imageUrl,
+        stampsRequired: dto.stampsRequired ?? 5,
+        rewardText: dto.rewardText ?? '',
+        maxPerDay: dto.maxPerDay ?? 1,
+        status: (dto.status as any) ?? 'ACTIVE',
+      },
+    });
+  }
+
+  private async assertStampProgram(campaignId: string, id: string) {
+    const p = await this.prisma.stampProgram.findFirst({ where: { id, campaignId } });
+    if (!p) throw new NotFoundException('Programa de sellos no encontrado');
+    return p;
+  }
+
+  async updateStampProgram(id: string, dto: StampProgramDto) {
+    const campaign = await this.ensureLivingCampaign();
+    await this.assertStampProgram(campaign.id, id);
+    const categoryId =
+      dto.categoryId === undefined ? undefined : await this.assertCategory(campaign.id, dto.categoryId);
+    return this.prisma.stampProgram.update({
+      where: { id },
+      data: {
+        name: dto.name ?? undefined,
+        description: dto.description ?? undefined,
+        imageUrl: dto.imageUrl ?? undefined,
+        stampsRequired: dto.stampsRequired ?? undefined,
+        rewardText: dto.rewardText ?? undefined,
+        maxPerDay: dto.maxPerDay ?? undefined,
+        status: (dto.status as any) ?? undefined,
+        ...(categoryId !== undefined ? { categoryId } : {}),
+      },
+    });
+  }
+
+  async deleteStampProgram(id: string) {
+    const campaign = await this.ensureLivingCampaign();
+    await this.assertStampProgram(campaign.id, id);
+    await this.prisma.stampProgram.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  /** Programas de sellos aplicables a un aliado: activos y de categoría libre
+   *  o coincidente con la del negocio. */
+  private allyStampWhere(campaignId: string, allyCategoryId: string | null) {
+    return {
+      campaignId,
+      status: 'ACTIVE' as const,
+      OR: [
+        { categoryId: null },
+        ...(allyCategoryId ? [{ categoryId: allyCategoryId }] : []),
+      ],
+    };
+  }
+
+  /** El aliado otorga un sello al miembro (límite diario + advisory lock). */
+  async grantStamp(user: AuthUser, dto: { passId?: string; qrToken?: string; programId: string }) {
+    const ally = await this.getAllyForPortal(user);
+    const campaign = await this.ensureLivingCampaign();
+    const pass = dto.passId
+      ? await this.prisma.pass.findFirst({ where: { id: dto.passId, tenantId: campaign.tenantId } })
+      : await this.resolvePass(campaign.tenantId, dto.qrToken || '');
+    if (!pass) throw new NotFoundException('Tarjeta no encontrada');
+
+    const membership = await this.prisma.livingMembership.findFirst({
+      where: { campaignId: campaign.id, customerId: pass.customerId },
+    });
+    if (!membership || membership.status !== 'ACTIVE') {
+      throw new BadRequestException('La membresía no está activa');
+    }
+
+    const program = await this.prisma.stampProgram.findFirst({
+      where: { id: dto.programId, campaignId: campaign.id, status: 'ACTIVE' },
+    });
+    if (!program) throw new NotFoundException('Programa no encontrado');
+    if (program.categoryId && program.categoryId !== ally.categoryId) {
+      throw new BadRequestException('Este negocio no participa en este programa');
+    }
+
+    const card = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtext($1))`,
+        `cuponera-stamp:${program.id}:${pass.customerId}`,
+      );
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const recent = await tx.stampEvent.count({
+        where: { programId: program.id, customerId: pass.customerId, action: 'STAMP', createdAt: { gte: since } },
+      });
+      if (recent >= program.maxPerDay) {
+        throw new BadRequestException('Este miembro ya alcanzó el máximo de sellos de hoy');
+      }
+      const updated = await tx.stampCard.upsert({
+        where: { programId_customerId: { programId: program.id, customerId: pass.customerId } },
+        update: { stampsCount: { increment: 1 }, lastStampAt: new Date() },
+        create: {
+          campaignId: campaign.id,
+          programId: program.id,
+          customerId: pass.customerId,
+          stampsCount: 1,
+          lastStampAt: new Date(),
+        },
+      });
+      await tx.stampEvent.create({
+        data: {
+          campaignId: campaign.id,
+          programId: program.id,
+          customerId: pass.customerId,
+          allyBusinessId: ally.id,
+          operatorUserId: user.id,
+          action: 'STAMP',
+        },
+      });
+      return updated;
+    });
+
+    return {
+      ok: true,
+      stampsCount: card.stampsCount,
+      stampsRequired: program.stampsRequired,
+      rewardReady: card.stampsCount >= program.stampsRequired,
+    };
+  }
+
+  /** El aliado canjea el premio (resta stampsRequired, suma ciclo). */
+  async redeemStampReward(user: AuthUser, dto: { passId?: string; qrToken?: string; programId: string }) {
+    const ally = await this.getAllyForPortal(user);
+    const campaign = await this.ensureLivingCampaign();
+    const pass = dto.passId
+      ? await this.prisma.pass.findFirst({ where: { id: dto.passId, tenantId: campaign.tenantId } })
+      : await this.resolvePass(campaign.tenantId, dto.qrToken || '');
+    if (!pass) throw new NotFoundException('Tarjeta no encontrada');
+
+    const program = await this.prisma.stampProgram.findFirst({
+      where: { id: dto.programId, campaignId: campaign.id },
+    });
+    if (!program) throw new NotFoundException('Programa no encontrado');
+    if (program.categoryId && program.categoryId !== ally.categoryId) {
+      throw new BadRequestException('Este negocio no participa en este programa');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(
+        `SELECT pg_advisory_xact_lock(hashtext($1))`,
+        `cuponera-stamp:${program.id}:${pass.customerId}`,
+      );
+      const card = await tx.stampCard.findUnique({
+        where: { programId_customerId: { programId: program.id, customerId: pass.customerId } },
+      });
+      if (!card || card.stampsCount < program.stampsRequired) {
+        throw new BadRequestException('El miembro aún no completa los sellos');
+      }
+      await tx.stampCard.update({
+        where: { programId_customerId: { programId: program.id, customerId: pass.customerId } },
+        data: { stampsCount: { decrement: program.stampsRequired }, cyclesCompleted: { increment: 1 } },
+      });
+      await tx.stampEvent.create({
+        data: {
+          campaignId: campaign.id,
+          programId: program.id,
+          customerId: pass.customerId,
+          allyBusinessId: ally.id,
+          operatorUserId: user.id,
+          action: 'REDEEM',
+        },
+      });
+    });
+
+    return { ok: true, rewardText: program.rewardText };
+  }
+
+  /** Progreso de sellos del miembro por teléfono (vista pública "Mis sellos"). */
+  async stampsByPhone(phoneRaw: string) {
+    const campaign = await this.ensureLivingCampaign();
+    const digits = (phoneRaw || '').replace(/\D/g, '');
+    if (digits.length < 7) return { programs: [] };
+    const tail = digits.slice(-10);
+    const customers = await this.prisma.customer.findMany({
+      where: { tenantId: campaign.tenantId, phone: { contains: tail } },
+      select: { id: true },
+    });
+    if (!customers.length) return { programs: [] };
+    const programs = await this.prisma.stampProgram.findMany({
+      where: { campaignId: campaign.id, status: 'ACTIVE' },
+      orderBy: { createdAt: 'desc' },
+    });
+    const cards = await this.prisma.stampCard.findMany({
+      where: { customerId: { in: customers.map((c) => c.id) }, programId: { in: programs.map((p) => p.id) } },
+    });
+    return {
+      programs: programs.map((p) => {
+        const card = cards.find((c) => c.programId === p.id);
+        return {
+          id: p.id,
+          name: p.name,
+          rewardText: p.rewardText,
+          stampsCount: card?.stampsCount ?? 0,
+          stampsRequired: p.stampsRequired,
+        };
+      }),
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Geopush + Push (Fase 4)
+  // ---------------------------------------------------------------------------
+
+  /** Geopush = Location del tenant de sistema → geofence embebido en TODOS los
+   *  pases de los miembros (Apple/Google muestran el aviso al acercarse). */
+  async listGeopush() {
+    const campaign = await this.ensureLivingCampaign();
+    return this.locations.list(this.sysUser(), campaign.tenantId);
+  }
+
+  async createGeopush(dto: {
+    name: string;
+    latitude: number;
+    longitude: number;
+    radiusMeters?: number;
+    walletRelevantText?: string;
+    address?: string;
+  }) {
+    const campaign = await this.ensureLivingCampaign();
+    return this.locations.create(this.sysUser(), dto, campaign.tenantId);
+  }
+
+  private async assertGeopush(campaignTenantId: string, id: string) {
+    const loc = await this.prisma.location.findFirst({
+      where: { id, tenantId: campaignTenantId },
+    });
+    if (!loc) throw new NotFoundException('Punto de geopush no encontrado');
+    return loc;
+  }
+
+  async updateGeopush(
+    id: string,
+    dto: Partial<{
+      name: string;
+      latitude: number;
+      longitude: number;
+      radiusMeters: number;
+      walletRelevantText: string;
+      address: string;
+    }>,
+  ) {
+    const campaign = await this.ensureLivingCampaign();
+    await this.assertGeopush(campaign.tenantId, id);
+    return this.locations.update(this.sysUser(), id, dto);
+  }
+
+  async deleteGeopush(id: string) {
+    const campaign = await this.ensureLivingCampaign();
+    await this.assertGeopush(campaign.tenantId, id);
+    return this.locations.remove(this.sysUser(), id);
+  }
+
+  /** Push GENERAL a toda la comunidad (broadcast a los pases de la Living Card).
+   *  Reusa NotificationsService (crea la Notification + push Apple/Google). */
+  async sendBroadcast(dto: { title: string; body: string; scheduledAt?: string }) {
+    const campaign = await this.ensureLivingCampaign();
+    const card = await this.ensureLivingCard(campaign);
+    return this.notifications.send(
+      this.sysUser(),
+      { title: dto.title, body: dto.body, cardId: card.id, scheduledAt: dto.scheduledAt } as any,
+      campaign.tenantId,
+    );
+  }
+
+  async listNotifications() {
+    const campaign = await this.ensureLivingCampaign();
+    return this.notifications.list(this.sysUser(), campaign.tenantId);
+  }
+
+  /** Resuelve los customerIds de un segmento. */
+  private async resolveSegment(
+    campaignId: string,
+    seg: { planId?: string; allyId?: string },
+  ): Promise<string[]> {
+    if (seg.planId) {
+      const ms = await this.prisma.livingMembership.findMany({
+        where: { campaignId, planId: seg.planId, status: 'ACTIVE' },
+        select: { customerId: true },
+      });
+      return ms.map((m) => m.customerId);
+    }
+    if (seg.allyId) {
+      // Miembros que interactuaron con el negocio (canjes o sellos).
+      const [reds, stamps] = await Promise.all([
+        this.prisma.redemption.findMany({
+          where: { allyBusinessId: seg.allyId },
+          distinct: ['customerId'],
+          select: { customerId: true },
+        }),
+        this.prisma.stampEvent.findMany({
+          where: { allyBusinessId: seg.allyId },
+          distinct: ['customerId'],
+          select: { customerId: true },
+        }),
+      ]);
+      return Array.from(new Set([...reds.map((r) => r.customerId), ...stamps.map((s) => s.customerId)]));
+    }
+    return [];
+  }
+
+  /** Push a un SEGMENTO (por plan o por negocio). Crea una Notification por
+   *  cliente (customerId → lastMessage correcto) y push Apple/Google por pase. */
+  async sendSegmentPush(dto: { planId?: string; allyId?: string; title: string; body: string }) {
+    const campaign = await this.ensureLivingCampaign();
+    const card = await this.ensureLivingCard(campaign);
+    if (!dto.planId && !dto.allyId) {
+      throw new BadRequestException('Falta el segmento (planId o allyId)');
+    }
+    const customerIds = await this.resolveSegment(campaign.id, dto);
+    if (customerIds.length === 0) return { ok: true, targeted: 0, sent: 0 };
+
+    const passes = await this.prisma.pass.findMany({
+      where: { tenantId: campaign.tenantId, customerId: { in: customerIds }, status: 'ACTIVE' },
+      select: { id: true, customerId: true },
+    });
+
+    let sent = 0;
+    for (const p of passes) {
+      // Notification ANTES del push (Apple lee lastMessage por customerId).
+      await this.prisma.notification
+        .create({
+          data: {
+            tenantId: campaign.tenantId,
+            cardId: card.id,
+            customerId: p.customerId,
+            title: dto.title,
+            body: dto.body,
+            triggerType: 'MANUAL',
+            sentAt: new Date(),
+            stats: { targeted: 1, delivered: 0, segment: dto.planId ? 'plan' : 'ally' } as any,
+          },
+        })
+        .catch(() => null);
+      try {
+        await this.wallet.pushPassUpdate(p.id, {
+          message: { header: dto.title, body: dto.body },
+        });
+        sent++;
+      } catch {
+        /* un pase que falla no corta el envío al resto */
+      }
+    }
+    return { ok: true, targeted: passes.length, sent };
+  }
+
+  // ---------------------------------------------------------------------------
+
+  private slugify(s: string): string {
+    return (s || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'cat';
+  }
+}
