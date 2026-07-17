@@ -2818,7 +2818,7 @@ export class ReferralsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const query = (q ?? '').trim();
     const where: any = {
-      role: { in: ['INFLUENCER', 'AMBASSADOR'] },
+      role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] },
       isActive: true,
       ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
     };

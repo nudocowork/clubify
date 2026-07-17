@@ -23,10 +23,13 @@ type AffiliateItem = {
   ownerEmail: string;
   ownerWhatsapp: string;
   code: string;
-  role: 'INFLUENCER' | 'AMBASSADOR';
+  role: 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR';
   campaignName: string | null;
   parentName: string | null;
 };
+
+const roleEs = (r: string) =>
+  r === 'INFLUENCER' ? 'Influencer' : r === 'VENDOR' ? 'Vendedor' : 'Embajador';
 
 export function AffiliatePickerSearch({
   value,
@@ -129,7 +132,7 @@ export function AffiliatePickerSearch({
               {picked.ownerName}
             </div>
             <div className="text-[11px] text-mute truncate">
-              {picked.role} · {picked.code}
+              {roleEs(picked.role)} · {picked.code}
               {picked.campaignName ? ` · ${picked.campaignName}` : ''}
               {picked.parentName ? ` · bajo ${picked.parentName}` : ''}
             </div>
@@ -183,10 +186,12 @@ export function AffiliatePickerSearch({
                     className={`text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded ${
                       it.role === 'INFLUENCER'
                         ? 'bg-violet-100 text-violet-700'
-                        : 'bg-amber-100 text-amber-800'
+                        : it.role === 'VENDOR'
+                          ? 'bg-sky-100 text-sky-700'
+                          : 'bg-amber-100 text-amber-800'
                     }`}
                   >
-                    {it.role === 'INFLUENCER' ? 'Influencer' : 'Embajador'}
+                    {roleEs(it.role)}
                   </span>
                   <span className="font-semibold text-sm truncate">
                     {it.ownerName}

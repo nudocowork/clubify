@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { AffiliatePickerSearch } from '@/components/AffiliatePickerSearch';
 
 type PaymentStatus = 'PENDING' | 'PARTIAL' | 'PAID';
 type RecipientRole = 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR' | 'SOCIO';
@@ -187,16 +188,6 @@ export default function AdminCommissionsPage() {
     const map = new Map<string, string>();
     for (const it of data?.items ?? []) {
       if (it.tenant) map.set(it.tenant.id, it.tenant.brandName);
-    }
-    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
-  }, [data]);
-
-  const embajadorOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const it of data?.items ?? []) {
-      if (it.recipient && it.recipient.role === 'AMBASSADOR') {
-        map.set(it.recipient.id, it.recipient.ownerName);
-      }
     }
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
   }, [data]);
@@ -441,18 +432,7 @@ export default function AdminCommissionsPage() {
         </div>
         <div>
           <label className="label">{t('filterAmbassador')}</label>
-          <select
-            className="input"
-            value={codeId}
-            onChange={(e) => setCodeId(e.target.value)}
-          >
-            <option value="">{t('filterAll')}</option>
-            {embajadorOptions.map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
+          <AffiliatePickerSearch value={codeId} onChange={setCodeId} />
         </div>
         <div className="ml-auto flex gap-2">
           <button
