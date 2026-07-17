@@ -380,13 +380,18 @@ export class TenantsService {
    * Mayor a menor por default; `order='asc'` invierte. Incluye negocios con
    * 0 pases. Excluye borrados.
    */
-  async rankingByPasses(order: 'asc' | 'desc' = 'desc') {
+  async rankingByPasses(order: 'asc' | 'desc' = 'desc', user?: AuthUser) {
+    // Aislamiento por MARCA BLANCA: cada marca ve SOLO el ranking de SUS
+    // negocios (mismo scoping que list()). Sin marca en sesión → default
+    // Clubify (+ legacy null). El cross-brand global vive en /superadmin.
+    const brandWhere = await this.brandTenantWhere(user?.whiteLabelId ?? null);
     const tenants = await this.prisma.tenant.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, isCampaignHost: false, ...brandWhere },
       select: { id: true, brandName: true, name: true, status: true },
     });
     const grouped = await this.prisma.pass.groupBy({
       by: ['tenantId'],
+      where: { tenantId: { in: tenants.map((t) => t.id) } },
       _count: { _all: true },
     });
     const countMap = new Map(grouped.map((g) => [g.tenantId, g._count._all]));

@@ -126,8 +126,8 @@ export class TenantsController {
   // #11 (2026-06-16): ranking de negocios por pases emitidos. Debe ir ANTES
   // de @Get(':id') sino el router matchea "ranking" como :id.
   @Get('ranking')
-  ranking(@Query('order') order?: string) {
-    return this.svc.rankingByPasses(order === 'asc' ? 'asc' : 'desc');
+  ranking(@Query('order') order?: string, @CurrentUser() user?: AuthUser) {
+    return this.svc.rankingByPasses(order === 'asc' ? 'asc' : 'desc', user);
   }
 
   /** Historial de modificaciones de trial — audit log filtrado.
