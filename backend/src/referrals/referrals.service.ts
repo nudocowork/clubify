@@ -416,8 +416,28 @@ export class ReferralsService {
       // [currentPeriodEnd − bundleMonths, currentPeriodEnd] — incluida la del
       // webhook — NO generamos otra. Cubre Mensual/Trimestral/Semestral/Anual
       // y no depende del UNIQUE constraint.
-      const periodStart = new Date(cpeDate);
-      periodStart.setMonth(periodStart.getMonth() - months);
+      // FIX 2026-07-17 (Bug trimestral "cobrado" otra vez el mes siguiente):
+      // la ventana de dedup toma la MÁS AMPLIA (fecha más temprana) entre
+      // "cobro real − 2d" (lastChargeAt) y "currentPeriodEnd − bundleMonths".
+      // Tomar la más amplia evita la comisión FANTASMA en los dos escenarios:
+      //  (a) currentPeriodEnd se desalinea hacia adelante (días de gracia,
+      //      UPDATE_CHARGE_DATE, edición manual) → la ventana vieja saltaba por
+      //      encima de la comisión real; ahora lastChargeAt−2d la incluye.
+      //  (b) lastChargeAt se bumpea SIN cobro real (reactivación manual,
+      //      PURCHASE_COMPLETE sin approved_date, redelivery de Stripe) → ahora
+      //      currentPeriodEnd−bundleMonths alcanza la comisión real del ciclo.
+      // En ambos, la ventana amplia SÍ contiene la comisión real → no duplica.
+      // Tradeoff consciente: sesga a NO duplicar. Si un webhook se perdió Y
+      // alguien movió la fecha a mano, la comisión de ese ciclo puede no crearse
+      // aquí y quedar para reconciliación manual (preferible a una fantasma).
+      const lastCharge = use.tenant?.lastChargeAt ?? null;
+      const byPeriodEnd = new Date(cpeDate);
+      byPeriodEnd.setMonth(byPeriodEnd.getMonth() - months);
+      const byLastCharge = lastCharge
+        ? new Date(lastCharge.getTime() - 2 * 86400000)
+        : byPeriodEnd;
+      const periodStart =
+        byLastCharge < byPeriodEnd ? byLastCharge : byPeriodEnd;
 
       // Helper: crea una comisión para `recipientCodeId` en este ciclo si no
       // existe ya (dedup por ciclo de facturación + UNIQUE constraint).
@@ -4838,6 +4858,192 @@ export class ReferralsService {
       previousAmount,
       newAmount: expected,
       base,
+    };
+  }
+
+  /**
+   * 2026-07-17: CORRIGE un hallazgo DUPLICATE o PHANTOM del arqueo avanzado
+   * marcando REJECTED las comisiones sobrantes. Acción explícita del SUPER_ADMIN.
+   *  - PHANTOM  : rechaza esa comisión (recipiente fuera de cadena / code
+   *               inactivo / tenant borrado).
+   *  - DUPLICATE: resuelve el grupo (referralUseId, recipientCodeId, periodKey)
+   *               y CONSERVA la del cobro real (con hotmartTransactionId/
+   *               externalTxId — la más antigua si hay varias); rechaza el resto
+   *               (las fantasma del cron sin tx). Si ninguna tiene tx, conserva
+   *               la más antigua.
+   * NUNCA toca PAID/REJECTED (guard de status atómico). Audita cada cambio.
+   */
+  async rejectAuditFinding(
+    user: AuthUser,
+    commissionId: string,
+    type: 'DUPLICATE' | 'PHANTOM',
+  ): Promise<{ ok: true; rejected: number; kept: string | null; type: string }> {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const c = await this.prisma.commission.findUnique({
+      where: { id: commissionId },
+      select: {
+        id: true,
+        status: true,
+        referralUseId: true,
+        recipientCodeId: true,
+        periodKey: true,
+        referralUse: {
+          select: {
+            tenantId: true,
+            tenant: { select: { brandName: true, whiteLabelId: true } },
+          },
+        },
+      },
+    });
+    if (!c) throw new NotFoundException('Comisión no encontrada');
+    if (
+      user.whiteLabelId &&
+      c.referralUse?.tenant?.whiteLabelId !== user.whiteLabelId
+    ) {
+      throw new ForbiddenException('Esta comisión no pertenece a tu marca.');
+    }
+
+    let toReject: string[] = [];
+    let kept: string | null = null;
+
+    if (type === 'DUPLICATE' && c.referralUseId && c.recipientCodeId) {
+      // Leemos el grupo COMPLETO (incluidas PAID/RETAINED) para elegir el keeper
+      // correcto: la del cobro real (con tx), la más antigua; una PAID con tx
+      // gana. Así, si la real ya se pagó, NO conservamos viva la fantasma.
+      const group = await this.prisma.commission.findMany({
+        where: {
+          referralUseId: c.referralUseId,
+          recipientCodeId: c.recipientCodeId,
+          periodKey: c.periodKey,
+          status: { in: ['PENDING', 'APPROVED', 'PAID', 'RETAINED'] },
+        },
+        select: {
+          id: true,
+          status: true,
+          hotmartTransactionId: true,
+          externalTxId: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (group.length <= 1) {
+        return { ok: true, rejected: 0, kept: group[0]?.id ?? null, type };
+      }
+      const withTx = group.filter(
+        (g) => g.hotmartTransactionId || g.externalTxId,
+      );
+      kept = (withTx[0] ?? group[0]).id;
+      // Solo se rechazan las VIVAS (PENDING/APPROVED); las PAID/RETAINED no se
+      // tocan aunque no sean el keeper (dinero ya liquidado).
+      toReject = group
+        .filter(
+          (g) =>
+            g.id !== kept &&
+            (g.status === 'PENDING' || g.status === 'APPROVED'),
+        )
+        .map((g) => g.id);
+    } else if (type === 'DUPLICATE') {
+      // DUPLICATE legacy sin clave de grupo (recipientCodeId null): no se puede
+      // deducir con seguridad cuál conservar → revisión manual.
+      throw new BadRequestException(
+        'Comisión duplicada sin destinatario/período — resuélvela manualmente.',
+      );
+    } else {
+      // PHANTOM: rechazar esta comisión.
+      toReject = [c.id];
+    }
+
+    if (toReject.length === 0) {
+      return { ok: true, rejected: 0, kept, type };
+    }
+
+    const result = await this.prisma.commission.updateMany({
+      where: { id: { in: toReject }, status: { in: ['PENDING', 'APPROVED'] } },
+      data: { status: 'REJECTED' },
+    });
+    // Auditamos SOLO las que quedaron REJECTED de verdad (una fila pudo pasar a
+    // PAID entre el read y el update → el guard atómico no la tocó).
+    const rejectedIds =
+      result.count === toReject.length
+        ? toReject
+        : (
+            await this.prisma.commission.findMany({
+              where: { id: { in: toReject }, status: 'REJECTED' },
+              select: { id: true },
+            })
+          ).map((x) => x.id);
+    for (const id of rejectedIds) {
+      await this.audit.log({
+        actorId: user.id,
+        tenantId: c.referralUse?.tenantId ?? null,
+        action: 'commission.audit_rejected',
+        resource: `commission:${id}`,
+        metadata: {
+          type,
+          brandName: c.referralUse?.tenant?.brandName ?? null,
+          keptCommissionId: kept,
+          source: 'advanced_audit',
+        },
+      });
+    }
+    return { ok: true, rejected: result.count, kept, type };
+  }
+
+  /**
+   * 2026-07-17: "CORREGIR TODO" — corre el arqueo avanzado y aplica la corrección
+   * adecuada a cada hallazgo: WRONG_AMOUNT → recalcula al esperado; DUPLICATE →
+   * conserva la del cobro real y rechaza las fantasma; PHANTOM → rechaza.
+   * Procesa primero los rechazos (para no recalcular filas que se van a anular),
+   * deduplica por commissionId, y nunca toca PAID. Devuelve un resumen.
+   */
+  async applyAllAuditFindings(user: AuthUser): Promise<{
+    total: number;
+    fixedAmounts: number;
+    rejectedDuplicate: number;
+    rejectedPhantom: number;
+    skipped: number;
+  }> {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const { findings } = await this.auditCommissions(user);
+    // Rechazos primero (PHANTOM, DUPLICATE), recálculos después.
+    const order = { PHANTOM: 0, DUPLICATE: 1, WRONG_AMOUNT: 2 } as const;
+    const sorted = [...findings].sort((a, b) => order[a.type] - order[b.type]);
+    const processed = new Set<string>();
+    let fixedAmounts = 0;
+    let rejectedDuplicate = 0;
+    let rejectedPhantom = 0;
+    let skipped = 0;
+    for (const f of sorted) {
+      if (processed.has(f.commissionId)) continue;
+      processed.add(f.commissionId);
+      try {
+        if (f.type === 'WRONG_AMOUNT') {
+          // NUNCA tocar dinero ya pagado/retenido en la acción MASIVA. El
+          // recálculo de una PAID solo se permite por la acción individual.
+          if (f.status === 'PAID' || f.status === 'RETAINED') {
+            skipped += 1;
+            continue;
+          }
+          const r = await this.recalcCommissionToExpected(user, f.commissionId);
+          if (!('unchanged' in r && r.unchanged)) fixedAmounts += 1;
+        } else {
+          const r = await this.rejectAuditFinding(user, f.commissionId, f.type);
+          if (f.type === 'DUPLICATE') rejectedDuplicate += r.rejected;
+          else rejectedPhantom += r.rejected;
+        }
+      } catch (e) {
+        this.logger.warn(
+          `applyAllAuditFindings: saltado ${f.type} ${f.commissionId}: ${(e as Error)?.message}`,
+        );
+        skipped += 1;
+      }
+    }
+    return {
+      total: findings.length,
+      fixedAmounts,
+      rejectedDuplicate,
+      rejectedPhantom,
+      skipped,
     };
   }
 
