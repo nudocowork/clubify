@@ -8,6 +8,7 @@ import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
 import { ImageUploader } from '@/components/ImageUploader';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
+import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 import {
   CARD_TEMPLATES,
@@ -44,6 +45,10 @@ const FROM_SCRATCH_DEFAULTS = {
   stampInactiveColor: null as string | null,
   stampContourColor: null as string | null,
   centerBgColor: null as string | null,
+  // Wallet V3 — tarjetas nuevas nacen con color uniforme (SOLID).
+  stampBgType: 'SOLID' as 'GRADIENT' | 'SOLID' | 'IMAGE',
+  stampBgImageUrl: null as string | null,
+  freeRewards: [] as FreeReward[],
   stampsRequired: 10,
   rewardText: '1 producto gratis',
   discountPercent: 10,
@@ -92,6 +97,8 @@ export default function NewCardWizard() {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [confirmActivate, setConfirmActivate] = useState(false);
+  // Wallet V3 — permisos de la marca (para gatear la opción de imagen).
+  const [walletAdv, setWalletAdv] = useState<Record<string, boolean> | null>(null);
 
   const [locations, setLocations] = useState<LocationLite[]>([]);
   // Cargar categoría del tenant + sedes
@@ -99,6 +106,7 @@ export default function NewCardWizard() {
     api<any>('/tenants/me')
       .then((me) => {
         if (me?.businessCategorySlug) setTenantCategorySlug(me.businessCategorySlug);
+        if (me?.walletAdvanced) setWalletAdv(me.walletAdvanced);
       })
       .catch(() => {});
     api<any[]>('/locations')
@@ -241,7 +249,14 @@ export default function NewCardWizard() {
       )}
 
       {step === 4 && (
-        <Step4Design form={form} setForm={(f) => setForm(f)} err={err} />
+        <Step4Design
+          form={form}
+          setForm={(f) => setForm(f)}
+          err={err}
+          allowCustomBg={walletAdv?.customBackgrounds !== false}
+          allowFreeRewards={walletAdv?.freeRewards !== false}
+          showNextReward={walletAdv?.showNextReward !== false}
+        />
       )}
 
       {step === 5 && (
@@ -879,6 +894,9 @@ function Step3Configure({
             stampInactiveColor={form.stampInactiveColor}
             stampContourColor={form.stampContourColor}
             centerBgColor={form.centerBgColor}
+            stampBgType={form.stampBgType}
+            stampBgImageUrl={form.stampBgImageUrl}
+            freeRewards={form.freeRewards}
             rewardText={form.rewardText}
             customerName="RICARDO PÉREZ"
             barcodeValue="DEMO123456"
@@ -904,10 +922,16 @@ function Step4Design({
   form,
   setForm,
   err,
+  allowCustomBg,
+  allowFreeRewards,
+  showNextReward,
 }: {
   form: typeof FROM_SCRATCH_DEFAULTS;
   setForm: (f: typeof FROM_SCRATCH_DEFAULTS) => void;
   err: string | null;
+  allowCustomBg: boolean;
+  allowFreeRewards: boolean;
+  showNextReward: boolean;
 }) {
   const t = useTranslations('app_cards_new');
   function set<K extends keyof typeof form>(k: K, v: any) {
@@ -915,6 +939,7 @@ function Step4Design({
   }
   const brand = (form.name.split('—')[0] || t('yourBrand')).trim();
   const visibleStamps = Math.min(form.stampsRequired, 7);
+  const isProgress = form.type === 'STAMPS' || form.type === 'HYBRID' || form.type === 'VISITS';
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
@@ -1015,6 +1040,57 @@ function Step4Design({
           </div>
         )}
 
+        {isProgress && (
+          <div className="pt-2 border-t border-line">
+            <label className="label">Fondo del área de sellos</label>
+            <div className="grid grid-cols-3 gap-2 mt-1">
+              {([
+                { v: 'GRADIENT', label: 'Degradado', hint: 'Clásico' },
+                { v: 'SOLID', label: 'Color sólido', hint: 'Uniforme' },
+                ...(allowCustomBg ? [{ v: 'IMAGE', label: 'Imagen', hint: 'Personalizada' }] : []),
+              ] as const).map((o) => {
+                const on = form.stampBgType === o.v;
+                return (
+                  <button
+                    key={o.v}
+                    type="button"
+                    onClick={() => set('stampBgType', o.v)}
+                    className={`rounded-lg px-2 py-2 text-center transition border-2 ${
+                      on ? 'border-brand bg-brand/10' : 'border-line bg-transparent'
+                    }`}
+                  >
+                    <div className={`text-xs font-semibold ${on ? 'text-brand' : 'text-ink'}`}>{o.label}</div>
+                    <div className="text-[10px] text-mute">{o.hint}</div>
+                  </button>
+                );
+              })}
+            </div>
+            {form.stampBgType === 'IMAGE' && allowCustomBg && (
+              <div className="mt-3">
+                <ImageUploader
+                  value={form.stampBgImageUrl}
+                  onChange={(url) => set('stampBgImageUrl', url)}
+                  folder="card-stamp-bg"
+                  crop={false}
+                />
+                <div className="text-[11px] text-mute mt-2 leading-relaxed">
+                  Recomendado <b>1200×420 px</b> · PNG/JPG/WEBP · &lt;500 KB · relación{' '}
+                  <b>20:7</b> · modo <b>cubrir</b> centrado (nunca se deforma). Solo afecta el
+                  área de los sellos.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {isProgress && allowFreeRewards && (
+          <FreeRewardsEditor
+            value={form.freeRewards}
+            onChange={(v) => set('freeRewards', v)}
+            maxPos={form.stampsRequired}
+          />
+        )}
+
         <div className="pt-2 border-t border-line">
           <label className="label">📸 {t('coverImage')}</label>
           <p className="text-xs text-mute leading-relaxed -mt-1 mb-2.5">
@@ -1074,6 +1150,7 @@ function Step4Design({
         </div>
         <div className="flex justify-center">
           <WalletPassPreview
+            showNextReward={showNextReward}
             brandName={brand}
             primaryColor={form.primaryColor}
             secondaryColor={form.secondaryColor}
@@ -1093,6 +1170,9 @@ function Step4Design({
             stampInactiveColor={form.stampInactiveColor}
             stampContourColor={form.stampContourColor}
             centerBgColor={form.centerBgColor}
+            stampBgType={form.stampBgType}
+            stampBgImageUrl={form.stampBgImageUrl}
+            freeRewards={form.freeRewards}
             rewardText={form.rewardText}
             customerName="RICARDO PÉREZ"
             barcodeValue="DEMO123456"

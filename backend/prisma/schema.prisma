@@ -40,6 +40,10 @@ enum Role {
   // whiteLabelId. Su portal (/domicilios) muestra SOLO los domicilios de
   // su empresa. Los guards de tenant la dejan pasar (no tiene tenant).
   DELIVERY_COMPANY
+  // Cuponera / Living Card — Fase 2: cuenta de un NEGOCIO ALIADO. Vinculada
+  // vía User.allyBusinessId. Sin tenantId. Su portal (/cuponera/negocio)
+  // gestiona SOLO su ficha/promos. Mismo patrón que DELIVERY_COMPANY.
+  ALLY_BUSINESS
 }
 
 enum TenantStatus {
@@ -90,6 +94,10 @@ enum StampAction {
   // CASHBACK: amount = saldo (en moneda) ganado/canjeado en el Pass.
   CASHBACK_ADD
   CASHBACK_REDEEM
+  // Wallet V3 — resta manual de un sello desde el escáner (-1, piso 0).
+  // Distinto de REFUND (reverso de cashback/pago) para dar semántica clara
+  // en la auditoría. Gateado por la marca (walletAdvanced.removeStamps).
+  STAMP_REMOVE
 }
 
 enum NotificationTrigger {
@@ -895,11 +903,17 @@ model User {
   deliveryCompanyId String?
   deliveryCompany   DeliveryCompany? @relation("DeliveryCompanyAdmin", fields: [deliveryCompanyId], references: [id], onDelete: SetNull)
 
+  // Cuponera / Living Card — Fase 2: cuenta de un negocio aliado
+  // (role=ALLY_BUSINESS). NULL = usuario normal. Su portal gestiona su ficha.
+  allyBusinessId String?
+  allyBusiness   AllyBusiness? @relation("AllyBusinessAdmin", fields: [allyBusinessId], references: [id], onDelete: SetNull)
+
   @@index([tenantId])
   @@index([role])
   @@index([locationId])
   @@index([whiteLabelId])
   @@index([deliveryCompanyId])
+  @@index([allyBusinessId])
 }
 
 model Customer {
@@ -939,18 +953,20 @@ model Customer {
 
   createdAt DateTime @default(now())
 
-  passes            Pass[]
-  stamps            Stamp[]
-  carts             Cart[]
-  orders            Order[]
-  messages          Message[]
-  notifications     Notification[]
-  badges            CustomerBadge[]
-  reservations      Reservation[]
-  eventAttendees    EventAttendee[]
+  passes              Pass[]
+  stamps              Stamp[]
+  carts               Cart[]
+  orders              Order[]
+  messages            Message[]
+  notifications       Notification[]
+  badges              CustomerBadge[]
+  reservations        Reservation[]
+  eventAttendees      EventAttendee[]
   // Cuponera / Living Card: membresías de este cliente (cuando el tenant es
   // el "de sistema" de una campaña). Un Customer normal no tiene ninguna.
-  livingMemberships LivingMembership[]
+  livingMemberships   LivingMembership[]
+  cuponeraRedemptions Redemption[]
+  cuponeraStampCards  StampCard[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, phone])
@@ -1206,6 +1222,16 @@ model Card {
   stampInactiveColor  String?
   stampContourColor   String?
   centerBgColor       String?
+  // Wallet V3 — fondo del ÁREA DE SELLOS (el strip generado), independiente
+  // del resto del pase (header/premio/cliente/QR no se ven afectados).
+  //   "GRADIENT" = legacy (degradado primary→secondary). Backfill de tarjetas
+  //               existentes para no cambiar su aspecto (opt-in).
+  //   "SOLID"    = color uniforme (mismo primaryColor / centerBgColor). Default
+  //               de tarjetas NUEVAS.
+  //   "IMAGE"    = imagen personalizada (stampBgImageUrl) detrás de los sellos.
+  // Gateado por la marca (WhiteLabel.walletAdvanced.customBackgrounds).
+  stampBgType         String    @default("SOLID")
+  stampBgImageUrl     String?
   logoUrl             String?
   heroImageUrl        String?
   iconUrl             String?
@@ -1250,6 +1276,14 @@ model Card {
   // Hitos intermedios. Cada elemento: {at:5, reward:"5% off"}.
   // Si vacío, solo hay recompensa al alcanzar stampsRequired.
   multiRewards        Json      @default("[]")
+  // Wallet V3 — "Premios Free": premios intermedios configurables (ilimitados)
+  // que se dibujan DENTRO del círculo del sello en su posición. Cada elemento:
+  //   { id:string, pos:int, text:string(≤2 palabras), emoji?:string,
+  //     circleColor?:hex, textColor?:hex, active:boolean }
+  // Más rico que multiRewards (que solo dispara un push). Alimenta el círculo
+  // premium + el cálculo dinámico de "Próximo Premio". Gateado por la marca
+  // (WhiteLabel.walletAdvanced.freeRewards).
+  freeRewards         Json      @default("[]")
   // Enlaces que el cliente puede tocar desde el reverso del pass.
   // Cada elemento: {type:'URL'|'PHONE'|'EMAIL'|'ADDRESS', url:string, label:string}.
   activeLinks         Json      @default("[]")
@@ -1397,6 +1431,11 @@ model Stamp {
   // implícita: amount = purchaseAmount * cashbackPercent / 100).
   purchaseAmount Decimal?    @db.Decimal(12, 2)
   note           String?
+  // Wallet V3 — auditoría de ajustes manuales de sellos (+1/-1 desde escáner).
+  // "note" cumple como Motivo; estos dos completan el rastro (IP + navegador/
+  // dispositivo del operador). Null para stamps automáticos (orders/webhook).
+  ip             String?
+  device         String?
   createdAt      DateTime    @default(now())
 
   @@index([passId, createdAt])
@@ -4121,6 +4160,12 @@ model WhiteLabel {
   /// "+17865832760"). Si null, la landing usa su fallback. NO hardcodear el
   /// número en la página — cada marca define el suyo acá.
   demoButtonWhatsApp       String?
+  /// Enlace de conexión de WhatsApp de la marca (ej. proveedor tipo wazzap.mx:
+  /// "https://app.wazzap.mx/u/<uuid>"). Lo pega el super admin en /superadmin.
+  /// El panel /admin de la marca genera un QR con este enlace (Automatizaciones
+  /// → QR WhatsApp) para que el dueño lo escanee y vincule su WhatsApp. El link
+  /// NO se muestra como texto; solo el QR.
+  whatsappQrUrl            String?
   /// Email del admin principal (queda informativo; los logins reales son
   /// User con role SUPER_ADMIN o TENANT_OWNER bajo esta marca).
   adminEmail               String?
@@ -4162,6 +4207,18 @@ model WhiteLabel {
   /// "featUnlimitedOrders"). Vacío = lista completa por defecto (Clubify). Cada
   /// marca define qué ofrece su plan; nunca se muestran features que no incluye.
   subscriptionFeatureKeys String[] @default([])
+
+  /// Wallet V3 — bloque "Wallet Avanzado". Permisos de la marca sobre las
+  /// funciones nuevas de Wallet. Objeto con claves booleanas:
+  ///   { customBackgrounds, freeRewards, removeStamps, showNextReward,
+  ///     showHistory, showAudit }
+  /// Semántica de HERENCIA: null o clave ausente = ACTIVADA (las mejoras se
+  /// heredan automáticamente a todas las marcas). Una marca DESACTIVA poniendo
+  /// la clave en false → sus negocios no podrán usar esa función. A nivel
+  /// negocio siguen siendo opt-in por tarjeta (no cambian tarjetas actuales).
+  /// Aislamiento: se lee/escribe SIEMPRE por whiteLabelId (modelo sin tenantId).
+  walletAdvanced          Json?
+
   /// Costo de instalación/implementación (USD) mostrado en la página de precios
   /// de la marca. Null = no se muestra línea de instalación.
   installationFeeUsd      Decimal? @db.Decimal(10, 2)
@@ -4343,7 +4400,7 @@ model DeliveryVehicle {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
 
-  deliveries        Delivery[]
+  deliveries Delivery[]
 
   @@index([deliveryCompanyId, isActive])
 }
@@ -4354,16 +4411,16 @@ model DeliveryVehicle {
 
 /// Servicio agendable (ej. "Corte de cabello", 30 min).
 model Service {
-  id           String        @id @default(cuid())
-  tenantId     String
-  name         String
-  description  String?
-  durationMin  Int           @default(30)
-  priceCents   Int?
-  isActive     Boolean       @default(true)
-  sortOrder    Int           @default(0)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  description String?
+  durationMin Int      @default(30)
+  priceCents  Int?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   appointments Appointment[]
 
@@ -4902,10 +4959,16 @@ model BenefitCampaign {
   createdAt    DateTime              @default(now())
   updatedAt    DateTime              @updatedAt
 
-  plans       MembershipPlan[]
-  categories  BenefitCategory[]
-  memberships LivingMembership[]
-  orders      MembershipOrder[]
+  plans         MembershipPlan[]
+  categories    BenefitCategory[]
+  memberships   LivingMembership[]
+  orders        MembershipOrder[]
+  allies        AllyBusiness[]
+  benefits      Benefit[]
+  redemptions   Redemption[]
+  stampPrograms StampProgram[]
+  stampCards    StampCard[]
+  stampEvents   StampEvent[]
 
   @@index([whiteLabelId])
 }
@@ -4975,6 +5038,10 @@ model BenefitCategory {
   isActive   Boolean         @default(true)
   createdAt  DateTime        @default(now())
 
+  allies        AllyBusiness[]
+  benefits      Benefit[]
+  stampPrograms StampProgram[]
+
   @@unique([campaignId, slug])
   @@index([campaignId])
 }
@@ -5012,4 +5079,213 @@ model MercadopagoWebhookEvent {
   processedAt DateTime @default(now())
 
   @@index([campaignId, eventType, processedAt])
+}
+
+/// Estado de un negocio aliado dentro de una campaña. La campaña aprueba
+/// (o rechaza) antes de que su ficha sea visible en el marketplace.
+enum AllyStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+/// Negocio aliado de una campaña (Fase 2). Entidad ligera con su propio login
+/// (User role=ALLY_BUSINESS vía User.allyBusinessId) y portal, SIN la maquinaria
+/// de suscripción de un Tenant. Mismo patrón que DeliveryCompany.
+model AllyBusiness {
+  id          String           @id @default(uuid())
+  campaignId  String
+  campaign    BenefitCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  /// Categoría del marketplace (Restaurantes, Cafés…). Opcional.
+  categoryId  String?
+  category    BenefitCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  name        String
+  slug        String           @unique
+  description String           @default("")
+  logoUrl     String?
+  coverUrl    String?
+  /// Galería de fotos (array de URLs).
+  photos      Json             @default("[]")
+  address     String           @default("")
+  city        String           @default("")
+  latitude    Decimal?         @db.Decimal(10, 7)
+  longitude   Decimal?         @db.Decimal(10, 7)
+  /// Horarios (JSON libre, ej. { mon: "8-18", ... } o texto).
+  hours       Json             @default("{}")
+  whatsapp    String?
+  instagram   String?
+  website     String?
+  status      AllyStatus       @default(PENDING)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  /// Cuentas de login del negocio (role=ALLY_BUSINESS).
+  admins      User[]       @relation("AllyBusinessAdmin")
+  benefits    Benefit[]
+  redemptions Redemption[]
+  stampEvents StampEvent[]
+
+  @@index([campaignId, status])
+  @@index([categoryId])
+}
+
+/// Tipo de beneficio/promoción publicado por un negocio aliado (Fase 3).
+enum BenefitType {
+  PERCENT_OFF
+  AMOUNT_OFF
+  TWO_FOR_ONE
+  FREEBIE
+  PRODUCT
+  OTHER
+}
+
+enum BenefitStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+}
+
+/// Aprobación por la campaña (si `config.requireBenefitApproval`). Los
+/// beneficios creados por el admin nacen APPROVED; los del aliado, PENDING.
+enum BenefitApproval {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Un beneficio/promoción de un negocio aliado dentro de una campaña.
+model Benefit {
+  id               String           @id @default(uuid())
+  campaignId       String
+  campaign         BenefitCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  allyBusinessId   String
+  ally             AllyBusiness     @relation(fields: [allyBusinessId], references: [id], onDelete: Cascade)
+  categoryId       String?
+  category         BenefitCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  type             BenefitType      @default(PERCENT_OFF)
+  title            String
+  description      String           @default("")
+  imageUrl         String?
+  terms            String           @default("")
+  /// % de descuento (type=PERCENT_OFF).
+  percentOff       Int?
+  /// Descuento en dinero / precios de producto, en la unidad menor (COP=pesos).
+  amountOffCents   Int?
+  normalPriceCents Int?
+  memberPriceCents Int?
+  currency         String           @default("COP")
+  validFrom        DateTime?
+  validUntil       DateTime?
+  /// Límite total de canjes (null = ilimitado).
+  maxRedemptions   Int?
+  /// Límite por miembro (null = ilimitado; 1 = un solo uso).
+  maxPerMember     Int?             @default(1)
+  status           BenefitStatus    @default(ACTIVE)
+  approval         BenefitApproval  @default(APPROVED)
+  /// Contador denormalizado de canjes (fuente de verdad: tabla Redemption).
+  redemptionCount  Int              @default(0)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  redemptions Redemption[]
+
+  @@index([campaignId, status, approval])
+  @@index([allyBusinessId])
+  @@index([categoryId])
+}
+
+/// Registro de un canje (un miembro redimió un beneficio en un negocio).
+model Redemption {
+  id             String          @id @default(uuid())
+  campaignId     String
+  campaign       BenefitCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  benefitId      String
+  benefit        Benefit         @relation(fields: [benefitId], references: [id], onDelete: Cascade)
+  allyBusinessId String
+  ally           AllyBusiness    @relation(fields: [allyBusinessId], references: [id], onDelete: Cascade)
+  customerId     String
+  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  passId         String?
+  /// Usuario (cuenta del aliado) que registró el canje.
+  operatorUserId String?
+  createdAt      DateTime        @default(now())
+
+  @@index([benefitId, customerId])
+  @@index([allyBusinessId, createdAt])
+  @@index([campaignId, createdAt])
+}
+
+enum StampProgramStatus {
+  ACTIVE
+  PAUSED
+}
+
+enum StampEventAction {
+  STAMP
+  REDEEM
+}
+
+/// Programa de sellos comunitario (Fase 5). El miembro acumula sellos canjeando
+/// en negocios aliados; al completar `stampsRequired` obtiene el premio.
+/// `categoryId` null = cuenta en cualquier aliado; si está, solo en esa categoría.
+model StampProgram {
+  id             String             @id @default(uuid())
+  campaignId     String
+  campaign       BenefitCampaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  categoryId     String?
+  category       BenefitCategory?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  name           String
+  description    String             @default("")
+  imageUrl       String?
+  stampsRequired Int                @default(5)
+  rewardText     String             @default("")
+  /// Máximo de sellos por miembro por día (anti-abuso). Default 1.
+  maxPerDay      Int                @default(1)
+  status         StampProgramStatus @default(ACTIVE)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  cards  StampCard[]
+  events StampEvent[]
+
+  @@index([campaignId, status])
+  @@index([categoryId])
+}
+
+/// Progreso de un miembro en un programa de sellos.
+model StampCard {
+  id              String          @id @default(uuid())
+  campaignId      String
+  campaign        BenefitCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  programId       String
+  program         StampProgram    @relation(fields: [programId], references: [id], onDelete: Cascade)
+  customerId      String
+  customer        Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  stampsCount     Int             @default(0)
+  cyclesCompleted Int             @default(0)
+  lastStampAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@unique([programId, customerId])
+  @@index([customerId])
+}
+
+/// Log de cada sello otorgado o premio canjeado (historial + límite diario).
+model StampEvent {
+  id             String           @id @default(uuid())
+  campaignId     String
+  campaign       BenefitCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  programId      String
+  program        StampProgram     @relation(fields: [programId], references: [id], onDelete: Cascade)
+  customerId     String
+  allyBusinessId String?
+  ally           AllyBusiness?    @relation(fields: [allyBusinessId], references: [id], onDelete: SetNull)
+  operatorUserId String?
+  action         StampEventAction
+  createdAt      DateTime         @default(now())
+
+  @@index([programId, customerId, createdAt])
+  @@index([allyBusinessId, createdAt])
 }

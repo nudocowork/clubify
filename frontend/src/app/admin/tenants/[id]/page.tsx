@@ -17,6 +17,17 @@ import {
   planDisplayName,
   type PlanPeriodicity,
 } from '@/lib/plan-format';
+import { fetchBrandPlansByHost, type LandingPlan } from '@/lib/landing-plans';
+
+// Precio del ciclo respetando los planes de la MARCA (Sellea: 80/799), con
+// fallback al map genérico de Clubify (periodTotalUsd) solo si la marca no
+// tiene ese plan configurado. Aísla el precio mostrado por marca.
+const PERIOD_TO_BRAND_PLAN: Record<PlanPeriodicity, string> = {
+  MENSUAL: 'mensual',
+  TRIMESTRAL: 'trimestral',
+  SEMESTRAL: 'semestral',
+  ANUAL: 'anual',
+};
 
 export default function TenantDetail() {
   const tr = useTranslations('admin_tenants_id');
@@ -37,6 +48,8 @@ export default function TenantDetail() {
   const [infoSaving, setInfoSaving] = useState(false);
   // PDF123: dominio personalizado del negocio (vive en Storefront.customDomain).
   const [sfDomain, setSfDomain] = useState<string | null>(null);
+  // Planes de la marca (por host) para mostrar el precio real (Sellea 80/799).
+  const [brandPlans, setBrandPlans] = useState<LandingPlan[] | null>(null);
   // MARKETING ve la página pero sin acciones de billing/status — esos
   // endpoints son SUPER_ADMIN only y mostrarían "Permisos insuficientes"
   // al click. Esconderlos limpia UX en lugar de fallar fuerte.
@@ -70,6 +83,14 @@ export default function TenantDetail() {
   useEffect(() => {
     load();
   }, [id]);
+
+  // Precios reales de la marca (por host). Clubify/dev → null (usa map genérico).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    fetchBrandPlansByHost(window.location.host)
+      .then(setBrandPlans)
+      .catch(() => setBrandPlans(null));
+  }, []);
 
   async function saveBrandName() {
     const trimmed = brandDraft.trim();
@@ -558,10 +579,17 @@ export default function TenantDetail() {
           </div>
           <div className="kpi-sub">
             🗓️ {periodLabel(t.planPeriodicity as PlanPeriodicity | null)} ·{' '}
-            {periodTotalUsd(
-              t.planPeriodicity as PlanPeriodicity | null,
-              Number(t.plan?.priceMonthly ?? 0),
-            )}{' '}
+            {(() => {
+              const period = (t.planPeriodicity as PlanPeriodicity | null) ?? 'MENSUAL';
+              // Precio REAL de la marca (Sellea 80/799) si está configurado;
+              // sino el map genérico de Clubify.
+              const brandPrice = brandPlans?.find(
+                (p) => p.id === PERIOD_TO_BRAND_PLAN[period],
+              )?.price;
+              return brandPrice && brandPrice > 0
+                ? brandPrice
+                : periodTotalUsd(period, Number(t.plan?.priceMonthly ?? 0));
+            })()}{' '}
             USD{periodCadence(t.planPeriodicity as PlanPeriodicity | null)}
           </div>
         </div>

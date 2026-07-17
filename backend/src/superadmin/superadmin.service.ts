@@ -16,6 +16,7 @@ import {
 } from '../integrations/brand-message-templates';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
+import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash } from 'crypto';
 
@@ -79,9 +80,11 @@ export type WhiteLabelDto = {
   mapsApiKey?: string;
   planPeriodicities?: string[];
   shareImageUrl?: string;
+  whatsappQrUrl?: string;
   subscriptionFeatureKeys?: string[];
   installationFeeUsd?: number | null;
   installationPromoUsd?: number | null;
+  walletAdvanced?: Record<string, boolean> | null;
 };
 
 /** Periodicidades de plan válidas, en orden canónico. */
@@ -822,11 +825,19 @@ export class SuperAdminService {
           ? undefined
           : normalizePeriodicities(patch.planPeriodicities),
         shareImageUrl: patch.shareImageUrl === undefined ? undefined : patch.shareImageUrl?.trim() || null,
+        whatsappQrUrl: patch.whatsappQrUrl === undefined ? undefined : patch.whatsappQrUrl?.trim() || null,
         subscriptionFeatureKeys: patch.subscriptionFeatureKeys === undefined
           ? undefined
           : patch.subscriptionFeatureKeys,
         installationFeeUsd: patch.installationFeeUsd === undefined ? undefined : (patch.installationFeeUsd ?? null),
         installationPromoUsd: patch.installationPromoUsd === undefined ? undefined : (patch.installationPromoUsd ?? null),
+        // Wallet V3 — guardamos el objeto completo de 6 flags (saneado). null =
+        // volver al default heredado (todo activo).
+        walletAdvanced: patch.walletAdvanced === undefined
+          ? undefined
+          : patch.walletAdvanced === null
+            ? Prisma.DbNull
+            : (resolveWalletAdvanced(patch.walletAdvanced) as any),
       },
     });
     await this.logAction(actorId, 'superadmin.white_label.update', `whiteLabel:${id}`, {

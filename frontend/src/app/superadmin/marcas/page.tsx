@@ -23,9 +23,12 @@ type WhiteLabel = {
   notifyPhone: string | null;
   mapsApiKey: string | null;
   shareImageUrl: string | null;
+  whatsappQrUrl: string | null;
   subscriptionFeatureKeys?: string[];
   installationFeeUsd?: number | string | null;
   installationPromoUsd?: number | string | null;
+  // Wallet V3 — permisos "Wallet Avanzado" (6 flags). null = heredado (todo activo).
+  walletAdvanced?: Record<string, boolean> | null;
   initial: string | null;
   adminEmail: string | null;
   status: 'ACTIVE' | 'SUSPENDED';
@@ -667,11 +670,26 @@ function Drawer({
 
               <BrandSmsAccountConfig whiteLabelId={w.id} onSaved={onChanged} />
 
+              <WhatsAppQrConfig
+                whiteLabelId={w.id}
+                initial={w.whatsappQrUrl ?? ''}
+                onSaved={(msg) => {
+                  reloadAdmins();
+                  onChanged(msg);
+                }}
+              />
+
               <HotmartCreditConfig whiteLabelId={w.id} onSaved={onChanged} />
 
               <PlanPeriodicitiesConfig
                 whiteLabelId={w.id}
                 initial={w.planPeriodicities ?? []}
+                onSaved={onChanged}
+              />
+
+              <WalletAdvancedConfig
+                whiteLabelId={w.id}
+                initial={w.walletAdvanced ?? null}
                 onSaved={onChanged}
               />
 
@@ -1510,6 +1528,105 @@ function PlanPeriodicitiesConfig({
   );
 }
 
+// Wallet V3 — permisos "Wallet Avanzado" por marca. null / clave ausente =
+// heredado (activo). La marca desactiva poniendo la clave en false.
+const WALLET_ADVANCED_OPTS: { key: string; label: string; hint: string }[] = [
+  { key: 'customBackgrounds', label: 'Permitir fondos personalizados', hint: 'Imagen de fondo del área de sellos' },
+  { key: 'freeRewards', label: 'Permitir Premios Free', hint: 'Premios intermedios dentro de los sellos' },
+  { key: 'removeStamps', label: 'Permitir Restar Sellos', hint: 'Botón −1 en el escáner' },
+  { key: 'showNextReward', label: 'Mostrar Próximo Premio', hint: 'Mensaje dinámico del siguiente premio' },
+  { key: 'showHistory', label: 'Mostrar Historial', hint: 'Historial de ajustes de sellos' },
+  { key: 'showAudit', label: 'Mostrar Auditoría', hint: 'IP/dispositivo de cada ajuste' },
+];
+
+function WalletAdvancedConfig({
+  whiteLabelId,
+  initial,
+  onSaved,
+}: {
+  whiteLabelId: string;
+  initial: Record<string, boolean> | null;
+  onSaved: (msg: string) => void;
+}) {
+  // Herencia: clave ausente/null = true (activo). La marca apaga poniendo false.
+  const [flags, setFlags] = useState<Record<string, boolean>>(() => {
+    const f: Record<string, boolean> = {};
+    for (const o of WALLET_ADVANCED_OPTS) f[o.key] = initial?.[o.key] === false ? false : true;
+    return f;
+  });
+  const [busy, setBusy] = useState(false);
+
+  function toggle(k: string) {
+    setFlags((s) => ({ ...s, [k]: !s[k] }));
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ walletAdvanced: flags }),
+      });
+      onSaved('Wallet Avanzado actualizado');
+    } catch (e: any) {
+      onSaved(e?.message ?? 'Error al guardar Wallet Avanzado');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <SectionTitle>Wallet Avanzado</SectionTitle>
+      <div className="text-[11px] mt-1 mb-2" style={{ color: '#9aa4af' }}>
+        Funciones nuevas de Wallet que esta marca permite a sus negocios. Apagar
+        una oculta la función para todos sus negocios.
+      </div>
+      <div className="space-y-1.5">
+        {WALLET_ADVANCED_OPTS.map((o) => {
+          const on = flags[o.key];
+          return (
+            <button
+              key={o.key}
+              type="button"
+              onClick={() => toggle(o.key)}
+              className="w-full rounded-[8px] px-3 py-2 text-left transition flex items-center justify-between gap-2"
+              style={{
+                border: `2px solid ${on ? '#16a34a' : '#d6dcd9'}`,
+                background: on ? '#dcfce7' : 'white',
+              }}
+            >
+              <span>
+                <span className="block text-sm font-semibold" style={{ color: on ? '#15803d' : '#6b7785' }}>
+                  {o.label}
+                </span>
+                <span className="block text-[11px]" style={{ color: '#9aa4af' }}>{o.hint}</span>
+              </span>
+              <span
+                className="text-[11px] font-bold px-2 py-0.5 rounded-[7px] shrink-0"
+                style={{
+                  background: on ? '#16a34a' : '#f3f4f6',
+                  color: on ? 'white' : '#9aa4af',
+                }}
+              >
+                {on ? 'Activo' : 'Apagado'}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <button
+        onClick={save}
+        disabled={busy}
+        className="mt-2.5 rounded-[8px] px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50"
+        style={{ background: '#16a34a' }}
+      >
+        {busy ? 'Guardando…' : 'Guardar Wallet Avanzado'}
+      </button>
+    </div>
+  );
+}
+
 /**
  * Configuración de Créditos por MARCA BLANCA. La acreditación automática de
  * créditos identifica la marca por (Product ID + Offer ID) → este link →
@@ -2259,6 +2376,97 @@ function DomainConfig({
           }}
         >
           {busy ? 'Guardando…' : 'Guardar dominio'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Enlace de conexión de WhatsApp de la marca (proveedor tipo wazzap.mx). Se
+ *  guarda por marca y el panel /admin (Automatizaciones → QR WhatsApp) lo pinta
+ *  como QR para que el dueño lo escanee. El enlace NO se muestra al cliente,
+ *  solo el QR. PATCH a /superadmin/white-labels/:id. */
+function WhatsAppQrConfig({
+  whiteLabelId,
+  initial,
+  onSaved,
+}: {
+  whiteLabelId: string;
+  initial: string;
+  onSaved: (msg: string) => void;
+}) {
+  const [url, setUrl] = useState(initial ?? '');
+  const [busy, setBusy] = useState(false);
+  const trimmed = url.trim();
+  const valid = /^https?:\/\//i.test(trimmed);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ whatsappQrUrl: trimmed || null }),
+      });
+      onSaved(trimmed ? 'Enlace de QR WhatsApp guardado' : 'Enlace de QR WhatsApp eliminado');
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error al guardar el enlace');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <SectionTitle>QR WhatsApp</SectionTitle>
+      <div className="mt-2 space-y-3">
+        <p className="text-xs" style={{ color: '#6b7785' }}>
+          Pegá la URL de la <b>página embebida</b> (Embedded Page) de conexión de
+          WhatsApp de esta marca (ej. wazzap.mx, tipo <b>/g/…</b>). El panel de la
+          marca la muestra embebida en <b>Automatizaciones → QR WhatsApp</b>, para que
+          el dueño escanee el código con WhatsApp. El enlace no se muestra como texto.
+        </p>
+        <div>
+          <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>
+            URL de la página embebida
+          </label>
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://app.wazzap.mx/g/…"
+            className="w-full mt-1 text-sm font-mono"
+            style={{
+              padding: '9px 12px',
+              borderRadius: 8,
+              border: '1px solid #d7dbe0',
+              background: 'white',
+              color: '#16241c',
+            }}
+          />
+        </div>
+
+        {valid && (
+          <a
+            href={trimmed}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block text-xs font-semibold"
+            style={{ color: '#15803d' }}
+          >
+            Abrir para verificar el código ↗
+          </a>
+        )}
+
+        <button
+          onClick={save}
+          disabled={busy || (!!trimmed && !valid)}
+          className="w-full text-sm font-bold text-white rounded-[10px] disabled:opacity-50"
+          style={{
+            padding: '10px',
+            background: busy ? '#9ca3af' : 'linear-gradient(180deg, #28c95f, #16a34a)',
+            cursor: busy ? 'default' : 'pointer',
+          }}
+        >
+          {busy ? 'Guardando…' : 'Guardar enlace'}
         </button>
       </div>
     </div>

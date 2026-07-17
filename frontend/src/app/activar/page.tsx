@@ -6,7 +6,7 @@ import { api, setSession } from '@/lib/api';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 import { Icon } from '@/components/Icon';
-import { Logo } from '@/components/Logo';
+import { useAuthBrand, BrandMark, BrandAuthTheme } from '@/components/AuthBrand';
 import { RefCapture } from '@/components/RefCapture';
 import {
   BUSINESS_CATEGORIES,
@@ -54,6 +54,9 @@ const PLAN_PERIOD_MAP: Record<
 function ActivarInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // Branding por marca del host (selleala.com → Sellea). Sin marca = Clubify.
+  const { brand } = useAuthBrand();
+  const brandName = brand?.name || 'Clubify';
 
   const [planPeriod, setPlanPeriod] = useState<PlanPeriodId | null>(null);
   const [planData, setPlanData] = useState<LandingPlanLite | null>(null);
@@ -259,11 +262,12 @@ function ActivarInner() {
     form.password.length >= 8;
 
   return (
-    <main className="min-h-screen bg-bg flex flex-col">
+    <main className={`min-h-screen bg-bg flex flex-col ${brand ? 'brand-auth' : ''}`}>
+      <BrandAuthTheme brand={brand} />
       <header className="border-b border-line bg-white px-6 py-4">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <Link href="/" className="flex items-center">
-            <Logo size={32} />
+            <BrandMark brand={brand} size={32} />
           </Link>
           <Link href="/login" className="text-sm text-mute hover:text-ink">
             ¿Ya tienes cuenta? Ingresar →
@@ -290,7 +294,7 @@ function ActivarInner() {
               </div>
             )}
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
-              Crea tu cuenta en Clubify
+              Crea tu cuenta en {brandName}
             </h1>
             <p className="text-mute mt-2 leading-relaxed">
               Ya pagaste 🎉. Completa estos datos y entras al panel para
@@ -475,7 +479,7 @@ function ActivarInner() {
               ))}
             </ol>
             <div className="mt-10 text-sm text-white/70 border-t border-white/20 pt-6">
-              Ya hay 200+ negocios en LATAM usando Clubify para vender por
+              Ya hay 200+ negocios en LATAM usando {brandName} para vender por
               WhatsApp y fidelizar clientes.
             </div>
           </div>

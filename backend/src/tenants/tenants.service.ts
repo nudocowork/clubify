@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { TenantStatus } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
+import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
@@ -1559,6 +1560,9 @@ export class TenantsService {
             demoButtonWhatsApp: true,
             // Features que la marca incluye → lista "Tu suscripción incluye".
             subscriptionFeatureKeys: true,
+            // Wallet V3 — permisos "Wallet Avanzado" de la marca (gating de las
+            // funciones nuevas en la config de tarjetas y el escáner).
+            walletAdvanced: true,
             modules: {
               where: { module: { in: ['REVIEWS', 'COMMUNITY', 'REFERRALS'] } },
               select: { module: true, enabled: true },
@@ -1593,6 +1597,11 @@ export class TenantsService {
       communityEnabled: t.whiteLabel
         ? (communityModule?.enabled ?? false)
         : true,
+      // Wallet V3 — permisos "Wallet Avanzado" resueltos a 6 booleanos. null /
+      // clave ausente / sin marca = true (heredado): las mejoras se activan para
+      // todas las marcas salvo que una las apague explícitamente. El frontend
+      // gatea la config de tarjetas y el escáner con estos flags.
+      walletAdvanced: resolveWalletAdvanced(t.whiteLabel?.walletAdvanced),
       // Slug de la marca del negocio. null (marcas viejas / sin marca) se trata
       // como 'clubify' en el frontend. Se usa para gatear secciones exclusivas
       // (Comunidad/Lab) por marca, sin filtrar branding de otra.

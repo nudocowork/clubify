@@ -21,6 +21,9 @@ class CardBody {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() stampInactiveColor?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() stampContourColor?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() centerBgColor?: string | null;
+  // Wallet V3 — fondo del área de sellos. GRADIENT (legacy) | SOLID (uniforme) | IMAGE.
+  @IsOptional() @IsIn(['GRADIENT', 'SOLID', 'IMAGE']) stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampBgImageUrl?: string | null;
   @IsOptional() @IsString() logoUrl?: string;
   @IsOptional() @IsString() heroImageUrl?: string;
   @IsOptional() @IsString() iconUrl?: string;
@@ -59,6 +62,17 @@ class CardBody {
   // multiRewards: [{at:5, reward:"5% off"}, {at:10, reward:"10% off"}]
   // activeLinks: [{type:"URL"|"PHONE"|"EMAIL"|"ADDRESS", url, label}]
   @IsOptional() multiRewards?: Array<{ at: number; reward: string }>;
+  // Wallet V3 — Premios Free: premios intermedios ilimitados dibujados dentro
+  // del círculo en su posición. El backend normaliza/sanea la forma en el service.
+  @IsOptional() @IsArray() freeRewards?: Array<{
+    id?: string;
+    pos: number;
+    text?: string;
+    emoji?: string;
+    circleColor?: string;
+    textColor?: string;
+    active?: boolean;
+  }>;
   @IsOptional() activeLinks?: Array<{ type: string; url: string; label: string }>;
   @IsOptional() socialLinks?: Record<string, string>;
   @IsOptional() @IsString() stampIcon?: string;

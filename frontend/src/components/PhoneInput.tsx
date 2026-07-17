@@ -8,7 +8,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
  * Cobertura: países LATAM principales + España + USA. Suficiente para el
  * caso de uso actual de Clubify (negocios LATAM).
  */
-type Country = { code: string; flag: string; name: string; dial: string };
+// primary: cuando varios países comparten el mismo dial (NANP +1), este es el
+// que se elige por defecto al reparsear un número (no se puede distinguir US de
+// CA/DO por el número solo). Evita que "+1 …" reaparezca con otra bandera.
+type Country = { code: string; flag: string; name: string; dial: string; primary?: boolean };
 
 const COUNTRIES: Country[] = [
   { code: 'CO', flag: '🇨🇴', name: 'Colombia', dial: '+57' },
@@ -42,23 +45,26 @@ const COUNTRIES: Country[] = [
   { code: 'IT', flag: '🇮🇹', name: 'Italia', dial: '+39' },
   { code: 'DE', flag: '🇩🇪', name: 'Alemania', dial: '+49' },
   { code: 'GB', flag: '🇬🇧', name: 'Reino Unido', dial: '+44' },
-  { code: 'US', flag: '🇺🇸', name: 'Estados Unidos', dial: '+1' },
+  { code: 'US', flag: '🇺🇸', name: 'Estados Unidos', dial: '+1', primary: true },
   { code: 'CA', flag: '🇨🇦', name: 'Canadá', dial: '+1' },
   { code: 'BR', flag: '🇧🇷', name: 'Brasil', dial: '+55' },
 ];
 
-function parseValue(value: string): { country: Country; rest: string } {
+function parseValue(value: string, preferredCode?: string): { country: Country; rest: string } {
   const v = (value ?? '').trim();
   if (v) {
-    // Match el dial code más largo posible
-    const matched = [...COUNTRIES]
-      .sort((a, b) => b.dial.length - a.dial.length)
-      .find((c) => v.startsWith(c.dial));
-    if (matched) {
-      return {
-        country: matched,
-        rest: v.slice(matched.dial.length).trim(),
-      };
+    // Todos los países cuyo dial prefija el número; nos quedamos con el dial
+    // más largo (ej. +1 vs +591 para "+591…").
+    const matches = COUNTRIES.filter((c) => v.startsWith(c.dial));
+    if (matches.length) {
+      const maxLen = Math.max(...matches.map((c) => c.dial.length));
+      const sameDial = matches.filter((c) => c.dial.length === maxLen);
+      // Desempate cuando varios comparten dial (+1): (1) país del negocio si
+      // comparte ese dial, (2) el marcado primary (US), (3) el primero.
+      const preferred =
+        preferredCode && sameDial.find((c) => c.code === preferredCode.toUpperCase());
+      const chosen = preferred || sameDial.find((c) => c.primary) || sameDial[0];
+      return { country: chosen, rest: v.slice(chosen.dial.length).trim() };
     }
   }
   return { country: COUNTRIES[0], rest: v.replace(/^\+/, '') };
@@ -85,7 +91,7 @@ export function PhoneInput({
       const c = COUNTRIES.find((x) => x.code === defaultCountry.toUpperCase());
       if (c) return { country: c, rest: '' };
     }
-    return parseValue(value);
+    return parseValue(value, defaultCountry);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -104,7 +110,7 @@ export function PhoneInput({
       ? `${country.dial} ${number.trim()}`
       : '';
     if (composedValue === value) return;
-    const parsed = parseValue(value);
+    const parsed = parseValue(value, defaultCountry);
     setCountry(parsed.country);
     setNumber(parsed.rest);
     // eslint-disable-next-line react-hooks/exhaustive-deps

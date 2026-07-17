@@ -37,12 +37,20 @@ class WhiteLabelBody {
   planPeriodicities?: string[];
   // Imagen Open Graph al compartir el enlace de la marca (WhatsApp/redes).
   @IsOptional() @IsString() @MaxLength(500) shareImageUrl?: string;
+  // Enlace de conexión de WhatsApp de la marca (ej. wazzap.mx). El panel de la
+  // marca lo convierte en un QR (Automatizaciones → QR WhatsApp); no se muestra
+  // el texto del enlace.
+  @IsOptional() @IsString() @MaxLength(500) whatsappQrUrl?: string;
   // Features que la marca incluye en su suscripción (keys i18n). Vacío = todas.
   @IsOptional() @IsArray() @IsString({ each: true }) @MaxLength(60, { each: true })
   subscriptionFeatureKeys?: string[];
   // Costo de instalación + precio promocional (USD) para la página de precios.
   @IsOptional() @IsNumber() @Min(0) @Max(100000) installationFeeUsd?: number | null;
   @IsOptional() @IsNumber() @Min(0) @Max(100000) installationPromoUsd?: number | null;
+  // Wallet V3 — bloque "Wallet Avanzado" (6 permisos booleanos). null/ausente =
+  // heredado/activo; la marca desactiva poniendo la clave en false. Se sanea en
+  // el service (solo claves conocidas → boolean).
+  @IsOptional() @IsObject() walletAdvanced?: Record<string, boolean> | null;
 }
 
 class StatusBody {

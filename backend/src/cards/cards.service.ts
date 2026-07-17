@@ -1,5 +1,7 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { CardType } from '@prisma/client';
+import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { QueueService } from '../jobs/queue.service';
@@ -17,6 +19,8 @@ export type CardDto = {
   stampInactiveColor?: string | null;
   stampContourColor?: string | null;
   centerBgColor?: string | null;
+  stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
+  stampBgImageUrl?: string | null;
   logoUrl?: string;
   heroImageUrl?: string;
   iconUrl?: string;
@@ -46,6 +50,15 @@ export type CardDto = {
   stampEarnedMessage?: string;
   rewardEarnedMessage?: string;
   multiRewards?: Array<{ at: number; reward: string }>;
+  freeRewards?: Array<{
+    id?: string;
+    pos: number;
+    text?: string;
+    emoji?: string;
+    circleColor?: string;
+    textColor?: string;
+    active?: boolean;
+  }>;
   activeLinks?: Array<{ type: string; url: string; label: string }>;
   socialLinks?: Record<string, string>;
   stampIcon?: string;
@@ -73,6 +86,8 @@ export class CardsService {
     'stampInactiveColor',
     'stampContourColor',
     'centerBgColor',
+    'stampBgType',
+    'stampBgImageUrl',
     'logoUrl',
     'walletBrandName',
     'heroImageUrl',
@@ -86,7 +101,74 @@ export class CardsService {
     'terms',
     'termsEnabled',
     'activeLinks',
+    'freeRewards',
   ] as const;
+
+  /** Wallet V3 — normaliza/sanea los Premios Free antes de persistir.
+   * Filtra posiciones inválidas, recorta textos, valida hex, asigna id.
+   * Ilimitados: no hay tope de cantidad. Devuelve ordenado por posición. */
+  private sanitizeFreeRewards(
+    raw: CardDto['freeRewards'] | undefined,
+  ): Array<{
+    id: string;
+    pos: number;
+    text: string;
+    emoji: string;
+    circleColor: string | null;
+    textColor: string | null;
+    active: boolean;
+  }> | undefined {
+    if (raw === undefined) return undefined;
+    if (!Array.isArray(raw)) return [];
+    const isHex = (v: unknown): v is string =>
+      typeof v === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v.trim());
+    const seenPos = new Set<number>();
+    const out = raw
+      .map((r) => {
+        const pos = Math.floor(Number((r as any)?.pos));
+        if (!Number.isFinite(pos) || pos < 1) return null;
+        return {
+          id: typeof (r as any)?.id === 'string' && (r as any).id ? (r as any).id : randomUUID(),
+          pos,
+          text: String((r as any)?.text ?? '').trim().slice(0, 24),
+          emoji: String((r as any)?.emoji ?? '').trim().slice(0, 8),
+          circleColor: isHex((r as any)?.circleColor) ? (r as any).circleColor.trim() : null,
+          textColor: isHex((r as any)?.textColor) ? (r as any).textColor.trim() : null,
+          active: (r as any)?.active === undefined ? true : !!(r as any).active,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+      // Una posición no puede tener dos premios: gana el primero.
+      .filter((r) => {
+        if (seenPos.has(r.pos)) return false;
+        seenPos.add(r.pos);
+        return true;
+      })
+      .sort((a, b) => a.pos - b.pos);
+    return out;
+  }
+
+  /** Wallet V3 — gate por MARCA. Si la marca del negocio apagó una función en
+   * "Wallet Avanzado", la neutralizamos aquí (además del gate del editor), para
+   * que ni un POST directo pueda saltarse el permiso. Aislado: se consulta la
+   * marca por el tenant. Muta el dto en sitio ANTES de persistir. */
+  private async gateCardWalletFeatures(tenantId: string, dto: Partial<CardDto>) {
+    const touchesImage = dto.stampBgType === 'IMAGE' || dto.stampBgImageUrl != null;
+    const touchesFree = dto.freeRewards !== undefined && (dto.freeRewards?.length ?? 0) > 0;
+    if (!touchesImage && !touchesFree) return;
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { whiteLabel: { select: { walletAdvanced: true } } },
+    });
+    const wa = resolveWalletAdvanced(t?.whiteLabel?.walletAdvanced);
+    if (touchesImage && !wa.customBackgrounds) {
+      if (dto.stampBgType === 'IMAGE') dto.stampBgType = 'SOLID';
+      dto.stampBgImageUrl = null;
+    }
+    if (touchesFree && !wa.freeRewards) {
+      dto.freeRewards = [];
+    }
+  }
 
   private resolveTenantId(user: AuthUser, tenantIdParam?: string) {
     if (user.role === 'SUPER_ADMIN') {
@@ -138,6 +220,7 @@ export class CardsService {
         throw new ForbiddenException('Location does not belong to tenant');
       }
     }
+    await this.gateCardWalletFeatures(tid, dto);
     return this.prisma.card.create({
       data: {
         tenantId: tid,
@@ -153,6 +236,10 @@ export class CardsService {
         stampInactiveColor: dto.stampInactiveColor ?? undefined,
         stampContourColor: dto.stampContourColor ?? undefined,
         centerBgColor: dto.centerBgColor ?? undefined,
+        // Wallet V3 — tarjetas NUEVAS nacen con color uniforme (SOLID, default
+        // del schema); las existentes quedaron en GRADIENT por la migración.
+        stampBgType: dto.stampBgType ?? undefined,
+        stampBgImageUrl: dto.stampBgImageUrl ?? undefined,
         logoUrl: dto.logoUrl,
         heroImageUrl: dto.heroImageUrl,
         iconUrl: dto.iconUrl,
@@ -176,6 +263,7 @@ export class CardsService {
         stampEarnedMessage: dto.stampEarnedMessage ?? '',
         rewardEarnedMessage: dto.rewardEarnedMessage ?? '',
         multiRewards: (dto.multiRewards ?? []) as any,
+        freeRewards: (this.sanitizeFreeRewards(dto.freeRewards) ?? []) as any,
         activeLinks: (dto.activeLinks ?? []) as any,
         socialLinks: dto.socialLinks ?? {},
         stampIcon: dto.stampIcon ?? '☕',
@@ -204,6 +292,7 @@ export class CardsService {
         throw new ForbiddenException('Location does not belong to tenant');
       }
     }
+    await this.gateCardWalletFeatures(existing.tenantId, dto);
     // null en estos campos significa "borrar"; undefined = "no tocar".
     const data: any = { ...dto };
     if ('validFrom' in dto) {
@@ -223,6 +312,7 @@ export class CardsService {
       'stampInactiveColor',
       'stampContourColor',
       'centerBgColor',
+      'stampBgImageUrl',
       'cashbackPercent',
       'cashbackMinPurchase',
       'minAmountPerStamp',
@@ -232,6 +322,9 @@ export class CardsService {
       if (k in dto) data[k] = dto[k] ?? null;
     }
     if ('tiers' in dto) data.tiers = (dto.tiers ?? []) as any;
+    if ('freeRewards' in dto) {
+      data.freeRewards = (this.sanitizeFreeRewards(dto.freeRewards) ?? []) as any;
+    }
     const updated = await this.prisma.card.update({ where: { id }, data });
 
     // Auto-sync: si el cambio tocó algún campo visual del pass, encolamos

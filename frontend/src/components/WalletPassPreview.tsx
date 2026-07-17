@@ -49,6 +49,19 @@ export type WalletPassPreviewProps = {
   stampInactiveColor?: string | null;
   stampContourColor?: string | null;
   centerBgColor?: string | null;
+  // Wallet V3 — modo de fondo del área de sellos.
+  stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
+  stampBgImageUrl?: string | null;
+  // Wallet V3 — Premios Free (dibujados en su posición) + "Próximo Premio".
+  freeRewards?: Array<{
+    pos: number;
+    text?: string | null;
+    emoji?: string | null;
+    circleColor?: string | null;
+    textColor?: string | null;
+    active?: boolean;
+  }>;
+  showNextReward?: boolean;
   rewardText?: string;
   customerName?: string;
   barcodeValue?: string;
@@ -80,6 +93,10 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     stampInactiveColor,
     stampContourColor,
     centerBgColor,
+    stampBgType = 'GRADIENT',
+    stampBgImageUrl,
+    freeRewards = [],
+    showNextReward = true,
     rewardText = '',
     customerName = 'TU NOMBRE',
     barcodeValue,
@@ -93,6 +110,25 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     cardType === 'VISITS' ? visitsRequired ?? 10 : stampsRequired ?? 10;
   const current = cardType === 'VISITS' ? visitsCount : stampsCount;
   const previewStamps = Math.max(1, Math.min(required, 12));
+
+  // Wallet V3 — Premios Free por posición (1-based) + "Próximo Premio".
+  const activePrizes = (freeRewards || []).filter(
+    (p) => p && p.active !== false && Number(p.pos) >= 1,
+  );
+  const prizeByPos = new Map<number, (typeof activePrizes)[number]>();
+  for (const p of activePrizes) prizeByPos.set(Math.floor(Number(p.pos)), p);
+  const nextPrize = (() => {
+    if (!showNextReward || !isProgressType) return null;
+    const cands: Array<{ pos: number; label: string }> = [];
+    for (const p of activePrizes) {
+      const label = [p.emoji, p.text].map((s) => (s ?? '').trim()).filter(Boolean).join(' ');
+      if (label) cands.push({ pos: Math.floor(Number(p.pos)), label });
+    }
+    if (required && (rewardText || '').trim()) {
+      cands.push({ pos: Math.floor(required), label: (rewardText || '').trim() });
+    }
+    return cands.filter((c) => c.pos > current).sort((a, b) => a.pos - b.pos)[0] ?? null;
+  })();
 
   // Colores resueltos — estilo premium tipo Starbucks/Apple Wallet:
   // filled = círculo blanco sólido con ícono en color de la marca;
@@ -207,23 +243,97 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
         {isProgressType && (
           <div
             className="rounded-2xl px-3 py-3 relative overflow-hidden"
-            style={{
-              background: centerBgColor
-                ? `linear-gradient(135deg, ${centerBgColor}e6, ${centerBgColor}b3)`
-                : 'linear-gradient(135deg, rgba(0,0,0,.10) 0%, rgba(0,0,0,.22) 100%)',
-            }}
+            style={
+              // Wallet V3 — modo de fondo del área de sellos:
+              //  IMAGE  → imagen cover centrada (+ overlay oscuro para legibilidad)
+              //  SOLID  → uniforme: mismo color de la tarjeta (o transparente)
+              //  GRADIENT (legacy) → degradado como antes
+              stampBgType === 'IMAGE' && stampBgImageUrl
+                ? {
+                    backgroundImage: `url(${stampBgImageUrl})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  }
+                : stampBgType === 'SOLID' || stampBgType === 'IMAGE'
+                  ? { background: centerBgColor || 'transparent' }
+                  : {
+                      background: centerBgColor
+                        ? `linear-gradient(135deg, ${centerBgColor}e6, ${centerBgColor}b3)`
+                        : 'linear-gradient(135deg, rgba(0,0,0,.10) 0%, rgba(0,0,0,.22) 100%)',
+                    }
+            }
           >
-            {/* Gloss interno sutil para look premium */}
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                background:
-                  'linear-gradient(180deg, rgba(255,255,255,.07) 0%, rgba(255,255,255,0) 55%)',
-              }}
-            />
+            {/* Overlay: gloss sutil (GRADIENT) u oscuro para legibilidad (IMAGE).
+                SOLID no lleva overlay → look completamente uniforme. */}
+            {stampBgType === 'IMAGE' && stampBgImageUrl ? (
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  background:
+                    'linear-gradient(180deg, rgba(0,0,0,.30) 0%, rgba(0,0,0,.62) 100%)',
+                }}
+              />
+            ) : stampBgType === 'GRADIENT' ? (
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  background:
+                    'linear-gradient(180deg, rgba(255,255,255,.07) 0%, rgba(255,255,255,0) 55%)',
+                }}
+              />
+            ) : null}
             <div className="relative flex items-center justify-between gap-1.5">
               {Array.from({ length: previewStamps }).map((_, i) => {
                 const filled = i < current;
+                const prize = prizeByPos.get(i + 1);
+                if (prize) {
+                  // Círculo de Premio Free: color propio + emoji/texto dentro +
+                  // badge 🎁 en la esquina superior derecha.
+                  const bg = prize.circleColor || (filled ? activeBg : inactiveBg);
+                  const fg = prize.textColor || (filled ? activeFg : '#FFFFFF');
+                  const label = (prize.text || '').trim();
+                  return (
+                    <div
+                      key={i}
+                      className="relative aspect-square rounded-full flex flex-col items-center justify-center transition-all flex-1 overflow-visible"
+                      style={{
+                        maxWidth: previewStamps > 8 ? '32px' : '40px',
+                        background: bg,
+                        color: fg,
+                        boxShadow:
+                          '0 4px 10px -2px rgba(0,0,0,.28), inset 0 0 0 1px rgba(255,255,255,.35)',
+                        lineHeight: 1,
+                      }}
+                    >
+                      {prize.emoji ? (
+                        <span style={{ fontSize: previewStamps > 8 ? '11px' : '14px' }}>{prize.emoji}</span>
+                      ) : null}
+                      {label ? (
+                        <span
+                          className="font-bold text-center px-[1px]"
+                          style={{
+                            fontSize: previewStamps > 8 ? '5px' : '6.5px',
+                            lineHeight: 1.05,
+                            maxWidth: '100%',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {label}
+                        </span>
+                      ) : null}
+                      <span
+                        className="absolute -top-1 -right-1 rounded-full flex items-center justify-center bg-white shadow"
+                        style={{
+                          width: previewStamps > 8 ? '11px' : '14px',
+                          height: previewStamps > 8 ? '11px' : '14px',
+                          fontSize: previewStamps > 8 ? '7px' : '9px',
+                        }}
+                      >
+                        🎁
+                      </span>
+                    </div>
+                  );
+                }
                 return (
                   <div
                     key={i}
@@ -316,10 +426,10 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
         </div>
         <div className="text-right max-w-[55%]">
           <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
-            Recompensa
+            {nextPrize ? 'Próximo premio' : 'Recompensa'}
           </div>
           <div className="text-[12px] font-semibold mt-0.5 leading-snug line-clamp-2">
-            {rewardText || '—'}
+            {nextPrize ? nextPrize.label : rewardText || '—'}
           </div>
         </div>
       </div>

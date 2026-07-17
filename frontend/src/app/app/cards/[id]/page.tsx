@@ -11,6 +11,7 @@ import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
 import { ImageUploader } from '@/components/ImageUploader';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
+import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 
 type CardType =
@@ -39,6 +40,8 @@ type Card = {
   stampInactiveColor?: string | null;
   stampContourColor?: string | null;
   centerBgColor?: string | null;
+  stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
+  stampBgImageUrl?: string | null;
   stampsRequired: number | null;
   stampIcon?: string;
   heroImageUrl?: string | null;
@@ -57,6 +60,7 @@ type Card = {
   stampEarnedMessage?: string;
   rewardEarnedMessage?: string;
   multiRewards?: Array<{ at: number; reward: string }>;
+  freeRewards?: FreeReward[];
   activeLinks?: Array<{ type: string; url: string; label: string }>;
   utmLinks?: Array<{
     id: string;
@@ -75,6 +79,8 @@ type TenantInfo = {
   brandName?: string;
   walletLogoUrl?: string | null;
   logoUrl?: string | null;
+  // Wallet V3 — permisos "Wallet Avanzado" de la marca (gating de funciones).
+  walletAdvanced?: Record<string, boolean>;
 };
 
 type Customer = {
@@ -390,6 +396,10 @@ export default function CardDetail() {
               stampInactiveColor={card.stampInactiveColor}
               stampContourColor={card.stampContourColor}
               centerBgColor={card.centerBgColor}
+              stampBgType={card.stampBgType}
+              stampBgImageUrl={card.stampBgImageUrl}
+              freeRewards={card.freeRewards}
+              showNextReward={tenant?.walletAdvanced?.showNextReward !== false}
               rewardText={card.rewardText}
             />
           </div>
@@ -631,6 +641,9 @@ export default function CardDetail() {
       {editing && (
         <EditCardModal
           card={card}
+          allowCustomBg={tenant?.walletAdvanced?.customBackgrounds !== false}
+          allowFreeRewards={tenant?.walletAdvanced?.freeRewards !== false}
+          showNextReward={tenant?.walletAdvanced?.showNextReward !== false}
           onClose={() => setEditing(false)}
           onSaved={() => {
             setEditing(false);
@@ -887,10 +900,16 @@ function ToggleActiveButton({
 
 function EditCardModal({
   card,
+  allowCustomBg,
+  allowFreeRewards,
+  showNextReward,
   onClose,
   onSaved,
 }: {
   card: Card;
+  allowCustomBg: boolean;
+  allowFreeRewards: boolean;
+  showNextReward: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -910,6 +929,9 @@ function EditCardModal({
     stampInactiveColor: card.stampInactiveColor ?? (null as string | null),
     stampContourColor: card.stampContourColor ?? (null as string | null),
     centerBgColor: card.centerBgColor ?? (null as string | null),
+    stampBgType: (card.stampBgType ?? 'GRADIENT') as 'GRADIENT' | 'SOLID' | 'IMAGE',
+    stampBgImageUrl: card.stampBgImageUrl ?? (null as string | null),
+    freeRewards: (card.freeRewards ?? []) as FreeReward[],
     stampsRequired: card.stampsRequired ?? 10,
     minAmountPerStamp:
       card.minAmountPerStamp == null
@@ -976,6 +998,9 @@ function EditCardModal({
         stampInactiveColor: form.stampInactiveColor,
         stampContourColor: form.stampContourColor,
         centerBgColor: form.centerBgColor,
+        stampBgType: form.stampBgType,
+        stampBgImageUrl: form.stampBgType === 'IMAGE' ? form.stampBgImageUrl : null,
+        freeRewards: form.freeRewards,
         validUntil: form.validUntil,
         validDaysAfterIssue: form.validDaysAfterIssue,
         locationId: form.locationId,
@@ -1334,6 +1359,61 @@ function EditCardModal({
               />
             </div>
           )}
+
+          {(card.type === 'STAMPS' || card.type === 'HYBRID' || card.type === 'VISITS') && (
+            <div className="pt-3 border-t border-line">
+              <label className="label">Fondo del área de sellos</label>
+              <div className="grid grid-cols-3 gap-2 mt-1">
+                {([
+                  { v: 'GRADIENT', label: 'Degradado', hint: 'Clásico' },
+                  { v: 'SOLID', label: 'Color sólido', hint: 'Uniforme' },
+                  ...(allowCustomBg
+                    ? [{ v: 'IMAGE', label: 'Imagen', hint: 'Personalizada' }]
+                    : []),
+                ] as const).map((o) => {
+                  const on = form.stampBgType === o.v;
+                  return (
+                    <button
+                      key={o.v}
+                      type="button"
+                      onClick={() => setForm({ ...form, stampBgType: o.v as any })}
+                      className={`rounded-lg px-2 py-2 text-center transition border-2 ${
+                        on ? 'border-brand bg-brand/10' : 'border-line bg-transparent'
+                      }`}
+                    >
+                      <div className={`text-xs font-semibold ${on ? 'text-brand' : 'text-ink'}`}>
+                        {o.label}
+                      </div>
+                      <div className="text-[10px] text-mute">{o.hint}</div>
+                    </button>
+                  );
+                })}
+              </div>
+              {form.stampBgType === 'IMAGE' && allowCustomBg && (
+                <div className="mt-3">
+                  <ImageUploader
+                    value={form.stampBgImageUrl}
+                    onChange={(url) => setForm({ ...form, stampBgImageUrl: url })}
+                    folder="card-stamp-bg"
+                  />
+                  <div className="text-[11px] text-mute mt-2 leading-relaxed">
+                    Resolución recomendada <b>1200×420 px</b> · PNG/JPG/WEBP · &lt;500 KB ·
+                    relación <b>20:7</b> · se recorta en modo <b>cubrir</b> (centrado), nunca
+                    se deforma ni se estira. Solo afecta el área de los sellos.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {allowFreeRewards &&
+            (card.type === 'STAMPS' || card.type === 'HYBRID' || card.type === 'VISITS') && (
+              <FreeRewardsEditor
+                value={form.freeRewards}
+                onChange={(v) => setForm({ ...form, freeRewards: v })}
+                maxPos={form.stampsRequired}
+              />
+            )}
 
           <div className="pt-3 border-t border-line">
             <div className="flex items-center justify-between">
