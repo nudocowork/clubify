@@ -1154,7 +1154,12 @@ function CommissionAuditPanel() {
                           ) : f.type === 'DUPLICATE' || f.type === 'PHANTOM' ? (
                             <button
                               type="button"
-                              onClick={() => rejectOne(f.commissionId, f.type)}
+                              onClick={() =>
+                                rejectOne(
+                                  f.commissionId,
+                                  f.type as 'DUPLICATE' | 'PHANTOM',
+                                )
+                              }
                               disabled={fixingId === f.commissionId}
                               className="text-xs px-2.5 py-1 rounded-pill bg-red-600 text-white font-semibold hover:opacity-90 transition disabled:opacity-50"
                               title={
