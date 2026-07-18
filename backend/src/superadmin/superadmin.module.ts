@@ -8,9 +8,15 @@ import { BrandAuditService } from './brand-audit.service';
 import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
 import { WhiteLabelNotificationsModule } from '../white-label-notifications/white-label-notifications.module';
+import { IntegrationsModule } from '../integrations/integrations.module';
 
 @Module({
-  imports: [AuditModule, forwardRef(() => AuthModule), WhiteLabelNotificationsModule],
+  imports: [
+    AuditModule,
+    forwardRef(() => AuthModule),
+    WhiteLabelNotificationsModule,
+    IntegrationsModule,
+  ],
   providers: [SuperAdminService, RenewalsService, BrandIconService, BrandAuditService],
   controllers: [
     SuperAdminController,

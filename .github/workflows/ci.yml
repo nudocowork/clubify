@@ -69,8 +69,13 @@ jobs:
       - name: Prisma generate
         run: npx prisma generate
 
-      - name: Prisma migrate (apply migrations to test DB)
-        run: npx prisma migrate deploy
+      # Las migraciones están drifted (p.ej. el enum MenuLayout y la columna
+      # Storefront.menuLayout nunca se CREARON en una migración — solo existen
+      # en schema.prisma y se aplican vía `db push`). Prod tampoco corre
+      # `migrate deploy` en el deploy. Por eso el CI construye el schema de
+      # test directamente desde schema.prisma con `db push`, igual que prod.
+      - name: Prisma db push (schema desde schema.prisma; migrations drifted)
+        run: npx prisma db push --skip-generate --accept-data-loss
 
       - name: Seed DB (tests existentes asumen demo tenant seedeado)
         run: npm run seed

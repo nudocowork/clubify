@@ -951,7 +951,7 @@ export class HotmartService {
     // (bug #1) y para validar el monto USD (bug #10).
     const planForBase = await this.prisma.tenant.findUnique({
       where: { id: tenant.id },
-      select: { planPeriodicity: true },
+      select: { planPeriodicity: true, subscriptionPriceUsd: true },
     });
     const nextChargeRaw = payload.data?.subscription?.date_next_charge;
     let nextCharge = nextChargeRaw ? new Date(nextChargeRaw) : null;
@@ -970,25 +970,26 @@ export class HotmartService {
     // lastChargeAt — timestamp del pago aprobado real (no calculado).
     const approvedDate = payload.data?.purchase?.approved_date;
     const lastChargeAt = approvedDate ? new Date(approvedDate) : new Date();
-    // 2026-06-15: precio REAL pagado en Hotmart → fuente de verdad para la
-    // base de comisiones. Solo lo persistimos si vino un valor > 0 (no
-    // pisamos con 0/undefined en eventos que no traen price).
-    // Bug #10: validamos el value contra el precio canónico del plan para
-    // descartar montos en moneda local (Hotmart no manda currency_code).
     const canonicalUsd = await this.getCanonicalBundlePrice(
       planForBase?.planPeriodicity ?? null,
     );
-    const realPriceUsd = this.resolvePaidUsd(
-      payload,
-      'activatePurchase',
-      canonicalUsd,
-    );
+    // FIX 2026-07-17 (Bug "49" / cohortes legacy): la base de comisión es el
+    // precio PACTADO del tenant (subscriptionPriceUsd — los legacy $50/$135 se
+    // conservan), NO el purchase.price.value de Hotmart (que llega neto de
+    // fees/moneda local → base "49"). Como no hay cupones, ese value no aporta
+    // nada útil. Fallback al canónico solo cuando el tenant aún no tiene precio
+    // pactado (primer pago). Misma fuente que el cron y la auditoría.
+    const prevPriceUsd = Number(planForBase?.subscriptionPriceUsd ?? 0);
+    const commissionBaseUsd = prevPriceUsd > 0 ? prevPriceUsd : canonicalUsd;
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
         status: 'ACTIVE',
-        ...(realPriceUsd != null
-          ? { subscriptionPriceUsd: realPriceUsd }
+        // FIX 2026-07-17: NO pisar subscriptionPriceUsd con el value neto de
+        // Hotmart (envenenaba la base y clobbereaba los precios legacy $50/$135).
+        // Solo lo fijamos la PRIMERA vez (aún sin precio pactado), al canónico.
+        ...(prevPriceUsd <= 0 && canonicalUsd > 0
+          ? { subscriptionPriceUsd: canonicalUsd }
           : {}),
         // Solo update si Hotmart mandó la fecha O si es primer pago
         // (fallback) — en renovaciones sin date_next_charge preservamos.
@@ -1037,28 +1038,29 @@ export class HotmartService {
         orderBy: { createdAt: 'desc' },
         select: { id: true },
       });
-      if (vendorUse) {
-        // Precio: monto Hotmart real (validado USD) si vino, sino el
-        // canónico del bundle (mismo que usa getCommissionBase).
-        const paidUsd = this.resolvePaidUsd(
-          payload,
-          'generateCommissionsForPayment',
-          canonicalUsd,
+      if (commissionBaseUsd <= 0) {
+        // FIX 2026-07-17 (R4): base inválida (periodicidad desconocida sin
+        // Setting → canónico 0). Sin este guard la ruta 3-way creaba comisiones
+        // de $0 que además bloqueaban el ciclo por el UNIQUE de periodo.
+        this.logger.warn(
+          `Skip comisión: base de precio inválida (0) para tenant=${tenant.id} — revisa planPeriodicity/subscriptionPriceUsd.`,
         );
-        const basePrice = paidUsd ?? canonicalUsd;
+      } else if (vendorUse) {
+        // Base = precio PACTADO del tenant (commissionBaseUsd), no el value
+        // ruidoso de Hotmart (sin cupones no aporta nada). Respeta legacy.
         await this.referralsService.generateCommissionsForPayment({
           tenantId: tenant.id,
-          paymentAmountUsd: basePrice,
+          paymentAmountUsd: commissionBaseUsd,
           hotmartTransactionId: transactionId ?? null,
         });
       } else {
+        // FIX 2026-07-17 (Bug $15 vs $5 + "49"): base = precio PACTADO del
+        // tenant (commissionBaseUsd: legacy $50/$135 conservado, si no el
+        // canónico por periodicidad). Ya NO usa plan.priceMonthly ni el value
+        // neto de Hotmart.
         await this.generateReferralCommission({
           tenantId: tenant.id,
-          paidAmount: this.resolvePaidUsd(
-            payload,
-            'generateReferralCommission',
-            canonicalUsd,
-          ),
+          paidAmount: commissionBaseUsd,
           transactionId,
         });
       }
@@ -1511,8 +1513,11 @@ export class HotmartService {
     });
     const originalPrice = Number(tenant?.plan?.priceMonthly ?? 0);
     const amountPaid = opts.paidAmount && opts.paidAmount > 0 ? opts.paidAmount : originalPrice;
-    if (!originalPrice || originalPrice <= 0) {
-      this.logger.warn(`Skip comisión: sin precio para tenant=${opts.tenantId}`);
+    // FIX 2026-07-17: el guard valida la BASE efectiva (amountPaid, que ya
+    // incluye el fallback al canónico del bundle), no solo priceMonthly — así
+    // un plan con priceMonthly=0 pero base canónica válida no se salta.
+    if (!amountPaid || amountPaid <= 0) {
+      this.logger.warn(`Skip comisión: sin base de precio para tenant=${opts.tenantId}`);
       return;
     }
     // P3 2026-07-02: la comisión se desbloquea 15 días DESPUÉS del pago real en

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Query, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, Ip, Param, Patch, Post, Query, UnauthorizedException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { IsBoolean, IsEmail, IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';
@@ -176,6 +176,29 @@ export class ReferralsController {
     @Param('id') id: string,
   ) {
     return this.svc.recalcCommissionToExpected(user, id);
+  }
+
+  // 2026-07-17: corrige un hallazgo DUPLICATE/PHANTOM del arqueo avanzado
+  // (rechaza las sobrantes, conserva la del cobro real con hotmartTransactionId).
+  @Roles('SUPER_ADMIN')
+  @Post('audit/commissions/:id/reject')
+  rejectAuditFinding(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { type?: 'DUPLICATE' | 'PHANTOM' },
+  ) {
+    if (body?.type !== 'DUPLICATE' && body?.type !== 'PHANTOM') {
+      throw new BadRequestException('type debe ser DUPLICATE o PHANTOM');
+    }
+    return this.svc.rejectAuditFinding(user, id, body.type);
+  }
+
+  // 2026-07-17: "Corregir todo" — corre el arqueo y aplica la corrección
+  // adecuada a cada hallazgo (recalcula / rechaza fantasma / dedup duplicados).
+  @Roles('SUPER_ADMIN')
+  @Post('audit/commissions/apply-all')
+  applyAllAuditFindings(@CurrentUser() user: AuthUser) {
+    return this.svc.applyAllAuditFindings(user);
   }
 
   // #12 (2026-06-16): modificar/resetear la contraseña de un afiliado existente.

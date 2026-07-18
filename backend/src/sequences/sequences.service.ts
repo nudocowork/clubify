@@ -53,7 +53,7 @@ export interface CreateSequenceInput {
   triggers?: TriggerInput[];
 }
 
-export interface UpdateSequenceInput extends Partial<CreateSequenceInput> {}
+export type UpdateSequenceInput = Partial<CreateSequenceInput>;
 
 // ───────────── Service ─────────────
 

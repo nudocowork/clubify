@@ -931,6 +931,7 @@ function CommissionAuditPanel() {
   const [result, setResult] = useState<AuditResult | null>(null);
   const [open, setOpen] = useState(false);
   const [fixingId, setFixingId] = useState<string | null>(null);
+  const [applyingAll, setApplyingAll] = useState(false);
 
   async function run() {
     setLoading(true);
@@ -963,6 +964,54 @@ function CommissionAuditPanel() {
     }
   }
 
+  // 2026-07-17: rechaza un hallazgo DUPLICATE/PHANTOM. En DUPLICATE conserva la
+  // del cobro real (con hotmartTransactionId) y rechaza las fantasma.
+  async function rejectOne(commissionId: string, type: 'DUPLICATE' | 'PHANTOM') {
+    setFixingId(commissionId);
+    try {
+      const r = await api<{ rejected: number }>(
+        `/referrals/audit/commissions/${commissionId}/reject`,
+        { method: 'POST', body: JSON.stringify({ type }) },
+      );
+      toast(`Rechazadas: ${r?.rejected ?? 0}`, 'success');
+      const res = await api<AuditResult>('/referrals/audit/commissions');
+      setResult(res ?? null);
+    } catch (e: unknown) {
+      toast((e as Error)?.message || 'No se pudo rechazar', 'error');
+    } finally {
+      setFixingId(null);
+    }
+  }
+
+  // 2026-07-17: "Corregir todo" — aplica la corrección adecuada a cada hallazgo.
+  async function applyAll() {
+    if (
+      !window.confirm(
+        '¿Corregir TODOS los hallazgos? Recalcula montos, rechaza fantasmas y deduplica (nunca toca comisiones pagadas). Todo queda en el log de auditoría.',
+      )
+    )
+      return;
+    setApplyingAll(true);
+    try {
+      const r = await api<{
+        fixedAmounts: number;
+        rejectedDuplicate: number;
+        rejectedPhantom: number;
+        skipped: number;
+      }>('/referrals/audit/commissions/apply-all', { method: 'POST' });
+      toast(
+        `Corregidos: ${r.fixedAmounts} montos · ${r.rejectedDuplicate + r.rejectedPhantom} rechazadas${r.skipped ? ` · ${r.skipped} omitidas` : ''}`,
+        'success',
+      );
+      const res = await api<AuditResult>('/referrals/audit/commissions');
+      setResult(res ?? null);
+    } catch (e: unknown) {
+      toast((e as Error)?.message || 'No se pudo corregir todo', 'error');
+    } finally {
+      setApplyingAll(false);
+    }
+  }
+
   const s = result?.summary;
   const clean =
     s && s.wrongAmount === 0 && s.duplicates === 0 && s.phantom === 0;
@@ -985,6 +1034,17 @@ function CommissionAuditPanel() {
               className="text-sm px-3 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
             >
               {open ? t('hide') : t('viewResults')}
+            </button>
+          )}
+          {result && !clean && (
+            <button
+              type="button"
+              onClick={applyAll}
+              disabled={applyingAll}
+              className="text-sm px-3.5 py-2 rounded-pill bg-red-600 text-white font-semibold hover:opacity-90 transition disabled:opacity-50"
+              title="Recalcula montos, rechaza fantasmas y deduplica (nunca toca pagadas)"
+            >
+              {applyingAll ? 'Corrigiendo…' : '🛠 Corregir todo'}
             </button>
           )}
           <button
@@ -1090,6 +1150,25 @@ function CommissionAuditPanel() {
                               {fixingId === f.commissionId
                                 ? t('auditFixing')
                                 : t('auditFix')}
+                            </button>
+                          ) : f.type === 'DUPLICATE' || f.type === 'PHANTOM' ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                rejectOne(
+                                  f.commissionId,
+                                  f.type as 'DUPLICATE' | 'PHANTOM',
+                                )
+                              }
+                              disabled={fixingId === f.commissionId}
+                              className="text-xs px-2.5 py-1 rounded-pill bg-red-600 text-white font-semibold hover:opacity-90 transition disabled:opacity-50"
+                              title={
+                                f.type === 'DUPLICATE'
+                                  ? 'Conserva la del cobro real y rechaza la fantasma'
+                                  : 'Rechaza esta comisión fantasma'
+                              }
+                            >
+                              {fixingId === f.commissionId ? '…' : 'Rechazar'}
                             </button>
                           ) : (
                             <span className="text-mute">—</span>
