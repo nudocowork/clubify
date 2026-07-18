@@ -105,10 +105,12 @@ export class CardsService {
   ] as const;
 
   /** Wallet V3 — normaliza/sanea los Premios Free antes de persistir.
-   * Filtra posiciones inválidas, recorta textos, valida hex, asigna id.
-   * Ilimitados: no hay tope de cantidad. Devuelve ordenado por posición. */
+   * Filtra posiciones inválidas (pos<1 o pos>stampsRequired, que nunca se
+   * dibujarían), recorta textos, valida hex, asigna id. Ilimitados: no hay tope
+   * de cantidad. Devuelve ordenado por posición. */
   private sanitizeFreeRewards(
     raw: CardDto['freeRewards'] | undefined,
+    stampsRequired?: number | null,
   ): Array<{
     id: string;
     pos: number;
@@ -123,10 +125,16 @@ export class CardsService {
     const isHex = (v: unknown): v is string =>
       typeof v === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v.trim());
     const seenPos = new Set<number>();
+    const maxPos =
+      typeof stampsRequired === 'number' && stampsRequired > 0
+        ? stampsRequired
+        : Number.MAX_SAFE_INTEGER;
     const out = raw
       .map((r) => {
         const pos = Math.floor(Number((r as any)?.pos));
-        if (!Number.isFinite(pos) || pos < 1) return null;
+        // Fuera de rango (pos<1 o pos>máximo de sellos) → se descarta: un premio
+        // más allá del máximo nunca se dibuja en la grilla.
+        if (!Number.isFinite(pos) || pos < 1 || pos > maxPos) return null;
         return {
           id: typeof (r as any)?.id === 'string' && (r as any).id ? (r as any).id : randomUUID(),
           pos,
@@ -263,7 +271,7 @@ export class CardsService {
         stampEarnedMessage: dto.stampEarnedMessage ?? '',
         rewardEarnedMessage: dto.rewardEarnedMessage ?? '',
         multiRewards: (dto.multiRewards ?? []) as any,
-        freeRewards: (this.sanitizeFreeRewards(dto.freeRewards) ?? []) as any,
+        freeRewards: (this.sanitizeFreeRewards(dto.freeRewards, dto.stampsRequired) ?? []) as any,
         activeLinks: (dto.activeLinks ?? []) as any,
         socialLinks: dto.socialLinks ?? {},
         stampIcon: dto.stampIcon ?? '☕',
@@ -323,7 +331,10 @@ export class CardsService {
     }
     if ('tiers' in dto) data.tiers = (dto.tiers ?? []) as any;
     if ('freeRewards' in dto) {
-      data.freeRewards = (this.sanitizeFreeRewards(dto.freeRewards) ?? []) as any;
+      data.freeRewards = (this.sanitizeFreeRewards(
+        dto.freeRewards,
+        dto.stampsRequired ?? existing.stampsRequired,
+      ) ?? []) as any;
     }
     const updated = await this.prisma.card.update({ where: { id }, data });
 

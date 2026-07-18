@@ -40,11 +40,18 @@ export function nextRewardLabel(opts: {
   stampsRequired?: number | null;
   current: number;
 }): { pos: number; label: string } | null {
+  // Premios más allá del máximo de sellos nunca se dibujan → tampoco se
+  // anuncian como "próximo premio" (defensa por si hay datos viejos guardados
+  // antes del saneo con tope).
+  const maxPos =
+    opts.stampsRequired && opts.stampsRequired > 0
+      ? Math.floor(opts.stampsRequired)
+      : Number.MAX_SAFE_INTEGER;
   const candidates: Array<{ pos: number; label: string }> = [];
   for (const fr of parseFreeRewards(opts.freeRewards)) {
     if (fr.active === false) continue;
     const pos = Math.floor(Number(fr.pos));
-    if (!Number.isFinite(pos) || pos < 1) continue;
+    if (!Number.isFinite(pos) || pos < 1 || pos > maxPos) continue;
     const label = freeRewardLabel(fr);
     if (label) candidates.push({ pos, label });
   }

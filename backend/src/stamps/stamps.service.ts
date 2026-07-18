@@ -205,10 +205,15 @@ export class StampsService {
 
     switch (dto.action) {
       case 'STAMP': {
-        // Wallet V3 — tope superior: nunca más del máximo configurado
-        // (stampsRequired). Cards sin máximo (null) no se topan.
+        // Wallet V3 — tope superior: no pasar del máximo configurado
+        // (stampsRequired). CRÍTICO: nunca decrementar. Un pase que ya está por
+        // ENCIMA del máximo (overflow legacy, o el dueño bajó stampsRequired)
+        // NO debe perder sellos al escanear → el piso es el conteo actual.
         const cap = pass.card.stampsRequired ?? Number.MAX_SAFE_INTEGER;
-        newStamps = Math.min(cap, pass.stampsCount + Number(amount));
+        newStamps = Math.max(
+          pass.stampsCount,
+          Math.min(cap, pass.stampsCount + Number(amount)),
+        );
         break;
       }
       case 'POINTS_ADD':
@@ -545,14 +550,22 @@ export class StampsService {
 
     // Hook de gamificación: XP, level up, streak, badges automáticos.
     // Disparado fire-and-forget para no bloquear la respuesta del scanner.
-    this.gamification
-      .processStamp({
-        customerId: pass.customerId,
-        tenantId: pass.tenantId,
-        action: dto.action,
-        cardId: pass.cardId,
-      })
-      .catch(() => null);
+    // Wallet V3 — las acciones de RESTA (STAMP_REMOVE / REFUND / *_DEDUCT /
+    // *_REDEEM) NO deben otorgar badges/XP: la evaluación de badges (FIRST_VISIT,
+    // SCANS_TOTAL) corría igual y contaba el sello borrado como "scan".
+    const gamifiesAction = !['STAMP_REMOVE', 'REFUND', 'POINTS_DEDUCT', 'CASHBACK_REDEEM'].includes(
+      dto.action,
+    );
+    if (gamifiesAction) {
+      this.gamification
+        .processStamp({
+          customerId: pass.customerId,
+          tenantId: pass.tenantId,
+          action: dto.action,
+          cardId: pass.cardId,
+        })
+        .catch(() => null);
+    }
 
     // Hook automations:
     //   STAMP_ADDED — cualquier scan registrado (ofrece feedback / cross-sell)
@@ -936,7 +949,11 @@ export class StampsService {
         location: { select: { name: true } },
       },
       orderBy: { createdAt: 'desc' },
-      take: Math.min(Math.max(opts.limit ?? 100, 1), 300),
+      // NaN-safe: ?limit=abc → Number('abc')=NaN; `?? 100` NO atrapa NaN.
+      take: Math.min(
+        Math.max(Number.isInteger(opts.limit as number) ? (opts.limit as number) : 100, 1),
+        300,
+      ),
     });
 
     return {

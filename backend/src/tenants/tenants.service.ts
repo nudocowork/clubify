@@ -1563,6 +1563,14 @@ export class TenantsService {
             // Wallet V3 — permisos "Wallet Avanzado" de la marca (gating de las
             // funciones nuevas en la config de tarjetas y el escáner).
             walletAdvanced: true,
+            // Planes de pago de la marca → el panel de suscripción del negocio
+            // muestra el precio REAL de su marca (Sellea 80/799), no el de
+            // Clubify. Host-independiente (funciona aunque el negocio esté en un
+            // subdominio soyclubify.com).
+            paymentLinks: {
+              where: { active: true },
+              select: { periodicity: true, amountUsd: true },
+            },
             modules: {
               where: { module: { in: ['REVIEWS', 'COMMUNITY', 'REFERRALS'] } },
               select: { module: true, enabled: true },
@@ -1602,6 +1610,13 @@ export class TenantsService {
       // todas las marcas salvo que una las apague explícitamente. El frontend
       // gatea la config de tarjetas y el escáner con estos flags.
       walletAdvanced: resolveWalletAdvanced(t.whiteLabel?.walletAdvanced),
+      // Planes de la marca del negocio (precio real por periodicidad). Vacío
+      // para Clubify / marca sin links → el panel cae al precio genérico.
+      brandPlans:
+        t.whiteLabel?.paymentLinks?.map((l) => ({
+          periodicity: l.periodicity,
+          amountUsd: l.amountUsd != null ? Number(l.amountUsd) : null,
+        })) ?? [],
       // Slug de la marca del negocio. null (marcas viejas / sin marca) se trata
       // como 'clubify' en el frontend. Se usa para gatear secciones exclusivas
       // (Comunidad/Lab) por marca, sin filtrar branding de otra.

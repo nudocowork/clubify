@@ -158,6 +158,17 @@ export default function BillingPage() {
     hasPlan && isPlaceholderPlan
       ? `Suscripción · ${periodLabel(periodicity)}`
       : formatPlanLabel(planName, periodicity);
+  // Precio del ciclo: precio REAL de la marca del negocio (Sellea 80/799) desde
+  // tenant.brandPlans (/tenants/me) — host-independiente; fallback al genérico.
+  const planPriceUsd = (() => {
+    const p = periodicity ?? 'MENSUAL';
+    const brandPrice = (tenant?.brandPlans as { periodicity: string; amountUsd: number | null }[] | undefined)?.find(
+      (bp) => bp.periodicity === p,
+    )?.amountUsd;
+    return brandPrice && brandPrice > 0
+      ? brandPrice
+      : periodTotalUsd(p, Number(tenant?.plan?.priceMonthly ?? 0));
+  })();
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -222,11 +233,7 @@ export default function BillingPage() {
               {planLabel}
             </div>
             <div className="text-sm text-mute mt-0.5">
-              USD{' '}
-              {periodTotalUsd(
-                tenant?.planPeriodicity as PlanPeriodicity | null,
-                Number(tenant?.plan?.priceMonthly ?? 0),
-              )}
+              USD {planPriceUsd}
               {periodCadence(tenant?.planPeriodicity as PlanPeriodicity | null)}
             </div>
             <div className="text-xs text-mute">

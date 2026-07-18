@@ -80,6 +80,23 @@ export class WalletService {
     return out;
   }
 
+  /** Wallet V3 — fondo del área de sellos EFECTIVO según los permisos de la
+   * marca. Si la marca apagó "fondos personalizados", una tarjeta con IMAGE cae
+   * a color uniforme (SOLID) y se ignora la imagen — AUNQUE ya estuviera guardada
+   * (revocación retroactiva) o venga de un clonado que saltó el gate de guardado. */
+  private effectiveStampBg(
+    card: { stampBgType?: string | null; stampBgImageUrl?: string | null },
+    wa: WalletAdvancedFlags,
+  ): { stampBgType: 'GRADIENT' | 'SOLID' | 'IMAGE'; stampBgImageUrl: string | null } {
+    let type = (card.stampBgType as any) || 'GRADIENT';
+    let img = card.stampBgImageUrl ?? null;
+    if (!wa.customBackgrounds) {
+      if (type === 'IMAGE') type = 'SOLID';
+      img = null;
+    }
+    return { stampBgType: type, stampBgImageUrl: img };
+  }
+
   /** Wallet V3 — permisos "Wallet Avanzado" de la marca del negocio. Aislado:
    * se resuelve por el whiteLabel del tenant. null/ausente = todo activo. */
   private async getWalletAdvancedForTenant(tenantId: string): Promise<WalletAdvancedFlags> {
@@ -148,13 +165,21 @@ export class WalletService {
     const wa = await this.getWalletAdvancedForTenant(pass.tenantId);
     let rewardFieldLabel = L.reward;
     let rewardFieldValue = pass.card.rewardText || '—';
+    // Solo activamos "Próximo Premio" si la tarjeta REALMENTE tiene Premios Free
+    // activos → las tarjetas sin premios intermedios conservan "RECOMPENSA" tal
+    // cual (no cambia el aspecto de las tarjetas existentes).
+    const hasActiveFree =
+      wa.freeRewards &&
+      Array.isArray((pass.card as any).freeRewards) &&
+      (pass.card as any).freeRewards.some((fr: any) => fr && fr.active !== false);
     if (
       wa.showNextReward &&
+      hasActiveFree &&
       (pass.card.type === 'STAMPS' || pass.card.type === 'HYBRID' || pass.card.type === 'VISITS')
     ) {
       const cur = pass.card.type === 'VISITS' ? pass.visitsCount : pass.stampsCount;
       const next = nextRewardLabel({
-        freeRewards: wa.freeRewards ? (pass.card as any).freeRewards : [],
+        freeRewards: (pass.card as any).freeRewards,
         rewardText: pass.card.rewardText,
         stampsRequired:
           pass.card.type === 'VISITS' ? pass.card.visitsRequired : pass.card.stampsRequired,
@@ -280,9 +305,10 @@ export class WalletService {
         stampInactiveColor: c.stampInactiveColor ?? null,
         stampContourColor: c.stampContourColor ?? null,
         centerBgColor: c.centerBgColor ?? null,
-        // Wallet V3 — modo de fondo del área de sellos (uniforme / imagen).
-        stampBgType: c.stampBgType ?? 'GRADIENT',
-        stampBgImageUrl: c.stampBgImageUrl ?? null,
+        // Wallet V3 — fondo del área de sellos EFECTIVO (gate de render de
+        // customBackgrounds: si la marca lo apagó, IMAGE cae a uniforme aunque
+        // ya estuviera guardado o venga de un clonado).
+        ...this.effectiveStampBg(c, wa),
         // Premios Free solo si la marca lo permite (gate de render, además del
         // gate de guardado en cards.service).
         freeRewards: wa.freeRewards ? ((c.freeRewards as any) ?? []) : [],
@@ -657,9 +683,9 @@ export class WalletService {
       // heroImageUrl, la usamos como base del strip con overlay oscuro
       // y los sellos en glass encima. Sino, fallback al gradient actual.
       heroImageUrl: c.heroImageUrl ?? null,
-      // Wallet V3 — modo de fondo del área de sellos.
-      stampBgType: c.stampBgType ?? 'GRADIENT',
-      stampBgImageUrl: c.stampBgImageUrl ?? null,
+      // Wallet V3 — fondo del área de sellos EFECTIVO (gate de render de
+      // customBackgrounds, ver effectiveStampBg).
+      ...this.effectiveStampBg(c, waStrip),
       freeRewards: waStrip.freeRewards ? ((c.freeRewards as any) ?? []) : [],
     });
     // Usamos la versión @2x (640×246) que se ve bien en Android y desktop.

@@ -150,10 +150,16 @@ export class GoogleWalletService {
     const wa = resolveWalletAdvanced(pass.tenant?.whiteLabel?.walletAdvanced);
     const isProgress =
       card.type === 'STAMPS' || card.type === 'HYBRID' || card.type === 'VISITS';
+    // Solo "Próximo Premio" si la tarjeta tiene Premios Free activos (las
+    // tarjetas sin premios intermedios conservan "RECOMPENSA").
+    const hasActiveFree =
+      wa.freeRewards &&
+      Array.isArray(card.freeRewards) &&
+      card.freeRewards.some((fr: any) => fr && fr.active !== false);
     const nextReward =
-      wa.showNextReward && isProgress
+      wa.showNextReward && isProgress && hasActiveFree
         ? nextRewardLabel({
-            freeRewards: wa.freeRewards ? card.freeRewards : [],
+            freeRewards: card.freeRewards,
             rewardText: card.rewardText,
             stampsRequired: card.type === 'VISITS' ? card.visitsRequired : card.stampsRequired,
             current: card.type === 'VISITS' ? pass.visitsCount : pass.stampsCount,

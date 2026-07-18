@@ -118,7 +118,9 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
   const prizeByPos = new Map<number, (typeof activePrizes)[number]>();
   for (const p of activePrizes) prizeByPos.set(Math.floor(Number(p.pos)), p);
   const nextPrize = (() => {
-    if (!showNextReward || !isProgressType) return null;
+    // Solo si hay Premios Free activos → tarjetas sin premios intermedios
+    // conservan "Recompensa" (no cambia el aspecto de las existentes).
+    if (!showNextReward || !isProgressType || activePrizes.length === 0) return null;
     const cands: Array<{ pos: number; label: string }> = [];
     for (const p of activePrizes) {
       const label = [p.emoji, p.text].map((s) => (s ?? '').trim()).filter(Boolean).join(' ');
