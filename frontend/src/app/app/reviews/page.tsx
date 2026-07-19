@@ -5,6 +5,7 @@ import { PhoneInput } from '@/components/PhoneInput';
 import { useTenantCountry } from '@/lib/useTenantCountry';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
@@ -158,6 +159,7 @@ export default function ReviewsPage() {
         <Link href="/app/reviews/locations" className="btn-ghost text-sm">
           {t('manageLocations')}
         </Link>
+        <AcademyButton moduleKey="reviews" />
       </div>
 
       {/* Fase F: selector de sede que cambia link + QR mostrados abajo. */}

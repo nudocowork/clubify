@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { EmojiPicker } from '@/components/EmojiPicker';
@@ -321,6 +322,7 @@ export default function NotificationsPage() {
         >
           {t('locationLink')}
         </Link>
+        <AcademyButton moduleKey="push" />
       </div>
 
       <PushLogoCard

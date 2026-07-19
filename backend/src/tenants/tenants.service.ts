@@ -1571,6 +1571,12 @@ export class TenantsService {
               where: { active: true },
               select: { periodicity: true, amountUsd: true },
             },
+            // Academia — videos-tutorial ACTIVOS de la marca. El panel del
+            // negocio los usa para mostrar el botón "▶ Ver tutorial" por módulo.
+            academyVideos: {
+              where: { active: true },
+              select: { moduleKey: true, youtubeUrl: true, title: true, description: true },
+            },
             modules: {
               where: { module: { in: ['REVIEWS', 'COMMUNITY', 'REFERRALS'] } },
               select: { module: true, enabled: true },
@@ -1617,6 +1623,21 @@ export class TenantsService {
           periodicity: l.periodicity,
           amountUsd: l.amountUsd != null ? Number(l.amountUsd) : null,
         })) ?? [],
+      // Academia — mapa { moduleKey: {youtubeUrl,title,description} } de videos
+      // activos de la marca. El botón se muestra solo si el módulo está aquí.
+      academyVideos: (t.whiteLabel?.academyVideos ?? []).reduce(
+        (acc, v) => {
+          if (v.youtubeUrl && v.youtubeUrl.trim()) {
+            acc[v.moduleKey] = {
+              youtubeUrl: v.youtubeUrl.trim(),
+              title: v.title || '',
+              description: v.description || '',
+            };
+          }
+          return acc;
+        },
+        {} as Record<string, { youtubeUrl: string; title: string; description: string }>,
+      ),
       // Slug de la marca del negocio. null (marcas viejas / sin marca) se trata
       // como 'clubify' en el frontend. Se usa para gatear secciones exclusivas
       // (Comunidad/Lab) por marca, sin filtrar branding de otra.

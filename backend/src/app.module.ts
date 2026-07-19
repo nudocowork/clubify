@@ -67,6 +67,7 @@ import { DeliveryModule } from './delivery/delivery.module';
 import { CuponeraModule } from './cuponera/cuponera.module';
 import { ServiceReservationsModule } from './service-reservations/service-reservations.module';
 import { OnboardingSyncModule } from './onboarding-sync/onboarding-sync.module';
+import { AcademyModule } from './academy/academy.module';
 
 @Module({
   imports: [
@@ -142,6 +143,7 @@ import { OnboardingSyncModule } from './onboarding-sync/onboarding-sync.module';
     CuponeraModule,
     ServiceReservationsModule,
     OnboardingSyncModule,
+    AcademyModule,
   ],
   providers: [
     // Sin esto, `ThrottlerModule.forRoot()` y los `@Throttle({...})` por

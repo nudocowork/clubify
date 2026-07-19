@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { AcademyButton } from '@/components/AcademyButton';
 import { ImageUploader } from '@/components/ImageUploader';
 import { toast } from '@/components/Toast';
 
@@ -201,6 +202,7 @@ export default function CardsList() {
             )}
             {t('configureLogo')}
           </button>
+          <AcademyButton moduleKey="wallet" />
           <Link className="btn-primary" href="/app/cards/new">
             <Icon name="plus" /> {t('createCard')}
           </Link>

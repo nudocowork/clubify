@@ -5,6 +5,7 @@ import { PhoneInput } from '@/components/PhoneInput';
 import { useTenantCountry } from '@/lib/useTenantCountry';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { toast } from '@/components/Toast';
 import {
   Reservation,
@@ -242,6 +243,7 @@ export default function AgendaPage() {
               ))}
             </select>
           )}
+          <AcademyButton moduleKey="agenda" />
           <input
             type="search"
             value={search}

@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, downloadFile } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { Icon } from '@/components/Icon';
 import { DirectChatList, type ChatPeer } from '@/components/DirectChatList';
 import { getOrdersSocket } from '@/lib/socket';
@@ -390,6 +391,7 @@ export default function OrdersBoard() {
               </button>
             )}
           </div>
+          <AcademyButton moduleKey="pedidos" />
           <div className="flex gap-0.5 bg-bg2 rounded-pill p-0.5 text-xs">
             {([1, 7, 30] as const).map((d) => (
               <button

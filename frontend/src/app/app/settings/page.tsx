@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api, downloadFile, getUser, setSession, clearSession } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -456,6 +457,7 @@ export default function SettingsPage() {
     <div className="max-w-2xl mx-auto">
       <div className="page-head">
         <h1 className="page-title">{t('myAccount')}</h1>
+        <AcademyButton moduleKey="configuracion" />
       </div>
 
       {/* Perfil */}

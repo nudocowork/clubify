@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 
 type Locale = 'en' | 'pt';
 
@@ -166,7 +167,10 @@ export default function TranslationsPage() {
   return (
     <div className="px-4 py-6 max-w-7xl mx-auto space-y-4">
       <header>
-        <h1 className="text-2xl font-bold text-text">{t('title')}</h1>
+        <div className="flex items-center gap-2 flex-wrap">
+          <h1 className="text-2xl font-bold text-text">{t('title')}</h1>
+          <AcademyButton moduleKey="traducciones" />
+        </div>
         <p className="text-sm text-mute mt-1">{t('subtitle')}</p>
       </header>
 

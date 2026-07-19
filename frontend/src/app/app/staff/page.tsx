@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api, getUser } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
@@ -214,6 +215,7 @@ export default function StaffPage() {
             <Icon name="plus" /> {t('inviteTeam')}
           </button>
         )}
+        <AcademyButton moduleKey="equipo" />
       </div>
 
       {!isOwner && (

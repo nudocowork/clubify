@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
@@ -92,7 +93,10 @@ export default function TenantReferrals() {
   return (
     <div className="max-w-4xl">
       <div className="page-head">
-        <h1 className="page-title">{t('pageTitle')}</h1>
+        <div className="flex items-center gap-2 flex-wrap">
+          <h1 className="page-title" style={{ margin: 0 }}>{t('pageTitle')}</h1>
+          <AcademyButton moduleKey="referidos" />
+        </div>
         <p className="text-mute text-sm mt-1 leading-relaxed">
           {t.rich('intro', {
             b: (chunks) => <b className="text-brand">{chunks}</b>,

@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { PhoneInput } from '@/components/PhoneInput';
 import { useTenantCountry } from '@/lib/useTenantCountry';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
@@ -372,6 +373,7 @@ export default function ReportesPage() {
               ))}
             </select>
           )}
+          <AcademyButton moduleKey="reportes" />
           <button
             onClick={() => setWalkInOpen(true)}
             className="btn-primary text-sm"

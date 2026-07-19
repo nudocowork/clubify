@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api, downloadFile } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { AcademyButton } from '@/components/AcademyButton';
 import { toast } from '@/components/Toast';
 
 type Customer = {
@@ -291,6 +292,7 @@ export default function CustomersPage() {
               </button>
             )}
           </div>
+          <AcademyButton moduleKey="clientes" />
           {locations.length > 0 && (
             <select
               className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm"

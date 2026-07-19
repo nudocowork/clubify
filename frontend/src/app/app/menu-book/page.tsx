@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
 import { SortableList, DragHandle } from '@/components/Sortable';
@@ -245,6 +246,7 @@ export default function MenuBookAdminPage() {
         <div className="flex-1 min-w-[260px]">
           <h1 className="text-2xl font-bold m-0 flex items-center gap-2">
             <Icon name="book" size={22} /> {t('title')}
+            <AcademyButton moduleKey="menu-libro" />
           </h1>
           <p className="text-sm text-mute mt-1 max-w-xl leading-relaxed">
             {t.rich('intro', {

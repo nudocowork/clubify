@@ -629,6 +629,8 @@ export default function AppShell({
                     ]
                   : []),
                 { href: '/admin/users', label: 'Administradores', icon: 'users', hideForMarketing: true },
+                // Academia — videos-tutorial por módulo (por marca).
+                { href: '/admin/academia', label: '🎓 Academia', icon: 'spark', hideForMarketing: true },
                 // Automatizaciones (mensajes SMS/WhatsApp editables + carpetas).
                 // Solo si la marca tiene el módulo GROW_BUSINESS_SMS habilitado.
                 { href: '/admin/automatizaciones', label: 'Automatizaciones', icon: 'bell', hideForMarketing: true, requiresBrandModule: 'GROW_BUSINESS_SMS' },

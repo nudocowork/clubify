@@ -6,6 +6,7 @@ import './globals.css';
 import { PWARegister } from '@/components/PWARegister';
 import { ToastProvider } from '@/components/Toast';
 import { DynamicFavicon } from '@/components/DynamicFavicon';
+import { ChunkReloadGuard } from '@/components/ChunkReloadGuard';
 import { googleFontsUrl } from '@/lib/marketing/qr-poster-config';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
@@ -362,6 +363,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         />
       </head>
       <body>
+        <ChunkReloadGuard />
         <DynamicFavicon />
         <NextIntlClientProvider locale={locale} messages={messages}>
           <ToastProvider>{children}</ToastProvider>

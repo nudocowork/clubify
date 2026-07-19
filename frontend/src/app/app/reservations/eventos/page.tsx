@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import { PhoneInput } from '@/components/PhoneInput';
 import { useTenantCountry } from '@/lib/useTenantCountry';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { toast } from '@/components/Toast';
 import { uploadCoverImage } from '@/lib/menu/upload-cover-image';
 import { fmtLongDate, todayISO, to12h } from '../_shared';
@@ -111,6 +112,7 @@ export default function EventosPage() {
           <button onClick={() => setCreateOpen(true)} className="btn-primary text-sm">
             {t('newEvent')}
           </button>
+          <AcademyButton moduleKey="eventos" />
         </div>
       </div>
 

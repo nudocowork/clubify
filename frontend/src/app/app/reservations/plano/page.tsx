@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { toast } from '@/components/Toast';
 import {
   Location,
@@ -429,6 +430,7 @@ export default function PlanoPage() {
               ))}
             </select>
           )}
+          <AcademyButton moduleKey="plano" />
         </div>
       </div>
 
