@@ -18,6 +18,11 @@ export type StorefrontDto = {
   isPublished?: boolean;
   ordersEnabled?: boolean;
   ordersDeliveryEnabled?: boolean;
+  // PDF1145 (2026-07-19): fulfillment configurable por negocio. Pickup y
+  // dine-in se guardan en theme.fulfillment (JSON, sin migración, igual que
+  // theme.menuPopups). Domicilio sigue en la columna ordersDeliveryEnabled.
+  fulfillmentPickupEnabled?: boolean;
+  fulfillmentDineInEnabled?: boolean;
   // M3: popup global del Menú Libro.
   bookPopupEnabled?: boolean;
   bookPopupTitle?: string | null;
@@ -145,13 +150,33 @@ export class StorefrontService {
         nextImageUrl,
       );
     }
+    // PDF1145: pickup/dineIn se persisten en theme.fulfillment (JSON). Merge
+    // read-modify-write para no pisar otras claves de theme (menuPopups, etc.).
+    // Solo se lee/reescribe theme cuando el dto toca alguno de los dos flags.
+    let themeToWrite = dto.theme;
+    if (
+      dto.fulfillmentPickupEnabled !== undefined ||
+      dto.fulfillmentDineInEnabled !== undefined
+    ) {
+      const cur = await this.prisma.storefront.findUnique({
+        where: { tenantId: tid },
+        select: { theme: true },
+      });
+      const base = ((dto.theme ?? cur?.theme) ?? {}) as Record<string, any>;
+      const fulfillment = { ...((base.fulfillment as any) ?? {}) };
+      if (dto.fulfillmentPickupEnabled !== undefined)
+        fulfillment.pickup = dto.fulfillmentPickupEnabled;
+      if (dto.fulfillmentDineInEnabled !== undefined)
+        fulfillment.dineIn = dto.fulfillmentDineInEnabled;
+      themeToWrite = { ...base, fulfillment };
+    }
     return this.prisma.storefront.upsert({
       where: { tenantId: tid },
       create: {
         tenantId: tid,
         description: dto.description ?? '',
         heroImageUrl: dto.heroImageUrl,
-        theme: dto.theme ?? {},
+        theme: themeToWrite ?? {},
         blocks: dto.blocks ?? [],
         isPublished: dto.isPublished ?? true,
         ordersEnabled: dto.ordersEnabled ?? true,
@@ -161,7 +186,7 @@ export class StorefrontService {
       update: {
         description: dto.description ?? undefined,
         heroImageUrl: dto.heroImageUrl ?? undefined,
-        theme: dto.theme ?? undefined,
+        theme: themeToWrite ?? undefined,
         blocks: dto.blocks ?? undefined,
         isPublished: dto.isPublished ?? undefined,
         ordersEnabled: dto.ordersEnabled ?? undefined,

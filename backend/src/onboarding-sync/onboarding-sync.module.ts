@@ -3,7 +3,7 @@ import { OnboardingService } from './onboarding.service';
 import { OnboardingSyncService } from './onboarding-sync.service';
 import { OnboardingWebhookService } from './onboarding-webhook.service';
 import { OnboardingTokenGuard } from './onboarding-token.guard';
-import { OnboardingConnectController } from './onboarding-connect.controller';
+import { OnboardingConnectAdminController } from './onboarding-connect-admin.controller';
 import { OnboardingSyncController } from './onboarding-sync.controller';
 import { OnboardingWebhookAdminController } from './onboarding-webhook-admin.controller';
 
@@ -19,7 +19,7 @@ import { OnboardingWebhookAdminController } from './onboarding-webhook-admin.con
     OnboardingTokenGuard,
   ],
   controllers: [
-    OnboardingConnectController,
+    OnboardingConnectAdminController,
     OnboardingSyncController,
     OnboardingWebhookAdminController,
   ],

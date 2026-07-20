@@ -27,6 +27,10 @@ class StorefrontBody {
   @IsOptional() @IsBoolean() isPublished?: boolean;
   @IsOptional() @IsBoolean() ordersEnabled?: boolean;
   @IsOptional() @IsBoolean() ordersDeliveryEnabled?: boolean;
+  // PDF1145: fulfillment por negocio (pickup / dine-in). Se guardan en
+  // theme.fulfillment; domicilio sigue en ordersDeliveryEnabled.
+  @IsOptional() @IsBoolean() fulfillmentPickupEnabled?: boolean;
+  @IsOptional() @IsBoolean() fulfillmentDineInEnabled?: boolean;
   @IsOptional() @IsBoolean() popupEnabled?: boolean;
   @IsOptional() @IsString() popupImageUrl?: string | null;
   @IsOptional() @IsString() popupCardId?: string | null;

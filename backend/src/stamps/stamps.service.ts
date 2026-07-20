@@ -407,13 +407,15 @@ export class StampsService {
           );
         }
       }
+      // FIX 2026-07-19 (PDF1145): redimir el cupón CONSERVANDO la tarjeta de
+      // sellos. Si el cliente YA tiene un pase de sellos REAL en la card destino
+      // (con progreso, historial o agregado al wallet), NO se transforma el
+      // cupón: se redime igual (queda COMPLETED = consumido, ver más abajo) y su
+      // tarjeta de sellos se conserva intacta. Solo se transforma cuando NO hay
+      // pase de sellos, o cuando el existente es un HUÉRFANO vacío (0 sellos,
+      // 0 historial, 0 devices), que sí se borra para reusar la unique key.
+      let skipCouponTransform = false;
       if (isCouponRedeem && stampsCardForTransform && pass.customerId) {
-        // FIX 2026-06-16 (review): NO borrar a ciegas. El transform del cupón
-        // mueve este pase a la stamps card target; si el cliente YA tiene ahí
-        // un pase de sellos REAL (con progreso, historial o agregado al
-        // wallet) el deleteMany ciego lo destruía. Replicamos las guardas de
-        // cleanupOrphanStampsPass: solo borramos un pase HUÉRFANO (0 sellos,
-        // 0 historial, 0 devices); si no, abortamos el transform.
         const existing = await tx.pass.findUnique({
           where: {
             cardId_customerId: {
@@ -424,22 +426,31 @@ export class StampsService {
           select: { id: true, stampsCount: true },
         });
         if (existing && existing.id !== pass.id) {
-          if (existing.stampsCount > 0) {
-            throw new BadRequestException(
-              'El cliente ya tiene una tarjeta de sellos con progreso. No se puede transformar el cupón sin perderlo.',
-            );
+          let existingIsReal = existing.stampsCount > 0;
+          if (!existingIsReal) {
+            const [devices, history] = await Promise.all([
+              tx.walletDevice.count({ where: { passId: existing.id } }),
+              tx.stamp.count({ where: { passId: existing.id } }),
+            ]);
+            existingIsReal = devices > 0 || history > 0;
           }
-          const [devices, history] = await Promise.all([
-            tx.walletDevice.count({ where: { passId: existing.id } }),
-            tx.stamp.count({ where: { passId: existing.id } }),
-          ]);
-          if (devices > 0 || history > 0) {
-            throw new BadRequestException(
-              'El cliente ya tiene una tarjeta de sellos activa (con historial o en el wallet). No se puede transformar el cupón.',
-            );
+          if (existingIsReal) {
+            // Conserva su tarjeta de sellos: solo se redime el cupón.
+            skipCouponTransform = true;
+          } else {
+            // Huérfano vacío → se borra y se transforma como siempre.
+            await tx.pass.delete({ where: { id: existing.id } });
           }
-          await tx.pass.delete({ where: { id: existing.id } });
         }
+      }
+      if (skipCouponTransform) {
+        // Revierte la transformación preparada arriba (líneas ~366-373): el
+        // cupón NO se mueve a la stamps card ni resetea contador; se marca
+        // COMPLETED (consumido, protegido de re-redención por el guard de
+        // líneas 248-252). La tarjeta de sellos del cliente queda igual.
+        delete passUpdateData.cardId;
+        passUpdateData.stampsCount = { increment: 0 };
+        passUpdateData.status = 'COMPLETED';
       }
       const newStampRow = await tx.stamp.create({
         data: {
@@ -455,7 +466,10 @@ export class StampsService {
               ? new Prisma.Decimal(dto.purchaseAmount)
               : undefined,
           note: isCouponRedeem
-            ? (dto.note ?? 'Cupón redimido — transformado a tarjeta de sellos')
+            ? (dto.note ??
+              (skipCouponTransform
+                ? 'Cupón redimido (conservando tarjeta de sellos)'
+                : 'Cupón redimido — transformado a tarjeta de sellos'))
             : dto.note,
           // Wallet V3 — auditoría de ajustes manuales (ip + navegador/dispositivo).
           ip: meta?.ip ?? null,

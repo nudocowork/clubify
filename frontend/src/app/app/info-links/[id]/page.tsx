@@ -338,6 +338,15 @@ export default function InfoLinkEditor() {
   if (!link || !tenant) return <div className="text-mute">{t('loading')}</div>;
 
   const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/i/${tenant.slug}/${link.slug}`;
+  // URL personalizada (vanity): dominio de la marca + rootSlug. Se prefiere
+  // SOLO cuando el dueño la definió (link.rootSlug). Los links antiguos tienen
+  // rootSlug=null → displayUrl === publicUrl (/i/...), así sus QR ya impresos
+  // siguen apuntando a la ruta canónica (que además nunca deja de funcionar).
+  const vanityDomain =
+    tenant?.brandAppDomain || tenant?.brandPublicDomain || 'soyclubify.com';
+  const displayUrl = link.rootSlug
+    ? `https://${vanityDomain}/${link.rootSlug}`
+    : publicUrl;
   const primary = link.theme?.primaryColor ?? tenant.primaryColor ?? '#22C55E';
 
   return (
@@ -366,7 +375,7 @@ export default function InfoLinkEditor() {
             {t('view5Styles')}
           </a>
           <a
-            href={publicUrl}
+            href={displayUrl}
             target="_blank"
             rel="noreferrer"
             className="btn-ghost"
@@ -524,25 +533,32 @@ export default function InfoLinkEditor() {
             onChange={(patch) => update('theme', { ...link.theme, ...patch })}
           />
 
-          {/* URL */}
+          {/* URL — muestra la personalizada (vanity) cuando existe; si no, /i/... */}
           <div className="card card-pad">
             <h3 className="font-semibold m-0 mb-3">{t('publicUrl')}</h3>
             <div className="flex items-center gap-2 bg-bg2 rounded-lg p-3">
-              <code className="text-xs flex-1 break-all">{publicUrl}</code>
+              <code className="text-xs flex-1 break-all select-all">{displayUrl}</code>
               <button
                 className="btn-link text-xs"
-                onClick={() => navigator.clipboard.writeText(publicUrl)}
+                onClick={() => navigator.clipboard.writeText(displayUrl)}
               >
                 {t('copy')}
               </button>
               <a
-                href={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(publicUrl)}&download=1`}
+                href={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(displayUrl)}&download=1`}
                 download={`qr-${link.slug}.png`}
                 className="btn-link text-xs"
               >
                 {t('downloadQr')}
               </a>
             </div>
+            {link.rootSlug && (
+              // La ruta canónica /i/... nunca deja de funcionar (los QR antiguos
+              // la usan). Se muestra como referencia, no como link principal.
+              <p className="text-[11px] text-mute mt-2 leading-snug break-all">
+                {t('customUrlCanonicalNote')} <code className="select-all">{publicUrl}</code>
+              </p>
+            )}
           </div>
 
           {/* Bloques */}

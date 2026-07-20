@@ -854,6 +854,9 @@ export default function TenantDetail() {
           <CollapsibleSection title={tr('sectionIntegrations')} className="md:col-span-2">
             <AcademyTogglesCard tenant={t} onSaved={load} />
             <WalletsGlobalRefreshCard tenantId={t.id} />
+            {/* Movido desde /app/settings (2026-07-19, PDF1145): los tokens de
+                integración con onboarding los gestiona el operador, no el dueño. */}
+            <OnboardingConnectAdminCard tenantId={t.id} />
           </CollapsibleSection>
         )}
       </div>
@@ -1076,6 +1079,222 @@ function WalletsGlobalRefreshCard({ tenantId }: { tenantId: string }) {
           {running ? t('enqueuing') : t('refreshAllWallets')}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+//   Conectar con Onboarding — ADMIN (2026-07-19, PDF1145)
+//   Movido desde /app/settings: el dueño ya no gestiona los tokens
+//   de integración; el operador de Clubify los genera/revoca acá.
+//   Endpoints admin con el tenantId por path (/admin/onboarding/:id/...).
+// ============================================================
+
+type OnbToken = {
+  id: string;
+  label: string;
+  lastFour: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+};
+
+function OnboardingConnectAdminCard({ tenantId }: { tenantId: string }) {
+  const [open, setOpen] = useState(false);
+  const [tokens, setTokens] = useState<OnbToken[]>([]);
+  const [businessId, setBusinessId] = useState<string>(tenantId);
+  const [loading, setLoading] = useState(false);
+  const [label, setLabel] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [newToken, setNewToken] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await api<{ business_id: string; tokens: OnbToken[] }>(
+        `/admin/onboarding/${tenantId}/tokens`,
+      );
+      setTokens(r.tokens);
+      setBusinessId(r.business_id);
+    } catch {
+      /* silencioso — la tarjeta puede quedar vacía */
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    if (open) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  async function generate() {
+    setGenerating(true);
+    try {
+      const r = await api<{ token: string; business_id: string }>(
+        `/admin/onboarding/${tenantId}/token`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ label: label.trim() || undefined }),
+        },
+      );
+      setNewToken(r.token);
+      setBusinessId(r.business_id);
+      setLabel('');
+      load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo generar el token', 'error');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function revoke(id: string) {
+    if (!confirm('¿Revocar este token? Dejará de funcionar de inmediato.')) return;
+    setRevoking(id);
+    try {
+      await api(`/admin/onboarding/${tenantId}/token/${id}`, { method: 'DELETE' });
+      toast('Token revocado', 'success');
+      load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo revocar', 'error');
+    } finally {
+      setRevoking(null);
+    }
+  }
+
+  function copy(text: string) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(
+      () => toast('Copiado', 'success'),
+      () => toast('No se pudo copiar', 'error'),
+    );
+  }
+
+  const activeTokens = tokens.filter((k) => !k.revokedAt);
+
+  return (
+    <div className="card card-pad">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+          🔌 Conectar con Onboarding
+        </h2>
+        <span className="text-mute text-sm">{open ? '▲' : '▼'}</span>
+      </button>
+      <p className="text-xs text-mute mt-1 leading-relaxed">
+        Genera un token para que el sistema de onboarding sincronice la
+        configuración de ESTE negocio. El token solo puede escribir en este
+        negocio. Se muestra en claro una sola vez.
+      </p>
+
+      {open && (
+        <div className="mt-4">
+          <label className="label">business_id</label>
+          <div className="flex gap-2 items-center">
+            <code className="input flex-1 text-xs truncate">
+              {businessId || '—'}
+            </code>
+            <button
+              type="button"
+              className="btn-ghost text-xs whitespace-nowrap"
+              onClick={() => copy(businessId)}
+              disabled={!businessId}
+            >
+              Copiar
+            </button>
+          </div>
+
+          {newToken && (
+            <div
+              className="mt-4 rounded-xl p-3"
+              style={{ background: '#fffbeb', border: '1px solid #fde68a' }}
+            >
+              <div className="text-xs font-semibold" style={{ color: '#92400e' }}>
+                Nuevo token (cópialo ahora)
+              </div>
+              <div className="text-[11px] mb-2" style={{ color: '#92400e' }}>
+                Por seguridad no se vuelve a mostrar. Si lo pierdes, genera otro.
+              </div>
+              <div className="flex gap-2 items-center">
+                <code className="input flex-1 text-xs truncate">{newToken}</code>
+                <button
+                  type="button"
+                  className="btn-primary text-xs whitespace-nowrap"
+                  onClick={() => copy(newToken)}
+                >
+                  Copiar
+                </button>
+              </div>
+              <button
+                type="button"
+                className="text-[11px] underline mt-2"
+                style={{ color: '#92400e' }}
+                onClick={() => setNewToken(null)}
+              >
+                Ocultar
+              </button>
+            </div>
+          )}
+
+          <div className="mt-4">
+            <label className="label">Etiqueta (opcional)</label>
+            <div className="flex gap-2">
+              <input
+                className="input flex-1"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="Onboarding"
+                maxLength={60}
+              />
+              <button
+                type="button"
+                className="btn-primary whitespace-nowrap"
+                onClick={generate}
+                disabled={generating}
+              >
+                {generating ? 'Generando…' : 'Generar token'}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <div className="text-xs font-semibold text-mute mb-1">
+              Tokens activos
+            </div>
+            {loading ? (
+              <div className="text-xs text-mute">…</div>
+            ) : activeTokens.length === 0 ? (
+              <div className="text-xs text-mute">Sin tokens activos.</div>
+            ) : (
+              <ul className="space-y-1">
+                {activeTokens.map((k) => (
+                  <li
+                    key={k.id}
+                    className="flex items-center justify-between gap-2 text-xs border-b border-[#eee] py-1.5"
+                  >
+                    <span className="truncate">
+                      <span className="font-medium">{k.label}</span>
+                      <span className="text-mute"> ····{k.lastFour ?? ''}</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="text-bad hover:underline whitespace-nowrap"
+                      onClick={() => revoke(k.id)}
+                      disabled={revoking === k.id}
+                    >
+                      Revocar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

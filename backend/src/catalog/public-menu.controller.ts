@@ -238,6 +238,17 @@ export class PublicMenuController {
       ordersDeliveryEnabled:
         (t.storefront?.ordersEnabled ?? true) &&
         (t.storefront?.ordersDeliveryEnabled ?? true),
+      // PDF1145: fulfillment configurable por negocio. delivery = flag de
+      // domicilio ya gateado; pickup/dineIn viven en theme.fulfillment (sin
+      // migración, igual que theme.menuPopups). Default false → negocios sin
+      // configurar solo ofrecen domicilio (comportamiento histórico).
+      fulfillment: {
+        delivery:
+          (t.storefront?.ordersEnabled ?? true) &&
+          (t.storefront?.ordersDeliveryEnabled ?? true),
+        pickup: !!(t.storefront?.theme as any)?.fulfillment?.pickup,
+        dineIn: !!(t.storefront?.theme as any)?.fulfillment?.dineIn,
+      },
       pageBackgroundColor: t.storefront?.pageBackgroundColor ?? null,
       pageBackgroundType: t.storefront?.pageBackgroundType ?? null,
       pageBackgroundGradient: t.storefront?.pageBackgroundGradient ?? null,

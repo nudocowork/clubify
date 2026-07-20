@@ -104,6 +104,11 @@ export default function MenuEditor() {
   const [coverRecommendedOpen, setCoverRecommendedOpen] = useState(false);
   const [ordersDeliveryEnabled, setOrdersDeliveryEnabled] = useState<boolean | null>(null);
   const [togglingOrders, setTogglingOrders] = useState(false);
+  // PDF1145: fulfillment por negocio (pickup / mesa). Domicilio = ordersDelivery.
+  const [pickupEnabled, setPickupEnabled] = useState<boolean | null>(null);
+  const [dineInEnabled, setDineInEnabled] = useState<boolean | null>(null);
+  const [togglingPickup, setTogglingPickup] = useState(false);
+  const [togglingDineIn, setTogglingDineIn] = useState(false);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   // Fix 2026-06-10: moneda del tenant para mostrar precios correctos.
   // Default COP para fallback histórico mientras /tenants/me carga.
@@ -185,14 +190,20 @@ export default function MenuEditor() {
       const sf = await api<{
         ordersEnabled: boolean;
         ordersDeliveryEnabled?: boolean;
+        theme?: { fulfillment?: { pickup?: boolean; dineIn?: boolean } };
       }>('/storefront');
       // Backend devuelve ordersDeliveryEnabled gateado por ordersEnabled.
       // Fallback al master para storefronts viejos sin la columna nueva.
       setOrdersDeliveryEnabled(
         sf.ordersDeliveryEnabled ?? sf.ordersEnabled ?? true,
       );
+      // PDF1145: pickup/dineIn viven en theme.fulfillment (default false).
+      setPickupEnabled(!!sf.theme?.fulfillment?.pickup);
+      setDineInEnabled(!!sf.theme?.fulfillment?.dineIn);
     } catch {
       setOrdersDeliveryEnabled(true);
+      setPickupEnabled(false);
+      setDineInEnabled(false);
     }
   }
 
@@ -228,6 +239,46 @@ export default function MenuEditor() {
       setOrdersDeliveryEnabled(!next);
     } finally {
       setTogglingOrders(false);
+    }
+  }
+
+  // PDF1145: toggles de Pick Up y Pedido en mesa. Persisten en
+  // theme.fulfillment vía PATCH /storefront (sin migración).
+  async function togglePickup() {
+    if (pickupEnabled === null) return;
+    const next = !pickupEnabled;
+    setTogglingPickup(true);
+    setPickupEnabled(next);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ fulfillmentPickupEnabled: next }),
+      });
+      toast(next ? t('pickupOnToast') : t('pickupOffToast'), 'success');
+    } catch (e: any) {
+      toast(e.message || t('error'), 'error');
+      setPickupEnabled(!next);
+    } finally {
+      setTogglingPickup(false);
+    }
+  }
+
+  async function toggleDineIn() {
+    if (dineInEnabled === null) return;
+    const next = !dineInEnabled;
+    setTogglingDineIn(true);
+    setDineInEnabled(next);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ fulfillmentDineInEnabled: next }),
+      });
+      toast(next ? t('dineinOnToast') : t('dineinOffToast'), 'success');
+    } catch (e: any) {
+      toast(e.message || t('error'), 'error');
+      setDineInEnabled(!next);
+    } finally {
+      setTogglingDineIn(false);
     }
   }
 
@@ -463,6 +514,29 @@ export default function MenuEditor() {
               {ordersDeliveryEnabled
                 ? t('deliveryOnBtn')
                 : t('deliveryOffBtn')}
+            </button>
+          )}
+          {/* PDF1145: canales de entrega configurables por negocio. */}
+          {pickupEnabled !== null && (
+            <button
+              type="button"
+              onClick={togglePickup}
+              disabled={togglingPickup}
+              className={`btn-ghost ${pickupEnabled ? 'text-ok' : 'text-mute'}`}
+              title={t('pickupTitle')}
+            >
+              {pickupEnabled ? t('pickupOnBtn') : t('pickupOffBtn')}
+            </button>
+          )}
+          {dineInEnabled !== null && (
+            <button
+              type="button"
+              onClick={toggleDineIn}
+              disabled={togglingDineIn}
+              className={`btn-ghost ${dineInEnabled ? 'text-ok' : 'text-mute'}`}
+              title={t('dineinTitle')}
+            >
+              {dineInEnabled ? t('dineinOnBtn') : t('dineinOffBtn')}
             </button>
           )}
           <AcademyButton moduleKey="menu" />

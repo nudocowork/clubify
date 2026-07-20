@@ -106,6 +106,10 @@ type Storefront = {
   bookMenuEnabled?: boolean;
   ordersEnabled?: boolean;
   ordersDeliveryEnabled?: boolean;
+  /** PDF1145: opciones de entrega habilitadas por el negocio. delivery =
+   *  domicilio (gateado); pickup = recoger en tienda; dineIn = pedido en mesa.
+   *  Ausente en payloads viejos → se cae a solo-domicilio. */
+  fulfillment?: { delivery: boolean; pickup: boolean; dineIn: boolean };
   pageBackgroundColor?: string | null;
   pageBackgroundType?: string | null;
   pageBackgroundGradient?: string | null;
@@ -566,10 +570,14 @@ function StorefrontPublicInner() {
   // QRs viejos `?mesa=1` se resuelve porque la nueva ruta por defecto
   // ya es mesa (el QR sin /delivery cae al canal correcto).
   const isTableMode = mode === 'mesa';
+  // PDF1145: el carrito/checkout se habilita si el negocio ofrece CUALQUIER
+  // canal de pedido (domicilio, recoger o mesa) — no solo domicilio. Así un
+  // negocio "solo Pick Up" (sin delivery) igual puede recibir pedidos.
+  const deliveryOn =
+    s.ordersEnabled !== false && (s.ordersDeliveryEnabled ?? true);
   const ordersAllowed =
     !isTableMode &&
-    s.ordersEnabled !== false &&
-    (s.ordersDeliveryEnabled ?? true);
+    (deliveryOn || !!s.fulfillment?.pickup || !!s.fulfillment?.dineIn);
   // Mostrar el botón "pedir/contactar por WhatsApp" en el storefront
   // público. Regla de negocio (M1.3 2026-06-04):
   // - Mesa (?mesa=N): NUNCA muestra WA (incluido en ordersAllowed=false).
@@ -1082,6 +1090,7 @@ function StorefrontPublicInner() {
           country={s.country ?? 'CO'}
           planName={s.planName ?? null}
           mode={mode}
+          fulfillment={s.fulfillment}
           onClose={() => setShowCheckout(false)}
         />
       )}
@@ -1644,6 +1653,7 @@ function CheckoutSheet({
   country,
   planName,
   mode,
+  fulfillment,
   onClose,
 }: {
   items: CartItem[];
@@ -1653,6 +1663,7 @@ function CheckoutSheet({
   country: string;
   planName: string | null;
   mode: StorefrontMode;
+  fulfillment?: { delivery: boolean; pickup: boolean; dineIn: boolean };
   onClose: () => void;
 }) {
   const tt = useT();
@@ -1666,15 +1677,24 @@ function CheckoutSheet({
   const tableFromQr = mode === 'mesa' ? (searchParams.get('mesa') ?? '') : '';
   const lockedTable = mode === 'mesa' || tableFromQr.trim().length > 0;
 
-  const defaultFulfillment: 'DINE_IN' | 'DELIVERY' =
-    mode === 'mesa' ? 'DINE_IN' : 'DELIVERY';
+  // PDF1145: opciones de entrega habilitadas por el negocio, en orden de
+  // preferencia (domicilio → recoger → mesa). Fallback a solo-domicilio para
+  // payloads viejos sin `fulfillment`. En ruta mesa (?mesa) se fuerza DINE_IN.
+  const ff = fulfillment ?? { delivery: true, pickup: false, dineIn: false };
+  const fulfillmentChoices = [
+    ff.delivery && { v: 'DELIVERY' as const, l: tt('checkout.fulfillment_delivery') },
+    ff.pickup && { v: 'PICKUP' as const, l: tt('checkout.fulfillment_pickup') },
+    ff.dineIn && { v: 'DINE_IN' as const, l: tt('checkout.fulfillment_dinein') },
+  ].filter(Boolean) as { v: 'DELIVERY' | 'PICKUP' | 'DINE_IN'; l: string }[];
+  const defaultFulfillment: 'DINE_IN' | 'PICKUP' | 'DELIVERY' =
+    mode === 'mesa' ? 'DINE_IN' : fulfillmentChoices[0]?.v ?? 'DELIVERY';
 
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
     phone: '',
     email: '',
-    fulfillment: defaultFulfillment as 'DINE_IN' | 'DELIVERY',
+    fulfillment: defaultFulfillment as 'DINE_IN' | 'PICKUP' | 'DELIVERY',
     tableNumber: tableFromQr,
     customerNote: '',
     // Dirección de envío (solo se completa cuando fulfillment === 'DELIVERY')
@@ -1856,55 +1876,29 @@ function CheckoutSheet({
                 onChange={(v) => setForm({ ...form, phone: v })}
               />
             </div>
-            {!lockedTable && (
+            {!lockedTable && fulfillmentChoices.length > 1 && (
               <div>
                 <label className="label">{tt('checkout.fulfillment_q')}</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(
-                    [
-                      {
-                        v: 'DINE_IN' as const,
-                        l: tt('checkout.fulfillment_dinein'),
-                        disabled: !lockedTable,
-                        hint: tt('checkout.fulfillment_dinein_hint'),
-                      },
-                      {
-                        v: 'DELIVERY' as const,
-                        l: tt('checkout.fulfillment_delivery'),
-                        disabled: false,
-                        hint: '',
-                      },
-                    ]
-                  ).map((o) => {
+                <div
+                  className={`grid gap-2 ${
+                    fulfillmentChoices.length >= 3 ? 'grid-cols-3' : 'grid-cols-2'
+                  }`}
+                >
+                  {fulfillmentChoices.map((o) => {
                     const active = form.fulfillment === o.v;
                     return (
                       <button
                         type="button"
                         key={o.v}
-                        disabled={o.disabled}
-                        onClick={() =>
-                          !o.disabled && setForm({ ...form, fulfillment: o.v })
-                        }
-                        title={o.disabled ? o.hint : undefined}
-                        className={`py-2.5 rounded-lg text-sm border relative ${
-                          active && !o.disabled
+                        onClick={() => setForm({ ...form, fulfillment: o.v })}
+                        className={`py-2.5 rounded-lg text-sm border ${
+                          active
                             ? 'text-white border-transparent'
-                            : o.disabled
-                            ? 'border-line text-mute opacity-50 cursor-not-allowed bg-bg2/40'
                             : 'border-line text-ink'
                         }`}
-                        style={
-                          active && !o.disabled
-                            ? { background: primary }
-                            : undefined
-                        }
+                        style={active ? { background: primary } : undefined}
                       >
                         {o.l}
-                        {o.disabled && (
-                          <span className="block text-[10px] text-mute font-normal mt-0.5">
-                            {o.hint}
-                          </span>
-                        )}
                       </button>
                     );
                   })}
