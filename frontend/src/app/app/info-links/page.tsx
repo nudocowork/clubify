@@ -79,6 +79,15 @@ export default function InfoLinksList() {
     router.push(`/app/info-links/${r.id}`);
   }
 
+  // Dominio de marca normalizado (puede venir con esquema/slash al guardarse).
+  const vanityDomain = (
+    tenant?.brandAppDomain ||
+    tenant?.brandPublicDomain ||
+    'soyclubify.com'
+  )
+    .replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '');
+
   return (
     <div>
       <div className="page-head">
@@ -145,7 +154,7 @@ export default function InfoLinksList() {
                 <span>{t('views', { count: l.views })}</span>
                 <code className="text-[11px] truncate max-w-[180px] select-all">
                   {l.rootSlug
-                    ? `${tenant?.brandAppDomain || tenant?.brandPublicDomain || 'soyclubify.com'}/${l.rootSlug}`
+                    ? `${vanityDomain}/${l.rootSlug}`
                     : `/i/${tenant?.slug}/${l.slug}`}
                 </code>
               </div>
@@ -169,7 +178,7 @@ export default function InfoLinksList() {
                 <a
                   href={
                     l.rootSlug
-                      ? `https://${tenant?.brandAppDomain || tenant?.brandPublicDomain || 'soyclubify.com'}/${l.rootSlug}`
+                      ? `https://${vanityDomain}/${l.rootSlug}`
                       : `/i/${tenant?.slug}/${l.slug}`
                   }
                   target="_blank"

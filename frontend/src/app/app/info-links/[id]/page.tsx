@@ -342,8 +342,16 @@ export default function InfoLinkEditor() {
   // SOLO cuando el dueño la definió (link.rootSlug). Los links antiguos tienen
   // rootSlug=null → displayUrl === publicUrl (/i/...), así sus QR ya impresos
   // siguen apuntando a la ruta canónica (que además nunca deja de funcionar).
-  const vanityDomain =
-    tenant?.brandAppDomain || tenant?.brandPublicDomain || 'soyclubify.com';
+  // El dominio de marca puede venir guardado con esquema o slash (solo se
+  // hace .trim() al guardar) → normalizar antes de concatenar, igual que
+  // reservations/online y el backend, para no producir https://https://... .
+  const vanityDomain = (
+    tenant?.brandAppDomain ||
+    tenant?.brandPublicDomain ||
+    'soyclubify.com'
+  )
+    .replace(/^https?:\/\//, '')
+    .replace(/\/+$/, '');
   const displayUrl = link.rootSlug
     ? `https://${vanityDomain}/${link.rootSlug}`
     : publicUrl;

@@ -344,6 +344,10 @@ export class StampsService {
         pass.cardId,
       );
     }
+    // PDF1145: si el cliente ya tiene tarjeta de sellos, el cupón se redime SIN
+    // transformar (se decide dentro de la tx). Declarado en scope de método para
+    // que el post-tx (COUPON_REDEEMED emit + transformedToStamps) lo lea.
+    let skipCouponTransform = false;
 
     // FIX 2026-06-16 (review #11): escrituras RELATIVAS (increment por delta)
     // en vez de absolutas, para no perder sellos/puntos bajo escaneos
@@ -391,7 +395,13 @@ export class StampsService {
       );
       const fresh = await tx.pass.findUnique({
         where: { id: pass.id },
-        select: { stampsCount: true, pointsBalance: true, cashbackBalance: true },
+        select: {
+          stampsCount: true,
+          pointsBalance: true,
+          cashbackBalance: true,
+          status: true,
+          cardId: true,
+        },
       });
       if (fresh) {
         const stampsConsumed = isCouponRedeem ? 0 : Math.max(0, -stampsDelta);
@@ -407,6 +417,20 @@ export class StampsService {
           );
         }
       }
+      // PDF1145 (review): revalidar DENTRO del lock que el cupón no fue ya
+      // redimido/transformado por un REDEEM concurrente (el guard de línea ~248
+      // leyó el status ANTES del lock). Cierra la doble-redención: si ya quedó
+      // COMPLETED (path sin transformar) o su cardId cambió (path transformado),
+      // este segundo REDEEM aborta.
+      if (
+        isCouponRedeem &&
+        fresh &&
+        (fresh.status === 'COMPLETED' || fresh.cardId !== pass.cardId)
+      ) {
+        throw new BadRequestException(
+          'Este cupón ya fue redimido. No se puede usar de nuevo.',
+        );
+      }
       // FIX 2026-07-19 (PDF1145): redimir el cupón CONSERVANDO la tarjeta de
       // sellos. Si el cliente YA tiene un pase de sellos REAL en la card destino
       // (con progreso, historial o agregado al wallet), NO se transforma el
@@ -414,7 +438,7 @@ export class StampsService {
       // tarjeta de sellos se conserva intacta. Solo se transforma cuando NO hay
       // pase de sellos, o cuando el existente es un HUÉRFANO vacío (0 sellos,
       // 0 historial, 0 devices), que sí se borra para reusar la unique key.
-      let skipCouponTransform = false;
+      skipCouponTransform = false;
       if (isCouponRedeem && stampsCardForTransform && pass.customerId) {
         const existing = await tx.pass.findUnique({
           where: {
@@ -669,17 +693,23 @@ export class StampsService {
           // usaban {{stampsPassUrl}} y {{stampsPassId}} siguen
           // funcionando: apuntan al MISMO pass, que ahora muestra
           // la tarjeta de sellos. backwards compat con automations.
-          stampsCardId: stampsCardForTransform?.id ?? null,
+          // PDF1145: si se conservó la tarjeta de sellos (skip), NO hubo
+          // transformación — el cupón solo quedó consumido.
+          stampsCardId: skipCouponTransform
+            ? null
+            : stampsCardForTransform?.id ?? null,
           stampsPassId: pass.id,
           stampsPassUrl: `${brand.websiteUrl}/w/${pass.id}`,
-          transformedInPlace: true,
+          transformedInPlace: !skipCouponTransform,
         })
         .catch(() => null);
     }
 
     // Si transformamos cupón → stamps card, devolvemos el pass con la
     // nueva card incluida para que el scanner re-renderice la UI de
-    // sellos al instante (sin necesidad de re-scanear el QR).
+    // sellos al instante (sin necesidad de re-scanear el QR). PDF1145: si se
+    // CONSERVÓ la tarjeta de sellos (skip), transformedToStamps=false para que
+    // el escáner NO muestre el banner "se convirtió en tarjeta de sellos".
     if (isCouponRedeem) {
       const fullPass = await this.prisma.pass.findUnique({
         where: { id: pass.id },
@@ -688,7 +718,7 @@ export class StampsService {
       return {
         stamp,
         pass: fullPass ?? updatedPass,
-        transformedToStamps: true,
+        transformedToStamps: !skipCouponTransform,
       };
     }
     return { stamp, pass: updatedPass, transformedToStamps: false };

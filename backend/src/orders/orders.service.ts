@@ -374,10 +374,19 @@ export class OrdersService {
       derivedMode === 'DELIVERY' ? null : dto.tableNumber ?? null;
     const cleanDeliveryAddress =
       derivedMode === 'MESA' ? null : dto.deliveryAddress ?? null;
+    // PDF1145: el filtro de disponibilidad debe coincidir con el MENÚ que el
+    // cliente NAVEGÓ (la RUTA = dto.mode), no con el fulfillment. En la ruta
+    // delivery (/d) el cliente pudo elegir Pick Up o Mesa sobre un menú ya
+    // filtrado por availableForDelivery; si filtráramos por el fulfillment
+    // (DINE_IN → availableForMesa) un producto solo-delivery daría "no
+    // disponible" (400). Invariante de seguridad INTACTO: DELIVERY SIEMPRE
+    // exige availableForDelivery (bloquea el bypass mode=MESA+fulfillment=DELIVERY).
+    const filterMode =
+      dto.fulfillment === 'DELIVERY' ? 'DELIVERY' : dto.mode ?? effectiveMode;
     const modeFilter =
-      effectiveMode === 'MESA'
+      filterMode === 'MESA'
         ? { availableForMesa: true }
-        : effectiveMode === 'DELIVERY'
+        : filterMode === 'DELIVERY'
           ? { availableForDelivery: true }
           : {};
 
