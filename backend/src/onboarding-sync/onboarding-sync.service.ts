@@ -42,6 +42,28 @@ function dateOrNull(v: unknown): Date | null {
   return d;
 }
 
+// Estilo/plantilla del menú: los 8 nombres del onboarding → enum MenuLayout de
+// Clubify. Acepta también los valores nativos (uppercase). Desconocido → null
+// (se ignora, no rompe el sync).
+const MENU_LAYOUT_MAP: Record<string, string> = {
+  classic: 'CLASSIC',
+  grid: 'GRID',
+  hero: 'CAROUSELS',
+  clean: 'CLEAN',
+  compact: 'COMPACT',
+  dark: 'CLUVI',
+  premium: 'SECTIONS',
+  flipbook: 'FLIPBOOK',
+  // alias directos a los valores nativos de Clubify
+  carousels: 'CAROUSELS',
+  cluvi: 'CLUVI',
+  sections: 'SECTIONS',
+};
+function mapMenuLayout(v: unknown): string | null {
+  if (!v) return null;
+  return MENU_LAYOUT_MAP[String(v).trim().toLowerCase()] ?? null;
+}
+
 @Injectable()
 export class OnboardingSyncService {
   constructor(
@@ -95,13 +117,23 @@ export class OnboardingSyncService {
         data: data as Prisma.TenantUpdateInput,
       });
     }
-    // Portada vive en Storefront (1:1 con el tenant).
-    if (b.heroImageUrl !== undefined) {
-      const hero = b.heroImageUrl ? String(b.heroImageUrl) : null;
+    // Presentación de la vitrina (Storefront 1:1): portada del menú
+    // (photo_menu_banner=heroImageUrl), estilo/plantilla del menú (menuLayout,
+    // 8 valores) e imagen del popup del menú (photo_popup=popupImageUrl).
+    const sf: Record<string, any> = {};
+    if (b.heroImageUrl !== undefined)
+      sf.heroImageUrl = b.heroImageUrl ? String(b.heroImageUrl) : null;
+    if (b.menuLayout !== undefined) {
+      const layout = mapMenuLayout(b.menuLayout);
+      if (layout) sf.menuLayout = layout;
+    }
+    if (b.popupImageUrl !== undefined)
+      sf.popupImageUrl = b.popupImageUrl ? String(b.popupImageUrl) : null;
+    if (Object.keys(sf).length) {
       await this.prisma.storefront.upsert({
         where: { tenantId },
-        create: { tenantId, heroImageUrl: hero },
-        update: { heroImageUrl: hero },
+        create: { tenantId, ...sf },
+        update: sf,
       });
     }
     return { ok: true };
@@ -123,11 +155,27 @@ export class OnboardingSyncService {
 
   // ── 4. Google Reviews ─────────────────────────────────────────────────
   async syncReviews(tenantId: string, b: any) {
+    const data: Record<string, any> = {};
+    if (b.googleReviewUrl !== undefined)
+      data.googleReviewUrl = b.googleReviewUrl ? String(b.googleReviewUrl) : null;
+    // alert_phone: número que recibe el aviso cuando un cliente califica 1-3★
+    // (las 4-5★ van a Google). Acepta reviewAlertsPhone o alertPhone. Al llegar
+    // un número se activa el aviso; al limpiarlo, se desactiva.
+    if (b.reviewAlertsPhone !== undefined || b.alertPhone !== undefined) {
+      const raw = b.reviewAlertsPhone ?? b.alertPhone;
+      data.reviewAlertsPhone = raw ? String(raw) : null;
+      data.reviewAlertsEnabled = !!raw;
+    }
+    if (b.reviewAlertsThreshold !== undefined && b.reviewAlertsThreshold !== null) {
+      const th = Math.min(5, Math.max(1, Math.floor(Number(b.reviewAlertsThreshold))));
+      if (Number.isFinite(th)) data.reviewAlertsThreshold = th;
+    }
+    if (!Object.keys(data).length) return { ok: true, updated: [] };
     await this.prisma.tenant.update({
       where: { id: tenantId },
-      data: { googleReviewUrl: b.googleReviewUrl ? String(b.googleReviewUrl) : null },
+      data: data as Prisma.TenantUpdateInput,
     });
-    return { ok: true };
+    return { ok: true, updated: Object.keys(data) };
   }
 
   // ── 5. Sede / ubicación (la primera del negocio) ──────────────────────
@@ -185,6 +233,14 @@ export class OnboardingSyncService {
     }
     for (const k of ['primaryColor', 'secondaryColor']) {
       if (b[k]) data[k] = String(b[k]);
+    }
+    // Fondo de la tarjeta de fidelidad (photo_card_android). Al setear una
+    // imagen activamos stampBgType=IMAGE para que se renderice detrás de los
+    // sellos; al limpiarla NO tocamos el tipo (queda en su default previo).
+    if (b.stampBgImageUrl !== undefined) {
+      const url = b.stampBgImageUrl ? String(b.stampBgImageUrl) : null;
+      data.stampBgImageUrl = url;
+      if (url) data.stampBgType = 'IMAGE';
     }
     const existing = await this.prisma.card.findFirst({
       where: { tenantId, type: 'STAMPS' },
