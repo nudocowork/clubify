@@ -91,15 +91,29 @@ export class OnboardingSyncService {
       'whatsappOrdersPhone',
       'whatsappDeliveryPhone',
       'whatsappReservationsPhone',
+      'city', // ju1053 Fase 3
     ]) {
       if (b[k] !== undefined) data[k] = b[k] ? String(b[k]) : null;
     }
-    if (!Object.keys(data).length) return { ok: true, updated: [] };
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: data as Prisma.TenantUpdateInput,
-    });
-    return { ok: true, updated: Object.keys(data) };
+    const updated = Object.keys(data);
+    if (updated.length) {
+      await this.prisma.tenant.update({
+        where: { id: tenantId },
+        data: data as Prisma.TenantUpdateInput,
+      });
+    }
+    // description (descripción corta del negocio) vive en Storefront (1:1), no
+    // en Tenant. Se mapea acá para que el onboarding la mande junto al negocio.
+    if (b.description !== undefined) {
+      const desc = b.description ? String(b.description) : '';
+      await this.prisma.storefront.upsert({
+        where: { tenantId },
+        create: { tenantId, description: desc },
+        update: { description: desc },
+      });
+      updated.push('description');
+    }
+    return { ok: true, updated };
   }
 
   // ── 2. Branding ───────────────────────────────────────────────────────
@@ -142,7 +156,14 @@ export class OnboardingSyncService {
   // ── 3. Redes / contacto ───────────────────────────────────────────────
   async syncContact(tenantId: string, b: any) {
     const data: Record<string, any> = {};
-    for (const k of ['instagramUrl', 'facebookUrl', 'mapsUrl', 'whatsappPhone']) {
+    for (const k of [
+      'instagramUrl',
+      'facebookUrl',
+      'mapsUrl',
+      'whatsappPhone',
+      'tiktokUrl', // ju1053 Fase 3
+      'websiteUrl', // ju1053 Fase 3
+    ]) {
       if (b[k] !== undefined) data[k] = b[k] ? String(b[k]) : null;
     }
     if (!Object.keys(data).length) return { ok: true, updated: [] };
@@ -424,6 +445,18 @@ export class OnboardingSyncService {
       if (c.terms !== undefined) data.terms = c.terms ? String(c.terms) : '';
       if (c.imageUrl !== undefined)
         data.heroImageUrl = c.imageUrl ? String(c.imageUrl) : null;
+      // ju1053 Fase 3: código canjeable + cantidad disponible (antes iban en
+      // `terms`; ahora en campos reales). Acepta code/couponCode y
+      // quantity/couponQuantity. quantity null/inválido = sin límite declarado.
+      if (c.couponCode !== undefined || c.code !== undefined) {
+        const code = c.couponCode ?? c.code;
+        data.couponCode = code ? String(code) : null;
+      }
+      if (c.couponQuantity !== undefined || c.quantity !== undefined) {
+        const q = c.couponQuantity ?? c.quantity;
+        const n = q == null ? null : Math.max(0, Math.floor(Number(q)));
+        data.couponQuantity = Number.isFinite(n) ? n : null;
+      }
       if (c.validFrom !== undefined) data.validFrom = dateOrNull(c.validFrom);
       if (c.validUntil !== undefined) data.validUntil = dateOrNull(c.validUntil);
       const existing = await this.prisma.card.findFirst({

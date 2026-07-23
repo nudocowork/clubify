@@ -494,6 +494,10 @@ model Tenant {
   instagramUrl                String?
   facebookUrl                 String?
   mapsUrl                     String?
+  // Onboarding Sync (ju1053 Fase 3): redes/ubicación adicionales del negocio.
+  tiktokUrl                   String?
+  websiteUrl                  String?
+  city                        String?
   // Override del label de sección principal ("Menú", "Servicios" o custom
   // tipo "Tratamientos"). Si null, se infiere de businessCategorySlug.
   // Editable por el dueño en /app/settings. Solo afecta texto visible —
@@ -1211,6 +1215,11 @@ model Card {
   walletBrandName     String?
   description         String    @default("")
   terms               String    @default("")
+  // Onboarding Sync (ju1053 Fase 3): cupón con código canjeable + cantidad
+  // disponible. Antes el onboarding los metía como texto en `terms`; ahora
+  // tienen campo real. couponQuantity null = sin límite declarado.
+  couponCode          String?
+  couponQuantity      Int?
   // Si false, el reverso de la wallet no muestra T&C (el dueño los
   // apagó porque no son obligatorios para su negocio).
   termsEnabled        Boolean   @default(true)
