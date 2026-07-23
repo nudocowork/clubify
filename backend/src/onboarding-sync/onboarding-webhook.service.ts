@@ -93,19 +93,29 @@ export class OnboardingWebhookService {
     }
   }
 
-  /** Emite un evento si el webhook está habilitado y con URL. No lanza nunca. */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Emite un evento si el webhook está habilitado y con URL. No lanza nunca.
+   *  Reintentos in-process (best-effort): inmediato, +30s, +2min si el
+   *  onboarding responde ≠2xx o hay error de red. El payload/firma es el MISMO
+   *  en cada intento (idempotente: el onboarding dedup por business_id). Corre
+   *  detached (los callers hacen `void emit...`), así que la espera no bloquea
+   *  la activación. Se pierde si el proceso reinicia (para durabilidad total
+   *  haría falta un outbox+cron). */
   async emit(event: string, data: Record<string, any>): Promise<void> {
     try {
       const c = await this.read();
       if (!c.enabled || !c.url) return;
-      const r = await this.post(c.url, c.secret, {
-        event,
-        ...data,
-        sent_at: new Date().toISOString(),
-      });
-      if (!r.ok) {
+      const payload = { event, ...data, sent_at: new Date().toISOString() };
+      const delays = [0, 30_000, 120_000]; // 3 intentos
+      for (let attempt = 0; attempt < delays.length; attempt++) {
+        if (delays[attempt] > 0) await this.sleep(delays[attempt]);
+        const r = await this.post(c.url, c.secret, payload);
+        if (r.ok) return;
         this.logger.warn(
-          `webhook ${event} → fallo (status=${r.status ?? '-'} ${r.error ?? ''})`,
+          `webhook ${event} intento ${attempt + 1}/${delays.length} → fallo (status=${r.status ?? '-'} ${r.error ?? ''})`,
         );
       }
     } catch (e: any) {
