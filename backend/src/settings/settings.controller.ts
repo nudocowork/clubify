@@ -132,6 +132,14 @@ export class SettingsController {
     return this.svc.setLandingPlans(body);
   }
 
+  /** Nombres de negocios ACTIVOS de Clubify — alimenta el marquee "Negocios
+   *  LATAM creciendo con Clubify" de la landing. Lectura pública. */
+  @Public()
+  @Get('landing-active-businesses')
+  getLandingActiveBusinesses() {
+    return this.svc.getLandingActiveBusinesses();
+  }
+
   /** Cupón Hotmart global — se preponne al checkout URL como
    *  ?couponCode=X para que Hotmart aplique el descuento. String vacío
    *  o null = sin cupón. */

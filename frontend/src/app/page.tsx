@@ -8,33 +8,7 @@ import { HeroBanner } from '@/components/HeroBanner';
 import { FidelizacionBanner } from '@/components/FidelizacionBanner';
 import { InfoLinksBanner } from '@/components/InfoLinksBanner';
 import { Logo } from '@/components/Logo';
-import { LandingPricingCheckout } from '@/components/LandingPricingCheckout';
 import { LanguageSwitcherIntl } from '@/components/LanguageSwitcherIntl';
-import { fetchLandingPlans } from '@/lib/landing-plans';
-
-const TESTIMONIALS = [
-  {
-    quote:
-      'Antes manejaba pedidos por WhatsApp uno por uno. Hoy entran al kanban, suenan, los confirmo y la gente recibe estado en tiempo real. Vendí 30% más en 2 meses.',
-    name: 'Carolina M.',
-    role: 'Café del Día · Bogotá',
-    avatar: '☕',
-  },
-  {
-    quote:
-      'La tarjeta wallet cambió todo. Mis clientes vuelven más porque les llega el progreso al iPhone. Sin imprimir, sin tarjetas físicas perdidas.',
-    name: 'Andrés R.',
-    role: 'Burger Lab · CDMX',
-    avatar: '🍔',
-  },
-  {
-    quote:
-      'El soporte por WhatsApp y la activación inmediata me dieron confianza. Configuré todo en un fin de semana sin saber código.',
-    name: 'Sofía L.',
-    role: 'Bowls Saludables · Lima',
-    avatar: '🥗',
-  },
-];
 
 // Logos placeholder (texto, sin assets externos)
 const LOGOS = [
@@ -114,6 +88,23 @@ async function fetchNudoMenuItems(): Promise<
   }
 }
 
+async function fetchActiveBusinesses(): Promise<string[]> {
+  // Nombres de negocios ACTIVOS de Clubify para el marquee. Si falla o viene
+  // vacío, la landing cae al placeholder LOGOS.
+  const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+  try {
+    const r = await fetch(`${API}/api/landing-active-businesses`, {
+      next: { revalidate: 300 },
+    });
+    if (!r.ok) return [];
+    const d: any = await r.json();
+    const names = Array.isArray(d?.names) ? d.names : [];
+    return names.filter((n: any) => typeof n === 'string' && n.trim());
+  } catch {
+    return [];
+  }
+}
+
 async function fetchBranding(): Promise<BrandingPublic> {
   const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
   const empty: BrandingPublic = {
@@ -145,14 +136,16 @@ async function fetchBranding(): Promise<BrandingPublic> {
 }
 
 export default async function Landing() {
-  const [branding, nudoMenuItems, landingPlans, tHeader, tHero, tLogos] = await Promise.all([
+  const [branding, nudoMenuItems, activeBusinesses, tHeader, tHero, tLogos] = await Promise.all([
     fetchBranding(),
     fetchNudoMenuItems(),
-    fetchLandingPlans(),
+    fetchActiveBusinesses(),
     getTranslations('landing.header'),
     getTranslations('landing.hero'),
     getTranslations('landing.logos'),
   ]);
+  // Marquee: negocios reales activos si hay; si no, el placeholder.
+  const marqueeNames = activeBusinesses.length > 0 ? activeBusinesses : LOGOS;
   const { sales, stats, landingLogoUrl } = branding;
   const waLink = sales.whatsapp
     ? `https://wa.me/${sales.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent('Hola, quiero saber más de Clubify')}`
@@ -167,6 +160,9 @@ export default async function Landing() {
   // del booking de demo). Sin override por Settings — si se quiere
   // cambiar, modificar aquí.
   const demoLink = 'https://soyclubify.lat/demo';
+  // Landing sin precios públicos: el bloque de planes se reemplaza por un CTA
+  // a agendar demo (ju1053). Link fijo pedido por el founder.
+  const agendaDemoLink = 'https://soyclubify.lat/agenda-rrss';
 
   // Stats: usa lo seteado en admin si está, sino el fallback hardcoded.
   const STATS = [
@@ -330,10 +326,10 @@ export default async function Landing() {
             }}
           />
           <div className="flex gap-12 animate-marquee whitespace-nowrap">
-            {[...LOGOS, ...LOGOS, ...LOGOS].map((l, i) => (
+            {[...marqueeNames, ...marqueeNames, ...marqueeNames].map((l, i) => (
               <span
                 key={`${l}-${i}`}
-                className="text-mute font-semibold opacity-70 hover:opacity-100 hover:text-ink transition text-sm flex-none"
+                className="text-mute font-semibold opacity-70 hover:opacity-100 hover:text-ink transition text-sm flex-none capitalize"
               >
                 {l}
               </span>
@@ -383,25 +379,30 @@ export default async function Landing() {
               Nuestros clientes
             </h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {TESTIMONIALS.map((t, i) => (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+            {[
+              { id: 'ZK5Q0QRXUeI', name: 'Nudo Cowork & Coffee' },
+              { id: 'BffWf9f8sHY', name: 'Konnys Pizza' },
+            ].map((v, i) => (
               <FadeIn
-                key={t.name}
-                delay={i * 100}
-                className="bg-white rounded-2xl p-7 border border-line"
+                key={v.id}
+                delay={i * 120}
+                className="bg-white rounded-2xl overflow-hidden border border-line shadow-sm"
               >
-                <div className="text-amber-500 text-sm mb-3">★★★★★</div>
-                <p className="text-ink leading-relaxed text-[15px]">
-                  “{t.quote}”
-                </p>
-                <div className="mt-5 flex items-center gap-3 pt-4 border-t border-line2">
-                  <div className="w-10 h-10 rounded-full bg-brand-soft flex items-center justify-center text-xl">
-                    {t.avatar}
-                  </div>
-                  <div>
-                    <div className="font-semibold text-sm">{t.name}</div>
-                    <div className="text-xs text-mute">{t.role}</div>
-                  </div>
+                <div className="w-full aspect-video bg-black">
+                  <iframe
+                    src={`https://www.youtube-nocookie.com/embed/${v.id}`}
+                    title={`Testimonio ${v.name}`}
+                    className="w-full h-full"
+                    style={{ border: 0 }}
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                    loading="lazy"
+                  />
+                </div>
+                <div className="flex items-center gap-2.5 px-5 py-4">
+                  <div className="text-amber-500 text-sm">★★★★★</div>
+                  <div className="font-semibold text-sm">{v.name}</div>
                 </div>
               </FadeIn>
             ))}
@@ -409,23 +410,29 @@ export default async function Landing() {
         </div>
       </section>
 
-      {/* ─────────── Pricing ─────────── */}
+      {/* ─────────── Precios → Agenda demo (ju1053) ─────────── */}
       <section id="precios" className="py-24">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="text-center mb-12 max-w-2xl mx-auto">
-            <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
-              Precios
-            </div>
-            <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
-              Precios claros · sin sorpresas
-            </h2>
-            <p className="text-mute mt-4 text-lg">
-              Elige la periodicidad que más te convenga. Mientras más
-              tiempo, más ahorras. Activa tu cuenta en minutos y empieza
-              a vender — cancela cuando quieras desde tu panel.
-            </p>
+        <div className="mx-auto max-w-3xl px-6 text-center">
+          <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
+            Precios
           </div>
-          <LandingPricingCheckout plans={landingPlans} />
+          <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
+            Precios a la medida de tu negocio
+          </h2>
+          <p className="text-mute mt-4 text-lg">
+            Cada negocio es distinto. Agenda una demo sin costo y armamos
+            juntos el plan que mejor se ajusta a lo que necesitas.
+          </p>
+          <div className="mt-9 flex justify-center">
+            <a
+              href={agendaDemoLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-brand text-white font-semibold text-base sm:text-lg shadow-lg hover:opacity-90 transition"
+            >
+              Agenda una demo para hablar de precios →
+            </a>
+          </div>
         </div>
       </section>
 

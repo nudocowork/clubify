@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import {
+  resolveBrandScope,
+  brandWhiteLabelWhere,
+} from '../common/white-label/brand-scope.util';
 
 /** Pricing global de los planes Clubify usado por el módulo Cotizaciones
  * (SuperAdmin). Editables sin redeploy. Las cotizaciones congelan el
@@ -353,6 +357,31 @@ export class SettingsService {
       out[id] = { price, checkoutUrl: rawUrl.length > 0 ? rawUrl : null };
     });
     return out;
+  }
+
+  /** Nombres de negocios ACTIVOS de la marca Clubify (no de marcas blancas)
+   *  para el marquee de la landing pública. Sin sesión → scope = Clubify por
+   *  defecto (incluye legacy whiteLabelId null). Dedupe + tope 40. */
+  async getLandingActiveBusinesses(): Promise<{ names: string[] }> {
+    const scope = await resolveBrandScope(this.prisma, null);
+    const brandWhere = brandWhiteLabelWhere(scope);
+    const rows = await this.prisma.tenant.findMany({
+      where: { status: 'ACTIVE', ...brandWhere },
+      select: { name: true, brandName: true },
+      orderBy: { createdAt: 'desc' },
+      take: 60,
+    });
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const r of rows) {
+      const n = (r.name || r.brandName || '').trim();
+      if (n && !seen.has(n.toLowerCase())) {
+        seen.add(n.toLowerCase());
+        names.push(n);
+      }
+      if (names.length >= 40) break;
+    }
+    return { names };
   }
 
   /** Update parcial de los planes. Permite mandar solo los planes que
