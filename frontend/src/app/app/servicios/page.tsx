@@ -500,6 +500,17 @@ function ScheduleTab({
   function removeWindow(target: Avail) {
     setRows((p) => p.filter((r) => r !== target));
   }
+  // Duplica las franjas de un día a otros días (reemplaza las de los destinos).
+  function copyDayTo(fromWeekday: number, targets: number[]) {
+    setRows((p) => {
+      const windows = p.filter((r) => r.weekday === fromWeekday).map((w) => ({ startMin: w.startMin, endMin: w.endMin }));
+      const kept = p.filter((r) => !targets.includes(r.weekday));
+      const copies = targets.flatMap((wd) => windows.map((w) => ({ weekday: wd, startMin: w.startMin, endMin: w.endMin })));
+      return [...kept, ...copies];
+    });
+    toast('Horario copiado — recuerda Guardar', 'success');
+  }
+  const COPY_TARGETS: Record<string, number[]> = { all: [1, 2, 3, 4, 5, 6, 0], week: [1, 2, 3, 4, 5], weekend: [6, 0] };
   async function save() {
     const bad = rows.find((r) => r.endMin <= r.startMin);
     if (bad) {
@@ -583,10 +594,27 @@ function ScheduleTab({
                   ) : null,
                 )}
                 <button onClick={() => addWindow(w.n)} className="text-[12px] font-semibold" style={{ color: '#0ea5e9' }}>+ franja</button>
+                {byDay[w.n].length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => { const v = e.target.value; if (v && COPY_TARGETS[v]) copyDayTo(w.n, COPY_TARGETS[v]); e.currentTarget.value = ''; }}
+                    className="text-[12px] rounded-[8px] border border-[#dfe3e8] px-1.5 py-1"
+                    style={{ color: '#0ea5e9' }}
+                    title="Duplicar este horario a otros días"
+                  >
+                    <option value="">⧉ Copiar a…</option>
+                    <option value="all">Toda la semana</option>
+                    <option value="week">Lun–Vie</option>
+                    <option value="weekend">Sáb–Dom</option>
+                  </select>
+                )}
               </div>
             </div>
           ))}
         </div>
+        <p className="mt-2 text-[11px]" style={{ color: '#9aa4af' }}>
+          💡 Para cerrar a mediodía, agrega dos franjas en el día (ej. 8:00–12:00 y 14:00–18:00). Usa <b>⧉ Copiar a…</b> para duplicar un día a otros.
+        </p>
         <button onClick={save} disabled={saving} className="mt-3 text-sm font-semibold text-white rounded-[10px] py-2 px-4" style={{ background: '#16a34a', opacity: saving ? 0.6 : 1 }}>
           {saving ? 'Guardando…' : 'Guardar horarios'}
         </button>
