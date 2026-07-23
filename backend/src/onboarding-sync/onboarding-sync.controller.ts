@@ -104,6 +104,18 @@ export class OnboardingSyncController {
     return this.sync.upsertCoupons(tid, body?.items ?? body);
   }
 
+  // Link-in-bio (upsert; reemplaza la lista de botones completa).
+  @Put('infolink')
+  infolink(@OnboardingTenantId() tid: string, @Body() body: any) {
+    return this.sync.syncInfolink(tid, body || {});
+  }
+
+  // Push automáticas por evento (welcome/birthday/stamp/reward/inactivity).
+  @Put('automations')
+  automations(@OnboardingTenantId() tid: string, @Body() body: any) {
+    return this.sync.syncAutomations(tid, body || {});
+  }
+
   @Post('activate')
   activate(@OnboardingTenantId() tid: string) {
     return this.sync.activate(tid);

@@ -64,6 +64,87 @@ function mapMenuLayout(v: unknown): string | null {
   return MENU_LAYOUT_MAP[String(v).trim().toLowerCase()] ?? null;
 }
 
+// Saneo de URL para botones del infolink: solo http(s). Un dominio pelado se
+// promueve a https://. Esquemas peligrosos (javascript:, data:) → ''.
+function safeUrl(u: unknown): string {
+  const s = String(u ?? '').trim();
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s)) return s;
+  if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|\?|#|$)/i.test(s)) return 'https://' + s;
+  return '';
+}
+function extractPhone(u: unknown): string | null {
+  const d = String(u ?? '').replace(/\D/g, '');
+  return d.length >= 7 ? d : null;
+}
+
+// Mapea un botón del onboarding { label, type, url | popup_message } al shape de
+// botón de Clubify (JSON en InfoLink.buttons). Los tipos nativos de Clubify que
+// NO leen `url` (MENU/MAPS) solo se usan si NO viene url; con url se degrada a
+// EXTERNAL para honrar el destino que mandó el onboarding. Devuelve null si el
+// botón no tiene destino válido (se descarta).
+function mapInfolinkButton(raw: any): Record<string, any> | null {
+  const label = (str(raw?.label) ?? '').trim() || 'Ver';
+  const type = String(raw?.type ?? 'link').trim().toLowerCase();
+  const url = safeUrl(raw?.url);
+  const popupMsg = raw?.popup_message ?? raw?.popupMessage;
+  if (type === 'popup') {
+    return {
+      label,
+      type: 'POPUP',
+      popup: {
+        title: label,
+        description: popupMsg != null ? String(popupMsg) : '',
+        imageUrl: null,
+        ctaText: '',
+        ctaUrl: '',
+      },
+    };
+  }
+  if (type === 'whatsapp') {
+    const phone = extractPhone(raw?.url);
+    if (phone) return { label, type: 'WHATSAPP', waPhone: phone, waMessage: '' };
+    return url ? { label, type: 'EXTERNAL', url } : null;
+  }
+  if (type === 'menu' && !url) return { label, type: 'MENU', menuVariant: 'DELIVERY' };
+  if (type === 'maps' && !url) return { label, type: 'MAPS' };
+  // link | reviews | social | reserva | (menu/maps con url) → EXTERNAL
+  return url ? { label, type: 'EXTERNAL', url } : null;
+}
+
+// Push automáticas por evento → AutomationRule. trigger.type + título/cuerpo
+// por defecto (del motor); el `message` del onboarding pisa el body.
+const AUTOMATION_EVENT_MAP: Record<
+  string,
+  { trigger: Record<string, any>; title: string; defaultBody: string }
+> = {
+  welcome: {
+    trigger: { type: 'PASS_CREATED' },
+    title: '¡Bienvenido/a {{customerName}}! 🎉',
+    defaultBody: 'Tu tarjeta {{cardName}} está activa. Empieza a sumar.',
+  },
+  birthday: {
+    trigger: { type: 'BIRTHDAY' },
+    title: '🎉 Feliz cumpleaños {{customerName}}',
+    defaultBody: 'Ven a {{businessName}}, tenemos un obsequio para ti 🎁',
+  },
+  stamp: {
+    trigger: { type: 'STAMP_ADDED' },
+    title: '¡Sumaste un sello! ⭐',
+    defaultBody: '¡Vas muy bien! Sigue sumando para tu recompensa.',
+  },
+  reward: {
+    trigger: { type: 'PASS_COMPLETED' },
+    title: '🎁 ¡Premio desbloqueado!',
+    defaultBody: '{{rewardText}} es tuyo. Canjéalo en tu próxima visita.',
+  },
+  inactivity: {
+    trigger: { type: 'INACTIVITY', days: 30 },
+    title: 'Te extrañamos {{customerName}} 💌',
+    defaultBody: 'Hace un mes que no nos vemos. ¡Te esperamos!',
+  },
+};
+
 @Injectable()
 export class OnboardingSyncService {
   constructor(
@@ -474,6 +555,92 @@ export class OnboardingSyncService {
       }
     }
     return { ok: true, coupons: out };
+  }
+
+  // ── 11b. Infolink (link-in-bio) — upsert por negocio, reemplaza botones ──
+  async syncInfolink(tenantId: string, b: any) {
+    const data: Record<string, any> = {};
+    if (b.title !== undefined) data.title = b.title ? String(b.title) : '';
+    // description del onboarding → subtitle; cover → heroImageUrl.
+    if (b.subtitle !== undefined)
+      data.subtitle = b.subtitle ? String(b.subtitle) : null;
+    else if (b.description !== undefined)
+      data.subtitle = b.description ? String(b.description) : null;
+    if (b.cover !== undefined || b.heroImageUrl !== undefined) {
+      const cover = b.cover ?? b.heroImageUrl;
+      data.heroImageUrl = cover ? String(cover) : null;
+    }
+    if (Array.isArray(b.buttons)) {
+      data.buttons = (b.buttons as any[]).map(mapInfolinkButton).filter(Boolean);
+    }
+    const existing = await this.prisma.infoLink.findFirst({
+      where: { tenantId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (existing) {
+      await this.prisma.infoLink.update({ where: { id: existing.id }, data });
+      return { ok: true, infolink_id: existing.id, created: false };
+    }
+    const created = await this.prisma.infoLink.create({
+      data: {
+        tenantId,
+        slug: 'infolink',
+        title: data.title ?? '',
+        subtitle: data.subtitle ?? null,
+        heroImageUrl: data.heroImageUrl ?? null,
+        buttons: (data.buttons ?? []) as any,
+      },
+    });
+    return { ok: true, infolink_id: created.id, created: true };
+  }
+
+  // ── 11c. Push automáticas por evento → AutomationRule (upsert por trigger) ──
+  async syncAutomations(tenantId: string, b: any) {
+    const updated: string[] = [];
+    for (const key of Object.keys(AUTOMATION_EVENT_MAP)) {
+      const incoming = b?.[key];
+      if (incoming === undefined || incoming === null) continue;
+      const def = AUTOMATION_EVENT_MAP[key];
+      const enabled = !!incoming.enabled;
+      const msg = incoming.message != null ? String(incoming.message).trim() : '';
+      const actions = [
+        { type: 'SEND_PUSH', title: def.title, body: msg || def.defaultBody },
+      ];
+      // Buscar la regla existente de ESE evento (por trigger.type) para no
+      // duplicar. El onboarding es la fuente de verdad de estos mensajes.
+      const existing = await this.prisma.automationRule.findFirst({
+        where: {
+          tenantId,
+          trigger: { path: ['type'], equals: def.trigger.type },
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        await this.prisma.automationRule.update({
+          where: { id: existing.id },
+          data: {
+            isActive: enabled,
+            trigger: def.trigger as any,
+            actions: actions as any,
+          },
+        });
+      } else {
+        await this.prisma.automationRule.create({
+          data: {
+            tenantId,
+            name: `Onboarding: ${key}`,
+            description: 'Sincronizado desde el onboarding.',
+            trigger: def.trigger as any,
+            conditions: [] as any,
+            actions: actions as any,
+            isActive: enabled,
+          },
+        });
+      }
+      updated.push(key);
+    }
+    return { ok: true, updated };
   }
 
   // ── 12. Publicar / activar el negocio ─────────────────────────────────
