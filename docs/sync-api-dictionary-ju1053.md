@@ -113,6 +113,36 @@ Sin body. Activa el negocio + publica la vitrina + dispara el webhook `business.
 - **favicon** por-negocio.
 - **Toggles de módulos** sellos / cupones / wallet / geopush / promociones / beneficios (Clubify los infiere por existencia de tarjetas/promos; no hay on/off por API).
 
-## 5) Pendiente (próxima entrega)
-- **`PUT /sync/infolink`** (link-in-bio: title/description/cover/buttons[]) — en construcción.
-- **`PUT /sync/automations`** (welcome/birthday/stamp/reward/inactivity `{enabled, message}`) — en definición de diseño.
+## 5) Endpoints de link-in-bio y automatizaciones — ✅ disponibles
+
+### `PUT /sync/infolink`  *(upsert del link-in-bio principal del negocio; reemplaza los botones)*
+Actualiza el infolink más antiguo del negocio, o crea uno (slug `infolink`).
+| Campo | Tipo | Mapea a |
+|---|---|---|
+| title | string | `title` |
+| description | string | `subtitle` |
+| cover | string(url) | `heroImageUrl` |
+| buttons[] | array | reemplaza la lista completa |
+
+**Botón:** `{ label, type, url | popup_message }`. Mapeo de los 8 tipos → Clubify:
+| type (ustedes) | Clubify | Nota |
+|---|---|---|
+| link, reviews, social, reserva | EXTERNAL | usa el `url` que manden (lo respetamos tal cual) |
+| whatsapp | WHATSAPP | extraemos el teléfono del `url`; si no hay, cae a EXTERNAL |
+| menu | MENU (sin url) / EXTERNAL (con url) | sin url usa el menú nativo del negocio |
+| maps | MAPS (sin url) / EXTERNAL (con url) | |
+| popup | POPUP | `popup_message` → texto del modal |
+
+> Recomendación: manden siempre `url` en link/reviews/social/reserva/maps. Solo `popup` usa `popup_message`.
+
+### `PUT /sync/automations`  *(push automáticas por evento)*
+Por cada evento presente en el body: `{ enabled: boolean, message: string }`. Se sincroniza como una regla de automatización real (el motor que ya envía estos push). `enabled`=on/off, `message`=cuerpo del push (si va vacío usamos un texto por defecto). Variables disponibles en el mensaje: `{{customerName}}`, `{{businessName}}`, `{{cardName}}`, `{{rewardText}}`.
+| Evento | Se dispara | Nota |
+|---|---|---|
+| welcome | al registrarse (primera tarjeta) | ✅ activo |
+| birthday | día del cumpleaños (cron 8am) | ✅ activo |
+| reward | al completar la tarjeta / premio listo | ✅ activo |
+| inactivity | 30 días sin visita (cron 9am) | ✅ activo |
+| stamp | al sumar un sello | ✅ se envía si `enabled` |
+
+> El onboarding es la fuente de verdad de estos mensajes: si el negocio ya tenía una regla para ese evento, la actualizamos (no duplicamos).
