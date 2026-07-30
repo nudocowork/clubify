@@ -46,7 +46,10 @@ function buildNavGroups(badges: Badges): NavGroup[] {
     {
       label: 'PLATAFORMA',
       items: [
-        { href: '/superadmin/paginas-informativas', label: 'Páginas Informativas', icon: '📄' },
+        // La edición de Páginas Informativas se movió a team_clubify → sección
+        // COMERCIAL (/paginas). La ruta /superadmin/paginas-informativas sigue viva
+        // como fallback de PLATFORM_OWNER, pero se oculta del menú a propósito.
+        // { href: '/superadmin/paginas-informativas', label: 'Páginas Informativas', icon: '📄' },
         { href: '/superadmin/integraciones', label: 'Integraciones', icon: '🔌' },
         { href: '/superadmin/estado-servidor', label: 'Estado del Servidor', icon: '🖥️' },
         { href: '/superadmin/historial', label: 'Historial', icon: '🕒' },
