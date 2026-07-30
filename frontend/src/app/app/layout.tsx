@@ -10,6 +10,7 @@ export default async function TenantLayout({ children }: { children: React.React
     <AppShell
       variant="app"
       serverBrandColor={brand?.primaryColor ?? null}
+      serverBrandBackground={brand?.backgroundColor ?? null}
       serverBrandLogo={brand?.logoUrl ?? null}
       serverBrandName={brand?.name ?? null}
     >

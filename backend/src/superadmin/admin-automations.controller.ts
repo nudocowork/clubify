@@ -29,6 +29,12 @@ class MoveBody {
 class EnabledBody {
   @IsBoolean() enabled!: boolean;
 }
+class TestPhoneBody {
+  @IsOptional() @IsString() @MaxLength(30) phone?: string;
+}
+class TestSendBody {
+  @IsOptional() @IsString() @MaxLength(2000) text?: string | null;
+}
 
 /**
  * Automatizaciones (mensajes SMS/WhatsApp editables + carpetas) desde el panel
@@ -59,6 +65,37 @@ export class AdminAutomationsController {
   @Get('message-templates')
   async list(@CurrentUser() user: AuthUser) {
     return this.svc.getBrandMessageTemplates(await this.resolveBrandId(user));
+  }
+
+  /**
+   * Enlace de conexión de WhatsApp de la marca (lo pega el super admin en
+   * /superadmin). El panel /admin lo convierte en un QR (Automatizaciones → QR
+   * WhatsApp) sin mostrar el texto. Devuelve solo al admin de la propia marca.
+   */
+  @Get('whatsapp-qr')
+  async whatsappQr(@CurrentUser() user: AuthUser) {
+    const brandId = await this.resolveBrandId(user);
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: brandId },
+      select: { whatsappQrUrl: true },
+    });
+    return { url: wl?.whatsappQrUrl?.trim() || null };
+  }
+
+  /** Guarda el número de prueba de la marca. */
+  @Patch('test-phone')
+  async setTestPhone(@Body() body: TestPhoneBody, @CurrentUser() user: AuthUser) {
+    return this.svc.setBrandTestPhone(await this.resolveBrandId(user), body.phone ?? '', user.id);
+  }
+
+  /** Envía un SMS de prueba de una plantilla al número guardado. */
+  @Post('message-templates/:templateId/test')
+  async test(
+    @Param('templateId') templateId: string,
+    @Body() body: TestSendBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.testBrandMessage(await this.resolveBrandId(user), templateId, body.text ?? null);
   }
 
   @Patch('message-templates/:templateId')

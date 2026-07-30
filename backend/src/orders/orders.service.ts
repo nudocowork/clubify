@@ -112,6 +112,9 @@ export type CreateOrderDto = {
   // Menú público de origen ('MESA' | 'DELIVERY'). Lo manda el frontend
   // según la ruta. Se persiste como discriminator redundante para reportes.
   mode?: 'MESA' | 'DELIVERY';
+  // Método de pago declarado por el cliente (informativo). PDF 2026-07-25.
+  customerPaymentMethod?: string;
+  customerPaymentOther?: string;
 };
 
 @Injectable()
@@ -579,6 +582,13 @@ export class OrdersService {
             deliveryAddress: cleanDeliveryAddress,
             customerNote: dto.customerNote,
             locationId: dto.locationId,
+            // Método de pago declarado por el cliente (informativo). Si eligió
+            // OTRO guardamos también el texto libre.
+            customerPaymentMethod: dto.customerPaymentMethod || null,
+            customerPaymentOther:
+              dto.customerPaymentMethod === 'OTRO'
+                ? dto.customerPaymentOther?.trim() || null
+                : null,
             // El canal ya se resolvió arriba (effectiveMode) — lo persistimos
             // como discriminator. PICKUP queda como null porque puede venir
             // de cualquiera de los dos menús sin ambigüedad.
@@ -1130,6 +1140,29 @@ export class OrdersService {
       throw new ForbiddenException();
     }
     return o;
+  }
+
+  /** El negocio registra/edita el método de pago DECLARADO por el cliente
+   *  (informativo). No toca paymentStatus ni el gateway online. Si el cliente
+   *  no lo completó, el negocio lo puede colocar; también editable. */
+  async updateCustomerPayment(
+    user: AuthUser,
+    id: string,
+    dto: {
+      customerPaymentMethod?: string | null;
+      customerPaymentOther?: string | null;
+    },
+  ) {
+    const o = await this.get(user, id); // valida ownership (tenant/super-admin)
+    const method = dto.customerPaymentMethod || null;
+    return this.prisma.order.update({
+      where: { id: o.id },
+      data: {
+        customerPaymentMethod: method,
+        customerPaymentOther:
+          method === 'OTRO' ? dto.customerPaymentOther?.trim() || null : null,
+      },
+    });
   }
 
   /** Editar los ITEMS de un pedido ya hecho (panel → "Editar pedido").

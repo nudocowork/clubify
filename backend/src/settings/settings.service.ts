@@ -64,6 +64,10 @@ export type BrandingSettings = {
   landingStatWalletCustomers: string | null;
   landingStatOrders: string | null;
   landingStatRating: string | null;
+  // URL de checkout de Hotmart para la PRUEBA con tarjeta (trial 5 días). Si está
+  // seteada, /trial redirige ahí (pasando ?src=<ref>) en vez de crear la cuenta
+  // gratis directo. Vacío = flujo actual (prueba gratis sin tarjeta). Pública.
+  trialCheckoutUrl: string | null;
 };
 
 const KEYS = {
@@ -81,6 +85,7 @@ const KEYS = {
   landingStatWalletCustomers: 'landing.stats.walletCustomers',
   landingStatOrders: 'landing.stats.orders',
   landingStatRating: 'landing.stats.rating',
+  trialCheckoutUrl: 'landing.trial.checkoutUrl',
   pricingEliteCost: 'pricing.eliteCost',
   pricingProCost: 'pricing.proCost',
   pricingCurrency: 'pricing.currency',
@@ -154,6 +159,7 @@ export class SettingsService {
             KEYS.landingStatWalletCustomers,
             KEYS.landingStatOrders,
             KEYS.landingStatRating,
+            KEYS.trialCheckoutUrl,
           ],
         },
       },
@@ -180,6 +186,7 @@ export class SettingsService {
       landingStatWalletCustomers: norm(map.get(KEYS.landingStatWalletCustomers)),
       landingStatOrders: norm(map.get(KEYS.landingStatOrders)),
       landingStatRating: norm(map.get(KEYS.landingStatRating)),
+      trialCheckoutUrl: norm(map.get(KEYS.trialCheckoutUrl)),
     };
   }
 
@@ -229,6 +236,9 @@ export class SettingsService {
     }
     if (data.landingStatRating !== undefined) {
       ops.push(this.upsert(KEYS.landingStatRating, (data.landingStatRating ?? '').trim()));
+    }
+    if (data.trialCheckoutUrl !== undefined) {
+      ops.push(this.upsert(KEYS.trialCheckoutUrl, (data.trialCheckoutUrl ?? '').trim()));
     }
     await Promise.all(ops);
     return this.getBrandingAdmin();

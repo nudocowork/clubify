@@ -1583,6 +1583,10 @@ export class TenantsService {
             },
           },
         },
+        // Dominio personalizado del negocio (ej. birrialeon.com) → tiene
+        // prioridad sobre el dominio de la marca para TODOS los links públicos
+        // que el negocio comparte (infolink, QR, reservas). PDF 2026-07-25.
+        storefront: { select: { customDomain: true } },
         _count: { select: { cards: true, customers: true, products: true, locations: true } },
       },
     });
@@ -1666,6 +1670,11 @@ export class TenantsService {
       // Dominio del panel/app de la marca (ej. app.selleala.com) → URL vanity
       // de InfoLinks. Cae a domain, y en última instancia a soyclubify.com.
       brandAppDomain: t.whiteLabel?.appDomain ?? null,
+      // Dominio PROPIO del negocio (Storefront.customDomain, ej. birrialeon.com).
+      // Máxima prioridad para los links públicos que comparte el negocio
+      // (infolink/QR/reservas) y para el título de pestaña. null = sin dominio
+      // propio → cae a la marca / soyclubify.com. Ver publicBaseForTenant().
+      customDomain: t.storefront?.customDomain ?? null,
       // Features que la marca incluye en su suscripción (keys i18n). Vacío =
       // lista completa por defecto. Solo aplica a marcas blancas (no Clubify).
       brandSubscriptionFeatureKeys: t.whiteLabel?.subscriptionFeatureKeys ?? [],

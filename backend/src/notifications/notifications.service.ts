@@ -1,4 +1,10 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -65,6 +71,88 @@ export class NotificationsService {
     }
 
     return this.dispatchNow(tid, dto);
+  }
+
+  /**
+   * Busca un envío programado (fecha única) del tenant que AÚN esté pendiente.
+   * Un pendiente = triggerType SCHEDULED + scheduledAt seteado + sentAt null.
+   * Lanza si no existe, si es de otro tenant o si ya se despachó.
+   */
+  private async requireScheduledPending(tid: string, id: string) {
+    const n = await this.prisma.notification.findUnique({ where: { id } });
+    if (!n || n.tenantId !== tid) {
+      throw new NotFoundException('Envío no encontrado');
+    }
+    if (n.sentAt) {
+      throw new BadRequestException(
+        'Este envío ya se realizó y no se puede modificar ni cancelar.',
+      );
+    }
+    if (!n.scheduledAt) {
+      throw new BadRequestException(
+        'Solo se pueden modificar o cancelar los envíos programados a una fecha.',
+      );
+    }
+    return n;
+  }
+
+  /** Cancela un envío programado (fecha única) que aún no se ha enviado. */
+  async cancelScheduled(user: AuthUser, id: string, override?: string) {
+    const tid = this.tid(user, override);
+    // Valida existencia/tenant/tipo y da un error claro si ya se envió.
+    await this.requireScheduledPending(tid, id);
+    // Borrado ATÓMICO con guard sentAt:null: si el cron (cada 5 min) marcó
+    // sentAt entre el check y este delete, count=0 → NO borramos un envío que
+    // ya salió y avisamos. Evita la carrera del check-then-act.
+    const res = await this.prisma.notification.deleteMany({
+      where: { id, tenantId: tid, sentAt: null },
+    });
+    if (res.count === 0) {
+      throw new BadRequestException(
+        'Este envío ya se realizó y no se pudo cancelar.',
+      );
+    }
+    return { ok: true };
+  }
+
+  /** Edita título/cuerpo/fecha de un envío programado aún no enviado. */
+  async updateScheduled(
+    user: AuthUser,
+    id: string,
+    dto: { title?: string; body?: string; scheduledAt?: string },
+    override?: string,
+  ) {
+    const tid = this.tid(user, override);
+    await this.requireScheduledPending(tid, id);
+    const data: any = {};
+    if (typeof dto.title === 'string' && dto.title.trim()) {
+      data.title = dto.title.trim();
+    }
+    if (typeof dto.body === 'string' && dto.body.trim()) {
+      data.body = dto.body.trim();
+    }
+    if (dto.scheduledAt) {
+      const when = new Date(dto.scheduledAt);
+      if (
+        !Number.isFinite(when.getTime()) ||
+        when.getTime() <= Date.now() + 30_000
+      ) {
+        throw new BadRequestException('La nueva fecha debe estar en el futuro.');
+      }
+      data.scheduledAt = when;
+    }
+    // Edición ATÓMICA con guard sentAt:null (misma carrera con el cron que en
+    // cancelScheduled): si ya se despachó, count=0 → avisamos y no editamos.
+    const res = await this.prisma.notification.updateMany({
+      where: { id, tenantId: tid, sentAt: null },
+      data,
+    });
+    if (res.count === 0) {
+      throw new BadRequestException(
+        'Este envío ya se realizó y no se pudo editar.',
+      );
+    }
+    return this.prisma.notification.findUnique({ where: { id } });
   }
 
   /**

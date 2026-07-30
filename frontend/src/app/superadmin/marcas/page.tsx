@@ -1652,6 +1652,9 @@ function HotmartCreditConfig({
   );
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Ofertas COMPARTIDAS con url (típicamente las de Clubify): la marca compra por
+  // esos links + su token ?src=wl_<id> (Modelo B). Se muestran abajo para copiar.
+  const [sharedLinks, setSharedLinks] = useState<any[]>([]);
 
   async function load() {
     setLoading(true);
@@ -1668,6 +1671,11 @@ function HotmartCreditConfig({
             offerCode: l?.hotmartOfferCode ?? '',
           };
         }),
+      );
+      // Links compartidos (con url) para generar los de esta marca con token.
+      const all = (await api(`/superadmin/hotmart-links`)) ?? [];
+      setSharedLinks(
+        (all as any[]).filter((x) => x?.isActive && x?.url && x?.hotmartProductId),
       );
     } catch {
       /* noop */
@@ -1768,6 +1776,58 @@ function HotmartCreditConfig({
           >
             {busy ? 'Guardando…' : 'Guardar créditos'}
           </button>
+        </div>
+      )}
+
+      {sharedLinks.length > 0 && (
+        <div className="mt-3 pt-3" style={{ borderTop: '1px solid #e5e9e7' }}>
+          <div className="text-[12px] font-bold mb-1" style={{ color: '#2b3a30' }}>
+            Links de compra de esta marca (con token)
+          </div>
+          <div className="text-[11px] mb-2" style={{ color: '#9aa4af' }}>
+            Comparte estos links con el dueño de la marca. El token{' '}
+            <code>?src=wl_…</code> hace que los créditos se acrediten a ESTA marca
+            sin importar con qué correo pague.
+          </div>
+          <div className="space-y-1.5">
+            {sharedLinks.map((l) => {
+              const base = String(l.url);
+              const link =
+                base + (base.includes('?') ? '&' : '?') + 'src=wl_' + whiteLabelId;
+              return (
+                <div
+                  key={l.id}
+                  className="flex items-center gap-2 rounded-[8px] p-2"
+                  style={{ background: '#f8faf9', border: '1px solid #e5e9e7' }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-bold" style={{ color: '#2b3a30' }}>
+                      {l.credits} crédito{l.credits === 1 ? '' : 's'}
+                      {l.price ? ` · ${l.price} ${l.currency || ''}` : ''}
+                    </div>
+                    <div className="text-[10px] truncate" style={{ color: '#6b7280' }}>
+                      {link}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigator.clipboard
+                        ?.writeText(link)
+                        .then(
+                          () => onSaved('Link copiado'),
+                          () => onSaved('No se pudo copiar'),
+                        )
+                    }
+                    className="rounded-[7px] px-2 py-1 text-[11px] font-bold text-white shrink-0"
+                    style={{ background: '#2b3a30' }}
+                  >
+                    Copiar
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

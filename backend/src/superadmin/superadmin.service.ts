@@ -1803,6 +1803,10 @@ export class SuperAdminService {
       select: {
         slug: true,
         name: true,
+        // Dominios de la marca → el frontend arma links públicos con SU dominio
+        // (ej. el link de login en el WhatsApp de "crear negocio"), no soyclubify.
+        domain: true,
+        appDomain: true,
         primaryColor: true,
         logoUrl: true,
         iconUrl: true,
@@ -1832,6 +1836,10 @@ export class SuperAdminService {
     return {
       slug: wl.slug,
       name: wl.name,
+      // Dominio público (ej. selleala.com) y de panel (app.selleala.com). null =
+      // la marca aún no tiene dominio propio → el frontend cae a soyclubify.com.
+      domain: wl.domain ?? null,
+      appDomain: wl.appDomain ?? null,
       primaryColor: wl.primaryColor,
       logoUrl: wl.logoUrl,
       iconUrl: wl.iconUrl,

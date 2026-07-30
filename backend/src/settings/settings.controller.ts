@@ -24,6 +24,7 @@ class BrandingDto {
   @IsOptional() @IsString() @MaxLength(40) landingStatWalletCustomers?: string | null;
   @IsOptional() @IsString() @MaxLength(40) landingStatOrders?: string | null;
   @IsOptional() @IsString() @MaxLength(40) landingStatRating?: string | null;
+  @IsOptional() @IsString() @MaxLength(600) trialCheckoutUrl?: string | null;
 }
 
 class PricingDto {

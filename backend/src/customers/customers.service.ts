@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -389,7 +390,10 @@ export class CustomersService {
       throw new NotFoundException('Algún cliente no existe en este tenant');
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    let result;
+    try {
+      result = await this.prisma.$transaction(
+        async (tx) => {
       let movedOrders = 0;
       let movedStamps = 0;
       let mergedPasses = 0;
@@ -461,6 +465,23 @@ export class CustomersService {
           data: { customerId: keepId },
         });
         await tx.message.updateMany({
+          where: { customerId: src.id },
+          data: { customerId: keepId },
+        });
+        // Reservas + asistentes a eventos + notificaciones: hoy su FK es
+        // onDelete: SetNull, así que al borrar el src quedaban HUÉRFANOS (y una
+        // notificación individual con customerId=null se convierte en BROADCAST
+        // → el saludo de cumpleaños del cliente fusionado se mostraría a todos).
+        // Los reasignamos al keeper para no perder historial ni filtrar mensajes.
+        await tx.reservation.updateMany({
+          where: { customerId: src.id },
+          data: { customerId: keepId },
+        });
+        await tx.eventAttendee.updateMany({
+          where: { customerId: src.id },
+          data: { customerId: keepId },
+        });
+        await tx.notification.updateMany({
           where: { customerId: src.id },
           data: { customerId: keepId },
         });
@@ -542,7 +563,31 @@ export class CustomersService {
         mergedPasses,
         keeper: updated,
       };
-    });
+        },
+        // La transacción encadena muchas queries (loop de pases + updateMany +
+        // SQL crudo + aggregate) y cada una pasa por el middleware de tenant;
+        // con clientes de mucho historial superaba el default de 5s de Prisma y
+        // se cancelaba (P2028) → "da error y no lo hace". Subimos el margen.
+        { maxWait: 15000, timeout: 60000 },
+      );
+    } catch (e: any) {
+      // La transacción es atómica: si algo falla NO se modificó ningún dato.
+      // Re-lanzamos nuestras validaciones tal cual; para errores de Prisma
+      // exponemos el código (P2002/P2003/P2022/P2028…) para diagnóstico rápido.
+      if (
+        e instanceof ForbiddenException ||
+        e instanceof NotFoundException ||
+        e instanceof BadRequestException
+      ) {
+        throw e;
+      }
+      const code = e?.code ? ` [${e.code}]` : '';
+      throw new BadRequestException(
+        `No se pudieron fusionar los clientes${code}: ${
+          e?.message ?? 'error desconocido'
+        }. No se modificó ningún dato (la operación es atómica).`,
+      );
+    }
 
     return result;
   }

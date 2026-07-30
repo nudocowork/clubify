@@ -68,6 +68,8 @@ const RESERVED_SUBS = new Set([
   'mail',
   'cdn',
   'assets',
+  // Cuponera / Living Card (marketplace de beneficios). Nunca es slug de tenant.
+  'cuponera',
 ]);
 
 /**
@@ -247,7 +249,7 @@ export async function middleware(req: NextRequest) {
 
   // ────────── Dominio dedicado del Super Admin: soyfidelity.com ──────────
   // El master admin (rol PLATFORM_OWNER) vive SOLO en soyfidelity.com:
-  //  - soyfidelity.com/            → página "en construcción" (landing pendiente).
+  //  - soyfidelity.com/            → landing de venta de marcas blancas (/fidelity).
   //  - soyfidelity.com/login       → login del master admin (→ /superadmin).
   //  - resto de rutas del dominio  → se sirven normal (/superadmin, assets…).
   //  - En CUALQUIER otro dominio, /superadmin se BLOQUEA y redirige aquí, para
@@ -260,7 +262,7 @@ export async function middleware(req: NextRequest) {
   if (isSuperadminHost) {
     if (url.pathname === '/' || url.pathname === '') {
       const rewrite = url.clone();
-      rewrite.pathname = '/en-construccion';
+      rewrite.pathname = '/fidelity';
       return NextResponse.rewrite(rewrite);
     }
     // "Entrar como empresa" navega a soyfidelity.com/admin/<slug>; sin este
@@ -286,6 +288,24 @@ export async function middleware(req: NextRequest) {
   ) {
     const dest = new URL(url.pathname + url.search, 'https://soyfidelity.com');
     return NextResponse.redirect(dest, 307);
+  }
+
+  // ────────── Subdominio de la Cuponera / Living Card ──────────
+  // cuponera.soyclubify.com sirve el marketplace de beneficios Living Card:
+  //  - raíz '/'     → /cuponera (landing + planes)
+  //  - /cuponera/*  → pasa directo (early-exit de abajo lo deja seguir)
+  //  - assets/api   → normal
+  // Los links internos usan rutas absolutas /cuponera/* → funcionan igual en el
+  // subdominio y en localhost (path-based) sin lógica dependiente del host.
+  const isCuponeraHost =
+    host === 'cuponera.soyclubify.com' || host === 'cuponera.clubify.app';
+  if (isCuponeraHost) {
+    if (url.pathname === '/' || url.pathname === '') {
+      const rewrite = url.clone();
+      rewrite.pathname = '/cuponera';
+      return NextResponse.rewrite(rewrite);
+    }
+    return NextResponse.next();
   }
 
   // ────────── Panel de marca blanca por path: /admin/<slug> ──────────
@@ -364,6 +384,7 @@ export async function middleware(req: NextRequest) {
     url.pathname.startsWith('/refer') ||
     url.pathname.startsWith('/affiliate') ||
     url.pathname.startsWith('/domicilios') ||
+    url.pathname.startsWith('/cuponera') ||
     url.pathname.startsWith('/preview/') ||
     url.pathname.startsWith('/manifest') ||
     url.pathname.startsWith('/icons/') ||

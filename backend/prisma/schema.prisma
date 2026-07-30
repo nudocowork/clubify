@@ -312,6 +312,38 @@ model Setting {
   updatedAt DateTime @updatedAt
 }
 
+/// Snapshot diario de métricas de infraestructura (módulo "Estado del
+/// Servidor" en /superadmin). Cada fila = una foto de la salud del sistema en
+/// un instante. Se llena con un @Cron diario (server-status.snapshot) y con
+/// disparos manuales desde el panel. Habilita el cálculo de CRECIMIENTO
+/// (diff entre fotos) y la PROYECCIÓN de saturación. Todo en bytes (BigInt).
+/// Solo-lectura para el resto del sistema — nadie más escribe acá.
+model ServerMetricSnapshot {
+  id                String   @id @default(cuid())
+  /// Tamaño total de la base de datos (pg_database_size).
+  dbSizeBytes       BigInt
+  /// Límite/capacidad configurado del volumen (Setting o Railway API). Null si
+  /// aún no se conoce la capacidad real.
+  dbLimitBytes      BigInt?
+  /// Nº de tablas de usuario (schema public).
+  tableCount        Int?
+  /// Conexiones activas y máximo permitido (pg_stat_activity / max_connections).
+  connectionsActive Int?
+  connectionsMax    Int?
+  /// RSS del proceso backend y límite del contenedor (cgroup / Railway API).
+  memoryRssBytes    BigInt?
+  memoryLimitBytes  BigInt?
+  /// Estimación de almacenamiento de objetos (R2) en bytes.
+  storageBytes      BigInt?
+  /// Foto opcional del consumo por marca blanca (Json: [{ id, name, rows,... }]).
+  perBrand          Json?
+  /// Cómo se generó: 'cron' | 'manual'.
+  source            String   @default("cron")
+  createdAt         DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 model PasswordResetToken {
   id        String    @id @default(uuid())
   userId    String
@@ -1794,6 +1826,13 @@ model Order {
   paymentUrl      String? // URL/redirect para pagar
   paidAt          DateTime?
 
+  // Método de pago DECLARADO por el cliente (o editado por el negocio) —
+  // informativo, independiente del gateway (PDF 2026-07-25). Uno de
+  // EFECTIVO | TARJETA | TRANSFERENCIA | OTRO. Cuando es OTRO, el texto libre
+  // va en customerPaymentOther. null = no especificado.
+  customerPaymentMethod String?
+  customerPaymentOther  String?
+
   confirmedAt DateTime?
   readyAt     DateTime?
   deliveredAt DateTime?
@@ -2324,6 +2363,50 @@ model InfoLinkEvent {
   createdAt  DateTime @default(now())
 
   @@index([infoLinkId, type, createdAt])
+}
+
+// ============================================================
+// Páginas informativas GLOBALES de plataforma (soyclubify.com/informacion*).
+// A diferencia de InfoLink (per-tenant), son páginas fijas de marketing con
+// captación de leads y QR permanente. El slug está BLOQUEADO: no se edita ni se
+// borra desde el panel — solo se edita el contenido. Se siembran al iniciar.
+// ============================================================
+
+model InfoPage {
+  id           String   @id @default(uuid())
+  slug         String   @unique // "informacion" | "informacion1" — fijo, no editable
+  name         String // nombre interno para el listado del admin
+  tag          String // etiqueta con la que se marca cada lead captado
+  title        String
+  subtitle     String?
+  logoUrl      String? // logo de la marca — se incrusta en el QR y en el hero
+  heroImageUrl String?
+  videoUrl     String?
+  description  String?  @db.Text
+  sections     Json     @default("[]") // bloques opcionales [{heading, body, imageUrl}]
+  ctaText      String?
+  ctaUrl       String?
+  formEnabled  Boolean  @default(true)
+  formFields   Json     @default("[]") // [{key,label,type,required,options?}]
+  theme        Json     @default("{}")
+  isPublished  Boolean  @default(false)
+  views        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  leads InfoPageLead[]
+}
+
+model InfoPageLead {
+  id         String   @id @default(uuid())
+  infoPageId String
+  infoPage   InfoPage @relation(fields: [infoPageId], references: [id], onDelete: Cascade)
+  data       Json     @default("{}") // { key: value } según formFields
+  tag        String // snapshot del tag de la página al momento de captar
+  source     String? // slug de la página de origen
+  createdAt  DateTime @default(now())
+
+  @@index([infoPageId, createdAt])
 }
 
 // ============================================================

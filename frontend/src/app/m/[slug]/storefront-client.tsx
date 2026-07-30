@@ -1697,6 +1697,9 @@ function CheckoutSheet({
     fulfillment: defaultFulfillment as 'DINE_IN' | 'PICKUP' | 'DELIVERY',
     tableNumber: tableFromQr,
     customerNote: '',
+    // Método de pago que declara el cliente (informativo). '' = no eligió.
+    paymentMethod: '' as '' | 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA' | 'OTRO',
+    paymentOther: '',
     // Dirección de envío (solo se completa cuando fulfillment === 'DELIVERY')
     departamento: '',
     municipio: '',
@@ -1803,6 +1806,12 @@ function CheckoutSheet({
           tableNumber: form.tableNumber || undefined,
           deliveryAddress,
           customerNote: form.customerNote || undefined,
+          // Método de pago declarado por el cliente (informativo).
+          customerPaymentMethod: form.paymentMethod || undefined,
+          customerPaymentOther:
+            form.paymentMethod === 'OTRO'
+              ? form.paymentOther.trim() || undefined
+              : undefined,
           // Sede destino (ruteo por estado). undefined = sin sede → número del
           // negocio (fallback). Para 1 sola sede igual se manda (rutea a ella).
           locationId: effectiveSedeId || undefined,
@@ -2084,6 +2093,57 @@ function CheckoutSheet({
                   setForm({ ...form, customerNote: e.target.value })
                 }
               />
+            </div>
+
+            <div>
+              <label className="label">{tt('checkout.payment')}</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    { v: 'EFECTIVO', label: tt('checkout.pay_cash') },
+                    { v: 'TARJETA', label: tt('checkout.pay_card') },
+                    { v: 'TRANSFERENCIA', label: tt('checkout.pay_transfer') },
+                    { v: 'OTRO', label: tt('checkout.pay_other') },
+                  ] as const
+                ).map((opt) => {
+                  const active = form.paymentMethod === opt.v;
+                  return (
+                    <button
+                      key={opt.v}
+                      type="button"
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          paymentMethod: active ? '' : opt.v,
+                        })
+                      }
+                      className="rounded-lg border border-black/10 py-2.5 px-3 text-sm font-medium transition"
+                      style={
+                        active
+                          ? {
+                              borderColor: primary,
+                              background: `${primary}14`,
+                              color: primary,
+                            }
+                          : undefined
+                      }
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {form.paymentMethod === 'OTRO' && (
+                <input
+                  className="input mt-2"
+                  placeholder={tt('checkout.pay_other_ph')}
+                  value={form.paymentOther}
+                  maxLength={80}
+                  onChange={(e) =>
+                    setForm({ ...form, paymentOther: e.target.value })
+                  }
+                />
+              )}
             </div>
 
             {err && (

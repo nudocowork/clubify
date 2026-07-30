@@ -85,6 +85,57 @@ function TrialInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Modo checkout: si el super admin configuró la URL de checkout de Hotmart para
+  // la prueba con tarjeta (Setting landing.trial.checkoutUrl, en /admin/branding),
+  // /trial REDIRIGE ahí pasando ?src=<ref> en vez de crear la cuenta gratis directo.
+  // Si NO está configurada, se mantiene el flujo actual (prueba gratis sin tarjeta)
+  // → así el cambio no rompe nada y se activa solo cuando el fundador pega la URL.
+  const [trialCheckoutUrl, setTrialCheckoutUrl] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // Reintenta una vez: un fallo transitorio de /branding NO debe degradar el
+      // funnel de pago a alta gratis (saltarse el paywall del trial con tarjeta).
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const r = await fetch(`${API}/api/branding`);
+          if (r.ok) {
+            const b = await r.json();
+            if (!cancelled && b?.trialCheckoutUrl) setTrialCheckoutUrl(b.trialCheckoutUrl);
+            break;
+          }
+        } catch { /* reintenta */ }
+      }
+      if (!cancelled) setLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const checkoutMode = !!trialCheckoutUrl;
+
+  function goToCheckout() {
+    if (!trialCheckoutUrl) return;
+    // El ref sobrevive el ida-y-vuelta a Hotmart en localStorage (mismo origen) →
+    // /activar lo lee tras el pago y atribuye la venta al referido. Además va como
+    // ?src=<ref> en la URL para el tracking propio de Hotmart.
+    try { if (refCode) localStorage.setItem('clubify:ref', refCode); } catch {}
+    let url = trialCheckoutUrl;
+    if (refCode) {
+      try {
+        // URL API: agrega src como query REAL (antes del fragmento #) sin duplicar.
+        const u = new URL(trialCheckoutUrl);
+        if (!u.searchParams.has('src')) u.searchParams.set('src', refCode);
+        url = u.toString();
+      } catch {
+        // URL relativa/inválida: fallback respetando el fragmento.
+        const [base, hash = ''] = trialCheckoutUrl.split('#');
+        const sep = base.includes('?') ? '&' : '?';
+        url = `${base}${sep}src=${encodeURIComponent(refCode)}${hash ? '#' + hash : ''}`;
+      }
+    }
+    window.location.href = url;
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -143,19 +194,49 @@ function TrialInner() {
         </div>
 
         <div className="card shadow-xl p-6 sm:p-8">
+          {!loaded ? (
+            <div className="py-12 text-center text-sm text-mute">Cargando…</div>
+          ) : (
+          <>
           <div className="text-center">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-pill bg-brand-soft text-brand text-xs font-semibold uppercase tracking-wider">
-              🎁 Modo prueba · 5 días
+              🎁 Prueba · 5 días
             </div>
             <h1 className="mt-3 text-2xl sm:text-3xl font-bold tracking-tight">
-              Prueba Clubify gratis
+              {checkoutMode ? 'Activa tu prueba gratuita' : 'Prueba Clubify gratis'}
             </h1>
             <p className="mt-1.5 text-sm text-mute leading-relaxed">
-              Sin tarjeta. Sin compromiso. Activa tu cuenta al final de los 5 días
-              si te convence.
+              {checkoutMode
+                ? 'Comienza hoy y prueba Clubify durante 5 días.'
+                : 'Sin tarjeta. Sin compromiso. Activa tu cuenta al final de los 5 días si te convence.'}
             </p>
           </div>
 
+          {checkoutMode ? (
+            <div className="mt-6 space-y-4">
+              {refCode && (
+                <div className="rounded-lg bg-brand-soft/40 px-3 py-2 text-xs text-brand-ink text-center">
+                  Te referenció: <strong>{refCode}</strong>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={goToCheckout}
+                className="btn-primary w-full justify-center py-3.5 text-base font-semibold"
+              >
+                Activar mi prueba →
+              </button>
+              <p className="text-center text-xs text-mute">
+                Pago seguro con Hotmart · activación inmediata.
+              </p>
+              <p className="text-center text-xs text-mute">
+                ¿Ya tienes cuenta?{' '}
+                <Link href="/login" className="text-brand hover:underline">
+                  Inicia sesión
+                </Link>
+              </p>
+            </div>
+          ) : (
           <form onSubmit={submit} className="mt-6 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -344,6 +425,9 @@ function TrialInner() {
               </Link>
             </p>
           </form>
+          )}
+          </>
+          )}
         </div>
 
         <p className="text-center text-[11px] text-mute mt-4">

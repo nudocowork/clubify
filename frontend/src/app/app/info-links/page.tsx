@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { api, getUser } from '@/lib/api';
+import { publicHostForTenant } from '@/lib/public-domain';
 import { Icon } from '@/components/Icon';
 
 type InfoLink = {
@@ -79,14 +80,8 @@ export default function InfoLinksList() {
     router.push(`/app/info-links/${r.id}`);
   }
 
-  // Dominio de marca normalizado (puede venir con esquema/slash al guardarse).
-  const vanityDomain = (
-    tenant?.brandAppDomain ||
-    tenant?.brandPublicDomain ||
-    'soyclubify.com'
-  )
-    .replace(/^https?:\/\//, '')
-    .replace(/\/+$/, '');
+  // Dominio público del negocio: customDomain (propio) > marca > soyclubify.com.
+  const vanityDomain = publicHostForTenant(tenant);
 
   return (
     <div>

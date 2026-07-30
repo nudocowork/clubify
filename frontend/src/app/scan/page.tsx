@@ -70,18 +70,41 @@ export default function ScanPage() {
             Html5QrcodeSupportedFormats.AZTEC,
             Html5QrcodeSupportedFormats.DATA_MATRIX,
           ],
+          // Usa el BarcodeDetector NATIVO del dispositivo cuando existe (Android
+          // Chrome, iOS 17+): lee PDF417/Code128 por hardware, mucho más rápido
+          // y tolerante al desenfoque que el decodificador JS de respaldo. Si el
+          // navegador no lo tiene, cae automáticamente al decodificador JS.
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
           verbose: false,
         });
       }
       const scanConfig = {
         fps: 10,
         qrbox: (vw: number, vh: number) => {
-          const minSide = Math.min(vw, vh);
-          const width = Math.min(vw - 30, Math.round(minSide * 1.1));
-          const height = Math.round(width * 0.4);
+          // Caja ANCHA y con buena altura para que el código de barras entre
+          // completo y a buena resolución. Antes era una franja muy baja
+          // (height = width*0.4) que se veía como una "línea finita" y casi no
+          // capturaba el código. Ahora ~92% del ancho y ~62% de eso de alto
+          // (topeado al 72% del alto del video), un recuadro real de mira.
+          const width = Math.round(Math.min(vw * 0.92, 640));
+          const height = Math.round(Math.min(width * 0.62, vh * 0.72));
           return { width, height };
         },
         aspectRatio: 1.5,
+      };
+      // Enfoque continuo best-effort DESPUÉS de arrancar. OJO: html5-qrcode
+      // 2.3.8 NO acepta constraints extra en start() — su createVideoConstraints
+      // exige un objeto de EXACTAMENTE 1 clave (facingMode|deviceId); pasar
+      // width/height/advanced lanzaba y caía al fallback = primera cámara
+      // (FRONTAL en móvil) → escáner inservible. applyVideoConstraints sí
+      // permite constraints avanzados sobre el track YA activo, y si el
+      // dispositivo no soporta focusMode, el try/catch lo ignora sin romper.
+      const applyFocus = async () => {
+        try {
+          await (scannerRef.current as any)?.applyVideoConstraints({
+            advanced: [{ focusMode: 'continuous' }],
+          });
+        } catch {}
       };
       const onScan = async (text: string) => {
         // Detener primero para evitar callbacks duplicados
@@ -93,6 +116,7 @@ export default function ScanPage() {
       };
       try {
         // Preferimos la cámara TRASERA (caso normal: celular del local).
+        // Objeto de 1 sola clave (requisito de html5-qrcode 2.3.8).
         await scannerRef.current.start(
           { facingMode: 'environment' },
           scanConfig,
@@ -100,6 +124,7 @@ export default function ScanPage() {
           () => {},
         );
         setScanning(true);
+        applyFocus();
       } catch (envErr: any) {
         // Fallback (#scan 2026-06-19): en laptops/desktops sin cámara trasera,
         // facingMode:'environment' falla y la cámara queda NEGRA. Probamos
@@ -112,6 +137,7 @@ export default function ScanPage() {
         if (!cams || cams.length === 0) throw envErr;
         await scannerRef.current.start(cams[0].id, scanConfig, onScan, () => {});
         setScanning(true);
+        applyFocus();
       }
     } catch (e: any) {
       const msg = e?.message ?? '';

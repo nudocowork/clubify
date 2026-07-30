@@ -108,6 +108,7 @@ export default function AppShell({
   variant,
   children,
   serverBrandColor = null,
+  serverBrandBackground = null,
   serverBrandLogo = null,
   serverBrandName = null,
 }: {
@@ -117,6 +118,9 @@ export default function AppShell({
    *  Se usa como valor inicial del tema → el primer paint (SSR) ya sale con el
    *  color real, sin flash del verde Clubify (FODT). */
   serverBrandColor?: string | null;
+  /** Color propio del fondo del sidebar (backgroundColor de la marca), resuelto
+   *  en el SERVIDOR → primer paint del sidebar con su tono, sin flash. */
+  serverBrandBackground?: string | null;
   /** Logo de la marca resuelto en el SERVIDOR (host/slug). Se usa en el primer
    *  paint del sidebar/topbar mientras el cliente confirma la marca → evita el
    *  flash del logo Clubify (FODT del logo). null = Clubify (sin marca). */
@@ -153,6 +157,9 @@ export default function AppShell({
   const [brandFetched, setBrandFetched] = useState<{
     name: string;
     color: string | null;
+    // Color propio del fondo del sidebar del panel (opcional). Si la marca lo
+    // definió, el sidebar usa ESTE tono en vez del derivado del acento.
+    backgroundColor: string | null;
     logoUrl: string | null;
     iconUrl: string | null;
     slug: string;
@@ -316,6 +323,7 @@ export default function AppShell({
     type BrandResp = {
       name: string;
       primaryColor: string;
+      backgroundColor?: string | null;
       logoUrl?: string | null;
       iconUrl?: string | null;
       slug: string;
@@ -332,6 +340,7 @@ export default function AppShell({
       setBrandFetched({
         name: r.name,
         color: r.primaryColor,
+        backgroundColor: r.backgroundColor ?? null,
         logoUrl: r.logoUrl ?? null,
         iconUrl: r.iconUrl ?? null,
         slug: r.slug,
@@ -971,6 +980,20 @@ export default function AppShell({
     serverBrandColor ||
     null;
 
+  // Fondo propio del sidebar (backgroundColor de la marca). Si está definido, el
+  // sidebar usa ESE tono (ej. #1A1033) en vez del derivado del acento; si no,
+  // queda null → panelBrandCss deriva del acento (comportamiento histórico).
+  // Fuente: /admin → brandFetched (branding por slug/host); /app →
+  // whiteLabelBranding (/tenants/me); anti-flash SSR → serverBrandBackground.
+  const panelSidebarColor =
+    (variant === 'admin'
+      ? brandFetched?.backgroundColor
+      : variant === 'app'
+        ? tenantInfo?.whiteLabelBranding?.backgroundColor
+        : null) ||
+    serverBrandBackground ||
+    null;
+
   // Prefija un href de /admin con el slug de marca activo (/admin/tenants →
   // /admin/<slug>/tenants). El middleware reescribe de vuelta a /admin.
   const brandHref = (href: string) => {
@@ -1246,7 +1269,7 @@ export default function AppShell({
   return (
     <div className={`min-h-screen bg-bg ${panelThemeColor ? 'brand-panel' : ''}`}>
       {panelThemeColor && (
-        <style dangerouslySetInnerHTML={{ __html: panelBrandCss(panelThemeColor) }} />
+        <style dangerouslySetInnerHTML={{ __html: panelBrandCss(panelThemeColor, panelSidebarColor) }} />
       )}
       {/* Sidebar fijo en lg+, drawer overlay en mobile */}
       <div className="hidden lg:flex fixed inset-y-0 left-0">{sidebar}</div>

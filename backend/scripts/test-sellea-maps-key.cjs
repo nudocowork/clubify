@@ -29,6 +29,7 @@ const { PrismaClient } = require('@prisma/client');
   for (const ref of ['https://app.selleala.com/', 'https://www.selleala.com/']) await test('sellea', key, ref);
 
   const GLOBAL = process.env.GLOBAL_MAPS_KEY || 'AIzaSyDjXb8lol8X-00L1rXjCuEAo01rD21PnCE';
-  console.log('\n── Key GLOBAL Clubify (calibración) ──');
-  for (const ref of ['https://soyclubify.com/', 'https://app.soyclubify.com/', 'http://localhost:3000/']) await test('global', GLOBAL, ref);
+  console.log('\n── Key GLOBAL Clubify · ¿ya acepta selleala.com? ──');
+  console.log('   ("API is not activated" = referer ACEPTADO ✅ | "not authorized to use this API key" = referer RECHAZADO ❌)');
+  for (const ref of ['https://app.selleala.com/', 'https://www.selleala.com/', 'https://soyclubify.com/']) await test('global', GLOBAL, ref);
 })().catch((e) => { console.error(e.message); process.exit(1); });

@@ -883,7 +883,9 @@ export class AdminReportsService {
     const nowMs = Date.now();
     if (cached && nowMs - cached.at < this.DASH_TTL_MS) return cached.payload;
 
-    const tenantWhere = wlId ? { whiteLabelId: wlId } : {};
+    // isCampaignHost: excluye SIEMPRE el/los tenant(s) "de sistema" de Cuponera/
+    // Living Card — no son negocios reales, no deben contar en el panel azul.
+    const tenantWhere = { isCampaignHost: false, ...(wlId ? { whiteLabelId: wlId } : {}) };
     const commWhere = wlId
       ? { referralUse: { tenant: { whiteLabelId: wlId } } }
       : {};
@@ -1513,7 +1515,8 @@ export class AdminReportsService {
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const wlId = user.whiteLabelId ?? null;
-    const tenantWhere = wlId ? { whiteLabelId: wlId } : {};
+    // isCampaignHost: excluye el tenant de sistema de Cuponera del facturado.
+    const tenantWhere = { isCampaignHost: false, ...(wlId ? { whiteLabelId: wlId } : {}) };
     const groupWhere = wlId ? { whiteLabelId: wlId } : {};
     const now = new Date();
     const { from, to } = resolveDateRange(opts.range, opts.from, opts.to, now);
@@ -1653,6 +1656,11 @@ export class AdminReportsService {
         id: true,
         name: true,
         slug: true,
+        // Dominios de la marca → el link de login que se comparte por WhatsApp/
+        // email al crear un negocio usa el dominio del PANEL de la marca
+        // (app.selleala.com), no soyclubify.com.
+        appDomain: true,
+        domain: true,
         creditsAvailable: true,
         creditsCommitted: true,
         creditsUsed: true,
@@ -1694,7 +1702,14 @@ export class AdminReportsService {
     ]);
 
     return {
-      whiteLabel: { id: wl.id, name: wl.name, slug: wl.slug },
+      whiteLabel: {
+        id: wl.id,
+        name: wl.name,
+        slug: wl.slug,
+        // Panel (app.selleala.com) preferido; público (selleala.com) de respaldo.
+        appDomain: wl.appDomain ?? null,
+        domain: wl.domain ?? null,
+      },
       unlimited: wl.creditsUnlimited,
       // Periodicidades que ofrece la marca (form "Nuevo negocio" las usa).
       planPeriodicities: wl.planPeriodicities ?? [],

@@ -13,10 +13,12 @@ import {
   ArrayMinSize,
   IsArray,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -43,6 +45,14 @@ class EditOrderItem {
 class EditOrderBody {
   @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => EditOrderItem)
   items!: EditOrderItem[];
+}
+
+class PatchOrderPaymentBody {
+  // null = limpiar. @IsOptional deja pasar null/undefined sin validar el enum.
+  @IsOptional()
+  @IsIn(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA', 'OTRO'])
+  customerPaymentMethod?: string | null;
+  @IsOptional() @IsString() @MaxLength(80) customerPaymentOther?: string | null;
 }
 
 class ManualOrderItem {
@@ -157,6 +167,16 @@ export class OrdersController {
     @Body() body: StatusBody,
   ) {
     return this.svc.setStatus(user, id, body.status);
+  }
+
+  /** El negocio registra/edita el método de pago que usó el cliente. */
+  @Patch(':id/payment')
+  setPayment(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: PatchOrderPaymentBody,
+  ) {
+    return this.svc.updateCustomerPayment(user, id, body);
   }
 
   /** Editar los items de un pedido ya hecho (recalcula totales). */

@@ -34,6 +34,9 @@ type Button = {
   waPhone?: string;
   waMessage?: string;
   locationId?: string | null;
+  /** MAPS multi-sede (2026-07-25). Ver editor. */
+  locationMode?: 'default' | 'all' | 'selected';
+  locationIds?: string[];
   style?: 'primary' | 'secondary';
   /** Estilo de fondo. Default 'solid' — pero si está ausente derivamos
    *  de `style` (primary→solid, secondary→outline) para compat. */
@@ -112,6 +115,12 @@ export default function PublicInfoLink() {
     config: PopupConfig;
     continueAction?: { onContinue: () => void; label?: string };
   } | null>(null);
+  // Modal de "elige tu ubicación" — se abre cuando un botón MAPS tiene varias
+  // sedes. Cada item lleva a su propio Google Maps.
+  const [openLocations, setOpenLocations] = useState<{
+    title: string;
+    items: { id: string; name: string; address: string; href: string }[];
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,6 +193,39 @@ export default function PublicInfoLink() {
   const { tenant, link } = data;
   const primary = link.theme?.primaryColor ?? tenant.primaryColor ?? '#22C55E';
 
+  // #20 (2026-06-17): si la sede tiene mapsUrl (link EXACTO de Google Maps),
+  // lo abrimos tal cual; si no, búsqueda por nombre+dirección (o lat,lng).
+  const mapsForLoc = (l: Location) => {
+    if (l.mapsUrl && l.mapsUrl.trim()) return l.mapsUrl.trim();
+    const query =
+      [l.name, l.address].filter(Boolean).join(', ').trim() ||
+      `${l.latitude},${l.longitude}`;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+      query,
+    )}`;
+  };
+
+  // Sedes que debe mostrar un botón MAPS según su modo multi-sede (2026-07-25):
+  //   'all'      → todas las sedes activas
+  //   'selected' → solo locationIds (si no eligió ninguna, cae a todas)
+  //   'default'  → 1 sola (locationId legacy o la primera)
+  const mapsLocsFor = (b: Button): Location[] => {
+    const all = tenant.locations ?? [];
+    if (all.length === 0) return [];
+    const mode = b.locationMode ?? 'default';
+    if (mode === 'all') return all;
+    if (mode === 'selected') {
+      const ids = b.locationIds ?? [];
+      const sel = all.filter((l) => ids.includes(l.id));
+      return sel.length > 0 ? sel : all;
+    }
+    if (b.locationId) {
+      const one = all.find((l) => l.id === b.locationId);
+      return one ? [one] : [all[0]];
+    }
+    return [all[0]];
+  };
+
   function buttonHref(b: Button): string | undefined {
     switch (b.type) {
       case 'WHATSAPP': {
@@ -204,28 +246,12 @@ export default function PublicInfoLink() {
         return tenant.instagramUrl ?? undefined;
       }
       case 'MAPS': {
-        // #20 (2026-06-17): si la sede tiene mapsUrl (link EXACTO de Google
-        // Maps), lo abrimos tal cual → abre exactamente ese lugar, no una
-        // aproximación. Si no, caemos a la búsqueda por nombre+dirección.
-        // Prioridad: location del botón (mapsUrl > búsqueda) > mapsUrl tenant >
-        // primera location.
-        const mapsForLoc = (l: Location) => {
-          if (l.mapsUrl && l.mapsUrl.trim()) return l.mapsUrl.trim();
-          const query =
-            [l.name, l.address].filter(Boolean).join(', ').trim() ||
-            `${l.latitude},${l.longitude}`;
-          return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-            query,
-          )}`;
-        };
-        if (b.locationId && tenant.locations) {
-          const loc = tenant.locations.find((l) => l.id === b.locationId);
-          if (loc) return mapsForLoc(loc);
-        }
+        // Con multi-sede, el href es el de la PRIMERA sede resuelta (fallback
+        // sin-JS); cuando hay >1 el onClick abre un modal con la lista. Con 1
+        // sola sede el link va directo a su Google Maps.
+        const locs = mapsLocsFor(b);
+        if (locs.length > 0) return mapsForLoc(locs[0]);
         if (tenant.mapsUrl) return tenant.mapsUrl;
-        if (tenant.locations && tenant.locations.length > 0) {
-          return mapsForLoc(tenant.locations[0]);
-        }
         return undefined;
       }
       case 'MENU': {
@@ -282,19 +308,18 @@ export default function PublicInfoLink() {
         b.type === 'INSTAGRAM' ||
         b.type === 'MAPS' ||
         b.type === 'WHATSAPP';
-      // Botón ubicación: si el dueño eligió una sede específica, mostramos
-      // el nombre del local y la dirección como tagline para que el visitante
-      // sepa exactamente a dónde va.
+      // Botón ubicación: con 1 sede mostramos su nombre+dirección como
+      // tagline; con varias, un conteo ("N ubicaciones") y el click abre el
+      // modal de selección de sede.
+      const mapsLocs = b.type === 'MAPS' ? mapsLocsFor(b) : [];
+      const mapsMulti = mapsLocs.length > 1;
       let buttonLabel = b.label;
       let buttonTagline = b.tagline ?? null;
-      if (b.type === 'MAPS' && tenant.locations && tenant.locations.length > 0) {
-        const loc = b.locationId
-          ? tenant.locations.find((l) => l.id === b.locationId)
-          : tenant.locations[0];
-        if (loc) {
-          if (!buttonTagline && loc.address) {
-            buttonTagline = `${loc.name} · ${loc.address}`;
-          }
+      if (b.type === 'MAPS' && mapsLocs.length > 0 && !buttonTagline) {
+        if (mapsMulti) {
+          buttonTagline = `${mapsLocs.length} ubicaciones`;
+        } else if (mapsLocs[0].address) {
+          buttonTagline = `${mapsLocs[0].name} · ${mapsLocs[0].address}`;
         }
       }
       return {
@@ -305,10 +330,30 @@ export default function PublicInfoLink() {
         bgStyle,
         onClick: (e?: React.MouseEvent) => {
           trackClick(b.label);
+          // Acción real del botón: MAPS con varias sedes → modal de selección;
+          // resto → navegar (pestaña nueva o misma). Se ejecuta directo o, si
+          // hay popup pre-acción, desde el botón "Continuar" del popup.
+          const runAction = () => {
+            if (b.type === 'MAPS' && mapsMulti) {
+              setOpenLocations({
+                title: b.label || 'Ubicaciones',
+                items: mapsLocs.map((l) => ({
+                  id: l.id,
+                  name: l.name,
+                  address: l.address,
+                  href: mapsForLoc(l),
+                })),
+              });
+            } else if (newTab) {
+              window.open(href, '_blank', 'noopener,noreferrer');
+            } else {
+              window.location.href = href;
+            }
+          };
           // Cualquier botón con `popup` configurado intercepta el click:
           //   - type='POPUP': el popup ES la acción (no continúa a ningún link).
-          //   - otros: popup PRE-ACCIÓN — modal con botón "Continuar" que
-          //     ejecuta el link original. Cancelar = solo cierra (G2).
+          //   - otros: popup PRE-ACCIÓN — modal con "Continuar" que ejecuta la
+          //     acción real (incluye abrir el modal de sedes si es MAPS multi).
           if (b.popup) {
             e?.preventDefault();
             if (isPopupBtn) {
@@ -316,17 +361,15 @@ export default function PublicInfoLink() {
             } else {
               setOpenPopup({
                 config: b.popup,
-                continueAction: {
-                  onContinue: () => {
-                    if (newTab) {
-                      window.open(href, '_blank', 'noopener,noreferrer');
-                    } else {
-                      window.location.href = href;
-                    }
-                  },
-                },
+                continueAction: { onContinue: runAction },
               });
             }
+            return;
+          }
+          // Sin popup: MAPS multi abre el modal; los demás siguen el <a> normal.
+          if (b.type === 'MAPS' && mapsMulti) {
+            e?.preventDefault();
+            runAction();
           }
         },
         cover: useCover ? b.cover : null,
@@ -504,6 +547,11 @@ export default function PublicInfoLink() {
         onClose={() => setOpenPopup(null)}
         continueAction={openPopup?.continueAction}
       />
+      <InfoLinkLocationsModal
+        data={openLocations}
+        primary={primary}
+        onClose={() => setOpenLocations(null)}
+      />
       <InfoLinkGlobalPopup
         linkId={link.id}
         config={link.theme?.popup ?? null}
@@ -511,5 +559,80 @@ export default function PublicInfoLink() {
         primary={primary}
       />
     </>
+  );
+}
+
+// Modal "elige tu ubicación" para botones MAPS con varias sedes. Cada item
+// abre su propio Google Maps en pestaña nueva. Componente separado para que su
+// hook de Escape no rompa las reglas de hooks del componente principal (que
+// tiene early-returns por error/carga).
+function InfoLinkLocationsModal({
+  data,
+  primary,
+  onClose,
+}: {
+  data: {
+    title: string;
+    items: { id: string; name: string; address: string; href: string }[];
+  } | null;
+  primary: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!data) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [data, onClose]);
+  if (!data) return null;
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm bg-white rounded-2xl shadow-xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-line">
+          <h3 className="font-bold text-base m-0 truncate">{data.title}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-mute hover:text-ink text-2xl leading-none px-1"
+            aria-label="Cerrar"
+          >
+            ×
+          </button>
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto divide-y divide-line">
+          {data.items.map((it) => (
+            <a
+              key={it.id}
+              href={it.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={onClose}
+              className="flex items-start gap-3 px-4 py-3 hover:bg-bg2/60 transition"
+            >
+              <span className="mt-0.5 text-lg shrink-0" style={{ color: primary }}>
+                📍
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold text-sm truncate">
+                  {it.name}
+                </span>
+                {it.address ? (
+                  <span className="block text-xs text-mute">{it.address}</span>
+                ) : null}
+              </span>
+              <span className="self-center text-mute text-lg leading-none">›</span>
+            </a>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

@@ -6,6 +6,7 @@ import { useTenantCountry } from '@/lib/useTenantCountry';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { publicHostForTenant } from '@/lib/public-domain';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
 import {
@@ -97,8 +98,17 @@ type Button = {
   // WHATSAPP: número + mensaje pre-rellenado, se construye wa.me link
   waPhone?: string;
   waMessage?: string;
-  // MAPS: locationId opcional — si null, usa el primer location del tenant
+  // MAPS: locationId opcional (legacy, 1 sola sede) — si null, usa la primera.
   locationId?: string | null;
+  // MAPS multi-sede (2026-07-25): modo de qué sedes mostrar al hacer click.
+  //   'default'  → 1 sola sede (la primera registrada, o locationId legacy)
+  //   'all'      → todas las sedes activas del negocio
+  //   'selected' → solo las sedes de locationIds
+  // Si ausente, se deriva: locationId presente → 'default' con esa sede;
+  // ausente → 'default' con la primera. Con >1 sede el público abre un
+  // popup con la lista de direcciones → Google Maps de cada una.
+  locationMode?: 'default' | 'all' | 'selected';
+  locationIds?: string[];
   style?: 'primary' | 'secondary';
   // Estilo de fondo del botón cuando renderAs = 'simple'. Default 'solid'
   // para botones nuevos; en botones viejos se deriva de `style`
@@ -337,21 +347,24 @@ export default function InfoLinkEditor() {
 
   if (!link || !tenant) return <div className="text-mute">{t('loading')}</div>;
 
-  const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/i/${tenant.slug}/${link.slug}`;
-  // URL personalizada (vanity): dominio de la marca + rootSlug. Se prefiere
+  // Dominio público del negocio: customDomain (propio) > marca > soyclubify.com.
+  // El link CANÓNICO (/i/...) solo se fuerza al dominio propio cuando hay
+  // customDomain; para marcas blancas SIN dominio propio conservamos el origin
+  // del panel (comportamiento histórico, no regresiona el link canónico ni el
+  // testeo local). El vanity (rootSlug) sí usa shareHost, igual que antes.
+  const shareHost = publicHostForTenant(tenant);
+  const hasOwnDomain = !!tenant?.customDomain;
+  const publicBase = hasOwnDomain
+    ? `https://${shareHost}`
+    : typeof window !== 'undefined'
+      ? window.location.origin
+      : 'https://soyclubify.com';
+  const publicUrl = `${publicBase}/i/${tenant.slug}/${link.slug}`;
+  // URL personalizada (vanity): dominio del negocio + rootSlug. Se prefiere
   // SOLO cuando el dueño la definió (link.rootSlug). Los links antiguos tienen
   // rootSlug=null → displayUrl === publicUrl (/i/...), así sus QR ya impresos
   // siguen apuntando a la ruta canónica (que además nunca deja de funcionar).
-  // El dominio de marca puede venir guardado con esquema o slash (solo se
-  // hace .trim() al guardar) → normalizar antes de concatenar, igual que
-  // reservations/online y el backend, para no producir https://https://... .
-  const vanityDomain = (
-    tenant?.brandAppDomain ||
-    tenant?.brandPublicDomain ||
-    'soyclubify.com'
-  )
-    .replace(/^https?:\/\//, '')
-    .replace(/\/+$/, '');
+  const vanityDomain = shareHost;
   const displayUrl = link.rootSlug
     ? `https://${vanityDomain}/${link.rootSlug}`
     : publicUrl;
@@ -475,7 +488,7 @@ export default function InfoLinkEditor() {
               </label>
               <div className="flex items-center gap-2">
                 <span className="text-[13px] text-mute select-none whitespace-nowrap">
-                  {(tenant?.brandAppDomain || tenant?.brandPublicDomain || 'soyclubify.com')}/
+                  {shareHost}/
                 </span>
                 <input
                   className="input flex-1"
@@ -494,7 +507,7 @@ export default function InfoLinkEditor() {
               </div>
               <p className="text-[11px] text-mute mt-1 leading-snug">
                 {t('customUrlHelpBefore')} <code>/i/{tenant.slug}/{link.slug}</code>.
-                {' '}{t('customUrlHelpMiddle')} <code>{(tenant?.brandAppDomain || tenant?.brandPublicDomain || 'soyclubify.com')}/{link.rootSlug || t('yourSlug')}</code>.
+                {' '}{t('customUrlHelpMiddle')} <code>{shareHost}/{link.rootSlug || t('yourSlug')}</code>.
               </p>
             </div>
 
@@ -903,18 +916,34 @@ export default function InfoLinkEditor() {
                     </div>
                   )}
                   {b.type === 'WHATSAPP' && (
-                    <div className="col-span-full grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-2">
-                      <PhoneInput
-                        value={b.waPhone ?? ''}
-                        onChange={(v) => updateButton(i, { waPhone: v })}
-                        defaultCountry={country}
-                      />
-                      <input
-                        className="input"
-                        placeholder={t('waMessagePlaceholder')}
-                        value={b.waMessage ?? ''}
-                        onChange={(e) => updateButton(i, { waMessage: e.target.value })}
-                      />
+                    // Cada campo en su propia fila y a ancho completo. Antes el
+                    // teléfono iba en una columna de 160px, pero el botón de
+                    // bandera+prefijo del PhoneInput ocupa 120px → al número le
+                    // quedaban ~34px (inusable) y la gente escribía el número en
+                    // el campo de mensaje. Resultado: waPhone="+58" sin número y
+                    // el botón de WhatsApp no funcionaba.
+                    <div className="col-span-full space-y-2">
+                      <div>
+                        <div className="text-[11px] font-semibold text-mute mb-1">
+                          {t('waNumberLabel')}
+                        </div>
+                        <PhoneInput
+                          value={b.waPhone ?? ''}
+                          onChange={(v) => updateButton(i, { waPhone: v })}
+                          defaultCountry={country}
+                        />
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-semibold text-mute mb-1">
+                          {t('waMessageLabel')}
+                        </div>
+                        <input
+                          className="input w-full"
+                          placeholder={t('waMessagePlaceholder')}
+                          value={b.waMessage ?? ''}
+                          onChange={(e) => updateButton(i, { waMessage: e.target.value })}
+                        />
+                      </div>
                     </div>
                   )}
                   {b.type === 'MAPS' && (
@@ -927,37 +956,109 @@ export default function InfoLinkEditor() {
                           </a>
                         </div>
                       ) : (
-                        <>
-                          <select
-                            className="input"
-                            value={b.locationId ?? ''}
-                            onChange={(e) =>
-                              updateButton(i, {
-                                locationId: e.target.value || null,
-                              })
-                            }
-                          >
-                            <option value="">{t('firstLocationDefault')}</option>
-                            {locations.map((loc) => (
-                              <option key={loc.id} value={loc.id}>
-                                {loc.name}
-                                {loc.address ? ` · ${loc.address}` : ''}
-                              </option>
-                            ))}
-                          </select>
-                          {(() => {
-                            const sel = b.locationId
-                              ? locations.find((l) => l.id === b.locationId)
-                              : locations[0];
-                            if (!sel?.address) return null;
-                            return (
-                              <div className="text-[11px] text-mute mt-1.5 flex items-center gap-1">
-                                📍 {sel.name} · {sel.address}
+                        (() => {
+                          const mode = b.locationMode ?? 'default';
+                          const selectedIds = b.locationIds ?? [];
+                          return (
+                            <>
+                              {/* Modo: 1 sede por default / todas / elegir cuáles */}
+                              <div className="grid grid-cols-3 gap-1 bg-bg2 rounded-lg p-1">
+                                {([
+                                  { v: 'default' as const, label: t('locModeDefault') },
+                                  { v: 'all' as const, label: t('locModeAll') },
+                                  { v: 'selected' as const, label: t('locModeSelected') },
+                                ]).map((opt) => {
+                                  const active = mode === opt.v;
+                                  return (
+                                    <button
+                                      key={opt.v}
+                                      type="button"
+                                      onClick={() =>
+                                        updateButton(i, { locationMode: opt.v })
+                                      }
+                                      className={`text-[11px] font-semibold py-1.5 px-1 rounded-md transition ${
+                                        active
+                                          ? 'bg-white text-ink shadow-sm'
+                                          : 'text-mute hover:text-ink'
+                                      }`}
+                                    >
+                                      {opt.label}
+                                    </button>
+                                  );
+                                })}
                               </div>
-                            );
-                          })()}
-                        </>
 
+                              {mode === 'default' && (
+                                <div className="mt-2">
+                                  <select
+                                    className="input"
+                                    value={b.locationId ?? ''}
+                                    onChange={(e) =>
+                                      updateButton(i, {
+                                        locationId: e.target.value || null,
+                                      })
+                                    }
+                                  >
+                                    <option value="">
+                                      {t('firstLocationDefault')}
+                                    </option>
+                                    {locations.map((loc) => (
+                                      <option key={loc.id} value={loc.id}>
+                                        {loc.name}
+                                        {loc.address ? ` · ${loc.address}` : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+
+                              {mode === 'selected' && (
+                                <div className="mt-2 space-y-1.5 border border-line2 rounded-lg p-2 max-h-48 overflow-y-auto">
+                                  {locations.map((loc) => {
+                                    const checked = selectedIds.includes(loc.id);
+                                    return (
+                                      <label
+                                        key={loc.id}
+                                        className="flex items-start gap-2 text-[12px] cursor-pointer"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          className="mt-0.5"
+                                          checked={checked}
+                                          onChange={() =>
+                                            updateButton(i, {
+                                              locationIds: checked
+                                                ? selectedIds.filter(
+                                                    (id) => id !== loc.id,
+                                                  )
+                                                : [...selectedIds, loc.id],
+                                            })
+                                          }
+                                        />
+                                        <span>
+                                          <span className="font-medium">
+                                            {loc.name}
+                                          </span>
+                                          {loc.address ? (
+                                            <span className="text-mute">
+                                              {' '}· {loc.address}
+                                            </span>
+                                          ) : null}
+                                        </span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              <p className="text-[11px] text-mute mt-1.5">
+                                {mode === 'default'
+                                  ? t('locHintDefault')
+                                  : t('locHintMulti')}
+                              </p>
+                            </>
+                          );
+                        })()
                       )}
                     </div>
                   )}

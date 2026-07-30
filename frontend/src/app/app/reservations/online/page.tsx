@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { cleanDomain } from '@/lib/public-domain';
 import { AcademyButton } from '@/components/AcademyButton';
 import { toast } from '@/components/Toast';
 import { fmtLongDate, todayISO, to12h } from '../_shared';
@@ -12,6 +13,8 @@ type Tenant = {
   brandName?: string;
   // Dominio público de la marca del negocio (ej. selleala.com). Null = Clubify.
   brandPublicDomain?: string | null;
+  // Dominio propio del negocio (ej. birrialeon.com). Tiene prioridad. PDF 2026-07-25.
+  customDomain?: string | null;
 };
 
 export default function ReservaOnlinePage() {
@@ -24,11 +27,14 @@ export default function ReservaOnlinePage() {
       .catch(() => null);
   }, []);
 
-  // La URL pública de reservas usa el dominio de la marca (selleala.com), no
-  // soyclubify.com. Sin marca (Clubify) → soyclubify.com.
-  const publicDomain = (tenant?.brandPublicDomain || 'soyclubify.com')
-    .replace(/^https?:\/\//, '')
-    .replace(/\/$/, '');
+  // La URL pública de reservas usa el dominio PROPIO del negocio si lo tiene
+  // (birrialeon.com), luego el PÚBLICO de la marca (selleala.com), y por último
+  // soyclubify.com. Mantiene el orden histórico (público de marca), anteponiendo
+  // el customDomain.
+  const publicDomain =
+    cleanDomain(tenant?.customDomain) ||
+    cleanDomain(tenant?.brandPublicDomain) ||
+    'soyclubify.com';
   const publicUrl = tenant?.slug
     ? `https://${publicDomain}/reserva/${tenant.slug}`
     : '';

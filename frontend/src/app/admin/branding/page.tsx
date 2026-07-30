@@ -70,6 +70,7 @@ type Branding = {
   landingStatWalletCustomers: string | null;
   landingStatOrders: string | null;
   landingStatRating: string | null;
+  trialCheckoutUrl: string | null;
 };
 
 export default function AdminBrandingPage() {
@@ -87,6 +88,7 @@ export default function AdminBrandingPage() {
     landingStatWalletCustomers: null,
     landingStatOrders: null,
     landingStatRating: null,
+    trialCheckoutUrl: null,
   });
   const [plans, setPlans] = useState<LandingPlans>(DEFAULT_PLANS);
   const [loading, setLoading] = useState(true);
@@ -343,6 +345,23 @@ export default function AdminBrandingPage() {
               </div>
             );
           })}
+        </div>
+        <div className="mt-4 border border-line2 rounded-lg p-3">
+          <div className="font-semibold text-sm">Prueba con tarjeta (trial 5 días)</div>
+          <div className="text-[11px] text-mute mb-2 leading-relaxed">
+            Si pegas la URL de checkout de Hotmart de la oferta con prueba de 5 días, la
+            página <code className="bg-bg2 px-1 rounded">/trial</code> redirige ahí (pasando el
+            referido como <code className="bg-bg2 px-1 rounded">src</code>) en vez de crear la
+            cuenta gratis. Déjalo vacío para mantener la prueba gratis actual.
+          </div>
+          <label className="label">URL de checkout del trial</label>
+          <input
+            type="url"
+            className="input"
+            placeholder="https://pay.hotmart.com/..."
+            value={b.trialCheckoutUrl ?? ''}
+            onChange={(e) => setB({ ...b, trialCheckoutUrl: e.target.value || null })}
+          />
         </div>
       </div>
 

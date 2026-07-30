@@ -140,6 +140,9 @@ export default function NotificationsPage() {
     d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0);
     return localISO(d);
   });
+  // Id del envío programado que se está EDITANDO (null = compose normal).
+  // Cuando está seteado, el formulario de arriba edita ese envío vía PATCH.
+  const [editingScheduledId, setEditingScheduledId] = useState<string | null>(null);
 
   function appendEmoji(field: 'title' | 'body', emoji: string) {
     setForm((f) => ({ ...f, [field]: (f[field] || '') + emoji }));
@@ -225,11 +228,31 @@ export default function NotificationsPage() {
         }
         payload.scheduledAt = when.toISOString();
       }
+
+      // Modo edición: PATCH sobre el envío programado existente (título/cuerpo/fecha).
+      if (editingScheduledId && scheduleEnabled) {
+        await api(`/notifications/${editingScheduledId}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            title: payload.title,
+            body: payload.body,
+            scheduledAt: payload.scheduledAt,
+          }),
+        });
+        setForm({ cardId: '', title: '', body: '' });
+        setEditingScheduledId(null);
+        load();
+        toast(t('scheduledUpdated'), 'success');
+        setSending(false);
+        return;
+      }
+
       await api('/notifications', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
       setForm({ cardId: '', title: '', body: '' });
+      setEditingScheduledId(null);
       load();
       toast(
         scheduleEnabled
@@ -270,6 +293,50 @@ export default function NotificationsPage() {
     }
   }
 
+  // Cancela un envío programado (fecha única) aún no enviado.
+  async function cancelScheduledSend(id: string) {
+    if (!confirm(t('confirmCancelSend'))) return;
+    try {
+      await api(`/notifications/${id}`, { method: 'DELETE' });
+      if (editingScheduledId === id) {
+        setEditingScheduledId(null);
+        setForm({ cardId: '', title: '', body: '' });
+      }
+      load();
+      toast(t('scheduledCanceled'), 'success');
+    } catch (e: any) {
+      toast(e.message || t('couldNotDelete'), 'error');
+    }
+  }
+
+  // Carga un envío programado en el formulario de arriba para editarlo.
+  function startEditScheduled(n: any) {
+    setForm({ cardId: n.cardId || '', title: n.title || '', body: n.body || '' });
+    setScheduleMode('once');
+    if (n.scheduledAt) setScheduledAt(localISO(new Date(n.scheduledAt)));
+    setEditingScheduledId(n.id);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+
+  function cancelEditScheduled() {
+    setEditingScheduledId(null);
+    setForm({ cardId: '', title: '', body: '' });
+  }
+
+  // Cambiar de modo mientras se edita un envío programado SALE del modo edición
+  // (la edición solo aplica a modo 'once'). Evita el bug de que el botón diga
+  // "Guardar cambios" pero, en modo 'now', mande un broadcast inmediato, o que
+  // en 'recurring' cree una recurrencia dejando el estado inconsistente. El
+  // contenido del formulario se conserva.
+  function changeScheduleMode(mode: 'now' | 'once' | 'recurring') {
+    if (mode !== 'once' && editingScheduledId) {
+      setEditingScheduledId(null);
+    }
+    setScheduleMode(mode);
+  }
+
   async function savePushLogo(url: string | null) {
     setSavingPushLogo(true);
     try {
@@ -307,6 +374,17 @@ export default function NotificationsPage() {
     }
     toast(t('templateLoaded'), 'info');
   }
+
+  // Un envío de fecha única PENDIENTE = tiene scheduledAt y aún no se envió
+  // (sentAt null). El backend los guarda en el mismo modelo Notification, así
+  // que los separamos aquí: pendientes → sección editable; el resto → historial.
+  const scheduledPending = history
+    .filter((n: any) => n.scheduledAt && !n.sentAt)
+    .sort(
+      (a: any, b: any) =>
+        new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime(),
+    );
+  const realHistory = history.filter((n: any) => n.sentAt);
 
   return (
     <div>
@@ -409,7 +487,7 @@ export default function NotificationsPage() {
                   <button
                     key={opt.v}
                     type="button"
-                    onClick={() => setScheduleMode(opt.v)}
+                    onClick={() => changeScheduleMode(opt.v)}
                     className={`text-xs font-semibold py-2 px-2 rounded-md transition ${
                       active ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'
                     }`}
@@ -500,6 +578,12 @@ export default function NotificationsPage() {
             .
           </div>
 
+          {editingScheduledId && (
+            <div className="mt-3 text-[11px] leading-relaxed rounded-lg border border-brand/40 bg-brand/5 text-ink px-3 py-2">
+              {t('editingScheduledNotice')}
+            </div>
+          )}
+
           <button
             className="btn-primary mt-3 w-full justify-center"
             disabled={sending}
@@ -507,12 +591,23 @@ export default function NotificationsPage() {
             <Icon name="send" />{' '}
             {sending
               ? t('sending')
+              : editingScheduledId
+              ? t('saveChanges')
               : scheduleMode === 'recurring'
               ? t('createRecurrence')
               : scheduleMode === 'once'
               ? t('schedule')
               : t('send')}
           </button>
+          {editingScheduledId && (
+            <button
+              type="button"
+              className="btn-ghost mt-2 w-full justify-center text-xs"
+              onClick={cancelEditScheduled}
+            >
+              {t('cancelEdit')}
+            </button>
+          )}
         </form>
 
         {/* Live preview iPhone */}
@@ -705,6 +800,73 @@ export default function NotificationsPage() {
         )}
       </div>
 
+      {/* Envíos programados (fecha única, aún no enviados) — editables/cancelables,
+          igual que las recurrencias. Bug PDF: antes caían al historial sin poder
+          modificarlos ni cancelarlos. */}
+      <div className="mt-5 card card-pad">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold m-0">{t('scheduledSends')}</h2>
+          <span className="text-xs text-mute">
+            {scheduledPending.length === 1
+              ? t('scheduledSendsCountOne', { count: scheduledPending.length })
+              : t('scheduledSendsCountOther', { count: scheduledPending.length })}
+          </span>
+        </div>
+        {scheduledPending.length === 0 ? (
+          <p className="text-xs text-mute mt-2">{t('noScheduledSends')}</p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {scheduledPending.map((n: any) => {
+              const isEditing = editingScheduledId === n.id;
+              return (
+                <div
+                  key={n.id}
+                  className={`flex items-start justify-between gap-3 p-3 rounded-lg border ${
+                    isEditing ? 'border-brand bg-brand/5' : 'border-line bg-white'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm truncate">{n.title}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-brand/10 text-brand">
+                        {t('scheduledForLabel')}
+                      </span>
+                    </div>
+                    <div className="text-xs text-mute mt-1 line-clamp-2">{n.body}</div>
+                    <div className="text-[11px] text-mute mt-1.5">
+                      🗓️{' '}
+                      {new Date(n.scheduledAt).toLocaleString('es-CO', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1 shrink-0">
+                    <button
+                      type="button"
+                      className="btn-ghost text-xs"
+                      onClick={() => startEditScheduled(n)}
+                    >
+                      {t('editSend')}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-bad hover:underline"
+                      onClick={() => cancelScheduledSend(n.id)}
+                    >
+                      {t('cancelSend')}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Historial colapsado */}
       <details className="mt-5 card card-pad">
         <summary className="cursor-pointer flex items-center justify-between">
@@ -712,19 +874,19 @@ export default function NotificationsPage() {
             {t('sendHistory')}
           </span>
           <span className="text-xs text-mute">
-            {history.length === 1
-              ? t('sendsCountOne', { count: history.length })
-              : t('sendsCountOther', { count: history.length })}
+            {realHistory.length === 1
+              ? t('sendsCountOne', { count: realHistory.length })
+              : t('sendsCountOther', { count: realHistory.length })}
           </span>
         </summary>
         <div className="mt-3 space-y-2">
-          {history.length === 0 ? (
+          {realHistory.length === 0 ? (
             <div className="text-center py-6 text-sm text-mute">
               <div className="text-2xl mb-1">🔔</div>
               {t('noSendsYet')}
             </div>
           ) : (
-            history.map((n) => (
+            realHistory.map((n) => (
               <div
                 key={n.id}
                 className="border border-line2 rounded-input px-3 py-2 flex items-start gap-3"

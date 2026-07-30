@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { api, getImpersonationBackup } from '@/lib/api';
+import { cleanDomain } from '@/lib/public-domain';
 import { Icon } from '@/components/Icon';
 import { PhoneInput } from '@/components/PhoneInput';
 import {
@@ -42,6 +43,11 @@ export default function NewTenant() {
   // #10: si la marca activa NO tiene el módulo REFERRALS, ocultamos la
   // asignación a afiliados. null = sin marca (Clubify global) → se muestra.
   const [referralsEnabled, setReferralsEnabled] = useState(true);
+  // Base del link de LOGIN que se comparte por WhatsApp/email al crear el
+  // negocio. Debe usar el DOMINIO DE LA MARCA (ej. selleala.com) para que la
+  // vista previa de WhatsApp muestre el branding de la marca, NO el de Clubify.
+  // Default soyclubify.com (Clubify o marca sin dominio propio configurado).
+  const [loginBase, setLoginBase] = useState('https://soyclubify.com');
   // Créditos de la marca del admin. null = admin global (Clubify, sin créditos)
   // → usa el flujo Hotmart. Objeto = admin de marca → activa con créditos y, al
   // crear un negocio, aparece el popup OBLIGATORIO de activación.
@@ -70,11 +76,16 @@ export default function NewTenant() {
   useEffect(() => {
     const slug = getImpersonationBackup()?.tenant?.slug;
     if (!slug) {
+      // Sin marca activa = admin Clubify global → login en soyclubify.com.
       setReferralsEnabled(true);
       return;
     }
     let cancelled = false;
-    api<{ modules?: string[] } | null>(
+    api<{
+      modules?: string[];
+      domain?: string | null;
+      appDomain?: string | null;
+    } | null>(
       `/superadmin-public/white-labels/branding?slug=${encodeURIComponent(slug)}`,
     )
       .then((r) => {
@@ -83,6 +94,11 @@ export default function NewTenant() {
         // (modules viene como array; vacío = sin REFERRALS → ocultar.)
         const mods = r?.modules;
         setReferralsEnabled(mods ? mods.includes('REFERRALS') : true);
+        // Link de login con el dominio de la marca (público > panel). Si la
+        // marca aún no tiene dominio propio, se queda soyclubify.com (no hay
+        // otro host donde WhatsApp resuelva su branding).
+        const host = cleanDomain(r?.appDomain) || cleanDomain(r?.domain);
+        if (host) setLoginBase(`https://${host}`);
       })
       .catch(() => {});
     return () => {
@@ -94,7 +110,7 @@ export default function NewTenant() {
   // 403ea para admins globales (Clubify) → credits queda null.
   useEffect(() => {
     api<any>('/admin/credits')
-      .then((c) =>
+      .then((c) => {
         setCredits({
           available: c?.available ?? 0,
           unlimited: !!c?.unlimited,
@@ -102,8 +118,16 @@ export default function NewTenant() {
           planPeriodicities: Array.isArray(c?.planPeriodicities)
             ? c.planPeriodicities
             : undefined,
-        }),
-      )
+        });
+        // Link de login que se comparte (WhatsApp/email) por el dominio del
+        // PANEL de la marca (ej. app.selleala.com) → WhatsApp muestra el branding
+        // de la marca, no Clubify. /admin/credits resuelve la marca del admin de
+        // forma confiable (directo o impersonado); 403 en Clubify global → se
+        // queda soyclubify.com. Preferimos appDomain (panel) sobre domain.
+        const host =
+          cleanDomain(c?.whiteLabel?.appDomain) || cleanDomain(c?.whiteLabel?.domain);
+        if (host) setLoginBase(`https://${host}`);
+      })
       .catch(() => setCredits(null))
       .finally(() => setCreditsLoaded(true));
   }, []);
@@ -242,7 +266,7 @@ export default function NewTenant() {
               email={email}
               brand={brand}
               password={password}
-              loginUrl="https://soyclubify.com/login"
+              loginUrl={`${loginBase}/login`}
             />
             <SendButton
               kind="whatsapp"
@@ -250,7 +274,7 @@ export default function NewTenant() {
               email={email}
               brand={brand}
               password={password}
-              loginUrl="https://soyclubify.com/login"
+              loginUrl={`${loginBase}/login`}
             />
           </div>
 

@@ -59,11 +59,15 @@ export function mixHex(
 
 /** CSS scopeado a `.brand-panel` que voltea TODO el verde Clubify del panel
  *  (tokens brand/ok + verdes del sidebar) al color de la marca. */
-export function panelBrandCss(color: string): string {
+export function panelBrandCss(color: string, sidebarBg?: string | null): string {
   const c = color;
-  const sb = mixHex(c, 'black', 0.86); // fondo sidebar (oscuro)
-  const sb2 = mixHex(c, 'black', 0.9);
-  const hover = mixHex(c, 'black', 0.72); // hover del sidebar (oscuro)
+  // Fondo del sidebar: si la marca definió un color propio (backgroundColor) se
+  // usa tal cual → permite un sidebar de OTRO tono (ej. #1A1033) manteniendo el
+  // acento. Si no, se deriva oscureciendo el acento (comportamiento histórico).
+  const bg = sidebarBg && /^#[0-9a-fA-F]{6}$/.test(sidebarBg) ? sidebarBg : null;
+  const sb = bg || mixHex(c, 'black', 0.86); // fondo sidebar (oscuro)
+  const sb2 = bg ? mixHex(bg, 'black', 0.25) : mixHex(c, 'black', 0.9);
+  const hover = bg ? mixHex(bg, 'white', 0.08) : mixHex(c, 'black', 0.72); // hover sidebar
   const btnHover = mixHex(c, 'black', 0.12); // hover de botones (tono apenas más oscuro)
   const section = mixHex(c, 'white', 0.5); // labels de sección (claros)
   const soft = c + '24'; // ~14% alpha para *-soft

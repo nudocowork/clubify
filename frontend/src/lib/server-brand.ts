@@ -7,6 +7,8 @@ export type ServerBrand = {
   logoUrl: string | null;
   faviconUrl: string | null;
   primaryColor: string;
+  /** Color propio del fondo del sidebar del panel (null = derivar del acento). */
+  backgroundColor: string | null;
   slug: string;
 } | null;
 
@@ -37,6 +39,7 @@ export async function resolveBrandForHost(host: string): Promise<ServerBrand> {
       logoUrl: d.logoUrl ?? null,
       faviconUrl: favicon,
       primaryColor: d.primaryColor || '#111827',
+      backgroundColor: d.backgroundColor ?? null,
       slug: d.slug,
     };
   } catch {
@@ -63,6 +66,7 @@ export async function resolveBrandBySlug(slug: string): Promise<ServerBrand> {
       logoUrl: d.logoUrl ?? null,
       faviconUrl: favicon,
       primaryColor: d.primaryColor || '#111827',
+      backgroundColor: d.backgroundColor ?? null,
       slug: d.slug,
     };
   } catch {

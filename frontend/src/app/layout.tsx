@@ -104,6 +104,35 @@ function brandIconUrl(
   return `${API_URL}/api/superadmin-public/white-labels/icon?slug=${encodeURIComponent(slug)}&size=${size}&purpose=${purpose}&v=${version}`;
 }
 
+/** Nombre del NEGOCIO cuando el host es su dominio personalizado propio
+ *  (Storefront.customDomain, ej. birrialeon.com) — NO marca blanca. Devuelve
+ *  el brandName para usarlo como título de pestaña (el favicon se mantiene
+ *  Clubify, según el PDF). null para Clubify/dev/hosts reservados. */
+async function resolveTenantNameForHost(host: string): Promise<string | null> {
+  const h = (host || '').toLowerCase().split(':')[0];
+  if (
+    !h ||
+    h === 'localhost' ||
+    h.startsWith('127.') ||
+    h.endsWith('soyclubify.com') ||
+    h.endsWith('clubify.app')
+  ) {
+    return null;
+  }
+  try {
+    const r = await fetch(
+      `${API_URL}/api/public/storefront/resolve-host?host=${encodeURIComponent(h)}`,
+      { next: { revalidate: 60 } },
+    );
+    if (!r.ok) return null;
+    const d = await r.json();
+    const name = (d?.brandName || '').trim();
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
 /** Favicon SVG (cuadrado redondeado con la inicial de la marca) cuando la marca
  *  no tiene logo subido — evita mostrar el icono verde de Clubify. */
 function brandFaviconDataUri(name: string, color: string): string {
@@ -126,6 +155,10 @@ export async function generateMetadata(): Promise<Metadata> {
   const brand =
     (await resolveBrandForHost(host)) ||
     (await resolveBrandForSlug(h.get('x-wl-slug') ?? ''));
+
+  // Negocio con dominio propio (customDomain) que NO es marca blanca: el título
+  // de pestaña muestra el nombre del negocio (favicon se mantiene Clubify, PDF).
+  const bizName = brand ? null : await resolveTenantNameForHost(host);
 
   // ───────── Marca blanca (dominio propio o /admin/<slug>) → metadata de la marca ─────────
   if (brand) {
@@ -263,16 +296,16 @@ export async function generateMetadata(): Promise<Metadata> {
       process.env.NEXT_PUBLIC_APP_URL ?? 'https://soyclubify.com',
     ),
     title: {
-      default: 'Clubify · El sistema operativo de tu negocio local',
-      template: '%s · Clubify',
+      default: bizName || 'Clubify · El sistema operativo de tu negocio local',
+      template: bizName ? `%s · ${bizName}` : '%s · Clubify',
     },
     description:
       'Vende por WhatsApp, fideliza con tarjetas wallet y automatiza con un solo lugar. Activa tu cuenta y empieza a vender hoy.',
     manifest: '/manifest.webmanifest',
-    applicationName: 'Clubify',
+    applicationName: bizName || 'Clubify',
     appleWebApp: {
       capable: true,
-      title: 'Clubify',
+      title: bizName || 'Clubify',
       statusBarStyle: 'black-translucent',
       startupImage: ['/apple-touch-icon.png'],
     },

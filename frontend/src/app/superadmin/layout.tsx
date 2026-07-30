@@ -39,13 +39,16 @@ function buildNavGroups(badges: Badges): NavGroup[] {
         { href: '/superadmin/creditos', label: 'Centro de Créditos', icon: '💳' },
         { href: '/superadmin/cobros', label: 'Centro de Cobros', icon: '🧾', badge: badges.billing },
         { href: '/superadmin/empresas-domicilio', label: 'Empresas de Domicilios', icon: '🛵' },
+        { href: '/superadmin/living-card', label: 'Living Card', icon: '🎟️' },
         { href: '/superadmin/modulos', label: 'Módulos', icon: '⊞' },
       ],
     },
     {
       label: 'PLATAFORMA',
       items: [
+        { href: '/superadmin/paginas-informativas', label: 'Páginas Informativas', icon: '📄' },
         { href: '/superadmin/integraciones', label: 'Integraciones', icon: '🔌' },
+        { href: '/superadmin/estado-servidor', label: 'Estado del Servidor', icon: '🖥️' },
         { href: '/superadmin/historial', label: 'Historial', icon: '🕒' },
         { href: '/superadmin/configuracion', label: 'Configuración', icon: '⚙' },
       ],

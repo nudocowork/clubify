@@ -64,6 +64,17 @@ export type HotmartWebhookPayload = {
       // Oferta específica del checkout. Varias ofertas pueden compartir el mismo
       // productId (ej. packs de 1/10/20 créditos) → el offer.code distingue cuál.
       offer?: { code?: string; description?: string };
+      // Tracking del checkout: Hotmart devuelve aquí el `src`/`sck` que se pasó
+      // en la URL de compra (viene ausente si el checkout no llevó ninguno).
+      // Modelo B de créditos: metemos `src=wl_<whiteLabelId>` para identificar la
+      // marca compradora sin depender del correo. Confirmado contra payloads
+      // reales: la ubicación es data.purchase.tracking.
+      tracking?: {
+        source?: string;
+        source_sck?: string;
+        sck?: string;
+        external_code?: string;
+      };
     };
     product?: { id?: number; name?: string };
   };
@@ -491,7 +502,29 @@ export class HotmartService {
    * créditos, o null si NO matchea ningún productId (sigue al flujo
    * normal de suscripción de tenant).
    */
-  async tryHandleCreditPurchase(payload: HotmartWebhookPayload): Promise<string | null> {
+  /** Extrae el whiteLabelId de un token de tracking del checkout Hotmart.
+   *  Formato esperado: "wl_<uuid>" (lo que inyecta el Master Admin en ?src=).
+   *  Acepta separador _ o -, y tolera un uuid pelado. null si no parece token. */
+  private parseWlToken(raw: string | null | undefined): string | null {
+    const s = (raw ?? '').trim();
+    if (!s) return null;
+    const m = s.match(
+      /wl[_-]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
+    );
+    if (m) return m[1];
+    // uuid pelado (por si mandan solo el id sin prefijo wl_)
+    if (
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
+    ) {
+      return s;
+    }
+    return null;
+  }
+
+  async tryHandleCreditPurchase(
+    payload: HotmartWebhookPayload,
+    dryRun = false,
+  ): Promise<string | null> {
     const productIdRaw = payload.data?.product?.id;
     if (productIdRaw === undefined || productIdRaw === null) return null;
     const productId = String(productIdRaw);
@@ -561,36 +594,98 @@ export class HotmartService {
       return 'credit_purchase_duplicate';
     }
 
-    // Marca propietaria por RELACIÓN DIRECTA del link (product+offer → marca).
-    // 2026-06-23: YA NO se identifica por el correo del comprador — una marca
-    // puede comprar con cualquier email. El email queda SOLO informativo.
-    // El link define la marca (creditLink.whiteLabelId) y la cantidad. Legacy:
-    // link sin whiteLabelId → default Clubify (los links viejos son de Clubify).
-    let whiteLabelId: string | null = creditLink.whiteLabelId ?? null;
-    if (!whiteLabelId) {
-      const clubify = await this.prisma.whiteLabel.findFirst({
-        where: { slug: 'clubify' },
+    // ── Identificación de la MARCA (Modelo B — token en el checkout) ──
+    // Precedencia:
+    //   1) token del checkout: src=wl_<whiteLabelId> (o sck/external_code) →
+    //      marca EXACTA, sin importar con qué correo se pagó. Es lo robusto
+    //      cuando las 3 ofertas (1/10/20) son COMPARTIDAS entre marcas.
+    //   2) relación directa del link (ofertas PROPIAS de una marca, Modelo A).
+    //   3) correo del comprador = adminEmail de una marca (último recurso).
+    //   4) sin match → UNASSIGNED (NUNCA acreditar a la marca equivocada).
+    const tracking = payload.data?.purchase?.tracking;
+    const rawToken = (
+      tracking?.source ||
+      tracking?.source_sck ||
+      tracking?.sck ||
+      tracking?.external_code ||
+      ''
+    ).trim();
+    let whiteLabelId: string | null = null;
+    let resolvedBy: 'token' | 'link' | 'email' | 'none' = 'none';
+
+    const tokenWlId = this.parseWlToken(rawToken);
+    if (tokenWlId) {
+      const wl = await this.prisma.whiteLabel.findUnique({
+        where: { id: tokenWlId },
         select: { id: true },
       });
-      whiteLabelId = clubify?.id ?? null;
+      if (wl) {
+        whiteLabelId = wl.id;
+        resolvedBy = 'token';
+      } else {
+        this.logger.warn(
+          `[CREDITOS] token src="${rawToken}" no matchea ninguna marca — sigo con fallbacks`,
+        );
+      }
     }
+    if (!whiteLabelId && creditLink.whiteLabelId) {
+      whiteLabelId = creditLink.whiteLabelId;
+      resolvedBy = 'link';
+    }
+    if (!whiteLabelId && buyerEmail) {
+      const byEmail = await this.prisma.whiteLabel.findFirst({
+        where: { adminEmail: { equals: buyerEmail, mode: 'insensitive' } },
+        select: { id: true },
+      });
+      if (byEmail) {
+        whiteLabelId = byEmail.id;
+        resolvedBy = 'email';
+      }
+    }
+
+    // Carga la marca resuelta + su flag ilimitado (descarta ids colgados).
     let creditsUnlimited = false;
     if (whiteLabelId) {
       const wl = await this.prisma.whiteLabel.findUnique({
         where: { id: whiteLabelId },
         select: { id: true, creditsUnlimited: true },
       });
-      if (wl) {
-        creditsUnlimited = wl.creditsUnlimited;
+      if (!wl) {
+        whiteLabelId = null; // marca borrada → UNASSIGNED
+        resolvedBy = 'none';
       } else {
-        whiteLabelId = null; // id colgado / marca borrada → UNASSIGNED
+        creditsUnlimited = wl.creditsUnlimited;
       }
     }
+
+    // GUARD Modelo B: si la compra cayó a una marca ILIMITADA (típicamente
+    // Clubify, dueña de las ofertas COMPARTIDAS) y NO fue por token, es casi
+    // seguro una compra de OTRA marca que olvidó el token → UNASSIGNED, para no
+    // absorberla en silencio. Una marca ilimitada nunca necesita comprar.
+    if (whiteLabelId && creditsUnlimited && resolvedBy !== 'token') {
+      this.logger.warn(
+        `[CREDITOS] compra sin token cayó a marca ILIMITADA por '${resolvedBy}' → UNASSIGNED ` +
+          `(evita absorber la compra de otra marca)`,
+      );
+      whiteLabelId = null;
+      resolvedBy = 'none';
+    }
+
     this.logger.log(
-      `[CREDITOS] MARCA BLANCA IDENTIFICADA (por link, no email) · ` +
+      `[CREDITOS] MARCA IDENTIFICADA por=${resolvedBy} · ` +
         `whiteLabelId=${whiteLabelId ?? 'NINGUNA (→ UNASSIGNED)'} unlimited=${creditsUnlimited} ` +
-        `buyer(informativo)=${buyerEmail ?? '-'}`,
+        `token='${rawToken || '-'}' buyer(informativo)=${buyerEmail ?? '-'}`,
     );
+
+    // Modo simulación (dryRun): resolvimos marca + cantidad SIN escribir nada.
+    // Sirve para verificar el ruteo por token desde el simulador sin tocar los
+    // créditos reales ni la idempotencia.
+    if (dryRun) {
+      return (
+        `DRYRUN · resolvedBy=${resolvedBy} · whiteLabelId=${whiteLabelId ?? 'UNASSIGNED'} · ` +
+        `credits=${creditLink.credits} · unlimited=${creditsUnlimited} · token='${rawToken || '-'}'`
+      );
+    }
 
     if (!whiteLabelId) {
       // Sin match — guardamos UNASSIGNED para reasignación manual.
@@ -667,7 +762,7 @@ export class HotmartService {
           whiteLabelId,
           type: 'PURCHASE',
           amount: creditLink.credits,
-          note: `Compra Hotmart · ${creditLink.label} · tx=${transactionId}`,
+          note: `Compra Hotmart · ${creditLink.label} · tx=${transactionId} · marca por=${resolvedBy}`,
         },
       }),
     ]);
