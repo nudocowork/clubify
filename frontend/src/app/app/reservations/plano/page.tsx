@@ -236,6 +236,12 @@ export default function PlanoPage() {
     setTables((prev) => prev.map((tbl) => (tbl.id === id ? { ...tbl, ...patch } : tbl)));
     try {
       await api(`/reservations/tables/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      // Si se movió de sede, recargamos: la mesa sale de la vista actual
+      // (filtrada por sede) y se refrescan las zonas de la sede.
+      if ('locationId' in patch) {
+        setSelectedTableId(null);
+        loadAll();
+      }
     } catch (e: any) {
       toast(e.message || t('errorUpdate'), 'error');
       loadAll();
@@ -533,6 +539,7 @@ export default function PlanoPage() {
               <EditorSidebar
                 table={selectedTable}
                 zones={zones}
+                locations={locations}
                 onPatch={(patch) => selectedTable && patchTable(selectedTable.id, patch)}
                 onToggleBlock={() => selectedTable && toggleBlock(selectedTable)}
                 onDelete={() => selectedTable && deleteTable(selectedTable)}
@@ -1220,12 +1227,14 @@ function EditorView({
 function EditorSidebar({
   table,
   zones,
+  locations,
   onPatch,
   onToggleBlock,
   onDelete,
 }: {
   table: Table | null;
   zones: Zone[];
+  locations: Location[];
   onPatch: (patch: Partial<Table>) => void;
   onToggleBlock: () => void;
   onDelete: () => void;
@@ -1276,6 +1285,24 @@ function EditorSidebar({
             <option value="BAR">{t('shapeBar')}</option>
           </select>
         </div>
+        {locations.length > 1 && (
+          <div>
+            <label className="label">{t('fieldLocation')}</label>
+            <select
+              className="input"
+              value={table.locationId ?? ''}
+              // Al cambiar de sede, limpiamos la zona (las zonas son por sede).
+              onChange={(e) =>
+                onPatch({ locationId: e.target.value || null, zoneId: null })
+              }
+            >
+              <option value="">{t('allLocations')}</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>{l.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className="label">{t('fieldZone')}</label>
           <select
@@ -1284,9 +1311,11 @@ function EditorSidebar({
             onChange={(e) => onPatch({ zoneId: e.target.value || null })}
           >
             <option value="">{t('noZone')}</option>
-            {zones.map((z) => (
-              <option key={z.id} value={z.id}>{z.name}</option>
-            ))}
+            {zones
+              .filter((z) => !table.locationId || !z.locationId || z.locationId === table.locationId)
+              .map((z) => (
+                <option key={z.id} value={z.id}>{z.name}</option>
+              ))}
           </select>
         </div>
         <button

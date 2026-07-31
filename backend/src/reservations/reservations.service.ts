@@ -242,10 +242,14 @@ export class ReservationsService {
 
   async updateTable(user: AuthUser, id: string, patch: Partial<TableDto>) {
     await this.requireOwnedTable(user, id);
+    // Mover la mesa de sede (2026-07-31): si viene locationId lo persistimos.
+    // null = desasignar (todas las sedes). Si además cambia la zona a una de
+    // otra sede, el frontend limpia zoneId; acá respetamos lo que llega.
     return this.prisma.reservationTable.update({
       where: { id },
       data: {
         zoneId: patch.zoneId === null ? null : patch.zoneId,
+        locationId: patch.locationId === null ? null : patch.locationId,
         number: patch.number?.trim(),
         seats: patch.seats,
         shape: patch.shape,

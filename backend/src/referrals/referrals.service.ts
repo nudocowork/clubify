@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtService } from '@nestjs/jwt';
 import { customAlphabet } from 'nanoid';
@@ -115,13 +115,37 @@ export class ReferralsService {
       },
     });
     if (!code) throw new NotFoundException('Código no encontrado');
-    if (!code.ownerUserId) {
-      throw new BadRequestException(
-        'Este código no tiene un usuario afiliado vinculado todavía.',
-      );
+
+    // Auto-sanar: si el código no tiene usuario vinculado pero YA existe una
+    // cuenta afiliado con el email del owner (creada pero nunca linkeada por
+    // una invitación que falló), la vinculamos al vuelo. Si NO hay cuenta, el
+    // admin debe crearla con el botón "Contraseña" (🔑) primero.
+    let ownerUserId = code.ownerUserId;
+    if (!ownerUserId) {
+      const byEmail = code.ownerEmail
+        ? await this.prisma.user.findUnique({
+            where: { email: code.ownerEmail.toLowerCase().trim() },
+            select: { id: true, role: true },
+          })
+        : null;
+      if (byEmail && byEmail.role.startsWith('AFFILIATE_')) {
+        await this.prisma.referralCode.update({
+          where: { id: code.id },
+          data: { ownerUserId: byEmail.id },
+        });
+        ownerUserId = byEmail.id;
+        this.logger.log(
+          `Auto-vinculado ReferralCode ${code.code} → user ${byEmail.id} (${code.ownerEmail}) al impersonar.`,
+        );
+      } else {
+        throw new BadRequestException(
+          'Este afiliado todavía no tiene cuenta de acceso. Usá el botón "Contraseña" para crearle una y luego entrá al panel.',
+        );
+      }
     }
+
     const owner = await this.prisma.user.findUnique({
-      where: { id: code.ownerUserId },
+      where: { id: ownerUserId },
       select: { id: true, email: true, fullName: true, role: true, tenantId: true, isActive: true },
     });
     if (!owner || !owner.isActive) {
@@ -1498,21 +1522,33 @@ export class ReferralsService {
       },
     });
 
-    const invite = await this.auth
-      .inviteAffiliate({
+    let invite: Awaited<ReturnType<typeof this.auth.inviteAffiliate>> | null = null;
+    try {
+      invite = await this.auth.inviteAffiliate({
         email,
         fullName: dto.fullName.trim(),
         role: 'AFFILIATE_INFLUENCER',
         referralCodeId: created.id,
         phone: dto.whatsapp.trim(),
         presetPassword,
-      })
-      .catch((err) => {
-        this.logger.warn(
-          `inviteAffiliate (influencer) falló para ${email}: ${(err as Error).message}`,
-        );
-        return null;
       });
+    } catch (err) {
+      // Si la invitación falla, NO dejamos un código huérfano sin acceso (bug
+      // histórico: el código quedaba creado pero sin usuario → "→ Panel"
+      // fallaba para siempre). Borramos el código recién creado y devolvemos
+      // el error real para que el admin lo corrija (ej. email en conflicto).
+      await this.prisma.referralCode
+        .delete({ where: { id: created.id } })
+        .catch(() => null);
+      this.logger.warn(
+        `inviteAffiliate (influencer) falló para ${email}: ${(err as Error).message} — código ${created.code} revertido.`,
+      );
+      throw err instanceof HttpException
+        ? err
+        : new BadRequestException(
+            `No se pudo crear el acceso del influencer: ${(err as Error).message}`,
+          );
+    }
 
     const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
     // Si el admin fijó password, devolvemos las credenciales para que las
@@ -4316,9 +4352,21 @@ export class ReferralsService {
     paymentAmountUsd: number;
     hotmartTransactionId?: string | null;
   }): Promise<{ generated: number; skipped: number }> {
+    // 2026-07-31: la base de comisión es SIEMPRE el override manual del tenant
+    // (subscriptionPriceUsd, si está seteado >0) o el canónico del plan por
+    // periodicidad — NUNCA el monto crudo pagado (args.paymentAmountUsd se
+    // ignora para la base; se mantiene en la firma por compatibilidad).
+    const tBase = await this.prisma.tenant.findUnique({
+      where: { id: args.tenantId },
+      select: { subscriptionPriceUsd: true, planPeriodicity: true },
+    });
+    const base = await this.recalc.getCommissionBase(
+      tBase?.subscriptionPriceUsd ?? null,
+      tBase?.planPeriodicity ?? null,
+    );
     const { chain, rows, mode } = await this.computeExpectedCommissionRows(
       args.tenantId,
-      args.paymentAmountUsd,
+      base,
     );
     if (!chain.sourceCodeId) return { generated: 0, skipped: 0 };
 
@@ -4386,9 +4434,10 @@ export class ReferralsService {
                 externalTxId: txId,
                 periodKey,
                 availableAt,
-                // Snapshot contable congelado (Fase 4).
+                // Snapshot contable congelado (Fase 4). base = override manual
+                // del tenant o canónico del plan (nunca el monto crudo FX).
                 distributionMode: mode,
-                baseAmountUsd: args.paymentAmountUsd,
+                baseAmountUsd: base,
                 appliedPercent: row.appliedPercent,
               },
             });

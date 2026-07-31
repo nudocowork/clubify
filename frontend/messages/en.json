@@ -3932,6 +3932,7 @@
     "shapeRound": "Round",
     "shapeRect": "Rectangular",
     "shapeBar": "Bar",
+    "fieldLocation": "Location",
     "fieldZone": "Zone",
     "noZone": "No zone",
     "create": "Create",

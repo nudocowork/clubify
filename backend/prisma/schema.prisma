@@ -469,15 +469,19 @@ model Tenant {
   // / filtros en /admin/tenants. Nullable porque tenants pre-2026-06-04
   // no la tienen seteada.
   planPeriodicity             String?
-  // 2026-06-15: precio REAL que el cliente pagó en Hotmart por su ciclo
-  // (payload.data.purchase.price.value). Es la FUENTE DE VERDAD para la
-  // base de comisiones — el socio 10%, la directa y la indirecta se
-  // calculan sobre este monto. Nullable: tenants viejos no lo tienen y
-  // caen al precio canónico del bundle (getBundlePrice). Crítico para el
-  // legacy del link de $50 (esos negocios pagaron 50, no 68): al setearlo
-  // (auto desde webhook o manual desde /admin/tenants) las comisiones
-  // dejan de sobre-estimarse.
+  // Override MANUAL de la base de comisiones (2026-07-31). Si está seteado (>0),
+  // las comisiones se calculan sobre este valor; si está vacío, sobre el precio
+  // CANÓNICO del plan por periodicidad (getBundlePrice: Mensual 68 / Trim 150 /
+  // Sem 278 / Anual 500). YA NO se auto-rellena desde el webhook: antes se
+  // pisaba con el monto crudo (FX) de Hotmart → las comisiones salían
+  // sub-estimadas (ej. 5% de 148.65 = 7.43 en vez de 5% de 150 = 7.50). Solo lo
+  // setea un admin en /admin/tenants (ej. link viejo de $50). El monto crudo
+  // efectivamente pagado va ahora a lastPaymentAmountUsd (solo auditoría).
   subscriptionPriceUsd        Decimal?                   @db.Decimal(10, 2)
+  // Último monto crudo (USD) que Hotmart/Stripe reportó como pagado en el
+  // último cobro. SOLO auditoría / reportes / conciliación — NUNCA se usa para
+  // calcular comisiones (esas usan subscriptionPriceUsd o el canónico).
+  lastPaymentAmountUsd        Decimal?                   @db.Decimal(10, 2)
   // M4 (2026-06-04): override del rate-limit "1 sello cada 24h" por pass.
   // null = 1 (default histórico). N >= 1 permite hasta N sellos/pass/día.
   // El bypass SUPER_ADMIN sigue intacto. Pensado para campañas

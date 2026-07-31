@@ -29,6 +29,8 @@ export type Table = {
   isBlocked: boolean;
   zoneId?: string | null;
   zone?: { name: string } | null;
+  // Sede a la que pertenece la mesa (multi-sede). null = todas / sin sede.
+  locationId?: string | null;
 };
 
 export type ReservationStatus =

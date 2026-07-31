@@ -1082,8 +1082,12 @@ export class HotmartService {
       where: { id: tenant.id },
       data: {
         status: 'ACTIVE',
+        // 2026-07-31: el monto crudo (FX) va a auditoría, NO a la base de
+        // comisiones. subscriptionPriceUsd es override MANUAL only; si está
+        // vacío las comisiones usan el canónico del plan. Antes se pisaba acá
+        // con el monto FX → comisiones sub-estimadas (7.43 en vez de 7.50).
         ...(realPriceUsd != null
-          ? { subscriptionPriceUsd: realPriceUsd }
+          ? { lastPaymentAmountUsd: realPriceUsd }
           : {}),
         // Solo update si Hotmart mandó la fecha O si es primer pago
         // (fallback) — en renovaciones sin date_next_charge preservamos.
@@ -1133,27 +1137,20 @@ export class HotmartService {
         select: { id: true },
       });
       if (vendorUse) {
-        // Precio: monto Hotmart real (validado USD) si vino, sino el
-        // canónico del bundle (mismo que usa getCommissionBase).
-        const paidUsd = this.resolvePaidUsd(
-          payload,
-          'generateCommissionsForPayment',
-          canonicalUsd,
-        );
-        const basePrice = paidUsd ?? canonicalUsd;
+        // 2026-07-31: la base la resuelve el generador (override manual del
+        // tenant o canónico del plan), NUNCA el monto crudo pagado (FX). No le
+        // pasamos el monto de Hotmart; paymentAmountUsd queda como compat.
         await this.referralsService.generateCommissionsForPayment({
           tenantId: tenant.id,
-          paymentAmountUsd: basePrice,
+          paymentAmountUsd: canonicalUsd,
           hotmartTransactionId: transactionId ?? null,
         });
       } else {
+        // La base se resuelve dentro (override manual → canónico). No pasamos
+        // el monto crudo de Hotmart.
         await this.generateReferralCommission({
           tenantId: tenant.id,
-          paidAmount: this.resolvePaidUsd(
-            payload,
-            'generateReferralCommission',
-            canonicalUsd,
-          ),
+          paidAmount: null,
           transactionId,
         });
       }
@@ -1602,12 +1599,28 @@ export class HotmartService {
     // descuento si aplicó cupón). El precio original lo sacamos del plan.
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: opts.tenantId },
-      select: { plan: { select: { priceMonthly: true } }, lastChargeAt: true },
+      select: {
+        lastChargeAt: true,
+        subscriptionPriceUsd: true,
+        planPeriodicity: true,
+      },
     });
-    const originalPrice = Number(tenant?.plan?.priceMonthly ?? 0);
-    const amountPaid = opts.paidAmount && opts.paidAmount > 0 ? opts.paidAmount : originalPrice;
-    if (!originalPrice || originalPrice <= 0) {
-      this.logger.warn(`Skip comisión: sin precio para tenant=${opts.tenantId}`);
+    // 2026-07-31: la base de comisión es SIEMPRE el override manual del tenant
+    // (subscriptionPriceUsd, si está seteado >0) o el canónico del plan por
+    // periodicidad — NUNCA el monto crudo (FX) pagado en Hotmart (opts.paidAmount
+    // ya no se usa como base). Así 5% de un trimestral = 5% de 150 = 7.50, no
+    // 5% de 148.65 = 7.43.
+    const canonicalBase = await this.getCanonicalBundlePrice(
+      tenant?.planPeriodicity ?? null,
+    );
+    const manualOverride =
+      tenant?.subscriptionPriceUsd != null &&
+      Number(tenant.subscriptionPriceUsd) > 0
+        ? Number(tenant.subscriptionPriceUsd)
+        : null;
+    const commissionBase = manualOverride ?? canonicalBase;
+    if (!commissionBase || commissionBase <= 0) {
+      this.logger.warn(`Skip comisión: sin base canónica para tenant=${opts.tenantId}`);
       return;
     }
     // P3 2026-07-02: la comisión se desbloquea 15 días DESPUÉS del pago real en
@@ -1639,8 +1652,8 @@ export class HotmartService {
     // Hotmart manda el monto en el payload (purchase.price.value), ese es
     // la base canónica. Solo caemos a originalPrice si el payload viene
     // vacío (Hotmart raro o reconcile manual).
-    const referralBase = amountPaid;
-    const socioBase = amountPaid;
+    const referralBase = commissionBase;
+    const socioBase = commissionBase;
 
     if (use) {
       const last = use.commissions[0];

@@ -273,7 +273,8 @@ export class StripeService {
       where: { id: tenant.id },
       data: {
         status: 'ACTIVE',
-        ...(ctx.amountUsd != null ? { subscriptionPriceUsd: ctx.amountUsd } : {}),
+        // 2026-07-31: monto crudo → auditoría, no a la base de comisiones.
+        ...(ctx.amountUsd != null ? { lastPaymentAmountUsd: ctx.amountUsd } : {}),
         ...(nextCharge ? { currentPeriodEnd: nextCharge } : {}),
         lastChargeAt: new Date(),
         stripeCustomerId: ctx.customerId ?? tenant.stripeCustomerId,

@@ -7,7 +7,13 @@ type Info = {
   brandName: string;
   logoUrl?: string | null;
   primaryColor?: string | null;
-  zones: { id: string; name: string; slug: string; type: string }[];
+  zones: { id: string; name: string; slug: string; type: string; locationId?: string | null }[];
+  // F2: sedes del negocio. Si hay >1, el cliente elige a cuál reservar primero.
+  locations?: { id: string; name: string; address?: string | null }[];
+  // F3: cantidad máxima que entra en la mesa más grande. Un grupo mayor se
+  // deriva a WhatsApp para atención personalizada.
+  maxPartyOnline?: number;
+  whatsapp?: string | null;
   defaultSlots: string[];
 };
 
@@ -148,6 +154,11 @@ export default function PublicReservation() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [party, setParty] = useState(2);
+  // F3: modo de cantidad — botones fijos o "Otro" (input libre).
+  const [partyMode, setPartyMode] = useState<'preset' | 'otro'>('preset');
+  const [customParty, setCustomParty] = useState('');
+  // F2: sede elegida (null = negocio de 1 sede o sin elegir todavía).
+  const [locationId, setLocationId] = useState<string | null>(null);
   const [date, setDate] = useState(formatDate(new Date()));
   const [time, setTime] = useState<string | null>(null);
   const [zoneSlug, setZoneSlug] = useState<string | null>(null);
@@ -182,7 +193,7 @@ export default function PublicReservation() {
     setLoadingSlots(true);
     const url = `${API}/api/public/reservations/${slug}/availability?date=${date}&party=${party}${
       zoneSlug ? `&zoneSlug=${zoneSlug}` : ''
-    }`;
+    }${locationId ? `&locationId=${locationId}` : ''}`;
     fetch(url)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
@@ -195,7 +206,7 @@ export default function PublicReservation() {
       })
       .catch(() => setAvailability(null))
       .finally(() => setLoadingSlots(false));
-  }, [info, slug, date, party, zoneSlug]);
+  }, [info, slug, date, party, zoneSlug, locationId]);
 
   /** Mesas de la zona elegida (PDF Software 2026-06-29). Solo cuando hay una
    *  zona específica seleccionada (no en "asignación automática"). Recalcula al
@@ -210,7 +221,7 @@ export default function PublicReservation() {
     setLoadingTables(true);
     const url = `${API}/api/public/reservations/${slug}/tables?zoneSlug=${zoneSlug}&date=${date}${
       time ? `&time=${time}` : ''
-    }`;
+    }${locationId ? `&locationId=${locationId}` : ''}`;
     fetch(url)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setTables(d?.tables ?? []))
@@ -240,6 +251,30 @@ export default function PublicReservation() {
   const dates = nextDates(7);
   const primary = info.primaryColor || '#22C55E';
 
+  // F2: negocio con >1 sede → primero elige sede, luego zonas de esa sede.
+  const multiSede = (info.locations?.length ?? 0) > 1;
+  const visibleZones = locationId
+    ? info.zones.filter((z) => z.locationId === locationId)
+    : info.zones;
+
+  // F3: cantidad. presets 1..min(8, maxSeat); "Otro" abre input libre; si supera
+  // la mesa más grande (maxSeat), se deriva a WhatsApp.
+  const maxSeat = info.maxPartyOnline && info.maxPartyOnline > 0 ? info.maxPartyOnline : 20;
+  const presetMax = Math.min(8, maxSeat);
+  const presets = Array.from({ length: presetMax }, (_, i) => i + 1);
+  const otroNum = parseInt(customParty, 10);
+  const overflow =
+    partyMode === 'otro' && Number.isFinite(otroNum) && otroNum > maxSeat;
+  const otroValid =
+    partyMode !== 'otro' ||
+    (Number.isFinite(otroNum) && otroNum >= 1 && !overflow);
+  const waDigits = (info.whatsapp || '').replace(/\D/g, '');
+  const waOverflowHref = waDigits
+    ? `https://wa.me/${waDigits}?text=${encodeURIComponent(
+        `Hola, quiero reservar para ${customParty || party} personas el ${date}. ¿Me ayudan a coordinar una mesa?`,
+      )}`
+    : null;
+
   async function submit() {
     if (!name.trim() || !phone.trim() || !time) return;
     setSubmitting(true);
@@ -257,6 +292,7 @@ export default function PublicReservation() {
           notes: notes.trim() || undefined,
           zoneSlug: zoneSlug || undefined,
           tableId: tableId || undefined,
+          locationId: locationId || undefined,
         }),
       });
       if (!r.ok) {
@@ -304,22 +340,85 @@ export default function PublicReservation() {
           {step === 1 && (
             <>
               <h2 className="text-sm font-semibold mb-2">¿Cuántas personas?</h2>
-              <div className="grid grid-cols-4 gap-2 mb-4">
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((p) => (
+              <div className="grid grid-cols-4 gap-2 mb-3">
+                {presets.map((p) => (
                   <button
                     key={p}
-                    onClick={() => setParty(p)}
+                    onClick={() => {
+                      setPartyMode('preset');
+                      setParty(p);
+                    }}
                     className={`py-3 rounded-lg font-bold text-sm ${
-                      party === p
+                      partyMode === 'preset' && party === p
                         ? 'text-white'
                         : 'bg-white border border-line text-ink'
                     }`}
-                    style={party === p ? { background: primary } : {}}
+                    style={
+                      partyMode === 'preset' && party === p
+                        ? { background: primary }
+                        : {}
+                    }
                   >
                     {p}
                   </button>
                 ))}
+                <button
+                  onClick={() => setPartyMode('otro')}
+                  className={`py-3 rounded-lg font-bold text-sm ${
+                    partyMode === 'otro'
+                      ? 'text-white'
+                      : 'bg-white border border-line text-ink'
+                  }`}
+                  style={partyMode === 'otro' ? { background: primary } : {}}
+                >
+                  Otro
+                </button>
               </div>
+              {partyMode === 'otro' && (
+                <div className="mb-4">
+                  <input
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    value={customParty}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setCustomParty(v);
+                      const n = parseInt(v, 10);
+                      if (Number.isFinite(n) && n >= 1 && n <= maxSeat) setParty(n);
+                    }}
+                    placeholder="Escribe la cantidad de personas"
+                    className="w-full py-3 px-3 rounded-lg border border-line text-sm mb-2"
+                  />
+                  {overflow && (
+                    <div
+                      className="p-3 rounded-lg"
+                      style={{ background: `${primary}0f`, border: `1px solid ${primary}44` }}
+                    >
+                      <div className="font-semibold text-sm mb-1">Grupo grande 🎉</div>
+                      <div className="text-xs text-mute mb-2">
+                        Para {otroNum} personas coordinamos la mesa de forma
+                        personalizada. Escríbenos y te acomodamos.
+                      </div>
+                      {waOverflowHref ? (
+                        <a
+                          href={waOverflowHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg font-bold text-white text-sm"
+                          style={{ background: '#25D366' }}
+                        >
+                          💬 Coordinar por WhatsApp
+                        </a>
+                      ) : (
+                        <div className="text-xs text-mute">
+                          Contacta al negocio para coordinar tu reserva.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <h2 className="text-sm font-semibold mb-2">Fecha</h2>
               <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
@@ -376,8 +475,52 @@ export default function PublicReservation() {
             </>
           )}
 
-          {step === 2 && (
+          {step === 2 && multiSede && !locationId && (
             <>
+              <h2 className="text-sm font-semibold mb-3">Elige tu sede</h2>
+              <p className="text-xs text-mute mb-3">
+                ¿En cuál de nuestras sedes querés reservar?
+              </p>
+              {(info.locations ?? []).map((loc) => (
+                <button
+                  key={loc.id}
+                  onClick={() => {
+                    setLocationId(loc.id);
+                    setZoneSlug(null);
+                    setTableId(null);
+                  }}
+                  className="w-full text-left p-3 rounded-2xl mb-2 border-2 transition flex items-center gap-3"
+                  style={{ borderColor: '#e2e8f0', background: 'white' }}
+                >
+                  <div className="w-10 h-10 rounded-xl bg-bg2 flex items-center justify-center text-base shrink-0">
+                    📍
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm">{loc.name}</div>
+                    {loc.address && (
+                      <div className="text-xs text-mute truncate">{loc.address}</div>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </>
+          )}
+
+          {step === 2 && (!multiSede || !!locationId) && (
+            <>
+              {multiSede && (
+                <button
+                  onClick={() => {
+                    setLocationId(null);
+                    setZoneSlug(null);
+                    setTableId(null);
+                  }}
+                  className="text-xs font-semibold mb-2"
+                  style={{ color: primary }}
+                >
+                  ← Cambiar sede
+                </button>
+              )}
               <h2 className="text-sm font-semibold mb-3">Elige tu lugar</h2>
               <button
                 onClick={() => setZoneSlug(null)}
@@ -410,12 +553,12 @@ export default function PublicReservation() {
                 )}
               </button>
 
-              {info.zones.length > 0 && (
+              {visibleZones.length > 0 && (
                 <>
                   <div className="text-[10px] uppercase tracking-wider text-mute font-bold mb-2 mt-4">
                     O elige zona
                   </div>
-                  {info.zones.map((z) => {
+                  {visibleZones.map((z) => {
                     const zoneIcons: Record<string, string> = {
                       OUTDOOR: '☀️',
                       INDOOR: '🏠',
@@ -656,7 +799,8 @@ export default function PublicReservation() {
               }}
               disabled={
                 submitting ||
-                (step === 1 && !time) ||
+                (step === 1 && (!time || !otroValid)) ||
+                (step === 2 && multiSede && !locationId) ||
                 (step === 3 && (!name.trim() || !phone.trim()))
               }
               className="w-full mt-4 py-3 rounded-lg font-bold text-white disabled:opacity-50"
@@ -676,6 +820,10 @@ export default function PublicReservation() {
                 setTime(null);
                 setZoneSlug(null);
                 setTableId(null);
+                setLocationId(null);
+                setPartyMode('preset');
+                setCustomParty('');
+                setParty(2);
                 setShowPlan(false);
                 setConfirmation(null);
               }}

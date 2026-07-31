@@ -32,6 +32,8 @@ class PublicReservationBody {
   @IsOptional() @IsString() zoneSlug?: string;
   // PDF Software 2026-06-29: mesa específica elegida por el cliente (opcional).
   @IsOptional() @IsString() tableId?: string;
+  // F2 (2026-07-31): sede elegida en el flujo público (si el negocio tiene >1).
+  @IsOptional() @IsString() locationId?: string;
 }
 
 @Controller('public/reservations')
@@ -125,16 +127,38 @@ export class PublicReservationsController {
         reservationsEnabled: true,
         logoUrl: true,
         primaryColor: true,
+        // F3 (2026-07-31): WhatsApp para derivar grupos grandes a atención
+        // personalizada. Cascada: reservas → general → teléfono.
+        whatsappReservationsPhone: true,
+        whatsappPhone: true,
+        phone: true,
       },
     });
     if (!t || t.status === 'SUSPENDED' || !t.reservationsEnabled) {
       throw new NotFoundException('Reservas no disponibles');
     }
+    // F2 (2026-07-31): la zona lleva locationId para poder filtrar por sede en
+    // el flujo público. Se elige la sede primero y luego sus zonas/mesas.
     const zones = await this.prisma.reservationZone.findMany({
       where: { tenantId: t.id, isActive: true },
       orderBy: { position: 'asc' },
-      select: { id: true, name: true, slug: true, type: true },
+      select: { id: true, name: true, slug: true, type: true, locationId: true },
     });
+    // F2: sedes activas del negocio. Si hay >1, el público elige a cuál reservar.
+    const locations = await this.prisma.location.findMany({
+      where: { tenantId: t.id, isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true, address: true },
+    });
+    // F3: cantidad máxima que entra en la mesa más grande (activa, no bloqueada).
+    // Un grupo mayor no cabe en una sola mesa → se deriva a WhatsApp.
+    const maxSeatsAgg = await this.prisma.reservationTable.aggregate({
+      where: { tenantId: t.id, isActive: true, isBlocked: false },
+      _max: { seats: true },
+    });
+    const maxPartyOnline = maxSeatsAgg._max.seats ?? 0;
+    const whatsapp =
+      t.whatsappReservationsPhone || t.whatsappPhone || t.phone || null;
     // Slots configurados por el tenant (con fallback al default si no
     // configuró nada). El frontend público los muestra en formato 12h.
     const defaultSlots = await this.svc.getTenantSlots(t.id);
@@ -143,6 +167,9 @@ export class PublicReservationsController {
       logoUrl: t.logoUrl,
       primaryColor: t.primaryColor,
       zones,
+      locations,
+      maxPartyOnline,
+      whatsapp,
       defaultSlots,
     };
   }
@@ -156,6 +183,7 @@ export class PublicReservationsController {
     @Query('date') date: string,
     @Query('party', new DefaultValuePipe(2), ParseIntPipe) party: number,
     @Query('zoneSlug') zoneSlug?: string,
+    @Query('locationId') locationId?: string,
   ) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       throw new BadRequestException('date YYYY-MM-DD requerido');
@@ -175,7 +203,14 @@ export class PublicReservationsController {
       });
       zoneId = z?.id ?? null;
     }
-    const slots = await this.svc.getAvailability(t.id, date, party, zoneId);
+    // F2: capacidad/disponibilidad scoped a la sede elegida (si vino).
+    const slots = await this.svc.getAvailability(
+      t.id,
+      date,
+      party,
+      zoneId,
+      locationId || null,
+    );
     return { date, party, zoneSlug: zoneSlug ?? null, slots };
   }
 
@@ -189,6 +224,7 @@ export class PublicReservationsController {
     @Query('zoneSlug') zoneSlug?: string,
     @Query('date') date?: string,
     @Query('time') time?: string,
+    @Query('locationId') locationId?: string,
   ) {
     const t = await this.prisma.tenant.findUnique({
       where: { slug },
@@ -206,8 +242,14 @@ export class PublicReservationsController {
       if (!z) return { zoneSlug, tables: [] };
       zoneId = z.id;
     }
+    // F2: si vino locationId (sede elegida) y no una zona, filtramos las mesas
+    // de esa sede.
     const tables = await this.prisma.reservationTable.findMany({
-      where: { tenantId: t.id, isActive: true, ...(zoneId ? { zoneId } : {}) },
+      where: {
+        tenantId: t.id,
+        isActive: true,
+        ...(zoneId ? { zoneId } : locationId ? { locationId } : {}),
+      },
       orderBy: [{ posY: 'asc' }, { posX: 'asc' }],
       select: {
         id: true,
@@ -299,6 +341,9 @@ export class PublicReservationsController {
         notes: body.notes,
         zoneId,
         tableId,
+        // F2: sede elegida. createForTenant igual la deriva de zona/mesa si no
+        // viene, pero la pasamos explícita cuando el cliente eligió sede.
+        locationId: body.locationId ?? null,
       },
       'WEB',
       { notify: true },
