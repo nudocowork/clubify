@@ -23,7 +23,7 @@ export type InfoPageData = {
   ctaUrl?: string | null;
   formEnabled?: boolean;
   formFields?: InfoFormField[];
-  theme?: { primaryColor?: string } | null;
+  theme?: { primaryColor?: string; customHtml?: string } | null;
 };
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? '';
@@ -109,29 +109,44 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
         </div>
       </header>
 
-      {/* Descripción */}
-      {data.description && (
-        <section className="mx-auto max-w-3xl px-5 py-6">
-          <p className="text-pretty text-center text-lg leading-relaxed text-slate-700">{data.description}</p>
-        </section>
-      )}
-
-      {/* Secciones */}
-      {!!data.sections?.length && (
+      {/* Código HTML personalizado (avanzado): si está presente, REEMPLAZA a la
+          descripción + secciones y da control total del cuerpo de la página. Lo edita
+          solo un admin desde team → COMERCIAL → Páginas Info (contenido de confianza;
+          los <script> insertados vía innerHTML no se ejecutan). */}
+      {data.theme?.customHtml ? (
         <section className="mx-auto max-w-4xl px-5 py-8">
-          <div className="grid gap-5 sm:grid-cols-2">
-            {data.sections.map((s, i) => (
-              <div key={i} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-6">
-                {s.imageUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={s.imageUrl} alt="" className="mb-4 h-40 w-full rounded-xl object-cover" />
-                )}
-                {s.heading && <h3 className="text-lg font-bold" style={{ color: accent }}>{s.heading}</h3>}
-                {s.body && <p className="mt-2 text-sm leading-relaxed text-slate-600">{s.body}</p>}
-              </div>
-            ))}
-          </div>
+          <div
+            className="info-html leading-relaxed text-slate-700 [&_a]:text-emerald-700 [&_a]:underline [&_h1]:mt-6 [&_h1]:text-3xl [&_h1]:font-extrabold [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:mt-4 [&_h3]:text-xl [&_h3]:font-semibold [&_img]:mx-auto [&_img]:my-4 [&_img]:max-w-full [&_img]:rounded-xl [&_li]:ml-5 [&_li]:list-disc [&_p]:my-3 [&_ul]:my-3"
+            dangerouslySetInnerHTML={{ __html: data.theme.customHtml }}
+          />
         </section>
+      ) : (
+        <>
+          {/* Descripción */}
+          {data.description && (
+            <section className="mx-auto max-w-3xl px-5 py-6">
+              <p className="text-pretty text-center text-lg leading-relaxed text-slate-700">{data.description}</p>
+            </section>
+          )}
+
+          {/* Secciones */}
+          {!!data.sections?.length && (
+            <section className="mx-auto max-w-4xl px-5 py-8">
+              <div className="grid gap-5 sm:grid-cols-2">
+                {data.sections.map((s, i) => (
+                  <div key={i} className="rounded-2xl border border-slate-100 bg-slate-50/60 p-6">
+                    {s.imageUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={s.imageUrl} alt="" className="mb-4 h-40 w-full rounded-xl object-cover" />
+                    )}
+                    {s.heading && <h3 className="text-lg font-bold" style={{ color: accent }}>{s.heading}</h3>}
+                    {s.body && <p className="mt-2 text-sm leading-relaxed text-slate-600">{s.body}</p>}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </>
       )}
 
       {/* Video */}
