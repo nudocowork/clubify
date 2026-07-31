@@ -289,6 +289,26 @@ function CropperModal({
   const CONTAINER_W = FRAME_W + PADDING * 2;
   const CONTAINER_H = FRAME_H + PADDING * 2;
 
+  // Límites del zoom RELATIVOS al tamaño de la imagen. Antes el slider tenía
+  // un rango FIJO (0.3–5) que no matcheaba imágenes grandes ni chicas: para
+  // una foto grande el auto-fit (cover ≈ 0.15) quedaba por debajo del min del
+  // slider → el thumb se trababa en el extremo y no volvía al encuadre; para
+  // un logo chico 5× era casi nada. Ahora:
+  //   coverZoom   = la imagen CUBRE el recuadro (llena, puede recortar).
+  //   containZoom = la imagen ENTRA completa (con margen) — es el "Encajar todo".
+  // El rango va de medio-contain (permite margen, como pediste) a 4× cover
+  // (acercar bien), y SIEMPRE incluye ambos auto-fits para que no se trabe.
+  const coverZoom =
+    imgSize.w && imgSize.h
+      ? Math.max(FRAME_W / imgSize.w, FRAME_H / imgSize.h)
+      : 1;
+  const containZoom =
+    imgSize.w && imgSize.h
+      ? Math.min(FRAME_W / imgSize.w, FRAME_H / imgSize.h)
+      : 1;
+  const minZoom = containZoom * 0.5;
+  const maxZoom = coverZoom * 4;
+
   // Si src es una URL remota (no blob: del file picker), usamos el proxy
   // CORS del backend para poder leer pixels en el canvas. Si es blob:, va
   // directo (mismo origen).
@@ -546,9 +566,9 @@ function CropperModal({
           </div>
           <input
             type="range"
-            min={0.3}
-            max={5}
-            step={0.02}
+            min={minZoom}
+            max={maxZoom}
+            step={Math.max(0.001, (maxZoom - minZoom) / 200)}
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
             className="w-full"
@@ -566,8 +586,7 @@ function CropperModal({
               type="button"
               onClick={() => {
                 if (!imgRef.current) return;
-                const cz = Math.max(FRAME_W / imgSize.w, FRAME_H / imgSize.h);
-                setZoom(cz);
+                setZoom(coverZoom);
                 setPos({ x: 0, y: 0 });
               }}
               disabled={!imgLoaded || exporting}
@@ -580,8 +599,7 @@ function CropperModal({
               type="button"
               onClick={() => {
                 if (!imgRef.current) return;
-                const cz = Math.min(FRAME_W / imgSize.w, FRAME_H / imgSize.h);
-                setZoom(cz);
+                setZoom(containZoom);
                 setPos({ x: 0, y: 0 });
               }}
               disabled={!imgLoaded || exporting}
