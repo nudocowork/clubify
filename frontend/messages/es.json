@@ -4578,7 +4578,7 @@
     "kpiUsed": "Usados (histórico)",
     "kpiPendingBusinesses": "Negocios pendientes",
     "buyCreditsTitle": "Comprar créditos",
-    "buyCreditsWarning": "<b>Importante:</b> compra los créditos usando <b>exactamente el mismo correo</b> registrado en tu marca para que la acreditación sea automática. Si usas otro correo, el pago queda pendiente de asignación manual.",
+    "buyCreditsWarning": "<b>Importante:</b> comprá desde <b>estos botones</b> — el link ya está vinculado a tu marca, así los créditos se acreditan solos (sin importar con qué correo pagues). No copies links de otro lado.",
     "creditsCount": "{count, plural, one {# crédito} other {# créditos}}",
     "buyArrow": "Comprar →",
     "pendingBusinessesTitle": "Negocios pendientes de activación",

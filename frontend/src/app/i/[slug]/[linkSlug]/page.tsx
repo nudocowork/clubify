@@ -166,12 +166,15 @@ export default function PublicInfoLink() {
     };
   }, [slug, linkSlug, locale]);
 
-  function trackClick(label: string) {
+  function trackClick(label: string, buttonType?: string) {
     if (!data) return;
     fetch(`${API}/api/public/i/${data.link.id}/track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'click_button', metadata: { label } }),
+      // `type` del botón (WHATSAPP/MAPS/…) permite desglosar "WhatsApp abiertos"
+      // en las estadísticas del negocio InfoLink. Aditivo: eventos viejos no lo
+      // tienen y siguen contando como clic.
+      body: JSON.stringify({ type: 'click_button', metadata: { label, ...(buttonType ? { buttonType } : {}) } }),
     }).catch(() => null);
   }
 
@@ -329,7 +332,7 @@ export default function PublicInfoLink() {
         isPrimary: b.style !== 'secondary',
         bgStyle,
         onClick: (e?: React.MouseEvent) => {
-          trackClick(b.label);
+          trackClick(b.label, b.type);
           // Acción real del botón: MAPS con varias sedes → modal de selección;
           // resto → navegar (pestaña nueva o misma). Se ejecuta directo o, si
           // hay popup pre-acción, desde el botón "Continuar" del popup.

@@ -10,6 +10,7 @@ import {
   BUSINESS_CATEGORIES,
   DEFAULT_CATEGORY_SLUG,
 } from '@/lib/business-categories';
+import { BUSINESS_TYPES, BusinessType, cycleCreditCost, formatCredits } from '@/lib/business-types';
 import { AffiliatePickerSearch } from '@/components/AffiliatePickerSearch';
 
 export default function NewTenant() {
@@ -28,6 +29,8 @@ export default function NewTenant() {
     // M9: periodicidad del plan elegida por el admin. Informativo (no
     // altera billing real). Default vacío hasta que el admin elija.
     planPeriodicity: '' as '' | 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL',
+    // Tipo de negocio (línea de producto). Default Negocio Completo.
+    businessType: 'FULL' as BusinessType,
     businessCategorySlug: DEFAULT_CATEGORY_SLUG,
     trialDays: 7,
     nextChargeDate: '',
@@ -148,6 +151,7 @@ export default function NewTenant() {
         ownerPassword: form.ownerPassword || undefined,
         planId: form.planId || undefined,
         planPeriodicity: form.planPeriodicity || undefined,
+        businessType: form.businessType,
         businessCategorySlug: form.businessCategorySlug,
       };
       if (billingMode === 'free') {
@@ -204,6 +208,7 @@ export default function NewTenant() {
             tenantId={result.tenant.id}
             tenantName={brand}
             credits={credits}
+            cost={cycleCreditCost(form.businessType, form.planPeriodicity || 'MENSUAL')}
             onActivated={(left) => {
               setActivated(true);
               setShowCreditModal(false);
@@ -443,6 +448,50 @@ export default function NewTenant() {
         )}
 
         <div className="col-span-2">
+          <label className="label">Tipo de negocio</label>
+          <div className="grid grid-cols-2 gap-2">
+            {(Object.values(BUSINESS_TYPES) as { key: BusinessType; label: string; creditCost: number }[]).map((bt) => {
+              const active = form.businessType === bt.key;
+              const per = form.planPeriodicity || 'MENSUAL';
+              const cost = cycleCreditCost(bt.key, per);
+              return (
+                <button
+                  type="button"
+                  key={bt.key}
+                  onClick={() => set('businessType', bt.key)}
+                  className={`rounded-input border-2 p-3 text-left transition ${
+                    active
+                      ? 'border-brand bg-brand-soft'
+                      : 'border-line bg-white hover:border-brand/40'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-block h-3.5 w-3.5 rounded-full border-2 ${
+                        active ? 'border-brand bg-brand' : 'border-line'
+                      }`}
+                    />
+                    <span className="text-sm font-semibold text-ink">{bt.label}</span>
+                  </div>
+                  <div className="mt-1 pl-[22px] text-[11px] text-mute leading-snug">
+                    {bt.key === 'INFOLINK'
+                      ? 'Solo el módulo InfoLink (mini-página tipo Linktree).'
+                      : 'Todos los módulos de la plataforma.'}
+                    <br />
+                    Consume <b>{formatCredits(bt.creditCost)}</b> créd/mes
+                    {' · '}
+                    {formatCredits(cost)} por ciclo {per.toLowerCase()}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[11px] text-mute mt-1">
+            Un negocio “Solo InfoLink” solo verá el módulo InfoLink y consume menos créditos.
+          </div>
+        </div>
+
+        <div className="col-span-2">
           <label className="label">{t('fieldCategory')}</label>
           <select
             className="input"
@@ -645,19 +694,22 @@ function CreditActivationModal({
   tenantId,
   tenantName,
   credits,
+  cost,
   onActivated,
   onSkip,
 }: {
   tenantId: string;
   tenantName: string;
   credits: { available: number; unlimited: boolean; buyLinks: any[] } | null;
+  /** Créditos que costará activar (según tipo de negocio × periodicidad). */
+  cost: number;
   onActivated: (creditsLeft: number) => void;
   onSkip: () => void;
 }) {
   const t = useTranslations('admin_tenants_new');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const canUseCredit = !!credits && (credits.unlimited || credits.available >= 1);
+  const canUseCredit = !!credits && (credits.unlimited || credits.available >= cost);
   const buyLinks = credits?.buyLinks ?? [];
 
   async function useCredit() {
@@ -698,6 +750,10 @@ function CreditActivationModal({
               count: credits?.available ?? 0,
               strong: (chunks) => <strong>{chunks}</strong>,
             })}
+            <div className="mt-1 text-mute">
+              Esta activación descuenta <strong>{formatCredits(cost)}</strong>{' '}
+              crédito{cost === 1 ? '' : 's'}.
+            </div>
           </div>
         )}
 
@@ -716,7 +772,7 @@ function CreditActivationModal({
             ? t('activating')
             : credits?.unlimited
             ? t('activateBusiness')
-            : t('useOneCredit')}
+            : `Usar ${formatCredits(cost)} crédito${cost === 1 ? '' : 's'}`}
         </button>
 
         {!canUseCredit && !credits?.unlimited && (

@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 import { addPlanPeriod, bundleMonths } from '../common/plan-period';
+import { cycleCreditCost, round2 } from '../common/business-types';
 
 /**
  * Cron de renovaciones automáticas (Fase 2 del Master Admin).
@@ -82,24 +83,28 @@ export class RenewalsService {
 
   /** Recalcula `creditsCommitted` por marca: cuántos créditos van a
    *  necesitarse en los próximos 30 días para renovar a los tenants
-   *  ACTIVE. 1 tenant = 1 crédito por ciclo. Idempotente. */
+   *  ACTIVE. Ponderado por tipo de negocio × periodicidad
+   *  (cycleCreditCost): un Completo mensual compromete 1, un InfoLink
+   *  mensual 0.25, y uno anual próximo a renovar su ciclo completo
+   *  (Completo=12, InfoLink=3). Idempotente. */
   async refreshCommittedCredits() {
     const now = new Date();
     const horizon = new Date(now.getTime() + RenewalsService.CYCLE_DAYS * RenewalsService.DAY_MS);
 
-    const grouped = await this.prisma.tenant.groupBy({
-      by: ['whiteLabelId'],
+    const tenants = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
         whiteLabelId: { not: null },
         currentPeriodEnd: { not: null, lte: horizon },
       },
-      _count: { _all: true },
+      select: { whiteLabelId: true, businessType: true, planPeriodicity: true },
     });
 
     const byWl = new Map<string, number>();
-    for (const g of grouped) {
-      if (g.whiteLabelId) byWl.set(g.whiteLabelId, g._count._all);
+    for (const t of tenants) {
+      if (!t.whiteLabelId) continue;
+      const cost = cycleCreditCost(t.businessType, t.planPeriodicity);
+      byWl.set(t.whiteLabelId, (byWl.get(t.whiteLabelId) ?? 0) + cost);
     }
 
     const allWhiteLabels = await this.prisma.whiteLabel.findMany({
@@ -108,13 +113,14 @@ export class RenewalsService {
 
     let totalCommitted = 0;
     for (const wl of allWhiteLabels) {
-      const count = byWl.get(wl.id) ?? 0;
-      totalCommitted += count;
+      const committed = round2(byWl.get(wl.id) ?? 0);
+      totalCommitted += committed;
       await this.prisma.whiteLabel.update({
         where: { id: wl.id },
-        data: { creditsCommitted: count },
+        data: { creditsCommitted: committed },
       });
     }
+    totalCommitted = round2(totalCommitted);
 
     await this.prisma.setting.upsert({
       where: { key: 'platform.creditsCommittedRefreshedAt' },
@@ -145,6 +151,7 @@ export class RenewalsService {
         whiteLabelId: true,
         currentPeriodEnd: true,
         planPeriodicity: true,
+        businessType: true,
       },
       take: 1000,
     });
@@ -235,11 +242,14 @@ export class RenewalsService {
         continue;
       }
 
-      if (wl.creditsAvailable >= 1) {
-        // Renovar: consume 1 crédito + extiende currentPeriodEnd 30d.
-        // Race-safe en dos niveles:
-        //  1) Crédito: updateMany con guard `creditsAvailable >= 1` —
-        //     si un adjustCredits concurrente bajó a 0, no decrementa.
+      // Costo del ciclo según tipo de negocio × periodicidad. Completo mensual=1,
+      // InfoLink mensual=0.25, Completo anual=12, InfoLink anual=3, etc.
+      const cost = cycleCreditCost(t.businessType, t.planPeriodicity);
+      if (wl.creditsAvailable >= cost) {
+        // Renovar: consume `cost` créditos + extiende currentPeriodEnd por la
+        // periodicidad. Race-safe en dos niveles:
+        //  1) Crédito: updateMany con guard `creditsAvailable >= cost` —
+        //     si un adjustCredits concurrente bajó por debajo, no decrementa.
         //  2) Tenant: updateMany con guard `currentPeriodEnd = periodEnd`
         //     — si otro worker ya renovó, no extiende.
         // Si el tenant ya estaba renovado, rollback del crédito.
@@ -248,15 +258,15 @@ export class RenewalsService {
           // = +3 meses), no +30 días fijos.
           const newPeriodEnd = addPlanPeriod(periodEnd, t.planPeriodicity);
           const debit = await this.prisma.whiteLabel.updateMany({
-            where: { id: wl.id, creditsAvailable: { gte: 1 } },
+            where: { id: wl.id, creditsAvailable: { gte: cost } },
             data: {
-              creditsAvailable: { decrement: 1 },
-              creditsUsed: { increment: 1 },
+              creditsAvailable: { decrement: cost },
+              creditsUsed: { increment: cost },
             },
           });
           if (debit.count === 0) {
-            // Race: otra operación bajó los créditos a 0. Caemos a la
-            // rama "sin créditos" abajo, simulando que nunca tuvimos.
+            // Race: otra operación bajó los créditos. Caemos a la rama
+            // "sin créditos" abajo, simulando que nunca tuvimos.
             wl.creditsAvailable = 0;
           } else {
             const updateTenant = await this.prisma.tenant.updateMany({
@@ -268,8 +278,8 @@ export class RenewalsService {
               await this.prisma.whiteLabel.update({
                 where: { id: wl.id },
                 data: {
-                  creditsAvailable: { increment: 1 },
-                  creditsUsed: { decrement: 1 },
+                  creditsAvailable: { increment: cost },
+                  creditsUsed: { decrement: cost },
                 },
               });
               summary.skipped++;
@@ -285,9 +295,9 @@ export class RenewalsService {
               data: {
                 whiteLabelId: wl.id,
                 type: 'CONSUME',
-                amount: -1,
+                amount: -cost,
                 tenantId: t.id,
-                note: `Auto-renovación · ${t.brandName} · +${bundleMonths(t.planPeriodicity)}m`,
+                note: `Auto-renovación · ${t.brandName} · +${bundleMonths(t.planPeriodicity)}m · ${cost} créd`,
               },
             });
             summary.renewed++;

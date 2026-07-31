@@ -1448,6 +1448,9 @@ function AcademyTogglesCard({
   const [serviceReservations, setServiceReservations] = useState<boolean>(
     tenant.serviceReservationsEnabled ?? false,
   );
+  const [businessType, setBusinessType] = useState<string>(
+    tenant.businessType ?? 'FULL',
+  );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -1462,6 +1465,7 @@ function AcademyTogglesCard({
           academyEnabled: academy,
           reservationsEnabled: reservations,
           serviceReservationsEnabled: serviceReservations,
+          businessType,
         }),
       });
       setMsg({ ok: true, text: t('changesSaved') });
@@ -1481,6 +1485,38 @@ function AcademyTogglesCard({
       <p className="text-xs text-mute mt-1 leading-relaxed">
         {t('tenantModulesDesc')}
       </p>
+
+      {/* Tipo de negocio (Negocio Completo / Solo InfoLink). Cambia el consumo
+          de créditos futuro y los módulos visibles (backend + sidebar). */}
+      <div className="mt-4">
+        <div className="text-sm font-semibold mb-1.5">Tipo de negocio</div>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { key: 'FULL', label: 'Negocio Completo', hint: 'Todos los módulos · 1 créd/mes' },
+            { key: 'INFOLINK', label: 'Solo InfoLink', hint: 'Solo InfoLink · 0.25 créd/mes' },
+          ].map((bt) => {
+            const active = businessType === bt.key;
+            return (
+              <button
+                type="button"
+                key={bt.key}
+                onClick={() => setBusinessType(bt.key)}
+                className={`rounded-input border-2 p-2.5 text-left transition ${
+                  active ? 'border-brand bg-brand-soft' : 'border-line bg-white hover:border-brand/40'
+                }`}
+              >
+                <div className="text-sm font-semibold text-ink">{bt.label}</div>
+                <div className="text-[11px] text-mute mt-0.5">{bt.hint}</div>
+              </button>
+            );
+          })}
+        </div>
+        {businessType === 'INFOLINK' && (
+          <div className="text-[11px] text-warn-ink mt-1.5 leading-snug">
+            Este negocio solo verá el módulo InfoLink; el backend bloquea el resto.
+          </div>
+        )}
+      </div>
 
       <div className="mt-4 space-y-3">
         <label className="flex items-start gap-3 cursor-pointer">

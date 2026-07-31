@@ -2,8 +2,31 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { SettingsService } from '../settings/settings.service';
-import { normalizePlanPeriod } from '../common/plan-period';
+import { normalizePlanPeriod, addPlanPeriod, bundleMonths } from '../common/plan-period';
+import { cycleCreditCost } from '../common/business-types';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
+
+/**
+ * Agrega el token de ruteo `src=wl_<whiteLabelId>` a un link de compra Hotmart.
+ * El checkout Hotmart lo propaga como `tracking.source` en el webhook, y
+ * hotmart.service lo usa como 1ª prioridad para acreditar los créditos a la
+ * marca correcta (sin depender del correo del comprador). Reemplaza un `src`
+ * previo si existiera. Devuelve la URL igual si está vacía o es inválida.
+ */
+function withWlToken(rawUrl: string | null | undefined, wlId: string): string {
+  const url = (rawUrl ?? '').trim();
+  if (!url) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.set('src', `wl_${wlId}`);
+    return u.toString();
+  } catch {
+    // URL relativa/no parseable → fallback manual conservando query previa.
+    const base = url.replace(/([?&])src=[^&]*/i, '$1').replace(/[?&]$/, '');
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}src=wl_${wlId}`;
+  }
+}
 
 /**
  * Servicio de reportes/rankings/dashboard para SUPER_ADMIN.
@@ -1717,8 +1740,14 @@ export class AdminReportsService {
       committed: wl.creditsCommitted,
       used: wl.creditsUsed,
       pendingTenants: pendingCount,
+      // PDF 1256 · créditos: inyectamos el token `src=wl_<marca>` en cada link de
+      // compra. Así, cuando ESTA marca compra desde su panel, el webhook Hotmart
+      // trae tracking.source=wl_<id> y acredita a la marca correcta sin depender
+      // del correo del comprador (evita que caiga como UNASSIGNED). Ver
+      // hotmart.service tryHandleCreditPurchase (resolución por token = 1ª prioridad).
       buyLinks: buyLinks.map((l) => ({
         ...l,
+        url: withWlToken(l.url, wlId),
         price: l.price == null ? null : Number(l.price),
       })),
       history,
@@ -1810,6 +1839,8 @@ export class AdminReportsService {
         whiteLabelId: true,
         status: true,
         currentPeriodEnd: true,
+        businessType: true,
+        planPeriodicity: true,
       },
     });
     if (!tenant) throw new NotFoundException('Negocio no encontrado');
@@ -1838,9 +1869,11 @@ export class AdminReportsService {
       tenant.currentPeriodEnd && tenant.currentPeriodEnd > now
         ? tenant.currentPeriodEnd
         : now;
-    const newPeriodEnd = new Date(
-      base.getTime() + AdminReportsService.CYCLE_DAYS * 24 * 60 * 60 * 1000,
-    );
+    // Extiende por la periodicidad del plan (Anual = +12 meses), no +30 fijos,
+    // y cobra el ciclo completo según el tipo de negocio (InfoLink anual = 3).
+    const newPeriodEnd = addPlanPeriod(base, tenant.planPeriodicity);
+    const cost = cycleCreditCost(tenant.businessType, tenant.planPeriodicity);
+    const months = bundleMonths(tenant.planPeriodicity);
 
     // Marca ilimitada: activa sin consumir crédito ni crear transacción.
     if (wl.creditsUnlimited) {
@@ -1856,12 +1889,12 @@ export class AdminReportsService {
       };
     }
 
-    // Débito race-safe: sólo decrementa si hay >= 1 crédito.
+    // Débito race-safe: sólo decrementa si hay >= cost créditos.
     const debit = await this.prisma.whiteLabel.updateMany({
-      where: { id: wlId, creditsAvailable: { gte: 1 } },
+      where: { id: wlId, creditsAvailable: { gte: cost } },
       data: {
-        creditsAvailable: { decrement: 1 },
-        creditsUsed: { increment: 1 },
+        creditsAvailable: { decrement: cost },
+        creditsUsed: { increment: cost },
       },
     });
     if (debit.count === 0) {
@@ -1879,9 +1912,9 @@ export class AdminReportsService {
         data: {
           whiteLabelId: wlId,
           type: 'CONSUME',
-          amount: -1,
+          amount: -cost,
           tenantId: tenant.id,
-          note: `Activación manual · ${tenant.brandName} · +30d`,
+          note: `Activación manual · ${tenant.brandName} · +${months}m · ${cost} créd`,
         },
       });
     } catch (e) {
@@ -1889,8 +1922,8 @@ export class AdminReportsService {
       await this.prisma.whiteLabel.update({
         where: { id: wlId },
         data: {
-          creditsAvailable: { increment: 1 },
-          creditsUsed: { decrement: 1 },
+          creditsAvailable: { increment: cost },
+          creditsUsed: { decrement: cost },
         },
       });
       throw e;
@@ -1900,7 +1933,7 @@ export class AdminReportsService {
       where: { id: wlId },
       select: { creditsAvailable: true },
     });
-    const available = after?.creditsAvailable ?? wl.creditsAvailable - 1;
+    const available = after?.creditsAvailable ?? wl.creditsAvailable - cost;
     // Notificaciones a la marca (best-effort): saldo bajo + recálculo de
     // pendientes (este activación pudo haber vaciado la bandeja).
     await this.wlNotifications.onCreditsConsumed(wlId, available).catch(() => null);
@@ -1908,7 +1941,7 @@ export class AdminReportsService {
     await this.wlNotifications.onPendingClients(wlId, pendingNow).catch(() => null);
     return {
       ok: true,
-      consumed: 1,
+      consumed: cost,
       creditsAvailable: available,
       currentPeriodEnd: newPeriodEnd,
     };

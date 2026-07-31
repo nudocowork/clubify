@@ -189,6 +189,9 @@ export default function AppShell({
     reservationsEnabled?: boolean;
     // Reservas de SERVICIOS (citas) — PDF245 P7. Activado per-tenant.
     serviceReservationsEnabled?: boolean;
+    // Tipo de negocio: 'INFOLINK' = panel reducido (solo InfoLink). null/'FULL'
+    // = Negocio Completo (todos los módulos).
+    businessType?: string | null;
     // Master Admin 2026-06-14: si la marca blanca tiene créditos ilimitados,
     // este tenant nunca necesita pasar por Hotmart. Salta el lockscreen.
     whiteLabelCreditsUnlimited?: boolean;
@@ -487,6 +490,7 @@ export default function AppShell({
           academyEnabled: t?.academyEnabled ?? true,
           reservationsEnabled: t?.reservationsEnabled ?? false,
           serviceReservationsEnabled: t?.serviceReservationsEnabled ?? false,
+          businessType: t?.businessType ?? 'FULL',
           whiteLabelCreditsUnlimited: t?.whiteLabelCreditsUnlimited ?? false,
           reviewsEnabled: t?.reviewsEnabled ?? true,
           whiteLabelSlug: t?.whiteLabelSlug ?? null,
@@ -697,6 +701,32 @@ export default function AppShell({
             .filter((g) => g.items.length > 0);
         })()
       : (() => {
+          // Negocio "Solo InfoLink": panel reducido, producto independiente.
+          // Solo Dashboard, InfoLink, QR InfoLink, Estadísticas, Suscripción y
+          // Configuración. El backend además bloquea el resto de módulos (guard).
+          if (tenantInfo?.businessType === 'INFOLINK') {
+            return [
+              {
+                section: '',
+                items: [{ href: '/app', label: 'Dashboard', icon: 'grid' as IconName }],
+              },
+              {
+                section: 'InfoLink',
+                items: [
+                  { href: '/app/info-links', label: 'InfoLink', icon: 'spark' as IconName },
+                  { href: '/app/marketing/qr-infolink', label: 'QR InfoLink', icon: 'qr' as IconName },
+                  { href: '/app/estadisticas', label: 'Estadísticas', icon: 'history' as IconName },
+                ],
+              },
+              {
+                section: 'Cuenta',
+                items: [
+                  { href: '/app/billing', label: 'Suscripción', icon: 'card' as IconName },
+                  { href: '/app/settings', label: 'Configuraciones', icon: 'gear' as IconName },
+                ],
+              },
+            ] as NavGroup[];
+          }
           const catSlug = tenantInfo?.businessCategorySlug;
           const cat = getCategoryBySlug(catSlug);
           const has = (m: BusinessModule) => cat.modules.includes(m);

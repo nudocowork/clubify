@@ -44,6 +44,12 @@ export class InfoLinksController {
     return this.svc.list(user, tenantId);
   }
 
+  // ANTES de @Get(':id') — sino lo tapa (NestJS route order).
+  @Get('overview')
+  overview(@CurrentUser() user: AuthUser) {
+    return this.svc.tenantOverview(user);
+  }
+
   @Get(':id')
   get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.get(user, id);

@@ -17,6 +17,7 @@ import {
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
+import { cycleCreditCost } from '../common/business-types';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash } from 'crypto';
 
@@ -2071,6 +2072,8 @@ export class SuperAdminService {
         slug: true,
         status: true,
         currentPeriodEnd: true,
+        businessType: true,
+        planPeriodicity: true,
         whiteLabel: {
           select: { id: true, name: true, primaryColor: true, initial: true },
         },
@@ -2092,7 +2095,8 @@ export class SuperAdminService {
           ? { id: t.whiteLabel.id, name: t.whiteLabel.name, primaryColor: t.whiteLabel.primaryColor, initial: t.whiteLabel.initial }
           : null,
         currentPeriodEnd: t.currentPeriodEnd,
-        creditsRequired: 1,
+        // Créditos que costará su próxima renovación (tipo × periodicidad).
+        creditsRequired: cycleCreditCost(t.businessType, t.planPeriodicity),
         state,
       };
     });

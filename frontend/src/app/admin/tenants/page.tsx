@@ -72,6 +72,9 @@ function searchHaystack(t: any): string {
     t.status,
     t.plan?.name,
     t.planPeriodicity,
+    // Tipo de negocio para que "infolink" / "completo" matcheen en la búsqueda.
+    t.businessType,
+    t.businessType === 'INFOLINK' ? 'solo infolink' : 'negocio completo',
     t.attributionInfluencer?.ownerName,
     t.attributionAmbassador?.ownerName,
     t.attributionVendor?.ownerName,
@@ -367,8 +370,8 @@ export default function TenantsPage() {
           <thead className="bg-bg2">
             <tr>
               {(isSellea
-                ? [t('thBusiness'), t('thPlan'), t('thStatus'), t('thTrial'), t('thExpires'), t('thCustomers'), t('thGroup'), '']
-                : [t('thBusiness'), t('thPlan'), t('thStatus'), t('thTrial'), t('thOrders30'), t('thRevenue30'), t('thCustomers'), t('thGroup'), '']
+                ? [t('thBusiness'), 'Tipo', t('thPlan'), t('thStatus'), t('thTrial'), t('thExpires'), t('thCustomers'), t('thGroup'), '']
+                : [t('thBusiness'), 'Tipo', t('thPlan'), t('thStatus'), t('thTrial'), t('thOrders30'), t('thRevenue30'), t('thCustomers'), t('thGroup'), '']
               ).map((h, i) => (
                   <th
                     key={`${h}-${i}`}
@@ -384,14 +387,14 @@ export default function TenantsPage() {
             {loading &&
               Array.from({ length: 4 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="border-t border-line2">
-                  <td colSpan={isSellea ? 8 : 9} className="px-4 py-3.5">
+                  <td colSpan={isSellea ? 9 : 10} className="px-4 py-3.5">
                     <div className="h-6 bg-bg2 rounded animate-shimmer" />
                   </td>
                 </tr>
               ))}
             {!loading && visible.length === 0 && (
               <tr>
-                <td className="px-4 py-12 text-center" colSpan={isSellea ? 8 : 9}>
+                <td className="px-4 py-12 text-center" colSpan={isSellea ? 9 : 10}>
                   <div className="text-3xl mb-1">🏢</div>
                   <div className="font-semibold">
                     {hasActiveFilters
@@ -441,6 +444,18 @@ export default function TenantsPage() {
                       <div className="text-mute text-xs">{tn.email}</div>
                     </div>
                   </div>
+                </td>
+                <td className="px-4 py-3.5">
+                  {tn.businessType === 'INFOLINK' ? (
+                    <span
+                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                      style={{ background: 'rgba(37,99,235,.12)', color: '#2563eb' }}
+                    >
+                      Solo InfoLink
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-mute">Completo</span>
+                  )}
                 </td>
                 <td className="px-4 py-3.5">
                   <div className="font-medium">

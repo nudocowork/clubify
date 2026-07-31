@@ -333,6 +333,72 @@ export class InfoLinksService {
     };
   }
 
+  /**
+   * Resumen agregado de TODAS las InfoLinks del negocio (últimos 30 días).
+   * Alimenta el Dashboard/Estadísticas de un negocio "Solo InfoLink":
+   * visitas, clics, escaneos QR, WhatsApp abiertos y botón más usado. Solo
+   * usa datos que ya se registran (view / click_button / qr_scan).
+   */
+  async tenantOverview(user: AuthUser) {
+    const tid = this.tid(user);
+    const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const links = await this.prisma.infoLink.findMany({
+      where: { tenantId: tid },
+      select: { id: true, title: true, slug: true, isActive: true, views: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const linkIds = links.map((l) => l.id);
+    const events = linkIds.length
+      ? await this.prisma.infoLinkEvent.findMany({
+          where: { infoLinkId: { in: linkIds }, createdAt: { gte: since30 } },
+          select: { type: true, metadata: true },
+        })
+      : [];
+
+    const counts = { view: 0, click_button: 0, qr_scan: 0 } as Record<string, number>;
+    const buttonClicks = new Map<string, number>();
+    let whatsappClicks = 0;
+    for (const e of events) {
+      counts[e.type] = (counts[e.type] ?? 0) + 1;
+      if (e.type === 'click_button') {
+        const meta = (e.metadata as any) ?? {};
+        const label = meta.label ?? 'Sin etiqueta';
+        buttonClicks.set(label, (buttonClicks.get(label) ?? 0) + 1);
+        // WhatsApp: preferimos el tipo del botón (eventos nuevos); como respaldo
+        // (eventos viejos sin buttonType) detectamos por la etiqueta.
+        const bt = String(meta.buttonType ?? '').toUpperCase();
+        if (bt === 'WHATSAPP' || (!meta.buttonType && /whatsapp|wa\.me/i.test(String(label)))) {
+          whatsappClicks++;
+        }
+      }
+    }
+    const topButtons = [...buttonClicks.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+
+    return {
+      range: '30d',
+      links: links.length,
+      activeLinks: links.filter((l) => l.isActive).length,
+      views: counts.view,
+      clicks: counts.click_button,
+      qrScans: counts.qr_scan,
+      whatsappClicks,
+      topButton: topButtons[0] ?? null,
+      topButtons,
+      // Vistas históricas totales por link (contador acumulado del modelo).
+      totalViewsAllTime: links.reduce((a, l) => a + (l.views ?? 0), 0),
+      perLink: links.map((l) => ({
+        id: l.id,
+        title: l.title,
+        slug: l.slug,
+        isActive: l.isActive,
+        views: l.views ?? 0,
+      })),
+    };
+  }
+
   // ============ Público ============
 
   async getPublic(tenantSlug: string, linkSlug: string, localeRaw?: string) {

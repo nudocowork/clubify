@@ -4578,7 +4578,7 @@
     "kpiUsed": "Used (historical)",
     "kpiPendingBusinesses": "Pending businesses",
     "buyCreditsTitle": "Buy credits",
-    "buyCreditsWarning": "<b>Important:</b> buy credits using <b>exactly the same email</b> registered for your brand so the credit is applied automatically. If you use another email, the payment stays pending manual assignment.",
+    "buyCreditsWarning": "<b>Important:</b> buy from <b>these buttons</b> — the link is already tied to your brand, so credits are applied automatically (no matter which email you pay with). Don't use links from anywhere else.",
     "creditsCount": "{count, plural, one {# credit} other {# credits}}",
     "buyArrow": "Buy →",
     "pendingBusinessesTitle": "Businesses pending activation",

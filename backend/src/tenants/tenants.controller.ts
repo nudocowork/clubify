@@ -18,6 +18,9 @@ class CreateTenantBody {
   @IsOptional() @IsString() ownerPassword?: string;
   @IsOptional() @IsString() referredByCode?: string;
   @IsOptional() @IsString() businessCategorySlug?: string;
+  // Tipo de negocio: FULL (Negocio Completo, 1 créd/mes) o INFOLINK (Solo
+  // InfoLink, 0.25 créd/mes). Default FULL en el service si no se envía.
+  @IsOptional() @IsIn(['FULL', 'INFOLINK']) businessType?: 'FULL' | 'INFOLINK';
   @IsOptional() @IsBoolean() freeAccount?: boolean;
   @IsOptional() @IsInt() @Min(1) trialDays?: number;
   @IsOptional() @IsDateString() nextChargeDate?: string;
@@ -68,6 +71,9 @@ class UpdateTenantBody {
   @IsOptional() @IsUUID() planId?: string;
   @IsOptional() @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
   planPeriodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
+  // Tipo de negocio (Completo / Solo InfoLink). Editable desde la ficha del
+  // negocio en /admin/tenants/[id]. Cambia consumo de créditos y módulos.
+  @IsOptional() @IsIn(['FULL', 'INFOLINK']) businessType?: 'FULL' | 'INFOLINK';
   // Modo de reparto de comisión del vendedor (Fase 3 overhaul comisiones).
   @IsOptional()
   @IsIn(['DISCOUNT_FROM_INFLUENCER', 'ADDITIONAL_COMPANY_COMMISSION'])

@@ -16,6 +16,7 @@ type FullPage = {
   logoUrl?: string | null; heroImageUrl?: string | null; videoUrl?: string | null; description?: string | null;
   sections: Section[]; ctaText?: string | null; ctaUrl?: string | null;
   formEnabled: boolean; formFields: FormField[]; isPublished: boolean;
+  theme?: { primaryColor?: string; customHtml?: string; raffleSlug?: string; formPopup?: boolean; leadWhatsapp?: string; leadWhatsappMsg?: string; template?: string } | null;
 };
 type Lead = { id: string; data: Record<string, any>; createdAt: string };
 
@@ -109,6 +110,7 @@ function EditModal({ slug, onClose }: { slug: string; onClose: () => void }) {
           name: p.name, tag: p.tag, title: p.title, subtitle: p.subtitle, logoUrl: p.logoUrl, heroImageUrl: p.heroImageUrl,
           videoUrl: p.videoUrl, description: p.description, sections: p.sections, ctaText: p.ctaText,
           ctaUrl: p.ctaUrl, formEnabled: p.formEnabled, formFields: p.formFields, isPublished: p.isPublished,
+          theme: p.theme ?? null,
         }),
       });
       setSaved(true);
@@ -187,6 +189,41 @@ function EditModal({ slug, onClose }: { slug: string; onClose: () => void }) {
               </div>
             )}
           </div>
+
+          {/* Diseño de la página (plantilla) */}
+          <div className="rounded-xl border border-slate-100 p-3">
+            <p className="text-sm font-semibold text-slate-700">Diseño de la página</p>
+            <p className="mb-2 mt-0.5 text-xs text-slate-400">«Home Clubify» clona la portada de soyclubify.com (hero + mockups) y el botón «Contactar» abre el formulario emergente.</p>
+            <select className={inp} value={p.theme?.template ?? ''} onChange={(e) => set({ theme: { ...(p.theme ?? {}), template: e.target.value || undefined } })}>
+              <option value="">Estándar (hero simple)</option>
+              <option value="clubify-home">Home Clubify (clon de portada)</option>
+            </select>
+          </div>
+
+          {/* Popup + WhatsApp (campañas tipo Gastrofusión) */}
+          {p.formEnabled && (
+            <div className="rounded-xl border border-slate-100 p-3">
+              <p className="text-sm font-semibold text-slate-700">Formulario emergente + WhatsApp</p>
+              <p className="mb-2 mt-0.5 text-xs text-slate-400">Para campañas: el botón abre el formulario en una ventana emergente y, al enviarlo, redirige a WhatsApp con un mensaje pre-cargado.</p>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox" checked={!!p.theme?.formPopup} onChange={(e) => set({ theme: { ...(p.theme ?? {}), formPopup: e.target.checked } })} />
+                Abrir el formulario en ventana emergente (popup)
+              </label>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <Field label="WhatsApp de destino (solo números, con código de país)">
+                  <input className={inp} value={p.theme?.leadWhatsapp ?? ''} onChange={(e) => set({ theme: { ...(p.theme ?? {}), leadWhatsapp: e.target.value } })} placeholder="573189554627" />
+                </Field>
+                <Field label="Mensaje pre-cargado de WhatsApp">
+                  <input className={inp} value={p.theme?.leadWhatsappMsg ?? ''} onChange={(e) => set({ theme: { ...(p.theme ?? {}), leadWhatsappMsg: e.target.value } })} placeholder="Hola, me interesa saber más" />
+                </Field>
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                <label className="text-sm font-medium text-slate-700">Color de acento</label>
+                <input type="color" value={p.theme?.primaryColor ?? '#16a34a'} onChange={(e) => set({ theme: { ...(p.theme ?? {}), primaryColor: e.target.value } })} className="h-9 w-14 cursor-pointer rounded border border-slate-200" />
+                <span className="text-xs text-slate-400">Botón, encabezado y detalles.</span>
+              </div>
+            </div>
+          )}
 
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input type="checkbox" checked={p.isPublished} onChange={(e) => set({ isPublished: e.target.checked })} />

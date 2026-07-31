@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Logo } from '@/components/Logo';
+import { HeroTrio } from '@/components/HeroTrio';
 
 export type InfoFormField = {
   key: string;
@@ -23,7 +25,7 @@ export type InfoPageData = {
   ctaUrl?: string | null;
   formEnabled?: boolean;
   formFields?: InfoFormField[];
-  theme?: { primaryColor?: string; customHtml?: string; raffleSlug?: string } | null;
+  theme?: { primaryColor?: string; customHtml?: string; raffleSlug?: string; formPopup?: boolean; leadWhatsapp?: string; leadWhatsappMsg?: string; template?: string } | null;
 };
 
 // Dominio del panel team_clubify donde vive el proceso del sorteo (endpoint público).
@@ -53,6 +55,15 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
 
   const customHtml = data.theme?.customHtml || null;
   const raffleSlug = data.theme?.raffleSlug || null;
+  // Plantilla "clon de la home de Clubify" (soyclubify.com): mismo hero + mockups
+  // reales (HeroTrio) que la portada, pero el CTA "Contactar" abre el formulario
+  // emergente y al enviar redirige a WhatsApp (captación Gastrofusión).
+  const template = data.theme?.template || null;
+  // Gastrofusión: form en popup + redirect a WhatsApp al enviar (config por theme).
+  const formPopup = !!data.theme?.formPopup;
+  const leadWhatsapp = (data.theme?.leadWhatsapp || '').replace(/\D/g, '');
+  const leadWaMsg = data.theme?.leadWhatsappMsg || 'Hola, me interesa saber más';
+  const [showForm, setShowForm] = useState(false);
   const htmlRef = useRef<HTMLDivElement>(null);
   const [raffle, setRaffle] = useState<{ state: 'idle' | 'done' | 'already'; wa?: string; msg?: string }>({ state: 'idle' });
 
@@ -94,6 +105,25 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
     return () => form.removeEventListener('submit', onSubmit);
   }, [customHtml, raffleSlug]);
 
+  // HTML personalizado + formulario en popup: cablea los CTA del HTML de marca para
+  // que abran el formulario de contacto (Gastrofusión). Convención de botón, en orden:
+  //   [data-contactar]  ·  <a href="#contactar|#contacto|#formulario|#form">  ·  texto "Contactar".
+  useEffect(() => {
+    if (!customHtml || !formPopup) return;
+    const root = htmlRef.current;
+    if (!root) return;
+    const bySelector = Array.from(
+      root.querySelectorAll('[data-contactar], a[href="#contactar"], a[href="#contacto"], a[href="#formulario"], a[href="#form"]'),
+    );
+    const byText = Array.from(root.querySelectorAll('a, button')).filter(
+      (el) => (el.textContent || '').trim().toLowerCase() === 'contactar',
+    );
+    const targets = Array.from(new Set([...bySelector, ...byText]));
+    const open = (e: Event) => { e.preventDefault(); setShowForm(true); };
+    targets.forEach((el) => el.addEventListener('click', open));
+    return () => targets.forEach((el) => el.removeEventListener('click', open));
+  }, [customHtml, formPopup]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -109,11 +139,167 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
         throw new Error(b.message || 'No se pudo enviar. Revisa los campos e intenta de nuevo.');
       }
       setDone(true);
+      // Al completar → redirigir a WhatsApp (Gastrofusión) tras mostrar el "gracias".
+      if (leadWhatsapp) {
+        const url = `https://wa.me/${leadWhatsapp}?text=${encodeURIComponent(leadWaMsg)}`;
+        setTimeout(() => { window.location.href = url; }, 900);
+      }
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setBusy(false);
     }
+  }
+
+  // Tarjeta del formulario (reutilizable: sección inline o popup).
+  const formCard = (
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      {done ? (
+        <div className="py-8 text-center">
+          <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full text-3xl" style={{ background: `${accent}1a` }}>✓</div>
+          <p className="text-lg font-semibold">¡Gracias! Hemos recibido tus datos.</p>
+          <p className="mt-1 text-sm text-slate-500">{leadWhatsapp ? 'Te estamos redirigiendo a WhatsApp…' : 'Nuestro equipo te contactará muy pronto.'}</p>
+          {leadWhatsapp && (
+            <a href={`https://wa.me/${leadWhatsapp}?text=${encodeURIComponent(leadWaMsg)}`} className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-[#25D366] px-5 py-2.5 text-sm font-semibold text-white">Abrir WhatsApp</a>
+          )}
+        </div>
+      ) : (
+        <>
+          <h2 className="text-center text-xl font-bold">{data.ctaText === 'Contactar' ? 'Contáctanos' : data.ctaText || 'Déjanos tus datos'}</h2>
+          <p className="mt-1 text-center text-sm text-slate-500">Completa el formulario y te contactamos.</p>
+          <form onSubmit={submit} className="mt-5 space-y-3">
+            {fields.map((f) => (
+              <div key={f.key}>
+                <label className="mb-1 block text-sm font-medium text-slate-700">{f.label}{f.required && <span className="ml-0.5 text-rose-500">*</span>}</label>
+                {f.type === 'textarea' ? (
+                  <textarea required={f.required} rows={3} value={answers[f.key] ?? ''} onChange={(e) => setAnswers((a) => ({ ...a, [f.key]: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:ring-2 focus:ring-slate-200" />
+                ) : f.type === 'select' ? (
+                  <select required={f.required} value={answers[f.key] ?? ''} onChange={(e) => setAnswers((a) => ({ ...a, [f.key]: e.target.value }))} className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:ring-2">
+                    <option value="">Selecciona…</option>
+                    {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                ) : (
+                  <input type={f.type} required={f.required} value={answers[f.key] ?? ''} onChange={(e) => setAnswers((a) => ({ ...a, [f.key]: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:ring-2" />
+                )}
+              </div>
+            ))}
+            {err && <p className="text-sm text-rose-600">{err}</p>}
+            <button type="submit" disabled={busy} className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50" style={{ background: accent }}>{busy ? 'Enviando…' : data.ctaText || 'Enviar'}</button>
+          </form>
+        </>
+      )}
+    </div>
+  );
+
+  // Popup del formulario de contacto (reutilizable por las plantillas que usan CTA
+  // "Contactar" en vez de sección inline).
+  const formPopupModal = showForm && (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center" onClick={() => setShowForm(false)}>
+      <div className="relative w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+        <button onClick={() => setShowForm(false)} className="absolute -right-2 -top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white text-slate-500 shadow">✕</button>
+        {formCard}
+      </div>
+    </div>
+  );
+
+  // ── Plantilla: clon de la portada soyclubify.com ──────────────────────────
+  // Duplica el diseño de la home real (header + hero con titular en gradiente +
+  // pilares + trío de iPhones + banda de métricas), cambiando los CTA por
+  // "Contactar" → formulario emergente → WhatsApp.
+  if (template === 'clubify-home') {
+    return (
+      <main className="min-h-screen bg-white text-ink">
+        {/* Header */}
+        <header className="sticky top-0 z-30 border-b border-line/80 bg-white/85 backdrop-blur-md">
+          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+            {data.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={data.logoUrl} alt="Logo" className="block h-10 w-auto max-w-[200px] object-contain" />
+            ) : (
+              <Logo size={40} priority />
+            )}
+            <button onClick={() => setShowForm(true)} className="inline-flex items-center gap-1.5 rounded-pill bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-ink/90">
+              {data.ctaText || 'Contactar'} →
+            </button>
+          </div>
+        </header>
+
+        {/* Hero */}
+        <section className="relative overflow-hidden">
+          <div
+            className="absolute inset-0 -z-10 opacity-40"
+            style={{ background: 'radial-gradient(ellipse 70% 60% at 30% 20%, rgba(91,94,238,0.16), transparent 60%), radial-gradient(ellipse 60% 50% at 80% 30%, rgba(192,38,211,0.10), transparent 60%)' }}
+          />
+          <div className="mx-auto max-w-7xl px-6 pb-16 pt-8 lg:pb-24 lg:pt-12">
+            <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-16">
+              <div>
+                <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-line bg-white px-3 py-1.5 text-xs font-semibold shadow-sm">
+                  <span className="text-amber-500">★★★★★</span>
+                  <span>4.9/5</span>
+                  <span className="font-normal text-mute">·</span>
+                  <span className="font-normal text-mute">+150 negocios en LATAM</span>
+                </div>
+                <h1 className="text-[40px] font-bold leading-[1.04] tracking-tight md:text-[52px] lg:text-[60px]">
+                  Una plataforma{' '}
+                  <span className="bg-gradient-to-r from-brand-400 via-brand-500 to-brand-700 bg-clip-text text-transparent">todo en uno</span>{' '}
+                  para tu negocio local.
+                </h1>
+                <p className="mt-6 max-w-xl text-lg leading-relaxed text-mute lg:text-xl">
+                  {data.subtitle || 'Tarjetas de fidelización, menú digital, CRM de pedidos y automatizaciones de delivery.'}
+                </p>
+                <div className="mt-6 flex flex-wrap gap-2">
+                  {['Pedidos', 'Fidelización', 'Automatización', 'CRM', 'Analítica'].map((p) => (
+                    <span key={p} className="rounded-full bg-bg2 px-2.5 py-1 text-xs font-medium text-ink/80">{p}</span>
+                  ))}
+                </div>
+                <div className="mt-8 flex flex-wrap gap-3">
+                  <button onClick={() => setShowForm(true)} className="inline-flex items-center rounded-pill bg-ink px-6 py-3.5 text-base font-semibold text-white shadow-md transition hover:bg-ink/90">
+                    {data.ctaText || 'Contactar'}
+                  </button>
+                </div>
+                <div className="mt-8 flex flex-wrap items-center gap-5 text-xs text-mute">
+                  <div className="flex items-center gap-1.5"><span className="font-bold text-ok">✓</span> Activación inmediata</div>
+                  <div className="flex items-center gap-1.5"><span className="font-bold text-ok">✓</span> Cancela cuando quieras</div>
+                  <div className="flex items-center gap-1.5"><span className="font-bold text-ok">✓</span> En español, soporte LATAM</div>
+                </div>
+              </div>
+              <div className="relative flex justify-center lg:justify-end">
+                <HeroTrio />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Banda de métricas */}
+        <section className="border-y border-line/80 bg-bg2/40 py-12">
+          <div className="mx-auto grid max-w-7xl grid-cols-2 gap-6 px-6 text-center md:grid-cols-4">
+            {[['+150', 'Negocios activos en LATAM'], ['+30K', 'Clientes con tarjeta wallet'], ['50K', 'Pedidos procesados / mes'], ['4.9 / 5', 'Calificación de dueños']].map(([v, l]) => (
+              <div key={l}>
+                <div className="text-3xl font-bold tracking-tight md:text-4xl">{v}</div>
+                <div className="mt-1.5 text-xs leading-snug text-mute">{l}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* CTA final */}
+        <section className="py-16">
+          <div className="mx-auto max-w-2xl px-6 text-center">
+            <h2 className="text-2xl font-bold tracking-tight md:text-3xl">¿Listo para dar el siguiente paso?</h2>
+            <p className="mt-3 text-mute">Déjanos tus datos y un asesor te contacta por WhatsApp.</p>
+            <button onClick={() => setShowForm(true)} className="mt-7 inline-flex items-center rounded-pill bg-ink px-7 py-3.5 text-base font-semibold text-white shadow-md transition hover:bg-ink/90">
+              {data.ctaText || 'Contactar'}
+            </button>
+          </div>
+        </section>
+
+        <footer className="border-t border-line bg-white py-10 text-center text-xs text-mute">
+          © {new Date().getFullYear()} Clubify · soyclubify.com
+        </footer>
+
+        {formPopupModal}
+      </main>
+    );
   }
 
   // HTML personalizado = LIENZO COMPLETO: la página ES tu HTML (con su propio <style>),
@@ -146,10 +332,20 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
             <p className="mx-auto mt-5 max-w-md rounded-lg bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
               ⚠️ Si no confirmas por WhatsApp, tu participación no será válida.
             </p>
-            <p className="mt-2 text-sm text-slate-500">📸 Recuerda seguirnos en Instagram y TikTok para poder ganar.</p>
           </section>
         ) : (
           <div ref={htmlRef} dangerouslySetInnerHTML={{ __html: customHtml }} />
+        )}
+
+        {/* Formulario de contacto en popup (Gastrofusión): lo abren los CTA del HTML
+            de marca cableados arriba. Solo si theme.formPopup está activo. */}
+        {formPopup && showForm && (
+          <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center" onClick={() => setShowForm(false)}>
+            <div className="relative w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+              <button onClick={() => setShowForm(false)} className="absolute -right-2 -top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white text-slate-500 shadow">✕</button>
+              {formCard}
+            </div>
+          </div>
         )}
       </div>
     );
@@ -180,6 +376,10 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
                 <a href={data.ctaUrl} className="inline-flex items-center rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90" style={{ background: accent }}>
                   {data.ctaText || 'Más información'}
                 </a>
+              ) : formPopup ? (
+                <button onClick={() => setShowForm(true)} className="inline-flex items-center rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90" style={{ background: accent }}>
+                  {data.ctaText || 'Contactar'}
+                </button>
               ) : (
                 <a href="#formulario" className="inline-flex items-center rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90" style={{ background: accent }}>
                   {data.ctaText || 'Quiero más información'}
@@ -278,69 +478,16 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
 
       {/* Formulario de captación propio (se OCULTA si hay HTML personalizado: el HTML
           trae su propio formulario, que registra en el sorteo vinculado si lo hay). */}
-      {data.formEnabled && !customHtml && (
-        <section id="formulario" className="mx-auto max-w-xl px-5 py-10">
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-            {done ? (
-              <div className="py-8 text-center">
-                <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full text-3xl" style={{ background: `${accent}1a` }}>✓</div>
-                <p className="text-lg font-semibold">¡Gracias! Hemos recibido tus datos.</p>
-                <p className="mt-1 text-sm text-slate-500">Nuestro equipo te contactará muy pronto.</p>
-              </div>
-            ) : (
-              <>
-                <h2 className="text-center text-xl font-bold">{data.ctaText || 'Déjanos tus datos'}</h2>
-                <p className="mt-1 text-center text-sm text-slate-500">Completa el formulario y te contactamos.</p>
-                <form onSubmit={submit} className="mt-5 space-y-3">
-                  {fields.map((f) => (
-                    <div key={f.key}>
-                      <label className="mb-1 block text-sm font-medium text-slate-700">
-                        {f.label}
-                        {f.required && <span className="ml-0.5 text-rose-500">*</span>}
-                      </label>
-                      {f.type === 'textarea' ? (
-                        <textarea
-                          required={f.required}
-                          rows={3}
-                          value={answers[f.key] ?? ''}
-                          onChange={(e) => setAnswers((a) => ({ ...a, [f.key]: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:ring-2 focus:ring-slate-200"
-                        />
-                      ) : f.type === 'select' ? (
-                        <select
-                          required={f.required}
-                          value={answers[f.key] ?? ''}
-                          onChange={(e) => setAnswers((a) => ({ ...a, [f.key]: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:ring-2"
-                        >
-                          <option value="">Selecciona…</option>
-                          {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
-                        </select>
-                      ) : (
-                        <input
-                          type={f.type}
-                          required={f.required}
-                          value={answers[f.key] ?? ''}
-                          onChange={(e) => setAnswers((a) => ({ ...a, [f.key]: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none transition focus:ring-2"
-                        />
-                      )}
-                    </div>
-                  ))}
-                  {err && <p className="text-sm text-rose-600">{err}</p>}
-                  <button
-                    type="submit"
-                    disabled={busy}
-                    className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50"
-                    style={{ background: accent }}
-                  >
-                    {busy ? 'Enviando…' : data.ctaText || 'Enviar'}
-                  </button>
-                </form>
-              </>
-            )}
+      {data.formEnabled && !customHtml && !formPopup && (
+        <section id="formulario" className="mx-auto max-w-xl px-5 py-10">{formCard}</section>
+      )}
+      {data.formEnabled && !customHtml && formPopup && showForm && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:items-center" onClick={() => setShowForm(false)}>
+          <div className="relative w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setShowForm(false)} className="absolute -right-2 -top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white text-slate-500 shadow">✕</button>
+            {formCard}
           </div>
-        </section>
+        </div>
       )}
 
       <footer className="border-t border-slate-100 py-8 text-center text-xs text-slate-400">

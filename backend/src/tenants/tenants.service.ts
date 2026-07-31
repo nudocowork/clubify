@@ -13,10 +13,12 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
+import { invalidateBusinessTypeCache } from '../common/guards/infolink-only.guard';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
 import { addPlanPeriod } from '../common/plan-period';
+import { cycleCreditCost, normalizeBusinessType, BusinessType } from '../common/business-types';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { QueueService } from '../jobs/queue.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
@@ -40,6 +42,9 @@ export type CreateTenantDto = {
   referredByCode?: string;
   /** Slug de la categoría del rubro (restaurant, barbershop, …). */
   businessCategorySlug?: string;
+  /** Tipo de negocio / línea de producto (FULL=Negocio Completo, INFOLINK=Solo
+   *  InfoLink). Default FULL. Determina el consumo de créditos y los módulos. */
+  businessType?: BusinessType;
   /**
    * Si true, crea cuenta gratuita (cortesía) — saltea Hotmart, queda ACTIVE
    * indefinidamente y el lockscreen no se dispara. Útil para internos,
@@ -82,6 +87,9 @@ export type UpdateTenantDto = Partial<{
   status: TenantStatus;
   planId: string;
   planPeriodicity: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null;
+  // Tipo de negocio (Completo / Solo InfoLink). Cambiarlo altera el consumo de
+  // créditos futuro y los módulos visibles (guard InfoLinkOnly + sidebar).
+  businessType: BusinessType;
   // Modo de reparto de comisión del vendedor (Fase 3 overhaul comisiones).
   commissionDistributionMode:
     | 'DISCOUNT_FROM_INFLUENCER'
@@ -543,12 +551,16 @@ export class TenantsService {
     // Para Clubify / sin marca → no hay restricción (canActivate true, sin gate).
     const wl = tenant.whiteLabel;
     const isWhiteLabel = !!wl && wl.slug !== 'clubify';
+    // Costo del ciclo según tipo de negocio × periodicidad (InfoLink = 0.25/mes).
+    const activationCost = cycleCreditCost(tenant.businessType, tenant.planPeriodicity);
     const brandCredits = {
       isWhiteLabel,
       unlimited: isWhiteLabel ? !!wl?.creditsUnlimited : true,
       available: isWhiteLabel ? wl?.creditsAvailable ?? 0 : 0,
+      // Créditos que costará activar este negocio (según su tipo/periodicidad).
+      cost: activationCost,
       canActivate: isWhiteLabel
-        ? !!wl?.creditsUnlimited || (wl?.creditsAvailable ?? 0) >= 1
+        ? !!wl?.creditsUnlimited || (wl?.creditsAvailable ?? 0) >= activationCost
         : true,
     };
     // PDF 925 #2: el "Modo de reparto de comisión" solo aplica si el negocio
@@ -690,7 +702,8 @@ export class TenantsService {
       if (brandUnlimited) {
         status = 'ACTIVE';
         hotmartCode = `wl-${nanoid(10)}`;
-        currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        // Extiende por la periodicidad elegida (Anual = +12 meses), no +30 fijos.
+        currentPeriodEnd = addPlanPeriod(new Date(), dto.planPeriodicity);
         trialEndsAt = null;
       } else {
         status = 'SUSPENDED';
@@ -715,6 +728,9 @@ export class TenantsService {
         primaryColor: dto.primaryColor ?? '#0F3D2E',
         secondaryColor: dto.secondaryColor ?? '#2E7D5B',
         businessCategorySlug: categorySlug,
+        // Tipo de negocio (Completo por defecto). Solo InfoLink consume 0.25/mes
+        // y ve un panel reducido; el guard backend bloquea el resto de módulos.
+        businessType: normalizeBusinessType(dto.businessType),
         planId,
         // #2/#6: el negocio hereda la MARCA BLANCA del admin que lo crea, así
         // aparece solo en esa marca y nunca en otra (Sellea→sellea, Clubify→clubify).
@@ -844,6 +860,14 @@ export class TenantsService {
     if (walletVisualChanged) {
       this.enqueueWalletPushForTenant(id).catch(() => {});
     }
+    // Si cambió el tipo de negocio (Completo ↔ Solo InfoLink), invalidamos el
+    // cache del guard para que el bloqueo/desbloqueo de módulos propague ya.
+    if (
+      dto.businessType !== undefined &&
+      dto.businessType !== (before as any).businessType
+    ) {
+      invalidateBusinessTypeCache(id);
+    }
     return updated;
   }
 
@@ -942,6 +966,8 @@ export class TenantsService {
     // al pasar a ACTIVE (no si ya estaba activo, para no recobrar en ediciones)
     // y solo marcas no-Clubify no-ilimitadas. Clubify (Hotmart) no usa créditos.
     let consumedBrandCredit = false;
+    // Costo del ciclo según tipo de negocio × periodicidad (InfoLink mensual=0.25).
+    const activationCost = cycleCreditCost(previous.businessType, previous.planPeriodicity);
     const activatesNow =
       (dto.mode === 'free' || dto.mode === 'paid') && previous.status !== 'ACTIVE';
     if (activatesNow && previous.whiteLabelId) {
@@ -951,8 +977,8 @@ export class TenantsService {
       });
       if (wl && wl.slug !== 'clubify' && !wl.creditsUnlimited) {
         const debit = await this.prisma.whiteLabel.updateMany({
-          where: { id: wl.id, creditsAvailable: { gte: 1 } },
-          data: { creditsAvailable: { decrement: 1 }, creditsUsed: { increment: 1 } },
+          where: { id: wl.id, creditsAvailable: { gte: activationCost } },
+          data: { creditsAvailable: { decrement: activationCost }, creditsUsed: { increment: activationCost } },
         });
         if (debit.count === 0) {
           throw new ForbiddenException(
@@ -972,7 +998,7 @@ export class TenantsService {
         await this.prisma.whiteLabel
           .update({
             where: { id: previous.whiteLabelId },
-            data: { creditsAvailable: { increment: 1 }, creditsUsed: { decrement: 1 } },
+            data: { creditsAvailable: { increment: activationCost }, creditsUsed: { decrement: activationCost } },
           })
           .catch(() => undefined);
       }
@@ -984,9 +1010,9 @@ export class TenantsService {
           data: {
             whiteLabelId: previous.whiteLabelId,
             type: 'CONSUME',
-            amount: -1,
+            amount: -activationCost,
             tenantId: id,
-            note: `Activación (simulador ${dto.mode}) · ${previous.brandName}`,
+            note: `Activación (simulador ${dto.mode}) · ${previous.brandName} · ${activationCost} créd`,
           },
         })
         .catch(() => undefined);
@@ -1110,6 +1136,8 @@ export class TenantsService {
         brandName: true,
         suspendedAt: true,
         whiteLabelId: true,
+        businessType: true,
+        planPeriodicity: true,
       },
     });
     if (!previous) throw new NotFoundException('Tenant');
@@ -1174,6 +1202,8 @@ export class TenantsService {
       whiteLabelId: string | null;
       status: TenantStatus;
       brandName: string;
+      businessType?: string | null;
+      planPeriodicity?: string | null;
     },
     source: string,
   ): Promise<{ rollback: () => Promise<void>; commit: () => Promise<void> }> {
@@ -1185,9 +1215,11 @@ export class TenantsService {
       select: { id: true, slug: true, creditsUnlimited: true },
     });
     if (!wl || wl.slug === 'clubify' || wl.creditsUnlimited) return noop;
+    // Costo según tipo de negocio × periodicidad (InfoLink mensual = 0.25).
+    const cost = cycleCreditCost(previous.businessType, previous.planPeriodicity);
     const debit = await this.prisma.whiteLabel.updateMany({
-      where: { id: wl.id, creditsAvailable: { gte: 1 } },
-      data: { creditsAvailable: { decrement: 1 }, creditsUsed: { increment: 1 } },
+      where: { id: wl.id, creditsAvailable: { gte: cost } },
+      data: { creditsAvailable: { decrement: cost }, creditsUsed: { increment: cost } },
     });
     if (debit.count === 0) {
       throw new ForbiddenException(
@@ -1199,7 +1231,7 @@ export class TenantsService {
         await this.prisma.whiteLabel
           .update({
             where: { id: wl.id },
-            data: { creditsAvailable: { increment: 1 }, creditsUsed: { decrement: 1 } },
+            data: { creditsAvailable: { increment: cost }, creditsUsed: { decrement: cost } },
           })
           .catch(() => undefined);
       },
@@ -1209,9 +1241,9 @@ export class TenantsService {
             data: {
               whiteLabelId: wl.id,
               type: 'CONSUME',
-              amount: -1,
+              amount: -cost,
               tenantId: previous.id,
-              note: `Activación (${source}) · ${previous.brandName}`,
+              note: `Activación (${source}) · ${previous.brandName} · ${cost} créd`,
             },
           })
           .catch(() => undefined);

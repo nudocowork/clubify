@@ -52,6 +52,16 @@ enum TenantStatus {
   TRIAL
 }
 
+/// Tipo/línea de producto del negocio dentro de Fidelity. Define su costo en
+/// créditos por ciclo (ver common/business-types.ts) y qué módulos ve el dueño.
+///   FULL     = Negocio Completo (todos los módulos, 1 crédito/mes).
+///   INFOLINK = Solo InfoLink (mini-page tipo Linktree, 0.25 créditos/mes).
+/// Preparado para nuevos tipos modulares futuros (Solo Wallet, Solo Delivery…).
+enum BusinessType {
+  FULL
+  INFOLINK
+}
+
 enum CardType {
   STAMPS
   POINTS
@@ -462,6 +472,10 @@ model Tenant {
   // qué módulos del panel ve el dueño. Lista en common/business-categories.ts.
   // Nullable por compat con tenants viejos; en runtime cae a 'restaurant'.
   businessCategorySlug        String?
+  // Tipo de negocio / línea de producto (Negocio Completo vs Solo InfoLink).
+  // Define el consumo de créditos (creditCost) y los módulos visibles. Default
+  // FULL: todos los negocios existentes quedan como Negocio Completo.
+  businessType                BusinessType               @default(FULL)
   planId                      String
   plan                        Plan                       @relation(fields: [planId], references: [id])
   // Periodicidad del plan (MENSUAL|TRIMESTRAL|SEMESTRAL|ANUAL). NO afecta
@@ -4295,14 +4309,15 @@ model WhiteLabel {
   paymentConfig  Json?
 
   /// Créditos disponibles para gastar en activaciones / renovaciones
-  /// de sus negocios. 1 crédito = 30 días de servicio. Acumulativos,
-  /// no vencen. Se descuentan automáticamente.
-  creditsAvailable Int     @default(0)
+  /// de sus negocios. 1 crédito = 30 días de servicio para un Negocio
+  /// Completo. Acumulativos, no vencen. Se descuentan automáticamente.
+  /// Float para soportar consumos fraccionados (InfoLink = 0.25/mes).
+  creditsAvailable Float   @default(0)
   /// Créditos comprometidos (negocios próximos a renovar dentro de la
-  /// ventana). Calculado por proceso periódico.
-  creditsCommitted Int     @default(0)
+  /// ventana). Calculado por proceso periódico. Ponderado por creditCost.
+  creditsCommitted Float   @default(0)
   /// Créditos usados acumulados (auditoría).
-  creditsUsed      Int     @default(0)
+  creditsUsed      Float   @default(0)
   /// Si está en true, la marca tiene créditos ilimitados — el cron de
   /// renovaciones no le descuenta y los packs Hotmart que matchean su
   /// adminEmail se ignoran (la compra queda como ASSIGNED igual, pero
@@ -4881,7 +4896,7 @@ model CreditTransaction {
   whiteLabelId String
   whiteLabel   WhiteLabel            @relation(fields: [whiteLabelId], references: [id], onDelete: Cascade)
   type         CreditTransactionType
-  amount       Int // positivo en compra, negativo en consumo
+  amount       Float // positivo en compra, negativo en consumo (soporta fracciones: -0.25)
   note         String?               @db.Text
   /// ID del negocio (Tenant) si el movimiento se aplicó por una renovación
   /// específica. Null para compras manuales y ajustes administrativos.

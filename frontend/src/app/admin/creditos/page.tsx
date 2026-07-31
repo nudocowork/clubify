@@ -249,11 +249,11 @@ export default function CreditsPage() {
                   </div>
                 </div>
                 <button
-                  disabled={activatingId === item.id || data.available < 1}
+                  disabled={activatingId === item.id || (!data.unlimited && data.available <= 0)}
                   onClick={() => activate(item)}
                   className="text-[13px] font-semibold px-3 py-2 rounded-lg bg-gray-900 text-white hover:bg-black disabled:opacity-40 disabled:cursor-not-allowed"
                   title={
-                    data.available < 1
+                    (!data.unlimited && data.available <= 0)
                       ? t('noCreditsTitle')
                       : t('consumesOneCreditTitle')
                   }
@@ -266,7 +266,7 @@ export default function CreditsPage() {
             ))}
           </div>
         )}
-        {data.available < 1 && pending.length > 0 && (
+        {(!data.unlimited && data.available <= 0) && pending.length > 0 && (
           <p className="text-[12px] text-amber-600 mt-2">
             {t('noCreditsHint')}
           </p>

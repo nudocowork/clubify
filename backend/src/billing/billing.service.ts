@@ -6,6 +6,7 @@ import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-cre
 import { SmsTemplatesService } from './sms-templates.service';
 import { fmtSmsDate } from './sms-templates';
 import { addPlanPeriod } from '../common/plan-period';
+import { cycleCreditCost } from '../common/business-types';
 import { AuditService } from '../audit/audit.service';
 
 // Secuencia de mora (PDF 2026-07-01, P4). Día 0 = 1er cobro fallido o fecha
@@ -94,6 +95,8 @@ export class BillingService {
         brandName: true,
         creditReleasedAt: true,
         whiteLabelId: true,
+        businessType: true,
+        planPeriodicity: true,
         whiteLabel: { select: { id: true, slug: true, creditsUnlimited: true } },
       },
     });
@@ -107,18 +110,21 @@ export class BillingService {
       select: { id: true },
     });
     if (!consumed) return false;
+    // Se libera el costo del ciclo según el tipo de negocio × periodicidad
+    // (mismo valor que se cobró al activar/renovar: InfoLink mensual = 0.25).
+    const cost = cycleCreditCost(t.businessType, t.planPeriodicity);
     // Devolver el crédito + registrar en el ledger + auditar. Marca idempotente.
     await this.prisma.$transaction([
       this.prisma.whiteLabel.update({
         where: { id: wl.id },
-        data: { creditsAvailable: { increment: 1 } },
+        data: { creditsAvailable: { increment: cost } },
       }),
       this.prisma.creditTransaction.create({
         data: {
           whiteLabelId: wl.id,
           tenantId: t.id,
           type: 'REFUND',
-          amount: 1,
+          amount: cost,
           note: `Crédito liberado por suspensión (${reason})`,
         },
       }),
