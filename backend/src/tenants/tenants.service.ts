@@ -452,6 +452,9 @@ export class TenantsService {
         plan: true,
         businessGroup: { select: { id: true, name: true, status: true } },
         _count: { select: { users: true, cards: true, customers: true } },
+        // slug de la marca → el panel /admin puede mostrar columnas propias por
+        // marca (ej. Sellea: vencimiento del servicio en vez de pedidos/revenue).
+        whiteLabel: { select: { slug: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -476,6 +479,7 @@ export class TenantsService {
         : null;
       return {
         ...t,
+        whiteLabelSlug: t.whiteLabel?.slug ?? null,
         orders30: stat.count,
         revenue30: stat.total,
         daysLeftInTrial,

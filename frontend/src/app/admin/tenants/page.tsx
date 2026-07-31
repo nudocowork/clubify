@@ -25,6 +25,30 @@ function initials(name: string) {
     .toUpperCase();
 }
 
+// Sellea (solo): vencimiento del servicio del negocio para verlo en el listado
+// sin entrar a cada perfil. Activos → currentPeriodEnd; trials → trialEndsAt.
+// Colorea rojo si ya venció, ámbar si vence en ≤7 días.
+function expiryInfo(tn: any): { label: string; cls: string } {
+  const iso = tn?.currentPeriodEnd ?? tn?.trialEndsAt ?? null;
+  if (!iso) return { label: '—', cls: 'text-mute2' };
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return { label: '—', cls: 'text-mute2' };
+  const days = Math.ceil((d.getTime() - Date.now()) / 86400000);
+  return {
+    label: d.toLocaleDateString(undefined, {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }),
+    cls:
+      days < 0
+        ? 'text-bad font-medium'
+        : days <= 7
+          ? 'text-warn font-medium'
+          : 'text-ink',
+  };
+}
+
 type StatusFilter = 'ALL' | 'ACTIVE' | 'TRIAL' | 'SUSPENDED';
 type PlanFilter = 'ALL' | 'ELITE';
 type PeriodFilter = 'ALL' | 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
@@ -78,6 +102,10 @@ export default function TenantsPage() {
   const [trialTarget, setTrialTarget] = useState<any | null>(null);
   const me = getUser();
   const isMarketing = me?.role === 'MARKETING';
+  // Solo Sellea: reemplaza las columnas Pedidos/Revenue 30d (sin uso para esa
+  // marca) por el VENCIMIENTO del servicio. El panel /admin está aislado por
+  // marca, así que todas las filas comparten whiteLabelSlug.
+  const isSellea = list.some((x: any) => x?.whiteLabelSlug === 'sellea');
 
   // Debounce 150ms para evitar re-renders por keystroke en listas grandes.
   useEffect(() => {
@@ -338,10 +366,12 @@ export default function TenantsPage() {
         <table className="w-full text-[13.5px] min-w-[760px]">
           <thead className="bg-bg2">
             <tr>
-              {[t('thBusiness'), t('thPlan'), t('thStatus'), t('thTrial'), t('thOrders30'), t('thRevenue30'), t('thCustomers'), t('thGroup'), ''].map(
-                (h) => (
+              {(isSellea
+                ? [t('thBusiness'), t('thPlan'), t('thStatus'), t('thTrial'), t('thExpires'), t('thCustomers'), t('thGroup'), '']
+                : [t('thBusiness'), t('thPlan'), t('thStatus'), t('thTrial'), t('thOrders30'), t('thRevenue30'), t('thCustomers'), t('thGroup'), '']
+              ).map((h, i) => (
                   <th
-                    key={h}
+                    key={`${h}-${i}`}
                     className="text-left px-4 py-3.5 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
                   >
                     {h}
@@ -354,14 +384,14 @@ export default function TenantsPage() {
             {loading &&
               Array.from({ length: 4 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="border-t border-line2">
-                  <td colSpan={9} className="px-4 py-3.5">
+                  <td colSpan={isSellea ? 8 : 9} className="px-4 py-3.5">
                     <div className="h-6 bg-bg2 rounded animate-shimmer" />
                   </td>
                 </tr>
               ))}
             {!loading && visible.length === 0 && (
               <tr>
-                <td className="px-4 py-12 text-center" colSpan={9}>
+                <td className="px-4 py-12 text-center" colSpan={isSellea ? 8 : 9}>
                   <div className="text-3xl mb-1">🏢</div>
                   <div className="font-semibold">
                     {hasActiveFilters
@@ -457,14 +487,27 @@ export default function TenantsPage() {
                     <span className="text-mute2">—</span>
                   )}
                 </td>
-                <td className="px-4 py-3.5 font-medium">{tn.orders30 ?? 0}</td>
-                <td className="px-4 py-3.5 font-medium">
-                  {(tn.revenue30 ?? 0).toLocaleString('es-CO', {
-                    style: 'currency',
-                    currency: tn.currency ?? 'COP',
-                    maximumFractionDigits: 0,
-                  })}
-                </td>
+                {isSellea ? (
+                  (() => {
+                    const exp = expiryInfo(tn);
+                    return (
+                      <td className={`px-4 py-3.5 font-medium ${exp.cls}`}>
+                        {exp.label}
+                      </td>
+                    );
+                  })()
+                ) : (
+                  <>
+                    <td className="px-4 py-3.5 font-medium">{tn.orders30 ?? 0}</td>
+                    <td className="px-4 py-3.5 font-medium">
+                      {(tn.revenue30 ?? 0).toLocaleString('es-CO', {
+                        style: 'currency',
+                        currency: tn.currency ?? 'COP',
+                        maximumFractionDigits: 0,
+                      })}
+                    </td>
+                  </>
+                )}
                 <td className="px-4 py-3.5">{tn._count?.customers ?? 0}</td>
                 <td className="px-4 py-3.5">
                   {tn.businessGroup?.name ? (
