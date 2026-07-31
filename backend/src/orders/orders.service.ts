@@ -24,6 +24,7 @@ import { OrdersGateway } from './orders.gateway';
 import { EmailService } from '../email/email.service';
 import { WalletService } from '../wallet/wallet.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { CustomerOrderSmsService } from '../integrations/customer-order-sms.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { resolveBrandTemplate } from '../integrations/brand-message-templates';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
@@ -87,6 +88,22 @@ function extractDeliveryAddressText(addr: unknown): string {
   return '';
 }
 
+// PDF 1256 F3: línea "Pago:" para el aviso al domiciliario/empresa. Combina el
+// método declarado por el cliente (efectivo/transferencia/…) con si el pedido
+// ya está cobrado online (→ no cobrar) o hay que cobrarlo en la entrega.
+// Devuelve string vacío si no hay nada útil (deja el mensaje idéntico al viejo).
+function courierPayLine(
+  method: string | null | undefined,
+  paymentStatus: string | null | undefined,
+): string {
+  const m = (method ?? '').trim();
+  if (paymentStatus === 'PAID') {
+    return `💳 Pago: ✅ Pagado online${m ? ` (${m})` : ''} — no cobrar\n`;
+  }
+  if (m) return `💵 Pago: ${m} — cobrar al cliente\n`;
+  return '';
+}
+
 function hasValidDeliveryAddress(addr: unknown): boolean {
   if (addr == null) return false;
   if (typeof addr === 'string') return addr.trim().length > 0;
@@ -133,6 +150,7 @@ export class OrdersService {
     private growBusiness: GrowBusinessService,
     private brand: WhitelabelBrandService,
     private delivery: DeliveryService,
+    private customerOrderSms: CustomerOrderSmsService,
   ) {}
 
   /** Lista de eventos del pedido delivery que pueden disparar SMS al
@@ -264,6 +282,11 @@ export class OrdersService {
           customerName: order.customer?.fullName ?? 'Anónimo',
           telLine: order.customer?.phone ? `Tel: ${order.customer.phone}\n` : '',
           addrLine: addr ? `Dirección: ${addr}\n` : '',
+          // PDF 1256 F3: método de pago + si el domiciliario debe cobrar.
+          payLine: courierPayLine(
+            order.customerPaymentMethod,
+            order.paymentStatus,
+          ),
           noteLine: order.customerNote ? `\nNota: ${order.customerNote}` : '',
         },
       });
@@ -657,6 +680,10 @@ export class OrdersService {
     this.maybeNotifyDeliveryAlert(tenant.id, order.id, 'created').catch(
       () => null,
     );
+    // PDF 1256 F3: SMS al CLIENTE "recibimos tu pedido" (opt-in por negocio).
+    this.customerOrderSms
+      .notify(tenant.id, order.id, 'created')
+      .catch(() => null);
     // PDF245 P2: si es domicilio, crea el seguimiento (para que aparezca en el
     // panel de la empresa) y avisa "Hay un nuevo pedido - #X. Revisa el panel".
     this.delivery.onDeliveryOrderCreated(order.id).catch(() => null);
@@ -1366,6 +1393,22 @@ export class OrdersService {
         id,
         next.toLowerCase() as 'confirmed' | 'ready' | 'delivered',
       ).catch(() => null);
+    }
+
+    // PDF 1256 F3: SMS al CLIENTE por cambio de estado (opt-in por negocio,
+    // OFF por defecto). El servicio filtra internamente por config + evento.
+    if (
+      next === 'CONFIRMED' ||
+      next === 'READY' ||
+      next === 'DELIVERED'
+    ) {
+      this.customerOrderSms
+        .notify(
+          o.tenantId,
+          id,
+          next.toLowerCase() as 'confirmed' | 'ready' | 'delivered',
+        )
+        .catch(() => null);
     }
 
     // Red de Domicilios (Fase 1): al marcar "listo" creamos el seguimiento

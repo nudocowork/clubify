@@ -95,6 +95,12 @@ class UpdateTenantBody {
   deliveryAlertsPhones?: string[] | null;
   @IsOptional() @IsArray() @IsString({ each: true })
   deliveryAlertsEvents?: string[] | null;
+  // PDF 1256 F3: notificaciones de pedido al CLIENTE por SMS (opt-in, OFF por
+  // defecto). Config desde /admin/tenants/[id]. Eventos: 'created'|'confirmed'|
+  // 'ready'|'on_the_way'|'delivered'.
+  @IsOptional() @IsBoolean() customerOrderAlertsEnabled?: boolean;
+  @IsOptional() @IsArray() @IsString({ each: true })
+  customerOrderAlertsEvents?: string[] | null;
   // Mensajería WhatsApp del negocio (Bloque 8 2026-06-12). Antes el
   // tenant owner editaba esto desde /app/settings — movido a admin.
   @IsOptional() @IsString() whatsappPhone?: string;

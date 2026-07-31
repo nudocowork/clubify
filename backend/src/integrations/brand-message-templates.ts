@@ -224,6 +224,7 @@ export const OPERATIONAL_TEMPLATES: BrandMsgTemplateDef[] = [
       'customerName',
       'telLine',
       'addrLine',
+      'payLine',
       'noteLine',
     ],
     folder: 'operativa',
@@ -236,7 +237,81 @@ export const OPERATIONAL_TEMPLATES: BrandMsgTemplateDef[] = [
       'Pedido: #{code}\n' +
       'Total: {total}\n' +
       'Cliente: {customerName}\n' +
-      '{telLine}{addrLine}{noteLine}',
+      '{telLine}{addrLine}{payLine}{noteLine}',
+  },
+  // PDF 1256 F3: notificaciones de pedido al CLIENTE final (opt-in por negocio,
+  // OFF por defecto). Un mensaje por estado. `{trackingLine}`/`{etaLine}` los
+  // pre-calcula el servicio (incluyen su propio prefijo/espacio o quedan vacíos)
+  // para que editar el texto deje la salida consistente. SMS cortos = menor costo.
+  {
+    id: 'op_customer_order_created',
+    label: 'Cliente · Pedido recibido',
+    folderLabel: 'Pedido recibido',
+    description:
+      'SMS al CLIENTE cuando acaba de hacer su pedido. Solo se envía si el negocio activó las notificaciones al cliente para este evento.',
+    vars: ['brandName', 'customerName', 'code', 'trackingLine'],
+    folder: 'operativa',
+    status: 'active',
+    channel: 'SMS',
+    audience: 'Al cliente',
+    default:
+      '🧾 {brandName}: recibimos tu pedido #{code}. Te avisamos cuando lo confirmemos.{trackingLine}',
+  },
+  {
+    id: 'op_customer_order_confirmed',
+    label: 'Cliente · Pedido confirmado',
+    folderLabel: 'Pedido confirmado',
+    description:
+      'SMS al CLIENTE cuando el negocio confirma su pedido. Solo se envía si el negocio activó las notificaciones al cliente para este evento.',
+    vars: ['brandName', 'customerName', 'code', 'trackingLine'],
+    folder: 'operativa',
+    status: 'active',
+    channel: 'SMS',
+    audience: 'Al cliente',
+    default:
+      '✅ {brandName}: confirmamos tu pedido #{code}. ¡Ya lo estamos preparando!{trackingLine}',
+  },
+  {
+    id: 'op_customer_order_ready',
+    label: 'Cliente · Pedido listo',
+    folderLabel: 'Pedido listo',
+    description:
+      'SMS al CLIENTE cuando su pedido está listo (para recoger o despachar). Solo se envía si el negocio activó las notificaciones al cliente para este evento.',
+    vars: ['brandName', 'customerName', 'code', 'trackingLine'],
+    folder: 'operativa',
+    status: 'active',
+    channel: 'SMS',
+    audience: 'Al cliente',
+    default:
+      '📦 {brandName}: tu pedido #{code} ya está listo.{trackingLine}',
+  },
+  {
+    id: 'op_customer_order_on_the_way',
+    label: 'Cliente · Pedido en camino',
+    folderLabel: 'Pedido en camino',
+    description:
+      'SMS al CLIENTE cuando su domicilio sale en camino. Solo se envía si el negocio activó las notificaciones al cliente para este evento.',
+    vars: ['brandName', 'customerName', 'code', 'etaLine', 'trackingLine'],
+    folder: 'operativa',
+    status: 'active',
+    channel: 'SMS',
+    audience: 'Al cliente',
+    default:
+      '🛵 {brandName}: tu pedido #{code} va en camino.{etaLine}{trackingLine}',
+  },
+  {
+    id: 'op_customer_order_delivered',
+    label: 'Cliente · Pedido entregado',
+    folderLabel: 'Pedido entregado',
+    description:
+      'SMS al CLIENTE cuando su pedido fue entregado/completado. Solo se envía si el negocio activó las notificaciones al cliente para este evento.',
+    vars: ['brandName', 'customerName', 'code'],
+    folder: 'operativa',
+    status: 'active',
+    channel: 'SMS',
+    audience: 'Al cliente',
+    default:
+      '🎉 {brandName}: tu pedido #{code} fue entregado. ¡Gracias por tu compra!',
   },
   {
     id: 'op_review_alert',

@@ -71,6 +71,11 @@ class UpdateMyBody {
   @IsOptional() deliveryAlertsPhones?: string[] | null;
   // Array de eventos suscritos: 'created' | 'confirmed' | 'ready' | 'delivered'.
   @IsOptional() deliveryAlertsEvents?: string[] | null;
+  // PDF 1256 F3: notificaciones de pedido al CLIENTE por SMS. Opt-in, OFF por
+  // defecto (cada SMS cuesta). Eventos: 'created'|'confirmed'|'ready'|
+  // 'on_the_way'|'delivered'.
+  @IsOptional() @IsBoolean() customerOrderAlertsEnabled?: boolean;
+  @IsOptional() customerOrderAlertsEvents?: string[] | null;
   // WhatsApp opcional al cierre del feedback negativo (/r/:slug).
   @IsOptional() @IsBoolean() whatsappFeedbackEnabled?: boolean;
   @IsOptional() @IsString() whatsappFeedbackNumber?: string | null;

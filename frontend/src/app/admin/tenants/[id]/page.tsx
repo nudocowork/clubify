@@ -7,6 +7,7 @@ import { api, getUser, startImpersonation } from '@/lib/api';
 import { GrowBusinessCard } from '@/components/GrowBusinessCard';
 import { ReferralAssignmentCard } from '@/components/ReferralAssignmentCard';
 import { DeliveryAlertsCard } from '@/components/DeliveryAlertsCard';
+import { CustomerOrderAlertsCard } from '@/components/CustomerOrderAlertsCard';
 import { StampAuditTable } from '@/components/StampAuditTable';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -829,6 +830,12 @@ export default function TenantDetail() {
               tenant={t}
               savePath={`/tenants/${t.id}`}
               testPath={`/tenants/${t.id}/delivery-alerts/test`}
+              onSaved={load}
+            />
+            {/* PDF 1256 F3: notificaciones de pedido al CLIENTE por SMS. */}
+            <CustomerOrderAlertsCard
+              tenant={t}
+              savePath={`/tenants/${t.id}`}
               onSaved={load}
             />
             <ReviewAlertsLogsCard tenantId={t.id} />

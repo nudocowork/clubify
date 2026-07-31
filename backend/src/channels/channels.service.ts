@@ -152,6 +152,16 @@ export class ChannelsService {
         }
       | null;
 
+    // Método de pago declarado por el cliente (efectivo/transferencia/…) +
+    // si ya está pagado online (no cobrar) o hay que cobrar en la entrega.
+    const method = ((order as any).customerPaymentMethod ?? '').trim();
+    const payLine =
+      order.paymentStatus === 'PAID'
+        ? `Pago: ✅ Pagado online${method ? ` (${method})` : ''} — no cobrar`
+        : method
+          ? `Pago: 💵 ${method} — cobrar al cliente`
+          : 'Pago: 💵 Cobrar al cliente';
+
     const lines = [
       `🛵 *Despacho domicilio · Pedido #${order.code}*`,
       `Cliente: ${customer.fullName} · ${customer.phone}`,
@@ -159,7 +169,7 @@ export class ChannelsService {
       items,
       '',
       `*Total: ${formatMoney(Number(order.total), tenant.currency, tenant.currencySymbol)}*`,
-      `Pago: ${order.paymentStatus === 'PAID' ? '✅ Cobrado' : '💵 Cobrar al cliente'}`,
+      payLine,
       '',
       '*📍 Dirección:*',
       addr
@@ -167,6 +177,7 @@ export class ChannelsService {
         : '',
       addr?.direccion ? addr.direccion : '',
       addr?.phone ? `📞 ${addr.phone}` : '',
+      order.customerNote ? `\n📝 Nota: ${order.customerNote}` : '',
       '',
       `Origen: ${tenant.brandName}`,
     ].filter(Boolean);

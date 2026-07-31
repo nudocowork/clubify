@@ -669,6 +669,16 @@ model Tenant {
   /// que review/billing. Null = creds del tenant.
   deliveryAlertsAccountId     String?
   deliveryAlertsAccount       GrowBusinessAccount?       @relation("DeliveryAlertsAccount", fields: [deliveryAlertsAccountId], references: [id], onDelete: SetNull)
+  /// PDF 1256 F3: notificaciones de pedido al CLIENTE final por SMS
+  /// (recibido / confirmado / listo / en camino / entregado). Opt-in
+  /// (default false) porque cada SMS cuesta → lo activa el operador/marca.
+  /// Se envía al teléfono del cliente del pedido usando las creds SMS del
+  /// negocio (o de la marca). Multi-tenant, sin lógica específica de marca.
+  customerOrderAlertsEnabled  Boolean                    @default(false)
+  /// Eventos que disparan el SMS al cliente. Valores: 'created',
+  /// 'confirmed', 'ready', 'on_the_way', 'delivered'. JSON array. Default
+  /// ['confirmed','on_the_way'] cuando enabled=true.
+  customerOrderAlertsEvents   Json?
   /// Cuponera / Living Card: true si este tenant es el "de sistema" que
   /// respalda una campaña de beneficios (BenefitCampaign). Se EXCLUYE de
   /// métricas del panel, cobros/mora y listados de negocios — no es un
