@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Ip, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Ip, Param, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
   IsEmail,
@@ -24,6 +24,17 @@ class LoginDto {
 
 class GoogleLoginDto {
   @IsString() idToken!: string;
+}
+
+/** Auto-registro de un negocio "Solo InfoLink" desde el link de una marca
+ *  (/i-registro/<marca>). Descuenta 0.25 créditos de la marca. */
+class InfoLinkSignupDto {
+  @IsString() @MaxLength(80) brandSlug!: string;
+  @IsEmail() email!: string;
+  @IsString() @MinLength(6) @MaxLength(100) password!: string;
+  @IsString() @MaxLength(120) fullName!: string;
+  @IsString() @MaxLength(120) brandName!: string;
+  @IsOptional() @IsString() @MaxLength(40) phone?: string;
 }
 
 class RefreshDto {
@@ -210,6 +221,23 @@ export class AuthController {
   @Post('trial-signup')
   trialSignup(@Body() dto: TrialSignupDto, @Ip() ip: string) {
     return this.auth.trialSignup(dto, ip);
+  }
+
+  /** Branding de la marca para tematizar la página de auto-registro InfoLink. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @Get('infolink-brand/:slug')
+  infolinkBrand(@Param('slug') slug: string) {
+    return this.auth.getBrandForInfoLinkSignup(slug);
+  }
+
+  /** Auto-registro InfoLink: crea el negocio bajo la marca y descuenta 0.25
+   *  créditos. Throttle estricto (link compartido públicamente). */
+  @Public()
+  @Throttle({ default: { ttl: 3_600_000, limit: 5 } })
+  @Post('infolink-signup')
+  infolinkSignup(@Body() dto: InfoLinkSignupDto, @Ip() ip: string) {
+    return this.auth.infolinkSignup(dto, ip);
   }
 
   // Forgot: 3 por hora por IP (defensa contra email-enumeration spam).

@@ -22,6 +22,7 @@ import {
   isValidCategorySlug,
   DEFAULT_CATEGORY_SLUG,
 } from '../common/business-categories';
+import { cycleCreditCost } from '../common/business-types';
 // HotmartService se resuelve LAZY vía ModuleRef.get + require() inline
 // (ver consumePendingForTenant en signup). NO importar acá estáticamente
 // — el ciclo de archivos (auth.service ↔ hotmart.service via PreregAlerts)
@@ -1415,6 +1416,223 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        tenantId: user.tenantId,
+      },
+      tenant: {
+        id: tenant.id,
+        slug: tenant.slug,
+        brandName: tenant.brandName,
+      },
+    };
+  }
+
+  /**
+   * Info pública de una marca para tematizar la página de auto-registro InfoLink
+   * (/i-registro/<marca>). Solo branding — ya es público en su storefront.
+   */
+  async getBrandForInfoLinkSignup(slug: string) {
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { slug: (slug || '').toLowerCase().trim() },
+      select: {
+        name: true,
+        slug: true,
+        logoUrl: true,
+        iconUrl: true,
+        faviconUrl: true,
+        primaryColor: true,
+        secondaryColor: true,
+        backgroundColor: true,
+        creditsUnlimited: true,
+        creditsAvailable: true,
+        status: true,
+      },
+    });
+    if (!wl || wl.status === 'SUSPENDED' || wl.slug === 'clubify') {
+      throw new NotFoundException('Marca no encontrada');
+    }
+    return {
+      slug: wl.slug,
+      name: wl.name,
+      logoUrl: wl.logoUrl ?? wl.iconUrl ?? null,
+      faviconUrl: wl.faviconUrl ?? null,
+      primaryColor: wl.primaryColor ?? null,
+      secondaryColor: wl.secondaryColor ?? null,
+      backgroundColor: wl.backgroundColor ?? null,
+      // Avisa en la UI si la marca no tiene cupo (el negocio nacería bloqueado).
+      hasCredits:
+        wl.creditsUnlimited ||
+        (wl.creditsAvailable ?? 0) >= cycleCreditCost('INFOLINK', 'MENSUAL'),
+    };
+  }
+
+  /**
+   * Auto-registro de un negocio "Solo InfoLink" desde el link compartible de
+   * una marca (/i-registro/<marca>). Crea el negocio con businessType=INFOLINK
+   * bajo la marca y DESCUENTA 0.25 créditos de la marca automáticamente. Si la
+   * marca no tiene cupo, el negocio queda creado pero BLOQUEADO (igual que el
+   * flujo del panel). Auto-login: devuelve tokens como signup.
+   */
+  async infolinkSignup(
+    dto: {
+      brandSlug: string;
+      email: string;
+      password: string;
+      fullName: string;
+      brandName: string;
+      phone?: string;
+    },
+    ip?: string,
+  ) {
+    const email = dto.email.toLowerCase().trim();
+    const brandName = dto.brandName.trim();
+    if (!brandName) throw new BadRequestException('Nombre del negocio requerido');
+
+    const brand = await this.prisma.whiteLabel.findUnique({
+      where: { slug: (dto.brandSlug || '').toLowerCase().trim() },
+      select: { id: true, name: true, slug: true, creditsUnlimited: true, status: true },
+    });
+    if (!brand || brand.status === 'SUSPENDED') {
+      throw new NotFoundException('Marca no encontrada');
+    }
+    if (brand.slug === 'clubify') {
+      throw new BadRequestException('Esta marca no admite auto-registro InfoLink');
+    }
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) throw new ConflictException('Email ya registrado');
+
+    // Slug único global.
+    let slug = slugify(brandName) || `infolink-${Date.now()}`;
+    let suffix = 0;
+    while (await this.prisma.tenant.findUnique({ where: { slug } })) {
+      suffix += 1;
+      slug = `${slugify(brandName)}-${suffix}`;
+    }
+
+    // Plan "Sin plan" (precio 0) — la facturación es por créditos de la marca.
+    const plan =
+      (await this.prisma.plan.findUnique({ where: { name: 'Sin plan' } })) ??
+      (await this.prisma.plan.create({
+        data: { name: 'Sin plan', priceMonthly: 0, isActive: true },
+      }));
+
+    const passwordHash = await this.hashPassword(dto.password);
+    // Código placeholder para que el lockscreen de tarjeta (Hotmart) no bloquee:
+    // los InfoLink de marca se activan por créditos, no por Hotmart.
+    const placeholderCode = `wl-${randomBytes(6).toString('hex')}`;
+
+    let tenant: Awaited<ReturnType<typeof this.prisma.tenant.create>>;
+    let user: Awaited<ReturnType<typeof this.prisma.user.create>>;
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const t = await tx.tenant.create({
+          data: {
+            name: brandName,
+            brandName,
+            slug,
+            email,
+            phone: dto.phone?.trim() || null,
+            whatsappPhone: dto.phone?.trim() || null,
+            businessType: 'INFOLINK',
+            businessCategorySlug: DEFAULT_CATEGORY_SLUG,
+            status: 'SUSPENDED', // se activa abajo si la marca tiene créditos
+            planId: plan.id,
+            planPeriodicity: 'MENSUAL',
+            whiteLabelId: brand.id,
+            hotmartSubscriberCode: placeholderCode,
+            trialStartedAt: new Date(),
+            trialEndsAt: null,
+            currentPeriodEnd: null,
+          },
+        });
+        const u = await tx.user.create({
+          data: {
+            email,
+            passwordHash,
+            fullName: dto.fullName.trim(),
+            role: 'TENANT_OWNER',
+            tenantId: t.id,
+          },
+        });
+        return { t, u };
+      });
+      tenant = result.t;
+      user = result.u;
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new ConflictException('Email ya registrado');
+      throw e;
+    }
+
+    // Cobro del ciclo: 0.25 (InfoLink mensual). Race-safe. Marca ilimitada activa
+    // sin cobrar. Sin cupo → queda bloqueado (SUSPENDED).
+    const cost = cycleCreditCost('INFOLINK', 'MENSUAL');
+    const oneMonth = new Date();
+    oneMonth.setMonth(oneMonth.getMonth() + 1);
+    let blocked = true;
+    if (brand.creditsUnlimited) {
+      await this.prisma.tenant.update({
+        where: { id: tenant.id },
+        data: { status: 'ACTIVE', currentPeriodEnd: oneMonth },
+      });
+      blocked = false;
+    } else {
+      const debit = await this.prisma.whiteLabel.updateMany({
+        where: { id: brand.id, creditsAvailable: { gte: cost } },
+        data: { creditsAvailable: { decrement: cost }, creditsUsed: { increment: cost } },
+      });
+      if (debit.count > 0) {
+        await this.prisma.tenant.update({
+          where: { id: tenant.id },
+          data: { status: 'ACTIVE', currentPeriodEnd: oneMonth },
+        });
+        await this.prisma.creditTransaction
+          .create({
+            data: {
+              whiteLabelId: brand.id,
+              type: 'CONSUME',
+              amount: -cost,
+              tenantId: tenant.id,
+              note: `Auto-registro InfoLink · ${brandName} · ${cost} créd`,
+            },
+          })
+          .catch(() => undefined);
+        blocked = false;
+      }
+    }
+
+    this.audit.log({
+      actorId: user.id,
+      tenantId: tenant.id,
+      action: 'auth.infolink_signup',
+      resource: `tenant:${tenant.id}`,
+      ip,
+    });
+
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: user.tenantId,
+      whiteLabelId: user.whiteLabelId ?? null,
+    };
+    const accessToken = this.jwt.sign(payload);
+    const refreshToken = await this.refreshTokens.issue({
+      userId: user.id,
+      payload,
+      ip: ip ?? null,
+      userAgent: null,
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      // true si la marca no tenía cupo → negocio creado pero bloqueado.
+      blocked,
       user: {
         id: user.id,
         email: user.email,
