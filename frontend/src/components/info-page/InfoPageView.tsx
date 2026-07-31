@@ -116,6 +116,45 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
     }
   }
 
+  // HTML personalizado = LIENZO COMPLETO: la página ES tu HTML (con su propio <style>),
+  // sin el hero/footer de Clubify ni utilidades que pisen tu CSS. Tras enviar el form
+  // (si hay sorteo vinculado) se muestra la confirmación por WhatsApp.
+  if (customHtml) {
+    return (
+      <div className="min-h-screen bg-white text-slate-900">
+        {raffle.state !== 'idle' ? (
+          <section className="mx-auto max-w-lg px-5 py-16 text-center">
+            <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-full text-4xl" style={{ background: `${accent}1a` }}>
+              {raffle.state === 'already' ? '🎟️' : '🎉'}
+            </div>
+            <h2 className="text-2xl font-bold">{raffle.state === 'already' ? '¡Ya estás participando!' : '¡Ya casi eres parte del sorteo!'}</h2>
+            <p className="mx-auto mt-2 max-w-md text-slate-600">
+              {raffle.state === 'already'
+                ? 'Ya te habías registrado en este sorteo con estos datos. Si aún no lo hiciste, confirma tu participación por WhatsApp.'
+                : 'Solo falta un paso muy importante: confirma tu participación por WhatsApp.'}
+            </p>
+            {raffle.wa && (
+              <a
+                href={`https://wa.me/${raffle.wa}?text=${encodeURIComponent(raffle.msg || '')}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-6 py-3 text-sm font-semibold text-white hover:bg-[#1eb457]"
+              >
+                ✅ Confirmar mi participación
+              </a>
+            )}
+            <p className="mx-auto mt-5 max-w-md rounded-lg bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
+              ⚠️ Si no confirmas por WhatsApp, tu participación no será válida.
+            </p>
+            <p className="mt-2 text-sm text-slate-500">📸 Recuerda seguirnos en Instagram y TikTok para poder ganar.</p>
+          </section>
+        ) : (
+          <div ref={htmlRef} dangerouslySetInnerHTML={{ __html: customHtml }} />
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-white text-slate-900">
       {/* Hero */}
