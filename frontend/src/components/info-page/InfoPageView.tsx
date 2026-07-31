@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export type InfoFormField = {
   key: string;
@@ -23,8 +23,11 @@ export type InfoPageData = {
   ctaUrl?: string | null;
   formEnabled?: boolean;
   formFields?: InfoFormField[];
-  theme?: { primaryColor?: string; customHtml?: string } | null;
+  theme?: { primaryColor?: string; customHtml?: string; raffleSlug?: string } | null;
 };
+
+// Dominio del panel team_clubify donde vive el proceso del sorteo (endpoint público).
+const TEAM_BASE = 'https://team.soyclubify.com';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? '';
 
@@ -47,6 +50,49 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
   const [err, setErr] = useState<string | null>(null);
 
   const embed = data.videoUrl ? toEmbed(data.videoUrl) : null;
+
+  const customHtml = data.theme?.customHtml || null;
+  const raffleSlug = data.theme?.raffleSlug || null;
+  const htmlRef = useRef<HTMLDivElement>(null);
+  const [raffle, setRaffle] = useState<{ state: 'idle' | 'done' | 'already'; wa?: string; msg?: string }>({ state: 'idle' });
+
+  // HTML personalizado + sorteo vinculado → el <form> del HTML registra en el sorteo
+  // (mismo proceso que el formulario del sorteo: dedup + RaffleEntry + confirmación por
+  // WhatsApp), vía el endpoint público cross-origin de team_clubify.
+  useEffect(() => {
+    if (!customHtml || !raffleSlug) return;
+    const form = htmlRef.current?.querySelector('form');
+    if (!form) return;
+    async function onSubmit(e: Event) {
+      e.preventDefault();
+      const el = e.currentTarget as HTMLFormElement;
+      const payload: Record<string, string> = {};
+      new FormData(el).forEach((v, k) => { payload[k] = typeof v === 'string' ? v : ''; });
+      const btn = el.querySelector('button[type=submit],input[type=submit]') as HTMLButtonElement | null;
+      const prev = btn?.textContent;
+      if (btn) { btn.disabled = true; if (btn.textContent) btn.textContent = 'Enviando…'; }
+      try {
+        const res = await fetch(`${TEAM_BASE}/api/raffle/${raffleSlug}/entry`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const j = await res.json();
+        if (j.ok) {
+          setRaffle({ state: j.already ? 'already' : 'done', wa: j.confirmWhatsapp, msg: j.confirmMessage });
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } else {
+          if (btn) { btn.disabled = false; if (prev) btn.textContent = prev; }
+          alert(j.error || 'No se pudo registrar. Revisa los datos e intenta de nuevo.');
+        }
+      } catch {
+        if (btn) { btn.disabled = false; if (prev) btn.textContent = prev; }
+        alert('No se pudo registrar. Intenta de nuevo.');
+      }
+    }
+    form.addEventListener('submit', onSubmit);
+    return () => form.removeEventListener('submit', onSubmit);
+  }, [customHtml, raffleSlug]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -113,13 +159,42 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
           descripción + secciones y da control total del cuerpo de la página. Lo edita
           solo un admin desde team → COMERCIAL → Páginas Info (contenido de confianza;
           los <script> insertados vía innerHTML no se ejecutan). */}
-      {data.theme?.customHtml ? (
-        <section className="mx-auto max-w-4xl px-5 py-8">
-          <div
-            className="info-html leading-relaxed text-slate-700 [&_a]:text-emerald-700 [&_a]:underline [&_h1]:mt-6 [&_h1]:text-3xl [&_h1]:font-extrabold [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:mt-4 [&_h3]:text-xl [&_h3]:font-semibold [&_img]:mx-auto [&_img]:my-4 [&_img]:max-w-full [&_img]:rounded-xl [&_li]:ml-5 [&_li]:list-disc [&_p]:my-3 [&_ul]:my-3"
-            dangerouslySetInnerHTML={{ __html: data.theme.customHtml }}
-          />
-        </section>
+      {customHtml ? (
+        raffle.state !== 'idle' ? (
+          <section className="mx-auto max-w-lg px-5 py-16 text-center">
+            <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-full text-4xl" style={{ background: `${accent}1a` }}>
+              {raffle.state === 'already' ? '🎟️' : '🎉'}
+            </div>
+            <h2 className="text-2xl font-bold">{raffle.state === 'already' ? '¡Ya estás participando!' : '¡Ya casi eres parte del sorteo!'}</h2>
+            <p className="mx-auto mt-2 max-w-md text-slate-600">
+              {raffle.state === 'already'
+                ? 'Ya te habías registrado en este sorteo con estos datos. Si aún no lo hiciste, confirma tu participación por WhatsApp.'
+                : 'Solo falta un paso muy importante: confirma tu participación por WhatsApp.'}
+            </p>
+            {raffle.wa && (
+              <a
+                href={`https://wa.me/${raffle.wa}?text=${encodeURIComponent(raffle.msg || '')}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-6 py-3 text-sm font-semibold text-white hover:bg-[#1eb457]"
+              >
+                ✅ Confirmar mi participación
+              </a>
+            )}
+            <p className="mx-auto mt-5 max-w-md rounded-lg bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800">
+              ⚠️ Si no confirmas por WhatsApp, tu participación no será válida.
+            </p>
+            <p className="mt-2 text-sm text-slate-500">📸 Recuerda seguirnos en Instagram y TikTok para poder ganar.</p>
+          </section>
+        ) : (
+          <section className="mx-auto max-w-4xl px-5 py-8">
+            <div
+              ref={htmlRef}
+              className="info-html leading-relaxed text-slate-700 [&_a]:text-emerald-700 [&_a]:underline [&_h1]:mt-6 [&_h1]:text-3xl [&_h1]:font-extrabold [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:font-bold [&_h3]:mt-4 [&_h3]:text-xl [&_h3]:font-semibold [&_img]:mx-auto [&_img]:my-4 [&_img]:max-w-full [&_img]:rounded-xl [&_li]:ml-5 [&_li]:list-disc [&_p]:my-3 [&_ul]:my-3"
+              dangerouslySetInnerHTML={{ __html: customHtml }}
+            />
+          </section>
+        )
       ) : (
         <>
           {/* Descripción */}
@@ -162,8 +237,9 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
         </section>
       )}
 
-      {/* Formulario de captación */}
-      {data.formEnabled && (
+      {/* Formulario de captación propio (se OCULTA si hay HTML personalizado: el HTML
+          trae su propio formulario, que registra en el sorteo vinculado si lo hay). */}
+      {data.formEnabled && !customHtml && (
         <section id="formulario" className="mx-auto max-w-xl px-5 py-10">
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
             {done ? (
