@@ -1,11 +1,15 @@
-import { Body, Controller, ForbiddenException, Get, Post } from '@nestjs/common';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { Body, Controller, ForbiddenException, Get, Patch, Post } from '@nestjs/common';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { BillingService } from './billing.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 
 class CancelDto {
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+class GraceDto {
+  @IsInt() @Min(1) @Max(30) graceDays!: number;
 }
 
 @Controller('billing')
@@ -40,5 +44,18 @@ export class BillingController {
   @Post('run-daily-check')
   async runCheck() {
     return this.svc.runDailyCheck();
+  }
+
+  /** PDF 1256 §2/§7: período de gracia (días de mora antes de pausar) configurable. */
+  @Roles('SUPER_ADMIN', 'PLATFORM_OWNER')
+  @Get('grace-days')
+  async getGrace() {
+    return { graceDays: await this.svc.getGraceDays() };
+  }
+
+  @Roles('SUPER_ADMIN', 'PLATFORM_OWNER')
+  @Patch('grace-days')
+  async setGrace(@Body() dto: GraceDto) {
+    return { graceDays: await this.svc.setGraceDays(dto.graceDays) };
   }
 }

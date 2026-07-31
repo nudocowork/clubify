@@ -124,6 +124,16 @@ export class StripeService {
         return this.onPaymentFailed(brand, event);
       case 'customer.subscription.deleted':
         return this.onSubscriptionCancelled(brand, event);
+      // PDF 1256 §3: eventos antes ignorados.
+      case 'invoice.upcoming':
+        return this.onInvoiceUpcoming(brand, event);
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+        return this.onSubscriptionSynced(brand, event);
+      case 'customer.subscription.paused':
+        return this.onSubscriptionPaused(brand, event);
+      case 'customer.subscription.resumed':
+        return this.onSubscriptionResumed(brand, event);
       default:
         return { ok: true, action: 'unhandled' };
     }
@@ -204,6 +214,7 @@ export class StripeService {
         lastPaymentAttemptAt: new Date(),
       },
     });
+    await this.billing.auditLifecycle('subscription.payment_failed', tenant.id, { gateway: 'STRIPE' });
     this.smsTemplates
       .render('payment_failed', { brandName: tenant.brandName }, tenant.id)
       .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
@@ -219,6 +230,9 @@ export class StripeService {
       where: { id: tenant.id },
       data: { status: 'SUSPENDED', suspendedAt: new Date() },
     });
+    // PDF 1256 §2/§8: liberar crédito a la marca + auditar.
+    await this.billing.releaseBrandCreditOnSuspend(tenant.id, 'stripe_cancelled').catch(() => null);
+    await this.billing.auditLifecycle('subscription.suspended', tenant.id, { gateway: 'STRIPE', reason: 'cancelled' });
     // Stage 4 (PDF734): si la marca activó "Cancelación" (admin_cancellation),
     // se envía ese texto; si no, el aviso de pausa de siempre. OFF por defecto.
     const sentAdmin = await isBrandTemplateSendEnabled(
@@ -245,6 +259,102 @@ export class StripeService {
         .catch(() => null);
     }
     return { ok: true, action: 'suspended' };
+  }
+
+  /** Contexto mínimo desde un objeto Subscription de Stripe (para los eventos
+   *  customer.subscription.*), donde el payload NO es una invoice. */
+  private ctxFromSubscription(event: Stripe.Event): StripeCtx {
+    const sub = event.data.object as any;
+    return {
+      email: null,
+      customerId: typeof sub.customer === 'string' ? sub.customer : null,
+      subscriptionId: typeof sub.id === 'string' ? sub.id : null,
+      priceId: sub.items?.data?.[0]?.price?.id ?? null,
+      nextCharge:
+        typeof sub.current_period_end === 'number'
+          ? new Date(sub.current_period_end * 1000)
+          : null,
+      amountUsd: null,
+    };
+  }
+
+  /** invoice.upcoming (PDF 1256 §3): Stripe avisa que se acerca el cobro.
+   *  Sincronizamos la fecha del próximo cobro. Los recordatorios (7/3/1 días)
+   *  los emite el cron de billing (ahora multi-marca) para no duplicar. */
+  private async onInvoiceUpcoming(brand: BrandCtx, event: Stripe.Event) {
+    const ctx = await this.extractCtx(brand, event);
+    const tenant = await this.findTenant(brand.whiteLabelId, ctx);
+    if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    if (ctx.nextCharge) {
+      await this.prisma.tenant.update({
+        where: { id: tenant.id },
+        data: { currentPeriodEnd: ctx.nextCharge },
+      });
+    }
+    this.logger.log(
+      `Stripe invoice.upcoming ${brand.slug}/${tenant.brandName} → próximo cobro ${ctx.nextCharge?.toISOString() ?? '?'}`,
+    );
+    return { ok: true, action: 'upcoming_synced' };
+  }
+
+  /** customer.subscription.created/updated (PDF 1256 §3): sincroniza ids +
+   *  fecha de próximo cobro. La activación/estado la maneja el flujo de pagos. */
+  private async onSubscriptionSynced(brand: BrandCtx, event: Stripe.Event) {
+    const ctx = this.ctxFromSubscription(event);
+    const tenant = await this.findTenant(brand.whiteLabelId, ctx);
+    if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    await this.prisma.tenant.update({
+      where: { id: tenant.id },
+      data: {
+        stripeSubscriptionId: ctx.subscriptionId ?? tenant.stripeSubscriptionId,
+        stripeCustomerId: ctx.customerId ?? tenant.stripeCustomerId,
+        ...(ctx.nextCharge ? { currentPeriodEnd: ctx.nextCharge } : {}),
+      },
+    });
+    return { ok: true, action: 'subscription_synced' };
+  }
+
+  /** customer.subscription.paused (PDF 1256 §3): pausa la cuenta + avisa. */
+  private async onSubscriptionPaused(brand: BrandCtx, event: Stripe.Event) {
+    const ctx = this.ctxFromSubscription(event);
+    const tenant = await this.findTenant(brand.whiteLabelId, ctx);
+    if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    if (tenant.status !== 'SUSPENDED') {
+      await this.prisma.tenant.update({
+        where: { id: tenant.id },
+        data: { status: 'SUSPENDED', suspendedAt: new Date() },
+      });
+      await this.billing.releaseBrandCreditOnSuspend(tenant.id, 'stripe_paused').catch(() => null);
+      await this.billing.auditLifecycle('subscription.suspended', tenant.id, { gateway: 'STRIPE', reason: 'paused' });
+      this.smsTemplates
+        .render('account_paused', { brandName: tenant.brandName }, tenant.id)
+        .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+    }
+    return { ok: true, action: 'paused' };
+  }
+
+  /** customer.subscription.resumed (PDF 1256 §3): reactiva la cuenta + avisa. */
+  private async onSubscriptionResumed(brand: BrandCtx, event: Stripe.Event) {
+    const ctx = this.ctxFromSubscription(event);
+    const tenant = await this.findTenant(brand.whiteLabelId, ctx);
+    if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    await this.prisma.tenant.update({
+      where: { id: tenant.id },
+      data: {
+        status: 'ACTIVE',
+        suspendedAt: null,
+        failedPaymentCount: 0,
+        ...(ctx.nextCharge ? { currentPeriodEnd: ctx.nextCharge } : {}),
+      },
+    });
+    await this.billing.clearCreditRelease(tenant.id);
+    await this.billing.auditLifecycle('subscription.reactivated', tenant.id, { gateway: 'STRIPE', reason: 'resumed' });
+    this.smsTemplates
+      .render('account_reactivated', { brandName: tenant.brandName }, tenant.id)
+      .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+      .catch(() => null);
+    return { ok: true, action: 'resumed' };
   }
 
   // ── Activación ──────────────────────────────────────────────────────────
@@ -288,6 +398,14 @@ export class StripeService {
         pausePendingNoticeSentAt: null,
       },
     });
+    // PDF 1256 §8: auditar + limpiar la marca de liberación de crédito (permite
+    // liberar de nuevo si el negocio se vuelve a suspender en un ciclo futuro).
+    await this.billing.clearCreditRelease(tenant.id);
+    await this.billing.auditLifecycle(
+      wasSuspended ? 'subscription.reactivated' : 'subscription.payment_succeeded',
+      tenant.id,
+      { gateway: 'STRIPE', amountUsd: ctx.amountUsd ?? null },
+    );
     // Si venía SUSPENDED → "cuenta reactivada"; si no → "pago confirmado".
     if (wasSuspended) {
       this.smsTemplates

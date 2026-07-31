@@ -51,6 +51,9 @@ export default function CobrosPage() {
   const [preview, setPreview] = useState<RenewalSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // PDF 1256 §2/§7: período de gracia (días de mora antes de pausar) configurable.
+  const [graceInput, setGraceInput] = useState<string>('');
+  const [graceSaving, setGraceSaving] = useState(false);
 
   function flashToast(msg: string) {
     setToast(msg);
@@ -63,7 +66,31 @@ export default function CobrosPage() {
   }
   useEffect(() => {
     loadBilling().catch((e) => console.error(e));
+    api<{ graceDays: number }>('/billing/grace-days')
+      .then((g) => setGraceInput(String(g.graceDays)))
+      .catch(() => null);
   }, []);
+
+  async function saveGrace() {
+    const n = parseInt(graceInput, 10);
+    if (!Number.isFinite(n) || n < 1 || n > 30) {
+      flashToast('Ingresa un número entre 1 y 30');
+      return;
+    }
+    setGraceSaving(true);
+    try {
+      const g = await api<{ graceDays: number }>('/billing/grace-days', {
+        method: 'PATCH',
+        body: JSON.stringify({ graceDays: n }),
+      });
+      setGraceInput(String(g.graceDays));
+      flashToast(`Período de gracia: ${g.graceDays} días`);
+    } catch (e: any) {
+      flashToast(e.message ?? 'Error');
+    } finally {
+      setGraceSaving(false);
+    }
+  }
 
   async function loadPreview() {
     setBusy(true);
@@ -109,6 +136,38 @@ export default function CobrosPage() {
         <Stat label="Pendientes de renov." value={fmt(s.pending)} color="#b91c1c" />
         <Stat label="En gracia" value={fmt(s.inGrace)} color="#b45309" />
         <Stat label="Suspendidos" value={fmt(s.suspended)} color="#6b7785" />
+      </div>
+
+      {/* PDF 1256 §2/§7: período de gracia configurable */}
+      <div
+        className="rounded-[14px] p-5 mb-6 flex flex-wrap items-end gap-4"
+        style={{ background: 'white', border: '1px solid #e7e9ec', boxShadow: '0 1px 2px rgba(16,24,40,.04)' }}
+      >
+        <div>
+          <div className="text-[12px] font-bold uppercase mb-1" style={{ letterSpacing: 0.6, color: '#9aa4af' }}>
+            Período de gracia (días)
+          </div>
+          <div className="text-xs mb-2" style={{ color: '#6b7785' }}>
+            Días de mora antes de pausar una cuenta por falta de pago. Ej: 1, 3, 5, 7.
+          </div>
+          <input
+            type="number"
+            min={1}
+            max={30}
+            value={graceInput}
+            onChange={(e) => setGraceInput(e.target.value)}
+            className="rounded-[10px] px-3 py-2 text-sm"
+            style={{ border: '1px solid #d7dbe0', width: 120 }}
+          />
+        </div>
+        <button
+          onClick={saveGrace}
+          disabled={graceSaving}
+          className="px-4 py-2 rounded-[10px] text-sm font-bold text-white disabled:opacity-60"
+          style={{ background: 'linear-gradient(180deg, #28c95f, #16a34a)' }}
+        >
+          {graceSaving ? 'Guardando…' : 'Guardar'}
+        </button>
       </div>
 
       {/* Cron de renovaciones automáticas */}

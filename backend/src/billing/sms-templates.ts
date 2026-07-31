@@ -39,6 +39,15 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
       'Hola {ownerName} 👋 Te escribo para recordarte que en 7 días se renueva tu suscripción de {platform}. Verifica que tengas saldo disponible en tu tarjeta para que el pago pase sin problema 🙌 Cualquier cosa estoy aquí para ayudarte.',
   },
   {
+    id: 'payment_reminder_3d',
+    label: 'Recordatorio de cobro (3 días antes)',
+    description: 'Se envía 3 días antes de la renovación. Tono personal al dueño.',
+    vars: ['platform', 'ownerName'],
+    group: 'cliente',
+    default:
+      'Hola {ownerName} 👋 En 3 días se renueva tu suscripción de {platform}. Verifica que tu tarjeta tenga saldo para que el pago pase sin problema 🙌 Cualquier cosa, aquí estoy.',
+  },
+  {
     id: 'payment_reminder_tomorrow',
     label: 'Recordatorio de cobro (1 día antes)',
     description: 'Se envía 1 día antes de la renovación. Tono personal al dueño.',

@@ -6,6 +6,7 @@ import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-cre
 import { SmsTemplatesService } from './sms-templates.service';
 import { fmtSmsDate } from './sms-templates';
 import { addPlanPeriod } from '../common/plan-period';
+import { AuditService } from '../audit/audit.service';
 
 // Secuencia de mora (PDF 2026-07-01, P4). Día 0 = 1er cobro fallido o fecha
 // de cobro vencida (lo que ocurra). El cron diario cuenta días calendario:
@@ -43,7 +44,104 @@ export class BillingService {
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
     private smsTemplates: SmsTemplatesService,
+    private audit: AuditService,
   ) {}
+
+  // ── PDF 1256 §2/§8: gracia configurable, liberación de crédito, auditoría ──
+
+  /** Días de gracia (D+N) antes de suspender por mora. Configurable desde el
+   *  panel (Setting `billing.graceDays`). Default 3. Rango 1..30. */
+  async getGraceDays(): Promise<number> {
+    const row = await this.prisma.setting
+      .findUnique({ where: { key: 'billing.graceDays' } })
+      .catch(() => null);
+    const n = row?.value != null ? parseInt(row.value, 10) : NaN;
+    return Number.isFinite(n) && n >= 1 && n <= 30 ? n : PAUSE_DAYS;
+  }
+
+  async setGraceDays(days: number): Promise<number> {
+    const n = Math.max(1, Math.min(30, Math.round(days)));
+    await this.prisma.setting.upsert({
+      where: { key: 'billing.graceDays' },
+      update: { value: String(n) },
+      create: { key: 'billing.graceDays', value: String(n) },
+    });
+    return n;
+  }
+
+  /** Auditoría best-effort de un evento del ciclo de suscripción (PDF 1256 §8). */
+  async auditLifecycle(
+    action: string,
+    tenantId: string | null,
+    metadata: Record<string, unknown> = {},
+  ) {
+    await this.audit
+      .log({ tenantId: tenantId ?? undefined, action, resource: 'subscription', metadata })
+      .catch(() => null);
+  }
+
+  /**
+   * PDF 1256 §2: al suspender un negocio de MARCA BLANCA que había consumido un
+   * crédito, se devuelve 1 crédito al inventario de la marca. Idempotente
+   * (creditReleasedAt): nunca libera 2 veces el mismo ciclo. NO aplica a Clubify
+   * (paga directo, sin crédito) ni a marcas ilimitadas. Auditado.
+   */
+  async releaseBrandCreditOnSuspend(tenantId: string, reason: string): Promise<boolean> {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        brandName: true,
+        creditReleasedAt: true,
+        whiteLabelId: true,
+        whiteLabel: { select: { id: true, slug: true, creditsUnlimited: true } },
+      },
+    });
+    if (!t || t.creditReleasedAt) return false; // ya liberado este ciclo
+    const wl = t.whiteLabel;
+    if (!wl || wl.slug === 'clubify' || wl.creditsUnlimited) return false; // no aplica
+    // Evidencia de que se consumió un crédito por este negocio (si nunca se
+    // consumió, no hay nada que devolver).
+    const consumed = await this.prisma.creditTransaction.findFirst({
+      where: { whiteLabelId: wl.id, tenantId: t.id, type: 'CONSUME' },
+      select: { id: true },
+    });
+    if (!consumed) return false;
+    // Devolver el crédito + registrar en el ledger + auditar. Marca idempotente.
+    await this.prisma.$transaction([
+      this.prisma.whiteLabel.update({
+        where: { id: wl.id },
+        data: { creditsAvailable: { increment: 1 } },
+      }),
+      this.prisma.creditTransaction.create({
+        data: {
+          whiteLabelId: wl.id,
+          tenantId: t.id,
+          type: 'REFUND',
+          amount: 1,
+          note: `Crédito liberado por suspensión (${reason})`,
+        },
+      }),
+      this.prisma.tenant.update({
+        where: { id: t.id },
+        data: { creditReleasedAt: new Date() },
+      }),
+    ]);
+    await this.auditLifecycle('subscription.credit_released', t.id, {
+      whiteLabelId: wl.id,
+      reason,
+    });
+    this.logger.log(`Crédito liberado a marca ${wl.slug} por suspensión de ${t.brandName} (${reason})`);
+    return true;
+  }
+
+  /** Limpia la marca de liberación al reactivar/renovar (permite liberar en un
+   *  ciclo futuro). Best-effort. */
+  async clearCreditRelease(tenantId: string) {
+    await this.prisma.tenant
+      .update({ where: { id: tenantId }, data: { creditReleasedAt: null } })
+      .catch(() => null);
+  }
 
   /**
    * Helper: encontrar el celular del dueño para SMS. Prioridad:
@@ -335,6 +433,7 @@ export class BillingService {
 
     // ────── Serie pre-cobro (PDF734): 7 días antes · 1 día antes · mismo día ──────
     const reminder7dCount = await this.sendPreChargeReminder7d(now);
+    const reminder3dCount = await this.sendPreChargeReminder3d(now); // D-3 (PDF 1256)
     const reminderCount = await this.sendPaymentReminders(now); // D-1
     const reminderTodayCount = await this.sendPreChargeReminderToday(now); // día del cobro
     // Secuencia de mora D+1/D+2/D+3 (recordatorio → "no procesado" → suspensión).
@@ -342,7 +441,8 @@ export class BillingService {
 
     return {
       suspendedCount: expiredTrials.length,
-      reminderCount: reminder7dCount + reminderCount + reminderTodayCount,
+      reminderCount:
+        reminder7dCount + reminder3dCount + reminderCount + reminderTodayCount,
       overdueReminderCount: dunning.reminders,
       pauseNoticeCount: dunning.notices,
       autoPausedCount: dunning.suspended,
@@ -465,7 +565,13 @@ export class BillingService {
         status: 'ACTIVE',
         isCampaignHost: false,
         currentPeriodEnd: { gte: from, lt: to },
-        OR: [{ whiteLabelId: null }, { whiteLabel: { slug: 'clubify' } }],
+        // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
+        // marcas que cobran directo por Stripe (antes solo Clubify).
+        OR: [
+          { whiteLabelId: null },
+          { whiteLabel: { slug: 'clubify' } },
+          { whiteLabel: { paymentGateway: 'STRIPE' } },
+        ],
       },
       select: {
         id: true,
@@ -514,6 +620,70 @@ export class BillingService {
     return sent;
   }
 
+  /** PDF 1256 §4: recordatorio "3 días antes" del próximo cobro. Mismo patrón
+   *  que el de 7 días. Clubify + marcas Stripe. */
+  private async sendPreChargeReminder3d(now: Date) {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const from = new Date(now.getTime() + 3 * dayMs);
+    const to = new Date(now.getTime() + 4 * dayMs);
+    const candidates = await this.prisma.tenant.findMany({
+      where: {
+        status: 'ACTIVE',
+        isCampaignHost: false,
+        currentPeriodEnd: { gte: from, lt: to },
+        OR: [
+          { whiteLabelId: null },
+          { whiteLabel: { slug: 'clubify' } },
+          { whiteLabel: { paymentGateway: 'STRIPE' } },
+        ],
+      },
+      select: {
+        id: true,
+        brandName: true,
+        currentPeriodEnd: true,
+        lastChargeAt: true,
+        planPeriodicity: true,
+        preReminder3dSentFor: true,
+      },
+    });
+    let sent = 0;
+    for (const t of candidates) {
+      if (!t.currentPeriodEnd) continue;
+      if (this.paidButStale(t)) {
+        await this.healStaleCharge(now, t);
+        continue;
+      }
+      if (
+        t.preReminder3dSentFor &&
+        t.preReminder3dSentFor.getTime() === t.currentPeriodEnd.getTime()
+      ) {
+        continue;
+      }
+      const target = await this.resolveBillingTarget(t.id);
+      if (!target) continue;
+      const ownerName = await this.ownerFirstName(t.id);
+      const message = await this.smsTemplates.render(
+        'payment_reminder_3d',
+        { ownerName },
+        t.id,
+      );
+      const r = await this.growBusiness.sendSmsWithCreds(
+        target.creds,
+        target.phone,
+        message,
+      );
+      if (r.ok) {
+        await this.prisma.tenant.update({
+          where: { id: t.id },
+          data: { preReminder3dSentFor: t.currentPeriodEnd },
+        });
+        sent++;
+        this.logger.log(`SMS D-3 → ${t.brandName} (${target.phone})`);
+      }
+    }
+    return sent;
+  }
+
   /**
    * D-0: aviso el mismo día en que se procesa la renovación (solo Clubify).
    * Idempotencia por ciclo con preReminderTodaySentFor === currentPeriodEnd.
@@ -526,7 +696,13 @@ export class BillingService {
         status: 'ACTIVE',
         isCampaignHost: false,
         currentPeriodEnd: { gte: now, lt: to },
-        OR: [{ whiteLabelId: null }, { whiteLabel: { slug: 'clubify' } }],
+        // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
+        // marcas que cobran directo por Stripe (antes solo Clubify).
+        OR: [
+          { whiteLabelId: null },
+          { whiteLabel: { slug: 'clubify' } },
+          { whiteLabel: { paymentGateway: 'STRIPE' } },
+        ],
       },
       select: {
         id: true,
@@ -592,7 +768,13 @@ export class BillingService {
         // blancas se renuevan con créditos (cron de renovaciones) → no hay
         // cobro Hotmart que recordar, así que las excluimos. Legacy con
         // whiteLabelId null = Clubify.
-        OR: [{ whiteLabelId: null }, { whiteLabel: { slug: 'clubify' } }],
+        // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
+        // marcas que cobran directo por Stripe (antes solo Clubify).
+        OR: [
+          { whiteLabelId: null },
+          { whiteLabel: { slug: 'clubify' } },
+          { whiteLabel: { paymentGateway: 'STRIPE' } },
+        ],
       },
       select: {
         id: true,
@@ -669,7 +851,13 @@ export class BillingService {
         isCampaignHost: false,
         AND: [
           {
-            OR: [{ whiteLabelId: null }, { whiteLabel: { slug: 'clubify' } }],
+            // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
+        // marcas que cobran directo por Stripe (antes solo Clubify).
+        OR: [
+          { whiteLabelId: null },
+          { whiteLabel: { slug: 'clubify' } },
+          { whiteLabel: { paymentGateway: 'STRIPE' } },
+        ],
           },
           {
             OR: [
@@ -693,6 +881,9 @@ export class BillingService {
     let reminders = 0;
     let notices = 0;
     let suspended = 0;
+    // PDF 1256 §2: días de gracia antes de pausar, configurables desde el panel
+    // (Setting billing.graceDays). Default = PAUSE_DAYS (3).
+    const graceDays = await this.getGraceDays();
 
     for (const t of candidates) {
       // Blindaje anti-desincronización (PDF734): si el pago ya entró pero la
@@ -741,9 +932,9 @@ export class BillingService {
       );
       if (daysOverdue < OVERDUE_REMINDER_DAY) continue;
 
-      const pauseDate = new Date(dueSince.getTime() + PAUSE_DAYS * dayMs);
+      const pauseDate = new Date(dueSince.getTime() + graceDays * dayMs);
 
-      if (daysOverdue >= PAUSE_DAYS) {
+      if (daysOverdue >= graceDays) {
         // Tope de seguridad SOLO para la vía "fecha vencida" (no la de falla
         // explícita de Hotmart): evita pausar en masa cuentas legacy con
         // currentPeriodEnd viejo que nunca avanzó.
@@ -758,6 +949,12 @@ export class BillingService {
           data: { status: 'SUSPENDED', suspendedAt: now },
         });
         suspended++;
+        // §8 auditoría + §2 liberar crédito a la marca (no-op para Clubify).
+        await this.auditLifecycle('subscription.suspended', t.id, {
+          reason: byFailure ? 'payment_failed' : 'overdue',
+          daysOverdue,
+        });
+        await this.releaseBrandCreditOnSuspend(t.id, 'dunning').catch(() => null);
         const target = await this.resolveBillingTarget(t.id);
         if (target) {
           const message = await this.smsTemplates.render('account_paused', {

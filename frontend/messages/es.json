@@ -426,6 +426,8 @@
     "graceDaysAfterExpiryHelp": "Días extra de acceso tras vencer el trial antes de bloquear. 0 = corte inmediato.",
     "nextChargeDate": "Próxima fecha de cobro",
     "hotmartSubscriberCode": "Código suscriptor Hotmart",
+    "subscriptionIdLabel": "Identificador de suscripción",
+    "gatewayLabel": "Pasarela",
     "optional": "opcional",
     "pendingModeNote": "Esto desactiva el código actual y reactiva el lockscreen. El dueño tendrá que pagar en Hotmart para volver a entrar.",
     "freeModeNote": "Cuenta queda activa de cortesía indefinidamente.",

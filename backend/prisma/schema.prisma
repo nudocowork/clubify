@@ -587,7 +587,13 @@ model Tenant {
   // amables "7 días antes" y "mismo día del cobro". Igualamos a
   // currentPeriodEnd al enviar, para no repetir si el cron corre 2 veces.
   preReminder7dSentFor        DateTime?
+  // Recordatorio "3 días antes" (PDF 1256 §4). Idempotencia por ciclo.
+  preReminder3dSentFor        DateTime?
   preReminderTodaySentFor     DateTime?
+  // PDF 1256 §2: cuándo se devolvió el crédito a la marca al suspender este
+  // negocio. Idempotencia: evita liberar 2 veces el mismo crédito. Se limpia
+  // al reactivar/renovar para permitir una liberación futura.
+  creditReleasedAt            DateTime?
   // Cuándo el dueño cerró el popup de bienvenida ("agendar sesión
   // personalizada"). Si null, todavía no lo vio → se le muestra al
   // entrar al panel. Para tenants que ya existían se backfilllea con

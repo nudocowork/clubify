@@ -2678,15 +2678,48 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
               onChange={(e) => setNextChargeDate(e.target.value)}
             />
           </div>
-          <div>
-            <label className="label">{t('hotmartSubscriberCode')}</label>
-            <input
-              className="input"
-              placeholder={t('optional')}
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-          </div>
+          {(() => {
+            // PDF 1256 §1: pasarela + identificador dinámicos por marca. El campo
+            // es editable para Hotmart/Manual (código que matchea el webhook);
+            // para Stripe/otras se muestra el id real (lo setea el webhook).
+            const gateway =
+              tenant.subscription?.gateway ||
+              tenant.whiteLabel?.paymentGateway ||
+              'HOTMART';
+            const gatewayLabels: Record<string, string> = {
+              HOTMART: 'Hotmart',
+              STRIPE: 'Stripe',
+              MANUAL: 'Manual',
+              MERCADOPAGO: 'Mercado Pago',
+              WOMPI: 'Wompi',
+              PAYPAL: 'PayPal',
+            };
+            const editable = gateway === 'HOTMART' || gateway === 'MANUAL';
+            return (
+              <div>
+                <label className="label">{t('subscriptionIdLabel')}</label>
+                <div className="text-[11px] text-mute mb-1">
+                  {t('gatewayLabel')}:{' '}
+                  <b>{gatewayLabels[gateway] ?? gateway}</b>
+                </div>
+                {editable ? (
+                  <input
+                    className="input"
+                    placeholder={t('optional')}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                  />
+                ) : (
+                  <input
+                    className="input bg-bg2 text-mute"
+                    value={tenant.subscription?.identifier || '—'}
+                    readOnly
+                    title={t('gatewayLabel')}
+                  />
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 

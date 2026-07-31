@@ -426,6 +426,8 @@
     "graceDaysAfterExpiryHelp": "Extra days of access after the trial expires before locking. 0 = immediate cutoff.",
     "nextChargeDate": "Next charge date",
     "hotmartSubscriberCode": "Hotmart subscriber code",
+    "subscriptionIdLabel": "Subscription identifier",
+    "gatewayLabel": "Gateway",
     "optional": "optional",
     "pendingModeNote": "This deactivates the current code and re-enables the lockscreen. The owner will have to pay on Hotmart to enter again.",
     "freeModeNote": "Account stays active as a courtesy indefinitely.",

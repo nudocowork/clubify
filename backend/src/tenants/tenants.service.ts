@@ -500,6 +500,10 @@ export class TenantsService {
           select: {
             slug: true,
             name: true,
+            // Pasarela de pago de la marca → el detalle muestra dinámicamente
+            // "Pasarela: Stripe/Hotmart/…" + el identificador correcto (PDF 1256
+            // §1). Reutilizable para cualquier marca sin tocar código.
+            paymentGateway: true,
             // Créditos de la marca → el detalle gatea trial/activación (PDF 752
             // #5): marca blanca sin créditos NO puede activar; y nunca da trial.
             creditsAvailable: true,
@@ -554,7 +558,26 @@ export class TenantsService {
           referralCode: { role: 'VENDOR' },
         },
       })) > 0;
-    return { ...tenant, enabledModules, brandPlans, brandCredits, hasVendor };
+    // PDF 1256 §1: pasarela + identificador de suscripción dinámicos por marca.
+    // Clubify / sin marca → HOTMART por default. El identificador se toma del
+    // campo correcto según la pasarela (reutilizable para cualquier marca).
+    const gateway = wl?.paymentGateway ?? 'HOTMART';
+    const subscriptionIdentifier =
+      gateway === 'STRIPE'
+        ? tenant.stripeSubscriptionId ?? null
+        : gateway === 'HOTMART' || gateway === 'MANUAL'
+          ? tenant.hotmartSubscriberCode ?? null
+          : tenant.stripeSubscriptionId ?? tenant.hotmartSubscriberCode ?? null;
+    const subscription = {
+      gateway,
+      identifier: subscriptionIdentifier,
+      // true si el identificador es un placeholder auto-generado (wl-…/manual-…)
+      // y no un id real de la pasarela.
+      isPlaceholder:
+        !!subscriptionIdentifier &&
+        /^(wl-|manual-|comp-|trial-|sim-)/i.test(subscriptionIdentifier),
+    };
+    return { ...tenant, enabledModules, brandPlans, brandCredits, hasVendor, subscription };
   }
 
   /** #9: asegura un Plan "Sin plan" (precio 0) reutilizable para crear

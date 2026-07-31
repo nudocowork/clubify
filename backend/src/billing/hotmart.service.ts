@@ -898,6 +898,9 @@ export class HotmartService {
             paymentFailureNoticeSentAt: now,
           },
         });
+        await this.billing
+          .auditLifecycle('subscription.payment_failed', tenant.id, { gateway: 'HOTMART', event })
+          .catch(() => null);
         // SMS aviso de falla (best-effort). Si es PROTEST y la marca activó
         // "Pago en disputa" (admin_protest), se envía ese texto en su lugar.
         const sentProtest =
@@ -929,6 +932,13 @@ export class HotmartService {
             suspendedAt: new Date(),
           },
         });
+        // PDF 1256 §2/§8: liberar crédito a la marca (marca blanca) + auditar.
+        await this.billing
+          .releaseBrandCreditOnSuspend(tenant.id, `hotmart_${event.toLowerCase()}`)
+          .catch(() => null);
+        await this.billing
+          .auditLifecycle('subscription.suspended', tenant.id, { gateway: 'HOTMART', reason: event })
+          .catch(() => null);
         // Reflejar el cambio en el referido. CHURNED frena nuevas comisiones
         // recurrentes. Si fue refund/chargeback, además rechazamos la última
         // comisión PENDING/APPROVED para no pagar algo que el cliente revirtió.
@@ -1109,6 +1119,16 @@ export class HotmartService {
         pausePendingNoticeSentAt: null,
       },
     });
+    // PDF 1256 §8: auditar + limpiar la marca de liberación de crédito (para
+    // permitir liberar de nuevo si el negocio se suspende en un ciclo futuro).
+    await this.billing.clearCreditRelease(tenant.id).catch(() => null);
+    await this.billing
+      .auditLifecycle(
+        wasSuspended ? 'subscription.reactivated' : 'subscription.payment_succeeded',
+        tenant.id,
+        { gateway: 'HOTMART', renewal: !isFirstHotmartPurchase },
+      )
+      .catch(() => null);
     // Generar la comisión recurrente del referido. Idempotente por
     // tx/período: si ya creamos una comisión para esta misma transacción
     // o en los últimos 25 días, skipea.
