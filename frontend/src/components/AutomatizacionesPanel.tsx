@@ -80,7 +80,7 @@ export default function AutomatizacionesPanel() {
         `/admin/automations/message-templates/${id}/test`,
         { method: 'POST', body: JSON.stringify({ text }) },
       );
-      toast(r?.ok ? 'SMS de prueba enviado' : r?.message ?? 'No se pudo enviar', r?.ok ? 'success' : 'error');
+      toast(r?.ok ? 'WhatsApp de prueba enviado' : r?.message ?? 'No se pudo enviar', r?.ok ? 'success' : 'error');
     } catch (e: any) {
       toast(e.message ?? 'Error al enviar la prueba', 'error');
     } finally {
@@ -229,7 +229,7 @@ export default function AutomatizacionesPanel() {
         className="rounded-lg p-3 text-xs mb-4"
         style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}
       >
-        Los mensajes SMS/WhatsApp que el sistema envía a tus negocios, organizados
+        Los mensajes de WhatsApp que el sistema envía a tus negocios, organizados
         en carpetas. Personaliza el texto; deja el campo vacío y guarda para volver
         al default. Los tokens <code>{'{token}'}</code> se reemplazan al enviar. Los
         marcados <b>“Envío por activar”</b> son editables; abre uno y pulsa{' '}
@@ -245,7 +245,7 @@ export default function AutomatizacionesPanel() {
             🧪 Número de prueba
           </span>
           <span className="text-[11px]" style={{ color: '#a16207' }}>
-            Se guarda para probar tus SMS sin escribirlo cada vez.
+            Se guarda para probar tus mensajes sin escribirlo cada vez.
           </span>
           <input
             value={phoneDraft}
@@ -264,7 +264,7 @@ export default function AutomatizacionesPanel() {
           </button>
           {!growConnected && (
             <span className="text-[11px] w-full" style={{ color: '#b45309' }}>
-              ⚠ Esta marca aún no tiene subcuenta de SMS conectada; la prueba no se enviará hasta conectarla.
+              ⚠ Esta marca aún no tiene subcuenta de mensajería conectada; la prueba no se enviará hasta conectarla.
             </span>
           )}
         </div>
@@ -343,7 +343,7 @@ export default function AutomatizacionesPanel() {
                                 className="text-[11px] truncate"
                                 style={{ color: '#9aa4af' }}
                               >
-                                {t.channel} · {t.audience}
+                                {t.channel === 'SMS' ? 'WhatsApp' : t.channel} · {t.audience}
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
@@ -432,7 +432,7 @@ export default function AutomatizacionesPanel() {
                                   <button
                                     onClick={() => testSend(t.id, draft)}
                                     disabled={testingId === t.id || !phoneDraft.trim()}
-                                    title={phoneDraft.trim() ? 'Enviar este SMS a tu número de prueba' : 'Guarda un número de prueba arriba'}
+                                    title={phoneDraft.trim() ? 'Enviar este WhatsApp a tu número de prueba' : 'Guarda un número de prueba arriba'}
                                     className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
                                     style={{ background: 'white', color: '#0369a1', border: '1px solid #bae6fd' }}
                                   >
