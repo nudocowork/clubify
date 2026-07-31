@@ -3,10 +3,12 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
-// PDF 1256 F3: notificaciones de pedido al CLIENTE final por SMS. Opt-in
-// (OFF por defecto) porque cada SMS cuesta. A diferencia de las alertas de
-// domicilio, NO se configura un teléfono: el SMS va al número del cliente del
-// pedido. Solo se elige activar + qué estados disparan el mensaje. El texto se
+// PDF 1256 F3: notificaciones de pedido al CLIENTE final por WhatsApp. El envío
+// usa el canal SMS (wazzap.mx lo entrega como WhatsApp) → en la UI decimos
+// "WhatsApp" para no confundir al negocio. Opt-in (OFF por defecto) porque cada
+// mensaje cuesta. A diferencia de las alertas de domicilio, NO se configura un
+// teléfono: el mensaje va al número del cliente del pedido. Solo se elige
+// activar + qué estados disparan el mensaje. El texto se
 // personaliza por marca en Master Admin → Marcas → Automatizaciones.
 // Componente agnóstico del endpoint (savePath por props) para reusar contra
 // /tenants/:id (admin) o /tenants/me (dueño) si se decide moverlo.
@@ -65,7 +67,7 @@ export function CustomerOrderAlertsCard<T extends CustomerOrderAlertsData>({
 
   async function save() {
     if (enabled && events.length === 0) {
-      toast('Elige al menos un evento que dispare el SMS', 'error');
+      toast('Elige al menos un evento que dispare el WhatsApp', 'error');
       return;
     }
     setSaving(true);
@@ -94,7 +96,7 @@ export function CustomerOrderAlertsCard<T extends CustomerOrderAlertsData>({
   return (
     <div className="card card-pad mb-4">
       <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-        📲 Notificaciones al cliente (SMS)
+        📲 Notificaciones al cliente (WhatsApp)
         {enabled ? (
           <span className="text-[10px] font-bold uppercase tracking-wider bg-ok/15 text-ok px-2 py-0.5 rounded-full">
             Activas
@@ -106,9 +108,9 @@ export function CustomerOrderAlertsCard<T extends CustomerOrderAlertsData>({
         )}
       </h2>
       <p className="text-xs text-mute mt-1 leading-relaxed">
-        Manda un SMS automático al <strong>cliente</strong> cuando su pedido
-        cambia de estado (al número que dejó en el pedido). Cada SMS tiene costo
-        — actívalo solo para los estados que valga la pena avisar.
+        Manda un WhatsApp automático al <strong>cliente</strong> cuando su
+        pedido cambia de estado (al número que dejó en el pedido). Cada mensaje
+        tiene costo — actívalo solo para los estados que valga la pena avisar.
       </p>
 
       <div className="mt-4 space-y-4">
@@ -120,16 +122,16 @@ export function CustomerOrderAlertsCard<T extends CustomerOrderAlertsData>({
             className="w-5 h-5 accent-brand"
           />
           <div>
-            <div className="font-semibold text-sm">Activar SMS al cliente</div>
+            <div className="font-semibold text-sm">Activar WhatsApp al cliente</div>
             <div className="text-[11px] text-mute leading-snug">
-              Si está prendido, los SMS salen automáticamente en los estados que
-              elijas abajo.
+              Si está prendido, los mensajes salen automáticamente en los estados
+              que elijas abajo.
             </div>
           </div>
         </label>
 
         <div>
-          <label className="label">Estados que disparan el SMS</label>
+          <label className="label">Estados que disparan el WhatsApp</label>
           <div className="space-y-1">
             {CUSTOMER_ORDER_EVENT_OPTIONS.map((opt) => (
               <label
