@@ -28,6 +28,13 @@ const nextConfig = {
       { protocol: 'https', hostname: 'cdn.soyclubify.com' },
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' }, // Google profile
       { protocol: 'https', hostname: 'static-media.hotmart.com' },
+      // Bucket público del Onboarding (Supabase): fotos de menú/branding
+      // sincronizadas. Restringido al path público de storage.
+      {
+        protocol: 'https',
+        hostname: 'ugbqfcogmqkuhhepecfq.supabase.co',
+        pathname: '/storage/v1/object/public/**',
+      },
       { protocol: 'http', hostname: 'localhost' }, // dev MinIO
     ],
     // 1 año de cache CDN para imágenes optimizadas — los IDs son únicos
