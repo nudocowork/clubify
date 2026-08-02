@@ -2401,7 +2401,11 @@
     "couponRedeemed": "Coupon redeemed",
     "couponAlreadyRedeemed": "🚫 Redeemed",
     "moreStampsTitleShort": "More stamps",
-    "redeemShort": "Redeem"
+    "redeemShort": "Redeem",
+    "transformInto": "On redemption, transform into:",
+    "targetStampsCard": "(target stamps card)",
+    "autoFirstStampsCard": "Auto · use the first active stamps card",
+    "transformHint": "The customer's same wallet pass switches from coupon to stamps card without requiring any new install. If you leave \"Auto\", the business's first active stamps card is used (or a generic one is created if none exists)."
   },
   "admin_commissions": {
     "pageTitle": "Commissions",
@@ -2589,7 +2593,10 @@
     "confirmRemove": "Delete location?",
     "toastRemoved": "Location deleted",
     "errorCouldNotRemove": "Could not delete",
-    "toastUpdated": "Location updated"
+    "toastUpdated": "Location updated",
+    "reservationsEnabledLabel": "Accept reservations at this location",
+    "reservationsEnabledHint": "If off, this location won't appear in the public reservations link.",
+    "reservationsOffBadge": "Reservations off"
   },
   "app_reservations": {
     "pageTitle": "Reservations",
@@ -2718,6 +2725,23 @@
     "toastLinkCopied": "Link copied",
     "toastCouldNotCopy": "Could not copy",
     "toastSlotsSaved": "Time slots saved",
+    "bookingRulesTitle": "Days & notes",
+    "bookingRulesDesc": "Choose which days you take reservations and add notes the customer sees before booking.",
+    "daysLabel": "Days you take reservations",
+    "daysHint": "Days in green accept online reservations. Tap to open or close each day.",
+    "daysAllWarning": "Select at least one day.",
+    "observationsLabel": "Reservation notes",
+    "observationsDesc": "Shown to the customer before booking (group pricing, policies, etc.).",
+    "observationsPlaceholder": "e.g.:\nImportant before booking.\n\nReservation fees:\nGroups up to 10 people: 60k\nGroups up to 20 people: 80k\nGroups up to 30 people: 100k\nMore than 30 people: 150k",
+    "saveBookingRules": "Save days & notes",
+    "toastBookingSaved": "Days & notes saved",
+    "wdMon": "Mon",
+    "wdTue": "Tue",
+    "wdWed": "Wed",
+    "wdThu": "Thu",
+    "wdFri": "Fri",
+    "wdSat": "Sat",
+    "wdSun": "Sun",
     "toastCouldNotSave": "Could not save"
   },
   "app_reservations_eventos": {
@@ -2917,7 +2941,11 @@
     "errorCouldNotRegister": "Could not register",
     "errorTableNumberRequired": "Table number required",
     "errorCouldNotDelete": "Could not delete",
-    "errorCouldNotSavePosition": "Could not save the position"
+    "errorCouldNotSavePosition": "Could not save the position",
+    "toastZoneMoved": "Area moved to location",
+    "zoneSedeTitle": "Location of this area",
+    "zoneSedeNone": "No location",
+    "assignZonesHint": "Assign each area to its location so each floor plan is independent."
   },
   "app_menu_book": {
     "title": "Menu Book",
@@ -3954,7 +3982,11 @@
     "zonesHint": "Group tables by area (Dining room, Terrace, Bar, Private). Customers can choose them when booking online.",
     "noZonesYet": "No zones yet.",
     "deleteZone": "Delete zone",
-    "newZonePlaceholder": "New zone (Dining room, Terrace...)"
+    "newZonePlaceholder": "New zone (Dining room, Terrace...)",
+    "toastZoneMoved": "Area moved to location",
+    "zoneSedeNone": "No location",
+    "zoneSedeTitle": "Location of this area",
+    "assignZonesHint": "Assign each area to its location so each floor plan is independent."
   },
   "app_marketing": {
     "typeMenuLabel": "Menu QR",

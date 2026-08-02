@@ -2401,7 +2401,11 @@
     "couponRedeemed": "Cupom resgatado",
     "couponAlreadyRedeemed": "🚫 Resgatado",
     "moreStampsTitleShort": "Mais selos",
-    "redeemShort": "Resgatar"
+    "redeemShort": "Resgatar",
+    "transformInto": "Ao resgatar, transformar em:",
+    "targetStampsCard": "(cartão de selos de destino)",
+    "autoFirstStampsCard": "Auto · usar o primeiro cartão de selos ativo",
+    "transformHint": "O mesmo wallet pass do cliente muda de cupom para cartão de selos sem pedir para instalar nada novo. Se deixar \"Auto\", é usado o primeiro cartão de selos ativo do negócio (ou é criado um genérico se não existir nenhum)."
   },
   "admin_commissions": {
     "pageTitle": "Comissões",
@@ -2589,7 +2593,10 @@
     "confirmRemove": "Excluir localização?",
     "toastRemoved": "Localização excluída",
     "errorCouldNotRemove": "Não foi possível excluir",
-    "toastUpdated": "Localização atualizada"
+    "toastUpdated": "Localização atualizada",
+    "reservationsEnabledLabel": "Aceita reservas nesta unidade",
+    "reservationsEnabledHint": "Se desativar, esta unidade não aparecerá no link público de reservas.",
+    "reservationsOffBadge": "Reservas off"
   },
   "app_reservations": {
     "pageTitle": "Reservas",
@@ -2718,6 +2725,23 @@
     "toastLinkCopied": "Link copiado",
     "toastCouldNotCopy": "Não foi possível copiar",
     "toastSlotsSaved": "Horários salvos",
+    "bookingRulesTitle": "Dias e observações",
+    "bookingRulesDesc": "Escolha em quais dias aceita reservas e adicione observações que o cliente verá antes de reservar.",
+    "daysLabel": "Dias em que aceita reservas",
+    "daysHint": "Os dias em verde aceitam reservas online. Toque para abrir ou fechar cada dia.",
+    "daysAllWarning": "Selecione ao menos um dia.",
+    "observationsLabel": "Observações para as reservas",
+    "observationsDesc": "Mostradas ao cliente antes de reservar (preços por grupo, políticas, etc.).",
+    "observationsPlaceholder": "Ex.:\nImportante antes de reservar.\n\nCustos de reserva:\nGrupos até 10 pessoas: 60 mil\nGrupos até 20 pessoas: 80 mil\nGrupos até 30 pessoas: 100 mil\nMais de 30 pessoas: 150 mil",
+    "saveBookingRules": "Salvar dias e observações",
+    "toastBookingSaved": "Dias e observações salvos",
+    "wdMon": "Seg",
+    "wdTue": "Ter",
+    "wdWed": "Qua",
+    "wdThu": "Qui",
+    "wdFri": "Sex",
+    "wdSat": "Sáb",
+    "wdSun": "Dom",
     "toastCouldNotSave": "Não foi possível salvar"
   },
   "app_reservations_eventos": {
@@ -2917,7 +2941,11 @@
     "errorCouldNotRegister": "Não foi possível registrar",
     "errorTableNumberRequired": "Número da mesa obrigatório",
     "errorCouldNotDelete": "Não foi possível excluir",
-    "errorCouldNotSavePosition": "Não foi possível salvar a posição"
+    "errorCouldNotSavePosition": "Não foi possível salvar a posição",
+    "toastZoneMoved": "Área movida de unidade",
+    "zoneSedeTitle": "Unidade desta área",
+    "zoneSedeNone": "Sem unidade",
+    "assignZonesHint": "Atribua cada área à sua unidade para que cada planta seja independente."
   },
   "app_menu_book": {
     "title": "Menu Livro",
@@ -3954,7 +3982,11 @@
     "zonesHint": "Agrupe mesas por área (Salão, Terraço, Bar, Privado). O cliente pode escolhê-las ao reservar online.",
     "noZonesYet": "Nenhuma zona ainda.",
     "deleteZone": "Excluir zona",
-    "newZonePlaceholder": "Nova zona (Salão, Terraço...)"
+    "newZonePlaceholder": "Nova zona (Salão, Terraço...)",
+    "toastZoneMoved": "Área movida de unidade",
+    "zoneSedeNone": "Sem unidade",
+    "zoneSedeTitle": "Unidade desta área",
+    "assignZonesHint": "Atribua cada área à sua unidade para que cada planta seja independente."
   },
   "app_marketing": {
     "typeMenuLabel": "QR do Cardápio",
