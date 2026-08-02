@@ -14,6 +14,7 @@ import { SmsTemplatesService } from './sms-templates.service';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 import { BusinessGroupsService } from '../business-groups/business-groups.service';
+import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { fmtSmsDate } from './sms-templates';
 import { decryptSecret } from '../common/crypto/secret-box';
 
@@ -95,6 +96,7 @@ export class HotmartService {
     private smsTemplates: SmsTemplatesService,
     private wlNotifications: WhiteLabelNotificationsService,
     private businessGroups: BusinessGroupsService,
+    private onboardingWebhook: OnboardingWebhookService,
   ) {}
 
   /** Precio canónico del bundle en USD (68/150/278/500) según periodicidad,
@@ -1119,6 +1121,12 @@ export class HotmartService {
         pausePendingNoticeSentAt: null,
       },
     });
+    // Fase D: primer pago (TRIAL/nuevo) o reactivación (SUSPENDED) → webhook
+    // business.activated. Las renovaciones (ya ACTIVE) NO disparan. tenant.status
+    // acá es el estado PREVIO (se cargó antes del update).
+    if (tenant.status !== 'ACTIVE') {
+      void this.onboardingWebhook.emitBusinessActivated(tenant.id);
+    }
     // PDF 1256 §8: auditar + limpiar la marca de liberación de crédito (para
     // permitir liberar de nuevo si el negocio se suspende en un ciclo futuro).
     await this.billing.clearCreditRelease(tenant.id).catch(() => null);

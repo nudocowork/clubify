@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { QueueService } from '../jobs/queue.service';
+
+// Reintentos DESPUÉS de un fallo (≠2xx o error de red): 1min, 10min, 1h.
+// El intento inmediato es el job inicial (attempt 0); estos son los re-encolados.
+const RETRY_DELAYS_MS = [60_000, 600_000, 3_600_000];
 
 // Onboarding Sync API — Fase D. Webhook SALIENTE: cuando un negocio se ACTIVA
 // en Clubify, se hace un POST firmado (HMAC-sha256) a una URL configurable del
@@ -15,7 +20,10 @@ const K = {
 @Injectable()
 export class OnboardingWebhookService {
   private readonly logger = new Logger('OnboardingWebhook');
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly jobs: QueueService,
+  ) {}
 
   private async read() {
     const rows = await this.prisma.setting.findMany({
@@ -93,33 +101,56 @@ export class OnboardingWebhookService {
     }
   }
 
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
   /** Emite un evento si el webhook está habilitado y con URL. No lanza nunca.
-   *  Reintentos in-process (best-effort): inmediato, +30s, +2min si el
-   *  onboarding responde ≠2xx o hay error de red. El payload/firma es el MISMO
-   *  en cada intento (idempotente: el onboarding dedup por business_id). Corre
-   *  detached (los callers hacen `void emit...`), así que la espera no bloquea
-   *  la activación. Se pierde si el proceso reinicia (para durabilidad total
-   *  haría falta un outbox+cron). */
+   *  Encola un intento INMEDIATO en la cola durable (BullMQ); si el onboarding
+   *  responde ≠2xx, el worker re-encola con delays 1min/10min/1h (deliverJob).
+   *  Sobrevive reinicios del proceso. El payload/firma es el MISMO en cada
+   *  intento (idempotente: el onboarding dedup por business_id). Sin Redis
+   *  (stub) corre inline el intento inmediato; los reintentos se omiten. */
   async emit(event: string, data: Record<string, any>): Promise<void> {
     try {
       const c = await this.read();
       if (!c.enabled || !c.url) return;
       const payload = { event, ...data, sent_at: new Date().toISOString() };
-      const delays = [0, 30_000, 120_000]; // 3 intentos
-      for (let attempt = 0; attempt < delays.length; attempt++) {
-        if (delays[attempt] > 0) await this.sleep(delays[attempt]);
-        const r = await this.post(c.url, c.secret, payload);
-        if (r.ok) return;
+      // attempts:1 → sin auto-retry de BullMQ; el rescheduling lo maneja
+      // deliverJob para respetar exactamente 1min/10min/1h.
+      await this.jobs.enqueue(
+        'onboarding.webhook',
+        { payload, attempt: 0 },
+        { attempts: 1 },
+      );
+    } catch (e: any) {
+      this.logger.warn(`webhook ${event} enqueue error: ${e?.message}`);
+    }
+  }
+
+  /** Handler del job 'onboarding.webhook'. POST firmado; si falla, re-encola el
+   *  MISMO payload con delay 1min → 10min → 1h (hasta agotar). Nunca lanza (así
+   *  BullMQ marca el job completo y no dispara su propio backoff). */
+  async deliverJob(job: { payload: any; attempt: number }): Promise<void> {
+    try {
+      const c = await this.read();
+      if (!c.enabled || !c.url) return;
+      const attempt = job?.attempt ?? 0;
+      const r = await this.post(c.url, c.secret, job.payload);
+      if (r.ok) return;
+      if (attempt < RETRY_DELAYS_MS.length) {
+        const delay = RETRY_DELAYS_MS[attempt];
+        await this.jobs.enqueue(
+          'onboarding.webhook',
+          { payload: job.payload, attempt: attempt + 1 },
+          { attempts: 1, delay },
+        );
         this.logger.warn(
-          `webhook ${event} intento ${attempt + 1}/${delays.length} → fallo (status=${r.status ?? '-'} ${r.error ?? ''})`,
+          `webhook ${job.payload?.event} intento ${attempt + 1} falló (status=${r.status ?? '-'} ${r.error ?? ''}); reintento en ${Math.round(delay / 1000)}s`,
+        );
+      } else {
+        this.logger.warn(
+          `webhook ${job.payload?.event} agotó reintentos (status=${r.status ?? '-'} ${r.error ?? ''})`,
         );
       }
     } catch (e: any) {
-      this.logger.warn(`webhook ${event} error: ${e?.message}`);
+      this.logger.warn(`webhook deliverJob error: ${e?.message}`);
     }
   }
 

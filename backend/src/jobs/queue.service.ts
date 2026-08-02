@@ -17,7 +17,10 @@ export type JobName =
   | 'sequence.start_enrollment'
   // F3: ejecutar un CrmButton con delaySeconds > 0. El worker llama
   // executeButtonImmediate después del delay.
-  | 'crm.execute_button_delayed';
+  | 'crm.execute_button_delayed'
+  // Fase D onboarding: entrega durable del webhook business.activated con
+  // reintentos 1min/10min/1h (self-reschedule). Sobrevive reinicios.
+  | 'onboarding.webhook';
 
 type JobPayload = Record<string, any>;
 

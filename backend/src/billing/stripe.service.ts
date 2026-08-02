@@ -8,6 +8,7 @@ import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templa
 import { addPlanPeriod } from '../common/plan-period';
 import { fmtSmsDate } from './sms-templates';
 import { decryptSecret } from '../common/crypto/secret-box';
+import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 
 /** Contexto extraído de un evento de pago Stripe, normalizado. */
 type StripeCtx = {
@@ -43,6 +44,7 @@ export class StripeService {
     private billing: BillingService,
     private growBusiness: GrowBusinessService,
     private smsTemplates: SmsTemplatesService,
+    private onboardingWebhook: OnboardingWebhookService,
   ) {}
 
   /** Carga la marca por slug + descifra secretKey/webhookSecret y arma el
@@ -348,6 +350,10 @@ export class StripeService {
         ...(ctx.nextCharge ? { currentPeriodEnd: ctx.nextCharge } : {}),
       },
     });
+    // Fase D: reactivación (resumed) → business.activated.
+    if (tenant.status !== 'ACTIVE') {
+      void this.onboardingWebhook.emitBusinessActivated(tenant.id);
+    }
     await this.billing.clearCreditRelease(tenant.id);
     await this.billing.auditLifecycle('subscription.reactivated', tenant.id, { gateway: 'STRIPE', reason: 'resumed' });
     this.smsTemplates
@@ -418,6 +424,10 @@ export class StripeService {
         .render('payment_confirmed', { brandName: tenant.brandName, nextChargeInfo }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
+    }
+    // Fase D: primer pago o reactivación (no renovaciones) → business.activated.
+    if (tenant.status !== 'ACTIVE') {
+      void this.onboardingWebhook.emitBusinessActivated(tenant.id);
     }
   }
 
