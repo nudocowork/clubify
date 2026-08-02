@@ -637,6 +637,25 @@ export class TenantsService {
   }
 
   async create(dto: CreateTenantDto, user?: AuthUser) {
+    // El email del dueño se convierte en un User con email ÚNICO GLOBAL. Si el
+    // correo ya está registrado (ej. el admin usó su propio email, o el dueño ya
+    // tiene otro negocio), el create anidado del User lanzaba P2002 sin capturar
+    // → 500 "Internal server error" opaco. Pre-chequeamos para devolver un 400
+    // claro y accionable en vez de un 500.
+    if (dto.email) {
+      // Mismo valor que se insertará como User.email (case-sensitive, sin
+      // normalizar) para reflejar exactamente el constraint @unique.
+      const existingUser = await this.prisma.user.findUnique({
+        where: { email: dto.email },
+        select: { id: true },
+      });
+      if (existingUser) {
+        throw new BadRequestException(
+          'Ya existe un usuario con ese email. Usá otro correo para el dueño del negocio.',
+        );
+      }
+    }
+
     // #3: el MISMO nombre puede existir en marcas blancas distintas (Clubify y
     // Sellea pueden tener cada uno "Mi Restaurante"). El slug se mantiene
     // ÚNICO GLOBAL, así que si choca le agregamos un sufijo.
@@ -765,6 +784,13 @@ export class TenantsService {
           data: { referralCodeId: code.id, tenantId: tenant.id, status: 'SIGNED_UP' },
         });
       }
+    }
+
+    // Fase D: si el negocio NACE ACTIVE (freeAccount / nextChargeDate / hotmart /
+    // marca ilimitada) avisamos al onboarding para que dispare su bienvenida.
+    // Best-effort, fire-and-forget (nunca rompe la creación).
+    if (tenant.status === 'ACTIVE') {
+      void this.onboardingWebhook.emitBusinessActivated(tenant.id);
     }
 
     return {
@@ -1162,6 +1188,10 @@ export class TenantsService {
     }
     await credit.commit();
     invalidateTenantStatusCache(id);
+    // Fase D: transición REAL a ACTIVE (no-op si ya estaba activo) → webhook.
+    if (status === 'ACTIVE' && previous.status !== 'ACTIVE') {
+      void this.onboardingWebhook.emitBusinessActivated(id);
+    }
     // Audit 2026-06-08: cambio de status manual del super admin.
     this.audit.log({
       actorId,
@@ -1286,6 +1316,10 @@ export class TenantsService {
     }
     await credit.commit();
     invalidateTenantStatusCache(id);
+    // Fase D: transición a ACTIVE (marcar pagado) → webhook business.activated.
+    if (t.status !== 'ACTIVE') {
+      void this.onboardingWebhook.emitBusinessActivated(id);
+    }
 
     // Audit 2026-06-08: dispara backfill de comisión al afiliado. Sin
     // este log un super admin podría convertir tenants para inflar
