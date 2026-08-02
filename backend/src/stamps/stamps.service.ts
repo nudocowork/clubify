@@ -431,13 +431,15 @@ export class StampsService {
           'Este cupón ya fue redimido. No se puede usar de nuevo.',
         );
       }
-      // FIX 2026-07-19 (PDF1145): redimir el cupón CONSERVANDO la tarjeta de
-      // sellos. Si el cliente YA tiene un pase de sellos REAL en la card destino
-      // (con progreso, historial o agregado al wallet), NO se transforma el
-      // cupón: se redime igual (queda COMPLETED = consumido, ver más abajo) y su
-      // tarjeta de sellos se conserva intacta. Solo se transforma cuando NO hay
-      // pase de sellos, o cuando el existente es un HUÉRFANO vacío (0 sellos,
-      // 0 historial, 0 devices), que sí se borra para reusar la unique key.
+      // 2026-08-01 (ABSORBER cupón→sellos): el cupón SIEMPRE se transforma en la
+      // tarjeta de sellos destino (pedido del negocio, reemplaza PDF1145). Si el
+      // cliente YA tiene un pase en esa card, lo ABSORBEMOS: preservamos su
+      // conteo de sellos, borramos ese pase (libera la unique key
+      // [cardId, customerId]) y el pase del cupón (pass.id) ocupa su lugar con el
+      // conteo preservado. Así el cliente queda con UN solo pase — el cupón
+      // transformado in-place (mismo serial/qrToken/wallet) — y no queda cupón
+      // "usado" colgando. El delete cascada borra Stamp/WalletDevice del pase
+      // absorbido (onDelete: Cascade); el conteo se conserva copiándolo abajo.
       skipCouponTransform = false;
       if (isCouponRedeem && stampsCardForTransform && pass.customerId) {
         const existing = await tx.pass.findUnique({
@@ -450,31 +452,12 @@ export class StampsService {
           select: { id: true, stampsCount: true },
         });
         if (existing && existing.id !== pass.id) {
-          let existingIsReal = existing.stampsCount > 0;
-          if (!existingIsReal) {
-            const [devices, history] = await Promise.all([
-              tx.walletDevice.count({ where: { passId: existing.id } }),
-              tx.stamp.count({ where: { passId: existing.id } }),
-            ]);
-            existingIsReal = devices > 0 || history > 0;
-          }
-          if (existingIsReal) {
-            // Conserva su tarjeta de sellos: solo se redime el cupón.
-            skipCouponTransform = true;
-          } else {
-            // Huérfano vacío → se borra y se transforma como siempre.
-            await tx.pass.delete({ where: { id: existing.id } });
-          }
+          // Preserva los sellos que el cliente ya tenía y absorbe el pase
+          // existente (su Stamp/WalletDevice caen por cascada). El pase del
+          // cupón toma su lugar como tarjeta de sellos con el conteo intacto.
+          passUpdateData.stampsCount = existing.stampsCount;
+          await tx.pass.delete({ where: { id: existing.id } });
         }
-      }
-      if (skipCouponTransform) {
-        // Revierte la transformación preparada arriba (líneas ~366-373): el
-        // cupón NO se mueve a la stamps card ni resetea contador; se marca
-        // COMPLETED (consumido, protegido de re-redención por el guard de
-        // líneas 248-252). La tarjeta de sellos del cliente queda igual.
-        delete passUpdateData.cardId;
-        passUpdateData.stampsCount = { increment: 0 };
-        passUpdateData.status = 'COMPLETED';
       }
       const newStampRow = await tx.stamp.create({
         data: {

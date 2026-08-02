@@ -953,6 +953,9 @@ function EditCardModal({
     rewardEarnedMessage: card.rewardEarnedMessage ?? '',
     multiRewards: card.multiRewards ?? [],
     activeLinks: card.activeLinks ?? [],
+    // COUPON/DISCOUNT/GIFT: tarjeta de sellos destino a la que se transforma el
+    // cupón al redimirse. null = auto (primera tarjeta de sellos activa).
+    transformIntoCardId: (card as any).transformIntoCardId ?? (null as string | null),
   });
   // Buffer raw del input de multiRewards: el array `form.multiRewards`
   // solo guarda entradas válidas (at>0 + reward no vacío), pero mientras
@@ -978,6 +981,26 @@ function EditCardModal({
       )
       .catch(() => {});
   }, []);
+
+  // Cupones (COUPON/DISCOUNT/GIFT): opciones de tarjeta de sellos destino para
+  // el selector "Al redimirse, transformar en:".
+  const isCouponType =
+    card.type === 'COUPON' || card.type === 'DISCOUNT' || card.type === 'GIFT';
+  const [stampsCardOptions, setStampsCardOptions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  useEffect(() => {
+    if (!isCouponType) return;
+    api<Array<{ id: string; name: string; type: string; isActive: boolean }>>('/cards')
+      .then((all) =>
+        setStampsCardOptions(
+          (all ?? [])
+            .filter((c) => c.type === 'STAMPS' && c.isActive)
+            .map((c) => ({ id: c.id, name: c.name })),
+        ),
+      )
+      .catch(() => setStampsCardOptions([]));
+  }, [isCouponType]);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -1020,6 +1043,7 @@ function EditCardModal({
       }
       if (card.type === 'DISCOUNT') payload.discountPercent = form.discountPercent;
       if (card.type === 'POINTS') payload.pointsPerCurrency = form.pointsPerCurrency;
+      if (isCouponType) payload.transformIntoCardId = form.transformIntoCardId;
       await api(`/cards/${card.id}`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
@@ -1255,6 +1279,32 @@ function EditCardModal({
                   setForm({ ...form, discountPercent: Number(e.target.value) })
                 }
               />
+            </div>
+          )}
+
+          {isCouponType && (
+            <div className="mt-1 pt-3 border-t border-line">
+              <label className="label">
+                {t('transformInto')}{' '}
+                <span className="text-mute font-normal">{t('targetStampsCard')}</span>
+              </label>
+              <select
+                className="input"
+                value={form.transformIntoCardId ?? ''}
+                onChange={(e) =>
+                  setForm({ ...form, transformIntoCardId: e.target.value || null })
+                }
+              >
+                <option value="">{t('autoFirstStampsCard')}</option>
+                {stampsCardOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+              <div className="text-[11px] text-mute mt-1 leading-snug">
+                {t('transformHint')}
+              </div>
             </div>
           )}
 
