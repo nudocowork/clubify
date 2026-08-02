@@ -20,11 +20,29 @@ function tableDims(t: { shape: string; seats: number; width?: number | null; hei
   return { w, h, isRound };
 }
 
-function ZoneAddForm({ onCreated, locationId }: { onCreated: () => void; locationId?: string | null }) {
+function ZoneAddForm({
+  onCreated,
+  locationId,
+  locations,
+}: {
+  onCreated: () => void;
+  locationId?: string | null;
+  locations: Location[];
+}) {
   const t = useTranslations('app_reservations_reportes');
   const [name, setName] = useState('');
   const [type, setType] = useState('INDOOR');
   const [busy, setBusy] = useState(false);
+  const multiSede = locations.length > 1;
+  // R1: sede destino de la zona nueva. En multi-sede default a la sede activa o
+  // la primera → nunca se crea una zona SIN sede (que quedaría fuera de todos
+  // los planos por sede).
+  const [zoneLoc, setZoneLoc] = useState<string>(
+    locationId || (multiSede ? locations[0]?.id ?? '' : ''),
+  );
+  useEffect(() => {
+    if (locationId) setZoneLoc(locationId);
+  }, [locationId]);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
@@ -32,7 +50,11 @@ function ZoneAddForm({ onCreated, locationId }: { onCreated: () => void; locatio
     try {
       await api('/reservations/zones', {
         method: 'POST',
-        body: JSON.stringify({ name: name.trim(), type, locationId: locationId || null }),
+        body: JSON.stringify({
+          name: name.trim(),
+          type,
+          locationId: (multiSede ? zoneLoc : locationId) || null,
+        }),
       });
       setName('');
       onCreated();
@@ -44,7 +66,7 @@ function ZoneAddForm({ onCreated, locationId }: { onCreated: () => void; locatio
     }
   }
   return (
-    <form onSubmit={submit} className="flex gap-1 mt-2">
+    <form onSubmit={submit} className="flex gap-1 mt-2 flex-wrap">
       <input
         className="input text-xs"
         placeholder={t('phNewZone')}
@@ -62,6 +84,21 @@ function ZoneAddForm({ onCreated, locationId }: { onCreated: () => void; locatio
         <option value="BAR">{t('zoneTypeBar')}</option>
         <option value="PRIVATE">{t('zoneTypePrivate')}</option>
       </select>
+      {multiSede && (
+        <select
+          className="input text-xs"
+          value={zoneLoc}
+          onChange={(e) => setZoneLoc(e.target.value)}
+          style={{ width: 120 }}
+          title={t('zoneSedeTitle')}
+        >
+          {locations.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      )}
       <button className="btn-primary text-xs px-3" disabled={busy}>+</button>
     </form>
   );
@@ -157,6 +194,34 @@ export default function ReportesPage() {
   useEffect(() => {
     loadAll();
   }, [date, activeLocationId]);
+
+  const multiSede = locations.length > 1;
+
+  // R1 (2026-08-01): default por sede. Multi-sede con TODO asignado → arranca en
+  // la primera sede (plano independiente); si hay zonas sin sede → "Todas" para
+  // asignarlas. Una sola vez.
+  const didAutoSede = useRef(false);
+  useEffect(() => {
+    if (didAutoSede.current) return;
+    if (locations.length <= 1 || activeLocationId || zones.length === 0) return;
+    if (zones.some((z) => !z.locationId)) return;
+    didAutoSede.current = true;
+    setActiveLocationId(locations[0].id);
+  }, [locations, zones, activeLocationId]);
+
+  // R1: reasignar una zona a otra sede (el backend cascadea sus mesas).
+  async function patchZoneLocation(zoneId: string, locId: string | null) {
+    try {
+      await api(`/reservations/zones/${zoneId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ locationId: locId }),
+      });
+      loadAll();
+      toast(t('toastZoneMoved'), 'success');
+    } catch (e: any) {
+      toast(e.message || t('errorCouldNotUpdate'), 'error');
+    }
+  }
 
   const stats = useMemo(() => {
     const pax = reservations.reduce((s, r) => s + r.party, 0);
@@ -807,19 +872,47 @@ export default function ReportesPage() {
             <p className="text-[11px] text-mute mt-0.5 mb-2">
               {t('zonesHint')}
             </p>
+            {multiSede && zones.some((z) => !z.locationId) && (
+              <div className="text-[11px] rounded-lg px-2 py-1.5 mb-2 leading-snug bg-bad-soft text-bad-ink">
+                {t('assignZonesHint')}
+              </div>
+            )}
             {zones.length === 0 ? (
               <p className="text-xs text-mute italic">{t('noZonesYet')}</p>
             ) : (
               <ul className="space-y-1 mb-2">
                 {zones.map((z) => (
-                  <li key={z.id} className="flex items-center justify-between text-xs py-1.5 px-2 bg-bg2/60 rounded">
-                    <span className="font-semibold">{z.name}</span>
-                    <span className="text-mute text-[10px]">{z.type}</span>
+                  <li key={z.id} className="flex items-center justify-between gap-2 text-xs py-1.5 px-2 bg-bg2/60 rounded">
+                    <span className="font-semibold truncate flex items-center gap-1.5 min-w-0">
+                      {z.name}
+                      {multiSede && !z.locationId && (
+                        <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-bad-soft text-bad-ink shrink-0">
+                          {t('zoneSedeNone')}
+                        </span>
+                      )}
+                    </span>
+                    {multiSede ? (
+                      <select
+                        className="text-[10px] rounded border border-line bg-white px-1 py-0.5 max-w-[120px] shrink-0"
+                        value={z.locationId ?? ''}
+                        onChange={(e) => patchZoneLocation(z.id, e.target.value || null)}
+                        title={t('zoneSedeTitle')}
+                      >
+                        <option value="">{t('zoneSedeNone')}</option>
+                        {locations.map((l) => (
+                          <option key={l.id} value={l.id}>
+                            {l.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-mute text-[10px]">{z.type}</span>
+                    )}
                   </li>
                 ))}
               </ul>
             )}
-            <ZoneAddForm onCreated={loadAll} locationId={activeLocationId} />
+            <ZoneAddForm onCreated={loadAll} locationId={activeLocationId} locations={locations} />
           </div>
           </div>
         </div>

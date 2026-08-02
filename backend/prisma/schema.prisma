@@ -520,6 +520,13 @@ model Tenant {
   /// Si vacío, el backend cae al default histórico (turnos almuerzo + cena).
   /// El frontend público los muestra en formato 12h (1:00 p.m.) automáticamente.
   reservationSlots            String[]                   @default([])
+  /// Días de la semana en que se aceptan reservas online (0=Dom..6=Sáb, JS getDay()).
+  /// Vacío = todos los días abiertos (compat histórica). No-vacío = solo esos días;
+  /// el flujo público oculta los demás y el create WEB rechaza fechas fuera de rango.
+  reservationDays             Int[]                      @default([])
+  /// Observaciones / términos que se muestran al cliente ANTES de reservar
+  /// (ej. costos por tamaño de grupo, políticas). Texto libre multilínea. Null = sin nota.
+  reservationTerms            String?                    @db.Text
   // Bloque 5 (2026-06-12): soft-delete con "conservar historial".
   // Si está seteado, el tenant queda inaccesible (no aparece en list/
   // login) pero las relaciones (Order/Commission/ReferralUse) se
@@ -1552,6 +1559,10 @@ model Location {
   // ruteo cae a adminPhone → número de pedidos del negocio → fallback.
   ordersWhatsappPhone String?
   isActive            Boolean  @default(true)
+  // Reservas por sede (2026-08-01): si false, esta sede NO aparece en el flujo
+  // público de reservas (/reserva/:slug). Default true = compat (todas las sedes
+  // existentes siguen aceptando reservas). Va en AND con Tenant.reservationsEnabled.
+  reservationsEnabled Boolean  @default(true)
   createdAt           DateTime @default(now())
 
   stamps            Stamp[]

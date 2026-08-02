@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsInt, IsNumber, IsOptional, IsString, Min, MaxLength } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Min, MaxLength } from 'class-validator';
 import { LocationsService } from './locations.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -19,6 +19,8 @@ class LocationBody {
   // Sedes por estado (2026-06-21): estado/región + número de pedidos de la sede.
   @IsOptional() @IsString() @MaxLength(80) state?: string;
   @IsOptional() @IsString() @MaxLength(30) ordersWhatsappPhone?: string;
+  // Reservas por sede (2026-08-01): si false, la sede no aparece en /reserva/:slug.
+  @IsOptional() @IsBoolean() reservationsEnabled?: boolean;
 }
 
 @Controller('locations')

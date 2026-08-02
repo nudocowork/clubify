@@ -379,6 +379,11 @@ function LocationCard({
               {lat.toFixed(4)}, {lng.toFixed(4)} ·{' '}
               {t('radiusMeters', { radius })}
             </div>
+            {loc.reservationsEnabled === false && (
+              <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-bad-soft text-bad-ink">
+                🚫 {t('reservationsOffBadge')}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -472,6 +477,7 @@ function EditLocationModal({
     mapsUrl: loc.mapsUrl ?? '',
     state: loc.state ?? '',
     ordersWhatsappPhone: loc.ordersWhatsappPhone ?? '',
+    reservationsEnabled: loc.reservationsEnabled ?? true,
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -627,6 +633,25 @@ function EditLocationModal({
             {t('walletPushHintEdit')}
           </p>
         </div>
+
+        {/* Reservas por sede (2026-08-01): controla si esta sede aparece en el
+            flujo público de reservas. */}
+        <label className="flex items-start gap-2.5 cursor-pointer pt-1">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={form.reservationsEnabled}
+            onChange={(e) =>
+              setForm({ ...form, reservationsEnabled: e.target.checked })
+            }
+          />
+          <span>
+            <span className="label m-0">{t('reservationsEnabledLabel')}</span>
+            <span className="block text-[11px] text-mute leading-snug">
+              {t('reservationsEnabledHint')}
+            </span>
+          </span>
+        </label>
 
         {err && (
           <div className="rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">

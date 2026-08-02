@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { PhoneInput } from '@/components/PhoneInput';
 import { useTenantCountry } from '@/lib/useTenantCountry';
@@ -99,6 +99,18 @@ export default function AgendaPage() {
   useEffect(() => {
     loadAll();
   }, [date, activeLocationId]);
+
+  // R1 (2026-08-01): default por sede. Multi-sede con todas las zonas asignadas
+  // → arranca en la primera sede (agenda por sede); si hay zonas sin sede →
+  // queda en "Todas". Una sola vez.
+  const didAutoSede = useRef(false);
+  useEffect(() => {
+    if (didAutoSede.current) return;
+    if (locations.length <= 1 || activeLocationId || zones.length === 0) return;
+    if (zones.some((z) => !z.locationId)) return;
+    didAutoSede.current = true;
+    setActiveLocationId(locations[0].id);
+  }, [locations, zones, activeLocationId]);
 
   const filtered = useMemo(() => {
     return reservations.filter((r) => {

@@ -15,6 +15,10 @@ type Info = {
   maxPartyOnline?: number;
   whatsapp?: string | null;
   defaultSlots: string[];
+  // Días de la semana habilitados (0=Dom..6=Sáb). Vacío/undefined = todos.
+  reservationDays?: number[];
+  // Observaciones/términos que el negocio muestra antes de reservar.
+  reservationTerms?: string | null;
 };
 
 function formatDate(d: Date) {
@@ -30,12 +34,17 @@ function to12h(time: string): string {
   return `${h12}:${String(m).padStart(2, '0')} ${period}`;
 }
 
-function nextDates(n = 7) {
+/** Próximas `count` fechas reservables. Si el negocio configuró días
+ *  habilitados (0=Dom..6=Sáb), salta los días cerrados mirando hasta
+ *  `lookAhead` días adelante para juntar igual `count` opciones. */
+function nextDates(allowedDays?: number[], count = 7, lookAhead = 30) {
   const out: { iso: string; dow: string; day: string }[] = [];
   const dows = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
-  for (let i = 0; i < n; i++) {
+  const hasFilter = Array.isArray(allowedDays) && allowedDays.length > 0;
+  for (let i = 0; i < lookAhead && out.length < count; i++) {
     const d = new Date();
     d.setDate(d.getDate() + i);
+    if (hasFilter && !allowedDays!.includes(d.getDay())) continue;
     out.push({ iso: formatDate(d), dow: dows[d.getDay()], day: String(d.getDate()) });
   }
   return out;
@@ -185,6 +194,21 @@ export default function PublicReservation() {
       .catch(() => setError('Este negocio aún no tiene reservas online activadas.'));
   }, [slug]);
 
+  // Si el negocio restringe días y la fecha por default (hoy) cae en un día
+  // cerrado, saltar a la primera fecha reservable para no arrancar en inválido.
+  useEffect(() => {
+    if (!info) return;
+    const allowed = info.reservationDays;
+    if (!Array.isArray(allowed) || allowed.length === 0) return;
+    const [y, m, d] = date.split('-').map(Number);
+    const dow = new Date(y, m - 1, d).getDay();
+    if (!allowed.includes(dow)) {
+      const first = nextDates(allowed, 1)[0];
+      if (first) setDate(first.iso);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info]);
+
   /** Refetch availability cuando cambian (party, date). Si el slot
    *  actualmente elegido queda no-disponible se deselecciona. */
   useEffect(() => {
@@ -248,7 +272,7 @@ export default function PublicReservation() {
     );
   }
 
-  const dates = nextDates(7);
+  const dates = nextDates(info.reservationDays, 7);
   const primary = info.primaryColor || '#22C55E';
 
   // F2: negocio con >1 sede → primero elige sede, luego zonas de esa sede.
@@ -339,6 +363,17 @@ export default function PublicReservation() {
         <div className="p-5">
           {step === 1 && (
             <>
+              {info.reservationTerms?.trim() && (
+                <div
+                  className="mb-4 rounded-xl p-3.5 flex items-start gap-2.5 text-left"
+                  style={{ background: `${primary}0f`, border: `1px solid ${primary}44` }}
+                >
+                  <span className="text-base shrink-0">📋</span>
+                  <div className="text-xs leading-relaxed whitespace-pre-line text-ink/90 min-w-0">
+                    {info.reservationTerms}
+                  </div>
+                </div>
+              )}
               <h2 className="text-sm font-semibold mb-2">¿Cuántas personas?</h2>
               <div className="grid grid-cols-4 gap-2 mb-3">
                 {presets.map((p) => (

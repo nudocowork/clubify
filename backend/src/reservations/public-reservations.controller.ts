@@ -127,6 +127,10 @@ export class PublicReservationsController {
         reservationsEnabled: true,
         logoUrl: true,
         primaryColor: true,
+        // Días habilitados (0=Dom..6=Sáb; vacío=todos) + observaciones que ve
+        // el cliente antes de reservar.
+        reservationDays: true,
+        reservationTerms: true,
         // F3 (2026-07-31): WhatsApp para derivar grupos grandes a atención
         // personalizada. Cascada: reservas → general → teléfono.
         whatsappReservationsPhone: true,
@@ -145,8 +149,10 @@ export class PublicReservationsController {
       select: { id: true, name: true, slug: true, type: true, locationId: true },
     });
     // F2: sedes activas del negocio. Si hay >1, el público elige a cuál reservar.
+    // Reservas por sede (2026-08-01): solo las sedes con reservas habilitadas
+    // aparecen en el flujo público (en AND con el toggle maestro del tenant).
     const locations = await this.prisma.location.findMany({
-      where: { tenantId: t.id, isActive: true },
+      where: { tenantId: t.id, isActive: true, reservationsEnabled: true },
       orderBy: { createdAt: 'asc' },
       select: { id: true, name: true, address: true },
     });
@@ -171,6 +177,8 @@ export class PublicReservationsController {
       maxPartyOnline,
       whatsapp,
       defaultSlots,
+      reservationDays: t.reservationDays ?? [],
+      reservationTerms: t.reservationTerms ?? null,
     };
   }
 
