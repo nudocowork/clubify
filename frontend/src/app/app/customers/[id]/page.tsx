@@ -691,12 +691,117 @@ function EditCustomerModal({
   );
 }
 
+// Modal de push individual: envía una notificación SOLO a los pases de este
+// cliente (POST /customers/:id/push → NotificationsService con customerId).
+function PushModal({
+  customerId,
+  customerName,
+  onClose,
+}: {
+  customerId: string;
+  customerName: string;
+  onClose: () => void;
+}) {
+  const t = useTranslations('app_customers_id');
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [sending, setSending] = useState(false);
+
+  async function send(e: React.FormEvent) {
+    e.preventDefault();
+    if (!body.trim() || sending) return;
+    setSending(true);
+    try {
+      const r = await api<{ stats?: { targeted?: number; delivered?: number } }>(
+        `/customers/${customerId}/push`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ title: title.trim() || undefined, body: body.trim() }),
+        },
+      );
+      const targeted = r?.stats?.targeted ?? 0;
+      if (targeted > 0) {
+        toast(t('toastPushSent', { n: r?.stats?.delivered ?? 0 }), 'success');
+        onClose();
+      } else {
+        toast(t('toastPushNoDevices'), 'error');
+      }
+    } catch (err: any) {
+      toast(err.message || t('toastPushError'), 'error');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-ink/60 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <form
+        onSubmit={send}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5 space-y-3"
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-base m-0">🔔 {t('pushHeading')}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-mute hover:text-ink text-xl leading-none"
+          >
+            ×
+          </button>
+        </div>
+        <p className="text-xs text-mute leading-snug">
+          {t('pushToName', { name: customerName })}
+        </p>
+        <div>
+          <label className="label">{t('pushTitleLabel')}</label>
+          <input
+            className="input"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={t('pushTitlePh')}
+            maxLength={60}
+          />
+        </div>
+        <div>
+          <label className="label">{t('pushMsgLabel')}</label>
+          <textarea
+            className="input"
+            rows={3}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder={t('pushMsgPh')}
+            maxLength={180}
+            required
+          />
+        </div>
+        <div className="flex gap-2 pt-1">
+          <button
+            type="submit"
+            className="btn-primary flex-1 justify-center"
+            disabled={sending || !body.trim()}
+          >
+            {sending ? t('pushSending') : t('pushSend')}
+          </button>
+          <button type="button" onClick={onClose} className="btn-ghost">
+            {t('cancel')}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export default function CustomerDetail() {
   const t = useTranslations('app_customers_id');
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [c, setC] = useState<Customer | null>(null);
   const [editing, setEditing] = useState(false);
+  const [pushOpen, setPushOpen] = useState(false);
   const [tenantMoney, setTenantMoney] = useState<{ currency: string; currencySymbol: string | null }>({
     currency: 'COP',
     currencySymbol: null,
@@ -758,6 +863,13 @@ export default function CustomerDetail() {
           onSaved={load}
         />
       )}
+      {pushOpen && (
+        <PushModal
+          customerId={c.id}
+          customerName={c.fullName}
+          onClose={() => setPushOpen(false)}
+        />
+      )}
       <div className="page-head">
         <h1 className="page-title">
           <Link href="/app/customers" className="text-mute hover:text-ink">
@@ -776,6 +888,13 @@ export default function CustomerDetail() {
               <Icon name="send" /> WhatsApp
             </a>
           )}
+          <button
+            onClick={() => setPushOpen(true)}
+            className="btn-ghost text-sm font-semibold px-4 py-2 inline-flex items-center gap-1.5"
+            title="Enviar notificación push a este cliente"
+          >
+            <Icon name="bell" size={14} /> Push
+          </button>
           <button
             onClick={() => setEditing(true)}
             className="btn-ghost text-sm font-semibold px-4 py-2 inline-flex items-center gap-1.5"

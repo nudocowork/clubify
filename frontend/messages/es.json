@@ -1724,7 +1724,18 @@
     "redeemCouponBtn": "🎁 Redimir cupón",
     "redeemCouponConfirm": "¿Redimir este cupón para el cliente?",
     "couponRedeemed": "Cupón redimido",
-    "couponAlreadyRedeemed": "🚫 Cupón ya redimido"
+    "couponAlreadyRedeemed": "🚫 Cupón ya redimido",
+    "pushHeading": "Notificación push",
+    "pushToName": "Para {name} — llega solo a este cliente (a los pases que tenga instalados).",
+    "pushTitleLabel": "Título (opcional)",
+    "pushTitlePh": "Ej. ¡Te extrañamos! 🎁",
+    "pushMsgLabel": "Mensaje",
+    "pushMsgPh": "Ej. Vuelve esta semana y te regalamos un sello",
+    "pushSend": "Enviar push",
+    "pushSending": "Enviando…",
+    "toastPushSent": "Push enviado ({n} entregados)",
+    "toastPushNoDevices": "El cliente aún no instaló el pase en su wallet — no hay dónde enviar.",
+    "toastPushError": "No se pudo enviar el push"
   },
   "admin_ai_knowledge": {
     "pageTitle": "IA · Knowledge base",

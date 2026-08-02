@@ -1724,7 +1724,18 @@
     "redeemCouponBtn": "🎁 Redeem coupon",
     "redeemCouponConfirm": "Redeem this coupon for the customer?",
     "couponRedeemed": "Coupon redeemed",
-    "couponAlreadyRedeemed": "🚫 Coupon already redeemed"
+    "couponAlreadyRedeemed": "🚫 Coupon already redeemed",
+    "pushHeading": "Push notification",
+    "pushToName": "To {name} — reaches only this customer (the passes they installed).",
+    "pushTitleLabel": "Title (optional)",
+    "pushTitlePh": "e.g. We miss you! 🎁",
+    "pushMsgLabel": "Message",
+    "pushMsgPh": "e.g. Come back this week and get a free stamp",
+    "pushSend": "Send push",
+    "pushSending": "Sending…",
+    "toastPushSent": "Push sent ({n} delivered)",
+    "toastPushNoDevices": "Customer hasn't installed the pass in their wallet — nowhere to send.",
+    "toastPushError": "Could not send the push"
   },
   "admin_ai_knowledge": {
     "pageTitle": "AI · Knowledge base",

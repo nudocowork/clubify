@@ -23,6 +23,11 @@ class MergeBody {
   mergeIds!: string[];
 }
 
+class PushBody {
+  @IsOptional() @IsString() title?: string;
+  @IsString() body!: string;
+}
+
 @Controller('customers')
 @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
 export class CustomersController {
@@ -167,6 +172,18 @@ export class CustomersController {
   @Patch(':id')
   update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: Partial<CustomerBody>) {
     return this.svc.update(user, id, body);
+  }
+
+  // Push individual: envía una notificación push SOLO a los pases de este cliente
+  // (botón "Push" en la ficha, al lado de WhatsApp). OWNER/STAFF/SUPER_ADMIN.
+  @Post(':id/push')
+  push(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: PushBody,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.pushToCustomer(user, id, body, tenantId);
   }
 
   @Delete(':id')

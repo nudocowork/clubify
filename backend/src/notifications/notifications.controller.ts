@@ -15,6 +15,8 @@ import { Roles } from '../common/decorators/roles.decorator';
 
 class NotificationBody {
   @IsOptional() @IsUUID() cardId?: string;
+  // Envío individual: push solo a los pases de este cliente (ficha del cliente).
+  @IsOptional() @IsUUID() customerId?: string;
   @IsString() title!: string;
   @IsString() body!: string;
   @IsOptional() @IsObject() segment?: Record<string, any>;

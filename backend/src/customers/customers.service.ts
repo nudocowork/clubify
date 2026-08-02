@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export type CustomerDto = {
   fullName: string;
@@ -20,7 +21,31 @@ export type CustomerDto = {
 
 @Injectable()
 export class CustomersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
+
+  /** Push individual a un cliente: manda la notificación SOLO a los pases de
+   *  ese cliente (reusa NotificationsService con customerId). Disponible para
+   *  OWNER/STAFF desde la ficha del cliente (al lado de WhatsApp). */
+  async pushToCustomer(
+    user: AuthUser,
+    id: string,
+    dto: { title?: string; body: string },
+    override?: string,
+  ) {
+    // Verifica que el cliente exista y pertenezca al tenant (aísla por marca).
+    await this.get(user, id);
+    const title = (dto.title ?? '').trim();
+    const body = (dto.body ?? '').trim();
+    if (!body) throw new BadRequestException('El mensaje no puede estar vacío');
+    return this.notifications.send(
+      user,
+      { customerId: id, title: title || 'Mensaje', body },
+      override,
+    );
+  }
 
   private tenantId(user: AuthUser, override?: string) {
     if (user.role === 'SUPER_ADMIN') {

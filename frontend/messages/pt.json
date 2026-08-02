@@ -1724,7 +1724,18 @@
     "redeemCouponBtn": "🎁 Resgatar cupom",
     "redeemCouponConfirm": "Resgatar este cupom para o cliente?",
     "couponRedeemed": "Cupom resgatado",
-    "couponAlreadyRedeemed": "🚫 Cupom já resgatado"
+    "couponAlreadyRedeemed": "🚫 Cupom já resgatado",
+    "pushHeading": "Notificação push",
+    "pushToName": "Para {name} — chega só a este cliente (aos passes que tiver instalado).",
+    "pushTitleLabel": "Título (opcional)",
+    "pushTitlePh": "Ex. Sentimos sua falta! 🎁",
+    "pushMsgLabel": "Mensagem",
+    "pushMsgPh": "Ex. Volte esta semana e ganhe um selo",
+    "pushSend": "Enviar push",
+    "pushSending": "Enviando…",
+    "toastPushSent": "Push enviado ({n} entregues)",
+    "toastPushNoDevices": "O cliente ainda não instalou o passe na carteira — não há para onde enviar.",
+    "toastPushError": "Não foi possível enviar o push"
   },
   "admin_ai_knowledge": {
     "pageTitle": "IA · Base de conhecimento",

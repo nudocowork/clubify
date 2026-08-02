@@ -12,6 +12,9 @@ import { WalletService } from '../wallet/wallet.service';
 
 export type NotificationDto = {
   cardId?: string;
+  /** Si viene, el push va SOLO a los pases de ese cliente (envío individual
+   *  desde la ficha del cliente). Sin él, es broadcast al tenant/card. */
+  customerId?: string;
   title: string;
   body: string;
   segment?: Record<string, any>;
@@ -165,6 +168,8 @@ export class NotificationsService {
       where: {
         tenantId: tid,
         ...(dto.cardId ? { cardId: dto.cardId } : {}),
+        // Envío individual: solo los pases del cliente indicado.
+        ...(dto.customerId ? { customerId: dto.customerId } : {}),
         status: 'ACTIVE',
       },
       include: { walletDevices: true },
@@ -180,6 +185,9 @@ export class NotificationsService {
       data: {
         tenantId: tid,
         cardId: dto.cardId,
+        // Envío individual → customerId set: Apple filtra el lastMessage por
+        // cliente (no le muestra a otros el mensaje ajeno).
+        customerId: dto.customerId ?? null,
         title: dto.title,
         body: dto.body,
         segment: dto.segment ?? {},
