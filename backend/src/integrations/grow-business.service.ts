@@ -19,12 +19,12 @@ export class GrowBusinessService {
   private readonly API_BASE = 'https://services.leadconnectorhq.com';
   private readonly API_VERSION = '2021-07-28';
 
-  // 2026-06-06 (item 3 sprint): TODO mensaje saliente vía Grow Business debe
-  // arrancar con `#switch_unique|2|` para que salga del número de SOPORTE en
-  // lugar del de ventas. La prioridad 2 está reservada al equipo de soporte
-  // en TODAS las subcuentas operativas. Tenants con `switchNumber` explícito
-  // distinto pueden seguir overrideando — esto es solo el default.
-  private readonly DEFAULT_SUPPORT_SWITCH = 2;
+  // 2026-08-01: TODO mensaje saliente vía Grow Business arranca con
+  // `#switch_unique|1|` para que salga del número de VENTAS (prioridad 1). Se
+  // cambió desde |2| (soporte) porque ese WhatsApp presentó problemas de
+  // entrega. Tenants con `switchNumber` explícito pueden seguir overrideando —
+  // esto es solo el default. (El nombre se conserva por compatibilidad de refs.)
+  private readonly DEFAULT_SUPPORT_SWITCH = 1;
 
   constructor(private prisma: PrismaService) {}
 
