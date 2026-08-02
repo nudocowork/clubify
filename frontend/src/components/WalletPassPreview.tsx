@@ -161,13 +161,14 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
       case 'DISCOUNT':
         return { lbl: 'OFF', val: `${discountPercent ?? 10}%` };
       case 'COUPON':
-        // CUPÓN no muestra conteo de sellos. Si tiene discountPercent
-        // configurado, lo mostramos como valor; sino, "DISPONIBLE"
-        // (matchea la lógica del .pkpass real en wallet.service.ts).
+        // CUPÓN no muestra conteo de sellos. Muestra el % SOLO si hay
+        // discountPercent y NO hay premio custom (rewardText); si el negocio
+        // definió un premio, ese es el beneficio → "DISPONIBLE" (matchea el
+        // .pkpass de Apple y el Google Wallet real).
         return {
           lbl: 'CUPÓN',
           val:
-            discountPercent && discountPercent > 0
+            discountPercent && discountPercent > 0 && !rewardText?.trim()
               ? `${discountPercent}%`
               : 'DISPONIBLE',
         };

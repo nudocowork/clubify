@@ -514,7 +514,11 @@ export default function ScanPage() {
                   <div className="text-lg font-bold text-amber-900 mt-1 leading-tight">
                     {data.pass.card.rewardText || 'Beneficio especial'}
                   </div>
-                  {data.pass.card.discountPercent ? (
+                  {/* El "% OFF" solo se muestra si NO hay premio custom: cuando el
+                      negocio define un premio (ej. "Reclama Gratis 1 Americano"),
+                      ese es el beneficio y el % sería incongruente. */}
+                  {data.pass.card.discountPercent &&
+                  !data.pass.card.rewardText?.trim() ? (
                     <div className="text-2xl font-extrabold text-amber-700 mt-1">
                       {data.pass.card.discountPercent}% OFF
                     </div>
