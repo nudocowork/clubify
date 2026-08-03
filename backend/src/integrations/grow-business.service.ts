@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { brandGrowCreds, BRAND_GROW_SELECT } from './brand-sms-creds.util';
 
 /**
  * Integración con el proveedor externo de SMS "Grow Business" (provider real
@@ -232,20 +233,59 @@ export class GrowBusinessService {
         growBusinessLocationId: true,
         growBusinessApiKey: true,
         growBusinessSwitchNumber: true,
+        whiteLabel: { select: BRAND_GROW_SELECT },
       },
     });
-    if (!tenant?.growBusinessLocationId || !tenant.growBusinessApiKey) {
-      return { ok: false as const, message: 'Negocio no conectado a Grow Business' };
-    }
-    return this.sendSmsWithCreds(
-      {
+    // Candidatas en orden de preferencia: creds PROPIAS del negocio > subcuenta
+    // GHL de su MARCA blanca (nunca la de Clubify). Se prueban en CASCADA: si la
+    // primera falla, se reintenta con la siguiente. Esto auto-cura el caso en
+    // que la key propia del tenant quedó VENCIDA frente a la de la marca (misma
+    // location) — bug real en negocios white-label — sin re-sincronizar a mano.
+    // Un fallo = no se envió nada, así que reintentar no duplica el mensaje.
+    // Ver feedback_grow_business_stale_tenant_key_prefers_over_brand.
+    const candidates: {
+      locationId: string;
+      apiKey: string;
+      switchNumber: number | null;
+    }[] = [];
+    if (tenant?.growBusinessLocationId && tenant.growBusinessApiKey) {
+      candidates.push({
         locationId: tenant.growBusinessLocationId,
         apiKey: tenant.growBusinessApiKey,
         switchNumber: tenant.growBusinessSwitchNumber,
-      },
-      toPhone,
-      body,
-    );
+      });
+    }
+    const brand = brandGrowCreds(tenant?.whiteLabel);
+    if (
+      brand &&
+      !candidates.some(
+        (c) => c.locationId === brand.locationId && c.apiKey === brand.apiKey,
+      )
+    ) {
+      candidates.push(brand);
+    }
+    if (!candidates.length) {
+      return { ok: false as const, message: 'Negocio no conectado a Grow Business' };
+    }
+    let last: {
+      ok: boolean;
+      message?: string;
+      status?: number;
+      id?: string | null;
+    } = {
+      ok: false,
+      message: 'Grow Business: sin credenciales válidas',
+    };
+    for (let i = 0; i < candidates.length; i++) {
+      last = await this.sendSmsWithCreds(candidates[i], toPhone, body);
+      if (last.ok) return last;
+      if (i < candidates.length - 1) {
+        this.logger.warn(
+          `sendSms tenant=${tenantId}: creds #${i + 1} fallaron (${('message' in last && last.message) || 'error'}) — reintentando con la siguiente subcuenta`,
+        );
+      }
+    }
+    return last;
   }
 
   /**
