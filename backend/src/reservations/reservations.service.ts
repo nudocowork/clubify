@@ -11,6 +11,7 @@ import { ReservationStatus, ReservationChannel } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { resolveBrandTemplate } from '../integrations/brand-message-templates';
 import { WalletService } from '../wallet/wallet.service';
 import { PassesService } from '../passes/passes.service';
@@ -916,6 +917,7 @@ export class ReservationsService {
         growBusinessLocationId: true,
         growBusinessApiKey: true,
         whiteLabelId: true,
+        whiteLabel: { select: BRAND_GROW_SELECT },
       },
     });
     // PDF Software 2026-06-29: el aviso de reserva va al "Número receptor de
@@ -1024,12 +1026,28 @@ export class ReservationsService {
   private async resolveReservationSmsCreds(tenant: {
     growBusinessLocationId?: string | null;
     growBusinessApiKey?: string | null;
+    whiteLabel?: {
+      growBusinessLocationId?: string | null;
+      growBusinessApiKey?: string | null;
+      growBusinessSwitchNumber?: number | null;
+    } | null;
   } | null): Promise<{ locationId: string; apiKey: string; switchNumber: number } | null> {
     if (tenant?.growBusinessLocationId && tenant?.growBusinessApiKey) {
       return {
         locationId: tenant.growBusinessLocationId,
         apiKey: tenant.growBusinessApiKey,
         switchNumber: 1,
+      };
+    }
+    // Fallback marca blanca: si el negocio no tiene creds propias, usa la
+    // subcuenta de SU marca (aislamiento white-label, mismo criterio que
+    // billing y las reservas de servicios). Nunca la de Clubify.
+    const brand = brandGrowCreds(tenant?.whiteLabel);
+    if (brand) {
+      return {
+        locationId: brand.locationId,
+        apiKey: brand.apiKey,
+        switchNumber: brand.switchNumber ?? 1,
       };
     }
     const acc =
@@ -1066,6 +1084,7 @@ export class ReservationsService {
         phone: true,
         growBusinessLocationId: true,
         growBusinessApiKey: true,
+        whiteLabel: { select: BRAND_GROW_SELECT },
       },
     });
     const dest =

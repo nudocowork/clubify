@@ -385,6 +385,59 @@ export class TenantsService {
   }
 
   /**
+   * Cambia la contraseña del DUEÑO (TENANT_OWNER) de un negocio SIN pedir la
+   * actual. Pensado para soporte: cuando el negocio olvidó su contraseña, el
+   * admin puede setearle una nueva desde el panel. Queda auditado y se
+   * invalidan los tokens viejos del dueño (passwordChangedAt). Brand-scoped
+   * vía findFirst (un admin de otra marca no puede tocar este negocio).
+   */
+  async changeOwnerPasswordAdmin(
+    tenantId: string,
+    newPassword: string,
+    actorId: string,
+  ) {
+    const pwd = (newPassword ?? '').trim();
+    if (pwd.length < 8) {
+      throw new BadRequestException(
+        'La nueva contraseña debe tener al menos 8 caracteres.',
+      );
+    }
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { id: tenantId },
+      select: { id: true, brandName: true, slug: true },
+    });
+    if (!tenant) throw new NotFoundException('Negocio no encontrado');
+
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, email: true },
+    });
+    if (!owner) {
+      throw new BadRequestException(
+        'Este negocio no tiene un TENANT_OWNER activo.',
+      );
+    }
+
+    const passwordHash = await this.auth.hashPassword(pwd);
+    await this.prisma.user.update({
+      where: { id: owner.id },
+      // passwordChangedAt invalida los JWT emitidos antes del cambio.
+      data: { passwordHash, passwordChangedAt: new Date() },
+    });
+
+    this.audit.log({
+      actorId,
+      tenantId: tenant.id,
+      action: 'tenant.owner.password_change',
+      resource: `user:${owner.id}`,
+      metadata: { tenantSlug: tenant.slug, ownerId: owner.id },
+    });
+
+    return { ok: true, ownerEmail: owner.email };
+  }
+
+  /**
    * #11 (2026-06-16): ranking de negocios por cantidad de pases emitidos.
    * Mayor a menor por default; `order='asc'` invierte. Incluye negocios con
    * 0 pases. Excluye borrados.

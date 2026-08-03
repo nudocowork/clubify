@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsArray, IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength } from 'class-validator';
 import { TenantsService } from './tenants.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -47,6 +47,11 @@ class BillingBody {
 class ChangePlanPeriodBody {
   @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
   periodicity!: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
+}
+
+/** Reset de contraseña del dueño desde el panel admin (sin pedir la actual). */
+class ChangeOwnerPasswordBody {
+  @IsString() @MinLength(8) @MaxLength(128) newPassword!: string;
 }
 
 /** Ajuste de trial (suma o resta). days != 0, hasta ±3650. observation
@@ -272,6 +277,18 @@ export class TenantsController {
   @Roles('SUPER_ADMIN', 'MARKETING')
   impersonate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.svc.impersonate(id, user.id);
+  }
+
+  /** Soporte: cambiar la contraseña del dueño del negocio SIN saber la actual.
+   *  Solo SUPER_ADMIN. Queda auditado; invalida los tokens viejos del dueño. */
+  @Patch(':id/owner-password')
+  @Roles('SUPER_ADMIN')
+  changeOwnerPassword(
+    @Param('id') id: string,
+    @Body() body: ChangeOwnerPasswordBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.changeOwnerPasswordAdmin(id, body.newPassword, user.id);
   }
 
   /** Toggle demo lock. Body: { locked: boolean, reason?: string }.

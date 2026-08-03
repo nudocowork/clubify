@@ -38,6 +38,7 @@ export default function TenantDetail() {
   const [infoSaving, setInfoSaving] = useState(false);
   // PDF123: dominio personalizado del negocio (vive en Storefront.customDomain).
   const [sfDomain, setSfDomain] = useState<string | null>(null);
+  const [showPwdModal, setShowPwdModal] = useState(false);
   // MARKETING ve la página pero sin acciones de billing/status — esos
   // endpoints son SUPER_ADMIN only y mostrarían "Permisos insuficientes"
   // al click. Esconderlos limpia UX en lugar de fallar fuerte.
@@ -413,6 +414,16 @@ export default function TenantDetail() {
                 title={t.status === 'SUSPENDED' ? tr('reactivateToEnter') : tr('enterAsOwner')}
               >
                 <Icon name="arrow-right" /> {tr('enterBusiness')}
+              </button>
+            )}
+            {isSuperAdmin && (
+              <button
+                className="btn-ghost text-sm"
+                disabled={actioning}
+                onClick={() => setShowPwdModal(true)}
+                title="Setear una nueva contraseña para el dueño sin necesitar la actual"
+              >
+                🔑 Cambiar contraseña del dueño
               </button>
             )}
             {isSuperAdmin && t.status === 'TRIAL' && (
@@ -866,6 +877,110 @@ export default function TenantDetail() {
             <OnboardingConnectAdminCard tenantId={t.id} />
           </CollapsibleSection>
         )}
+      </div>
+
+      {showPwdModal && (
+        <OwnerPasswordModal
+          tenantId={t.id}
+          brandName={t.brandName}
+          onClose={() => setShowPwdModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Modal de soporte: setear una nueva contraseña para el DUEÑO del negocio sin
+ * necesitar la actual (para cuando el cliente la olvidó). Llama al endpoint
+ * admin `PATCH /tenants/:id/owner-password` (SUPER_ADMIN, auditado).
+ */
+function OwnerPasswordModal({
+  tenantId,
+  brandName,
+  onClose,
+}: {
+  tenantId: string;
+  brandName?: string;
+  onClose: () => void;
+}) {
+  const [pwd, setPwd] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [saving, setSaving] = useState(false);
+  const valid = pwd.trim().length >= 8 && pwd === confirm;
+
+  const submit = async () => {
+    if (!valid) return;
+    setSaving(true);
+    try {
+      const res = await api(`/tenants/${tenantId}/owner-password`, {
+        method: 'PATCH',
+        body: JSON.stringify({ newPassword: pwd.trim() }),
+      });
+      toast(
+        `Contraseña actualizada${res?.ownerEmail ? ` para ${res.ownerEmail}` : ''}. El dueño deberá iniciar sesión de nuevo.`,
+        'success',
+      );
+      onClose();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo cambiar la contraseña', 'error');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-neutral-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-bold">Cambiar contraseña del dueño</h3>
+        <p className="mt-1 text-sm text-neutral-500">
+          Setea una nueva contraseña para el dueño de{' '}
+          <b>{brandName || 'este negocio'}</b> sin necesitar la actual. Queda
+          registrada en auditoría y sus sesiones actuales se cerrarán.
+        </p>
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="label">Nueva contraseña</label>
+            <input
+              type="password"
+              className="input w-full"
+              value={pwd}
+              onChange={(e) => setPwd(e.target.value)}
+              placeholder="Mínimo 8 caracteres"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="label">Confirmar nueva</label>
+            <input
+              type="password"
+              className="input w-full"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submit()}
+            />
+          </div>
+          {confirm.length > 0 && pwd !== confirm && (
+            <p className="text-xs text-red-500">Las contraseñas no coinciden.</p>
+          )}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="btn-ghost text-sm" onClick={onClose} disabled={saving}>
+            Cancelar
+          </button>
+          <button
+            className="btn-primary text-sm"
+            onClick={submit}
+            disabled={!valid || saving}
+          >
+            {saving ? 'Guardando…' : 'Cambiar contraseña'}
+          </button>
+        </div>
       </div>
     </div>
   );
