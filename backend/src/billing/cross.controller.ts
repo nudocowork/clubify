@@ -10,13 +10,25 @@ import {
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
-import { IsEmail, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { CrossService } from './cross.service';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 
-class CheckoutBody {
+/** Campos de tarjeta (API directa). PCI: se reenvían a Cross, no se persisten. */
+class CardFields {
+  @IsString() cardNumber!: string;
+  @IsInt() @Min(1) @Max(12) expMonth!: number;
+  @IsInt() expYear!: number;
+  @IsString() cvc!: string;
+  @IsOptional() @IsString() holderName?: string;
+  @IsOptional() @IsString() customerName?: string;
+  @IsOptional() @IsString() document?: string;
+  @IsOptional() @IsString() phone?: string;
+}
+
+class CheckoutBody extends CardFields {
   @IsString() brandSlug!: string;
   @IsEmail() email!: string;
   /** id de un WhiteLabelPaymentLink (gateway CROSS). Si falta, usa el 1º activo. */
@@ -24,7 +36,7 @@ class CheckoutBody {
   @IsOptional() @IsString() redirectUrl?: string;
 }
 
-class TestChargeBody {
+class TestChargeBody extends CardFields {
   @IsString() brandSlug!: string;
   @IsEmail() email!: string;
   @IsOptional() @IsString() redirectUrl?: string;
@@ -85,34 +97,63 @@ export class CrossCheckoutController {
     const result = await this.cross.createCheckout({
       brandSlug: body.brandSlug,
       email: body.email,
+      customerName: body.customerName,
+      document: body.document,
+      phone: body.phone,
       amountUsd,
       description: 'Suscripción',
       redirectUrl: body.redirectUrl,
+      card: this.card(body),
     });
-    if (!result) {
-      throw new BadRequestException('No se pudo iniciar el pago con Cross. Revisá la configuración.');
-    }
-    return { ok: true, link: result.redirectUrl, providerRef: result.providerRef };
+    if (!result.ok) throw new BadRequestException(result.message || 'No se pudo procesar el pago.');
+    return result;
   }
 
-  /** SUPER_ADMIN: cargo de prueba de 1 USD para validar el flujo en sandbox. */
+  /** SUPER_ADMIN: cargo de prueba de 1 USD para validar el flujo. Requiere una
+   *  tarjeta REAL (en prod la de prueba 4111… colisiona con perfiles existentes). */
   @Roles('SUPER_ADMIN')
   @Post('test-charge')
   async testCharge(@Body() body: TestChargeBody) {
     const result = await this.cross.createCheckout({
       brandSlug: body.brandSlug,
       email: body.email,
+      customerName: body.customerName,
+      document: body.document,
+      phone: body.phone,
       amountUsd: 1,
       description: 'Prueba Cross (1 USD)',
       reference: `clbf_test_${Date.now()}`,
       redirectUrl: body.redirectUrl,
+      card: this.card(body),
     });
-    if (!result) {
-      throw new BadRequestException(
-        'No se pudo crear el cargo de prueba. Revisá credenciales/ambiente Cross de la marca.',
-      );
+    if (!result.ok) {
+      throw new BadRequestException(result.message || 'No se pudo crear el cargo de prueba.');
     }
-    return { ok: true, link: result.redirectUrl, providerRef: result.providerRef };
+    return result;
+  }
+
+  private card(b: CardFields) {
+    return {
+      number: b.cardNumber,
+      expMonth: b.expMonth,
+      expYear: b.expYear,
+      cvc: b.cvc,
+      holderName: b.holderName,
+    };
+  }
+
+  /** Público: info para pintar el checkout (nombre de marca + monto + moneda). */
+  @Public()
+  @Post('checkout-info')
+  async checkoutInfo(@Body() body: { brandSlug: string; planId?: string }) {
+    const slug = (body?.brandSlug ?? '').trim().toLowerCase();
+    const wl = await this.prisma.whiteLabel.findFirst({
+      where: { slug },
+      select: { id: true, name: true },
+    });
+    if (!wl) throw new BadRequestException('Marca no encontrada.');
+    const amountUsd = await this.resolveAmount(slug, body?.planId);
+    return { brandName: wl.name, amountUsd, currency: 'USD' };
   }
 
   /** Monto (USD) del PaymentLink CROSS de la marca (por id o el 1º activo). */

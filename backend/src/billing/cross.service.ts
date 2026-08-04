@@ -158,78 +158,103 @@ export class CrossService implements PaymentProvider {
 
   // ── Checkout server-side (crear cargo) ────────────────────────────────────
 
-  /** Crea un cargo en Cross y devuelve el `link` de pago + providerRef. */
-  async createCheckout(input: CreateCheckoutInput): Promise<CheckoutResult | null> {
+  /**
+   * Crea un cobro con tarjeta (API directa) vía `POST /payments/process`.
+   * Schema verificado contra la API real de Cross:
+   *   { paymentMethod:'card', amount, currency, description, reference,
+   *     platform:'Crosspay form', gateway:'crosspay',
+   *     customerEmail, customerName,
+   *     customer:{ email, name, phone, document },
+   *     card:{ number, expMonth, expYear, cvc, holderName },
+   *     meta:{ companyName, language } }
+   * Respuesta: { success, status, transactionId, redirectUrl?, message }.
+   * PCI: los datos de tarjeta se reenvían a Cross y NO se persisten.
+   */
+  async createCheckout(input: CreateCheckoutInput): Promise<CheckoutResult> {
     const brand = await this.loadBrand(input.brandSlug);
-    if (!brand) return null;
+    if (!brand) return { ok: false, message: 'Marca no configurada para Cross' };
     if (!brand.companyName) {
-      this.logger.warn(
-        `Cross sin companyName configurado (${brand.slug}) — requerido por /payments/process (meta.companyName)`,
-      );
-      return null;
+      return { ok: false, message: 'Falta companyName (meta.companyName) en la config Cross de la marca' };
+    }
+    if (!input.card) {
+      return { ok: false, message: 'Faltan los datos de la tarjeta' };
     }
     const currency = input.currency || 'USD';
     const reference = input.reference || `clbf_${Date.now()}`;
     const email = (input.email || '').trim().toLowerCase();
+    const name = input.customerName || email || 'Cliente';
     try {
-      // Endpoint real (verificado contra el sandbox): POST /payments/process.
-      // Requiere: amount, currency, description, customerName, customerEmail,
-      // paymentMethod y meta.companyName (identifica al cliente en Cross).
       const res = await fetch(`${brand.baseUrl}/payments/process`, {
         method: 'POST',
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(25000),
         headers: this.authHeaders(brand),
         body: JSON.stringify({
+          paymentMethod: brand.paymentMethod || 'card',
           amount: input.amountUsd,
           currency,
           description: input.description || 'Suscripción',
           reference,
+          platform: 'Crosspay form',
+          gateway: 'crosspay',
           customerEmail: email,
-          customerName: input.customerName || email || 'Cliente',
-          paymentMethod: brand.paymentMethod,
-          redirectUrl: input.redirectUrl,
-          meta: { companyName: brand.companyName },
-          metadata: input.metadata || {},
+          customerName: name,
+          customer: {
+            email,
+            name,
+            phone: input.phone || '',
+            document: input.document || '',
+          },
+          card: {
+            number: input.card.number.replace(/\s/g, ''),
+            expMonth: Number(input.card.expMonth),
+            expYear: Number(input.card.expYear),
+            cvc: input.card.cvc,
+            holderName: input.card.holderName || name,
+          },
+          meta: { companyName: brand.companyName, language: 'es' },
+          returnUrl: input.redirectUrl,
         }),
       });
       const text = await res.text().catch(() => '');
-      if (!res.ok) {
-        this.logger.warn(
-          `Cross createCharge falló (${brand.slug}) status=${res.status} body=${text.slice(0, 200)}`,
-        );
-        return null;
-      }
-      const data = safeJson(text);
+      const data = safeJson(text) || {};
       const providerRef = String(
-        data?.id ?? data?.transactionId ?? data?.data?.id ?? data?.transaction_id ?? '',
+        data?.transactionId ?? data?.id ?? data?.data?.transactionId ?? data?.data?.id ?? '',
       );
-      const link = String(data?.link ?? data?.url ?? data?.data?.link ?? data?.paymentUrl ?? '');
-      if (!providerRef || !link) {
-        this.logger.warn(`Cross createCharge sin id/link: ${text.slice(0, 200)}`);
-        return null;
+      const redirectUrl = String(
+        data?.redirectUrl ?? data?.data?.redirectUrl ?? data?.link ?? '',
+      );
+      const providerStatus = String(data?.status ?? data?.data?.status ?? (res.ok ? 'pending' : 'failed'));
+      const status = this.mapStatus(providerStatus);
+
+      if (!res.ok || data?.success === false) {
+        this.logger.warn(`Cross /payments/process falló (${brand.slug}) status=${res.status}: ${text.slice(0, 200)}`);
+        return { ok: false, providerRef: providerRef || undefined, status, message: data?.message || `Error ${res.status}` };
       }
+
       // Registro de la transacción (log/panel) + pendiente para el signup.
-      await this.recordTransaction(brand, {
-        providerRef,
-        email: input.email,
-        amountUsd: input.amountUsd,
-        currency,
-        status: 'PENDING',
-        providerStatus: 'created',
-        event: 'charge.created',
-        tenantId: (input.metadata as any)?.tenantId ?? null,
-      });
-      await this.storePending(brand, {
-        email: input.email,
-        providerRef,
-        amountUsd: input.amountUsd,
-        currency,
-        raw: { reference, metadata: input.metadata ?? {} },
-      });
-      return { redirectUrl: link, providerRef };
+      if (providerRef) {
+        await this.recordTransaction(brand, {
+          providerRef,
+          email,
+          amountUsd: input.amountUsd,
+          currency,
+          status,
+          providerStatus,
+          event: 'charge.created',
+          tenantId: (input.metadata as any)?.tenantId ?? null,
+        });
+        await this.storePending(brand, {
+          email,
+          providerRef,
+          amountUsd: input.amountUsd,
+          currency,
+          raw: { reference, metadata: input.metadata ?? {} },
+        });
+      }
+      return { ok: true, providerRef, redirectUrl, status, message: data?.message };
     } catch (e) {
-      this.logger.warn(`Cross createCharge threw (${brand.slug}): ${(e as Error).message}`);
-      return null;
+      this.logger.warn(`Cross createCheckout threw (${brand.slug}): ${(e as Error).message}`);
+      return { ok: false, message: 'Error de red al procesar el pago' };
     }
   }
 

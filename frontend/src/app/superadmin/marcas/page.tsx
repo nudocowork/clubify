@@ -2050,29 +2050,6 @@ function PaymentGatewayConfig({
     }
   }
 
-  async function testCrossCharge() {
-    if (!brandSlug) { onSaved('Falta el slug de la marca'); return; }
-    const email = window.prompt('Email de prueba para el cargo de 1 USD:');
-    if (!email || !email.includes('@')) return;
-    setBusy(true);
-    try {
-      const d = await api(`/billing/cross/test-charge`, {
-        method: 'POST',
-        body: JSON.stringify({ brandSlug, email: email.trim() }),
-      });
-      if (d?.link) {
-        onSaved('Cargo de prueba creado — abriendo link de pago');
-        window.open(d.link, '_blank');
-      } else {
-        onSaved('No se recibió link de pago');
-      }
-    } catch (e: any) {
-      onSaved(e.message ?? 'Error creando cargo de prueba');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function addLink() {
     setBusy(true);
     try {
@@ -2236,7 +2213,7 @@ function PaymentGatewayConfig({
 
         {gateway === 'CROSS' && (
           <div
-            className="rounded-lg p-3 text-xs space-y-2"
+            className="rounded-lg p-3 text-xs space-y-1"
             style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}
           >
             <div>
@@ -2245,20 +2222,11 @@ function PaymentGatewayConfig({
                 https://api.soyclubify.com/webhooks/cross/{brandSlug ?? '<slug>'}
               </code>
             </div>
-            <button
-              onClick={testCrossCharge}
-              disabled={busy}
-              className="w-full text-sm font-bold rounded-[10px]"
-              style={{
-                padding: '9px',
-                border: '1px solid #16a34a',
-                background: 'white',
-                color: '#15803d',
-                cursor: busy ? 'default' : 'pointer',
-              }}
-            >
-              🧪 Probar cargo Cross (1 USD)
-            </button>
+            <div style={{ opacity: 0.85 }}>
+              Campos: <b>companyName</b> (cliente en Cross, ej. VIRTUALPRO S.A.S.),
+              <b> paymentMethod</b> = card, <b>environment</b> = production. El cobro
+              se prueba desde el checkout con una tarjeta real.
+            </div>
           </div>
         )}
 
