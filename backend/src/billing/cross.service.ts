@@ -23,6 +23,10 @@ type CrossBrand = {
   slug: string;
   apiKey: string;
   companyId: string;
+  /** Nombre del cliente/empresa registrado en Cross (meta.companyName). */
+  companyName: string;
+  /** Método de pago por defecto (card | pse | …). */
+  paymentMethod: string;
   webhookSecret: string;
   environment: CrossEnv;
   baseUrl: string;
@@ -131,6 +135,8 @@ export class CrossService implements PaymentProvider {
       slug,
       apiKey,
       companyId: String(cfg.companyId),
+      companyName: String(cfg.companyName || '').trim(),
+      paymentMethod: String(cfg.paymentMethod || 'card').trim(),
       webhookSecret,
       environment,
       baseUrl,
@@ -156,10 +162,20 @@ export class CrossService implements PaymentProvider {
   async createCheckout(input: CreateCheckoutInput): Promise<CheckoutResult | null> {
     const brand = await this.loadBrand(input.brandSlug);
     if (!brand) return null;
+    if (!brand.companyName) {
+      this.logger.warn(
+        `Cross sin companyName configurado (${brand.slug}) — requerido por /payments/process (meta.companyName)`,
+      );
+      return null;
+    }
     const currency = input.currency || 'USD';
     const reference = input.reference || `clbf_${Date.now()}`;
+    const email = (input.email || '').trim().toLowerCase();
     try {
-      const res = await fetch(`${brand.baseUrl}/payments/crosspay/charges`, {
+      // Endpoint real (verificado contra el sandbox): POST /payments/process.
+      // Requiere: amount, currency, description, customerName, customerEmail,
+      // paymentMethod y meta.companyName (identifica al cliente en Cross).
+      const res = await fetch(`${brand.baseUrl}/payments/process`, {
         method: 'POST',
         signal: AbortSignal.timeout(20000),
         headers: this.authHeaders(brand),
@@ -168,8 +184,11 @@ export class CrossService implements PaymentProvider {
           currency,
           description: input.description || 'Suscripción',
           reference,
-          customerEmail: (input.email || '').trim().toLowerCase(),
+          customerEmail: email,
+          customerName: input.customerName || email || 'Cliente',
+          paymentMethod: brand.paymentMethod,
           redirectUrl: input.redirectUrl,
+          meta: { companyName: brand.companyName },
           metadata: input.metadata || {},
         }),
       });

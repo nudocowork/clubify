@@ -25,6 +25,8 @@ export type NormalizedPaymentStatus =
 export interface CreateCheckoutInput {
   brandSlug: string;
   email: string;
+  /** Nombre del comprador (Cross lo exige como customerName). */
+  customerName?: string;
   amountUsd: number;
   currency?: string;
   description?: string;

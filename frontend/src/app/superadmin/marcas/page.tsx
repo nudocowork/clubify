@@ -1430,6 +1430,8 @@ const GATEWAY_FIELDS: Record<string, { secret: { key: string; label: string }[];
     ],
     plain: [
       { key: 'companyId', label: 'Company ID (X-Company-Id)' },
+      { key: 'companyName', label: 'Company Name (cliente registrado en Cross)', placeholder: 'Nombre exacto de tu empresa en Cross' },
+      { key: 'paymentMethod', label: 'Método de pago', placeholder: 'card · pse' },
       { key: 'environment', label: 'Ambiente', placeholder: 'sandbox · production · dev' },
       { key: 'webhookUrl', label: 'URL Webhook', placeholder: 'https://api…/webhooks/cross/<slug>' },
     ],
