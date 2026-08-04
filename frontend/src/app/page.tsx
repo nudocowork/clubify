@@ -383,6 +383,7 @@ export default async function Landing() {
             {[
               { id: 'ZK5Q0QRXUeI', name: 'Nudo Cowork & Coffee' },
               { id: 'BffWf9f8sHY', name: 'Konnys Pizza' },
+              { id: 'Ko4N8znkIIA', name: 'La Gloriosa' },
             ].map((v, i) => (
               <FadeIn
                 key={v.id}
