@@ -9,6 +9,8 @@ import {
 import { HotmartSimulatorController } from './hotmart-simulator.controller';
 import { StripeService } from './stripe.service';
 import { StripeWebhookController } from './stripe.controller';
+import { CrossService } from './cross.service';
+import { CrossWebhookController, CrossCheckoutController } from './cross.controller';
 import { SmsTemplatesService } from './sms-templates.service';
 import { SmsTemplatesController } from './sms-templates.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
@@ -28,9 +30,11 @@ import { OnboardingSyncModule } from '../onboarding-sync/onboarding-sync.module'
     HotmartCheckoutController,
     HotmartSimulatorController,
     StripeWebhookController,
+    CrossWebhookController,
+    CrossCheckoutController,
     SmsTemplatesController,
   ],
-  providers: [BillingService, HotmartService, StripeService, SmsTemplatesService],
-  exports: [BillingService, HotmartService, StripeService, SmsTemplatesService],
+  providers: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService],
+  exports: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService],
 })
 export class BillingModule {}

@@ -58,7 +58,7 @@ class StatusBody {
 }
 
 class PaymentConfigBody {
-  @IsOptional() @IsIn(['HOTMART', 'STRIPE', 'MANUAL']) gateway?: 'HOTMART' | 'STRIPE' | 'MANUAL';
+  @IsOptional() @IsIn(['HOTMART', 'STRIPE', 'MANUAL', 'CROSS']) gateway?: 'HOTMART' | 'STRIPE' | 'MANUAL' | 'CROSS';
   // Config libre por gateway: secretos se cifran server-side, no-secretos plano.
   @IsOptional() @IsObject() config?: Record<string, any>;
 }
@@ -87,7 +87,7 @@ class MoveTemplateBody {
 }
 
 class PaymentLinkBody {
-  @IsIn(['HOTMART', 'STRIPE', 'MANUAL']) gateway!: 'HOTMART' | 'STRIPE' | 'MANUAL';
+  @IsIn(['HOTMART', 'STRIPE', 'MANUAL', 'CROSS']) gateway!: 'HOTMART' | 'STRIPE' | 'MANUAL' | 'CROSS';
   // Opcional: si no llega, el service usa "Plan {Periodicidad}" como default.
   @IsOptional() @IsString() @MaxLength(120) name?: string;
   @IsOptional() @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL', 'CUSTOM']) periodicity?: any;

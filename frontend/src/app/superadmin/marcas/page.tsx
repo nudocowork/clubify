@@ -666,7 +666,7 @@ function Drawer({
                 }}
               />
 
-              <PaymentGatewayConfig whiteLabelId={w.id} onSaved={onChanged} />
+              <PaymentGatewayConfig whiteLabelId={w.id} brandSlug={w.slug} onSaved={onChanged} />
 
               <BrandSmsAccountConfig whiteLabelId={w.id} onSaved={onChanged} />
 
@@ -1389,6 +1389,7 @@ type PayLink = {
 const GATEWAYS = [
   { key: 'HOTMART', label: 'Hotmart' },
   { key: 'STRIPE', label: 'Stripe' },
+  { key: 'CROSS', label: 'Cross' },
   { key: 'MANUAL', label: 'Manual' },
 ];
 // Campos secretos (deben coincidir con PAYMENT_SECRET_FIELDS del backend): se
@@ -1420,6 +1421,17 @@ const GATEWAY_FIELDS: Record<string, { secret: { key: string; label: string }[];
       { key: 'publishableKey', label: 'Publishable Key (pk_live…)' },
       { key: 'customerPortalUrl', label: 'Customer Portal URL' },
       { key: 'webhookUrl', label: 'URL Webhook', placeholder: 'https://api…/webhooks/stripe/<slug>' },
+    ],
+  },
+  CROSS: {
+    secret: [
+      { key: 'apiKey', label: 'API Key' },
+      { key: 'webhookSecret', label: 'Webhook Secret (firma HMAC)' },
+    ],
+    plain: [
+      { key: 'companyId', label: 'Company ID (X-Company-Id)' },
+      { key: 'environment', label: 'Ambiente', placeholder: 'sandbox · production · dev' },
+      { key: 'webhookUrl', label: 'URL Webhook', placeholder: 'https://api…/webhooks/cross/<slug>' },
     ],
   },
   MANUAL: { secret: [], plain: [] },
@@ -1965,9 +1977,11 @@ function BrandSmsAccountConfig({
 
 function PaymentGatewayConfig({
   whiteLabelId,
+  brandSlug,
   onSaved,
 }: {
   whiteLabelId: string;
+  brandSlug?: string;
   onSaved: (msg: string) => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -2029,6 +2043,29 @@ function PaymentGatewayConfig({
       if (d) await load();
     } catch (e: any) {
       onSaved(e.message ?? 'Error al guardar pasarela');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function testCrossCharge() {
+    if (!brandSlug) { onSaved('Falta el slug de la marca'); return; }
+    const email = window.prompt('Email de prueba para el cargo de 1 USD:');
+    if (!email || !email.includes('@')) return;
+    setBusy(true);
+    try {
+      const d = await api(`/billing/cross/test-charge`, {
+        method: 'POST',
+        body: JSON.stringify({ brandSlug, email: email.trim() }),
+      });
+      if (d?.link) {
+        onSaved('Cargo de prueba creado — abriendo link de pago');
+        window.open(d.link, '_blank');
+      } else {
+        onSaved('No se recibió link de pago');
+      }
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error creando cargo de prueba');
     } finally {
       setBusy(false);
     }
@@ -2193,6 +2230,34 @@ function PaymentGatewayConfig({
           >
             {busy ? 'Guardando…' : 'Guardar pasarela'}
           </button>
+        )}
+
+        {gateway === 'CROSS' && (
+          <div
+            className="rounded-lg p-3 text-xs space-y-2"
+            style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}
+          >
+            <div>
+              Registrá este webhook en Cross:{' '}
+              <code style={{ wordBreak: 'break-all' }}>
+                https://api.soyclubify.com/webhooks/cross/{brandSlug ?? '<slug>'}
+              </code>
+            </div>
+            <button
+              onClick={testCrossCharge}
+              disabled={busy}
+              className="w-full text-sm font-bold rounded-[10px]"
+              style={{
+                padding: '9px',
+                border: '1px solid #16a34a',
+                background: 'white',
+                color: '#15803d',
+                cursor: busy ? 'default' : 'pointer',
+              }}
+            >
+              🧪 Probar cargo Cross (1 USD)
+            </button>
+          </div>
         )}
 
         {/* Links de pago */}

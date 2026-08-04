@@ -859,6 +859,73 @@ model StripeWebhookEvent {
   @@index([whiteLabelId, eventType, processedAt])
 }
 
+/// Pago de Cross (CrossPay) recibido por webhook ANTES de que exista la cuenta
+/// (flujo "pago → datos"). Análogo a PendingStripePayment. /auth/signup lo
+/// consume al crear la cuenta (match por email) y activa el tenant. Aislado
+/// por whiteLabelId.
+model PendingCrossPayment {
+  id           String    @id @default(uuid())
+  /// Email del comprador (lowercased) — clave de match con el signup.
+  email        String
+  whiteLabelId String?
+  /// id de la transacción en CrossPay (providerRef).
+  providerRef  String?
+  amountUsd    Decimal?  @db.Decimal(10, 2)
+  currency     String?
+  status       String?
+  /// Payload completo del evento/cargo para re-ejecutar la activación.
+  rawPayload   Json
+  consumedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([email])
+  @@index([whiteLabelId])
+  @@index([consumedAt])
+}
+
+/// Idempotencia del webhook Cross (análogo a StripeWebhookEvent). Cross puede
+/// reintentar con el MISMO id de transacción / delivery; si ya existe, se ignora.
+model CrossWebhookEvent {
+  id           String   @id @default(uuid())
+  /// Clave de idempotencia (X-Crosspay-Delivery o id de la transacción).
+  eventId      String   @unique
+  eventType    String
+  whiteLabelId String?
+  tenantId     String?
+  status       String?
+  payload      Json
+  processedAt  DateTime @default(now())
+
+  @@index([whiteLabelId, processedAt])
+}
+
+/// Log/estado de transacciones Cross (panel + auditoría, requisito del spec).
+/// Un registro por transacción (providerRef), actualizado al cambiar el estado.
+model CrossTransaction {
+  id             String   @id @default(uuid())
+  whiteLabelId   String?
+  tenantId       String?
+  /// id de la transacción en CrossPay.
+  providerRef    String   @unique
+  email          String?
+  amountUsd      Decimal? @db.Decimal(10, 2)
+  currency       String?
+  /// Estado mapeado (PENDING|PROCESSING|APPROVED|REJECTED|CANCELLED).
+  status         String
+  /// Estado crudo del proveedor (approved/success/rejected/...).
+  providerStatus String?
+  event          String?
+  environment    String?
+  processingMs   Int?
+  error          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([whiteLabelId, createdAt])
+  @@index([tenantId])
+}
+
 model User {
   id           String    @id @default(uuid())
   tenantId     String?
@@ -4781,6 +4848,8 @@ enum PaymentGateway {
   MANUAL
   /// Cuponera / Living Card: suscripción recurrente de membresías (preapproval).
   MERCADOPAGO
+  /// Cross (CrossPay Solutions): pasarela API-driven (crear cargo → redirigir).
+  CROSS
 }
 
 /// Periodicidad de un link/plan de pago. CUSTOM = link personalizado.

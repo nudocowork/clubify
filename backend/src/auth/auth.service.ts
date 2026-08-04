@@ -1324,6 +1324,25 @@ export class AuthService {
       );
     }
 
+    // Análogo para marcas con Cross (CrossPay): si el comprador pagó por Cross
+    // antes de crear la cuenta, hay un PendingCrossPayment por su email + marca.
+    // Mismo require() inline para resolver el servicio en runtime (evita ciclo DI).
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { CrossService: CrossServiceClass } = require('../billing/cross.service');
+      const cross = this.moduleRef.get(CrossServiceClass, { strict: false });
+      const activated = await cross.consumePendingForTenant(tenant.id, email);
+      if (activated) {
+        this.logger.log(
+          `Signup activado al instante por pago Cross pendiente — tenant=${tenant.id}`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `consumePendingForTenant (Cross) falló para tenant=${tenant.id}: ${(e as Error).message}`,
+      );
+    }
+
     // Welcome email best-effort (no bloqueante). Resolvemos la marca del negocio
     // para que el asunto/cuerpo digan "Sellea" y no "Clubify" en marcas blancas.
     const welcomeBrandRow = await this.prisma.tenant
