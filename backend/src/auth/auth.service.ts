@@ -18,6 +18,7 @@ import {
   passwordResetTemplate,
   inviteAffiliateTemplate,
 } from '../email/templates/templates';
+import { resolveBrandEmail } from '../email/brand-email';
 import {
   isValidCategorySlug,
   DEFAULT_CATEGORY_SLUG,
@@ -1343,16 +1344,25 @@ export class AuthService {
       );
     }
 
-    // Welcome email best-effort (no bloqueante). Resolvemos la marca del negocio
-    // para que el asunto/cuerpo digan "Sellea" y no "Clubify" en marcas blancas.
+    // Welcome email best-effort (no bloqueante). Resolvemos la IDENTIDAD de email
+    // de la marca: nombre (asunto/cuerpo dicen "Sellea"), remitente propio
+    // (from=hola@selleala.com si está verificado) y link al panel de la marca
+    // (selleala.com/login). Sin marca / sin remitente propio → default Clubify.
     const welcomeBrandRow = await this.prisma.tenant
       .findUnique({
         where: { id: tenant.id },
-        select: { whiteLabel: { select: { name: true } } },
+        select: { whiteLabelId: true, whiteLabel: { select: { name: true } } },
       })
       .catch(() => null);
+    const brandEmail = await resolveBrandEmail(
+      this.prisma,
+      welcomeBrandRow?.whiteLabelId ?? null,
+      this.appConfig.APP_URL,
+    );
     this.email.send({
       to: email,
+      from: brandEmail.from,
+      replyTo: brandEmail.replyTo,
       ...welcomeOwnerTemplate({
         tenant,
         fullName: dto.fullName.trim(),
@@ -1361,6 +1371,7 @@ export class AuthService {
         brand: welcomeBrandRow?.whiteLabel?.name
           ? { name: welcomeBrandRow.whiteLabel.name }
           : null,
+        loginUrl: brandEmail.hasBrandSender ? brandEmail.loginUrl : undefined,
       }),
     });
 

@@ -4358,6 +4358,11 @@ model WhiteLabel {
   instagram                String?
   /// Email de contacto público de la marca (ej "hola@selleala.com").
   contactEmail             String?
+  /// Remitente de los emails transaccionales de la marca (ej
+  /// "Sellea <hola@selleala.com>"). Solo setear cuando el dominio está
+  /// VERIFICADO en el proveedor de envío (Resend/DKIM). Si es null, los emails
+  /// salen del remitente global de Clubify. Ver [[email/brand-email]].
+  emailFrom                String?
   /// Letra inicial mostrada en el avatar cuadrado.
   initial                  String?
   /// WhatsApp del botón "Agendar demo" de la landing de la marca (ej.

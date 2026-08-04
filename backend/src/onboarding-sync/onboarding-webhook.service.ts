@@ -2,6 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { QueueService } from '../jobs/queue.service';
+import { EmailService } from '../email/email.service';
+import { resolveBrandEmail } from '../email/brand-email';
+import { accountActivatedTemplate } from '../email/templates/templates';
 
 // Reintentos DESPUÉS de un fallo (≠2xx o error de red): 1min, 10min, 1h.
 // El intento inmediato es el job inicial (attempt 0); estos son los re-encolados.
@@ -23,6 +26,7 @@ export class OnboardingWebhookService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jobs: QueueService,
+    private readonly email: EmailService,
   ) {}
 
   private async read() {
@@ -156,21 +160,73 @@ export class OnboardingWebhookService {
 
   /** Señal `business.activated`. Best-effort (fire-and-forget desde el caller). */
   async emitBusinessActivated(tenantId: string): Promise<void> {
+    let tenant: {
+      id: string;
+      brandName: string;
+      name: string | null;
+      phone: string | null;
+      slug: string;
+      logoUrl: string | null;
+      primaryColor: string | null;
+      whatsappPhone: string | null;
+      whiteLabelId: string | null;
+    } | null = null;
     try {
-      const t = await this.prisma.tenant.findUnique({
+      tenant = await this.prisma.tenant.findUnique({
         where: { id: tenantId },
-        select: { id: true, brandName: true, name: true, phone: true, slug: true },
+        select: {
+          id: true, brandName: true, name: true, phone: true, slug: true,
+          logoUrl: true, primaryColor: true, whatsappPhone: true, whiteLabelId: true,
+        },
       });
-      if (!t) return;
+      if (!tenant) return;
       await this.emit('business.activated', {
-        business_id: t.id,
-        name: t.brandName || t.name,
-        phone: t.phone,
-        slug: t.slug,
+        business_id: tenant.id,
+        name: tenant.brandName || tenant.name,
+        phone: tenant.phone,
+        slug: tenant.slug,
         activated_at: new Date().toISOString(),
       });
     } catch {
       /* best-effort: jamás propaga */
+    }
+    // Email de "cuenta activada" al dueño (datos de acceso + login de la marca).
+    // SOLO en marcas con remitente propio configurado (ej Sellea) — otras marcas
+    // no cambian. Best-effort, nunca rompe la activación.
+    try {
+      if (!tenant) return;
+      const brandEmail = await resolveBrandEmail(
+        this.prisma,
+        tenant.whiteLabelId,
+        process.env.APP_URL || 'https://soyclubify.com',
+      );
+      if (!brandEmail.hasBrandSender) return; // opt-in por marca
+      const owner = await this.prisma.user.findFirst({
+        where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+        orderBy: { createdAt: 'asc' },
+        select: { email: true, fullName: true },
+      });
+      if (!owner?.email) return;
+      this.email.send({
+        to: owner.email,
+        from: brandEmail.from,
+        replyTo: brandEmail.replyTo,
+        ...accountActivatedTemplate({
+          tenant: {
+            brandName: tenant.brandName,
+            logoUrl: tenant.logoUrl,
+            primaryColor: tenant.primaryColor,
+            whatsappPhone: tenant.whatsappPhone,
+            slug: tenant.slug,
+          },
+          fullName: owner.fullName ?? undefined,
+          loginEmail: owner.email,
+          loginUrl: brandEmail.loginUrl,
+          brand: { name: brandEmail.brandName },
+        }),
+      });
+    } catch (e: any) {
+      this.logger.warn(`email cuenta-activada falló: ${e?.message}`);
     }
   }
 
