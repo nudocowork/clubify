@@ -61,8 +61,13 @@ export class CrossService implements PaymentProvider {
 
   // ── Carga de marca / credenciales ─────────────────────────────────────────
 
-  /** Carga la marca por slug + descifra apiKey/webhookSecret. Null si la marca
-   *  no usa CROSS o no está configurada (aislamiento: nunca cruza pasarelas). */
+  /**
+   * Carga las creds Cross de una marca por slug. ADITIVO: las lee de
+   * `paymentConfig.cross` (sub-objeto) si existe — así una marca puede tener
+   * Cross configurado SIN cambiar su `paymentGateway` (p.ej. Clubify sigue con
+   * Hotmart intacto). Como fallback, si la marca es 100% CROSS, usa el config
+   * plano. Null si no hay creds Cross (la presencia de creds es el opt-in).
+   */
   private async loadBrand(slug: string): Promise<CrossBrand | null> {
     const s = (slug ?? '').trim().toLowerCase();
     if (!s) return null;
@@ -70,8 +75,8 @@ export class CrossService implements PaymentProvider {
       where: { slug: s, status: 'ACTIVE' },
       select: { id: true, slug: true, paymentGateway: true, paymentConfig: true },
     });
-    if (!wl || wl.paymentGateway !== 'CROSS') return null;
-    return this.buildBrand(wl.id, wl.slug, wl.paymentConfig);
+    if (!wl) return null;
+    return this.buildBrand(wl.id, wl.slug, wl.paymentConfig, wl.paymentGateway);
   }
 
   private async loadBrandById(whiteLabelId: string): Promise<CrossBrand | null> {
@@ -79,22 +84,32 @@ export class CrossService implements PaymentProvider {
       where: { id: whiteLabelId },
       select: { id: true, slug: true, status: true, paymentGateway: true, paymentConfig: true },
     });
-    if (!wl || wl.status !== 'ACTIVE' || wl.paymentGateway !== 'CROSS') return null;
-    return this.buildBrand(wl.id, wl.slug, wl.paymentConfig);
+    if (!wl || wl.status !== 'ACTIVE') return null;
+    return this.buildBrand(wl.id, wl.slug, wl.paymentConfig, wl.paymentGateway);
   }
 
   private buildBrand(
     whiteLabelId: string,
     slug: string,
     paymentConfig: unknown,
+    paymentGateway?: string,
   ): CrossBrand | null {
-    const cfg = (paymentConfig as Record<string, any>) || {};
-    if (!cfg.apiKey || !cfg.companyId || !cfg.webhookSecret) return null;
+    const root = (paymentConfig as Record<string, any>) || {};
+    // Slot dedicado `cross` (aditivo) > config plano si la marca es 100% CROSS.
+    const cfg: Record<string, any> =
+      root.cross && typeof root.cross === 'object'
+        ? root.cross
+        : paymentGateway === 'CROSS'
+        ? root
+        : {};
+    if (!cfg.apiKey || !cfg.companyId) return null;
     let apiKey: string;
-    let webhookSecret: string;
+    // webhookSecret es OPCIONAL: sin él se puede crear el cargo (test), pero la
+    // verificación de webhook fallará hasta configurarlo.
+    let webhookSecret = '';
     try {
       apiKey = decryptSecret(cfg.apiKey);
-      webhookSecret = decryptSecret(cfg.webhookSecret);
+      if (cfg.webhookSecret) webhookSecret = decryptSecret(cfg.webhookSecret);
     } catch {
       return null;
     }
@@ -210,6 +225,10 @@ export class CrossService implements PaymentProvider {
   ): Promise<NormalizedWebhookEvent | null> {
     const brand = await this.loadBrand(slug);
     if (!brand || !rawBody) return null;
+    if (!brand.webhookSecret) {
+      this.logger.warn(`Cross webhook sin webhookSecret configurado (${slug}) — se ignora`);
+      return null;
+    }
     const signature = headers['x-crosspay-signature'];
     if (!signature) return null;
     // HMAC-SHA256 hex sobre el RAW body (antes de parsear), comparación en
