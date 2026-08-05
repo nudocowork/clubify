@@ -1,18 +1,28 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 type Video = { id: string; name: string };
 
+// Cadencia del auto-avance (ms). Lento para que se sienta suave, no nervioso.
+const AUTOPLAY_MS = 4200;
+// Tras una interacción manual, pausa el auto-avance este tiempo antes de retomar.
+const RESUME_AFTER_MS = 9000;
+
 /**
  * Carrusel de testimonios en video (sección "Nuestros clientes" del landing).
- * Rail horizontal con scroll-snap + dots + flechas (desktop). Escala bien al
- * sumar más videos sin romper el layout (a diferencia del grid, donde 3 items
- * dejaban uno huérfano en la 2ª fila). Client component: page.tsx es server.
+ * Rail horizontal con scroll-snap + dots + flechas (desktop) + auto-avance
+ * lento en vaivén (no queda estático). Pausa al pasar el mouse / interactuar y
+ * respeta prefers-reduced-motion. Escala al sumar más videos sin romper el
+ * layout. Client component: page.tsx es server.
  */
 export function TestimonialsCarousel({ videos }: { videos: Video[] }) {
   const railRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
+  const activeRef = useRef(0);
+  const dirRef = useRef(1); // vaivén: 1 = avanza, -1 = retrocede
+  const pausedRef = useRef(false);
+  const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function onScroll() {
     const el = railRef.current;
@@ -29,6 +39,7 @@ export function TestimonialsCarousel({ videos }: { videos: Video[] }) {
         best = i;
       }
     });
+    activeRef.current = best;
     setActive(best);
   }
 
@@ -44,14 +55,56 @@ export function TestimonialsCarousel({ videos }: { videos: Video[] }) {
     });
   }
 
+  // Interacción manual (dot/flecha): navega y pausa el auto-avance un rato.
+  function userGo(i: number) {
+    go(i);
+    pausedRef.current = true;
+    if (resumeTimer.current) clearTimeout(resumeTimer.current);
+    resumeTimer.current = setTimeout(() => {
+      pausedRef.current = false;
+    }, RESUME_AFTER_MS);
+  }
+
+  // Auto-avance lento en vaivén.
+  useEffect(() => {
+    if (videos.length <= 1) return;
+    const reduce =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) return;
+    const t = setInterval(() => {
+      if (pausedRef.current || document.hidden) return;
+      let n = activeRef.current + dirRef.current;
+      if (n >= videos.length) {
+        n = videos.length - 2;
+        dirRef.current = -1;
+      } else if (n < 0) {
+        n = 1;
+        dirRef.current = 1;
+      }
+      go(Math.max(0, n));
+    }, AUTOPLAY_MS);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videos.length]);
+
   return (
-    <div className="max-w-6xl mx-auto">
+    <div
+      className="max-w-6xl mx-auto"
+      onMouseEnter={() => {
+        pausedRef.current = true;
+      }}
+      onMouseLeave={() => {
+        pausedRef.current = false;
+      }}
+      onTouchStart={() => userGo(activeRef.current)}
+    >
       <div className="relative">
         {/* Flechas (solo desktop) */}
         <button
           type="button"
           aria-label="Anterior"
-          onClick={() => go(active - 1)}
+          onClick={() => userGo(active - 1)}
           className="hidden md:grid place-items-center absolute left-0 -translate-x-1/2 top-[38%] -translate-y-1/2 z-10 w-11 h-11 rounded-full bg-white border border-line shadow-md text-ink/70 hover:text-brand hover:border-brand/40 transition disabled:opacity-30"
           disabled={active === 0}
         >
@@ -60,7 +113,7 @@ export function TestimonialsCarousel({ videos }: { videos: Video[] }) {
         <button
           type="button"
           aria-label="Siguiente"
-          onClick={() => go(active + 1)}
+          onClick={() => userGo(active + 1)}
           className="hidden md:grid place-items-center absolute right-0 translate-x-1/2 top-[38%] -translate-y-1/2 z-10 w-11 h-11 rounded-full bg-white border border-line shadow-md text-ink/70 hover:text-brand hover:border-brand/40 transition disabled:opacity-30"
           disabled={active === videos.length - 1}
         >
@@ -104,7 +157,7 @@ export function TestimonialsCarousel({ videos }: { videos: Video[] }) {
             key={v.id}
             type="button"
             aria-label={`Ir al testimonio ${i + 1}`}
-            onClick={() => go(i)}
+            onClick={() => userGo(i)}
             className={`h-2 rounded-full transition-all ${
               i === active ? 'w-6 bg-brand' : 'w-2 bg-line hover:bg-brand/40'
             }`}
