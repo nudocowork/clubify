@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GoogleWalletService } from './google-wallet.service';
-import { resolveStampIconRenderer } from './stamp-icons';
+import { resolveStampIconRenderer, resolveCustomImageRenderer } from './stamp-icons';
 import { nextRewardLabel } from './free-rewards.util';
 import { resolveWalletAdvanced, WalletAdvancedFlags } from '../common/white-label/wallet-advanced.util';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
@@ -299,6 +299,7 @@ export class WalletService {
         required: pass.card.stampsRequired ?? 10,
         stamped: pass.stampsCount,
         icon: c.stampIcon || '☕',
+      stampIconImageUrl: c.stampIconImageUrl ?? null,
         // Colores avanzados (opcionales). Si null, generateStampsStrip
         // usa defaults computados desde primary/secondary.
         stampActiveColor: c.stampActiveColor ?? null,
@@ -675,6 +676,7 @@ export class WalletService {
       required,
       stamped,
       icon: c.stampIcon || '☕',
+      stampIconImageUrl: c.stampIconImageUrl ?? null,
       stampActiveColor: c.stampActiveColor ?? null,
       stampInactiveColor: c.stampInactiveColor ?? null,
       stampContourColor: c.stampContourColor ?? null,
@@ -698,6 +700,9 @@ export class WalletService {
     required: number;
     stamped: number;
     icon: string;
+    /** Ícono de sello personalizado (imagen PNG/SVG). Si está, se usa en lugar
+     *  del emoji: lleno = a color, vacío = atenuado. */
+    stampIconImageUrl?: string | null;
     stampActiveColor?: string | null;
     stampInactiveColor?: string | null;
     stampContourColor?: string | null;
@@ -767,6 +772,17 @@ export class WalletService {
     // mismo). Emojis con dibujo curado → SVG gourmet; cualquier otro →
     // Twemoji color (antes caía a un check). Bug fix 2026-06-15.
     const iconRenderer = await resolveStampIconRenderer(icon);
+
+    // Ícono de sello PERSONALIZADO (imagen propia). Si carga bien, reemplaza al
+    // emoji: sello lleno = imagen a color; sello vacío = misma imagen atenuada
+    // (decisión "tu imagen atenuada"). Si la imagen falla → cae al emoji.
+    const customUrl = (opts.stampIconImageUrl || '').trim();
+    const customFull = customUrl
+      ? await resolveCustomImageRenderer(customUrl, { opacity: 1 })
+      : null;
+    const customFaded = customUrl
+      ? await resolveCustomImageRenderer(customUrl, { opacity: 0.34 })
+      : null;
 
     // Wallet V3 — renderers de Premios Free: badge 🎁 (esquina) + emoji propio
     // de cada premio. Emoji color va por Twemoji (no por <text>).
@@ -870,7 +886,7 @@ export class WalletService {
         // El renderer mapea emoji → SVG estilo "gourmet" con gradient.
         // Tamaño ≈55% del diámetro del círculo (radius * 1.1 = 55% de 2r).
         const iconSize = radius * 1.1;
-        circles.push(iconRenderer(cx, cy, iconSize, `${i}`));
+        circles.push((customFull ?? iconRenderer)(cx, cy, iconSize, `${i}`));
       } else {
         // Vacío: glassmorphism sutil sin borde. Borde sólo si el tenant
         // configuró stampContourColor.
@@ -880,6 +896,10 @@ export class WalletService {
         circles.push(
           `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="${fillEmpty}"${strokeAttr}/>`,
         );
+        // Con ícono personalizado, el vacío también muestra la imagen atenuada.
+        if (customFaded) {
+          circles.push(customFaded(cx, cy, radius * 1.1, `${i}`));
+        }
       }
     }
 

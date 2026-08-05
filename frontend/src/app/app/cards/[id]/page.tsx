@@ -42,6 +42,7 @@ type Card = {
   centerBgColor?: string | null;
   stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   stampBgImageUrl?: string | null;
+  stampIconImageUrl?: string | null;
   stampsRequired: number | null;
   stampIcon?: string;
   heroImageUrl?: string | null;
@@ -398,6 +399,7 @@ export default function CardDetail() {
               centerBgColor={card.centerBgColor}
               stampBgType={card.stampBgType}
               stampBgImageUrl={card.stampBgImageUrl}
+              stampIconImageUrl={card.stampIconImageUrl}
               freeRewards={card.freeRewards}
               showNextReward={tenant?.walletAdvanced?.showNextReward !== false}
               rewardText={card.rewardText}
@@ -931,6 +933,7 @@ function EditCardModal({
     centerBgColor: card.centerBgColor ?? (null as string | null),
     stampBgType: (card.stampBgType ?? 'GRADIENT') as 'GRADIENT' | 'SOLID' | 'IMAGE',
     stampBgImageUrl: card.stampBgImageUrl ?? (null as string | null),
+    stampIconImageUrl: card.stampIconImageUrl ?? (null as string | null),
     freeRewards: (card.freeRewards ?? []) as FreeReward[],
     stampsRequired: card.stampsRequired ?? 10,
     minAmountPerStamp:
@@ -1039,6 +1042,7 @@ function EditCardModal({
       if (card.type === 'STAMPS') {
         payload.stampsRequired = form.stampsRequired;
         payload.stampIcon = form.stampIcon;
+        payload.stampIconImageUrl = form.stampIconImageUrl || null;
         payload.minAmountPerStamp = form.minAmountPerStamp;
       }
       if (card.type === 'DISCOUNT') payload.discountPercent = form.discountPercent;
@@ -1214,6 +1218,8 @@ function EditCardModal({
                 <StampIconPicker
                   value={form.stampIcon}
                   onSelect={(icon) => setForm({ ...form, stampIcon: icon })}
+                  imageUrl={form.stampIconImageUrl}
+                  onImageChange={(url) => setForm({ ...form, stampIconImageUrl: url })}
                 />
               </div>
               <div>

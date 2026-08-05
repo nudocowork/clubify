@@ -1455,6 +1455,10 @@ model Card {
   // Emoji que se usa para representar cada sello visualmente (☕, 🍕, 🍔, etc).
   // El cliente lo elige al crear la tarjeta.
   stampIcon           String    @default("☕")
+  // Ícono de sello PERSONALIZADO: URL de una imagen (PNG/SVG) subida por el
+  // negocio. Si está seteado, el render del pase la usa EN LUGAR del emoji
+  // (lleno = a color, vacío = atenuada). null/'' = usar stampIcon (emoji).
+  stampIconImageUrl   String?
   createdAt           DateTime  @default(now())
 
   passes                  Pass[]

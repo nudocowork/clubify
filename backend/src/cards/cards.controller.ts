@@ -24,6 +24,7 @@ class CardBody {
   // Wallet V3 — fondo del área de sellos. GRADIENT (legacy) | SOLID (uniforme) | IMAGE.
   @IsOptional() @IsIn(['GRADIENT', 'SOLID', 'IMAGE']) stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampBgImageUrl?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampIconImageUrl?: string | null;
   @IsOptional() @IsString() logoUrl?: string;
   @IsOptional() @IsString() heroImageUrl?: string;
   @IsOptional() @IsString() iconUrl?: string;

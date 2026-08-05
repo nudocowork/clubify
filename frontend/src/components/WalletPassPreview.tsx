@@ -52,6 +52,8 @@ export type WalletPassPreviewProps = {
   // Wallet V3 — modo de fondo del área de sellos.
   stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   stampBgImageUrl?: string | null;
+  // Ícono de sello personalizado (imagen). Si está, prima sobre stampIcon.
+  stampIconImageUrl?: string | null;
   // Wallet V3 — Premios Free (dibujados en su posición) + "Próximo Premio".
   freeRewards?: Array<{
     pos: number;
@@ -95,6 +97,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     centerBgColor,
     stampBgType = 'GRADIENT',
     stampBgImageUrl,
+    stampIconImageUrl,
     freeRewards = [],
     showNextReward = true,
     rewardText = '',
@@ -354,7 +357,23 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
                       border: contourCol ? `1px solid ${contourCol}` : 'none',
                     }}
                   >
-                    {filled ? stampIcon : ''}
+                    {stampIconImageUrl && stampIconImageUrl.trim() ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={stampIconImageUrl}
+                        alt=""
+                        className="object-contain"
+                        style={{
+                          width: '78%',
+                          height: '78%',
+                          opacity: filled ? 1 : 0.34,
+                        }}
+                      />
+                    ) : filled ? (
+                      stampIcon
+                    ) : (
+                      ''
+                    )}
                   </div>
                 );
               })}

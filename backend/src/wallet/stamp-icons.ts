@@ -318,3 +318,57 @@ export async function resolveStampIconRenderer(
     return `<image href="${dataUri}" x="${x}" y="${y}" width="${s}" height="${s}" />`;
   };
 }
+
+// Cache url → PNG data URI (o null si no se pudo cargar). Las versiones "llena"
+// y "atenuada" del mismo ícono reusan la misma descarga.
+const customIconCache = new Map<string, string | null>();
+
+async function fetchCustomIconDataUri(url: string): Promise<string | null> {
+  if (customIconCache.has(url)) return customIconCache.get(url) ?? null;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) {
+      customIconCache.set(url, null);
+      return null;
+    }
+    const raw = Buffer.from(await res.arrayBuffer());
+    // Detecta SVG (por content-type o por el propio contenido) para rasterizar
+    // con densidad alta; PNG/JPG entran directo.
+    const isSvg =
+      /svg/i.test(res.headers.get('content-type') || '') ||
+      raw.slice(0, 300).toString('utf8').trimStart().startsWith('<');
+    const sharp = (await import('sharp')).default;
+    const png = await sharp(raw, isSvg ? { density: 384 } : undefined)
+      .resize(144, 144, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toBuffer();
+    const uri = `data:image/png;base64,${png.toString('base64')}`;
+    customIconCache.set(url, uri);
+    return uri;
+  } catch {
+    customIconCache.set(url, null);
+    return null;
+  }
+}
+
+/**
+ * Renderer para un ícono de sello PERSONALIZADO (imagen PNG/SVG subida por el
+ * negocio). Descarga + rasteriza a PNG 144×144 (fondo transparente) y la embebe
+ * como <image> base64. `opacity` < 1 para el sello VACÍO (imagen atenuada).
+ * Devuelve null si la imagen no se pudo cargar → el caller cae al emoji.
+ */
+export async function resolveCustomImageRenderer(
+  url: string,
+  opts?: { opacity?: number },
+): Promise<IconRenderer | null> {
+  const dataUri = await fetchCustomIconDataUri(url);
+  if (!dataUri) return null;
+  const opacity = opts?.opacity ?? 1;
+  return (cx, cy, size, _id) => {
+    const s = size * 1.35;
+    const x = cx - s / 2;
+    const y = cy - s / 2;
+    const op = opacity < 1 ? ` opacity="${opacity}"` : '';
+    return `<image href="${dataUri}" x="${x}" y="${y}" width="${s}" height="${s}" preserveAspectRatio="xMidYMid meet"${op} />`;
+  };
+}

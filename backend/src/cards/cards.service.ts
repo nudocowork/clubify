@@ -21,6 +21,7 @@ export type CardDto = {
   centerBgColor?: string | null;
   stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   stampBgImageUrl?: string | null;
+  stampIconImageUrl?: string | null;
   logoUrl?: string;
   heroImageUrl?: string;
   iconUrl?: string;
@@ -93,6 +94,7 @@ export class CardsService {
     'heroImageUrl',
     'iconUrl',
     'stampIcon',
+    'stampIconImageUrl',
     'name',
     'rewardText',
     'rewardDescText',
@@ -248,6 +250,7 @@ export class CardsService {
         // del schema); las existentes quedaron en GRADIENT por la migración.
         stampBgType: dto.stampBgType ?? undefined,
         stampBgImageUrl: dto.stampBgImageUrl ?? undefined,
+        stampIconImageUrl: dto.stampIconImageUrl ?? undefined,
         logoUrl: dto.logoUrl,
         heroImageUrl: dto.heroImageUrl,
         iconUrl: dto.iconUrl,
@@ -321,6 +324,7 @@ export class CardsService {
       'stampContourColor',
       'centerBgColor',
       'stampBgImageUrl',
+      'stampIconImageUrl',
       'cashbackPercent',
       'cashbackMinPurchase',
       'minAmountPerStamp',

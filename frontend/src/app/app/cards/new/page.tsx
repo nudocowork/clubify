@@ -48,6 +48,7 @@ const FROM_SCRATCH_DEFAULTS = {
   // Wallet V3 — tarjetas nuevas nacen con color uniforme (SOLID).
   stampBgType: 'SOLID' as 'GRADIENT' | 'SOLID' | 'IMAGE',
   stampBgImageUrl: null as string | null,
+  stampIconImageUrl: null as string | null,
   freeRewards: [] as FreeReward[],
   stampsRequired: 10,
   rewardText: '1 producto gratis',
@@ -896,6 +897,7 @@ function Step3Configure({
             centerBgColor={form.centerBgColor}
             stampBgType={form.stampBgType}
             stampBgImageUrl={form.stampBgImageUrl}
+            stampIconImageUrl={form.stampIconImageUrl}
             freeRewards={form.freeRewards}
             rewardText={form.rewardText}
             customerName="RICARDO PÉREZ"
@@ -1036,6 +1038,8 @@ function Step4Design({
             <StampIconPicker
               value={form.stampIcon}
               onSelect={(icon) => set('stampIcon', icon)}
+              imageUrl={form.stampIconImageUrl}
+              onImageChange={(url) => set('stampIconImageUrl', url)}
             />
           </div>
         )}
@@ -1172,6 +1176,7 @@ function Step4Design({
             centerBgColor={form.centerBgColor}
             stampBgType={form.stampBgType}
             stampBgImageUrl={form.stampBgImageUrl}
+            stampIconImageUrl={form.stampIconImageUrl}
             freeRewards={form.freeRewards}
             rewardText={form.rewardText}
             customerName="RICARDO PÉREZ"

@@ -33,6 +33,7 @@ type Card = {
   discountPercent: number | null;
   pointsPerCurrency: number | null;
   stampIcon: string | null;
+  stampIconImageUrl?: string | null;
   isActive: boolean;
   tiers: Array<{ name: string; threshold: number }>;
   _count?: { passes: number };
@@ -486,7 +487,16 @@ function CardPreview({
                     fontSize: i < 1 ? 12 : 10,
                   }}
                 >
-                  {i < 1 ? card.stampIcon || '✓' : ''}
+                  {i < 1 ? (
+                    card.stampIconImageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={card.stampIconImageUrl} alt="" className="w-4 h-4 object-contain" />
+                    ) : (
+                      card.stampIcon || '✓'
+                    )
+                  ) : (
+                    ''
+                  )}
                 </span>
               ))}
             </div>
