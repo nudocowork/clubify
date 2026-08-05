@@ -3,6 +3,7 @@ import { getTranslations } from 'next-intl/server';
 import { Icon } from '@/components/Icon';
 import { RefCapture } from '@/components/RefCapture';
 import { FadeIn } from '@/components/FadeIn';
+import { TestimonialsCarousel } from '@/components/TestimonialsCarousel';
 import { HeroTrio } from '@/components/HeroTrio';
 import { HeroBanner } from '@/components/HeroBanner';
 import { FidelizacionBanner } from '@/components/FidelizacionBanner';
@@ -379,35 +380,13 @@ export default async function Landing() {
               Nuestros clientes
             </h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-            {[
+          <TestimonialsCarousel
+            videos={[
               { id: 'ZK5Q0QRXUeI', name: 'Nudo Cowork & Coffee' },
               { id: 'BffWf9f8sHY', name: 'Konnys Pizza' },
               { id: 'Ko4N8znkIIA', name: 'La Gloriosa' },
-            ].map((v, i) => (
-              <FadeIn
-                key={v.id}
-                delay={i * 120}
-                className="bg-white rounded-2xl overflow-hidden border border-line shadow-sm"
-              >
-                <div className="w-full aspect-video bg-black">
-                  <iframe
-                    src={`https://www.youtube-nocookie.com/embed/${v.id}`}
-                    title={`Testimonio ${v.name}`}
-                    className="w-full h-full"
-                    style={{ border: 0 }}
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    allowFullScreen
-                    loading="lazy"
-                  />
-                </div>
-                <div className="flex items-center gap-2.5 px-5 py-4">
-                  <div className="text-amber-500 text-sm">★★★★★</div>
-                  <div className="font-semibold text-sm">{v.name}</div>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
+            ]}
+          />
         </div>
       </section>
 
