@@ -146,7 +146,9 @@ export default function CreditsPage() {
     if (refundingId) return;
     if (
       !confirm(
-        'Vas a reembolsar este crédito: vuelve al pool y el negocio se SUSPENDE. ¿Confirmás?',
+        '¿Estás seguro que deseas reembolsar?\n\n' +
+          'Al aceptar, el cliente no podrá tener acceso a la plataforma: se pausarán sus servicios.\n\n' +
+          'Y de manera inmediata te colocaremos el crédito usado en disponible.',
       )
     )
       return;
@@ -360,14 +362,21 @@ export default function CreditsPage() {
                           </button>
                         );
                       }
-                      // Ventana de 5 días vencida: no queda blanco, se aclara el estado.
+                      // Ventana de 5 días vencida: botón ROJO "No reembolsable";
+                      // al clic avisa que ya pasaron los 5 días.
                       return (
-                        <span
-                          className="text-[11px] text-gray-400 whitespace-nowrap"
-                          title="Pasaron más de 5 días desde el consumo; ya no se puede reembolsar."
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toast(
+                              'Ya pasaron los 5 días — este crédito ya no se puede reembolsar.',
+                              'error',
+                            )
+                          }
+                          className="text-[11px] font-semibold rounded-lg border border-red-300 text-red-600 bg-red-50 px-2.5 py-1 hover:bg-red-100 whitespace-nowrap"
                         >
-                          Reembolso vencido
-                        </span>
+                          No reembolsable
+                        </button>
                       );
                     })()
                   ) : null}
