@@ -31,7 +31,11 @@ type Tx = {
   note: string | null;
   tenantId: string | null;
   createdAt: string;
+  refundedAt?: string | null;
 };
+
+// Ventana de reembolso (días) — debe coincidir con REFUND_WINDOW_DAYS del backend.
+const REFUND_WINDOW_DAYS = 5;
 
 type Credits = {
   whiteLabel: { id: string; name: string; slug: string };
@@ -92,6 +96,7 @@ export default function CreditsPage() {
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
   const [activatingId, setActivatingId] = useState<string | null>(null);
+  const [refundingId, setRefundingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -135,6 +140,41 @@ export default function CreditsPage() {
     } finally {
       setActivatingId(null);
     }
+  }
+
+  async function refund(tx: Tx) {
+    if (refundingId) return;
+    if (
+      !confirm(
+        'Vas a reembolsar este crédito: vuelve al pool y el negocio se SUSPENDE. ¿Confirmás?',
+      )
+    )
+      return;
+    setRefundingId(tx.id);
+    try {
+      const res = await api<{ refunded: number; creditsAvailable: number }>(
+        `/admin/credits/refund/${tx.id}`,
+        { method: 'POST' },
+      );
+      toast(
+        `Crédito reembolsado. Disponibles: ${res.creditsAvailable}.`,
+        'success',
+      );
+      await load();
+    } catch (e: any) {
+      toast(e?.message ?? 'No se pudo reembolsar el crédito.', 'error');
+    } finally {
+      setRefundingId(null);
+    }
+  }
+
+  // Días restantes de la ventana de reembolso para un movimiento CONSUME.
+  // >0 = reembolsable; <=0 = vencido; null = no aplica / ya reembolsado.
+  function refundDaysLeft(tx: Tx): number | null {
+    if (tx.type !== 'CONSUME' || tx.refundedAt) return null;
+    const deadline =
+      new Date(tx.createdAt).getTime() + REFUND_WINDOW_DAYS * 86400000;
+    return Math.ceil((deadline - Date.now()) / 86400000);
   }
 
   if (loading) {
@@ -298,14 +338,38 @@ export default function CreditsPage() {
                     {new Date(tx.createdAt).toLocaleString()}
                   </div>
                 </div>
-                <span
-                  className={`font-bold tabular-nums ${
-                    tx.amount >= 0 ? 'text-emerald-600' : 'text-gray-700'
-                  }`}
-                >
-                  {tx.amount >= 0 ? '+' : ''}
-                  {tx.amount}
-                </span>
+                <div className="flex items-center gap-3 shrink-0">
+                  {tx.refundedAt ? (
+                    <span className="text-[11px] text-gray-400 whitespace-nowrap">
+                      Reembolsado
+                    </span>
+                  ) : (
+                    (() => {
+                      const days = refundDaysLeft(tx);
+                      if (days === null || days <= 0) return null;
+                      return (
+                        <button
+                          onClick={() => refund(tx)}
+                          disabled={refundingId === tx.id}
+                          className="text-[11px] font-semibold rounded-lg border border-amber-300 text-amber-700 bg-amber-50 px-2 py-1 hover:bg-amber-100 disabled:opacity-50 whitespace-nowrap"
+                          title="Devolver el crédito al pool y suspender el negocio (por si el cliente no pagó)"
+                        >
+                          {refundingId === tx.id
+                            ? 'Reembolsando…'
+                            : `Reembolsar · ${days} día${days === 1 ? '' : 's'}`}
+                        </button>
+                      );
+                    })()
+                  )}
+                  <span
+                    className={`font-bold tabular-nums ${
+                      tx.amount >= 0 ? 'text-emerald-600' : 'text-gray-700'
+                    }`}
+                  >
+                    {tx.amount >= 0 ? '+' : ''}
+                    {tx.amount}
+                  </span>
+                </div>
               </div>
             ))}
           </div>

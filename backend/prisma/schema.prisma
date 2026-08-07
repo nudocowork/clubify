@@ -4997,6 +4997,12 @@ model CreditTransaction {
   /// específica. Null para compras manuales y ajustes administrativos.
   tenantId     String?
   createdAt    DateTime              @default(now())
+  /// Reembolso manual (2026-08-07): si este movimiento CONSUME fue reembolsado
+  /// por el dueño de la marca (crédito devuelto al pool), queda la marca acá.
+  /// null = aún reembolsable (dentro de la ventana de 5 días desde createdAt).
+  refundedAt   DateTime?
+  /// Dedup del aviso SMS "tu ventana de reembolso está por vencer".
+  refundWindowNotifiedAt DateTime?
 
   @@index([whiteLabelId, createdAt])
 }

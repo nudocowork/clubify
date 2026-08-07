@@ -149,6 +149,24 @@ export class WhiteLabelNotificationsService {
   }
 
   /**
+   * Aviso: la marca tiene `count` créditos cuya ventana de reembolso (5 días)
+   * está por vencer. La dedup vive en CreditTransaction.refundWindowNotifiedAt
+   * (la maneja el cron que llama acá), así que este método solo envía.
+   */
+  async onRefundWindowClosing(whiteLabelId: string, count: number) {
+    if (count <= 0) return;
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: { name: true, notifyPhone: true },
+    });
+    if (!wl) return;
+    await this.send(wl.notifyPhone, 'wl_refund_window', {
+      brandName: wl.name,
+      count: String(count),
+    });
+  }
+
+  /**
    * La marca tiene `count` negocios pendientes de activación por falta de
    * créditos. Avisa una sola vez (flag pendingClientsNotifiedAt) hasta que
    * recargue. count=0 → limpia el flag (ya no hay pendientes).

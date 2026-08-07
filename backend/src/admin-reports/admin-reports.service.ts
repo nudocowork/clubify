@@ -1,4 +1,5 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { SettingsService } from '../settings/settings.service';
@@ -52,8 +53,12 @@ function withWlToken(rawUrl: string | null | undefined, wlId: string): string {
  *  - Comisión pagada = sum(commission.amountPaid) (PAID + PARTIAL).
  *  - Comisión pendiente = sum(amount - amountPaid).
  */
+/** Ventana (días) para reembolsar manualmente un crédito CONSUME. */
+const REFUND_WINDOW_DAYS = 5;
+
 @Injectable()
 export class AdminReportsService {
+  private readonly logger = new Logger(AdminReportsService.name);
   constructor(
     private prisma: PrismaService,
     private settings: SettingsService,
@@ -1705,6 +1710,7 @@ export class AdminReportsService {
           note: true,
           tenantId: true,
           createdAt: true,
+          refundedAt: true,
         },
       }),
       // Links de compra públicos (los mismos que el PLATFORM_OWNER
@@ -1945,6 +1951,151 @@ export class AdminReportsService {
       creditsAvailable: available,
       currentPeriodEnd: newPeriodEnd,
     };
+  }
+
+  /**
+   * Reembolso MANUAL de un movimiento CONSUME dentro de la ventana de 5 días:
+   * devuelve el crédito al pool de la marca y SUSPENDE el negocio (le sacás el
+   * crédito que le pagaba el servicio → deja de estar activo). Race-safe +
+   * idempotente; pasados los 5 días rechaza. Aislado a la marca del admin.
+   */
+  async refundCredit(user: AuthUser, transactionId: string) {
+    const wlId = this.requireWhiteLabelId(user);
+    const tx = await this.prisma.creditTransaction.findUnique({
+      where: { id: transactionId },
+      select: {
+        id: true,
+        whiteLabelId: true,
+        type: true,
+        amount: true,
+        tenantId: true,
+        createdAt: true,
+        refundedAt: true,
+      },
+    });
+    if (!tx || tx.whiteLabelId !== wlId) {
+      throw new NotFoundException('Movimiento no encontrado');
+    }
+    if (tx.type !== 'CONSUME') {
+      throw new ForbiddenException('Solo se pueden reembolsar consumos de crédito.');
+    }
+    if (tx.refundedAt) {
+      throw new ForbiddenException('Este crédito ya fue reembolsado.');
+    }
+    const windowMs = REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const now = new Date();
+    if (now.getTime() > tx.createdAt.getTime() + windowMs) {
+      throw new ForbiddenException('La ventana de reembolso (5 días) ya venció.');
+    }
+
+    const cost = Math.abs(tx.amount);
+    const fiveDaysAgo = new Date(now.getTime() - windowMs);
+    // Claim atómico: marca el movimiento como reembolsado solo si sigue elegible
+    // (no reembolsado + dentro de la ventana). Evita doble reembolso / carrera.
+    const claim = await this.prisma.creditTransaction.updateMany({
+      where: {
+        id: tx.id,
+        whiteLabelId: wlId,
+        type: 'CONSUME',
+        refundedAt: null,
+        createdAt: { gte: fiveDaysAgo },
+      },
+      data: { refundedAt: now },
+    });
+    if (claim.count === 0) {
+      throw new ForbiddenException('El reembolso ya no está disponible.');
+    }
+
+    // ¿El crédito de este negocio ya se devolvió (liberación automática por
+    // suspensión)? Si sí, NO lo devolvemos de nuevo (evita doble crédito).
+    let tenant: { brandName: string; creditReleasedAt: Date | null } | null = null;
+    if (tx.tenantId) {
+      tenant = await this.prisma.tenant.findUnique({
+        where: { id: tx.tenantId },
+        select: { brandName: true, creditReleasedAt: true },
+      });
+    }
+    const alreadyReleased = !!tenant?.creditReleasedAt;
+
+    const ops: any[] = [];
+    if (!alreadyReleased) {
+      ops.push(
+        this.prisma.whiteLabel.update({
+          where: { id: wlId },
+          data: { creditsAvailable: { increment: cost }, creditsUsed: { decrement: cost } },
+        }),
+        this.prisma.creditTransaction.create({
+          data: {
+            whiteLabelId: wlId,
+            tenantId: tx.tenantId,
+            type: 'REFUND',
+            amount: cost,
+            note: `Reembolso manual · ${tenant?.brandName ?? 'negocio'} · devuelto al pool`,
+          },
+        }),
+      );
+    }
+    if (tx.tenantId) {
+      // Suspende el negocio + marca creditReleasedAt (para que la liberación
+      // automática por suspensión no vuelva a devolver el mismo crédito).
+      ops.push(
+        this.prisma.tenant.update({
+          where: { id: tx.tenantId },
+          data: { status: 'SUSPENDED', suspendedAt: now, creditReleasedAt: now },
+        }),
+      );
+    }
+    if (ops.length) await this.prisma.$transaction(ops);
+
+    const after = await this.prisma.whiteLabel.findUnique({
+      where: { id: wlId },
+      select: { creditsAvailable: true },
+    });
+    return {
+      ok: true,
+      refunded: alreadyReleased ? 0 : cost,
+      creditsAvailable: after?.creditsAvailable ?? 0,
+    };
+  }
+
+  /**
+   * Aviso SMS al dueño de la marca cuando una ventana de reembolso está por
+   * vencer (queda ≈1 día). Diario, idempotente por `refundWindowNotifiedAt`.
+   * El contador visible en el panel es la señal principal; esto es el recordatorio.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_9AM)
+  async remindRefundWindowClosing() {
+    const now = Date.now();
+    const windowMs = REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    // CONSUME reembolsables cuya ventana vence dentro de las próximas 24h:
+    // createdAt ∈ (now-5d, now-4d].
+    const from = new Date(now - windowMs);
+    const until = new Date(now - windowMs + 24 * 60 * 60 * 1000);
+    const rows = await this.prisma.creditTransaction.findMany({
+      where: {
+        type: 'CONSUME',
+        refundedAt: null,
+        refundWindowNotifiedAt: null,
+        createdAt: { gt: from, lte: until },
+      },
+      select: { id: true, whiteLabelId: true },
+    });
+    if (!rows.length) return;
+    const byWl = new Map<string, string[]>();
+    for (const r of rows) {
+      const arr = byWl.get(r.whiteLabelId) ?? [];
+      arr.push(r.id);
+      byWl.set(r.whiteLabelId, arr);
+    }
+    for (const [wlId, ids] of byWl) {
+      await this.wlNotifications
+        .onRefundWindowClosing(wlId, ids.length)
+        .catch((e) => this.logger.warn(`onRefundWindowClosing ${wlId}: ${e?.message}`));
+      await this.prisma.creditTransaction.updateMany({
+        where: { id: { in: ids } },
+        data: { refundWindowNotifiedAt: new Date() },
+      });
+    }
   }
 }
 

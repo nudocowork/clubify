@@ -154,6 +154,16 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
       'Clubify: A {brandName} le quedan {available} créditos. Recarga para seguir activando negocios sin interrupción.',
   },
   {
+    id: 'wl_refund_window',
+    label: 'Marca · Ventana de reembolso por vencer',
+    description:
+      'Se envía a la marca blanca cuando un crédito consumido está por salir de la ventana de reembolso (queda ~1 día).',
+    vars: ['brandName', 'count'],
+    group: 'marca',
+    default:
+      'Clubify: {brandName} tiene {count} crédito(s) con reembolso por vencer (queda ~1 día). Reembolsalos desde el panel si el negocio no pagó.',
+  },
+  {
     id: 'wl_clients_pending',
     label: 'Marca · Negocios pendientes por créditos',
     description:

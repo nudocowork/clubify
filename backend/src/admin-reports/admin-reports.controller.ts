@@ -129,4 +129,14 @@ export class AdminReportsController {
   ) {
     return this.svc.activateTenant(user, tenantId);
   }
+
+  /** Reembolsa un consumo de crédito (ventana 5 días): devuelve el crédito al
+   *  pool y suspende el negocio. */
+  @Post('credits/refund/:transactionId')
+  refundCredit(
+    @CurrentUser() user: AuthUser,
+    @Param('transactionId') transactionId: string,
+  ) {
+    return this.svc.refundCredit(user, transactionId);
+  }
 }
