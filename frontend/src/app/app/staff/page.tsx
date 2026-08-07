@@ -11,7 +11,7 @@ type Staff = {
   email: string;
   fullName: string;
   phone: string | null;
-  role: 'TENANT_OWNER' | 'TENANT_STAFF';
+  role: 'TENANT_OWNER' | 'TENANT_STAFF' | 'TENANT_ORDERS';
   isActive: boolean;
   lastLoginAt: string | null;
   createdAt: string;
@@ -69,7 +69,7 @@ export default function StaffPage() {
     fullName: '',
     email: '',
     phone: '',
-    role: 'TENANT_STAFF' as 'TENANT_OWNER' | 'TENANT_STAFF',
+    role: 'TENANT_STAFF' as 'TENANT_OWNER' | 'TENANT_STAFF' | 'TENANT_ORDERS',
     locationId: '' as string,
   });
   const [busy, setBusy] = useState(false);
@@ -150,7 +150,7 @@ export default function StaffPage() {
     }
   }
 
-  async function changeRole(u: Staff, role: 'TENANT_OWNER' | 'TENANT_STAFF') {
+  async function changeRole(u: Staff, role: 'TENANT_OWNER' | 'TENANT_STAFF' | 'TENANT_ORDERS') {
     try {
       await api(`/tenants/me/staff/${u.id}`, {
         method: 'PATCH',
@@ -269,6 +269,7 @@ export default function StaffPage() {
               >
                 <option value="TENANT_STAFF">{t('roleStaffDesc')}</option>
                 <option value="TENANT_OWNER">{t('roleOwnerDesc')}</option>
+                <option value="TENANT_ORDERS">Solo pedidos — solo ve la sección Pedidos</option>
               </select>
             </label>
             <label className="block">
@@ -399,7 +400,11 @@ export default function StaffPage() {
                   u.role === 'TENANT_OWNER' ? 'badge-info' : 'badge-mute'
                 }`}
               >
-                {u.role === 'TENANT_OWNER' ? t('roleOwner') : t('roleStaff')}
+                {u.role === 'TENANT_OWNER'
+                  ? t('roleOwner')
+                  : u.role === 'TENANT_ORDERS'
+                    ? 'Solo pedidos'
+                    : t('roleStaff')}
               </span>
               <span
                 className={`badge ${u.isActive ? 'badge-ok' : 'badge-mute'}`}
@@ -417,6 +422,7 @@ export default function StaffPage() {
                   >
                     <option value="TENANT_STAFF">{t('roleStaff')}</option>
                     <option value="TENANT_OWNER">{t('roleOwner')}</option>
+                    <option value="TENANT_ORDERS">Solo pedidos</option>
                   </select>
                   {locations.length > 0 && (
                     <select

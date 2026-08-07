@@ -447,6 +447,18 @@ export default function AppShell({
     }
   }, [pathname, user, variant, router]);
 
+  // Route guard "Solo pedidos" (TENANT_ORDERS): este empleado solo puede estar
+  // en /app/orders*. Cualquier otra ruta de /app (o el root) lo redirige a
+  // Pedidos. El backend además bloquea por rol (default-deny) — esto es la capa
+  // de UX para que no navegue por URL directa.
+  useEffect(() => {
+    if (!user || variant !== 'app') return;
+    if (user.role !== 'TENANT_ORDERS') return;
+    if (!pathname.startsWith('/app/orders')) {
+      router.replace('/app/orders');
+    }
+  }, [pathname, user, variant, router]);
+
   // #5 Route guard: las páginas de config de PLATAFORMA (Branding,
   // Integraciones SMS) son solo de Clubify. Una marca blanca distinta no debe
   // poder entrar ni por URL directa → redirige a /admin. El slug de marca se
@@ -701,6 +713,19 @@ export default function AppShell({
             .filter((g) => g.items.length > 0);
         })()
       : (() => {
+          // Empleado "Solo pedidos" (TENANT_ORDERS): el menú muestra ÚNICAMENTE
+          // Pedidos. El resto queda oculto acá y bloqueado por el route guard +
+          // los @Roles del backend (default-deny).
+          if (user?.role === 'TENANT_ORDERS') {
+            return [
+              {
+                section: '',
+                items: [
+                  { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag' as IconName },
+                ],
+              },
+            ] as NavGroup[];
+          }
           // Negocio "Solo InfoLink": panel reducido, producto independiente.
           // Solo Dashboard, InfoLink, QR InfoLink, Estadísticas, Suscripción y
           // Configuración. El backend además bloquea el resto de módulos (guard).

@@ -81,7 +81,7 @@ class ManualOrderBody {
 }
 
 @Controller('orders')
-@Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+@Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'SUPER_ADMIN')
 export class OrdersController {
   constructor(private svc: OrdersService) {}
 

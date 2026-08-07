@@ -47,7 +47,7 @@ class ProductBody {
 }
 
 @Controller('catalog/products')
-@Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+@Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'SUPER_ADMIN')
 export class ProductsController {
   constructor(private svc: ProductsService) {}
 

@@ -20,6 +20,12 @@ enum Role {
   SUPER_ADMIN
   TENANT_OWNER
   TENANT_STAFF
+  // Empleado "Solo pedidos" (2026-08-07): del mismo negocio (tiene tenantId),
+  // pero en /app ve ÚNICAMENTE la sección Pedidos — el resto del panel queda
+  // oculto Y bloqueado por backend (default-deny: no está en los @Roles de las
+  // otras secciones). Solo se le agrega a orders + catalog/products + customers
+  // (lo que Pedidos necesita para ver/gestionar/crear pedidos manuales).
+  TENANT_ORDERS
   // Rol global con acceso solo a marketing y diseño en todos los negocios.
   // Sin scanner, sin financiero, sin crear negocios, sin gestión de admins.
   MARKETING

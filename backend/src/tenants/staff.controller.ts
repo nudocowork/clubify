@@ -31,7 +31,7 @@ class InviteStaffBody {
   @IsString() fullName!: string;
   @IsEmail() email!: string;
   @IsOptional() @IsString() phone?: string;
-  @IsOptional() @IsIn(['TENANT_OWNER', 'TENANT_STAFF']) role?: Role;
+  @IsOptional() @IsIn(['TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS']) role?: Role;
   // Fase F 2026-06-07: opcional; null = sin sede asignada / aplica a todas.
   @IsOptional() @IsString() locationId?: string | null;
 }
@@ -39,7 +39,7 @@ class InviteStaffBody {
 class UpdateStaffBody {
   @IsOptional() @IsString() fullName?: string;
   @IsOptional() @IsString() phone?: string;
-  @IsOptional() @IsIn(['TENANT_OWNER', 'TENANT_STAFF']) role?: Role;
+  @IsOptional() @IsIn(['TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS']) role?: Role;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() locationId?: string | null;
 }
@@ -333,7 +333,7 @@ export class StaffController {
 }
 
 @Controller('users/me/password')
-@Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+@Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'SUPER_ADMIN')
 export class ChangePasswordController {
   constructor(
     private prisma: PrismaService,
@@ -363,7 +363,7 @@ class UpdateProfileBody {
 }
 
 @Controller('users/me')
-@Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+@Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'SUPER_ADMIN')
 export class UserMeController {
   constructor(private prisma: PrismaService) {}
 
