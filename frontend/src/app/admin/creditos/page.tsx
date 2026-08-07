@@ -342,7 +342,7 @@ export default function CreditsPage() {
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   {tx.refundedAt ? (
-                    <span className="text-[11px] font-medium text-gray-400 whitespace-nowrap">
+                    <span className="text-[11px] font-semibold text-orange-600 bg-orange-50 border border-orange-200 rounded-lg px-2 py-0.5 whitespace-nowrap">
                       ✓ Reembolsado
                     </span>
                   ) : tx.type === 'CONSUME' ? (
