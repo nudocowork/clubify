@@ -1990,41 +1990,41 @@ export class AdminReportsService {
 
     const cost = Math.abs(tx.amount);
     const fiveDaysAgo = new Date(now.getTime() - windowMs);
-    // Claim atómico: marca el movimiento como reembolsado solo si sigue elegible
-    // (no reembolsado + dentro de la ventana). Evita doble reembolso / carrera.
-    const claim = await this.prisma.creditTransaction.updateMany({
-      where: {
-        id: tx.id,
-        whiteLabelId: wlId,
-        type: 'CONSUME',
-        refundedAt: null,
-        createdAt: { gte: fiveDaysAgo },
-      },
-      data: { refundedAt: now },
-    });
-    if (claim.count === 0) {
-      throw new ForbiddenException('El reembolso ya no está disponible.');
-    }
 
-    // ¿El crédito de este negocio ya se devolvió (liberación automática por
-    // suspensión)? Si sí, NO lo devolvemos de nuevo (evita doble crédito).
-    let tenant: { brandName: string; creditReleasedAt: Date | null } | null = null;
-    if (tx.tenantId) {
-      tenant = await this.prisma.tenant.findUnique({
-        where: { id: tx.tenantId },
-        select: { brandName: true, creditReleasedAt: true },
+    // TODO atómico en UNA transacción interactiva: claim (marca refundedAt) +
+    // devolución del crédito + suspensión. Si algo falla, se revierte también el
+    // claim → nunca queda "reembolsado" sin haber devuelto el crédito. El claim
+    // guardado (updateMany con la condición de elegibilidad) sigue siendo la
+    // barrera anti doble-reembolso / carrera (row-lock serializa transacciones).
+    const refunded = await this.prisma.$transaction(async (db) => {
+      const claim = await db.creditTransaction.updateMany({
+        where: {
+          id: tx.id,
+          whiteLabelId: wlId,
+          type: 'CONSUME',
+          refundedAt: null,
+          createdAt: { gte: fiveDaysAgo },
+        },
+        data: { refundedAt: now },
       });
-    }
-    const alreadyReleased = !!tenant?.creditReleasedAt;
-
-    const ops: any[] = [];
-    if (!alreadyReleased) {
-      ops.push(
-        this.prisma.whiteLabel.update({
+      if (claim.count === 0) {
+        throw new ForbiddenException('El reembolso ya no está disponible.');
+      }
+      // ¿El crédito de este negocio ya se devolvió (liberación automática por
+      // suspensión)? Si sí, NO lo devolvemos de nuevo (evita doble crédito).
+      const tenant = tx.tenantId
+        ? await db.tenant.findUnique({
+            where: { id: tx.tenantId },
+            select: { brandName: true, creditReleasedAt: true },
+          })
+        : null;
+      const alreadyReleased = !!tenant?.creditReleasedAt;
+      if (!alreadyReleased) {
+        await db.whiteLabel.update({
           where: { id: wlId },
           data: { creditsAvailable: { increment: cost }, creditsUsed: { decrement: cost } },
-        }),
-        this.prisma.creditTransaction.create({
+        });
+        await db.creditTransaction.create({
           data: {
             whiteLabelId: wlId,
             tenantId: tx.tenantId,
@@ -2032,20 +2032,18 @@ export class AdminReportsService {
             amount: cost,
             note: `Reembolso manual · ${tenant?.brandName ?? 'negocio'} · devuelto al pool`,
           },
-        }),
-      );
-    }
-    if (tx.tenantId) {
-      // Suspende el negocio + marca creditReleasedAt (para que la liberación
-      // automática por suspensión no vuelva a devolver el mismo crédito).
-      ops.push(
-        this.prisma.tenant.update({
+        });
+      }
+      if (tx.tenantId) {
+        // Suspende el negocio + marca creditReleasedAt (para que la liberación
+        // automática por suspensión no vuelva a devolver el mismo crédito).
+        await db.tenant.update({
           where: { id: tx.tenantId },
           data: { status: 'SUSPENDED', suspendedAt: now, creditReleasedAt: now },
-        }),
-      );
-    }
-    if (ops.length) await this.prisma.$transaction(ops);
+        });
+      }
+      return alreadyReleased ? 0 : cost;
+    });
 
     const after = await this.prisma.whiteLabel.findUnique({
       where: { id: wlId },
@@ -2053,7 +2051,7 @@ export class AdminReportsService {
     });
     return {
       ok: true,
-      refunded: alreadyReleased ? 0 : cost,
+      refunded,
       creditsAvailable: after?.creditsAvailable ?? 0,
     };
   }
