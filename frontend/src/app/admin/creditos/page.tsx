@@ -340,27 +340,37 @@ export default function CreditsPage() {
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
                   {tx.refundedAt ? (
-                    <span className="text-[11px] text-gray-400 whitespace-nowrap">
-                      Reembolsado
+                    <span className="text-[11px] font-medium text-gray-400 whitespace-nowrap">
+                      ✓ Reembolsado
                     </span>
-                  ) : (
+                  ) : tx.type === 'CONSUME' ? (
                     (() => {
                       const days = refundDaysLeft(tx);
-                      if (days === null || days <= 0) return null;
+                      if (days !== null && days > 0) {
+                        return (
+                          <button
+                            onClick={() => refund(tx)}
+                            disabled={refundingId === tx.id}
+                            className="text-[11px] font-semibold rounded-lg border border-amber-300 text-amber-700 bg-amber-50 px-2.5 py-1 hover:bg-amber-100 disabled:opacity-50 whitespace-nowrap"
+                            title="Devolver el crédito al pool y suspender el negocio (por si el cliente no pagó)"
+                          >
+                            {refundingId === tx.id
+                              ? 'Reembolsando…'
+                              : `↩ Reembolsar · quedan ${days} día${days === 1 ? '' : 's'}`}
+                          </button>
+                        );
+                      }
+                      // Ventana de 5 días vencida: no queda blanco, se aclara el estado.
                       return (
-                        <button
-                          onClick={() => refund(tx)}
-                          disabled={refundingId === tx.id}
-                          className="text-[11px] font-semibold rounded-lg border border-amber-300 text-amber-700 bg-amber-50 px-2 py-1 hover:bg-amber-100 disabled:opacity-50 whitespace-nowrap"
-                          title="Devolver el crédito al pool y suspender el negocio (por si el cliente no pagó)"
+                        <span
+                          className="text-[11px] text-gray-400 whitespace-nowrap"
+                          title="Pasaron más de 5 días desde el consumo; ya no se puede reembolsar."
                         >
-                          {refundingId === tx.id
-                            ? 'Reembolsando…'
-                            : `Reembolsar · ${days} día${days === 1 ? '' : 's'}`}
-                        </button>
+                          Reembolso vencido
+                        </span>
                       );
                     })()
-                  )}
+                  ) : null}
                   <span
                     className={`font-bold tabular-nums ${
                       tx.amount >= 0 ? 'text-emerald-600' : 'text-gray-700'
