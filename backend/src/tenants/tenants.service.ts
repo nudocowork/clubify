@@ -580,7 +580,7 @@ export class TenantsService {
             paymentLinks: {
               where: { active: true },
               orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-              select: { periodicity: true, amountUsd: true, url: true },
+              select: { periodicity: true, amountUsd: true, url: true, gateway: true },
             },
           },
         },
@@ -591,12 +591,18 @@ export class TenantsService {
     const enabledModules = tenant.whiteLabel?.modules?.map((m) => m.module) ?? null;
     // Planes de la marca para el modal de cambio de periodicidad. Vacío para
     // Clubify / marca sin links → el frontend cae a su set de planes Clubify.
+    // FILTRO por pasarela ACTIVA de la marca: un link de otra pasarela (ej. un
+    // link de prueba de Cross en Clubify, que cobra por Hotmart) NO debe
+    // aparecer como "plan de la marca" ni tapar los planes reales del landing.
+    const brandGateway = tenant.whiteLabel?.paymentGateway ?? null;
     const brandPlans =
-      tenant.whiteLabel?.paymentLinks?.map((l) => ({
-        periodicity: l.periodicity,
-        amountUsd: l.amountUsd != null ? Number(l.amountUsd) : null,
-        url: l.url ?? null,
-      })) ?? [];
+      tenant.whiteLabel?.paymentLinks
+        ?.filter((l) => !brandGateway || l.gateway === brandGateway)
+        .map((l) => ({
+          periodicity: l.periodicity,
+          amountUsd: l.amountUsd != null ? Number(l.amountUsd) : null,
+          url: l.url ?? null,
+        })) ?? [];
     // Estado de créditos de la marca para gatear la UI (PDF 752 #5). Un negocio
     // de MARCA BLANCA (no-Clubify) no recibe trial y solo se activa con créditos:
     //  - isWhiteLabel: el negocio pertenece a una marca blanca (no Clubify).
@@ -1713,9 +1719,10 @@ export class TenantsService {
             // muestra el precio REAL de su marca (Sellea 80/799), no el de
             // Clubify. Host-independiente (funciona aunque el negocio esté en un
             // subdominio soyclubify.com).
+            paymentGateway: true,
             paymentLinks: {
               where: { active: true },
-              select: { periodicity: true, amountUsd: true },
+              select: { periodicity: true, amountUsd: true, gateway: true },
             },
             // Academia — videos-tutorial ACTIVOS de la marca. El panel del
             // negocio los usa para mostrar el botón "▶ Ver tutorial" por módulo.
@@ -1769,10 +1776,14 @@ export class TenantsService {
       // Planes de la marca del negocio (precio real por periodicidad). Vacío
       // para Clubify / marca sin links → el panel cae al precio genérico.
       brandPlans:
-        t.whiteLabel?.paymentLinks?.map((l) => ({
-          periodicity: l.periodicity,
-          amountUsd: l.amountUsd != null ? Number(l.amountUsd) : null,
-        })) ?? [],
+        t.whiteLabel?.paymentLinks
+          ?.filter(
+            (l) => !t.whiteLabel?.paymentGateway || l.gateway === t.whiteLabel.paymentGateway,
+          )
+          .map((l) => ({
+            periodicity: l.periodicity,
+            amountUsd: l.amountUsd != null ? Number(l.amountUsd) : null,
+          })) ?? [],
       // Academia — mapa { moduleKey: {youtubeUrl,title,description} } de videos
       // activos de la marca. El botón se muestra solo si el módulo está aquí.
       academyVideos: (t.whiteLabel?.academyVideos ?? []).reduce(
