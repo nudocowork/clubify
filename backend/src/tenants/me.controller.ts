@@ -34,6 +34,10 @@ import { PrismaService } from '../common/prisma/prisma.service';
 
 class UpdateMyBody {
   @IsOptional() @IsString() brandName?: string;
+  // PDF Software(8): URL del documento de políticas de tratamiento de datos que
+  // el negocio sube (PDF vía media/upload) o su propia URL. null/"" → limpia y
+  // cae al default /legal/privacy. @IsOptional deja pasar null (lo salta).
+  @IsOptional() @IsString() dataPolicyUrl?: string | null;
   // Idioma del negocio (panel + default storefront). PDF 1254.
   @IsOptional() @IsString() locale?: string;
   @IsOptional() @IsString() phone?: string;

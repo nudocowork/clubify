@@ -22,6 +22,8 @@ type Card = {
   description: string;
   rewardText: string;
   terms: string;
+  // PDF Software(8): si true (default), muestra la casilla de políticas de datos.
+  dataPolicyEnabled?: boolean;
   primaryColor: string;
   secondaryColor: string;
   stampsRequired: number | null;
@@ -33,6 +35,8 @@ type Card = {
     // País ISO del negocio (ej "CO", "VE"). Define el prefijo telefónico
     // por defecto del formulario. Puede faltar en caches viejos.
     country?: string | null;
+    // PDF Software(8): documento propio del negocio. Null → default /legal/privacy.
+    dataPolicyUrl?: string | null;
   };
 };
 
@@ -237,6 +241,8 @@ type SubmitPayload = {
   email: string | undefined;
   phone: string;
   birthday: string | undefined;
+  // PDF Software(8): el cliente marcó la casilla de políticas de datos.
+  dataPolicyAccepted: boolean;
 };
 
 /**
@@ -262,12 +268,17 @@ const FormFields = memo(function FormFields({
   primary,
   ready,
   defaultCountry,
+  dataPolicyEnabled,
+  dataPolicyHref,
   onFirstInput,
   onSubmit,
 }: {
   primary: string;
   ready: boolean;
   defaultCountry: string;
+  // PDF Software(8): mostrar la casilla de políticas de datos + enlace al doc.
+  dataPolicyEnabled: boolean;
+  dataPolicyHref: string;
   onFirstInput: () => void;
   onSubmit: (data: SubmitPayload) => Promise<void>;
 }) {
@@ -290,6 +301,8 @@ const FormFields = memo(function FormFields({
   const [bdayDay, setBdayDay] = useState<string>('');
   const [bdayMonth, setBdayMonth] = useState<string>('');
   const [accept, setAccept] = useState(false);
+  // PDF Software(8): casilla opcional de políticas de tratamiento de datos.
+  const [acceptDataPolicy, setAcceptDataPolicy] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -329,6 +342,7 @@ const FormFields = memo(function FormFields({
         email: email.trim() || undefined,
         phone: phoneFull,
         birthday,
+        dataPolicyAccepted: acceptDataPolicy,
       });
     } catch (e: any) {
       setErr(e?.message || tt('common.error'));
@@ -443,10 +457,37 @@ const FormFields = memo(function FormFields({
             type="checkbox"
             className="mt-0.5 accent-brand"
             checked={accept}
-            onChange={(e) => setAccept(e.target.checked)}
+            onChange={(e) => {
+              setAccept(e.target.checked);
+              // PDF Software(8): al marcar la primera (push) se marcan ambas.
+              if (e.target.checked) setAcceptDataPolicy(true);
+            }}
           />
           <span>{tt('card.push_consent')}</span>
         </label>
+
+        {dataPolicyEnabled && (
+          <label className="flex items-start gap-2 text-xs text-mute">
+            <input
+              type="checkbox"
+              className="mt-0.5 accent-brand"
+              checked={acceptDataPolicy}
+              onChange={(e) => setAcceptDataPolicy(e.target.checked)}
+            />
+            <span>
+              {tt('card.data_policy_pre')}{' '}
+              <a
+                href={dataPolicyHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline font-medium"
+                style={{ color: primary }}
+              >
+                {tt('card.data_policy_link')}
+              </a>
+            </span>
+          </label>
+        )}
 
         {err && (
           <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
@@ -734,6 +775,11 @@ export default function EnrollPage() {
           primary={primary}
           ready={ready}
           defaultCountry={defaultCountry}
+          // PDF Software(8): la casilla se muestra solo cuando el card cargó y
+          // no está desactivada (default true). El enlace apunta al documento
+          // del negocio o al default brand-aware /legal/privacy.
+          dataPolicyEnabled={!!card && card.dataPolicyEnabled !== false}
+          dataPolicyHref={card?.tenant?.dataPolicyUrl || '/legal/privacy'}
           onFirstInput={onFirstInput}
           onSubmit={onSubmitForm}
         />

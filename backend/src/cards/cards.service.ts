@@ -13,6 +13,7 @@ export type CardDto = {
   description?: string;
   terms?: string;
   termsEnabled?: boolean;
+  dataPolicyEnabled?: boolean;
   primaryColor?: string;
   secondaryColor?: string;
   stampActiveColor?: string | null;
@@ -240,6 +241,7 @@ export class CardsService {
         description: dto.description ?? '',
         terms: dto.terms ?? '',
         termsEnabled: dto.termsEnabled ?? true,
+        dataPolicyEnabled: dto.dataPolicyEnabled ?? true,
         primaryColor: dto.primaryColor ?? '#0F3D2E',
         secondaryColor: dto.secondaryColor ?? '#2E7D5B',
         stampActiveColor: dto.stampActiveColor ?? undefined,

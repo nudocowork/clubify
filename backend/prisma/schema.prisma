@@ -418,6 +418,11 @@ model Tenant {
   commissionDistributionMode  CommissionDistributionMode @default(DISCOUNT_FROM_INFLUENCER)
   name                        String
   brandName                   String
+  /// PDF Software(8): documento de políticas de tratamiento de datos que el
+  /// negocio sube (PDF vía media/upload) o URL propia. Se muestra como enlace
+  /// en la casilla "Acepto las políticas de tratamiento de datos" del registro
+  /// público de tarjeta. Null → cae al default brand-aware /legal/privacy.
+  dataPolicyUrl               String?
   slug                        String                     @unique
   email                       String
   phone                       String?
@@ -1369,6 +1374,11 @@ model Card {
   // Si false, el reverso de la wallet no muestra T&C (el dueño los
   // apagó porque no son obligatorios para su negocio).
   termsEnabled        Boolean   @default(true)
+  /// PDF Software(8): si true, el formulario público de registro (/c/[cardId])
+  /// muestra la casilla opcional "Acepto las políticas de tratamiento de datos"
+  /// con enlace al documento del negocio (Tenant.dataPolicyUrl) o al default
+  /// /legal/privacy. NO bloquea el registro. Default true (aparece en todas).
+  dataPolicyEnabled   Boolean   @default(true)
   primaryColor        String    @default("#22C55E")
   secondaryColor      String    @default("#15803D")
   // Colores avanzados — opcionales. Si null, el .pkpass cae a primary/secondary.
@@ -1530,6 +1540,12 @@ model Pass {
   tierProgress      Decimal         @default(0) @db.Decimal(12, 2)
   status            PassStatus      @default(ACTIVE)
   issuedAt          DateTime        @default(now())
+  /// PDF Software(8): evidencia de que el cliente aceptó la política de
+  /// tratamiento de datos al registrarse (art. 8.1 "conservamos la evidencia").
+  /// Guarda el timestamp y la URL del documento que se le mostró. Null = no
+  /// aceptó / casilla desactivada en la tarjeta.
+  dataPolicyAcceptedAt DateTime?
+  dataPolicyUrl        String?
   lastActivityAt    DateTime?
   googleObjectId    String?
   applePassUrl      String?

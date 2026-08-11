@@ -115,6 +115,7 @@ export type UpdateTenantDto = Partial<{
 
 export type UpdateMyTenantDto = Partial<{
   brandName: string;
+  dataPolicyUrl: string | null;
   locale: string;
   phone: string;
   whatsappPhone: string;
@@ -1847,6 +1848,13 @@ export class TenantsService {
         typeof raw === 'string' && raw.trim().length > 0
           ? raw.trim().slice(0, 24)
           : null;
+    }
+    if ('dataPolicyUrl' in data) {
+      // PDF Software(8): "" o null → limpia el documento (cae al default
+      // /legal/privacy). URL/PDF válido se trimea.
+      const raw = data.dataPolicyUrl;
+      data.dataPolicyUrl =
+        typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
     }
     const updated = await this.prisma.tenant.update({
       where: { id: tenantId },

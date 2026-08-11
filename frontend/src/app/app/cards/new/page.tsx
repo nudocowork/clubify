@@ -39,6 +39,8 @@ const FROM_SCRATCH_DEFAULTS = {
   description: '',
   terms: '',
   termsEnabled: true,
+  // PDF Software(8): casilla de políticas de datos en el registro. Default on.
+  dataPolicyEnabled: true,
   primaryColor: '#22C55E',
   secondaryColor: '#15803D',
   stampActiveColor: null as string | null,
@@ -1139,6 +1141,29 @@ function Step4Design({
               {t('noTerms')}
             </div>
           )}
+        </div>
+
+        {/* PDF Software(8): toggle de la casilla de políticas de datos. El
+            documento se sube en Configuración → Documento de políticas de datos. */}
+        <div className="pt-2 border-t border-line">
+          <div className="flex items-center justify-between">
+            <label className="label m-0">{t('dataPolicyToggle')}</label>
+            <button
+              type="button"
+              onClick={() => set('dataPolicyEnabled', !form.dataPolicyEnabled)}
+              className={`relative w-10 h-5 rounded-full transition ${
+                form.dataPolicyEnabled ? 'bg-brand' : 'bg-bg2 border border-line'
+              }`}
+              aria-label={t('dataPolicyToggle')}
+            >
+              <span
+                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition ${
+                  form.dataPolicyEnabled ? 'left-[22px]' : 'left-0.5'
+                }`}
+              />
+            </button>
+          </div>
+          <p className="text-xs text-mute mt-2">{t('dataPolicyToggleHint')}</p>
         </div>
 
         {err && (

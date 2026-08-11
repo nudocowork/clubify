@@ -14,6 +14,8 @@ class CardBody {
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() terms?: string;
   @IsOptional() @IsBoolean() termsEnabled?: boolean;
+  // PDF Software(8): muestra la casilla de políticas de datos en el registro.
+  @IsOptional() @IsBoolean() dataPolicyEnabled?: boolean;
   @IsOptional() @IsHexColor() primaryColor?: string;
   @IsOptional() @IsHexColor() secondaryColor?: string;
   // Colores avanzados — null = limpiar y volver a default.

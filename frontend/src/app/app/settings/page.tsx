@@ -9,6 +9,7 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { LanguageSwitcherIntl } from '@/components/LanguageSwitcherIntl';
 import { PhoneInput } from '@/components/PhoneInput';
+import { FileUploader } from '@/components/FileUploader';
 import { useTenantCountry } from '@/lib/useTenantCountry';
 
 type Profile = {
@@ -22,6 +23,8 @@ type Profile = {
 type TenantMe = {
   id: string;
   brandName: string;
+  // PDF Software(8): documento de políticas de tratamiento de datos del negocio.
+  dataPolicyUrl?: string | null;
   whatsappPhone: string | null;
   whatsappOrdersPhone: string | null;
   whatsappDeliveryPhone: string | null;
@@ -158,6 +161,11 @@ export default function SettingsPage() {
   const [savingBrandName, setSavingBrandName] = useState(false);
   const [brandNameMsg, setBrandNameMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // PDF Software(8): documento de políticas de tratamiento de datos.
+  const [dataPolicyUrl, setDataPolicyUrl] = useState<string>('');
+  const [savingDataPolicy, setSavingDataPolicy] = useState(false);
+  const [dataPolicyMsg, setDataPolicyMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   // #1 (PDF Software 2026-06-29): número receptor de avisos de reservas.
   const [resvPhone, setResvPhone] = useState<string>('');
   const [savingResv, setSavingResv] = useState(false);
@@ -193,6 +201,7 @@ export default function SettingsPage() {
       .then((t) => {
         setTenant(t);
         setBrandNameDraft(t.brandName ?? '');
+        setDataPolicyUrl(t.dataPolicyUrl ?? '');
         setResvPhone(t.whatsappReservationsPhone ?? '');
         const { mode, custom } = detectMainMode(t.mainSectionLabelOverride);
         setSectionMode(mode);
@@ -417,6 +426,31 @@ export default function SettingsPage() {
     }
   }
 
+  // PDF Software(8): guarda (o limpia → default) el documento de políticas de
+  // datos del negocio. "" → null en backend = cae al default /legal/privacy.
+  async function saveDataPolicy(e: React.FormEvent) {
+    e.preventDefault();
+    setDataPolicyMsg(null);
+    const trimmed = dataPolicyUrl.trim();
+    setSavingDataPolicy(true);
+    try {
+      const updated = await api<TenantMe>('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ dataPolicyUrl: trimmed || null }),
+      });
+      setTenant(updated);
+      setDataPolicyUrl(updated.dataPolicyUrl ?? '');
+      setDataPolicyMsg({
+        ok: true,
+        text: trimmed ? t('dataPolicySaved') : t('dataPolicyRemoved'),
+      });
+    } catch (e: any) {
+      setDataPolicyMsg({ ok: false, text: e.message || t('couldNotUpdate') });
+    } finally {
+      setSavingDataPolicy(false);
+    }
+  }
+
   async function changePassword(e: React.FormEvent) {
     e.preventDefault();
     setPwdMsg(null);
@@ -540,6 +574,61 @@ export default function SettingsPage() {
         <div className="mt-4 flex justify-end">
           <button type="submit" className="btn-primary" disabled={savingBrandName}>
             {savingBrandName ? t('saving') : t('saveName')}
+          </button>
+        </div>
+      </form>
+
+      {/* Documento de políticas de datos (PDF Software 8). Debajo del nombre
+          del negocio. Se muestra como enlace en la casilla de consentimiento
+          del registro público de tarjeta. Vacío → default /legal/privacy. */}
+      <form onSubmit={saveDataPolicy} className="card card-pad mb-4">
+        <h2 className="text-base font-semibold m-0">{t('dataPolicyTitle')}</h2>
+        <p className="text-xs text-mute mt-1">{t('dataPolicyDesc')}</p>
+
+        <div className="mt-4">
+          <FileUploader
+            value={dataPolicyUrl || null}
+            kind="document"
+            folder="data-policy"
+            onChange={(url) => setDataPolicyUrl(url ?? '')}
+          />
+        </div>
+
+        <div className="mt-4">
+          <label className="label">{t('dataPolicyUrlLabel')}</label>
+          <input
+            className="input"
+            type="url"
+            value={dataPolicyUrl}
+            onChange={(e) => setDataPolicyUrl(e.target.value)}
+            placeholder={t('dataPolicyUrlPlaceholder')}
+          />
+        </div>
+
+        <p className="text-xs text-mute mt-3">
+          {t('dataPolicyDefaultNote')}{' '}
+          <a
+            href="/legal/privacy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline"
+          >
+            {t('dataPolicyViewDefault')}
+          </a>
+        </p>
+
+        {dataPolicyMsg && (
+          <div
+            className={`mt-3 text-sm rounded-lg px-3 py-2 ${
+              dataPolicyMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+            }`}
+          >
+            {dataPolicyMsg.text}
+          </div>
+        )}
+        <div className="mt-4 flex justify-end">
+          <button type="submit" className="btn-primary" disabled={savingDataPolicy}>
+            {savingDataPolicy ? t('saving') : t('dataPolicySave')}
           </button>
         </div>
       </form>
