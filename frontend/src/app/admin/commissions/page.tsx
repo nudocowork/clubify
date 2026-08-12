@@ -23,6 +23,9 @@ type CommissionRow = {
   paymentStatus: PaymentStatus;
   status: string;
   createdAt: string;
+  // PDF Soft(9) C3: fecha "de negocio" (registro para la 1ª, cobro real para
+  // recompras). Se usa como columna FECHA.
+  commissionDate: string;
   availableAt: string;
   daysRemaining: number;
   nextPayoutDate: string;
@@ -216,7 +219,7 @@ export default function AdminCommissionsPage() {
       t('csvPaidDate'),
     ];
     const rows = data.items.map((c) => [
-      fmtDate(c.createdAt),
+      fmtDate(c.commissionDate ?? c.createdAt),
       c.tenant?.brandName ?? '',
       c.tenant?.planName ?? '',
       c.tenant?.planPeriodicity ?? '',
@@ -502,7 +505,7 @@ export default function AdminCommissionsPage() {
                       className="border-t border-line2 hover:bg-bg2/40"
                     >
                       <td className="px-4 py-3 text-xs whitespace-nowrap">
-                        {fmtDate(c.createdAt)}
+                        {fmtDate(c.commissionDate ?? c.createdAt)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium">

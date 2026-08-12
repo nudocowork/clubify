@@ -5192,6 +5192,9 @@ export class ReferralsService {
               select: {
                 id: true,
                 brandName: true,
+                // PDF Soft(9) C3: fecha de registro del negocio = FECHA de su
+                // PRIMERA comisión.
+                createdAt: true,
                 planPeriodicity: true,
                 currentPeriodEnd: true,
                 plan: { select: { name: true } },
@@ -5219,6 +5222,56 @@ export class ReferralsService {
       take: 500,
     });
 
+    // PDF Soft(9) C3: fecha "de negocio" de cada comisión. La PRIMERA comisión
+    // de cada empresa (la de su primer cobro) se fecha con el REGISTRO del
+    // negocio; las recompras siguientes con la fecha del cobro real
+    // (availableAt − hold). Calculamos el primer cobro (min availableAt efectivo)
+    // por tenant sobre TODO el historial (no solo la página) para que sea
+    // correcto aun con filtros/paginación.
+    const tenantIdsForDate = Array.from(
+      new Set(
+        rows
+          .map((r) => r.referralUse?.tenant?.id)
+          .filter((x): x is string => !!x),
+      ),
+    );
+    const firstChargeMsByTenant = new Map<string, number>();
+    if (tenantIdsForDate.length) {
+      const mins = await this.prisma.commission.findMany({
+        where: {
+          status: { not: CommissionStatus.REJECTED },
+          referralUse: { tenantId: { in: tenantIdsForDate } },
+        },
+        select: {
+          availableAt: true,
+          createdAt: true,
+          referralUse: { select: { tenantId: true } },
+        },
+      });
+      for (const m of mins) {
+        const tid = m.referralUse?.tenantId;
+        if (!tid) continue;
+        const ms = effectiveAvailableAt(m).getTime();
+        const cur = firstChargeMsByTenant.get(tid);
+        if (cur === undefined || ms < cur) firstChargeMsByTenant.set(tid, ms);
+      }
+    }
+    const commissionBusinessDate = (c: (typeof rows)[number]): Date => {
+      const tenant = c.referralUse?.tenant;
+      const chargeMs = effectiveAvailableAt(c).getTime();
+      const firstMs = tenant?.id
+        ? firstChargeMsByTenant.get(tenant.id)
+        : undefined;
+      // Primera comisión (primer cobro del negocio) → fecha de REGISTRO.
+      if (tenant?.createdAt && firstMs !== undefined && chargeMs === firstMs) {
+        return new Date(tenant.createdAt);
+      }
+      // Recompras → fecha del cobro real ≈ createdAt (momento del webhook de
+      // Hotmart = pago). No usamos availableAt−hold porque el hold no siempre es
+      // exactamente 15d en los registros reales.
+      return new Date(c.createdAt);
+    };
+
     const items = rows.map((c) => {
       const amount = Number(c.amount);
       const amountPaid = Number(c.amountPaid);
@@ -5232,6 +5285,9 @@ export class ReferralsService {
         paymentStatus: c.paymentStatus,
         status: c.status,
         createdAt: c.createdAt,
+        // PDF Soft(9) C3: fecha "de negocio" (registro para la 1ª comisión,
+        // cobro real para las recompras). El front la usa como columna FECHA.
+        commissionDate: commissionBusinessDate(c),
         // Fecha en que una comisión PENDING pasa a APPROVED (disponible para
         // pagar) = pago Hotmart + 15d (availableAt), fallback createdAt+15d.
         availableAt: effectiveAvailableAt(c),
