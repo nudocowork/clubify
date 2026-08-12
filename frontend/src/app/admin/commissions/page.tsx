@@ -9,6 +9,7 @@ import {
   BusinessFilterPicker,
   type BusinessOption,
 } from '@/components/BusinessFilterPicker';
+import { planDisplayName, type PlanPeriodicity } from '@/lib/plan-format';
 
 type PaymentStatus = 'PENDING' | 'PARTIAL' | 'PAID';
 type RecipientRole = 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR' | 'SOCIO';
@@ -104,13 +105,6 @@ const ROLE_LABEL_KEY: Record<RecipientRole, string> = {
   AMBASSADOR: 'roleAmbassador',
   VENDOR: 'roleVendor',
   SOCIO: 'roleSocio',
-};
-
-const PERIODICITY_LABEL_KEY: Record<string, string> = {
-  MENSUAL: 'periodicityMonthly',
-  TRIMESTRAL: 'periodicityQuarterly',
-  SEMESTRAL: 'periodicitySemiannual',
-  ANUAL: 'periodicityAnnual',
 };
 
 function fmtUsd(n: number) {
@@ -521,14 +515,14 @@ export default function AdminCommissionsPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs">
-                        <div>{c.tenant?.planName ?? '—'}</div>
-                        {c.tenant?.planPeriodicity && (
-                          <div className="text-mute">
-                            {PERIODICITY_LABEL_KEY[c.tenant.planPeriodicity]
-                              ? t(PERIODICITY_LABEL_KEY[c.tenant.planPeriodicity])
-                              : c.tenant.planPeriodicity}
-                          </div>
-                        )}
+                        {/* PDF Soft(10): plan unificado por periodicidad. */}
+                        <div>
+                          {planDisplayName(
+                            c.tenant?.planName,
+                            (c.tenant?.planPeriodicity as PlanPeriodicity | null) ??
+                              null,
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         {c.recipient ? (

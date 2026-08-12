@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { planDisplayName, type PlanPeriodicity } from '@/lib/plan-format';
 import { api, clearSession, getImpersonationBackup, stopImpersonation } from '@/lib/api';
 import { Logo } from '@/components/Logo';
 import { toast } from '@/components/Toast';
@@ -2493,9 +2494,9 @@ function TrialStatsView() {
                         {PAYMENT_STATUS_LABEL[r.paymentStatus] ?? r.paymentStatus}
                       </td>
                       <td className="px-4 py-3 text-xs">
-                        {r.planName ?? '—'}
-                        {r.planPeriodicity && (
-                          <span className="text-mute"> · {r.planPeriodicity}</span>
+                        {planDisplayName(
+                          r.planName,
+                          (r.planPeriodicity as PlanPeriodicity | null) ?? null,
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs text-mute">

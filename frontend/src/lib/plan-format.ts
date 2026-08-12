@@ -53,30 +53,34 @@ export function periodTotalUsd(
 }
 
 /**
- * Nombre a MOSTRAR del plan. Si el plan no tiene nombre real (vacío o el
- * fallback genérico "Sin plan" del Plan compartido que usan las marcas
- * blancas), mostramos "Plan {Periodicidad}" (ej. "Plan Mensual", "Plan Anual")
- * en lugar de "Sin plan". Si tiene nombre propio (ej. "Elite", o el nombre
- * editado del plan de la marca), se respeta. (PDF Modificaciones 2026-06-27).
+ * Nombre a MOSTRAR del plan. PDF Software(10) — UNIFICACIÓN DE PLANES:
+ * el plan se muestra SIEMPRE por su periodicidad (Plan Mensual / Trimestral /
+ * Semestral / Anual), sin importar el nombre interno del Plan row ("Elite",
+ * "Sin plan", "Pro"). "Elite" queda solo como SKU interno (gating/Hotmart),
+ * nunca visible para el usuario. Los registros SIN periodicidad conocida
+ * (legacy o trials sin plan definido) se muestran como "Sin definir" para que
+ * el admin los revise y asigne. Antes esto devolvía el nombre crudo ("Elite")
+ * cuando existía → generaba la mezcla "Elite" vs "Plan Trimestral".
  */
 export function planDisplayName(
   planName: string | null | undefined,
   periodicity: PlanPeriodicity | null | undefined,
 ): string {
-  const n = planName?.trim();
-  if (n && n.toLowerCase() !== 'sin plan') return n;
-  return `Plan ${periodLabel(periodicity)}`;
+  // planName ya no se muestra: el plan ES la periodicidad.
+  void planName;
+  if (periodicity) return `Plan ${periodLabel(periodicity)}`;
+  return 'Sin definir';
 }
 
 /**
- * Etiqueta corta del plan tipo "Elite · Trimestral".
+ * Etiqueta corta del plan. Unificada: "Plan Trimestral" (antes "Elite ·
+ * Trimestral"). PDF Software(10).
  */
 export function formatPlanLabel(
   planName: string | null | undefined,
   periodicity: PlanPeriodicity | null | undefined,
 ): string {
-  const name = planName?.trim() || 'Elite';
-  return `${name} · ${periodLabel(periodicity)}`;
+  return planDisplayName(planName, periodicity);
 }
 
 /**
