@@ -777,9 +777,9 @@ export default function EnrollPage() {
           defaultCountry={defaultCountry}
           // PDF Software(8): la casilla se muestra solo cuando el card cargó y
           // no está desactivada (default true). El enlace apunta al documento
-          // del negocio o al default brand-aware /legal/privacy.
+          // del negocio o al default para el cliente final /legal/tratamiento-datos.
           dataPolicyEnabled={!!card && card.dataPolicyEnabled !== false}
-          dataPolicyHref={card?.tenant?.dataPolicyUrl || '/legal/privacy'}
+          dataPolicyHref={card?.tenant?.dataPolicyUrl || '/legal/tratamiento-datos'}
           onFirstInput={onFirstInput}
           onSubmit={onSubmitForm}
         />

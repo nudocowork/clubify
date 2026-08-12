@@ -608,7 +608,7 @@ export default function SettingsPage() {
         <p className="text-xs text-mute mt-3">
           {t('dataPolicyDefaultNote')}{' '}
           <a
-            href="/legal/privacy"
+            href="/legal/tratamiento-datos"
             target="_blank"
             rel="noopener noreferrer"
             className="underline"

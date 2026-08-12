@@ -362,7 +362,7 @@ export class PassesService {
       card.dataPolicyEnabled && dto.dataPolicyAccepted === true;
     const dataPolicyAcceptedAt = dataPolicyAccepted ? new Date() : null;
     const dataPolicyUrlShown = dataPolicyAccepted
-      ? card.tenant.dataPolicyUrl || '/legal/privacy'
+      ? card.tenant.dataPolicyUrl || '/legal/tratamiento-datos'
       : null;
     let tmp;
     try {
