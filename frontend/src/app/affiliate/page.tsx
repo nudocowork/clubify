@@ -2251,36 +2251,41 @@ function TrialStatsView() {
   // Construcción del link: usamos NEXT_PUBLIC_LANDING_URL si está set,
   // sino caemos a soyclubify.com (default de la marca). Lo armamos solo
   // en cliente para que no haya mismatch SSR/CSR.
-  const trialLink = useMemo(() => {
-    if (!data?.shareCode) return '';
+  // DOS links de prueba: uno SIN tarjeta (form self-serve directo) y uno CON
+  // tarjeta (cobra antes vía checkout Hotmart). Ambos llevan ?ref=<code> → la
+  // comisión se atribuye igual al embajador/vendedor. El modo lo fuerza el
+  // parámetro ?mode=free|card que interpreta /trial.
+  const trialLinks = useMemo(() => {
+    if (!data?.shareCode) return { free: '', card: '' };
     const base =
       process.env.NEXT_PUBLIC_LANDING_URL?.replace(/\/+$/, '') ??
       'https://soyclubify.com';
-    return `${base}/trial?ref=${data.shareCode}`;
+    const root = `${base}/trial?ref=${data.shareCode}`;
+    return { free: `${root}&mode=free`, card: `${root}&mode=card` };
   }, [data?.shareCode]);
 
-  async function copyLink() {
-    if (!trialLink) return;
-    await navigator.clipboard.writeText(trialLink);
+  async function copyTrial(url: string) {
+    if (!url) return;
+    await navigator.clipboard.writeText(url);
     toast('Link copiado', 'success');
   }
 
-  async function shareLink() {
-    if (!trialLink) return;
+  async function shareTrial(url: string, text: string) {
+    if (!url) return;
     // Web Share API: en mobile abre el sheet nativo (WhatsApp, IG, etc.).
     // En desktop sin soporte, hacemos fallback al copy.
     if (typeof navigator !== 'undefined' && (navigator as any).share) {
       try {
         await (navigator as any).share({
           title: 'Prueba Clubify gratis',
-          text: 'Prueba Clubify gratis por 5 días — sin tarjeta.',
-          url: trialLink,
+          text,
+          url,
         });
       } catch {
         // El usuario canceló — no es error.
       }
     } else {
-      await copyLink();
+      await copyTrial(url);
     }
   }
 
@@ -2295,32 +2300,85 @@ function TrialStatsView() {
       {data.shareCode ? (
         <div className="card card-pad">
           <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
-            Tu link de prueba gratis
+            Tus links de prueba gratis
           </div>
           <div className="text-xs text-mute mt-1 leading-snug">
-            Comparte este link con prospects. Quien se registre por aquí queda
-            atribuido a vos automáticamente — si pagan después de la prueba,
-            la comisión te corresponde.
+            Comparte cualquiera de estos dos links. Quien se registre queda
+            atribuido a vos automáticamente — si pagan después de la prueba, la
+            comisión te corresponde.
           </div>
-          <div className="flex items-center gap-2 mt-3 flex-wrap">
-            <input
-              className="input flex-1 min-w-[200px] text-xs font-mono"
-              readOnly
-              value={trialLink}
-              onClick={(e) => e.currentTarget.select()}
-            />
-            <button
-              onClick={copyLink}
-              className="btn-ghost text-xs cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
-            >
-              📋 Copiar
-            </button>
-            <button
-              onClick={shareLink}
-              className="btn-primary text-xs cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
-            >
-              ↗ Compartir
-            </button>
+
+          <div className="space-y-3 mt-3">
+            {/* Prueba SIN tarjeta */}
+            <div className="rounded-xl border border-line p-3">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🎁</span>
+                <div className="text-sm font-semibold">Prueba sin tarjeta</div>
+              </div>
+              <div className="text-xs text-mute mt-1 leading-snug">
+                El prospecto empieza su prueba de 5 días sin ingresar datos de
+                pago.
+              </div>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <input
+                  className="input flex-1 min-w-[180px] text-xs font-mono"
+                  readOnly
+                  value={trialLinks.free}
+                  onClick={(e) => e.currentTarget.select()}
+                />
+                <button
+                  onClick={() => copyTrial(trialLinks.free)}
+                  className="btn-ghost text-xs cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+                >
+                  📋 Copiar
+                </button>
+                <button
+                  onClick={() =>
+                    shareTrial(
+                      trialLinks.free,
+                      'Prueba Clubify gratis por 5 días — sin tarjeta.',
+                    )
+                  }
+                  className="btn-primary text-xs cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+                >
+                  ↗ Compartir
+                </button>
+              </div>
+            </div>
+
+            {/* Prueba CON tarjeta (cobra antes) */}
+            <div className="rounded-xl border border-line p-3">
+              <div className="flex items-center gap-2">
+                <span className="text-base">💳</span>
+                <div className="text-sm font-semibold">Prueba con tarjeta</div>
+              </div>
+              <div className="text-xs text-mute mt-1 leading-snug">
+                El prospecto ingresa su tarjeta antes de empezar (se cobra al
+                terminar la prueba).
+              </div>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <input
+                  className="input flex-1 min-w-[180px] text-xs font-mono"
+                  readOnly
+                  value={trialLinks.card}
+                  onClick={(e) => e.currentTarget.select()}
+                />
+                <button
+                  onClick={() => copyTrial(trialLinks.card)}
+                  className="btn-ghost text-xs cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+                >
+                  📋 Copiar
+                </button>
+                <button
+                  onClick={() =>
+                    shareTrial(trialLinks.card, 'Prueba Clubify gratis por 5 días.')
+                  }
+                  className="btn-primary text-xs cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
+                >
+                  ↗ Compartir
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       ) : (

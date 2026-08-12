@@ -111,7 +111,14 @@ function TrialInner() {
     })();
     return () => { cancelled = true; };
   }, []);
-  const checkoutMode = !!trialCheckoutUrl;
+  // Modo explícito por link — los paneles de embajador/vendedor comparten DOS
+  // links: `?mode=card` fuerza la prueba CON tarjeta (checkout Hotmart; si la URL
+  // no está configurada aún, cae con gracia al form sin tarjeta para no dejar al
+  // prospecto sin salida) y `?mode=free` fuerza la prueba SIN tarjeta. Sin `?mode`
+  // se mantiene el comportamiento por Setting (compat con links ya compartidos).
+  const modeParam = (params.get('mode') || '').toLowerCase();
+  const forceFree = ['free', 'nocard', 'sin-tarjeta'].includes(modeParam);
+  const checkoutMode = forceFree ? false : !!trialCheckoutUrl;
 
   function goToCheckout() {
     if (!trialCheckoutUrl) return;
