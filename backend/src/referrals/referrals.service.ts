@@ -5107,6 +5107,33 @@ export class ReferralsService {
    * devuelve un row por persona/commission y el frontend decide cómo
    * presentar el 3-way split.
    */
+  /**
+   * PDF Soft(9) C5: lista COMPLETA de negocios que tienen al menos una comisión
+   * (no anulada), para el filtro "Negocio" del panel admin (typeahead con todos
+   * + "Todos"). Antes el dropdown se llenaba solo con las filas cargadas (cap
+   * 500) → al filtrar por uno, el resto desaparecía. Este endpoint devuelve
+   * todos, independiente de los filtros activos.
+   */
+  async listCommissionBusinesses(
+    user: AuthUser,
+  ): Promise<Array<{ id: string; brandName: string }>> {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const uses = await this.prisma.referralUse.findMany({
+      where: {
+        tenantId: { not: null },
+        commissions: { some: { status: { not: CommissionStatus.REJECTED } } },
+      },
+      select: { tenant: { select: { id: true, brandName: true } } },
+    });
+    const map = new Map<string, string>();
+    for (const u of uses) {
+      if (u.tenant) map.set(u.tenant.id, u.tenant.brandName);
+    }
+    return Array.from(map.entries())
+      .map(([id, brandName]) => ({ id, brandName }))
+      .sort((a, b) => a.brandName.localeCompare(b.brandName));
+  }
+
   async listAdminCommissions(
     user: AuthUser,
     opts: {

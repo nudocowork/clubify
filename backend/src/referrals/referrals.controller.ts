@@ -697,6 +697,14 @@ export class AdminCommissionsController {
     return this.svc.companyAccountingReport(user);
   }
 
+  // PDF Soft(9) C5: lista completa de negocios con comisiones para el filtro
+  // "Negocio" (typeahead). Debe ir ANTES de cualquier @Get(':id').
+  @Roles('SUPER_ADMIN')
+  @Get('businesses')
+  businesses(@CurrentUser() user: AuthUser) {
+    return this.svc.listCommissionBusinesses(user);
+  }
+
   // Habilitar manual: adelanta el desbloqueo de una comisión en hold
   // (PENDING → APPROVED). Body opcional { reason }.
   @Roles('SUPER_ADMIN')

@@ -1,10 +1,14 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { AffiliatePickerSearch } from '@/components/AffiliatePickerSearch';
+import {
+  BusinessFilterPicker,
+  type BusinessOption,
+} from '@/components/BusinessFilterPicker';
 
 type PaymentStatus = 'PENDING' | 'PARTIAL' | 'PAID';
 type RecipientRole = 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR' | 'SOCIO';
@@ -133,6 +137,9 @@ export default function AdminCommissionsPage() {
   const [tenantId, setTenantId] = useState('');
   const [codeId, setCodeId] = useState('');
   const [paying, setPaying] = useState<CommissionRow | null>(null);
+  // PDF Soft(9) C5: lista COMPLETA de negocios con comisiones para el filtro
+  // buscable (no solo los de las filas cargadas). Se carga una vez al montar.
+  const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
 
   async function load() {
     setLoading(true);
@@ -157,6 +164,13 @@ export default function AdminCommissionsPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateFrom, dateTo, bucket, role, tenantId, codeId]);
+
+  // Lista completa de negocios (una sola vez) para el filtro buscable.
+  useEffect(() => {
+    api<BusinessOption[]>('/admin/commissions/businesses')
+      .then(setBusinesses)
+      .catch(() => setBusinesses([]));
+  }, []);
 
   // Habilitar manual: adelanta el desbloqueo de una comisión en hold.
   const [enabling, setEnabling] = useState<string | null>(null);
@@ -183,14 +197,6 @@ export default function AdminCommissionsPage() {
     }
   }
 
-  // Opciones únicas para dropdowns derivadas del dataset actual.
-  const tenantOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const it of data?.items ?? []) {
-      if (it.tenant) map.set(it.tenant.id, it.tenant.brandName);
-    }
-    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]));
-  }, [data]);
 
   function exportCsv() {
     if (!data?.items.length) {
@@ -212,6 +218,8 @@ export default function AdminCommissionsPage() {
       t('csvOutstanding'),
       t('csvStatus'),
       t('csvHotmartTx'),
+      t('csvEnabledDate'),
+      t('csvPaidDate'),
     ];
     const rows = data.items.map((c) => [
       fmtDate(c.createdAt),
@@ -232,6 +240,8 @@ export default function AdminCommissionsPage() {
       c.outstanding.toFixed(2),
       t(lifecycleBadge(c.status, c.paymentStatus).key),
       c.hotmartTransactionId ?? '',
+      c.availableAt ? fmtDate(c.availableAt) : '',
+      c.paidAt ? fmtDate(c.paidAt) : '',
     ]);
     const csv = [headers, ...rows]
       .map((r) =>
@@ -417,18 +427,13 @@ export default function AdminCommissionsPage() {
         </div>
         <div>
           <label className="label">{t('filterBusiness')}</label>
-          <select
-            className="input"
+          <BusinessFilterPicker
+            businesses={businesses}
             value={tenantId}
-            onChange={(e) => setTenantId(e.target.value)}
-          >
-            <option value="">{t('filterAll')}</option>
-            {tenantOptions.map(([id, name]) => (
-              <option key={id} value={id}>
-                {name}
-              </option>
-            ))}
-          </select>
+            onChange={setTenantId}
+            allLabel={t('filterAll')}
+            placeholder={t('filterBusiness')}
+          />
         </div>
         <div>
           <label className="label">{t('filterAmbassador')}</label>
@@ -473,20 +478,21 @@ export default function AdminCommissionsPage() {
                 <th className="px-4 py-3 font-semibold">{t('thStatus')}</th>
                 <th className="px-4 py-3 font-semibold text-center">{t('thDaysLeft')}</th>
                 <th className="px-4 py-3 font-semibold">{t('thNextPayout')}</th>
+                <th className="px-4 py-3 font-semibold">{t('thPaidDate')}</th>
                 <th className="px-4 py-3 font-semibold"></th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center text-mute">
+                  <td colSpan={12} className="px-4 py-10 text-center text-mute">
                     {t('loading')}
                   </td>
                 </tr>
               )}
               {!loading && (data?.items.length ?? 0) === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center text-mute">
+                  <td colSpan={12} className="px-4 py-12 text-center text-mute">
                     <div className="text-3xl mb-2">💸</div>
                     {t('emptyNoCommissions')}
                   </td>
@@ -570,18 +576,33 @@ export default function AdminCommissionsPage() {
                           <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700">
                             {c.daysRemaining}d
                           </span>
-                        ) : c.status === 'APPROVED' ? (
-                          <span className="text-[11px] text-emerald-600 font-semibold">
-                            🔓 0
-                          </span>
-                        ) : (
+                        ) : c.status === 'REJECTED' ? (
                           <span className="text-mute text-xs">—</span>
+                        ) : (
+                          // PDF Soft(9) C1: ya habilitada (APPROVED/PAID/RETAINED) →
+                          // mostramos la FECHA en que se habilitó (availableAt) en vez
+                          // de "—", para poder auditar pagos pasados (revisar en agosto
+                          // comisiones de mayo/junio).
+                          <span className="text-[11px] text-mute" title={t('thDaysLeft')}>
+                            {fmtDate(c.availableAt)}
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-xs text-mute whitespace-nowrap">
                         {c.status === 'PAID'
                           ? '—'
                           : fmtDate(c.nextPayoutDate)}
+                      </td>
+                      {/* PDF Soft(9) C4: FECHA DE PAGO — día real en que se pagó la
+                          comisión (paidAt). Para llevar registro de efectividad de pagos. */}
+                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                        {c.paidAt ? (
+                          <span className="text-emerald-600 font-medium">
+                            ✓ {fmtDate(c.paidAt)}
+                          </span>
+                        ) : (
+                          <span className="text-mute">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         <RowActions
