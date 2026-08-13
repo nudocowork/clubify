@@ -4,7 +4,7 @@
  * minimal — un solo archivo con las 3 vistas (Resumen, Clientes,
  * Comisiones) en tabs. Datos scoped por el backend al usuario logueado.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { planDisplayName, type PlanPeriodicity } from '@/lib/plan-format';
@@ -69,8 +69,10 @@ type Me = {
 
 type Client = {
   id: string;
+  tenantId: string | null;
   tenantBrand: string;
   plan: string;
+  planPeriodicity: string | null;
   status: string;
   attribution: { code: string; role: string; ownerName: string };
   signedUpAt: string;
@@ -87,7 +89,11 @@ type CommissionResp = {
     percent: number | null;
     status: 'PENDING' | 'APPROVED' | 'PAID' | 'REJECTED' | 'RETAINED';
     createdAt: string;
+    // PDF Soft(9) C3: fecha "de negocio" (registro 1ª / cobro real recompras),
+    // igual que el admin.
+    commissionDate: string;
     paidAt: string | null;
+    tenantId: string | null;
     tenantBrand: string;
     via: string;
     codeText: string;
@@ -1307,17 +1313,137 @@ function Stat({
   );
 }
 
+// PDF Soft(9) B2: detalle de comisiones de UN negocio (drill-in). Muestra las
+// mismas columnas que el admin (Fecha=commissionDate, Monto, Estado, Días rest.
+// con fecha de habilitación, Próx. pago, Fecha de pago).
+function ClientCommissionsDetail({
+  items,
+}: {
+  items: CommissionResp['items'];
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="text-xs text-mute py-2">
+        Sin comisiones registradas para este negocio todavía.
+      </div>
+    );
+  }
+  const ordered = [...items].sort(
+    (a, b) =>
+      new Date(b.commissionDate ?? b.createdAt).getTime() -
+      new Date(a.commissionDate ?? a.createdAt).getTime(),
+  );
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead className="text-mute">
+          <tr>
+            {['Fecha', 'Monto', 'Estado', 'Días rest.', 'Próx. pago', 'Fecha de pago'].map(
+              (h) => (
+                <th key={h} className="text-left px-2 py-1 font-semibold whitespace-nowrap">
+                  {h}
+                </th>
+              ),
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {ordered.map((c) => (
+            <tr key={c.id} className="border-t border-line2">
+              <td className="px-2 py-1.5 whitespace-nowrap">
+                {fmtDate(c.commissionDate ?? c.createdAt)}
+              </td>
+              <td className="px-2 py-1.5 font-semibold">{fmtUsd(c.amount)}</td>
+              <td className="px-2 py-1.5">
+                <span
+                  className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                    STATUS_CLS[c.status] ?? 'bg-bg2 text-mute'
+                  }`}
+                >
+                  {STATUS_LABEL[c.status] ?? c.status}
+                </span>
+              </td>
+              <td className="px-2 py-1.5 whitespace-nowrap">
+                {c.status === 'PENDING'
+                  ? `${c.daysRemaining}d`
+                  : c.status === 'REJECTED'
+                  ? '—'
+                  : fmtDate(c.availableAt)}
+              </td>
+              <td className="px-2 py-1.5 text-mute whitespace-nowrap">
+                {c.status === 'PAID' ? '—' : fmtDate(c.nextPayoutDate)}
+              </td>
+              <td className="px-2 py-1.5 whitespace-nowrap">
+                {c.paidAt ? (
+                  <span className="text-emerald-600 font-medium">
+                    ✓ {fmtDate(c.paidAt)}
+                  </span>
+                ) : (
+                  '—'
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ClientsList({ isVendor = false }: { isVendor?: boolean }) {
   const [rows, setRows] = useState<Client[]>([]);
+  const [comms, setComms] = useState<CommissionResp['items']>([]);
   const [loading, setLoading] = useState(true);
+  // PDF Soft(9) B2: negocio expandido (drill-in por marca).
+  const [expanded, setExpanded] = useState<string | null>(null);
   useEffect(() => {
+    let alive = true;
     // FIX 2026-06-16 (review): guard null (api() devuelve null en vacío) +
     // catch, sino rows.map/.length crashea la lista.
-    api<Client[]>('/affiliate/clients')
-      .then((r) => setRows(r ?? []))
-      .catch(() => setRows([]))
-      .finally(() => setLoading(false));
+    const load = () => {
+      const p1 = api<Client[]>('/affiliate/clients')
+        .then((r) => {
+          if (alive) setRows(r ?? []);
+        })
+        .catch(() => {
+          if (alive) setRows([]);
+        });
+      const p2 = api<CommissionResp>('/affiliate/commissions')
+        .then((d) => {
+          if (alive) setComms(d?.items ?? []);
+        })
+        .catch(() => {
+          if (alive) setComms([]);
+        });
+      Promise.allSettled([p1, p2]).finally(() => {
+        if (alive) setLoading(false);
+      });
+    };
+    load();
+    // B3: refrescar al volver a la pestaña para reflejar cambios del admin.
+    const onFocus = () => load();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      alive = false;
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
+
+  const commsByTenant = useMemo(() => {
+    const m = new Map<string, CommissionResp['items']>();
+    for (const c of comms) {
+      if (!c.tenantId) continue;
+      const arr = m.get(c.tenantId) ?? [];
+      arr.push(c);
+      m.set(c.tenantId, arr);
+    }
+    return m;
+  }, [comms]);
+
+  const toggle = (tenantId: string | null) => {
+    if (!tenantId) return;
+    setExpanded((cur) => (cur === tenantId ? null : tenantId));
+  };
 
   if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
   if (rows.length === 0) {
@@ -1337,85 +1463,137 @@ function ClientsList({ isVendor = false }: { isVendor?: boolean }) {
   }
   return (
     <>
-      {/* Mobile: cards verticales (< sm). Más legible que tabla forzada
-          a scroll horizontal en pantalla angosta. */}
+      {/* Mobile: cards verticales (< sm). Clickeables → expanden comisiones. */}
       <div className="sm:hidden space-y-2.5">
-        {rows.map((r) => (
-          <div key={r.id} className="card card-pad space-y-1.5">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="font-semibold truncate">{r.tenantBrand}</div>
-                <div className="text-xs text-mute">{r.plan}</div>
+        {rows.map((r) => {
+          const open = !!r.tenantId && expanded === r.tenantId;
+          const detail = r.tenantId ? commsByTenant.get(r.tenantId) ?? [] : [];
+          return (
+            <div key={r.id} className="card card-pad space-y-1.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold truncate">{r.tenantBrand}</div>
+                  <div className="text-xs text-mute">
+                    {planDisplayName(
+                      r.plan,
+                      (r.planPeriodicity as PlanPeriodicity | null) ?? null,
+                    )}
+                  </div>
+                </div>
+                <span
+                  className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded flex-none ${
+                    STATUS_CLS[r.status] ?? 'bg-bg2 text-mute'
+                  }`}
+                >
+                  {STATUS_LABEL[r.status] ?? r.status}
+                </span>
               </div>
-              <span
-                className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded flex-none ${
-                  STATUS_CLS[r.status] ?? 'bg-bg2 text-mute'
-                }`}
-              >
-                {STATUS_LABEL[r.status] ?? r.status}
-              </span>
-            </div>
-            <div className="text-[11px] text-mute leading-snug grid grid-cols-2 gap-x-2 gap-y-1 pt-1 border-t border-line2">
-              <div>
-                <div className="text-[10px] uppercase tracking-wider">Vía</div>
-                <div className="font-mono text-ink text-xs">{r.attribution.code}</div>
-                <div className="text-[10px]">{r.attribution.ownerName}</div>
-              </div>
-              <div>
-                <div className="text-[10px] uppercase tracking-wider">Inscrito</div>
-                <div className="text-ink text-xs">{fmtDate(r.signedUpAt)}</div>
-              </div>
-              <div className="col-span-2">
-                <div className="text-[10px] uppercase tracking-wider">Comisiones</div>
-                <div className="text-ink text-xs">
-                  {r.commissionsCount} · {fmtUsd(r.commissionsTotalUsd)}
+              <div className="text-[11px] text-mute leading-snug grid grid-cols-2 gap-x-2 gap-y-1 pt-1 border-t border-line2">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider">Vía</div>
+                  <div className="font-mono text-ink text-xs">{r.attribution.code}</div>
+                  <div className="text-[10px]">{r.attribution.ownerName}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider">Inscrito</div>
+                  <div className="text-ink text-xs">{fmtDate(r.signedUpAt)}</div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-[10px] uppercase tracking-wider">Comisiones</div>
+                  <div className="text-ink text-xs">
+                    {r.commissionsCount} · {fmtUsd(r.commissionsTotalUsd)}
+                  </div>
                 </div>
               </div>
+              {r.tenantId && (
+                <button
+                  type="button"
+                  onClick={() => toggle(r.tenantId)}
+                  className="text-[11px] text-brand font-semibold pt-1"
+                >
+                  {open ? '▲ Ocultar comisiones' : '▼ Ver comisiones'}
+                </button>
+              )}
+              {open && <ClientCommissionsDetail items={detail} />}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Desktop: tabla tradicional (≥ sm). */}
+      {/* Desktop: tabla tradicional (≥ sm). Filas clickeables → drill-in. */}
       <div className="hidden sm:block card overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-bg2">
               <tr>
-                {['Negocio', 'Plan', 'Vía', 'Estado', 'Inscrito', 'Comisiones'].map((h) => (
-                  <th
-                    key={h}
-                    className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
-                  >
-                    {h}
-                  </th>
-                ))}
+                {['Negocio', 'Plan', 'Vía', 'Estado', 'Inscrito', 'Comisiones', ''].map(
+                  (h, i) => (
+                    <th
+                      key={h || `col${i}`}
+                      className="text-left px-4 py-3 text-[11px] uppercase tracking-[0.1em] text-mute font-semibold"
+                    >
+                      {h}
+                    </th>
+                  ),
+                )}
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
-                  <td className="px-4 py-3 font-medium">{r.tenantBrand}</td>
-                  <td className="px-4 py-3 text-xs">{r.plan}</td>
-                  <td className="px-4 py-3 text-xs">
-                    <div className="font-mono">{r.attribution.code}</div>
-                    <div className="text-mute text-[10px]">{r.attribution.ownerName}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-                        STATUS_CLS[r.status] ?? 'bg-bg2 text-mute'
+              {rows.map((r) => {
+                const open = !!r.tenantId && expanded === r.tenantId;
+                const detail = r.tenantId
+                  ? commsByTenant.get(r.tenantId) ?? []
+                  : [];
+                return (
+                  <Fragment key={r.id}>
+                    <tr
+                      className={`border-t border-line2 hover:bg-[#FAFAFB] ${
+                        r.tenantId ? 'cursor-pointer' : ''
                       }`}
+                      onClick={() => toggle(r.tenantId)}
                     >
-                      {STATUS_LABEL[r.status] ?? r.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-mute">{fmtDate(r.signedUpAt)}</td>
-                  <td className="px-4 py-3 text-xs">
-                    {r.commissionsCount} · {fmtUsd(r.commissionsTotalUsd)}
-                  </td>
-                </tr>
-              ))}
+                      <td className="px-4 py-3 font-medium">{r.tenantBrand}</td>
+                      <td className="px-4 py-3 text-xs">
+                        {planDisplayName(
+                          r.plan,
+                          (r.planPeriodicity as PlanPeriodicity | null) ?? null,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        <div className="font-mono">{r.attribution.code}</div>
+                        <div className="text-mute text-[10px]">
+                          {r.attribution.ownerName}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
+                            STATUS_CLS[r.status] ?? 'bg-bg2 text-mute'
+                          }`}
+                        >
+                          {STATUS_LABEL[r.status] ?? r.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-mute">
+                        {fmtDate(r.signedUpAt)}
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {r.commissionsCount} · {fmtUsd(r.commissionsTotalUsd)}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-brand font-semibold whitespace-nowrap">
+                        {r.tenantId ? (open ? '▲' : '▼ ver') : ''}
+                      </td>
+                    </tr>
+                    {open && (
+                      <tr className="border-t border-line2 bg-[#FAFAFB]">
+                        <td colSpan={7} className="px-4 py-3">
+                          <ClientCommissionsDetail items={detail} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1428,7 +1606,25 @@ function CommissionsList() {
   const [data, setData] = useState<CommissionResp | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
-    api<CommissionResp>('/affiliate/commissions').then(setData).finally(() => setLoading(false));
+    let alive = true;
+    const load = () =>
+      api<CommissionResp>('/affiliate/commissions')
+        .then((d) => {
+          if (alive) setData(d);
+        })
+        .finally(() => {
+          if (alive) setLoading(false);
+        });
+    load();
+    // PDF Soft(9) B3: refrescar al volver a la pestaña/ventana para reflejar
+    // cambios hechos en el panel admin (antes solo cargaba al montar → quedaba
+    // desactualizado y no coincidía con el admin).
+    const onFocus = () => load();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      alive = false;
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
@@ -1475,7 +1671,7 @@ function CommissionsList() {
                   </div>
                 </div>
                 <div className="text-[11px] text-mute pt-1 border-t border-line2 flex flex-wrap justify-between gap-x-3 gap-y-1">
-                  <span>Compra: <span className="text-ink">{fmtDate(c.createdAt)}</span></span>
+                  <span>Compra: <span className="text-ink">{fmtDate(c.commissionDate ?? c.createdAt)}</span></span>
                   {c.status === 'PENDING' ? (
                     <span className="text-amber-700 font-semibold">
                       🔒 Faltan {c.daysRemaining}d
@@ -1519,7 +1715,7 @@ function CommissionsList() {
                         {c.percent != null ? `${c.percent}%` : '—'}
                       </td>
                       <td className="px-4 py-3 font-bold">{fmtUsd(c.amount)}</td>
-                      <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.createdAt)}</td>
+                      <td className="px-4 py-3 text-xs text-mute">{fmtDate(c.commissionDate ?? c.createdAt)}</td>
                       <td className="px-4 py-3 text-center">
                         {c.status === 'PENDING' ? (
                           <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700">

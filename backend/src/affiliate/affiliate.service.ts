@@ -257,16 +257,28 @@ export class AffiliateService {
     const uses = await this.prisma.referralUse.findMany({
       where: { referralCodeId: { in: codeIds } },
       include: {
-        tenant: { select: { brandName: true, status: true, plan: { select: { name: true } } } },
+        // B2: tenantId para poder entrar (drill-in) a las comisiones del negocio.
+        tenant: {
+          select: {
+            id: true,
+            brandName: true,
+            planPeriodicity: true,
+            status: true,
+            plan: { select: { name: true } },
+          },
+        },
         referralCode: { select: { code: true, role: true, ownerName: true } },
-        commissions: true,
+        // B1: las CANCELADAS no cuentan ni suman en el panel del embajador.
+        commissions: { where: { status: { not: 'REJECTED' } } },
       },
       orderBy: { createdAt: 'desc' },
     });
     return uses.map((u) => ({
       id: u.id,
+      tenantId: u.tenant?.id ?? null,
       tenantBrand: u.tenant?.brandName ?? '—',
       plan: u.tenant?.plan?.name ?? '—',
+      planPeriodicity: u.tenant?.planPeriodicity ?? null,
       status: u.status,
       attribution: {
         code: u.referralCode.code,
@@ -638,6 +650,9 @@ export class AffiliateService {
     const recipientCodeIds = scope.allDescendantCodeIds;
     const items = await this.prisma.commission.findMany({
       where: {
+        // PDF Soft(9) B1: las comisiones CANCELADAS (REJECTED) NO se muestran al
+        // embajador/influencer. Solo disponibles/bloqueadas/pagadas/retenidas.
+        status: { not: 'REJECTED' },
         OR: [
           { recipientCodeId: { in: recipientCodeIds } },
           // Backwards-compat: rows sin recipientCodeId se atribuyen via use.
@@ -654,6 +669,8 @@ export class AffiliateService {
               select: {
                 id: true,
                 brandName: true,
+                // C3: fecha de registro = FECHA de la 1ª comisión.
+                createdAt: true,
                 planPeriodicity: true,
                 subscriptionPriceUsd: true,
               },
@@ -667,6 +684,45 @@ export class AffiliateService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    // PDF Soft(9) C3 + B3: fecha "de negocio" de cada comisión, IGUAL que el
+    // panel admin (100% sincronizado). El primer cobro de cada empresa (min
+    // availableAt efectivo sobre TODO su historial no anulado, no solo lo que ve
+    // este afiliado) → fecha de REGISTRO; las recompras → fecha del cobro real.
+    const effAvail = (c: { availableAt?: Date | null; createdAt: Date }) =>
+      c.availableAt
+        ? new Date(c.availableAt)
+        : new Date(
+            new Date(c.createdAt).getTime() + AFFILIATE_HOLD_DAYS * 86400000,
+          );
+    const tenantIdsForDate = Array.from(
+      new Set(
+        items
+          .map((c) => c.referralUse?.tenant?.id)
+          .filter((x): x is string => !!x),
+      ),
+    );
+    const firstChargeMsByTenant = new Map<string, number>();
+    if (tenantIdsForDate.length) {
+      const mins = await this.prisma.commission.findMany({
+        where: {
+          status: { not: 'REJECTED' },
+          referralUse: { tenantId: { in: tenantIdsForDate } },
+        },
+        select: {
+          availableAt: true,
+          createdAt: true,
+          referralUse: { select: { tenantId: true } },
+        },
+      });
+      for (const m of mins) {
+        const tid = m.referralUse?.tenantId;
+        if (!tid) continue;
+        const ms = effAvail(m).getTime();
+        const cur = firstChargeMsByTenant.get(tid);
+        if (cur === undefined || ms < cur) firstChargeMsByTenant.set(tid, ms);
+      }
+    }
 
     // Base de comisión por tenant (precio real ?? canónico) para derivar el
     // % aplicado a cada comisión (amount / base). Una sola resolución por
@@ -734,10 +790,28 @@ export class AffiliateService {
             : null;
         const percent =
           snapPct ?? (base > 0 ? Math.round((amount / base) * 100) : null);
-        const daysRemaining = affiliateDaysRemaining(c.createdAt, c.status);
-        const availableAt = new Date(
-          new Date(c.createdAt).getTime() + AFFILIATE_HOLD_DAYS * 86400000,
-        );
+        // B3: usar el availableAt GUARDADO (igual que admin), no createdAt+hold,
+        // para que días restantes / próximo pago coincidan 100% con el panel admin.
+        const availableAt = effAvail(c);
+        const daysRemaining =
+          c.status === 'PENDING'
+            ? Math.max(
+                0,
+                Math.ceil((availableAt.getTime() - Date.now()) / 86400000),
+              )
+            : 0;
+        // C3: fecha de negocio (registro para la 1ª comisión, cobro real para
+        // las recompras).
+        const tenantForDate = c.referralUse?.tenant;
+        const firstMs = tenantForDate?.id
+          ? firstChargeMsByTenant.get(tenantForDate.id)
+          : undefined;
+        const commissionDate =
+          tenantForDate?.createdAt &&
+          firstMs !== undefined &&
+          availableAt.getTime() === firstMs
+            ? new Date(tenantForDate.createdAt)
+            : new Date(c.createdAt);
         return {
           id: c.id,
           amount,
@@ -745,7 +819,10 @@ export class AffiliateService {
           // % aplicado de la comisión sobre el pago del cliente (25, 5, etc).
           percent,
           createdAt: c.createdAt,
+          commissionDate,
           paidAt: c.paidAt,
+          // B2: id del negocio para agrupar/entrar (drill-in) por marca.
+          tenantId: c.referralUse?.tenant?.id ?? null,
           tenantBrand:
             c.referralUse?.tenant?.brandName ??
             (c.businessGroup?.name ? `Grupo: ${c.businessGroup.name}` : '—'),
@@ -1367,6 +1444,10 @@ function aggregateKpis(
   for (const u of uses) {
     if (u.status === 'PAYING' || u.status === 'ACTIVE') k.conversions += 1;
     for (const c of u.commissions ?? []) {
+      // PDF Soft(9) B1: las comisiones CANCELADAS (REJECTED) no cuentan en
+      // revenue/pending/paid del embajador (antes seguían sumando aunque el
+      // admin las anulara → el panel no reflejaba el cambio).
+      if (c.status === 'REJECTED') continue;
       // Si pasaron myCodeIds, filtramos: solo cuentan las commissions
       // cuyo recipient está en mi set. Backwards-compat con rows
       // legacy: si recipientCodeId es null (pre-3-way), aceptamos
