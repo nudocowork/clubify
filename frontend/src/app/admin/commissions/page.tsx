@@ -123,6 +123,106 @@ function fmtDate(d: string | null | undefined) {
   });
 }
 
+// PDF Soft(9): fila de un negocio SIN afiliado → asignar manualmente.
+function UnattributedRow({
+  row,
+  onDone,
+}: {
+  row: { tenantId: string; brandName: string; createdAt: string };
+  onDone: () => void;
+}) {
+  const [codeId, setCodeId] = useState('');
+  const [saving, setSaving] = useState(false);
+  async function assign() {
+    if (!codeId) {
+      toast('Elegí un afiliado', 'info');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api(`/admin/commissions/${row.tenantId}/assign-affiliate`, {
+        method: 'POST',
+        body: JSON.stringify({ codeId }),
+      });
+      toast('Afiliado asignado ✓', 'success');
+      onDone();
+    } catch (e: any) {
+      toast(e?.message ?? 'No se pudo asignar', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line2 bg-white px-3 py-2">
+      <div className="min-w-[140px] flex-1">
+        <div className="text-sm font-medium">{row.brandName}</div>
+        <div className="text-[10px] text-mute">{fmtDate(row.createdAt)}</div>
+      </div>
+      <div className="min-w-[220px] flex-1">
+        <AffiliatePickerSearch value={codeId} onChange={setCodeId} />
+      </div>
+      <button
+        onClick={assign}
+        disabled={saving || !codeId}
+        className="text-sm px-3 py-1.5 rounded-md bg-brand text-white disabled:opacity-50"
+      >
+        {saving ? '…' : 'Asignar'}
+      </button>
+    </div>
+  );
+}
+
+// PDF Soft(9): negocios que pagan Hotmart pero SIN afiliado → asignación manual.
+function UnattributedPanel() {
+  const [rows, setRows] = useState<
+    Array<{ tenantId: string; brandName: string; createdAt: string }>
+  >([]);
+  const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    api<Array<{ tenantId: string; brandName: string; createdAt: string }>>(
+      '/admin/commissions/unattributed',
+    )
+      .then((r) => setRows(r ?? []))
+      .catch(() => setRows([]))
+      .finally(() => setLoaded(true));
+  }, []);
+  if (!loaded || rows.length === 0) return null;
+  return (
+    <div className="card card-pad mb-4 border border-amber-200 bg-amber-50/40">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <span className="font-semibold text-amber-800">
+          ⚠️ Negocios sin afiliado ({rows.length})
+        </span>
+        <span className="text-xs text-amber-700">
+          {open ? '▲ ocultar' : '▼ asignar'}
+        </span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-mute">
+            Pagan suscripción Hotmart pero no tienen embajador/influencer
+            atribuido. Asignalos manualmente para que su comisión se genere en el
+            próximo cobro.
+          </p>
+          {rows.map((r) => (
+            <UnattributedRow
+              key={r.tenantId}
+              row={r}
+              onDone={() =>
+                setRows((x) => x.filter((y) => y.tenantId !== r.tenantId))
+              }
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminCommissionsPage() {
   const t = useTranslations('admin_commissions');
   const [data, setData] = useState<CommissionsResp | null>(null);
@@ -458,6 +558,9 @@ export default function AdminCommissionsPage() {
           </button>
         </div>
       </div>
+
+      {/* PDF Soft(9): negocios que pagan sin afiliado → asignación manual. */}
+      <UnattributedPanel />
 
       {/* Tabla */}
       <div className="card overflow-hidden p-0">

@@ -523,6 +523,79 @@ export class HotmartService {
     return null;
   }
 
+  /**
+   * PDF Soft(9): atribución ROBUSTA server-side de un negocio a su afiliado.
+   * Si el tenant NO tiene un ReferralUse de afiliado (INFLUENCER/AMBASSADOR/
+   * VENDOR), intenta recuperarlo del `src` que el checkout del afiliado envía a
+   * Hotmart (`?src=<CODE>`). Cubre los casos donde el ref se perdió en el cliente
+   * (otro dispositivo / incógnito / localStorage borrado) o donde el código
+   * estaba INACTIVO y el signup lo descartó silenciosamente (quedaba "landing").
+   * Registra la atribución AUNQUE el código esté inactivo (no la perdemos); la
+   * decisión de pagar/anular la comisión sigue el flujo/moderación normal.
+   * Idempotente: no hace nada si ya hay atribución (findFirst antes de crear;
+   * no hay unique compuesto en ReferralUse).
+   */
+  private async ensureAffiliateAttributionFromSrc(
+    tenantId: string,
+    payload: HotmartWebhookPayload,
+  ): Promise<void> {
+    const existing = await this.prisma.referralUse.findFirst({
+      where: {
+        tenantId,
+        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] } },
+      },
+      select: { id: true },
+    });
+    if (existing) return; // ya atribuido — no tocar
+
+    const tracking = payload.data?.purchase?.tracking;
+    const raw = (
+      tracking?.source ||
+      tracking?.source_sck ||
+      tracking?.sck ||
+      tracking?.external_code ||
+      ''
+    ).trim();
+    if (!raw) return;
+    // wl_<uuid> es atribución de MARCA (no de afiliado) → no aplica acá.
+    if (this.parseWlToken(raw)) return;
+
+    // El src del afiliado es su CODE (ej "CB2026"). Fallback: resolver por slug.
+    const code = raw.toUpperCase();
+    let ref = /^[A-Z0-9]{4,20}$/.test(code)
+      ? await this.prisma.referralCode.findUnique({
+          where: { code },
+          select: { id: true, isActive: true, ownerName: true, role: true },
+        })
+      : null;
+    if (!ref) {
+      ref = await this.prisma.referralCode.findFirst({
+        where: { slug: raw.toLowerCase() },
+        select: { id: true, isActive: true, ownerName: true, role: true },
+      });
+    }
+    if (!ref) return; // src no matchea ningún afiliado → queda sin atribuir
+
+    try {
+      await this.prisma.referralUse.create({
+        data: {
+          referralCodeId: ref.id,
+          tenantId,
+          status: 'PAYING',
+          utmSource: 'hotmart-src',
+        },
+      });
+      this.logger.log(
+        `[ATTR] atribución server-side desde src="${raw}" → ${ref.ownerName} ` +
+          `(${ref.role})${ref.isActive ? '' : ' [código INACTIVO]'} · tenant ${tenantId}`,
+      );
+    } catch (e) {
+      this.logger.warn(
+        `[ATTR] no se pudo crear ReferralUse desde src: ${(e as Error).message}`,
+      );
+    }
+  }
+
   async tryHandleCreditPurchase(
     payload: HotmartWebhookPayload,
     dryRun = false,
@@ -1137,6 +1210,18 @@ export class HotmartService {
         { gateway: 'HOTMART', renewal: !isFirstHotmartPurchase },
       )
       .catch(() => null);
+    // PDF Soft(9): ATRIBUCIÓN ROBUSTA server-side. Si el negocio no tiene
+    // afiliado (el ref se perdió en el cliente — otro dispositivo/incógnito — o
+    // el código estaba INACTIVO y el signup lo descartó silenciosamente → quedó
+    // como "landing"), lo recuperamos del `src` que el checkout del afiliado
+    // manda a Hotmart. Corre ANTES de generar la comisión para que los
+    // generadores encuentren el ReferralUse recién creado.
+    await this.ensureAffiliateAttributionFromSrc(tenant.id, payload).catch((e) =>
+      this.logger.warn(
+        `[ATTR] fallo atribución server-side: ${(e as Error).message}`,
+      ),
+    );
+
     // Generar la comisión recurrente del referido. Idempotente por
     // tx/período: si ya creamos una comisión para esta misma transacción
     // o en los últimos 25 días, skipea.

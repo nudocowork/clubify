@@ -5134,6 +5134,85 @@ export class ReferralsService {
       .sort((a, b) => a.brandName.localeCompare(b.brandName));
   }
 
+  /**
+   * PDF Soft(9): negocios que PAGAN Hotmart real (le pagan a Clubify) pero NO
+   * tienen afiliado atribuido → para asignación MANUAL del embajador/influencer
+   * (decisión del usuario para los sin-referido). Excluye marcas blancas
+   * (wl-), cortesía/manual/trial/campaña (no pagan a Clubify por Hotmart).
+   */
+  async listUnattributedBusinesses(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const isReal = (c: string | null | undefined) =>
+      !!c && !/^(comp-|trial-|manual-|wl-|sim-|campaign-)/i.test(c);
+    const tenants = await this.prisma.tenant.findMany({
+      where: { status: 'ACTIVE' },
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        createdAt: true,
+        hotmartSubscriberCode: true,
+        planPeriodicity: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const paying = tenants.filter((t) => isReal(t.hotmartSubscriberCode));
+    if (!paying.length) return [];
+    const attributed = await this.prisma.referralUse.findMany({
+      where: {
+        tenantId: { in: paying.map((t) => t.id) },
+        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] } },
+      },
+      select: { tenantId: true },
+    });
+    const attrSet = new Set(attributed.map((a) => a.tenantId));
+    return paying
+      .filter((t) => !attrSet.has(t.id))
+      .map((t) => ({
+        tenantId: t.id,
+        brandName: t.brandName,
+        status: t.status,
+        createdAt: t.createdAt,
+        planPeriodicity: t.planPeriodicity,
+      }));
+  }
+
+  /**
+   * PDF Soft(9): asigna MANUALMENTE un afiliado a un negocio (crea el
+   * ReferralUse). Para los negocios que quedaron sin atribución. Idempotente
+   * (findFirst antes de crear; no hay unique compuesto). Auditado. La comisión
+   * del ciclo actual/renovación la generará el webhook/cron normal.
+   */
+  async assignAffiliate(user: AuthUser, tenantId: string, codeId: string) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: codeId },
+      select: { id: true, code: true, ownerName: true, role: true },
+    });
+    if (!code) throw new NotFoundException('Código de afiliado no encontrado');
+    const existing = await this.prisma.referralUse.findFirst({
+      where: { referralCodeId: codeId, tenantId },
+      select: { id: true },
+    });
+    if (existing) return { ok: true, alreadyExisted: true };
+    await this.prisma.referralUse.create({
+      data: {
+        referralCodeId: codeId,
+        tenantId,
+        status: 'PAYING',
+        utmSource: 'manual-admin',
+      },
+    });
+    this.audit.log({
+      actorId: user.id,
+      tenantId,
+      action: 'commission.manual_attribution',
+      resource: `tenant:${tenantId}`,
+      metadata: { codeId, code: code.code, ownerName: code.ownerName, role: code.role },
+    });
+    return { ok: true };
+  }
+
   async listAdminCommissions(
     user: AuthUser,
     opts: {

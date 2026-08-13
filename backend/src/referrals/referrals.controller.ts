@@ -736,6 +736,23 @@ export class AdminCommissionsController {
     return this.svc.listCommissionBusinesses(user);
   }
 
+  // PDF Soft(9): negocios que pagan pero SIN afiliado (para asignación manual).
+  @Roles('SUPER_ADMIN')
+  @Get('unattributed')
+  unattributed(@CurrentUser() user: AuthUser) {
+    return this.svc.listUnattributedBusinesses(user);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post(':tenantId/assign-affiliate')
+  assignAffiliate(
+    @CurrentUser() user: AuthUser,
+    @Param('tenantId') tenantId: string,
+    @Body() body: { codeId: string },
+  ) {
+    return this.svc.assignAffiliate(user, tenantId, body.codeId);
+  }
+
   // Habilitar manual: adelanta el desbloqueo de una comisión en hold
   // (PENDING → APPROVED). Body opcional { reason }.
   @Roles('SUPER_ADMIN')
