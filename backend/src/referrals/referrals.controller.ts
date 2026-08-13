@@ -666,6 +666,24 @@ export class AdminCommissionsController {
     });
   }
 
+  // PDF Soft(9) A: Reporte por empresa para TeamClubify (mismo x-api-key que el
+  // feed). Filtros: periodicidad del plan + rango de fecha de registro.
+  @Public()
+  @Get('integration/company-report')
+  integrationCompanyReport(
+    @Headers('x-api-key') apiKey: string,
+    @Query('periodicity') periodicity?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const expected = process.env.TEAM_INTEGRATION_KEY;
+    if (!expected || apiKey !== expected) throw new UnauthorizedException();
+    return this.svc.companyAccountingReport(
+      { role: 'SUPER_ADMIN' } as AuthUser,
+      { periodicity, from, to },
+    );
+  }
+
   @Roles('SUPER_ADMIN')
   @Get()
   list(

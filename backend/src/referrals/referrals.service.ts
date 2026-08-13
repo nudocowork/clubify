@@ -5466,7 +5466,13 @@ export class ReferralsService {
    * % indirecto y % socio salen de Settings (referrals.indirectPercent=5,
    * referrals.socioPercent=10) para no hardcodear la regla de negocio.
    */
-  async companyAccountingReport(user: AuthUser) {
+  async companyAccountingReport(
+    user: AuthUser,
+    // PDF Soft(9) A2: filtros para el "Reporte por empresa" (TeamClubify):
+    // por periodicidad del plan (MENSUAL/TRIMESTRAL/SEMESTRAL/ANUAL) y por rango
+    // de fechas de registro del negocio (from/to, ISO YYYY-MM-DD).
+    opts: { periodicity?: string; from?: string; to?: string } = {},
+  ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
     const [indirectRow, socioRow] = await Promise.all([
@@ -5508,6 +5514,7 @@ export class ReferralsService {
             id: true,
             brandName: true,
             status: true,
+            createdAt: true,
             planPeriodicity: true,
             subscriptionPriceUsd: true,
             currentPeriodEnd: true,
@@ -5560,10 +5567,18 @@ export class ReferralsService {
 
     const round = (n: number) => Math.round(n * 100) / 100;
     const rows = [];
+    const fromMs = opts.from ? new Date(opts.from).getTime() : null;
+    const toMs = opts.to ? new Date(opts.to + 'T23:59:59').getTime() : null;
     for (const tid of tenantIds) {
       const u = byTenant.get(tid)!;
       const t = u.tenant!;
       const code = u.referralCode;
+      // PDF Soft(9) A2: filtros de periodicidad + rango de fecha de registro.
+      if (opts.periodicity && (t.planPeriodicity ?? null) !== opts.periodicity)
+        continue;
+      const regMs = t.createdAt ? new Date(t.createdAt).getTime() : null;
+      if (fromMs !== null && (regMs === null || regMs < fromMs)) continue;
+      if (toMs !== null && (regMs === null || regMs > toMs)) continue;
       // Base real (subscriptionPriceUsd) si la tenemos, sino canónica.
       const base = await this.recalc.getCommissionBase(
         t.subscriptionPriceUsd ?? null,
