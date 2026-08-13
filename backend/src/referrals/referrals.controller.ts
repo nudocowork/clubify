@@ -684,6 +684,19 @@ export class AdminCommissionsController {
     );
   }
 
+  // PDF Soft(9) A3: historial de pagos de un negocio para TeamClubify.
+  @Public()
+  @Get('integration/payment-history')
+  integrationPaymentHistory(
+    @Headers('x-api-key') apiKey: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    const expected = process.env.TEAM_INTEGRATION_KEY;
+    if (!expected || apiKey !== expected) throw new UnauthorizedException();
+    if (!tenantId) return { tenant: null, count: 0, payments: [] };
+    return this.svc.tenantPaymentHistory(tenantId);
+  }
+
   @Roles('SUPER_ADMIN')
   @Get()
   list(

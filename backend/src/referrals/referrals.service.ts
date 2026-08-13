@@ -5466,6 +5466,66 @@ export class ReferralsService {
    * % indirecto y % socio salen de Settings (referrals.indirectPercent=5,
    * referrals.socioPercent=10) para no hardcodear la regla de negocio.
    */
+  /**
+   * PDF Soft(9) A3: historial de PAGOS de suscripción de un negocio (recompras /
+   * cobros). Fuente: AuditLog de ciclo de vida (subscription.payment_succeeded /
+   * subscription.reactivated), que se escribe en cada cobro confirmado
+   * (Hotmart/Stripe/Cross). Para que el contador vea cuántos pagos hizo cada
+   * cliente y cuándo. Solo lectura.
+   */
+  async tenantPaymentHistory(tenantId: string) {
+    const [tenant, rows] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          brandName: true,
+          planPeriodicity: true,
+          status: true,
+          createdAt: true,
+          currentPeriodEnd: true,
+          lastChargeAt: true,
+        },
+      }),
+      this.prisma.auditLog.findMany({
+        where: {
+          tenantId,
+          action: {
+            in: ['subscription.payment_succeeded', 'subscription.reactivated'],
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true, action: true, metadata: true },
+        take: 300,
+      }),
+    ]);
+    return {
+      tenant: tenant
+        ? {
+            brandName: tenant.brandName,
+            planPeriodicity: tenant.planPeriodicity,
+            status: tenant.status,
+            registeredAt: tenant.createdAt,
+            currentPeriodEnd: tenant.currentPeriodEnd,
+            lastChargeAt: tenant.lastChargeAt,
+          }
+        : null,
+      count: rows.length,
+      payments: rows.map((r) => {
+        const meta = (r.metadata ?? {}) as Record<string, unknown>;
+        return {
+          date: r.createdAt,
+          gateway: (meta.gateway as string) ?? null,
+          // renewal=false → primera compra; true → recompra/renovación.
+          renewal: (meta.renewal as boolean) ?? null,
+          kind:
+            r.action === 'subscription.reactivated'
+              ? 'reactivación'
+              : 'pago',
+        };
+      }),
+    };
+  }
+
   async companyAccountingReport(
     user: AuthUser,
     // PDF Soft(9) A2: filtros para el "Reporte por empresa" (TeamClubify):
