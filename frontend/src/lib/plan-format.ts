@@ -66,7 +66,11 @@ export function planDisplayName(
   planName: string | null | undefined,
   periodicity: PlanPeriodicity | null | undefined,
 ): string {
-  // planName ya no se muestra: el plan ES la periodicidad.
+  // planName (Elite / Sin plan / Pro) ya no se muestra: el plan ES la
+  // periodicidad. La PERIODICIDAD MANDA — si el negocio se creó con una
+  // periodicidad, se muestra "Plan {Periodicidad}" aunque su Plan row sea
+  // "Sin plan" (PDF Soft 10 fix 2026-08-13: antes "Sin plan" tapaba la
+  // periodicidad). Solo sin periodicidad conocida → "Sin definir".
   void planName;
   if (periodicity) return `Plan ${periodLabel(periodicity)}`;
   return 'Sin definir';
