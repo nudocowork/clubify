@@ -369,6 +369,7 @@ export async function middleware(req: NextRequest) {
     url.pathname.startsWith('/login') ||
     url.pathname.startsWith('/signup') ||
     url.pathname.startsWith('/activar') ||
+    url.pathname.startsWith('/entrar') ||
     url.pathname.startsWith('/forgot') ||
     url.pathname.startsWith('/reset') ||
     url.pathname.startsWith('/scan') ||

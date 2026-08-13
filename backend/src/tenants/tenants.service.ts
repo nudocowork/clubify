@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  UnauthorizedException,
   Inject,
   forwardRef,
 } from '@nestjs/common';
@@ -298,7 +299,7 @@ export class TenantsService {
    * M5 (2026-06-04): MARKETING también puede impersonar — el rol se usa
    * para implementadores que configuran cuentas de clientes.
    */
-  async impersonate(tenantId: string, superAdminId: string) {
+  async impersonate(tenantId: string, superAdminId: string | null) {
     // Seguridad: findFirst (NO findUnique) → el middleware lo acota a la marca
     // del admin. Un admin de otra marca NO puede impersonar este negocio.
     const tenant = await this.prisma.tenant.findFirst({
@@ -341,7 +342,7 @@ export class TenantsService {
       email: owner.email,
       role: owner.role,
       tenantId: owner.tenantId,
-      impersonatedBy: superAdminId,
+      impersonatedBy: superAdminId ?? 'team-enter',
     };
     const accessToken = this.jwt.sign(payload);
 
@@ -352,11 +353,17 @@ export class TenantsService {
     // creció. Ahora cada inicio de impersonación queda registrado con
     // actor=adminId, tenant=target, action=tenant.impersonate.
     this.audit.log({
-      actorId: superAdminId,
+      // actorId es FK a User; el contador de TeamClubify no es un User de
+      // Clubify → null cuando la entrada viene del magic-link (A4).
+      actorId: superAdminId ?? undefined,
       tenantId: tenant.id,
       action: 'tenant.impersonate',
       resource: `tenant:${tenant.id}`,
-      metadata: { ownerImpersonated: owner.id, tenantSlug: tenant.slug },
+      metadata: {
+        ownerImpersonated: owner.id,
+        tenantSlug: tenant.slug,
+        via: superAdminId ? 'admin' : 'team-enter-link',
+      },
     });
 
     return {
@@ -383,6 +390,49 @@ export class TenantsService {
         iconUrl: tenant.whiteLabel?.iconUrl ?? null,
       },
     };
+  }
+
+  /**
+   * PDF Soft(9) A4: genera un magic-link de VIDA CORTA (15 min) para que el
+   * contador entre a un negocio desde TeamClubify. El token del URL NO es la
+   * sesión final: /entrar lo intercambia (enterExchange) por una sesión normal,
+   * así el link caduca en 15 min aunque la sesión siga viva. Firmado con el
+   * secreto JWT del backend (no falsificable) + marca kind:'enter'.
+   */
+  async mintEnterLink(tenantId: string): Promise<{ url: string }> {
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      select: { id: true },
+    });
+    if (!owner) {
+      throw new BadRequestException('El negocio no tiene un dueño activo.');
+    }
+    const token = this.jwt.sign(
+      { tenantId, kind: 'enter', by: 'team-accountant' },
+      { expiresIn: '15m' },
+    );
+    const base = process.env.CLUBIFY_APP_URL || 'https://soyclubify.com';
+    return { url: `${base}/entrar?t=${encodeURIComponent(token)}` };
+  }
+
+  /**
+   * PDF Soft(9) A4: intercambia el token corto del magic-link por una sesión de
+   * impersonación normal (mismo payload que /impersonate). Público: el token
+   * firmado ES la autorización. Rechaza si venció o no es un token 'enter'.
+   */
+  async enterExchange(token: string) {
+    let decoded: any;
+    try {
+      decoded = this.jwt.verify(token);
+    } catch {
+      throw new UnauthorizedException('El enlace es inválido o venció.');
+    }
+    if (!decoded || decoded.kind !== 'enter' || !decoded.tenantId) {
+      throw new UnauthorizedException('Enlace inválido.');
+    }
+    // Reutiliza impersonate (token de sesión normal + branding + auditoría).
+    // actor=null → queda auditado como via 'team-enter-link'.
+    return this.impersonate(decoded.tenantId, null);
   }
 
   /**

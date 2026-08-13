@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UnauthorizedException } from '@nestjs/common';
 import { IsArray, IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength } from 'class-validator';
 import { TenantsService } from './tenants.service';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { TenantStatus } from '@prisma/client';
 import { TenantLockGuard } from '../common/guards/tenant-lock.guard';
@@ -134,6 +135,28 @@ export class TenantsController {
     private svc: TenantsService,
     private lockGuard: TenantLockGuard,
   ) {}
+
+  // PDF Soft(9) A4: magic-link "entrar al negocio" para TeamClubify.
+  // Declarados ANTES de las rutas :id. @Public() salta RolesGuard; la auth es
+  // el x-api-key (link) / el token firmado (exchange).
+  @Public()
+  @Get('integration/enter-link')
+  enterLink(
+    @Headers('x-api-key') apiKey: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    const expected = process.env.TEAM_INTEGRATION_KEY;
+    if (!expected || apiKey !== expected) throw new UnauthorizedException();
+    if (!tenantId) throw new UnauthorizedException('tenantId requerido');
+    return this.svc.mintEnterLink(tenantId);
+  }
+
+  @Public()
+  @Post('enter-exchange')
+  enterExchange(@Body() body: { token?: string }) {
+    if (!body?.token) throw new UnauthorizedException('token requerido');
+    return this.svc.enterExchange(body.token);
+  }
 
   @Get()
   list(@CurrentUser() user: AuthUser) {
