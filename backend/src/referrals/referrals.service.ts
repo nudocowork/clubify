@@ -15,6 +15,8 @@ import { CommissionRecalcService } from './commission-recalc.service';
 import { AuditService } from '../audit/audit.service';
 import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
+import { recalcBatchTotal } from './payout-batch.util';
+import { bogotaYmd, daysBetweenYmd } from './cutoff-calendar';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -38,6 +40,20 @@ function effectiveAvailableAt(c: {
 }): Date {
   if (c.availableAt) return new Date(c.availableAt);
   return new Date(new Date(c.createdAt).getTime() + COMMISSION_HOLD_DAYS * 86400000);
+}
+
+// availableAt (desbloqueo del hold) = fecha del cobro + 15d. GUARD B6/R4
+// (2026-08-15): si `charge` (Tenant/Group.lastChargeAt) parece VIEJO (>2 días
+// atrás), es un lastChargeAt desactualizado (p.ej. un path que corre con la
+// fecha del PRIMER cobro) → el cobro real acaba de ocurrir, usamos AHORA. Así
+// availableAt nunca vuelve a nacer en el pasado (las 24 filas fantasma
+// 16-ene/16-abr que rompían la heurística de FECHA). +2d de gracia por delays
+// de webhook.
+function holdReleaseFrom(charge: Date | null | undefined): Date {
+  const now = Date.now();
+  const c = charge ? new Date(charge).getTime() : now;
+  const base = c >= now - 2 * 86400000 ? c : now;
+  return new Date(base + COMMISSION_HOLD_DAYS * 86400000);
 }
 
 // Días restantes hasta que una comisión se desbloquee (0 si ya está
@@ -476,10 +492,9 @@ export class ReferralsService {
               recipientCodeId,
               periodKey: monthKey(),
               // P3 2026-07-02: desbloqueo 15d después del pago real en Hotmart.
-              availableAt: new Date(
-                (use.tenant?.lastChargeAt ?? new Date()).getTime() +
-                  COMMISSION_HOLD_DAYS * 86400000,
-              ),
+              // GUARD B6/R4: clamp si lastChargeAt está viejo (este cron dead
+              // usaba la fecha del 1er cobro → availableAt fantasma).
+              availableAt: holdReleaseFrom(use.tenant?.lastChargeAt),
             },
           });
           created += 1;
@@ -811,6 +826,31 @@ export class ReferralsService {
           patch.markContacted === true ? new Date() : patch.markContacted === false ? null : undefined,
       },
     });
+  }
+
+  /** Edición MANUAL de la FECHA de negocio (columna FECHA del panel). La fuente
+   *  de verdad de la compra es EXTERNA (capturas del dueño); la fecha real no es
+   *  derivable de la DB (ver auditoría 2026-08-14), así que el super admin la
+   *  corrige acá. Acepta 'YYYY-MM-DD' (se guarda a las 12:00 America/Bogota =
+   *  17:00 UTC, para que el día calendario no se corra) o null (revierte a la
+   *  heurística). A diferencia del backfill, ESTE camino SÍ puede sobrescribir
+   *  (es corrección manual del dueño). */
+  async setCommissionBusinessDate(id: string, dateStr: string | null) {
+    let businessDate: Date | null = null;
+    if (dateStr) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr).trim());
+      if (!m) throw new BadRequestException('Fecha inválida (usa YYYY-MM-DD)');
+      businessDate = new Date(`${m[1]}-${m[2]}-${m[3]}T17:00:00.000Z`);
+      if (isNaN(businessDate.getTime())) {
+        throw new BadRequestException('Fecha inválida');
+      }
+    }
+    const row = await this.prisma.commission.update({
+      where: { id },
+      data: { businessDate },
+      select: { id: true, businessDate: true },
+    });
+    return { ok: true, id: row.id, businessDate: row.businessDate };
   }
 
   /**
@@ -4386,9 +4426,12 @@ export class ReferralsService {
       where: { id: args.tenantId },
       select: { lastChargeAt: true },
     });
-    const availableAt = new Date(
-      (tPay?.lastChargeAt ?? new Date()).getTime() + COMMISSION_HOLD_DAYS * 86400000,
-    );
+    const availableAt = holdReleaseFrom(tPay?.lastChargeAt);
+    // FECHA DURABLE (2026-08-14): fecha de negocio CONGELADA por comisión = la
+    // fecha del cobro real (lastChargeAt = approved_date de Hotmart). Para la 1ª
+    // comisión es la COMPRA; para recompras, la de esa renovación. Se persiste
+    // en Commission.businessDate y el panel la lee tal cual (sin heurística).
+    const businessDate = tPay?.lastChargeAt ?? new Date();
 
     const txId = args.hotmartTransactionId ?? null;
 
@@ -4434,6 +4477,7 @@ export class ReferralsService {
                 externalTxId: txId,
                 periodKey,
                 availableAt,
+                businessDate,
                 // Snapshot contable congelado (Fase 4). base = override manual
                 // del tenant o canónico del plan (nunca el monto crudo FX).
                 distributionMode: mode,
@@ -4522,9 +4566,8 @@ export class ReferralsService {
         status: 'PENDING',
         periodKey,
         // P3 2026-07-02: desbloqueo 15d después del cobro del grupo en Hotmart.
-        availableAt: new Date(
-          (group.lastChargeAt ?? now).getTime() + COMMISSION_HOLD_DAYS * 86400000,
-        ),
+        // GUARD B6/R4: clamp si group.lastChargeAt está viejo.
+        availableAt: holdReleaseFrom(group.lastChargeAt),
         hotmartTransactionId: args.hotmartTransactionId ?? null,
       },
     });
@@ -5218,6 +5261,13 @@ export class ReferralsService {
     opts: {
       dateFrom?: string;
       dateTo?: string;
+      // TIPO de fecha sobre la que operan el filtro Y la columna FECHA (brief
+      // PASO 5). 'purchase' = fecha de compra (businessDate, congelada) ·
+      // 'payment' = fecha de pago (paidAt) · 'batch' = lote de corte
+      // (payoutBatch.code). Default 'purchase' (la columna histórica).
+      dateType?: 'purchase' | 'payment' | 'batch';
+      // En dateType='batch': código del lote a filtrar (ej "CORTE-2026-06-30").
+      batchCode?: string;
       status?: 'PENDING' | 'PARTIAL' | 'PAID';
       // Bucket del CICLO DE VIDA de la comisión (≠ estado de pago):
       //  pending_approval = en hold (PENDING) · available = disponible para
@@ -5234,10 +5284,28 @@ export class ReferralsService {
     // reutilizan para el desglose por bucket (los KPIs muestran los 4
     // buckets sin importar cuál esté seleccionado en el filtro).
     const baseWhere: any = {};
-    if (opts.dateFrom || opts.dateTo) {
-      baseWhere.createdAt = {};
-      if (opts.dateFrom) baseWhere.createdAt.gte = new Date(opts.dateFrom);
-      if (opts.dateTo) baseWhere.createdAt.lte = new Date(opts.dateTo);
+    // Filtro por fecha/lote (brief PASO 2 + PASO 5). El filtro opera sobre el
+    // MISMO campo que muestra la columna FECHA según el tipo activo, para que
+    // filtro y columna nunca se contradigan:
+    //   purchase → businessDate (fecha de compra, congelada)
+    //   payment  → paidAt       (fecha real de la transferencia)
+    //   batch    → payoutBatch.code (lote de corte)
+    // BOUNDARY (PASO 2): "hasta" es INCLUSIVO del día completo y se ancla a
+    // America/Bogota (UTC-5, sin DST): fecha < (hasta + 1 día) en hora Bogotá.
+    // (Antes: lte new Date('YYYY-MM-DD') = medianoche UTC → excluía el día.)
+    const dateType = opts.dateType ?? 'purchase';
+    const bogotaDayStartUtc = (ymd: string) => new Date(`${ymd}T05:00:00.000Z`);
+    if (dateType === 'batch') {
+      if (opts.batchCode) baseWhere.payoutBatch = { code: opts.batchCode };
+    } else if (opts.dateFrom || opts.dateTo) {
+      const field = dateType === 'payment' ? 'paidAt' : 'businessDate';
+      const range: any = {};
+      if (opts.dateFrom) range.gte = bogotaDayStartUtc(opts.dateFrom);
+      if (opts.dateTo)
+        range.lt = new Date(
+          bogotaDayStartUtc(opts.dateTo).getTime() + 86_400_000,
+        );
+      baseWhere[field] = range;
     }
     if (opts.codeId) baseWhere.recipientCodeId = opts.codeId;
     if (opts.tenantId) baseWhere.referralUse = { tenantId: opts.tenantId };
@@ -5271,9 +5339,11 @@ export class ReferralsService {
               select: {
                 id: true,
                 brandName: true,
-                // PDF Soft(9) C3: fecha de registro del negocio = FECHA de su
-                // PRIMERA comisión.
+                // PDF Soft(9) C3: fecha de la PRIMERA comisión = fecha "de negocio".
+                // PDF Soft 10: si hay fecha REAL de compra (purchasedAt) manda sobre
+                // createdAt (createdAt puede ser semanas después si activó tarde).
                 createdAt: true,
+                purchasedAt: true,
                 planPeriodicity: true,
                 currentPeriodEnd: true,
                 plan: { select: { name: true } },
@@ -5295,6 +5365,14 @@ export class ReferralsService {
         },
         vendorCode: {
           select: { id: true, code: true, ownerName: true },
+        },
+        payoutBatch: {
+          select: {
+            code: true,
+            paymentDate: true,
+            cutoffDate: true,
+            kind: true,
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -5341,13 +5419,34 @@ export class ReferralsService {
       const firstMs = tenant?.id
         ? firstChargeMsByTenant.get(tenant.id)
         : undefined;
-      // Primera comisión (primer cobro del negocio) → fecha de REGISTRO.
-      if (tenant?.createdAt && firstMs !== undefined && chargeMs === firstMs) {
-        return new Date(tenant.createdAt);
+      // 1ª comisión (primer cobro del negocio) CON fecha de compra real
+      // conocida (Tenant.purchasedAt, PDF Soft 10) → esa. Es lo más preciso.
+      //   GUARD R1 (Fable 2026-08-14): solo si purchasedAt NO es muy posterior a
+      //   la 1ª comisión (<= createdAt+1d). Bug B (ya corregido) pudo estampar
+      //   una fecha de RENOVACIÓN en purchasedAt de negocios legacy; en ese caso
+      //   caemos a createdAt (la fecha del cobro real). Paridad con el backfill.
+      if (
+        tenant?.purchasedAt &&
+        firstMs !== undefined &&
+        chargeMs === firstMs &&
+        new Date(tenant.purchasedAt).getTime() <=
+          new Date(c.createdAt).getTime() + 86400000
+      ) {
+        return new Date(tenant.purchasedAt);
       }
-      // Recompras → fecha del cobro real ≈ createdAt (momento del webhook de
-      // Hotmart = pago). No usamos availableAt−hold porque el hold no siempre es
-      // exactamente 15d en los registros reales.
+      // Resto (recompras, y 1ª comisión SIN purchasedAt) → fecha del cobro real
+      // de ESTA comisión ≈ createdAt (webhook de Hotmart = pago).
+      //   FIX 2026-08-14 (R1/Fable): antes la 1ª comisión sin purchasedAt caía a
+      //   `tenant.createdAt` = fecha de REGISTRO de la cuenta, NO la de compra.
+      //   (a) Negocios que registraron en trial y pagaron después mostraban la
+      //       fecha equivocada (LICORES 26-jun en vez de 16-jul).
+      //   (b) Como "cuál es la 1ª" se recalcula por lectura, al anular una
+      //       comisión la fecha saltaba entre registro y webhook (Top Man
+      //       23↔27-jun). Usar SIEMPRE c.createdAt cuando no hay purchasedAt
+      //       elimina ambos: la fecha del cobro es estable por fila y ≈ compra.
+      //   Verificado en prod (dry-run 2026-08-14): los 48 negocios sin
+      //   purchasedAt NO matchean ningún PendingHotmartPayment → el backfill no
+      //   los recupera; su fecha de cobro real (createdAt) es la mejor fuente.
       return new Date(c.createdAt);
     };
 
@@ -5364,9 +5463,17 @@ export class ReferralsService {
         paymentStatus: c.paymentStatus,
         status: c.status,
         createdAt: c.createdAt,
-        // PDF Soft(9) C3: fecha "de negocio" (registro para la 1ª comisión,
-        // cobro real para las recompras). El front la usa como columna FECHA.
-        commissionDate: commissionBusinessDate(c),
+        // FECHA "de negocio" (columna FECHA del panel). FECHA DURABLE: si la
+        // fila tiene businessDate CONGELADO (filas nuevas + backfilleadas) se usa
+        // tal cual — estable entre renders. Filas viejas sin backfill → fallback
+        // a la heurística commissionBusinessDate().
+        commissionDate: c.businessDate
+          ? new Date(c.businessDate)
+          : commissionBusinessDate(c),
+        // Raw: si está seteada, la FECHA está CONGELADA (editada/curada); si es
+        // null, viene de la heurística. El panel lo usa para el indicador + el
+        // valor por defecto del editor de fecha.
+        businessDate: c.businessDate,
         // Fecha en que una comisión PENDING pasa a APPROVED (disponible para
         // pagar) = pago Hotmart + 15d (availableAt), fallback createdAt+15d.
         availableAt: effectiveAvailableAt(c),
@@ -5378,6 +5485,17 @@ export class ReferralsService {
           new Date(Math.max(Date.now(), effectiveAvailableAt(c).getTime())),
         ),
         paidAt: c.paidAt,
+        // Respaldo del paidAt anterior al corte (auditoría; ver PayoutBatch).
+        paidAtLegacy: c.paidAtLegacy,
+        // Lote de corte que liquidó esta comisión (brief PASO 5, filtro 'batch').
+        payoutBatch: c.payoutBatch
+          ? {
+              code: c.payoutBatch.code,
+              paymentDate: c.payoutBatch.paymentDate,
+              cutoffDate: c.payoutBatch.cutoffDate,
+              kind: c.payoutBatch.kind,
+            }
+          : null,
         notes: c.notes,
         hotmartTransactionId: c.hotmartTransactionId,
         tenant: c.referralUse?.tenant
@@ -5608,22 +5726,73 @@ export class ReferralsService {
   async companyAccountingReport(
     user: AuthUser,
     // PDF Soft(9) A2: filtros para el "Reporte por empresa" (TeamClubify):
-    // por periodicidad del plan (MENSUAL/TRIMESTRAL/SEMESTRAL/ANUAL) y por rango
-    // de fechas de registro del negocio (from/to, ISO YYYY-MM-DD).
-    opts: { periodicity?: string; from?: string; to?: string } = {},
+    // por periodicidad del plan (MENSUAL/TRIMESTRAL/SEMESTRAL/ANUAL), por rango
+    // de fechas de registro del negocio (from/to, ISO YYYY-MM-DD) y por estado
+    // del negocio (ACTIVE/TRIAL/SUSPENDED; vacío = todos).
+    opts: {
+      periodicity?: string;
+      from?: string;
+      to?: string;
+      status?: string;
+    } = {},
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
-    const [indirectRow, socioRow] = await Promise.all([
+    const [indirectRow, socioRow, ownBrand, brands] = await Promise.all([
       this.prisma.setting.findUnique({
         where: { key: 'referrals.indirectPercent' },
       }),
       this.prisma.setting.findUnique({
         where: { key: 'referrals.socioPercent' },
       }),
+      // Marca propia: la del admin de marca, o Clubify para el owner de
+      // plataforma. Los negocios de OTRAS marcas blancas se listan pero no
+      // facturan a Clubify (le pagan a su marca).
+      user.whiteLabelId
+        ? this.prisma.whiteLabel.findUnique({
+            where: { id: user.whiteLabelId },
+            select: { id: true },
+          })
+        : this.prisma.whiteLabel.findFirst({
+            where: { slug: 'clubify' },
+            select: { id: true },
+          }),
+      this.prisma.whiteLabel.findMany({ select: { id: true, name: true } }),
     ]);
     const indirectPct = indirectRow?.value ? Number(indirectRow.value) : 5;
     const socioPct = socioRow?.value ? Number(socioRow.value) : COMMISSION_DEFAULTS.socioPct;
+    const ownBrandId = ownBrand?.id ?? null;
+    const brandName = new Map(brands.map((b) => [b.id, b.name]));
+
+    // FIX 2026-08-13: el reporte parte del universo de NEGOCIOS, no de las
+    // atribuciones. Antes solo se listaban los tenants con afiliado Y con
+    // código Hotmart "real", así que quedaban invisibles ~20 negocios activos
+    // (altas con créditos de marca `wl-`, altas manuales, trials y los que
+    // pagan sin referido) — incluso algunos con comisiones ya registradas.
+    const STATUSES = ['ACTIVE', 'TRIAL', 'SUSPENDED'];
+    const wantedStatus = (opts.status || '').toUpperCase();
+    const tenants = await this.prisma.tenant.findMany({
+      // Aislamiento por marca: un admin de marca blanca ve solo sus negocios;
+      // el owner de plataforma (sin whiteLabelId) ve todos.
+      where: {
+        ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
+        ...(STATUSES.includes(wantedStatus)
+          ? { status: wantedStatus as any }
+          : {}),
+      },
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        createdAt: true,
+        planPeriodicity: true,
+        subscriptionPriceUsd: true,
+        currentPeriodEnd: true,
+        hotmartSubscriberCode: true,
+        whiteLabelId: true,
+        plan: { select: { name: true } },
+      },
+    });
 
     // Atribuciones DIRECTAS: un ReferralUse por tenant cuyo code es un
     // afiliado directo (embajador/influencer/vendor). Tras el fix 1:1 cada
@@ -5634,7 +5803,8 @@ export class ReferralsService {
         tenantId: { not: null },
         referralCode: { role: { in: ['AMBASSADOR', 'INFLUENCER', 'VENDOR'] } },
       },
-      include: {
+      select: {
+        tenantId: true,
         referralCode: {
           select: {
             id: true,
@@ -5648,93 +5818,112 @@ export class ReferralsService {
             },
           },
         },
-        tenant: {
-          select: {
-            id: true,
-            brandName: true,
-            status: true,
-            createdAt: true,
-            planPeriodicity: true,
-            subscriptionPriceUsd: true,
-            currentPeriodEnd: true,
-            hotmartSubscriberCode: true,
-            plan: { select: { name: true } },
-          },
-        },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    // El reporte por empresa muestra SOLO negocios con suscripción REAL de
-    // Hotmart (tienen identificador de suscripción). Excluimos los códigos
-    // manuales/cortesía/marca/simulación (comp-/trial-/manual-/wl-/sim-) que no
-    // representan un cobro real de Hotmart.
-    const isRealHotmartCode = (code: string | null | undefined) =>
-      !!code && !/^(comp-|trial-|manual-|wl-|sim-)/i.test(code);
-
-    // Dedup: una atribución (la más reciente) por tenant. Solo tenants con
-    // suscripción Hotmart real.
-    const byTenant = new Map<string, (typeof uses)[number]>();
+    // Dedup: una atribución (la más reciente) por tenant.
+    const codeByTenant = new Map<string, (typeof uses)[number]['referralCode']>();
     for (const u of uses) {
-      if (!u.tenantId || !u.tenant) continue;
-      if (!isRealHotmartCode(u.tenant.hotmartSubscriberCode)) continue;
-      if (!byTenant.has(u.tenantId)) byTenant.set(u.tenantId, u);
+      if (!u.tenantId || !u.referralCode) continue;
+      if (!codeByTenant.has(u.tenantId)) codeByTenant.set(u.tenantId, u.referralCode);
     }
-    const tenantIds = [...byTenant.keys()];
 
-    // Comisiones REGISTRADAS reales por tenant (lifetime, sin anuladas) para
-    // reconciliar esperado vs registrado. Una sola query, reduce en JS.
+    // Origen del cobro, deducido del identificador de suscripción. Solo
+    // Hotmart / alta con créditos de marca (`wl-`) / alta manual representan
+    // dinero que entra: trial, cortesía y tenants de sistema no facturan.
+    const cobroDe = (code: string | null | undefined) => {
+      const c = (code ?? '').trim();
+      if (!c) return 'SIN_COBRO';
+      if (/^trial-/i.test(c)) return 'TRIAL';
+      if (/^comp-/i.test(c)) return 'CORTESIA';
+      if (/^(campaign-|sim-)/i.test(c)) return 'SISTEMA';
+      if (/^manual-/i.test(c)) return 'MANUAL';
+      if (/^wl-/i.test(c)) return 'MARCA_BLANCA';
+      return 'HOTMART';
+    };
+    const COBRAN = new Set(['HOTMART', 'MARCA_BLANCA', 'MANUAL']);
+
+    const tenantIds = tenants.map((t) => t.id);
+
+    // Comisiones REGISTRADAS reales (lifetime, sin anuladas) para reconciliar
+    // esperado vs registrado. Brief PASO 6: se traen TODAS las no-rechazadas
+    // (LEFT JOIN, sin exigir `referralUse.tenantId`), no solo las atribuidas a un
+    // tenant. Antes el INNER JOIN `referralUse: { tenantId: { in } }` dejaba
+    // fuera la comisión de GRUPO EMPRESARIAL ($15, referralUseId=null) → el
+    // total registrado daba $1,176.65 en vez de $1,191.65. Ahora esas comisiones
+    // "sin empresa" se acumulan aparte y entran al total global.
+    const tenantIdSet = new Set(tenantIds);
     const recordedRows = await this.prisma.commission.findMany({
-      where: {
-        status: { not: CommissionStatus.REJECTED },
-        referralUse: { tenantId: { in: tenantIds } },
-      },
+      where: { status: { not: CommissionStatus.REJECTED } },
       select: {
         amount: true,
         referralUse: { select: { tenantId: true } },
       },
     });
     const recordedByTenant = new Map<string, { sum: number; count: number }>();
+    const recordedNoTenant = { sum: 0, count: 0 }; // grupo empresarial / sin tenant
     for (const r of recordedRows) {
       const tid = r.referralUse?.tenantId;
-      if (!tid) continue;
-      const cur = recordedByTenant.get(tid) ?? { sum: 0, count: 0 };
-      cur.sum += Number(r.amount);
-      cur.count += 1;
-      recordedByTenant.set(tid, cur);
+      if (tid && tenantIdSet.has(tid)) {
+        const cur = recordedByTenant.get(tid) ?? { sum: 0, count: 0 };
+        cur.sum += Number(r.amount);
+        cur.count += 1;
+        recordedByTenant.set(tid, cur);
+      } else if (!tid) {
+        recordedNoTenant.sum += Number(r.amount);
+        recordedNoTenant.count += 1;
+      }
     }
 
     const round = (n: number) => Math.round(n * 100) / 100;
     const rows = [];
-    const fromMs = opts.from ? new Date(opts.from).getTime() : null;
-    const toMs = opts.to ? new Date(opts.to + 'T23:59:59').getTime() : null;
-    for (const tid of tenantIds) {
-      const u = byTenant.get(tid)!;
-      const t = u.tenant!;
-      const code = u.referralCode;
+    // Boundary anclado a America/Bogota (UTC-5) e INCLUSIVO del día "to":
+    // regMs en [from 00:00 Bogotá, (to+1día) 00:00 Bogotá). (brief PASO 2)
+    const bogotaDayStartMs = (ymd: string) =>
+      new Date(`${ymd}T05:00:00.000Z`).getTime();
+    const fromMs = opts.from ? bogotaDayStartMs(opts.from) : null;
+    const toMs = opts.to ? bogotaDayStartMs(opts.to) + 86_400_000 : null;
+    for (const t of tenants) {
+      const tid = t.id;
+      const code = codeByTenant.get(tid) ?? null;
       // PDF Soft(9) A2: filtros de periodicidad + rango de fecha de registro.
       if (opts.periodicity && (t.planPeriodicity ?? null) !== opts.periodicity)
         continue;
       const regMs = t.createdAt ? new Date(t.createdAt).getTime() : null;
       if (fromMs !== null && (regMs === null || regMs < fromMs)) continue;
-      if (toMs !== null && (regMs === null || regMs > toMs)) continue;
-      // Base real (subscriptionPriceUsd) si la tenemos, sino canónica.
-      const base = await this.recalc.getCommissionBase(
-        t.subscriptionPriceUsd ?? null,
-        t.planPeriodicity ?? null,
-      );
+      if (toMs !== null && (regMs === null || regMs >= toMs)) continue;
+
+      const cobro = cobroDe(t.hotmartSubscriberCode);
+      // Negocio de OTRA marca blanca: le paga a su marca, no a nosotros.
+      const otraMarca =
+        !!t.whiteLabelId && !!ownBrandId && t.whiteLabelId !== ownBrandId;
+      const facturable = !otraMarca && COBRAN.has(cobro);
+
+      // Solo las empresas que facturan aportan base/comisiones/neto; el resto
+      // se lista en 0 (con su etiqueta de origen) para que el conteo de
+      // empresas sea real sin inflar la plata.
+      const base = facturable
+        ? await this.recalc.getCommissionBase(
+            t.subscriptionPriceUsd ?? null,
+            t.planPeriodicity ?? null,
+          )
+        : 0;
       const baseIsReal =
+        facturable &&
         Number.isFinite(Number(t.subscriptionPriceUsd)) &&
         Number(t.subscriptionPriceUsd) > 0;
 
-      const directPct = await this.resolveExceptionPercent(
-        tid,
-        code.id,
-        Number(code.commissionPercent ?? 0),
-      );
+      const directPct = code
+        ? await this.resolveExceptionPercent(
+            tid,
+            code.id,
+            Number(code.commissionPercent ?? 0),
+          )
+        : 0;
       const comisionDirecta = round((base * directPct) / 100);
 
-      const hasIndirect = code.role === 'AMBASSADOR' && !!code.parentCode;
+      const hasIndirect = !!code && code.role === 'AMBASSADOR' && !!code.parentCode;
       const comisionIndirecta = hasIndirect
         ? round((base * indirectPct) / 100)
         : 0;
@@ -5752,22 +5941,35 @@ export class ReferralsService {
         planName: t.plan?.name ?? null,
         planPeriodicity: t.planPeriodicity ?? null,
         currentPeriodEnd: t.currentPeriodEnd,
+        // Origen del cobro (HOTMART/MARCA_BLANCA/MANUAL/TRIAL/CORTESIA/
+        // SISTEMA/SIN_COBRO) y si aporta o no a los totales de facturación.
+        cobro,
+        facturable,
+        whiteLabelId: t.whiteLabelId ?? null,
+        whiteLabelName: t.whiteLabelId
+          ? brandName.get(t.whiteLabelId) ?? null
+          : null,
+        esOtraMarca: otraMarca,
         base,
         // true = base = precio REAL pagado en Hotmart; false = canónico
         // del bundle (estimado, marca "aprox" en la UI).
         baseIsReal,
-        afiliado: {
-          id: code.id,
-          code: code.code,
-          ownerName: code.ownerName,
-          role: code.role,
-          percent: directPct,
-        },
+        // null = negocio sin afiliado atribuido (se puede asignar a mano en
+        // /admin/commissions/unattributed).
+        afiliado: code
+          ? {
+              id: code.id,
+              code: code.code,
+              ownerName: code.ownerName,
+              role: code.role,
+              percent: directPct,
+            }
+          : null,
         influencer: hasIndirect
           ? {
-              id: code.parentCode!.id,
-              code: code.parentCode!.code,
-              ownerName: code.parentCode!.ownerName,
+              id: code!.parentCode!.id,
+              code: code!.parentCode!.code,
+              ownerName: code!.parentCode!.ownerName,
               percent: indirectPct,
             }
           : null,
@@ -5783,8 +5985,14 @@ export class ReferralsService {
       });
     }
 
-    // Orden: por base desc (las que más facturan arriba).
-    rows.sort((a, b) => b.base - a.base);
+    // Orden: primero las que facturan (por base desc), luego el resto por
+    // nombre — así el reporte económico se lee igual que antes.
+    rows.sort(
+      (a, b) =>
+        Number(b.facturable) - Number(a.facturable) ||
+        b.base - a.base ||
+        a.brandName.localeCompare(b.brandName),
+    );
 
     const totals = rows.reduce(
       (acc, r) => {
@@ -5806,17 +6014,33 @@ export class ReferralsService {
       },
     );
 
+    // Brief PASO 6: las comisiones "sin empresa" (grupo empresarial,
+    // referralUseId=null) entran al TOTAL registrado en la vista sin filtros
+    // (no cuelgan de un tenant ni de una periodicidad). Con filtro de
+    // periodicidad/fecha el reporte es por-empresa y no las incluye.
+    const includeNoTenant = !opts.periodicity && !opts.from && !opts.to;
+    const registradasTotal =
+      totals.registradas + (includeNoTenant ? recordedNoTenant.sum : 0);
+
     return {
       rows,
       totals: {
         companies: rows.length,
+        // Cuántas de esas aportan plata (el resto son trial/cortesía/sistema
+        // o negocios de otra marca blanca) y cuántas están sin afiliado.
+        companiesFacturables: rows.filter((r) => r.facturable).length,
+        companiesSinAfiliado: rows.filter((r) => !r.afiliado).length,
         base: round(totals.base),
         comisionDirecta: round(totals.comisionDirecta),
         comisionIndirecta: round(totals.comisionIndirecta),
         comisiones: round(totals.comisionDirecta + totals.comisionIndirecta),
         socio: round(totals.socio),
         neto: round(totals.neto),
-        registradas: round(totals.registradas),
+        registradas: round(registradasTotal),
+        // Comisiones registradas que no cuelgan de una empresa (grupo empresarial).
+        registradasSinEmpresa: includeNoTenant
+          ? round(recordedNoTenant.sum)
+          : 0,
       },
       indirectPercent: indirectPct,
       socioPercent: socioPct,
@@ -5957,7 +6181,15 @@ export class ReferralsService {
 
     const rows = await this.prisma.commission.findMany({
       where: {
-        paymentStatus: { in: ['PENDING', 'PARTIAL'] },
+        // Fase 1 (2026-08-14): excluir las CANCELADAS (status REJECTED) del
+        // universo. Antes el filtro era solo `paymentStatus IN
+        // (PENDING,PARTIAL)` → una comisión REJECTED cuyo paymentStatus seguía
+        // PENDING/PARTIAL entraba al total "a pagar" e inflaba la cifra
+        // ($927.55 en vez de $667.05). Ahora traemos TODAS las no-rechazadas
+        // para poder calcular también el HISTÓRICO PAGADO real (que incluye las
+        // PAID, antes excluidas → mostraba $0.00); el "outstanding" se acota por
+        // paymentStatus fila por fila más abajo.
+        status: { not: CommissionStatus.REJECTED },
         recipientCodeId: { not: null },
         ...(user.whiteLabelId
           ? { referralUse: { tenant: { whiteLabelId: user.whiteLabelId } } }
@@ -6001,18 +6233,16 @@ export class ReferralsService {
       const key = c.recipientCode.id;
       const amount = Number(c.amount);
       const paid = Number(c.amountPaid);
-      const outstanding = Math.max(0, amount - paid);
+      // "Outstanding" (a pagar) SOLO de las comisiones aún abiertas
+      // (PENDING/PARTIAL). Las PAID entran igual al universo pero solo suman al
+      // histórico pagado, no al outstanding.
+      const isOutstanding =
+        c.paymentStatus === 'PENDING' || c.paymentStatus === 'PARTIAL';
+      const outstanding = isOutstanding ? Math.max(0, amount - paid) : 0;
 
-      const cur = byRecipient.get(key);
-      if (cur) {
-        cur.commissionsCount += 1;
-        cur.totalOutstanding += outstanding;
-        cur.totalPaid += paid;
-        if (!cur.oldestPending || c.createdAt < cur.oldestPending) {
-          cur.oldestPending = c.createdAt;
-        }
-      } else {
-        byRecipient.set(key, {
+      let cur = byRecipient.get(key);
+      if (!cur) {
+        cur = {
           code: {
             id: c.recipientCode.id,
             code: c.recipientCode.code,
@@ -6021,16 +6251,38 @@ export class ReferralsService {
             ownerWhatsapp: c.recipientCode.ownerWhatsapp,
             role: c.recipientCode.role,
           },
-          commissionsCount: 1,
-          totalOutstanding: outstanding,
-          totalPaid: paid,
-          oldestPending: c.createdAt,
-        });
+          commissionsCount: 0,
+          totalOutstanding: 0,
+          totalPaid: 0,
+          oldestPending: null,
+        };
+        byRecipient.set(key, cur);
+      }
+      // Histórico pagado real: suma de amountPaid de TODAS las no-rechazadas
+      // (incluye las PAID) → antes daba $0.00 porque el query excluía las PAID.
+      cur.totalPaid += paid;
+      if (isOutstanding) {
+        cur.commissionsCount += 1;
+        cur.totalOutstanding += outstanding;
+        if (!cur.oldestPending || c.createdAt < cur.oldestPending) {
+          cur.oldestPending = c.createdAt;
+        }
       }
     }
 
     const round = (n: number) => Math.round(n * 100) / 100;
+    // Brief PASO 6: el HISTÓRICO PAGADO se calcula sobre TODOS los afiliados,
+    // no solo los que tienen pendientes. Antes el filtro `commissionsCount > 0`
+    // dejaba fuera a quienes ya tenían todo pagado (Santiago $75, Juan Camilo
+    // $15) → el total mostraba $419.60 en vez del real. Ahora incluimos a
+    // cualquiera con outstanding O con histórico pagado, y exponemos el total
+    // global aparte para el KPI.
+    const grandTotalPaid = Array.from(byRecipient.values()).reduce(
+      (acc, it) => acc + it.totalPaid,
+      0,
+    );
     const items = Array.from(byRecipient.values())
+      .filter((it) => it.commissionsCount > 0 || it.totalPaid > 0)
       .map((it) => ({
         codeId: it.code.id,
         code: it.code.code,
@@ -6046,12 +6298,18 @@ export class ReferralsService {
       .sort((a, b) => b.totalOutstanding - a.totalOutstanding);
 
     const grandTotal = items.reduce((acc, it) => acc + it.totalOutstanding, 0);
+    // Personas con algo pendiente (para el KPI "Personas pendientes", que no
+    // debe contar a quienes ya están 100% pagados y solo aparecen por histórico).
+    const pendingPeople = items.filter((it) => it.commissionsCount > 0).length;
 
     return {
       items,
       totals: {
         count: items.length,
+        pendingPeople,
         grandTotalOutstanding: round(grandTotal),
+        // Brief PASO 6: histórico pagado GLOBAL (todos los afiliados).
+        grandTotalPaid: round(grandTotalPaid),
       },
     };
   }
@@ -6069,7 +6327,13 @@ export class ReferralsService {
     user: AuthUser,
     codeId: string,
     note?: string,
-  ): Promise<{ ok: true; paidCount: number; totalPaid: number }> {
+    batchOpts?: { batchId?: string; cutoffDate?: string; paymentDate?: string },
+  ): Promise<{
+    ok: true;
+    paidCount: number;
+    totalPaid: number;
+    batchCode: string | null;
+  }> {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
     const code = await this.prisma.referralCode.findUnique({
@@ -6077,6 +6341,30 @@ export class ReferralsService {
       select: { id: true, ownerName: true },
     });
     if (!code) throw new NotFoundException('Código no encontrado');
+
+    // Brief PASO 6: pagar EXIGE un lote de corte, para que todo pago quede
+    // reproducible y con la fecha REAL de la transferencia (no "ahora"). Se
+    // acepta un lote existente (batchId) o los datos para crearlo. El lote se
+    // resuelve DESPUÉS de saber qué hay para pagar: con cortes automáticos, las
+    // comisiones ya vienen con lote propio y no hay que crear uno vacío.
+    const requestedBatch = batchOpts?.batchId
+      ? await this.prisma.payoutBatch.findUnique({
+          where: { id: batchOpts.batchId },
+        })
+      : null;
+    if (batchOpts?.batchId && !requestedBatch) {
+      throw new NotFoundException('Lote de corte no encontrado');
+    }
+    if (requestedBatch?.status === 'CLOSED') {
+      throw new BadRequestException(
+        `El corte ${requestedBatch.code} ya está cerrado. Reabrilo o elegí otro.`,
+      );
+    }
+    if (!requestedBatch && !(batchOpts?.cutoffDate && batchOpts?.paymentDate)) {
+      throw new BadRequestException(
+        'Se requiere un lote de corte: batchId, o cutoffDate + paymentDate.',
+      );
+    }
 
     const pending = await this.prisma.commission.findMany({
       where: {
@@ -6092,20 +6380,51 @@ export class ReferralsService {
         amount: true,
         amountPaid: true,
         notes: true,
+        payoutBatchId: true,
       },
     });
 
     if (pending.length === 0) {
-      return { ok: true, paidCount: 0, totalPaid: 0 };
+      return {
+        ok: true,
+        paidCount: 0,
+        totalPaid: 0,
+        batchCode: requestedBatch?.code ?? null,
+      };
     }
 
+    // Solo se crea/usa un lote nuevo si alguna comisión no tiene el suyo. Las
+    // que ya pertenecen a un corte NO se mueven: el corte es el registro de qué
+    // se liquidó junto, y moverlas vaciaría el corte abierto por la espalda.
+    const orphans = pending.filter((c) => !c.payoutBatchId);
+    const batch =
+      requestedBatch ??
+      (orphans.length
+        ? await this._createBatch({
+            cutoffDate: batchOpts!.cutoffDate!,
+            paymentDate: batchOpts!.paymentDate!,
+            // Alta manual con fecha real de transferencia = corte ya liquidado.
+            status: 'CLOSED',
+          })
+        : null);
+
     const stamp = new Date().toISOString().slice(0, 10);
+    const batchLabel = batch?.code ?? 'sin lote nuevo';
     const noteTxt = note?.trim()
-      ? `[${stamp}] Pago bulk: ${note.trim()}`
-      : `[${stamp}] Pago bulk a ${code.ownerName}`;
+      ? `[${stamp}] Pago (lote ${batchLabel}): ${note.trim()}`
+      : `[${stamp}] Pago a ${code.ownerName} · lote ${batchLabel}`;
 
     let totalPaid = 0;
-    const now = new Date();
+    // paidAt = fecha REAL de la transferencia. Prioridad: la fecha explícita
+    // del request → la del lote (cortes históricos ya cerrados) → hoy. Un corte
+    // ABIERTO tiene paymentDate null, así que nunca se estampa un paidAt vacío.
+    const paidAt = batchOpts?.paymentDate
+      ? new Date(`${batchOpts.paymentDate}T17:00:00.000Z`)
+      : batch?.paymentDate
+        ? new Date(batch.paymentDate)
+        : new Date();
+
+    const touchedBatches = new Set<string>();
 
     await this.prisma.$transaction(async (tx) => {
       for (const c of pending) {
@@ -6116,6 +6435,8 @@ export class ReferralsService {
         totalPaid += outstanding;
 
         const nextNotes = c.notes ? `${c.notes}\n${noteTxt}` : noteTxt;
+        const targetBatchId = c.payoutBatchId ?? batch?.id ?? null;
+        if (targetBatchId) touchedBatches.add(targetBatchId);
 
         await tx.commission.update({
           where: { id: c.id },
@@ -6123,18 +6444,125 @@ export class ReferralsService {
             amountPaid: amount,
             paymentStatus: 'PAID',
             status: 'PAID' as CommissionStatus,
-            paidAt: now,
+            paidAt,
+            payoutBatchId: targetBatchId,
             notes: nextNotes,
           },
         });
       }
+      // Total del lote = suma de lo que contiene (no un increment ciego).
+      for (const bid of touchedBatches) await recalcBatchTotal(tx, bid);
     });
 
     return {
       ok: true,
       paidCount: pending.length,
       totalPaid: Math.round(totalPaid * 100) / 100,
+      batchCode: batch?.code ?? null,
     };
+  }
+
+  // ── LOTES DE CORTE (PayoutBatch) — brief PASO 3/5/6 ─────────────────────────
+  // Fecha de un lote almacenada a las 12:00 de Bogotá (17:00 UTC) para que su
+  // día calendario nunca cambie por zona horaria.
+  private batchYmdToDate(ymd: string): Date {
+    return new Date(`${ymd}T17:00:00.000Z`);
+  }
+
+  private async _createBatch(data: {
+    cutoffDate: string;
+    paymentDate?: string;
+    code?: string;
+    kind?: string;
+    notes?: string;
+    status?: 'OPEN' | 'CLOSED';
+  }) {
+    const code = data.code?.trim() || `CORTE-${data.cutoffDate}`;
+    const kind = data.kind === 'ADJUSTMENT' ? 'ADJUSTMENT' : 'CORTE';
+    // Un alta manual CON fecha real de transferencia es un corte ya liquidado
+    // (así se registraron los 3 históricos) → nace CERRADO. Sin fecha de pago,
+    // es un corte por liquidar → ABIERTO, y lo cierra una persona.
+    const status = data.status ?? (data.paymentDate ? 'CLOSED' : 'OPEN');
+    // Upsert por código → idempotente (crear el mismo corte no duplica).
+    return this.prisma.payoutBatch.upsert({
+      where: { code },
+      update: {},
+      create: {
+        code,
+        cutoffDate: this.batchYmdToDate(data.cutoffDate),
+        paymentDate: data.paymentDate
+          ? this.batchYmdToDate(data.paymentDate)
+          : null,
+        kind: kind as any,
+        status: status as any,
+        closedAt:
+          status === 'CLOSED' && data.paymentDate
+            ? this.batchYmdToDate(data.paymentDate)
+            : null,
+        generatedAuto: false,
+        notes: data.notes ?? null,
+      },
+    });
+  }
+
+  async createPayoutBatch(
+    user: AuthUser,
+    body: {
+      cutoffDate: string;
+      paymentDate?: string;
+      code?: string;
+      kind?: string;
+      notes?: string;
+    },
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!body.cutoffDate) {
+      throw new BadRequestException('cutoffDate es obligatorio.');
+    }
+    return this._createBatch(body);
+  }
+
+  async listPayoutBatches(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const batches = await this.prisma.payoutBatch.findMany({
+      // Los abiertos primero (son los que hay que atender); dentro de cada
+      // grupo, el más reciente arriba. `paymentDate` es null en los abiertos,
+      // así que el orden real lo da cutoffDate.
+      orderBy: [{ status: 'asc' }, { cutoffDate: 'desc' }],
+      include: {
+        _count: { select: { commissions: true } },
+        closedBy: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+    const today = bogotaYmd();
+    return batches.map((b) => {
+      const daysOpen =
+        b.status === 'OPEN' ? daysBetweenYmd(bogotaYmd(b.cutoffDate), today) : 0;
+      return {
+        id: b.id,
+        code: b.code,
+        cutoffDate: b.cutoffDate,
+        periodStart: b.periodStart,
+        periodEnd: b.periodEnd,
+        paymentDate: b.paymentDate,
+        kind: b.kind,
+        status: b.status,
+        totalUsd: Number(b.totalUsd),
+        currency: b.currency,
+        notes: b.notes,
+        reference: b.reference,
+        generatedAuto: b.generatedAuto,
+        closedAt: b.closedAt,
+        closedBy: b.closedBy
+          ? { id: b.closedBy.id, name: b.closedBy.fullName, email: b.closedBy.email }
+          : null,
+        commissionsCount: b._count.commissions,
+        daysOpen,
+        // Un corte abierto hace más de 5 días: o nadie transfirió, o alguien
+        // transfirió y no lo registró (el caso del 31/07).
+        isStale: b.status === 'OPEN' && daysOpen > 5,
+      };
+    });
   }
 }
 

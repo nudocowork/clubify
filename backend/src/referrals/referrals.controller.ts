@@ -3,6 +3,7 @@ import { Throttle } from '@nestjs/throttler';
 import { IsBoolean, IsEmail, IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { CommissionStatus } from '@prisma/client';
 import { ReferralsService } from './referrals.service';
+import { CutoffService } from './cutoff.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
@@ -119,6 +120,54 @@ class PayCommissionBody {
 class PayoutByPersonBody {
   @IsString() codeId!: string;
   @IsOptional() @IsString() note?: string;
+  // Brief PASO 6: pagar exige un LOTE DE CORTE. batchId de un PayoutBatch
+  // existente, o los datos para crearlo al vuelo (cutoffDate/paymentDate).
+  @IsOptional() @IsString() batchId?: string;
+  @IsOptional() @IsString() cutoffDate?: string;
+  @IsOptional() @IsString() paymentDate?: string;
+}
+
+class CreatePayoutBatchBody {
+  // cutoffDate = hasta cuándo acumuló · paymentDate = fecha real de la
+  // transferencia (YYYY-MM-DD). code opcional (se deriva de cutoffDate).
+  // Sin paymentDate el corte nace ABIERTO (todavía no salió plata).
+  @IsString() cutoffDate!: string;
+  @IsOptional() @IsString() paymentDate?: string;
+  @IsOptional() @IsString() code?: string;
+  @IsOptional() @IsString() kind?: string;
+  @IsOptional() @IsString() notes?: string;
+}
+
+// ── CORTES AUTOMÁTICOS (2026-08-15) ─────────────────────────────────────────
+// Mismo hoisting que los DTOs de arriba (temporal dead zone de los @Body()).
+
+class GenerateCutoffBody {
+  // Fecha del corte a generar (YYYY-MM-DD, tiene que ser 15 o último del mes).
+  // Sin valor = ayer, que es lo que haría el cron.
+  @IsOptional() @IsString() ymd?: string;
+}
+
+class CloseBatchBody {
+  // Fecha REAL en que salió la transferencia. Puede diferir de la del corte.
+  @IsString() paymentDate!: string;
+  @IsOptional() @IsString() @MaxLength(120) reference?: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+}
+
+class ReopenBatchBody {
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
+}
+
+class PayBulkBody {
+  @IsString({ each: true }) commissionIds!: string[];
+  @IsString() paymentDate!: string;
+  @IsOptional() @IsString() @MaxLength(500) note?: string;
+  @IsOptional() @IsString() @MaxLength(120) reference?: string;
+}
+
+class UnpayBulkBody {
+  @IsString({ each: true }) commissionIds!: string[];
+  @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
 @Controller('referrals')
@@ -469,6 +518,19 @@ export class ReferralsController {
     return this.svc.setCommissionNotes(id, body);
   }
 
+  // Edición MANUAL de la FECHA de negocio (columna FECHA). La fuente de verdad
+  // de la compra es externa (capturas del dueño), así que el super admin puede
+  // fijar/corregir businessDate por comisión. `businessDate` = 'YYYY-MM-DD' o
+  // null (revierte a la heurística).
+  @Roles('SUPER_ADMIN')
+  @Patch('commissions/:id/business-date')
+  setBusinessDate(
+    @Param('id') id: string,
+    @Body() body: { businessDate?: string | null },
+  ) {
+    return this.svc.setCommissionBusinessDate(id, body.businessDate ?? null);
+  }
+
   /**
    * Asignación manual de un tenant existente a un ReferralCode
    * (influencer/embajador). El super admin lo usa desde la página del
@@ -635,7 +697,10 @@ export class ReferralsController {
 // claramente el dominio de "panel admin contable" del de "afiliados".
 @Controller('admin/commissions')
 export class AdminCommissionsController {
-  constructor(private svc: ReferralsService) {}
+  constructor(
+    private svc: ReferralsService,
+    private cutoff: CutoffService,
+  ) {}
 
   // ── Integración Team Clubify (lectura) ──────────────────────────────────────
   // Endpoint server-to-server protegido por API key (header x-api-key ==
@@ -647,6 +712,8 @@ export class AdminCommissionsController {
     @Headers('x-api-key') apiKey: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('dateType') dateType?: string,
+    @Query('batchCode') batchCode?: string,
     @Query('status') status?: string,
     @Query('bucket') bucket?: string,
     @Query('role') role?: string,
@@ -658,6 +725,8 @@ export class AdminCommissionsController {
     return this.svc.listAdminCommissions({ role: 'SUPER_ADMIN' } as AuthUser, {
       dateFrom,
       dateTo,
+      dateType: dateType as any,
+      batchCode,
       status: status as any,
       bucket: bucket as any,
       role: role as any,
@@ -675,12 +744,13 @@ export class AdminCommissionsController {
     @Query('periodicity') periodicity?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('status') status?: string,
   ) {
     const expected = process.env.TEAM_INTEGRATION_KEY;
     if (!expected || apiKey !== expected) throw new UnauthorizedException();
     return this.svc.companyAccountingReport(
       { role: 'SUPER_ADMIN' } as AuthUser,
-      { periodicity, from, to },
+      { periodicity, from, to, status },
     );
   }
 
@@ -703,6 +773,8 @@ export class AdminCommissionsController {
     @CurrentUser() user: AuthUser,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('dateType') dateType?: string,
+    @Query('batchCode') batchCode?: string,
     @Query('status') status?: string,
     @Query('bucket') bucket?: string,
     @Query('role') role?: string,
@@ -712,6 +784,8 @@ export class AdminCommissionsController {
     return this.svc.listAdminCommissions(user, {
       dateFrom,
       dateTo,
+      dateType: dateType as any,
+      batchCode,
       status: status as any,
       bucket: bucket as any,
       role: role as any,
@@ -724,8 +798,19 @@ export class AdminCommissionsController {
   // neto a la empresa (aprox) + reconciliación vs comisiones registradas.
   @Roles('SUPER_ADMIN')
   @Get('company-report')
-  companyReport(@CurrentUser() user: AuthUser) {
-    return this.svc.companyAccountingReport(user);
+  companyReport(
+    @CurrentUser() user: AuthUser,
+    @Query('periodicity') periodicity?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.svc.companyAccountingReport(user, {
+      periodicity,
+      from,
+      to,
+      status,
+    });
   }
 
   // PDF Soft(9) C5: lista completa de negocios con comisiones para el filtro
@@ -787,7 +872,91 @@ export class AdminCommissionsController {
     @CurrentUser() user: AuthUser,
     @Body() body: PayoutByPersonBody,
   ) {
-    return this.svc.payAllForPerson(user, body.codeId, body.note);
+    return this.svc.payAllForPerson(user, body.codeId, body.note, {
+      batchId: body.batchId,
+      cutoffDate: body.cutoffDate,
+      paymentDate: body.paymentDate,
+    });
+  }
+
+  // ── LOTES DE CORTE (PayoutBatch) — brief PASO 3/5/6 ──────────────────────
+  @Roles('SUPER_ADMIN')
+  @Get('payout-batches')
+  listPayoutBatches(@CurrentUser() user: AuthUser) {
+    return this.svc.listPayoutBatches(user);
+  }
+
+  @Roles('SUPER_ADMIN')
+  @Post('payout-batches')
+  createPayoutBatch(
+    @CurrentUser() user: AuthUser,
+    @Body() body: CreatePayoutBatchBody,
+  ) {
+    return this.svc.createPayoutBatch(user, body);
+  }
+
+  // ── CORTES AUTOMÁTICOS ────────────────────────────────────────────────────
+  // El cron abre el corte el 15 y el último día de cada mes; estos endpoints
+  // son para verlo, cerrarlo (confirmar la transferencia) y revertir.
+
+  /** Todo lo que necesita la pestaña "Corte actual", sin filtros. */
+  @Roles('SUPER_ADMIN')
+  @Get('current-cutoff')
+  currentCutoff(@CurrentUser() user: AuthUser) {
+    return this.cutoff.currentCutoff(user);
+  }
+
+  /** Disparo manual del generador (normalmente lo hace el cron). */
+  @Roles('SUPER_ADMIN')
+  @Post('cutoffs/generate')
+  generateCutoff(
+    @CurrentUser() user: AuthUser,
+    @Body() body: GenerateCutoffBody,
+  ) {
+    return this.cutoff.generateCutoffManual(user, body?.ymd);
+  }
+
+  /** Detalle de un corte (drill-in del historial + export CSV). */
+  @Roles('SUPER_ADMIN')
+  @Get('payout-batches/:id')
+  batchDetail(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.cutoff.batchDetail(user, id);
+  }
+
+  /** Cerrar = confirmar que la transferencia salió. Lo hace una PERSONA. */
+  @Roles('SUPER_ADMIN')
+  @Post('payout-batches/:id/close')
+  closeBatch(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: CloseBatchBody,
+  ) {
+    return this.cutoff.closeBatch(user, id, body);
+  }
+
+  /** Deshacer el cierre (la transferencia no salió / fecha mal registrada). */
+  @Roles('SUPER_ADMIN')
+  @Post('payout-batches/:id/reopen')
+  reopenBatch(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: ReopenBatchBody,
+  ) {
+    return this.cutoff.reopenBatch(user, id, body);
+  }
+
+  /** Marcar varias comisiones como pagadas en una sola acción. */
+  @Roles('SUPER_ADMIN')
+  @Post('pay-bulk')
+  payBulk(@CurrentUser() user: AuthUser, @Body() body: PayBulkBody) {
+    return this.cutoff.payBulk(user, body);
+  }
+
+  /** Deshacer un marcado en bloque. */
+  @Roles('SUPER_ADMIN')
+  @Post('unpay-bulk')
+  unpayBulk(@CurrentUser() user: AuthUser, @Body() body: UnpayBulkBody) {
+    return this.cutoff.unpayBulk(user, body);
   }
 }
 

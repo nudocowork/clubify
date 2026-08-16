@@ -13,6 +13,17 @@ type Afiliado = {
   percent: number;
 };
 
+// Origen del cobro del negocio (de dónde sale la plata). Solo HOTMART /
+// MARCA_BLANCA (alta con créditos) / MANUAL facturan; el resto se lista en 0.
+type Cobro =
+  | 'HOTMART'
+  | 'MARCA_BLANCA'
+  | 'MANUAL'
+  | 'TRIAL'
+  | 'CORTESIA'
+  | 'SISTEMA'
+  | 'SIN_COBRO';
+
 type ReportRow = {
   tenantId: string;
   brandName: string;
@@ -20,9 +31,13 @@ type ReportRow = {
   planName: string | null;
   planPeriodicity: string | null;
   currentPeriodEnd: string | null;
+  cobro: Cobro;
+  facturable: boolean;
+  whiteLabelName: string | null;
+  esOtraMarca: boolean;
   base: number;
   baseIsReal: boolean;
-  afiliado: Afiliado;
+  afiliado: Afiliado | null;
   influencer: {
     id: string;
     code: string;
@@ -43,6 +58,8 @@ type ReportResp = {
   rows: ReportRow[];
   totals: {
     companies: number;
+    companiesFacturables: number;
+    companiesSinAfiliado: number;
     base: number;
     comisionDirecta: number;
     comisionIndirecta: number;
@@ -69,6 +86,24 @@ const PERIOD_LABEL_KEY: Record<string, string> = {
   ANUAL: 'periodAnnual',
 };
 
+const COBRO_LABEL_KEY: Record<string, string> = {
+  HOTMART: 'cobroHotmart',
+  MARCA_BLANCA: 'cobroBrandCredits',
+  MANUAL: 'cobroManual',
+  TRIAL: 'cobroTrial',
+  CORTESIA: 'cobroComp',
+  SISTEMA: 'cobroSystem',
+  SIN_COBRO: 'cobroNone',
+};
+
+const STATUS_FILTERS = ['', 'ACTIVE', 'TRIAL', 'SUSPENDED'] as const;
+const STATUS_FILTER_KEY: Record<string, string> = {
+  '': 'statusAll',
+  ACTIVE: 'statusActive',
+  TRIAL: 'statusTrial',
+  SUSPENDED: 'statusSuspended',
+};
+
 const usd = (n: number) =>
   `$${n.toLocaleString('en-US', {
     minimumFractionDigits: 2,
@@ -80,11 +115,19 @@ export default function CompanyReportPage() {
   const [data, setData] = useState<ReportResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
+  // FIX 2026-08-13: el reporte lista TODOS los negocios (antes solo los que
+  // tenían afiliado + cobro Hotmart real). Filtro por estado, sin filtro = todos.
+  const [status, setStatus] = useState('');
+  const [onlyBillable, setOnlyBillable] = useState(false);
 
-  async function load() {
+  async function load(st: string) {
     setLoading(true);
     try {
-      setData(await api<ReportResp>('/admin/commissions/company-report'));
+      setData(
+        await api<ReportResp>(
+          `/admin/commissions/company-report${st ? `?status=${st}` : ''}`,
+        ),
+      );
     } catch (e: any) {
       toast(e?.message ?? t('errorLoading'), 'error');
     } finally {
@@ -93,30 +136,33 @@ export default function CompanyReportPage() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    load(status);
+  }, [status]);
 
   const rows = useMemo(() => {
     const all = data?.rows ?? [];
+    const base = onlyBillable ? all.filter((r) => r.facturable) : all;
     const term = q.trim().toLowerCase();
-    if (!term) return all;
-    return all.filter((r) =>
-      `${r.brandName} ${r.afiliado.ownerName} ${r.afiliado.code} ${
+    if (!term) return base;
+    return base.filter((r) =>
+      `${r.brandName} ${r.afiliado?.ownerName ?? ''} ${r.afiliado?.code ?? ''} ${
         r.influencer?.ownerName ?? ''
       }`
         .toLowerCase()
         .includes(term),
     );
-  }, [data, q]);
+  }, [data, q, onlyBillable]);
 
   function exportCsv() {
-    if (!data?.rows.length) {
+    if (!rows.length) {
       toast(t('noRowsToExport'), 'info');
       return;
     }
     const headers = [
       t('csvCompany'),
       t('csvStatus'),
+      t('csvCobro'),
+      t('csvBrand'),
       t('csvPlan'),
       t('csvPeriodicity'),
       t('csvCustomerPayment'),
@@ -135,17 +181,27 @@ export default function CompanyReportPage() {
       t('csvRegisteredCommissions'),
       t('csvRegisteredCount'),
     ];
-    const csvRows = data.rows.map((r) => [
+    const csvRows = rows.map((r) => [
       r.brandName,
       r.status,
+      t(COBRO_LABEL_KEY[r.cobro] ?? 'cobroNone'),
+      r.whiteLabelName ?? '',
       r.planName ?? '',
       r.planPeriodicity ?? '',
       r.base.toFixed(2),
-      r.baseIsReal ? t('baseReal') : t('baseApprox'),
-      r.afiliado.ownerName,
-      t(ROLE_LABEL_KEY[r.afiliado.role] ?? 'roleUnknown', { role: r.afiliado.role }),
-      r.afiliado.code,
-      r.afiliado.percent.toFixed(2),
+      r.facturable
+        ? r.baseIsReal
+          ? t('baseReal')
+          : t('baseApprox')
+        : t('baseNotBillable'),
+      r.afiliado?.ownerName ?? '',
+      r.afiliado
+        ? t(ROLE_LABEL_KEY[r.afiliado.role] ?? 'roleUnknown', {
+            role: r.afiliado.role,
+          })
+        : '',
+      r.afiliado?.code ?? '',
+      (r.afiliado?.percent ?? 0).toFixed(2),
       r.comisionDirecta.toFixed(2),
       r.influencer?.ownerName ?? '',
       r.influencer ? r.influencer.percent.toFixed(2) : '',
@@ -219,6 +275,14 @@ export default function CompanyReportPage() {
           label={t('kpiCompanies')}
           value={totals ? String(totals.companies) : '—'}
           tone="slate"
+          sub={
+            totals
+              ? t('kpiCompaniesSub', {
+                  billable: totals.companiesFacturables,
+                  noAffiliate: totals.companiesSinAfiliado,
+                })
+              : undefined
+          }
         />
         <KpiCard
           label={t('kpiCustomerPaymentPerCycle')}
@@ -250,12 +314,34 @@ export default function CompanyReportPage() {
         />
       </div>
 
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder={t('searchPlaceholder')}
-        className="w-full md:w-80 mb-4 px-3.5 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand/30"
-      />
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={t('searchPlaceholder')}
+          className="w-full md:w-80 px-3.5 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand/30"
+        />
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+          className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-brand/30"
+        >
+          {STATUS_FILTERS.map((s) => (
+            <option key={s} value={s}>
+              {t(STATUS_FILTER_KEY[s])}
+            </option>
+          ))}
+        </select>
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            checked={onlyBillable}
+            onChange={(e) => setOnlyBillable(e.target.checked)}
+            className="h-4 w-4"
+          />
+          {t('onlyBillable')}
+        </label>
+      </div>
 
       {loading ? (
         <div className="text-sm text-slate-400 py-10 text-center">
@@ -263,7 +349,7 @@ export default function CompanyReportPage() {
         </div>
       ) : rows.length === 0 ? (
         <div className="text-sm text-slate-400 py-10 text-center">
-          {t('emptyNoAttribution')}
+          {t('emptyNoRows')}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
@@ -293,11 +379,25 @@ export default function CompanyReportPage() {
                     <div className="font-semibold text-slate-800">
                       {r.brandName}
                     </div>
-                    {r.status !== 'ACTIVE' && (
-                      <span className="text-[11px] text-amber-600">
-                        {r.status}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {r.status !== 'ACTIVE' && (
+                        <span className="text-[11px] text-amber-600">
+                          {r.status}
+                        </span>
+                      )}
+                      <span
+                        className={`text-[11px] ${
+                          r.facturable ? 'text-slate-400' : 'text-slate-500'
+                        }`}
+                      >
+                        {t(COBRO_LABEL_KEY[r.cobro] ?? 'cobroNone')}
                       </span>
-                    )}
+                      {r.esOtraMarca && r.whiteLabelName && (
+                        <span className="text-[11px] px-1.5 rounded bg-slate-100 text-slate-500">
+                          {r.whiteLabelName}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2.5 text-slate-600">
                     {r.planPeriodicity
@@ -307,8 +407,8 @@ export default function CompanyReportPage() {
                       : '—'}
                   </td>
                   <td className="px-3 py-2.5 text-right font-semibold text-slate-800">
-                    {usd(r.base)}
-                    {!r.baseIsReal && (
+                    {r.facturable ? usd(r.base) : <span className="text-slate-300">—</span>}
+                    {r.facturable && !r.baseIsReal && (
                       <span
                         className="block text-[10px] font-normal text-amber-500"
                         title={t('approxTitle')}
@@ -316,40 +416,60 @@ export default function CompanyReportPage() {
                         {t('approxBadge')}
                       </span>
                     )}
+                    {!r.facturable && (
+                      <span
+                        className="block text-[10px] font-normal text-slate-400"
+                        title={t('notBillableTitle')}
+                      >
+                        {t('notBillableBadge')}
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
-                    <div className="text-slate-800">
-                      {r.afiliado.ownerName}{' '}
-                      <span className="text-slate-400">
-                        ({r.afiliado.percent}%)
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-slate-400">
-                      {ROLE_LABEL_KEY[r.afiliado.role]
-                        ? t(ROLE_LABEL_KEY[r.afiliado.role])
-                        : r.afiliado.role}{' '}
-                      · {r.afiliado.code}
-                    </div>
-                    {r.influencer && (
-                      <div className="text-[11px] text-indigo-500">
-                        {t('influencerIndir', {
-                          name: r.influencer.ownerName,
-                          percent: r.influencer.percent,
-                        })}
-                      </div>
+                    {r.afiliado ? (
+                      <>
+                        <div className="text-slate-800">
+                          {r.afiliado.ownerName}{' '}
+                          <span className="text-slate-400">
+                            ({r.afiliado.percent}%)
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          {ROLE_LABEL_KEY[r.afiliado.role]
+                            ? t(ROLE_LABEL_KEY[r.afiliado.role])
+                            : r.afiliado.role}{' '}
+                          · {r.afiliado.code}
+                        </div>
+                        {r.influencer && (
+                          <div className="text-[11px] text-indigo-500">
+                            {t('influencerIndir', {
+                              name: r.influencer.ownerName,
+                              percent: r.influencer.percent,
+                            })}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <Link
+                        href="/admin/commissions"
+                        className="text-[12px] text-amber-600 hover:underline"
+                        title={t('noAffiliateTitle')}
+                      >
+                        {t('noAffiliate')}
+                      </Link>
                     )}
                   </td>
                   <td className="px-3 py-2.5 text-right text-amber-700">
-                    {usd(r.comisionDirecta)}
+                    {r.facturable ? usd(r.comisionDirecta) : '—'}
                   </td>
                   <td className="px-3 py-2.5 text-right text-indigo-600">
                     {r.comisionIndirecta > 0 ? usd(r.comisionIndirecta) : '—'}
                   </td>
                   <td className="px-3 py-2.5 text-right text-violet-600">
-                    {usd(r.socio)}
+                    {r.facturable ? usd(r.socio) : '—'}
                   </td>
                   <td className="px-3 py-2.5 text-right font-semibold text-emerald-700">
-                    {usd(r.neto)}
+                    {r.facturable ? usd(r.neto) : '—'}
                   </td>
                   <td className="px-3 py-2.5 text-right text-slate-500">
                     {usd(r.registradas)}
@@ -368,6 +488,12 @@ export default function CompanyReportPage() {
                 <tr className="border-t-2 border-slate-200 bg-slate-50 font-semibold text-slate-800">
                   <td className="px-3 py-2.5" colSpan={2}>
                     {t('totalCompanies', { count: totals.companies })}
+                    <span className="block text-[11px] font-normal text-slate-400">
+                      {t('kpiCompaniesSub', {
+                        billable: totals.companiesFacturables,
+                        noAffiliate: totals.companiesSinAfiliado,
+                      })}
+                    </span>
                   </td>
                   <td className="px-3 py-2.5 text-right">{usd(totals.base)}</td>
                   <td className="px-3 py-2.5"></td>

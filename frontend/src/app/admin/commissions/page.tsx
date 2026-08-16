@@ -10,6 +10,8 @@ import {
   type BusinessOption,
 } from '@/components/BusinessFilterPicker';
 import { planDisplayName, type PlanPeriodicity } from '@/lib/plan-format';
+import CurrentCutoffTab from './_components/CurrentCutoffTab';
+import BatchHistoryTab from './_components/BatchHistoryTab';
 
 type PaymentStatus = 'PENDING' | 'PARTIAL' | 'PAID';
 type RecipientRole = 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR' | 'SOCIO';
@@ -26,10 +28,23 @@ type CommissionRow = {
   // PDF Soft(9) C3: fecha "de negocio" (registro para la 1ª, cobro real para
   // recompras). Se usa como columna FECHA.
   commissionDate: string;
+  // Raw: si !=null, la FECHA está CONGELADA (curada/editada a mano). Si null,
+  // viene de la heurística. Editable desde la celda FECHA.
+  businessDate?: string | null;
   availableAt: string;
   daysRemaining: number;
   nextPayoutDate: string;
   paidAt: string | null;
+  // Respaldo del paidAt anterior al corte (auditoría).
+  paidAtLegacy?: string | null;
+  // Lote de corte que liquidó esta comisión (brief PASO 5).
+  payoutBatch?: {
+    code: string;
+    // null si el corte sigue ABIERTO (todavía sin transferencia real).
+    paymentDate: string | null;
+    cutoffDate: string;
+    kind: string;
+  } | null;
   notes: string | null;
   hotmartTransactionId: string | null;
   tenant: {
@@ -54,6 +69,22 @@ type CommissionRow = {
 };
 
 type Bucket = 'pending_approval' | 'available' | 'paid' | 'rejected';
+
+// Brief PASO 5: sobre qué fecha operan el filtro y la columna FECHA.
+type DateType = 'purchase' | 'payment' | 'batch';
+
+type BatchOption = {
+  id: string;
+  code: string;
+  cutoffDate: string;
+  // null mientras el corte esté ABIERTO (todavía no salió la transferencia).
+  paymentDate: string | null;
+  status: 'OPEN' | 'CLOSED';
+  kind: string;
+  totalUsd: number;
+  currency: string;
+  commissionsCount: number;
+};
 
 type BucketTotal = { count: number; amount: number };
 
@@ -121,6 +152,13 @@ function fmtDate(d: string | null | undefined) {
     month: 'short',
     year: 'numeric',
   });
+}
+
+// ISO → 'YYYY-MM-DD' en zona Bogotá (para el <input type="date"> del editor de
+// FECHA). Igual a como se muestra/guarda para que el día no se corra.
+function toDateInputValue(d: string | null | undefined): string {
+  if (!d) return '';
+  return new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 }
 
 // PDF Soft(9): fila de un negocio SIN afiliado → asignar manualmente.
@@ -223,12 +261,130 @@ function UnattributedPanel() {
   );
 }
 
+type Tab = 'cutoff' | 'history' | 'advanced';
+
+/**
+ * Shell de /admin/commissions. Abre SIEMPRE en la vista ESTÁNDAR ("Detalle
+ * avanzado": la tabla de comisiones con sus filtros) — 2026-08-16, pedido del
+ * dueño. Desde las pestañas el usuario cambia a "Corte actual" (cortes
+ * automáticos) o "Historial" cuando lo desee. Auditoría, contabilidad, reporte
+ * por empresa y vista por persona quedan en el menú "⋯ Más".
+ */
 export default function AdminCommissionsPage() {
+  const t = useTranslations('admin_commissions');
+  const [tab, setTab] = useState<Tab>('advanced');
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  const TABS: Array<{ key: Tab; label: string }> = [
+    { key: 'advanced', label: t('navAdvancedDetail') },
+    { key: 'cutoff', label: t('tabCurrentCutoff') },
+    { key: 'history', label: t('tabHistory') },
+  ];
+
+  return (
+    <div className="max-w-7xl">
+      <div className="page-head flex flex-wrap items-center justify-between gap-3">
+        <h1 className="page-title">
+          {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
+        </h1>
+
+        <div className="relative">
+          <button
+            onClick={() => setMoreOpen((o) => !o)}
+            className="text-sm px-3.5 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
+          >
+            ⋯ {t('navMore')}
+          </button>
+          {moreOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-30"
+                onClick={() => setMoreOpen(false)}
+              />
+              <div className="absolute right-0 top-full mt-1 z-40 w-64 rounded-lg border border-line2 bg-surface shadow-lg py-1">
+                <button
+                  onClick={() => {
+                    setTab('advanced');
+                    setMoreOpen(false);
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm hover:bg-bg2 transition"
+                >
+                  🔎 {t('navAdvancedDetail')}
+                </button>
+                <Link
+                  href="/admin/commissions/payments"
+                  className="block px-4 py-2 text-sm hover:bg-bg2 transition"
+                  onClick={() => setMoreOpen(false)}
+                >
+                  👤 {t('navViewByPerson')}
+                </Link>
+                <Link
+                  href="/admin/accounting"
+                  className="block px-4 py-2 text-sm hover:bg-bg2 transition"
+                  onClick={() => setMoreOpen(false)}
+                >
+                  🧮 {t('navAccounting')}
+                </Link>
+                <Link
+                  href="/admin/commissions/report"
+                  className="block px-4 py-2 text-sm hover:bg-bg2 transition"
+                  onClick={() => setMoreOpen(false)}
+                >
+                  📊 {t('navReportByCompany')}
+                </Link>
+                <Link
+                  href="/admin/payouts"
+                  className="block px-4 py-2 text-sm hover:bg-bg2 transition"
+                  onClick={() => setMoreOpen(false)}
+                >
+                  🏦 {t('navPayouts')}
+                </Link>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1 mb-4 border-b border-line2">
+        {TABS.map((x) => (
+          <button
+            key={x.key}
+            onClick={() => setTab(x.key)}
+            className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition ${
+              tab === x.key
+                ? 'border-brand text-brand'
+                : 'border-transparent text-mute hover:text-ink'
+            }`}
+          >
+            {x.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'cutoff' && <CurrentCutoffTab />}
+      {tab === 'history' && <BatchHistoryTab />}
+      {tab === 'advanced' && <AdvancedCommissionsView />}
+    </div>
+  );
+}
+
+/**
+ * VISTA AVANZADA (antes era la pantalla entera). Sigue completa —buckets,
+ * 6 filtros, tabla de 11 columnas, auditoría—, pero ya no es lo primero que se
+ * ve: vive detrás de "⋯ Más → Detalle avanzado". La pregunta diaria ("cuánto
+ * pago y a quién") la responde la pestaña "Corte actual" sin filtros.
+ */
+function AdvancedCommissionsView() {
   const t = useTranslations('admin_commissions');
   const [data, setData] = useState<CommissionsResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  // Brief PASO 5: tipo de fecha activo (compra por defecto = la columna FECHA
+  // histórica) + lote seleccionado (cuando dateType==='batch').
+  const [dateType, setDateType] = useState<DateType>('purchase');
+  const [batchCode, setBatchCode] = useState('');
+  const [batches, setBatches] = useState<BatchOption[]>([]);
   const [bucket, setBucket] = useState<'' | Bucket>('');
   const [role, setRole] = useState<'' | RecipientRole>('');
   const [tenantId, setTenantId] = useState('');
@@ -237,13 +393,27 @@ export default function AdminCommissionsPage() {
   // PDF Soft(9) C5: lista COMPLETA de negocios con comisiones para el filtro
   // buscable (no solo los de las filas cargadas). Se carga una vez al montar.
   const [businesses, setBusinesses] = useState<BusinessOption[]>([]);
+  // Filtros avanzados colapsados por defecto (solo se ve el de estado).
+  const [showFilters, setShowFilters] = useState(false);
+  const activeFilterCount =
+    (dateFrom ? 1 : 0) +
+    (dateTo ? 1 : 0) +
+    (batchCode ? 1 : 0) +
+    (role ? 1 : 0) +
+    (tenantId ? 1 : 0) +
+    (codeId ? 1 : 0);
 
   async function load() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (dateFrom) params.set('dateFrom', dateFrom);
-      if (dateTo) params.set('dateTo', dateTo);
+      params.set('dateType', dateType);
+      if (dateType === 'batch') {
+        if (batchCode) params.set('batchCode', batchCode);
+      } else {
+        if (dateFrom) params.set('dateFrom', dateFrom);
+        if (dateTo) params.set('dateTo', dateTo);
+      }
       if (bucket) params.set('bucket', bucket);
       if (role) params.set('role', role);
       if (tenantId) params.set('tenantId', tenantId);
@@ -257,10 +427,28 @@ export default function AdminCommissionsPage() {
     }
   }
 
+  // Guarda la FECHA de negocio editada a mano (businessDate). value '' → null
+  // (revierte a la heurística). Recarga para reflejar el valor congelado.
+  async function saveBusinessDate(id: string, value: string) {
+    setSavingDate(true);
+    try {
+      await api(`/admin/commissions/${id}/business-date`, {
+        method: 'PATCH',
+        body: JSON.stringify({ businessDate: value || null }),
+      });
+      setEditDate(null);
+      await load();
+    } catch (e: any) {
+      toast(e?.message ?? 'No se pudo guardar la fecha', 'error');
+    } finally {
+      setSavingDate(false);
+    }
+  }
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateFrom, dateTo, bucket, role, tenantId, codeId]);
+  }, [dateFrom, dateTo, dateType, batchCode, bucket, role, tenantId, codeId]);
 
   // Lista completa de negocios (una sola vez) para el filtro buscable.
   useEffect(() => {
@@ -269,8 +457,18 @@ export default function AdminCommissionsPage() {
       .catch(() => setBusinesses([]));
   }, []);
 
+  // Lotes de corte para el selector de "Lote" (brief PASO 5).
+  useEffect(() => {
+    api<BatchOption[]>('/admin/commissions/payout-batches')
+      .then((b) => setBatches(b ?? []))
+      .catch(() => setBatches([]));
+  }, []);
+
   // Habilitar manual: adelanta el desbloqueo de una comisión en hold.
   const [enabling, setEnabling] = useState<string | null>(null);
+  // Edición inline de la FECHA de negocio (businessDate) por comisión.
+  const [editDate, setEditDate] = useState<{ id: string; value: string } | null>(null);
+  const [savingDate, setSavingDate] = useState(false);
   async function enableCommission(c: CommissionRow) {
     if (
       !confirm(
@@ -362,33 +560,7 @@ export default function AdminCommissionsPage() {
   }
 
   return (
-    <div className="max-w-7xl">
-      <div className="page-head flex flex-wrap items-center justify-between gap-3">
-        <h1 className="page-title">
-          {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
-        </h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/admin/accounting"
-            className="text-sm px-3.5 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
-          >
-            🧮 {t('navAccounting')}
-          </Link>
-          <Link
-            href="/admin/commissions/report"
-            className="text-sm px-3.5 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"
-          >
-            📊 {t('navReportByCompany')}
-          </Link>
-          <Link
-            href="/admin/commissions/payments"
-            className="text-sm px-3.5 py-2 rounded-pill bg-brand text-white font-semibold hover:opacity-90 transition"
-          >
-            {t('navViewByPerson')}
-          </Link>
-        </div>
-      </div>
-
+    <div>
       {/* #11 (2026-06-16): auditoría avanzada — recalcula desde la fuente y
           reporta montos incorrectos / duplicados / fantasmas. */}
       <CommissionAuditPanel />
@@ -474,40 +646,123 @@ export default function AdminCommissionsPage() {
         </div>
       )}
 
-      {/* Filtros */}
-      <div className="card card-pad mb-3 flex flex-wrap items-end gap-3">
-        <div>
-          <label className="label">{t('filterFrom')}</label>
-          <input
-            type="date"
-            className="input"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-          />
+      {/* Filtros. Por defecto solo se ve el de ESTADO; el resto (fechas, rol,
+          negocio, afiliado) vive detrás del botón "Filtros" para que la
+          pantalla no arranque con seis controles pidiendo decisiones. */}
+      <div className="card card-pad mb-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="label">{t('filterStatus')}</label>
+            <select
+              className="input"
+              value={bucket}
+              onChange={(e) => setBucket(e.target.value as any)}
+            >
+              <option value="">{t('filterAllActive')}</option>
+              <option value="pending_approval">{t('bucketPendingApproval')}</option>
+              <option value="available">{t('bucketAvailable')}</option>
+              <option value="paid">{t('bucketPaid')}</option>
+              <option value="rejected">{t('bucketRejected')}</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowFilters((s) => !s)}
+            className={`text-sm px-3.5 py-2 rounded-pill border font-semibold transition ${
+              activeFilterCount > 0
+                ? 'border-brand text-brand bg-brand/5'
+                : 'border-line2 bg-bg2 hover:bg-bg3'
+            }`}
+          >
+            {showFilters ? '▲' : '▼'} {t('filtersToggle')}
+            {activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+          </button>
+          <div className="ml-auto flex gap-2">
+            <button
+              onClick={() => {
+                setDateFrom('');
+                setDateTo('');
+                setDateType('purchase');
+                setBatchCode('');
+                setBucket('');
+                setRole('');
+                setTenantId('');
+                setCodeId('');
+              }}
+              className="text-xs text-mute hover:text-ink underline"
+            >
+              {t('clearFilters')}
+            </button>
+            <button
+              onClick={exportCsv}
+              className="text-sm px-3 py-1.5 rounded-md border border-line2 bg-bg2 hover:bg-bg3 transition"
+            >
+              ⬇ {t('exportCsv')}
+            </button>
+          </div>
         </div>
+
+        {showFilters && (
+          <div className="flex flex-wrap items-end gap-3 mt-3 pt-3 border-t border-line2">
+        {/* Brief PASO 5: TIPO de fecha. Filtro y columna FECHA operan sobre el
+            mismo campo — la etiqueta deja claro cuál está activo. */}
         <div>
-          <label className="label">{t('filterTo')}</label>
-          <input
-            type="date"
-            className="input"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="label">{t('filterStatus')}</label>
+          <label className="label">{t('dateTypeLabel')}</label>
           <select
             className="input"
-            value={bucket}
-            onChange={(e) => setBucket(e.target.value as any)}
+            value={dateType}
+            onChange={(e) => setDateType(e.target.value as DateType)}
+            title={
+              dateType === 'purchase'
+                ? t('dateTypePurchaseHint')
+                : dateType === 'payment'
+                  ? t('dateTypePaymentHint')
+                  : t('dateTypeBatchHint')
+            }
           >
-            <option value="">{t('filterAllActive')}</option>
-            <option value="pending_approval">{t('bucketPendingApproval')}</option>
-            <option value="available">{t('bucketAvailable')}</option>
-            <option value="paid">{t('bucketPaid')}</option>
-            <option value="rejected">{t('bucketRejected')}</option>
+            <option value="purchase">{t('dateTypePurchase')}</option>
+            <option value="payment">{t('dateTypePayment')}</option>
+            <option value="batch">{t('dateTypeBatch')}</option>
           </select>
         </div>
+        {dateType === 'batch' ? (
+          <div>
+            <label className="label">{t('filterBatch')}</label>
+            <select
+              className="input"
+              value={batchCode}
+              onChange={(e) => setBatchCode(e.target.value)}
+            >
+              <option value="">{t('filterAllBatches')}</option>
+              {batches.map((b) => (
+                <option key={b.id} value={b.code}>
+                  {b.code} · {fmtUsd(b.totalUsd)} · {b.commissionsCount}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <>
+            <div>
+              <label className="label">{t('filterFrom')}</label>
+              <input
+                type="date"
+                className="input"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label">{t('filterTo')}</label>
+              <input
+                type="date"
+                className="input"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
+          </>
+        )}
         <div>
           <label className="label">{t('filterRole')}</label>
           <select
@@ -536,27 +791,20 @@ export default function AdminCommissionsPage() {
           <label className="label">{t('filterAmbassador')}</label>
           <AffiliatePickerSearch value={codeId} onChange={setCodeId} />
         </div>
-        <div className="ml-auto flex gap-2">
-          <button
-            onClick={() => {
-              setDateFrom('');
-              setDateTo('');
-              setBucket('');
-              setRole('');
-              setTenantId('');
-              setCodeId('');
-            }}
-            className="text-xs text-mute hover:text-ink underline"
-          >
-            {t('clearFilters')}
-          </button>
-          <button
-            onClick={exportCsv}
-            className="text-sm px-3 py-1.5 rounded-md border border-line2 bg-bg2 hover:bg-bg3 transition"
-          >
-            ⬇ {t('exportCsv')}
-          </button>
+        {/* Brief PASO 5: deja explícito sobre qué fecha se está filtrando. */}
+        <div className="w-full text-xs text-mute border-t border-line2 pt-2">
+          {t.rich('activeDateType', {
+            label:
+              dateType === 'purchase'
+                ? `${t('dateTypePurchase')} — ${t('dateTypePurchaseHint')}`
+                : dateType === 'payment'
+                  ? `${t('dateTypePayment')} — ${t('dateTypePaymentHint')}`
+                  : `${t('dateTypeBatch')} — ${t('dateTypeBatchHint')}`,
+            b: (chunks) => <b className="text-ink">{chunks}</b>,
+          })}
         </div>
+          </div>
+        )}
       </div>
 
       {/* PDF Soft(9): negocios que pagan sin afiliado → asignación manual. */}
@@ -568,7 +816,13 @@ export default function AdminCommissionsPage() {
           <table className="w-full text-sm min-w-[1100px]">
             <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider">
               <tr>
-                <th className="px-4 py-3 font-semibold">{t('thDate')}</th>
+                <th className="px-4 py-3 font-semibold">
+                  {dateType === 'payment'
+                    ? t('dateTypePayment')
+                    : dateType === 'batch'
+                      ? t('dateTypeBatch')
+                      : t('dateTypePurchase')}
+                </th>
                 <th className="px-4 py-3 font-semibold">{t('thBusiness')}</th>
                 <th className="px-4 py-3 font-semibold">{t('thPlan')}</th>
                 <th className="px-4 py-3 font-semibold">{t('thRecipient')}</th>
@@ -577,7 +831,6 @@ export default function AdminCommissionsPage() {
                 <th className="px-4 py-3 font-semibold text-right">{t('thOutstanding')}</th>
                 <th className="px-4 py-3 font-semibold">{t('thStatus')}</th>
                 <th className="px-4 py-3 font-semibold text-center">{t('thDaysLeft')}</th>
-                <th className="px-4 py-3 font-semibold">{t('thNextPayout')}</th>
                 <th className="px-4 py-3 font-semibold">{t('thPaidDate')}</th>
                 <th className="px-4 py-3 font-semibold"></th>
               </tr>
@@ -585,14 +838,14 @@ export default function AdminCommissionsPage() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-10 text-center text-mute">
+                  <td colSpan={11} className="px-4 py-10 text-center text-mute">
                     {t('loading')}
                   </td>
                 </tr>
               )}
               {!loading && (data?.items.length ?? 0) === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-mute">
+                  <td colSpan={11} className="px-4 py-12 text-center text-mute">
                     <div className="text-3xl mb-2">💸</div>
                     {t('emptyNoCommissions')}
                   </td>
@@ -608,7 +861,88 @@ export default function AdminCommissionsPage() {
                       className="border-t border-line2 hover:bg-bg2/40"
                     >
                       <td className="px-4 py-3 text-xs whitespace-nowrap">
-                        {fmtDate(c.commissionDate ?? c.createdAt)}
+                        {/* Brief PASO 5: la celda muestra la fecha del tipo
+                            activo. Solo la fecha de COMPRA (businessDate) es
+                            editable a mano; pago/lote son de solo lectura. */}
+                        {dateType === 'payment' ? (
+                          c.paidAt ? (
+                            <span title={c.payoutBatch?.code ?? undefined}>
+                              {fmtDate(c.paidAt)}
+                            </span>
+                          ) : (
+                            <span className="text-mute">—</span>
+                          )
+                        ) : dateType === 'batch' ? (
+                          c.payoutBatch ? (
+                            <span
+                              className="font-mono text-[11px]"
+                              title={`${t('dateTypePayment')}: ${fmtDate(c.payoutBatch.paymentDate)}`}
+                            >
+                              {c.payoutBatch.code}
+                            </span>
+                          ) : (
+                            <span className="text-mute">—</span>
+                          )
+                        ) : editDate?.id === c.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="date"
+                              className="input py-1 px-1.5 text-xs w-[140px]"
+                              value={editDate.value}
+                              onChange={(e) =>
+                                setEditDate({ id: c.id, value: e.target.value })
+                              }
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              className="text-ok hover:opacity-80 px-1 font-bold"
+                              disabled={savingDate}
+                              onClick={() => saveBusinessDate(c.id, editDate.value)}
+                              title="Guardar fecha"
+                            >
+                              ✓
+                            </button>
+                            <button
+                              type="button"
+                              className="text-mute hover:text-ink px-1"
+                              disabled={savingDate}
+                              onClick={() => setEditDate(null)}
+                              title="Cancelar"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="group inline-flex items-center gap-1 hover:text-brand"
+                            onClick={() =>
+                              setEditDate({
+                                id: c.id,
+                                value: toDateInputValue(
+                                  c.commissionDate ?? c.createdAt,
+                                ),
+                              })
+                            }
+                            title={
+                              c.businessDate
+                                ? 'Fecha fijada a mano — clic para editar'
+                                : 'Fecha por heurística — clic para fijar la real'
+                            }
+                          >
+                            {c.businessDate && (
+                              <span
+                                className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block flex-none"
+                                aria-hidden
+                              />
+                            )}
+                            {fmtDate(c.commissionDate ?? c.createdAt)}
+                            <span className="opacity-0 group-hover:opacity-60 text-[10px]">
+                              ✎
+                            </span>
+                          </button>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium">
@@ -688,11 +1022,6 @@ export default function AdminCommissionsPage() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-xs text-mute whitespace-nowrap">
-                        {c.status === 'PAID'
-                          ? '—'
-                          : fmtDate(c.nextPayoutDate)}
-                      </td>
                       {/* PDF Soft(9) C4: FECHA DE PAGO — día real en que se pagó la
                           comisión (paidAt). Para llevar registro de efectividad de pagos. */}
                       <td className="px-4 py-3 text-xs whitespace-nowrap">
@@ -732,7 +1061,7 @@ export default function AdminCommissionsPage() {
                   <td className="px-4 py-3 text-right text-amber-700">
                     {fmtUsd(data.totals.totalOutstanding)}
                   </td>
-                  <td colSpan={4}></td>
+                  <td colSpan={3}></td>
                 </tr>
               </tfoot>
             )}
@@ -807,7 +1136,7 @@ function PayCommissionModal({
       onClick={onClose}
     >
       <div
-        className="bg-bg1 rounded-xl max-w-md w-full p-6 shadow-xl"
+        className="bg-surface rounded-xl max-w-md w-full p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-lg font-bold mb-4">{t('modalPayTitle')}</h2>

@@ -717,6 +717,13 @@ model Tenant {
   /// negocio real, solo hospeda Customer(miembros)/Card/Location/Pass.
   isCampaignHost              Boolean                    @default(false)
   createdAt                   DateTime                   @default(now())
+  /// PDF Soft 10: fecha REAL de la 1ª compra/pago (Hotmart approved_date,
+  /// timestamp del evento Stripe/Cross), NO la fecha de creación de la cuenta
+  /// (que puede ser semanas después si el comprador activa tarde). Se setea
+  /// UNA sola vez en la 1ª activación (nunca se pisa en renovaciones). Es la
+  /// "fecha de compra" del panel y la fecha de la 1ª comisión
+  /// (purchasedAt ?? createdAt). Null = negocios viejos sin el dato.
+  purchasedAt                 DateTime?
 
   users                   User[]
   cards                   Card[]
@@ -1031,6 +1038,8 @@ model User {
   paymentProfilesChanged PaymentProfile[]   @relation("PaymentProfileReviewer")
   commissionPayouts      CommissionPayout[] @relation("CommissionPayoutRecipient")
   commissionPayoutsPaid  CommissionPayout[] @relation("CommissionPayoutPaidBy")
+  // Cortes de comisiones que este admin cerró (confirmó la transferencia).
+  payoutBatchesClosed    PayoutBatch[]      @relation("PayoutBatchClosedBy")
 
   // Fase F 2026-06-07: cada staff puede estar asociado a una sede.
   // Permite rankings de sellos por sede + miembro. Null = sin sede
@@ -1991,6 +2000,8 @@ model Order {
   deliveryMessages DeliveryMessage[]
 
   @@index([tenantId, status, createdAt])
+  // Filtro de pedidos por sede en el panel (PDF Soft 10).
+  @@index([tenantId, locationId, status])
   @@index([customerId, createdAt])
   @@index([tenantId, ratedAt])
 }
@@ -2750,6 +2761,14 @@ model Commission {
   currency             String                      @default("USD")
   status               CommissionStatus            @default(PENDING)
   paidAt               DateTime?
+  // FECHA DURABLE (2026-08-14): fecha "de negocio" CONGELADA por comisión =
+  // fecha del cobro real de Hotmart que la generó (approved_date ≈
+  // Tenant.lastChargeAt de ese cobro). Para la 1ª comisión es la COMPRA; para
+  // recompras, la fecha de esa renovación. Se setea UNA vez al crear y NUNCA se
+  // recalcula al leer → mata el "cambia entre renders" y el fallback a fecha de
+  // registro. Null en filas viejas → el read cae a commissionBusinessDate()
+  // hasta que el backfill las complete. Es la columna FECHA del panel.
+  businessDate         DateTime?
   // Momento en que la comisión se DESBLOQUEA (PENDING → APPROVED): 15 días
   // DESPUÉS del pago real en Hotmart (Tenant.lastChargeAt / la fecha del cobro
   // del grupo), NO desde createdAt de la comisión ni la creación de la cuenta.
@@ -2801,6 +2820,18 @@ model Commission {
   // SetNull: si se borra el payout, la commission vuelve a estar
   // "pendiente de pago" sin perder historial.
   payoutItem           CommissionPayoutItem?
+  // CORTE / LOTE DE PAGO (brief comisiones cont. 2026-08-15): agrupa las
+  // comisiones liquidadas en UNA misma transferencia real (un "corte"). Es
+  // distinto de CommissionPayout (que es "pagar a UN afiliado con
+  // comprobante"); un PayoutBatch es el corte de la plataforma en una fecha y
+  // puede abarcar varios afiliados. Null = comisión aún no incluida en ningún
+  // corte. (Ver model PayoutBatch.)
+  payoutBatchId        String?
+  payoutBatch          PayoutBatch?                @relation(fields: [payoutBatchId], references: [id], onDelete: SetNull)
+  // Respaldo del paidAt ANTERIOR antes de reescribirlo a la fecha real del
+  // corte (los stamps viejos —21-jun/28-jul— no correspondían a ninguna
+  // transferencia real). Solo auditoría; nunca se lee en cálculos.
+  paidAtLegacy         DateTime?
   // 2026-06-12: período de devengamiento (YYYY-MM). Sirve como dedup
   // key estructural junto a (referralUseId, recipientCodeId) para que
   // la DB rechace duplicados con UNIQUE constraint, no solo el código.
@@ -2820,6 +2851,7 @@ model Commission {
   @@index([recipientCodeId])
   @@index([businessGroupId])
   @@index([hotmartTransactionId])
+  @@index([payoutBatchId])
   // HOTFIX 2026-06-05 (bug #19): indexes para filtros del panel
   // /admin/commissions y /admin/commissions/payments.
   @@index([paymentStatus])
@@ -4326,6 +4358,60 @@ model CommissionPayoutItem {
   createdAt    DateTime         @default(now())
 
   @@index([payoutId])
+}
+
+enum PayoutBatchKind {
+  CORTE // corte regular de pago (transferencia real programada)
+  ADJUSTMENT // ajuste/backfill contable (registrar un corte histórico)
+}
+
+// CICLO DE VIDA DEL CORTE (cortes automáticos, 2026-08-15). El corte lo ABRE el
+// cron en la fecha de calendario (día 15 y último de cada mes, hora Bogotá);
+// lo CIERRA una PERSONA cuando confirma que la transferencia salió del banco.
+// Nunca se cierra solo: el sistema no sabe si el dinero se movió, y un corte
+// marcado "pagado" sobre plata que sigue en la cuenta esconde la deuda con el
+// afiliado. Al revés (corte abierto que ya se pagó) el error es visible.
+enum PayoutBatchStatus {
+  OPEN // generado, con sus comisiones adentro; todavía no salió plata
+  CLOSED // alguien confirmó la transferencia real → comisiones PAID
+}
+
+// LOTE DE CORTE (brief comisiones cont. 2026-08-15). Representa UNA
+// transferencia/corte real de comisiones: reúne muchas Commission de
+// distintos afiliados liquidadas juntas en `paymentDate`. Reproducible y
+// filtrable en el panel ("¿qué contenía el corte del 30/06?"). NO reemplaza a
+// CommissionPayout (pago por-afiliado con comprobante); un corte puede abarcar
+// varios afiliados. Append-only: el histórico no se edita ni se borra.
+model PayoutBatch {
+  id         String   @id @default(uuid())
+  code       String   @unique // "CORTE-2026-06-30"
+  cutoffDate DateTime // hasta cuándo se acumuló
+  // Fecha REAL de la transferencia. NULLABLE desde los cortes automáticos: un
+  // corte recién abierto todavía no tiene transferencia, se captura al cerrar
+  // (y puede ser distinta a cutoffDate — el corte del 30/06 se asentó el 21/06
+  // y el 02/07).
+  paymentDate DateTime?
+  // Ventana de calendario que cubre el corte (1→15 o 16→último día del mes),
+  // en hora Bogotá. Null en los 3 cortes históricos migrados.
+  periodStart DateTime?
+  periodEnd   DateTime?
+  kind        PayoutBatchKind   @default(CORTE)
+  status      PayoutBatchStatus @default(OPEN)
+  totalUsd    Decimal           @default(0) @db.Decimal(10, 2)
+  currency    String            @default("USD")
+  notes       String?           @db.Text
+  // Nº de comprobante / referencia bancaria de la transferencia (al cerrar).
+  reference    String?
+  closedAt     DateTime?
+  closedByUserId String?
+  closedBy     User?             @relation("PayoutBatchClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull)
+  // true = lo abrió el cron de calendario · false = alta manual / histórico.
+  generatedAuto Boolean          @default(false)
+  createdAt     DateTime         @default(now())
+  commissions   Commission[]
+
+  @@index([paymentDate])
+  @@index([status])
 }
 
 // ============================================================
