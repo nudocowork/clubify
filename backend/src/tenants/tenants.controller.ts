@@ -126,6 +126,10 @@ class UpdateTenantBody {
   @IsOptional() @IsBoolean() reservationsEnabled?: boolean;
   // Reservas de SERVICIOS (citas) gate — PDF245 P7.
   @IsOptional() @IsBoolean() serviceReservationsEnabled?: boolean;
+  // Notas internas del negocio (SOLO Clubify: este controller es
+  // @Roles('SUPER_ADMIN','MARKETING'), el dueño del negocio no lo ve).
+  // Observaciones operativas: "pagó por Nequi", etc. null = limpiar.
+  @IsOptional() @IsString() @MaxLength(5000) notes?: string | null;
 }
 
 @Controller('tenants')

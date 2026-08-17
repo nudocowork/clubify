@@ -507,6 +507,11 @@ model Tenant {
   // último cobro. SOLO auditoría / reportes / conciliación — NUNCA se usa para
   // calcular comisiones (esas usan subscriptionPriceUsd o el canónico).
   lastPaymentAmountUsd        Decimal?                   @db.Decimal(10, 2)
+  // Notas internas del negocio — SOLO visibles/editables desde Clubify
+  // (/admin/tenants/[id], controller @Roles('SUPER_ADMIN','MARKETING')). El
+  // dueño del negocio NO las ve. Para observaciones operativas: "pagó por
+  // Nequi", "cliente delicado", etc. (2026-08-17)
+  notes                       String?                    @db.Text
   // M4 (2026-06-04): override del rate-limit "1 sello cada 24h" por pass.
   // null = 1 (default histórico). N >= 1 permite hasta N sellos/pass/día.
   // El bypass SUPER_ADMIN sigue intacto. Pensado para campañas

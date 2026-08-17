@@ -36,6 +36,9 @@ export default function TenantDetail() {
   const [infoEditing, setInfoEditing] = useState(false);
   const [infoDraft, setInfoDraft] = useState({ email: '', whatsappPhone: '', slug: '', customDomain: '' });
   const [infoSaving, setInfoSaving] = useState(false);
+  // Notas internas del negocio — SOLO Clubify (2026-08-17).
+  const [notesDraft, setNotesDraft] = useState('');
+  const [notesSaving, setNotesSaving] = useState(false);
   // PDF123: dominio personalizado del negocio (vive en Storefront.customDomain).
   const [sfDomain, setSfDomain] = useState<string | null>(null);
   const [showPwdModal, setShowPwdModal] = useState(false);
@@ -56,6 +59,7 @@ export default function TenantDetail() {
       const data = await api<any>(`/tenants/${id}`);
       setT(data);
       setExtraLocations(data.maxLocationsOverride ?? '');
+      setNotesDraft(data.notes ?? '');
       // Dominio personalizado (SUPER_ADMIN puede leerlo por tenantId). Opcional.
       try {
         const sf = await api<{ customDomain: string | null }>(
@@ -165,6 +169,23 @@ export default function TenantDetail() {
       toast(e.message || tr('couldNotUpdate'), 'error');
     } finally {
       setInfoSaving(false);
+    }
+  }
+
+  // Notas internas (solo Clubify). Guarda contra PATCH /tenants/:id { notes }.
+  async function saveNotes() {
+    setNotesSaving(true);
+    try {
+      await api(`/tenants/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ notes: notesDraft.trim() || null }),
+      });
+      toast('Notas guardadas', 'success');
+      await load();
+    } catch (e: any) {
+      toast(e.message || tr('couldNotUpdate'), 'error');
+    } finally {
+      setNotesSaving(false);
     }
   }
 
@@ -773,6 +794,34 @@ export default function TenantDetail() {
             </div>
           )}
         </div>
+
+        {/* Notas internas — SOLO Clubify (2026-08-17). El dueño del negocio no las ve. */}
+        {isSuperAdmin && (
+          <div className="card card-pad">
+            <h2 className="text-base font-semibold m-0">Notas internas</h2>
+            <p className="mt-1 text-sm text-mute">
+              Solo visibles desde Clubify — el dueño del negocio no las ve.
+              Observaciones operativas (ej. &quot;pagó por Nequi&quot;).
+            </p>
+            <textarea
+              className="input mt-3 w-full min-h-[120px] resize-y"
+              placeholder="Escribí una nota u observación del negocio…"
+              value={notesDraft}
+              maxLength={5000}
+              onChange={(e) => setNotesDraft(e.target.value)}
+            />
+            <div className="flex items-center justify-between gap-2 pt-2">
+              <span className="text-xs text-mute">{notesDraft.length}/5000</span>
+              <button
+                className="btn-primary text-sm"
+                disabled={notesSaving || notesDraft.trim() === (t.notes ?? '').trim()}
+                onClick={saveNotes}
+              >
+                {notesSaving ? tr('saving') : 'Guardar notas'}
+              </button>
+            </div>
+          </div>
+        )}
 
         <PlanCurrentCard tenant={t} isSuperAdmin={isSuperAdmin} onChange={load} />
 
