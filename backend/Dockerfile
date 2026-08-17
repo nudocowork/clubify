@@ -15,7 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate
-RUN npm run build
+# nest build --tsc consume mucha RAM; el heap por defecto de Node OOMea en el
+# contenedor de build de Railway al crecer el código (FATAL: JS heap out of
+# memory, exit 134). Subimos el límite a 4GB solo para el build. (2026-08-17)
+RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build
 
 # ─── runtime: minimal image, only prod deps ───────────────────────
 FROM node:20-bookworm-slim AS runtime
