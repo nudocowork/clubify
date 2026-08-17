@@ -2,6 +2,10 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { InfoLinkShell, ResolvedButton } from '@/components/info-link-shells';
+import {
+  pickButtonStyle,
+  type InfoLinkButtonStyle,
+} from '@/components/info-link-button-style';
 import type { BrandBadgeBrand } from '@/components/BrandBadge';
 import { resolveTemplate } from '@/lib/info-link-templates';
 import { useLocale } from '@/lib/i18n';
@@ -18,7 +22,7 @@ import { InfoLinkGlobalPopup } from '@/components/info-link-global-popup';
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
 type Section = any;
-type Button = {
+type Button = InfoLinkButtonStyle & {
   label: string;
   type:
     | 'WHATSAPP'
@@ -326,6 +330,7 @@ export default function PublicInfoLink() {
         }
       }
       return {
+        ...pickButtonStyle(b),
         label: buttonLabel,
         href,
         newTab,

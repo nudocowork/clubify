@@ -16,7 +16,7 @@ type FullPage = {
   logoUrl?: string | null; heroImageUrl?: string | null; videoUrl?: string | null; description?: string | null;
   sections: Section[]; ctaText?: string | null; ctaUrl?: string | null;
   formEnabled: boolean; formFields: FormField[]; isPublished: boolean;
-  theme?: { primaryColor?: string; customHtml?: string; raffleSlug?: string; formPopup?: boolean; leadWhatsapp?: string; leadWhatsappMsg?: string; template?: string } | null;
+  theme?: { primaryColor?: string; customHtml?: string; raffleSlug?: string; formPopup?: boolean; leadWhatsapp?: string; leadWhatsappMsg?: string; template?: string; formInHero?: boolean; dataConsent?: boolean; dataConsentText?: string; dataPolicyLabel?: string; dataPolicyUrl?: string } | null;
 };
 type Lead = { id: string; data: Record<string, any>; createdAt: string };
 
@@ -198,7 +198,36 @@ function EditModal({ slug, onClose }: { slug: string; onClose: () => void }) {
               <option value="">Estándar (hero simple)</option>
               <option value="clubify-home">Home Clubify (clon de portada)</option>
             </select>
+            <label className="mt-2 flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={!!p.theme?.formInHero} onChange={(e) => set({ theme: { ...(p.theme ?? {}), formInHero: e.target.checked } })} />
+              Mostrar el formulario de inmediato en el primer bloque (hero)
+            </label>
           </div>
+
+          {/* Autorización de tratamiento de datos (checkbox legal) */}
+          {p.formEnabled && (
+            <div className="rounded-xl border border-slate-100 p-3">
+              <p className="text-sm font-semibold text-slate-700">Autorización de tratamiento de datos</p>
+              <p className="mb-2 mt-0.5 text-xs text-slate-400">Casilla obligatoria antes de enviar. La frase de la política se vuelve un enlace cliqueable a la URL indicada.</p>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox" checked={!!p.theme?.dataConsent} onChange={(e) => set({ theme: { ...(p.theme ?? {}), dataConsent: e.target.checked } })} />
+                Exigir autorización de tratamiento de datos
+              </label>
+              <div className="mt-3 space-y-3">
+                <Field label="Texto de la autorización">
+                  <textarea rows={4} className={inp} value={p.theme?.dataConsentText ?? ''} onChange={(e) => set({ theme: { ...(p.theme ?? {}), dataConsentText: e.target.value } })} placeholder="Autorizo de manera previa, expresa… la cual podrá consultar Política de Tratamiento de Datos." />
+                </Field>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Frase que se vuelve enlace">
+                    <input className={inp} value={p.theme?.dataPolicyLabel ?? ''} onChange={(e) => set({ theme: { ...(p.theme ?? {}), dataPolicyLabel: e.target.value } })} placeholder="Política de Tratamiento de Datos" />
+                  </Field>
+                  <Field label="URL de la política">
+                    <input className={inp} value={p.theme?.dataPolicyUrl ?? ''} onChange={(e) => set({ theme: { ...(p.theme ?? {}), dataPolicyUrl: e.target.value } })} placeholder="https://…" />
+                  </Field>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Popup + WhatsApp (campañas tipo Gastrofusión) */}
           {p.formEnabled && (

@@ -24,6 +24,13 @@ import {
 } from '@/lib/info-link-extras';
 import type { SectionCoverConfig } from '@/lib/menu/section-cover-config';
 import { SortableList, DragHandle } from '@/components/Sortable';
+import { ButtonDesignPanel } from '@/components/info-link-button-design';
+import {
+  StyledButtonLink,
+  hasButtonStyleV2,
+  pickButtonStyle,
+  type InfoLinkButtonStyle,
+} from '@/components/info-link-button-style';
 import {
   DEFAULT_LOGO_CONTAINER,
   LOGO_CONTAINER_PRESETS,
@@ -78,7 +85,7 @@ type Section =
   | { type: 'embed_promotions' }
   | { type: 'embed_card' };
 
-type Button = {
+type Button = InfoLinkButtonStyle & {
   /** Id estable para drag&drop sortable. Se autogenera si falta. */
   _id?: string;
   label: string;
@@ -330,6 +337,15 @@ export default function InfoLinkEditor() {
 
   function reorderButtons(next: Button[]) {
     update('buttons', next);
+  }
+
+  /** "Aplicar estilo a todos": copia los campos de diseño v2 de un botón
+   *  al resto (spec #2). Solo toca los campos de estilo — conserva label,
+   *  type, url, orden, etc. de cada botón. */
+  function applyStyleToAll(style: InfoLinkButtonStyle) {
+    if (!link) return;
+    const arr = link.buttons.map((b) => ({ ...b, ...style }));
+    update('buttons', arr);
   }
 
   function setButtonRenderAs(i: number, mode: 'simple' | 'cover') {
@@ -826,6 +842,18 @@ export default function InfoLinkEditor() {
                         })}
                       </div>
                     </div>
+                  )}
+                  {/* Diseño v2 por botón: forma, colores, efectos, icono y
+                      alineación. Aditivo — solo aplica cuando el usuario
+                      configura algo (hasButtonStyleV2). En cover el estilo lo
+                      decide el editor de portada. */}
+                  {!coverMode && (
+                    <ButtonDesignPanel
+                      b={b}
+                      primary={primary}
+                      onPatch={(patch) => updateButton(i, patch)}
+                      onApplyAll={applyStyleToAll}
+                    />
                   )}
                   {b.type === 'EXTERNAL' && (
                     <input
@@ -1484,6 +1512,16 @@ function PublicLinkPreview({
                         scale={0.45}
                       />
                     </div>
+                  );
+                }
+                if (hasButtonStyleV2(b)) {
+                  return (
+                    <StyledButtonLink
+                      key={i}
+                      b={{ ...pickButtonStyle(b), label: b.label }}
+                      primary={primary}
+                      asDiv
+                    />
                   );
                 }
                 const bgStyle =

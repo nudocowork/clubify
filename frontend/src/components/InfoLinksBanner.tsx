@@ -115,10 +115,13 @@ const CLUBIFY_DEMOS: InfolinkDemo[] = [
 
 export function InfoLinksBanner({
   demos = CLUBIFY_DEMOS,
+  hideCtas,
 }: {
   /** Menús de ejemplo (iPhones). Default = clientes de Clubify. Una marca
    *  blanca debe pasar los suyos o `[]` para no mostrar dominios ajenos. */
   demos?: InfolinkDemo[];
+  /** Oculta el CTA "Ver planes y comenzar" (clon de /informacion). Default false. */
+  hideCtas?: boolean;
 } = {}) {
   const showDemos = demos.length > 0;
   return (
@@ -150,6 +153,7 @@ export function InfoLinksBanner({
               de fidelización — todo en un solo lugar.
             </p>
 
+            {!hideCtas && (
             <div className="flex justify-center lg:justify-start mt-6 sm:mt-8">
               <Link
                 href="#precios"
@@ -158,6 +162,7 @@ export function InfoLinksBanner({
                 Ver planes y comenzar
               </Link>
             </div>
+            )}
           </div>
 
           {/* Columna derecha: iPhones tilted con infolinks reales. Cada phone

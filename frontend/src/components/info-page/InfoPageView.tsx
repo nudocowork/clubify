@@ -1,8 +1,29 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Logo } from '@/components/Logo';
 import { HeroTrio } from '@/components/HeroTrio';
+import { HeroBanner } from '@/components/HeroBanner';
+import { FidelizacionBanner } from '@/components/FidelizacionBanner';
+import { InfoLinksBanner } from '@/components/InfoLinksBanner';
+
+// Marcas placeholder para la banda de logos (clon de la portada).
+const CLUBIFY_LOGOS = ['Café del Día', 'Burger Lab', 'Bowls & Co', 'Helados Tina', 'Pizza Roma', 'Sushi Kira', 'Tacos del Sur', 'Panadería 21'];
+
+// Envuelve un bloque reutilizado de la portada (HeroBanner, Fidelización, InfoLinks)
+// e intercepta el clic de CUALQUIER CTA (a/button) para abrir el formulario de
+// contacto en vez de navegar — así reusamos los componentes reales sin modificarlos.
+function CtaCapture({ onCta, children }: { onCta: () => void; children: React.ReactNode }) {
+  return (
+    <div
+      onClickCapture={(e) => {
+        const el = (e.target as HTMLElement).closest('a, button');
+        if (el) { e.preventDefault(); e.stopPropagation(); onCta(); }
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 export type InfoFormField = {
   key: string;
@@ -25,7 +46,22 @@ export type InfoPageData = {
   ctaUrl?: string | null;
   formEnabled?: boolean;
   formFields?: InfoFormField[];
-  theme?: { primaryColor?: string; customHtml?: string; raffleSlug?: string; formPopup?: boolean; leadWhatsapp?: string; leadWhatsappMsg?: string; template?: string } | null;
+  theme?: {
+    primaryColor?: string;
+    customHtml?: string;
+    raffleSlug?: string;
+    formPopup?: boolean;
+    leadWhatsapp?: string;
+    leadWhatsappMsg?: string;
+    template?: string;
+    // Formulario visible en el primer bloque (hero) en vez de solo el popup.
+    formInHero?: boolean;
+    // Casilla de autorización de tratamiento de datos (obligatoria si está activa).
+    dataConsent?: boolean;
+    dataConsentText?: string; // el texto legal; la frase enlazable va aparte
+    dataPolicyLabel?: string; // frase dentro del texto que se vuelve enlace
+    dataPolicyUrl?: string; // URL de la política de tratamiento de datos
+  } | null;
 };
 
 // Dominio del panel team_clubify donde vive el proceso del sorteo (endpoint público).
@@ -64,8 +100,34 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
   const leadWhatsapp = (data.theme?.leadWhatsapp || '').replace(/\D/g, '');
   const leadWaMsg = data.theme?.leadWhatsappMsg || 'Hola, me interesa saber más';
   const [showForm, setShowForm] = useState(false);
+  // Formulario en el primer bloque (hero) + casilla de tratamiento de datos.
+  const formInHero = !!data.theme?.formInHero;
+  const consentEnabled = !!data.theme?.dataConsent;
+  const consentText = data.theme?.dataConsentText || '';
+  const policyLabel = data.theme?.dataPolicyLabel || 'Política de Tratamiento de Datos';
+  const policyUrl = data.theme?.dataPolicyUrl || '';
+  const [consent, setConsent] = useState(false);
   const htmlRef = useRef<HTMLDivElement>(null);
   const [raffle, setRaffle] = useState<{ state: 'idle' | 'done' | 'already'; wa?: string; msg?: string }>({ state: 'idle' });
+
+  // Banda de logos: nombres de negocios ACTIVOS reales (mismo endpoint que la
+  // portada soyclubify.com); si falla o viene vacío, cae al placeholder.
+  const [marqueeNames, setMarqueeNames] = useState<string[]>(CLUBIFY_LOGOS);
+  useEffect(() => {
+    if (template !== 'clubify-home') return;
+    const API = process.env.NEXT_PUBLIC_API_URL ?? '';
+    if (!API) return;
+    let alive = true;
+    fetch(`${API}/api/landing-active-businesses`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: unknown) => {
+        const names = Array.isArray((d as { names?: unknown })?.names) ? (d as { names: unknown[] }).names : [];
+        const clean = names.filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+        if (alive && clean.length) setMarqueeNames(clean);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [template]);
 
   // HTML personalizado + sorteo vinculado → el <form> del HTML registra en el sorteo
   // (mismo proceso que el formulario del sorteo: dedup + RaffleEntry + confirmación por
@@ -126,18 +188,28 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (consentEnabled && !consent) {
+      setErr('Debes autorizar el tratamiento de datos para continuar.');
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
       const res = await fetch(`${API}/api/public/info-pages/${data.slug}/lead`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(answers),
+        body: JSON.stringify(consentEnabled ? { ...answers, _consent: 'Sí', _consentAt: new Date().toISOString() } : answers),
       });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
         throw new Error(b.message || 'No se pudo enviar. Revisa los campos e intenta de nuevo.');
       }
+      // Además: empujar el lead al CRM/Contactos del team (best-effort, no bloquea la UX).
+      fetch(`${TEAM_BASE}/api/public/lead-intake`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...answers, _source: `Página: ${data.title || data.slug}` }),
+      }).catch(() => {});
       setDone(true);
       // Al completar → redirigir a WhatsApp (Gastrofusión) tras mostrar el "gracias".
       if (leadWhatsapp) {
@@ -150,6 +222,21 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
       setBusy(false);
     }
   }
+
+  // Texto de la casilla de tratamiento de datos con la frase de la política enlazada.
+  const consentTextNode = consentText
+    ? consentText.split(policyLabel).map((p, i, arr) => (
+        <span key={i}>
+          {p}
+          {i < arr.length - 1 &&
+            (policyUrl ? (
+              <a href={policyUrl} target="_blank" rel="noreferrer" className="font-semibold underline" style={{ color: accent }}>{policyLabel}</a>
+            ) : (
+              <span className="font-semibold underline">{policyLabel}</span>
+            ))}
+        </span>
+      ))
+    : null;
 
   // Tarjeta del formulario (reutilizable: sección inline o popup).
   const formCard = (
@@ -183,6 +270,12 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
                 )}
               </div>
             ))}
+            {consentEnabled && (
+              <label className="flex items-start gap-2 text-left text-xs leading-relaxed text-slate-600">
+                <input type="checkbox" required checked={consent} onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 h-4 w-4 shrink-0 accent-current" style={{ accentColor: accent }} />
+                <span>{consentTextNode}</span>
+              </label>
+            )}
             {err && <p className="text-sm text-rose-600">{err}</p>}
             <button type="submit" disabled={busy} className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50" style={{ background: accent }}>{busy ? 'Enviando…' : data.ctaText || 'Enviar'}</button>
           </form>
@@ -207,18 +300,16 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
   // pilares + trío de iPhones + banda de métricas), cambiando los CTA por
   // "Contactar" → formulario emergente → WhatsApp.
   if (template === 'clubify-home') {
+    const open = () => setShowForm(true);
     return (
       <main className="min-h-screen bg-white text-ink">
         {/* Header */}
         <header className="sticky top-0 z-30 border-b border-line/80 bg-white/85 backdrop-blur-md">
           <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
-            {data.logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={data.logoUrl} alt="Logo" className="block h-10 w-auto max-w-[200px] object-contain" />
-            ) : (
-              <Logo size={40} priority />
-            )}
-            <button onClick={() => setShowForm(true)} className="inline-flex items-center gap-1.5 rounded-pill bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-ink/90">
+            {/* Logo oficial de Clubify (asset del sistema). */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={data.logoUrl || '/clubify-logo.png'} alt="Clubify" className="block h-9 w-auto max-w-[190px] object-contain" />
+            <button onClick={open} className="inline-flex items-center gap-1.5 rounded-pill bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-ink/90">
               {data.ctaText || 'Contactar'} →
             </button>
           </div>
@@ -252,26 +343,47 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
                     <span key={p} className="rounded-full bg-bg2 px-2.5 py-1 text-xs font-medium text-ink/80">{p}</span>
                   ))}
                 </div>
-                <div className="mt-8 flex flex-wrap gap-3">
-                  <button onClick={() => setShowForm(true)} className="inline-flex items-center rounded-pill bg-ink px-6 py-3.5 text-base font-semibold text-white shadow-md transition hover:bg-ink/90">
-                    {data.ctaText || 'Contactar'}
-                  </button>
-                </div>
+                {!formInHero && (
+                  <div className="mt-8 flex flex-wrap gap-3">
+                    <button onClick={open} className="inline-flex items-center rounded-pill bg-ink px-6 py-3.5 text-base font-semibold text-white shadow-md transition hover:bg-ink/90">
+                      {data.ctaText || 'Contactar'}
+                    </button>
+                  </div>
+                )}
                 <div className="mt-8 flex flex-wrap items-center gap-5 text-xs text-mute">
                   <div className="flex items-center gap-1.5"><span className="font-bold text-ok">✓</span> Activación inmediata</div>
                   <div className="flex items-center gap-1.5"><span className="font-bold text-ok">✓</span> Cancela cuando quieras</div>
                   <div className="flex items-center gap-1.5"><span className="font-bold text-ok">✓</span> En español, soporte LATAM</div>
                 </div>
               </div>
-              <div className="relative flex justify-center lg:justify-end">
-                <HeroTrio />
-              </div>
+              {/* Primer bloque: formulario visible de inmediato (formInHero) o los mockups. */}
+              {formInHero ? (
+                <div id="formulario" className="w-full">{formCard}</div>
+              ) : (
+                <div className="relative flex justify-center lg:justify-end">
+                  <HeroTrio />
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* Banda de logos (marquee) */}
+        <section className="overflow-hidden border-y border-line/80 bg-bg2/40 py-8">
+          <div className="mx-auto mb-5 max-w-7xl px-6 text-center text-[11px] font-semibold uppercase tracking-[0.18em] text-mute">
+            Negocios LATAM creciendo con Clubify
+          </div>
+          <div className="relative">
+            <div className="flex animate-marquee gap-12 whitespace-nowrap">
+              {[...marqueeNames, ...marqueeNames, ...marqueeNames].map((l, i) => (
+                <span key={`${l}-${i}`} className="flex-none text-sm font-semibold capitalize text-mute opacity-70">{l}</span>
+              ))}
             </div>
           </div>
         </section>
 
         {/* Banda de métricas */}
-        <section className="border-y border-line/80 bg-bg2/40 py-12">
+        <section className="py-14">
           <div className="mx-auto grid max-w-7xl grid-cols-2 gap-6 px-6 text-center md:grid-cols-4">
             {[['+150', 'Negocios activos en LATAM'], ['+30K', 'Clientes con tarjeta wallet'], ['50K', 'Pedidos procesados / mes'], ['4.9 / 5', 'Calificación de dueños']].map(([v, l]) => (
               <div key={l}>
@@ -282,12 +394,58 @@ export function InfoPageView({ data }: { data: InfoPageData }) {
           </div>
         </section>
 
+        {/* Bloque Fidelización (componente real de la portada) — sin CTAs "Ver plan"/"Demo" en el clon. */}
+        <CtaCapture onCta={open}><FidelizacionBanner waLink="#contactar" demoLink="#contactar" hideCtas /></CtaCapture>
+
+        {/* Menús con IA (componente real de la portada) — sin CTAs "Ver plan"/"Demo" en el clon. */}
+        <CtaCapture onCta={open}><HeroBanner waLink="#contactar" demoLink="#contactar" hideCtas /></CtaCapture>
+
+        {/* InfoLinks (componente real de la portada) — sin CTA "Ver planes y comenzar" en el clon. */}
+        <CtaCapture onCta={open}><InfoLinksBanner hideCtas /></CtaCapture>
+
+        {/* Testimonios */}
+        <section className="border-y border-line/80 bg-bg2/40 py-20">
+          <div className="mx-auto max-w-7xl px-6">
+            <div className="mx-auto mb-10 max-w-2xl text-center">
+              <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-brand">Lo que dicen</div>
+              <h2 className="text-3xl font-bold leading-[1.1] tracking-tight md:text-5xl">Nuestros clientes</h2>
+            </div>
+            <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-2">
+              {[{ id: 'ZK5Q0QRXUeI', name: 'Nudo Cowork & Coffee' }, { id: 'BffWf9f8sHY', name: 'Konnys Pizza' }].map((v) => (
+                <div key={v.id} className="overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
+                  <div className="aspect-video w-full bg-black">
+                    <iframe src={`https://www.youtube-nocookie.com/embed/${v.id}`} title={`Testimonio ${v.name}`} className="h-full w-full" style={{ border: 0 }} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen loading="lazy" />
+                  </div>
+                  <div className="flex items-center gap-2.5 px-5 py-4">
+                    <div className="text-sm text-amber-500">★★★★★</div>
+                    <div className="text-sm font-semibold">{v.name}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Precios → Contactar */}
+        <section className="py-20">
+          <div className="mx-auto max-w-3xl px-6 text-center">
+            <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-brand">Precios</div>
+            <h2 className="text-3xl font-bold leading-[1.1] tracking-tight md:text-5xl">Precios a la medida de tu negocio</h2>
+            <p className="mt-4 text-lg text-mute">Cada negocio es distinto. Déjanos tus datos y armamos juntos el plan que mejor se ajusta a lo que necesitas.</p>
+            <div className="mt-9 flex justify-center">
+              <button onClick={open} className="inline-flex items-center justify-center gap-2 rounded-full bg-brand px-8 py-4 text-base font-semibold text-white shadow-lg transition hover:opacity-90 sm:text-lg">
+                {data.ctaText || 'Contactar'} →
+              </button>
+            </div>
+          </div>
+        </section>
+
         {/* CTA final */}
-        <section className="py-16">
+        <section className="border-t border-line bg-bg2/40 py-16">
           <div className="mx-auto max-w-2xl px-6 text-center">
             <h2 className="text-2xl font-bold tracking-tight md:text-3xl">¿Listo para dar el siguiente paso?</h2>
             <p className="mt-3 text-mute">Déjanos tus datos y un asesor te contacta por WhatsApp.</p>
-            <button onClick={() => setShowForm(true)} className="mt-7 inline-flex items-center rounded-pill bg-ink px-7 py-3.5 text-base font-semibold text-white shadow-md transition hover:bg-ink/90">
+            <button onClick={open} className="mt-7 inline-flex items-center rounded-pill bg-ink px-7 py-3.5 text-base font-semibold text-white shadow-md transition hover:bg-ink/90">
               {data.ctaText || 'Contactar'}
             </button>
           </div>

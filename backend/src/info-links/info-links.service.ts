@@ -163,6 +163,11 @@ export class InfoLinksService {
       if (typeof next.url === 'string') {
         next.url = safeUrlOrNull(next.url) ?? '';
       }
+      // Icono personalizado (v2): se sube a R2 (https) y se pinta como
+      // <img src>. Filtramos schemes exóticos por defensa en profundidad.
+      if (typeof next.customIconUrl === 'string') {
+        next.customIconUrl = safeUrlOrNull(next.customIconUrl) ?? null;
+      }
       if (next.popup && typeof next.popup === 'object') {
         const popup: any = { ...next.popup };
         if (typeof popup.buttonUrl === 'string') {

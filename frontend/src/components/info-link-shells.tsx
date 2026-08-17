@@ -13,6 +13,11 @@ import {
   getBannerOverlayBackground,
   type BannerConfig,
 } from '@/lib/info-link-banner';
+import {
+  StyledButtonLink,
+  hasButtonStyleV2,
+  type InfoLinkButtonStyle,
+} from '@/components/info-link-button-style';
 
 // =============================================================
 //  Feedback de tap en móvil — fix iOS Safari
@@ -81,7 +86,7 @@ export type ShellLink = {
 
 export type ButtonBgStyle = 'solid' | 'transparent' | 'outline';
 
-export type ResolvedButton = {
+export type ResolvedButton = InfoLinkButtonStyle & {
   label: string;
   href: string;
   newTab: boolean;
@@ -288,6 +293,18 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
           <div className="mt-7 space-y-2.5">
             {buttons.map((b, i) => {
               if (b.cover) return <CoverButtonLink key={i} b={b} />;
+              if (hasButtonStyleV2(b))
+                return (
+                  <StyledButtonLink
+                    key={i}
+                    b={b}
+                    primary={primary}
+                    dark
+                    href={b.href}
+                    newTab={b.newTab}
+                    onClick={b.onClick}
+                  />
+                );
               const sp = buttonStyleProps(b.bgStyle, primary, { dark: true });
               // En AURORA el "solid" del shell usa blanco (no primary) por
               // diseño histórico — preservamos eso cuando bgStyle es solid +
@@ -405,6 +422,17 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
           <div className="mt-7 space-y-2">
             {buttons.map((b, i) => {
               if (b.cover) return <CoverButtonLink key={i} b={b} />;
+              if (hasButtonStyleV2(b))
+                return (
+                  <StyledButtonLink
+                    key={i}
+                    b={b}
+                    primary={primary}
+                    href={b.href}
+                    newTab={b.newTab}
+                    onClick={b.onClick}
+                  />
+                );
               const sp = buttonStyleProps(b.bgStyle, primary, { dark: false });
               return (
                 <a
@@ -445,7 +473,10 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
   // El layout original (primaryBtn pill + secondaryBtns en grid 3) solo
   // aplica a los botones sin cover.
   const coverBtns = buttons.filter((b) => !!b.cover);
-  const regularBtns = buttons.filter((b) => !b.cover);
+  // Botones v2 (con forma/icono propios) van en su propia pila full-width;
+  // no entran al layout histórico primary/secondary del shop.
+  const styledBtns = buttons.filter((b) => !b.cover && hasButtonStyleV2(b));
+  const regularBtns = buttons.filter((b) => !b.cover && !hasButtonStyleV2(b));
   const primaryBtn = regularBtns.find((b) => b.isPrimary) ?? regularBtns[0];
   const secondaryBtns = regularBtns.filter((b) => b !== primaryBtn).slice(0, 3);
 
@@ -549,6 +580,20 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
             <div className="mt-5 space-y-2.5">
               {coverBtns.map((b, i) => (
                 <CoverButtonLink key={`cov-${i}`} b={b} />
+              ))}
+            </div>
+          )}
+          {styledBtns.length > 0 && (
+            <div className="mt-5 space-y-2.5">
+              {styledBtns.map((b, i) => (
+                <StyledButtonLink
+                  key={`st-${i}`}
+                  b={b}
+                  primary={primary}
+                  href={b.href}
+                  newTab={b.newTab}
+                  onClick={b.onClick}
+                />
               ))}
             </div>
           )}
@@ -670,6 +715,19 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
                   return (
                     <div key={i} className="basis-full">
                       <CoverButtonLink b={b} />
+                    </div>
+                  );
+                }
+                if (hasButtonStyleV2(b)) {
+                  return (
+                    <div key={i} className="basis-full">
+                      <StyledButtonLink
+                        b={b}
+                        primary={primary}
+                        href={b.href}
+                        newTab={b.newTab}
+                        onClick={b.onClick}
+                      />
                     </div>
                   );
                 }
@@ -798,6 +856,18 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
           <div className="mt-7 space-y-2.5">
             {buttons.map((b, i) => {
               if (b.cover) return <CoverButtonLink key={i} b={b} />;
+              if (hasButtonStyleV2(b))
+                return (
+                  <StyledButtonLink
+                    key={i}
+                    b={b}
+                    primary={primary}
+                    dark
+                    href={b.href}
+                    newTab={b.newTab}
+                    onClick={b.onClick}
+                  />
+                );
               // NEON tiene clip-path estilo cyberpunk + colores de acento
               // propios. Mapeamos bgStyle a tres looks fieles al template:
               // solid = bloque sólido con acento + texto negro
