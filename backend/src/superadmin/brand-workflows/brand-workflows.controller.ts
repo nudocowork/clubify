@@ -114,6 +114,28 @@ export class BrandWorkflowsController {
     return { ok: true };
   }
 
+  // Duplica un workflow (misma marca) como BORRADOR: copia disparador, nodos y
+  // configuración; NO copia inscripciones ni historial. Aislado por whiteLabelId.
+  @Post(':id/duplicate')
+  async duplicate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    const whiteLabelId = await this.brandId(user);
+    const wf = await this.ownWorkflow(id, whiteLabelId);
+    return this.prisma.brandWorkflow.create({
+      data: {
+        whiteLabelId,
+        name: `${wf.name} (copia)`.slice(0, 120),
+        status: 'draft',
+        folderId: wf.folderId ?? null,
+        trigger: (wf.trigger as object) ?? { type: 'manual' },
+        rootId: wf.rootId ?? null,
+        nodes: (wf.nodes as object) ?? {},
+        drip: (wf.drip as object) ?? {},
+        sendWindow: (wf.sendWindow as object) ?? {},
+        reentry: wf.reentry ?? false,
+      },
+    });
+  }
+
   // ── Carpetas ──
   @Post('folders')
   async createFolder(@Body() body: NameDto, @CurrentUser() user: AuthUser) {

@@ -38,6 +38,12 @@ type Order = {
   paymentMethod?: string;
 };
 
+type Location = {
+  id: string;
+  name: string;
+  isActive: boolean;
+};
+
 const COLS = [
   { key: 'PENDING' as const, labelKey: 'colPending', tone: 'warn' },
   { key: 'CONFIRMED' as const, labelKey: 'colConfirmed', tone: 'info' },
@@ -87,6 +93,9 @@ export default function OrdersBoard() {
   const [flashId, setFlashId] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState('');
   const [scopeDays, setScopeDays] = useState<1 | 7 | 30>(1);
+  // Filtro por sede (solo tenants multi-sede). '' = todas las sedes.
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [locationId, setLocationId] = useState('');
   const [newOrderOpen, setNewOrderOpen] = useState(false);
   const router = useRouter();
   const soundRef = useRef(soundOn);
@@ -97,7 +106,10 @@ export default function OrdersBoard() {
 
   async function load() {
     try {
-      const data = await api<typeof board>(`/orders/board?days=${scopeDays}`);
+      const q = `/orders/board?days=${scopeDays}${
+        locationId ? `&locationId=${encodeURIComponent(locationId)}` : ''
+      }`;
+      const data = await api<typeof board>(q);
       // Hidratamos el set de IDs vistos en la primera carga sin alertar.
       const allIds = new Set<string>();
       for (const k of Object.keys(data)) {
@@ -179,12 +191,20 @@ export default function OrdersBoard() {
     };
   }, []);
 
-  // Recarga cuando cambia el scope de fechas (no incluido en el efecto de socket).
+  // Sedes activas del tenant para el filtro (solo se muestra si hay ≥2).
+  useEffect(() => {
+    api<Location[]>('/locations')
+      .then((ls) => setLocations((ls ?? []).filter((l) => l.isActive)))
+      .catch(() => setLocations([]));
+  }, []);
+
+  // Recarga cuando cambia el scope de fechas o la sede (no incluido en el
+  // efecto de socket).
   useEffect(() => {
     seenRef.current = new Set(); // re-hidratar IDs en el siguiente load
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeDays]);
+  }, [scopeDays, locationId]);
 
   async function setStatus(id: string, status: Order['status']) {
     setBusy(id);
@@ -391,6 +411,21 @@ export default function OrdersBoard() {
               </button>
             )}
           </div>
+          {locations.length >= 2 && (
+            <select
+              className="text-sm border border-line rounded-pill px-3 py-1.5 bg-white text-ink"
+              value={locationId}
+              onChange={(e) => setLocationId(e.target.value)}
+              title="Filtrar pedidos por sede"
+            >
+              <option value="">Todas las sedes</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          )}
           <AcademyButton moduleKey="pedidos" />
           <div className="flex gap-0.5 bg-bg2 rounded-pill p-0.5 text-xs">
             {([1, 7, 30] as const).map((d) => (
@@ -464,7 +499,9 @@ export default function OrdersBoard() {
             title={t('downloadCsvTooltip')}
             onClick={() =>
               downloadFile(
-                '/orders/export.csv',
+                `/orders/export.csv${
+                  locationId ? `?locationId=${encodeURIComponent(locationId)}` : ''
+                }`,
                 `pedidos-${new Date().toISOString().slice(0, 10)}.csv`,
               )
             }

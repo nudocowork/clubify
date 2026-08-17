@@ -44,6 +44,16 @@ export class BrandWorkflowEngineService {
     return t?.whatsappPhone ?? t?.phone ?? null;
   }
 
+  // Email del dueño (para el nodo de correo): owner(TENANT_OWNER).email.
+  private async ownerEmail(tenantId: string): Promise<string | null> {
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      select: { email: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return owner?.email ?? null;
+  }
+
   private async ctxFor(tenantId: string): Promise<Record<string, string>> {
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
@@ -159,6 +169,33 @@ export class BrandWorkflowEngineService {
         }
         const res = await this.grow.sendSmsWithCreds(creds, phone, message);
         await this.log_({ ...base, message, status: res.ok ? 'sent' : 'failed', result: res.ok ? null : res.message ?? 'error' });
+        return { kind: 'continue', next: node.next ?? null };
+      }
+      case 'send_email': {
+        const subject = resolveMerge(String(cfg.subject || ''), ctx);
+        const bodyText = resolveMerge(String(cfg.body || ''), ctx);
+        const html = /<[a-z][\s\S]*>/i.test(bodyText) ? bodyText : bodyText.replace(/\n/g, '<br>');
+        const winAt = this.nextSendTime(wf.sendWindow as WFSendWindow, Date.now());
+        if (winAt) return { kind: 'wait', resumeAt: winAt, waitKind: 'window', resumeNodeId: node.id };
+        const dripAt = await this.dripDefer(wf);
+        if (dripAt) return { kind: 'wait', resumeAt: dripAt, waitKind: 'drip', resumeNodeId: node.id };
+        // Subcuenta de la marca (mismas creds que el SMS) + email del dueño.
+        const tenant = await this.prisma.tenant.findUnique({
+          where: { id: enr.tenantId },
+          select: { whiteLabel: { select: BRAND_GROW_SELECT } },
+        });
+        const creds = brandGrowCreds(tenant?.whiteLabel);
+        if (!creds) {
+          await this.log_({ ...base, message: subject, status: 'skipped', result: 'La marca no tiene subcuenta de correo' });
+          return { kind: 'continue', next: node.next ?? null };
+        }
+        const email = await this.ownerEmail(enr.tenantId);
+        if (!email) {
+          await this.log_({ ...base, message: subject, status: 'skipped', result: 'Negocio sin email' });
+          return { kind: 'continue', next: node.next ?? null };
+        }
+        const res = await this.grow.sendEmailWithCreds(creds, email, subject, html);
+        await this.log_({ ...base, message: subject, status: res.ok ? 'sent' : 'failed', result: res.ok ? null : res.message ?? 'error' });
         return { kind: 'continue', next: node.next ?? null };
       }
       case 'wait_delay': {

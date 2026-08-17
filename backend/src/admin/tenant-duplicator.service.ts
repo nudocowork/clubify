@@ -398,6 +398,9 @@ export class TenantDuplicatorService {
             autoStampOnOrder: c.autoStampOnOrder,
             autoStampAmount: c.autoStampAmount,
             stampIcon: c.stampIcon,
+            // Ícono propio del sello (imagen). Faltaba: la copia perdía la
+            // imagen y la tarjeta caía al emoji.
+            stampIconImageUrl: c.stampIconImageUrl ?? null,
             // Activación manual deliberada — el dueño revisa antes de habilitar.
             isActive: false,
           },

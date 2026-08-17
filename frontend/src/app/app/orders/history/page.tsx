@@ -25,6 +25,12 @@ const STATUS_LABEL: Record<Order['status'], { t: string; cls: string }> = {
   CANCELLED: { t: 'Cancelado', cls: 'bg-red-100 text-red-800' },
 };
 
+type Location = {
+  id: string;
+  name: string;
+  isActive: boolean;
+};
+
 const FULFILLMENT_LABEL: Record<string, string> = {
   DINE_IN: 'Mesa',
   DELIVERY: 'Domicilio',
@@ -38,6 +44,9 @@ export default function OrdersHistoryPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [status, setStatus] = useState('');
+  // Filtro por sede (solo tenants multi-sede). '' = todas las sedes.
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [locationId, setLocationId] = useState('');
 
   const qs = useCallback(() => {
     const p = new URLSearchParams();
@@ -45,9 +54,10 @@ export default function OrdersHistoryPage() {
     if (from) p.set('from', from);
     if (to) p.set('to', to);
     if (status) p.set('status', status);
+    if (locationId) p.set('locationId', locationId);
     const s = p.toString();
     return s ? `?${s}` : '';
-  }, [search, from, to, status]);
+  }, [search, from, to, status, locationId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,6 +76,13 @@ export default function OrdersHistoryPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sedes activas del tenant para el filtro (solo se muestra si hay ≥2).
+  useEffect(() => {
+    api<Location[]>('/locations')
+      .then((ls) => setLocations((ls ?? []).filter((l) => l.isActive)))
+      .catch(() => setLocations([]));
   }, []);
 
   return (
@@ -135,6 +152,23 @@ export default function OrdersHistoryPage() {
             <option value="CANCELLED">Cancelado</option>
           </select>
         </div>
+        {locations.length >= 2 && (
+          <div>
+            <label className="label">Sede</label>
+            <select
+              className="input mt-1"
+              value={locationId}
+              onChange={(e) => setLocationId(e.target.value)}
+            >
+              <option value="">Todas las sedes</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <button type="submit" className="btn-primary text-sm" disabled={loading}>
           {loading ? 'Buscando…' : 'Buscar'}
         </button>

@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 
@@ -12,9 +16,27 @@ export class OnboardingService {
     return crypto.createHash('sha256').update(token).digest('hex');
   }
 
+  /** El onboarding sync es un sistema INTERNO de Clubify. Los tokens NO deben
+   *  poder generarse/listarse/revocarse para negocios de marca blanca — ni por
+   *  API (defensa en profundidad; el card ya está oculto en la UI). Clubify =
+   *  whiteLabel null o slug 'clubify'. */
+  private async assertClubifyTenant(tenantId: string) {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { whiteLabel: { select: { slug: true } } },
+    });
+    const slug = t?.whiteLabel?.slug ?? 'clubify';
+    if (slug !== 'clubify') {
+      throw new ForbiddenException(
+        'El onboarding sync solo está disponible para negocios de Clubify.',
+      );
+    }
+  }
+
   /** Genera un token nuevo para el negocio. Devuelve el valor EN CLARO una sola
    *  vez (no se vuelve a poder ver) + el business_id. */
   async createToken(tenantId: string, label?: string) {
+    await this.assertClubifyTenant(tenantId);
     // Prefijo reconocible + 32 bytes aleatorios (256 bits) en base64url.
     const token = 'clbf_' + crypto.randomBytes(32).toString('base64url');
     const row = await this.prisma.onboardingToken.create({
@@ -36,6 +58,7 @@ export class OnboardingService {
 
   /** Lista los tokens del negocio (sin el valor en claro). */
   async listTokens(tenantId: string) {
+    await this.assertClubifyTenant(tenantId);
     const tokens = await this.prisma.onboardingToken.findMany({
       where: { tenantId },
       orderBy: { createdAt: 'desc' },
@@ -53,6 +76,7 @@ export class OnboardingService {
 
   /** Revoca un token del negocio. Scoped por tenant (findFirst {id,tenantId}). */
   async revokeToken(tenantId: string, id: string) {
+    await this.assertClubifyTenant(tenantId);
     const row = await this.prisma.onboardingToken.findFirst({
       where: { id, tenantId },
       select: { id: true },

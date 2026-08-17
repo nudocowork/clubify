@@ -1078,11 +1078,19 @@ export class OrdersService {
   list(
     user: AuthUser,
     override?: string,
-    filters?: { status?: OrderStatus; search?: string; from?: string; to?: string },
+    filters?: {
+      status?: OrderStatus;
+      search?: string;
+      from?: string;
+      to?: string;
+      locationId?: string;
+    },
   ) {
     const tid = this.tid(user, override);
     const where: any = { tenantId: tid };
     if (filters?.status) where.status = filters.status;
+    // Filtro opcional por sede (tenants multi-sede). Sin locationId = todos.
+    if (filters?.locationId) where.locationId = filters.locationId;
     if (filters?.from || filters?.to) {
       where.createdAt = {};
       if (filters.from) {
@@ -1117,20 +1125,23 @@ export class OrdersService {
     });
   }
 
-  async board(user: AuthUser, override?: string, days = 1) {
+  async board(user: AuthUser, override?: string, days = 1, locationId?: string) {
     const tid = this.tid(user, override);
     const window = Math.max(1, Math.min(90, days));
     const since = new Date(Date.now() - window * 24 * 60 * 60 * 1000);
+    // Filtro opcional por sede (tenants multi-sede). Sin locationId = todos.
+    const where: any = {
+      tenantId: tid,
+      OR: [
+        { createdAt: { gte: since } },
+        { status: { in: ['PENDING', 'CONFIRMED', 'READY'] } },
+      ],
+    };
+    if (locationId) where.locationId = locationId;
     // `items` es Json scalar — Prisma lo devuelve siempre sin necesidad de
     // include/select. El frontend lee o.items.length.
     const all = await this.prisma.order.findMany({
-      where: {
-        tenantId: tid,
-        OR: [
-          { createdAt: { gte: since } },
-          { status: { in: ['PENDING', 'CONFIRMED', 'READY'] } },
-        ],
-      },
+      where,
       include: {
         customer: { select: { fullName: true, phone: true } },
       },

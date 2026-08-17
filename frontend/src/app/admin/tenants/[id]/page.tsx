@@ -656,6 +656,20 @@ export default function TenantDetail() {
                     })}
                   </dd>
                 </div>
+                {t.purchasedAt && (
+                  <div className="flex justify-between">
+                    {/* PDF Soft 10: fecha REAL de compra (pago), distinta de la
+                        de creación de la cuenta cuando el negocio activó tarde. */}
+                    <dt className="text-mute">Comprado</dt>
+                    <dd className="font-medium">
+                      {new Date(t.purchasedAt).toLocaleDateString('es-CO', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </dd>
+                  </div>
+                )}
               </dl>
               <div className="mt-4 pt-3 border-t border-line">
                 <Link
@@ -873,8 +887,13 @@ export default function TenantDetail() {
             <AcademyTogglesCard tenant={t} onSaved={load} />
             <WalletsGlobalRefreshCard tenantId={t.id} />
             {/* Movido desde /app/settings (2026-07-19, PDF1145): los tokens de
-                integración con onboarding los gestiona el operador, no el dueño. */}
-            <OnboardingConnectAdminCard tenantId={t.id} />
+                integración con onboarding los gestiona el operador, no el dueño.
+                SOLO Clubify — el onboarding sync es un sistema INTERNO de Clubify,
+                NO debe aparecer en negocios de marca blanca (ej. Sellea). Gateado
+                por la marca del negocio: whiteLabel null o slug 'clubify'. */}
+            {(!t.whiteLabel || t.whiteLabel.slug === 'clubify') && (
+              <OnboardingConnectAdminCard tenantId={t.id} />
+            )}
           </CollapsibleSection>
         )}
       </div>
@@ -3315,7 +3334,7 @@ function ChangePlanPeriodModal({
           </div>
         </div>
 
-        <div className="px-5 py-4 border-t border-line flex items-center justify-end gap-2 sticky bottom-0 bg-bg1">
+        <div className="px-5 py-4 border-t border-line flex items-center justify-end gap-2 sticky bottom-0 bg-surface">
           <button
             type="button"
             className="btn-ghost text-sm cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"

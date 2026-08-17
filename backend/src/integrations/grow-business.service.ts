@@ -416,4 +416,96 @@ export class GrowBusinessService {
       };
     }
   }
+
+  /** Upsert de contacto por EMAIL (para el canal de correo). */
+  private async upsertContactByEmail(
+    locationId: string,
+    apiKey: string,
+    email: string,
+  ): Promise<string | null> {
+    try {
+      const res = await fetch(`${this.API_BASE}/contacts/upsert`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(15000),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Version: this.API_VERSION,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ locationId, email: email.trim().toLowerCase() }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        this.logger.warn(
+          `upsertContactByEmail failed status=${res.status} body=${text.slice(0, 200)}`,
+        );
+        return null;
+      }
+      const data = await res.json().catch(() => null as any);
+      return data?.contact?.id ?? data?.id ?? data?.contactId ?? null;
+    } catch (e: any) {
+      this.logger.warn(`upsertContactByEmail threw: ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
+  /**
+   * Envía un CORREO server-side vía Grow Business (canal Email de LeadConnector)
+   * con las credenciales de la MARCA. Upsert del contacto por email + POST
+   * /conversations/messages con type 'Email' + subject + html. GHL maneja el
+   * dominio/entregabilidad de la subcuenta del negocio.
+   */
+  async sendEmailWithCreds(
+    creds: { locationId: string; apiKey: string },
+    toEmail: string,
+    subject: string,
+    html: string,
+  ) {
+    if (!creds.locationId || !creds.apiKey) {
+      return { ok: false as const, message: 'Credenciales incompletas' };
+    }
+    const email = (toEmail || '').trim().toLowerCase();
+    if (!email.includes('@')) {
+      return { ok: false as const, message: 'Email de destino inválido' };
+    }
+    const contactId = await this.upsertContactByEmail(
+      creds.locationId,
+      creds.apiKey,
+      email,
+    );
+    if (!contactId) {
+      return {
+        ok: false as const,
+        message: 'No se pudo crear/buscar el contacto por email en Grow Business.',
+      };
+    }
+    try {
+      const res = await fetch(`${this.API_BASE}/conversations/messages`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(20000),
+        headers: {
+          Authorization: `Bearer ${creds.apiKey}`,
+          Version: this.API_VERSION,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'Email',
+          contactId,
+          subject: subject || '(sin asunto)',
+          html,
+          emailTo: email,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        return { ok: false as const, status: res.status, message: text.slice(0, 200) };
+      }
+      const data = await res.json().catch(() => ({}));
+      return { ok: true as const, id: data?.messageId ?? data?.id ?? null };
+    } catch (e: any) {
+      return { ok: false as const, message: e?.message ?? 'Error enviando correo' };
+    }
+  }
 }

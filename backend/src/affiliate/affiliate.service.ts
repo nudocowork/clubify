@@ -669,8 +669,10 @@ export class AffiliateService {
               select: {
                 id: true,
                 brandName: true,
-                // C3: fecha de registro = FECHA de la 1ª comisión.
+                // C3: fecha de la 1ª comisión = fecha "de negocio".
+                // PDF Soft 10: purchasedAt (compra real) manda sobre createdAt.
                 createdAt: true,
+                purchasedAt: true,
                 planPeriodicity: true,
                 subscriptionPriceUsd: true,
               },
@@ -800,18 +802,34 @@ export class AffiliateService {
                 Math.ceil((availableAt.getTime() - Date.now()) / 86400000),
               )
             : 0;
-        // C3: fecha de negocio (registro para la 1ª comisión, cobro real para
-        // las recompras).
+        // C3 + FIX 2026-08-14 (R1/Fable): fecha de negocio. 1ª comisión CON
+        // purchasedAt real → esa; resto (recompras y 1ª sin purchasedAt) → la
+        // fecha del cobro de ESTA comisión (createdAt ≈ webhook/pago). Antes la
+        // 1ª sin purchasedAt caía a tenant.createdAt (REGISTRO ≠ compra) →
+        // fecha equivocada + flip entre renders. Sincronizado con
+        // referrals.service.ts (listAdminCommissions).
         const tenantForDate = c.referralUse?.tenant;
         const firstMs = tenantForDate?.id
           ? firstChargeMsByTenant.get(tenantForDate.id)
           : undefined;
-        const commissionDate =
-          tenantForDate?.createdAt &&
+        // FECHA DURABLE: si la fila tiene businessDate congelado, se usa tal
+        // cual (estable). Si no, fallback a la heurística (igual que admin).
+        let commissionDate: Date;
+        if (c.businessDate) {
+          commissionDate = new Date(c.businessDate);
+        } else if (
+          tenantForDate?.purchasedAt &&
           firstMs !== undefined &&
-          availableAt.getTime() === firstMs
-            ? new Date(tenantForDate.createdAt)
-            : new Date(c.createdAt);
+          availableAt.getTime() === firstMs &&
+          // GUARD R1 (Fable): purchasedAt no puede ser muy posterior a la 1ª
+          // comisión (Bug B pudo estampar fecha de renovación). Paridad backfill.
+          new Date(tenantForDate.purchasedAt).getTime() <=
+            new Date(c.createdAt).getTime() + 86400000
+        ) {
+          commissionDate = new Date(tenantForDate.purchasedAt);
+        } else {
+          commissionDate = new Date(c.createdAt);
+        }
         return {
           id: c.id,
           amount,

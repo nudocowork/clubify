@@ -288,7 +288,7 @@ export default function AdminCommissionsPage() {
           {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
 
-        <div className="relative">
+        <div className="relative z-50">
           <button
             onClick={() => setMoreOpen((o) => !o)}
             className="text-sm px-3.5 py-2 rounded-pill border border-slate-300 bg-white text-slate-700 font-semibold hover:bg-slate-50 transition"

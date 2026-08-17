@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api, getUser } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
+import { WalletStripRealPreview } from '@/components/WalletStripRealPreview';
 
 const STEPS = ['Marca', 'WhatsApp', 'Categoría', 'Producto', 'Tarjeta', 'Listo'] as const;
 
@@ -534,6 +535,22 @@ export default function Onboarding() {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Preview REAL — imagen PNG del generador de producción (Sharp),
+                  la MISMA que el cliente recibe en su Wallet, en 3 estados. Si
+                  el endpoint falla, el mock CSS de arriba queda como respaldo. */}
+              <div className="mt-5">
+                <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+                  Imagen real del cartón (lo que llega a su Wallet)
+                </div>
+                <WalletStripRealPreview
+                  config={{
+                    primaryColor: brand.primaryColor,
+                    secondaryColor: brand.secondaryColor,
+                    stampsRequired: card.stampsRequired,
+                  }}
+                />
               </div>
             </div>
           </Step>

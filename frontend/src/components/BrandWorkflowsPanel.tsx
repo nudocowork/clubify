@@ -20,6 +20,7 @@ type WFNode = { id: string; type: string; config: any; next?: string | null; yes
 const ACCENT = '#16a34a';
 const NODE = {
   send_sms: { label: 'Enviar SMS', icon: '💬', chip: '#d1fae5', color: '#059669' },
+  send_email: { label: 'Enviar correo', icon: '✉️', chip: '#dbeafe', color: '#2563eb' },
   wait_delay: { label: 'Espera (tiempo)', icon: '⏱', chip: '#ede9fe', color: '#7c3aed' },
   if_else: { label: 'Si / No (condición)', icon: '{ }', chip: '#e0e7ff', color: '#4f46e5', branch: true },
   end: { label: 'Terminar', icon: '🚪', chip: '#fee2e2', color: '#dc2626' },
@@ -82,6 +83,13 @@ export default function BrandWorkflowsPanel() {
   }
 
   const open = wfs.find((w) => w.id === openId) ?? null;
+  async function duplicate(id: string) {
+    setBusy(true);
+    try { const w: any = await api(`/admin/workflows/${id}/duplicate`, { method: 'POST' }); setWfs((p) => [{ ...w, folderId: w.folderId ?? null, nodes: w.nodes ?? {}, drip: w.drip ?? {}, sendWindow: w.sendWindow ?? {}, _stats: { active: 0, completed: 0 } }, ...p]); }
+    catch { await load(); }
+    finally { setBusy(false); }
+  }
+
   if (open) return <Editor key={open.id} wf={open} onBack={() => { setOpenId(null); load(); }} onDeleted={() => { setWfs((p) => p.filter((w) => w.id !== open.id)); setOpenId(null); }} />;
 
   if (loading) return <div className="py-10 text-center text-sm text-slate-400">Cargando…</div>;
@@ -131,7 +139,10 @@ export default function BrandWorkflowsPanel() {
                 <td className="text-slate-800">{w._stats.active + w._stats.completed}</td>
                 <td className="text-slate-800">{w._stats.active}</td>
                 <td className="whitespace-nowrap text-slate-400">{fmtDate(w.createdAt)}</td>
-                <td className="text-right"><select value={w.folderId ?? ''} onChange={(e) => move(w.id, e.target.value || null)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500"><option value="">Sin carpeta</option>{folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select></td>
+                <td className="text-right"><div className="flex items-center justify-end gap-2">
+                  <button onClick={() => duplicate(w.id)} disabled={busy} title="Duplicar workflow" className="whitespace-nowrap text-xs text-slate-400 hover:text-emerald-700">⧉ Duplicar</button>
+                  <select value={w.folderId ?? ''} onChange={(e) => move(w.id, e.target.value || null)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500"><option value="">Sin carpeta</option>{folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>
+                </div></td>
               </tr>
             ))}
             {showFolders.length === 0 && rows.length === 0 && <tr><td colSpan={6} className="px-3 py-10 text-center text-slate-400">{currentFolder ? 'Carpeta vacía.' : 'Aún no hay workflows ni carpetas.'}</td></tr>}
@@ -241,13 +252,48 @@ function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDelet
 function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, setField }: any) {
   const [view, setView] = useState({ x: 0, y: 30, z: 0.9 });
   const pan = useRef<any>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const zRef = useRef(view.z); zRef.current = view.z;
+  const [mini, setMini] = useState<{ boxes: { x: number; y: number; w: number; h: number }[]; W: number; H: number } | null>(null);
   function down(e: React.PointerEvent) { if ((e.target as HTMLElement).closest('.wf-node, button, .wf-nopan')) return; pan.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }
   function moveP(e: React.PointerEvent) { if (!pan.current) return; setView((v) => ({ ...v, x: pan.current.vx + (e.clientX - pan.current.x), y: pan.current.vy + (e.clientY - pan.current.y) })); }
   const zoom = (d: number) => setView((v) => ({ ...v, z: Math.min(1.4, Math.max(0.35, Math.round((v.z + d) * 100) / 100)) }));
+  // Ajustar al contenido REAL: mide el ancho natural del flujo y calcula el zoom.
+  function fitToContent() {
+    const cont = contentRef.current, wrap = wrapRef.current;
+    if (!cont || !wrap) { setView({ x: 0, y: 30, z: 0.9 }); return; }
+    const natW = cont.getBoundingClientRect().width / (zRef.current || 1);
+    if (!natW) { setView({ x: 0, y: 30, z: 0.9 }); return; }
+    const targetZ = Math.min(1, Math.max(0.35, Math.round(((wrap.clientWidth - 40) / natW) * 100) / 100));
+    setView({ x: 0, y: 30, z: targetZ });
+  }
+  // Medición para el MINIMAPA: silueta de los nodos + tamaño del contenido.
+  const structSig = JSON.stringify(Object.keys(nodes || {}).map((k) => [k, nodes[k]?.next, nodes[k]?.yes, nodes[k]?.no])) + ':' + (trigger?.type ?? '');
+  useEffect(() => {
+    const measure = () => {
+      try {
+        const cont = contentRef.current; if (!cont) return;
+        const z = zRef.current || 1;
+        const cRect = cont.getBoundingClientRect();
+        const boxes: { x: number; y: number; w: number; h: number }[] = [];
+        cont.querySelectorAll<HTMLElement>('.wf-node').forEach((el) => {
+          const r = el.getBoundingClientRect();
+          if (r.width / z < 60) return; // omite los botones "+" pequeños
+          boxes.push({ x: (r.left - cRect.left) / z, y: (r.top - cRect.top) / z, w: r.width / z, h: r.height / z });
+        });
+        setMini({ boxes, W: cRect.width / z, H: cRect.height / z });
+      } catch { /* decorativo: nunca romper el lienzo */ }
+    };
+    const raf = requestAnimationFrame(measure);
+    window.addEventListener('resize', measure);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', measure); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structSig]);
   const trigLabel = TRIGGERS.find((t) => t.key === trigger.type)?.label ?? trigger.type;
   return (
-    <div className="absolute inset-0 overflow-hidden bg-slate-50 [background-image:radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:22px_22px]" onPointerDown={down} onPointerMove={moveP} onPointerUp={() => (pan.current = null)} onPointerLeave={() => (pan.current = null)} onWheel={(e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(-e.deltaY * 0.002); } }} style={{ cursor: pan.current ? 'grabbing' : 'grab' }}>
-      <div className="absolute left-1/2 top-0 origin-top" style={{ transform: `translate(-50%,0) translate(${view.x}px,${view.y}px) scale(${view.z})` }}>
+    <div ref={wrapRef} className="absolute inset-0 overflow-hidden bg-slate-50 [background-image:radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:22px_22px]" onPointerDown={down} onPointerMove={moveP} onPointerUp={() => (pan.current = null)} onPointerLeave={() => (pan.current = null)} onWheel={(e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(-e.deltaY * 0.002); } }} style={{ cursor: pan.current ? 'grabbing' : 'grab' }}>
+      <div ref={contentRef} className="absolute left-1/2 top-0 origin-top" style={{ transform: `translate(-50%,0) translate(${view.x}px,${view.y}px) scale(${view.z})` }}>
         <div className="flex flex-col items-center pb-40">
           <div className="wf-node w-[280px] rounded-xl border px-3 py-2.5 shadow-sm" style={{ borderColor: '#a7f3d0', background: 'white' }}>
             <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg text-sm" style={{ background: '#d1fae5', color: '#059669' }}>▶</span><div className="min-w-0"><p className="truncate text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#059669' }}>Disparador</p><p className="truncate text-sm font-medium text-slate-800">{trigLabel}</p></div></div>
@@ -259,8 +305,29 @@ function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, set
         <button onClick={() => zoom(0.1)} className="px-3 py-2 text-slate-500 hover:bg-slate-50">+</button>
         <span className="border-y border-slate-100 px-2 py-1 text-center text-[11px] text-slate-400">{Math.round(view.z * 100)}%</span>
         <button onClick={() => zoom(-0.1)} className="px-3 py-2 text-slate-500 hover:bg-slate-50">−</button>
-        <button onClick={() => setView({ x: 0, y: 30, z: 0.9 })} className="border-t border-slate-100 px-3 py-2 text-slate-500 hover:bg-slate-50">⤢</button>
+        <button onClick={fitToContent} title="Ajustar al contenido" className="border-t border-slate-100 px-3 py-2 text-slate-500 hover:bg-slate-50">⤢</button>
       </div>
+      {mini && mini.H > 40 && (
+        <BrandMinimap mini={mini} view={view} getWrapH={() => wrapRef.current?.clientHeight ?? 400} onJump={(cy) => setView((v) => ({ ...v, x: 0, y: (wrapRef.current?.clientHeight ?? 400) / 2 - cy * v.z }))} />
+      )}
+    </div>
+  );
+}
+
+// Minimapa del lienzo de Sellea: silueta escalada de los nodos + viewport vertical +
+// clic para saltar. Decorativo y robusto (si algo falla, no rompe el lienzo).
+function BrandMinimap({ mini, view, getWrapH, onJump }: { mini: { boxes: { x: number; y: number; w: number; h: number }[]; W: number; H: number }; view: { x: number; y: number; z: number }; getWrapH: () => number; onJump: (cy: number) => void }) {
+  const MW = 92, MH = 128;
+  const scale = Math.min(MW / Math.max(1, mini.W), MH / Math.max(1, mini.H));
+  const z = view.z || 1;
+  const vpTop = Math.max(0, (-view.y) / z) * scale;
+  const vpH = Math.min(MH, (getWrapH() / z) * scale);
+  return (
+    <div className="wf-nopan absolute right-4 top-4 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-white/90 shadow-sm" style={{ width: MW, height: MH }} onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); onJump((e.clientY - r.top) / (scale || 1)); }} title="Minimapa — clic para saltar">
+      {mini.boxes.map((b, i) => (
+        <div key={i} className="absolute rounded-[1px] bg-slate-300" style={{ left: b.x * scale, top: b.y * scale, width: Math.max(2, b.w * scale), height: Math.max(1.5, b.h * scale) }} />
+      ))}
+      <div className="pointer-events-none absolute inset-x-0 rounded-sm border border-emerald-400/70 bg-emerald-400/10" style={{ top: vpTop, height: Math.max(4, vpH) }} />
     </div>
   );
 }
@@ -300,6 +367,7 @@ function Insert({ terminal, onPick }: { terminal: boolean; onPick: (t: string) =
 function summary(node: WFNode) {
   const c = node.config || {};
   if (node.type === 'send_sms') return String(c.message || '(sin mensaje)').slice(0, 44);
+  if (node.type === 'send_email') return String(c.subject || '(sin asunto)').slice(0, 44);
   if (node.type === 'wait_delay') return `Espera ${c.amount ?? 1} ${c.unit ?? 'días'}`;
   if (node.type === 'if_else') return `${(c.conditions || []).length} condición(es)`;
   return '';
@@ -324,6 +392,11 @@ function NodeConfig({ node, onClose, onPatch }: { node: WFNode; onClose: () => v
       <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between"><h3 className="flex items-center gap-2 text-sm font-semibold"><span className="grid h-7 w-7 place-items-center rounded-lg text-sm" style={{ background: s.chip, color: s.color }}>{s.icon}</span> {s.label}</h3><button onClick={onClose} className="text-slate-400">✕</button></div>
         {node.type === 'send_sms' && (<div><Label>Mensaje SMS (al dueño del negocio)</Label><textarea rows={4} value={String(c.message || '')} onChange={(e) => onPatch({ message: e.target.value })} className={`${inp} resize-none`} placeholder="Hola {{owner}}, …" /><div className="mt-1 flex flex-wrap gap-1">{MERGE.map((m) => <button key={m.key} onClick={() => onPatch({ message: `${c.message || ''}{{${m.key}}}` })} className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-emerald-100 hover:text-emerald-700">{m.label}</button>)}</div></div>)}
+        {node.type === 'send_email' && (<div className="space-y-2">
+          <div><Label>Asunto</Label><input value={String(c.subject || '')} onChange={(e) => onPatch({ subject: e.target.value })} className={inp} placeholder="Hola {{owner}} 👋" /></div>
+          <div><Label>Cuerpo del correo (al dueño del negocio · texto o HTML)</Label><textarea rows={5} value={String(c.body || '')} onChange={(e) => onPatch({ body: e.target.value })} className={`${inp} resize-none`} placeholder="Escribe el correo…" /><div className="mt-1 flex flex-wrap gap-1">{MERGE.map((m) => <button key={m.key} onClick={() => onPatch({ body: `${c.body || ''}{{${m.key}}}` })} className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-emerald-100 hover:text-emerald-700">{m.label}</button>)}</div></div>
+          <p className="rounded-md bg-blue-50 px-3 py-2 text-[11px] text-blue-700">Se envía al correo del dueño por la subcuenta de Grow Business de tu marca (canal Email).</p>
+        </div>)}
         {node.type === 'wait_delay' && (<div className="flex items-center gap-2"><input type="number" min={1} value={Number(c.amount) || 1} onChange={(e) => onPatch({ amount: +e.target.value })} className={`${inp} w-24`} /><select value={String(c.unit || 'days')} onChange={(e) => onPatch({ unit: e.target.value })} className={inp}><option value="minutes">minutos</option><option value="hours">horas</option><option value="days">días</option><option value="weeks">semanas</option></select></div>)}
         {node.type === 'if_else' && <IfConfig conditions={c.conditions || []} match={c.match || 'all'} onPatch={onPatch} />}
         {node.type === 'end' && <p className="text-sm text-slate-500">El negocio sale del workflow.</p>}

@@ -93,8 +93,9 @@ export class OrdersController {
     @Query('search') search?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('locationId') locationId?: string,
   ) {
-    return this.svc.list(user, tenantId, { status, search, from, to });
+    return this.svc.list(user, tenantId, { status, search, from, to, locationId });
   }
 
   @Get('board')
@@ -102,8 +103,9 @@ export class OrdersController {
     @CurrentUser() user: AuthUser,
     @Query('tenantId') tenantId?: string,
     @Query('days') days?: string,
+    @Query('locationId') locationId?: string,
   ) {
-    return this.svc.board(user, tenantId, days ? Number(days) : 1);
+    return this.svc.board(user, tenantId, days ? Number(days) : 1, locationId);
   }
 
   @Get('export.csv')
@@ -115,8 +117,9 @@ export class OrdersController {
     @Query('search') search?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('locationId') locationId?: string,
   ) {
-    const orders = await this.svc.list(user, tenantId, { status, search, from, to });
+    const orders = await this.svc.list(user, tenantId, { status, search, from, to, locationId });
     const csv = toCSV(orders as any[], [
       { key: 'code', label: 'Código' },
       { key: 'createdAt', label: 'Fecha', format: (v) => new Date(v).toISOString() },
