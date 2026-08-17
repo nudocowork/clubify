@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import { PhoneInput } from '@/components/PhoneInput';
 
 // Formulario público del sorteo servido NATIVAMENTE en soyclubify.com (white-label).
 // Los datos vienen del panel team_clubify vía endpoints CORS: GET del sorteo (en el
 // server component) y POST de la participación aquí. Mismo proceso/confirmación que
 // el formulario original del panel.
+// Diseño "Premium" (oscuro + vidrio + neón verde) elegido por el founder 2026-08-03.
 const TEAM_BASE = 'https://team.soyclubify.com';
-const ACCENT = '#4f46e5';
 
 type FieldType =
   | 'short_text' | 'long_text' | 'number' | 'email' | 'whatsapp' | 'url' | 'instagram'
@@ -71,7 +72,7 @@ export function RaffleForm({ slug, raffle }: { slug: string; raffle: RaffleData 
   }
 
   const baseInp = (invalid: boolean) =>
-    `w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition focus:ring-2 ${invalid ? 'border-rose-400 focus:ring-rose-100' : 'border-slate-200 focus:ring-slate-200'}`;
+    `w-full rounded-xl border bg-white/[.06] px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none transition focus:ring-2 ${invalid ? 'border-rose-400/60 focus:ring-rose-500/20' : 'border-white/15 focus:ring-emerald-500/30'}`;
 
   function renderField(f: RaffleField) {
     const invalid = errors.has(f.key);
@@ -79,11 +80,13 @@ export function RaffleForm({ slug, raffle }: { slug: string; raffle: RaffleData 
     const str = typeof v === 'string' ? v : '';
     const opts = f.options ?? [];
     switch (f.type) {
+      case 'whatsapp':
+        return <PhoneInput value={str} onChange={(val) => set(f.key, val)} variant="dark" placeholder={f.placeholder || 'Número de WhatsApp'} />;
       case 'long_text':
         return <textarea rows={3} value={str} placeholder={f.placeholder} onChange={(e) => set(f.key, e.target.value)} className={baseInp(invalid)} />;
       case 'select':
         return (
-          <select value={str} onChange={(e) => set(f.key, e.target.value)} className={baseInp(invalid) + ' bg-white'}>
+          <select value={str} onChange={(e) => set(f.key, e.target.value)} className={baseInp(invalid) + ' bg-slate-800 [&>option]:text-slate-900'}>
             <option value="">Selecciona…</option>
             {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
@@ -92,7 +95,7 @@ export function RaffleForm({ slug, raffle }: { slug: string; raffle: RaffleData 
         return (
           <div className="space-y-1.5">
             {opts.map((o) => (
-              <label key={o.value} className="flex items-center gap-2 text-sm">
+              <label key={o.value} className="flex items-center gap-2 text-sm text-slate-200">
                 <input type="radio" name={f.key} checked={str === o.value} onChange={() => set(f.key, o.value)} />{o.label}
               </label>
             ))}
@@ -103,7 +106,7 @@ export function RaffleForm({ slug, raffle }: { slug: string; raffle: RaffleData 
         return (
           <div className="space-y-1.5">
             {opts.map((o) => (
-              <label key={o.value} className="flex items-center gap-2 text-sm">
+              <label key={o.value} className="flex items-center gap-2 text-sm text-slate-200">
                 <input type="checkbox" checked={arr.includes(o.value)} onChange={(e) => set(f.key, e.target.checked ? [...arr, o.value] : arr.filter((x) => x !== o.value))} />{o.label}
               </label>
             ))}
@@ -112,71 +115,79 @@ export function RaffleForm({ slug, raffle }: { slug: string; raffle: RaffleData 
       }
       case 'checkbox':
         return (
-          <label className="flex items-center gap-2 text-sm">
+          <label className="flex items-center gap-2 text-sm text-slate-200">
             <input type="checkbox" checked={str === 'si'} onChange={(e) => set(f.key, e.target.checked ? 'si' : '')} />{f.placeholder || 'Sí'}
           </label>
         );
       default: {
-        const type = f.type === 'email' ? 'email' : f.type === 'number' ? 'number' : f.type === 'whatsapp' ? 'tel' : f.type === 'url' ? 'url' : f.type === 'date' ? 'date' : f.type === 'time' ? 'time' : 'text';
+        const type = f.type === 'email' ? 'email' : f.type === 'number' ? 'number' : f.type === 'url' ? 'url' : f.type === 'date' ? 'date' : f.type === 'time' ? 'time' : 'text';
         return <input type={type} value={str} placeholder={f.placeholder || (f.type === 'instagram' ? '@usuario' : undefined)} onChange={(e) => set(f.key, e.target.value)} className={baseInp(invalid)} />;
       }
     }
   }
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 px-4 py-10">
-      <div className="mx-auto max-w-lg">
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+    <div className="relative min-h-[100dvh] overflow-hidden bg-[#0a0d13] px-4 py-10">
+      {/* Destellos de fondo (neón) */}
+      <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-emerald-500/40 blur-[70px]" />
+      <div className="pointer-events-none absolute -left-24 bottom-8 h-64 w-64 rounded-full bg-sky-500/25 blur-[70px]" />
+
+      <div className="relative mx-auto max-w-lg">
+        <div className="rounded-3xl border border-white/10 bg-white/[.05] p-6 shadow-2xl backdrop-blur-xl sm:p-8">
           <div className="mb-5 text-center">
-            <div className="mx-auto mb-2 grid h-14 w-14 place-items-center rounded-2xl text-3xl" style={{ background: `${ACCENT}14` }}>🎟️</div>
-            <h1 className="text-xl font-bold text-slate-900">{raffle.name}</h1>
-            {raffle.company && <p className="text-sm text-slate-500">{raffle.company}</p>}
+            <div className="mb-4 flex justify-center">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
+                <span className="text-[8px]">●</span> Sorteo activo
+              </span>
+            </div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-100">{raffle.name}</h1>
+            {raffle.company && <p className="mt-1 text-sm text-slate-400">{raffle.company}</p>}
             {raffle.draw_date && <p className="mt-1 text-xs text-slate-500">Sorteo: {raffle.draw_date}</p>}
           </div>
 
           {state === 'done' ? (
             <div className="py-6 text-center">
-              <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-amber-100 text-3xl">{already ? '🎟️' : '🎉'}</div>
-              <p className="text-lg font-bold text-slate-900">{already ? '¡Ya estás participando!' : '¡Ya casi eres parte del sorteo!'}</p>
-              <p className="mt-2 text-sm text-slate-500">
+              <div className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full bg-emerald-500/15 text-3xl">{already ? '🎟️' : '🎉'}</div>
+              <p className="text-lg font-bold text-slate-100">{already ? '¡Ya estás participando!' : '¡Ya casi eres parte del sorteo!'}</p>
+              <p className="mt-2 text-sm text-slate-400">
                 {already
                   ? `Ya te habías registrado en este sorteo de ${raffle.company || 'Clubify'} con estos datos. No necesitas registrarte otra vez.`
                   : `Solo falta un paso muy importante para completar tu participación en el sorteo de ${raffle.company || 'Clubify'}.`}
               </p>
-              <p className="mt-2 text-sm text-slate-500">
+              <p className="mt-2 text-sm text-slate-400">
                 {already ? 'Si aún no lo hiciste, confirma tu participación por WhatsApp.' : 'Haz clic en el botón de abajo y confirma tu participación por WhatsApp.'}
               </p>
               {wa?.phone && (
                 <a href={`https://wa.me/${wa.phone}?text=${encodeURIComponent(wa.msg || '')}`} target="_blank" rel="noreferrer"
-                  className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-4 py-3 text-sm font-semibold text-white hover:bg-[#1eb457]">
+                  className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#25D366] px-4 py-3 text-sm font-semibold text-white shadow-[0_0_24px_-6px_rgba(37,211,102,.8)] hover:bg-[#1eb457]">
                   <span className="text-lg">✅</span> Confirmar mi participación
                 </a>
               )}
-              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">⚠️ Si no confirmas por WhatsApp, tu participación no será válida.</p>
+              <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300">⚠️ Si no confirmas por WhatsApp, tu participación no será válida.</p>
             </div>
           ) : (
             <>
               <div className="space-y-3.5">
                 {raffle.fields.map((f) => (
                   <div key={f.id || f.key}>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">
-                      {f.label}{f.required && <span className="ml-0.5 text-rose-500">*</span>}
+                    <label className="mb-1 block text-sm font-medium text-slate-300">
+                      {f.label}{f.required && <span className="ml-0.5 text-rose-400">*</span>}
                     </label>
                     {renderField(f)}
-                    {f.help && <p className="mt-1 text-xs text-slate-400">{f.help}</p>}
-                    {errors.has(f.key) && <p className="mt-1 text-xs text-rose-500">Este campo es obligatorio.</p>}
+                    {f.help && <p className="mt-1 text-xs text-slate-500">{f.help}</p>}
+                    {errors.has(f.key) && <p className="mt-1 text-xs text-rose-400">Este campo es obligatorio.</p>}
                   </div>
                 ))}
               </div>
-              {err && <p className="mt-3 text-sm text-rose-600">{err}</p>}
-              <button onClick={submit} disabled={busy} className="mt-5 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-50" style={{ background: ACCENT }}>
+              {err && <p className="mt-3 text-sm text-rose-400">{err}</p>}
+              <button onClick={submit} disabled={busy} className="mt-5 w-full rounded-xl bg-emerald-500 px-4 py-3 text-sm font-bold text-emerald-950 shadow-[0_0_24px_-4px_rgba(34,197,94,.7)] transition hover:bg-emerald-400 disabled:opacity-50">
                 {busy ? 'Enviando…' : 'Participar en el sorteo'}
               </button>
-              <p className="mt-3 text-center text-[11px] text-slate-400">Al participar aceptas ser contactado sobre este sorteo.</p>
+              <p className="mt-3 text-center text-[11px] text-slate-500">Al participar aceptas ser contactado sobre este sorteo.</p>
             </>
           )}
         </div>
-        <p className="mt-4 text-center text-[11px] text-slate-400">soyclubify.com</p>
+        <p className="mt-4 text-center text-[11px] text-slate-600">soyclubify.com</p>
       </div>
     </div>
   );
