@@ -104,6 +104,23 @@ function SectionSearchBar({
   );
 }
 
+/**
+ * Tooltip del botón "→ Panel". El backend manda `impersonateBlock` con el
+ * motivo por el que entrar al panel no es viable en esa fila (null = sí lo
+ * es); acá lo traducimos a una instrucción accionable en vez de dejar que el
+ * clic falle con un 400 crudo.
+ */
+function panelTooltip(
+  block: string | null | undefined,
+  fallbackKey: string,
+  t: (key: string, values?: Record<string, any>) => string,
+): string {
+  if (block === 'NO_ACCOUNT') return t('enterPanelBlockedNoAccount');
+  if (block === 'INACTIVE') return t('enterPanelBlockedInactive');
+  if (block === 'NOT_AFFILIATE') return t('enterPanelBlockedNotAffiliate');
+  return t(fallbackKey);
+}
+
 async function enterAffiliatePanel(
   codeId: string,
   ownerName: string,
@@ -2141,15 +2158,23 @@ function InfluencersTab() {
                     >
                       ↓ {t('btnDemote')}
                     </button>
+                    {/* Si el backend marcó un impersonateBlock, entrar al panel
+                        respondería 400: deshabilitamos y el tooltip dice qué
+                        hacer. Si el campo no viene (backend viejo) el botón
+                        queda habilitado y nada cambia. */}
                     <button
-                      disabled={enteringId === r.id}
+                      disabled={enteringId === r.id || !!r.impersonateBlock}
                       onClick={async () => {
                         setEnteringId(r.id);
                         await enterAffiliatePanel(r.id, r.ownerName, router, t);
                         setEnteringId(null);
                       }}
-                      className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 whitespace-nowrap"
-                      title={t('enterPanelInfluencerTooltip')}
+                      className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                      title={panelTooltip(
+                        r.impersonateBlock,
+                        'enterPanelInfluencerTooltip',
+                        t,
+                      )}
                     >
                       {enteringId === r.id ? t('entering') : `→ ${t('btnPanel')}`}
                     </button>
@@ -2456,15 +2481,21 @@ function AmbassadorsTab() {
                       >
                         👥 {t('btnVendors')}
                       </button>
+                      {/* Ver nota en InfluencersTab: si hay impersonateBlock el
+                          botón queda inerte y el tooltip explica por qué. */}
                       <button
-                        disabled={enteringId === r.id}
+                        disabled={enteringId === r.id || !!r.impersonateBlock}
                         onClick={async () => {
                           setEnteringId(r.id);
                           await enterAffiliatePanel(r.id, r.ownerName, router, t);
                           setEnteringId(null);
                         }}
-                        className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 whitespace-nowrap"
-                        title={t('enterPanelAmbassadorTooltip')}
+                        className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                        title={panelTooltip(
+                          r.impersonateBlock,
+                          'enterPanelAmbassadorTooltip',
+                          t,
+                        )}
                       >
                         {enteringId === r.id ? t('entering') : `→ ${t('btnPanel')}`}
                       </button>
