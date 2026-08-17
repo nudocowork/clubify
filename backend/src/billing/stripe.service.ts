@@ -18,6 +18,8 @@ type StripeCtx = {
   priceId: string | null;
   nextCharge: Date | null;
   amountUsd: number | null;
+  // PDF Soft 10: timestamp real del pago (event.created) para fijar purchasedAt.
+  paidAt: Date | null;
 };
 
 type BrandCtx = {
@@ -151,6 +153,9 @@ export class StripeService {
     let priceId: string | null = null;
     let amountUsd: number | null = null;
     let nextCharge: Date | null = null;
+    // PDF Soft 10: fecha real del evento de pago (Unix seconds → Date).
+    const paidAt =
+      typeof event.created === 'number' ? new Date(event.created * 1000) : null;
 
     if (event.type === 'checkout.session.completed') {
       email = obj.customer_details?.email ?? obj.customer_email ?? null;
@@ -185,7 +190,7 @@ export class StripeService {
         this.logger.warn(`retrieve subscription ${subscriptionId} falló: ${(e as Error).message}`);
       }
     }
-    return { email, customerId, subscriptionId, priceId, nextCharge, amountUsd };
+    return { email, customerId, subscriptionId, priceId, nextCharge, amountUsd, paidAt };
   }
 
   private async onPaymentSucceeded(brand: BrandCtx, event: Stripe.Event) {
@@ -277,6 +282,10 @@ export class StripeService {
           ? new Date(sub.current_period_end * 1000)
           : null,
       amountUsd: null,
+      paidAt:
+        typeof event.created === 'number'
+          ? new Date(event.created * 1000)
+          : null,
     };
   }
 
@@ -385,6 +394,12 @@ export class StripeService {
       !!nextCharge &&
       !!tenant.currentPeriodEnd &&
       nextCharge.getTime() === tenant.currentPeriodEnd.getTime();
+    // PDF Soft 10: fecha real de compra — set-once en la 1ª activación (nunca se
+    // pisa en renovaciones). Preferimos el timestamp real del evento (ctx.paidAt).
+    const curPurchase = await this.prisma.tenant.findUnique({
+      where: { id: tenant.id },
+      select: { purchasedAt: true },
+    });
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
@@ -393,6 +408,9 @@ export class StripeService {
         ...(ctx.amountUsd != null ? { lastPaymentAmountUsd: ctx.amountUsd } : {}),
         ...(nextCharge ? { currentPeriodEnd: nextCharge } : {}),
         lastChargeAt: new Date(),
+        ...(curPurchase?.purchasedAt
+          ? {}
+          : { purchasedAt: ctx.paidAt ?? new Date() }),
         stripeCustomerId: ctx.customerId ?? tenant.stripeCustomerId,
         stripeSubscriptionId: ctx.subscriptionId ?? tenant.stripeSubscriptionId,
         failedPaymentCount: 0,

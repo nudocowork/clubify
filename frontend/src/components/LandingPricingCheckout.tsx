@@ -88,12 +88,33 @@ export function LandingPricingCheckout({
   // Pago → datos: persistimos el plan elegido para que /activar lo
   // recupere post-pago y abrimos el checkout de Hotmart directo. La
   // atribución del referido (ref/via/utm) ya está en localStorage (RefCapture).
+  //
+  // ATRIBUCIÓN ROBUSTA (2026-08-15): además del localStorage (que se pierde si
+  // paga otra persona / otro dispositivo / incógnito), inyectamos el código del
+  // afiliado como `?src=<code>` en la URL de Hotmart. Hotmart lo devuelve en el
+  // webhook como `purchase.tracking.source` y el backend
+  // (ensureAffiliateAttributionFromSrc) atribuye server-side aunque el
+  // localStorage no sobreviva el ida-y-vuelta del pago. Sin esto, una compra por
+  // el link del afiliado llegaba a Hotmart con tracking vacío → negocio sin
+  // afiliado (caso Monet, comprador ≠ dueño de la cuenta).
   function goToCheckout() {
     if (!plan.checkoutUrl) return;
     try {
       localStorage.setItem('clubify:plan-period', plan.id);
     } catch {}
-    window.location.href = plan.checkoutUrl;
+    let url = plan.checkoutUrl;
+    try {
+      const ref = localStorage.getItem('clubify:ref');
+      if (ref) {
+        const u = new URL(url, window.location.origin);
+        // No pisar un src ya presente en el checkoutUrl configurado.
+        if (!u.searchParams.get('src')) u.searchParams.set('src', ref);
+        url = u.toString();
+      }
+    } catch {
+      // URL inválida o sin acceso a storage → seguimos con la URL cruda.
+    }
+    window.location.href = url;
   }
 
   return (

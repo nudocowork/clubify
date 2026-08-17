@@ -402,6 +402,12 @@ export class CrossService implements PaymentProvider {
       tenant.currentPeriodEnd ??
       addPlanPeriod(new Date(), tenant.planPeriodicity ?? 'MENSUAL');
 
+    // PDF Soft 10: fecha real de compra — set-once en la 1ª activación (no se
+    // pisa en renovaciones). Cross (Fase 1) activa en el webhook, cerca del pago.
+    const curPurchase = await this.prisma.tenant.findUnique({
+      where: { id: tenant.id },
+      select: { purchasedAt: true },
+    });
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
@@ -409,6 +415,7 @@ export class CrossService implements PaymentProvider {
         ...(ctx.amountUsd != null ? { lastPaymentAmountUsd: ctx.amountUsd } : {}),
         currentPeriodEnd: nextCharge,
         lastChargeAt: new Date(),
+        ...(curPurchase?.purchasedAt ? {} : { purchasedAt: new Date() }),
         failedPaymentCount: 0,
         lastPaymentAttemptAt: new Date(),
         suspendedAt: null,

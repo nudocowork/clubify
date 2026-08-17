@@ -20,6 +20,17 @@ import { decryptSecret } from '../common/crypto/secret-box';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// availableAt (hold) = cobro + 15d. GUARD B6/R4 (2026-08-15): si el cobro
+// (lastChargeAt) parece VIEJO (>2 días atrás) es un valor desactualizado → el
+// cobro real acaba de ocurrir, usamos AHORA. Evita availableAt fantasma en el
+// pasado. Espejo del helper de referrals.service.
+function holdReleaseFrom(charge: Date | null | undefined): Date {
+  const now = Date.now();
+  const c = charge ? new Date(charge).getTime() : now;
+  const base = c >= now - 2 * 86400000 ? c : now;
+  return new Date(base + 15 * 86400000);
+}
+
 /** Aislamiento por marca para la búsqueda del tenant en el webhook.
  *  includeNull=true incluye tenants sin marca (whiteLabelId null = histórico
  *  Clubify); las marcas blancas usan false (estricto a su id). */
@@ -1131,7 +1142,7 @@ export class HotmartService {
     // (bug #1) y para validar el monto USD (bug #10).
     const planForBase = await this.prisma.tenant.findUnique({
       where: { id: tenant.id },
-      select: { planPeriodicity: true },
+      select: { planPeriodicity: true, purchasedAt: true },
     });
     const nextChargeRaw = payload.data?.subscription?.date_next_charge;
     let nextCharge = nextChargeRaw ? new Date(nextChargeRaw) : null;
@@ -1178,6 +1189,21 @@ export class HotmartService {
         // (fallback) — en renovaciones sin date_next_charge preservamos.
         ...(nextCharge ? { currentPeriodEnd: nextCharge } : {}),
         lastChargeAt,
+        // PDF Soft 10 + FIX 2026-08-14 (R1/Fable): fecha REAL de compra — se
+        // fija UNA sola vez y SOLO en la 1ª compra real. Usa la fecha aprobada
+        // de Hotmart (lastChargeAt = approved_date). Es la base de la 1ª
+        // comisión (purchasedAt ?? createdAt).
+        //   BUG que corrige: antes era `purchasedAt ? {} : {purchasedAt:
+        //   lastChargeAt}` — set-once-cuando-null. En negocios LEGACY
+        //   (purchasedAt null pero YA con ciclos de cobro) eso estampaba la
+        //   fecha de la RENOVACIÓN como si fuera la de compra la próxima vez
+        //   que renovaban. Ahora exigimos que sea primer pago (sin
+        //   currentPeriodEnd previo = misma señal que el fallback de arriba);
+        //   en renovaciones de legacy dejamos purchasedAt en null para que el
+        //   backfill le ponga la fecha correcta, en vez de corromperla.
+        ...(planForBase?.purchasedAt || tenant.currentPeriodEnd
+          ? {}
+          : { purchasedAt: lastChargeAt }),
         hotmartSubscriberCode: subscriberCode ?? tenant.hotmartSubscriberCode,
         hotmartTransactionId: transactionId ?? tenant.hotmartTransactionId,
         failedPaymentCount: 0,
@@ -1438,6 +1464,140 @@ export class HotmartService {
         data: { recoveryNotifiedAt: new Date() },
       })
       .catch(() => null);
+  }
+
+  /**
+   * PDF Soft 10: reenvía el link de activación a un comprador Hotmart con pago
+   * pendiente que aún no creó su cuenta. Reusa notifyPendingRecovery. Público
+   * para el panel admin de "pagos sin activar".
+   */
+  async resendPendingRecovery(
+    email: string,
+  ): Promise<{ ok: boolean; found: boolean }> {
+    const e = (email ?? '').trim().toLowerCase();
+    if (!e) return { ok: false, found: false };
+    const pending = await this.prisma.pendingHotmartPayment.findFirst({
+      where: { email: e, consumedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!pending) return { ok: false, found: false };
+    const buyerAny = (pending.rawPayload as any)?.data?.buyer ?? {};
+    await this.notifyPendingRecovery({
+      email: pending.email,
+      name: buyerAny?.name ?? null,
+      phone: buyerAny?.checkout_phone ?? buyerAny?.phone ?? null,
+    }).catch(() => null);
+    return { ok: true, found: true };
+  }
+
+  /**
+   * PDF Soft 10: lista unificada de compras PAGADAS pero SIN cuenta activada
+   * (los 3 Pending*Payment sin consumir). Para el panel admin: datos del
+   * comprador (nombre/correo/teléfono/monto/fecha real) + link de activación
+   * para reenviar. Solo lectura.
+   */
+  async listPendingPayments() {
+    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const link = (email: string) =>
+      `${appUrl}/activar?email=${encodeURIComponent(email)}`;
+    const now = Date.now();
+    const ageHours = (d: Date) =>
+      Math.max(0, Math.round((now - new Date(d).getTime()) / 3600000));
+
+    const [hot, stripe, cross] = await Promise.all([
+      this.prisma.pendingHotmartPayment.findMany({
+        where: { consumedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      }),
+      this.prisma.pendingStripePayment.findMany({
+        where: { consumedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      }),
+      this.prisma.pendingCrossPayment.findMany({
+        where: { consumedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      }),
+    ]);
+
+    type Row = {
+      gateway: 'HOTMART' | 'STRIPE' | 'CROSS';
+      email: string;
+      name: string | null;
+      phone: string | null;
+      amountUsd: number | null;
+      purchaseDate: string | null;
+      activationLink: string;
+      createdAt: Date;
+      ageHours: number;
+    };
+    const out: Row[] = [];
+
+    for (const p of hot) {
+      const raw = (p.rawPayload as any) ?? {};
+      const buyer = raw?.data?.buyer ?? {};
+      const approved = raw?.data?.purchase?.approved_date;
+      const priceVal = raw?.data?.purchase?.price?.value;
+      out.push({
+        gateway: 'HOTMART',
+        email: p.email,
+        name: buyer?.name ?? null,
+        phone: buyer?.checkout_phone ?? buyer?.phone ?? null,
+        amountUsd: typeof priceVal === 'number' ? priceVal : null,
+        purchaseDate:
+          typeof approved === 'number'
+            ? new Date(approved).toISOString()
+            : null,
+        activationLink: link(p.email),
+        createdAt: p.createdAt,
+        ageHours: ageHours(p.createdAt),
+      });
+    }
+    for (const p of stripe) {
+      const obj = (p.rawPayload as any)?.data?.object ?? {};
+      const cd = obj?.customer_details ?? {};
+      const created = (p.rawPayload as any)?.created;
+      const amt =
+        typeof obj?.amount_total === 'number' ? obj.amount_total / 100 : null;
+      out.push({
+        gateway: 'STRIPE',
+        email: p.email,
+        name: cd?.name ?? null,
+        phone: cd?.phone ?? null,
+        amountUsd: obj?.currency === 'usd' ? amt : null,
+        purchaseDate:
+          typeof created === 'number'
+            ? new Date(created * 1000).toISOString()
+            : p.createdAt.toISOString(),
+        activationLink: link(p.email),
+        createdAt: p.createdAt,
+        ageHours: ageHours(p.createdAt),
+      });
+    }
+    for (const p of cross) {
+      const cust =
+        (p.rawPayload as any)?.customer ??
+        (p.rawPayload as any)?.data?.customer ??
+        {};
+      out.push({
+        gateway: 'CROSS',
+        email: p.email,
+        name: cust?.name ?? null,
+        phone: cust?.phone ?? null,
+        amountUsd: p.amountUsd != null ? Number(p.amountUsd) : null,
+        purchaseDate: p.createdAt.toISOString(),
+        activationLink: link(p.email),
+        createdAt: p.createdAt,
+        ageHours: ageHours(p.createdAt),
+      });
+    }
+    out.sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    return out;
   }
 
   /**
@@ -1738,10 +1898,8 @@ export class HotmartService {
     }
     // P3 2026-07-02: la comisión se desbloquea 15 días DESPUÉS del pago real en
     // Hotmart (Tenant.lastChargeAt, seteado por activatePurchase antes de esto).
-    const HOLD_MS = 15 * 86400000;
-    const commissionAvailableAt = new Date(
-      (tenant?.lastChargeAt ?? new Date()).getTime() + HOLD_MS,
-    );
+    // GUARD B6/R4: holdReleaseFrom clampa si lastChargeAt está viejo.
+    const commissionAvailableAt = holdReleaseFrom(tenant?.lastChargeAt);
 
     // 1) Comisión DIRECTA (+ posible INDIRECTA al influencer parent).
     const use = await this.prisma.referralUse.findFirst({

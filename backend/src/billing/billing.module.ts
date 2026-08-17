@@ -13,6 +13,7 @@ import { CrossService } from './cross.service';
 import { CrossWebhookController, CrossCheckoutController } from './cross.controller';
 import { SmsTemplatesService } from './sms-templates.service';
 import { SmsTemplatesController } from './sms-templates.controller';
+import { PendingPaymentsController } from './pending-payments.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { EmailModule } from '../email/email.module';
 import { ReferralsModule } from '../referrals/referrals.module';
@@ -33,6 +34,7 @@ import { OnboardingSyncModule } from '../onboarding-sync/onboarding-sync.module'
     CrossWebhookController,
     CrossCheckoutController,
     SmsTemplatesController,
+    PendingPaymentsController,
   ],
   providers: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService],
   exports: [BillingService, HotmartService, StripeService, CrossService, SmsTemplatesService],
