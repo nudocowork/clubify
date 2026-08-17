@@ -1311,6 +1311,18 @@ export class ReferralsService {
     newPassword: string,
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    // Aislamiento por marca EXPLÍCITO. El alta del User corre con el escape
+    // de tenant (ver AuthService.inviteAffiliate), así que el middleware ya
+    // no nos cubre de rebote; y este endpoint recibe el codeId del cliente,
+    // no de un listado ya scopeado. Un admin de marca solo puede tocar los
+    // códigos de SU marca. (2026-08-17)
+    if (user.whiteLabelId) {
+      const owned = await this.prisma.referralCode.findFirst({
+        where: { id: codeId, whiteLabelId: user.whiteLabelId },
+        select: { id: true },
+      });
+      if (!owned) throw new NotFoundException('Código de afiliado no encontrado');
+    }
     return this.auth.setAffiliatePasswordByCode(codeId, newPassword);
   }
 
