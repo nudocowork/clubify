@@ -119,13 +119,22 @@ export default function CompanyReportPage() {
   // tenían afiliado + cobro Hotmart real). Filtro por estado, sin filtro = todos.
   const [status, setStatus] = useState('');
   const [onlyBillable, setOnlyBillable] = useState(false);
+  // Filtro por período = fecha de REGISTRO del negocio (el backend ya soporta
+  // from/to, anclado a Bogotá e inclusivo del "hasta"). Formato YYYY-MM-DD.
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
 
-  async function load(st: string) {
+  async function load() {
     setLoading(true);
     try {
+      const params = new URLSearchParams();
+      if (status) params.set('status', status);
+      if (from) params.set('from', from);
+      if (to) params.set('to', to);
+      const qs = params.toString();
       setData(
         await api<ReportResp>(
-          `/admin/commissions/company-report${st ? `?status=${st}` : ''}`,
+          `/admin/commissions/company-report${qs ? `?${qs}` : ''}`,
         ),
       );
     } catch (e: any) {
@@ -136,8 +145,9 @@ export default function CompanyReportPage() {
   }
 
   useEffect(() => {
-    load(status);
-  }, [status]);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, from, to]);
 
   const rows = useMemo(() => {
     const all = data?.rows ?? [];
@@ -341,6 +351,55 @@ export default function CompanyReportPage() {
           />
           {t('onlyBillable')}
         </label>
+        {/* Filtro por período (fecha de registro del negocio). desde/hasta + mes. */}
+        <div className="flex items-center gap-2 text-sm text-slate-600">
+          <span className="text-slate-500" title="Filtra por fecha de registro del negocio">
+            Registro:
+          </span>
+          <input
+            type="date"
+            value={from}
+            max={to || undefined}
+            onChange={(e) => setFrom(e.target.value)}
+            aria-label="Desde"
+            className="px-2 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-brand/30"
+          />
+          <span className="text-slate-400">→</span>
+          <input
+            type="date"
+            value={to}
+            min={from || undefined}
+            onChange={(e) => setTo(e.target.value)}
+            aria-label="Hasta"
+            className="px-2 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-brand/30"
+          />
+          <input
+            type="month"
+            title="Filtrar por mes"
+            aria-label="Mes"
+            onChange={(e) => {
+              const m = e.target.value; // YYYY-MM
+              if (!m) return;
+              const [y, mm] = m.split('-').map(Number);
+              const last = new Date(y, mm, 0).getDate(); // último día del mes
+              setFrom(`${m}-01`);
+              setTo(`${m}-${String(last).padStart(2, '0')}`);
+            }}
+            className="px-2 py-2 text-sm rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-brand/30"
+          />
+          {(from || to) && (
+            <button
+              type="button"
+              onClick={() => {
+                setFrom('');
+                setTo('');
+              }}
+              className="text-xs text-slate-500 hover:text-slate-700 underline"
+            >
+              Limpiar
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
