@@ -1070,6 +1070,22 @@ export class ReferralsService {
     };
   }
 
+  /**
+   * Réplica de las 3 guardas de `impersonateAffiliate`, para que los listados
+   * puedan decirle al frontend por qué "→ Panel" NO va a funcionar en esa fila
+   * en vez de dejar que el clic reviente con un 400 sin contexto.
+   * Devuelve null cuando se puede entrar. (2026-08-17)
+   */
+  private impersonateBlockReason(c: {
+    ownerUserId: string | null;
+    ownerUser: { isActive: boolean; role: string } | null;
+  }): 'NO_ACCOUNT' | 'INACTIVE' | 'NOT_AFFILIATE' | null {
+    if (!c.ownerUserId) return 'NO_ACCOUNT';
+    if (!c.ownerUser || !c.ownerUser.isActive) return 'INACTIVE';
+    if (!String(c.ownerUser.role).startsWith('AFFILIATE_')) return 'NOT_AFFILIATE';
+    return null;
+  }
+
   async listInfluencers(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const codes = await this.prisma.referralCode.findMany({
@@ -1082,6 +1098,9 @@ export class ReferralsService {
       },
       include: {
         ownerOfCampaign: true,
+        // Para saber si "→ Panel" es viable en esta fila (ver
+        // impersonateBlockReason).
+        ownerUser: { select: { isActive: true, role: true } },
         ambassadors: { select: { id: true, isActive: true } },
         uses: { include: { commissions: true } },
         // FIX 2026-06-16 (review): paid/pending del influencer deben incluir
@@ -1124,6 +1143,10 @@ export class ReferralsService {
         commissionPercent: Number(c.commissionPercent),
         isActive: c.isActive,
         campaignName: c.ownerOfCampaign?.name ?? null,
+        // Por qué "→ Panel" no es viable en esta fila (null = sí lo es). Sin
+        // esto el frontend ofrecía el botón en TODAS y el clic reventaba con
+        // un 400 crudo. (2026-08-17)
+        impersonateBlock: this.impersonateBlockReason(c),
         ambassadorsCount: c.ambassadors.filter((a) => a.isActive).length,
         directClients: directUses.length,
         directActiveClients: directActive,
@@ -1220,6 +1243,8 @@ export class ReferralsService {
       include: {
         parentCode: { select: { code: true, ownerName: true } },
         campaign: { select: { name: true } },
+        // Ídem listInfluencers: gate del botón "→ Panel".
+        ownerUser: { select: { isActive: true, role: true } },
         uses: { include: { commissions: true } },
         // FASE B1: counters de vendedores activos por embajador, para
         // la columna "Vendedores" del tab AmbassadorsTab.
@@ -1256,6 +1281,8 @@ export class ReferralsService {
         parentCode: c.parentCode?.code ?? null,
         parentName: c.parentCode?.ownerName ?? null,
         campaignName: c.campaign?.name ?? null,
+        // Mismo motivo que en listInfluencers: gate del botón "→ Panel".
+        impersonateBlock: this.impersonateBlockReason(c),
         isCompanyDirect,
         clients: c.uses.length,
         activeClients: c.uses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE').length,
