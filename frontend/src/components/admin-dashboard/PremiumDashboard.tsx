@@ -50,12 +50,19 @@ const RANGE_OPTIONS: { value: RangeKind; label: string }[] = [
 type DashboardResp = {
   range: { kind: string; from: string; to: string };
   banner: {
-    billedUsd: number;
+    billedUsd: number; // COBRADO real (caja)
+    estimatedUsd: number; // PROYECTADO (estimado, sin cobro registrado)
+    estimatedCount: number;
+    billedGroups: number; // cuántas unidades del facturado son Grupos
     billedByPlan: Array<{
       periodicity: string;
       label: string;
-      count: number;
-      billingUsd: number;
+      count: number; // negocios + grupos con cobro real
+      businessCount: number;
+      groupCount: number;
+      billingUsd: number; // cobrado real
+      estimatedCount: number;
+      estimatedUsd: number;
     }>;
     newCustomers: {
       currentMonth: number;
@@ -118,6 +125,11 @@ type BilledCompaniesResp = {
   range: { kind: string; from: string; to: string };
   total: number;
   count: number;
+  // Desglose Cobrado vs Estimado (Bug 1).
+  realTotal: number;
+  realCount: number;
+  estimatedTotal: number;
+  estimatedCount: number;
   companies: BilledCompany[];
 };
 
@@ -171,6 +183,20 @@ export function PremiumDashboard() {
     };
   }, [range]);
 
+  // Bug 3 (auditoría 2026-08-17): si el rango cambia con el modal "Ver empresas"
+  // ABIERTO, refetchear la lista para que no quede pegada al rango anterior.
+  // (openCompanies ya usa el rango actual AL ABRIR; esto cubre tenerlo abierto.)
+  useEffect(() => {
+    if (!showCompanies) return;
+    setCompaniesLoading(true);
+    api<BilledCompaniesResp>(`/admin/dashboard/billed-companies?range=${range}`)
+      .then((r) => setCompanies(r))
+      .catch(() => setCompanies(null))
+      .finally(() => setCompaniesLoading(false));
+    // showCompanies fuera de deps a propósito: al abrir ya fetchea openCompanies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range]);
+
   // #13/#19 (2026-06-16): series REALES de los últimos 6 meses (backend
   // monthlySeries). Antes eran simuladas (buildSimulatedMrrSeries).
   const mrrSeries = useMemo(
@@ -217,8 +243,25 @@ export function PremiumDashboard() {
               <div>
                 <div className="font-bold text-lg">Empresas facturadas</div>
                 <div className="text-xs text-mute">
-                  Rango: {RANGE_OPTIONS.find((r) => r.value === range)?.label} ·{' '}
-                  {companies ? `${companies.count} unidades · total ${usd(companies.total)}` : '…'}
+                  Rango: {RANGE_OPTIONS.find((r) => r.value === range)?.label}
+                  {companies ? (
+                    <>
+                      {' · '}
+                      <span className="text-emerald-600 font-semibold">
+                        Cobrado {usd(companies.realTotal)} ({companies.realCount})
+                      </span>
+                      {companies.estimatedCount > 0 && (
+                        <>
+                          {' · '}
+                          <span className="text-amber-600 font-semibold">
+                            Estimado {usd(companies.estimatedTotal)} ({companies.estimatedCount})
+                          </span>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    ' · …'
+                  )}
                 </div>
               </div>
               <button
@@ -247,6 +290,7 @@ export function PremiumDashboard() {
                       <th className="text-left px-2 py-2">Plan</th>
                       <th className="text-right px-2 py-2">Monto</th>
                       <th className="text-left px-4 py-2">Pago</th>
+                      <th className="text-left px-4 py-2">Estado</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -257,16 +301,26 @@ export function PremiumDashboard() {
                             <span className="mr-1" title="Grupo empresarial">👥</span>
                           )}
                           {c.name}
-                          {c.estimated && (
-                            <span className="ml-1 text-[10px] text-amber-500" title="Estimado (sin fecha de cobro registrada)">
-                              ~est
-                            </span>
-                          )}
                         </td>
                         <td className="px-2 py-2 text-mute capitalize">{c.plan.toLowerCase()}</td>
                         <td className="px-2 py-2 text-right font-semibold">{usd(c.amountUsd)}</td>
                         <td className="px-4 py-2 text-mute">
                           {c.paidAt ? fmtDate(c.paidAt) : '—'}
+                        </td>
+                        {/* Bug 1: estado como badge propio, no como sufijo pegado al nombre. */}
+                        <td className="px-4 py-2">
+                          {c.estimated ? (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded-pill bg-amber-100 text-amber-700"
+                              title="Sin fecha de cobro registrada; el monto es el precio de lista, no caja real."
+                            >
+                              Estimado
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-pill bg-emerald-100 text-emerald-700">
+                              Cobrado
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -274,6 +328,19 @@ export function PremiumDashboard() {
                 </table>
               )}
             </div>
+            {/* Bug 1: pie del modal con el desglose Cobrado vs Estimado. */}
+            {!companiesLoading && companies && companies.companies.length > 0 && (
+              <div className="p-3 border-t border-line text-xs flex flex-wrap gap-x-4 gap-y-1 justify-end">
+                <span className="text-emerald-600">
+                  <strong>Cobrado:</strong> {companies.realCount} · {usd(companies.realTotal)}
+                </span>
+                {companies.estimatedCount > 0 && (
+                  <span className="text-amber-600">
+                    <strong>Estimado:</strong> {companies.estimatedCount} · {usd(companies.estimatedTotal)}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -292,14 +359,27 @@ export function PremiumDashboard() {
         <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
           <div>
             <div className="text-[11px] uppercase tracking-wider text-sky-200 font-semibold">
-              Monto facturado
+              Cobrado
             </div>
             <div className="text-4xl md:text-5xl font-bold tracking-tight mt-1">
               {money(data.banner.billedUsd)}
             </div>
             <div className="text-xs text-sky-200 mt-1">
-              Cobrado en: {RANGE_OPTIONS.find((r) => r.value === range)?.label}
+              Pagos con fecha real · {RANGE_OPTIONS.find((r) => r.value === range)?.label}
             </div>
+            {/* Bug 1: lo proyectado (estimado, sin cobro registrado) NUNCA se
+                suma dentro de "Cobrado" — se muestra aparte y diferenciado. */}
+            {data.banner.estimatedUsd > 0 && (
+              <div
+                className="text-xs text-amber-200 mt-1"
+                title="Negocios ACTIVE sin fecha de cobro registrada. El monto es el precio de lista (proyección), no caja real."
+              >
+                + Proyectado (sin cobro registrado): {money(data.banner.estimatedUsd)}
+                {' · '}
+                {data.banner.estimatedCount}{' '}
+                {data.banner.estimatedCount === 1 ? 'negocio' : 'negocios'}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <button
@@ -345,9 +425,25 @@ export function PremiumDashboard() {
               <div className="font-bold text-base mt-0.5">
                 {money(p.billingUsd)}
               </div>
-              <div className="text-[10px] text-sky-200">
-                {p.count} negocios
+              {/* Bug 4/5: "negocios" = tenants con su ÚLTIMO cobro en el rango
+                  (no acumula renovaciones); los grupos se cuentan aparte. */}
+              <div
+                className="text-[10px] text-sky-200"
+                title="Negocios con su último cobro en el rango. No incluye renovaciones previas del mismo negocio."
+              >
+                {p.businessCount} negocios
+                {p.groupCount > 0
+                  ? ` · ${p.groupCount} grupo${p.groupCount === 1 ? '' : 's'}`
+                  : ''}
               </div>
+              {p.estimatedUsd > 0 && (
+                <div
+                  className="text-[10px] text-amber-200/90"
+                  title="Proyectado (sin cobro registrado), no incluido en el Cobrado."
+                >
+                  + {money(p.estimatedUsd)} est · {p.estimatedCount}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -355,7 +451,11 @@ export function PremiumDashboard() {
         {/* Clientes nuevos del mes con variación */}
         <div className="flex items-center gap-3 flex-wrap">
           <div className="text-sm">
-            <span className="text-sky-200">Clientes nuevos del mes:</span>{' '}
+            {/* Bug 7: esta métrica es SIEMPRE del mes calendario, NO del rango
+                seleccionado arriba. Se rotula explícito para no confundir. */}
+            <span className="text-sky-200">
+              Clientes nuevos <span className="opacity-80">(este mes calendario)</span>:
+            </span>{' '}
             <span className="font-bold text-base">
               {data.banner.newCustomers.currentMonth}
             </span>
@@ -384,7 +484,7 @@ export function PremiumDashboard() {
         <Kpi
           label="Ingreso recurrente"
           value={money(data.kpis.mrrUsd)}
-          sub="MRR mensual"
+          sub="MRR estimado · recurrente, no caja"
           accent="brand"
           icon="💎"
         />

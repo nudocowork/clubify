@@ -5,6 +5,13 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { SettingsService } from '../settings/settings.service';
 import { normalizePlanPeriod, addPlanPeriod, bundleMonths } from '../common/plan-period';
 import { cycleCreditCost } from '../common/business-types';
+import {
+  bogotaYmd,
+  bogotaDayStartUtc,
+  addDaysYmd,
+  parseYmd,
+  fmtYmd,
+} from '../referrals/cutoff-calendar';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 
 /**
@@ -929,10 +936,16 @@ export class AdminReportsService {
     const now = new Date();
     const { from, to } = resolveDateRange(opts.range, opts.from, opts.to, now);
     // Mes actual y anterior para la comparación de clientes nuevos
-    // (independiente del range — esa métrica siempre es mes-a-mes).
-    const startThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const endLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+    // (independiente del range — esa métrica siempre es mes-a-mes CALENDARIO).
+    // Bug 6: anclado a meses de Bogotá, no a la hora local del server (UTC).
+    const nowYmd = bogotaYmd(now);
+    const { y: curY, m: curM } = parseYmd(nowYmd);
+    const prevY = curM === 1 ? curY - 1 : curY;
+    const prevM = curM === 1 ? 12 : curM - 1;
+    const startThisMonth = bogotaDayStartUtc(fmtYmd(curY, curM, 1));
+    const startLastMonth = bogotaDayStartUtc(fmtYmd(prevY, prevM, 1));
+    // Último instante del mes anterior (se usa con `lte`) = inicio del actual − 1ms.
+    const endLastMonth = new Date(startThisMonth.getTime() - 1);
 
     // FIX 2026-06-07: precios canónicos del bundle (lo que el cliente
     // realmente paga en Hotmart) — Mensual 68 / Trimestral 150 /
@@ -1208,13 +1221,24 @@ export class AdminReportsService {
     // con `=== key` crudo (dropeaba planPeriodicity=null), así que el total
     // (date-filtered) no cuadraba con la suma de los buckets. Ahora el
     // total es, por construcción, la suma exacta de los 4 buckets.
-    const billedAcc: Record<string, { count: number; amount: number }> = {
-      MENSUAL: { count: 0, amount: 0 },
-      TRIMESTRAL: { count: 0, amount: 0 },
-      SEMESTRAL: { count: 0, amount: 0 },
-      ANUAL: { count: 0, amount: 0 },
-    };
+    // Bug 1 (auditoría facturación 2026-08-17): se separa el COBRADO REAL
+    // (negocios/grupos con lastChargeAt en el rango) del PROYECTADO (negocios
+    // ACTIVE sin lastChargeAt cuyo cobro se ESTIMA). Antes ambos se sumaban bajo
+    // "MONTO FACTURADO / Cobrado", mezclando caja real con proyección. `groups`
+    // cuenta cuántas unidades del bucket son Grupos Empresariales (Bug 5).
+    const mkAcc = (): Record<
+      string,
+      { count: number; amount: number; groups: number }
+    > => ({
+      MENSUAL: { count: 0, amount: 0, groups: 0 },
+      TRIMESTRAL: { count: 0, amount: 0, groups: 0 },
+      SEMESTRAL: { count: 0, amount: 0, groups: 0 },
+      ANUAL: { count: 0, amount: 0, groups: 0 },
+    });
+    const billedAcc = mkAcc(); // COBRADO real
+    const estimatedAcc = mkAcc(); // PROYECTADO (sin cobro registrado)
     let billedUsd = 0;
+    let estimatedUsd = 0;
     // PDF 752 #6 (2026-06-26): el "monto facturado" del rango ahora se basa en
     // la FECHA DE COBRO REAL (lastChargeAt, sincronizada con Hotmart) en vez de
     // una estimación currentPeriodEnd−meses. Cada negocio que cobró en [from,to]
@@ -1228,11 +1252,10 @@ export class AdminReportsService {
       billedAcc[key].count += 1;
       billedAcc[key].amount += amount;
     }
-    // FALLBACK legacy: negocios ACTIVE SIN lastChargeAt (creados antes de que
-    // se cableara la fecha de cobro). Mantienen la estimación histórica
-    // (currentPeriodEnd−meses, o createdAt) para no desaparecer del facturado
-    // hasta que un cobro/activación real les setee lastChargeAt. Un script de
-    // backfill puede poblar lastChargeAt y volver esta rama inerte.
+    // PROYECTADO (antes "FALLBACK legacy"): negocios ACTIVE SIN lastChargeAt.
+    // Su fecha de cobro se ESTIMA (currentPeriodEnd−meses, o createdAt). NO es
+    // caja real → va a estimatedAcc/estimatedUsd, nunca al "Cobrado" (Bug 1).
+    // Un cobro/activación real que setee lastChargeAt vuelve esta rama inerte.
     for (const t of activeTenantsForPricing) {
       if (t.lastChargeAt) continue; // ya contado por paidInRangeTenants si cae en rango
       const key = normalizePeriod(t.planPeriodicity);
@@ -1253,9 +1276,9 @@ export class AdminReportsService {
         lastPaymentApprox.getTime() <= to.getTime()
       ) {
         const amount = billedAmountFor(t);
-        billedUsd += amount;
-        billedAcc[key].count += 1;
-        billedAcc[key].amount += amount;
+        estimatedUsd += amount;
+        estimatedAcc[key].count += 1;
+        estimatedAcc[key].amount += amount;
       }
     }
     // P3: cada Grupo Empresarial cobrado en el rango suma como 1 negocio en la
@@ -1268,15 +1291,31 @@ export class AdminReportsService {
       billedUsd += amount;
       billedAcc[key].count += 1;
       billedAcc[key].amount += amount;
+      billedAcc[key].groups += 1; // Bug 5: 1 unidad = 1 grupo (no negocio individual)
     }
     billedUsd = round2(billedUsd);
+    estimatedUsd = round2(estimatedUsd);
 
     const billedByPlan = Object.entries(PERIODS).map(([key, meta]) => ({
       periodicity: key,
       label: meta.label,
-      count: billedAcc[key].count,
-      billingUsd: round2(billedAcc[key].amount),
+      count: billedAcc[key].count, // negocios + grupos con COBRO REAL en el rango
+      businessCount: billedAcc[key].count - billedAcc[key].groups, // Bug 5
+      groupCount: billedAcc[key].groups, // Bug 5
+      billingUsd: round2(billedAcc[key].amount), // COBRADO real (caja)
+      estimatedCount: estimatedAcc[key].count, // Bug 1: proyectado, sin cobro real
+      estimatedUsd: round2(estimatedAcc[key].amount),
     }));
+    const estimatedCount =
+      estimatedAcc.MENSUAL.count +
+      estimatedAcc.TRIMESTRAL.count +
+      estimatedAcc.SEMESTRAL.count +
+      estimatedAcc.ANUAL.count;
+    const billedGroups =
+      billedAcc.MENSUAL.groups +
+      billedAcc.TRIMESTRAL.groups +
+      billedAcc.SEMESTRAL.groups +
+      billedAcc.ANUAL.groups;
 
     // ============================================================
     // SERIE MENSUAL REAL (#13/#19, 2026-06-16) — reemplaza los charts
@@ -1487,7 +1526,10 @@ export class AdminReportsService {
         to,
       },
       banner: {
-        billedUsd,
+        billedUsd, // COBRADO real (solo negocios/grupos con lastChargeAt en rango)
+        estimatedUsd, // Bug 1: PROYECTADO (estimado, sin cobro registrado) — aparte
+        estimatedCount,
+        billedGroups, // Bug 5: cuántas unidades del facturado son Grupos
         billedByPlan,
         newCustomers: {
           currentMonth: newCustCurrent,
@@ -1631,10 +1673,21 @@ export class AdminReportsService {
     }
     rows.sort((a, b) => (b.paidAt?.getTime() ?? 0) - (a.paidAt?.getTime() ?? 0));
     const total = round2(rows.reduce((s, r) => s + r.amountUsd, 0));
+    // Bug 1 (auditoría 2026-08-17): desglose para el pie del modal — el "Cobrado"
+    // real (filas con fecha de pago) NO se mezcla con lo estimado (sin cobro).
+    const realRows = rows.filter((r) => !r.estimated);
+    const estimatedRows = rows.filter((r) => r.estimated);
+    const realTotal = round2(realRows.reduce((s, r) => s + r.amountUsd, 0));
+    const estimatedTotal = round2(estimatedRows.reduce((s, r) => s + r.amountUsd, 0));
     return {
       range: { kind: opts.range ?? 'last-30', from, to },
       total,
       count: rows.length,
+      // Desglose Cobrado vs Estimado (Bug 1).
+      realTotal,
+      realCount: realRows.length,
+      estimatedTotal,
+      estimatedCount: estimatedRows.length,
       companies: rows,
     };
   }
@@ -2102,7 +2155,7 @@ export class AdminReportsService {
  * `this-week`, etc.) o un `from`/`to` ISO si `range=custom`.
  * Default = `this-month`.
  */
-function resolveDateRange(
+export function resolveDateRange(
   range: string | undefined,
   fromIso: string | undefined,
   toIso: string | undefined,
@@ -2110,44 +2163,54 @@ function resolveDateRange(
 ): { from: Date; to: Date } {
   const r = (range ?? 'this-month').toLowerCase();
   const to = new Date(now);
+  // Bug 6 (auditoría facturación 2026-08-17): TODOS los límites de calendario se
+  // anclan a la MEDIANOCHE DE BOGOTÁ (America/Bogota, UTC-5). El server corre en
+  // UTC → sin esto, `today`/`this-week`/`this-year` arrancaban a la medianoche
+  // UTC = 7pm Bogotá del día anterior, y un pago de las 20:00 Bogotá caía en el
+  // día equivocado. Mismo timezone canónico que el módulo de cortes. `to` queda
+  // como el instante actual (fin de rango = ahora).
+  const todayYmd = bogotaYmd(now);
+  const { y, m, d } = parseYmd(todayYmd);
   let from: Date;
   switch (r) {
     case 'today':
-      from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      from = bogotaDayStartUtc(todayYmd);
       break;
     case 'this-week': {
-      const day = now.getDay();
-      const monday = new Date(now);
-      monday.setDate(now.getDate() - ((day + 6) % 7));
-      monday.setHours(0, 0, 0, 0);
-      from = monday;
+      // Semana arranca el LUNES (Bogotá). getUTCDay del inicio-de-día Bogotá
+      // (05:00Z) sigue cayendo en el mismo día calendario → weekday correcto.
+      const dow = bogotaDayStartUtc(todayYmd).getUTCDay(); // 0=dom … 6=sáb
+      const mondayYmd = addDaysYmd(todayYmd, -((dow + 6) % 7));
+      from = bogotaDayStartUtc(mondayYmd);
       break;
     }
     case 'last-30':
-      from = new Date(now.getTime() - 30 * 86400_000);
+      from = bogotaDayStartUtc(addDaysYmd(todayYmd, -30));
       break;
     case 'this-quarter': {
-      // PDF 2026-07-02 (P1): "Este trimestre" = ÚLTIMOS 3 MESES (rolling), no el
-      // trimestre calendario. Antes arrancaba el 1° del trimestre en curso.
-      from = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+      // "Este trimestre" = ÚLTIMOS 3 MESES (rolling), no el trimestre calendario.
+      const q = new Date(Date.UTC(y, m - 1 - 3, d));
+      from = bogotaDayStartUtc(
+        fmtYmd(q.getUTCFullYear(), q.getUTCMonth() + 1, q.getUTCDate()),
+      );
       break;
     }
     case 'this-year':
-      from = new Date(now.getFullYear(), 0, 1);
+      from = bogotaDayStartUtc(fmtYmd(y, 1, 1));
       break;
     case 'custom': {
       from = fromIso ? new Date(fromIso) : new Date(0);
-      const t = toIso ? new Date(toIso) : now;
+      const t = toIso ? new Date(toIso) : new Date(now);
       return { from, to: t };
     }
     // 'this-month' se quitó del panel (redundante con 'last-30'). Se mantiene el
     // caso por compatibilidad, pero el default ahora es 'last-30'.
     case 'this-month':
-      from = new Date(now.getFullYear(), now.getMonth(), 1);
+      from = bogotaDayStartUtc(fmtYmd(y, m, 1));
       break;
     case 'last-30-default':
     default:
-      from = new Date(now.getTime() - 30 * 86400_000);
+      from = bogotaDayStartUtc(addDaysYmd(todayYmd, -30));
       break;
   }
   return { from, to };
