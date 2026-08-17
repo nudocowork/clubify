@@ -57,6 +57,9 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
             currentTier={data.currentTier}
             tiers={data.card.tiers ?? []}
             stampIcon={data.card.stampIcon || '☕'}
+            // Ícono propio (imagen): prima sobre el emoji, igual que en el pase
+            // real. Sin esto la tarjeta web del cliente mostraba el emoji.
+            stampIconImageUrl={data.card.stampIconImageUrl ?? null}
             stampActiveColor={data.card.stampActiveColor}
             stampInactiveColor={data.card.stampInactiveColor}
             stampContourColor={data.card.stampContourColor}

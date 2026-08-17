@@ -362,10 +362,12 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
                       <img
                         src={stampIconImageUrl}
                         alt=""
-                        className="object-contain"
+                        // Llena el círculo COMPLETO (igual que el strip real del
+                        // pase); recortada en círculo para que no se salga.
+                        className="object-contain rounded-full"
                         style={{
-                          width: '78%',
-                          height: '78%',
+                          width: '100%',
+                          height: '100%',
                           opacity: filled ? 1 : 0.34,
                         }}
                       />

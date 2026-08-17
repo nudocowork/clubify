@@ -25,11 +25,26 @@ export class WalletPushWorker implements OnModuleInit {
       this.logger.log(
         `wallet.push job: pass=${passId} reason=${reason}${silent ? ' (silent)' : ''}`,
       );
-      await this.wallet.pushPassUpdate(passId, { silent }).catch((e) => {
-        this.logger.warn(
-          `pushPassUpdate(${passId}) falló: ${(e as Error).message}`,
+      // RETRY DIFERENCIADO (2026-08): antes se tragaba TODO error → el job
+      // "completaba" siempre y BullMQ nunca reintentaba (attempts:3 quedaba
+      // muerto). Ahora:
+      //  - Error TRANSITORIO de Google (status 'error' = 5xx/red/rate-limit) o
+      //    una excepción inesperada → SE RELANZA → BullMQ reintenta 3x con
+      //    backoff exponencial; tras agotarlos queda en la cola de fallidos
+      //    (dead-letter, removeOnFail:5000) para inspección.
+      //  - PERMANENTE (404 object_not_found = el cliente no saveó el pase; 403
+      //    api_disabled) o éxito → NO se reintenta (return normal). Reintentar
+      //    un 404/403 solo gasta llamadas.
+      const result = (await this.wallet.pushPassUpdate(passId, { silent })) as {
+        google?: { ok?: boolean; status?: string };
+      };
+      const gstatus = result?.google?.status;
+      if (gstatus === 'error') {
+        // Deja que BullMQ lo reintente.
+        throw new Error(
+          `wallet.push transitorio pass=${passId}: Google PATCH status=error`,
         );
-      });
+      }
     });
   }
 }

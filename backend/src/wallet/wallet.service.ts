@@ -694,6 +694,73 @@ export class WalletService {
     return result['strip@2x.png'] ?? result['strip.png'] ?? null;
   }
 
+  /**
+   * PREVIEW del strip de sellos para el panel (config aún NO guardada). Usa el
+   * MISMO generador que produce el strip real del pase (`generateStampsStrip`)
+   * — no reimplementa el dibujo — y devuelve las 3 imágenes PNG reales (data
+   * URLs base64) en los estados VACÍO (0), MITAD (floor(n/2)) y COMPLETO (n).
+   * No toca DB: recibe la config del cuerpo del request. Así el negocio ve la
+   * imagen EXACTA que recibirá el cliente en su Wallet, sin persistir nada.
+   */
+  async previewStampStrips(cfg: {
+    primaryColor?: string | null;
+    secondaryColor?: string | null;
+    stampsRequired?: number | null;
+    stampIcon?: string | null;
+    stampIconImageUrl?: string | null;
+    stampActiveColor?: string | null;
+    stampInactiveColor?: string | null;
+    stampContourColor?: string | null;
+    centerBgColor?: string | null;
+    heroImageUrl?: string | null;
+    stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE' | null;
+    stampBgImageUrl?: string | null;
+    freeRewards?: Array<{
+      pos: number;
+      text?: string | null;
+      emoji?: string | null;
+      circleColor?: string | null;
+      textColor?: string | null;
+      active?: boolean;
+    }>;
+  }): Promise<{ empty: string; half: string; full: string }> {
+    // Clamp defensivo: el grid soporta hasta 2 filas; > ~20 se ve mal.
+    const required = Math.min(
+      Math.max(Math.floor(cfg.stampsRequired ?? 10), 1),
+      20,
+    );
+    const base = {
+      primary: cfg.primaryColor || '#6366F1',
+      secondary: cfg.secondaryColor || '#A855F7',
+      required,
+      icon: cfg.stampIcon || '☕',
+      stampIconImageUrl: cfg.stampIconImageUrl ?? null,
+      stampActiveColor: cfg.stampActiveColor ?? null,
+      stampInactiveColor: cfg.stampInactiveColor ?? null,
+      stampContourColor: cfg.stampContourColor ?? null,
+      centerBgColor: cfg.centerBgColor ?? null,
+      heroImageUrl: cfg.heroImageUrl ?? null,
+      stampBgType: cfg.stampBgType ?? undefined,
+      stampBgImageUrl: cfg.stampBgImageUrl ?? null,
+      freeRewards: cfg.freeRewards ?? [],
+    };
+    const counts = [0, Math.floor(required / 2), required];
+    const [emptyR, halfR, fullR] = await Promise.all(
+      counts.map((stamped) =>
+        this.generateStampsStrip({ ...base, stamped }),
+      ),
+    );
+    const toDataUri = (r: Record<string, Buffer>): string => {
+      const buf = r['strip@2x.png'] ?? r['strip.png'];
+      return `data:image/png;base64,${buf.toString('base64')}`;
+    };
+    return {
+      empty: toDataUri(emptyR),
+      half: toDataUri(halfR),
+      full: toDataUri(fullR),
+    };
+  }
+
   private async generateStampsStrip(opts: {
     primary: string;
     secondary: string;
@@ -884,9 +951,14 @@ export class WalletService {
         // Ícono inline SVG (librsvg no renderiza color emoji aunque la
         // fuente esté instalada — sale como silueta monocromática negra).
         // El renderer mapea emoji → SVG estilo "gourmet" con gradient.
-        // Tamaño ≈55% del diámetro del círculo (radius * 1.1 = 55% de 2r).
-        const iconSize = radius * 1.1;
-        circles.push((customFull ?? iconRenderer)(cx, cy, iconSize, `${i}`));
+        // Emoji: tamaño ≈55% del diámetro (radius * 1.1 = 55% de 2r).
+        // Imagen propia: llena el círculo COMPLETO (diámetro = radius * 2) y va
+        // recortada en círculo; si no, queda un anillo blanco alrededor.
+        circles.push(
+          customFull
+            ? customFull(cx, cy, radius * 2, `${i}`)
+            : iconRenderer(cx, cy, radius * 1.1, `${i}`),
+        );
       } else {
         // Vacío: glassmorphism sutil sin borde. Borde sólo si el tenant
         // configuró stampContourColor.
@@ -898,7 +970,7 @@ export class WalletService {
         );
         // Con ícono personalizado, el vacío también muestra la imagen atenuada.
         if (customFaded) {
-          circles.push(customFaded(cx, cy, radius * 1.1, `${i}`));
+          circles.push(customFaded(cx, cy, radius * 2, `${i}`));
         }
       }
     }

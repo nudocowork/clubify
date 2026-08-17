@@ -49,7 +49,13 @@ export class ScannerService {
       );
 
     if (user.role !== 'SUPER_ADMIN' && user.tenantId !== pass.tenantId) {
-      throw new ForbiddenException('Code belongs to another business');
+      // Mensaje en español y accionable: en negocios con varias sedes/cuentas
+      // este error se leía como "el escáner está roto". Sin nombrar el otro
+      // negocio (aislamiento entre tenants).
+      throw new ForbiddenException(
+        'Esta tarjeta pertenece a otro negocio. Verificá que iniciaste sesión ' +
+          'con la cuenta de la sede correcta.',
+      );
     }
 
     const recent = await this.prisma.stamp.findMany({

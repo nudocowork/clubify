@@ -91,7 +91,7 @@ export function StampIconPicker({
         <div className="w-16 h-16 rounded-2xl border-2 border-bd bg-bg2 flex items-center justify-center text-3xl shrink-0 overflow-hidden">
           {hasImage ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={imageUrl as string} alt="Ícono de sello" className="w-full h-full object-contain p-1.5" />
+            <img src={imageUrl as string} alt="Ícono de sello" className="w-full h-full object-contain" />
           ) : (
             value || '☕'
           )}

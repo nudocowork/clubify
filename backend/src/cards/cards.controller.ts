@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestj
 import { IsArray, IsBoolean, IsEnum, IsHexColor, IsIn, IsInt, IsOptional, IsString, Min, ValidateIf } from 'class-validator';
 import { CardType } from '@prisma/client';
 import { CardsService } from './cards.service';
+import { WalletService } from '../wallet/wallet.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 
@@ -88,10 +89,50 @@ class CardBody {
   transformIntoCardId?: string | null;
 }
 
+// Preview REAL del strip de sellos (imagen PNG generada por Sharp, la misma que
+// recibe el cliente en su Wallet) para config aún NO guardada. Todos los campos
+// son opcionales — el generador aplica defaults. Debe declarar cada campo por el
+// ValidationPipe (whitelist + forbidNonWhitelisted): un campo no listado que
+// llegue en el body haría fallar la request.
+class PreviewStripsBody {
+  @IsOptional() @IsString() primaryColor?: string;
+  @IsOptional() @IsString() secondaryColor?: string;
+  @IsOptional() @IsInt() @Min(1) stampsRequired?: number;
+  @IsOptional() @IsString() stampIcon?: string;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampIconImageUrl?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampActiveColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampInactiveColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampContourColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() centerBgColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() heroImageUrl?: string | null;
+  @IsOptional() @IsIn(['GRADIENT', 'SOLID', 'IMAGE']) stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampBgImageUrl?: string | null;
+  @IsOptional() @IsArray() freeRewards?: Array<{
+    pos: number;
+    text?: string;
+    emoji?: string;
+    circleColor?: string;
+    textColor?: string;
+    active?: boolean;
+  }>;
+}
+
 @Controller('cards')
 @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
 export class CardsController {
-  constructor(private svc: CardsService) {}
+  constructor(
+    private svc: CardsService,
+    private wallet: WalletService,
+  ) {}
+
+  // Preview REAL del cartón de sellos (imagen PNG del generador de producción)
+  // en 3 estados: vacío / mitad / completo. Devuelve data URLs base64 para
+  // pintarlas con <img> sin problemas de auth. La ruta '/preview-strips' es un
+  // POST distinto del '@Post()' de creación → no colisiona.
+  @Post('preview-strips')
+  previewStrips(@Body() body: PreviewStripsBody) {
+    return this.wallet.previewStampStrips(body);
+  }
 
   @Get()
   list(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {

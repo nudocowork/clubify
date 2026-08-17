@@ -8,6 +8,7 @@ import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
 import { ImageUploader } from '@/components/ImageUploader';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
+import { WalletStripRealPreview } from '@/components/WalletStripRealPreview';
 import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 import {
@@ -906,6 +907,38 @@ function Step3Configure({
             barcodeValue="DEMO123456"
           />
         </div>
+
+        {/* Preview REAL del cartón de sellos: imagen PNG del generador de
+            producción (Sharp) — lo que el cliente ve en su Wallet — en los 3
+            estados. Solo para tarjetas con grilla de sellos. */}
+        {(form.type === 'STAMPS' ||
+          form.type === 'HYBRID' ||
+          form.type === 'VISITS') && (
+          <div className="mt-5">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
+              Imagen real en el Wallet
+            </div>
+            <WalletStripRealPreview
+              config={{
+                primaryColor: form.primaryColor,
+                secondaryColor: form.secondaryColor,
+                stampsRequired:
+                  form.type === 'VISITS'
+                    ? form.visitsRequired ?? 10
+                    : form.stampsRequired,
+                stampIcon: form.stampIcon,
+                stampIconImageUrl: form.stampIconImageUrl,
+                stampActiveColor: form.stampActiveColor,
+                stampInactiveColor: form.stampInactiveColor,
+                stampContourColor: form.stampContourColor,
+                centerBgColor: form.centerBgColor,
+                stampBgType: form.stampBgType,
+                stampBgImageUrl: form.stampBgImageUrl,
+                freeRewards: form.freeRewards,
+              }}
+            />
+          </div>
+        )}
 
         <div className="card card-pad mt-4 flex items-start gap-3">
           <Icon name="spark" size={18} className="text-brand flex-none mt-0.5" />

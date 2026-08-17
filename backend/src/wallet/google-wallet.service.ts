@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { sign } from 'jsonwebtoken';
 import * as fs from 'fs';
+import { createHash } from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { passLabels } from './pass-labels';
@@ -220,9 +221,35 @@ export class GoogleWalletService {
     const t = card.type;
     if (t === 'STAMPS' || t === 'HYBRID' || t === 'VISITS') {
       const apiUrl = process.env.API_URL || 'https://api.soyclubify.com';
-      const cacheBust = pass.lastActivityAt
+      // El bust lleva DOS partes:
+      //  - actividad del pase (nuevo sello → Google re-fetchea el strip), y
+      //  - huella del DISEÑO de la tarjeta. Sin la segunda, cambiar el ícono
+      //    del sello o los colores no llegaba nunca a los pases ya instalados:
+      //    el push patchea el objeto con la MISMA URL y Google sirve su copia
+      //    cacheada. Card no tiene updatedAt, por eso se hashea el diseño.
+      const activityV = pass.lastActivityAt
         ? new Date(pass.lastActivityAt).getTime()
         : Date.now();
+      const designV = createHash('sha1')
+        .update(
+          JSON.stringify([
+            card.stampIcon,
+            (card as any).stampIconImageUrl ?? null,
+            card.stampActiveColor,
+            card.stampInactiveColor,
+            card.stampContourColor,
+            card.centerBgColor,
+            (card as any).stampBgType ?? null,
+            (card as any).stampBgImageUrl ?? null,
+            card.heroImageUrl,
+            card.primaryColor,
+            card.secondaryColor,
+            card.stampsRequired,
+          ]),
+        )
+        .digest('hex')
+        .slice(0, 8);
+      const cacheBust = `${activityV}-${designV}`;
       // 1° hero — banner con título + stats (sellos faltantes, recompensas,
       // premio siguiente). Aparece como primer image module.
       imageModules.push({
