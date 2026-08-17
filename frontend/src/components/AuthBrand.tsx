@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Logo } from '@/components/Logo';
 import { authBrandCss } from '@/lib/panel-brand-theme';
@@ -15,6 +15,25 @@ export type AuthBrand = {
   primaryColor: string;
   secondaryColor: string | null;
 } | null;
+
+// Marca de auth resuelta en el SERVIDOR (SSR) y sembrada por el layout raíz.
+// Sembrar el valor inicial del hook elimina el PARPADEO de Clubify: el primer
+// HTML ya trae el logo/color de la marca, sin esperar al fetch del cliente.
+const AuthBrandContext = createContext<AuthBrand>(null);
+
+export function AuthBrandProvider({
+  initialBrand,
+  children,
+}: {
+  initialBrand: AuthBrand;
+  children: React.ReactNode;
+}) {
+  return (
+    <AuthBrandContext.Provider value={initialBrand}>
+      {children}
+    </AuthBrandContext.Provider>
+  );
+}
 
 // Hosts que son SIEMPRE Clubify (o desarrollo) → nunca consultamos branding de
 // marca; mostramos el logo Clubify default. Cualquier otro host (dominio propio
@@ -50,10 +69,17 @@ const memCache = new Map<string, AuthBrand>();
  * Clubify / desarrollo (→ branding default).
  */
 export function useAuthBrand(): { brand: AuthBrand; loading: boolean } {
-  const [brand, setBrand] = useState<AuthBrand>(null);
-  const [loading, setLoading] = useState(true);
+  // Valor SEMBRADO por el SSR (layout raíz) → el primer render ya trae el logo
+  // correcto, sin parpadeo de Clubify.
+  const ssrBrand = useContext(AuthBrandContext);
+  const [brand, setBrand] = useState<AuthBrand>(ssrBrand);
+  const [loading, setLoading] = useState(!ssrBrand);
 
   useEffect(() => {
+    // El SSR ya trae la marca fresca (no-store, por request) → sin refetch, sin
+    // parpadeo. Solo si el SSR NO resolvió (host Clubify, o un fallo puntual del
+    // server) corremos la resolución cliente de respaldo.
+    if (ssrBrand) return;
     const host = (window.location.host || '').toLowerCase().split(':')[0];
     // Dominio del master admin (soyfidelity.com): las pantallas de auth deben
     // mostrar "Fidelity", no el logo de Clubify. Sin logoUrl → BrandMark pinta
@@ -76,20 +102,28 @@ export function useAuthBrand(): { brand: AuthBrand; loading: boolean } {
       setLoading(false);
       return;
     }
-    if (memCache.has(host)) {
-      setBrand(memCache.get(host) ?? null);
+    // Solo caché POSITIVA. Un null cacheado (ej. el backend falló durante una
+    // caída) NUNCA debe fijar Clubify → se ignora y se re-consulta.
+    const cachedMem = memCache.get(host);
+    if (cachedMem) {
+      setBrand(cachedMem);
       setLoading(false);
       return;
     }
-    const sk = `clubify.authbrand.${host}`;
+    // Key v2: abandona las entradas viejas potencialmente ENVENENADAS con null.
+    // (Bug 2026-08-14: durante el outage se cacheó null en sessionStorage y el
+    // login de Sellea quedaba como Clubify aun con el backend ya recuperado.)
+    const sk = `clubify.authbrand.v2.${host}`;
     try {
       const raw = sessionStorage.getItem(sk);
-      if (raw != null) {
+      if (raw) {
         const v = JSON.parse(raw) as AuthBrand;
-        memCache.set(host, v);
-        setBrand(v);
-        setLoading(false);
-        return;
+        if (v && v.slug) {
+          memCache.set(host, v);
+          setBrand(v);
+          setLoading(false);
+          return;
+        }
       }
     } catch {
       /* sessionStorage no disponible */
@@ -115,16 +149,20 @@ export function useAuthBrand(): { brand: AuthBrand; loading: boolean } {
                 secondaryColor: v.secondaryColor ?? null,
               }
             : null;
-        memCache.set(host, b);
-        try {
-          sessionStorage.setItem(sk, JSON.stringify(b));
-        } catch {
-          /* ignore */
+        // Cachear SOLO positivos — nunca null (no envenenar el caché). Si el
+        // fetch falla/no hay marca, no fijamos Clubify ni cacheamos: se reintenta.
+        if (b) {
+          memCache.set(host, b);
+          try {
+            sessionStorage.setItem(sk, JSON.stringify(b));
+          } catch {
+            /* ignore */
+          }
+          setBrand(b);
         }
-        setBrand(b);
       })
       .catch(() => {
-        if (!cancelled) setBrand(null);
+        /* fallo de red: no cachear, no forzar Clubify — se reintenta */
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

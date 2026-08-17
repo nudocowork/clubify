@@ -147,9 +147,12 @@ function WalletPassPhone({
 export function FidelizacionBanner({
   waLink,
   demoLink,
+  hideCtas,
 }: {
   waLink: string;
   demoLink?: string;
+  /** Oculta los CTAs "Ver plan y empezar" / "Agendar una Demo" (clon de /informacion). */
+  hideCtas?: boolean;
 } = {
   waLink: 'https://wa.me/573189367158',
   demoLink: 'https://soyclubify.lat/demo',
@@ -220,6 +223,7 @@ export function FidelizacionBanner({
                 </li>
               ))}
             </ul>
+            {!hideCtas && (
             <div className="flex flex-col sm:flex-row flex-wrap justify-center lg:justify-start gap-3 mt-7 sm:mt-8">
               <Link
                 href="#precios"
@@ -236,6 +240,7 @@ export function FidelizacionBanner({
                 Agendar una Demo
               </a>
             </div>
+            )}
           </div>
 
           {/* Columna derecha: wallet phones tilted + badges */}

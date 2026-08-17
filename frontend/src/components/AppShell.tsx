@@ -603,6 +603,7 @@ export default function AppShell({
               items: [
                 { href: '/admin', label: 'Dashboard', icon: 'grid' },
                 { href: '/admin/tenants', label: 'Negocios', icon: 'store' },
+                { href: '/admin/pending-payments', label: 'Pagos sin activar', icon: 'bell', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/business-groups', label: 'Grupos Empresariales', icon: 'store', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/map', label: 'Mapa', icon: 'pin', hideForMarketing: true },
                 // Trials es exclusivo de Clubify: las marcas blancas no tienen

@@ -1769,6 +1769,12 @@ function CheckoutSheet({
         setErr('Elegí la sede a la que enviar tu pedido.');
         return;
       }
+    } else if (sedes.length >= 2 && !effectiveSedeId) {
+      // MESA (DINE_IN) y PICKUP en negocios multi-sede: el cliente debe
+      // elegir la sede — así el pedido cae en la sede correcta y su filtro.
+      // Con 1 sola sede se auto-asigna (autoSede) y no se pide nada.
+      setErr('Elegí la sede para tu pedido.');
+      return;
     }
 
     setSubmitting(true);
@@ -2081,6 +2087,34 @@ function CheckoutSheet({
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Sede para MESA / PICKUP en negocios multi-sede. En DELIVERY el
+                ruteo va por estado (bloque de arriba); acá el cliente elige la
+                sede donde consume/recoge. Con 1 sola sede se auto-asigna. */}
+            {form.fulfillment !== 'DELIVERY' && sedes.length >= 2 && (
+              <div className="rounded-lg border border-line bg-bg2/30 p-3 space-y-2">
+                <label className="label">
+                  {form.fulfillment === 'DINE_IN'
+                    ? '¿En qué sede estás?'
+                    : '¿En qué sede recogés?'}{' '}
+                  *
+                </label>
+                <select
+                  className="input"
+                  value={effectiveSedeId}
+                  onChange={(e) => setSedeId(e.target.value)}
+                  required
+                >
+                  <option value="">{tt('checkout.select_location')}</option>
+                  {sedes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {s.state ? ` — ${s.state}` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
 

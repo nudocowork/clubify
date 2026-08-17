@@ -76,6 +76,7 @@ export function PhoneInput({
   placeholder = 'Número sin prefijo',
   disabled,
   defaultCountry,
+  variant = 'light',
 }: {
   value: string;
   onChange: (combined: string) => void;
@@ -85,6 +86,9 @@ export function PhoneInput({
    *  vacío, la bandera inicial es la de este país en vez del default Colombia.
    *  Si el value ya trae un número con prefijo, se respeta el país de ese valor. */
   defaultCountry?: string;
+  /** Tema visual. 'dark' = vidrio oscuro (para landings de tema oscuro, ej. sorteo
+   *  premium). Default 'light' = clase `input` del sistema (no cambia usos existentes). */
+  variant?: 'light' | 'dark';
 }) {
   const initial = useMemo(() => {
     if (!(value ?? '').trim() && defaultCountry) {
@@ -174,6 +178,31 @@ export function PhoneInput({
     );
   }, [search]);
 
+  // Clases según tema. Default 'light' = clase `input` del sistema (sin cambios).
+  const dark = variant === 'dark';
+  const cx = {
+    trigger: dark
+      ? 'flex items-center gap-1.5 w-[120px] flex-none rounded-xl border border-white/15 bg-white/[.06] px-3 py-2.5 text-sm text-slate-100 hover:border-emerald-400/40 disabled:opacity-50 transition'
+      : 'input flex items-center gap-1.5 w-[120px] flex-none disabled:opacity-50 hover:border-brand/40 transition',
+    num: dark
+      ? 'flex-1 rounded-xl border border-white/15 bg-white/[.06] px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none transition focus:ring-2 focus:ring-emerald-500/30'
+      : 'input flex-1',
+    pop: dark
+      ? 'absolute z-30 left-0 right-0 mt-1 bg-slate-900 border border-white/10 rounded-xl shadow-2xl max-h-72 overflow-hidden flex flex-col'
+      : 'absolute z-30 left-0 right-0 mt-1 bg-white border border-line rounded-input shadow-lg max-h-72 overflow-hidden flex flex-col',
+    searchWrap: dark ? 'p-2 border-b border-white/10' : 'p-2 border-b border-line2',
+    search: dark
+      ? 'w-full rounded-lg border border-white/15 bg-white/[.06] px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none'
+      : 'input text-sm',
+    empty: dark ? 'px-3 py-4 text-sm text-slate-400 text-center' : 'px-3 py-4 text-sm text-mute text-center',
+    row: (active: boolean) =>
+      dark
+        ? `w-full text-left px-3 py-2 hover:bg-white/5 flex items-center gap-2.5 border-b border-white/5 last:border-b-0 text-slate-100 ${active ? 'bg-emerald-500/15' : ''}`
+        : `w-full text-left px-3 py-2 hover:bg-bg2/60 flex items-center gap-2.5 border-b border-line2 last:border-b-0 ${active ? 'bg-brand-soft/40' : ''}`,
+    dial: dark ? 'text-slate-400 text-xs font-mono' : 'text-mute text-xs font-mono',
+    chev: dark ? 'ml-auto text-xs text-slate-400' : 'ml-auto text-xs text-mute',
+  };
+
   return (
     <div ref={ref} className="relative">
       <div className="flex items-stretch gap-1.5">
@@ -181,14 +210,14 @@ export function PhoneInput({
           type="button"
           disabled={disabled}
           onClick={() => setOpen((v) => !v)}
-          className="input flex items-center gap-1.5 w-[120px] flex-none disabled:opacity-50 hover:border-brand/40 transition"
+          className={cx.trigger}
         >
           <span className="text-base leading-none">{country.flag}</span>
           <span className="font-medium text-sm">{country.dial}</span>
-          <span className="ml-auto text-xs text-mute">▾</span>
+          <span className={cx.chev}>▾</span>
         </button>
         <input
-          className="input flex-1"
+          className={cx.num}
           inputMode="tel"
           placeholder={placeholder}
           value={number}
@@ -199,20 +228,20 @@ export function PhoneInput({
       </div>
 
       {open && (
-        <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-line rounded-input shadow-lg max-h-72 overflow-hidden flex flex-col">
-          <div className="p-2 border-b border-line2">
+        <div className={cx.pop}>
+          <div className={cx.searchWrap}>
             <input
               autoFocus
               type="text"
               placeholder="Buscar país…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="input text-sm"
+              className={cx.search}
             />
           </div>
           <div className="overflow-y-auto">
             {filtered.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-mute text-center">
+              <div className={cx.empty}>
                 Sin resultados
               </div>
             ) : (
@@ -225,13 +254,11 @@ export function PhoneInput({
                     setOpen(false);
                     setSearch('');
                   }}
-                  className={`w-full text-left px-3 py-2 hover:bg-bg2/60 flex items-center gap-2.5 border-b border-line2 last:border-b-0 ${
-                    c.code === country.code ? 'bg-brand-soft/40' : ''
-                  }`}
+                  className={cx.row(c.code === country.code)}
                 >
                   <span className="text-lg leading-none">{c.flag}</span>
                   <span className="font-medium text-sm flex-1">{c.name}</span>
-                  <span className="text-mute text-xs font-mono">{c.dial}</span>
+                  <span className={cx.dial}>{c.dial}</span>
                 </button>
               ))
             )}

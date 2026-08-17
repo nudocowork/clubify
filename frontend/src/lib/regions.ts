@@ -95,7 +95,7 @@ const ARGENTINA_REGIONS: Region[] = [
 
 const CHILE_REGIONS: Region[] = [
   { name: 'Región Metropolitana', cities: ['Santiago', 'Providencia', 'Las Condes', 'Maipú', 'Ñuñoa'] },
-  { name: 'Valparaíso', cities: ['Valparaíso', 'Viña del Mar', 'Quilpué'] },
+  { name: 'Valparaíso', cities: ['Valparaíso', 'Viña del Mar', 'Quilpué', 'Villa Alemana', 'Concón', 'Quintero', 'Casablanca', 'Quillota', 'Calera', 'La Cruz', 'Nogales', 'Hijuelas', 'San Antonio', 'Cartagena', 'San Felipe', 'Los Andes', 'La Ligua'] },
   { name: 'Biobío', cities: ['Concepción', 'Talcahuano', 'Los Ángeles'] },
   { name: 'La Araucanía', cities: ['Temuco', 'Pucón'] },
   { name: 'Maule', cities: ['Talca', 'Curicó'] },

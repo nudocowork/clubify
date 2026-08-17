@@ -8,13 +8,12 @@ import { ToastProvider } from '@/components/Toast';
 import { DynamicFavicon } from '@/components/DynamicFavicon';
 import { ChunkReloadGuard } from '@/components/ChunkReloadGuard';
 import { googleFontsUrl } from '@/lib/marketing/qr-poster-config';
+import { AuthBrandProvider } from '@/components/AuthBrand';
+import { resolveAuthBrandFromHeaders } from '@/lib/server-brand';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
-/** Resuelve la marca blanca del host (dominio propio, ej. selleala.com) para
- *  metadata dinámica. Devuelve null para Clubify/dev → se usan los defaults
- *  Clubify de abajo. Cacheado por fetch (revalidate 60s). */
-async function resolveBrandForHost(host: string): Promise<{
+type LayoutBrand = {
   name: string;
   logoUrl: string | null;
   shareImageUrl: string | null;
@@ -22,7 +21,20 @@ async function resolveBrandForHost(host: string): Promise<{
   primaryColor: string;
   slug: string;
   version: number;
-} | null> {
+};
+// Última marca conocida (por host/slug) — regla dura: el shell (metadata, logo,
+// tema, /login) de un dominio de marca blanca NUNCA cae a Clubify por un fallo
+// del backend/DB. (Bug outage 2026-08-14: durante la caída, resolveBrandForHost
+// devolvía null=Clubify y — con revalidate:60 — el data-cache de Next quedaba
+// pegado, dejando el /login de Sellea como Clubify aun con el backend ya sano.
+// Fix: cache:'no-store' (siempre fresco) + last-known-good.)
+const lastKnownLayoutBrandByHost = new Map<string, LayoutBrand>();
+const lastKnownLayoutBrandBySlug = new Map<string, LayoutBrand>();
+const lastKnownTenantName = new Map<string, string>();
+
+/** Resuelve la marca blanca del host (dominio propio, ej. selleala.com) para
+ *  metadata dinámica. Devuelve null SOLO para Clubify/dev. */
+async function resolveBrandForHost(host: string): Promise<LayoutBrand | null> {
   const h = (host || '').toLowerCase().split(':')[0];
   if (
     !h ||
@@ -36,12 +48,13 @@ async function resolveBrandForHost(host: string): Promise<{
   try {
     const r = await fetch(
       `${API_URL}/api/superadmin-public/white-labels/branding-by-host?host=${encodeURIComponent(h)}`,
-      { next: { revalidate: 60 } },
+      { cache: 'no-store' },
     );
-    if (!r.ok) return null;
+    // Fallo del backend: NUNCA Clubify en un host de marca → última conocida.
+    if (!r.ok) return lastKnownLayoutBrandByHost.get(h) ?? null;
     const d = await r.json();
     if (!d || !d.slug || d.slug === 'clubify') return null;
-    return {
+    const brand: LayoutBrand = {
       name: d.name,
       logoUrl: d.logoUrl ?? null,
       // Imagen al compartir (Open Graph). Si no hay, el logo de la marca.
@@ -53,34 +66,28 @@ async function resolveBrandForHost(host: string): Promise<{
       slug: d.slug,
       version: Number(d.brandingVersion) || 0,
     };
+    lastKnownLayoutBrandByHost.set(h, brand);
+    return brand;
   } catch {
-    return null;
+    return lastKnownLayoutBrandByHost.get(h) ?? null;
   }
 }
 
 /** Igual que resolveBrandForHost pero por slug — para el acceso por
  *  /admin/<slug> en dominio Clubify (sin dominio propio). El middleware setea
  *  el header x-wl-slug en la request del documento. */
-async function resolveBrandForSlug(slug: string): Promise<{
-  name: string;
-  logoUrl: string | null;
-  shareImageUrl: string | null;
-  hasIcon: boolean;
-  primaryColor: string;
-  slug: string;
-  version: number;
-} | null> {
+async function resolveBrandForSlug(slug: string): Promise<LayoutBrand | null> {
   const s = (slug || '').trim().toLowerCase();
   if (!s || s === 'clubify') return null;
   try {
     const r = await fetch(
       `${API_URL}/api/superadmin-public/white-labels/branding?slug=${encodeURIComponent(s)}`,
-      { next: { revalidate: 60 } },
+      { cache: 'no-store' },
     );
-    if (!r.ok) return null;
+    if (!r.ok) return lastKnownLayoutBrandBySlug.get(s) ?? null;
     const d = await r.json();
     if (!d || !d.slug || d.slug === 'clubify') return null;
-    return {
+    const brand: LayoutBrand = {
       name: d.name,
       logoUrl: d.logoUrl ?? null,
       shareImageUrl: d.shareImageUrl ?? null,
@@ -89,8 +96,10 @@ async function resolveBrandForSlug(slug: string): Promise<{
       slug: d.slug,
       version: Number(d.brandingVersion) || 0,
     };
+    lastKnownLayoutBrandBySlug.set(s, brand);
+    return brand;
   } catch {
-    return null;
+    return lastKnownLayoutBrandBySlug.get(s) ?? null;
   }
 }
 
@@ -122,14 +131,15 @@ async function resolveTenantNameForHost(host: string): Promise<string | null> {
   try {
     const r = await fetch(
       `${API_URL}/api/public/storefront/resolve-host?host=${encodeURIComponent(h)}`,
-      { next: { revalidate: 60 } },
+      { cache: 'no-store' },
     );
-    if (!r.ok) return null;
+    if (!r.ok) return lastKnownTenantName.get(h) ?? null;
     const d = await r.json();
     const name = (d?.brandName || '').trim();
+    if (name) lastKnownTenantName.set(h, name);
     return name || null;
   } catch {
-    return null;
+    return lastKnownTenantName.get(h) ?? null;
   }
 }
 
@@ -378,6 +388,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Las messages se importan dinámicamente desde frontend/messages/.
   const locale = await getLocale();
   const messages = await getMessages();
+  // Marca de auth resuelta en el SERVIDOR → se siembra en el árbol para que las
+  // pantallas de login/registro rendericen el logo de la marca desde el primer
+  // HTML (sin parpadeo de Clubify). null en Clubify/dev.
+  const authBrand = await resolveAuthBrandFromHeaders();
   return (
     <html lang={locale}>
       <head>
@@ -399,7 +413,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <ChunkReloadGuard />
         <DynamicFavicon />
         <NextIntlClientProvider locale={locale} messages={messages}>
-          <ToastProvider>{children}</ToastProvider>
+          <ToastProvider>
+            <AuthBrandProvider initialBrand={authBrand}>
+              {children}
+            </AuthBrandProvider>
+          </ToastProvider>
         </NextIntlClientProvider>
         <PWARegister />
       </body>

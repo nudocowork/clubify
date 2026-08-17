@@ -95,6 +95,7 @@ export function HeroBanner({
   igLink,
   menuItems,
   brandName,
+  hideCtas,
 }: {
   waLink: string;
   /** URL del botón "Agendar una Demo" — embed Calendly de soyclubify.lat/demo. */
@@ -103,6 +104,9 @@ export function HeroBanner({
   igLink?: string | null;
   menuItems?: MenuItem[];
   brandName?: string;
+  /** Oculta los CTAs "Ver plan y empezar" / "Agendar una Demo" (usado en el clon
+   *  de /informacion, donde no deben aparecer). Default false = se muestran. */
+  hideCtas?: boolean;
 } = {
   waLink: 'https://wa.me/573189367158',
   demoLink: 'https://soyclubify.lat/demo',
@@ -136,6 +140,7 @@ export function HeroBanner({
               traducción automática + rotación de los más vendidos. Cero
               imprenta, cero fricción.
             </p>
+            {!hideCtas && (
             <div className="flex flex-col sm:flex-row flex-wrap justify-center lg:justify-start gap-3 mt-6 sm:mt-8">
               <Link
                 href="#precios"
@@ -155,6 +160,7 @@ export function HeroBanner({
                   visualmente con los CTAs primarios del hero
                   (Ver plan + Agendar una Demo). */}
             </div>
+            )}
           </div>
 
           {/* Columna derecha: iPhones tilted + badges flotantes
