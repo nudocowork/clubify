@@ -1605,6 +1605,12 @@ function ClientsList({ isVendor = false }: { isVendor?: boolean }) {
 function CommissionsList() {
   const [data, setData] = useState<CommissionResp | null>(null);
   const [loading, setLoading] = useState(true);
+  // Filtros (client-side) — el endpoint devuelve todas las comisiones del
+  // afiliado; filtramos acá por estado, negocio y período (fecha de compra).
+  const [fStatus, setFStatus] = useState('');
+  const [fQuery, setFQuery] = useState('');
+  const [fFrom, setFFrom] = useState('');
+  const [fTo, setFTo] = useState('');
   useEffect(() => {
     let alive = true;
     const load = () =>
@@ -1627,6 +1633,25 @@ function CommissionsList() {
     };
   }, []);
 
+  const anyFilter = !!(fStatus || fQuery.trim() || fFrom || fTo);
+  const filtered = useMemo(() => {
+    const items = data?.items ?? [];
+    const term = fQuery.trim().toLowerCase();
+    return items.filter((c) => {
+      if (fStatus && c.status !== fStatus) return false;
+      if (
+        term &&
+        !`${c.tenantBrand} ${c.via} ${c.codeText}`.toLowerCase().includes(term)
+      )
+        return false;
+      const d = (c.commissionDate ?? c.createdAt ?? '').slice(0, 10);
+      if (fFrom && d < fFrom) return false;
+      if (fTo && d > fTo) return false;
+      return true;
+    });
+  }, [data, fStatus, fQuery, fFrom, fTo]);
+  const filteredSum = filtered.reduce((s, c) => s + c.amount, 0);
+
   if (loading) return <div className="card card-pad h-32 animate-shimmer" />;
   if (!data) return null;
 
@@ -1645,9 +1670,88 @@ function CommissionsList() {
         </div>
       ) : (
         <>
+          {/* Filtros (client-side): estado + negocio + período (fecha de compra).
+              Los KPIs de arriba quedan como el balance global del afiliado. */}
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <select
+              value={fStatus}
+              onChange={(e) => setFStatus(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-line bg-surface focus:outline-none"
+            >
+              <option value="">Todos los estados</option>
+              <option value="PENDING">Bloqueada</option>
+              <option value="APPROVED">Disponible</option>
+              <option value="PAID">Pagada</option>
+              <option value="REJECTED">Rechazada</option>
+              <option value="RETAINED">Retenida</option>
+            </select>
+            <input
+              value={fQuery}
+              onChange={(e) => setFQuery(e.target.value)}
+              placeholder="Buscar negocio…"
+              className="px-3 py-2 rounded-lg border border-line bg-surface focus:outline-none w-full sm:w-44"
+            />
+            <span className="text-mute">Compra:</span>
+            <input
+              type="date"
+              value={fFrom}
+              max={fTo || undefined}
+              onChange={(e) => setFFrom(e.target.value)}
+              aria-label="Desde"
+              className="px-2 py-2 rounded-lg border border-line bg-surface focus:outline-none"
+            />
+            <span className="text-mute">→</span>
+            <input
+              type="date"
+              value={fTo}
+              min={fFrom || undefined}
+              onChange={(e) => setFTo(e.target.value)}
+              aria-label="Hasta"
+              className="px-2 py-2 rounded-lg border border-line bg-surface focus:outline-none"
+            />
+            <input
+              type="month"
+              title="Filtrar por mes"
+              aria-label="Mes"
+              onChange={(e) => {
+                const m = e.target.value; // YYYY-MM
+                if (!m) return;
+                const [y, mm] = m.split('-').map(Number);
+                const last = new Date(y, mm, 0).getDate();
+                setFFrom(`${m}-01`);
+                setFTo(`${m}-${String(last).padStart(2, '0')}`);
+              }}
+              className="px-2 py-2 rounded-lg border border-line bg-surface focus:outline-none"
+            />
+            {anyFilter && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFStatus('');
+                  setFQuery('');
+                  setFFrom('');
+                  setFTo('');
+                }}
+                className="text-xs text-mute underline hover:text-ink"
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
+          {anyFilter && (
+            <div className="text-xs text-mute">
+              Mostrando {filtered.length} de {data.items.length} · {fmtUsd(filteredSum)}
+            </div>
+          )}
+          {filtered.length === 0 ? (
+            <div className="card card-pad text-center py-8 text-mute text-sm">
+              No hay comisiones que coincidan con el filtro.
+            </div>
+          ) : (
+            <>
           {/* Mobile: cards verticales con info clave. */}
           <div className="sm:hidden space-y-2.5">
-            {data.items.map((c) => (
+            {filtered.map((c) => (
               <div key={c.id} className="card card-pad space-y-1.5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
@@ -1707,7 +1811,7 @@ function CommissionsList() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.items.map((c) => (
+                  {filtered.map((c) => (
                     <tr key={c.id} className="border-t border-line2 hover:bg-[#FAFAFB]">
                       <td className="px-4 py-3 font-medium">{c.tenantBrand}</td>
                       <td className="px-4 py-3 text-xs text-mute">{c.via}</td>
@@ -1749,6 +1853,8 @@ function CommissionsList() {
               </table>
             </div>
           </div>
+            </>
+          )}
         </>
       )}
     </div>
