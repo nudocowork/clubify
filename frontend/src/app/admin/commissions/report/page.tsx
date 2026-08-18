@@ -124,28 +124,31 @@ export default function CompanyReportPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
 
-  async function load() {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (status) params.set('status', status);
-      if (from) params.set('from', from);
-      if (to) params.set('to', to);
-      const qs = params.toString();
-      setData(
-        await api<ReportResp>(
-          `/admin/commissions/company-report${qs ? `?${qs}` : ''}`,
-        ),
-      );
-    } catch (e: any) {
-      toast(e?.message ?? t('errorLoading'), 'error');
-    } finally {
-      setLoading(false);
-    }
-  }
-
+  // Fix (2026-08-18): guard "última request gana". Antes, al elegir `from` y
+  // luego `to` en rápida sucesión, se disparaban 2 fetches; el de "solo from"
+  // (más filas → más lento) resolvía DESPUÉS del de "from+to" y lo pisaba →
+  // se mostraban negocios fuera del rango. El cleanup cancela la request vieja.
   useEffect(() => {
-    load();
+    let cancelled = false;
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+    api<ReportResp>(`/admin/commissions/company-report${qs ? `?${qs}` : ''}`)
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch((e: any) => {
+        if (!cancelled) toast(e?.message ?? t('errorLoading'), 'error');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, from, to]);
 
