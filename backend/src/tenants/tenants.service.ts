@@ -789,6 +789,12 @@ export class TenantsService {
     let currentPeriodEnd: Date | null = null;
     let trialEndsAt: Date | null = new Date();
     const trialStartedAt = new Date();
+    // Bug 2 (auditoría facturación 2026-08-17): fecha de cobro real. Se setea SOLO
+    // en activaciones que representan un cobro (manual con fecha, código Hotmart
+    // verificado, o crédito de marca ilimitada). NO en cortesía (freeAccount) ni
+    // trial. Antes las altas por crédito de marca (`wl-`) nacían ACTIVE sin
+    // lastChargeAt → invisibles en el panel de facturación (contadas como ~est).
+    let lastChargeAt: Date | null = null;
 
     if (dto.freeAccount) {
       status = 'ACTIVE';
@@ -809,9 +815,11 @@ export class TenantsService {
         throw new BadRequestException('nextChargeDate inválido');
       }
       currentPeriodEnd = parsed;
+      lastChargeAt = new Date(); // cobro manual con fecha → activación real
     } else if (dto.hotmartSubscriberCode) {
       status = 'ACTIVE';
       hotmartCode = dto.hotmartSubscriberCode.trim();
+      lastChargeAt = new Date(); // pago ya verificado por el admin → activación real
     }
 
     // Marca blanca: la activación de sus negocios se hace con CRÉDITOS, no con
@@ -834,11 +842,13 @@ export class TenantsService {
         // Extiende por la periodicidad elegida (Anual = +12 meses), no +30 fijos.
         currentPeriodEnd = addPlanPeriod(new Date(), dto.planPeriodicity);
         trialEndsAt = null;
+        lastChargeAt = new Date(); // Bug 2: alta por crédito de marca = cobro real
       } else {
         status = 'SUSPENDED';
         hotmartCode = `wl-${nanoid(10)}`;
         currentPeriodEnd = null;
         trialEndsAt = null;
+        lastChargeAt = null; // nace bloqueado; el crédito lo activa después (setea allí)
       }
     }
 
@@ -874,6 +884,7 @@ export class TenantsService {
         trialStartedAt,
         trialEndsAt,
         currentPeriodEnd,
+        lastChargeAt, // Bug 2: fecha de cobro real (null en trial/cortesía)
         hotmartSubscriberCode: hotmartCode,
         users: {
           create: {
