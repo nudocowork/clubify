@@ -1096,7 +1096,7 @@ export class CrmService {
 
     let created = 0;
     let updated = 0;
-    let skipped = 0;
+    const skipped = 0;
     let cursor: string | null = null;
     const MAX_PAGES = 10;
 

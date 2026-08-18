@@ -66,7 +66,6 @@ import { BroadcastsModule } from './broadcasts/broadcasts.module';
 import { ReservationsModule } from './reservations/reservations.module';
 import { SuperAdminModule } from './superadmin/superadmin.module';
 import { DeliveryModule } from './delivery/delivery.module';
-import { CuponeraModule } from './cuponera/cuponera.module';
 import { ServiceReservationsModule } from './service-reservations/service-reservations.module';
 import { OnboardingSyncModule } from './onboarding-sync/onboarding-sync.module';
 import { AcademyModule } from './academy/academy.module';
@@ -145,7 +144,6 @@ import { MarketingModule } from './marketing/marketing.module';
     ReservationsModule,
     SuperAdminModule,
     DeliveryModule,
-    CuponeraModule,
     ServiceReservationsModule,
     OnboardingSyncModule,
     AcademyModule,

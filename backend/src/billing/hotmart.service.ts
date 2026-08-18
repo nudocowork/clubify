@@ -1156,14 +1156,12 @@ export class HotmartService {
     // lastChargeAt — timestamp del pago aprobado real (no calculado).
     const approvedDate = payload.data?.purchase?.approved_date;
     const lastChargeAt = approvedDate ? new Date(approvedDate) : new Date();
-    // 2026-06-15: precio REAL pagado en Hotmart → fuente de verdad para la
-    // base de comisiones. Solo lo persistimos si vino un valor > 0 (no
-    // pisamos con 0/undefined en eventos que no traen price).
-    // Bug #10: validamos el value contra el precio canónico del plan para
-    // descartar montos en moneda local (Hotmart no manda currency_code).
     const canonicalUsd = await this.getCanonicalBundlePrice(
       planForBase?.planPeriodicity ?? null,
     );
+    // El monto REAL pagado (USD), validado contra el canónico para descartar
+    // moneda local (Hotmart no manda currency_code). Va a AUDITORÍA
+    // (lastPaymentAmountUsd), NUNCA a la base de comisiones.
     const realPriceUsd = this.resolvePaidUsd(
       payload,
       'activatePurchase',

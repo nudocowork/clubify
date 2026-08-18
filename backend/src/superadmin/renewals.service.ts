@@ -229,7 +229,12 @@ export class RenewalsService {
           const newPeriodEnd = addPlanPeriod(periodEnd, t.planPeriodicity);
           await this.prisma.tenant.updateMany({
             where: { id: t.id, currentPeriodEnd: periodEnd },
-            data: { currentPeriodEnd: newPeriodEnd },
+            // FIX 2026-07-17: una renovación por créditos ES un ciclo nuevo real
+            // → avanzamos lastChargeAt para que el cron de comisiones genere la
+            // comisión de esta renovación (créditos SÍ pagan comisión) y para
+            // alinear el dunning. Sin esto, con la ventana `min` del cron la
+            // renovación por créditos quedaba sin comisión.
+            data: { currentPeriodEnd: newPeriodEnd, lastChargeAt: new Date() },
           });
         }
         summary.renewed++;
@@ -271,7 +276,10 @@ export class RenewalsService {
           } else {
             const updateTenant = await this.prisma.tenant.updateMany({
               where: { id: t.id, currentPeriodEnd: periodEnd },
-              data: { currentPeriodEnd: newPeriodEnd },
+              // FIX 2026-07-17: renovación por créditos = ciclo nuevo real →
+              // avanzamos lastChargeAt para que el cron genere la comisión de la
+              // renovación (créditos SÍ pagan comisión) y se alinee el dunning.
+              data: { currentPeriodEnd: newPeriodEnd, lastChargeAt: new Date() },
             });
             if (updateTenant.count === 0) {
               // Otro worker ya lo renovó — rollback del crédito
