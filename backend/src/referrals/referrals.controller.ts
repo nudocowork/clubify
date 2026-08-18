@@ -518,19 +518,6 @@ export class ReferralsController {
     return this.svc.setCommissionNotes(id, body);
   }
 
-  // Edición MANUAL de la FECHA de negocio (columna FECHA). La fuente de verdad
-  // de la compra es externa (capturas del dueño), así que el super admin puede
-  // fijar/corregir businessDate por comisión. `businessDate` = 'YYYY-MM-DD' o
-  // null (revierte a la heurística).
-  @Roles('SUPER_ADMIN')
-  @Patch('commissions/:id/business-date')
-  setBusinessDate(
-    @Param('id') id: string,
-    @Body() body: { businessDate?: string | null },
-  ) {
-    return this.svc.setCommissionBusinessDate(id, body.businessDate ?? null);
-  }
-
   /**
    * Asignación manual de un tenant existente a un ReferralCode
    * (influencer/embajador). El super admin lo usa desde la página del
@@ -858,6 +845,20 @@ export class AdminCommissionsController {
     @Body() body: PayCommissionBody,
   ) {
     return this.svc.payCommission(user, id, body);
+  }
+
+  // Edición MANUAL de la FECHA de negocio (columna FECHA). La fuente de verdad de
+  // la compra es externa (capturas del dueño), así que el super admin puede
+  // fijar/corregir businessDate por comisión. businessDate = 'YYYY-MM-DD' o null
+  // (revierte a la heurística). Vive acá (era /referrals/...) para que la ruta sea
+  // /admin/commissions/:id/business-date, que es la que llama el panel.
+  @Roles('SUPER_ADMIN')
+  @Patch(':id/business-date')
+  setBusinessDate(
+    @Param('id') id: string,
+    @Body() body: { businessDate?: string | null },
+  ) {
+    return this.svc.setCommissionBusinessDate(id, body.businessDate ?? null);
   }
 
   @Roles('SUPER_ADMIN')
