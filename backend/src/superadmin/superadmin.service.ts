@@ -13,7 +13,18 @@ import {
   brandMsgEnabledKey,
   globalMsgEnabledKey,
   SYSTEM_FOLDERS,
+  EMAIL_TWIN,
 } from '../integrations/brand-message-templates';
+import {
+  findEmailTemplate,
+  parseEmailTplValue,
+  serializeEmailTplValue,
+} from '../email/brand-email-templates';
+import { BrandEmailService } from '../email/brand-email.service';
+import {
+  brandEmailSender,
+  BRAND_EMAIL_SELECT,
+} from '../email/brand-email-creds.util';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
@@ -135,6 +146,7 @@ export class SuperAdminService {
     private email: EmailService,
     private wlNotifications: WhiteLabelNotificationsService,
     private grow: GrowBusinessService,
+    private brandEmail: BrandEmailService,
   ) {}
 
   /** PLATFORM_OWNER entra al panel de una marca blanca como su SUPER_ADMIN.
@@ -1063,6 +1075,9 @@ export class SuperAdminService {
   private customFoldersKey(wlId: string) {
     return `autom.folders.${wlId}`;
   }
+  private testEmailKey(wlId: string) {
+    return `autom.testemail.${wlId}`;
+  }
   private testPhoneKey(wlId: string) {
     return `autom.testphone.${wlId}`;
   }
@@ -1082,10 +1097,11 @@ export class SuperAdminService {
     const wl = await this.prisma.whiteLabel.findUnique({
       where: { id },
       select: {
+        ...BRAND_GROW_SELECT,
+        ...BRAND_EMAIL_SELECT,
         id: true,
         name: true,
         modules: { select: { module: true, enabled: true } },
-        ...BRAND_GROW_SELECT,
       },
     });
     if (!wl) throw new NotFoundException();
@@ -1124,42 +1140,182 @@ export class SuperAdminService {
     const smsEnabled = wl.modules.some(
       (m) => m.module === 'GROW_BUSINESS_SMS' && m.enabled,
     );
-    const templates = catalog.map((t) => {
-      const brand = byKey.get(brandMsgTplKey(id, t.id))?.trim() || null;
-      const global = byKey.get(globalMsgTplKey(t.id))?.trim() || null;
-      // Carpeta: asignación de la marca si existe y sigue siendo válida; si no,
-      // la de sistema del catálogo.
-      const assigned = assign[t.id];
-      const folderId = assigned && folderIds.has(assigned) ? assigned : t.folder;
-      // Envío activado: las 'active' siempre; las 'pending' (admin_*) solo si la
-      // marca (o global) las activó explícitamente.
+    // Correo de una plantilla EMAIL: asunto y cuerpo se heredan por separado
+    // (marca > global > default), así una marca puede tocar solo el asunto.
+    const emailCard = (emailId: string) => {
+      const def = findEmailTemplate(emailId);
+      if (!def) return null;
+      const brandParts = parseEmailTplValue(byKey.get(brandMsgTplKey(id, emailId)));
+      const globalParts = parseEmailTplValue(byKey.get(globalMsgTplKey(emailId)));
+      const own = byKey.get(brandMsgEnabledKey(id, emailId))?.trim();
+      const glob = byKey.get(globalMsgEnabledKey(emailId))?.trim();
+      // Los correos vienen ON; el apagado de la marca gana sobre el global.
       const enabled =
-        t.status !== 'pending'
-          ? true
-          : byKey.get(brandMsgEnabledKey(id, t.id))?.trim() === 'true' ||
-            byKey.get(globalMsgEnabledKey(t.id))?.trim() === 'true';
+        own === 'false' ? false : own === 'true' ? true : glob !== 'false';
       return {
-        id: t.id,
-        label: t.folderLabel || t.label,
-        description: t.description,
-        vars: t.vars,
-        folderId,
-        status: t.status,
+        id: emailId,
+        subject: brandParts.subject ?? globalParts.subject ?? def.subject,
+        subjectDefault: def.subject,
+        body: brandParts.body ?? globalParts.body ?? def.default,
+        bodyDefault: def.default,
+        vars: def.vars,
         enabled,
-        channel: t.channel,
-        audience: t.audience,
-        default: t.default,
-        text: brand || global || t.default,
-        isBrandCustom: !!brand,
-        source: brand ? 'brand' : global ? 'global' : 'default',
+        isBrandCustom: !!(brandParts.subject || brandParts.body),
       };
-    });
+    };
+
+    // Una automatización = una tarjeta. Los correos con gemelo viajan DENTRO de
+    // su automatización, no como tarjeta suelta en otra carpeta.
+    const twinIds = new Set(Object.values(EMAIL_TWIN));
+    const templates = catalog
+      .filter((t) => !(t.channel === 'EMAIL' && twinIds.has(t.id)))
+      .map((t) => {
+        const isEmail = t.channel === 'EMAIL';
+        const own = isEmail ? emailCard(t.id) : null;
+        const brand = isEmail
+          ? (own?.isBrandCustom ? own.body : null)
+          : byKey.get(brandMsgTplKey(id, t.id))?.trim() || null;
+        const global = isEmail
+          ? null
+          : byKey.get(globalMsgTplKey(t.id))?.trim() || null;
+        // Carpeta: asignación de la marca si existe y sigue siendo válida; si
+        // no, la de sistema del catálogo.
+        const assigned = assign[t.id];
+        const folderId =
+          assigned && folderIds.has(assigned) ? assigned : t.folder;
+        // Envío activado: las 'active' siempre; las 'pending' (admin_*) solo si
+        // la marca (o global) las activó explícitamente.
+        const enabled = isEmail
+          ? (own?.enabled ?? true)
+          : t.status !== 'pending'
+            ? true
+            : byKey.get(brandMsgEnabledKey(id, t.id))?.trim() === 'true' ||
+              byKey.get(globalMsgEnabledKey(t.id))?.trim() === 'true';
+        const twinId = isEmail ? null : (EMAIL_TWIN[t.id] ?? null);
+        return {
+          id: t.id,
+          label: t.folderLabel || t.label,
+          description: t.description,
+          vars: t.vars,
+          folderId,
+          status: t.status,
+          enabled,
+          channel: t.channel,
+          audience: t.audience,
+          default: isEmail ? (own?.bodyDefault ?? t.default) : t.default,
+          text: isEmail ? (own?.body ?? t.default) : brand || global || t.default,
+          ...(isEmail
+            ? {
+                subject: own?.subject ?? t.subject ?? '',
+                subjectDefault: own?.subjectDefault ?? t.subject ?? '',
+              }
+            : {}),
+          // El correo que acompaña a esta automatización (null si no tiene).
+          email: twinId ? emailCard(twinId) : null,
+          isBrandCustom: isEmail ? !!own?.isBrandCustom : !!brand,
+          source: isEmail
+            ? own?.isBrandCustom
+              ? 'brand'
+              : 'default'
+            : brand
+              ? 'brand'
+              : global
+                ? 'global'
+                : 'default',
+        };
+      });
     const testPhone =
       (await this.prisma.setting
         .findUnique({ where: { key: this.testPhoneKey(id) } })
         .catch(() => null))?.value ?? '';
+    const testEmail =
+      (await this.prisma.setting
+        .findUnique({ where: { key: this.testEmailKey(id) } })
+        .catch(() => null))?.value ?? '';
     const growConnected = !!brandGrowCreds(wl);
-    return { smsEnabled, growConnected, testPhone, folders, templates };
+    // ¿Sale algún correo de esta marca? (cuenta propia o remitente propio)
+    const emailConnected =
+      brandEmailSender(wl, { isPlatform: wl.slug === 'clubify' }).mode !==
+      'none';
+    return {
+      smsEnabled,
+      growConnected,
+      emailConnected,
+      testPhone,
+      testEmail,
+      folders,
+      templates,
+    };
+  }
+
+  /** Guarda el correo de prueba de la marca (botón "Probar" del correo). */
+  async setBrandTestEmail(id: string, email: string, actorId: string) {
+    const key = this.testEmailKey(id);
+    const value = (email ?? '').trim();
+    if (!value) {
+      await this.prisma.setting.deleteMany({ where: { key } });
+    } else {
+      await this.prisma.setting.upsert({
+        where: { key },
+        update: { value },
+        create: { key, value },
+      });
+    }
+    await this.logAction(actorId, 'superadmin.white_label.automation.test_email', id, {
+      set: !!value,
+    });
+    return { testEmail: value };
+  }
+
+  /**
+   * Manda el correo de una automatización al correo de prueba de la marca, con
+   * valores de ejemplo. Acepta el texto SIN GUARDAR para que se pueda ver cómo
+   * queda antes de guardarlo.
+   */
+  async testBrandEmailTemplate(
+    id: string,
+    templateId: string,
+    draft: { subject?: string | null; body?: string | null },
+  ) {
+    const def = findEmailTemplate(templateId);
+    if (!def) throw new NotFoundException('Correo no encontrado');
+    const to =
+      (await this.prisma.setting
+        .findUnique({ where: { key: this.testEmailKey(id) } })
+        .catch(() => null))?.value ?? '';
+    if (!to.trim()) {
+      throw new BadRequestException('Guarda un correo de prueba primero.');
+    }
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      select: { name: true, slug: true },
+    });
+    const brandName = wl?.name || 'Clubify';
+    const res = await this.brandEmail.sendTemplate({
+      templateId,
+      whiteLabelId: id,
+      to: to.trim(),
+      overrides: draft,
+      // Valores de ejemplo: sin tenant no hay de dónde sacarlos.
+      vars: {
+        brandName,
+        ownerName: 'Prueba',
+        chargeDate: '15 de septiembre de 2026',
+        nextChargeDate: '15 de septiembre de 2026',
+        pauseDate: '18 de septiembre de 2026',
+        loginEmail: to.trim(),
+      },
+    });
+    if (!res.sent) {
+      const motivo =
+        res.reason === 'no_connection'
+          ? 'La marca no tiene remitente ni cuenta de email propios.'
+          : res.reason === 'template_disabled'
+            ? 'Ese correo está apagado para esta marca.'
+            : 'No se pudo enviar el correo de prueba.';
+      throw new BadRequestException(motivo);
+    }
+    return { ok: true, to: to.trim() };
   }
 
   /** Guarda el número de prueba de la marca (para el botón "Probar"). */
@@ -1384,6 +1540,7 @@ export class SuperAdminService {
     templateId: string,
     text: string | null | undefined,
     actorId: string,
+    subject?: string | null,
   ) {
     const wl = await this.prisma.whiteLabel.findUnique({
       where: { id },
@@ -1394,16 +1551,21 @@ export class SuperAdminService {
     if (!def) throw new NotFoundException('Plantilla no encontrada');
 
     const key = brandMsgTplKey(id, templateId);
-    const trimmed = (text ?? '').trim();
-    if (!trimmed) {
+    // Un correo guarda asunto + cuerpo juntos como JSON; un SMS, texto suelto.
+    // Vacío en ambos = volver al default (se borra el override).
+    const value = findEmailTemplate(templateId)
+      ? serializeEmailTplValue({ subject, body: text })
+      : (text ?? '').trim() || null;
+    if (!value) {
       await this.prisma.setting.deleteMany({ where: { key } });
     } else {
       await this.prisma.setting.upsert({
         where: { key },
-        update: { value: trimmed },
-        create: { key, value: trimmed },
+        update: { value },
+        create: { key, value },
       });
     }
+    const trimmed = value;
     await this.logAction(
       actorId,
       'superadmin.white_label.message_template',

@@ -94,6 +94,8 @@ export class BrandEmailService {
     whiteLabelId?: string | null;
     to?: string | null;
     vars?: Record<string, string>;
+    /** Texto sin guardar (botón "Probar" del panel): pisa lo que hay en BD. */
+    overrides?: { subject?: string | null; body?: string | null };
   }): Promise<SendBrandEmailResult> {
     const def = findEmailTemplate(opts.templateId);
     if (!def) return { sent: false, reason: 'unknown_template' };
@@ -138,8 +140,12 @@ export class BrandEmailService {
       });
 
       const resolved = await resolveEmailTemplate(this.prisma, def.id, brand.id);
-      const subject = interpolateEmail(resolved?.subject ?? def.subject, vars);
-      const body = interpolateEmail(resolved?.body ?? def.default, vars);
+      const rawSubject =
+        opts.overrides?.subject?.trim() || resolved?.subject || def.subject;
+      const rawBody =
+        opts.overrides?.body?.trim() || resolved?.body || def.default;
+      const subject = interpolateEmail(rawSubject, vars);
+      const body = interpolateEmail(rawBody, vars);
 
       const ok = await this.email.sendWithCreds(brand.sender.creds, {
         to,

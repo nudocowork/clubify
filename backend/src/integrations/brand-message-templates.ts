@@ -398,6 +398,35 @@ export function brandMsgCatalog(): BrandMsgTemplateDef[] {
 
 /** Clave del override de MARCA. Los correos viven en su propio espacio de
  *  claves (`email.wl.*`) porque guardan asunto+cuerpo, no un texto suelto. */
+/**
+ * Qué correo acompaña a cada automatización. Una automatización = una tarjeta
+ * en el panel, con su texto de WhatsApp y su correo adentro; no dos tarjetas
+ * con el mismo nombre en carpetas distintas.
+ *
+ * Los correos que NO están acá (bienvenida, panel creado) no tienen gemelo de
+ * WhatsApp y se listan solos en la carpeta Correos.
+ */
+export const EMAIL_TWIN: Record<string, string> = {
+  // Cobros y recordatorios
+  payment_reminder_7d: 'email_payment_reminder_7d',
+  payment_reminder_3d: 'email_payment_reminder_3d',
+  payment_reminder_tomorrow: 'email_payment_reminder_tomorrow',
+  payment_due_today: 'email_payment_due_today',
+  payment_overdue_reminder: 'email_payment_overdue',
+  payment_not_processed_2d: 'email_account_will_pause',
+  account_will_pause: 'email_account_will_pause',
+  account_paused: 'email_account_paused',
+  account_reactivated: 'email_account_reactivated',
+  // Administrativas
+  payment_confirmed: 'email_payment_confirmed',
+  payment_failed: 'email_payment_failed',
+  admin_protest: 'email_dispute',
+  admin_refunded: 'email_refunded',
+  admin_chargeback: 'email_chargeback',
+  admin_cancellation: 'email_cancellation',
+  admin_charge_date_moved: 'email_charge_date_moved',
+};
+
 export function brandMsgTplKey(whiteLabelId: string, id: string): string {
   return isEmailTemplateId(id)
     ? emailTplKey(whiteLabelId, id)

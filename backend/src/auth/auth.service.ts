@@ -13,6 +13,7 @@ import { TwoFactorService } from './two-factor.service';
 import { PreregAlertsService } from './prereg-alerts.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { parsePlanPeriodLabel } from '../common/plan-period';
 import {
   welcomeOwnerTemplate,
   passwordResetTemplate,
@@ -986,29 +987,38 @@ export class AuthService {
       Number(purchase?.original_offer_price?.value) ||
       null;
     // Fix 2026-06-12: la moneda viene en el payload, no asumir USD.
+    // Fix 2026-08-18: en producción Hotmart la manda como `currency_value`
+    // (ej. {"value":148.55,"currency_value":"USD"}); leyendo solo
+    // `currency_code` esto quedaba SIEMPRE null y el guard de moneda de abajo
+    // no filtraba nada → un pago en COP (541498) se leía como plan ANUAL.
     const purchaseCurrency =
       (purchase?.price?.currency_code ??
+        purchase?.price?.currency_value ??
         purchase?.original_offer_price?.currency_code ??
+        purchase?.original_offer_price?.currency_value ??
         null) as string | null;
 
-    // Heurística: derivar periodicidad del nombre del producto. Si no
-    // matchea, fallback a inferir por monto USD aproximado vs landing
-    // plans (los 4 default son ~68/150/278/500 USD por el sprint
-    // 2026-06-04). El backend NO depende de esto para activar — es
-    // solo informativo para el pre-fill UI.
+    // Periodicidad para el pre-fill del form. Orden de confianza:
+    //   1. subscription.plan.name — el plan REAL ("Plan Trimestral 150 USD").
+    //   2. product.name — genérico en la práctica, pero barato de chequear.
+    //   3. monto vs landing plans (~68/150/278/500 USD), solo si la moneda es USD.
+    //
+    // Fix 2026-08-18: antes solo se miraba (2), y el producto de Clubify se
+    // llama "CLUBIFY - TARJETAS DE FIDELIZACION" — sin ninguna palabra de
+    // periodicidad. O sea que SIEMPRE caía a adivinar por monto, y si el
+    // comprador ni siquiera pasaba por acá el alta quedaba con
+    // planPeriodicity=null (caso El Arrayán express). Esto ya no es la única
+    // defensa: activatePurchase también deriva la periodicidad del payload y
+    // la persiste. Acá sigue siendo solo el pre-fill de la UI.
+    const planName: string = String(raw?.data?.subscription?.plan?.name ?? '');
     const productName: string = String(product?.name ?? '');
-    let periodicity:
-      | 'MENSUAL'
-      | 'TRIMESTRAL'
-      | 'SEMESTRAL'
-      | 'ANUAL'
-      | null = null;
-    const upper = productName.toUpperCase();
-    if (/ANUAL/.test(upper)) periodicity = 'ANUAL';
-    else if (/SEMESTRAL/.test(upper)) periodicity = 'SEMESTRAL';
-    else if (/TRIMESTRAL/.test(upper)) periodicity = 'TRIMESTRAL';
-    else if (/MENSUAL|MENSU/.test(upper)) periodicity = 'MENSUAL';
-    else if (value != null && (purchaseCurrency === 'USD' || !purchaseCurrency)) {
+    let periodicity: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null =
+      parsePlanPeriodLabel(planName) ?? parsePlanPeriodLabel(productName);
+    if (
+      !periodicity &&
+      value != null &&
+      (purchaseCurrency === 'USD' || !purchaseCurrency)
+    ) {
       // Heurística por monto SOLO si la moneda es USD (que es donde los
       // landing plans fueron definidos: 68/150/278/500). En COP/BRL/etc
       // el monto convertido no matchea, así que dejamos `periodicity`
