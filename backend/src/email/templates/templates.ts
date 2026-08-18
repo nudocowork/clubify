@@ -1,4 +1,4 @@
-type Tenant = {
+export type Tenant = {
   brandName: string;
   logoUrl: string | null;
   primaryColor: string | null;
@@ -64,6 +64,13 @@ function shell(opts: {
 </table>
 </body></html>`;
 }
+
+/**
+ * Mismo marco visual (logo, color, pie) para los correos cuyo CUERPO es
+ * editable por la marca desde Automatizaciones. La marca escribe texto plano;
+ * el HTML de alrededor lo pone el sistema, así ningún correo se ve roto.
+ */
+export const emailShell = shell;
 
 // ─────────── Plantillas ───────────
 

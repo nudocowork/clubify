@@ -4475,6 +4475,16 @@ model WhiteLabel {
   /// VERIFICADO en el proveedor de envío (Resend/DKIM). Si es null, los emails
   /// salen del remitente global de Clubify. Ver [[email/brand-email]].
   emailFrom                String?
+  /// Conexión de EMAIL PROPIA de la marca (Json). Es el escalón de arriba de
+  /// `emailFrom`: en vez de mandar por la cuenta de la plataforma con el
+  /// remitente de la marca, la marca manda por SU PROPIA cuenta, con su
+  /// reputación de envío separada de la de todos los demás.
+  /// Forma: { provider: "RESEND", apiKey, fromName, fromEmail, replyTo }
+  /// `apiKey` se guarda CIFRADO (enc:v1:…); al frontend va siempre enmascarado.
+  /// Cascada de envío, de mejor a peor: emailConfig propio > emailFrom sobre la
+  /// cuenta de plataforma > nada (una marca blanca sin ninguno de los dos no
+  /// envía: no mandamos correos suyos desde el remitente de Clubify).
+  emailConfig              Json?
   /// Letra inicial mostrada en el avatar cuadrado.
   initial                  String?
   /// WhatsApp del botón "Agendar demo" de la landing de la marca (ej.
