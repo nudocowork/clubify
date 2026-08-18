@@ -2207,6 +2207,125 @@ model BrandWorkflowLog {
   @@index([workflowId, createdAt])
 }
 
+// ── EMAIL MARKETING (contact-based) — módulo `marketing/`, brand-scoped ──
+// Audiencia: los CONTACTOS (leads/clientes) de la marca, no los negocios.
+// Independiente de BrandWorkflow* (tenant-based). Ver plan / marketing/identity.ts.
+model MktContact {
+  id           String @id @default(uuid())
+  whiteLabelId String
+  name         String?
+  email        String?
+  phone        String?
+  // BUCKET de candidatos (últimos 10 dígitos) — NO decide identidad; el veredicto
+  // lo da resolveContact() (marketing/identity.ts). Índice NO único a propósito:
+  // São Paulo y Río comparten bucket y son personas distintas.
+  phoneKey String?
+  // Forma canónica (todos los dígitos) — respaldo del ÍNDICE ÚNICO PARCIAL que
+  // cierra la carrera de dos altas del MISMO número (creado por SQL en la
+  // migración: UNIQUE (whiteLabelId, phoneNorm) WHERE phoneNorm IS NOT NULL AND NOT deleted).
+  phoneNorm          String?
+  company            String?
+  tags               String[]
+  optOut             Boolean   @default(false)
+  providerContactId  String? // id del contacto EN EL PROVEEDOR (guardado junto a la subcuenta)
+  providerLocationId String? // subcuenta de la que salió (un id de otra subcuenta no sirve)
+  providerSyncedAt   DateTime?
+  deleted            Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([whiteLabelId, phoneKey])
+  @@index([whiteLabelId, email])
+  @@index([whiteLabelId, deleted])
+}
+
+// Workflow de email marketing (contact-based). Espejo estructural de BrandWorkflow
+// pero la audiencia son CONTACTOS. `nodes` = grafo { [id]: { id, type, config, next, yes, no } }.
+model MktWorkflow {
+  id           String   @id @default(uuid())
+  whiteLabelId String
+  name         String
+  folderId     String?
+  status       String   @default("draft") // draft | published
+  trigger      Json     @default("{}") // { type, filters }
+  rootId       String?
+  nodes        Json     @default("{}")
+  drip         Json     @default("{}")
+  sendWindow   Json     @default("{}")
+  reentry      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([whiteLabelId, status])
+}
+
+model MktWorkflowFolder {
+  id           String   @id @default(uuid())
+  whiteLabelId String
+  name         String
+  position     Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([whiteLabelId])
+}
+
+// Cola durable de inscripciones (NO cola en memoria — no sobrevive en serverless).
+model MktEnrollment {
+  id            String    @id @default(uuid())
+  workflowId    String
+  contactId     String
+  whiteLabelId  String
+  status        String    @default("active") // active | waiting | completed | removed | error
+  currentNodeId String?
+  resumeAt      DateTime?
+  waitKind      String?
+  // Nodo wait_reply que espera + desde cuándo: solo acepta interacciones POSTERIORES
+  // (no se auto-satisface con el mensaje que disparó el propio workflow).
+  waitingNodeId String?
+  waitingSince  DateTime?
+  context       Json      @default("{}")
+  enteredAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  completedAt   DateTime?
+
+  @@index([status, resumeAt])
+  @@index([workflowId, contactId])
+  @@index([whiteLabelId, status])
+}
+
+// Una acción = una fila. El corazón: estado + intentos por canal y contacto.
+// `payload` CONGELA todo lo necesario para reenviar idéntico (html, remitente,
+// destinatario) aunque cambie la plantilla mientras tanto.
+model MktAction {
+  id                String    @id @default(uuid())
+  workflowId        String
+  enrollmentId      String
+  contactId         String
+  whiteLabelId      String
+  nodeId            String
+  channel           String // email | sms
+  status            String    @default("pending") // pending|processing|sent|failed|skipped|retrying
+  attempts          Int       @default(0)
+  subject           String?
+  body              String?   @db.Text
+  error             String?
+  providerMessageId String?
+  payload           Json      @default("{}")
+  deliveredAt       DateTime?
+  openedAt          DateTime?
+  clickedAt         DateTime?
+  bouncedAt         DateTime?
+  nextAttemptAt     DateTime?
+  createdAt         DateTime  @default(now())
+  completedAt       DateTime?
+
+  @@index([status, nextAttemptAt])
+  @@index([enrollmentId, nodeId])
+  @@index([providerMessageId])
+  @@index([contactId])
+  @@index([workflowId, createdAt])
+}
+
 // ============================================================
 //                       CHANNELS (v2)
 // ============================================================

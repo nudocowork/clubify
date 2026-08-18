@@ -503,7 +503,17 @@ export class GrowBusinessService {
         return { ok: false as const, status: res.status, message: text.slice(0, 200) };
       }
       const data = await res.json().catch(() => ({}));
-      return { ok: true as const, id: data?.messageId ?? data?.id ?? null };
+      // `contactId`: id del contacto EN EL PROVEEDOR (del upsert). Se expone para
+      // que el motor de marketing lo guarde junto a la subcuenta y pueda
+      // correlacionar eventos entrantes. `raw` permite normalizar el messageId
+      // con formas alternativas (message.id, etc.). Campos aditivos → los
+      // callers viejos (brand-workflows) siguen leyendo `id` sin cambios.
+      return {
+        ok: true as const,
+        id: data?.messageId ?? data?.id ?? null,
+        contactId,
+        raw: data,
+      };
     } catch (e: any) {
       return { ok: false as const, message: e?.message ?? 'Error enviando correo' };
     }
