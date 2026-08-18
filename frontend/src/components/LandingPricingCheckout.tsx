@@ -107,8 +107,20 @@ export function LandingPricingCheckout({
       const ref = localStorage.getItem('clubify:ref');
       if (ref) {
         const u = new URL(url, window.location.origin);
-        // No pisar un src ya presente en el checkoutUrl configurado.
-        if (!u.searchParams.get('src')) u.searchParams.set('src', ref);
+        const existing = u.searchParams.get('src');
+        // FIX 2026-08-18: si el checkout ya trae el token de MARCA (src=wl_<uuid>,
+        // que inyecta el Master Admin para rutear créditos), COMBINAMOS en vez de
+        // descartar el afiliado: `<CODE>-wl_<uuid>` lleva afiliado Y marca. El
+        // backend parsea ambos por separado. Antes se perdía el afiliado en toda
+        // compra de marca blanca por link de referido (caso Taquería).
+        if (!existing) {
+          u.searchParams.set('src', ref);
+        } else if (
+          /wl[_-]/i.test(existing) &&
+          !existing.toUpperCase().includes(ref.toUpperCase())
+        ) {
+          u.searchParams.set('src', `${ref}-${existing}`);
+        }
         url = u.toString();
       }
     } catch {

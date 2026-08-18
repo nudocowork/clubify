@@ -12,6 +12,7 @@ import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 import { addPlanPeriod } from '../common/plan-period';
 import { SmsTemplatesService } from './sms-templates.service';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
+import { parseWlIdFromSrc, parseAffiliateRawFromSrc } from './hotmart-src';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 import { BusinessGroupsService } from '../business-groups/business-groups.service';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
@@ -519,19 +520,9 @@ export class HotmartService {
    *  Formato esperado: "wl_<uuid>" (lo que inyecta el Master Admin en ?src=).
    *  Acepta separador _ o -, y tolera un uuid pelado. null si no parece token. */
   private parseWlToken(raw: string | null | undefined): string | null {
-    const s = (raw ?? '').trim();
-    if (!s) return null;
-    const m = s.match(
-      /wl[_-]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i,
-    );
-    if (m) return m[1];
-    // uuid pelado (por si mandan solo el id sin prefijo wl_)
-    if (
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
-    ) {
-      return s;
-    }
-    return null;
+    // Delega en el helper puro (testeado). Encuentra `wl_<uuid>` aunque venga
+    // combinado con el código de afiliado (src=`<CODE>-wl_<uuid>`).
+    return parseWlIdFromSrc(raw);
   }
 
   /**
@@ -560,19 +551,23 @@ export class HotmartService {
     if (existing) return; // ya atribuido — no tocar
 
     const tracking = payload.data?.purchase?.tracking;
-    const raw = (
+    const rawSrc = (
       tracking?.source ||
       tracking?.source_sck ||
       tracking?.sck ||
       tracking?.external_code ||
       ''
     ).trim();
-    if (!raw) return;
-    // wl_<uuid> es atribución de MARCA (no de afiliado) → no aplica acá.
-    if (this.parseWlToken(raw)) return;
+    // FIX 2026-08-18: el `src` puede traer AFILIADO Y MARCA combinados
+    // (`<CODE>-wl_<uuid>`). Extraemos SOLO la parte de afiliado (quitando el
+    // token de marca). Antes cortábamos ante cualquier `wl_` → las compras de
+    // marca blanca por link de afiliado quedaban SIN atribuir (bug Taquería).
+    // Si el src era solo marca (wl_<uuid>) → affRaw null → no hay afiliado.
+    const affRaw = parseAffiliateRawFromSrc(rawSrc);
+    if (!affRaw) return;
 
     // El src del afiliado es su CODE (ej "CB2026"). Fallback: resolver por slug.
-    const code = raw.toUpperCase();
+    const code = affRaw.toUpperCase();
     let ref = /^[A-Z0-9]{4,20}$/.test(code)
       ? await this.prisma.referralCode.findUnique({
           where: { code },
@@ -581,7 +576,7 @@ export class HotmartService {
       : null;
     if (!ref) {
       ref = await this.prisma.referralCode.findFirst({
-        where: { slug: raw.toLowerCase() },
+        where: { slug: affRaw.toLowerCase() },
         select: { id: true, isActive: true, ownerName: true, role: true },
       });
     }
@@ -597,7 +592,7 @@ export class HotmartService {
         },
       });
       this.logger.log(
-        `[ATTR] atribución server-side desde src="${raw}" → ${ref.ownerName} ` +
+        `[ATTR] atribución server-side desde src="${rawSrc}" → ${ref.ownerName} ` +
           `(${ref.role})${ref.isActive ? '' : ' [código INACTIVO]'} · tenant ${tenantId}`,
       );
     } catch (e) {
