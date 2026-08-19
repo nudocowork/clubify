@@ -20,6 +20,7 @@ import {
   inviteAffiliateTemplate,
 } from '../email/templates/templates';
 import { resolveBrandEmail } from '../email/brand-email';
+import { BrandEmailService } from '../email/brand-email.service';
 import {
   isValidCategorySlug,
   DEFAULT_CATEGORY_SLUG,
@@ -71,6 +72,7 @@ export class AuthService {
     private jwt: JwtService,
     private audit: AuditService,
     private email: EmailService,
+    private brandEmail: BrandEmailService,
     private appConfig: AppConfigService,
     private refreshTokens: RefreshTokenService,
     private twoFactor: TwoFactorService,
@@ -1369,10 +1371,12 @@ export class AuthService {
       welcomeBrandRow?.whiteLabelId ?? null,
       this.appConfig.APP_URL,
     );
-    this.email.send({
+    // Sale por la subcuenta de Grow Business de la marca, igual que el resto
+    // de los correos. Antes iba por EmailService, que sin RESEND_API_KEY cae al
+    // adaptador de consola: el correo se escribía en el log y nunca llegaba.
+    void this.brandEmail.sendRaw({
+      whiteLabelId: welcomeBrandRow?.whiteLabelId ?? null,
       to: email,
-      from: brandEmail.from,
-      replyTo: brandEmail.replyTo,
       ...welcomeOwnerTemplate({
         tenant,
         fullName: dto.fullName.trim(),

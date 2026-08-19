@@ -190,6 +190,53 @@ export class BrandEmailService {
     }
   }
 
+  /**
+   * Manda un correo YA RENDERIZADO por la subcuenta de la marca.
+   *
+   * Es para los correos que NO viven en el catálogo de Automatizaciones y
+   * arman su propio HTML — hoy solo la bienvenida del signup. Mismo transporte
+   * y mismo gate que el resto: si la marca no tiene subcuenta, no se envía.
+   */
+  async sendRaw(opts: {
+    whiteLabelId?: string | null;
+    to: string;
+    subject: string;
+    html: string;
+    text?: string;
+  }): Promise<SendBrandEmailResult> {
+    try {
+      const to = (opts.to ?? '').trim();
+      if (!to) return { sent: false, reason: 'no_recipient' };
+      const brand = await this.resolveBrand(opts.whiteLabelId ?? null);
+      if (!brand.grow) {
+        this.logger.warn(
+          `Correo directo omitido: la marca ${brand.name || opts.whiteLabelId} no tiene subcuenta de Grow Business.`,
+        );
+        return { sent: false, reason: 'no_connection' };
+      }
+      const r = await this.grow.sendEmailWithCreds(
+        brand.grow,
+        to,
+        opts.subject,
+        opts.html,
+        { text: opts.text },
+      );
+      if (!r.ok) {
+        this.logger.warn(
+          `Correo directo no salió (${brand.name}): ${'message' in r ? r.message : 'error'}`,
+        );
+        return { sent: false, reason: 'send_failed' };
+      }
+      this.logger.log(`Correo directo enviado a ${to} (marca ${brand.name})`);
+      return { sent: true };
+    } catch (e) {
+      this.logger.warn(
+        `Correo directo falló: ${(e as Error)?.message ?? String(e)}`,
+      );
+      return { sent: false, reason: 'send_failed' };
+    }
+  }
+
   // ─────────── Resolución de marca / negocio / destinatario ───────────
 
   /** Marca + credenciales. Sin marca (negocio legacy) = plataforma. */
