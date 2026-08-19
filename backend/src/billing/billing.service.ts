@@ -642,6 +642,17 @@ export class BillingService {
   }
 
   /**
+   * ¿Ya se avisó hoy? Los avisos de mora se disparan por `daysOverdue === N`,
+   * que es cierto durante todo el día: sin esto, cada corrida extra del cron
+   * (o del endpoint manual /billing/run-daily-check) le repite al cliente el
+   * mismo correo y el mismo SMS.
+   */
+  private avisadoHoy(marca: Date | null | undefined, now: Date): boolean {
+    if (!marca) return false;
+    return marca.toDateString() === now.toDateString();
+  }
+
+  /**
    * Correo de un aviso de cobro. Canal INDEPENDIENTE del SMS: sale aunque el
    * negocio no tenga teléfono ni credenciales de SMS. El gate real lo pone
    * BrandEmailService (una marca sin remitente ni cuenta propios no envía).
@@ -954,6 +965,8 @@ export class BillingService {
         currentPeriodEnd: true,
         lastChargeAt: true,
         planPeriodicity: true,
+        paymentFailureNoticeSentAt: true,
+        pausePendingNoticeSentAt: true,
       },
     });
 
@@ -1056,6 +1069,12 @@ export class BillingService {
             `${byFailure ? ' (cobro fallido)' : ' (fecha vencida)'}.`,
         );
       } else if (daysOverdue === OVERDUE_NOTICE_DAY) {
+        // Ya se avisó hoy: no repetimos el aviso al cliente.
+        if (this.avisadoHoy(t.pausePendingNoticeSentAt, now)) continue;
+        await this.prisma.tenant.update({
+          where: { id: t.id },
+          data: { pausePendingNoticeSentAt: now },
+        });
         // Correo "tu cuenta está por pausarse" — independiente del SMS.
         this.brandEmail
           .sendTemplate({
@@ -1083,6 +1102,12 @@ export class BillingService {
           this.logger.log(`SMS D+2 "no procesado" → ${t.brandName}`);
         }
       } else if (daysOverdue === OVERDUE_REMINDER_DAY) {
+        // Ya se avisó hoy: no repetimos el aviso al cliente.
+        if (this.avisadoHoy(t.paymentFailureNoticeSentAt, now)) continue;
+        await this.prisma.tenant.update({
+          where: { id: t.id },
+          data: { paymentFailureNoticeSentAt: now },
+        });
         // Correo "pago vencido" — independiente del SMS.
         this.brandEmail
           .sendTemplate({
