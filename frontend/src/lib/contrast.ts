@@ -1,51 +1,70 @@
 /**
- * Util de contraste para decidir si un color de fondo es "claro" u
- * "oscuro" → permite que componentes overlay (badge Clubify, botones)
- * adapten su color automáticamente sin pedirle al usuario que elija.
+ * Utilidades de contraste WCAG.
  *
- * Usa luminancia relativa según WCAG (no luminancia ponderada). Funciona
- * para hex de 3 o 6 dígitos (#fff, #FFFFFF). Fallback a false (asume
- * claro) si el input no parsea.
+ *  1) Decidir si un fondo es "claro" u "oscuro" para que componentes overlay
+ *     (badge de marca, botones del storefront) adapten su color solos
+ *     (`isDarkColor` / `isDarkBackground`).
+ *  2) Elegir un color de texto legible y medir contraste para los color
+ *     pickers del Infolink (`contrastRatio`, `meetsAA`, `autoTextColor`).
+ *
+ * Todo PURO. `contrastRatio` sigue la fórmula WCAG 2.1 (luminancia relativa);
+ * AA para texto normal = ratio ≥ 4.5.
  */
 
-/** Convierte hex CSS a [r, g, b] 0-255. Acepta #fff, #ffffff, fff, ffffff. */
-function hexToRgb(hex: string): [number, number, number] | null {
+/** Parsea un hex (#rgb / #rrggbb) a [r,g,b] 0-255. null si inválido. */
+export function hexToRgb(hex?: string | null): [number, number, number] | null {
+  if (!hex) return null;
   let h = hex.trim().replace(/^#/, '');
-  if (h.length === 3) {
-    h = h
-      .split('')
-      .map((c) => c + c)
-      .join('');
-  }
-  if (h.length !== 6) return null;
-  const num = parseInt(h, 16);
-  if (Number.isNaN(num)) return null;
-  return [(num >> 16) & 0xff, (num >> 8) & 0xff, num & 0xff];
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+  const n = parseInt(h, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-/** Luminancia relativa estilo WCAG (0 = negro, 1 = blanco). */
-function relativeLuminance([r, g, b]: [number, number, number]): number {
-  const norm = (v: number) => {
+/** Luminancia relativa (WCAG) de un color hex, 0..1. 0 si inválido. */
+export function relativeLuminance(hex: string): number {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return 0;
+  const [r, g, b] = rgb.map((v) => {
     const s = v / 255;
     return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  };
-  return 0.2126 * norm(r) + 0.7152 * norm(g) + 0.0722 * norm(b);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** Ratio de contraste WCAG entre dos colores (1..21). 0 si alguno es inválido. */
+export function contrastRatio(fg?: string | null, bg?: string | null): number {
+  if (!fg || !bg || !hexToRgb(fg) || !hexToRgb(bg)) return 0;
+  const l1 = relativeLuminance(fg);
+  const l2 = relativeLuminance(bg);
+  const [hi, lo] = l1 >= l2 ? [l1, l2] : [l2, l1];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** true si el par cumple WCAG AA para texto normal (ratio ≥ 4.5). */
+export function meetsAA(fg?: string | null, bg?: string | null): boolean {
+  return contrastRatio(fg, bg) >= 4.5;
+}
+
+/** Blanco o negro, el que más contraste dé sobre `bg`. Default '#ffffff'. */
+export function autoTextColor(bg?: string | null): '#ffffff' | '#111111' {
+  if (!bg || !hexToRgb(bg)) return '#ffffff';
+  return relativeLuminance(bg) > 0.45 ? '#111111' : '#ffffff';
 }
 
 /** true si el color CSS es oscuro (luminancia < 0.5). false si claro o
- *  inválido. */
-export function isDarkColor(color: string | null | undefined): boolean {
-  if (!color) return false;
+ *  inválido. Lo usan los componentes overlay para elegir su variant. */
+export function isDarkColor(color?: string | null): boolean {
   const rgb = hexToRgb(color);
   if (!rgb) return false;
-  return relativeLuminance(rgb) < 0.5;
+  return relativeLuminance(color as string) < 0.5;
 }
 
 /**
  * Resuelve si el fondo de una página storefront es "oscuro" para que
- * los componentes overlay decidan su variant. Sigue las reglas:
+ * los componentes overlay decidan su variant. Reglas:
  *   - SOLID + hex → calcula luminancia
- *   - GRADIENT → asume dark (la mayoría de gradients tienen tonos saturados)
+ *   - GRADIENT → asume dark (la mayoría tienen tonos saturados)
  *   - IMAGE → asume dark (fotos comerciales suelen tener overlay oscuro)
  *   - sin config → false (default histórico claro)
  */

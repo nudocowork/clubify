@@ -239,11 +239,44 @@ const CLUBIFY_BADGE_FALLBACK: BrandBadgeBrand = {
 };
 
 // =============================================================
+//  Colores de texto por elemento (theme.text) — opcional
+// =============================================================
+
+/** Colores de texto personalizados por elemento. Viven en `theme.text`
+ *  (JSON, aditivo). Cada campo es un hex; si falta, el shell usa su color
+ *  por defecto. Pensado para que un fondo custom no deje el texto ilegible.
+ *  Nota: `button` solo aplica a botones "regulares"; los botones con estilo
+ *  v2 (StyledButtonLink) o con cover traen su propio color. */
+export type InfoLinkTextColors = {
+  /** Título principal (link.title). */
+  title?: string | null;
+  /** Descripción / subtítulo (link.subtitle). */
+  description?: string | null;
+  /** Texto de los botones regulares. */
+  button?: string | null;
+  /** Texto secundario: el nombre del negocio bajo el título. */
+  meta?: string | null;
+};
+
+/** Lee `theme.text` de forma segura (objeto o vacío). */
+function textColors(link: ShellLink): InfoLinkTextColors {
+  const t = link.theme?.text;
+  return t && typeof t === 'object' ? (t as InfoLinkTextColors) : {};
+}
+
+/** `{ color }` SOLO si `c` es un color no vacío; sino `undefined` para NO
+ *  pisar el color por defecto (className) del shell. */
+function colorStyle(c?: string | null): CSSProperties | undefined {
+  return c && String(c).trim() ? { color: c } : undefined;
+}
+
+// =============================================================
 //  AURORA · gradient mesh + glassmorphism
 // =============================================================
 
 export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
+  const tc = textColors(link);
   const defaultBg = `radial-gradient(circle at 15% 0%, ${primary}66 0%, transparent 40%), radial-gradient(circle at 85% 25%, ${tenant.secondaryColor || '#8B4513'}66 0%, transparent 40%), radial-gradient(circle at 50% 100%, #1a0e2e 0%, transparent 60%), linear-gradient(180deg, #2D1B4E 0%, #1A0E2E 100%)`;
   return (
     <div
@@ -278,12 +311,17 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
               )
             }
           />
-          <h1 className="text-2xl font-bold mt-4">{link.title}</h1>
-          <div className="text-[11px] text-white/60 mt-0.5">
+          <h1 className="text-2xl font-bold mt-4" style={colorStyle(tc.title)}>
+            {link.title}
+          </h1>
+          <div className="text-[11px] text-white/60 mt-0.5" style={colorStyle(tc.meta)}>
             {tenant.brandName}
           </div>
           {link.subtitle && (
-            <p className="text-sm text-white/85 mt-3 max-w-sm leading-relaxed">
+            <p
+              className="text-sm text-white/85 mt-3 max-w-sm leading-relaxed"
+              style={colorStyle(tc.description)}
+            >
               {link.subtitle}
             </p>
           )}
@@ -322,7 +360,11 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
                       ? 'bg-white text-[#1A0E2E] shadow-xl hover:shadow-2xl'
                       : sp.className
                   }`}
-                  style={auroraSolid ? undefined : sp.style}
+                  style={
+                    auroraSolid
+                      ? colorStyle(tc.button)
+                      : { ...sp.style, ...colorStyle(tc.button) }
+                  }
                 >
                   <ButtonLabel b={b} />
                 </a>
@@ -349,6 +391,7 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
 
 export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
+  const tc = textColors(link);
   const social: { emoji: string; href?: string }[] = [
     { emoji: '📷', href: tenant.instagramUrl ?? undefined },
     {
@@ -393,10 +436,17 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
               )
             }
           />
-          <h1 className="text-lg font-semibold mt-3 text-ink">{link.title}</h1>
-          <div className="text-[11px] text-mute">{tenant.brandName}</div>
+          <h1 className="text-lg font-semibold mt-3 text-ink" style={colorStyle(tc.title)}>
+            {link.title}
+          </h1>
+          <div className="text-[11px] text-mute" style={colorStyle(tc.meta)}>
+            {tenant.brandName}
+          </div>
           {link.subtitle && (
-            <p className="text-sm text-mute mt-2 leading-relaxed max-w-xs">
+            <p
+              className="text-sm text-mute mt-2 leading-relaxed max-w-xs"
+              style={colorStyle(tc.description)}
+            >
               {link.subtitle}
             </p>
           )}
@@ -442,7 +492,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
                   rel="noreferrer"
                   onClick={b.onClick}
                   className={`block w-full px-4 py-3 rounded-xl text-sm text-center font-medium ${TAP_FX} ${sp.className}`}
-                  style={sp.style}
+                  style={{ ...sp.style, ...colorStyle(tc.button) }}
                 >
                   <ButtonLabel b={b} />
                 </a>
@@ -465,6 +515,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
 
 export function ShopShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
+  const tc = textColors(link);
   const heroBg =
     link.heroImageUrl ||
     `linear-gradient(135deg, ${primary}, ${tenant.secondaryColor || '#15803D'})`;
@@ -555,10 +606,17 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
             />
           </div>
           <div className="text-center mt-3">
-            <h1 className="text-xl font-bold text-ink">{link.title}</h1>
-            <div className="text-[11px] text-mute mt-0.5">{tenant.brandName}</div>
+            <h1 className="text-xl font-bold text-ink" style={colorStyle(tc.title)}>
+              {link.title}
+            </h1>
+            <div className="text-[11px] text-mute mt-0.5" style={colorStyle(tc.meta)}>
+              {tenant.brandName}
+            </div>
             {link.subtitle && (
-              <p className="text-sm text-mute mt-2 leading-relaxed">
+              <p
+                className="text-sm text-mute mt-2 leading-relaxed"
+                style={colorStyle(tc.description)}
+              >
                 {link.subtitle}
               </p>
             )}
@@ -608,7 +666,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
                 className={`block w-full mt-5 py-3 rounded-full text-center text-sm font-semibold ${TAP_FX} ${
                   primaryBtn.bgStyle === 'solid' ? 'shadow-md' : ''
                 } ${sp.className}`}
-                style={sp.style}
+                style={{ ...sp.style, ...colorStyle(tc.button) }}
               >
                 {primaryBtn.label}
               </a>
@@ -634,7 +692,11 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
                         ? 'border border-line bg-white text-ink hover:bg-bg2/40'
                         : sp.className
                     }`}
-                    style={usingDefault ? undefined : sp.style}
+                    style={
+                      usingDefault
+                        ? colorStyle(tc.button)
+                        : { ...sp.style, ...colorStyle(tc.button) }
+                    }
                   >
                     {b.label}
                   </a>
@@ -659,6 +721,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
 
 export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
+  const tc = textColors(link);
   const stories = (link.gallery ?? []).slice(0, 6);
 
   return (
@@ -697,14 +760,22 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
             />
 
             <div className="flex-1 min-w-0">
-              <div className="font-bold text-ink leading-tight">
+              <div
+                className="font-bold text-ink leading-tight"
+                style={colorStyle(tc.meta)}
+              >
                 {tenant.brandName}
               </div>
-              <div className="text-xs text-mute mt-0.5">{link.title}</div>
+              <div className="text-xs text-mute mt-0.5" style={colorStyle(tc.title)}>
+                {link.title}
+              </div>
             </div>
           </div>
           {link.subtitle && (
-            <p className="text-sm text-ink mt-3 leading-relaxed">
+            <p
+              className="text-sm text-ink mt-3 leading-relaxed"
+              style={colorStyle(tc.description)}
+            >
               {link.subtitle}
             </p>
           )}
@@ -740,7 +811,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
                     rel="noreferrer"
                     onClick={b.onClick}
                     className={`text-[11px] font-semibold px-3 py-1.5 rounded-full ${TAP_FX} ${sp.className}`}
-                    style={sp.style}
+                    style={{ ...sp.style, ...colorStyle(tc.button) }}
                   >
                     {b.label}
                   </a>
@@ -790,6 +861,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
 export function NeonShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const accent = primary;
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
+  const tc = textColors(link);
   return (
     <div
       className="min-h-screen text-white animate-in fade-in duration-500"
@@ -838,15 +910,22 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
             style={{
               color: accent,
               textShadow: `0 0 24px ${accent}80`,
+              ...colorStyle(tc.title),
             }}
           >
             {link.title.toUpperCase()}
           </h1>
-          <div className="text-[10px] uppercase tracking-[0.3em] text-white/50 mt-1">
+          <div
+            className="text-[10px] uppercase tracking-[0.3em] text-white/50 mt-1"
+            style={colorStyle(tc.meta)}
+          >
             {tenant.brandName}
           </div>
           {link.subtitle && (
-            <p className="text-sm text-white/70 mt-3 max-w-sm leading-relaxed">
+            <p
+              className="text-sm text-white/70 mt-3 max-w-sm leading-relaxed"
+              style={colorStyle(tc.description)}
+            >
               {link.subtitle}
             </p>
           )}
@@ -902,7 +981,7 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
                   rel="noreferrer"
                   onClick={b.onClick}
                   className={`block w-full px-4 py-3 text-sm text-center font-bold uppercase tracking-wider ${TAP_FX} ${cls}`}
-                  style={style}
+                  style={{ ...style, ...colorStyle(tc.button) }}
                 >
                   <ButtonLabel b={b} />
                 </a>
