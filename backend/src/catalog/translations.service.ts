@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -530,18 +531,39 @@ export class TranslationsAdminService {
         locale,
       },
     });
-    const result = await this.translator.translateMenuBatch(
-      tenantId,
-      [
-        {
-          entityType: entityType as any,
-          entityId,
-          field: field as any,
-          text: sourceText,
-        },
-      ],
-      locale,
-    );
+    // Botón MANUAL del admin: a diferencia del menú público (fallback silencioso),
+    // acá SÍ mostramos el motivo real si la IA falla — "nada falla en silencio".
+    if (!this.translator.available) {
+      throw new ServiceUnavailableException(
+        'La traducción por IA no está configurada (falta la API key). Avisá al administrador.',
+      );
+    }
+    let result: Map<string, string>;
+    try {
+      result = await this.translator.translateMenuBatch(
+        tenantId,
+        [
+          {
+            entityType: entityType as any,
+            entityId,
+            field: field as any,
+            text: sourceText,
+          },
+        ],
+        locale,
+        { throwOnAiError: true },
+      );
+    } catch (e: any) {
+      const msg = String(e?.message ?? e ?? '');
+      const friendly = /credit balance|billing|quota|insufficient|payment/i.test(msg)
+        ? 'La IA no tiene crédito disponible. Recargá crédito en Plans & Billing (Anthropic) y volvé a intentar.'
+        : /rate limit|429|overloaded/i.test(msg)
+          ? 'La IA está saturada ahora mismo. Probá de nuevo en un minuto.'
+          : /model|not found|404/i.test(msg)
+            ? 'El modelo de IA no está disponible para esta cuenta.'
+            : 'La traducción por IA no está disponible ahora. Intentá más tarde.';
+      throw new ServiceUnavailableException(friendly);
+    }
     const newText = result.get(`${entityType}:${entityId}:${field}`);
     return { text: newText ?? sourceText };
   }

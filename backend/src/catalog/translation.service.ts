@@ -88,6 +88,11 @@ export class TranslationService {
     }
   }
 
+  /** true si hay cliente de IA configurado (API key presente). */
+  get available(): boolean {
+    return this.client != null;
+  }
+
   /**
    * Traduce un batch de strings del menú para un tenant. Devuelve un Map
    * `${entityType}:${entityId}:${field}` → texto traducido. Si para
@@ -100,6 +105,7 @@ export class TranslationService {
     tenantId: string,
     items: TranslatableItem[],
     locale: string,
+    opts?: { throwOnAiError?: boolean },
   ): Promise<Map<string, string>> {
     const result = new Map<string, string>();
     // Filtrar items vacíos / null arriba — nunca llamamos a Claude con basura.
@@ -216,6 +222,9 @@ export class TranslationService {
         this.logger.error(
           `Claude batch failed (tenant=${tenantId}, locale=${locale}): ${e?.message ?? e}`,
         );
+        // El menú público cae en silencio al sourceText; el botón manual del
+        // admin (throwOnAiError) propaga el error para mostrar el motivo real.
+        if (opts?.throwOnAiError) throw e;
         // Fallback al sourceText en el siguiente paso.
       }
     }
