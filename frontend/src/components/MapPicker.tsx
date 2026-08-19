@@ -97,6 +97,28 @@ export function MapPicker({
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
+  // Fallback manual: si el mapa no carga (key sin cuota, dominio fuera de la
+  // allowlist, red del cliente), el usuario igual puede guardar su ubicación
+  // ingresando dirección + coordenadas a mano. Nunca lo dejamos sin camino.
+  const [manualOpen, setManualOpen] = useState(false);
+  const [mAddr, setMAddr] = useState(picked?.address ?? '');
+  const [mLat, setMLat] = useState(picked ? String(picked.lat) : '');
+  const [mLng, setMLng] = useState(picked ? String(picked.lng) : '');
+  function submitManual() {
+    const lat = Number(mLat);
+    const lng = Number(mLng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      alert('Coordenadas inválidas. La latitud va de -90 a 90 y la longitud de -180 a 180.');
+      return;
+    }
+    onPickRef.current({
+      name: mAddr.trim() ? mAddr.trim().split(',')[0] : 'Ubicación manual',
+      address: mAddr.trim() || `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+      lat,
+      lng,
+    });
+  }
+
   // Inicializa Maps + Autocomplete una sola vez
   useEffect(() => {
     let cancelled = false;
@@ -166,7 +188,10 @@ export function MapPicker({
 
         setReady(true);
       } catch (e: any) {
+        // Log del fallo (para detectarlo sin depender del reporte del cliente).
+        console.error('[MapPicker] Google Maps no cargó:', e?.message ?? e);
         setLoadErr(e?.message ?? 'Error cargando Google Maps');
+        setManualOpen(true); // abrimos el fallback manual automáticamente
       }
     })();
 
@@ -193,20 +218,59 @@ export function MapPicker({
     }
   }, [picked, ready]);
 
+  const manualForm = (
+    <div className="rounded-input border border-line bg-bg2 p-3 mt-2 space-y-2">
+      <div className="text-sm font-semibold">📍 Ingresar ubicación manualmente</div>
+      <input
+        className="input w-full"
+        placeholder="Dirección (ej. Av. Luis Muñoz Rivera 168, San Juan)"
+        value={mAddr}
+        onChange={(e) => setMAddr(e.target.value)}
+      />
+      <div className="flex gap-2">
+        <input
+          className="input w-full"
+          inputMode="decimal"
+          placeholder="Latitud (18.10995)"
+          value={mLat}
+          onChange={(e) => setMLat(e.target.value)}
+        />
+        <input
+          className="input w-full"
+          inputMode="decimal"
+          placeholder="Longitud (-66.16660)"
+          value={mLng}
+          onChange={(e) => setMLng(e.target.value)}
+        />
+      </div>
+      <p className="text-[11px] text-mute">
+        En Google Maps: clic derecho en el punto → copia las coordenadas (lat, lng).
+      </p>
+      <button
+        type="button"
+        onClick={submitManual}
+        className="w-full rounded-input bg-ok text-white font-semibold py-2.5 text-sm"
+      >
+        Usar esta ubicación
+      </button>
+    </div>
+  );
+
   if (loadErr) {
     return (
-      <div className="rounded-input border border-line bg-amber-50 p-4 text-sm text-amber-900 leading-relaxed">
-        <div className="font-semibold mb-1">Google Maps no está configurado</div>
-        <div>{loadErr}</div>
-        <div className="text-xs mt-2 text-amber-800/80">
-          Este dominio no está autorizado en la API key de Google Maps. En
-          Google Cloud → Credenciales → (la key de Maps) → Restricciones de
-          aplicación → Referrers HTTP, agrega este dominio (ej.{' '}
-          <code>tudominio.com/*</code> y <code>*.tudominio.com/*</code>) y
-          habilita Maps JavaScript API + Places API + Geocoding API. Es la MISMA
-          key para todas las marcas (RefererNotAllowedMapError = falta el
-          dominio en la allowlist).
+      <div>
+        <div className="rounded-input border border-line bg-amber-50 p-4 text-sm text-amber-900 leading-relaxed">
+          <div className="font-semibold mb-1">El mapa no se pudo cargar</div>
+          <div>{loadErr}</div>
+          <div className="text-xs mt-2 text-amber-800/80">
+            Podés guardar tu ubicación igual con el formulario de abajo. (Si sos
+            admin: este dominio debe estar en los <b>Referrers HTTP</b> de la API
+            key de Google Maps, con Maps JavaScript API + Places + Geocoding
+            habilitadas y facturación activa. RefererNotAllowedMapError = falta el
+            dominio en la allowlist.)
+          </div>
         </div>
+        {manualForm}
       </div>
     );
   }
@@ -247,6 +311,19 @@ export function MapPicker({
           </div>
         </div>
       )}
+
+      <div className="mt-2 text-center">
+        <button
+          type="button"
+          onClick={() => setManualOpen((v) => !v)}
+          className="text-xs text-mute underline"
+        >
+          {manualOpen
+            ? 'Ocultar entrada manual'
+            : '¿El mapa no carga? Ingresar dirección manualmente'}
+        </button>
+      </div>
+      {manualOpen && manualForm}
     </div>
   );
 }
