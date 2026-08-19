@@ -10,6 +10,8 @@ import { FidelizacionBanner } from '@/components/FidelizacionBanner';
 import { InfoLinksBanner } from '@/components/InfoLinksBanner';
 import { Logo } from '@/components/Logo';
 import { LanguageSwitcherIntl } from '@/components/LanguageSwitcherIntl';
+import { LandingPricingCheckout } from '@/components/LandingPricingCheckout';
+import { fetchLandingPlans } from '@/lib/landing-plans';
 
 // Logos placeholder (texto, sin assets externos)
 const LOGOS = [
@@ -137,10 +139,11 @@ async function fetchBranding(): Promise<BrandingPublic> {
 }
 
 export default async function Landing() {
-  const [branding, nudoMenuItems, activeBusinesses, tHeader, tHero, tLogos] = await Promise.all([
+  const [branding, nudoMenuItems, activeBusinesses, plans, tHeader, tHero, tLogos] = await Promise.all([
     fetchBranding(),
     fetchNudoMenuItems(),
     fetchActiveBusinesses(),
+    fetchLandingPlans(),
     getTranslations('landing.header'),
     getTranslations('landing.hero'),
     getTranslations('landing.logos'),
@@ -161,9 +164,6 @@ export default async function Landing() {
   // del booking de demo). Sin override por Settings — si se quiere
   // cambiar, modificar aquí.
   const demoLink = 'https://soyclubify.lat/demo';
-  // Landing sin precios públicos: el bloque de planes se reemplaza por un CTA
-  // a agendar demo (ju1053). Link fijo pedido por el founder.
-  const agendaDemoLink = 'https://soyclubify.lat/agenda-rrss';
 
   // Stats: usa lo seteado en admin si está, sino el fallback hardcoded.
   const STATS = [
@@ -390,28 +390,21 @@ export default async function Landing() {
         </div>
       </section>
 
-      {/* ─────────── Precios → Agenda demo (ju1053) ─────────── */}
+      {/* ─────────── Precios (restaurado: tarjetas con links directos de Hotmart, sin ref) ─────────── */}
       <section id="precios" className="py-24">
         <div className="mx-auto max-w-3xl px-6 text-center">
           <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
             Precios
           </div>
           <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
-            Precios a la medida de tu negocio
+            Precios claros · sin sorpresas
           </h2>
           <p className="text-mute mt-4 text-lg">
-            Cada negocio es distinto. Agenda una demo sin costo y armamos
-            juntos el plan que mejor se ajusta a lo que necesitas.
+            Elegí el plan que mejor se ajusta a tu negocio. Pago seguro y
+            activación inmediata.
           </p>
           <div className="mt-9 flex justify-center">
-            <a
-              href={agendaDemoLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-brand text-white font-semibold text-base sm:text-lg shadow-lg hover:opacity-90 transition"
-            >
-              Agenda una demo para hablar de precios →
-            </a>
+            <LandingPricingCheckout plans={plans} />
           </div>
         </div>
       </section>
