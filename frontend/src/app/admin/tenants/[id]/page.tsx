@@ -945,6 +945,18 @@ export default function TenantDetail() {
             )}
           </CollapsibleSection>
         )}
+
+        {/* Onboarding para MARKETING (Samuel): el operador que gestiona el
+            onboarding ve la tarjeta de tokens aunque no sea SUPER_ADMIN. Se
+            muestra SOLO a MARKETING (SUPER_ADMIN ya la ve arriba) y SOLO en
+            negocios Clubify (no marca blanca). Backend: @Roles SUPER_ADMIN+MARKETING. */}
+        {!isSuperAdmin &&
+          me?.role === 'MARKETING' &&
+          (!t.whiteLabel || t.whiteLabel.slug === 'clubify') && (
+            <CollapsibleSection title={tr('sectionIntegrations')} className="md:col-span-2">
+              <OnboardingConnectAdminCard tenantId={t.id} />
+            </CollapsibleSection>
+          )}
       </div>
 
       {showPwdModal && (

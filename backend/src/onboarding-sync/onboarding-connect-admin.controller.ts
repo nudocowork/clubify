@@ -20,7 +20,9 @@ class CreateTokenBody {
 // config del propio negocio. El tenantId viene por PATH (no de la sesión).
 // Reutiliza OnboardingService, que ya está parametrizado por tenantId.
 @Controller('admin/onboarding')
-@Roles('SUPER_ADMIN')
+// MARKETING (ej. Samuel) gestiona el onboarding de los negocios Clubify, así que
+// también puede generar/revocar sus tokens. SUPER_ADMIN sigue teniendo acceso.
+@Roles('SUPER_ADMIN', 'MARKETING')
 export class OnboardingConnectAdminController {
   constructor(private readonly onboarding: OnboardingService) {}
 
