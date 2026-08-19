@@ -102,14 +102,24 @@ export class BrandEmailService {
     overrides?: { subject?: string | null; body?: string | null };
   }): Promise<SendBrandEmailResult> {
     const def = findEmailTemplate(opts.templateId);
-    if (!def) return { sent: false, reason: 'unknown_template' };
+    if (!def) {
+        this.logger.warn(
+          `Correo ${opts.templateId} omitido: la plantilla no existe en el catálogo.`,
+        );
+        return { sent: false, reason: 'unknown_template' };
+      }
 
     try {
       const tenant = opts.tenantId
         ? await this.loadTenant(opts.tenantId)
         : null;
       if (opts.tenantId && !tenant) {
+        {
+        this.logger.warn(
+          `Correo ${opts.templateId} omitido: no se encontró el negocio.`,
+        );
         return { sent: false, reason: 'tenant_not_found' };
+      }
       }
 
       const brand = await this.resolveBrand(
@@ -132,7 +142,12 @@ export class BrandEmailService {
       }
 
       const to = (opts.to ?? (await this.recipientOf(tenant)))?.trim();
-      if (!to) return { sent: false, reason: 'no_recipient' };
+      if (!to) {
+        this.logger.warn(
+          `Correo ${opts.templateId} omitido: el negocio no tiene correo de destino.`,
+        );
+        return { sent: false, reason: 'no_recipient' };
+      }
 
       const ownerName = tenant ? await this.ownerFirstName(tenant.id) : '';
       const vars = this.buildVars(def, {
@@ -207,7 +222,24 @@ export class BrandEmailService {
         select: { ...BRAND_GROW_SELECT, ...BRAND_EMAIL_SELECT },
       })
       .catch(() => null);
-    if (!wl) return platform(whiteLabelId);
+    if (!wl) {
+      // El negocio SÍ tiene marca, pero no la pudimos leer (fallo puntual de
+      // BD o fila borrada). Caer a la plataforma mandaría su correo por la
+      // subcuenta de Clubify, con el nombre y el pie de Clubify — justo lo que
+      // una marca blanca no debe hacer nunca. Preferimos no enviar.
+      this.logger.warn(
+        `Marca ${whiteLabelId} no se pudo leer: no se envía el correo (no caemos a Clubify).`,
+      );
+      return {
+        id: whiteLabelId,
+        name: '',
+        slug: '',
+        isPlatform: false,
+        grow: null,
+        supportEmail: null,
+        baseUrl: this.appUrl(),
+      };
+    }
     const isPlatform = wl.slug === PLATFORM_SLUG;
     return {
       id: wl.id,
@@ -284,7 +316,9 @@ export class BrandEmailService {
     const base: Record<string, string> = {
       platform: ctx.brand.name,
       brandName: ctx.tenant?.brandName ?? ctx.brand.name,
-      ownerName: ctx.ownerName || 'hola',
+      // Sin nombre del dueño el saludo queda "Hola ," — feo pero honesto.
+      // Antes caía a 'hola' y salía "Hola hola,".
+      ownerName: ctx.ownerName || '',
       // Dominio propio de la marca si lo tiene: el dueño entra por SU sitio,
       // no por soyclubify.com.
       panelUrl: `${ctx.brand.baseUrl}/app`,

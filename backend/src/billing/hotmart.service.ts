@@ -1108,13 +1108,17 @@ export class HotmartService {
         this.maybeSendAdminNotice(tenant, 'admin_charge_date_moved').catch(
           () => null,
         );
-        this.brandEmail
-          .sendTemplate({
-            templateId: 'email_charge_date_moved',
-            tenantId: tenant.id,
-            vars: { nextChargeDate: next ? fmtEmailDate(next) : '' },
-          })
-          .catch(() => null);
+        // Solo si de verdad hay fecha nueva. Sin ella el correo diría "tu
+        // nueva fecha es el <la vieja>" — o dejaría el hueco a la vista.
+        if (next) {
+          this.brandEmail
+            .sendTemplate({
+              templateId: 'email_charge_date_moved',
+              tenantId: tenant.id,
+              vars: { nextChargeDate: fmtEmailDate(next) },
+            })
+            .catch(() => null);
+        }
         return { ok: true, action: 'updated_next_charge' };
       }
 
@@ -1373,6 +1377,21 @@ export class HotmartService {
           nextChargeInfo,
         }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+    }
+    // CORREO del mismo hecho: primera compra → "panel listo"; cuenta que
+    // revivió → "reactivada"; renovación → "pago confirmado".
+    if (wasSuspended || !alreadyConfirmedTx) {
+      this.brandEmail
+        .sendTemplate({
+          templateId: wasSuspended
+            ? 'email_account_reactivated'
+            : isFirstHotmartPurchase
+              ? 'email_panel_ready'
+              : 'email_payment_confirmed',
+          tenantId: tenant.id,
+          vars: { nextChargeDate: nextCharge ? fmtEmailDate(nextCharge) : '' },
+        })
         .catch(() => null);
     }
 

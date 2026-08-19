@@ -47,27 +47,6 @@ const BASE_VARS = ['platform', 'brandName', 'ownerName', 'panelUrl'];
 
 export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
   {
-    id: 'email_welcome',
-    label: 'Bienvenida (cuenta creada)',
-    folderLabel: 'Bienvenida',
-    description:
-      'Se envía apenas el cliente crea su cuenta, antes de que el pago quede confirmado. Da la bienvenida y explica que falta completar el pago para activar el panel.',
-    vars: [...BASE_VARS, 'supportEmail'],
-    subject: 'Bienvenido a {platform}, {ownerName}',
-    default:
-      '¡Bienvenido, {ownerName}!\n\n' +
-      'Tu cuenta de **{brandName}** en {platform} ya está creada. Solo falta completar el pago para activarla — apenas se confirme, entras al panel y empiezas a vender.\n\n' +
-      'Una vez dentro, lo primero que te conviene hacer:\n\n' +
-      '1. Sube tu catálogo (categorías y productos)\n' +
-      '2. Personaliza tu tarjeta de fidelización\n' +
-      '3. Comparte tu link público en Instagram y WhatsApp\n' +
-      '4. Activa tu primera automatización\n\n' +
-      'Si te trabas en algo, respóndenos este correo y te ayudamos.',
-    folder: EMAIL_FOLDER.id,
-    audience: 'Al negocio',
-    cta: { label: 'Ir a mi panel', urlVar: 'panelUrl' },
-  },
-  {
     id: 'email_panel_ready',
     label: 'Panel creado (pago aprobado)',
     folderLabel: 'Panel creado',

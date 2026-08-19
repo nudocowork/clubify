@@ -5,6 +5,7 @@ import { GrowBusinessService } from '../integrations/grow-business.service';
 import { BillingService } from './billing.service';
 import { SmsTemplatesService } from './sms-templates.service';
 import { BrandEmailService } from '../email/brand-email.service';
+import { fmtEmailDate } from '../email/brand-email-templates';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { addPlanPeriod } from '../common/plan-period';
 import { fmtSmsDate } from './sms-templates';
@@ -231,6 +232,9 @@ export class StripeService {
       .render('payment_failed', { brandName: tenant.brandName }, tenant.id)
       .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
       .catch(() => null);
+    this.brandEmail
+      .sendTemplate({ templateId: 'email_payment_failed', tenantId: tenant.id })
+      .catch(() => null);
     return { ok: true, action: 'payment_failed' };
   }
 
@@ -270,6 +274,11 @@ export class StripeService {
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
     }
+    // El correo va ON por defecto, a diferencia del SMS admin_*: su gate es que
+    // la marca tenga con qué enviar.
+    this.brandEmail
+      .sendTemplate({ templateId: 'email_cancellation', tenantId: tenant.id })
+      .catch(() => null);
     return { ok: true, action: 'suspended' };
   }
 
@@ -341,6 +350,9 @@ export class StripeService {
       this.smsTemplates
         .render('account_paused', { brandName: tenant.brandName }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+      this.brandEmail
+        .sendTemplate({ templateId: 'email_account_paused', tenantId: tenant.id })
         .catch(() => null);
     }
     return { ok: true, action: 'paused' };
@@ -576,6 +588,22 @@ export class StripeService {
       this.smsTemplates
         .render('payment_confirmed', { brandName: tenant.brandName, nextChargeInfo }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+    }
+    // CORREO del mismo hecho: primera compra → "panel listo"; cuenta que
+    // revivió → "reactivada"; renovación → "pago confirmado". Sin suscripción
+    // previa = es la primera compra de este negocio.
+    if (wasSuspended || !alreadyConfirmedPeriod) {
+      this.brandEmail
+        .sendTemplate({
+          templateId: wasSuspended
+            ? 'email_account_reactivated'
+            : !tenant.stripeSubscriptionId
+              ? 'email_panel_ready'
+              : 'email_payment_confirmed',
+          tenantId: tenant.id,
+          vars: { nextChargeDate: nextCharge ? fmtEmailDate(nextCharge) : '' },
+        })
         .catch(() => null);
     }
     // Fase D: primer pago o reactivación (no renovaciones) → business.activated.
