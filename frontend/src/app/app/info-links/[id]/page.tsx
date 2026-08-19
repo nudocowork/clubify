@@ -18,6 +18,7 @@ import { SectionCoverEditor } from '@/components/menu/SectionCoverEditor';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { uploadCoverImage } from '@/lib/menu/upload-cover-image';
 import {
+  backgroundCss,
   type InfoLinkBackground,
   type InfoLinkPopup,
   type PopupSchedule,
@@ -49,6 +50,8 @@ import {
   type BannerPosition,
 } from '@/lib/info-link-banner';
 import { FULL_LOOKS, type FullLookId } from '@/lib/info-link-full-looks';
+import type { InfoLinkTextColors } from '@/components/info-link-shells';
+import { autoTextColor, contrastRatio } from '@/lib/contrast';
 import {
   DEFAULT_POPUP_CONFIG,
   POPUP_TEMPLATES,
@@ -165,6 +168,12 @@ type InfoLink = {
     /** Familia tipográfica aplicada al shell completo. Si null, usa el
      *  default del template. */
     fontFamily?: string | null;
+    /** Fondo personalizable (SOLID/GRADIENT/IMAGE). Ausente = default del
+     *  template. */
+    background?: InfoLinkBackground | null;
+    /** Colores de texto por elemento (título/descripción/botones/secundario).
+     *  Aditivo — cada campo ausente usa el color por defecto del template. */
+    text?: InfoLinkTextColors | null;
   };
   isActive: boolean;
   views: number;
@@ -1442,8 +1451,19 @@ function PublicLinkPreview({
 }) {
   const t = useTranslations('app_info_links_id');
   const initial = (tenant?.brandName?.[0] || 'C').toUpperCase();
+  // Fondo custom + colores de texto (theme.text). Sin fondo custom, blanco.
+  // Aplicamos el fondo real aquí para que la preview NO mienta cuando el
+  // usuario elige texto claro (ej. "Auto contraste" sobre fondo oscuro).
+  const customBg = backgroundCss(link.theme?.background ?? null);
+  const tc: InfoLinkTextColors = link.theme?.text ?? {};
   return (
-    <div className="text-ink bg-white" style={{ ['--primary' as any]: primary }}>
+    <div
+      className={`text-ink ${customBg ? '' : 'bg-white'}`}
+      style={{
+        ['--primary' as any]: primary,
+        ...(customBg ? { background: customBg } : {}),
+      }}
+    >
       {/* Hero: contenedor SEPARADO del logo. overflow-hidden recorta solo
           la foto al frame del banner, no afecta al logo (siblings). */}
       <div className="relative overflow-hidden" style={{ zIndex: 1 }}>
@@ -1489,9 +1509,19 @@ function PublicLinkPreview({
       </div>
 
       <div className="px-4 pt-3 pb-4 text-center">
-        <h1 className="text-base font-bold leading-tight">{link.title}</h1>
+        <h1
+          className="text-base font-bold leading-tight"
+          style={tc.title ? { color: tc.title } : undefined}
+        >
+          {link.title}
+        </h1>
         {link.subtitle && (
-          <p className="text-[11px] text-mute mt-1 leading-snug">{link.subtitle}</p>
+          <p
+            className="text-[11px] text-mute mt-1 leading-snug"
+            style={tc.description ? { color: tc.description } : undefined}
+          >
+            {link.subtitle}
+          </p>
         )}
 
         {/* Botones tipo Linktree (o cards estilo "sección" si renderAs=cover).
@@ -1540,6 +1570,8 @@ function PublicLinkPreview({
                   style.background = 'transparent';
                   style.color = primary;
                 }
+                // Override del color de texto del botón (theme.text.button).
+                if (tc.button) style.color = tc.button;
                 return (
                   <div
                     key={i}
@@ -1650,10 +1682,12 @@ function VisualSection({
   onChange,
 }: {
   theme: {
+    template?: InfoLinkTemplate;
     logoContainer?: LogoContainerConfig | null;
     bannerConfig?: BannerConfig | null;
     fontFamily?: string | null;
     background?: InfoLinkBackground | null;
+    text?: InfoLinkTextColors | null;
     popup?: InfoLinkPopup | null;
     popups?: InfoLinkPopup[] | null;
   };
@@ -1665,6 +1699,7 @@ function VisualSection({
     bannerConfig?: BannerConfig | null;
     fontFamily?: string | null;
     background?: InfoLinkBackground | null;
+    text?: InfoLinkTextColors | null;
     popup?: InfoLinkPopup | null;
     popups?: InfoLinkPopup[] | null;
   }) => void;
@@ -1793,6 +1828,18 @@ function VisualSection({
         />
       </div>
 
+      {/* Colores de texto por elemento (2026-08-19) — para que un fondo
+          custom no deje el texto ilegible. Aditivo: campo vacío = default. */}
+      <div className="border-t border-line pt-5">
+        <TextColorsPanel
+          value={theme.text ?? null}
+          template={resolveTemplate(theme)}
+          primary={primary}
+          background={theme.background ?? null}
+          onChange={(next) => onChange({ text: next })}
+        />
+      </div>
+
       {/* Popup promocional global — principal */}
       <div className="border-t border-line pt-5">
         <PopupPanel
@@ -1809,6 +1856,175 @@ function VisualSection({
           primary={primary}
           onChange={(next) => onChange({ popups: next })}
         />
+      </div>
+    </div>
+  );
+}
+
+// =====================================================
+// TextColorsPanel — colores de texto por elemento (theme.text)
+// -----------------------------------------------------
+// Deja al negocio elegir el color de: título, descripción, texto de
+// botones y el nombre del negocio (texto secundario). Aditivo: un campo
+// vacío usa el color por defecto del template. Pensado para que un fondo
+// custom no deje el texto ilegible. El botón "Auto contraste" elige
+// blanco/negro según el fondo efectivo (o el color de marca, para el botón).
+// =====================================================
+
+/** Templates con fondo oscuro por defecto (texto claro). Los demás son
+ *  claros. Sirve para el "Auto" cuando no hay fondo custom. */
+const DARK_TEMPLATES = new Set<InfoLinkTemplate>(['AURORA', 'NEON']);
+
+/** Color base del fondo efectivo, para calcular contraste. Con fondo
+ *  imagen asumimos oscuro (suele llevar overlay). Sin fondo custom, el
+ *  default del template. */
+function infoLinkBgBase(
+  bg: InfoLinkBackground | null,
+  template: InfoLinkTemplate,
+): string {
+  if (bg?.type === 'SOLID' && bg.color) return bg.color;
+  if (bg?.type === 'GRADIENT' && bg.from) return bg.from;
+  if (bg?.type === 'IMAGE') return '#101010';
+  return DARK_TEMPLATES.has(template) ? '#1a0e2e' : '#ffffff';
+}
+
+function TextColorsPanel({
+  value,
+  template,
+  primary,
+  background,
+  onChange,
+}: {
+  value: InfoLinkTextColors | null;
+  template: InfoLinkTemplate;
+  primary: string;
+  background: InfoLinkBackground | null;
+  onChange: (next: InfoLinkTextColors | null) => void;
+}) {
+  const v = value ?? {};
+  const bgBase = infoLinkBgBase(background, template);
+
+  const FIELDS: {
+    key: keyof InfoLinkTextColors;
+    label: string;
+    against: string; // color de fondo contra el que se mide el contraste
+    hint?: string;
+  }[] = [
+    { key: 'title', label: 'Título', against: bgBase },
+    { key: 'description', label: 'Descripción', against: bgBase },
+    {
+      key: 'button',
+      label: 'Texto de botones',
+      against: primary,
+      hint: 'No aplica a botones con estilo/color propio.',
+    },
+    { key: 'meta', label: 'Nombre del negocio', against: bgBase },
+  ];
+
+  function setField(key: keyof InfoLinkTextColors, color: string | null) {
+    const next: InfoLinkTextColors = { ...v };
+    if (color) next[key] = color;
+    else delete next[key];
+    onChange(Object.keys(next).length === 0 ? null : next);
+  }
+
+  function applyAuto() {
+    // Título/descr/nombre contrastan con el fondo; el botón, con su relleno
+    // (color de marca). autoTextColor devuelve blanco o negro.
+    onChange({
+      title: autoTextColor(bgBase),
+      description: autoTextColor(bgBase),
+      meta: autoTextColor(bgBase),
+      button: autoTextColor(primary),
+    });
+  }
+
+  const anySet = Object.keys(v).length > 0;
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+            Colores de texto
+          </div>
+          <div className="text-xs text-mute mt-0.5 leading-snug">
+            Personaliza el color de cada texto. Útil cuando pones un fondo
+            propio. Vacío = usa el color del template.
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 mb-3">
+        <button
+          type="button"
+          onClick={applyAuto}
+          className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-line hover:border-ink/30 hover:shadow-sm transition"
+        >
+          ✨ Auto contraste
+        </button>
+        {anySet && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg text-mute hover:text-ink transition"
+          >
+            Restablecer todo
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-2.5">
+        {FIELDS.map((f) => {
+          const current = v[f.key] ?? null;
+          const swatch = current || autoTextColor(f.against);
+          const lowContrast =
+            !!current && contrastRatio(current, f.against) < 4.5;
+          return (
+            <div key={f.key} className="flex items-center gap-3">
+              <label className="relative flex-none">
+                <input
+                  type="color"
+                  value={swatch}
+                  onChange={(e) => setField(f.key, e.target.value)}
+                  className="w-9 h-9 rounded-lg border border-line cursor-pointer p-0.5 bg-white"
+                  aria-label={`Color de ${f.label}`}
+                />
+              </label>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-ink leading-tight">
+                  {f.label}
+                </div>
+                <div className="text-[11px] leading-tight mt-0.5">
+                  {current ? (
+                    <span className="text-mute font-mono">{current}</span>
+                  ) : (
+                    <span className="text-mute">Automático (template)</span>
+                  )}
+                  {lowContrast && (
+                    <span className="text-amber-600 ml-2">
+                      ⚠ Contraste bajo
+                    </span>
+                  )}
+                  {f.hint && (
+                    <span className="text-mute/70 block">{f.hint}</span>
+                  )}
+                </div>
+              </div>
+              {current && (
+                <button
+                  type="button"
+                  onClick={() => setField(f.key, null)}
+                  className="flex-none text-mute hover:text-ink text-lg leading-none px-1"
+                  aria-label={`Quitar color de ${f.label}`}
+                  title="Usar color por defecto"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
