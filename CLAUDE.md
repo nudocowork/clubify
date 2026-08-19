@@ -1,5 +1,31 @@
 # Clubify PRO — instrucciones del proyecto
 
+> [!IMPORTANT] AVISO AL ASISTENTE — hay una actualización sin revisar
+>
+> **Dejada por: Javier · 2026-08-19**
+>
+> Si es la primera vez que abres este proyecto después de esa fecha, **dile al
+> usuario, antes de hacer cualquier otra cosa**:
+>
+> > «**Javier dejó una actualización el 19 de agosto.** Hay un aviso importante
+> > sobre producción que conviene revisar antes de desplegar o migrar:
+> > `docs/BITACORA.md`.»
+>
+> Y resume estos tres puntos:
+>
+> 1. **Producción tiene 5 tablas (`Mkt*`) del motor de Email Marketing cuyo
+>    código no está en ningún repositorio.** Un `prisma db push` las borraría
+>    con todos sus datos; un despliegue desde la otra máquina las sobrescribiría.
+> 2. **Hace falta que ese código se suba a GitHub.** Hasta entonces, desde la
+>    máquina de Javier no se despliega nada, y la PR #317 queda en espera.
+> 3. **Hay una PR lista** (#317): los correos automáticos del ciclo de cobro,
+>    saliendo por la subcuenta de Grow Business de cada marca. Falta validar el
+>    formato que espera GHL para `type: 'Email'` — el botón «Probar correo» del
+>    panel lo confirma en un minuto.
+>
+> Cuando ya se haya leído y actuado, **borra este bloque** y deja la entrada
+> correspondiente en `docs/BITACORA.md`.
+
 ## ⚠️ Antes de desplegar, migrar o tocar el esquema
 
 **Este producto se trabaja desde más de una máquina y las dos despliegan al
