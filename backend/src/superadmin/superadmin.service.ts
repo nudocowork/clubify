@@ -1392,11 +1392,24 @@ export class SuperAdminService {
   ) {
     const def = brandMsgCatalog().find((t) => t.id === templateId);
     if (!def) throw new NotFoundException('Plantilla no encontrada');
-    if (def.status !== 'pending') {
+    const esCorreo = def.channel === 'EMAIL';
+    // Los SMS ‘active’ no se apagan: envían siempre. Los correos SÍ, porque
+    // vienen encendidos por defecto y la marca elige cuáles no quiere.
+    if (!esCorreo && def.status !== 'pending') {
       throw new BadRequestException('Esta plantilla ya está activa');
     }
     const key = brandMsgEnabledKey(id, templateId);
-    if (enabled) {
+    if (esCorreo) {
+      // Un correo se apaga guardando 'false' EXPLÍCITO: borrar la clave lo
+      // devolvería a su default, que es encendido — o sea, lo contrario de lo
+      // que pidió la marca. Al encender guardamos 'true', que además gana
+      // sobre un apagado global.
+      await this.prisma.setting.upsert({
+        where: { key },
+        update: { value: enabled ? 'true' : 'false' },
+        create: { key, value: enabled ? 'true' : 'false' },
+      });
+    } else if (enabled) {
       await this.prisma.setting.upsert({
         where: { key },
         update: { value: 'true' },
