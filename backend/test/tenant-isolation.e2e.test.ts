@@ -143,6 +143,18 @@ describe('multi-tenant isolation', () => {
     });
   });
 
+  /**
+   * OJO con la forma de estas llamadas: hay que ESPERAR dentro del contexto.
+   *
+   * `PrismaPromise` es perezosa — no ejecuta hasta que la esperan. Si se hace
+   * `TenantContext.run(ctx, () => prisma.x.findUnique(...))`, `run` devuelve la
+   * promesa sin esperarla, sale del scope de AsyncLocalStorage, y la consulta
+   * corre después, ya sin contexto: el middleware no ve scope y no filtra nada.
+   *
+   * Estos tests estuvieron rojos mucho tiempo por eso, y parecía un agujero de
+   * aislamiento entre negocios. No lo era: en un request real el interceptor
+   * envuelve todo el handler, así que los await ocurren dentro del contexto.
+   */
   describe('Prisma middleware layer', () => {
     it('findUnique cross-tenant retorna null bajo TenantContext de A', async () => {
       // Simulamos un service que se "olvidó" del guardTenant y hace un
@@ -154,7 +166,7 @@ describe('multi-tenant isolation', () => {
           role: 'TENANT_OWNER',
           bypass: false,
         },
-        () => prisma.customer.findUnique({ where: { id: customerInB.id } }),
+        async () => await prisma.customer.findUnique({ where: { id: customerInB.id } }),
       );
       expect(result).toBeNull();
     });
@@ -167,7 +179,7 @@ describe('multi-tenant isolation', () => {
           role: 'TENANT_OWNER',
           bypass: false,
         },
-        () => prisma.customer.findMany({}),
+        async () => await prisma.customer.findMany({}),
       );
       const ids = list.map((c) => c.id);
       expect(ids).toContain(customerInA.id);
@@ -182,7 +194,7 @@ describe('multi-tenant isolation', () => {
           role: 'SUPER_ADMIN',
           bypass: false,
         },
-        () => prisma.customer.findUnique({ where: { id: customerInB.id } }),
+        async () => await prisma.customer.findUnique({ where: { id: customerInB.id } }),
       );
       expect(result?.id).toBe(customerInB.id);
     });
@@ -196,7 +208,7 @@ describe('multi-tenant isolation', () => {
             role: 'TENANT_OWNER',
             bypass: false,
           },
-          () =>
+          async () =>
             prisma.customer.create({
               data: {
                 fullName: 'Intruso',

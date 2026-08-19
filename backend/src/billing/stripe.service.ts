@@ -4,6 +4,8 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { BillingService } from './billing.service';
 import { SmsTemplatesService } from './sms-templates.service';
+import { BrandEmailService } from '../email/brand-email.service';
+import { fmtEmailDate } from '../email/brand-email-templates';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { addPlanPeriod } from '../common/plan-period';
 import { fmtSmsDate } from './sms-templates';
@@ -46,6 +48,7 @@ export class StripeService {
     private billing: BillingService,
     private growBusiness: GrowBusinessService,
     private smsTemplates: SmsTemplatesService,
+    private brandEmail: BrandEmailService,
     private onboardingWebhook: OnboardingWebhookService,
   ) {}
 
@@ -128,6 +131,14 @@ export class StripeService {
         return this.onPaymentFailed(brand, event);
       case 'customer.subscription.deleted':
         return this.onSubscriptionCancelled(brand, event);
+      // Reembolso / disputa / contracargo: antes caían en `unhandled`, o sea
+      // que un reembolso en Stripe no suspendía ni avisaba absolutamente nada.
+      case 'charge.refunded':
+        return this.onChargeRefunded(brand, event);
+      case 'charge.dispute.created':
+        return this.onDisputeCreated(brand, event);
+      case 'charge.dispute.closed':
+        return this.onDisputeClosed(brand, event);
       // PDF 1256 §3: eventos antes ignorados.
       case 'invoice.upcoming':
         return this.onInvoiceUpcoming(brand, event);
@@ -226,6 +237,9 @@ export class StripeService {
       .render('payment_failed', { brandName: tenant.brandName }, tenant.id)
       .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
       .catch(() => null);
+    this.brandEmail
+      .sendTemplate({ templateId: 'email_payment_failed', tenantId: tenant.id })
+      .catch(() => null);
     return { ok: true, action: 'payment_failed' };
   }
 
@@ -265,6 +279,11 @@ export class StripeService {
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
     }
+    // El correo va ON por defecto, a diferencia del SMS admin_*: su gate es que
+    // la marca tenga con qué enviar.
+    this.brandEmail
+      .sendTemplate({ templateId: 'email_cancellation', tenantId: tenant.id })
+      .catch(() => null);
     return { ok: true, action: 'suspended' };
   }
 
@@ -341,6 +360,9 @@ export class StripeService {
         .render('account_paused', { brandName: tenant.brandName }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
+      this.brandEmail
+        .sendTemplate({ templateId: 'email_account_paused', tenantId: tenant.id })
+        .catch(() => null);
     }
     return { ok: true, action: 'paused' };
   }
@@ -370,6 +392,152 @@ export class StripeService {
       .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
       .catch(() => null);
     return { ok: true, action: 'resumed' };
+  }
+
+  // ── Reembolso / disputa / contracargo ───────────────────────────
+
+  /**
+   * Aviso administrativo (admin_*) al dueño SOLO si la marca lo activó en su
+   * panel de Automatizaciones. OFF por defecto, igual que en la vía Hotmart.
+   */
+  private async maybeSendAdminNotice(
+    whiteLabelId: string,
+    tenant: { id: string; brandName: string },
+    templateId: string,
+  ): Promise<boolean> {
+    try {
+      const enabled = await isBrandTemplateSendEnabled(
+        this.prisma,
+        templateId,
+        whiteLabelId,
+      );
+      if (!enabled) return false;
+      const msg = await this.smsTemplates.render(
+        templateId,
+        { brandName: tenant.brandName },
+        tenant.id,
+      );
+      if (!msg) return false;
+      await this.notifyOwner(tenant.id, tenant.brandName, msg);
+      return true;
+    } catch (e) {
+      this.logger.warn(
+        `maybeSendAdminNotice(${templateId}) falló: ${(e as Error).message}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Tenant de un evento `charge.*` / `charge.dispute.*`. En los `dispute.*` el
+   * objeto del evento es la Disputa, que no trae `customer`: hay que subir al
+   * Charge para resolverlo. Último recurso, el email del recibo.
+   */
+  private async findTenantFromCharge(brand: BrandCtx, event: Stripe.Event) {
+    const obj = event.data.object as any;
+    let charge: any = obj;
+    if (event.type.startsWith('charge.dispute.')) {
+      const chargeId = typeof obj.charge === 'string' ? obj.charge : null;
+      if (!chargeId) return null;
+      charge = await brand.client.charges
+        .retrieve(chargeId)
+        .catch((e: Error) => {
+          this.logger.warn(`retrieve charge ${chargeId} falló: ${e.message}`);
+          return null;
+        });
+      if (!charge) return null;
+    }
+    return this.findTenant(brand.whiteLabelId, {
+      email: charge.billing_details?.email ?? charge.receipt_email ?? null,
+      customerId: typeof charge.customer === 'string' ? charge.customer : null,
+      subscriptionId: null,
+      priceId: null,
+      nextCharge: null,
+      amountUsd: null,
+      // Solo BÚSQUEDA del tenant: findTenant no lee paidAt (ese campo fija
+      // purchasedAt en el camino de alta, no acá). null como el resto.
+      paidAt: null,
+    });
+  }
+
+  /**
+   * `charge.refunded` — reembolso. Espeja PURCHASE_REFUNDED de Hotmart.
+   * Solo reembolsos TOTALES: uno parcial no corta el servicio, y decirle al
+   * negocio que su cuenta quedó suspendida sería falso.
+   */
+  private async onChargeRefunded(brand: BrandCtx, event: Stripe.Event) {
+    const charge = event.data.object as any;
+    const full =
+      charge.refunded === true ||
+      (typeof charge.amount === 'number' &&
+        typeof charge.amount_refunded === 'number' &&
+        charge.amount_refunded >= charge.amount);
+    if (!full) {
+      this.logger.log(
+        `Reembolso parcial en ${charge.id} — sin suspensión ni aviso`,
+      );
+      return { ok: true, action: 'partial_refund' };
+    }
+    const tenant = await this.findTenantFromCharge(brand, event);
+    if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    await this.prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { status: 'SUSPENDED', suspendedAt: new Date() },
+    });
+    this.maybeSendAdminNotice(
+      brand.whiteLabelId,
+      tenant,
+      'admin_refunded',
+    ).catch(() => null);
+    this.brandEmail
+      .sendTemplate({ templateId: 'email_refunded', tenantId: tenant.id })
+      .catch(() => null);
+    return { ok: true, action: 'refunded' };
+  }
+
+  /**
+   * `charge.dispute.created` — disputa abierta. NO suspendemos: el dinero queda
+   * retenido pero el servicio sigue mientras el banco decide. Si se pierde
+   * llega `charge.dispute.closed` con status `lost` y ahí sí se corta.
+   */
+  private async onDisputeCreated(brand: BrandCtx, event: Stripe.Event) {
+    const tenant = await this.findTenantFromCharge(brand, event);
+    if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    this.maybeSendAdminNotice(
+      brand.whiteLabelId,
+      tenant,
+      'admin_protest',
+    ).catch(() => null);
+    this.brandEmail
+      .sendTemplate({ templateId: 'email_dispute', tenantId: tenant.id })
+      .catch(() => null);
+    return { ok: true, action: 'dispute_opened' };
+  }
+
+  /**
+   * `charge.dispute.closed` — solo actuamos si se PERDIÓ: eso es un contracargo
+   * real. Si se ganó o se retiró, el servicio nunca se interrumpió.
+   */
+  private async onDisputeClosed(brand: BrandCtx, event: Stripe.Event) {
+    const dispute = event.data.object as any;
+    if (dispute.status !== 'lost') {
+      return { ok: true, action: 'dispute_not_lost' };
+    }
+    const tenant = await this.findTenantFromCharge(brand, event);
+    if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    await this.prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { status: 'SUSPENDED', suspendedAt: new Date() },
+    });
+    this.maybeSendAdminNotice(
+      brand.whiteLabelId,
+      tenant,
+      'admin_chargeback',
+    ).catch(() => null);
+    this.brandEmail
+      .sendTemplate({ templateId: 'email_chargeback', tenantId: tenant.id })
+      .catch(() => null);
+    return { ok: true, action: 'chargeback' };
   }
 
   // ── Activación ──────────────────────────────────────────────────────────
@@ -441,6 +609,22 @@ export class StripeService {
       this.smsTemplates
         .render('payment_confirmed', { brandName: tenant.brandName, nextChargeInfo }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+    }
+    // CORREO del mismo hecho: primera compra → "panel listo"; cuenta que
+    // revivió → "reactivada"; renovación → "pago confirmado". Sin suscripción
+    // previa = es la primera compra de este negocio.
+    if (wasSuspended || !alreadyConfirmedPeriod) {
+      this.brandEmail
+        .sendTemplate({
+          templateId: wasSuspended
+            ? 'email_account_reactivated'
+            : !tenant.stripeSubscriptionId
+              ? 'email_panel_ready'
+              : 'email_payment_confirmed',
+          tenantId: tenant.id,
+          vars: { nextChargeDate: nextCharge ? fmtEmailDate(nextCharge) : '' },
+        })
         .catch(() => null);
     }
     // Fase D: primer pago o reactivación (no renovaciones) → business.activated.

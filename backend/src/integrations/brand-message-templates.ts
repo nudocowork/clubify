@@ -31,8 +31,17 @@
  */
 import type { PrismaService } from '../common/prisma/prisma.service';
 import { SMS_TEMPLATES, interpolateSms } from '../billing/sms-templates';
+import {
+  EMAIL_TEMPLATES,
+  EMAIL_FOLDER,
+  emailTplKey,
+  globalEmailTplKey,
+  isEmailTemplateId,
+  isEmailTemplateEnabled,
+  parseEmailTplValue,
+} from '../email/brand-email-templates';
 
-export type BrandMsgChannel = 'SMS' | 'WhatsApp' | 'PUSH';
+export type BrandMsgChannel = 'SMS' | 'WhatsApp' | 'PUSH' | 'EMAIL';
 export type BrandMsgStatus = 'active' | 'pending';
 
 export type BrandMsgTemplateDef = {
@@ -44,6 +53,8 @@ export type BrandMsgTemplateDef = {
   /** Tokens {token} disponibles en el texto. */
   vars: string[];
   default: string;
+  /** Solo canal EMAIL: asunto por defecto (el cuerpo va en `default`). */
+  subject?: string;
   /** Carpeta de sistema por defecto. */
   folder: string;
   status: BrandMsgStatus;
@@ -57,6 +68,7 @@ export const SYSTEM_FOLDERS: { id: string; name: string; system: true }[] = [
   { id: 'administrativa', name: 'Administrativa', system: true },
   { id: 'cobros', name: 'Cobros y recordatorios', system: true },
   { id: 'operativa', name: 'Operativas', system: true },
+  { id: EMAIL_FOLDER.id, name: EMAIL_FOLDER.name, system: true },
 ];
 
 /** Texto por defecto del aviso de reseña baja (fuente única, la usa reviews). */
@@ -336,6 +348,26 @@ export const OPERATIONAL_TEMPLATES: BrandMsgTemplateDef[] = [
 ];
 
 /** Catálogo que ve el panel de la marca: cobros/administrativa + operativas. */
+/**
+ * Los CORREOS del ciclo de vida expresados como plantillas del catálogo, para
+ * que el panel de Automatizaciones los liste igual que los SMS. `default` = el
+ * cuerpo, `subject` = el asunto. Van todos como 'active': su gate no es un flag
+ * sino que la marca pueda enviar correos (ver `brandEmailSender`).
+ */
+const EMAIL_CATALOG: BrandMsgTemplateDef[] = EMAIL_TEMPLATES.map((t) => ({
+  id: t.id,
+  label: t.label,
+  folderLabel: t.folderLabel,
+  description: t.description,
+  vars: t.vars,
+  default: t.default,
+  subject: t.subject,
+  folder: t.folder,
+  status: 'active',
+  channel: 'EMAIL',
+  audience: t.audience,
+}));
+
 export function brandMsgCatalog(): BrandMsgTemplateDef[] {
   const billing: BrandMsgTemplateDef[] = SMS_TEMPLATES.filter(
     (t) => t.group === 'cliente',
@@ -356,23 +388,63 @@ export function brandMsgCatalog(): BrandMsgTemplateDef[] {
   });
   // Orden dentro de Administrativa: aprobado, demorado (de billing) → disputa,
   // reembolso, chargeback, cancelación, mover-fecha (admin) = 7.
-  return [...billing, ...ADMIN_TEMPLATES, ...OPERATIONAL_TEMPLATES];
+  return [
+    ...billing,
+    ...ADMIN_TEMPLATES,
+    ...OPERATIONAL_TEMPLATES,
+    ...EMAIL_CATALOG,
+  ];
 }
 
+/** Clave del override de MARCA. Los correos viven en su propio espacio de
+ *  claves (`email.wl.*`) porque guardan asunto+cuerpo, no un texto suelto. */
+/**
+ * Qué correo acompaña a cada automatización. Una automatización = una tarjeta
+ * en el panel, con su texto de WhatsApp y su correo adentro; no dos tarjetas
+ * con el mismo nombre en carpetas distintas.
+ *
+ * Los correos que NO están acá (bienvenida, panel creado) no tienen gemelo de
+ * WhatsApp y se listan solos en la carpeta Correos.
+ */
+export const EMAIL_TWIN: Record<string, string> = {
+  // Cobros y recordatorios
+  payment_reminder_7d: 'email_payment_reminder_7d',
+  payment_reminder_3d: 'email_payment_reminder_3d',
+  payment_reminder_tomorrow: 'email_payment_reminder_tomorrow',
+  payment_due_today: 'email_payment_due_today',
+  payment_overdue_reminder: 'email_payment_overdue',
+  payment_not_processed_2d: 'email_account_will_pause',
+  account_will_pause: 'email_account_will_pause',
+  account_paused: 'email_account_paused',
+  account_reactivated: 'email_account_reactivated',
+  // Administrativas
+  payment_confirmed: 'email_payment_confirmed',
+  payment_failed: 'email_payment_failed',
+  admin_protest: 'email_dispute',
+  admin_refunded: 'email_refunded',
+  admin_chargeback: 'email_chargeback',
+  admin_cancellation: 'email_cancellation',
+  admin_charge_date_moved: 'email_charge_date_moved',
+};
+
 export function brandMsgTplKey(whiteLabelId: string, id: string): string {
-  return `sms.wl.${whiteLabelId}.${id}`;
+  return isEmailTemplateId(id)
+    ? emailTplKey(whiteLabelId, id)
+    : `sms.wl.${whiteLabelId}.${id}`;
 }
 export function globalMsgTplKey(id: string): string {
-  return `sms.${id}`;
+  return isEmailTemplateId(id) ? globalEmailTplKey(id) : `sms.${id}`;
 }
 // Stage 4 (PDF734): flag de ACTIVACIÓN de envío de las plantillas 'pending'
 // (admin_*: reembolso, chargeback, cancelación, mover-fecha, disputa). Por
 // marca (o global). Ausente/≠'true' = OFF.
 export function brandMsgEnabledKey(whiteLabelId: string, id: string): string {
-  return `sms.enabled.wl.${whiteLabelId}.${id}`;
+  return isEmailTemplateId(id)
+    ? `email.enabled.wl.${whiteLabelId}.${id}`
+    : `sms.enabled.wl.${whiteLabelId}.${id}`;
 }
 export function globalMsgEnabledKey(id: string): string {
-  return `sms.enabled.${id}`;
+  return isEmailTemplateId(id) ? `email.enabled.${id}` : `sms.enabled.${id}`;
 }
 
 /**
@@ -385,6 +457,11 @@ export async function isBrandTemplateSendEnabled(
   id: string,
   whiteLabelId?: string | null,
 ): Promise<boolean> {
+  // Los correos vienen ON por defecto y se apagan de a uno; su gate real es
+  // que la marca tenga con qué enviar.
+  if (isEmailTemplateId(id)) {
+    return isEmailTemplateEnabled(prisma, id, whiteLabelId);
+  }
   const def = brandMsgCatalog().find((t) => t.id === id);
   if (!def) return false;
   if (def.status !== 'pending') return true;
@@ -414,17 +491,22 @@ export async function resolveBrandTemplateText(
 ): Promise<string | null> {
   const def = brandMsgCatalog().find((t) => t.id === id);
   const fallback = def?.default ?? null;
+  const isEmail = isEmailTemplateId(id);
   const keys = [globalMsgTplKey(id)];
   if (whiteLabelId) keys.unshift(brandMsgTplKey(whiteLabelId, id));
   const rows = await prisma.setting
     .findMany({ where: { key: { in: keys } } })
     .catch(() => [] as { key: string; value: string }[]);
   const byKey = new Map(rows.map((r) => [r.key, r.value]));
+  // De un correo el Setting guarda `{subject, body}`: acá solo interesa el
+  // cuerpo (el asunto se resuelve aparte con `resolveEmailTemplate`).
+  const bodyOf = (raw: string | undefined) =>
+    isEmail ? parseEmailTplValue(raw).body : raw?.trim() || undefined;
   if (whiteLabelId) {
-    const brand = byKey.get(brandMsgTplKey(whiteLabelId, id))?.trim();
+    const brand = bodyOf(byKey.get(brandMsgTplKey(whiteLabelId, id)));
     if (brand) return brand;
   }
-  const global = byKey.get(globalMsgTplKey(id))?.trim();
+  const global = bodyOf(byKey.get(globalMsgTplKey(id)));
   if (global) return global;
   return fallback;
 }

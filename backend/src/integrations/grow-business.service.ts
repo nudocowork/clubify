@@ -376,48 +376,9 @@ export class GrowBusinessService {
   }
 
   /**
-   * Helper interno: POST /conversations/messages con `type` específico.
-   * Devuelve mismo shape que las funciones públicas (ok/status/message/id).
+   * Upsert de contacto por CORREO (el de SMS usa el teléfono). Mismo endpoint;
+   * cambia la llave con la que Grow Business identifica al contacto.
    */
-  private async postChannelMessage(
-    apiKey: string,
-    contactId: string,
-    type: 'SMS' | 'WhatsApp',
-    message: string,
-  ) {
-    try {
-      const res = await fetch(`${this.API_BASE}/conversations/messages`, {
-        method: 'POST',
-        // FIX 2026-06-16 (review): timeout en llamada externa (LeadConnector)
-        // para no colgar el request/worker si el upstream no responde.
-        signal: AbortSignal.timeout(15000),
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Version: this.API_VERSION,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify({ type, contactId, message }),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        return {
-          ok: false as const,
-          status: res.status,
-          message: text.slice(0, 200),
-        };
-      }
-      const data = await res.json().catch(() => ({}));
-      return { ok: true as const, id: data?.messageId ?? data?.id ?? null };
-    } catch (e: any) {
-      return {
-        ok: false as const,
-        message: e?.message ?? `Error enviando ${type}`,
-      };
-    }
-  }
-
-  /** Upsert de contacto por EMAIL (para el canal de correo). */
   private async upsertContactByEmail(
     locationId: string,
     apiKey: string,
@@ -443,7 +404,14 @@ export class GrowBusinessService {
         return null;
       }
       const data = await res.json().catch(() => null as any);
-      return data?.contact?.id ?? data?.id ?? data?.contactId ?? null;
+      const id = data?.contact?.id ?? data?.id ?? data?.contactId ?? null;
+      if (!id) {
+        this.logger.warn(
+          `upsertContactByEmail OK pero sin id: ${JSON.stringify(data).slice(0, 200)}`,
+        );
+        return null;
+      }
+      return id;
     } catch (e: any) {
       this.logger.warn(`upsertContactByEmail threw: ${e?.message ?? e}`);
       return null;
@@ -451,71 +419,105 @@ export class GrowBusinessService {
   }
 
   /**
-   * Envía un CORREO server-side vía Grow Business (canal Email de LeadConnector)
-   * con las credenciales de la MARCA. Upsert del contacto por email + POST
-   * /conversations/messages con type 'Email' + subject + html. GHL maneja el
-   * dominio/entregabilidad de la subcuenta del negocio.
+   * Envía un CORREO por la subcuenta de Grow Business de la marca — el mismo
+   * camino que ya usan el SMS y el WhatsApp, con la misma conexión probada.
+   *
+   * El REMITENTE lo pone la subcuenta: como cada marca tiene la suya, el correo
+   * sale con el dominio y la firma de esa marca sin que haya que configurar
+   * nada aparte. Por eso NO forzamos `emailFrom`: mandar uno sin verificar en
+   * la subcuenta haría rebotar el envío.
+   *
+   * Nada de prefijo `#switch_unique|n|` — eso enruta números de teléfono y no
+   * significa nada en un correo; iría a parar al cuerpo del mensaje.
    */
   async sendEmailWithCreds(
     creds: { locationId: string; apiKey: string },
     toEmail: string,
     subject: string,
     html: string,
+    opts?: { text?: string },
   ) {
     if (!creds.locationId || !creds.apiKey) {
       return { ok: false as const, message: 'Credenciales incompletas' };
     }
-    const email = (toEmail || '').trim().toLowerCase();
-    if (!email.includes('@')) {
+    const to = (toEmail ?? '').trim().toLowerCase();
+    if (!to.includes('@')) {
       return { ok: false as const, message: 'Email de destino inválido' };
     }
+
     const contactId = await this.upsertContactByEmail(
       creds.locationId,
       creds.apiKey,
-      email,
+      to,
     );
     if (!contactId) {
       return {
         ok: false as const,
-        message: 'No se pudo crear/buscar el contacto por email en Grow Business.',
+        message:
+          'No se pudo crear/buscar el contacto en Grow Business. Revisa API key, location y el correo.',
       };
     }
+    // Campos segun el spec oficial de HighLevel (apps/conversations.json):
+    // el cuerpo HTML va en `html`, el asunto en `subject`, y el texto plano en
+    // `message`. No existe `emailBody` — mandarlo seria basura en el request.
+    // `emailFrom` se omite a proposito: sin el, el remitente lo resuelve la
+    // subcuenta de la marca, que es justo lo que queremos.
+    const sent = await this.postChannelMessage(
+      creds.apiKey,
+      contactId,
+      'Email',
+      opts?.text ?? '',
+      { subject, html },
+    );
+    // `contactId` (id del contacto EN EL PROVEEDOR) se expone para que el motor
+    // de marketing lo guarde junto a la subcuenta y correlacione los eventos
+    // entrantes del webhook. Aditivo: brand-workflows sigue leyendo solo `id`.
+    return sent.ok ? { ...sent, contactId } : sent;
+  }
+
+  /**
+   * Helper interno: POST /conversations/messages con `type` específico.
+   * Devuelve mismo shape que las funciones públicas (ok/status/message/id).
+   */
+  private async postChannelMessage(
+    apiKey: string,
+    contactId: string,
+    type: 'SMS' | 'WhatsApp' | 'Email',
+    message: string,
+    extra?: Record<string, unknown>,
+  ) {
     try {
       const res = await fetch(`${this.API_BASE}/conversations/messages`, {
         method: 'POST',
-        signal: AbortSignal.timeout(20000),
+        // FIX 2026-06-16 (review): timeout en llamada externa (LeadConnector)
+        // para no colgar el request/worker si el upstream no responde.
+        signal: AbortSignal.timeout(15000),
         headers: {
-          Authorization: `Bearer ${creds.apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           Version: this.API_VERSION,
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
-        body: JSON.stringify({
-          type: 'Email',
-          contactId,
-          subject: subject || '(sin asunto)',
-          html,
-          emailTo: email,
-        }),
+        body: JSON.stringify({ type, contactId, message, ...(extra ?? {}) }),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
-        return { ok: false as const, status: res.status, message: text.slice(0, 200) };
+        return {
+          ok: false as const,
+          status: res.status,
+          message: text.slice(0, 200),
+        };
       }
       const data = await res.json().catch(() => ({}));
-      // `contactId`: id del contacto EN EL PROVEEDOR (del upsert). Se expone para
-      // que el motor de marketing lo guarde junto a la subcuenta y pueda
-      // correlacionar eventos entrantes. `raw` permite normalizar el messageId
-      // con formas alternativas (message.id, etc.). Campos aditivos → los
-      // callers viejos (brand-workflows) siguen leyendo `id` sin cambios.
-      return {
-        ok: true as const,
-        id: data?.messageId ?? data?.id ?? null,
-        contactId,
-        raw: data,
-      };
+      // `raw` es aditivo: deja normalizar el messageId con formas alternativas
+      // (message.id, data.id) sin romper a quien solo lee `id`.
+      return { ok: true as const, id: data?.messageId ?? data?.id ?? null, raw: data };
     } catch (e: any) {
-      return { ok: false as const, message: e?.message ?? 'Error enviando correo' };
+      return {
+        ok: false as const,
+        message: e?.message ?? `Error enviando ${type}`,
+      };
     }
   }
+
 }

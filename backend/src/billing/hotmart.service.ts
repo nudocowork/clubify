@@ -9,8 +9,10 @@ import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
 import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
-import { addPlanPeriod } from '../common/plan-period';
+import { addPlanPeriod, parsePlanPeriodLabel } from '../common/plan-period';
 import { SmsTemplatesService } from './sms-templates.service';
+import { BrandEmailService } from '../email/brand-email.service';
+import { fmtEmailDate } from '../email/brand-email-templates';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { parseWlIdFromSrc, parseAffiliateRawFromSrc } from './hotmart-src';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
@@ -61,7 +63,9 @@ export type HotmartWebhookPayload = {
     buyer?: { email?: string; name?: string };
     subscription?: {
       subscriber?: { code?: string };
-      plan?: { name?: string };
+      /** Plan REAL contratado, ej. "Plan Trimestral 150 USD". Es la fuente
+       *  autoritativa de la periodicidad — ver parsePlanPeriodLabel. */
+      plan?: { id?: number; name?: string };
       date_next_charge?: number;
       status?: string;
     };
@@ -69,6 +73,14 @@ export type HotmartWebhookPayload = {
       transaction?: string;
       status?: string;
       approved_date?: number;
+      // OJO (2026-08-18): en los payloads REALES de compra Hotmart manda
+      // `date_next_charge` ACÁ, dentro de purchase — NO en subscription (donde
+      // en PURCHASE_APPROVED solo llegan plan/status/subscriber). Leerlo solo
+      // de subscription hacía que la fecha oficial de Hotmart se descartara en
+      // todas las altas y cayéramos siempre al fallback local. El evento
+      // UPDATE_SUBSCRIPTION_CHARGE_DATE sí la manda en subscription, así que
+      // hay que mirar ambas: usar nextChargeFromPayload().
+      date_next_charge?: number;
       // Hotmart manda el monto pagado en USD aquí. Lo usamos para calcular
       // la comisión del referido. Si no viene, caemos a plan.priceMonthly.
       // OJO: Hotmart manda la moneda como `currency_value` (ej. "PAB", "COP",
@@ -93,6 +105,25 @@ export type HotmartWebhookPayload = {
   };
 };
 
+/**
+ * Fecha del próximo cobro según Hotmart, mirando las DOS rutas del payload.
+ *
+ * FIX 2026-08-18: los payloads de compra la traen en `data.purchase`; el código
+ * solo leía `data.subscription`, que en PURCHASE_APPROVED ni siquiera existe
+ * (subscription trae plan/status/subscriber y nada más). Resultado: la fecha
+ * oficial se descartaba en todas las altas. El evento
+ * UPDATE_SUBSCRIPTION_CHARGE_DATE sí la manda en subscription, así que hay que
+ * soportar ambas rutas.
+ */
+function nextChargeFromPayload(payload: HotmartWebhookPayload): Date | null {
+  const raw =
+    payload.data?.purchase?.date_next_charge ??
+    payload.data?.subscription?.date_next_charge;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 @Injectable()
 export class HotmartService {
   private logger = new Logger(HotmartService.name);
@@ -106,6 +137,7 @@ export class HotmartService {
     private alerts: PreregAlertsService,
     private commissionExceptions: CommissionExceptionsService,
     private smsTemplates: SmsTemplatesService,
+    private brandEmail: BrandEmailService,
     private wlNotifications: WhiteLabelNotificationsService,
     private businessGroups: BusinessGroupsService,
     private onboardingWebhook: OnboardingWebhookService,
@@ -377,13 +409,12 @@ export class HotmartService {
     // Grupo Empresarial: si el subscriberCode (o el email del responsable en el
     // primer pago) matchea un grupo, el cobro es del GRUPO → activamos/suspendemos
     // el grupo y cascadea a TODOS sus negocios. No hay un tenant único.
-    const nextChargeRaw = payload.data?.subscription?.date_next_charge;
     const groupAction = await this.businessGroups
       .tryHandleHotmartEvent({
         event,
         subscriberCode,
         buyerEmail,
-        nextChargeDate: nextChargeRaw ? new Date(nextChargeRaw) : null,
+        nextChargeDate: nextChargeFromPayload(payload),
       })
       .catch((e) => {
         this.logger.error(`group hotmart handler falló: ${(e as Error)?.message}`);
@@ -994,6 +1025,17 @@ export class HotmartService {
             .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
             .catch(() => null);
         }
+        // Correo del evento. Una disputa NO es un cobro fallido: el dinero se
+        // cobró y el banco lo está discutiendo, así que va su propio texto.
+        this.brandEmail
+          .sendTemplate({
+            templateId:
+              event === 'PURCHASE_PROTEST'
+                ? 'email_dispute'
+                : 'email_payment_failed',
+            tenantId: tenant.id,
+          })
+          .catch(() => null);
         // Aviso a la cadena de atribución (embajador → influencer → admin)
         // si el dueño activó las notificaciones de pago fallido.
         this.notifyReferralChain(tenant.id, tenant.brandName, 'PAYMENT_FAILED').catch(
@@ -1044,21 +1086,45 @@ export class HotmartService {
               ? 'admin_chargeback'
               : 'admin_cancellation';
         this.maybeSendAdminNotice(tenant, adminNoticeId).catch(() => null);
+        // Correo del cierre del ciclo. A diferencia del SMS admin_*, va ON por
+        // defecto: su gate es que la marca tenga con qué enviar.
+        this.brandEmail
+          .sendTemplate({
+            templateId:
+              event === 'PURCHASE_REFUNDED'
+                ? 'email_refunded'
+                : event === 'PURCHASE_CHARGEBACK'
+                  ? 'email_chargeback'
+                  : 'email_cancellation',
+            tenantId: tenant.id,
+          })
+          .catch(() => null);
         return { ok: true, action: 'suspended' };
       }
 
       case 'UPDATE_SUBSCRIPTION_CHARGE_DATE': {
-        const next = payload.data?.subscription?.date_next_charge;
+        const next = nextChargeFromPayload(payload);
         if (next) {
           await this.prisma.tenant.update({
             where: { id: tenant.id },
-            data: { currentPeriodEnd: new Date(next) },
+            data: { currentPeriodEnd: next },
           });
         }
         // Stage 4: aviso "Mover próximo cobro" si la marca lo activó.
         this.maybeSendAdminNotice(tenant, 'admin_charge_date_moved').catch(
           () => null,
         );
+        // Solo si de verdad hay fecha nueva. Sin ella el correo diría "tu
+        // nueva fecha es el <la vieja>" — o dejaría el hueco a la vista.
+        if (next) {
+          this.brandEmail
+            .sendTemplate({
+              templateId: 'email_charge_date_moved',
+              tenantId: tenant.id,
+              vars: { nextChargeDate: fmtEmailDate(next) },
+            })
+            .catch(() => null);
+        }
         return { ok: true, action: 'updated_next_charge' };
       }
 
@@ -1139,14 +1205,32 @@ export class HotmartService {
       where: { id: tenant.id },
       select: { planPeriodicity: true, purchasedAt: true },
     });
-    const nextChargeRaw = payload.data?.subscription?.date_next_charge;
-    let nextCharge = nextChargeRaw ? new Date(nextChargeRaw) : null;
+    // FIX 2026-08-18 (caso El Arrayán express): la periodicidad la escribía SOLO
+    // el form de /activar (dto.planPeriodicity). Si el comprador no entraba por
+    // el link de recuperación con ?email=, quedaba null y TODO el sistema lo
+    // leía como MENSUAL: próximo cobro a +1 mes sobre un plan trimestral (y la
+    // suspensión automática 3 días después de esa fecha falsa, con el cliente
+    // al día), comisión sobre el canónico mensual, y MRR sub-contado.
+    // Hotmart manda el plan REAL en subscription.plan.name ("Plan Trimestral
+    // 150 USD") → fuente autoritativa. Solo lo escribimos cuando falta: un
+    // valor ya cargado (o corregido a mano por un admin) NO se pisa.
+    let effectivePeriod = planForBase?.planPeriodicity ?? null;
+    const periodFromHotmart = effectivePeriod
+      ? null
+      : parsePlanPeriodLabel(payload.data?.subscription?.plan?.name);
+    if (periodFromHotmart) {
+      effectivePeriod = periodFromHotmart;
+      this.logger.log(
+        `activatePurchase tenant=${tenant.id}: planPeriodicity ausente — derivada de Hotmart ("${payload.data?.subscription?.plan?.name}") = ${periodFromHotmart}`,
+      );
+    }
+    let nextCharge = nextChargeFromPayload(payload);
     if (!nextCharge && !tenant.currentPeriodEnd) {
       // Bug #1: el fallback debe respetar la periodicidad real del plan
       // (Trimestral = +3 meses, no +30 días fijos). Antes siempre sumaba 30d.
-      nextCharge = addPlanPeriod(new Date(), planForBase?.planPeriodicity);
+      nextCharge = addPlanPeriod(new Date(), effectivePeriod);
       this.logger.warn(
-        `activatePurchase tenant=${tenant.id}: primer pago sin date_next_charge — fallback por periodicidad ${planForBase?.planPeriodicity ?? 'MENSUAL'}=${nextCharge.toISOString()}`,
+        `activatePurchase tenant=${tenant.id}: primer pago sin date_next_charge — fallback por periodicidad ${effectivePeriod ?? 'MENSUAL'}=${nextCharge.toISOString()}`,
       );
     } else if (!nextCharge) {
       this.logger.warn(
@@ -1156,12 +1240,18 @@ export class HotmartService {
     // lastChargeAt — timestamp del pago aprobado real (no calculado).
     const approvedDate = payload.data?.purchase?.approved_date;
     const lastChargeAt = approvedDate ? new Date(approvedDate) : new Date();
-    const canonicalUsd = await this.getCanonicalBundlePrice(
-      planForBase?.planPeriodicity ?? null,
-    );
+    // Ancla canónica para validar el monto. Usa `effectivePeriod`, NO
+    // planForBase.planPeriodicity: cuando la DB tiene la periodicidad en null
+    // (caso El Arrayán) esa variable ya trae la derivada de Hotmart. Con null,
+    // getCanonicalBundlePrice cae a MENSUAL=$68 y resolvePaidUsd valida en banda
+    // [0.3x,1.6x]=[20,109]: un trimestral real de $150 quedaría FUERA de banda,
+    // se descartaría como moneda local y el pago se registraría como $68.
+    const canonicalUsd = await this.getCanonicalBundlePrice(effectivePeriod);
     // El monto REAL pagado (USD), validado contra el canónico para descartar
     // moneda local (Hotmart no manda currency_code). Va a AUDITORÍA
-    // (lastPaymentAmountUsd), NUNCA a la base de comisiones.
+    // (lastPaymentAmountUsd), NUNCA a la base de comisiones: la comisión se
+    // calcula sobre el precio PACTADO canónico. Solo se persiste si vino > 0
+    // (no pisamos con 0/undefined en eventos que no traen price).
     const realPriceUsd = this.resolvePaidUsd(
       payload,
       'activatePurchase',
@@ -1171,6 +1261,12 @@ export class HotmartService {
       where: { id: tenant.id },
       data: {
         status: 'ACTIVE',
+        // Periodicidad derivada del plan de Hotmart cuando el alta la dejó en
+        // null (ver comentario arriba). Va en el mismo update que el resto para
+        // que la fecha de cobro y el canónico de la comisión queden coherentes
+        // de una. Como el canónico del plan ES la base de comisión cuando no
+        // hay override manual, sin esto un trimestral cobraba sobre $68.
+        ...(periodFromHotmart ? { planPeriodicity: periodFromHotmart } : {}),
         // 2026-07-31: el monto crudo (FX) va a auditoría, NO a la base de
         // comisiones. subscriptionPriceUsd es override MANUAL only; si está
         // vacío las comisiones usan el canónico del plan. Antes se pisaba acá
@@ -1308,6 +1404,21 @@ export class HotmartService {
           nextChargeInfo,
         }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+    }
+    // CORREO del mismo hecho: primera compra → "panel listo"; cuenta que
+    // revivió → "reactivada"; renovación → "pago confirmado".
+    if (wasSuspended || !alreadyConfirmedTx) {
+      this.brandEmail
+        .sendTemplate({
+          templateId: wasSuspended
+            ? 'email_account_reactivated'
+            : isFirstHotmartPurchase
+              ? 'email_panel_ready'
+              : 'email_payment_confirmed',
+          tenantId: tenant.id,
+          vars: { nextChargeDate: nextCharge ? fmtEmailDate(nextCharge) : '' },
+        })
         .catch(() => null);
     }
 
