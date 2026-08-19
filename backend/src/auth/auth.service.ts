@@ -11,6 +11,7 @@ import { AppConfigService } from '../common/config/app-config.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { TwoFactorService } from './two-factor.service';
 import { PreregAlertsService } from './prereg-alerts.service';
+import { resolvePeriodicity } from './plan-from-offer';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import {
@@ -991,33 +992,38 @@ export class AuthService {
         purchase?.original_offer_price?.currency_code ??
         null) as string | null;
 
-    // Heurística: derivar periodicidad del nombre del producto. Si no
-    // matchea, fallback a inferir por monto USD aproximado vs landing
-    // plans (los 4 default son ~68/150/278/500 USD por el sprint
-    // 2026-06-04). El backend NO depende de esto para activar — es
-    // solo informativo para el pre-fill UI.
+    // Periodicidad — precedencia DETERMINISTA (forward fix #2): OFFER CODE del
+    // pago matcheado contra el `off=` de los checkoutUrls de los 4 planes →
+    // NOMBRE del producto → MONTO (solo si la moneda es USD explícita). El offer
+    // code arregla el bug del "Plan Anual": un mensual pagado en moneda local sin
+    // `currency_code` antes se adivinaba por monto (value alto → ANUAL). Solo
+    // informativo para el pre-fill UI; el backend NO depende de esto para activar.
     const productName: string = String(product?.name ?? '');
-    let periodicity:
-      | 'MENSUAL'
-      | 'TRIMESTRAL'
-      | 'SEMESTRAL'
-      | 'ANUAL'
-      | null = null;
-    const upper = productName.toUpperCase();
-    if (/ANUAL/.test(upper)) periodicity = 'ANUAL';
-    else if (/SEMESTRAL/.test(upper)) periodicity = 'SEMESTRAL';
-    else if (/TRIMESTRAL/.test(upper)) periodicity = 'TRIMESTRAL';
-    else if (/MENSUAL|MENSU/.test(upper)) periodicity = 'MENSUAL';
-    else if (value != null && (purchaseCurrency === 'USD' || !purchaseCurrency)) {
-      // Heurística por monto SOLO si la moneda es USD (que es donde los
-      // landing plans fueron definidos: 68/150/278/500). En COP/BRL/etc
-      // el monto convertido no matchea, así que dejamos `periodicity`
-      // en null y el frontend cae al picker normal.
-      if (value >= 400) periodicity = 'ANUAL';
-      else if (value >= 250) periodicity = 'SEMESTRAL';
-      else if (value >= 120) periodicity = 'TRIMESTRAL';
-      else if (value > 0) periodicity = 'MENSUAL';
-    }
+    const offerCode: string | null = purchase?.offer?.code?.trim?.() || null;
+    const PLAN_URL_KEYS = {
+      mensual: 'landing.plans.mensual.checkoutUrl',
+      trimestral: 'landing.plans.trimestral.checkoutUrl',
+      semestral: 'landing.plans.semestral.checkoutUrl',
+      anual: 'landing.plans.anual.checkoutUrl',
+    } as const;
+    const urlRows = await this.prisma.setting.findMany({
+      where: { key: { in: Object.values(PLAN_URL_KEYS) } },
+      select: { key: true, value: true },
+    });
+    const urlByKey = new Map(urlRows.map((r) => [r.key, r.value]));
+    const plans: Record<string, string | null> = {
+      mensual: urlByKey.get(PLAN_URL_KEYS.mensual) ?? null,
+      trimestral: urlByKey.get(PLAN_URL_KEYS.trimestral) ?? null,
+      semestral: urlByKey.get(PLAN_URL_KEYS.semestral) ?? null,
+      anual: urlByKey.get(PLAN_URL_KEYS.anual) ?? null,
+    };
+    const periodicity = resolvePeriodicity({
+      offerCode,
+      plans,
+      productName,
+      value,
+      currency: purchaseCurrency,
+    });
 
     return {
       found: true,
