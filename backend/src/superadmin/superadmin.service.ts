@@ -1289,13 +1289,27 @@ export class SuperAdminService {
       where: { id },
       select: { name: true, slug: true },
     });
-    const brandName = wl?.name || 'Clubify';
+    // Renderizamos con un NEGOCIO real de la marca. El marco del correo (logo,
+    // color, pie) sale del negocio, no de la marca: sin uno, la prueba llegaría
+    // en gris y sin logo — o sea, sin parecerse a lo que recibe el cliente, que
+    // es exactamente lo que se quiere comprobar. El destinatario sigue siendo
+    // el correo de prueba, no el del negocio.
+    const muestra = await this.prisma.tenant
+      .findFirst({
+        where: { whiteLabelId: id, deletedAt: null },
+        select: { id: true, brandName: true },
+        orderBy: { createdAt: 'asc' },
+      })
+      .catch(() => null);
+    const brandName = muestra?.brandName || wl?.name || 'Clubify';
     const res = await this.brandEmail.sendTemplate({
       templateId,
       whiteLabelId: id,
+      tenantId: muestra?.id ?? null,
       to: to.trim(),
       overrides: draft,
-      // Valores de ejemplo: sin tenant no hay de dónde sacarlos.
+      // Valores de ejemplo para los tokens que dependen del ciclo de cobro:
+      // en una prueba no hay una fecha real que mostrar.
       vars: {
         brandName,
         ownerName: 'Prueba',
@@ -1308,7 +1322,7 @@ export class SuperAdminService {
     if (!res.sent) {
       const motivo =
         res.reason === 'no_connection'
-          ? 'La marca no tiene remitente ni cuenta de email propios.'
+          ? 'La marca no tiene subcuenta de Grow Business conectada.'
           : res.reason === 'template_disabled'
             ? 'Ese correo está apagado para esta marca.'
             : 'No se pudo enviar el correo de prueba.';
