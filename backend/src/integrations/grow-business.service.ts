@@ -455,10 +455,14 @@ export class GrowBusinessService {
           'No se pudo crear/buscar el contacto en Grow Business. Revisa API key, location y el correo.',
       };
     }
+    // Campos segun el spec oficial de HighLevel (apps/conversations.json):
+    // el cuerpo HTML va en `html`, el asunto en `subject`, y el texto plano en
+    // `message`. No existe `emailBody` — mandarlo seria basura en el request.
+    // `emailFrom` se omite a proposito: sin el, el remitente lo resuelve la
+    // subcuenta de la marca, que es justo lo que queremos.
     return this.postChannelMessage(creds.apiKey, contactId, 'Email', opts?.text ?? '', {
       subject,
       html,
-      ...(opts?.text ? { emailBody: opts.text } : {}),
     });
   }
 
