@@ -17,11 +17,15 @@ import {
 export function LanguageSwitcher({
   variant = 'floating',
   extraLocales,
+  docked = false,
 }: {
   variant?: 'floating' | 'inline';
   /** Idiomas adicionales a los DISPLAY_LOCALES por defecto, para marcas que
    *  ofrecen más idiomas (ej. Sellea agrega italiano). Se anexan sin duplicar. */
   extraLocales?: Locale[];
+  /** true = sin `fixed` propio (lo posiciona un contenedor flotante padre);
+   *  el dropdown igual abre hacia arriba (está al fondo). */
+  docked?: boolean;
 }) {
   const [locale, setLocale] = useLocale();
   const [open, setOpen] = useState(false);
@@ -39,15 +43,18 @@ export function LanguageSwitcher({
     return () => document.removeEventListener('mousedown', handle);
   }, [open]);
 
-  const isFloating = variant === 'floating';
+  const isFloating = variant === 'floating' && !docked;
+  const dropUp = docked || isFloating; // al fondo → el menú abre hacia arriba
 
   return (
     <div
       ref={ref}
       className={
-        isFloating
-          ? 'fixed bottom-3 left-3 z-40'
-          : 'inline-block'
+        docked
+          ? 'relative'
+          : isFloating
+            ? 'fixed bottom-3 left-3 z-40'
+            : 'inline-block'
       }
     >
       <button
@@ -77,8 +84,8 @@ export function LanguageSwitcher({
       {open && (
         <div
           className={
-            isFloating
-              ? 'absolute bottom-full mb-1.5 left-0 min-w-[140px] rounded-xl bg-white shadow-lg border border-line overflow-hidden animate-in fade-in slide-in-from-bottom-1 duration-150'
+            dropUp
+              ? 'absolute bottom-full mb-1.5 left-0 min-w-[140px] rounded-xl bg-white shadow-lg border border-line overflow-hidden animate-in fade-in slide-in-from-bottom-1 duration-150 z-50'
               : 'absolute mt-1.5 left-0 min-w-[140px] rounded-xl bg-white shadow-lg border border-line overflow-hidden z-50'
           }
         >

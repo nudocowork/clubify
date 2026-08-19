@@ -1098,14 +1098,24 @@ function StorefrontPublicInner() {
       {/* Popup del menú: prioriza popups programados (#5), cae al legacy single. */}
       <StorefrontPopup menuPopups={s.menuPopups} legacy={s.popup} slug={slug} />
 
-      {/* Red de Domicilios (Fase 3A): seguimiento "mis pedidos" por teléfono.
-          Solo en el menú de domicilios para no recargar el de mesa. */}
-      {mode === 'delivery' && <DeliveryTrackWidget slug={slug} primary={primary} />}
+      {/* Acciones flotantes inferiores-IZQUIERDA agrupadas en UN contenedor
+          (flex-col + gap) para que NUNCA se superpongan (idioma vs seguimiento).
+          Respeta el safe-area de iOS. El idioma va arriba → su dropdown abre
+          hacia arriba sin tapar el botón de seguimiento (que queda en la esquina). */}
+      <div
+        className="fixed left-3 z-40 flex flex-col items-start gap-2"
+        style={{ bottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
+      >
+        <LanguageSwitcher docked />
+        {/* Red de Domicilios (Fase 3A): seguimiento "mis pedidos" por teléfono.
+            Solo en el menú de domicilios para no recargar el de mesa. */}
+        {mode === 'delivery' && <DeliveryTrackWidget slug={slug} primary={primary} docked />}
+      </div>
 
       {/* Marca del negocio (per marca blanca). Hereda de s.brand (el backend
           lo resuelve por el whiteLabelId del tenant). Si no viene, NO mostramos
           "Hecho con Clubify" en un negocio de otra marca — ocultamos el badge
-          en vez de filtrar branding ajeno. */}
+          en vez de filtrar branding ajeno. Va inferior-DERECHA, no choca. */}
       {s.brand && (
         <BrandBadge
           brand={s.brand as BrandBadgeBrand}
@@ -1113,7 +1123,6 @@ function StorefrontPublicInner() {
           dark={pageIsDark}
         />
       )}
-      <LanguageSwitcher />
     </div>
   );
 }
