@@ -142,6 +142,9 @@ type Product = {
   variantPriceMode?: 'DELTA' | 'ABSOLUTE';
   imageUrl: string | null;
   tags: string[];
+  /** Destacado por el negocio: además de ir a la sección "Recomendados",
+   *  muestra el badge dentro de su categoría. */
+  isRecommended?: boolean;
   variants: Variant[];
   extras: Extra[];
 };
@@ -2666,7 +2669,7 @@ function LayoutGrid({ menu, primary, currency, currencySymbol, onPick }: LP) {
                       🍽
                     </div>
                   )}
-                  <PrimaryProductBadge tags={p.tags} variant="overlay" />
+                  <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="overlay" />
                   <div
                     className="absolute bottom-2 right-2 w-9 h-9 rounded-full text-white shadow-lg text-xl flex items-center justify-center"
                     style={{ background: primary }}
@@ -2741,7 +2744,7 @@ function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick }: LP
                           🍽
                         </div>
                       )}
-                      <PrimaryProductBadge tags={p.tags} variant="overlay" />
+                      <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="overlay" />
                     </div>
                     <div className="mt-1 px-0.5">
                       <div className="text-xs font-semibold leading-tight line-clamp-2 min-h-[2.4em]">
@@ -2810,7 +2813,7 @@ function LayoutClean({ menu, primary, currency, currencySymbol, onPick }: LP) {
                 )}
                 {p.tags[0] && (
                   <div className="mt-1.5">
-                    <PrimaryProductBadge tags={p.tags} variant="inline" />
+                    <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="inline" />
                   </div>
                 )}
               </button>
@@ -2884,7 +2887,7 @@ function LayoutCompact({ menu, primary, currency, currencySymbol, onPick }: LP) 
                 <div className="flex items-baseline justify-between gap-2">
                   <div className="font-semibold text-sm flex items-center gap-1.5">
                     {p.name}
-                    <PrimaryProductBadge tags={p.tags} variant="inline" />
+                    <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="inline" />
                   </div>
                   <div className="font-bold text-sm whitespace-nowrap">
                     {fmtProductPrice(p, currency, currencySymbol)}
@@ -2952,7 +2955,7 @@ function LayoutCluvi({ menu, primary, currency, currencySymbol, onPick }: LP) {
                       🍽
                     </div>
                   )}
-                  <PrimaryProductBadge tags={p.tags} variant="overlay" />
+                  <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="overlay" />
                 </div>
                 <div className="flex-1 p-3 sm:p-4 min-w-0 flex flex-col">
                   <div className="font-bold text-base leading-tight">
