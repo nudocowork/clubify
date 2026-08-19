@@ -754,12 +754,18 @@ export class BillingService {
    */
   private async sendPreChargeReminderToday(now: Date) {
     const dayMs = 24 * 60 * 60 * 1000;
-    const to = new Date(now.getTime() + dayMs);
+    // La ventana arranca a las 00:00 de HOY, no en `now`. El cron corre a las
+    // 3AM: con `gte: now` un negocio cuyo cobro cae entre las 00:00 y las 03:00
+    // quedaba fuera y nunca recibía el aviso de "hoy renovamos" — pasaba
+    // directo a la vía de mora al día siguiente.
+    const desde = new Date(now);
+    desde.setHours(0, 0, 0, 0);
+    const to = new Date(desde.getTime() + dayMs);
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
         isCampaignHost: false,
-        currentPeriodEnd: { gte: now, lt: to },
+        currentPeriodEnd: { gte: desde, lt: to },
         // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
         // marcas que cobran directo por Stripe (antes solo Clubify).
         OR: [
