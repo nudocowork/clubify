@@ -1,13 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { EmailService } from './email.service';
 import { emailShell } from './templates/templates';
+import { brandBaseUrl, BRAND_EMAIL_SELECT } from './brand-email-creds.util';
+import { GrowBusinessService } from '../integrations/grow-business.service';
 import {
-  brandBaseUrl,
-  brandEmailSender,
-  BrandEmailSender,
-  BRAND_EMAIL_SELECT,
-} from './brand-email-creds.util';
+  brandGrowCreds,
+  BRAND_GROW_SELECT,
+} from '../integrations/brand-sms-creds.util';
 import {
   EmailTemplateDef,
   findEmailTemplate,
@@ -25,8 +24,13 @@ type ResolvedBrand = {
   name: string;
   slug: string;
   isPlatform: boolean;
-  /** De dónde sale el correo: cuenta propia, remitente propio, o nada. */
-  sender: BrandEmailSender;
+  /**
+   * Subcuenta de Grow Business de la marca — el transporte. Null = la marca no
+   * tiene conexión y por lo tanto no envía correos.
+   */
+  grow: { locationId: string; apiKey: string } | null;
+  /** Correo de contacto de la marca, para el token {supportEmail}. */
+  supportEmail: string | null;
   /** Dominio de la marca — los links del correo apuntan acá. */
   baseUrl: string;
 };
@@ -62,11 +66,11 @@ export type SendBrandEmailResult =
  *
  * Reglas, en orden:
  *  1. La plantilla existe y no está apagada para la marca.
- *  2. La marca puede enviar (ver `brandEmailSender`): con su cuenta Resend
- *     propia (`emailConfig`), o con su remitente propio sobre la cuenta de la
- *     plataforma (`emailFrom`). La marca `clubify` y los negocios sin marca
- *     usan la cuenta de plataforma. Una marca blanca sin ninguno de los dos NO
- *     envía: mandar desde `@soyclubify.com` la delataría y rompería DMARC.
+ *  2. La marca tiene subcuenta de Grow Business conectada. El correo sale por
+ *     ESE canal — el mismo que ya usan el SMS y el WhatsApp, con la conexión
+ *     que la marca ya tiene probada. El remitente lo pone la subcuenta, así que
+ *     cada marca escribe desde su propio dominio sin configurar nada aparte.
+ *     Sin subcuenta no se envía nada.
  *  3. El cuerpo es texto plano editable por la marca; el HTML de marca (logo,
  *     color, pie) lo pone el sistema con `emailShell`.
  *
@@ -78,7 +82,7 @@ export class BrandEmailService {
 
   constructor(
     private prisma: PrismaService,
-    private email: EmailService,
+    private grow: GrowBusinessService,
   ) {}
 
   /**
@@ -119,10 +123,10 @@ export class BrandEmailService {
       );
       if (!enabled) return { sent: false, reason: 'template_disabled' };
 
-      // Gate de envío: una marca blanca sin cuenta ni remitente propios calla.
-      if (brand.sender.mode === 'none') {
+      // Gate de envío: sin subcuenta de Grow Business no hay por dónde mandar.
+      if (!brand.grow) {
         this.logger.warn(
-          `Correo ${def.id} omitido: la marca ${brand.name} no tiene remitente ni cuenta de email propios.`,
+          `Correo ${def.id} omitido: la marca ${brand.name} no tiene subcuenta de Grow Business conectada.`,
         );
         return { sent: false, reason: 'no_connection' };
       }
@@ -147,17 +151,19 @@ export class BrandEmailService {
       const subject = interpolateEmail(rawSubject, vars);
       const body = interpolateEmail(rawBody, vars);
 
-      const ok = await this.email.sendWithCreds(brand.sender.creds, {
+      const r = await this.grow.sendEmailWithCreds(
+        brand.grow,
         to,
         subject,
-        html: this.renderHtml({ def, brand, tenant, body, vars }),
-        text: body,
-        // En modo `shared` el mensaje viaja por la cuenta de la plataforma, así
-        // que el remitente de la marca hay que ponerlo acá.
-        ...(brand.sender.from ? { from: brand.sender.from } : {}),
-        ...(brand.sender.replyTo ? { replyTo: brand.sender.replyTo } : {}),
-      });
-      if (!ok) return { sent: false, reason: 'send_failed' };
+        this.renderHtml({ def, brand, tenant, body, vars }),
+        { text: body },
+      );
+      if (!r.ok) {
+        this.logger.warn(
+          `Correo ${def.id} no salió (${brand.name}): ${'message' in r ? r.message : 'error'}`,
+        );
+        return { sent: false, reason: 'send_failed' };
+      }
       this.logger.log(`Correo ${def.id} enviado a ${to} (marca ${brand.name})`);
       return { sent: true };
     } catch (e) {
@@ -173,17 +179,33 @@ export class BrandEmailService {
 
   /** Marca + credenciales. Sin marca (negocio legacy) = plataforma. */
   private async resolveBrand(whiteLabelId: string | null): Promise<ResolvedBrand> {
-    const platform = (id: string | null): ResolvedBrand => ({
-      id,
-      name: 'Clubify',
-      slug: PLATFORM_SLUG,
-      isPlatform: true,
-      sender: { mode: 'platform' as const, creds: null, from: null, replyTo: null },
-      baseUrl: this.appUrl(),
-    });
+    // Cada marca manda por SU subcuenta: la de Sellea con la de Sellea, la de
+    // Clubify con la de Clubify. Un negocio legacy sin marca asignada es de
+    // Clubify de hecho, así que sale por la subcuenta de Clubify — no se queda
+    // mudo ni se cuela por la subcuenta de otra marca.
+    const platform = async (id: string | null): Promise<ResolvedBrand> => {
+      const wl = await this.prisma.whiteLabel
+        .findFirst({
+          where: { slug: PLATFORM_SLUG },
+          select: { ...BRAND_GROW_SELECT, ...BRAND_EMAIL_SELECT },
+        })
+        .catch(() => null);
+      return {
+        id: id ?? wl?.id ?? null,
+        name: (wl?.name || '').trim() || 'Clubify',
+        slug: PLATFORM_SLUG,
+        isPlatform: true,
+        grow: brandGrowCreds(wl),
+        supportEmail: wl?.contactEmail ?? null,
+        baseUrl: brandBaseUrl(wl, this.appUrl()),
+      };
+    };
     if (!whiteLabelId) return platform(null);
     const wl = await this.prisma.whiteLabel
-      .findUnique({ where: { id: whiteLabelId }, select: BRAND_EMAIL_SELECT })
+      .findUnique({
+        where: { id: whiteLabelId },
+        select: { ...BRAND_GROW_SELECT, ...BRAND_EMAIL_SELECT },
+      })
       .catch(() => null);
     if (!wl) return platform(whiteLabelId);
     const isPlatform = wl.slug === PLATFORM_SLUG;
@@ -192,7 +214,8 @@ export class BrandEmailService {
       name: (wl.name || '').trim() || 'Clubify',
       slug: wl.slug,
       isPlatform,
-      sender: brandEmailSender(wl, { isPlatform }),
+      grow: brandGrowCreds(wl),
+      supportEmail: wl.contactEmail ?? null,
       baseUrl: brandBaseUrl(wl, this.appUrl()),
     };
   }
@@ -266,7 +289,7 @@ export class BrandEmailService {
       // no por soyclubify.com.
       panelUrl: `${ctx.brand.baseUrl}/app`,
       loginEmail: ctx.to,
-      supportEmail: ctx.brand.sender.replyTo ?? '',
+      supportEmail: ctx.brand.supportEmail ?? '',
       nextChargeDate: ctx.tenant?.currentPeriodEnd
         ? fmtEmailDate(ctx.tenant.currentPeriodEnd)
         : '',

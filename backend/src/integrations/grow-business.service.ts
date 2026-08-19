@@ -376,14 +376,102 @@ export class GrowBusinessService {
   }
 
   /**
+   * Upsert de contacto por CORREO (el de SMS usa el teléfono). Mismo endpoint;
+   * cambia la llave con la que Grow Business identifica al contacto.
+   */
+  private async upsertContactByEmail(
+    locationId: string,
+    apiKey: string,
+    email: string,
+  ): Promise<string | null> {
+    try {
+      const res = await fetch(`${this.API_BASE}/contacts/upsert`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(15000),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          Version: this.API_VERSION,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ locationId, email: email.trim().toLowerCase() }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        this.logger.warn(
+          `upsertContactByEmail failed status=${res.status} body=${text.slice(0, 200)}`,
+        );
+        return null;
+      }
+      const data = await res.json().catch(() => null as any);
+      const id = data?.contact?.id ?? data?.id ?? data?.contactId ?? null;
+      if (!id) {
+        this.logger.warn(
+          `upsertContactByEmail OK pero sin id: ${JSON.stringify(data).slice(0, 200)}`,
+        );
+        return null;
+      }
+      return id;
+    } catch (e: any) {
+      this.logger.warn(`upsertContactByEmail threw: ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
+  /**
+   * Envía un CORREO por la subcuenta de Grow Business de la marca — el mismo
+   * camino que ya usan el SMS y el WhatsApp, con la misma conexión probada.
+   *
+   * El REMITENTE lo pone la subcuenta: como cada marca tiene la suya, el correo
+   * sale con el dominio y la firma de esa marca sin que haya que configurar
+   * nada aparte. Por eso NO forzamos `emailFrom`: mandar uno sin verificar en
+   * la subcuenta haría rebotar el envío.
+   *
+   * Nada de prefijo `#switch_unique|n|` — eso enruta números de teléfono y no
+   * significa nada en un correo; iría a parar al cuerpo del mensaje.
+   */
+  async sendEmailWithCreds(
+    creds: { locationId: string; apiKey: string },
+    toEmail: string,
+    subject: string,
+    html: string,
+    opts?: { text?: string },
+  ) {
+    if (!creds.locationId || !creds.apiKey) {
+      return { ok: false as const, message: 'Credenciales incompletas' };
+    }
+    const to = (toEmail ?? '').trim();
+    if (!to) return { ok: false as const, message: 'Destinatario vacío' };
+
+    const contactId = await this.upsertContactByEmail(
+      creds.locationId,
+      creds.apiKey,
+      to,
+    );
+    if (!contactId) {
+      return {
+        ok: false as const,
+        message:
+          'No se pudo crear/buscar el contacto en Grow Business. Revisa API key, location y el correo.',
+      };
+    }
+    return this.postChannelMessage(creds.apiKey, contactId, 'Email', opts?.text ?? '', {
+      subject,
+      html,
+      ...(opts?.text ? { emailBody: opts.text } : {}),
+    });
+  }
+
+  /**
    * Helper interno: POST /conversations/messages con `type` específico.
    * Devuelve mismo shape que las funciones públicas (ok/status/message/id).
    */
   private async postChannelMessage(
     apiKey: string,
     contactId: string,
-    type: 'SMS' | 'WhatsApp',
+    type: 'SMS' | 'WhatsApp' | 'Email',
     message: string,
+    extra?: Record<string, unknown>,
   ) {
     try {
       const res = await fetch(`${this.API_BASE}/conversations/messages`, {
@@ -397,7 +485,7 @@ export class GrowBusinessService {
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
-        body: JSON.stringify({ type, contactId, message }),
+        body: JSON.stringify({ type, contactId, message, ...(extra ?? {}) }),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');

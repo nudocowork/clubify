@@ -22,7 +22,6 @@ import {
 } from '../email/brand-email-templates';
 import { BrandEmailService } from '../email/brand-email.service';
 import {
-  brandEmailSender,
   BRAND_EMAIL_SELECT,
 } from '../email/brand-email-creds.util';
 import { GrowBusinessService } from '../integrations/grow-business.service';
@@ -1234,9 +1233,9 @@ export class SuperAdminService {
         .catch(() => null))?.value ?? '';
     const growConnected = !!brandGrowCreds(wl);
     // ¿Sale algún correo de esta marca? (cuenta propia o remitente propio)
-    const emailConnected =
-      brandEmailSender(wl, { isPlatform: wl.slug === 'clubify' }).mode !==
-      'none';
+    // El correo sale por la MISMA subcuenta de Grow Business que el SMS, asi
+    // que "conectado" significa exactamente eso: la marca tiene su subcuenta.
+    const emailConnected = growConnected;
     return {
       smsEnabled,
       growConnected,
