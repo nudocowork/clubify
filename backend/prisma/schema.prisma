@@ -5658,3 +5658,133 @@ model StampEvent {
   @@index([programId, customerId, createdAt])
   @@index([allyBusinessId, createdAt])
 }
+
+// ============================================================
+//        MOTOR DE EMAIL MARKETING  (tablas Mkt*)
+// ============================================================
+//
+// PROCEDENCIA: estos modelos NO se escribieron acá. Existen en la base de
+// PRODUCCIÓN y se trajeron con `prisma db pull` el 2026-08-19. El código que
+// los usa vive en otro proyecto (el que construyó el módulo de Email
+// Marketing), no en este repo.
+//
+// POR QUÉ ESTÁN ACÁ: para que Prisma sepa que existen. Sin esta declaración,
+// cualquier `prisma db push` desde este repo las consideraría sobrantes y las
+// BORRARÍA junto con todos sus datos (contactos, workflows, envíos).
+//
+// ⚠️ AUN ASÍ, NO CORRAS `prisma db push` CONTRA PRODUCCIÓN.
+// La introspección no pudo traer dos índices ÚNICOS PARCIALES de MktContact,
+// porque Prisma no sabe expresarlos:
+//     MktContact_wl_email_uq      UNIQUE (whiteLabelId, email)
+//                                 WHERE email IS NOT NULL AND NOT deleted
+//     MktContact_wl_phoneNorm_uq  UNIQUE (whiteLabelId, phoneNorm)
+//                                 WHERE phoneNorm IS NOT NULL AND NOT deleted
+// Un `db push` los borraría y el motor empezaría a duplicar contactos.
+//
+// Para cambios de esquema en producción usa un script aditivo de SQL crudo,
+// como backend/scripts/apply-email-config-migration.cjs.
+//
+// Ver docs/ESTADO-PRODUCCION.md antes de tocar nada de esto.
+// ============================================================
+
+model MktContact {
+  id                 String    @id
+  whiteLabelId       String
+  name               String?
+  email              String?
+  phone              String?
+  phoneKey           String?
+  phoneNorm          String?
+  company            String?
+  tags               String[]
+  optOut             Boolean   @default(false)
+  providerContactId  String?
+  providerLocationId String?
+  providerSyncedAt   DateTime?
+  deleted            Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now())
+
+  @@index([whiteLabelId, deleted])
+  @@index([whiteLabelId, email])
+  @@index([whiteLabelId, phoneKey])
+}
+
+model MktWorkflow {
+  id           String   @id
+  whiteLabelId String
+  name         String
+  folderId     String?
+  status       String   @default("draft")
+  trigger      Json     @default("{}")
+  rootId       String?
+  nodes        Json     @default("{}")
+  drip         Json     @default("{}")
+  sendWindow   Json     @default("{}")
+  reentry      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now())
+
+  @@index([whiteLabelId, status])
+}
+
+model MktWorkflowFolder {
+  id           String   @id
+  whiteLabelId String
+  name         String
+  position     Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([whiteLabelId])
+}
+
+model MktEnrollment {
+  id            String    @id
+  workflowId    String
+  contactId     String
+  whiteLabelId  String
+  status        String    @default("active")
+  currentNodeId String?
+  resumeAt      DateTime?
+  waitKind      String?
+  waitingNodeId String?
+  waitingSince  DateTime?
+  context       Json      @default("{}")
+  enteredAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  @@index([status, resumeAt])
+  @@index([whiteLabelId, status])
+  @@index([workflowId, contactId])
+}
+
+model MktAction {
+  id                String    @id
+  workflowId        String
+  enrollmentId      String
+  contactId         String
+  whiteLabelId      String
+  nodeId            String
+  channel           String
+  status            String    @default("pending")
+  attempts          Int       @default(0)
+  subject           String?
+  body              String?
+  error             String?
+  providerMessageId String?
+  payload           Json      @default("{}")
+  deliveredAt       DateTime?
+  openedAt          DateTime?
+  clickedAt         DateTime?
+  bouncedAt         DateTime?
+  nextAttemptAt     DateTime?
+  createdAt         DateTime  @default(now())
+  completedAt       DateTime?
+
+  @@index([contactId])
+  @@index([enrollmentId, nodeId])
+  @@index([providerMessageId])
+  @@index([status, nextAttemptAt])
+  @@index([workflowId, createdAt])
+}
