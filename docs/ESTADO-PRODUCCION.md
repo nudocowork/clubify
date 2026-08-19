@@ -12,6 +12,11 @@
 
 ### 1. Nunca `prisma db push` contra producción
 
+> Esto ya no depende de que alguien se acuerde: `backend/scripts/guard-db-target.cjs`
+> aborta cualquier comando de Prisma que mute el esquema si `DATABASE_URL` no
+> apunta a una base local. Está enganchado en `npm run prisma:migrate` y
+> `npm run db:push`. Comprobar a qué base apuntas: `npm run db:target`.
+
 Prisma borra lo que no está en el schema. Producción tiene tablas y **índices
 únicos parciales** que el schema no puede expresar; un `db push` los elimina en
 silencio y con ellos los datos.
@@ -21,6 +26,9 @@ Para cambiar el esquema en producción: **script aditivo de SQL crudo**, con
 `backend/scripts/apply-email-config-migration.cjs`.
 
 ### 2. Nunca desplegar sin saber qué corre hoy
+
+El `startCommand` de Railway es `node dist/main.js` a secas: **el despliegue no
+corre migraciones**. Cambiar el esquema es siempre un paso manual y deliberado.
 
 El backend se ha desplegado con `railway up` **desde directorios locales**, no
 desde git. Eso significa que producción puede tener código que no está en
