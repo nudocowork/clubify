@@ -88,6 +88,46 @@ negocios que hoy no lo tienen — mucho más de lo que se pidió, y con costo.
       cobro programado, así que no urge, pero al primero que entre habrá que
       vincularle su subcuenta.
 
+### PENDIENTE (decidido: se hace después) — 3 negocios usan la conexión general de Clubify como si fuera suya
+
+`MOTILART`, `NudoCowork` y `Wok Explosivo` tienen `growBusinessLocationId =
+ANHzFDaLU8zKeA3nFCBk` — la integración **general de Clubify** — como sus
+credenciales propias. Resultado: cuando esos negocios mandan a **sus** clientes
+(solicitud de reseña, aviso de delivery), el mensaje sale con la identidad de
+Clubify. La dirección queda invertida.
+
+Por esa misma conexión pasan dos tipos de mensaje opuestos, y solo uno está mal:
+
+| Sale de | Hacia | Canales | ¿Va la conexión general? |
+|---|---|---|---|
+| El negocio | Sus clientes | reseñas, delivery | **No** — es el error |
+| Nosotros | El negocio | cobros, correos | **Sí** — es lo correcto |
+
+**Está enganchada en DOS capas**, y el resolver usa `asignada > propias > marca`:
+
+1. `Tenant.growBusinessLocationId` / `growBusinessApiKey` (creds propias)
+2. `Tenant.reviewAlertsAccountId` / `deliveryAlertsAccountId` (subcuentas asignadas)
+
+Quitar solo la capa 1 **no cambia nada** en Wok Explosivo, porque sus asignadas
+apuntan a la misma subcuenta. Hay que limpiar las dos.
+
+**Qué hacer cuando toque** (medido con
+`backend/scripts/diag-impacto-quitar-creds.cjs`):
+
+- Limpiar `growBusiness*` en los 3.
+- Limpiar `reviewAlertsAccountId` y `deliveryAlertsAccountId` **solo** donde
+  apunten a `ANHzFDaLU8zKeA3nFCBk`.
+- **Conservar `billingAlertsAccountId`** — ése es nosotros→ellos y es correcto.
+  A `NudoCowork` hay que **asignárselo** (hoy no lo tiene y perdería los avisos
+  de cobro al quitarle las creds propias).
+
+**Qué se pierde:** los 3 dejan de mandar reseñas, y Wok Explosivo también los
+avisos de delivery, hasta que conecten su propio GHL. Wok Explosivo (36 pedidos)
+y MOTILART están **activos**.
+
+**No se hizo ahora por decisión de Javier** (2026-08-20): se hará cuando cada
+negocio tenga su propia subcuenta.
+
 ### Riesgos y avisos
 - Se midió **antes** de tocar nada: **0 negocios** disparan mensaje en la próxima
   corrida del cron (2 están en mora vieja, fuera de la ventana D+1..D+3). Abrir
