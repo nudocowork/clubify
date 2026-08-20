@@ -58,10 +58,26 @@ export function parsePlanPeriodLabel(
 
 /** Suma un ciclo completo (en MESES, no 30 días fijos) a una fecha según la
  *  periodicidad del plan. Es el cálculo correcto del "próximo cobro" cuando
- *  Hotmart no envía date_next_charge. Usa setMonth para respetar meses reales
- *  (un Trimestral = +3 meses, no +90 días). */
+ *  la pasarela no envía la fecha, y el que usa el pago manual.
+ *
+ *  FIX 2026-08-20 — fin de mes. `setMonth` a secas NO acota el día: si el día
+ *  no existe en el mes destino, JavaScript desborda al siguiente. Medido:
+ *
+ *    31-ene + 1 mes  →  3-mar   (febrero desaparecía)
+ *    31-mar + 1 mes  →  1-may
+ *    31-ago + 6 meses → 3-mar
+ *
+ *  El error se propagaba ciclo a ciclo en el auto-reparador, y hacía que los
+ *  recordatorios D-7/D-1 apuntaran a una fecha que no era la del cobro real.
+ *  Ahora el día se acota al último del mes destino: 31-ene + 1 mes = 28-feb. */
 export function addPlanPeriod(from: Date, p: string | null | undefined): Date {
   const d = new Date(from);
+  const dia = d.getDate();
+  // Ir al día 1 antes de mover el mes: así `setMonth` no puede desbordar.
+  d.setDate(1);
   d.setMonth(d.getMonth() + bundleMonths(p));
+  // Último día del mes destino: el día 0 del mes siguiente.
+  const ultimoDia = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(dia, ultimoDia));
   return d;
 }

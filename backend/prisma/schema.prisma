@@ -608,6 +608,11 @@ model Tenant {
   // del payload Hotmart). Útil para reportes y debugging — antes solo
   // teníamos currentPeriodEnd que es el PRÓXIMO cobro.
   lastChargeAt                DateTime?
+  /// Este negocio paga POR FUERA de las pasarelas: Nequi, efectivo,
+  /// transferencia. Ninguna pasarela va a confirmar su pago, así que el sistema
+  /// NO lo suspende solo — aparece en la lista de revisión y se desconecta a
+  /// mano. Ver `ManualPayment` y `billing.service` (gate de suspensión).
+  manualPayment               Boolean                    @default(false)
   suspendedAt                 DateTime?
   // Tracking de notificaciones de cobro automáticas (idempotencia del cron):
   // - paymentReminderSentFor: igualamos a currentPeriodEnd cuando ya
@@ -2205,6 +2210,47 @@ model BrandWorkflowLog {
   createdAt    DateTime @default(now())
 
   @@index([workflowId, createdAt])
+}
+
+// ── PAGOS POR FUERA DE LAS PASARELAS ──
+// Nequi, efectivo, transferencia. Cada vez que alguien cobra así, queda una
+// fila acá: es el único rastro que existe, porque no hay webhook que lo
+// confirme. Sirve de auditoría (quién lo registró y cuándo) y para saber si el
+// ciclo vigente está cubierto.
+//
+// El ciclo que cubre el pago se calcula con la PERIODICIDAD del plan, no con 30
+// días: un trimestral corre la fecha 3 meses y un anual 12. Se guarda
+// `periodicity` con la que se calculó porque el plan puede cambiar después y
+// entonces el histórico dejaría de cuadrar.
+model ManualPayment {
+  id           String  @id @default(uuid())
+  tenantId     String
+  whiteLabelId String?
+
+  /// NEQUI | EFECTIVO | TRANSFERENCIA | OTRO
+  method String
+  /// Importe cobrado. Opcional: a veces solo interesa dejar el ciclo cubierto.
+  amount   Decimal? @db.Decimal(10, 2)
+  currency String?
+  /// Número de comprobante, referencia de Nequi, etc.
+  reference String?
+  note      String?
+
+  /// Cuándo pagó el cliente (puede ser anterior a cuando se registra).
+  paidAt DateTime
+  /// Ciclo cubierto, calculado con `addPlanPeriod` sobre la periodicidad.
+  periodStart DateTime
+  periodEnd   DateTime
+  /// Periodicidad usada en el cálculo (MENSUAL|TRIMESTRAL|SEMESTRAL|ANUAL).
+  periodicity String?
+
+  /// Quién lo registró. Sin FK: el histórico sobrevive al borrado del usuario.
+  actorId   String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, paidAt])
+  @@index([whiteLabelId, paidAt])
+  @@index([periodEnd])
 }
 
 // ── HISTORIAL DE ENVÍOS — todo mensaje que sale por Grow Business ──

@@ -49,3 +49,27 @@ describe('addPlanPeriod', () => {
     );
   });
 });
+
+describe('addPlanPeriod — fin de mes', () => {
+  // Regresión del bug medido el 2026-08-20: `setMonth` a secas desbordaba al
+  // mes siguiente cuando el día no existía en el destino (31-ene + 1 mes daba
+  // 3-mar, saltándose febrero entero). Eso corría la fecha de cobro y hacía
+  // que los recordatorios apuntaran a un día que no era.
+  const dia = (iso: string, p: string) =>
+    addPlanPeriod(new Date(`${iso}T12:00:00Z`), p).toISOString().slice(0, 10);
+
+  it('acota al último día del mes destino en vez de desbordar', () => {
+    expect(dia('2026-01-31', 'MENSUAL')).toBe('2026-02-28');
+    expect(dia('2026-03-31', 'MENSUAL')).toBe('2026-04-30');
+    expect(dia('2026-08-31', 'SEMESTRAL')).toBe('2027-02-28');
+  });
+
+  it('respeta el 29 de febrero de un año bisiesto', () => {
+    expect(dia('2028-02-29', 'ANUAL')).toBe('2029-02-28');
+  });
+
+  it('no toca las fechas que sí existen en el mes destino', () => {
+    expect(dia('2026-01-15', 'MENSUAL')).toBe('2026-02-15');
+    expect(dia('2026-05-31', 'TRIMESTRAL')).toBe('2026-08-31');
+  });
+});
