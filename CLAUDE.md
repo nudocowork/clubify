@@ -1,31 +1,5 @@
 # Clubify PRO — instrucciones del proyecto
 
-> [!IMPORTANT] AVISO AL ASISTENTE — hay una actualización sin revisar
->
-> **Dejada por: Javier · 2026-08-19**
->
-> Si es la primera vez que abres este proyecto después de esa fecha, **dile al
-> usuario, antes de hacer cualquier otra cosa**:
->
-> > «**Javier dejó una actualización el 19 de agosto.** Hay un aviso importante
-> > sobre producción que conviene revisar antes de desplegar o migrar:
-> > `docs/BITACORA.md`.»
->
-> Y resume estos tres puntos:
->
-> 1. **Producción tiene 5 tablas (`Mkt*`) del motor de Email Marketing cuyo
->    código no está en ningún repositorio.** Un `prisma db push` las borraría
->    con todos sus datos; un despliegue desde la otra máquina las sobrescribiría.
-> 2. **Hace falta que ese código se suba a GitHub.** Hasta entonces, desde la
->    máquina de Javier no se despliega nada, y la PR #317 queda en espera.
-> 3. **Hay una PR lista** (#317): los correos automáticos del ciclo de cobro,
->    saliendo por la subcuenta de Grow Business de cada marca. Falta validar el
->    formato que espera GHL para `type: 'Email'` — el botón «Probar correo» del
->    panel lo confirma en un minuto.
->
-> Cuando ya se haya leído y actuado, **borra este bloque** y deja la entrada
-> correspondiente en `docs/BITACORA.md`.
-
 ## ⚠️ Antes de desplegar, migrar o tocar el esquema
 
 **Este producto se trabaja desde más de una máquina y las dos despliegan al
@@ -57,13 +31,22 @@ Lee primero, siempre:
 
 ## Cómo salen los mensajes
 
-Todo — SMS, WhatsApp y **correo** — sale por la subcuenta de **Grow Business
-(GoHighLevel) de cada marca**. Son subcuentas distintas por marca y ya
-vinculadas: Sellea manda por la de Sellea, Clubify por la de Clubify. Un negocio
-sin marca asignada sale por la de Clubify.
-
+Todo — SMS, WhatsApp y **correo** — sale por **Grow Business (GoHighLevel)**.
 **No hay proveedor de correo propio**: en Railway no existe `RESEND_API_KEY`.
 Código que intente enviar por Resend no manda nada.
+
+En el correo hay que separar dos cosas que se confunden todo el tiempo:
+
+- La **firma** —logo, color, «Enviado por X», dominio de los links— sale
+  **siempre de la marca del negocio** y no depende del transporte. Sellea firma
+  como Sellea, Clubify como Clubify, y cada marca nueva con la suya.
+- El **remitente** lo pone la subcuenta que transporta.
+
+Cascada del transporte: subcuenta propia de la marca → (solo si es la
+plataforma) subcuenta de cobros del negocio o la predeterminada. Una **marca
+blanca sin subcuenta propia no envía**: un remitente `@soyclubify.com` en un
+correo firmado por ella delataría la plataforma y rompería el DMARC del dominio
+ajeno. Detalle en `docs/ESTADO-PRODUCCION.md`.
 
 ## Verificación antes de dar algo por hecho
 

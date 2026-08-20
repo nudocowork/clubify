@@ -37,6 +37,65 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+## 2026-08-20 — Clubify también manda correo (sin abrirle SMS a nadie)
+**Máquina/quién:** Javier
+**Rama / PR:** `chore/merge-emails-sobre-314` @ `df1f9dbc` — desplegada a Railway
+
+### Qué cambié
+- `BrandEmailService.resolveBrand` acepta el `tenantId` y, **solo para la
+  plataforma**, cae a `platformTransport()`: subcuenta de cobros asignada al
+  negocio (`billingAlertsAccountId`) → subcuenta predeterminada.
+- Una **marca blanca** sin subcuenta propia sigue sin enviar, a propósito. Sacar
+  su correo por una subcuenta de Clubify pondría un remitente `@soyclubify.com`
+  en un correo firmado por ella: delata la plataforma y rompe el DMARC del
+  dominio ajeno.
+- Scripts de diagnóstico (todos de solo lectura):
+  `diag-cobertura-correo.cjs`, `diag-subcuentas-remitente.cjs`,
+  `diag-rafaga-si-vinculo.cjs`, `verificar-transporte-correo.cjs`.
+
+### El problema que resuelve
+74 negocios de la marca Clubify con cobro programado **no recibían ningún
+correo** del ciclo de cobro: el transporte se resolvía solo por marca y la marca
+`clubify` no tiene subcuenta vinculada. Sellea sí la tiene, por eso ahí sí
+salían.
+
+### Qué toqué de PRODUCCIÓN
+- **Un booleano**: la subcuenta `GrowBusinessAccount` "Reseñas" quedó marcada
+  como `isDefault = true` (script `marcar-subcuenta-plataforma.cjs`, con
+  simulación previa). Reversible poniéndolo en `false`.
+- **Ojo con el nombre**: esa subcuenta se llama "Reseñas" en el panel, pero en
+  GHL **es la de Clubify** — `Clubify Oficial <Contacto@soyclubify.lat>`,
+  dominio `info.soyclubify.lat`. Conviene renombrarla en el panel para que nadie
+  se confunda.
+- Despliegue del backend desde la raíz del repo. Las tres rutas del módulo de
+  Email Marketing siguen arriba (401): `/admin/marketing/contacts`,
+  `/admin/pending-payments`, `/admin/automations/test-email`.
+- Envío real de prueba por la subcuenta de Clubify: **201 `Email queued
+  successfully`**.
+
+### Por qué NO se vinculó la subcuenta a la marca
+Era el arreglo obvio (`WhiteLabel.growBusinessLocationId`) y es el equivocado:
+`brandGrowCreds` lo consumen también reseñas, pedidos, reservas, órdenes y
+automatizaciones. Vincularla abriría un canal de **SMS a clientes finales** de 74
+negocios que hoy no lo tienen — mucho más de lo que se pidió, y con costo.
+`isDefault` no lo lee ninguna otra ruta: solo ordena la lista del panel.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Renombrar la subcuenta "Reseñas" → "Clubify Oficial" en el panel.
+- [ ] MOTILART tiene esa subcuenta como cuenta de cobros con propósito
+      `OPERATIONAL`. Puede ser intencional; conviene confirmarlo.
+- [ ] **Fideliso** no tiene subcuenta: hoy no envía correo. No tiene negocios con
+      cobro programado, así que no urge, pero al primero que entre habrá que
+      vincularle su subcuenta.
+
+### Riesgos y avisos
+- Se midió **antes** de tocar nada: **0 negocios** disparan mensaje en la próxima
+  corrida del cron (2 están en mora vieja, fuera de la ventana D+1..D+3). Abrir
+  el canal no provoca ninguna ráfaga.
+- La firma del correo (logo, color, «Enviado por», dominio de los links) sale
+  **siempre** de la marca del negocio y no depende del transporte. Lo único que
+  aporta la subcuenta es el remitente.
+
 ## 2026-08-19 — Correos automáticos por marca en el ciclo de cobro
 **Máquina/quién:** equipo de Jhon (esta PC) · sesión de Claude Code
 **Rama / PR:** `feat/emails-sobre-314` → **PR #317**, contra
