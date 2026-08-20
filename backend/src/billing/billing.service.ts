@@ -617,6 +617,7 @@ export class BillingService {
           target.creds,
           target.phone,
           message,
+          { tenantId: t.id, templateId: 'payment_reminder_7d', feature: 'billing' },
         );
         if (r.ok) {
           notified = true;
@@ -724,6 +725,7 @@ export class BillingService {
           target.creds,
           target.phone,
           message,
+          { tenantId: t.id, templateId: 'payment_reminder_3d', feature: 'billing' },
         );
         if (r.ok) {
           notified = true;
@@ -809,6 +811,7 @@ export class BillingService {
           target.creds,
           target.phone,
           message,
+          { tenantId: t.id, templateId: 'payment_due_today', feature: 'billing' },
         );
         if (r.ok) {
           notified = true;
@@ -898,6 +901,7 @@ export class BillingService {
           target.creds,
           target.phone,
           message,
+          { tenantId: t.id, templateId: 'payment_reminder_tomorrow', feature: 'billing' },
         );
         if (r.ok) {
           notified = true;
@@ -1063,7 +1067,11 @@ export class BillingService {
             brandName: t.brandName,
           }, t.id);
           this.growBusiness
-            .sendSmsWithCreds(target.creds, target.phone, message)
+            .sendSmsWithCreds(target.creds, target.phone, message, {
+              tenantId: t.id,
+              templateId: 'account_paused',
+              feature: 'billing',
+            })
             .catch((e) =>
               this.logger.warn(
                 `SMS "pausada" falló para ${t.brandName}: ${e?.message ?? e}`,
@@ -1102,6 +1110,7 @@ export class BillingService {
           target.creds,
           target.phone,
           message,
+          { tenantId: t.id, templateId: 'payment_not_processed_2d', feature: 'billing' },
         );
         if (r.ok) {
           notices++;
@@ -1133,6 +1142,7 @@ export class BillingService {
           target.creds,
           target.phone,
           message,
+          { tenantId: t.id, templateId: 'payment_overdue_reminder', feature: 'billing' },
         );
         if (r.ok) {
           reminders++;

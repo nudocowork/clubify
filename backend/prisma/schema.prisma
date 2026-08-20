@@ -2207,6 +2207,60 @@ model BrandWorkflowLog {
   @@index([workflowId, createdAt])
 }
 
+// ── HISTORIAL DE ENVÍOS — todo mensaje que sale por Grow Business ──
+// Se escribe en `GrowBusinessService.postChannelMessage`, que es el Único punto
+// por el que pasan SMS, WhatsApp y correo. Registrar ahí cubre los 26 servicios
+// que envían sin tocar ninguno.
+//
+// Aislamiento GRATIS: al tener `tenantId`, el middleware de tenant lo acota
+// solo. Un dueño de negocio ve lo suyo; un admin de marca, lo de sus negocios;
+// el dueño de la plataforma, todo. No hace falta filtrar a mano.
+//
+// NO guarda el HTML: solo `preview`, el texto recortado. `MktAction` sí guarda
+// el cuerpo entero y ese camino es el que convirtió a `QrPoster` en el 77% de
+// la base de datos. Retención de 90 días en `retention.service.ts`.
+model MessageLog {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  /// SMS | WhatsApp | Email
+  channel String
+  /// sent | failed
+  status  String
+  /// Subcuenta de Grow Business por la que salió. Siempre se conoce, aunque no
+  /// se sepa el negocio: sirve para responder «esto salió por la de quién».
+  locationId String
+
+  /// Marca y negocio. Opcionales porque hay envíos sin negocio (avisos a la
+  /// marca) y porque el contexto se fue enhebrando por partes.
+  whiteLabelId String?
+  tenantId     String?
+
+  toPhone String?
+  toEmail String?
+  subject String?
+  /// Texto plano recortado (~300 chars). Basta para saber qué salió.
+  preview String? @db.Text
+
+  /// Id de la plantilla del catálogo (`email_payment_reminder_3d`,
+  /// `payment_reminder_3d`…). Es lo que permite preguntar «¿salieron los
+  /// recordatorios D-3 de esta marca?».
+  templateId String?
+  /// De qué parte del producto vino: billing | reviews | orders | reservations
+  /// | marketing | auth | prueba…
+  feature String?
+
+  providerMessageId String?
+  /// Motivo del fallo, recortado. Null cuando salió bien.
+  error String?
+
+  @@index([whiteLabelId, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([status, createdAt])
+  @@index([templateId, createdAt])
+  @@index([createdAt])
+}
+
 // ── EMAIL MARKETING (contact-based) — módulo `marketing/`, brand-scoped ──
 // Audiencia: los CONTACTOS (leads/clientes) de la marca, no los negocios.
 // Independiente de BrandWorkflow* (tenant-based). Ver plan / marketing/identity.ts.

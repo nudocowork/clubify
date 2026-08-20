@@ -14,6 +14,20 @@ import { brandGrowCreds, BRAND_GROW_SELECT } from './brand-sms-creds.util';
  * "GoHighLevel". Cada tenant lo conecta el SUPER_ADMIN con su locationId +
  * apiKey específicos del sub-account.
  */
+/**
+ * De dónde viene un envío. Todo opcional: el historial se escribe igual sin
+ * contexto (canal, destino y subcuenta siempre se conocen), y el contexto se
+ * fue enhebrando desde los llamadores que sí lo saben.
+ */
+export type SendContext = {
+  tenantId?: string | null;
+  whiteLabelId?: string | null;
+  /** Id de la plantilla del catálogo: `email_payment_reminder_3d`, `payment_reminder_3d`… */
+  templateId?: string | null;
+  /** billing | reviews | orders | reservations | marketing | auth | prueba… */
+  feature?: string | null;
+};
+
 @Injectable()
 export class GrowBusinessService {
   private logger = new Logger('GrowBusiness');
@@ -277,7 +291,9 @@ export class GrowBusinessService {
       message: 'Grow Business: sin credenciales válidas',
     };
     for (let i = 0; i < candidates.length; i++) {
-      last = await this.sendSmsWithCreds(candidates[i], toPhone, body);
+      last = await this.sendSmsWithCreds(candidates[i], toPhone, body, {
+        tenantId,
+      });
       if (last.ok) return last;
       if (i < candidates.length - 1) {
         this.logger.warn(
@@ -298,8 +314,20 @@ export class GrowBusinessService {
     creds: { locationId: string; apiKey: string; switchNumber?: number | null },
     toPhone: string,
     body: string,
+    ctx?: SendContext,
   ) {
     if (!creds.locationId || !creds.apiKey) {
+      // Se registra igual: «no salió por falta de credenciales» es justo lo que
+      // hay que poder ver en el historial.
+      await this.registrarEnvio({
+        channel: 'SMS',
+        ok: false,
+        locationId: creds.locationId || '',
+        toPhone,
+        body,
+        error: 'Credenciales incompletas',
+        ctx,
+      });
       return { ok: false as const, message: 'Credenciales incompletas' };
     }
     // Switch prefix (Grow Business multi-number).
@@ -335,14 +363,37 @@ export class GrowBusinessService {
       toPhone,
     );
     if (!contactId) {
-      return {
-        ok: false as const,
-        message:
-          'No se pudo crear/buscar el contacto en Grow Business. Revisa API key, location y formato del teléfono.',
-      };
+      const message =
+        'No se pudo crear/buscar el contacto en Grow Business. Revisa API key, location y formato del teléfono.';
+      await this.registrarEnvio({
+        channel: 'SMS',
+        ok: false,
+        locationId: creds.locationId,
+        toPhone,
+        body,
+        error: message,
+        ctx,
+      });
+      return { ok: false as const, message };
     }
 
-    return this.postChannelMessage(creds.apiKey, contactId, 'SMS', messageBody);
+    const r = await this.postChannelMessage(
+      creds.apiKey,
+      contactId,
+      'SMS',
+      messageBody,
+    );
+    await this.registrarEnvio({
+      channel: 'SMS',
+      ok: r.ok,
+      locationId: creds.locationId,
+      toPhone,
+      body,
+      providerMessageId: r.ok ? r.id : null,
+      error: r.ok ? null : ('message' in r ? r.message : 'error'),
+      ctx,
+    });
+    return r;
   }
 
   /**
@@ -356,8 +407,18 @@ export class GrowBusinessService {
     creds: { locationId: string; apiKey: string },
     toPhone: string,
     body: string,
+    ctx?: SendContext,
   ) {
     if (!creds.locationId || !creds.apiKey) {
+      await this.registrarEnvio({
+        channel: 'WhatsApp',
+        ok: false,
+        locationId: creds.locationId || '',
+        toPhone,
+        body,
+        error: 'Credenciales incompletas',
+        ctx,
+      });
       return { ok: false as const, message: 'Credenciales incompletas' };
     }
     const contactId = await this.upsertContact(
@@ -366,13 +427,36 @@ export class GrowBusinessService {
       toPhone,
     );
     if (!contactId) {
-      return {
-        ok: false as const,
-        message:
-          'No se pudo crear/buscar el contacto en Grow Business. Revisa API key, location y formato del teléfono.',
-      };
+      const message =
+        'No se pudo crear/buscar el contacto en Grow Business. Revisa API key, location y formato del teléfono.';
+      await this.registrarEnvio({
+        channel: 'WhatsApp',
+        ok: false,
+        locationId: creds.locationId,
+        toPhone,
+        body,
+        error: message,
+        ctx,
+      });
+      return { ok: false as const, message };
     }
-    return this.postChannelMessage(creds.apiKey, contactId, 'WhatsApp', body);
+    const r = await this.postChannelMessage(
+      creds.apiKey,
+      contactId,
+      'WhatsApp',
+      body,
+    );
+    await this.registrarEnvio({
+      channel: 'WhatsApp',
+      ok: r.ok,
+      locationId: creds.locationId,
+      toPhone,
+      body,
+      providerMessageId: r.ok ? r.id : null,
+      error: r.ok ? null : ('message' in r ? r.message : 'error'),
+      ctx,
+    });
+    return r;
   }
 
   /**
@@ -435,13 +519,34 @@ export class GrowBusinessService {
     toEmail: string,
     subject: string,
     html: string,
-    opts?: { text?: string },
+    opts?: { text?: string; ctx?: SendContext },
   ) {
+    const ctx = opts?.ctx;
     if (!creds.locationId || !creds.apiKey) {
+      await this.registrarEnvio({
+        channel: 'Email',
+        ok: false,
+        locationId: creds.locationId || '',
+        toEmail,
+        subject,
+        body: opts?.text,
+        error: 'Credenciales incompletas',
+        ctx,
+      });
       return { ok: false as const, message: 'Credenciales incompletas' };
     }
     const to = (toEmail ?? '').trim().toLowerCase();
     if (!to.includes('@')) {
+      await this.registrarEnvio({
+        channel: 'Email',
+        ok: false,
+        locationId: creds.locationId,
+        toEmail,
+        subject,
+        body: opts?.text,
+        error: 'Email de destino inválido',
+        ctx,
+      });
       return { ok: false as const, message: 'Email de destino inválido' };
     }
 
@@ -451,11 +556,19 @@ export class GrowBusinessService {
       to,
     );
     if (!contactId) {
-      return {
-        ok: false as const,
-        message:
-          'No se pudo crear/buscar el contacto en Grow Business. Revisa API key, location y el correo.',
-      };
+      const message =
+        'No se pudo crear/buscar el contacto en Grow Business. Revisa API key, location y el correo.';
+      await this.registrarEnvio({
+        channel: 'Email',
+        ok: false,
+        locationId: creds.locationId,
+        toEmail: to,
+        subject,
+        body: opts?.text,
+        error: message,
+        ctx,
+      });
+      return { ok: false as const, message };
     }
     // Campos segun el spec oficial de HighLevel (apps/conversations.json):
     // el cuerpo HTML va en `html`, el asunto en `subject`, y el texto plano en
@@ -472,6 +585,17 @@ export class GrowBusinessService {
     // `contactId` (id del contacto EN EL PROVEEDOR) se expone para que el motor
     // de marketing lo guarde junto a la subcuenta y correlacione los eventos
     // entrantes del webhook. Aditivo: brand-workflows sigue leyendo solo `id`.
+    await this.registrarEnvio({
+      channel: 'Email',
+      ok: sent.ok,
+      locationId: creds.locationId,
+      toEmail: to,
+      subject,
+      body: opts?.text,
+      providerMessageId: sent.ok ? sent.id : null,
+      error: sent.ok ? null : ('message' in sent ? sent.message : 'error'),
+      ctx,
+    });
     return sent.ok ? { ...sent, contactId } : sent;
   }
 
@@ -479,6 +603,56 @@ export class GrowBusinessService {
    * Helper interno: POST /conversations/messages con `type` específico.
    * Devuelve mismo shape que las funciones públicas (ok/status/message/id).
    */
+  /**
+   * Deja constancia de un envío en `MessageLog`.
+   *
+   * Best-effort de verdad: si esto falla, el mensaje YA salió (o ya falló) y
+   * no se puede deshacer. Un problema al registrar nunca puede convertirse en
+   * un problema al enviar, ni al revés.
+   *
+   * Nota: dentro de una sesión en modo marca, el middleware de tenant bloquea
+   * las escrituras sin `tenantId` explícito. Por eso los envíos disparados a
+   * mano desde el panel pueden quedar sin registrar si el llamador no pasó
+   * contexto — se pierde la línea, nunca el mensaje.
+   */
+  private async registrarEnvio(datos: {
+    channel: 'SMS' | 'WhatsApp' | 'Email';
+    ok: boolean;
+    locationId: string;
+    toPhone?: string | null;
+    toEmail?: string | null;
+    subject?: string | null;
+    /** Cuerpo en texto plano. Se recorta acá: el HTML nunca se guarda. */
+    body?: string | null;
+    providerMessageId?: string | null;
+    error?: string | null;
+    ctx?: SendContext;
+  }): Promise<void> {
+    try {
+      await this.prisma.messageLog.create({
+        data: {
+          channel: datos.channel,
+          status: datos.ok ? 'sent' : 'failed',
+          locationId: datos.locationId || '—',
+          tenantId: datos.ctx?.tenantId ?? null,
+          whiteLabelId: datos.ctx?.whiteLabelId ?? null,
+          templateId: datos.ctx?.templateId ?? null,
+          feature: datos.ctx?.feature ?? null,
+          toPhone: datos.toPhone ?? null,
+          toEmail: datos.toEmail ?? null,
+          subject: datos.subject?.slice(0, 300) ?? null,
+          preview: limpiarCuerpo(datos.body),
+          providerMessageId: datos.providerMessageId ?? null,
+          error: datos.error ? String(datos.error).slice(0, 500) : null,
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(
+        `No se pudo registrar el envío en MessageLog: ${e?.message ?? e}`,
+      );
+    }
+  }
+
   private async postChannelMessage(
     apiKey: string,
     contactId: string,
@@ -520,4 +694,18 @@ export class GrowBusinessService {
     }
   }
 
+}
+
+/** Prefijo de enrutado de Grow Business — ruido para quien lee el historial. */
+const PREFIJO_SWITCH = /^#switch_unique\|\d+\||^#Switch\d+\s*\n/i;
+
+/**
+ * Texto que se guarda como muestra. Recortado a 300 caracteres a propósito:
+ * basta para reconocer qué salió, y evita que el historial engorde como le
+ * pasó a `QrPoster`, que llegó a ser el 77% de la base de datos.
+ */
+function limpiarCuerpo(body?: string | null): string | null {
+  const t = (body ?? '').replace(PREFIJO_SWITCH, '').trim();
+  if (!t) return null;
+  return t.length > 300 ? `${t.slice(0, 300)}…` : t;
 }

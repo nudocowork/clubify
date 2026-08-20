@@ -144,6 +144,29 @@ export default function AutomatizacionesPanel() {
     }
   }
 
+  /** Guarda el correo de prueba, igual que el número. El endpoint ya existía;
+   *  faltaba el botón, así que lo escrito se perdía al recargar. */
+  async function saveEmail() {
+    setBusy(true);
+    try {
+      const r: any = await api('/admin/automations/test-email', {
+        method: 'PATCH',
+        body: JSON.stringify({ email: emailDraft }),
+      });
+      setEmailDraft(r?.email ?? '');
+      toast(
+        (r?.email ?? emailDraft).trim()
+          ? 'Correo de prueba guardado'
+          : 'Correo de prueba borrado',
+        'success',
+      );
+    } catch (e: any) {
+      toast(e.message ?? 'Error al guardar el correo', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function testSend(id: string, text: string) {
     if (!phoneDraft.trim()) {
       toast('Escribe y guarda un número de prueba primero', 'error');
@@ -352,15 +375,30 @@ export default function AutomatizacionesPanel() {
               📧 Correo de prueba
             </span>
             <span className="text-[11px]" style={{ color: '#a16207' }}>
-              Te llega el correo real, con el marco de tu marca.
+              Se guarda para probar tus correos sin escribirlo cada vez.
             </span>
             <input
               value={emailDraft}
               onChange={(e) => setEmailDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveEmail();
+              }}
               placeholder="tu@correo.com"
               className="text-xs rounded-[8px] px-2.5 py-1.5 flex-1 min-w-[180px] font-mono"
               style={{ border: '1px solid #e5e7eb', color: '#111827' }}
             />
+            <button
+              onClick={saveEmail}
+              disabled={busy}
+              className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
+              style={{
+                background: 'white',
+                border: '1px solid #cbd5e1',
+                color: '#334155',
+              }}
+            >
+              Guardar
+            </button>
             {!emailConnected && (
               <span className="text-[11px] w-full" style={{ color: '#b45309' }}>
                 ⚠ Esta marca todavía no tiene remitente propio de correo; sus

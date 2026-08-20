@@ -172,7 +172,17 @@ export class BrandEmailService {
         to,
         subject,
         this.renderHtml({ def, brand, tenant, body, vars }),
-        { text: body },
+        // El contexto es lo que hace útil el historial: sin `templateId` no se
+        // puede preguntar «¿salieron los recordatorios D-3 de esta marca?».
+        {
+          text: body,
+          ctx: {
+            tenantId: tenant?.id ?? opts.tenantId ?? null,
+            whiteLabelId: brand.id,
+            templateId: def.id,
+            feature: 'ciclo-de-vida',
+          },
+        },
       );
       if (!r.ok) {
         this.logger.warn(
@@ -225,7 +235,14 @@ export class BrandEmailService {
         to,
         opts.subject,
         opts.html,
-        { text: opts.text },
+        {
+          text: opts.text,
+          ctx: {
+            tenantId: opts.tenantId ?? null,
+            whiteLabelId: brand.id,
+            feature: 'correo-directo',
+          },
+        },
       );
       if (!r.ok) {
         this.logger.warn(
