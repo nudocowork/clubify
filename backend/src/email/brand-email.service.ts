@@ -124,6 +124,7 @@ export class BrandEmailService {
 
       const brand = await this.resolveBrand(
         opts.whiteLabelId ?? tenant?.whiteLabelId ?? null,
+        tenant?.id ?? opts.tenantId ?? null,
       );
 
       const enabled = await isEmailTemplateEnabled(
@@ -199,6 +200,8 @@ export class BrandEmailService {
    */
   async sendRaw(opts: {
     whiteLabelId?: string | null;
+    /** Negocio, si lo hay: deja usar su subcuenta de cobros como transporte. */
+    tenantId?: string | null;
     to: string;
     subject: string;
     html: string;
@@ -207,7 +210,10 @@ export class BrandEmailService {
     try {
       const to = (opts.to ?? '').trim();
       if (!to) return { sent: false, reason: 'no_recipient' };
-      const brand = await this.resolveBrand(opts.whiteLabelId ?? null);
+      const brand = await this.resolveBrand(
+        opts.whiteLabelId ?? null,
+        opts.tenantId ?? null,
+      );
       if (!brand.grow) {
         this.logger.warn(
           `Correo directo omitido: la marca ${brand.name || opts.whiteLabelId} no tiene subcuenta de Grow Business.`,
@@ -239,8 +245,22 @@ export class BrandEmailService {
 
   // ─────────── Resolución de marca / negocio / destinatario ───────────
 
-  /** Marca + credenciales. Sin marca (negocio legacy) = plataforma. */
-  private async resolveBrand(whiteLabelId: string | null): Promise<ResolvedBrand> {
+  /**
+   * Marca + transporte. Sin marca (negocio legacy) = plataforma.
+   *
+   * El BRANDING del correo (logo, color, firma «Enviado por», dominio de los
+   * links, {supportEmail}) sale SIEMPRE de la marca del negocio y no depende
+   * del transporte: Sellea firma como Sellea, Clubify como Clubify. Lo único
+   * que pone la subcuenta de Grow Business es el REMITENTE del correo — por eso
+   * el fallback de abajo está limitado a la plataforma.
+   *
+   * @param tenantId  permite usar la subcuenta de cobros que el negocio ya
+   *                  tiene asignada, la misma por la que le llega el SMS.
+   */
+  private async resolveBrand(
+    whiteLabelId: string | null,
+    tenantId?: string | null,
+  ): Promise<ResolvedBrand> {
     // Cada marca manda por SU subcuenta: la de Sellea con la de Sellea, la de
     // Clubify con la de Clubify. Un negocio legacy sin marca asignada es de
     // Clubify de hecho, así que sale por la subcuenta de Clubify — no se queda
@@ -257,7 +277,8 @@ export class BrandEmailService {
         name: (wl?.name || '').trim() || 'Clubify',
         slug: PLATFORM_SLUG,
         isPlatform: true,
-        grow: brandGrowCreds(wl),
+        grow:
+          brandGrowCreds(wl) ?? (await this.platformTransport(tenantId ?? null)),
         supportEmail: wl?.contactEmail ?? null,
         baseUrl: brandBaseUrl(wl, this.appUrl()),
       };
@@ -288,15 +309,64 @@ export class BrandEmailService {
       };
     }
     const isPlatform = wl.slug === PLATFORM_SLUG;
+    // Fallback de transporte SOLO para la plataforma. Una marca blanca sin
+    // subcuenta propia no envía: sacar su correo por una subcuenta de Clubify
+    // pondría un remitente `@soyclubify.com` en un correo firmado por ella,
+    // que es delatar la plataforma y romper el DMARC del dominio ajeno.
+    const grow =
+      brandGrowCreds(wl) ??
+      (isPlatform ? await this.platformTransport(tenantId ?? null) : null);
     return {
       id: wl.id,
       name: (wl.name || '').trim() || 'Clubify',
       slug: wl.slug,
       isPlatform,
-      grow: brandGrowCreds(wl),
+      grow,
       supportEmail: wl.contactEmail ?? null,
       baseUrl: brandBaseUrl(wl, this.appUrl()),
     };
+  }
+
+  /**
+   * Subcuenta de Grow Business con la que la PLATAFORMA saca sus correos
+   * cuando la marca `clubify` no tiene una vinculada.
+   *
+   * Mismo orden que el SMS de cobros (`resolveBillingTarget`), a propósito: así
+   * el correo cae en la misma subcuenta — y en el mismo contacto de GHL — que
+   * el SMS que ese negocio ya recibe, en vez de abrir una conversación aparte.
+   *
+   *   1. la subcuenta de cobros asignada al negocio (`billingAlertsAccountId`)
+   *   2. la subcuenta marcada como predeterminada
+   *
+   * NO usamos las creds propias del negocio: el correo saldría con el dominio
+   * del negocio avisando de su propio cobro, y la firma tiene que ser la de la
+   * marca que cobra.
+   */
+  private async platformTransport(
+    tenantId: string | null,
+  ): Promise<{ locationId: string; apiKey: string } | null> {
+    try {
+      if (tenantId) {
+        const t = await this.prisma.tenant.findUnique({
+          where: { id: tenantId },
+          select: { billingAlertsAccountId: true },
+        });
+        if (t?.billingAlertsAccountId) {
+          const acc = await this.prisma.growBusinessAccount.findFirst({
+            where: { id: t.billingAlertsAccountId, deletedAt: null },
+            select: { locationId: true, apiKey: true },
+          });
+          if (acc?.locationId && acc?.apiKey) return acc;
+        }
+      }
+      const def = await this.prisma.growBusinessAccount.findFirst({
+        where: { isDefault: true, deletedAt: null },
+        select: { locationId: true, apiKey: true },
+      });
+      return def?.locationId && def?.apiKey ? def : null;
+    } catch {
+      return null;
+    }
   }
 
   /** URL base de la plataforma (fallback para marcas sin dominio propio). */
