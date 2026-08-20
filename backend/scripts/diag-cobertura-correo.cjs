@@ -65,25 +65,32 @@ const si = (v) => (v ? 'sí' : 'NO');
     );
   }
 
-  console.log('\n═══ HOY NO RECIBEN CORREO (marca sin subcuenta) ═══');
-  const huerfanos = await p.$queryRawUnsafe(
-    `SELECT COALESCE(w.slug, '(sin marca)') AS marca,
-            COUNT(*)::int AS total,
-            COUNT(*) FILTER (WHERE t."billingAlertsAccountId" IS NOT NULL)::int AS "rescatablesPorCuenta",
-            COUNT(*) FILTER (WHERE t."growBusinessLocationId" IS NOT NULL
-                               AND t."growBusinessApiKey" IS NOT NULL)::int AS "rescatablesPorPropias"
+  console.log("");
+  console.log("=== QUIEN QUEDA SIN CORREO (con la cascada real) ===");
+  // OJO: el transporte NO es solo la subcuenta de la marca. Para la PLATAFORMA
+  // hay fallback: cuenta de cobros asignada al negocio > subcuenta isDefault.
+  // Una marca blanca sin subcuenta propia sí se queda sin canal, a propósito.
+  const [def] = await p.$queryRawUnsafe(
+    `SELECT name FROM "GrowBusinessAccount"
+      WHERE "isDefault" = true AND "deletedAt" IS NULL LIMIT 1`,
+  );
+  console.log(`  subcuenta predeterminada de plataforma: ${def ? def.name : 'NINGUNA — la plataforma no enviaría'}`);
+  const sinCanal = await p.$queryRawUnsafe(
+    `SELECT COALESCE(w.slug,'(sin marca)') AS marca, COUNT(*)::int AS total
        FROM "Tenant" t
        LEFT JOIN "WhiteLabel" w ON w.id = t."whiteLabelId"
       WHERE t."currentPeriodEnd" IS NOT NULL AND t."deletedAt" IS NULL
         AND t.email IS NOT NULL AND t.email <> ''
-        AND (w.id IS NULL OR w."growBusinessLocationId" IS NULL OR w."growBusinessApiKey" IS NULL)
+        AND w.id IS NOT NULL AND w.slug <> 'clubify'
+        AND (w."growBusinessLocationId" IS NULL OR w."growBusinessApiKey" IS NULL)
       GROUP BY 1 ORDER BY 2 DESC`,
   );
-  if (!huerfanos.length) console.log('  (ninguno — todas las marcas tienen subcuenta)');
-  for (const f of huerfanos) {
-    console.log(
-      `  ${f.marca.padEnd(14)} sinCorreoHoy=${String(f.total).padEnd(4)} → con cuenta asignada=${String(f.rescatablesPorCuenta).padEnd(4)} con creds propias=${f.rescatablesPorPropias}`,
-    );
+  if (!sinCanal.length) {
+    console.log('  ninguno con cobro programado: la plataforma sale por la predeterminada');
+    console.log('  y las marcas blancas con negocios activos tienen la suya.');
+  }
+  for (const f of sinCanal) {
+    console.log(`  ${f.marca.padEnd(14)} ${f.total} negocios — marca blanca sin subcuenta propia, NO envía (correcto)`);
   }
 
   await p.$disconnect();
