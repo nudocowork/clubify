@@ -14,6 +14,8 @@ import { CommissionsAuditService } from './commissions-audit.service';
 import { CommissionsAuditController } from './commissions-audit.controller';
 import { TenantDuplicatorService } from './tenant-duplicator.service';
 import { TenantDuplicatorController } from './tenant-duplicator.controller';
+import { MessageLogService } from './message-log.service';
+import { MessageLogController } from './message-log.controller';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { AuthModule } from '../auth/auth.module';
 import { CommissionRecalcModule } from '../referrals/commission-recalc.module';
@@ -30,6 +32,7 @@ import { SettingsModule } from '../settings/settings.module';
     CommissionExceptionsService,
     CommissionsAuditService,
     TenantDuplicatorService,
+    MessageLogService,
   ],
   controllers: [
     RemindersController,
@@ -39,6 +42,7 @@ import { SettingsModule } from '../settings/settings.module';
     CommissionExceptionsController,
     CommissionsAuditController,
     TenantDuplicatorController,
+    MessageLogController,
   ],
   exports: [RemindersService, CommissionExceptionsService],
 })

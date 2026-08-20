@@ -46,6 +46,11 @@ class ImportDto {
 class OptOutDto {
   @IsBoolean() optOut!: boolean;
 }
+class DirectSendDto {
+  @IsIn(['email', 'sms']) channel!: 'email' | 'sms';
+  @IsOptional() @IsString() @MaxLength(200) subject?: string;
+  @IsString() @MaxLength(5000) body!: string;
+}
 
 /**
  * API del módulo de Email Marketing (contact-based) — apartado de automatizaciones
@@ -122,6 +127,64 @@ export class MarketingController {
   @Post('contacts/import')
   async importContacts(@Body() body: ImportDto, @CurrentUser() user: AuthUser) {
     return this.contacts.importMany(await this.brandId(user), body.rows ?? []);
+  }
+
+  /**
+   * Negocios de la marca → contactos con etiqueta `negocio`. Idempotente:
+   * repetirlo no duplica fichas ni pisa lo editado a mano en el panel.
+   */
+  @Post('contacts/sync-tenants')
+  async syncTenants(@CurrentUser() user: AuthUser) {
+    return this.contacts.syncTenants(await this.brandId(user));
+  }
+
+  /**
+   * Envío directo (escrito a mano) a UN contacto, por la subcuenta de la
+   * marca. El contexto va al historial MessageLog para poder responder
+   * «¿qué le mandamos a este negocio?».
+   */
+  @Post('contacts/:id/send')
+  async sendToContact(
+    @Param('id') id: string,
+    @Body() body: DirectSendDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const whiteLabelId = await this.brandId(user);
+    const contact = await this.prisma.mktContact.findFirst({
+      where: { id, whiteLabelId, deleted: false },
+    });
+    if (!contact) throw new NotFoundException('Contacto no encontrado');
+    if (contact.optOut) {
+      // Baja = baja: ni el envío manual la puentea. `skipped` (no `failed`)
+      // para que la UI lo muestre como aviso y no como error del sistema.
+      return {
+        ok: false,
+        skipped: true,
+        error: 'Este contacto está dado de baja; no se le puede enviar.',
+      };
+    }
+    // El negocio se resuelve por identidad en el momento (MktContact no guarda
+    // tenantId; el schema lo edita otra persona en paralelo).
+    const tenantId = await this.contacts.findTenantIdForContact(whiteLabelId, contact);
+    const ctx = { tenantId, whiteLabelId, feature: 'envio-directo' };
+    if (body.channel === 'email') {
+      if (!contact.email) {
+        return { ok: false, skipped: true, error: 'El contacto no tiene correo.' };
+      }
+      const html = /<[a-z][\s\S]*>/i.test(body.body) ? body.body : body.body.replace(/\n/g, '<br>');
+      return this.provider.sendEmail({
+        whiteLabelId,
+        toEmail: contact.email,
+        toName: contact.name ?? undefined,
+        subject: body.subject || '(sin asunto)',
+        html,
+        ctx,
+      });
+    }
+    if (!contact.phone) {
+      return { ok: false, skipped: true, error: 'El contacto no tiene teléfono.' };
+    }
+    return this.provider.sendSms({ whiteLabelId, toPhone: contact.phone, message: body.body, ctx });
   }
 
   @Delete('contacts/:id')

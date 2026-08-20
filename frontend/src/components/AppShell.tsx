@@ -39,9 +39,9 @@ type IconName = Parameters<typeof Icon>[0]['name'];
 const ADMIN_ROUTE_SEGMENTS = new Set([
   'accounting', 'affiliate-registration', 'ai-knowledge', 'audit', 'branding',
   'business-categories', 'business-groups', 'commissions', 'creditos', 'industries', 'integrations',
-  'lab', 'maintenance', 'map', 'payouts', 'rankings', 'referrals', 'reports',
-  'sales-leaderboard', 'sales-teams', 'support-materials', 'tenants', 'trials',
-  'users', 'ventas',
+  'lab', 'maintenance', 'map', 'mensajes', 'payouts', 'rankings', 'referrals',
+  'reports', 'sales-leaderboard', 'sales-teams', 'support-materials', 'tenants',
+  'trials', 'users', 'ventas',
 ]);
 
 type NavItem = {
@@ -660,6 +660,9 @@ export default function AppShell({
                 // Automatizaciones (mensajes SMS/WhatsApp editables + carpetas).
                 // Solo si la marca tiene el módulo GROW_BUSINESS_SMS habilitado.
                 { href: '/admin/automatizaciones', label: 'Automatizaciones', icon: 'bell', hideForMarketing: true, requiresBrandModule: 'GROW_BUSINESS_SMS' },
+                // Historial de envíos (MessageLog): qué salió, a quién y qué
+                // falló. Mismo gate que Automatizaciones — es su contracara.
+                { href: '/admin/mensajes', label: 'Mensajes enviados', icon: 'history', hideForMarketing: true, requiresBrandModule: 'GROW_BUSINESS_SMS' },
                 // #5: Branding e Integraciones SMS son config de PLATAFORMA
                 // (landing de Clubify, tabla Setting global). Una marca blanca
                 // gestiona su identidad desde Master Admin → Marcas, no acá, así

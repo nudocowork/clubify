@@ -6,7 +6,9 @@ import EmailMarketingWorkflows from '@/components/EmailMarketingWorkflows';
 
 // Panel de EMAIL MARKETING (contact-based) de la MARCA — apartado de
 // automatizaciones. El proveedor de envío por debajo NUNCA se nombra en la UI.
-// Sub-pestañas: Conexión (estado + envío de prueba) y Contactos (base con dedup).
+// Sub-pestañas: Conexión (estado + envío de prueba) y Contactos (base con dedup;
+// incluye los NEGOCIOS de la marca sincronizados con etiqueta `negocio` y el
+// envío directo de correo/SMS a un contacto).
 // Workflows / Registro llegan en las fases siguientes.
 
 const ACCENT = '#16a34a';
@@ -256,6 +258,13 @@ function ContactsTab() {
   const [form, setForm] = useState({ name: '', email: '', phone: '', company: '', tags: '' });
   const [importing, setImporting] = useState(false);
   const [importText, setImportText] = useState('');
+  const [syncing, setSyncing] = useState(false);
+  // Envío directo: a qué contacto, por qué canal y qué se le manda.
+  const [sendTarget, setSendTarget] = useState<Contact | null>(null);
+  const [sendChannel, setSendChannel] = useState<'email' | 'sms'>('email');
+  const [sendSubject, setSendSubject] = useState('');
+  const [sendBody, setSendBody] = useState('');
+  const [sendingDirect, setSendingDirect] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -330,6 +339,65 @@ function ContactsTab() {
     }
   }
 
+  // Negocios de la marca → contactos. Idempotente: repetirlo no duplica ni
+  // pisa lo editado a mano, por eso la segunda corrida reporta 0 y 0.
+  async function syncTenants() {
+    setSyncing(true);
+    try {
+      const r = await api<{ created: number; updated: number; skipped: number; contacts: number }>(
+        '/admin/marketing/contacts/sync-tenants',
+        { method: 'POST' },
+      );
+      toast(
+        `Negocios sincronizados: ${r?.created ?? 0} creados · ${r?.updated ?? 0} actualizados`,
+        'success',
+      );
+      load();
+    } catch (e: any) {
+      toast(e?.message ?? 'Error sincronizando negocios', 'error');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function openSend(c: Contact) {
+    setSendTarget(c);
+    setSendChannel(c.email ? 'email' : 'sms');
+    setSendSubject('');
+    setSendBody('');
+    setAdding(false);
+    setImporting(false);
+  }
+
+  async function sendDirect() {
+    if (!sendTarget) return;
+    if (!sendBody.trim()) {
+      toast('Escribe el mensaje.', 'error');
+      return;
+    }
+    setSendingDirect(true);
+    try {
+      const r = await api<SendResult>(`/admin/marketing/contacts/${sendTarget.id}/send`, {
+        method: 'POST',
+        body: JSON.stringify({
+          channel: sendChannel,
+          subject: sendChannel === 'email' ? sendSubject || undefined : undefined,
+          body: sendBody,
+        }),
+      });
+      if (r?.ok) {
+        toast('Mensaje enviado ✓', 'success');
+        setSendTarget(null);
+      } else {
+        toast(r?.error ?? 'No se pudo enviar.', 'error');
+      }
+    } catch (e: any) {
+      toast(e?.message ?? 'Error enviando.', 'error');
+    } finally {
+      setSendingDirect(false);
+    }
+  }
+
   async function del(id: string) {
     if (!window.confirm('¿Eliminar este contacto? (si vuelve a escribir se reactiva)')) return;
     try {
@@ -365,6 +433,14 @@ function ContactsTab() {
           <span className="text-xs text-slate-400">{total} contactos</span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={syncTenants}
+            disabled={syncing}
+            className="rounded-md border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            title="Trae los negocios de tu marca como contactos. Repetirlo no duplica ni pisa tus ediciones."
+          >
+            {syncing ? 'Sincronizando…' : '⟳ Sincronizar negocios'}
+          </button>
           <button
             onClick={() => {
               setImporting((v) => !v);
@@ -453,6 +529,75 @@ function ContactsTab() {
         </div>
       )}
 
+      {sendTarget && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-slate-700">
+              Enviar mensaje a {sendTarget.name || sendTarget.email || sendTarget.phone}
+            </p>
+            <button
+              onClick={() => setSendTarget(null)}
+              className="text-slate-400 hover:text-slate-600 text-sm"
+              title="Cerrar"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 text-sm w-fit">
+            {(['email', 'sms'] as const).map((c) => {
+              const enabled = c === 'email' ? !!sendTarget.email : !!sendTarget.phone;
+              return (
+                <button
+                  key={c}
+                  onClick={() => enabled && setSendChannel(c)}
+                  disabled={!enabled}
+                  className="rounded-md px-3 py-1 font-medium disabled:opacity-40"
+                  style={sendChannel === c ? { background: ACCENT, color: 'white' } : { color: '#64748b' }}
+                  title={
+                    enabled
+                      ? undefined
+                      : c === 'email'
+                        ? 'El contacto no tiene correo'
+                        : 'El contacto no tiene teléfono'
+                  }
+                >
+                  {c === 'email' ? '✉️ Correo' : '💬 SMS'}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-slate-500">
+            Va a:{' '}
+            <span className="font-mono">
+              {sendChannel === 'email' ? sendTarget.email : sendTarget.phone}
+            </span>
+          </p>
+          {sendChannel === 'email' && (
+            <input
+              value={sendSubject}
+              onChange={(e) => setSendSubject(e.target.value)}
+              placeholder="Asunto"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+            />
+          )}
+          <textarea
+            value={sendBody}
+            onChange={(e) => setSendBody(e.target.value)}
+            rows={4}
+            placeholder="Escribe el mensaje…"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-emerald-400"
+          />
+          <button
+            onClick={sendDirect}
+            disabled={sendingDirect}
+            className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            style={{ background: ACCENT }}
+          >
+            {sendingDirect ? 'Enviando…' : sendChannel === 'email' ? 'Enviar correo' : 'Enviar SMS'}
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -505,13 +650,29 @@ function ContactsTab() {
                     </button>
                   </td>
                   <td className="py-2 pr-3 text-right">
-                    <button
-                      onClick={() => del(c.id)}
-                      className="text-slate-400 hover:text-rose-600"
-                      title="Eliminar"
-                    >
-                      🗑
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => openSend(c)}
+                        disabled={c.optOut || (!c.email && !c.phone)}
+                        className="text-slate-400 hover:text-emerald-600 disabled:opacity-30"
+                        title={
+                          c.optOut
+                            ? 'Dado de baja: no se le puede enviar'
+                            : !c.email && !c.phone
+                              ? 'Sin correo ni teléfono'
+                              : 'Enviar correo o SMS'
+                        }
+                      >
+                        ✉️
+                      </button>
+                      <button
+                        onClick={() => del(c.id)}
+                        className="text-slate-400 hover:text-rose-600"
+                        title="Eliminar"
+                      >
+                        🗑
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))
