@@ -37,6 +37,13 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+> **Arqueo del ecosistema entero (2026-08-20):**
+> [`docs/ARQUEO-ECOSISTEMA.md`](ARQUEO-ECOSISTEMA.md) — 7 auditorías en paralelo
+> sobre Clubify PRO, TeamClubify y las marcas blancas. 22 hallazgos ordenados por
+> daño, con una sección de **refutados**: tres afirmaciones que sonaban ciertas y
+> no lo eran. Empezar por el bucle cancelar/reactivar y por `QrPoster`, que es el
+> 77% de la base de datos.
+
 > **Análisis completo de lo construido:** [`docs/ANALISIS-CORREOS.md`](ANALISIS-CORREOS.md)
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
