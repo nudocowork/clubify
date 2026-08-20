@@ -37,6 +37,10 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+> **Análisis completo de lo construido:** [`docs/ANALISIS-CORREOS.md`](ANALISIS-CORREOS.md)
+> — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
+> qué quedó **sin** comprobar.
+
 ## 2026-08-20 — Clubify también manda correo (sin abrirle SMS a nadie)
 **Máquina/quién:** Javier
 **Rama / PR:** `chore/merge-emails-sobre-314` @ `df1f9dbc` — desplegada a Railway
