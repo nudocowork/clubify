@@ -48,6 +48,104 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-20 (tarde) — Historial de envíos, contactos = negocios, y pago manual
+**Máquina/quién:** Javier
+**Rama / PR:** `chore/merge-emails-sobre-314` — backend y frontend desplegados
+
+### 1. Historial de envíos (`MessageLog`)
+Antes no había forma de responder «¿se enviaron los recordatorios de cobro de
+Sellea?» desde ningún panel. Solo se registraban los envíos del motor de Email
+Marketing (`MktAction`) y los de workflows de marca; `GrowBusinessService`
+mandaba y no guardaba nada — y por ahí salen los **26 servicios** que envían.
+
+Se registra en `postChannelMessage`, el único punto por el que pasan SMS,
+WhatsApp y correo. Cubre los 26 sin tocar ninguno. **Los fallos también se
+registran** (credenciales incompletas, contacto que no se pudo crear, rechazo
+del proveedor): un envío que no salió es justo lo que hay que poder ver.
+
+Pantalla: **`/admin/mensajes`**, con historial y resumen por automatización.
+
+**La trampa del aislamiento, por si alguien la toca:** `MessageLog` lleva
+`tenantId`, así que el middleware lo acotaría solo — pero eso **esconde las filas
+con `tenantId` nulo** (avisos a la marca), que se leen como «no se envió nada».
+Peor que un error, porque parece un hecho. Por eso las consultas corren con
+`TenantContext.runWithoutTenant()` y el scoping es explícito por `whiteLabelId`.
+Si alguien «simplifica» eso, reintroduce el agujero.
+
+**No se guarda el HTML**, solo `preview` recortado a 300 caracteres. `MktAction`
+guarda el cuerpo entero, y ése es el camino que convirtió a `QrPoster` en el 77%
+de la base de datos. Retención: 90 días (requiere `RETENTION_ENABLED=true`).
+
+### 2. Contactos = los negocios de cada marca
+La pestaña Email Marketing → Contactos estaba vacía. Ahora hay «Sincronizar
+negocios» y un botón de envío directo por fila. La sincronización pasa por el
+resolver de identidad (`marketing/identity.ts`) — es lo que protege los índices
+únicos parciales de producción — es idempotente y no pisa ediciones manuales.
+La baja voluntaria se respeta también en el envío manual.
+
+Sincronizado ya: **Clubify 87** (de 88 negocios; dos comparten teléfono y el
+resolver los unificó), **Sellea 6**, **Fideliso 1**.
+
+**Limitación conocida:** `MktContact` no tiene `tenantId`, así que el vínculo
+contacto↔negocio se resuelve por identidad al momento del envío. Si alguien
+cambia el correo de un contacto, el historial pierde el negocio asociado. Se
+arregla con un campo en una migración aditiva.
+
+### 3. `addPlanPeriod` se saltaba meses enteros — BUG DE FECHAS DE COBRO
+`setMonth` no acota el día: si el día no existe en el mes destino, JavaScript
+desborda al siguiente. Medido:
+
+```
+31-ene + 1 mes    ->  3-mar     (febrero desaparecía)
+31-mar + 1 mes    ->  1-may
+31-ago + 6 meses  ->  3-mar-2027
+```
+
+El comentario encima de la función decía que usaba `setMonth` «para respetar
+meses reales» — era exactamente lo que fallaba. Afectaba al cálculo del próximo
+cobro cuando la pasarela no manda fecha, y al auto-reparador, donde el error se
+acumulaba ciclo a ciclo, haciendo que los recordatorios D-7/D-1 apuntaran a una
+fecha distinta de la del cobro real. **Arreglado y con tests de regresión.**
+
+### 4. Pago manual (Nequi, efectivo, transferencia)
+Muchos clientes pagan por fuera de las pasarelas. Ninguna va a confirmar nada.
+
+- `Tenant.manualPayment` — este negocio paga por fuera.
+- `ManualPayment` — un registro por cobro; el único rastro que existirá.
+- Endpoints: registrar pago, marcar/desmarcar el modo, lista de revisión e
+  historial por negocio.
+- **El cron NO los suspende solo** (ni por mora ni por trial vencido):
+  suspender a quien sí pagó en efectivo es peor que dejar unos días de más a
+  quien no. Siguen recibiendo recordatorios y aparecen en la lista de revisión.
+- **Consecuencia a tener presente:** pasado el período de gracia, un negocio de
+  pago manual deja de recibir mensajes Y no se suspende. Si nadie mira la lista
+  de revisión, nadie lo persigue.
+- Todo respeta la **periodicidad**: fecha (1/3/6/12 meses reales), importe
+  sugerido (68/150/278/500 con override por `Setting landing.plans.<p>.price`) y
+  créditos (`cycleCreditCost` ya multiplica por los meses del ciclo).
+- Se **eliminó `periodDays`** de `convert-to-paying`: el frontend mandaba
+  siempre 30, así que marcar pagado a un trimestral o anual le daba 30 días.
+- **NO dispara comisión de afiliado** — decisión de negocio pendiente.
+
+### Qué toqué de PRODUCCIÓN
+- Dos migraciones aditivas e idempotentes, ejecutadas:
+  `apply-message-log-migration.cjs` y `apply-manual-payment-migration.cjs`.
+  Nadie quedó marcado como pago manual (verificado: 0 filas).
+- Sincronización de contactos en las tres marcas (94 fichas creadas en total).
+- Despliegue de backend y frontend. Rutas del módulo de Jhon comprobadas: siguen
+  todas en pie.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **Las 16 plantillas de correo usan `{brandName}`, que resuelve al nombre
+      del NEGOCIO, no al de la marca.** El asunto le dice al dueño de Empanadas
+      La Parada «renovamos tu plan de Empanadas La Parada» cuando quien cobra es
+      Sellea. El token correcto (`{platform}`) existe y no se usa ni una vez.
+      Son 32 apariciones. **Pendiente de decisión de Javier.**
+- [ ] Comprobar mañana que aparecen solos en `/admin/mensajes` el D-3 de Acqua
+      Nails y el D-1 de Empanadas La Parada (cron de las 3:00).
+- [ ] `RETENTION_ENABLED=true` en Railway, o la retención no corre.
+- [ ] Conectar (o no) la comisión de afiliado al pago manual.
+
 ## 2026-08-20 — Clubify también manda correo (sin abrirle SMS a nadie)
 **Máquina/quién:** Javier
 **Rama / PR:** `chore/merge-emails-sobre-314` @ `df1f9dbc` — desplegada a Railway
