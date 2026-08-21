@@ -1618,6 +1618,20 @@ export class TenantsService {
         previousPeriodEnd: t.currentPeriodEnd?.toISOString() ?? null,
       },
     });
+
+    // Comisión del afiliado, igual que en «marcar pagado» (`convertToPaying`).
+    // Un cobro por Nequi o efectivo es el MISMO hecho económico que uno por
+    // pasarela: quien refirió al negocio cobra igual. No hacerlo aquí dejaba
+    // sin pagar a los afiliados de todo negocio que cobra por fuera — y en
+    // silencio, porque nada lo reporta.
+    //
+    // Fire-and-forget a propósito: si el cálculo falla no se cae el registro
+    // del pago (que ya ocurrió y no se puede deshacer); el admin tiene
+    // «Generar comisión ahora» para reintentarlo a mano.
+    this.referrals
+      .backfillCommissionForCurrentAssignment(id, false)
+      .catch(() => null);
+
     return {
       payment,
       tenant: {

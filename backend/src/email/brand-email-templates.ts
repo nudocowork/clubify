@@ -53,9 +53,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'El correo clave: se envía cuando se aprueba el PRIMER pago y el panel del cliente queda activo. Incluye la URL del panel y el correo con el que entra.',
     vars: [...BASE_VARS, 'loginEmail', 'nextChargeDate', 'supportEmail'],
-    subject: '🎉 Tu panel de {brandName} ya está listo',
+    subject: '🎉 Tu panel de {platform} ya está listo',
     default:
-      '¡Listo, {ownerName}! Tu pago quedó confirmado y **{brandName}** ya está activo.\n\n' +
+      '¡Listo, {ownerName}! Tu pago quedó confirmado y tu cuenta de **{platform}** ya está activa.\n\n' +
       'Entra a tu panel con este correo: {loginEmail}\n\n' +
       'Estos son los primeros pasos para arrancar hoy mismo:\n\n' +
       '1. Sube tu catálogo (categorías y productos)\n' +
@@ -92,9 +92,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Aviso amable 7 días antes de la renovación. Mismo disparo que el SMS D-7: negocio activo, con fecha de cobro dentro de 7 días, una sola vez por ciclo.',
     vars: [...BASE_VARS, 'chargeDate'],
-    subject: 'Tu renovación de {brandName} es el {chargeDate}',
+    subject: 'Tu renovación de {platform} es el {chargeDate}',
     default:
-      'Hola {ownerName}, te avisamos con tiempo: el {chargeDate} renovamos tu suscripción de **{brandName}**.\n\n' +
+      'Hola {ownerName}, te avisamos con tiempo: el {chargeDate} renovamos tu suscripción de **{platform}**.\n\n' +
       'No tienes que hacer nada, el cobro sale solo. Si quieres cambiar el medio de pago o revisar tu plan, entra a tu panel.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
@@ -107,9 +107,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Segundo aviso, 3 días antes de la renovación. Mismo disparo que el SMS D-3: una sola vez por ciclo.',
     vars: [...BASE_VARS, 'chargeDate'],
-    subject: 'En 3 días renovamos tu plan de {brandName}',
+    subject: 'En 3 días renovamos tu plan de {platform}',
     default:
-      'Hola {ownerName}, en 3 días ({chargeDate}) se renueva tu suscripción de **{brandName}**.\n\n' +
+      'Hola {ownerName}, en 3 días ({chargeDate}) se renueva tu suscripción de **{platform}**.\n\n' +
       'Si tu tarjeta sigue vigente no tienes que hacer nada. Si cambió o está por vencer, actualízala ahora y evitas que el cobro falle.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
@@ -122,9 +122,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Aviso el día antes del cobro. Mismo disparo que el SMS D-1: una sola vez por ciclo.',
     vars: [...BASE_VARS, 'chargeDate'],
-    subject: 'Mañana renovamos tu plan de {brandName}',
+    subject: 'Mañana renovamos tu plan de {platform}',
     default:
-      'Hola {ownerName}, mañana ({chargeDate}) se procesa el cobro de tu suscripción de **{brandName}**.\n\n' +
+      'Hola {ownerName}, mañana ({chargeDate}) se procesa el cobro de tu suscripción de **{platform}**.\n\n' +
       'Si tu tarjeta cambió o está por vencer, actualízala hoy para que la renovación no falle.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
@@ -137,9 +137,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Aviso el mismo día en que se procesa la renovación. Mismo disparo que el SMS D-0: una sola vez por ciclo.',
     vars: [...BASE_VARS, 'chargeDate'],
-    subject: 'Hoy renovamos tu plan de {brandName}',
+    subject: 'Hoy renovamos tu plan de {platform}',
     default:
-      'Hola {ownerName}, hoy se procesa la renovación de **{brandName}**.\n\n' +
+      'Hola {ownerName}, hoy se procesa la renovación de tu suscripción de **{platform}**.\n\n' +
       'Si todo sale bien no tienes que hacer nada: te llega la confirmación en cuanto se acredite. Si el cobro falla, te avisamos para que lo resuelvas.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
@@ -152,9 +152,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Se envía en cada renovación aprobada (no en la primera compra, que manda "Panel creado"). Confirma el cobro e informa la próxima fecha.',
     vars: [...BASE_VARS, 'nextChargeDate'],
-    subject: 'Recibimos tu pago de {brandName}',
+    subject: 'Recibimos tu pago de {platform}',
     default:
-      'Hola {ownerName}, confirmamos el pago de tu suscripción de **{brandName}**.\n\n' +
+      'Hola {ownerName}, confirmamos el pago de tu suscripción de **{platform}**.\n\n' +
       'Tu cuenta sigue activa sin interrupciones. Próximo cobro: {nextChargeDate}.\n\n' +
       'Gracias por seguir con nosotros.',
     folder: EMAIL_FOLDER.id,
@@ -168,9 +168,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Se envía cuando la pasarela reporta un pago demorado, rechazado o en disputa. Pide revisar el medio de pago antes de que la cuenta se pause.',
     vars: BASE_VARS,
-    subject: 'No pudimos procesar tu pago de {brandName}',
+    subject: 'No pudimos procesar tu pago de {platform}',
     default:
-      'Hola {ownerName}, tuvimos un problema al procesar el pago de **{brandName}**.\n\n' +
+      'Hola {ownerName}, tuvimos un problema al procesar el pago de tu suscripción de **{platform}**.\n\n' +
       'Revisa tu medio de pago para que tu cuenta no se pause. Si ya lo resolviste, ignora este correo — el cobro se reintenta automáticamente.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
@@ -183,9 +183,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Primer recordatorio de mora, un día después de que el cobro quedó pendiente. Avisa la fecha en que la cuenta se pausaría.',
     vars: [...BASE_VARS, 'pauseDate'],
-    subject: 'Tu pago de {brandName} quedó pendiente',
+    subject: 'Tu pago de {platform} quedó pendiente',
     default:
-      'Hola {ownerName}, el cobro de **{brandName}** quedó pendiente y tu cuenta sigue activa por ahora.\n\n' +
+      'Hola {ownerName}, el cobro de tu suscripción de **{platform}** quedó pendiente y tu cuenta sigue activa por ahora.\n\n' +
       'Si no se regulariza antes del {pauseDate}, la cuenta se pausa y tu panel deja de estar disponible. Actualizar el medio de pago toma un minuto.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
@@ -198,9 +198,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Último aviso antes de pausar la cuenta por falta de pago.',
     vars: BASE_VARS,
-    subject: 'Tu cuenta de {brandName} está por pausarse',
+    subject: 'Tu cuenta de {platform} está por pausarse',
     default:
-      'Hola {ownerName}, seguimos sin poder cobrar la suscripción de **{brandName}**.\n\n' +
+      'Hola {ownerName}, seguimos sin poder cobrar tu suscripción de **{platform}**.\n\n' +
       'Si no se regulariza, la cuenta se pausa y tu panel deja de estar disponible para ti y para tus clientes. Tus datos quedan guardados: al pagar, todo vuelve tal como estaba.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
@@ -212,9 +212,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     folderLabel: 'Cuenta pausada',
     description: 'Se envía cuando la cuenta queda suspendida por falta de pago.',
     vars: BASE_VARS,
-    subject: 'Tu cuenta de {brandName} quedó pausada',
+    subject: 'Tu cuenta de {platform} quedó pausada',
     default:
-      'Hola {ownerName}, pausamos **{brandName}** porque no pudimos completar el cobro.\n\n' +
+      'Hola {ownerName}, pausamos tu cuenta de **{platform}** porque no pudimos completar el cobro.\n\n' +
       'Tu información está intacta. Apenas se procese el pago, tu panel y tu página pública vuelven a funcionar al instante.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
@@ -227,9 +227,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Se envía cuando una cuenta suspendida vuelve a activarse tras un pago.',
     vars: [...BASE_VARS, 'nextChargeDate'],
-    subject: '{brandName} está activo de nuevo',
+    subject: 'Tu cuenta de {platform} está activa de nuevo',
     default:
-      '¡Buenas noticias, {ownerName}! Recibimos tu pago y **{brandName}** volvió a estar activo.\n\n' +
+      '¡Buenas noticias, {ownerName}! Recibimos tu pago y tu cuenta de **{platform}** volvió a estar activa.\n\n' +
       'Tu panel y tu página pública ya están funcionando otra vez. Próximo cobro: {nextChargeDate}.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
@@ -242,9 +242,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Se envía cuando se procesa un reembolso y la cuenta queda suspendida.',
     vars: [...BASE_VARS, 'supportEmail'],
-    subject: 'Procesamos tu reembolso de {brandName}',
+    subject: 'Procesamos tu reembolso de {platform}',
     default:
-      'Hola {ownerName}, procesamos el reembolso de **{brandName}** y tu cuenta quedó suspendida.\n\n' +
+      'Hola {ownerName}, procesamos el reembolso de tu suscripción de **{platform}** y tu cuenta quedó suspendida.\n\n' +
       'Tus datos siguen guardados por si más adelante quieres volver. Si esto fue un error o necesitas ayuda, respóndenos este correo.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
@@ -256,9 +256,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Se envía cuando el banco registra un contracargo y la cuenta se suspende.',
     vars: [...BASE_VARS, 'supportEmail'],
-    subject: 'Se registró un contracargo en {brandName}',
+    subject: 'Se registró un contracargo en {platform}',
     default:
-      'Hola {ownerName}, el banco registró un contracargo sobre el pago de **{brandName}** y tu cuenta quedó suspendida.\n\n' +
+      'Hola {ownerName}, el banco registró un contracargo sobre el pago de **{platform}** y tu cuenta quedó suspendida.\n\n' +
       'Escríbenos respondiendo este correo para regularizarlo y reactivar tu servicio.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
@@ -270,9 +270,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Se envía cuando la pasarela abre una disputa sobre un pago. Todavía no es un contracargo: busca contacto antes de que escale.',
     vars: [...BASE_VARS, 'supportEmail'],
-    subject: 'Hay una disputa abierta sobre tu pago de {brandName}',
+    subject: 'Hay una disputa abierta sobre tu pago de {platform}',
     default:
-      'Hola {ownerName}, se abrió una disputa sobre el pago de **{brandName}**.\n\n' +
+      'Hola {ownerName}, se abrió una disputa sobre el pago de **{platform}**.\n\n' +
       'Mientras se resuelve, tu cuenta sigue funcionando. Si fue un error o no reconoces el cobro, respóndenos este correo y lo aclaramos contigo antes de que escale a contracargo.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
@@ -284,9 +284,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Se envía cuando el cliente cancela su suscripción. Deja la puerta abierta para volver.',
     vars: [...BASE_VARS, 'supportEmail'],
-    subject: 'Cancelamos tu suscripción de {brandName}',
+    subject: 'Cancelamos tu suscripción de {platform}',
     default:
-      'Hola {ownerName}, cancelamos la suscripción de **{brandName}** como pediste.\n\n' +
+      'Hola {ownerName}, cancelamos la suscripción de **{platform}** como pediste.\n\n' +
       'Guardamos tu información por si quieres retomarla más adelante — puedes reactivarla cuando quieras desde tu panel.\n\n' +
       'Gracias por haber confiado en nosotros. Si nos quieres contar qué falló, respóndenos este correo: nos sirve muchísimo.',
     folder: EMAIL_FOLDER.id,
@@ -299,9 +299,9 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     description:
       'Se envía cuando cambia la fecha del próximo cobro de la suscripción.',
     vars: [...BASE_VARS, 'nextChargeDate'],
-    subject: 'Movimos la fecha de tu próximo cobro de {brandName}',
+    subject: 'Movimos la fecha de tu próximo cobro de {platform}',
     default:
-      'Hola {ownerName}, actualizamos la fecha del próximo cobro de **{brandName}**.\n\n' +
+      'Hola {ownerName}, actualizamos la fecha del próximo cobro de **{platform}**.\n\n' +
       'Tu nueva fecha es el {nextChargeDate}. Tu plan y tu servicio siguen igual, solo cambia cuándo se procesa el pago.',
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
