@@ -14,6 +14,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { BrandWorkflowEngineService } from './brand-workflow-engine.service';
+import { BrandWorkflowFoldersService } from './brand-workflow-folders.service';
 
 class SaveWorkflowDto {
   @IsOptional() @IsString() name?: string;
@@ -29,6 +30,28 @@ class SaveWorkflowDto {
 class NameDto {
   @IsString() @MaxLength(60) name!: string;
 }
+class CreateWorkflowDto {
+  @IsOptional() @IsString() @MaxLength(60) name?: string;
+  // Carpeta donde nace (la que el usuario está viendo). Se valida como propia.
+  @IsOptional() folderId?: string | null;
+}
+class CreateFolderDto {
+  @IsString() @MaxLength(60) name!: string;
+  // Carpeta contenedora — permite crear una carpeta DENTRO de otra.
+  @IsOptional() parentId?: string | null;
+}
+class MoveFolderDto {
+  // null (o ausente) = mover a la raíz.
+  @IsOptional() parentId?: string | null;
+}
+class BulkMoveDto {
+  @IsArray() @IsString({ each: true }) ids!: string[];
+  // null (o ausente) = quitar de toda carpeta (raíz).
+  @IsOptional() folderId?: string | null;
+}
+class BulkDeleteDto {
+  @IsArray() @IsString({ each: true }) ids!: string[];
+}
 class EnrollDto {
   @IsArray() @IsString({ each: true }) tenantIds!: string[];
 }
@@ -39,6 +62,7 @@ export class BrandWorkflowsController {
   constructor(
     private prisma: PrismaService,
     private engine: BrandWorkflowEngineService,
+    private folders: BrandWorkflowFoldersService,
   ) {}
 
   private async brandId(user: AuthUser): Promise<string> {
@@ -75,11 +99,32 @@ export class BrandWorkflowsController {
   }
 
   @Post()
-  async create(@Body() body: NameDto, @CurrentUser() user: AuthUser) {
+  async create(@Body() body: CreateWorkflowDto, @CurrentUser() user: AuthUser) {
     const whiteLabelId = await this.brandId(user);
+    // Nace en la carpeta que el usuario está viendo. Se valida como carpeta
+    // PROPIA: un folderId de otra marca haría aparecer el workflow en el árbol
+    // de esa marca.
+    const folderId = (body.folderId ?? '').trim() || null;
+    if (folderId) {
+      const f = await this.prisma.brandWorkflowFolder.findFirst({ where: { id: folderId, whiteLabelId } });
+      if (!f) throw new NotFoundException('Carpeta no encontrada');
+    }
     return this.prisma.brandWorkflow.create({
-      data: { whiteLabelId, name: body.name?.trim() || 'Nuevo workflow', status: 'draft', trigger: { type: 'manual' }, nodes: {}, drip: {}, sendWindow: {} },
+      data: { whiteLabelId, name: body.name?.trim() || 'Nuevo workflow', folderId, status: 'draft', trigger: { type: 'manual' }, nodes: {}, drip: {}, sendWindow: {} },
     });
+  }
+
+  // ── Acciones en lote (varias filas seleccionadas → una sola llamada) ──
+  @Post('bulk/move')
+  async bulkMove(@Body() body: BulkMoveDto, @CurrentUser() user: AuthUser) {
+    const whiteLabelId = await this.brandId(user);
+    return this.folders.bulkMoveWorkflows(whiteLabelId, body.ids, body.folderId ?? null);
+  }
+
+  @Post('bulk/delete')
+  async bulkDelete(@Body() body: BulkDeleteDto, @CurrentUser() user: AuthUser) {
+    const whiteLabelId = await this.brandId(user);
+    return this.folders.bulkDeleteWorkflows(whiteLabelId, body.ids);
   }
 
   @Get(':id')
@@ -136,29 +181,30 @@ export class BrandWorkflowsController {
     });
   }
 
-  // ── Carpetas ──
+  // ── Carpetas (árbol anidado — la lógica vive en BrandWorkflowFoldersService) ──
   @Post('folders')
-  async createFolder(@Body() body: NameDto, @CurrentUser() user: AuthUser) {
+  async createFolder(@Body() body: CreateFolderDto, @CurrentUser() user: AuthUser) {
     const whiteLabelId = await this.brandId(user);
-    const position = await this.prisma.brandWorkflowFolder.count({ where: { whiteLabelId } });
-    return this.prisma.brandWorkflowFolder.create({ data: { whiteLabelId, name: body.name.trim() || 'Carpeta', position } });
+    return this.folders.create(whiteLabelId, body.name, body.parentId ?? null);
   }
   @Patch('folders/:folderId')
   async renameFolder(@Param('folderId') folderId: string, @Body() body: NameDto, @CurrentUser() user: AuthUser) {
     const whiteLabelId = await this.brandId(user);
-    const f = await this.prisma.brandWorkflowFolder.findFirst({ where: { id: folderId, whiteLabelId } });
-    if (!f) throw new NotFoundException('Carpeta no encontrada');
-    await this.prisma.brandWorkflowFolder.update({ where: { id: folderId }, data: { name: body.name.trim() || 'Carpeta' } });
-    return { ok: true };
+    return this.folders.rename(whiteLabelId, folderId, body.name);
   }
+  // Mover una carpeta dentro de otra (o a la raíz). El servicio rechaza los
+  // ciclos con un 400 claro.
+  @Patch('folders/:folderId/move')
+  async moveFolder(@Param('folderId') folderId: string, @Body() body: MoveFolderDto, @CurrentUser() user: AuthUser) {
+    const whiteLabelId = await this.brandId(user);
+    return this.folders.move(whiteLabelId, folderId, body.parentId ?? null);
+  }
+  // Borrar carpeta: su contenido (workflows y subcarpetas) sube al padre de la
+  // carpeta borrada — nunca se borra ni se pierde un workflow por esta vía.
   @Delete('folders/:folderId')
   async deleteFolder(@Param('folderId') folderId: string, @CurrentUser() user: AuthUser) {
     const whiteLabelId = await this.brandId(user);
-    const f = await this.prisma.brandWorkflowFolder.findFirst({ where: { id: folderId, whiteLabelId } });
-    if (!f) throw new NotFoundException('Carpeta no encontrada');
-    await this.prisma.brandWorkflow.updateMany({ where: { whiteLabelId, folderId }, data: { folderId: null } });
-    await this.prisma.brandWorkflowFolder.delete({ where: { id: folderId } });
-    return { ok: true };
+    return this.folders.remove(whiteLabelId, folderId);
   }
 
   // ── Inscripción manual: negocios de la marca ──

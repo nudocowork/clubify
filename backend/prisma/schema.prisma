@@ -2174,10 +2174,15 @@ model BrandWorkflowFolder {
   id           String   @id @default(uuid())
   whiteLabelId String
   name         String
+  /// Carpeta contenedora. Null = está en la raíz. Sin `@relation`: el árbol se
+  /// arma en código, igual que en TeamClubify. Una FK con cascada borraría
+  /// silenciosamente subárboles enteros al eliminar una carpeta padre.
+  parentId     String?
   position     Int      @default(0)
   createdAt    DateTime @default(now())
 
   @@index([whiteLabelId])
+  @@index([parentId])
 }
 
 model BrandWorkflowEnrollment {

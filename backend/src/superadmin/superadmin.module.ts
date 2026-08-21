@@ -4,6 +4,7 @@ import { SuperAdminController, SuperAdminPublicController } from './superadmin.c
 import { AdminAutomationsController } from './admin-automations.controller';
 import { BrandWorkflowsController } from './brand-workflows/brand-workflows.controller';
 import { BrandWorkflowEngineService } from './brand-workflows/brand-workflow-engine.service';
+import { BrandWorkflowFoldersService } from './brand-workflows/brand-workflow-folders.service';
 import { RenewalsService } from './renewals.service';
 import { BrandIconService } from './brand-icon.service';
 import { BrandAuditService } from './brand-audit.service';
@@ -14,7 +15,7 @@ import { WhiteLabelNotificationsModule } from '../white-label-notifications/whit
 
 @Module({
   imports: [AuditModule, forwardRef(() => AuthModule), IntegrationsModule, WhiteLabelNotificationsModule],
-  providers: [SuperAdminService, RenewalsService, BrandIconService, BrandAuditService, BrandWorkflowEngineService],
+  providers: [SuperAdminService, RenewalsService, BrandIconService, BrandAuditService, BrandWorkflowEngineService, BrandWorkflowFoldersService],
   controllers: [
     SuperAdminController,
     SuperAdminPublicController,
