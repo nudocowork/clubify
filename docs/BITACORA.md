@@ -48,6 +48,74 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-20 (noche) — Sellos al entregar, métodos de pago, y el correo de prueba de Humberto
+**Máquina/quién:** Javier
+**Rama / PR:** `chore/merge-emails-sobre-314` — backend y frontend desplegados
+
+### 1. El correo de prueba se guardaba y desaparecía
+Lo reportó Humberto (dueño de Sellea). El backend devolvía `{ testEmail }` y el
+panel leía `r.email`: como no existía, metía `''` en el campo **justo después de
+decir «guardado»**. Y encadenaba el segundo síntoma, porque «Probar correo»
+exige que el campo tenga algo.
+
+Se unificó la forma de la respuesta con la del teléfono. Lo importante es el
+blindaje: **el panel ya nunca vacía lo que el usuario escribió** por una
+respuesta que no trae el valor.
+
+**Dato del historial (para esto se construyó):** sus dos intentos anteriores
+SÍ salieron y GHL los aceptó con id real. Si no le llega, es entregabilidad de
+la subcuenta de Sellea en GHL — dominio remitente —, no código.
+
+### 2. Sellos: al ENTREGAR, no al confirmar
+**Corrección al diagnóstico inicial:** los pedidos afectados eran **PICKUP**, no
+domicilio. El guard de domicilio (`fulfillment === 'DELIVERY' → return`) sí
+funcionaba. Desde el menú público se ven iguales; el sistema los trata distinto.
+
+Medido: **62 sellos «Auto por pedido confirmado» en 60 días**, con 2 pedidos
+cancelados y 1 en READY entre ellos. Ninguna automatización daba sellos
+(revisadas las 280 reglas de `AutomationRule`).
+
+- `autoStampOnConfirm` → **`autoStampOnDelivered`**, disparada solo en DELIVERED.
+- **Cancelar revierte** lo que ese pedido generó: asiento inverso con rastro en
+  `Stamp`, piso 0, reapertura del cartón si ese sello lo completaba, y anulación
+  de `purchaseAmount`. Idempotente y best-effort.
+- **Domicilio pregunta**: al marcar entregado sale «¿Sumas el sello?» (decisión
+  de Javier). Nuevo `POST /orders/:id/stamp`, misma ruta que el automático, así
+  que el resultado es idéntico. Enganchado en el botón y en arrastrar y soltar.
+
+**Ojo:** la columna se sigue llamando `Card.autoStampOnOrder` aunque ahora
+signifique «al entregar». No se renombró (migración aparte). El nombre miente.
+
+**Datos históricos NO corregidos:** los 2 pedidos ya cancelados con sello vivo
+siguen así; harían falta un script puntual.
+
+### 3. Montos: solo desde CONFIRMED
+Seis sitios sumaban pedidos PENDING como ventas. El peor: el ticket promedio
+dividía plata confirmada entre pedidos pendientes — mal por los dos lados. El
+merge de clientes sumaba incluso CANCELLED. Constante `REVENUE_STATUSES` en
+`metrics.service.ts`.
+
+### 4. Método de pago
+El cliente lo elegía y **el negocio nunca lo veía**: el wa.me del dueño
+(`generateWaMeOwner`) nunca lo incluyó. Ahora sale humanizado, con el texto libre
+real cuando es OTRO, y se omite si no eligió.
+
+El negocio ya elige qué acepta: guardado en `Storefront.theme.paymentMethods`
+(mismo precedente que `theme.fulfillment`, sin migración). Validado también en el
+servidor. **Quien nunca lo configure sigue viendo los cuatro** — un default vacío
+sería una caída de ventas silenciosa.
+
+### Qué toqué de PRODUCCIÓN
+- Despliegue de backend y frontend. Rutas comprobadas con calibración correcta
+  (ruta inventada → 404, las nuevas → 401). Módulo de Jhon intacto.
+- Sin migraciones nuevas.
+
+### Qué falta
+- [ ] Los 2 pedidos cancelados con sello vivo (script de datos puntual).
+- [ ] Renombrar `Card.autoStampOnOrder` → `autoStampOnDelivered` (SQL aditivo).
+- [ ] ¿El guard de domicilio debería desaparecer ahora que hay pregunta? Hoy
+      conviven: domicilio nunca automático + pregunta al entregar.
+
 ## 2026-08-20 (tarde) — Historial de envíos, contactos = negocios, y pago manual
 **Máquina/quién:** Javier
 **Rama / PR:** `chore/merge-emails-sobre-314` — backend y frontend desplegados
