@@ -3,40 +3,43 @@ import { addPlanPeriod, normalizePlanPeriod } from './plan-period';
 /**
  * Ciclo que cubre un pago manual (Nequi / efectivo / transferencia).
  *
- * La fecha de arranque decide cuánto tiempo real recibe el cliente, así que
- * la regla es "ni regalar ni quitar":
+ * **El ciclo arranca en la FECHA DE PAGO.** Si el negocio pagó su plan
+ * trimestral el 4 de julio, queda cubierto hasta el 4 de octubre. Punto.
  *
- *  - Ciclo vigente (currentPeriodEnd en el futuro) → el pago compra el ciclo
- *    SIGUIENTE: encadena desde currentPeriodEnd. Arrancar desde hoy le
- *    quitaría al cliente los días que ya tiene pagados de este ciclo.
- *  - Ciclo vencido (o negocio sin ciclo aún) → el ciclo nuevo arranca HOY.
- *    Encadenar desde la fecha vencida entregaría un ciclo ya parcialmente
- *    consumido (le quita tiempo por el que acaba de pagar); y arrancar en una
- *    fecha futura le regalaría días sin pagar. Los días entre el vencimiento
- *    y hoy quedaron cubiertos de facto por el gate de no-suspensión de
- *    `manualPayment` — no se cobran ni se descuentan.
+ * FIX 2026-08-21 — antes esto encadenaba desde `currentPeriodEnd` y calculaba
+ * desde `now`, así que **la fecha que escribía el usuario no se usaba para
+ * nada**: se guardaba en el historial y el ciclo salía de otro lado. Caso real:
+ * pago del 4-jul de un trimestral, y el sistema devolvió 21-nov → 21-feb.
  *
- * El largo del ciclo lo dicta SIEMPRE la periodicidad del plan vía
- * `addPlanPeriod` (1/3/6/12 meses reales, nunca 30 días fijos).
+ * La regla vieja intentaba ser lista («no le quites días ya pagados si paga por
+ * adelantado»), pero adivinaba: producía fechas que no se pueden explicar
+ * mirando el formulario. Una regla predecible que a veces hay que ajustar a
+ * mano vale más que una lista que sorprende. Si el pago acorta la cobertura
+ * vigente, el aviso se lo damos al usuario ANTES de confirmar (`acorta`), en
+ * vez de decidir por él.
  */
 export function resolveManualPaymentPeriod(
-  now: Date,
+  /** Fecha en que el cliente pagó de verdad. Es la que manda. */
+  paidAt: Date,
+  /** Cobertura vigente antes de este pago. Solo se usa para avisar. */
   currentPeriodEnd: Date | null | undefined,
   planPeriodicity: string | null | undefined,
 ): {
   periodStart: Date;
   periodEnd: Date;
   periodicity: string;
-  /** true si encadenó desde un ciclo vigente (pago por adelantado). */
-  chained: boolean;
+  /**
+   * true si el nuevo ciclo termina ANTES de la cobertura que ya tenía. No
+   * bloquea nada — es para que el panel lo advierta y el humano decida.
+   */
+  acorta: boolean;
 } {
-  const chained =
-    !!currentPeriodEnd && currentPeriodEnd.getTime() > now.getTime();
-  const periodStart = chained ? new Date(currentPeriodEnd!) : new Date(now);
+  const periodStart = new Date(paidAt);
+  const periodEnd = addPlanPeriod(periodStart, planPeriodicity);
   return {
     periodStart,
-    periodEnd: addPlanPeriod(periodStart, planPeriodicity),
+    periodEnd,
     periodicity: normalizePlanPeriod(planPeriodicity),
-    chained,
+    acorta: !!currentPeriodEnd && periodEnd.getTime() < currentPeriodEnd.getTime(),
   };
 }

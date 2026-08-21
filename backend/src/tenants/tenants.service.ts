@@ -1527,8 +1527,12 @@ export class TenantsService {
     if (paidAt.getTime() > now.getTime() + 24 * 60 * 60 * 1000) {
       throw new BadRequestException('La fecha de pago no puede ser futura');
     }
+    // La FECHA DE PAGO manda: trimestral pagado el 4-jul queda cubierto hasta
+    // el 4-oct. Antes se pasaba `now` y la fecha escrita por el usuario no se
+    // usaba para nada — se guardaba en el historial y el ciclo salía de otro
+    // lado. Ver `manual-payment-period.ts`.
     const period = resolveManualPaymentPeriod(
-      now,
+      paidAt,
       t.currentPeriodEnd,
       t.planPeriodicity,
     );
@@ -1607,7 +1611,9 @@ export class TenantsService {
         periodStart: period.periodStart.toISOString(),
         periodEnd: period.periodEnd.toISOString(),
         periodicity: period.periodicity,
-        chainedFromCurrentPeriod: period.chained,
+        // Queda en auditoría: si el pago acorta la cobertura anterior, se ve
+        // quien lo hizo y desde qué fecha.
+        acortaCoberturaPrevia: period.acorta,
         previousStatus: t.status,
         previousPeriodEnd: t.currentPeriodEnd?.toISOString() ?? null,
       },
@@ -1709,16 +1715,12 @@ export class TenantsService {
   async listManualPaymentReview() {
     const now = new Date();
     const dayMs = 24 * 60 * 60 * 1000;
+    // TODOS los marcados como "paga por fuera", no solo los vencidos.
+    // Antes solo devolvía los vencidos y la pantalla salía vacía incluso con
+    // negocios recién marcados: quien la abre espera ver a quién gestiona, no
+    // una lista que casi siempre está en blanco. Los vencidos van primero.
     const tenants = await this.prisma.tenant.findMany({
-      where: {
-        manualPayment: true,
-        // SUSPENDED ya está desconectado — no hay a quién perseguir.
-        status: { in: ['ACTIVE', 'TRIAL'] },
-        OR: [
-          { currentPeriodEnd: { lt: now } },
-          { currentPeriodEnd: null, trialEndsAt: { lt: now } },
-        ],
-      },
+      where: { manualPayment: true },
       select: {
         id: true,
         brandName: true,
@@ -1731,9 +1733,10 @@ export class TenantsService {
         whiteLabelId: true,
       },
     });
-    if (tenants.length === 0) return { count: 0, items: [] };
-    // Pagos manuales de esos negocios: el más reciente por negocio (para
-    // mostrar cuándo/cómo pagó la última vez) y si alguno cubre HOY.
+    if (tenants.length === 0) {
+      return { count: 0, pendientes: 0, items: [] };
+    }
+
     const pagos = await this.prisma.manualPayment.findMany({
       where: { tenantId: { in: tenants.map((t) => t.id) } },
       orderBy: { paidAt: 'desc' },
@@ -1749,50 +1752,73 @@ export class TenantsService {
       },
     });
     const lastByTenant = new Map<string, (typeof pagos)[number]>();
-    const covered = new Set<string>();
+    // Hasta cuándo lo deja cubierto el pago manual más lejano. Se usa incluso
+    // si `currentPeriodEnd` quedó desincronizado: el pago registrado es el
+    // hecho, la metadata puede estar vieja.
+    const coveredUntil = new Map<string, Date>();
     for (const p of pagos) {
       if (!lastByTenant.has(p.tenantId)) lastByTenant.set(p.tenantId, p);
-      // Un pago cuyo periodEnd llega más allá de hoy = ciclo vigente cubierto
-      // (aunque currentPeriodEnd hubiera quedado desincronizado).
-      if (p.periodEnd.getTime() > now.getTime()) covered.add(p.tenantId);
+      const prev = coveredUntil.get(p.tenantId);
+      if (!prev || p.periodEnd.getTime() > prev.getTime()) {
+        coveredUntil.set(p.tenantId, p.periodEnd);
+      }
     }
-    const items = tenants
-      .filter((t) => !covered.has(t.id))
-      .map((t) => {
-        // Si hay ciclo, la deuda corre desde su vencimiento; si nunca hubo
-        // ciclo (TRIAL vencido), desde el fin del trial. El where garantiza
-        // que al menos una de las dos fechas existe y está vencida.
-        const dueSince = (t.currentPeriodEnd ?? t.trialEndsAt) as Date;
-        const last = lastByTenant.get(t.id) ?? null;
-        return {
-          tenantId: t.id,
-          brandName: t.brandName,
-          email: t.email,
-          phone: t.phone,
-          status: t.status,
-          whiteLabelId: t.whiteLabelId,
-          planPeriodicity: normalizePlanPeriod(t.planPeriodicity),
-          dueSince,
-          daysOverdue: Math.max(
-            0,
-            Math.floor((now.getTime() - dueSince.getTime()) / dayMs),
-          ),
-          reason: t.currentPeriodEnd
-            ? ('CICLO_VENCIDO' as const)
-            : ('TRIAL_VENCIDO' as const),
-          lastManualPayment: last && {
-            id: last.id,
-            method: last.method,
-            amount: last.amount,
-            currency: last.currency,
-            paidAt: last.paidAt,
-            periodStart: last.periodStart,
-            periodEnd: last.periodEnd,
-          },
-        };
-      })
-      .sort((a, b) => b.daysOverdue - a.daysOverdue);
-    return { count: items.length, items };
+
+    const items = tenants.map((t) => {
+      const cubierto = coveredUntil.get(t.id) ?? null;
+      const hasta = cubierto ?? t.currentPeriodEnd ?? t.trialEndsAt ?? null;
+      const vencido = !!hasta && hasta.getTime() < now.getTime();
+      const estado = (
+        t.status === 'SUSPENDED'
+          ? 'DESCONECTADO'
+          : vencido
+            ? 'VENCIDO'
+            : 'AL_DIA'
+      ) as 'DESCONECTADO' | 'VENCIDO' | 'AL_DIA';
+      const last = lastByTenant.get(t.id) ?? null;
+      return {
+        tenantId: t.id,
+        brandName: t.brandName,
+        email: t.email,
+        phone: t.phone,
+        status: t.status,
+        whiteLabelId: t.whiteLabelId,
+        planPeriodicity: normalizePlanPeriod(t.planPeriodicity),
+        estado,
+        /** Hasta cuándo está cubierto. Null = nunca arrancó ciclo. */
+        coveredUntil: hasta,
+        dueSince: vencido ? hasta : null,
+        daysOverdue:
+          vencido && hasta
+            ? Math.max(0, Math.floor((now.getTime() - hasta.getTime()) / dayMs))
+            : 0,
+        reason: t.currentPeriodEnd
+          ? ('CICLO_VENCIDO' as const)
+          : ('TRIAL_VENCIDO' as const),
+        lastManualPayment: last && {
+          id: last.id,
+          method: last.method,
+          amount: last.amount,
+          currency: last.currency,
+          paidAt: last.paidAt,
+          periodStart: last.periodStart,
+          periodEnd: last.periodEnd,
+        },
+      };
+    });
+    // Vencidos primero (más días arriba), luego los que están al día por
+    // cobertura más próxima: así la pantalla ordena el trabajo por sí sola.
+    const orden = { VENCIDO: 0, AL_DIA: 1, DESCONECTADO: 2 };
+    items.sort((a, b) => {
+      if (orden[a.estado] !== orden[b.estado]) return orden[a.estado] - orden[b.estado];
+      if (a.estado === 'VENCIDO') return b.daysOverdue - a.daysOverdue;
+      return (a.coveredUntil?.getTime() ?? Infinity) - (b.coveredUntil?.getTime() ?? Infinity);
+    });
+    return {
+      count: items.length,
+      pendientes: items.filter((i) => i.estado === 'VENCIDO').length,
+      items,
+    };
   }
 
   /**

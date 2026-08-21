@@ -93,20 +93,25 @@ function addMonthsClamped(from: Date, months: number): Date {
 }
 
 /** Vista previa del ciclo que cubrirá el pago. Espejo de
- *  `resolveManualPaymentPeriod` del backend: ciclo vigente → encadena desde
- *  currentPeriodEnd (no se pierden días ya pagados); vencido o sin ciclo →
- *  arranca hoy. El backend es quien decide; esto existe para que el admin
- *  VEA la fecha final antes de confirmar (el error más común era asumir
- *  30 días en planes trimestrales/anuales). */
+ *  `resolveManualPaymentPeriod` del backend: **arranca en la FECHA DE PAGO**.
+ *  Si el negocio pagó su trimestral el 4 de julio, queda cubierto hasta el 4 de
+ *  octubre.
+ *
+ *  Antes esto encadenaba desde `currentPeriodEnd` y la fecha escrita no se
+ *  usaba: el recuadro anunciaba una cobertura que no tenía nada que ver con lo
+ *  que el usuario acababa de teclear. `acorta` avisa si el pago deja al negocio
+ *  cubierto MENOS de lo que ya estaba — se advierte, no se corrige solo. */
 function projectCoverage(
+  paidAt: string,
   currentPeriodEnd: string | null,
   periodicity: PlanPeriodicity,
-): { start: Date; end: Date; chained: boolean } {
-  const now = new Date();
+): { start: Date; end: Date; acorta: boolean } {
+  const pagado = paidAt ? new Date(paidAt) : new Date();
+  const start = isNaN(pagado.getTime()) ? new Date() : pagado;
+  const end = addMonthsClamped(start, monthsForPeriod(periodicity));
   const cpe = currentPeriodEnd ? new Date(currentPeriodEnd) : null;
-  const chained = !!cpe && !isNaN(cpe.getTime()) && cpe.getTime() > now.getTime();
-  const start = chained ? (cpe as Date) : now;
-  return { start, end: addMonthsClamped(start, monthsForPeriod(periodicity)), chained };
+  const acorta = !!cpe && !isNaN(cpe.getTime()) && end.getTime() < cpe.getTime();
+  return { start, end, acorta };
 }
 
 function todayLocalISO(): string {
@@ -360,7 +365,9 @@ function RegisterManualPaymentModal({
   const [paidAt, setPaidAt] = useState(today);
   const [saving, setSaving] = useState(false);
 
-  const proj = projectCoverage(data.currentPeriodEnd, data.planPeriodicity);
+  // Se recalcula con la fecha del formulario: el recuadro tiene que responder
+  // a lo que el usuario acaba de escribir, no a hoy.
+  const proj = projectCoverage(paidAt, data.currentPeriodEnd, data.planPeriodicity);
   const months = monthsForPeriod(data.planPeriodicity);
 
   async function submit() {
@@ -436,12 +443,14 @@ function RegisterManualPaymentModal({
               .
             </div>
             <div className="mt-1">
-              Quedará cubierto hasta el <strong>{fmtDate(proj.end.toISOString())}</strong>.
+              Desde el <strong>{fmtDate(proj.start.toISOString())}</strong> quedará
+              cubierto hasta el <strong>{fmtDate(proj.end.toISOString())}</strong>.
             </div>
-            {proj.chained && (
-              <div className="text-xs text-mute mt-1">
-                El ciclo actual sigue vigente hasta el {fmtDate(data.currentPeriodEnd)}: este
-                pago compra el ciclo siguiente (no se pierden días ya pagados).
+            {proj.acorta && data.currentPeriodEnd && (
+              <div className="text-xs mt-1.5 text-warn">
+                ⚠ Hoy figura cubierto hasta el {fmtDate(data.currentPeriodEnd)}. Con
+                esta fecha de pago la cobertura queda más corta. Si el pago es de
+                un ciclo posterior, corrige la fecha.
               </div>
             )}
           </div>

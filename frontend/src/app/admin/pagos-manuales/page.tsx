@@ -22,7 +22,11 @@ type ReviewItem = {
   status: string;
   whiteLabelId: string | null;
   planPeriodicity: PlanPeriodicity;
-  dueSince: string;
+  /** VENCIDO = hay que perseguirlo · AL_DIA = cubierto · DESCONECTADO = suspendido */
+  estado: 'VENCIDO' | 'AL_DIA' | 'DESCONECTADO';
+  /** Hasta cuándo está cubierto. Null = nunca arrancó ciclo. */
+  coveredUntil: string | null;
+  dueSince: string | null;
   daysOverdue: number;
   reason: 'CICLO_VENCIDO' | 'TRIAL_VENCIDO';
   lastManualPayment: {
@@ -64,6 +68,7 @@ function fmtAmount(amount: string | null, currency: string | null) {
 
 export default function PagosManualesPage() {
   const [items, setItems] = useState<ReviewItem[]>([]);
+  const [pendientes, setPendientes] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [suspendTarget, setSuspendTarget] = useState<ReviewItem | null>(null);
@@ -72,10 +77,11 @@ export default function PagosManualesPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api<{ count: number; items: ReviewItem[] }>(
+      const res = await api<{ count: number; pendientes: number; items: ReviewItem[] }>(
         '/tenants/manual-payments/review',
       );
       setItems(res?.items ?? []);
+      setPendientes(res?.pendientes ?? 0);
     } catch (e: any) {
       // Error visible con reintento — que nunca parezca "no hay vencidos"
       // cuando en realidad falló la carga.
@@ -95,9 +101,13 @@ export default function PagosManualesPage() {
           Pagos por fuera{' '}
           {!loading && !error && (
             <span className="page-crumb">
-              {items.length === 1
-                ? '1 negocio por revisar'
-                : `${items.length} negocios por revisar`}
+              {items.length === 1 ? '1 negocio' : `${items.length} negocios`}
+              {pendientes > 0 && (
+                <span className="text-bad font-semibold">
+                  {' · '}
+                  {pendientes === 1 ? '1 por cobrar' : `${pendientes} por cobrar`}
+                </span>
+              )}
             </span>
           )}
         </h1>
@@ -107,7 +117,7 @@ export default function PagosManualesPage() {
       </div>
       <p className="text-sm text-mute mb-4 -mt-2 max-w-3xl">
         Negocios que pagan por Nequi, efectivo o transferencia y cuyo ciclo{' '}
-        <strong>ya venció sin un pago manual que lo cubra</strong>. El sistema no los
+        <strong>cobras a mano</strong>. El sistema no los
         suspende solo: persigue el cobro (y regístralo desde su ficha) o desconéctalos
         a mano desde aquí.
       </p>
@@ -148,11 +158,11 @@ export default function PagosManualesPage() {
                   <tr>
                     <td colSpan={6} className="px-4 py-12 text-center">
                       <div className="text-3xl mb-1">✅</div>
-                      <div className="font-semibold">Todo al día</div>
+                      <div className="font-semibold">Ningún negocio marcado</div>
                       <div className="text-mute text-xs mt-1 max-w-md mx-auto">
-                        Ningún negocio marcado como «paga por fuera» tiene el ciclo
-                        vencido. Aparecerán aquí cuando venza su ciclo sin un pago
-                        manual registrado que lo cubra.
+                        Marca un negocio como «paga por fuera» desde su ficha y
+                        aparecerá acá, con su cobertura y avisándote cuando le
+                        toque cobrar.
                       </div>
                     </td>
                   </tr>
@@ -179,25 +189,43 @@ export default function PagosManualesPage() {
                         <td className="px-4 py-3.5">
                           <span
                             className={`badge ${
-                              it.reason === 'CICLO_VENCIDO' ? 'badge-bad' : 'badge-warn'
+                              it.estado === 'VENCIDO'
+                                ? 'badge-bad'
+                                : it.estado === 'DESCONECTADO'
+                                  ? 'badge-warn'
+                                  : 'badge-ok'
                             }`}
                           >
-                            {it.reason === 'CICLO_VENCIDO'
-                              ? 'Ciclo vencido'
-                              : 'Prueba vencida'}
+                            {it.estado === 'VENCIDO'
+                              ? it.reason === 'CICLO_VENCIDO'
+                                ? 'Ciclo vencido'
+                                : 'Prueba vencida'
+                              : it.estado === 'DESCONECTADO'
+                                ? 'Desconectado'
+                                : 'Al día'}
                           </span>
                         </td>
                         <td className="px-4 py-3.5 whitespace-nowrap">
-                          <span
-                            className={`font-semibold ${
-                              it.daysOverdue >= 7 ? 'text-bad' : 'text-warn'
-                            }`}
-                          >
-                            {it.daysOverdue === 1 ? '1 día' : `${it.daysOverdue} días`}
-                          </span>
-                          <div className="text-mute text-xs">
-                            desde el {fmtDate(it.dueSince)}
-                          </div>
+                          {it.estado === 'VENCIDO' && it.dueSince ? (
+                            <>
+                              <span
+                                className={`font-semibold ${
+                                  it.daysOverdue >= 7 ? 'text-bad' : 'text-warn'
+                                }`}
+                              >
+                                {it.daysOverdue === 1 ? '1 día' : `${it.daysOverdue} días`}
+                              </span>
+                              <div className="text-mute text-xs">
+                                desde el {fmtDate(it.dueSince)}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-mute">
+                              {it.coveredUntil
+                                ? `cubierto hasta el ${fmtDate(it.coveredUntil)}`
+                                : 'sin ciclo iniciado'}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3.5 whitespace-nowrap">
                           {periodLabel(it.planPeriodicity)}
