@@ -77,3 +77,38 @@ export function isDarkBackground(opts: {
   if (type === 'IMAGE') return true;
   return isDarkColor(opts.bgColor);
 }
+
+/**
+ * Color de marca **seguro** para usar en un `style`.
+ *
+ * `primaryColor || '#22C55E'` solo atrapa null y cadena vacía: si el campo trae
+ * basura (pasó de verdad — un negocio tenía «Degodoy cocina» escrito ahí), el
+ * navegador ignora la declaración, el botón se queda con fondo blanco y el texto
+ * blanco encima lo vuelve INVISIBLE. El usuario ve que «no marca» cuando en
+ * realidad sí marcó.
+ *
+ * Acá se valida de verdad: si no es un hex parseable, se usa el respaldo.
+ */
+export function safeBrandColor(
+  color?: string | null,
+  fallback = '#22C55E',
+): string {
+  const c = (color ?? '').trim();
+  return hexToRgb(c) ? c : fallback;
+}
+
+/**
+ * Par listo para pintar un elemento «seleccionado» con el color de la marca:
+ * fondo válido y texto que se lee encima.
+ *
+ * El texto NO se fija a blanco: una marca con color claro (hay una con
+ * `#ffffff`) dejaría el contenido ilegible. `autoTextColor` elige negro o
+ * blanco según la luminancia.
+ */
+export function brandFill(
+  color?: string | null,
+  fallback = '#22C55E',
+): { background: string; color: string } {
+  const background = safeBrandColor(color, fallback);
+  return { background, color: autoTextColor(background) };
+}
