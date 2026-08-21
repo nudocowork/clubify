@@ -9,6 +9,7 @@ import { ReferralAssignmentCard } from '@/components/ReferralAssignmentCard';
 import { DeliveryAlertsCard } from '@/components/DeliveryAlertsCard';
 import { CustomerOrderAlertsCard } from '@/components/CustomerOrderAlertsCard';
 import { StampAuditTable } from '@/components/StampAuditTable';
+import { ManualPaymentsCard } from '@/components/ManualPaymentsCard';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import {
@@ -253,10 +254,12 @@ export default function TenantDetail() {
   }
 
   /**
-   * Convierte el tenant a cliente pagante (ACTIVE + currentPeriodEnd
-   * +30d + sin trialEndsAt). Útil cuando paga por fuera de Hotmart.
-   * Automáticamente dispara backfill de comisión si tiene asignación
-   * a INFLUENCER/AMBASSADOR.
+   * Convierte el tenant a cliente pagante (ACTIVE + sin trialEndsAt).
+   * Útil cuando paga por fuera de Hotmart. El ciclo lo corre el BACKEND
+   * según la periodicidad del plan (trimestral = 3 meses, anual = 12) —
+   * mandar `periodDays: 30` desde aquí le daba 30 días a cualquier plan,
+   * por eso el backend eliminó ese parámetro. Automáticamente dispara
+   * backfill de comisión si tiene asignación a INFLUENCER/AMBASSADOR.
    */
   async function convertToPaying() {
     if (
@@ -268,7 +271,6 @@ export default function TenantDetail() {
     try {
       await api(`/tenants/${id}/convert-to-paying`, {
         method: 'POST',
-        body: JSON.stringify({ periodDays: 30 }),
       });
       await load();
       toast(tr('businessConvertedToPaying'), 'success');
@@ -824,6 +826,10 @@ export default function TenantDetail() {
         )}
 
         <PlanCurrentCard tenant={t} isSuperAdmin={isSuperAdmin} onChange={load} />
+
+        {/* Cobranza manual (Nequi/efectivo/transferencia): flag "paga por
+            fuera", registro de pagos e historial. Endpoints SUPER_ADMIN-only. */}
+        {isSuperAdmin && <ManualPaymentsCard tenantId={t.id} onChange={load} />}
 
         {isSuperAdmin && (
           <div className="card card-pad">

@@ -10,6 +10,7 @@ import { CommissionExceptionsService } from '../admin/commission-exceptions.serv
 import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 import { addPlanPeriod, parsePlanPeriodLabel } from '../common/plan-period';
+import { getCanonicalBundlePrice } from '../common/plan-pricing';
 import { SmsTemplatesService } from './sms-templates.service';
 import { BrandEmailService } from '../email/brand-email.service';
 import { fmtEmailDate } from '../email/brand-email-templates';
@@ -144,24 +145,14 @@ export class HotmartService {
   ) {}
 
   /** Precio canónico del bundle en USD (68/150/278/500) según periodicidad,
-   *  con override por Setting `landing.plans.<period>.price`. Replica
-   *  CommissionRecalcService.getBundlePrice vía prisma para no acoplar este
-   *  módulo (evita ciclos de DI). Devuelve 0 si no se puede resolver. */
+   *  con override por Setting `landing.plans.<period>.price`. Delegado a
+   *  common/plan-pricing (misma verdad que el importe sugerido de los pagos
+   *  manuales). Se pasa prisma directo — sin acoplar servicios (evita ciclos
+   *  de DI, igual que la réplica que había antes). */
   private async getCanonicalBundlePrice(
     periodicity: string | null,
   ): Promise<number> {
-    const DEFAULTS: Record<string, number> = {
-      MENSUAL: 68,
-      TRIMESTRAL: 150,
-      SEMESTRAL: 278,
-      ANUAL: 500,
-    };
-    const period = (periodicity ?? 'MENSUAL').toUpperCase();
-    const key = `landing.plans.${period.toLowerCase()}.price`;
-    const row = await this.prisma.setting.findUnique({ where: { key } });
-    const fromSetting = row?.value != null ? Number(row.value) : NaN;
-    if (Number.isFinite(fromSetting) && fromSetting > 0) return fromSetting;
-    return DEFAULTS[period] ?? 0;
+    return getCanonicalBundlePrice(this.prisma, periodicity);
   }
 
   /**

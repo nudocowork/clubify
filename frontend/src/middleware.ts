@@ -45,6 +45,7 @@ const RESERVED_ADMIN_ROUTES = new Set([
   'maintenance',
   'map',
   'mensajes',
+  'pagos-manuales',
   'payouts',
   'pending-payments',
   'rankings',

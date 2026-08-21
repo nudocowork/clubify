@@ -422,7 +422,13 @@ export class BillingService {
         trialEndsAt: { lt: now },
         currentPeriodEnd: null,
       },
-      select: { id: true, brandName: true, trialEndsAt: true, gracePeriodDays: true },
+      select: {
+        id: true,
+        brandName: true,
+        trialEndsAt: true,
+        gracePeriodDays: true,
+        manualPayment: true,
+      },
     });
     // Solo suspendemos si trialEndsAt + gracePeriodDays ya pasó. La gracia 0
     // mantiene el comportamiento anterior (corte duro al vencer trial).
@@ -432,11 +438,23 @@ export class BillingService {
       return cutoff < now.getTime();
     });
 
+    let trialSuspendedCount = 0;
     for (const t of expiredTrials) {
+      // Gate pago-por-fuera: puede haber pagado en efectivo/Nequi y que el
+      // registro del pago venga con días de retraso — suspender a un cliente
+      // que sí pagó es peor que dejarle unos días de más a uno que no. Queda
+      // visible en la lista de revisión (GET /tenants/manual-payments/review).
+      if (t.manualPayment) {
+        this.logger.warn(
+          `Tenant ${t.brandName} (${t.id}) con trial vencido pero paga POR FUERA (manualPayment) — NO auto-suspendido; aparece en la lista de revisión.`,
+        );
+        continue;
+      }
       await this.prisma.tenant.update({
         where: { id: t.id },
         data: { status: 'SUSPENDED', suspendedAt: now },
       });
+      trialSuspendedCount++;
       this.logger.warn(`Tenant ${t.brandName} (${t.id}) suspended: trial expired`);
     }
 
@@ -449,7 +467,7 @@ export class BillingService {
     const dunning = await this.processOverdueAccounts(now);
 
     return {
-      suspendedCount: expiredTrials.length,
+      suspendedCount: trialSuspendedCount,
       reminderCount:
         reminder7dCount + reminder3dCount + reminderCount + reminderTodayCount,
       overdueReminderCount: dunning.reminders,
@@ -977,6 +995,7 @@ export class BillingService {
         planPeriodicity: true,
         paymentFailureNoticeSentAt: true,
         pausePendingNoticeSentAt: true,
+        manualPayment: true,
       },
     });
 
@@ -1037,6 +1056,19 @@ export class BillingService {
       const pauseDate = new Date(dueSince.getTime() + graceDays * dayMs);
 
       if (daysOverdue >= graceDays) {
+        // Gate pago-por-fuera (manualPayment): este negocio paga por Nequi/
+        // efectivo/transferencia y NINGUNA pasarela va a confirmar su pago.
+        // Suspender a un cliente que sí pagó en efectivo es peor que dejarle
+        // unos días de más a uno que no — así que NO se auto-suspende. Los
+        // recordatorios D+1/D+2 sí le siguen llegando (ramas de abajo), y el
+        // negocio aparece en GET /tenants/manual-payments/review para que un
+        // humano lo persiga o lo desconecte a mano.
+        if (t.manualPayment) {
+          this.logger.warn(
+            `Tenant ${t.brandName} (${t.id}) en mora ${daysOverdue}d pero paga POR FUERA (manualPayment) — NO auto-pausado; revisar en la lista de cobranza manual.`,
+          );
+          continue;
+        }
         // Tope de seguridad SOLO para la vía "fecha vencida" (no la de falla
         // explícita de Hotmart): evita pausar en masa cuentas legacy con
         // currentPeriodEnd viejo que nunca avanzó.

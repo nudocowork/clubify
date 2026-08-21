@@ -39,7 +39,7 @@ type IconName = Parameters<typeof Icon>[0]['name'];
 const ADMIN_ROUTE_SEGMENTS = new Set([
   'accounting', 'affiliate-registration', 'ai-knowledge', 'audit', 'branding',
   'business-categories', 'business-groups', 'commissions', 'creditos', 'industries', 'integrations',
-  'lab', 'maintenance', 'map', 'mensajes', 'payouts', 'rankings', 'referrals',
+  'lab', 'maintenance', 'map', 'mensajes', 'pagos-manuales', 'payouts', 'rankings', 'referrals',
   'reports', 'sales-leaderboard', 'sales-teams', 'support-materials', 'tenants',
   'trials', 'users', 'ventas',
 ]);
@@ -436,6 +436,9 @@ export default function AppShell({
       '/admin/audit',
       '/admin/tenants/new',
       '/admin/map',
+      // Cobranza manual: acciones de billing SUPER_ADMIN-only — a MARKETING
+      // solo le mostraría 403s.
+      '/admin/pagos-manuales',
       // ALTO #8 (2026-06-12): payouts (gestión de pagos a afiliados) es
       // dato financiero sensible. Estaba oculto en el sidebar pero el
       // route guard no lo bloqueaba — MARKETING podía entrar por URL
@@ -604,6 +607,10 @@ export default function AppShell({
                 { href: '/admin', label: 'Dashboard', icon: 'grid' },
                 { href: '/admin/tenants', label: 'Negocios', icon: 'store' },
                 { href: '/admin/pending-payments', label: 'Pagos sin activar', icon: 'bell', hideForMarketing: true, clubifyOnly: true },
+                // Cobranza manual (Nequi/efectivo/transferencia): vencidos que
+                // hay que perseguir o desconectar a mano. Vale para TODAS las
+                // marcas (el backend aísla por marca) → sin clubifyOnly.
+                { href: '/admin/pagos-manuales', label: 'Pagos por fuera', icon: 'cash', hideForMarketing: true },
                 { href: '/admin/business-groups', label: 'Grupos Empresariales', icon: 'store', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/map', label: 'Mapa', icon: 'pin', hideForMarketing: true },
                 // Trials es exclusivo de Clubify: las marcas blancas no tienen
