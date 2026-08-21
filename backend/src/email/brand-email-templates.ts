@@ -68,6 +68,24 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     cta: { label: 'Entrar a mi panel', urlVar: 'panelUrl' },
   },
   {
+    id: 'email_buyer_activation',
+    label: 'Pago recibido sin cuenta creada',
+    folderLabel: 'Pago sin cuenta',
+    description:
+      'Se envía al comprador que pagó (Hotmart o la pasarela de la marca) y todavía no creó su cuenta, con el enlace para activarla. El botón «Reenviar» de Pagos sin activar manda este mismo correo.',
+    // Va al COMPRADOR, que aún no tiene negocio: acá no existen {brandName} ni
+    // {ownerName} — la identidad es la de la MARCA ({platform}).
+    vars: ['platform', 'buyerName', 'loginEmail', 'activateUrl'],
+    subject: '🎉 Recibimos tu pago — crea tu cuenta de {platform}',
+    default:
+      'Hola {buyerName}, ¡tu pago llegó bien! 🎉\n\n' +
+      'Solo falta un paso: crear tu cuenta en **{platform}** para entrar a tu panel. Toma menos de un minuto.\n\n' +
+      'Importante: regístrate con el mismo correo con el que pagaste ({loginEmail}) para que tu cuenta se active al instante.',
+    folder: EMAIL_FOLDER.id,
+    audience: 'Al comprador',
+    cta: { label: 'Crear mi cuenta', urlVar: 'activateUrl' },
+  },
+  {
     id: 'email_payment_reminder_7d',
     label: 'Recordatorio de cobro (7 días antes)',
     folderLabel: 'Recordatorio 7 días antes',

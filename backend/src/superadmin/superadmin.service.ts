@@ -23,6 +23,7 @@ import {
 import { BrandEmailService } from '../email/brand-email.service';
 import {
   BRAND_EMAIL_SELECT,
+  brandBaseUrl,
 } from '../email/brand-email-creds.util';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
@@ -1291,7 +1292,9 @@ export class SuperAdminService {
     }
     const wl = await this.prisma.whiteLabel.findUnique({
       where: { id },
-      select: { name: true, slug: true },
+      // domain/appDomain: para armar un {activateUrl} de ejemplo que apunte al
+      // dominio de la marca, como el que recibiría un comprador real.
+      select: { name: true, slug: true, domain: true, appDomain: true },
     });
     // Renderizamos con un NEGOCIO real de la marca. El marco del correo (logo,
     // color, pie) sale del negocio, no de la marca: sin uno, la prueba llegaría
@@ -1321,6 +1324,13 @@ export class SuperAdminService {
         nextChargeDate: '15 de septiembre de 2026',
         pauseDate: '18 de septiembre de 2026',
         loginEmail: to.trim(),
+        // Aviso de compra sin cuenta: sin estos dos, la prueba llegaría con el
+        // saludo vacío y sin el botón de activación.
+        buyerName: 'Prueba',
+        activateUrl: `${brandBaseUrl(
+          wl,
+          (process.env.APP_URL ?? 'https://soyclubify.com').replace(/\/$/, ''),
+        )}/activar`,
       },
     });
     if (!res.sent) {

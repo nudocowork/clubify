@@ -65,6 +65,9 @@ describe('catálogo de correos de marca', () => {
       // extras que pasan los call sites del cron de cobros
       'chargeDate',
       'pauseDate',
+      // extras del aviso de compra sin cuenta (PendingActivationService)
+      'buyerName',
+      'activateUrl',
     ]);
     for (const t of EMAIL_TEMPLATES) {
       const inventados = t.vars.filter((v) => !RELLENABLES.has(v));
@@ -81,10 +84,13 @@ describe('catálogo de correos de marca', () => {
     }
   });
 
-  it('todos viven en la carpeta Correos y le hablan al negocio', () => {
+  it('todos viven en la carpeta Correos y le hablan a quien corresponde', () => {
     for (const t of EMAIL_TEMPLATES) {
       expect(t.folder, t.id).toBe(EMAIL_FOLDER.id);
-      expect(t.audience, t.id).toBe('Al negocio');
+      // Casi todos van al dueño del negocio; el aviso de compra sin cuenta va
+      // al comprador, que todavía no tiene negocio. Cualquier otra audiencia
+      // es un typo que el panel mostraría tal cual.
+      expect(['Al negocio', 'Al comprador'], t.id).toContain(t.audience);
     }
   });
 

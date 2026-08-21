@@ -4,6 +4,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { EmailService } from '../email/email.service';
 import { BillingService } from './billing.service';
+import { PendingActivationService } from './pending-activation.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
@@ -132,7 +133,10 @@ export class HotmartService {
   constructor(
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
+    // Solo para los avisos de cadena de referidos (notifyReferralChain); el
+    // correo al COMPRADOR sale por PendingActivationService → BrandEmailService.
     private email: EmailService,
+    private pendingActivation: PendingActivationService,
     private billing: BillingService,
     private referralsService: ReferralsService,
     private alerts: PreregAlertsService,
@@ -449,6 +453,9 @@ export class HotmartService {
           subscriberCode,
           transactionId,
           payload,
+          // Marca del webhook (ruta /:slug). La tabla no la guarda, pero el
+          // aviso al comprador sí debe salir con la identidad correcta.
+          whiteLabelId: scope?.whiteLabelId ?? null,
         }).catch((e) =>
           this.logger.warn(
             `storePendingPayment falló para ${buyerEmail}: ${(e as Error).message}`,
@@ -1469,6 +1476,7 @@ export class HotmartService {
     subscriberCode?: string;
     transactionId?: string;
     payload: HotmartWebhookPayload;
+    whiteLabelId?: string | null;
   }) {
     const email = args.buyerEmail.toLowerCase();
     const existing = await this.prisma.pendingHotmartPayment.findFirst({
@@ -1501,64 +1509,49 @@ export class HotmartService {
       email,
       name: args.payload.data?.buyer?.name ?? null,
       phone: buyerAny?.checkout_phone ?? buyerAny?.phone ?? null,
+      whiteLabelId: args.whiteLabelId ?? null,
     }).catch(() => null);
   }
 
   /**
-   * Recuperación de pago "huérfano": email + WhatsApp/SMS al COMPRADOR
-   * con el link a /activar (pre-llenado por email), y SMS al equipo
-   * comercial. Marca recoveryNotifiedAt para no re-enviar en reintentos
-   * del webhook.
+   * Recuperación de pago "huérfano": correo + WhatsApp/SMS al COMPRADOR con el
+   * link a /activar (pre-llenado por email), y SMS al equipo comercial. Marca
+   * recoveryNotifiedAt para no re-enviar en reintentos del webhook.
    *
-   * Fix 2026-06-11: antes solo se mandaba email + alert interna.
-   * Si el correo del comprador caía en spam o no lo leía, quedaba en
-   * limbo (caso Carlos Pérez urbancafe501@gmail.com). Ahora también:
-   *  - WhatsApp al comprador (fallback SMS si no hay WA en la subcuenta).
-   *  - Link `/activar?email=<email>` para que la página pre-llene el form
-   *    desde el PendingHotmartPayment (nombre, teléfono, plan, precio).
+   * Fix 2026-08-21: delega en PendingActivationService. El correo anterior
+   * salía por EmailService, que sin RESEND_API_KEY en producción escribe en el
+   * log y no llega a nadie — por eso se acumularon compradores que pagaron y
+   * nunca supieron que debían crear su cuenta. Ahora sale por la subcuenta de
+   * Grow Business de la marca (plantilla `email_buyer_activation`, editable
+   * desde Automatizaciones) y el WhatsApp/SMS también sale con la identidad de
+   * la marca del comprador.
    */
   private async notifyPendingRecovery(opts: {
     email: string;
     name: string | null;
     phone: string | null;
+    /** null = plataforma. PendingHotmartPayment no guarda la marca, así que el
+     *  reenvío manual siempre pasa null; el webhook sí conoce su scope. */
+    whiteLabelId?: string | null;
   }) {
-    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
-    const activateUrl = `${appUrl}/activar?email=${encodeURIComponent(opts.email)}`;
-    const greeting = opts.name ? ` ${opts.name}` : '';
-    await this.email.send({
-      to: opts.email,
-      subject: 'Completa tu cuenta de Clubify',
-      html: `<p>Hola${greeting},</p>
-<p>Recibimos tu pago 🎉. Solo falta crear tu cuenta para empezar a usar Clubify.</p>
-<p><a href="${activateUrl}" style="display:inline-block;background:#22C55E;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600">Completar mi cuenta →</a></p>
-<p>Importante: usa el mismo correo con el que pagaste (<strong>${opts.email}</strong>) para que activemos tu cuenta al instante.</p>`,
-      text: `Recibimos tu pago. Completa tu cuenta en ${activateUrl} usando el correo ${opts.email}.`,
+    const r = await this.pendingActivation.notifyBuyer({
+      gateway: 'HOTMART',
+      whiteLabelId: opts.whiteLabelId ?? null,
+      email: opts.email,
+      name: opts.name,
+      phone: opts.phone,
     });
-
-    // WhatsApp/SMS al comprador con el link pre-llenado.
-    const buyerNotify = await this.alerts
-      .sendBuyerActivationLink({
-        email: opts.email,
-        name: opts.name,
-        phone: opts.phone,
-        activateUrl,
-      })
-      .catch((e) => ({ ok: false, channel: 'none' as const, error: e?.message }));
-
-    this.alerts
-      .sendTeamAlert(
-        `💳 Pago Hotmart recibido SIN cuenta aún.\n` +
-          `Email: ${opts.email}\n` +
-          `Aviso al comprador: email ✅, ${buyerNotify.ok ? `${buyerNotify.channel} ✅` : `WhatsApp/SMS ❌ (sin tel válido)`}\n` +
-          `Link: ${activateUrl}`,
-      )
-      .catch(() => null);
-    await this.prisma.pendingHotmartPayment
-      .updateMany({
-        where: { email: opts.email, consumedAt: null, recoveryNotifiedAt: null },
-        data: { recoveryNotifiedAt: new Date() },
-      })
-      .catch(() => null);
+    // Solo marcamos si ALGO le llegó al comprador: si los dos canales fallaron
+    // (caída de GHL, sin teléfono válido), dar el aviso por hecho dejaría al
+    // comprador en el limbo sin que ningún reintento vuelva a intentarlo.
+    if (r.emailSent || r.channel !== 'none') {
+      await this.prisma.pendingHotmartPayment
+        .updateMany({
+          where: { email: opts.email, consumedAt: null, recoveryNotifiedAt: null },
+          data: { recoveryNotifiedAt: new Date() },
+        })
+        .catch(() => null);
+    }
   }
 
   /**

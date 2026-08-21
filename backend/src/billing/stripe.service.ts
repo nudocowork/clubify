@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { BillingService } from './billing.service';
+import { PendingActivationService } from './pending-activation.service';
 import { SmsTemplatesService } from './sms-templates.service';
 import { BrandEmailService } from '../email/brand-email.service';
 import { fmtEmailDate } from '../email/brand-email-templates';
@@ -32,6 +33,24 @@ type BrandCtx = {
 };
 
 /**
+ * Nombre y teléfono del comprador según el tipo de evento: el checkout los
+ * trae en `customer_details`, los invoice.* en `customer_name`/`customer_phone`.
+ * Acepta el evento vivo o el rawPayload guardado en PendingStripePayment (por
+ * eso el tipo laxo). Sin datos devuelve nulls — el aviso cae a solo correo.
+ */
+function buyerContactOf(eventLike: unknown): {
+  name: string | null;
+  phone: string | null;
+} {
+  const obj = (eventLike as { data?: { object?: any } })?.data?.object ?? {};
+  const cd = obj?.customer_details ?? {};
+  return {
+    name: cd?.name ?? obj?.customer_name ?? null,
+    phone: cd?.phone ?? obj?.customer_phone ?? null,
+  };
+}
+
+/**
  * Pasarela Stripe por marca blanca (cuenta PROPIA por marca). El cobro se hace
  * con Stripe Payment Links (la marca pega su link en el config); nosotros solo
  * procesamos el webhook firmado con SU webhookSecret. Espeja el flujo de
@@ -50,6 +69,7 @@ export class StripeService {
     private smsTemplates: SmsTemplatesService,
     private brandEmail: BrandEmailService,
     private onboardingWebhook: OnboardingWebhookService,
+    private pendingActivation: PendingActivationService,
   ) {}
 
   /** Carga la marca por slug + descifra secretKey/webhookSecret y arma el
@@ -709,6 +729,88 @@ export class StripeService {
       },
     });
     this.logger.log(`PendingStripePayment guardado para ${email} (${brand.slug})`);
+
+    // Aviso al comprador con el link para crear su cuenta — antes acá no salía
+    // NADA y el pago quedaba cobrado sin producto entregado. Idempotencia: la
+    // misma compra llega como checkout.session.completed E invoice.paid (y
+    // Stripe reintenta webhooks); si otra fila sin consumir de este comprador
+    // ya fue avisada (recoveryNotifiedAt), no repetimos el aviso.
+    const yaAvisado = await this.prisma.pendingStripePayment.findFirst({
+      where: {
+        email,
+        whiteLabelId: brand.whiteLabelId,
+        consumedAt: null,
+        recoveryNotifiedAt: { not: null },
+      },
+      select: { id: true },
+    });
+    if (yaAvisado) return;
+    const buyer = buyerContactOf(event);
+    await this.notifyPendingRecovery(brand.whiteLabelId, {
+      email,
+      name: buyer.name,
+      phone: buyer.phone,
+    }).catch((e) =>
+      this.logger.warn(
+        `aviso de compra sin cuenta (Stripe) falló para ${email}: ${(e as Error).message}`,
+      ),
+    );
+  }
+
+  /**
+   * Aviso al comprador que pagó sin tener cuenta: correo + WhatsApp/SMS con la
+   * identidad de la marca (PendingActivationService) y SMS al equipo. Marca
+   * recoveryNotifiedAt solo si algún canal llegó de verdad — si todo falló, el
+   * siguiente intento (webhook o reenvío manual) debe volver a intentar.
+   */
+  private async notifyPendingRecovery(
+    whiteLabelId: string | null,
+    opts: { email: string; name: string | null; phone: string | null },
+  ) {
+    const r = await this.pendingActivation.notifyBuyer({
+      gateway: 'STRIPE',
+      whiteLabelId,
+      email: opts.email,
+      name: opts.name,
+      phone: opts.phone,
+    });
+    if (r.emailSent || r.channel !== 'none') {
+      await this.prisma.pendingStripePayment
+        .updateMany({
+          where: {
+            email: opts.email,
+            ...(whiteLabelId ? { whiteLabelId } : {}),
+            consumedAt: null,
+            recoveryNotifiedAt: null,
+          },
+          data: { recoveryNotifiedAt: new Date() },
+        })
+        .catch(() => null);
+    }
+  }
+
+  /**
+   * Reenvía el link de activación a un comprador Stripe con pago pendiente que
+   * aún no creó su cuenta. Mismo camino que el aviso automático del webhook —
+   * lo usa POST /admin/pending-payments/resend (panel «Pagos sin activar»).
+   */
+  async resendPendingRecovery(
+    email: string,
+  ): Promise<{ ok: boolean; found: boolean }> {
+    const e = (email ?? '').trim().toLowerCase();
+    if (!e) return { ok: false, found: false };
+    const pending = await this.prisma.pendingStripePayment.findFirst({
+      where: { email: e, consumedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!pending) return { ok: false, found: false };
+    const buyer = buyerContactOf(pending.rawPayload);
+    await this.notifyPendingRecovery(pending.whiteLabelId, {
+      email: pending.email,
+      name: buyer.name,
+      phone: buyer.phone,
+    }).catch(() => null);
+    return { ok: true, found: true };
   }
 
   /** Periodicidad del plan que matchea el priceId (link de pago de la marca). */
