@@ -2,14 +2,13 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
-import EmailMarketingWorkflows from '@/components/EmailMarketingWorkflows';
 
 // Panel de EMAIL MARKETING (contact-based) de la MARCA — apartado de
 // automatizaciones. El proveedor de envío por debajo NUNCA se nombra en la UI.
 // Sub-pestañas: Conexión (estado + envío de prueba) y Contactos (base con dedup;
 // incluye los NEGOCIOS de la marca sincronizados con etiqueta `negocio` y el
 // envío directo de correo/SMS a un contacto).
-// Workflows / Registro llegan en las fases siguientes.
+// Los Workflows viven en su propia pestaña principal, no acá.
 
 const ACCENT = '#16a34a';
 
@@ -33,7 +32,7 @@ type Contact = {
 };
 
 export default function EmailMarketingPanel() {
-  const [sub, setSub] = useState<'conexion' | 'contactos' | 'workflows'>('conexion');
+  const [sub, setSub] = useState<'conexion' | 'contactos'>('conexion');
   return (
     <div className="space-y-4">
       <div>
@@ -46,7 +45,8 @@ export default function EmailMarketingPanel() {
         {([
           ['conexion', 'Conexión'],
           ['contactos', 'Contactos'],
-          ['workflows', 'Workflows'],
+          // Sin «Workflows»: ya existe la pestaña principal de Workflows arriba y
+          // tener dos entradas al mismo concepto solo hace dudar cuál es cuál.
         ] as const).map(([k, label]) => (
           <button
             key={k}
@@ -58,7 +58,7 @@ export default function EmailMarketingPanel() {
           </button>
         ))}
       </div>
-      {sub === 'conexion' ? <ConnectionTab /> : sub === 'contactos' ? <ContactsTab /> : <EmailMarketingWorkflows />}
+      {sub === 'conexion' ? <ConnectionTab /> : <ContactsTab />}
     </div>
   );
 }
