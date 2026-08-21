@@ -629,13 +629,28 @@ export class GrowBusinessService {
     ctx?: SendContext;
   }): Promise<void> {
     try {
+      // Si el llamador no dijo de qué marca es, se deduce del negocio. Sin esto
+      // los SMS del cron nacían sin marca, y la lectura los atribuía a Clubify
+      // por la regla «null = legacy»: un recordatorio de Acqua Nails (Sellea)
+      // apareció en el panel de Clubify. Una fila sin marca es una fuga
+      // esperando a pasar.
+      let whiteLabelId = datos.ctx?.whiteLabelId ?? null;
+      if (!whiteLabelId && datos.ctx?.tenantId) {
+        whiteLabelId =
+          (
+            await this.prisma.tenant.findUnique({
+              where: { id: datos.ctx.tenantId },
+              select: { whiteLabelId: true },
+            })
+          )?.whiteLabelId ?? null;
+      }
       await this.prisma.messageLog.create({
         data: {
           channel: datos.channel,
           status: datos.ok ? 'sent' : 'failed',
           locationId: datos.locationId || '—',
           tenantId: datos.ctx?.tenantId ?? null,
-          whiteLabelId: datos.ctx?.whiteLabelId ?? null,
+          whiteLabelId,
           templateId: datos.ctx?.templateId ?? null,
           feature: datos.ctx?.feature ?? null,
           toPhone: datos.toPhone ?? null,

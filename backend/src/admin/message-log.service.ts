@@ -3,7 +3,6 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { TenantContext } from '../common/tenant/tenant-context';
 import {
   resolveBrandScope,
-  brandWhiteLabelWhere,
 } from '../common/white-label/brand-scope.util';
 import { SMS_TEMPLATES } from '../billing/sms-templates';
 import { brandMsgCatalog } from '../integrations/brand-message-templates';
@@ -67,6 +66,25 @@ function parseDateParam(raw: string, param: string): Date {
   return d;
 }
 
+/**
+ * WHERE de marca ESTRICTO para el historial de envíos.
+ *
+ * A diferencia de `brandWhiteLabelWhere` (que a Clubify le suma las filas con
+ * `whiteLabelId` nulo, por los datos legacy anteriores al backfill de marcas),
+ * acá esa regla NO aplica: `MessageLog` es una tabla nueva, no tiene legacy, y
+ * tratarla igual produjo una fuga real — los SMS del cron nacían sin marca y un
+ * recordatorio de Acqua Nails (Sellea) salió listado en el panel de Clubify.
+ *
+ * Un mensaje sin marca no es de nadie: no se le atribuye a Clubify por descarte.
+ */
+function estrictoPorMarca(scope: {
+  wlId: string | null;
+  clubifyId: string | null;
+  isClubify: boolean;
+}): Record<string, any> {
+  return scope.wlId ? { whiteLabelId: scope.wlId } : {};
+}
+
 @Injectable()
 export class MessageLogService {
   constructor(private prisma: PrismaService) {}
@@ -79,16 +97,13 @@ export class MessageLogService {
     if (caller.role === 'PLATFORM_OWNER') {
       if (!requestedWl) return {}; // vista global
       if (requestedWl === 'none') return { whiteLabelId: null };
-      // Filtrar por una marca muestra EXACTAMENTE lo que esa marca ve en su
-      // panel (Clubify incluye legacy null) — así el dueño puede verificar
-      // el reclamo de una marca mirando lo mismo que ella.
       const scope = await resolveBrandScope(this.prisma, requestedWl);
-      return brandWhiteLabelWhere(scope);
+      return estrictoPorMarca(scope);
     }
     // Admin de marca: SIEMPRE su marca; el query param se ignora a propósito
     // (que un cliente malicioso mande ?whiteLabelId=otra no debe abrir nada).
     const scope = await resolveBrandScope(this.prisma, caller.whiteLabelId ?? null);
-    return brandWhiteLabelWhere(scope);
+    return estrictoPorMarca(scope);
   }
 
   /** Filtros comunes de list/summary, ya validados. */
