@@ -1263,7 +1263,11 @@ export class SuperAdminService {
     await this.logAction(actorId, 'superadmin.white_label.automation.test_email', id, {
       set: !!value,
     });
-    return { testEmail: value };
+    // Misma forma que `setBrandTestPhone` (`{ ok, phone }`). Devolvía solo
+    // `{ testEmail }` y el panel leía `r.email`: como no existía, borraba el
+    // campo justo después de decir «guardado». Se mandan las dos llaves para
+    // no romper a un frontend viejo.
+    return { ok: true, email: value, testEmail: value };
   }
 
   /**

@@ -135,7 +135,7 @@ export default function AutomatizacionesPanel() {
         method: 'PATCH',
         body: JSON.stringify({ phone: phoneDraft }),
       });
-      setPhoneDraft(r?.phone ?? '');
+      setPhoneDraft(r?.phone ?? phoneDraft);
       toast('Número de prueba guardado', 'success');
     } catch (e: any) {
       toast(e.message ?? 'Error al guardar el número', 'error');
@@ -149,15 +149,18 @@ export default function AutomatizacionesPanel() {
   async function saveEmail() {
     setBusy(true);
     try {
+      const escrito = emailDraft.trim();
       const r: any = await api('/admin/automations/test-email', {
         method: 'PATCH',
         body: JSON.stringify({ email: emailDraft }),
       });
-      setEmailDraft(r?.email ?? '');
+      // Nunca vaciar el campo por una respuesta que no trae el valor: si el
+      // servidor cambia de forma, el usuario vería «guardado» y su correo
+      // desapareciendo. Ante la duda, gana lo que él escribió.
+      const guardado = r?.email ?? r?.testEmail ?? escrito;
+      setEmailDraft(guardado);
       toast(
-        (r?.email ?? emailDraft).trim()
-          ? 'Correo de prueba guardado'
-          : 'Correo de prueba borrado',
+        guardado.trim() ? 'Correo de prueba guardado' : 'Correo de prueba borrado',
         'success',
       );
     } catch (e: any) {
