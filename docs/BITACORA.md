@@ -48,6 +48,92 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-21 — Aviso de compra, carpetas anidadas, reservas y las 3 pendientes
+**Máquina/quién:** Javier
+**Rama / PR:** `chore/merge-emails-sobre-314` — todo desplegado y verificado
+
+### 1. Reservas: «no marca ni permite avanzar» — NO era un bug de reservas
+Degodoy tenía `primaryColor = "Degodoy cocina "`. Un nombre, no un color. El
+navegador ignora el `background` inválido, el botón se queda blanco y el
+`text-white` encima lo vuelve **invisible**. Sí marcaba; no se veía. El botón de
+avanzar, igual.
+
+- **La puerta por donde entró:** `onboarding-sync.service.ts` hacía
+  `data[k] = String(b[k])` sin validar. Es una fuente EXTERNA. Los endpoints de
+  tenants y superadmin sí validaban con `@IsHexColor`. Ya valida y descarta con
+  log ruidoso.
+- **Defensa en el render:** `safeBrandColor()` en `lib/contrast.ts` —
+  `primaryColor || '#fallback'` solo atrapa null, no basura. Y el texto usa
+  `autoTextColor`, así que las marcas con `#ffffff` tampoco quedan ilegibles.
+- **Datos saneados:** 2 de 99 negocios (Degodoy y Banana's Grill con `#00005`).
+
+### 2. Fuga de marca en el historial de envíos
+Un SMS de **Acqua Nails (Sellea)** aparecía en el panel de **Clubify**. Dos
+mitades: los SMS del cron nacían sin `whiteLabelId` (solo pasé `tenantId`), y la
+lectura reusaba `brandWhiteLabelWhere`, que a Clubify le suma las filas con marca
+nula — regla válida para tablas con legacy, **no** para una tabla de ayer.
+
+Arreglado en los dos lados: al escribir se deduce la marca del negocio; al leer,
+WHERE estricto. **Un mensaje sin marca no es de nadie.** 2 filas reparadas.
+
+### 3. Aviso al comprador que pagó y no creó su cuenta
+**16 compradores pagaron y nunca crearon su cuenta**, el más antiguo hace 65
+días. Tres agujeros: Stripe no mandaba nada, el correo de Hotmart moría en el log
+(sin `RESEND_API_KEY`), y el WhatsApp salía por subcuenta global con el texto
+«Clubify» a mano.
+
+Ahora un solo camino para las tres vías (Hotmart, Stripe, botón Reenviar):
+correo + WhatsApp/SMS por la subcuenta de SU marca, enlace al dominio de la
+marca. Plantilla `email_buyer_activation`, con `{platform}` (no `{brandName}`).
+`PendingStripePayment` ya tenía `recoveryNotifiedAt` — sin tocar el esquema. El
+flag **solo se marca si algún canal llegó**.
+
+**Decisión de Javier: NO se reenvió nada a los 16.** Lo pasado, pasado.
+**Cross** se queda con el enlace manual: su tabla no tiene el campo de control.
+
+### 4. Workflows: carpetas dentro de carpetas y acciones en lote
+Pedido con la pantalla de TeamClubify como referencia. `BrandWorkflowFolder.parentId`
+(migración aditiva, aplicada). Migas de pan, casillas, movimiento en lote.
+
+Dos trampas cerradas: **los ciclos** (mover una carpeta dentro de una hija suya
+desconectaría el subárbol de la raíz — invisible e irrecuperable desde la UI) y
+**borrar carpeta con contenido** (sube al padre, en transacción; nunca se borra
+un workflow por esa vía). 17 tests.
+
+De paso: fuera el `window.prompt` y los `.catch(() => {})` que se tragaban el
+error del servidor.
+
+### 5. Las 3 pendientes que esperaban decisión
+- **`{brandName}` → `{platform}`** en las 16 plantillas del ciclo (32
+  apariciones). El asunto le decía al dueño de Empanadas La Parada «renovamos tu
+  plan de Empanadas La Parada». Se reescribieron 8 frases que con el cambio
+  quedaban torpes («pausamos Sellea» → «pausamos tu cuenta de Sellea»).
+- **Comisión de afiliado en el pago manual**: un cobro por Nequi es el mismo
+  hecho económico que uno por pasarela. Fire-and-forget, como `convertToPaying`.
+- **`RETENTION_ENABLED=true`** en Railway. No existía, así que NADA se limpiaba.
+  Primera corrida: 5.864 registros caducados.
+
+### 6. Menor
+Fuera la subpestaña Workflows de Email Marketing (duplicaba la principal).
+`academia`, `automatizaciones` y `pending-payments` faltaban en
+`RESERVED_ADMIN_ROUTES`: en soyfidelity.com se leían como slug de marca.
+
+### Qué toqué de PRODUCCIÓN
+- Migración aditiva `BrandWorkflowFolder.parentId` (aplicada, 0 carpetas movidas).
+- `RETENTION_ENABLED=true` — **empieza a borrar datos caducados**.
+- Saneo de 2 colores inválidos · 2 filas de `MessageLog` reatribuidas · ciclo y
+  nota del pago manual de La Gloriosa corregidos.
+- Despliegues verificados con calibración (ruta inventada → 404).
+
+### Qué falta
+- [ ] Renombrar `Card.autoStampOnOrder` → `autoStampOnDelivered` (el nombre
+      miente desde ayer). SQL aditivo.
+- [ ] 2 pedidos cancelados con sello vivo (script puntual).
+- [ ] Degodoy y Banana's Grill quedaron con el verde por defecto: sus dueños
+      deben poner su color real.
+- [ ] `MktContact` sin `tenantId`: el vínculo contacto↔negocio se resuelve por
+      identidad al enviar.
+
 ## 2026-08-20 (noche) — Sellos al entregar, métodos de pago, y el correo de prueba de Humberto
 **Máquina/quién:** Javier
 **Rama / PR:** `chore/merge-emails-sobre-314` — backend y frontend desplegados
