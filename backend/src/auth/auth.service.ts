@@ -27,6 +27,27 @@ import {
 // — el ciclo de archivos (auth.service ↔ hotmart.service via PreregAlerts)
 // rompe la registración de AuthService al boot. Solo type import.
 import type { HotmartService } from '../billing/hotmart.service';
+import { TenantContext } from '../common/tenant/tenant-context';
+
+/** Alta de un afiliado. Extraído a un tipo con nombre porque lo comparten
+ *  `inviteAffiliate` (que aplica el escape de tenant) y su implementación
+ *  `inviteAffiliateInner`. */
+type InviteAffiliateOpts = {
+  email: string;
+  fullName: string;
+  role:
+    | 'AFFILIATE_INFLUENCER'
+    | 'AFFILIATE_AMBASSADOR'
+    | 'AFFILIATE_SOCIO'
+    | 'AFFILIATE_VENDOR';
+  referralCodeId: string;
+  phone?: string;
+  /** Si viene, se setea como password del User en vez de un placeholder
+   *  random. El admin lo recibe en la response para compartirlo con el
+   *  afiliado (no se envía email de reset). Útil para que el admin
+   *  comparta credenciales directas vía WhatsApp / SMS / verbal. */
+  presetPassword?: string;
+};
 
 // Subdominios reservados por Clubify (no pueden ser tenant slugs porque
 // chocan con app.soyclubify.com / api.soyclubify.com / etc.).
@@ -578,22 +599,33 @@ export class AuthService {
    * Retorna { token } solo en dev/log para inspección — el email es la
    * via canónica de entrega.
    */
-  async inviteAffiliate(opts: {
-    email: string;
-    fullName: string;
-    role:
-      | 'AFFILIATE_INFLUENCER'
-      | 'AFFILIATE_AMBASSADOR'
-      | 'AFFILIATE_SOCIO'
-      | 'AFFILIATE_VENDOR';
-    referralCodeId: string;
-    phone?: string;
-    /** Si viene, se setea como password del User en vez de un placeholder
-     *  random. El admin lo recibe en la response para compartirlo con el
-     *  afiliado (no se envía email de reset). Útil para que el admin
-     *  comparta credenciales directas vía WhatsApp / SMS / verbal. */
-    presetPassword?: string;
-  }): Promise<{ ok: true; userId: string; password: string | null }> {
+  async inviteAffiliate(
+    opts: InviteAffiliateOpts,
+  ): Promise<{ ok: true; userId: string; password: string | null }> {
+    // Cuando el admin logueado es un SUPER_ADMIN CON whiteLabelId (el caso
+    // normal: todos los super admin de la plataforma tienen marca asignada),
+    // el TenantContextInterceptor activa el scope de marca blanca y el
+    // middleware de Prisma bloquea con 403 toda escritura sobre modelos con
+    // `tenantId` que no traiga uno explícito — ver `guardWhiteLabelCreate` en
+    // common/prisma/prisma-tenant-middleware.ts.
+    //
+    // Un afiliado NO cuelga de un negocio: su User tiene `tenantId` null por
+    // diseño (su pertenencia a la marca vive en el ReferralCode). O sea que
+    // no hay ningún tenantId que inyectar y el alta quedaba imposible desde
+    // el panel: rompía "🔑 Contraseña", "+ Crear Influencer", el alta de
+    // campañas, la de embajador directo y la de vendedores — todas pasan por
+    // acá. Corremos el alta con el escape documentado para herramientas de
+    // super admin; el acceso ya está gateado por @Roles en cada endpoint que
+    // llega hasta este punto, y el aislamiento por marca se valida explícito
+    // en los callers que reciben un codeId del cliente. (2026-08-17)
+    return TenantContext.runWithoutTenant(() =>
+      this.inviteAffiliateInner(opts),
+    );
+  }
+
+  private async inviteAffiliateInner(
+    opts: InviteAffiliateOpts,
+  ): Promise<{ ok: true; userId: string; password: string | null }> {
     const email = opts.email.toLowerCase().trim();
 
     // Si admin pasó presetPassword, generamos su hash; sino, placeholder
