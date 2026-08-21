@@ -110,6 +110,10 @@ type Storefront = {
    *  domicilio (gateado); pickup = recoger en tienda; dineIn = pedido en mesa.
    *  Ausente en payloads viejos → se cae a solo-domicilio. */
   fulfillment?: { delivery: boolean; pickup: boolean; dineIn: boolean };
+  /** Métodos de pago que el negocio acepta en el checkout (EFECTIVO/TARJETA/
+   *  TRANSFERENCIA/OTRO). Ausente en payloads viejos/cacheados → se ofrecen
+   *  todos, igual que siempre — que nadie pierda opciones por caché. */
+  acceptedPaymentMethods?: string[];
   pageBackgroundColor?: string | null;
   pageBackgroundType?: string | null;
   pageBackgroundGradient?: string | null;
@@ -1094,6 +1098,7 @@ function StorefrontPublicInner() {
           planName={s.planName ?? null}
           mode={mode}
           fulfillment={s.fulfillment}
+          acceptedPaymentMethods={s.acceptedPaymentMethods}
           onClose={() => setShowCheckout(false)}
         />
       )}
@@ -1666,6 +1671,7 @@ function CheckoutSheet({
   planName,
   mode,
   fulfillment,
+  acceptedPaymentMethods,
   onClose,
 }: {
   items: CartItem[];
@@ -1676,6 +1682,8 @@ function CheckoutSheet({
   planName: string | null;
   mode: StorefrontMode;
   fulfillment?: { delivery: boolean; pickup: boolean; dineIn: boolean };
+  /** Métodos de pago que acepta el negocio. Ausente → se ofrecen todos. */
+  acceptedPaymentMethods?: string[];
   onClose: () => void;
 }) {
   const tt = useT();
@@ -1700,6 +1708,22 @@ function CheckoutSheet({
   ].filter(Boolean) as { v: 'DELIVERY' | 'PICKUP' | 'DINE_IN'; l: string }[];
   const defaultFulfillment: 'DINE_IN' | 'PICKUP' | 'DELIVERY' =
     mode === 'mesa' ? 'DINE_IN' : fulfillmentChoices[0]?.v ?? 'DELIVERY';
+
+  // Métodos de pago a ofrecer: solo los que el negocio aceptó en su panel
+  // (ej.: sin datáfono → «Tarjeta» no aparece). Sin lista (payload viejo o
+  // cacheado) o lista que no matchea nada → los cuatro de siempre; un
+  // checkout sin opciones de pago sería una caída de ventas silenciosa.
+  const allPayChoices = [
+    { v: 'EFECTIVO', label: tt('checkout.pay_cash') },
+    { v: 'TARJETA', label: tt('checkout.pay_card') },
+    { v: 'TRANSFERENCIA', label: tt('checkout.pay_transfer') },
+    { v: 'OTRO', label: tt('checkout.pay_other') },
+  ] as const;
+  const filteredPayChoices = acceptedPaymentMethods?.length
+    ? allPayChoices.filter((c) => acceptedPaymentMethods.includes(c.v))
+    : allPayChoices;
+  const payChoices =
+    filteredPayChoices.length > 0 ? filteredPayChoices : allPayChoices;
 
   const [form, setForm] = useState({
     firstName: '',
@@ -2144,14 +2168,7 @@ function CheckoutSheet({
             <div>
               <label className="label">{tt('checkout.payment')}</label>
               <div className="grid grid-cols-2 gap-2">
-                {(
-                  [
-                    { v: 'EFECTIVO', label: tt('checkout.pay_cash') },
-                    { v: 'TARJETA', label: tt('checkout.pay_card') },
-                    { v: 'TRANSFERENCIA', label: tt('checkout.pay_transfer') },
-                    { v: 'OTRO', label: tt('checkout.pay_other') },
-                  ] as const
-                ).map((opt) => {
+                {payChoices.map((opt) => {
                   const active = form.paymentMethod === opt.v;
                   return (
                     <button

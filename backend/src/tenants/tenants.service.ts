@@ -575,14 +575,32 @@ export class TenantsService {
     if (tenants.length === 0) return [];
 
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const orderStats = await this.prisma.order.groupBy({
-      by: ['tenantId'],
-      where: { createdAt: { gte: since }, status: { not: 'CANCELLED' } },
-      _count: { _all: true },
-      _sum: { total: true },
-    });
+    // Conteo y plata van en bases distintas (regla 2026-08-20): orders30 mide
+    // actividad (todo menos cancelados) pero revenue30 solo suma pedidos que
+    // llegaron a CONFIRMED+ — un PENDING eterno no es facturación del negocio.
+    const [orderStats, revenueStats] = await Promise.all([
+      this.prisma.order.groupBy({
+        by: ['tenantId'],
+        where: { createdAt: { gte: since }, status: { not: 'CANCELLED' } },
+        _count: { _all: true },
+      }),
+      this.prisma.order.groupBy({
+        by: ['tenantId'],
+        where: {
+          createdAt: { gte: since },
+          status: { in: ['CONFIRMED', 'READY', 'DELIVERED'] },
+        },
+        _sum: { total: true },
+      }),
+    ]);
+    const revByTenant = new Map(
+      revenueStats.map((s) => [s.tenantId, Number(s._sum.total ?? 0)]),
+    );
     const byTenant = new Map(
-      orderStats.map((s) => [s.tenantId, { count: s._count._all, total: Number(s._sum.total ?? 0) }]),
+      orderStats.map((s) => [
+        s.tenantId,
+        { count: s._count._all, total: revByTenant.get(s.tenantId) ?? 0 },
+      ]),
     );
 
     const now = Date.now();

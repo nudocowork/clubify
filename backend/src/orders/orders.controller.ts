@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Body,
   Controller,
   Get,
@@ -198,5 +199,17 @@ export class OrdersController {
     @Param('id') id: string,
   ) {
     return this.svc.acceptDeliveryPayment(user, id);
+  }
+
+  /**
+   * Sella este pedido a pedido del negocio — el «¿Sumas sello?» que sale al
+   * marcar entregado un domicilio. En domicilio no hay sello automático
+   * («entregado» lo marca quien reparte), pero dejarlo al olvido hacía que se
+   * perdiera. El sistema pregunta; el negocio decide.
+   */
+  @Post(':id/stamp')
+  stampOrder(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    if (!user.tenantId) throw new ForbiddenException();
+    return this.svc.stampOrderManually(user.tenantId, id);
   }
 }

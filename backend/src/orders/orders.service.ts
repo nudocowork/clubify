@@ -27,6 +27,11 @@ import { GrowBusinessService } from '../integrations/grow-business.service';
 import { CustomerOrderSmsService } from '../integrations/customer-order-sms.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { resolveBrandTemplate } from '../integrations/brand-message-templates';
+import {
+  customerPaymentLabel,
+  isCustomerPaymentMethod,
+  normalizeAcceptedPaymentMethods,
+} from '../common/customer-payment';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import {
@@ -92,11 +97,14 @@ function extractDeliveryAddressText(addr: unknown): string {
 // método declarado por el cliente (efectivo/transferencia/…) con si el pedido
 // ya está cobrado online (→ no cobrar) o hay que cobrarlo en la entrega.
 // Devuelve string vacío si no hay nada útil (deja el mensaje idéntico al viejo).
+// La etiqueta va humanizada («efectivo», no «EFECTIVO»); con OTRO va el texto
+// libre del cliente — antes el mensaje decía literalmente «Pago: OTRO».
 function courierPayLine(
   method: string | null | undefined,
+  other: string | null | undefined,
   paymentStatus: string | null | undefined,
 ): string {
-  const m = (method ?? '').trim();
+  const m = customerPaymentLabel(method, other);
   if (paymentStatus === 'PAID') {
     return `💳 Pago: ✅ Pagado online${m ? ` (${m})` : ''} — no cobrar\n`;
   }
@@ -285,6 +293,7 @@ export class OrdersService {
           // PDF 1256 F3: método de pago + si el domiciliario debe cobrar.
           payLine: courierPayLine(
             order.customerPaymentMethod,
+            order.customerPaymentOther,
             order.paymentStatus,
           ),
           noteLine: order.customerNote ? `\nNota: ${order.customerNote}` : '',
@@ -359,12 +368,40 @@ export class OrdersService {
   async createPublic(dto: CreateOrderDto) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { slug: dto.tenantSlug },
-      include: { cards: { where: { isActive: true, autoStampOnOrder: true }, take: 1 } },
+      include: {
+        cards: { where: { isActive: true, autoStampOnOrder: true }, take: 1 },
+        // theme.paymentMethods = métodos de pago que el negocio acepta.
+        // Se valida acá porque el selector filtrado del checkout NO es una
+        // validación: un POST directo podría declarar «TARJETA» a un negocio
+        // sin datáfono.
+        storefront: { select: { theme: true } },
+      },
     });
     if (!tenant || tenant.status === 'SUSPENDED')
       throw new NotFoundException('Negocio no disponible');
 
     if (!dto.items?.length) throw new BadRequestException('Carrito vacío');
+
+    // Método de pago declarado (opcional). Si viene, debe ser uno conocido y
+    // estar dentro de los que el negocio acepta. Sin configuración guardada
+    // (accepted = null) se aceptan todos — igual que siempre; nadie queda
+    // bloqueado por no haber configurado nada.
+    if (dto.customerPaymentMethod) {
+      if (!isCustomerPaymentMethod(dto.customerPaymentMethod)) {
+        throw new BadRequestException('Método de pago no válido');
+      }
+      const accepted = normalizeAcceptedPaymentMethods(
+        (tenant.storefront?.theme as Record<string, unknown> | null)
+          ?.paymentMethods,
+      );
+      if (accepted && !accepted.includes(dto.customerPaymentMethod)) {
+        // Puede pasar con una página cacheada de hace unos minutos (el
+        // storefront público cachea ~3 min): el mensaje invita a recargar.
+        throw new BadRequestException(
+          `El negocio no acepta pago con ${customerPaymentLabel(dto.customerPaymentMethod, dto.customerPaymentOther)}. Recarga la página y elige otro método.`,
+        );
+      }
+    }
 
     // Fix audit 2026-06-07: derivar SIEMPRE el mode del fulfillment
     // (no aceptar dto.mode si contradice fulfillment). Antes un cliente
@@ -746,9 +783,10 @@ export class OrdersService {
    * de `createPublic` el cliente DEBE existir (`customerId`) y el tenant
    * elige el status inicial (CONFIRMED es típico — ya está en cocina).
    *
-   * Si status es CONFIRMED/READY/DELIVERED, dispara `autoStampOnConfirm` y la
-   * automation `ORDER_CONFIRMED` para que el flujo de loyalty funcione igual
-   * que en pedidos públicos.
+   * Si status es CONFIRMED/READY/DELIVERED dispara la automation
+   * `ORDER_CONFIRMED`; el sello automático (`autoStampOnDelivered`) solo si
+   * nace ya DELIVERED — igual que en pedidos públicos, la fidelización se
+   * gana al entregar, no antes.
    */
   async createInternal(
     user: AuthUser,
@@ -883,9 +921,10 @@ export class OrdersService {
 
     await this.decrementStock(items as any[]).catch(() => null);
 
-    // Si arranca confirmed o más, dispara loyalty + automation igual que público
+    // Si arranca confirmed o más, dispara la automation igual que público.
+    // El sello automático NO: ese va solo si el pedido nace ya ENTREGADO
+    // (regla 2026-08-20 — ver autoStampOnDelivered).
     if (['CONFIRMED', 'READY', 'DELIVERED'].includes(status)) {
-      await this.autoStampOnConfirm(tid, customer.id, order.id).catch(() => null);
       this.automations
         .emit('ORDER_CONFIRMED', {
           tenantId: tid,
@@ -900,6 +939,8 @@ export class OrdersService {
         );
     }
     if (status === 'DELIVERED') {
+      // Registro de venta pasada (POS): nace entregado → sí lleva su sello.
+      await this.autoStampOnDelivered(tid, customer.id, order.id).catch(() => null);
       this.automations
         .emit('ORDER_DELIVERED', {
           tenantId: tid,
@@ -1353,9 +1394,7 @@ export class OrdersService {
       },
     });
 
-    // Si se confirma, intentar auto-sello + automation
     if (next === 'CONFIRMED') {
-      await this.autoStampOnConfirm(o.tenantId, o.customerId, o.id).catch(() => null);
       this.automations
         .emit('ORDER_CONFIRMED', {
           tenantId: o.tenantId,
@@ -1370,6 +1409,12 @@ export class OrdersService {
         );
     }
     if (next === 'DELIVERED') {
+      // Regla de negocio (2026-08-20): el sello automático se otorga SOLO al
+      // ENTREGAR, no al confirmar. Antes se daba en CONFIRMED y si el pedido
+      // luego se cancelaba, el sello quedaba regalado (pasó en producción:
+      // pedidos cancelados con sello vivo). El negocio siempre puede sellar
+      // manualmente cuando quiera; esto solo mueve el automático.
+      await this.autoStampOnDelivered(o.tenantId, o.customerId, o.id).catch(() => null);
       this.automations
         .emit('ORDER_DELIVERED', {
           tenantId: o.tenantId,
@@ -1381,6 +1426,18 @@ export class OrdersService {
             `automations ORDER_DELIVERED order=${id} falló: ${e?.message ?? e}`,
           ),
         );
+    }
+    if (next === 'CANCELLED') {
+      // Un pedido cancelado no puede dejar fidelización viva. Si este pedido
+      // alcanzó a generar sello/puntos automáticos (p. ej. super admin revierte
+      // un DELIVERED, o datos históricos del flujo viejo), se compensan con un
+      // movimiento inverso — queda rastro completo en Stamp. Best-effort: un
+      // fallo acá no debe impedir cancelar el pedido.
+      await this.revertAutoLoyaltyOnCancel(o.tenantId, o.id).catch((e) =>
+        this.logger.warn(
+          `reverso de sellos por cancelación order=${id} falló: ${(e as Error)?.message ?? e}`,
+        ),
+      );
     }
 
     await this.prisma.event.create({
@@ -1575,12 +1632,18 @@ export class OrdersService {
   }
 
   /**
-   * Suma sello/puntos al cliente automáticamente cuando se confirma un pedido.
+   * Suma sello/puntos al cliente automáticamente cuando el pedido se ENTREGA.
    * Itera todas las tarjetas activas del tenant con `autoStampOnOrder = true`
    * para que un negocio pueda tener simultáneamente, por ej., una tarjeta de
    * sellos (cumple compras) y una de puntos (acumula por monto).
+   *
+   * Regla 2026-08-20: antes se disparaba al CONFIRMAR y un pedido que luego se
+   * cancelaba dejaba el sello regalado (ocurrió en producción). Ahora el sello
+   * se gana solo en DELIVERED; el negocio conserva el sello manual intacto.
+   * OJO: la columna `Card.autoStampOnOrder` conserva su nombre viejo — un
+   * rename de columna en producción es una migración aparte.
    */
-  private async autoStampOnConfirm(tenantId: string, customerId: string, orderId: string) {
+  private async autoStampOnDelivered(tenantId: string, customerId: string, orderId: string) {
     const cards = await this.prisma.card.findMany({
       where: {
         tenantId,
@@ -1599,6 +1662,8 @@ export class OrdersService {
     // automáticamente. El cliente ya se creó (en createPublic, SIN pase); si
     // tiene tarjeta, el negocio decide cuándo sellar; si no, no se le inventa
     // un pase. Solo mesa/mostrador/pickup mantienen el auto-sello.
+    // (Se mantiene aunque ahora se selle en DELIVERED: para domicilio la regla
+    // sigue siendo sello manual del negocio, nunca automático.)
     if (order?.fulfillment === 'DELIVERY') return;
     const orderTotal = Number(order?.total ?? 0);
 
@@ -1610,6 +1675,76 @@ export class OrdersService {
         this.logger?.warn?.(`autoStamp falló para card ${card.id}: ${(e as Error).message}`);
       }
     }
+  }
+
+  /**
+   * Sella un pedido a pedido del NEGOCIO (botón «¿Sumas sello?» al marcar
+   * entregado un domicilio).
+   *
+   * Existe porque en domicilio no hay sello automático: «entregado» lo marca
+   * quien reparte, y eso no siempre significa que el cliente lo recibió
+   * conforme. Pero dejarlo solo a que alguien se acuerde de sellar después
+   * hacía que se perdiera. Así que el sistema pregunta y el negocio decide.
+   *
+   * Usa exactamente la misma ruta que el sello automático (`applyLoyaltyForCard`)
+   * para que el resultado sea idéntico: mismo `purchaseAmount`, mismo pase,
+   * mismo reverso si luego se cancela.
+   */
+  async stampOrderManually(
+    tenantId: string,
+    orderId: string,
+  ): Promise<{ stamped: boolean; reason?: string; cards: number }> {
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, tenantId },
+      select: { id: true, customerId: true, total: true, status: true },
+    });
+    if (!order) throw new NotFoundException('Pedido no encontrado');
+    if (!order.customerId) {
+      return { stamped: false, reason: 'El pedido no tiene cliente asociado.', cards: 0 };
+    }
+    if (order.status === 'CANCELLED') {
+      return { stamped: false, reason: 'El pedido está cancelado.', cards: 0 };
+    }
+
+    // Idempotente: si este pedido ya generó un sello vivo, no se dobla. Evita
+    // que un doble clic o un reintento regale fidelidad.
+    const yaTiene = await this.prisma.stamp.count({
+      where: { orderId, action: { in: ['STAMP', 'POINTS_ADD'] } },
+    });
+    const revertidos = await this.prisma.stamp.count({
+      where: { orderId, action: { in: ['STAMP_REMOVE', 'POINTS_DEDUCT'] } },
+    });
+    if (yaTiene > revertidos) {
+      return { stamped: false, reason: 'Este pedido ya tenía su sello.', cards: 0 };
+    }
+
+    const cards = await this.prisma.card.findMany({
+      where: {
+        tenantId,
+        isActive: true,
+        autoStampOnOrder: true,
+        type: { in: ['STAMPS', 'POINTS'] },
+      },
+    });
+    if (!cards.length) {
+      return { stamped: false, reason: 'El negocio no tiene tarjeta de sellos activa.', cards: 0 };
+    }
+
+    const total = Number(order.total ?? 0);
+    let ok = 0;
+    for (const card of cards) {
+      try {
+        await this.applyLoyaltyForCard(card, tenantId, order.customerId, orderId, total);
+        ok++;
+      } catch (e) {
+        this.logger?.warn?.(
+          `sello manual falló para card ${card.id}: ${(e as Error).message}`,
+        );
+      }
+    }
+    return ok
+      ? { stamped: true, cards: ok }
+      : { stamped: false, reason: 'No se pudo sellar. Inténtalo de nuevo.', cards: 0 };
   }
 
   private async applyLoyaltyForCard(
@@ -1666,13 +1801,13 @@ export class OrdersService {
             orderId,
             action: 'STAMP',
             amount: new Prisma.Decimal(amount),
-            // #18 (2026-06-16): el sello auto-otorgado por un pedido confirmado
-            // debe registrar el monto de la compra (total del pedido) para que
+            // #18 (2026-06-16): el sello auto-otorgado por un pedido debe
+            // registrar el monto de la compra (total del pedido) para que
             // alimente revenue/ticket promedio en métricas — antes quedaba null
             // y el pedido no sumaba a la facturación de fidelización.
             purchaseAmount:
               orderTotal > 0 ? new Prisma.Decimal(orderTotal) : undefined,
-            note: 'Auto por pedido confirmado',
+            note: 'Auto por pedido entregado',
           },
         }),
         this.prisma.pass.update({
@@ -1731,6 +1866,119 @@ export class OrdersService {
           },
         }),
       ]);
+
+      this.wallet.pushPassUpdate(pass.id).catch(() => null);
+    }
+  }
+
+  /**
+   * Compensa la fidelización automática de un pedido que se cancela: por cada
+   * STAMP/POINTS_ADD que este pedido generó, crea el movimiento inverso
+   * (STAMP_REMOVE/POINTS_DEDUCT, mismo orderId) y ajusta el pase. No se borra
+   * nada — el historial en Stamp cuenta la película completa.
+   *
+   * Solo este servicio crea Stamps con orderId, así que filtrar por orderId
+   * garantiza que jamás tocamos sellos dados a mano por el negocio.
+   *
+   * Con el sello movido a DELIVERED esto es sobre todo una red de seguridad:
+   * cubre al super admin revirtiendo un entregado a cancelado y a pedidos del
+   * flujo viejo (sello en CONFIRMED) que se cancelen después del despliegue.
+   */
+  private async revertAutoLoyaltyOnCancel(tenantId: string, orderId: string) {
+    const given = await this.prisma.stamp.findMany({
+      where: { tenantId, orderId, action: { in: ['STAMP', 'POINTS_ADD'] } },
+    });
+    if (given.length === 0) return;
+
+    // Idempotencia: si el pedido ya tiene reversos no se resta dos veces
+    // (p. ej. super admin que re-cancela tras reabrir para soporte).
+    const alreadyReverted = await this.prisma.stamp.count({
+      where: {
+        tenantId,
+        orderId,
+        action: { in: ['STAMP_REMOVE', 'POINTS_DEDUCT'] },
+      },
+    });
+    if (alreadyReverted > 0) return;
+
+    for (const s of given) {
+      const pass = await this.prisma.pass.findUnique({
+        where: { id: s.passId },
+      });
+      if (!pass) continue;
+      const amount = Number(s.amount);
+
+      if (s.action === 'STAMP') {
+        const card = await this.prisma.card.findUnique({
+          where: { id: pass.cardId },
+          select: { stampsRequired: true },
+        });
+        const required = card?.stampsRequired ?? 10;
+        // Piso 0: si el negocio ya restó a mano no dejamos el contador negativo.
+        const newCount = Math.max(0, pass.stampsCount - amount);
+        await this.prisma.$transaction([
+          this.prisma.stamp.create({
+            data: {
+              tenantId,
+              passId: pass.id,
+              customerId: s.customerId,
+              orderId,
+              action: 'STAMP_REMOVE',
+              amount: s.amount,
+              note: 'Reverso automático: pedido cancelado',
+            },
+          }),
+          // El monto de la compra deja de existir: se anula en el sello
+          // original para que ninguna métrica de facturación lo siga sumando.
+          // El valor queda documentado en el propio pedido (Order.total).
+          this.prisma.stamp.update({
+            where: { id: s.id },
+            data: { purchaseAmount: null },
+          }),
+          this.prisma.pass.update({
+            where: { id: pass.id },
+            data: {
+              stampsCount: newCount,
+              lastActivityAt: new Date(),
+              // Si ESTE sello fue el que completó el cartón, reabrimos el pase.
+              // Si el premio ya se canjeó, el canje queda en el historial y el
+              // negocio decide caso a caso — no intentamos deshacer un REDEEM.
+              status:
+                pass.status === 'COMPLETED' && newCount < required
+                  ? 'ACTIVE'
+                  : pass.status,
+            },
+          }),
+        ]);
+      } else {
+        // Piso 0: si el cliente ya gastó los puntos no dejamos saldo negativo;
+        // preferimos absorber la diferencia a cobrarle deuda por una promo.
+        const newBalance = Math.max(0, Number(pass.pointsBalance) - amount);
+        await this.prisma.$transaction([
+          this.prisma.stamp.create({
+            data: {
+              tenantId,
+              passId: pass.id,
+              customerId: s.customerId,
+              orderId,
+              action: 'POINTS_DEDUCT',
+              amount: s.amount,
+              note: 'Reverso automático: pedido cancelado',
+            },
+          }),
+          this.prisma.stamp.update({
+            where: { id: s.id },
+            data: { purchaseAmount: null },
+          }),
+          this.prisma.pass.update({
+            where: { id: pass.id },
+            data: {
+              pointsBalance: new Prisma.Decimal(newBalance),
+              lastActivityAt: new Date(),
+            },
+          }),
+        ]);
+      }
 
       this.wallet.pushPassUpdate(pass.id).catch(() => null);
     }

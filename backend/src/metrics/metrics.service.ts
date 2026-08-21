@@ -1,6 +1,21 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+
+/**
+ * Estados cuyo monto cuenta como facturación. Regla de negocio (2026-08-20):
+ * la plata de un pedido solo vale desde que el negocio lo CONFIRMÓ. Un PENDING
+ * es un carrito que quizá nunca se atienda y un CANCELLED es plata que no
+ * entró — sumarlos inflaba el "monto facturado" del panel.
+ * (Los CONTEOS de pedidos siguen midiendo actividad — todo menos cancelados —
+ * salvo cuando dividen plata, como el ticket promedio.)
+ */
+export const REVENUE_STATUSES: OrderStatus[] = [
+  'CONFIRMED',
+  'READY',
+  'DELIVERED',
+];
 
 export type Insight = {
   id: string;
@@ -54,6 +69,7 @@ export class MetricsService {
       passes,
       customers,
       orders30Agg,
+      orders30RevAgg,
       newSignups7,
       pendingComm,
       churnedLast30,
@@ -80,10 +96,18 @@ export class MetricsService {
       this.prisma.customer.count({ where: relWhere }),
       this.prisma.order.aggregate({
         _count: { _all: true },
-        _sum: { total: true },
         where: {
           createdAt: { gte: since30 },
           status: { not: 'CANCELLED' },
+          ...relWhere,
+        },
+      }),
+      // La plata va aparte del conteo: solo pedidos ya confirmados suman.
+      this.prisma.order.aggregate({
+        _sum: { total: true },
+        where: {
+          createdAt: { gte: since30 },
+          status: { in: REVENUE_STATUSES },
           ...relWhere,
         },
       }),
@@ -144,7 +168,7 @@ export class MetricsService {
       passes,
       customers,
       orders30: orders30Agg._count._all,
-      revenue30: Number(orders30Agg._sum.total ?? 0),
+      revenue30: Number(orders30RevAgg._sum.total ?? 0),
       mrrUsd,
       arrUsd: mrrUsd * 12,
       planBreakdown: breakdown,
@@ -219,12 +243,15 @@ export class MetricsService {
           status: { not: 'CANCELLED' },
         },
       }),
+      // Facturación: solo pedidos que llegaron a CONFIRMED (o más). Los
+      // conteos de arriba siguen midiendo actividad (todo menos cancelados);
+      // la plata no — un PENDING que nunca se atiende no es venta.
       this.prisma.order.aggregate({
         _sum: { total: true },
         where: {
           tenantId: tid,
           createdAt: { gte: today0 },
-          status: { not: 'CANCELLED' },
+          status: { in: REVENUE_STATUSES },
         },
       }),
       this.prisma.order.count({
@@ -235,12 +262,13 @@ export class MetricsService {
         },
       }),
       this.prisma.order.aggregate({
+        _count: { _all: true },
         _sum: { total: true },
         _avg: { total: true },
         where: {
           tenantId: tid,
           createdAt: { gte: since30 },
-          status: { not: 'CANCELLED' },
+          status: { in: REVENUE_STATUSES },
         },
       }),
       this.prisma.order.aggregate({
@@ -248,7 +276,7 @@ export class MetricsService {
         where: {
           tenantId: tid,
           createdAt: { gte: since7 },
-          status: { not: 'CANCELLED' },
+          status: { in: REVENUE_STATUSES },
         },
       }),
       this.prisma.order.count({
@@ -354,7 +382,10 @@ export class MetricsService {
       revenue7: Number(orders7Agg._sum.total ?? 0) + Number(stampRev7._sum.purchaseAmount ?? 0),
       avgTicket: (() => {
         const totalRev = Number(orders30Agg._sum.total ?? 0) + Number(stampRev30._sum.purchaseAmount ?? 0);
-        const totalCount = orders30 + (stampRev30._count._all ?? 0);
+        // Denominador en la MISMA base que la plata (solo confirmados+):
+        // dividir facturación confirmada entre pedidos pendientes diluía el
+        // ticket promedio.
+        const totalCount = orders30Agg._count._all + (stampRev30._count._all ?? 0);
         return totalCount > 0 ? Math.round((totalRev / totalCount) * 100) / 100 : 0;
       })(),
       pendingOrders,
@@ -460,13 +491,16 @@ export class MetricsService {
         select: { id: true, fullName: true, totalOrdersCount: true },
         take: 3,
       }),
+      // Comparativa de ventas semana vs semana: misma base que el resto de la
+      // facturación (solo confirmados+), para no gritar "caída" — o esconder
+      // una — por carritos pendientes que nunca se atendieron.
       this.prisma.order.aggregate({
         _sum: { total: true },
         _count: { _all: true },
         where: {
           tenantId: tid,
           createdAt: { gte: since7 },
-          status: { not: 'CANCELLED' },
+          status: { in: REVENUE_STATUSES },
         },
       }),
       this.prisma.order.aggregate({
@@ -475,7 +509,7 @@ export class MetricsService {
         where: {
           tenantId: tid,
           createdAt: { gte: since14, lt: since7 },
-          status: { not: 'CANCELLED' },
+          status: { in: REVENUE_STATUSES },
         },
       }),
       this.computeInstalledRate(tid),
@@ -1069,12 +1103,16 @@ export class MetricsService {
     since.setHours(0, 0, 0, 0);
     since.setDate(since.getDate() - (days - 1));
 
+    // count = actividad (todo menos cancelados); total = SOLO plata de pedidos
+    // confirmados+ (regla 2026-08-20: un PENDING no suma facturación).
     const rows = await this.prisma.$queryRaw<
       { day: Date; count: bigint; total: any }[]
     >`
       SELECT date_trunc('day', "createdAt") AS day,
              COUNT(*)::bigint AS count,
-             SUM("total") AS total
+             SUM("total") FILTER (
+               WHERE "status" IN ('CONFIRMED', 'READY', 'DELIVERED')
+             ) AS total
       FROM "Order"
       WHERE "tenantId" = ${tid}
         AND "createdAt" >= ${since}

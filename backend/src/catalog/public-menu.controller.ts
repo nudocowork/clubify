@@ -24,6 +24,10 @@ import {
 import { Public } from '../common/decorators/public.decorator';
 import { resolveMainSectionLabel } from '../common/business-categories';
 import {
+  CUSTOMER_PAYMENT_METHODS,
+  normalizeAcceptedPaymentMethods,
+} from '../common/customer-payment';
+import {
   TranslatableItem,
   TranslationService,
   normalizeLocale,
@@ -249,6 +253,13 @@ export class PublicMenuController {
         pickup: !!(t.storefront?.theme as any)?.fulfillment?.pickup,
         dineIn: !!(t.storefront?.theme as any)?.fulfillment?.dineIn,
       },
+      // Métodos de pago que el negocio acepta en el checkout (viven en
+      // theme.paymentMethods, sin migración). Sin configurar → TODOS, para
+      // que ningún negocio pierda opciones (ni ventas) por un default vacío.
+      acceptedPaymentMethods:
+        normalizeAcceptedPaymentMethods(
+          (t.storefront?.theme as any)?.paymentMethods,
+        ) ?? [...CUSTOMER_PAYMENT_METHODS],
       pageBackgroundColor: t.storefront?.pageBackgroundColor ?? null,
       pageBackgroundType: t.storefront?.pageBackgroundType ?? null,
       pageBackgroundGradient: t.storefront?.pageBackgroundGradient ?? null,

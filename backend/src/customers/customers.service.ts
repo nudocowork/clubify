@@ -554,13 +554,22 @@ export class CustomersService {
         }
       }
 
-      // 6) Recalcular totales reales del keeper desde sus orders
+      // 6) Recalcular totales reales del keeper desde sus orders.
+      // El conteo/fechas miran todo el historial, pero la PLATA solo suma
+      // pedidos que llegaron a CONFIRMED+ (regla 2026-08-20): un pedido
+      // pendiente o cancelado no es gasto real del cliente.
       const ordersAgg = await tx.order.aggregate({
         where: { customerId: keepId },
         _count: { _all: true },
-        _sum: { total: true },
         _min: { createdAt: true },
         _max: { createdAt: true },
+      });
+      const spentAgg = await tx.order.aggregate({
+        where: {
+          customerId: keepId,
+          status: { in: ['CONFIRMED', 'READY', 'DELIVERED'] },
+        },
+        _sum: { total: true },
       });
 
       const updated = await tx.customer.update({
@@ -572,7 +581,7 @@ export class CustomersService {
           tags: Array.from(allTags),
           notes: noteParts.length ? noteParts.join('\n\n') : keeper.notes,
           totalOrdersCount: ordersAgg._count._all,
-          totalOrdersAmount: ordersAgg._sum.total ?? 0,
+          totalOrdersAmount: spentAgg._sum.total ?? 0,
           firstOrderAt: ordersAgg._min.createdAt ?? keeper.firstOrderAt ?? null,
           lastOrderAt: ordersAgg._max.createdAt ?? keeper.lastOrderAt ?? null,
         },

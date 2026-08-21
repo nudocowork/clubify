@@ -73,6 +73,22 @@ type Product = {
   extras: Extra[];
 };
 
+// Métodos de pago que puede declarar el cliente en el checkout público.
+// Orden canónico = el orden en que se pintan allá; la lista guardada en
+// theme.paymentMethods siempre se normaliza a este orden.
+const PAY_METHOD_ORDER = [
+  'EFECTIVO',
+  'TARJETA',
+  'TRANSFERENCIA',
+  'OTRO',
+] as const;
+const PAY_METHOD_LABEL_KEY: Record<string, string> = {
+  EFECTIVO: 'payMethodCash',
+  TARJETA: 'payMethodCard',
+  TRANSFERENCIA: 'payMethodTransfer',
+  OTRO: 'payMethodOther',
+};
+
 // Fix 2026-06-10: el formato monetario ahora usa el helper centralizado
 // `formatPrice` que respeta decimales por moneda. Antes hardcoded a COP
 // + maximumFractionDigits=0 → redondeaba 13.50 USD a 14 USD
@@ -109,6 +125,12 @@ export default function MenuEditor() {
   const [dineInEnabled, setDineInEnabled] = useState<boolean | null>(null);
   const [togglingPickup, setTogglingPickup] = useState(false);
   const [togglingDineIn, setTogglingDineIn] = useState(false);
+  // Métodos de pago aceptados en el checkout (theme.paymentMethods).
+  // null = /storefront aún no respondió → el botón no se muestra (no
+  // dejamos tocar la config sin saber la actual: se pisaría a ciegas).
+  const [payMethods, setPayMethods] = useState<string[] | null>(null);
+  const [payMenuOpen, setPayMenuOpen] = useState(false);
+  const [savingPayMethods, setSavingPayMethods] = useState(false);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   // Fix 2026-06-10: moneda del tenant para mostrar precios correctos.
   // Default COP para fallback histórico mientras /tenants/me carga.
@@ -190,7 +212,10 @@ export default function MenuEditor() {
       const sf = await api<{
         ordersEnabled: boolean;
         ordersDeliveryEnabled?: boolean;
-        theme?: { fulfillment?: { pickup?: boolean; dineIn?: boolean } };
+        theme?: {
+          fulfillment?: { pickup?: boolean; dineIn?: boolean };
+          paymentMethods?: string[];
+        };
       }>('/storefront');
       // Backend devuelve ordersDeliveryEnabled gateado por ordersEnabled.
       // Fallback al master para storefronts viejos sin la columna nueva.
@@ -200,10 +225,18 @@ export default function MenuEditor() {
       // PDF1145: pickup/dineIn viven en theme.fulfillment (default false).
       setPickupEnabled(!!sf.theme?.fulfillment?.pickup);
       setDineInEnabled(!!sf.theme?.fulfillment?.dineIn);
+      // Métodos de pago del checkout: sin configurar = todos activos.
+      const rawPay = sf.theme?.paymentMethods;
+      const validPay = Array.isArray(rawPay)
+        ? PAY_METHOD_ORDER.filter((m) => rawPay.includes(m))
+        : [];
+      setPayMethods(validPay.length > 0 ? validPay : [...PAY_METHOD_ORDER]);
     } catch {
       setOrdersDeliveryEnabled(true);
       setPickupEnabled(false);
       setDineInEnabled(false);
+      // payMethods queda en null a propósito: sin leer la config real no
+      // mostramos el editor (guardar a ciegas pisaría lo configurado).
     }
   }
 
@@ -279,6 +312,46 @@ export default function MenuEditor() {
       setDineInEnabled(!next);
     } finally {
       setTogglingDineIn(false);
+    }
+  }
+
+  // Prende/apaga un método de pago del checkout. Guarda la lista completa
+  // vía PATCH /storefront (theme.paymentMethods) con update optimista +
+  // revert si falla, igual que los toggles de fulfillment.
+  async function togglePayMethod(method: string) {
+    if (payMethods === null || savingPayMethods) return;
+    const active = payMethods.includes(method);
+    // Nunca dejar la lista en cero: un checkout sin métodos de pago sería
+    // una caída de ventas silenciosa para el negocio.
+    if (active && payMethods.length === 1) {
+      toast(t('payMethodsAtLeastOne'), 'error');
+      return;
+    }
+    const next = active
+      ? payMethods.filter((m) => m !== method)
+      : PAY_METHOD_ORDER.filter(
+          (m) => payMethods.includes(m) || m === method,
+        );
+    const prev = payMethods;
+    setSavingPayMethods(true);
+    setPayMethods(next);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ acceptedPaymentMethods: next }),
+      });
+      const label = t(PAY_METHOD_LABEL_KEY[method] ?? 'payMethodOther');
+      toast(
+        active
+          ? t('payMethodOffToast', { method: label })
+          : t('payMethodOnToast', { method: label }),
+        'success',
+      );
+    } catch (e: any) {
+      toast(e.message || t('error'), 'error');
+      setPayMethods(prev);
+    } finally {
+      setSavingPayMethods(false);
     }
   }
 
@@ -538,6 +611,58 @@ export default function MenuEditor() {
             >
               {dineInEnabled ? t('dineinOnBtn') : t('dineinOffBtn')}
             </button>
+          )}
+          {/* Métodos de pago que acepta el negocio en el checkout público.
+              Solo aparece cuando /storefront ya respondió (payMethods !==
+              null): editar sin conocer la config real la pisaría a ciegas. */}
+          {payMethods !== null && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setPayMenuOpen((o) => !o)}
+                className="btn-ghost"
+                title={t('payMethodsTitle')}
+              >
+                💳{' '}
+                {t('payMethodsBtn', {
+                  count: payMethods.length,
+                  total: PAY_METHOD_ORDER.length,
+                })}
+              </button>
+              {payMenuOpen && (
+                <>
+                  {/* Backdrop invisible: clic fuera cierra el dropdown. */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setPayMenuOpen(false)}
+                  />
+                  <div className="card absolute left-0 z-20 mt-1 w-64 p-3 space-y-1">
+                    <div className="text-xs text-mute pb-1">
+                      {t('payMethodsHint')}
+                    </div>
+                    {PAY_METHOD_ORDER.map((m) => {
+                      const active = payMethods.includes(m);
+                      return (
+                        <label
+                          key={m}
+                          className="flex items-center gap-2 py-1.5 px-1 rounded-md hover:bg-bg2 cursor-pointer text-sm"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={active}
+                            disabled={savingPayMethods}
+                            onChange={() => togglePayMethod(m)}
+                          />
+                          <span className={active ? '' : 'text-mute'}>
+                            {t(PAY_METHOD_LABEL_KEY[m])}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
           )}
           <AcademyButton moduleKey="menu" />
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>
