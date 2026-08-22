@@ -2386,6 +2386,59 @@ model MktWorkflowFolder {
 }
 
 // Cola durable de inscripciones (NO cola en memoria — no sobrevive en serverless).
+// ── PLANTILLAS DE CORREO (editor visual por bloques) ──
+// El editor de la pestaña Plantillas, al estilo del de GoHighLevel.
+//
+// REGLA DURA: las imágenes van a S3 (`POST /media/upload`) y acá solo se guarda
+// su URL. NUNCA base64. El editor de carteles QR sí las incrusta como
+// `data:image` dentro de su JSON y por eso `QrPoster` llegó a pesar 258 MB de
+// una base de 337 — el 77%, con 293 filas. Hay una validación en el servicio
+// que rechaza el guardado si detecta `data:image`.
+model MktEmailTemplate {
+  id           String  @id @default(uuid())
+  whiteLabelId String
+  folderId     String?
+
+  name    String
+  /// Asunto por defecto al usar la plantilla.
+  subject String?
+
+  /// Bloques del editor (texto, imágenes por URL, botones, columnas…).
+  /// Pequeño a propósito: texto y enlaces, nunca binarios.
+  blocks Json @default("[]")
+  /// HTML renderizado por el editor, listo para enviar sin recalcular.
+  html String? @db.Text
+
+  /// Miniatura para la galería. URL de S3, igual que el resto.
+  thumbnailUrl String?
+  /// Plantilla de fábrica: se ofrece a todas las marcas y no se puede borrar.
+  isPreset Boolean @default(false)
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([whiteLabelId, updatedAt])
+  @@index([folderId])
+  @@index([isPreset])
+}
+
+// Carpetas de plantillas. Anidadas, igual que las de workflows.
+model MktEmailTemplateFolder {
+  id           String  @id @default(uuid())
+  whiteLabelId String
+  name         String
+  /// Carpeta contenedora. Null = raíz. Sin `@relation`: el árbol se arma en
+  /// código, para que borrar una carpeta no arrastre su subárbol en cascada.
+  parentId String?
+  position Int     @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([whiteLabelId])
+  @@index([parentId])
+}
+
 model MktEnrollment {
   id            String    @id @default(uuid())
   workflowId    String

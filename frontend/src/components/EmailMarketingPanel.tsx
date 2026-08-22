@@ -2,12 +2,14 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import EmailTemplatesPanel from '@/components/marketing/EmailTemplatesPanel';
 
 // Panel de EMAIL MARKETING (contact-based) de la MARCA — apartado de
 // automatizaciones. El proveedor de envío por debajo NUNCA se nombra en la UI.
-// Sub-pestañas: Conexión (estado + envío de prueba) y Contactos (base con dedup;
+// Sub-pestañas: Conexión (estado + envío de prueba), Contactos (base con dedup;
 // incluye los NEGOCIOS de la marca sincronizados con etiqueta `negocio` y el
-// envío directo de correo/SMS a un contacto).
+// envío directo de correo/SMS a un contacto) y Plantillas (editor visual por
+// bloques + envío a contactos seleccionados).
 // Los Workflows viven en su propia pestaña principal, no acá.
 
 const ACCENT = '#16a34a';
@@ -32,7 +34,7 @@ type Contact = {
 };
 
 export default function EmailMarketingPanel() {
-  const [sub, setSub] = useState<'conexion' | 'contactos'>('conexion');
+  const [sub, setSub] = useState<'conexion' | 'contactos' | 'plantillas'>('conexion');
   return (
     <div className="space-y-4">
       <div>
@@ -45,6 +47,7 @@ export default function EmailMarketingPanel() {
         {([
           ['conexion', 'Conexión'],
           ['contactos', 'Contactos'],
+          ['plantillas', 'Plantillas'],
           // Sin «Workflows»: ya existe la pestaña principal de Workflows arriba y
           // tener dos entradas al mismo concepto solo hace dudar cuál es cuál.
         ] as const).map(([k, label]) => (
@@ -58,7 +61,7 @@ export default function EmailMarketingPanel() {
           </button>
         ))}
       </div>
-      {sub === 'conexion' ? <ConnectionTab /> : <ContactsTab />}
+      {sub === 'conexion' ? <ConnectionTab /> : sub === 'contactos' ? <ContactsTab /> : <EmailTemplatesPanel />}
     </div>
   );
 }
@@ -283,7 +286,6 @@ function ContactsTab() {
   useEffect(() => {
     const t = setTimeout(load, 250);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
   async function addContact() {
