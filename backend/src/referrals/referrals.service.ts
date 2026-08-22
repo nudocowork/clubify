@@ -1212,6 +1212,10 @@ export class ReferralsService {
       return {
         id: c.id,
         code: c.code,
+        // El panel deja editar la ruta corta `/ref/<slug>`; sin este campo el
+        // editor no sabria que enlace esta reemplazando. Los embajadores ya
+        // lo devolvian, los influencers no.
+        slug: c.slug ?? c.code.toLowerCase(),
         ownerName: c.ownerName,
         ownerEmail: c.ownerEmail,
         ownerWhatsapp: c.ownerWhatsapp,

@@ -679,3 +679,38 @@ tienen `mapsApiKey` propia y caen a la global de Clubify, restringida por
 dominio. Fideliso sí tiene la suya y por eso funciona. Se arregla en Google
 Cloud (autorizar el dominio) o cargando la clave de cada marca en Master Admin
 → Marcas, donde el campo ya existe.
+
+## 2026-08-22 (noche) — Tope de extras visible + ruta editable del enlace de afiliado
+
+### El control del tope no se veía
+
+Lo había condicionado a que el producto ya tuviera extras cargados, así que al
+montar un producto nuevo —que es justo cuando se quiere fijar el tope— no
+aparecía. Ahora está siempre.
+
+**Alcance del tope, aclarado:** cubre extras **y adicionales**, porque son la
+misma lista: un `Adicional` es la biblioteca reusable del negocio, y al
+marcarlo en un producto se convierte en un `ProductExtra` de ese producto —
+nunca llega al pedido por su cuenta. Las **variantes NO** entran: en el
+storefront son `type="radio"`, se elige UNA. Un tope ahí no tendría sentido
+salvo que se quisieran grupos de variantes multi-selección, que es otra
+funcionalidad.
+
+### Ruta editable del enlace `/ref/<ruta>`
+
+El slug se generaba del nombre completo y salía larguísimo:
+`/ref/briggit-stefany-labrador`.
+
+**El backend ya estaba hecho**: `PATCH /referrals/codes/:id/slug` con
+normalización y control de unicidad. Lo único que faltaba era el botón.
+
+- Botón «🔗 Enlace» en las filas de **influencers y embajadores**.
+- Modal: enlace actual + copiar, campo de nueva ruta con prefijo `/ref/` fijo,
+  vista previa en vivo y aviso de que la ruta anterior deja de resolver.
+- No es un redirector aparte: es la ruta real del afiliado, así que mantiene
+  código, atribución y registro de visita.
+- `listInfluencers` no devolvía `slug` (los embajadores sí). Agregado.
+
+**Ojo, deuda conocida:** cambiar la ruta **rompe la anterior**. No hay tabla de
+alias. Si el afiliado ya compartió su enlace, el viejo pasa a 404. El modal lo
+avisa, pero la solución de fondo sería guardar las rutas anteriores como alias.

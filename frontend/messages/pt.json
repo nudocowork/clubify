@@ -2297,7 +2297,22 @@
     "phGlobalPercent": "% global",
     "btnCreateSendInvite": "Criar e enviar convite",
     "toastEnteringPanel": "Entrando no painel de {name}…",
-    "errorCouldNotEnter": "Não foi possível entrar"
+    "errorCouldNotEnter": "Não foi possível entrar",
+    "btnLink": "Link",
+    "linkButtonTooltip": "Alterar o caminho curto do link de indicação",
+    "linkOf": "Link de {name}",
+    "linkHelp": "Defina o caminho que quiser. Leva à mesma página de indicação, com o mesmo código e a mesma atribuição.",
+    "linkCurrent": "Link atual",
+    "linkCopy": "Copiar",
+    "linkCopied": "Link copiado",
+    "linkCopyFailed": "Não foi possível copiar",
+    "linkNew": "Novo caminho",
+    "linkPreview": "Vai ficar assim:",
+    "linkWarnOld": "O link anterior ({old}) deixará de funcionar. Avise se já foi compartilhado.",
+    "linkSave": "Salvar link",
+    "linkSaved": "Link atualizado: /ref/{slug}",
+    "linkError": "Não foi possível alterar o link",
+    "cancel": "Cancelar"
   },
   "app_cards_id": {
     "cards": "Cartões",

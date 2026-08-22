@@ -2297,7 +2297,22 @@
     "phGlobalPercent": "% global",
     "btnCreateSendInvite": "Crear y enviar invite",
     "toastEnteringPanel": "Entrando al panel de {name}…",
-    "errorCouldNotEnter": "No se pudo entrar"
+    "errorCouldNotEnter": "No se pudo entrar",
+    "btnLink": "Enlace",
+    "linkButtonTooltip": "Cambiar la ruta corta del enlace de referencia",
+    "linkOf": "Enlace de {name}",
+    "linkHelp": "Ponle la ruta que quieras. Lleva a la misma página de referencia, con el mismo código y la misma atribución.",
+    "linkCurrent": "Enlace actual",
+    "linkCopy": "Copiar",
+    "linkCopied": "Enlace copiado",
+    "linkCopyFailed": "No se pudo copiar",
+    "linkNew": "Nueva ruta",
+    "linkPreview": "Quedará así:",
+    "linkWarnOld": "El enlace anterior ({old}) dejará de funcionar. Avísale si ya lo compartió.",
+    "linkSave": "Guardar enlace",
+    "linkSaved": "Enlace actualizado: /ref/{slug}",
+    "linkError": "No se pudo cambiar el enlace",
+    "cancel": "Cancelar"
   },
   "app_cards_id": {
     "cards": "Tarjetas",

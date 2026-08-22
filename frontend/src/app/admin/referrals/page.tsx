@@ -2178,6 +2178,13 @@ function InfluencersTab() {
                     >
                       {enteringId === r.id ? t('entering') : `→ ${t('btnPanel')}`}
                     </button>
+                    <AffiliateLinkButton
+                      codeId={r.id}
+                      ownerName={r.ownerName}
+                      slug={r.slug ?? null}
+                      code={r.code}
+                      onSaved={reload}
+                    />
                     <AffiliatePasswordButton codeId={r.id} ownerName={r.ownerName} />
                     <button
                       onClick={() => setDeleteTarget(r)}
@@ -2499,6 +2506,13 @@ function AmbassadorsTab() {
                       >
                         {enteringId === r.id ? t('entering') : `→ ${t('btnPanel')}`}
                       </button>
+                      <AffiliateLinkButton
+                        codeId={r.id}
+                        ownerName={r.ownerName}
+                        slug={r.slug ?? null}
+                        code={r.code}
+                        onSaved={reload}
+                      />
                       <AffiliatePasswordButton codeId={r.id} ownerName={r.ownerName} />
                       <button
                         onClick={() => setDeleteTarget(r)}
@@ -3093,6 +3107,181 @@ function AffiliatePasswordFields({
 // #12 (2026-06-16): botón reutilizable para CREAR/CAMBIAR la contraseña de un
 // afiliado existente (influencer / embajador / vendedor). Modal autocontenido;
 // se puede colocar en cualquier fila pasando codeId + ownerName.
+/**
+ * Editor del enlace corto de un afiliado: `/ref/<ruta>`.
+ *
+ * El slug se genera del nombre completo, y sale larguísimo:
+ * `/ref/briggit-stefany-labrador`. Esto deja ponerle la ruta que el admin
+ * quiera — `/ref/stefany` — apuntando a la MISMA página de referencia, con el
+ * mismo código y la misma atribución. No es un redirector aparte: es la ruta
+ * real del afiliado, así que no hay salto ni enlace intermedio que se pierda.
+ *
+ * El backend (`PATCH /referrals/codes/:id/slug`) normaliza y valida unicidad;
+ * acá replicamos la normalización solo para la vista previa, nunca como
+ * validación única.
+ */
+function AffiliateLinkButton({
+  codeId,
+  ownerName,
+  slug,
+  code,
+  onSaved,
+}: {
+  codeId: string;
+  ownerName: string;
+  slug: string | null;
+  code: string;
+  onSaved: () => void;
+}) {
+  const t = useTranslations('admin_referrals');
+  const [open, setOpen] = useState(false);
+  const [valor, setValor] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Misma normalización que `slugify` del backend: minúsculas, sin tildes,
+  // separadores a guión. Solo para la vista previa — quien decide es el server.
+  const limpio = valor
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+
+  const actual = slug || code.toLowerCase();
+  const base =
+    typeof window !== 'undefined' ? window.location.origin : '';
+  const previo = `${base}/ref/${limpio || actual}`;
+  const cambia = limpio !== '' && limpio !== actual;
+
+  async function guardar() {
+    if (!cambia) return;
+    setBusy(true);
+    try {
+      await api(`/referrals/codes/${codeId}/slug`, {
+        method: 'PATCH',
+        body: JSON.stringify({ slug: limpio }),
+      });
+      toast(t('linkSaved', { slug: limpio }), 'success');
+      setOpen(false);
+      onSaved();
+    } catch (e: unknown) {
+      toast((e as Error)?.message || t('linkError'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(`${base}/ref/${actual}`);
+      toast(t('linkCopied'), 'success');
+    } catch {
+      toast(t('linkCopyFailed'), 'error');
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setValor('');
+          setOpen(true);
+        }}
+        className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-teal-100 text-teal-700 hover:bg-teal-200 whitespace-nowrap"
+        title={t('linkButtonTooltip')}
+      >
+        🔗 {t('btnLink')}
+      </button>
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl w-full max-w-md p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold mb-1">
+              {t('linkOf', { name: ownerName })}
+            </h3>
+            <p className="text-xs text-mute mb-4">{t('linkHelp')}</p>
+
+            <div className="rounded-lg bg-bg2 border border-line p-3 mb-4">
+              <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
+                {t('linkCurrent')}
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="text-xs break-all flex-1">
+                  {base}/ref/{actual}
+                </code>
+                <button
+                  type="button"
+                  onClick={copiar}
+                  className="text-xs font-semibold px-2 py-1 rounded bg-white border border-line hover:bg-bg2 whitespace-nowrap"
+                >
+                  {t('linkCopy')}
+                </button>
+              </div>
+            </div>
+
+            <label className="text-xs font-semibold text-mute block mb-1">
+              {t('linkNew')}
+            </label>
+            <div className="flex items-stretch rounded-lg border border-line overflow-hidden">
+              <span className="px-2.5 flex items-center bg-bg2 text-xs text-mute whitespace-nowrap">
+                /ref/
+              </span>
+              <input
+                autoFocus
+                className="flex-1 px-2.5 py-2 text-sm outline-none"
+                placeholder={actual}
+                value={valor}
+                onChange={(e) => setValor(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && cambia && !busy) void guardar();
+                }}
+              />
+            </div>
+            {cambia && (
+              <>
+                <p className="text-[11px] text-mute mt-2 break-all">
+                  {t('linkPreview')} <b>{previo}</b>
+                </p>
+                {/* El slug es la ruta real, no un alias: al cambiarla, la
+                    anterior deja de resolver. Si el afiliado ya la compartió,
+                    hay que avisarle. */}
+                <p className="text-[11px] text-amber-700 mt-1.5 leading-snug">
+                  ⚠️ {t('linkWarnOld', { old: `${base}/ref/${actual}` })}
+                </p>
+              </>
+            )}
+
+            <div className="mt-5 flex gap-2 justify-end">
+              <button
+                type="button"
+                className="btn-ghost text-sm"
+                onClick={() => setOpen(false)}
+              >
+                {t('cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={!cambia || busy}
+                onClick={guardar}
+                className="btn text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {busy ? t('saving') : t('linkSave')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function AffiliatePasswordButton({
   codeId,
   ownerName,

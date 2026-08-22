@@ -2297,7 +2297,22 @@
     "phGlobalPercent": "% global",
     "btnCreateSendInvite": "Create and send invite",
     "toastEnteringPanel": "Entering {name}'s panel…",
-    "errorCouldNotEnter": "Could not enter"
+    "errorCouldNotEnter": "Could not enter",
+    "btnLink": "Link",
+    "linkButtonTooltip": "Change the short path of the referral link",
+    "linkOf": "{name}'s link",
+    "linkHelp": "Set any path you want. It leads to the same referral page, with the same code and attribution.",
+    "linkCurrent": "Current link",
+    "linkCopy": "Copy",
+    "linkCopied": "Link copied",
+    "linkCopyFailed": "Couldn't copy",
+    "linkNew": "New path",
+    "linkPreview": "It will look like:",
+    "linkWarnOld": "The previous link ({old}) will stop working. Let them know if they already shared it.",
+    "linkSave": "Save link",
+    "linkSaved": "Link updated: /ref/{slug}",
+    "linkError": "Couldn't change the link",
+    "cancel": "Cancel"
   },
   "app_cards_id": {
     "cards": "Cards",

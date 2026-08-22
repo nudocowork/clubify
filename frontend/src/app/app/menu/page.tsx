@@ -2573,9 +2573,16 @@ function ProductDrawer({
 
             {/* Tope de extras. Un producto puede ofrecer 20 ingredientes y
                 permitir solo 5: sin este limite el cliente elige 10 y al
-                negocio le toca explicarle por telefono por que no. Solo se
-                muestra si el producto tiene extras — no estorba al resto. */}
-            {(form.extras ?? []).length > 0 && (
+                negocio le toca explicarle por telefono por que no.
+                SIEMPRE visible, aunque el producto no tenga extras todavia:
+                si solo aparecia con extras ya cargados, el negocio no lo
+                encontraba al montar el producto — que es justo cuando
+                quiere fijar el tope.
+                Cubre extras Y adicionales: un adicional de la biblioteca del
+                negocio se convierte en un extra del producto al marcarlo, o
+                sea que son la misma lista. Las variantes no entran porque se
+                elige UNA (radio), no varias. */}
+            {(
               <div className="mt-3 pt-3 border-t border-line">
                 <label className="text-[11px] font-semibold text-mute block mb-1">
                   {t('maxExtrasLabel')}
