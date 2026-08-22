@@ -48,6 +48,102 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-22 — Fugas de marca, pagos que no se reconocían, y plantillas de correo
+**Máquina/quién:** Javier
+**Rama / PR:** `chore/merge-emails-sobre-314` — todo desplegado y verificado
+
+### 1. FUGAS DE MARCA — lo más grave del día
+Un cliente de Sellea (Vizage MedSpa) recibió la alerta de reseña con la tarjeta
+verde de **Clubify** en WhatsApp. Eran **dos fugas distintas**, y una tercera
+apareció al barrer:
+
+**a) El enlace.** Tres mensajes llevaban al dominio equivocado, y dos van al
+CLIENTE FINAL del negocio:
+
+| Mensaje | A quién | Llevaba |
+|---|---|---|
+| Alerta de reseña | Dueño | `app.soyclubify.com` **escrito a mano** |
+| Seguimiento de pedido | **Cliente final** | `APP_URL` global |
+| Gestión de cita | **Cliente final** | `APP_URL` global |
+
+Se agregó **`brandAppUrl()`** en `email/brand-email-creds.util.ts`: resuelve el
+dominio del PANEL de la marca. Distinto de `brandBaseUrl`, que prefiere el de
+marketing — un `/app/reviews` sobre `www.selleala.com` no lleva a ningún sitio.
+WhatsApp pinta la vista previa del **dominio**, no del texto: por eso el texto
+decía «Revisar en Sellea» y la tarjeta era de Clubify.
+
+**b) El remitente.** Tres negocios de marca blanca tenían asignada la subcuenta
+GLOBAL de Clubify. Corregidos SELLEA y Oasis Nutrition Bar. **Fideliso-Test se
+deja a propósito**: Fideliso no tiene subcuenta propia y quitársela lo dejaría
+sin ningún canal. Queda `diag-fugas-de-marca.cjs` para revisarlo al entrar una
+marca nueva.
+
+**c) Clubify como valor por defecto.** La página de reseñas decía «Powered by
+Clubify» — texto FIJO en las 4 traducciones. Y el mismo patrón en 5 sitios más
+(wallet, pedido, links informativos, pase), todos con el comentario *«fallback
+mientras el backend propaga el deploy»*, que se quedó para siempre.
+
+**REGLA NUEVA: si el backend no manda la marca, NO se pinta nada.** Un pie
+ausente no delata a nadie; uno inventado sí. También los títulos y vistas previas
+de las páginas públicas (lo que muestra WhatsApp al compartir) caían a Clubify;
+ahora caen al nombre del NEGOCIO.
+
+Verificado en vivo: `GET /api/public/r/vizage-medspa` → `Powered by Sellea`.
+
+### 2. Pagos recurrentes que no se reconocían
+**MOTILART**, tercer mes. Sus 3 pagos cayeron como «comprador sin cuenta»
+porque fallaron **las dos** vías de reconocimiento a la vez:
+- código de suscriptor truncado: `WKHH7U1` guardado, `WKHH7U1I` el real;
+- **el correo del pagador no es el de la cuenta** (`coysuarez_30@hotmail.com`
+  paga, la cuenta es `motilart.bga@gmail.com`).
+
+Eso último va a seguir pasando: paga el contador, el socio, la empresa.
+
+- Reparado con `reparar-codigo-hotmart.cjs` (busca por prefijo, que es el fallo).
+- **Nuevo en el panel: «Asignar a negocio activo»** en Pagos sin activar. Enlaza
+  los identificadores para que el próximo cobro sea RENOVACIÓN, avanza el ciclo
+  por periodicidad real y limpia los 6 campos de dedup.
+- `diag-pagos-huerfanos.cjs` encontró los demás casos. **Ojo**: 5 «coincidencias»
+  resultaron falsas alarmas — el negocio se creó DESPUÉS del pago, así que estuvo
+  bien que quedara pendiente. Solo quedan restos contables.
+
+### 3. Grupo empresarial con la fecha desfasada
+Aldehir - Grupo Mistika: Hotmart cobró el 17/08 y el próximo es 17/09; el grupo
+tenía 25/08. Sus 3 cobros llegaron como webhook y **ninguno movió la fecha**.
+Reparado con `reparar-cobro-grupo.cjs` (grupo + sus 3 negocios + dedup limpio).
+
+**PENDIENTE DE FONDO:** el arreglo pone la fecha al día pero no evita que se
+repita. **El cobro del 17 de septiembre es la prueba**: si la fecha salta sola al
+17 de octubre, el circuito funciona; si no, el fallo del handler de grupos sigue
+vivo.
+
+### 4. Plantillas de correo (Email Marketing)
+Pestaña **Plantillas** con editor visual por bloques al estilo GHL, carpetas
+anidadas y envío a contactos seleccionados. 5 plantillas de fábrica en español.
+
+**La decisión que sostiene todo:** las imágenes van a S3 y solo se guarda la URL.
+El editor de carteles QR las incrusta como `data:image` y por eso `QrPoster` pesa
+**258 MB de una base de 337 — el 77%, con 293 filas**. Las 5 plantillas juntas
+pesan **160 kB**. El backend **rechaza con 400** cualquier guardado con
+`data:image`, y el editor lo bloquea antes.
+
+También: fuera la subpestaña Workflows duplicada.
+
+### Qué toqué de PRODUCCIÓN
+- 2 tablas nuevas (`MktEmailTemplate`, `MktEmailTemplateFolder`) + 5 plantillas
+  de fábrica.
+- MOTILART reparado · grupo Aldehir y sus 3 negocios al 17/09 · 2 negocios de
+  Sellea despegados de la subcuenta de Clubify · 2 colores de marca inválidos
+  saneados (uno tenía «Degodoy cocina» donde va un color).
+
+### Qué falta
+- [ ] **17 de septiembre: comprobar que el grupo Aldehir avanza solo.**
+- [ ] Por qué los webhooks de grupo no aplican el pago (raíz del punto 3).
+- [ ] Montos en pesos mostrados como dólares en Pagos sin activar (`$491258.12`).
+- [ ] Cevichería y Dinorolls: códigos que no son los de su suscripción de
+      Hotmart — su próximo cobro caerá como pendiente. Usar «Asignar a negocio».
+- [ ] Renombrar `Card.autoStampOnOrder` (miente desde el 20-ago).
+
 ## 2026-08-21 — Aviso de compra, carpetas anidadas, reservas y las 3 pendientes
 **Máquina/quién:** Javier
 **Rama / PR:** `chore/merge-emails-sobre-314` — todo desplegado y verificado
