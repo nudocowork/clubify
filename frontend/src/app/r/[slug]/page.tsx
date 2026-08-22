@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { PhoneInput } from '@/components/PhoneInput';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n';
+import { safeBrandColor } from '@/lib/contrast';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -15,6 +16,7 @@ type Tenant = {
   brand?: {
     name: string;
     websiteUrl?: string | null;
+    primaryColor?: string | null;
     attribution?: { poweredBy?: string; madeWith?: string } | null;
   } | null;
   logoUrl: string | null;
@@ -267,7 +269,14 @@ function ReviewPageInner() {
     );
   }
 
-  const primary = t.primaryColor || '#22C55E';
+  // Color del NEGOCIO → el de su MARCA → un neutro. El respaldo era `#22C55E`,
+  // que es el verde de Clubify: en la página de un negocio de Sellea eso es
+  // justo lo que no debe aparecer. Y se valida, porque hubo un negocio con el
+  // nombre escrito en el campo del color.
+  const primary = safeBrandColor(
+    t.primaryColor,
+    safeBrandColor(t.brand?.primaryColor, '#334155'),
+  );
 
   return (
     <div
@@ -422,7 +431,20 @@ function ReviewPageInner() {
 
         {step === 'thanks' && (
           <div className="animate-in fade-in zoom-in-95 duration-300">
-            <div className="mt-4 text-6xl">💚</div>
+            {/* Corazón con el color del NEGOCIO. Antes era el emoji 💚, verde
+                fijo: en un negocio de Sellea (o de cualquier marca que no sea
+                verde) chirriaba, porque el verde es el color de Clubify. Un
+                emoji no se puede recolorear, así que va como SVG. */}
+            <div className="mt-4 flex justify-center" aria-hidden="true">
+              <svg
+                width="64"
+                height="64"
+                viewBox="0 0 24 24"
+                fill={primary}
+              >
+                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+              </svg>
+            </div>
             <h2 className="text-xl font-bold mt-3">{tt('review.thanks_title')}</h2>
             <p className="text-mute mt-2 leading-relaxed">
               {tt('review.thanks_sub')}
@@ -433,16 +455,17 @@ function ReviewPageInner() {
                 con el mensaje custom. Sino, fallback al whatsappPhone
                 general del negocio (legacy). Si ninguno, no aparece. */}
             {(() => {
-              const fbNum = t.whatsappFeedbackEnabled
-                ? (t.whatsappFeedbackNumber ?? '').replace(/\D/g, '')
-                : '';
-              const generalNum = (t.whatsappPhone ?? '').replace(/\D/g, '');
-              const num = fbNum || generalNum;
+              // El interruptor MANDA. Antes, con «WhatsApp para feedback»
+              // apagado, el botón salía igual porque caía al WhatsApp general
+              // del negocio: el dueño lo veía apagado en su panel y sus
+              // clientes escribían a un número que él no había elegido para
+              // esto. Un interruptor que no apaga nada es peor que no tenerlo.
+              if (!t.whatsappFeedbackEnabled) return null;
+              const num = (t.whatsappFeedbackNumber ?? '').replace(/\D/g, '');
               if (!num || num.length < 6) return null;
               const template =
-                t.whatsappFeedbackEnabled && t.whatsappFeedbackMessage?.trim()
-                  ? t.whatsappFeedbackMessage
-                  : `Hola ${t.brandName}, acabo de dejar una reseña y me gustaría hablar con ustedes.`;
+                t.whatsappFeedbackMessage?.trim() ||
+                `Hola ${t.brandName}, acabo de dejar una reseña y me gustaría hablar con ustedes.`;
               const rendered = template
                 .replace(/\{businessName\}/g, t.brandName)
                 .replace(/\{customerName\}/g, name || 'Cliente')

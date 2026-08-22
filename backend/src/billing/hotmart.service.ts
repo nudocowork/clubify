@@ -1617,7 +1617,13 @@ export class HotmartService {
       email: string;
       name: string | null;
       phone: string | null;
+      /** Precio PACTADO del plan en USD (68/150/278/500). Es el que manda. */
       amountUsd: number | null;
+      /** Lo que Hotmart dijo, tal cual, con su moneda. Solo informativo. */
+      paidRaw: number | null;
+      paidCurrency: string | null;
+      /** MENSUAL|TRIMESTRAL|… deducida del plan del pago, si vino. */
+      periodicity: string | null;
       purchaseDate: string | null;
       activationLink: string;
       createdAt: Date;
@@ -1629,14 +1635,44 @@ export class HotmartService {
       const raw = (p.rawPayload as any) ?? {};
       const buyer = raw?.data?.buyer ?? {};
       const approved = raw?.data?.purchase?.approved_date;
-      const priceVal = raw?.data?.purchase?.price?.value;
+      // El monto se mostraba en CRUDO como si fuera USD, y Hotmart manda el
+      // valor en la moneda del producto: salían cifras como $501.764,21, que
+      // son pesos. La regla del negocio es la misma que ya usa el cálculo de
+      // comisiones (`resolvePaidUsd`): manda el precio PACTADO del plan, no lo
+      // que diga el payload. Ojo, la moneda viene en `currency_value`, no en
+      // `currency_code` — mirar solo el segundo fue el bug original.
+      const precio = raw?.data?.purchase?.price ?? {};
+      const priceVal = typeof precio.value === 'number' ? precio.value : null;
+      const moneda = String(
+        precio.currency_code || precio.currency_value || '',
+      ).toUpperCase() || null;
+      const periodicity = parsePlanPeriodLabel(
+        raw?.data?.subscription?.plan?.name ?? '',
+      );
+      const canonico = await this.getCanonicalBundlePrice(periodicity);
+      // Se acepta el valor del payload solo si dice USD y cae en la banda del
+      // plan; si no, se muestra el pactado. Nunca una cifra inventada.
+      const enBanda =
+        priceVal != null &&
+        canonico > 0 &&
+        priceVal >= canonico * 0.3 &&
+        priceVal <= canonico * 1.6;
+      const amountUsd =
+        priceVal != null && (!moneda || moneda === 'USD') && enBanda
+          ? priceVal
+          : canonico > 0
+            ? canonico
+            : null;
       out.push({
         id: p.id,
         gateway: 'HOTMART',
         email: p.email,
         name: buyer?.name ?? null,
         phone: buyer?.checkout_phone ?? buyer?.phone ?? null,
-        amountUsd: typeof priceVal === 'number' ? priceVal : null,
+        amountUsd,
+        paidRaw: priceVal,
+        paidCurrency: moneda,
+        periodicity,
         purchaseDate:
           typeof approved === 'number'
             ? new Date(approved).toISOString()
@@ -1658,7 +1694,12 @@ export class HotmartService {
         email: p.email,
         name: cd?.name ?? null,
         phone: cd?.phone ?? null,
+        // Stripe sí manda la moneda fiable, así que se respeta: si no es USD,
+        // el monto en dólares queda en null en vez de mentir.
         amountUsd: obj?.currency === 'usd' ? amt : null,
+        paidRaw: amt,
+        paidCurrency: obj?.currency ? String(obj.currency).toUpperCase() : null,
+        periodicity: null,
         purchaseDate:
           typeof created === 'number'
             ? new Date(created * 1000).toISOString()
@@ -1679,7 +1720,11 @@ export class HotmartService {
         email: p.email,
         name: cust?.name ?? null,
         phone: cust?.phone ?? null,
+        // Cross guarda el importe ya en USD en su propia columna.
         amountUsd: p.amountUsd != null ? Number(p.amountUsd) : null,
+        paidRaw: p.amountUsd != null ? Number(p.amountUsd) : null,
+        paidCurrency: 'USD',
+        periodicity: null,
         purchaseDate: p.createdAt.toISOString(),
         activationLink: link(p.email),
         createdAt: p.createdAt,
