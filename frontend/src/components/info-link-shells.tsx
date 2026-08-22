@@ -225,18 +225,14 @@ export type ShellProps = {
    *  presente, reemplaza el fondo por defecto del template. */
   customBackground?: string;
   /** Marca blanca del negocio (per marca). El badge "Hecho con {marca}" la
-   *  usa. Puede faltar mientras el backend propaga el deploy → fallback Clubify. */
+   *  usa. Si falta, el badge NO se pinta (nunca se inventa una marca). */
   brand?: BrandBadgeBrand;
 };
 
-/** Fallback Clubify mientras el backend propaga `brand` a la respuesta. */
-const CLUBIFY_BADGE_FALLBACK: BrandBadgeBrand = {
-  name: 'Clubify',
-  websiteUrl: 'https://soyclubify.com',
-  initial: 'C',
-  primaryColor: '#22C55E',
-  attribution: { madeWith: 'Hecho con Clubify' },
-};
+// Sin respaldo a Clubify: si el backend no manda la marca, no se pinta el
+// badge. Un negocio de Sellea mostrando «Hecho con Clubify» a sus clientes
+// delata la plataforma — y el respaldo, puesto «mientras el backend propaga el
+// deploy», se quedó para siempre. Un pie ausente no delata a nadie.
 
 // =============================================================
 //  Colores de texto por elemento (theme.text) — opcional
@@ -378,7 +374,7 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
         )}
 
         <div className="mt-10 text-center">
-          <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} variant="pill" />
+          {brand && <BrandBadge brand={brand} variant="pill" />}
         </div>
       </article>
     </div>
@@ -503,7 +499,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
 
         {sectionsNode && <div className="mt-8 text-ink">{sectionsNode}</div>}
 
-        <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} />
+        {brand && <BrandBadge brand={brand} />}
       </article>
     </div>
   );
@@ -708,7 +704,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
           {sectionsNode && (
             <div className="mt-7 pb-2 text-ink">{sectionsNode}</div>
           )}
-          <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} />
+          {brand && <BrandBadge brand={brand} />}
         </div>
       </article>
     </div>
@@ -848,7 +844,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
         {sectionsNode && (
           <div className="px-5 pt-5 text-ink">{sectionsNode}</div>
         )}
-        <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} />
+        {brand && <BrandBadge brand={brand} />}
       </article>
     </div>
   );
@@ -995,7 +991,7 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
         )}
 
         <div className="mt-10 text-center">
-          <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} variant="pill" />
+          {brand && <BrandBadge brand={brand} variant="pill" />}
         </div>
       </article>
     </div>

@@ -795,17 +795,10 @@ export default function EnrollPage() {
 
         {/* Marca del negocio (per marca blanca). Fallback Clubify mientras
             el backend propaga el deploy. */}
-        <BrandBadge
-          brand={
-            brand ?? {
-              name: 'Clubify',
-              websiteUrl: 'https://soyclubify.com',
-              initial: 'C',
-              primaryColor: '#22C55E',
-              attribution: { madeWith: 'Hecho con Clubify' },
-            }
-          }
-        />
+        {/* Sin marca resuelta NO se pinta nada. Antes caía a Clubify por
+            defecto: el cliente de un negocio Sellea veía «Hecho con Clubify»
+            en su tarjeta. Un pie ausente no delata a nadie; uno inventado sí. */}
+        {brand && <BrandBadge brand={brand} />}
         {/* Sellea ofrece italiano además de los idiomas por defecto. */}
         <LanguageSwitcher
           extraLocales={

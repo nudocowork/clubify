@@ -11,6 +11,12 @@ type Tenant = {
   id: string;
   slug: string;
   brandName: string;
+  /** Marca blanca del negocio, resuelta en el backend desde su whiteLabelId. */
+  brand?: {
+    name: string;
+    websiteUrl?: string | null;
+    attribution?: { poweredBy?: string; madeWith?: string } | null;
+  } | null;
   logoUrl: string | null;
   primaryColor: string;
   secondaryColor: string;
@@ -466,9 +472,16 @@ function ReviewPageInner() {
           </div>
         )}
 
-        <div className="mt-10 text-[11px] text-mute opacity-70">
-          {tt('common.brand_powered')}
-        </div>
+        {/* La marca del NEGOCIO, no la de la plataforma. Antes era un texto
+            fijo «Powered by Clubify» traducido a 4 idiomas: el cliente de un
+            negocio Sellea veía el nombre de Clubify en la página de reseñas de
+            su restaurante. Si el backend no manda la marca, no se inventa
+            ninguna — se omite el pie. */}
+        {t.brand?.name && (
+          <div className="mt-10 text-[11px] text-mute opacity-70">
+            {t.brand.attribution?.poweredBy || `Powered by ${t.brand.name}`}
+          </div>
+        )}
       </article>
       <LanguageSwitcher />
     </div>

@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import {
   brandAppUrl,
   BRAND_DOMAIN_SELECT,
@@ -32,6 +33,7 @@ export class ReviewsService {
   private readonly log = new Logger(ReviewsService.name);
 
   constructor(
+    private brands: WhitelabelBrandService,
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
   ) {}
@@ -91,8 +93,15 @@ export class ReviewsService {
       }
     }
 
+    // Marca del negocio para el pie de la página. La ve el CLIENTE FINAL: un
+    // «Powered by Clubify» en la página de reseñas de un negocio Sellea delata
+    // la plataforma delante del cliente de otro. Se resuelve desde
+    // `tenant.whiteLabelId`, nunca desde una constante.
+    const brand = await this.brands.resolveTenant(t.id).catch(() => null);
+
     return {
       ...t,
+      brand,
       // Si hay target activo, sus valores ganan sobre los del tenant.
       googleReviewUrl: target?.googleReviewUrl ?? t.googleReviewUrl,
       threshold: target?.threshold ?? 4,
