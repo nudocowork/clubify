@@ -1865,7 +1865,9 @@ function VisualSection({
 // TextColorsPanel — colores de texto por elemento (theme.text)
 // -----------------------------------------------------
 // Deja al negocio elegir el color de: título, descripción, texto de
-// botones y el nombre del negocio (texto secundario). Aditivo: un campo
+// botones, el nombre del negocio (texto secundario) y el pie de
+// atribución «Hecho con …» (solo el color — el texto es de la marca
+// blanca y no se toca). Aditivo: un campo
 // vacío usa el color por defecto del template. Pensado para que un fondo
 // custom no deje el texto ilegible. El botón "Auto contraste" elige
 // blanco/negro según el fondo efectivo (o el color de marca, para el botón).
@@ -1919,6 +1921,14 @@ function TextColorsPanel({
       hint: 'No aplica a botones con estilo/color propio.',
     },
     { key: 'meta', label: 'Nombre del negocio', against: bgBase },
+    {
+      key: 'badge',
+      label: 'Pie «Hecho con…»',
+      against: bgBase,
+      // El pie es la atribución de la marca blanca: el negocio elige el
+      // color (p. ej. para que se lea sobre fondo negro), nunca el texto.
+      hint: 'Solo el color. El texto y la marca no cambian.',
+    },
   ];
 
   function setField(key: keyof InfoLinkTextColors, color: string | null) {
@@ -1936,6 +1946,7 @@ function TextColorsPanel({
       description: autoTextColor(bgBase),
       meta: autoTextColor(bgBase),
       button: autoTextColor(primary),
+      badge: autoTextColor(bgBase),
     });
   }
 

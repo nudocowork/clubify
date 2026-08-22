@@ -2828,7 +2828,10 @@ function LayoutClean({ menu, primary, currency, currencySymbol, onPick }: LP) {
                 {p.description && (
                   <div className="text-[12px] text-mute mt-1 italic">{p.description}</div>
                 )}
-                {p.tags[0] && (
+                {/* `|| p.isRecommended`: el guard miraba solo los tags libres,
+                    así que un producto marcado como recomendado y SIN etiquetas
+                    no mostraba nada — justo el caso normal. */}
+                {(p.tags[0] || p.isRecommended) && (
                   <div className="mt-1.5">
                     <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="inline" />
                   </div>
@@ -3402,6 +3405,18 @@ function SectionProductCard({
         <div className="font-semibold text-sm leading-tight line-clamp-2 min-h-[2.5rem]">
           {product.name}
         </div>
+        {/* Este estilo era el único que no mostraba la etiqueta: un producto
+            destacado solo se veía en la sección «Recomendados» y no dentro de
+            su categoría. */}
+        {(product.tags?.[0] || product.isRecommended) && (
+          <div className="mt-1">
+            <PrimaryProductBadge
+              tags={product.tags}
+              recommended={product.isRecommended}
+              variant="inline"
+            />
+          </div>
+        )}
         <div className="font-bold text-sm mt-1.5 text-ink">
           {fmtProductPrice(product, currency, currencySymbol)}
         </div>
