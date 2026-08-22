@@ -1224,7 +1224,7 @@
     "maxPerDay": "Máximo / día",
     "stampsStandard": "Comportamiento estándar — 1 sello cada 24 horas por cliente.",
     "stampsMultiple": "Hasta {count} sellos por cliente cada 24 horas. Después del máximo, el cliente espera al rolling window de 24h.",
-    "stampsSuperAdminBypass": "El bypass de SUPER_ADMIN sigue intacto para corregir errores manualmente.",
+    "stampsSuperAdminBypass": "El límite aplica a todos, incluido el administrador. Si un admin necesita corregir un error, el escáner le ofrece sellar igual y queda registrado.",
     "stampsSaved": "Tus clientes pueden recibir hasta {count} sello(s) por día.",
     "mainSectionName": "Nombre de sección principal",
     "mainSectionNameDesc": "Cambia cómo aparece la palabra \"Menú\" en tu panel y en la vista pública. Útil si vendés servicios (peluquería, autolavado, spa) o tienes algo distinto a una carta tradicional (tratamientos, planes, paquetes, etc.).",

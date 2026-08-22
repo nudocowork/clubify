@@ -1224,7 +1224,7 @@
     "maxPerDay": "Máximo / dia",
     "stampsStandard": "Comportamento padrão — 1 selo a cada 24 horas por cliente.",
     "stampsMultiple": "Até {count} selos por cliente a cada 24 horas. Após o máximo, o cliente aguarda a janela móvel de 24h.",
-    "stampsSuperAdminBypass": "O bypass de SUPER_ADMIN permanece intacto para corrigir erros manualmente.",
+    "stampsSuperAdminBypass": "O limite vale para todos, inclusive o administrador. Se um admin precisar corrigir um erro, o escâner oferece selar mesmo assim e fica registrado.",
     "stampsSaved": "Seus clientes podem ganhar até {count} selo(s) por dia.",
     "mainSectionName": "Nome da seção principal",
     "mainSectionNameDesc": "Mude como a palavra \"Cardápio\" aparece no seu painel e na visão pública. Útil se você vende serviços (salão, lava-rápido, spa) ou tem algo diferente de um cardápio tradicional (tratamentos, planos, pacotes, etc.).",

@@ -76,6 +76,14 @@ export default function ScanPage() {
   const scannerRef = useRef<any>(null);
   const [data, setData] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Cuando el tope diario bloquea un sello y quien escanea es SUPER_ADMIN,
+  // guardamos los argumentos del intento para poder reintentarlo forzado.
+  const [topeBloqueado, setTopeBloqueado] = useState<{
+    action: string;
+    amount: number;
+    pin?: string;
+    purchaseAmount?: number;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [manual, setManual] = useState('');
   const [scanning, setScanning] = useState(false);
@@ -538,6 +546,12 @@ export default function ScanPage() {
     amount = 1,
     pin?: string,
     purchaseAmount?: number,
+    // Solo lo manda el boton "Sellar de todos modos", que aparece unicamente
+    // a un SUPER_ADMIN despues de que el tope del dia haya bloqueado el sello.
+    // Antes el admin se saltaba el tope sin enterarse: sellaba de mas creyendo
+    // que el limite estaba puesto, y no habia forma de probar el limite desde
+    // una cuenta de admin.
+    override?: boolean,
   ) {
     if (!data?.pass) return;
     setBusy(true);
@@ -550,6 +564,7 @@ export default function ScanPage() {
           amount,
           ...(pin ? { pin } : {}),
           ...(purchaseAmount !== undefined ? { purchaseAmount } : {}),
+          ...(override ? { override: true } : {}),
         }),
       });
       // El backend devuelve `pass` sin includes (solo campos del Pass).
@@ -585,9 +600,18 @@ export default function ScanPage() {
           },
         });
       }
+      setTopeBloqueado(null);
       playScanSuccess();
     } catch (e: any) {
       setErr(e.message);
+      // Si lo que bloqueo fue el tope del dia y quien escanea es admin,
+      // guardamos con que argumentos reintentar para ofrecer el forzado.
+      const esTope = /sello/i.test(e?.message ?? '') && /(ya recibió|máximo)/i.test(e?.message ?? '');
+      setTopeBloqueado(
+        esTope && user?.role === 'SUPER_ADMIN'
+          ? { action, amount, pin, purchaseAmount }
+          : null,
+      );
       playScanError();
     } finally {
       setBusy(false);
@@ -866,6 +890,24 @@ export default function ScanPage() {
         {err && (
           <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
             {err}
+            {/* Forzar el sello por encima del tope: solo para admin y solo
+                despues de que el tope haya bloqueado. Queda anotado en el
+                historial del sello para poder distinguirlo despues. */}
+            {topeBloqueado && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  const t = topeBloqueado;
+                  setTopeBloqueado(null);
+                  setErr(null);
+                  void act(t.action, t.amount, t.pin, t.purchaseAmount, true);
+                }}
+                className="mt-2 block w-full text-center text-xs font-semibold px-3 py-2 rounded-md bg-white/70 border border-bad-ink/20 hover:bg-white disabled:opacity-50"
+              >
+                Sellar de todos modos (queda registrado)
+              </button>
+            )}
           </div>
         )}
 

@@ -21,6 +21,18 @@ export type StampDto = {
   // Monto que el cliente pagó por la compra que motivó el scan.
   // Solo informativo — no cambia cuántos sellos se otorgan.
   purchaseAmount?: number;
+  /**
+   * Saltarse el tope de sellos del día A PROPÓSITO. Solo SUPER_ADMIN, y solo
+   * cuando lo pide explícitamente para corregir un error.
+   *
+   * Antes el bypass era automático por rol: un SUPER_ADMIN escaneando normal
+   * ponía sellos de más sin enterarse, y el tope resultaba imposible de
+   * probar desde una cuenta de admin (fue justo lo que pasó el 2026-08-22:
+   * las únicas dos violaciones en 90 días eran de una cuenta SUPER_ADMIN,
+   * ninguna de un dueño o staff). Ahora el admin recibe el mismo aviso que
+   * todos y decide.
+   */
+  override?: boolean;
 };
 
 // Anti-fraude: máximo 1 sello por cliente por día. El staff no puede
@@ -115,9 +127,12 @@ export class StampsService {
     // El admin puede subirlo a 2/3/etc para campañas promocionales sin
     // tocar código. Si null, mantiene el comportamiento histórico de
     // 1 sello / 24h.
+    // El bypass ya no es por rol sino por decisión explícita: SUPER_ADMIN
+    // puede saltarse el tope, pero mandando `override` — no por existir.
+    const saltaTope = user.role === 'SUPER_ADMIN' && dto.override === true;
     if (
       (dto.action === 'STAMP' || dto.action === 'VISIT') &&
-      user.role !== 'SUPER_ADMIN'
+      !saltaTope
     ) {
       const tenantConfig = await this.prisma.tenant.findUnique({
         where: { id: pass.tenantId },
@@ -156,10 +171,14 @@ export class StampsService {
               ),
             )
           : 24;
-        throw new BadRequestException(
+        const base =
           maxPerDay === 1
             ? `Este cliente ya recibió un sello hoy. Próximo sello disponible en ~${remainingHours}h.`
-            : `Este cliente ya recibió el máximo de ${maxPerDay} sellos del día. Próximo disponible en ~${remainingHours}h.`,
+            : `Este cliente ya recibió el máximo de ${maxPerDay} sellos del día. Próximo disponible en ~${remainingHours}h.`;
+        throw new BadRequestException(
+          user.role === 'SUPER_ADMIN'
+            ? `${base} Como administrador podés sellar igual para corregir un error.`
+            : base,
         );
       }
     }
@@ -459,6 +478,14 @@ export class StampsService {
           await tx.pass.delete({ where: { id: existing.id } });
         }
       }
+      // Rastro auditable: un sello puesto por encima del tope tiene que poder
+      // distinguirse despues de uno normal.
+      const notaFinal = saltaTope
+        ? [dto.note?.trim(), '[admin: sello por encima del tope diario]']
+            .filter(Boolean)
+            .join(' ')
+            .slice(0, 500)
+        : dto.note;
       const newStampRow = await tx.stamp.create({
         data: {
           tenantId: pass.tenantId,
@@ -477,7 +504,7 @@ export class StampsService {
               (skipCouponTransform
                 ? 'Cupón redimido (conservando tarjeta de sellos)'
                 : 'Cupón redimido — transformado a tarjeta de sellos'))
-            : dto.note,
+            : notaFinal,
           // Wallet V3 — auditoría de ajustes manuales (ip + navegador/dispositivo).
           ip: meta?.ip ?? null,
           device: meta?.device ?? null,

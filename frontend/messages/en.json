@@ -1224,7 +1224,7 @@
     "maxPerDay": "Max / day",
     "stampsStandard": "Standard behavior — 1 stamp every 24 hours per customer.",
     "stampsMultiple": "Up to {count} stamps per customer every 24 hours. After the maximum, the customer waits for the 24h rolling window.",
-    "stampsSuperAdminBypass": "The SUPER_ADMIN bypass remains intact to fix mistakes manually.",
+    "stampsSuperAdminBypass": "The limit applies to everyone, admins included. If an admin needs to fix a mistake, the scanner offers to stamp anyway and it gets logged.",
     "stampsSaved": "Your customers can earn up to {count} stamp(s) per day.",
     "mainSectionName": "Main section name",
     "mainSectionNameDesc": "Change how the word \"Menu\" appears in your panel and the public view. Useful if you sell services (salon, car wash, spa) or have something other than a traditional menu (treatments, plans, packages, etc.).",
