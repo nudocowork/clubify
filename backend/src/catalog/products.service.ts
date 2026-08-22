@@ -34,6 +34,11 @@ export type ProductDto = {
    * "ABSOLUTE": cada variante define su precio propio (priceDelta = precio final).
    */
   variantPriceMode?: 'DELTA' | 'ABSOLUTE';
+  /**
+   * Tope de extras EN TOTAL para este producto (sumando cantidades).
+   * null = sin tope. Distinto de ProductExtra.maxQty, que limita UN extra.
+   */
+  maxExtrasTotal?: number | null;
   imageUrl?: string;
   tags?: string[];
   isAvailable?: boolean;
@@ -96,6 +101,10 @@ export class ProductsService {
             ? dto.priceMax
             : null,
         variantPriceMode: dto.variantPriceMode ?? 'DELTA',
+        maxExtrasTotal:
+          dto.maxExtrasTotal != null && dto.maxExtrasTotal > 0
+            ? Math.floor(dto.maxExtrasTotal)
+            : null,
         imageUrl: dto.imageUrl,
         tags: dto.tags ?? [],
         isAvailable: dto.isAvailable ?? true,
@@ -160,6 +169,14 @@ export class ProductsService {
               ? undefined
               : dto.priceMax,
           variantPriceMode: dto.variantPriceMode ?? undefined,
+          // null explicito = quitar el tope; undefined = no tocarlo. Un `??`
+          // aqui haria imposible volver a "sin tope" desde el panel.
+          maxExtrasTotal:
+            dto.maxExtrasTotal === undefined
+              ? undefined
+              : dto.maxExtrasTotal != null && dto.maxExtrasTotal > 0
+                ? Math.floor(dto.maxExtrasTotal)
+                : null,
           imageUrl: dto.imageUrl ?? undefined,
           tags: dto.tags ?? undefined,
           isAvailable: dto.isAvailable ?? undefined,

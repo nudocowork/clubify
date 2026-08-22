@@ -60,6 +60,8 @@ type Product = {
   priceMax?: number | null;
   /** DELTA: variantes suman al base. ABSOLUTE: cada variante su precio propio. */
   variantPriceMode?: 'DELTA' | 'ABSOLUTE';
+  /** Tope de extras EN TOTAL. null/undefined = sin tope. */
+  maxExtrasTotal?: number | null;
   imageUrl: string | null;
   tags: string[];
   isAvailable: boolean;
@@ -509,6 +511,7 @@ export default function MenuEditor() {
           ? Number(p.priceMax)
           : null,
       variantPriceMode: p.variantPriceMode ?? 'DELTA',
+      maxExtrasTotal: p.maxExtrasTotal ?? null,
       imageUrl: p.imageUrl || undefined,
       tags: p.tags ?? [],
       isAvailable: p.isAvailable ?? true,
@@ -2567,6 +2570,42 @@ function ProductDrawer({
             >
               {t('addExtra')}
             </button>
+
+            {/* Tope de extras. Un producto puede ofrecer 20 ingredientes y
+                permitir solo 5: sin este limite el cliente elige 10 y al
+                negocio le toca explicarle por telefono por que no. Solo se
+                muestra si el producto tiene extras — no estorba al resto. */}
+            {(form.extras ?? []).length > 0 && (
+              <div className="mt-3 pt-3 border-t border-line">
+                <label className="text-[11px] font-semibold text-mute block mb-1">
+                  {t('maxExtrasLabel')}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    className="input w-24"
+                    placeholder={t('maxExtrasNoLimit')}
+                    value={form.maxExtrasTotal ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      // Vacio = sin tope. Se manda null explicito para que el
+                      // backend lo borre; undefined dejaria el valor anterior.
+                      update(
+                        'maxExtrasTotal',
+                        v === '' ? null : Math.max(1, Math.floor(Number(v) || 1)),
+                      );
+                    }}
+                  />
+                  <span className="text-[11px] text-mute">
+                    {form.maxExtrasTotal
+                      ? t('maxExtrasSet', { n: form.maxExtrasTotal })
+                      : t('maxExtrasNoLimitHint')}
+                  </span>
+                </div>
+              </div>
+            )}
           </fieldset>
         </div>
 

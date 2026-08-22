@@ -980,7 +980,11 @@
     "linkCopied": "Link de {label} copiado",
     "couldNotCopy": "No se pudo copiar — copialo manualmente",
     "mesaLabel": "mesa",
-    "deliveryLabel": "delivery"
+    "deliveryLabel": "delivery",
+    "maxExtrasLabel": "Máximo de extras por producto",
+    "maxExtrasNoLimit": "Sin tope",
+    "maxExtrasNoLimitHint": "Vacío = el cliente puede elegir todos los que quiera",
+    "maxExtrasSet": "El cliente podrá elegir hasta {n} en total"
   },
   "app_storefront": {
     "defaultBrandName": "Mi negocio",

@@ -606,3 +606,76 @@ simple es enrutarlo por Grow Business como el resto.
 - Cobros próximos de Sellea al momento de escribir esto: Empanadas La Parada
   (23-ago) y Acqua Nails (24-ago). El **SMS ya salió** (D-7); el D-3 dispara
   solo. El correo se suma al mismo disparo cuando se despliegue la PR #317.
+
+## 2026-08-22 (tarde) — Máximo de extras, correo de bienvenida, canal real y creación de influencers
+
+Cuatro cosas, todas desplegadas y verificadas contra producción.
+
+### 1. Tope de extras por producto
+
+Existía `ProductExtra.maxQty` (límite de UN extra) pero no un tope TOTAL. Un
+producto puede ofrecer 20 ingredientes y permitir solo 5; sin tope el cliente
+elegía 10 y al negocio le tocaba llamarlo a explicárselo.
+
+- Campo nuevo `Product.maxExtrasTotal` (Int?, null = sin tope).
+- Migración aditiva idempotente: `scripts/apply-max-extras-migration.cjs`.
+  **Aplicada**: 2.950 productos, 0 con tope → nadie cambia de comportamiento.
+- Panel del negocio: control al final del bloque de Extras, solo visible si el
+  producto tiene extras. Vacío = sin tope.
+- Storefront: contador `3/5`, casillas restantes deshabilitadas al llegar.
+- **Backend lo hace cumplir** (`assertTopeDeExtras`, 3 sitios en
+  `orders.service.ts`). El bloqueo del navegador es comodidad, no defensa: un
+  POST directo al endpoint se lo salta entero.
+- Textos en es/en/pt (panel) y es/en/pt/it (storefront).
+
+### 2. El correo de bienvenida le pedía pagar a quien ya había pagado
+
+Caso real: Mr. Pedidos (andresgdpsarespaldo@gmail.com). Pagó a las 09:54, creó
+la cuenta a las 11:48, y el correo decía «Completa el pago para activarla».
+
+`welcomeOwnerTemplate` asumía siempre pago pendiente. Ahora recibe `yaPago` y
+manda dos correos distintos con el mismo esqueleto. El call site **relee el
+estado del tenant** después de los tres `consumePendingForTenant` en vez de
+fiarse de sus flags — así cubre también la activación que entre por webhook
+entre medias.
+
+De paso, fuga de marca en el mismo archivo: `brandName = args.brand?.name ??
+'Clubify'` hacía que un negocio de marca blanca leyera «Bienvenido a Clubify».
+Ahora sin marca resuelta no se escribe ningún nombre de plataforma.
+
+### 3. El historial decía WhatsApp y salía SMS
+
+LeadConnector **acepta** `type: 'WhatsApp'` y devuelve un `providerMessageId`
+aunque la subcuenta no tenga proveedor de WhatsApp conectado: lo entrega por
+SMS sin avisar. Comprobado en los dos envíos de `activacion-compra` del 22-ago
+(ambos `sent`, ambos con id de proveedor, ambos llegaron como SMS).
+
+`sendBuyerActivationLink` ya no intenta WhatsApp primero. Manda por el canal
+que de verdad sale. Si una marca conecta WhatsApp de verdad, esto se reabre con
+un flag por subcuenta — no adivinando.
+
+### 4. No se podían crear influencers (403)
+
+**No era el rol.** El guard y el chequeo del servicio pasaban bien. Lo que
+fallaba era el middleware de tenant: `guardWhiteLabelCreate` bloquea toda
+escritura en `User` sin `tenantId` explícito, y un afiliado **no tiene tenantId
+por diseño** — no pertenece a un negocio, trae negocios. Su marca vive en el
+`ReferralCode` (que sí lleva `whiteLabelId`), así que el aislamiento entre
+marcas se mantiene donde importa.
+
+Tres intentos con stefany@clubify.com fallaron y revirtieron sus códigos
+(SDUAGEWQ, DEU9Z26Z, SX3KM6PV). **Comprobado: no quedó basura** — ni códigos
+huérfanos ni usuario a medias.
+
+Diagnóstico por `railway logs`, no por lectura de código: la hipótesis del rol
+(`PLATFORM_OWNER` no está en los `@Roles('SUPER_ADMIN')`) era falsa para este
+bug. Sigue siendo cierta como deuda: **198 endpoints** tienen `SUPER_ADMIN` sin
+`PLATFORM_OWNER`, y solo 16 incluyen ambos.
+
+### Pendiente que no es código
+
+**Mapa de Sellea roto** (`RefererNotAllowedMapError`). Sellea y Clubify no
+tienen `mapsApiKey` propia y caen a la global de Clubify, restringida por
+dominio. Fideliso sí tiene la suya y por eso funciona. Se arregla en Google
+Cloud (autorizar el dominio) o cargando la clave de cada marca en Master Admin
+→ Marcas, donde el campo ya existe.

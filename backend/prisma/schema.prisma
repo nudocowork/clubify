@@ -1853,6 +1853,14 @@ model Product {
   createdAt            DateTime  @default(now())
 
   variants ProductVariant[]
+  /// Tope de extras que el cliente puede elegir EN TOTAL para este producto,
+  /// sumando cantidades. Null = sin tope (comportamiento histórico).
+  ///
+  /// Distinto de `ProductExtra.maxQty`, que limita UN extra concreto. Un
+  /// producto puede ofrecer 20 ingredientes y permitir solo 5: sin este tope,
+  /// el cliente elige 10 y al negocio le toca explicarle por qué no.
+  maxExtrasTotal Int?
+
   extras   ProductExtra[]
 
   @@index([tenantId, categoryId, position])

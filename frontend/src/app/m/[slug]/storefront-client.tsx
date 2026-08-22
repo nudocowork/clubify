@@ -151,6 +151,8 @@ type Product = {
   isRecommended?: boolean;
   variants: Variant[];
   extras: Extra[];
+  /** Tope de extras EN TOTAL. null = sin tope. */
+  maxExtrasTotal?: number | null;
 };
 type Category = {
   id: string;
@@ -1280,25 +1282,63 @@ function ProductModal({
             </div>
           )}
 
-          {product.extras.length > 0 && (
+          {product.extras.length > 0 && (() => {
+            // Tope de extras del producto. Se bloquea al llegar al limite en
+            // vez de dejar elegir 10 y que el negocio tenga que llamar
+            // despues a explicar que solo iban 5.
+            const tope =
+              product.maxExtrasTotal && product.maxExtrasTotal > 0
+                ? product.maxExtrasTotal
+                : null;
+            const enTope = tope != null && extras.length >= tope;
+            return (
             <div className="mt-5">
-              <div className="text-xs uppercase tracking-wider text-mute font-semibold">
-                {tt('product.extras')}
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+                  {tt('product.extras')}
+                </div>
+                {tope != null && (
+                  <span
+                    className={`text-[11px] font-semibold tabular-nums ${
+                      enTope ? 'text-brand' : 'text-mute'
+                    }`}
+                  >
+                    {extras.length}/{tope}
+                  </span>
+                )}
               </div>
+              {tope != null && (
+                <p className="text-[11px] text-mute mt-1">
+                  {enTope
+                    ? tt('product.extrasLimitReached')
+                    : tt('product.extrasLimit', { n: tope })}
+                </p>
+              )}
               <div className="space-y-1.5 mt-2">
-                {product.extras.map((e) => (
+                {product.extras.map((e) => {
+                  const elegido = extras.includes(e.id);
+                  const bloqueado = enTope && !elegido;
+                  return (
                   <label
                     key={e.id}
-                    className="flex items-center justify-between p-3 border border-line rounded-lg cursor-pointer"
+                    className={`flex items-center justify-between p-3 border border-line rounded-lg ${
+                      bloqueado ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer'
+                    }`}
                   >
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
-                        checked={extras.includes(e.id)}
+                        checked={elegido}
+                        disabled={bloqueado}
                         onChange={(ev) =>
                           setExtras(
                             ev.target.checked
-                              ? [...extras, e.id]
+                              ? // Guarda dura: aunque el checkbox llegue
+                                // habilitado (teclado, DOM tocado), nunca se
+                                // pasa del tope.
+                                tope != null && extras.length >= tope
+                                ? extras
+                                : [...extras, e.id]
                               : extras.filter((x) => x !== e.id),
                           )
                         }
@@ -1309,10 +1349,12 @@ function ProductModal({
                       +{fmt(Number(e.price), currency, currencySymbol)}
                     </span>
                   </label>
-                ))}
+                  );
+                })}
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {ordersEnabled && (
             <div className="mt-5">

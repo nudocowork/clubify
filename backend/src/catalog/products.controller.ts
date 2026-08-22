@@ -8,7 +8,18 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, ValidateIf } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 import { ProductsService } from './products.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -33,6 +44,13 @@ class ProductBody {
   // Faltaba aquí → el ValidationPipe (forbidNonWhitelisted) rechazaba el
   // create/update con "property variantPriceMode should not exist".
   @IsOptional() @IsIn(['DELTA', 'ABSOLUTE']) variantPriceMode?: 'DELTA' | 'ABSOLUTE';
+  // Tope de extras que el cliente puede elegir EN TOTAL. null = sin tope.
+  // Se acepta null explicito para poder quitarlo desde el panel.
+  @ValidateIf((_, v) => v !== null)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxExtrasTotal?: number | null;
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsArray() tags?: string[];
   @IsOptional() @IsBoolean() isAvailable?: boolean;

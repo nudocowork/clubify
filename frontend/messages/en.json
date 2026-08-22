@@ -980,7 +980,11 @@
     "linkCopied": "{label} link copied",
     "couldNotCopy": "Could not copy — copy it manually",
     "mesaLabel": "table",
-    "deliveryLabel": "delivery"
+    "deliveryLabel": "delivery",
+    "maxExtrasLabel": "Maximum extras per product",
+    "maxExtrasNoLimit": "No limit",
+    "maxExtrasNoLimitHint": "Empty = customers can pick as many as they want",
+    "maxExtrasSet": "Customers can pick up to {n} in total"
   },
   "app_storefront": {
     "defaultBrandName": "My business",

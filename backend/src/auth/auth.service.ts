@@ -1369,12 +1369,22 @@ export class AuthService {
     // de la marca: nombre (asunto/cuerpo dicen "Sellea"), remitente propio
     // (from=hola@selleala.com si está verificado) y link al panel de la marca
     // (selleala.com/login). Sin marca / sin remitente propio → default Clubify.
+    // Releemos el tenant DESPUES de los tres consumePendingForTenant: si el
+    // comprador pago antes de crear la cuenta, ya quedo activa y el correo
+    // no puede pedirle "completa el pago". Leemos el estado en vez de fiarnos
+    // del flag `activated` de cada bloque, asi tambien cubre la activacion que
+    // entre por webhook entre medias. Caso real: Mr. Pedidos, 2026-08-22.
     const welcomeBrandRow = await this.prisma.tenant
       .findUnique({
         where: { id: tenant.id },
-        select: { whiteLabelId: true, whiteLabel: { select: { name: true } } },
+        select: {
+          whiteLabelId: true,
+          status: true,
+          whiteLabel: { select: { name: true } },
+        },
       })
       .catch(() => null);
+    const yaPago = welcomeBrandRow?.status === 'ACTIVE';
     const brandEmail = await resolveBrandEmail(
       this.prisma,
       welcomeBrandRow?.whiteLabelId ?? null,
@@ -1395,6 +1405,7 @@ export class AuthService {
           ? { name: welcomeBrandRow.whiteLabel.name }
           : null,
         loginUrl: brandEmail.hasBrandSender ? brandEmail.loginUrl : undefined,
+        yaPago,
       }),
     });
 

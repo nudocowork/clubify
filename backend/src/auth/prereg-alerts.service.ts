@@ -280,21 +280,19 @@ export class PreregAlertsService {
         `Para activar tu cuenta en 30 segundos, entra aquí:\n${opts.activateUrl}\n\n` +
         `Importante: usa el mismo correo del pago (${opts.email}) para que se active al instante.`;
 
-      // Try WhatsApp first (better engagement in LATAM).
-      const wa = await this.growBusiness
-        .sendWhatsAppWithCreds(
-          { locationId: account.locationId, apiKey: account.apiKey },
-          phone,
-          body,
-          ctx,
-        )
-        .catch((e) => ({ ok: false as const, message: (e as Error).message }));
-      if (wa.ok) return { ok: true, channel: 'whatsapp' };
-      this.logger.log(
-        `sendBuyerActivationLink WhatsApp falló (${(wa as any).message ?? 'unknown'}), fallback SMS`,
-      );
-
-      // Fallback SMS.
+      // SMS, no WhatsApp.
+      //
+      // Se intentaba WhatsApp primero por engagement, pero LeadConnector
+      // ACEPTA `type: 'WhatsApp'` y devuelve un providerMessageId aunque la
+      // subcuenta no tenga proveedor de WhatsApp conectado: lo entrega por
+      // SMS sin avisar. Resultado: al comprador le llegaba un SMS y el
+      // historial de la marca lo registraba como WhatsApp (comprobado en los
+      // dos envios del 2026-08-22). Un historial que miente sobre el canal no
+      // sirve para lo que se construyo.
+      //
+      // Mientras GHL no informe el canal real, se manda por el que de verdad
+      // sale. Si una marca conecta WhatsApp de verdad, esto se reabre con un
+      // flag por subcuenta, no adivinando.
       const sms = await this.growBusiness
         .sendSmsWithCreds(
           {

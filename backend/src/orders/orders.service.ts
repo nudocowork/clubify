@@ -143,6 +143,31 @@ export type CreateOrderDto = {
   customerPaymentOther?: string;
 };
 
+/**
+ * Hace cumplir `Product.maxExtrasTotal` en el SERVIDOR.
+ *
+ * El storefront ya deshabilita los checkboxes al llegar al tope, pero eso es
+ * comodidad, no defensa: un POST directo al endpoint de pedidos se la salta
+ * entera. El negocio configura el tope para no tener que llamar despues al
+ * cliente a explicarle que solo iban 5, asi que el limite tiene que valer
+ * tambien cuando el pedido no viene de nuestra pantalla.
+ *
+ * `maxExtrasTotal` null o <= 0 = sin tope (comportamiento historico).
+ */
+function assertTopeDeExtras(
+  p: { name: string; maxExtrasTotal?: number | null },
+  extraIds?: string[] | null,
+) {
+  const tope = p.maxExtrasTotal ?? null;
+  if (tope == null || tope <= 0) return;
+  const elegidos = extraIds?.length ?? 0;
+  if (elegidos > tope) {
+    throw new BadRequestException(
+      `"${p.name}" admite hasta ${tope} ${tope === 1 ? 'extra' : 'extras'} y llegaron ${elegidos}.`,
+    );
+  }
+}
+
 @Injectable()
 export class OrdersService {
   private logger = new Logger(OrdersService.name);
@@ -533,6 +558,7 @@ export class OrdersService {
         unit = variantUnitPrice(unit, p.variantPriceMode, Number(v.priceDelta));
         variantName = ` (${v.name})`;
       }
+      assertTopeDeExtras(p, i.extraIds);
       const extras = (i.extraIds ?? []).map((eid) => {
         const e = p.extras.find((x) => x.id === eid);
         if (!e) throw new BadRequestException('Extra inválido');
@@ -841,6 +867,7 @@ export class OrdersService {
         unit = variantUnitPrice(unit, p.variantPriceMode, Number(v.priceDelta));
         variantName = ` (${v.name})`;
       }
+      assertTopeDeExtras(p, i.extraIds);
       const extras = (i.extraIds ?? []).map((eid) => {
         const e = p.extras.find((x) => x.id === eid);
         if (!e) throw new BadRequestException('Extra inválido');
@@ -1286,6 +1313,7 @@ export class OrdersService {
         unit = variantUnitPrice(unit, p.variantPriceMode, Number(v.priceDelta));
         variantName = ` (${v.name})`;
       }
+      assertTopeDeExtras(p, i.extraIds);
       const extras = (i.extraIds ?? []).map((eid) => {
         const e = p.extras.find((x) => x.id === eid);
         if (!e) throw new BadRequestException('Extra inválido');

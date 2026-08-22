@@ -83,6 +83,8 @@ export const messages = {
 
     // Producto modal
     'product.extras': 'Extras',
+    'product.extrasLimit': 'Puedes elegir hasta {{n}}.',
+    'product.extrasLimitReached': 'Llegaste al máximo. Quita uno para cambiar.',
     'product.notes': 'Notas (opcional)',
     'product.add_to_cart': 'Agregar · {{total}}',
 
@@ -288,6 +290,8 @@ export const messages = {
 
     // Product modal
     'product.extras': 'Extras',
+    'product.extrasLimit': 'You can pick up to {{n}}.',
+    'product.extrasLimitReached': 'You reached the maximum. Remove one to swap.',
     'product.notes': 'Notes (optional)',
     'product.add_to_cart': 'Add · {{total}}',
 
@@ -493,6 +497,8 @@ export const messages = {
 
     // Product modal
     'product.extras': 'Extras',
+    'product.extrasLimit': 'Você pode escolher até {{n}}.',
+    'product.extrasLimitReached': 'Você chegou ao máximo. Remova um para trocar.',
     'product.notes': 'Notas (opcional)',
     'product.add_to_cart': 'Adicionar · {{total}}',
 
@@ -698,6 +704,8 @@ export const messages = {
 
     // Product modal
     'product.extras': 'Extra',
+    'product.extrasLimit': 'Puoi sceglierne fino a {{n}}.',
+    'product.extrasLimitReached': 'Hai raggiunto il massimo. Rimuovine uno per cambiare.',
     'product.notes': 'Note (facoltativo)',
     'product.add_to_cart': 'Aggiungi · {{total}}',
 
