@@ -17,7 +17,12 @@ type PendingRow = {
   email: string;
   name: string | null;
   phone: string | null;
+  /** Precio PACTADO del plan en USD. Es la cifra que manda. */
   amountUsd: number | null;
+  /** Lo que dijo la pasarela, en su moneda. Solo para entender el pago. */
+  paidRaw?: number | null;
+  paidCurrency?: string | null;
+  periodicity?: string | null;
   purchaseDate: string | null;
   activationLink: string;
   createdAt: string;
@@ -243,7 +248,35 @@ export default function PendingPaymentsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-right font-medium">
-                      {r.amountUsd != null ? `$${r.amountUsd.toFixed(2)}` : '—'}
+                      {r.amountUsd != null ? (
+                        <>
+                          <div>
+                            ${r.amountUsd.toFixed(2)}{' '}
+                            <span className="text-mute text-xs font-normal">USD</span>
+                          </div>
+                          {/* Se puede pagar el trimestral en pesos mexicanos y
+                              seguir siendo $150 USD. Arriba va el precio
+                              PACTADO (lo que manda para comisiones y reportes);
+                              acá abajo, lo que cobró la pasarela en su moneda,
+                              solo si es otra — para entender el pago sin que la
+                              cifra de arriba mienta. */}
+                          {r.paidCurrency &&
+                            r.paidCurrency !== 'USD' &&
+                            r.paidRaw != null && (
+                              <div className="text-mute text-[11px] font-normal">
+                                pagó {r.paidRaw.toLocaleString('es-CO')}{' '}
+                                {r.paidCurrency}
+                              </div>
+                            )}
+                          {r.periodicity && (
+                            <div className="text-mute text-[11px] font-normal">
+                              plan {r.periodicity.toLowerCase()}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className="px-4 py-3 text-xs whitespace-nowrap">
                       {fmtDate(r.purchaseDate)}
