@@ -95,6 +95,10 @@ export default function MenuBookAdminPage() {
   const [popupPage, setPopupPage] = useState<BookPage | null>(null);
   const [popupSection, setPopupSection] = useState<BookSection | null>(null);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
+  const [brandHost, setBrandHost] = useState<string | null>(null);
+  const [qrPng, setQrPng] = useState<string | null>(null);
+  const [qrOpen, setQrOpen] = useState(false);
+  const [qrError, setQrError] = useState<string | null>(null);
   const [bookMenuEnabled, setBookMenuEnabled] = useState<boolean | null>(null);
   const [storefrontId, setStorefrontId] = useState<string | null>(null);
   const [togglingBook, setTogglingBook] = useState(false);
@@ -104,7 +108,14 @@ export default function MenuBookAdminPage() {
 
   useEffect(() => {
     api<any>('/tenants/me')
-      .then((tenant) => setTenantSlug(tenant?.slug ?? null))
+      .then((tenant) => {
+        setTenantSlug(tenant?.slug ?? null);
+        // El QR tiene que apuntar al dominio de SU marca, no al del panel
+        // desde el que se esté navegando: un negocio de Sellea entrando por
+        // soyclubify.com generaría un QR de Clubify, impreso y pegado en su
+        // mostrador. Lo eligen sus clientes, no nosotros.
+        setBrandHost(tenant?.whiteLabel?.appDomain || tenant?.whiteLabel?.domain || null);
+      })
       .catch(() => {});
     api<any>('/storefront')
       .then((sf) => {
@@ -128,6 +139,28 @@ export default function MenuBookAdminPage() {
       })
       .catch(() => {});
   }, []);
+
+  /** URL pública del menú libro, en el dominio de SU marca. */
+  const bookUrl = tenantSlug
+    ? `https://${brandHost || (typeof window !== 'undefined' ? window.location.host : 'soyclubify.com')}/book/${tenantSlug}`
+    : '';
+
+  async function abrirQr() {
+    setQrOpen(true);
+    setQrError(null);
+    if (qrPng || !bookUrl) return;
+    try {
+      const QR = (await import('qrcode')).default;
+      // 900px: se imprime en mesa y en cartel. Margen 2 para que el lector
+      // no falle si lo pegan cerca de un borde.
+      setQrPng(await QR.toDataURL(bookUrl, { width: 900, margin: 2 }));
+    } catch {
+      // Nada de fallar en silencio: si no se genera, el negocio tiene que
+      // saberlo, no quedarse mirando un hueco.
+      setQrError('No se pudo generar el QR. Inténtalo de nuevo.');
+    }
+  }
+
 
   async function saveBookPopup(next: BookGlobalPopup) {
     try {
@@ -313,17 +346,103 @@ export default function MenuBookAdminPage() {
           )}
         </div>
         {tenantSlug && bookMenuEnabled && (
-          <a
-            href={`/book/${tenantSlug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-primary text-sm whitespace-nowrap inline-flex items-center gap-2"
-            title={t('viewBookTooltip')}
-          >
-            👀 {t('viewBook')}
-          </a>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={abrirQr}
+              className="btn-ghost text-sm whitespace-nowrap inline-flex items-center gap-2"
+              title="Descarga el QR que lleva directo a tu menú libro"
+            >
+              ⬛ QR del menú
+            </button>
+            <a
+              href={`/book/${tenantSlug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary text-sm whitespace-nowrap inline-flex items-center gap-2"
+              title={t('viewBookTooltip')}
+            >
+              👀 {t('viewBook')}
+            </a>
+          </div>
         )}
       </header>
+
+      {/* QR del menú libro. Apunta al dominio de la MARCA del negocio: un QR
+          impreso vive años en un mostrador, así que no puede llevar el dominio
+          de otra plataforma. */}
+      {qrOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => setQrOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="QR del menú libro"
+        >
+          <div
+            className="bg-white rounded-2xl p-5 max-w-xs w-full text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="font-bold text-base">QR del menú</div>
+            <p className="text-xs text-mute mt-1">
+              Imprimílo y pégalo en la mesa: lleva directo a tu menú libro.
+            </p>
+
+            {qrError ? (
+              <div className="mt-4">
+                <p className="text-sm text-bad">{qrError}</p>
+                <button
+                  type="button"
+                  onClick={abrirQr}
+                  className="btn-ghost text-sm mt-3"
+                >
+                  Reintentar
+                </button>
+              </div>
+            ) : qrPng ? (
+              <>
+                <img
+                  src={qrPng}
+                  alt="Código QR del menú libro"
+                  className="w-full max-w-[240px] mx-auto mt-4 rounded-lg border border-line"
+                />
+                <div className="text-[11px] text-mute mt-2 break-all">{bookUrl}</div>
+                <div className="flex flex-col gap-2 mt-4">
+                  <a
+                    href={qrPng}
+                    download={`qr-menu-${tenantSlug}.png`}
+                    className="btn-primary text-sm"
+                  >
+                    ⬇ Descargar PNG
+                  </a>
+                  <button
+                    type="button"
+                    className="btn-ghost text-sm"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(bookUrl);
+                      toast('Enlace copiado', 'success');
+                    }}
+                  >
+                    Copiar enlace
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="h-[240px] flex items-center justify-center text-sm text-mute">
+                Generando…
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="btn-ghost text-sm mt-3 w-full"
+              onClick={() => setQrOpen(false)}
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
 
       {bookPopup && bookMenuEnabled && (
         <BookGlobalPopupCard popup={bookPopup} onSave={saveBookPopup} />
