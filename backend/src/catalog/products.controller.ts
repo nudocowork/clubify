@@ -44,6 +44,13 @@ class ProductBody {
   // Faltaba aquí → el ValidationPipe (forbidNonWhitelisted) rechazaba el
   // create/update con "property variantPriceMode should not exist".
   @IsOptional() @IsIn(['DELTA', 'ABSOLUTE']) variantPriceMode?: 'DELTA' | 'ABSOLUTE';
+  // Cuantas variantes puede marcar el cliente. null o 1 = se elige una sola
+  // (radio, comportamiento historico). >= 2 = casillas multiples.
+  @ValidateIf((_, v) => v !== null)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxVariantsTotal?: number | null;
   // Tope de extras que el cliente puede elegir EN TOTAL. null = sin tope.
   // Se acepta null explicito para poder quitarlo desde el panel.
   @ValidateIf((_, v) => v !== null)

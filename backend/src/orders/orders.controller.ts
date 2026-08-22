@@ -38,6 +38,10 @@ class StatusBody {
 class EditOrderItem {
   @IsString() productId!: string;
   @IsOptional() @IsString() variantId?: string;
+  // Multi-seleccion de variantes (productos con maxVariantsTotal >= 2). Sin
+  // este campo el ValidationPipe (forbidNonWhitelisted) rechaza el pedido
+  // entero con "property variantIds should not exist".
+  @IsOptional() @IsArray() @IsString({ each: true }) variantIds?: string[];
   @IsOptional() @IsArray() @IsString({ each: true }) extraIds?: string[];
   @IsInt() @Min(1) qty!: number;
   @IsOptional() @IsString() note?: string;
@@ -59,6 +63,10 @@ class PatchOrderPaymentBody {
 class ManualOrderItem {
   @IsString() productId!: string;
   @IsOptional() @IsString() variantId?: string;
+  // Multi-seleccion de variantes (productos con maxVariantsTotal >= 2). Sin
+  // este campo el ValidationPipe (forbidNonWhitelisted) rechaza el pedido
+  // entero con "property variantIds should not exist".
+  @IsOptional() @IsArray() @IsString({ each: true }) variantIds?: string[];
   @IsOptional() @IsArray() @IsString({ each: true }) extraIds?: string[];
   @IsInt() @Min(1) qty!: number;
   @IsOptional() @IsString() note?: string;

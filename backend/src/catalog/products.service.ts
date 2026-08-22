@@ -35,6 +35,11 @@ export type ProductDto = {
    */
   variantPriceMode?: 'DELTA' | 'ABSOLUTE';
   /**
+   * Cuantas variantes puede marcar el cliente. null o 1 = una sola (radio).
+   * >= 2 = casillas multiples. Solo tiene efecto en modo DELTA.
+   */
+  maxVariantsTotal?: number | null;
+  /**
    * Tope de extras EN TOTAL para este producto (sumando cantidades).
    * null = sin tope. Distinto de ProductExtra.maxQty, que limita UN extra.
    */
@@ -101,6 +106,10 @@ export class ProductsService {
             ? dto.priceMax
             : null,
         variantPriceMode: dto.variantPriceMode ?? 'DELTA',
+        maxVariantsTotal:
+          dto.maxVariantsTotal != null && dto.maxVariantsTotal > 1
+            ? Math.floor(dto.maxVariantsTotal)
+            : null,
         maxExtrasTotal:
           dto.maxExtrasTotal != null && dto.maxExtrasTotal > 0
             ? Math.floor(dto.maxExtrasTotal)
@@ -169,6 +178,14 @@ export class ProductsService {
               ? undefined
               : dto.priceMax,
           variantPriceMode: dto.variantPriceMode ?? undefined,
+          // 1 se guarda como null: "elige una" es el comportamiento por
+          // defecto, no un tope que haya que recordar.
+          maxVariantsTotal:
+            dto.maxVariantsTotal === undefined
+              ? undefined
+              : dto.maxVariantsTotal != null && dto.maxVariantsTotal > 1
+                ? Math.floor(dto.maxVariantsTotal)
+                : null,
           // null explicito = quitar el tope; undefined = no tocarlo. Un `??`
           // aqui haria imposible volver a "sin tope" desde el panel.
           maxExtrasTotal:

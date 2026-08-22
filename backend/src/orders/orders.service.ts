@@ -144,6 +144,62 @@ export type CreateOrderDto = {
 };
 
 /**
+ * Resuelve las variantes elegidas y su efecto en el precio unitario.
+ *
+ * Por defecto se elige UNA (`variantId`), que es como funciona todo el
+ * catálogo. Si el producto define `maxVariantsTotal >= 2`, el cliente puede
+ * marcar varias y llegan en `variantIds`.
+ *
+ * El multi-selección solo aplica en modo DELTA: cada variante suma su delta
+ * al precio base. En ABSOLUTE cada variante ES el precio final del producto,
+ * y sumar dos precios finales no significa nada — por eso ahí se ignora el
+ * multi y se respeta la primera, igual que siempre.
+ *
+ * Devuelve el precio unitario ya ajustado y el sufijo para el nombre.
+ */
+function resolverVariantes(
+  p: {
+    name: string;
+    basePrice: unknown;
+    variantPriceMode: string;
+    maxVariantsTotal?: number | null;
+    variants: { id: string; name: string; priceDelta: unknown }[];
+  },
+  unitBase: number,
+  item: { variantId?: string | null; variantIds?: string[] | null },
+): { unit: number; sufijo: string; ids: string[] } {
+  const multiPermitido =
+    (p.maxVariantsTotal ?? 1) > 1 && p.variantPriceMode === 'DELTA';
+
+  const pedidos = multiPermitido
+    ? (item.variantIds?.length ? item.variantIds : item.variantId ? [item.variantId] : [])
+    : (item.variantId ? [item.variantId] : item.variantIds?.slice(0, 1) ?? []);
+
+  if (!pedidos.length) return { unit: unitBase, sufijo: '', ids: [] };
+
+  // Sin duplicados: marcar dos veces la misma variante no la cobra dos veces.
+  const unicos = [...new Set(pedidos)];
+
+  if (multiPermitido && unicos.length > (p.maxVariantsTotal ?? 1)) {
+    throw new BadRequestException(
+      `"${p.name}" admite hasta ${p.maxVariantsTotal} variantes y llegaron ${unicos.length}.`,
+    );
+  }
+
+  let unit = unitBase;
+  const nombres: string[] = [];
+  for (const id of unicos) {
+    const v = p.variants.find((x) => x.id === id);
+    if (!v) throw new BadRequestException('Variante inválida');
+    // DELTA vs ABSOLUTE: contrato fijado en variant-price.spec.ts. Con varias
+    // en DELTA, cada delta se suma sobre el resultado anterior.
+    unit = variantUnitPrice(unit, p.variantPriceMode, Number(v.priceDelta));
+    nombres.push(v.name);
+  }
+  return { unit, sufijo: ` (${nombres.join(', ')})`, ids: unicos };
+}
+
+/**
  * Hace cumplir `Product.maxExtrasTotal` en el SERVIDOR.
  *
  * El storefront ya deshabilita los checkboxes al llegar al tope, pero eso es
@@ -551,13 +607,9 @@ export class OrdersService {
       if (!p) throw new BadRequestException(`Producto ${i.productId} no disponible`);
       let unit = Number(p.basePrice);
       let variantName = '';
-      if (i.variantId) {
-        const v = p.variants.find((x) => x.id === i.variantId);
-        if (!v) throw new BadRequestException('Variante inválida');
-        // DELTA vs ABSOLUTE: contrato fijado en variant-price.spec.ts.
-        unit = variantUnitPrice(unit, p.variantPriceMode, Number(v.priceDelta));
-        variantName = ` (${v.name})`;
-      }
+      const vr = resolverVariantes(p as any, unit, i as any);
+      unit = vr.unit;
+      variantName = vr.sufijo;
       assertTopeDeExtras(p, i.extraIds);
       const extras = (i.extraIds ?? []).map((eid) => {
         const e = p.extras.find((x) => x.id === eid);
@@ -570,7 +622,10 @@ export class OrdersService {
       subtotal += lineTotal;
       items.push({
         productId: p.id,
-        variantId: i.variantId ?? null,
+        variantId: vr.ids[0] ?? i.variantId ?? null,
+        // Las variantes elegidas, ya deduplicadas y validadas. Solo se guarda
+        // cuando hay mas de una: asi los pedidos de siempre no cambian de forma.
+        ...(vr.ids.length > 1 ? { variantIds: vr.ids } : {}),
         extras,
         qty,
         name: p.name + variantName,
@@ -860,13 +915,9 @@ export class OrdersService {
       if (!p) throw new BadRequestException(`Producto ${i.productId} no existe`);
       let unit = Number(p.basePrice);
       let variantName = '';
-      if (i.variantId) {
-        const v = p.variants.find((x) => x.id === i.variantId);
-        if (!v) throw new BadRequestException('Variante inválida');
-        // DELTA vs ABSOLUTE: contrato fijado en variant-price.spec.ts.
-        unit = variantUnitPrice(unit, p.variantPriceMode, Number(v.priceDelta));
-        variantName = ` (${v.name})`;
-      }
+      const vr = resolverVariantes(p as any, unit, i as any);
+      unit = vr.unit;
+      variantName = vr.sufijo;
       assertTopeDeExtras(p, i.extraIds);
       const extras = (i.extraIds ?? []).map((eid) => {
         const e = p.extras.find((x) => x.id === eid);
@@ -879,7 +930,10 @@ export class OrdersService {
       subtotal += lineTotal;
       items.push({
         productId: p.id,
-        variantId: i.variantId ?? null,
+        variantId: vr.ids[0] ?? i.variantId ?? null,
+        // Las variantes elegidas, ya deduplicadas y validadas. Solo se guarda
+        // cuando hay mas de una: asi los pedidos de siempre no cambian de forma.
+        ...(vr.ids.length > 1 ? { variantIds: vr.ids } : {}),
         extras,
         qty,
         name: p.name + variantName,
@@ -1306,13 +1360,9 @@ export class OrdersService {
       if (!p) throw new BadRequestException(`Producto ${i.productId} no disponible`);
       let unit = Number(p.basePrice);
       let variantName = '';
-      if (i.variantId) {
-        const v = p.variants.find((x) => x.id === i.variantId);
-        if (!v) throw new BadRequestException('Variante inválida');
-        // DELTA vs ABSOLUTE: contrato fijado en variant-price.spec.ts.
-        unit = variantUnitPrice(unit, p.variantPriceMode, Number(v.priceDelta));
-        variantName = ` (${v.name})`;
-      }
+      const vr = resolverVariantes(p as any, unit, i as any);
+      unit = vr.unit;
+      variantName = vr.sufijo;
       assertTopeDeExtras(p, i.extraIds);
       const extras = (i.extraIds ?? []).map((eid) => {
         const e = p.extras.find((x) => x.id === eid);
@@ -1325,7 +1375,10 @@ export class OrdersService {
       subtotal += lineTotal;
       items.push({
         productId: p.id,
-        variantId: i.variantId ?? null,
+        variantId: vr.ids[0] ?? i.variantId ?? null,
+        // Las variantes elegidas, ya deduplicadas y validadas. Solo se guarda
+        // cuando hay mas de una: asi los pedidos de siempre no cambian de forma.
+        ...(vr.ids.length > 1 ? { variantIds: vr.ids } : {}),
         extras,
         qty,
         name: p.name + variantName,

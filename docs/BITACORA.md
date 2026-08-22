@@ -714,3 +714,68 @@ normalización y control de unicidad. Lo único que faltaba era el botón.
 **Ojo, deuda conocida:** cambiar la ruta **rompe la anterior**. No hay tabla de
 alias. Si el afiliado ya compartió su enlace, el viejo pasa a 404. El modal lo
 avisa, pero la solución de fondo sería guardar las rutas anteriores como alias.
+
+## 2026-08-22 (noche, 2) — Responsividad móvil, vista previa del InfoLink y tope de variantes
+
+### La landing tenía scroll horizontal en TODOS los móviles
+
+Medido con Chrome headless, no a ojo: la página medía **429 px de ancho fijo**
+sin importar el viewport.
+
+| viewport | antes | después |
+|---|---|---|
+| 360 px | 429 (+69) | **360** |
+| 390 px | 429 (+39) | **390** |
+| 414 px | 429 (+15) | **414** |
+
+El culpable era el **header**, no los banners ni el carrusel: a 360 px el logo
+pedía 187 px y el grupo de la derecha 217 px — 404 px de contenido en 328 px
+disponibles. Arreglado midiendo pieza por pieza:
+
+- Logo: `h-12 max-w-[240px]` → `h-9 max-w-[100px]` en móvil.
+- Selector de idioma: en móvil solo la bandera (el código `ES` costaba ~22 px).
+- CTA y «Ingresar»: 13 px y `px-3` en móvil.
+- Contenedores: `px-6` fijo → `px-4 sm:px-6`. 24 px de margen en un móvil de
+  360 es el 13 % de la pantalla y no se encogía nunca.
+
+Herramienta: `scratchpad/medir.cjs` (puppeteer-core sobre el Chrome instalado,
+sin descargar navegador). Sirve para volver a medir cualquier página.
+
+### El InfoLink salía con el logo de Clubify
+
+`/i/[slug]/[linkSlug]` **no generaba metadata**, así que heredaba la del layout
+raíz: un negocio compartía su enlace por WhatsApp y aparecía el logo y el
+título de la plataforma. La misma clase de fuga de siempre.
+
+Nuevo `layout.tsx` con el patrón que ya usaban `/m`, `/d`, `/w` y `/o`.
+Verificado en vivo: `og:title = "La Gloriosa"`, `og:image` = su logo.
+
+**La URL no cambia** — los enlaces ya compartidos siguen funcionando igual.
+
+Quedan sin metadata: **`/book`, `/r` y `/c`**. Mismo problema, mismo arreglo.
+
+### Tope de variantes por producto
+
+`maxExtrasTotal` cubría extras y adicionales. Faltaban las variantes, que eran
+`type="radio"` — se elegía UNA y un tope no significaba nada.
+
+Nuevo `Product.maxVariantsTotal`:
+- Null o 1 = **exactamente como hoy**: radio, se elige una (tamaños).
+- ≥ 2 = casillas múltiples con contador, hasta ese número.
+- **Solo en modo DELTA.** En ABSOLUTE cada variante ES el precio final y sumar
+  dos precios finales no significa nada; ahí el panel explica por qué no se
+  ofrece y el backend ignora el multi.
+- Deduplica: marcar dos veces la misma no la cobra dos veces.
+- El servidor lo hace cumplir en los 3 sitios que arman items de pedido.
+
+`Order.items` es `Json`, así que `variantIds` no necesitó migración de tabla.
+Sí hubo que agregarlo al DTO: con `forbidNonWhitelisted` el pedido entero se
+rechazaba con «property variantIds should not exist».
+
+Migración aplicada: 2.950 productos, 0 con tope → nadie cambia.
+12 pruebas nuevas en `src/orders/max-opciones.spec.ts`.
+
+### Nota sobre el campo que «no se veía»
+
+El service worker **no** era la causa: excluye `/app/` explícitamente y esas
+páginas van siempre a red. Era caché normal del navegador.

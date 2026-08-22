@@ -984,7 +984,11 @@
     "maxExtrasLabel": "Maximum extras per product",
     "maxExtrasNoLimit": "No limit",
     "maxExtrasNoLimitHint": "Empty = customers can pick as many as they want",
-    "maxExtrasSet": "Customers can pick up to {n} in total"
+    "maxExtrasSet": "Customers can pick up to {n} in total",
+    "maxVariantsLabel": "Maximum variants per product",
+    "maxVariantsSingle": "1 = the customer picks ONE (normal for sizes)",
+    "maxVariantsMulti": "Customers can pick up to {n}, and each one adds its price",
+    "maxVariantsAbsoluteHint": "The variant maximum only applies when options add to the base price. If each one has its own price, the customer picks a single one."
   },
   "app_storefront": {
     "defaultBrandName": "My business",

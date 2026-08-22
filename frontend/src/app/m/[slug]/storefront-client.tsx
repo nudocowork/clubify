@@ -151,6 +151,8 @@ type Product = {
   isRecommended?: boolean;
   variants: Variant[];
   extras: Extra[];
+  /** Cuantas variantes puede marcar el cliente. null/1 = una sola. */
+  maxVariantsTotal?: number | null;
   /** Tope de extras EN TOTAL. null = sin tope. */
   maxExtrasTotal?: number | null;
 };
@@ -1161,35 +1163,55 @@ function ProductModal({
 }) {
   const tt = useT();
   const defaultVar = product.variants.find((v) => v.isDefault) ?? product.variants[0];
-  const [variantId, setVariantId] = useState<string | undefined>(defaultVar?.id);
+  // Multi-seleccion de variantes: solo si el negocio subio el tope Y las
+  // opciones SUMAN al precio base. Con precio propio por opcion, sumar dos
+  // precios finales no significa nada — ahi se sigue eligiendo una.
+  const topeVariantes =
+    product.variantPriceMode !== 'ABSOLUTE' &&
+    (product.maxVariantsTotal ?? 1) > 1
+      ? (product.maxVariantsTotal as number)
+      : null;
+  const [variantIds, setVariantIds] = useState<string[]>(
+    // Con multi no se preselecciona nada: el cliente elige a proposito.
+    topeVariantes ? [] : defaultVar ? [defaultVar.id] : [],
+  );
   const [extras, setExtras] = useState<string[]>([]);
   const [qty, setQty] = useState(1);
   const [note, setNote] = useState('');
 
-  const variant = product.variants.find((v) => v.id === variantId);
+  const variantesElegidas = product.variants.filter((v) =>
+    variantIds.includes(v.id),
+  );
+  const variant = variantesElegidas[0];
   const extrasObj = product.extras.filter((e) => extras.includes(e.id));
   // ABSOLUTE: la variante define el precio propio (reemplaza al base).
-  // DELTA (default): suma su priceDelta al base. Extras suman en ambos.
-  const variantBase = variant
-    ? product.variantPriceMode === 'ABSOLUTE'
-      ? Number(variant.priceDelta)
-      : Number(product.basePrice) + Number(variant.priceDelta)
-    : Number(product.basePrice);
+  // DELTA (default): cada variante elegida suma su priceDelta al base.
+  // Extras suman en ambos.
+  const variantBase =
+    product.variantPriceMode === 'ABSOLUTE'
+      ? variant
+        ? Number(variant.priceDelta)
+        : Number(product.basePrice)
+      : Number(product.basePrice) +
+        variantesElegidas.reduce((s, v) => s + Number(v.priceDelta), 0);
   const unit =
     variantBase + extrasObj.reduce((s, e) => s + Number(e.price), 0);
   const total = unit * qty;
+  const nombreVariantes = variantesElegidas.map((v) => v.name).join(', ');
 
   function add() {
     addToCart(
       slug,
       {
         productId: product.id,
-        variantId,
-        variantName: variant?.name,
+        variantId: variantIds[0],
+        // Solo cuando hay mas de una: los pedidos de siempre no cambian.
+        ...(variantIds.length > 1 ? { variantIds } : {}),
+        variantName: nombreVariantes || undefined,
         extraIds: extras,
         extras: extrasObj,
         qty,
-        name: product.name + (variant ? ` (${variant.name})` : ''),
+        name: product.name + (nombreVariantes ? ` (${nombreVariantes})` : ''),
         unitPrice: unit,
         note: note || undefined,
       },
@@ -1249,21 +1271,62 @@ function ProductModal({
 
           {product.variants.length > 0 && (
             <div className="mt-5">
-              <div className="text-xs uppercase tracking-wider text-mute font-semibold">
-                {product.variants[0].groupName}
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+                  {product.variants[0].groupName}
+                </div>
+                {topeVariantes && (
+                  <span
+                    className={`text-[11px] font-semibold tabular-nums ${
+                      variantIds.length >= topeVariantes ? 'text-brand' : 'text-mute'
+                    }`}
+                  >
+                    {variantIds.length}/{topeVariantes}
+                  </span>
+                )}
               </div>
+              {topeVariantes && (
+                <p className="text-[11px] text-mute mt-1">
+                  {variantIds.length >= topeVariantes
+                    ? tt('product.extrasLimitReached')
+                    : tt('product.extrasLimit', { n: topeVariantes })}
+                </p>
+              )}
               <div className="space-y-1.5 mt-2">
-                {product.variants.map((v) => (
+                {product.variants.map((v) => {
+                  const elegida = variantIds.includes(v.id);
+                  const bloqueada =
+                    !!topeVariantes &&
+                    !elegida &&
+                    variantIds.length >= topeVariantes;
+                  return (
                   <label
                     key={v.id}
-                    className="flex items-center justify-between p-3 border border-line rounded-lg cursor-pointer"
+                    className={`flex items-center justify-between p-3 border border-line rounded-lg ${
+                      bloqueada ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer'
+                    }`}
                   >
                     <div className="flex items-center gap-2">
                       <input
-                        type="radio"
+                        type={topeVariantes ? 'checkbox' : 'radio'}
                         name="variant"
-                        checked={variantId === v.id}
-                        onChange={() => setVariantId(v.id)}
+                        checked={elegida}
+                        disabled={bloqueada}
+                        onChange={(ev) => {
+                          if (!topeVariantes) {
+                            setVariantIds([v.id]);
+                            return;
+                          }
+                          setVariantIds(
+                            ev.target.checked
+                              ? // Guarda dura: aunque la casilla llegue
+                                // habilitada, nunca se pasa del tope.
+                                variantIds.length >= topeVariantes
+                                ? variantIds
+                                : [...variantIds, v.id]
+                              : variantIds.filter((x) => x !== v.id),
+                          );
+                        }}
                       />
                       <span className="text-sm">{v.name}</span>
                     </div>
@@ -1277,7 +1340,8 @@ function ProductModal({
                         : ''}
                     </span>
                   </label>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1882,6 +1946,9 @@ function CheckoutSheet({
           items: items.map((i) => ({
             productId: i.productId,
             variantId: i.variantId,
+            ...(i.variantIds && i.variantIds.length > 1
+              ? { variantIds: i.variantIds }
+              : {}),
             extraIds: i.extraIds,
             qty: i.qty,
             note: i.note,

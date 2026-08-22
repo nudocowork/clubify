@@ -1853,6 +1853,17 @@ model Product {
   createdAt            DateTime  @default(now())
 
   variants ProductVariant[]
+  /// Cuántas variantes puede elegir el cliente EN TOTAL.
+  ///
+  /// Null o 1 = comportamiento de siempre: se elige UNA (botones de radio),
+  /// típico de tamaño (pequeño / mediano / grande).
+  ///
+  /// >= 2 = el cliente marca varias, hasta ese número — para productos donde
+  /// las "variantes" son opciones combinables ("elige 2 salsas de estas 5").
+  /// Solo tiene efecto con `variantPriceMode = DELTA`: en ABSOLUTE cada
+  /// variante define un precio final propio y sumar dos no significa nada.
+  maxVariantsTotal Int?
+
   /// Tope de extras que el cliente puede elegir EN TOTAL para este producto,
   /// sumando cantidades. Null = sin tope (comportamiento histórico).
   ///

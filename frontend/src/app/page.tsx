@@ -178,7 +178,7 @@ export default async function Landing() {
 
       {/* ─────────── Header ─────────── */}
       <header className="sticky top-0 z-30 backdrop-blur-md bg-white/85 border-b border-line/80">
-        <div className="mx-auto max-w-7xl px-6 flex items-center justify-between h-16">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 flex items-center justify-between h-16">
           <Link href="/" className="flex items-center" aria-label="Clubify">
             {landingLogoUrl ? (
               // Logo custom subido desde /admin/branding. Ratio ~3.4:1 esperado.
@@ -193,7 +193,11 @@ export default async function Landing() {
               <img
                 src={landingLogoUrl}
                 alt="Logo"
-                className="block h-12 w-auto max-w-[240px] object-contain"
+                // 2026-08-22: a 360px el logo pedia 187px de los 328
+                // disponibles y empujaba el header a 429px de ancho — la
+                // pagina entera quedaba con scroll horizontal. Medido con
+                // Chrome headless, no a ojo.
+                className="block h-9 sm:h-12 w-auto max-w-[100px] sm:max-w-[240px] object-contain"
               />
             ) : (
               <Logo size={40} priority />
@@ -205,13 +209,13 @@ export default async function Landing() {
             <a href="#precios" className="hover:text-ink">{tHeader('nav_pricing')}</a>
           </nav>
 
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-1.5 sm:gap-2 items-center">
             <LanguageSwitcherIntl />
-            <Link className="inline-flex text-sm text-mute hover:text-ink" href="/login">
+            <Link className="inline-flex text-[13px] sm:text-sm text-mute hover:text-ink whitespace-nowrap" href="/login">
               {tHeader('cta_login')}
             </Link>
             <Link
-              className="inline-flex items-center gap-1.5 bg-ink text-white text-sm font-semibold px-4 py-2 rounded-pill hover:bg-ink/90"
+              className="inline-flex items-center gap-1.5 bg-ink text-white text-[13px] sm:text-sm font-semibold px-3 sm:px-4 py-2 rounded-pill hover:bg-ink/90 whitespace-nowrap"
               href="#precios"
             >
               {tHeader('cta_start')} →
@@ -230,7 +234,7 @@ export default async function Landing() {
               'radial-gradient(ellipse 70% 60% at 30% 20%, rgba(91,94,238,0.16), transparent 60%), radial-gradient(ellipse 60% 50% at 80% 30%, rgba(192,38,211,0.10), transparent 60%)',
           }}
         />
-        <div className="mx-auto max-w-7xl px-6 pt-8 pb-20 lg:pt-12 lg:pb-28">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-8 pb-20 lg:pt-12 lg:pb-28">
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] gap-12 lg:gap-16 items-center">
             <div>
               <div className="inline-flex items-center gap-2 bg-white border border-line shadow-sm text-xs font-semibold px-3 py-1.5 rounded-full mb-6">
@@ -308,7 +312,7 @@ export default async function Landing() {
 
       {/* ─────────── Logos band (marquee) ─────────── */}
       <section className="border-y border-line/80 bg-bg2/40 py-8 overflow-hidden">
-        <div className="mx-auto max-w-7xl px-6">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
           <div className="text-center text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-5">
             {tLogos('title')}
           </div>
@@ -341,7 +345,7 @@ export default async function Landing() {
 
       {/* ─────────── Stats band ─────────── */}
       <section className="py-14">
-        <div className="mx-auto max-w-7xl px-6 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
           {STATS.map((s, i) => (
             <FadeIn key={s.label} delay={i * 90}>
               <div className="text-3xl md:text-4xl font-bold tracking-tight">
@@ -371,7 +375,7 @@ export default async function Landing() {
 
       {/* ─────────── Testimonios ─────────── */}
       <section id="clientes" className="bg-bg2/40 border-y border-line/80 py-24">
-        <div className="mx-auto max-w-7xl px-6">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
           <div className="text-center mb-12 max-w-2xl mx-auto">
             <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
               Lo que dicen
@@ -392,7 +396,7 @@ export default async function Landing() {
 
       {/* ─────────── Precios (restaurado: tarjetas con links directos de Hotmart, sin ref) ─────────── */}
       <section id="precios" className="py-24">
-        <div className="mx-auto max-w-3xl px-6 text-center">
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 text-center">
           <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
             Precios
           </div>
@@ -411,7 +415,7 @@ export default async function Landing() {
 
       {/* ─────────── FAQ ─────────── */}
       <section className="border-t border-line bg-bg2/40 py-24">
-        <div className="mx-auto max-w-3xl px-6">
+        <div className="mx-auto max-w-3xl px-4 sm:px-6">
           <div className="text-center mb-10">
             <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
               Preguntas frecuentes
@@ -481,7 +485,7 @@ export default async function Landing() {
 
       {/* ─────────── Footer ─────────── */}
       <footer className="border-t border-line bg-white">
-        <div className="mx-auto max-w-7xl px-6 py-14">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-14">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-8 text-sm">
             <div className="col-span-2">
               <div className="flex items-center mb-3">

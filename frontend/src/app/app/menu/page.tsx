@@ -60,6 +60,8 @@ type Product = {
   priceMax?: number | null;
   /** DELTA: variantes suman al base. ABSOLUTE: cada variante su precio propio. */
   variantPriceMode?: 'DELTA' | 'ABSOLUTE';
+  /** Cuantas variantes puede marcar el cliente. null/1 = una sola. */
+  maxVariantsTotal?: number | null;
   /** Tope de extras EN TOTAL. null/undefined = sin tope. */
   maxExtrasTotal?: number | null;
   imageUrl: string | null;
@@ -511,6 +513,7 @@ export default function MenuEditor() {
           ? Number(p.priceMax)
           : null,
       variantPriceMode: p.variantPriceMode ?? 'DELTA',
+      maxVariantsTotal: p.maxVariantsTotal ?? null,
       maxExtrasTotal: p.maxExtrasTotal ?? null,
       imageUrl: p.imageUrl || undefined,
       tags: p.tags ?? [],
@@ -2478,6 +2481,46 @@ function ProductDrawer({
             >
               {t('addVariant')}
             </button>
+
+            {/* Cuantas variantes puede marcar el cliente.
+                Por defecto elige UNA (tamano: pequeno / mediano / grande).
+                Subiendolo, las variantes pasan a ser casillas: "elige 2 salsas
+                de estas 5". Solo tiene sentido cuando las opciones SUMAN al
+                precio base: si cada una define su precio final, sumar dos no
+                significa nada, y por eso ahi no se ofrece. */}
+            {(form.variantPriceMode ?? 'DELTA') === 'DELTA' ? (
+              <div className="mt-3 pt-3 border-t border-line">
+                <label className="text-[11px] font-semibold text-mute block mb-1">
+                  {t('maxVariantsLabel')}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    className="input w-24"
+                    placeholder="1"
+                    value={form.maxVariantsTotal ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      // Vacio o 1 = "elige una", que es el comportamiento por
+                      // defecto. Se manda null para que el backend lo limpie.
+                      const n = Math.max(1, Math.floor(Number(v) || 1));
+                      update('maxVariantsTotal', v === '' || n <= 1 ? null : n);
+                    }}
+                  />
+                  <span className="text-[11px] text-mute">
+                    {form.maxVariantsTotal && form.maxVariantsTotal > 1
+                      ? t('maxVariantsMulti', { n: form.maxVariantsTotal })
+                      : t('maxVariantsSingle')}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 pt-3 border-t border-line text-[11px] text-mute leading-snug">
+                {t('maxVariantsAbsoluteHint')}
+              </p>
+            )}
           </fieldset>
 
           <fieldset className="border border-line rounded-lg p-3">
