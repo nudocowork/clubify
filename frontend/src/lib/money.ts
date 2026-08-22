@@ -108,14 +108,32 @@ export function parsePriceInput(
   const lastDot = cleaned.lastIndexOf('.');
   const lastComma = cleaned.lastIndexOf(',');
   let normalized = cleaned;
+  // Un separador seguido de exactamente 3 dígitos al final es de MILES,
+  // no decimal: en es-CO «34.900» son $34.900 — parsearlo como 34,9
+  // cobraría mil veces menos (la regla estaba documentada arriba pero
+  // no implementada). Excepciones: parte entera «0» («0.999») solo
+  // puede ser decimal; un separador repetido («12.345.678») siempre es
+  // de miles.
+  const isThousands = (sep: '.' | ',') => {
+    const last = sep === '.' ? lastDot : lastComma;
+    const repeated = cleaned.indexOf(sep) !== last;
+    const intPart = cleaned.slice(0, last).replace(/[.,-]/g, '');
+    return (
+      repeated || (/^\d{3}$/.test(cleaned.slice(last + 1)) && intPart !== '0')
+    );
+  };
   if (lastDot === -1 && lastComma === -1) {
     // sin separador
   } else if (lastDot > lastComma) {
-    // `.` es decimal, `,` (si hay) son miles
-    normalized = cleaned.replace(/,/g, '');
+    // `.` es el último separador: decimal, salvo que sea de miles
+    normalized = isThousands('.')
+      ? cleaned.replace(/[.,]/g, '')
+      : cleaned.replace(/,/g, '');
   } else if (lastComma > lastDot) {
-    // `,` es decimal, `.` (si hay) son miles
-    normalized = cleaned.replace(/\./g, '').replace(',', '.');
+    // `,` es el último separador: decimal, salvo que sea de miles
+    normalized = isThousands(',')
+      ? cleaned.replace(/[.,]/g, '')
+      : cleaned.replace(/\./g, '').replace(',', '.');
   }
   const n = Number(normalized);
   return Number.isFinite(n) ? n : null;

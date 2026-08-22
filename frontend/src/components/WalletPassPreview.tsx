@@ -5,6 +5,12 @@
  *   - /app/cards/[id] tab Detalle (preview de la card existente)
  *   - /w/[passId] (cliente final, antes de que instale en su wallet)
  *
+ * Fidelidad ante todo: el pase INSTALADO (Apple .pkpass / Google Wallet)
+ * solo admite un color de fondo sólido — el degradado únicamente existe en
+ * la imagen del área de sellos (strip). Esta vista previa replica eso: no
+ * promete efectos que la wallet no puede renderizar (PDF de peticiones
+ * 2026-08: "la tarjeta instalada no se ve como la vista previa").
+ *
  * Diseño inspirado en Apple Wallet / Starbucks Rewards:
  *   - Sombra de color (mismo tinte que primaryColor)
  *   - Border radius 24px
@@ -200,19 +206,17 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     <div
       className="rounded-[24px] text-white overflow-hidden flex flex-col relative"
       style={{
-        background: `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
+        // Fondo PLANO a propósito. Apple Wallet (backgroundColor) y Google
+        // Wallet (hexBackgroundColor) solo aceptan UN color sólido — no hay
+        // degradados ni efectos CSS en el pase instalado. Antes pintábamos
+        // aquí un degradado primary→secondary y el cliente veía la tarjeta
+        // "plana" al instalarla (PDF de peticiones 2026-08). El degradado
+        // real solo existe en el área de sellos, que sí es una imagen
+        // (strip) generada por el backend.
+        background: primaryColor,
         boxShadow: passShadow,
       }}
     >
-      {/* Subtle noise/sheen overlay */}
-      <div
-        className="absolute inset-0 pointer-events-none opacity-[0.06]"
-        style={{
-          backgroundImage:
-            'radial-gradient(circle at 20% 0%, rgba(255,255,255,.4), transparent 50%)',
-        }}
-      />
-
       {/* Header: brand + side metric */}
       <div className="flex items-start justify-between gap-2.5 px-4 pt-3.5 pb-2 relative">
         <div className="flex items-center gap-2 min-w-0">
@@ -250,10 +254,15 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
           <div
             className="rounded-2xl px-3 py-3 relative overflow-hidden"
             style={
-              // Wallet V3 — modo de fondo del área de sellos:
+              // Wallet V3 — modo de fondo del área de sellos. Cada rama
+              // replica EXACTAMENTE lo que pinta generateStampsStrip en el
+              // backend (el strip real del pase) para que la vista previa
+              // no prometa nada distinto de lo instalado:
               //  IMAGE  → imagen cover centrada (+ overlay oscuro para legibilidad)
-              //  SOLID  → uniforme: mismo color de la tarjeta (o transparente)
-              //  GRADIENT (legacy) → degradado como antes
+              //  SOLID  → uniforme: centerBgColor o el color de la tarjeta
+              //  GRADIENT (legacy) → centerBgColor sólido, o degradado
+              //  primary→secondary — el ÚNICO lugar del pase real donde
+              //  existe el degradado.
               stampBgType === 'IMAGE' && stampBgImageUrl
                 ? {
                     backgroundImage: `url(${stampBgImageUrl})`,
@@ -261,22 +270,24 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
                     backgroundPosition: 'center',
                   }
                 : stampBgType === 'SOLID' || stampBgType === 'IMAGE'
-                  ? { background: centerBgColor || 'transparent' }
+                  ? { background: centerBgColor || primaryColor }
                   : {
                       background: centerBgColor
-                        ? `linear-gradient(135deg, ${centerBgColor}e6, ${centerBgColor}b3)`
-                        : 'linear-gradient(135deg, rgba(0,0,0,.10) 0%, rgba(0,0,0,.22) 100%)',
+                        ? centerBgColor
+                        : `linear-gradient(135deg, ${primaryColor}, ${secondaryColor})`,
                     }
             }
           >
             {/* Overlay: gloss sutil (GRADIENT) u oscuro para legibilidad (IMAGE).
-                SOLID no lleva overlay → look completamente uniforme. */}
+                SOLID no lleva overlay → look completamente uniforme.
+                Los valores calcan los gradientes #gloss y #heroOverlay del
+                strip real (generateStampsStrip). */}
             {stampBgType === 'IMAGE' && stampBgImageUrl ? (
               <div
                 className="absolute inset-0 pointer-events-none"
                 style={{
                   background:
-                    'linear-gradient(180deg, rgba(0,0,0,.30) 0%, rgba(0,0,0,.62) 100%)',
+                    'linear-gradient(180deg, rgba(0,0,0,.30) 0%, rgba(0,0,0,.75) 100%)',
                 }}
               />
             ) : stampBgType === 'GRADIENT' ? (
@@ -284,7 +295,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
                 className="absolute inset-0 pointer-events-none"
                 style={{
                   background:
-                    'linear-gradient(180deg, rgba(255,255,255,.07) 0%, rgba(255,255,255,0) 55%)',
+                    'linear-gradient(180deg, rgba(255,255,255,.10) 0%, rgba(255,255,255,0) 55%, rgba(0,0,0,.10) 100%)',
                 }}
               />
             ) : null}

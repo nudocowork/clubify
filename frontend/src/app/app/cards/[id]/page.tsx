@@ -1388,6 +1388,12 @@ function EditCardModal({
             </div>
           </div>
 
+          {/* Aviso honesto: Apple/Google Wallet no renderizan degradados en
+              el fondo del pase — que la config no prometa lo imposible. */}
+          <p className="text-[11px] text-mute leading-relaxed m-0">
+            {t('walletSolidBgNote')}
+          </p>
+
           <button
             type="button"
             onClick={() => setShowAdvancedColors((v) => !v)}
