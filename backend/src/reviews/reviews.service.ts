@@ -6,6 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import {
+  brandAppUrl,
+  BRAND_DOMAIN_SELECT,
+} from '../email/brand-email-creds.util';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
@@ -182,7 +186,9 @@ export class ReviewsService {
         whiteLabelId: true,
         brandName: true,
         slug: true,
-        whiteLabel: { select: { name: true, ...BRAND_GROW_SELECT } },
+        whiteLabel: {
+          select: { name: true, ...BRAND_GROW_SELECT, ...BRAND_DOMAIN_SELECT },
+        },
         phone: true,
         whatsappPhone: true,
         reviewAlertsEnabled: true,
@@ -309,7 +315,14 @@ export class ReviewsService {
         tenant.whiteLabelId,
       )) ||
       DEFAULT_REVIEW_ALERT_TEMPLATE;
-    const feedbackUrl = `https://app.soyclubify.com/app/reviews?focus=${feedback.id}`;
+    // El enlace va al panel de SU marca. Estaba escrito a mano con
+    // `app.soyclubify.com`: el texto decía «Revisar en Sellea» y el enlace era
+    // de Clubify, y WhatsApp pinta la vista previa del dominio — al dueño de un
+    // negocio Sellea le llegaba una tarjeta con el logo de Clubify.
+    const feedbackUrl = `${brandAppUrl(
+      tenant.whiteLabel,
+      process.env.APP_URL ?? 'https://app.soyclubify.com',
+    )}/app/reviews?focus=${feedback.id}`;
     const body = renderTemplate(template, {
       platform: tenant.whiteLabel?.name?.trim() || 'Clubify',
       businessName: tenant.brandName || tenant.slug,

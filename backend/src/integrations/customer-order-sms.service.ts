@@ -1,4 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import {
+  brandAppUrl,
+  BRAND_DOMAIN_SELECT,
+} from '../email/brand-email-creds.util';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from './grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from './brand-sms-creds.util';
@@ -70,7 +74,7 @@ export class CustomerOrderSmsService {
           growBusinessLocationId: true,
           growBusinessApiKey: true,
           growBusinessSwitchNumber: true,
-          whiteLabel: { select: BRAND_GROW_SELECT },
+          whiteLabel: { select: { ...BRAND_GROW_SELECT, ...BRAND_DOMAIN_SELECT } },
         },
       });
       if (!tenant || !tenant.customerOrderAlertsEnabled) return;
@@ -129,7 +133,13 @@ export class CustomerOrderSmsService {
       });
       if (existing) return;
 
-      const trackingUrl = `${process.env.APP_URL ?? 'https://app.soyclubify.com'}/o/${order.code}`;
+      // Va al CLIENTE FINAL del negocio. Con APP_URL global, el cliente de un
+      // negocio Sellea seguía su pedido en soyclubify.com — y WhatsApp le
+      // pintaba la vista previa de Clubify.
+      const trackingUrl = `${brandAppUrl(
+        tenant.whiteLabel,
+        process.env.APP_URL ?? 'https://app.soyclubify.com',
+      )}/o/${order.code}`;
       const eta = opts?.etaMinutes;
       const body = await resolveBrandTemplate(this.prisma, {
         id: `op_customer_order_${eventKey}`,

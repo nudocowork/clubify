@@ -182,3 +182,30 @@ export function brandBaseUrl(
   const host = (wl?.domain || wl?.appDomain || '').trim().replace(/\/+$/, '');
   return host ? `https://${host}` : base;
 }
+
+/** Campos mínimos para resolver los dominios de una marca. */
+export const BRAND_DOMAIN_SELECT = {
+  domain: true,
+  appDomain: true,
+} as const;
+
+/**
+ * URL base del PANEL de la marca (`app.selleala.com`), para los enlaces que
+ * llevan al dueño a su panel.
+ *
+ * Distinta de `brandBaseUrl`, que prefiere el dominio de MARKETING: un enlace
+ * a `/app/reviews` sobre `www.selleala.com` no lleva a ningún sitio.
+ *
+ * Existe porque había enlaces con `app.soyclubify.com` escritos a mano en los
+ * mensajes. El texto decía «Revisar en Sellea» y el enlace era de Clubify — y
+ * WhatsApp pinta la vista previa del dominio, así que al cliente de Sellea le
+ * llegaba una tarjeta verde con el logo de Clubify.
+ */
+export function brandAppUrl(
+  wl: { domain?: string | null; appDomain?: string | null } | null | undefined,
+  fallbackAppUrl: string,
+): string {
+  const base = (fallbackAppUrl || 'https://soyclubify.com').replace(/\/+$/, '');
+  const host = (wl?.appDomain || wl?.domain || '').trim().replace(/\/+$/, '');
+  return host ? `https://${host}` : base;
+}
