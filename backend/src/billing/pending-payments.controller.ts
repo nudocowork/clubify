@@ -1,8 +1,16 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { IsEmail, IsIn, IsOptional, IsString } from 'class-validator';
 import { HotmartService } from './hotmart.service';
 import { StripeService } from './stripe.service';
+import {
+  PendingAssignmentService,
+  PendingGateway,
+} from './pending-assignment.service';
 import { Roles } from '../common/decorators/roles.decorator';
+import {
+  CurrentUser,
+  AuthUser,
+} from '../common/decorators/current-user.decorator';
 
 class ResendBody {
   @IsEmail() email!: string;
@@ -10,6 +18,14 @@ class ResendBody {
   // tiene recoveryNotifiedAt y no hay cómo dedupear el aviso automático).
   @IsOptional() @IsIn(['HOTMART', 'STRIPE', 'CROSS']) @IsString()
   gateway?: string;
+}
+
+class AssignBody {
+  /** id de la fila Pending*Payment (el de su propia tabla, según gateway). */
+  @IsString() pendingId!: string;
+  @IsIn(['HOTMART', 'STRIPE', 'CROSS']) gateway!: PendingGateway;
+  /** Negocio EXISTENTE al que se aplica el pago. */
+  @IsString() tenantId!: string;
 }
 
 /**
@@ -23,12 +39,42 @@ export class PendingPaymentsController {
   constructor(
     private hotmart: HotmartService,
     private stripe: StripeService,
+    private assignment: PendingAssignmentService,
   ) {}
 
   @Roles('SUPER_ADMIN')
   @Get()
   list() {
     return this.hotmart.listPendingPayments();
+  }
+
+  /** Buscador de negocios para «Asignar a negocio»: por marca, nombre, slug
+   *  o correo (del tenant O del dueño — el correo del pago suele ser otro). */
+  @Roles('SUPER_ADMIN')
+  @Get('tenants')
+  searchTenants(@Query('q') q?: string) {
+    return this.assignment.searchTenants(q ?? '');
+  }
+
+  /** Vista previa de la asignación: fechas exactas que quedarían, contraste
+   *  de correos y cuántos pagos del comprador se aplicarían. No escribe. */
+  @Roles('SUPER_ADMIN')
+  @Post('assign/preview')
+  previewAssign(@Body() body: AssignBody) {
+    return this.assignment.preview(body.gateway, body.pendingId, body.tenantId);
+  }
+
+  /** Asigna el pago pendiente a un negocio existente. Mueve fechas de cobro
+   *  reales: queda auditado con el admin que lo hizo. */
+  @Roles('SUPER_ADMIN')
+  @Post('assign')
+  assign(@CurrentUser() user: AuthUser, @Body() body: AssignBody) {
+    return this.assignment.assign({
+      gateway: body.gateway,
+      pendingId: body.pendingId,
+      tenantId: body.tenantId,
+      actorId: user?.id ?? null,
+    });
   }
 
   @Roles('SUPER_ADMIN')

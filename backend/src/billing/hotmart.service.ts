@@ -1611,6 +1611,8 @@ export class HotmartService {
     ]);
 
     type Row = {
+      /** id de la fila en SU tabla Pending* — lo necesita «Asignar a negocio». */
+      id: string;
       gateway: 'HOTMART' | 'STRIPE' | 'CROSS';
       email: string;
       name: string | null;
@@ -1629,6 +1631,7 @@ export class HotmartService {
       const approved = raw?.data?.purchase?.approved_date;
       const priceVal = raw?.data?.purchase?.price?.value;
       out.push({
+        id: p.id,
         gateway: 'HOTMART',
         email: p.email,
         name: buyer?.name ?? null,
@@ -1650,6 +1653,7 @@ export class HotmartService {
       const amt =
         typeof obj?.amount_total === 'number' ? obj.amount_total / 100 : null;
       out.push({
+        id: p.id,
         gateway: 'STRIPE',
         email: p.email,
         name: cd?.name ?? null,
@@ -1670,6 +1674,7 @@ export class HotmartService {
         (p.rawPayload as any)?.data?.customer ??
         {};
       out.push({
+        id: p.id,
         gateway: 'CROSS',
         email: p.email,
         name: cust?.name ?? null,
