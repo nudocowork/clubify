@@ -993,6 +993,22 @@ function OwnerPasswordModal({
   const [pwd, setPwd] = useState('');
   const [confirm, setConfirm] = useState('');
   const [saving, setSaving] = useState(false);
+  // A QUE correo le vamos a cambiar la contrasena. Se muestra ANTES de
+  // escribirla: el aviso posterior se va solo y el admin se queda sin saberlo.
+  // Caso Limorada (2026-08-23): la cuenta era @gmail, se intentaba entrar con
+  // @hotmail, y fueron 11 intentos fallidos antes de dar con el correo.
+  const [duenio, setDuenio] = useState<{
+    email: string;
+    fullName?: string | null;
+    lastLoginAt?: string | null;
+  } | null>(null);
+  const [cargandoDuenio, setCargandoDuenio] = useState(true);
+  useEffect(() => {
+    api<{ owner: typeof duenio }>(`/tenants/${tenantId}/owner`)
+      .then((r) => setDuenio(r?.owner ?? null))
+      .catch(() => setDuenio(null))
+      .finally(() => setCargandoDuenio(false));
+  }, [tenantId]);
   const valid = pwd.trim().length >= 8 && pwd === confirm;
 
   const submit = async () => {
@@ -1029,6 +1045,54 @@ function OwnerPasswordModal({
           <b>{brandName || 'este negocio'}</b> sin necesitar la actual. Queda
           registrada en auditoría y sus sesiones actuales se cerrarán.
         </p>
+        {/* El correo, arriba y copiable. Es el dato que faltaba. */}
+        <div className="mt-4 rounded-lg border border-line bg-bg2 p-3">
+          <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+            La contraseña es para esta cuenta
+          </div>
+          {cargandoDuenio ? (
+            <div className="mt-1 h-5 w-40 animate-shimmer rounded" />
+          ) : duenio ? (
+            <>
+              <div className="mt-1 flex items-center gap-2">
+                <code className="text-sm font-semibold break-all">
+                  {duenio.email}
+                </code>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(duenio.email);
+                      toast('Correo copiado', 'success');
+                    } catch {
+                      toast('No se pudo copiar', 'error');
+                    }
+                  }}
+                  className="text-[11px] font-semibold px-2 py-0.5 rounded bg-white border border-line hover:bg-bg2 whitespace-nowrap"
+                >
+                  Copiar
+                </button>
+              </div>
+              <div className="mt-1 text-[11px] text-mute">
+                {duenio.lastLoginAt
+                  ? `Último ingreso: ${new Date(duenio.lastLoginAt).toLocaleString('es-CO')}`
+                  : 'Nunca ha iniciado sesión.'}
+              </div>
+              {/* Si el cliente dice otro correo, el problema no es la
+                  contraseña: hay que corregir el correo primero. */}
+              <div className="mt-1.5 text-[11px] text-amber-700 leading-snug">
+                Si el dueño te dice otro correo, cámbialo primero — con el
+                correo equivocado el ingreso va a fallar aunque la contraseña
+                sea correcta.
+              </div>
+            </>
+          ) : (
+            <div className="mt-1 text-sm text-bad-ink">
+              Este negocio no tiene un dueño activo.
+            </div>
+          )}
+        </div>
+
         <div className="mt-4 space-y-3">
           <div>
             <label className="label">Nueva contraseña</label>

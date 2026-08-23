@@ -872,3 +872,36 @@ Diagnóstico reusable: `scripts/diag-grupos-cobro.cjs`.
 
 **El 17 de septiembre hay que mirarlo igual**, ahora para confirmar que
 funciona: los tres deben saltar solos al 17 de octubre.
+
+## 2026-08-23 (noche) — «Restablezco la contraseña y no deja entrar» (Limorada)
+
+**No era el restablecimiento.** La línea de tiempo del audit log lo cerró:
+
+```
+20:54:17 – 20:57:12   11 × auth.login.failed  ·  bermrecords@hotmail.com
+20:55:39              tenant.owner.password_change  ·  (la cuenta real)
+20:58:00              auth.login  ✅
+20:59:18              auth.login  ✅
+```
+
+La cuenta estaba con **@gmail** y se intentaba entrar con **@hotmail**. El
+cambio de contraseña funcionó siempre; fallaba el correo. Al corregirlo, entró.
+
+### Lo que sí era un defecto
+
+El modal de soporte pedía la contraseña **a ciegas**: solo decía a qué correo
+se la puso en el *toast* posterior, que se va solo. El login no puede decir
+«ese correo no existe» —revelaría qué correos hay registrados— pero el panel
+de soporte sí.
+
+- Nuevo `GET /tenants/:id/owner` (SUPER_ADMIN).
+- El modal ahora muestra **arriba, antes de escribir**: el correo del dueño con
+  botón de copiar, cuándo entró por última vez (o «nunca ha iniciado sesión»)
+  y un aviso: *si el dueño te dice otro correo, cámbialo primero*.
+
+### Nota de método
+
+Me equivoqué a mitad del diagnóstico: dije que el hotmail no existía. Existía —
+era la misma cuenta, cuyo correo se corrigió mientras yo consultaba. La primera
+consulta y la segunda vieron estados distintos de la misma fila. Al mirar datos
+que alguien está editando en vivo, la foto envejece entre consulta y consulta.

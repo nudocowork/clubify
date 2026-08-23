@@ -370,6 +370,21 @@ export class TenantsController {
     return this.svc.impersonate(id, user.id);
   }
 
+  /**
+   * Soporte: quién es el dueño al que le vas a cambiar la contraseña.
+   *
+   * Sin esto el admin escribía la contraseña a ciegas y solo veía a QUÉ correo
+   * se la puso en el aviso posterior, que se va solo. Costó 11 intentos de
+   * login fallidos con Limorada (2026-08-23): la cuenta era `@gmail` y se
+   * intentaba entrar con `@hotmail`. El login no lo puede decir —revelaría qué
+   * correos existen—, pero el panel de soporte sí.
+   */
+  @Get(':id/owner')
+  @Roles('SUPER_ADMIN')
+  owner(@Param('id') id: string) {
+    return this.svc.ownerOfTenant(id);
+  }
+
   /** Soporte: cambiar la contraseña del dueño del negocio SIN saber la actual.
    *  Solo SUPER_ADMIN. Queda auditado; invalida los tokens viejos del dueño. */
   @Patch(':id/owner-password')

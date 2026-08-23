@@ -491,6 +491,29 @@ export class TenantsService {
   }
 
   /**
+   * El dueño activo del negocio: el mismo que elegiría `setOwnerPassword`
+   * (TENANT_OWNER activo, el más antiguo). Se expone para que el panel de
+   * soporte muestre A QUÉ correo le va a cambiar la contraseña ANTES de
+   * escribirla, no después.
+   */
+  async ownerOfTenant(tenantId: string) {
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, email: true, fullName: true, lastLoginAt: true },
+    });
+    if (!owner) return { owner: null };
+    return {
+      owner: {
+        id: owner.id,
+        email: owner.email,
+        fullName: owner.fullName,
+        lastLoginAt: owner.lastLoginAt,
+      },
+    };
+  }
+
+  /**
    * #11 (2026-06-16): ranking de negocios por cantidad de pases emitidos.
    * Mayor a menor por default; `order='asc'` invierte. Incluye negocios con
    * 0 pases. Excluye borrados.
