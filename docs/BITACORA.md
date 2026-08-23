@@ -779,3 +779,25 @@ Migración aplicada: 2.950 productos, 0 con tope → nadie cambia.
 
 El service worker **no** era la causa: excluye `/app/` explícitamente y esas
 páginas van siempre a red. Era caché normal del navegador.
+
+## 2026-08-23 — El acortador, donde vive el enlace
+
+El botón para cambiar la ruta estaba solo en `/admin/referrals` (fila del
+influencer). Pero el enlace se ve en el **panel del afiliado**, y ahí es donde
+se lo busca. Ahora está en los dos sitios.
+
+**Nuevo:** `PATCH /affiliate/me/slug` — el afiliado elige la ruta de SU enlace.
+`myCodes` ya filtra por `ownerUserId`, así que nadie puede reescribir la ruta
+de otro. Valida:
+
+- Mínimo 3 caracteres tras normalizar.
+- **Lista de reservadas**: `clubify`, `sellea`, `fideliso`, `admin`, `app`,
+  `api`, `login`, `checkout`… Sin esto un afiliado podía tomar `/ref/clubify`
+  y hacer pasar su enlace por oficial de la plataforma.
+- Unicidad contra el resto de códigos.
+
+En el panel: botón «✂️ Acortar mi link» debajo del link, modal con vista previa
+en vivo y el aviso de que la ruta anterior deja de resolver.
+
+**Sigue pendiente**: no hay tabla de alias. Cambiar la ruta rompe la anterior.
+Ambos modales lo avisan, pero la solución de fondo es guardar las rutas viejas.

@@ -144,6 +144,10 @@ export default function AffiliatePanel() {
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
   const [impersonation, setImpersonation] = useState<ReturnType<typeof getImpersonationBackup>>(null);
+  // Acortador de la ruta del enlace de referido.
+  const [editandoRuta, setEditandoRuta] = useState(false);
+  const [nuevaRuta, setNuevaRuta] = useState('');
+  const [guardandoRuta, setGuardandoRuta] = useState(false);
 
   useEffect(() => {
     api<Me>('/affiliate/me')
@@ -313,10 +317,143 @@ export default function AffiliatePanel() {
                     📋 Copiar
                   </button>
                 </div>
+                {/* Acortar la ruta. La generada sale del nombre completo y
+                    queda larguisima (/ref/briggit-stefany-labrador). No es un
+                    redirector aparte: es la ruta real, asi que conserva
+                    codigo, atribucion y registro de visita. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNuevaRuta('');
+                    setEditandoRuta(true);
+                  }}
+                  className="mt-1.5 text-[11px] text-brand font-semibold hover:underline"
+                >
+                  ✂️ Acortar mi link
+                </button>
               </div>
             )}
           </div>
         )}
+
+        {editandoRuta && me.myCode && (() => {
+          // Misma normalizacion que el backend, solo para la vista previa:
+          // quien valida y decide es el servidor.
+          const limpio = nuevaRuta
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 40);
+          const base =
+            typeof window !== 'undefined' ? window.location.origin : '';
+          const actual = me.myCode.slug;
+          const valido = limpio.length >= 3 && limpio !== actual;
+          async function guardar() {
+            if (!valido) return;
+            setGuardandoRuta(true);
+            try {
+              await api('/affiliate/me/slug', {
+                method: 'PATCH',
+                body: JSON.stringify({ slug: limpio }),
+              });
+              toast('Listo, tu link ahora es /ref/' + limpio, 'success');
+              setEditandoRuta(false);
+              // Recargamos el perfil para que el link de arriba muestre
+              // la ruta nueva sin tener que refrescar la pagina.
+              const fresco = await api<Me>('/affiliate/me');
+              if (fresco) setMe(fresco);
+            } catch (e: unknown) {
+              toast((e as Error)?.message || 'No se pudo cambiar la ruta', 'error');
+            } finally {
+              setGuardandoRuta(false);
+            }
+          }
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+              onClick={() => setEditandoRuta(false)}
+            >
+              <div
+                className="bg-white rounded-xl w-full max-w-md p-5 shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 className="text-lg font-bold mb-1">Acortar mi link</h3>
+                <p className="text-xs text-mute mb-4">
+                  Ponle la ruta que quieras. Lleva a la misma página, con tu
+                  mismo código y tu misma atribución.
+                </p>
+
+                <div className="rounded-lg bg-bg2 border border-line p-3 mb-4">
+                  <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
+                    Ahora
+                  </div>
+                  <code className="text-xs break-all">
+                    {base}/ref/{actual}
+                  </code>
+                </div>
+
+                <label className="text-xs font-semibold text-mute block mb-1">
+                  Nueva ruta
+                </label>
+                <div className="flex items-stretch rounded-lg border border-line overflow-hidden">
+                  <span className="px-2.5 flex items-center bg-bg2 text-xs text-mute whitespace-nowrap">
+                    /ref/
+                  </span>
+                  <input
+                    autoFocus
+                    className="flex-1 px-2.5 py-2 text-sm outline-none"
+                    placeholder={actual}
+                    value={nuevaRuta}
+                    onChange={(e) => setNuevaRuta(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && valido && !guardandoRuta) {
+                        void guardar();
+                      }
+                    }}
+                  />
+                </div>
+                {limpio && limpio.length < 3 && (
+                  <p className="text-[11px] text-bad-ink mt-1.5">
+                    Necesita al menos 3 letras o números.
+                  </p>
+                )}
+                {valido && (
+                  <>
+                    <p className="text-[11px] text-mute mt-2 break-all">
+                      Quedará así: <b>{base}/ref/{limpio}</b>
+                    </p>
+                    {/* La ruta anterior deja de resolver: no hay alias. Si ya
+                        la compartio, tiene que saberlo antes de cambiarla. */}
+                    <p className="text-[11px] text-amber-700 mt-1.5 leading-snug">
+                      ⚠️ Tu link anterior dejará de funcionar. Si ya lo
+                      compartiste, avisa a quien lo tenga.
+                    </p>
+                  </>
+                )}
+
+                <div className="mt-5 flex gap-2 justify-end">
+                  <button
+                    type="button"
+                    className="btn-ghost text-sm"
+                    onClick={() => setEditandoRuta(false)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!valido || guardandoRuta}
+                    onClick={guardar}
+                    className="btn text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {guardandoRuta ? 'Guardando…' : 'Guardar ruta'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Difusión interna: banner que el SUPER_ADMIN puede activar
             desde /admin/ventas/difusion. Si no hay nada activo no

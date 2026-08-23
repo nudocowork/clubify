@@ -173,6 +173,68 @@ export class AffiliateService {
     });
   }
 
+  /**
+   * El afiliado elige la ruta de SU enlace corto `/ref/<ruta>`.
+   *
+   * La ruta se generaba del nombre completo y quedaba larguisima
+   * (`/ref/briggit-stefany-labrador`). Esto deja ponerle la que quiera. No es
+   * un redirector aparte: es la ruta real, asi que conserva codigo,
+   * atribucion y registro de visita.
+   *
+   * Solo toca SU propio codigo — `myCodes` ya filtra por `ownerUserId`, asi
+   * que un afiliado no puede reescribir la ruta de otro.
+   */
+  async setMySlug(user: AuthUser, nuevo: string) {
+    this.assertAffiliate(user);
+    const codes = await this.myCodes(user.id);
+    const mio = codes.find((c) => c.ownerUserId === user.id);
+    if (!mio) throw new NotFoundException('No tenes un codigo propio.');
+
+    const limpio = (nuevo ?? '')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40);
+
+    if (limpio.length < 3) {
+      throw new BadRequestException(
+        'La ruta necesita al menos 3 letras o numeros.',
+      );
+    }
+
+    // Palabras que no puede tomar nadie: son rutas del sitio o nombres que
+    // harian pasar el enlace por oficial de la plataforma.
+    const RESERVADAS = new Set([
+      'app', 'admin', 'api', 'login', 'signup', 'registro', 'superadmin',
+      'affiliate', 'afiliado', 'clubify', 'soyclubify', 'sellea', 'selleala',
+      'fideliso', 'fidelity', 'ref', 'checkout', 'pago', 'pagos', 'precios',
+      'ayuda', 'soporte', 'www', 'null', 'undefined',
+    ]);
+    if (RESERVADAS.has(limpio)) {
+      throw new BadRequestException(`La ruta "${limpio}" esta reservada.`);
+    }
+
+    if (limpio === mio.slug) return { slug: limpio };
+
+    const tomado = await this.prisma.referralCode.findUnique({
+      where: { slug: limpio },
+      select: { id: true },
+    });
+    if (tomado && tomado.id !== mio.id) {
+      throw new BadRequestException(
+        `La ruta "${limpio}" ya la tiene otro afiliado. Proba con otra.`,
+      );
+    }
+
+    await this.prisma.referralCode.update({
+      where: { id: mio.id },
+      data: { slug: limpio },
+    });
+    return { slug: limpio };
+  }
+
   async me(user: AuthUser) {
     this.assertAffiliate(user);
     const userRow = await this.prisma.user.findUnique({
