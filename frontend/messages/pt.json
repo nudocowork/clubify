@@ -2796,7 +2796,9 @@
     "toastUpdated": "Localização atualizada",
     "reservationsEnabledLabel": "Aceita reservas nesta unidade",
     "reservationsEnabledHint": "Se desativar, esta unidade não aparecerá no link público de reservas.",
-    "reservationsOffBadge": "Reservas off"
+    "reservationsOffBadge": "Reservas off",
+    "stateRegionPick": "Escolha o estado ou região",
+    "stateRegionHelp": "É disso que depende que seus clientes vejam só os municípios da sua área no pedido, em vez do país inteiro."
   },
   "app_reservations": {
     "pageTitle": "Reservas",

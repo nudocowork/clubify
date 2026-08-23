@@ -28,6 +28,9 @@ import { isDarkBackground } from '@/lib/contrast';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { DeliveryTrackWidget } from '@/components/DeliveryTrackWidget';
 import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
+
+/** Valor centinela: el cliente esta fuera de los departamentos del negocio. */
+const OTRA_REGION = '__OTRA_REGION__';
 import { regionsForCountry } from '@/lib/regions';
 import {
   type StorefrontPopupItem,
@@ -1864,9 +1867,42 @@ function CheckoutSheet({
       .catch(() => {});
   }, [slug]);
 
+
   // Dataset de regiones según el país del tenant. Si el país no tiene
   // regiones curadas (cae al fallback genérico), se usa input libre.
   const regionsData = regionsForCountry(country);
+
+  // Departamentos donde el negocio TIENE sede. Un negocio local de
+  // Bucaramanga no tiene por que hacer al cliente buscar entre los 32
+  // departamentos del pais: le mostramos Santander y ya. Comparamos
+  // normalizado porque el campo fue texto libre durante mucho tiempo.
+  // El cliente pidio ver todos los departamentos (esta fuera de la zona del
+  // negocio pero quiere pedir igual).
+  const [mostrarTodosDeps, setMostrarTodosDeps] = useState(false);
+
+  const normDep = (x: string | null | undefined) =>
+    (x ?? '')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .trim()
+      .toLowerCase();
+  const depsDelNegocio = regionsData.regions.filter((r) =>
+    sedes.some((sede) => sede.state && normDep(sede.state) === normDep(r.name)),
+  );
+  // Sin sedes con departamento cargado caemos a la lista completa: es lo que
+  // pasa hoy en la mayoria de los negocios y no se puede romper su checkout.
+  const depsVisibles = depsDelNegocio.length ? depsDelNegocio : regionsData.regions;
+  // Un solo departamento = no hay nada que elegir. Se muestra fijo.
+  const depFijo = depsDelNegocio.length === 1 ? depsDelNegocio[0].name : null;
+  // Con una sola sede el departamento no se pregunta, pero el formulario
+  // igual tiene que ir relleno: es obligatorio al enviar.
+  useEffect(() => {
+    if (depFijo && !mostrarTodosDeps && !form.departamento) {
+      setForm((f) => ({ ...f, departamento: depFijo }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depFijo, mostrarTodosDeps]);
+
   const munList =
     regionsData.regions.find((r) => r.name === form.departamento)?.cities ?? [];
   const municipioFinal =
@@ -2086,41 +2122,92 @@ function CheckoutSheet({
                 <div className="rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1.5 text-[11px] text-amber-900 leading-snug">
                   {tt('checkout.delivery_note')}
                 </div>
-                <div>
-                  <label className="label">{regionsData.regionLabel} *</label>
-                  {regionsData.regions.length > 0 ? (
-                    <select
-                      className="input"
-                      value={form.departamento}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          departamento: e.target.value,
-                          municipio: '',
-                          municipioOtro: '',
-                        })
-                      }
-                      required
-                    >
-                      <option value="">{regionsData.regionLabel}</option>
-                      {regionsData.regions.map((r) => (
-                        <option key={r.name} value={r.name}>
-                          {r.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      className="input"
-                      value={form.departamento}
-                      onChange={(e) =>
-                        setForm({ ...form, departamento: e.target.value })
-                      }
-                      placeholder={regionsData.regionLabel}
-                      required
-                    />
-                  )}
-                </div>
+                {/* Departamento.
+                    Con UNA sola sede no se pregunta: se muestra fijo. Con
+                    varias, solo los departamentos donde el negocio tiene sede.
+                    Siempre queda la salida "otro" para el cliente que esta
+                    fuera y aun asi quiere pedir. */}
+                {depFijo && !mostrarTodosDeps ? (
+                  <div>
+                    <label className="label">{regionsData.regionLabel}</label>
+                    <div className="flex items-center gap-2">
+                      <div className="input flex-1 bg-bg2 text-mute flex items-center">
+                        {depFijo}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMostrarTodosDeps(true);
+                          setForm({
+                            ...form,
+                            departamento: '',
+                            municipio: '',
+                            municipioOtro: '',
+                          });
+                        }}
+                        className="text-[11px] text-brand font-semibold whitespace-nowrap hover:underline"
+                      >
+                        {tt('checkout.other_region')}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="label">{regionsData.regionLabel} *</label>
+                    {regionsData.regions.length > 0 ? (
+                      <select
+                        className="input"
+                        value={form.departamento}
+                        onChange={(e) => {
+                          // "Otra" no es un departamento: abre la lista
+                          // completa y deja el campo vacio para que elija.
+                          if (e.target.value === OTRA_REGION) {
+                            setMostrarTodosDeps(true);
+                            setForm({
+                              ...form,
+                              departamento: '',
+                              municipio: '',
+                              municipioOtro: '',
+                            });
+                            return;
+                          }
+                          setForm({
+                            ...form,
+                            departamento: e.target.value,
+                            municipio: '',
+                            municipioOtro: '',
+                          });
+                        }}
+                        required
+                      >
+                        <option value="">{regionsData.regionLabel}</option>
+                        {(mostrarTodosDeps ? regionsData.regions : depsVisibles).map(
+                          (r) => (
+                            <option key={r.name} value={r.name}>
+                              {r.name}
+                            </option>
+                          ),
+                        )}
+                        {!mostrarTodosDeps &&
+                          depsVisibles.length < regionsData.regions.length && (
+                            <option value={OTRA_REGION}>
+                              {tt('checkout.other_region')}
+                            </option>
+                          )}
+                      </select>
+                    ) : (
+                      <input
+                        className="input"
+                        value={form.departamento}
+                        onChange={(e) =>
+                          setForm({ ...form, departamento: e.target.value })
+                        }
+                        placeholder={regionsData.regionLabel}
+                        required
+                      />
+                    )}
+                  </div>
+                )}
                 <div>
                   <label className="label">{regionsData.cityLabel} *</label>
                   {regionsData.regions.length > 0 && munList.length > 0 ? (

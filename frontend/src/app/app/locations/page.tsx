@@ -8,6 +8,7 @@ import { toast } from '@/components/Toast';
 import { EmojiPicker } from '@/components/EmojiPicker';
 import { PhoneInput } from '@/components/PhoneInput';
 import { useTenantCountry, stateExamplePlaceholder } from '@/lib/useTenantCountry';
+import { regionsForCountry } from '@/lib/regions';
 import type { MapPickResult } from '@/components/MapPicker';
 
 // Leaflet usa `window` al importar — dynamic import sin SSR
@@ -32,6 +33,9 @@ type Suggestion = {
 export default function LocationsPage() {
   const t = useTranslations('app_locations');
   const country = useTenantCountry();
+  // Departamentos/estados del pais del negocio. Alimenta la lista del campo
+  // de abajo; vacio = pais sin regiones curadas -> texto libre.
+  const regionesPais = regionsForCountry(country);
   const [list, setList] = useState<any[]>([]);
   const [form, setForm] = useState({
     name: '',
@@ -200,12 +204,38 @@ export default function LocationsPage() {
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">{t('stateRegionOfSite')}</label>
-                  <input
-                    className="input"
-                    value={form.state}
-                    onChange={(e) => setForm({ ...form, state: e.target.value })}
-                    placeholder={stateExamplePlaceholder(country)}
-                  />
+                  {/* Lista, no texto libre.
+                      Era un input suelto y solo 16 de 130 sedes lo tenian
+                      cargado — y lo poco escrito a mano no casaba con los
+                      nombres del dataset ("Sder", "santander", "Santander/Col").
+                      De este campo depende que el cliente vea SOLO los
+                      municipios del departamento del negocio en vez de los 32
+                      departamentos del pais. */}
+                  {regionesPais.regions.length > 0 ? (
+                    <select
+                      className="input"
+                      value={form.state}
+                      onChange={(e) => setForm({ ...form, state: e.target.value })}
+                    >
+                      <option value="">{t('stateRegionPick')}</option>
+                      {regionesPais.regions.map((r) => (
+                        <option key={r.name} value={r.name}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    // Pais sin regiones curadas: texto libre, como antes.
+                    <input
+                      className="input"
+                      value={form.state}
+                      onChange={(e) => setForm({ ...form, state: e.target.value })}
+                      placeholder={stateExamplePlaceholder(country)}
+                    />
+                  )}
+                  <p className="text-[11px] text-mute mt-1 leading-snug">
+                    {t('stateRegionHelp')}
+                  </p>
                 </div>
                 <div>
                   <label className="label">{t('siteOrdersWhatsapp')}</label>

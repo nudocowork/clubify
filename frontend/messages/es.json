@@ -2796,7 +2796,9 @@
     "toastUpdated": "Ubicación actualizada",
     "reservationsEnabledLabel": "Permite reservas en esta sede",
     "reservationsEnabledHint": "Si lo desactivás, esta sede no aparecerá en el enlace público de reservas.",
-    "reservationsOffBadge": "Reservas off"
+    "reservationsOffBadge": "Reservas off",
+    "stateRegionPick": "Elige el departamento o estado",
+    "stateRegionHelp": "De esto depende que tus clientes vean solo los municipios de tu zona al pedir a domicilio, en vez de todo el país."
   },
   "app_reservations": {
     "pageTitle": "Reservas",

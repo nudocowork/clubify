@@ -2796,7 +2796,9 @@
     "toastUpdated": "Location updated",
     "reservationsEnabledLabel": "Accept reservations at this location",
     "reservationsEnabledHint": "If off, this location won't appear in the public reservations link.",
-    "reservationsOffBadge": "Reservations off"
+    "reservationsOffBadge": "Reservations off",
+    "stateRegionPick": "Pick the state or region",
+    "stateRegionHelp": "This is what makes your customers see only the towns in your area at checkout, instead of the whole country."
   },
   "app_reservations": {
     "pageTitle": "Reservations",
