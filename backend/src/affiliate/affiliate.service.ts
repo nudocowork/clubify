@@ -9,6 +9,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AuthService } from '../auth/auth.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
+import { cambiarSlugConAlias } from '../referrals/slug-alias';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -190,49 +191,15 @@ export class AffiliateService {
     const mio = codes.find((c) => c.ownerUserId === user.id);
     if (!mio) throw new NotFoundException('No tenes un codigo propio.');
 
-    const limpio = (nuevo ?? '')
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 40);
-
-    if (limpio.length < 3) {
-      throw new BadRequestException(
-        'La ruta necesita al menos 3 letras o numeros.',
-      );
-    }
-
-    // Palabras que no puede tomar nadie: son rutas del sitio o nombres que
-    // harian pasar el enlace por oficial de la plataforma.
-    const RESERVADAS = new Set([
-      'app', 'admin', 'api', 'login', 'signup', 'registro', 'superadmin',
-      'affiliate', 'afiliado', 'clubify', 'soyclubify', 'sellea', 'selleala',
-      'fideliso', 'fidelity', 'ref', 'checkout', 'pago', 'pagos', 'precios',
-      'ayuda', 'soporte', 'www', 'null', 'undefined',
-    ]);
-    if (RESERVADAS.has(limpio)) {
-      throw new BadRequestException(`La ruta "${limpio}" esta reservada.`);
-    }
-
-    if (limpio === mio.slug) return { slug: limpio };
-
-    const tomado = await this.prisma.referralCode.findUnique({
-      where: { slug: limpio },
-      select: { id: true },
+    // Toda la logica vive en un solo sitio: normalizacion, reservadas,
+    // unicidad contra rutas vivas Y contra alias de otros, y el registro de
+    // la ruta anterior para que los enlaces ya compartidos no se caigan.
+    const slug = await cambiarSlugConAlias(this.prisma, {
+      codeId: mio.id,
+      slugActual: mio.slug,
+      nuevo,
     });
-    if (tomado && tomado.id !== mio.id) {
-      throw new BadRequestException(
-        `La ruta "${limpio}" ya la tiene otro afiliado. Proba con otra.`,
-      );
-    }
-
-    await this.prisma.referralCode.update({
-      where: { id: mio.id },
-      data: { slug: limpio },
-    });
-    return { slug: limpio };
+    return { slug };
   }
 
   async me(user: AuthUser) {

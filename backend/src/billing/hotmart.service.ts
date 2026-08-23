@@ -130,6 +130,57 @@ function nextChargeFromPayload(payload: HotmartWebhookPayload): Date | null {
 export class HotmartService {
   private logger = new Logger(HotmartService.name);
 
+  /**
+   * Un grupo empresarial paga UNA suscripción de Hotmart por varios negocios.
+   * El código de suscriptor vive en uno solo, así que el webhook movía su
+   * fecha y dejaba a los hermanos con la del ciclo anterior: se quedaban a un
+   * día de que el cron los marcara en mora estando al día.
+   *
+   * Pasó tres veces seguidas con el grupo Aldehir (Mistíka) y hubo que
+   * corregirlo a mano cada vez.
+   *
+   * Propaga la fecha del ciclo a los hermanos ACTIVOS y limpia sus SEIS
+   * campos de deduplicación — sin eso no reciben ningún aviso del ciclo
+   * nuevo. Ver [[clubify-cobros-trampas]].
+   *
+   * No toca `hotmartSubscriberCode` de nadie: el código pertenece a quien
+   * paga, y duplicarlo haría que el próximo webhook casara con varios.
+   */
+  private async propagarCicloAlGrupo(tenantId: string, hasta: Date) {
+    const yo = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { businessGroupId: true },
+    });
+    if (!yo?.businessGroupId) return;
+
+    const r = await this.prisma.tenant.updateMany({
+      where: {
+        businessGroupId: yo.businessGroupId,
+        id: { not: tenantId },
+        // Un negocio dado de baja del grupo no revive por un cobro ajeno.
+        status: { in: ['ACTIVE', 'TRIAL'] },
+      },
+      data: {
+        currentPeriodEnd: hasta,
+        status: 'ACTIVE',
+        trialEndsAt: null,
+        failedPaymentCount: 0,
+        suspendedAt: null,
+        paymentReminderSentFor: null,
+        paymentFailureNoticeSentAt: null,
+        pausePendingNoticeSentAt: null,
+        preReminder7dSentFor: null,
+        preReminder3dSentFor: null,
+        preReminderTodaySentFor: null,
+      },
+    });
+    if (r.count) {
+      this.logger.log(
+        `Ciclo propagado al grupo ${yo.businessGroupId}: ${r.count} negocio(s) hasta ${hasta.toISOString().slice(0, 10)}`,
+      );
+    }
+  }
+
   constructor(
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
@@ -1301,12 +1352,32 @@ export class HotmartService {
         // restantes" junto con el plan pagado. trialStartedAt y trialSource
         // se preservan para analytics de conversión.
         trialEndsAt: null,
-        // Reset de tracking de notificaciones para el nuevo ciclo
+        // Reset de tracking de notificaciones para el nuevo ciclo.
+        //
+        // Tienen que ser los SEIS. Faltaban los tres pre-avisos, así que un
+        // negocio que renovaba no volvía a recibir el aviso de 7 días, ni el
+        // de 3, ni el del día — y nadie se enteraba, porque el fallo es mudo:
+        // el cron los ve marcados como ya enviados para siempre.
         paymentReminderSentFor: null,
         paymentFailureNoticeSentAt: null,
         pausePendingNoticeSentAt: null,
+        preReminder7dSentFor: null,
+        preReminder3dSentFor: null,
+        preReminderTodaySentFor: null,
       },
     });
+
+    // Grupo empresarial: una sola suscripción de Hotmart paga por VARIOS
+    // negocios, pero el webhook solo movía al que lleva el código. Los
+    // hermanos se quedaban con la fecha vieja y había que corregirlos a mano
+    // (grupo Aldehir, 3 cobros seguidos). Ahora avanzan juntos.
+    if (nextCharge) {
+      await this.propagarCicloAlGrupo(tenant.id, nextCharge).catch((e) =>
+        this.logger.warn(
+          `propagarCicloAlGrupo tenant=${tenant.id}: ${(e as Error).message}`,
+        ),
+      );
+    }
     // Fase D: primer pago (TRIAL/nuevo) o reactivación (SUSPENDED) → webhook
     // business.activated. Las renovaciones (ya ACTIVE) NO disparan. tenant.status
     // acá es el estado PREVIO (se cargó antes del update).

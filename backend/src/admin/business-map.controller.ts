@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { BusinessMapService } from './business-map.service';
@@ -16,9 +16,15 @@ import { BusinessMapService } from './business-map.service';
 export class BusinessMapController {
   constructor(private svc: BusinessMapService) {}
 
+  /**
+   * `slug` = la marca que se está VIENDO (`/admin/sellea/map`). El panel
+   * maestro no tiene `whiteLabelId` propio, así que sin este parámetro el
+   * mapa de Sellea mostraba los negocios de TODAS las marcas mezclados.
+   * Un admin de marca queda acotado a la suya, mande lo que mande.
+   */
   @Get()
-  list() {
-    return this.svc.list();
+  list(@CurrentUser() user: AuthUser, @Query('marca') slug?: string) {
+    return this.svc.list(user.whiteLabelId ?? null, slug?.trim() || null);
   }
 
   @Get('affiliates')

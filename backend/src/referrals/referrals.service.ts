@@ -17,6 +17,7 @@ import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 import { recalcBatchTotal } from './payout-batch.util';
 import { bogotaYmd, daysBetweenYmd } from './cutoff-calendar';
+import { cambiarSlugConAlias } from './slug-alias';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -281,6 +282,22 @@ export class ReferralsService {
       });
     }
 
+    // 3) Ruta ANTERIOR del afiliado. El slug es la ruta real, no un
+    // redirector: al cambiarla, los enlaces ya repartidos morían con 404.
+    // Acá se recuperan — mismo código, misma atribución, misma visita.
+    if (!code) {
+      const alias = await this.prisma.referralSlugAlias.findUnique({
+        where: { slug: clean },
+        select: { referralCodeId: true },
+      });
+      if (alias) {
+        code = await this.prisma.referralCode.findUnique({
+          where: { id: alias.referralCodeId },
+          select,
+        });
+      }
+    }
+
     // Loguear visita siempre (incluso si slug no existe) — fire-and-forget.
     this.prisma.referralVisit
       .create({
@@ -313,22 +330,23 @@ export class ReferralsService {
     const target = await this.prisma.referralCode.findUnique({ where: { id } });
     if (!target) throw new NotFoundException('code not found');
 
-    const clean = (newSlug ?? '').toLowerCase().trim();
-    const finalSlug = clean
-      ? this.slugify(clean) || target.code.toLowerCase()
-      : target.code.toLowerCase();
+    // Vacío = volver a la ruta por defecto (el código en minúsculas).
+    const pedido = (newSlug ?? '').trim() || target.code.toLowerCase();
 
-    if (finalSlug === target.slug) return target;
-
-    const taken = await this.prisma.referralCode.findUnique({ where: { slug: finalSlug } });
-    if (taken && taken.id !== id) {
-      throw new BadRequestException(`slug "${finalSlug}" ya está en uso`);
-    }
-
-    return this.prisma.referralCode.update({
-      where: { id },
-      data: { slug: finalSlug },
+    // El admin SÍ puede usar una ruta reservada y bajar del mínimo de 3: a
+    // veces necesita dejar exactamente la que el afiliado ya repartió.
+    // La anterior queda como alias y los enlaces viejos siguen funcionando.
+    const finalSlug = await cambiarSlugConAlias(this.prisma, {
+      codeId: id,
+      slugActual: target.slug,
+      nuevo: pedido,
+      permitirReservados: true,
+      minimo: 1,
     });
+
+    return this.prisma.referralCode.findUnique({ where: { id } }).then(
+      (r) => r ?? { ...target, slug: finalSlug },
+    );
   }
 
   /**

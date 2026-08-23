@@ -9,6 +9,7 @@ import {
   BUSINESS_CATEGORIES,
   getCategoryBySlug,
 } from '@/lib/business-categories';
+import { marcaDeLaRuta } from '@/lib/brand-from-path';
 
 type TenantStatus = 'ACTIVE' | 'TRIAL' | 'SUSPENDED';
 
@@ -60,10 +61,34 @@ const STATUS_LABEL_KEY: Record<TenantStatus, string> = {
 const ENV_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 const MAP_API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
-/** Resuelve la API key de Google Maps de la marca por host (branding-by-host).
- *  Cae a la env global (Clubify) si el host no es de una marca o no tiene key. */
+/**
+ * Resuelve la API key de Google Maps.
+ *
+ * Manda la marca que se está VIENDO (`/admin/sellea/map` → Sellea), no el
+ * host. Antes iba por host y desde el panel maestro —que no es dominio de
+ * ninguna marca— caía siempre a la clave global de Clubify, restringida por
+ * dominio: el mapa moría con RefererNotAllowedMapError mirando cualquier marca.
+ *
+ * Orden: marca de la ruta → marca del host → env global.
+ */
 async function resolveMapsKey(): Promise<string> {
   if (typeof window === 'undefined') return ENV_API_KEY;
+
+  const marca = marcaDeLaRuta(window.location.pathname);
+  if (marca) {
+    try {
+      const r = await fetch(
+        `${MAP_API}/api/superadmin-public/white-labels/branding?slug=${encodeURIComponent(marca)}`,
+      );
+      if (r.ok) {
+        const d = await r.json();
+        if (d?.mapsApiKey) return d.mapsApiKey as string;
+      }
+    } catch {
+      /* sigue con el host */
+    }
+  }
+
   const host = (window.location.host || '').toLowerCase().split(':')[0];
   const isClubify =
     !host || host === 'localhost' || host.startsWith('127.') ||
@@ -145,7 +170,15 @@ export default function AdminBusinessMapPage() {
     (async () => {
       try {
         const [tn, a] = await Promise.all([
-          api<MapTenant[]>('/admin/business-map'),
+          // La marca que se esta viendo va como parametro: el panel maestro
+          // no tiene marca propia y sin esto el mapa de Sellea mostraba los
+          // negocios de todas las marcas mezclados.
+          api<MapTenant[]>(
+            '/admin/business-map' +
+              (marcaDeLaRuta(window.location.pathname)
+                ? `?marca=${encodeURIComponent(marcaDeLaRuta(window.location.pathname) as string)}`
+                : ''),
+          ),
           api<Affiliate[]>('/admin/business-map/affiliates'),
         ]);
         setTenants(tn);
@@ -182,6 +215,29 @@ export default function AdminBusinessMapPage() {
     })();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // Google avisa de los fallos de AUTORIZACION por este callback global, no
+  // lanzando: el SDK carga bien y despues pinta su recuadro gris encima del
+  // mapa. Por eso el panel de error de abajo nunca se veia y el admin solo
+  // leia "Google Maps JavaScript API error" sin saber que hacer.
+  useEffect(() => {
+    const marca = marcaDeLaRuta(window.location.pathname);
+    (window as unknown as { gm_authFailure?: () => void }).gm_authFailure =
+      () => {
+        const host = window.location.host;
+        setLoadErr(
+          `Google no autoriza este dominio (${host}) para la clave de Maps` +
+            (marca ? ` de ${marca}` : '') +
+            `. Hay dos formas de arreglarlo: autorizar https://${host}/* en las ` +
+            `restricciones de la clave en Google Cloud, o cargar la clave propia ` +
+            `de la marca en Master Admin → Marcas.`,
+        );
+      };
+    return () => {
+      delete (window as unknown as { gm_authFailure?: () => void })
+        .gm_authFailure;
     };
   }, []);
 

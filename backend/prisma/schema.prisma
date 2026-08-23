@@ -2919,6 +2919,8 @@ model ReferralCode {
   // Slug corto y human-friendly para links `/ref/<slug>`. Único, opcional.
   // Default: lowercase(code) backfill en migration. Customizable desde admin.
   slug                           String?        @unique
+  /// Rutas ANTERIORES de este código. Ver modelo ReferralSlugAlias.
+  slugAliases                    ReferralSlugAlias[]
   ownerName                      String
   ownerEmail                     String
   ownerWhatsapp                  String
@@ -5971,3 +5973,21 @@ model StampEvent {
   @@index([allyBusinessId, createdAt])
 }
 
+/// Rutas `/ref/<slug>` que este código tuvo antes.
+///
+/// El slug es la ruta REAL del afiliado, no un redirector: al cambiarla, la
+/// anterior dejaba de resolver y todo enlace ya compartido se caía con 404.
+/// Cada vez que alguien cambia su ruta, la vieja queda registrada acá y
+/// `resolveBySlug` la sigue aceptando — misma atribución, mismo código.
+///
+/// `slug` es único y además se comprueba contra `ReferralCode.slug`: una ruta
+/// no puede ser alias de uno y ruta viva de otro.
+model ReferralSlugAlias {
+  id             String       @id @default(uuid())
+  slug           String       @unique
+  referralCodeId String
+  referralCode   ReferralCode @relation(fields: [referralCodeId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@index([referralCodeId])
+}

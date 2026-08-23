@@ -801,3 +801,74 @@ en vivo y el aviso de que la ruta anterior deja de resolver.
 
 **Sigue pendiente**: no hay tabla de alias. Cambiar la ruta rompe la anterior.
 Ambos modales lo avisan, pero la solución de fondo es guardar las rutas viejas.
+
+## 2026-08-23 — Marca en páginas públicas, alias de rutas, mapa por marca y el cobro del 17
+
+### 1. `/book`, `/r` y `/c` ya salen con la marca del negocio
+
+Las tres heredaban la metadata del layout raíz (Clubify). Nuevo helper
+`lib/public-page-metadata.ts` con la regla dura: **sin negocio resuelto NO se
+pinta nada de la plataforma**. Verificado en vivo:
+
+```
+/r/fusion-sushi     → og:title "Fusion sushi"
+/book/fusion-sushi  → og:title "Fusion sushi · Menú"
+/c/<tarjeta>        → og:title "Konys · CUPÓN KONYS"
+```
+
+En `/c` el negocio vive en `card.tenant`, no en la raíz del payload.
+
+### 3. Cambiar la ruta `/ref/…` ya no rompe la anterior
+
+Nueva tabla **`ReferralSlugAlias`** (migración aditiva aplicada). Al cambiar
+de ruta, la vieja queda registrada y `resolveBySlug` la sigue aceptando como
+tercer paso, después de slug y código. Misma atribución, mismo código.
+
+Lógica en un solo sitio: `referrals/slug-alias.ts`, que usan tanto el admin
+como el propio afiliado. Comprueba unicidad contra rutas vivas **y contra
+alias de otros** — ceder un alias haría que los enlaces de esa persona
+atribuyeran ventas a alguien más.
+
+Prueba de humo contra producción: ruta vieja resuelve al mismo código, y al
+borrar el código los alias caen por cascada (0 huérfanos).
+
+### 2. El mapa: clave por marca, negocios por marca, error que dice qué hacer
+
+Tres problemas distintos:
+
+- **La clave** se resolvía por HOST. Desde el panel maestro
+  (`soyfidelity.com`, que no es dominio de ninguna marca) caía siempre a la
+  global de Clubify, restringida por dominio → `RefererNotAllowedMapError`
+  mirando cualquier marca. Ahora manda la **marca de la ruta**
+  (`/admin/sellea/map` → Sellea). Helper `lib/brand-from-path.ts`.
+- **Los negocios no se filtraban.** `list()` no recibía marca: el mapa de
+  Sellea mostraba los de todas mezclados. Ahora `?marca=<slug>`, y un admin de
+  marca queda acotado a la suya mande lo que mande.
+- **El error era mudo.** `RefererNotAllowedMapError` ocurre DESPUÉS de cargar
+  el SDK, así que el panel de error nunca aparecía y solo se veía el recuadro
+  gris de Google. Ahora se captura por `window.gm_authFailure` y el mensaje
+  dice las dos salidas concretas.
+
+**Sigue faltando cargar la clave de Sellea y la de Clubify** en Master Admin →
+Marcas (solo Fideliso tiene la suya). O autorizar el dominio del panel maestro
+en Google Cloud.
+
+### 5. El cobro del 17 ya se va a capturar
+
+Tres fallos encadenados, todos arreglados:
+
+- Los 3 negocios del grupo llevaban códigos **sintéticos** (`trial-…`). El
+  real es **`GER6TVIT`** (paga `grupomistika2026@gmail.com`, Cevichería Marea
+  Místika, desde el 17-jun). Sin él, el webhook del 17 no casaba con nadie y
+  el pago caía como «comprador sin cuenta». **Aplicado.**
+- El webhook **no propagaba al grupo**: movía la fecha del que paga y dejaba a
+  los otros dos atrás. Nuevo `propagarCicloAlGrupo`.
+- El reset de dedup limpiaba **3 de los 6** campos. Faltaban los tres
+  pre-avisos, así que un negocio que renovaba no volvía a recibir el aviso de
+  7 días, ni el de 3, ni el del día — fallo mudo, para siempre. Ver
+  [[clubify-cobros-trampas]].
+
+Diagnóstico reusable: `scripts/diag-grupos-cobro.cjs`.
+
+**El 17 de septiembre hay que mirarlo igual**, ahora para confirmar que
+funciona: los tres deben saltar solos al 17 de octubre.
