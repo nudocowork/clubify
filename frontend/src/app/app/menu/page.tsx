@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
-import { api } from '@/lib/api';
+import { api, getImpersonationBackup } from '@/lib/api';
 import { AcademyButton } from '@/components/AcademyButton';
 import { resolveMainSectionLabel } from '@/lib/business-categories';
 import { Icon } from '@/components/Icon';
@@ -135,6 +135,13 @@ export default function MenuEditor() {
   const [menus, setMenus] = useState<MenusResp | null>(null);
   // Sedes del negocio, para asignarle una a cada carta.
   const [sedes, setSedes] = useState<{ id: string; name: string }[]>([]);
+  // Un admin DENTRO del negocio (impersonando). Se usa solo para explicarle
+  // por que no ve las cartas: al negocio no hay que contarle de una casilla
+  // que no puede tocar.
+  const [esAdminDentro, setEsAdminDentro] = useState(false);
+  useEffect(() => {
+    setEsAdminDentro(!!getImpersonationBackup());
+  }, []);
   const [creandoCarta, setCreandoCarta] = useState(false);
   const t = useTranslations('app_menu');
   const [cats, setCats] = useState<Category[]>([]);
@@ -639,6 +646,21 @@ export default function MenuEditor() {
     <div>
       {/* Selector de cartas. Solo aparece si el negocio tiene la funcion
           habilitada — la inmensa mayoria tiene un menu y no ve nada de esto. */}
+      {/* El admin entra a montar la segunda carta y no ve nada: sin este aviso
+          no hay forma de saber que la funcion se habilita desde SU panel. */}
+      {menus && !menus.habilitado && esAdminDentro && (
+        <div className="card card-pad mb-4 border-amber-200 bg-amber-50">
+          <div className="text-sm font-semibold text-amber-900">
+            Este negocio tiene una sola carta
+          </div>
+          <div className="text-xs text-amber-800/90 mt-1 leading-snug">
+            Para que pueda tener una carta por sede, actívalo en tu panel:{' '}
+            <b>Admin → el negocio → Módulos del tenant → «Varias cartas (una
+            por sede)»</b>. Ahí también se define cuántas puede crear.
+          </div>
+        </div>
+      )}
+
       {menus?.habilitado && (
         <div className="card card-pad mb-4">
           <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -663,9 +685,19 @@ export default function MenuEditor() {
                 + Nueva carta
               </button>
             ) : (
-              <span className="text-[11px] text-mute text-right leading-snug max-w-[180px]">
-                Llegaste al límite de {menus.topeExtras} carta
-                {menus.topeExtras === 1 ? '' : 's'}. Pídenos ampliarlo.
+              <span className="text-[11px] text-mute text-right leading-snug max-w-[200px]">
+                {esAdminDentro ? (
+                  <>
+                    Límite alcanzado ({menus.topeExtras} carta
+                    {menus.topeExtras === 1 ? '' : 's'}). Amplíalo en{' '}
+                    <b>Módulos del tenant</b>.
+                  </>
+                ) : (
+                  <>
+                    Llegaste al límite de {menus.topeExtras} carta
+                    {menus.topeExtras === 1 ? '' : 's'}. Pídenos ampliarlo.
+                  </>
+                )}
               </span>
             )}
           </div>
