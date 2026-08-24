@@ -118,3 +118,75 @@ describe('duplicar el catálogo', () => {
     expect(duplicarCategorias(huerfano)[0].parentId).toBeNull();
   });
 });
+
+/**
+ * Que se propaga a las copias sincronizadas y que NO.
+ *
+ * La regla: lo que define QUE ES el producto sigue al original; como se
+ * MUESTRA en cada carta es de cada sede. Sin esa separacion, sincronizar los
+ * precios traeria de vuelta los productos que la sede B habia escondido.
+ */
+const CAMPOS_COMPARTIDOS = [
+  'name',
+  'description',
+  'basePrice',
+  'priceMode',
+  'priceMax',
+  'variantPriceMode',
+  'maxVariantsTotal',
+  'maxExtrasTotal',
+  'imageUrl',
+  'tags',
+] as const;
+
+function loQueSePropaga(dto: Record<string, unknown>) {
+  const out: Record<string, unknown> = {};
+  for (const k of CAMPOS_COMPARTIDOS) {
+    if (dto[k] !== undefined) out[k] = dto[k];
+  }
+  return out;
+}
+
+describe('sincronia entre cartas', () => {
+  it('el precio y el nombre se propagan', () => {
+    expect(loQueSePropaga({ name: 'Burger XL', basePrice: 42000 })).toEqual({
+      name: 'Burger XL',
+      basePrice: 42000,
+    });
+  });
+
+  it('esconder algo en una carta NO se propaga — es el punto de tener dos', () => {
+    const r = loQueSePropaga({
+      isAvailable: false,
+      availableForMesa: false,
+      availableForDelivery: false,
+    });
+    expect(r).toEqual({});
+  });
+
+  it('el stock no se propaga: el inventario es fisico de cada sede', () => {
+    expect(loQueSePropaga({ stock: 12, stockAlert: 3 })).toEqual({});
+  });
+
+  it('la posicion y la categoria no se propagan: cada carta se ordena sola', () => {
+    expect(loQueSePropaga({ position: 5, categoryId: 'otra' })).toEqual({});
+  });
+
+  it('destacar en una carta no destaca en la otra', () => {
+    expect(loQueSePropaga({ isRecommended: true })).toEqual({});
+  });
+
+  it('un cambio mixto propaga solo la mitad compartida', () => {
+    const r = loQueSePropaga({
+      basePrice: 50000,
+      isAvailable: false,
+      stock: 9,
+      imageUrl: 'https://x/y.jpg',
+    });
+    expect(r).toEqual({ basePrice: 50000, imageUrl: 'https://x/y.jpg' });
+  });
+
+  it('sin cambios compartidos no se toca ninguna copia', () => {
+    expect(Object.keys(loQueSePropaga({ position: 1 }))).toHaveLength(0);
+  });
+});

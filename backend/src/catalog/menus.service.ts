@@ -242,6 +242,12 @@ export class MenusService {
         data: {
           tenantId,
           menuId: destinoMenuId,
+          // Nace SIGUIENDO al original: cambiar el precio en el menú principal
+          // lo cambia aquí también. El negocio lo desengancha cuando quiera
+          // precios propios en esa sede. Lo que se muestra (visible, mesa,
+          // domicilio, posición, stock) es local desde el minuto uno.
+          sourceProductId: p.id,
+          syncWithSource: true,
           categoryId: p.categoryId ? (mapaCat.get(p.categoryId) ?? null) : null,
           name: p.name,
           description: p.description,

@@ -1080,3 +1080,63 @@ Apareció en la misma consola:
 Es el mismo tipo de problema (lista de orígenes permitidos) pero con
 `NEXT_PUBLIC_GOOGLE_CLIENT_ID`, y afecta al botón «Entrar con Google» en el
 panel maestro. **Ese sí necesita la consola de Google Cloud.** No se tocó.
+
+## 2026-08-24 (madrugada) — Sincronía entre cartas, y el selector de sede deja Google
+
+### Cada producto: independiente O sincronizado
+
+Javier aclaró el requisito: no son dos menús ciegos el uno al otro. Cada
+producto de la carta duplicada puede **seguir** al original o ir por libre.
+Eso resuelve la desincronización que había señalado como riesgo.
+
+`Product.sourceProductId` + `Product.syncWithSource` (migración aditiva
+aplicada, 2.958 productos, 0 afectados).
+
+**La regla, que es lo que hay que entender:**
+
+| Sigue al original | Es de cada carta |
+|---|---|
+| nombre, descripción | visible / oculto |
+| precio y modo de precio | disponible en mesa / domicilio |
+| foto y etiquetas | destacado |
+| variantes y extras | posición y categoría |
+| topes de variantes/extras | **stock** |
+
+O sea: **qué ES** el producto se sincroniza; **cómo se muestra aquí** no. Sin
+esa separación, sincronizar los precios habría devuelto a la carta los
+productos que la sede B tenía escondidos — justo lo contrario de lo que se
+quería.
+
+- Al duplicar, todo nace sincronizado (`syncWithSource: true`).
+- `PATCH /catalog/products/:id/sync` engancha o desengancha. Al **enganchar**
+  se traen los datos del original de una vez, para que no quede a medias.
+- La propagación se hace **al escribir**, no al leer: el menú público es la
+  consulta más caliente del producto y resolver el original en cada lectura la
+  encarecía para todos, incluidos los negocios de una sola carta.
+- La FK es `SET NULL`: borrar el producto del menú principal **no** borra la
+  copia de la sede, solo la deja independiente.
+
+18 tests en `menus.spec.ts` (7 nuevos sobre qué se propaga y qué no).
+
+### El selector de ubicación también deja Google
+
+Javier probó entrando a un negocio **desde el panel maestro** y el selector de
+sede falló igual: `RefererNotAllowedMapError` en
+`soyfidelity.com/app/locations`. Mi suposición de que `MapPicker` solo corría
+en dominios autorizados **era falsa** — al entrar a un negocio desde el admin,
+corre en el dominio del admin.
+
+Reescrito con **Leaflet + Nominatim** (el geocodificador de OSM). Sin clave,
+sin restricción por dominio.
+
+- Búsqueda al pulsar Enter o el botón, **no al teclear**: Nominatim pide un
+  máximo de 1 consulta por segundo. Es una búsqueda que se hace un par de veces
+  al dar de alta una sede, no un autocompletado.
+- Clic en el mapa y **pin arrastrable**, ambos con geocodificación inversa.
+- Se conserva el formulario manual de coordenadas: si el mapa no carga por lo
+  que sea, el negocio nunca se queda sin camino.
+
+De paso, Google avisaba en la misma consola que `places.Autocomplete` **ya no
+admite clientes nuevos**, así que ese buscador tenía fecha de caducidad.
+
+**Ya no queda una sola referencia a Google Maps en el frontend.**

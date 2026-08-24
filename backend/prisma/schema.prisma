@@ -1826,6 +1826,26 @@ model Product {
   /// Carta a la que pertenece. **Null = el menú principal**. Ver modelo `Menu`.
   menuId               String?
   menu                 Menu?     @relation(fields: [menuId], references: [id], onDelete: Cascade)
+
+  /// De qué producto salió este, cuando se creó duplicando otra carta.
+  ///
+  /// `SetNull` a propósito: borrar el producto original NO borra su copia en la
+  /// otra carta — solo la deja independiente. Borrar algo en el menú principal
+  /// no puede vaciarle la carta a una sede sin avisar.
+  sourceProductId      String?
+  sourceProduct        Product?  @relation("ProductSync", fields: [sourceProductId], references: [id], onDelete: SetNull)
+  syncedCopies         Product[] @relation("ProductSync")
+
+  /// Este producto SIGUE al original: cambiar el nombre, la descripción, el
+  /// precio o la foto en el menú principal los cambia aquí también.
+  ///
+  /// Lo que NUNCA se sincroniza es cómo se muestra en ESTA carta: si está
+  /// visible, si sale en mesa o domicilio, su posición y su stock. Ese es el
+  /// punto entero de tener dos cartas — la sede B esconde lo que no tiene.
+  ///
+  /// Se apaga en cuanto el negocio quiere precios propios en esa sede, y desde
+  /// ahí el producto va por libre.
+  syncWithSource       Boolean   @default(false)
   /// 2026-06-12 (Bloque 2 i18n batch): nullable para que tenants sin
   /// categorías creadas puedan agregar productos. Cuando la categoría
   /// se elimina, los productos quedan huérfanos (SetNull) en lugar de

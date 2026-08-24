@@ -93,6 +93,22 @@ export class ProductsController {
     return this.svc.list(user, tenantId, categoryId, menuId);
   }
 
+  /**
+   * Engancha o desengancha este producto del original del que se duplico.
+   *
+   * Sincronizado: nombre, descripcion, precio, foto, variantes y extras
+   * siguen al menu principal. Lo que se muestra en ESTA carta (visible, mesa,
+   * domicilio, posicion, stock) es local siempre.
+   */
+  @Patch(':id/sync')
+  setSync(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { sync: boolean },
+  ) {
+    return this.svc.setSync(user, id, body?.sync === true);
+  }
+
   @Get(':id')
   get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.get(user, id);
