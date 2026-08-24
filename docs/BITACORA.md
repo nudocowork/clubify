@@ -961,3 +961,37 @@ Sellea veía la marca de otra plataforma en su propio panel.
 
 Verificado: `Nest application successfully started`, sin errores de
 dependencias por la nueva inyección.
+
+## 2026-08-24 (tarde) — El Lab por marca y quitar sellos desde el computador
+
+### El Lab ya no es un feed común
+
+Era global: un afiliado de Sellea veía las propuestas de la comunidad de
+Clubify, con el nombre de Sellea encima. Fuga de contenido, no solo de marca.
+
+- Nuevo `LabProposal.whiteLabelId` (migración aditiva aplicada).
+- La propuesta **nace con la marca de quien la escribe** (`marcaDe`: primero su
+  `ReferralCode` —donde vive la marca de un afiliado, que no tiene `tenantId`—
+  y si no, `User.whiteLabelId`).
+- El feed filtra por la marca de **quien mira**, resuelta **en el controlador
+  desde el usuario**, nunca desde un parámetro: si viniera por query, cualquiera
+  pedía el feed de otra marca cambiándolo.
+- Las históricas sin marca quedan como de la plataforma. Backfill: 3 de 6
+  deducidas del autor (todas Clubify), 3 sin autor con marca.
+- Con el feed acotado, la pestaña se abre a **todas** las marcas.
+
+### Quitar sellos desde el panel
+
+Existía solo en el escáner del teléfono, así que corregir un error de mostrador
+obligaba a sacar el móvil y volver a escanear la tarjeta del cliente — que
+muchas veces ya se fue.
+
+Botón **−1** en la ficha del cliente, junto a sumar y redimir. Se deshabilita
+en 0 (el backend también lo garantiza) y funciona igual para tarjetas de
+sellos y de visitas. Queda anotado como «Corrección desde el panel».
+
+El gate `walletAdvanced.removeStamps` está activo en las tres marcas
+(`walletAdvanced = null` → todos los flags en true), así que no bloquea.
+
+Detalle: una de las 6 propuestas del Lab era literalmente **«PERMITIR QUITAR
+SELLOS EN LAS TARJETAS»**. Queda resuelta.

@@ -62,6 +62,13 @@ export interface CreateProposalInput {
 }
 
 export interface ListPublicOptions {
+  /**
+   * Marca de quien mira. Cada marca ve SU Lab; null/ausente = la plataforma
+   * (y las propuestas historicas sin marca). Lo resuelve el controlador desde
+   * el usuario, nunca lo manda el cliente: si no, cualquiera pedia el feed de
+   * otra marca cambiando un parametro.
+   */
+  whiteLabelId?: string | null;
   status?: LabStatus;
   sortBy?: 'top' | 'newest' | 'topMonth';
   q?: string;
@@ -91,6 +98,31 @@ export class LabService {
   //                     PROPOSALS — públicas
   // =============================================================
 
+  /**
+   * La marca de un usuario del Lab.
+   *
+   * Un afiliado NO tiene `tenantId`: su marca vive en el `ReferralCode`. Un
+   * admin de marca la lleva en `User.whiteLabelId`. Miramos las dos, en ese
+   * orden. null = plataforma.
+   */
+  private async marcaDe(userId: string): Promise<string | null> {
+    const u = await this.prisma.user
+      .findUnique({
+        where: { id: userId },
+        select: {
+          whiteLabelId: true,
+          referralCodes: { select: { whiteLabelId: true }, take: 1 },
+        },
+      })
+      .catch(() => null);
+    return u?.referralCodes?.[0]?.whiteLabelId ?? u?.whiteLabelId ?? null;
+  }
+
+  /** La marca de quien mira, para acotar el feed. Ver `marcaDe`. */
+  async marcaDeUsuario(userId: string): Promise<string | null> {
+    return this.marcaDe(userId);
+  }
+
   async createProposal(userId: string, dto: CreateProposalInput) {
     const title = (dto.title ?? '').trim();
     const description = (dto.description ?? '').trim();
@@ -115,6 +147,9 @@ export class LabService {
         attachmentUrl: dto.attachmentUrl || null,
         attachmentKind: dto.attachmentKind || null,
         authorId: userId,
+        // El Lab de cada marca es SUYO: la propuesta nace con la marca de
+        // quien la escribe, para que no aparezca en el feed de otra.
+        whiteLabelId: await this.marcaDe(userId),
       },
     });
   }
@@ -125,6 +160,11 @@ export class LabService {
     const where: Prisma.LabProposalWhereInput = {
       category,
       status: options.status ?? { in: PUBLIC_STATUSES },
+      // Cada marca ve SU Lab. Las historicas sin marca (null) se tratan como
+      // de la plataforma, asi que solo las ve Clubify.
+      ...(options.whiteLabelId
+        ? { whiteLabelId: options.whiteLabelId }
+        : { whiteLabelId: null }),
     };
     if (options.q && options.q.trim()) {
       const q = options.q.trim();

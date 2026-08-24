@@ -1808,7 +1808,16 @@
     "pushSending": "Enviando…",
     "toastPushSent": "Push enviado ({n} entregues)",
     "toastPushNoDevices": "O cliente ainda não instalou o passe na carteira — não há para onde enviar.",
-    "toastPushError": "Não foi possível enviar o push"
+    "toastPushError": "Não foi possível enviar o push",
+    "removeStampTitle": "Remover um selo (correção)",
+    "removeVisitTitle": "Remover uma visita (correção)",
+    "removeStampConfirm": "Remover um selo deste cliente?",
+    "removeVisitConfirm": "Remover uma visita deste cliente?",
+    "stampRemoved": "Selo removido",
+    "visitRemoved": "Visita removida",
+    "noStampsToRemove": "Este cliente não tem selos para remover.",
+    "noVisitsToRemove": "Este cliente não tem visitas para remover.",
+    "removeStampFailed": "Não foi possível remover"
   },
   "admin_ai_knowledge": {
     "pageTitle": "IA · Base de conhecimento",

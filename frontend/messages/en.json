@@ -1808,7 +1808,16 @@
     "pushSending": "Sending…",
     "toastPushSent": "Push sent ({n} delivered)",
     "toastPushNoDevices": "Customer hasn't installed the pass in their wallet — nowhere to send.",
-    "toastPushError": "Could not send the push"
+    "toastPushError": "Could not send the push",
+    "removeStampTitle": "Remove a stamp (fix)",
+    "removeVisitTitle": "Remove a visit (fix)",
+    "removeStampConfirm": "Remove one stamp from this customer?",
+    "removeVisitConfirm": "Remove one visit from this customer?",
+    "stampRemoved": "Stamp removed",
+    "visitRemoved": "Visit removed",
+    "noStampsToRemove": "This customer has no stamps to remove.",
+    "noVisitsToRemove": "This customer has no visits to remove.",
+    "removeStampFailed": "Couldn't remove it"
   },
   "admin_ai_knowledge": {
     "pageTitle": "AI · Knowledge base",

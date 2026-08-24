@@ -109,9 +109,13 @@ export class LabController {
   constructor(private svc: LabService) {}
 
   @Get('proposals')
-  list(@Query() q: ListProposalsQuery) {
+  async list(@CurrentUser() user: AuthUser, @Query() q: ListProposalsQuery) {
     const page = q.page ?? 0;
+    // La marca sale del USUARIO, no de un parametro: si no, cualquiera pedia
+    // el feed de otra marca cambiando la query.
+    const whiteLabelId = await this.svc.marcaDeUsuario(user.id);
     return this.svc.listPublic(q.category, {
+      whiteLabelId,
       status: q.status,
       sortBy: q.sortBy,
       q: q.q,

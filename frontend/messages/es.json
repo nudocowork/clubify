@@ -1808,7 +1808,16 @@
     "pushSending": "Enviando…",
     "toastPushSent": "Push enviado ({n} entregados)",
     "toastPushNoDevices": "El cliente aún no instaló el pase en su wallet — no hay dónde enviar.",
-    "toastPushError": "No se pudo enviar el push"
+    "toastPushError": "No se pudo enviar el push",
+    "removeStampTitle": "Quitar un sello (corrección)",
+    "removeVisitTitle": "Quitar una visita (corrección)",
+    "removeStampConfirm": "¿Quitar un sello a este cliente?",
+    "removeVisitConfirm": "¿Quitar una visita a este cliente?",
+    "stampRemoved": "Sello quitado",
+    "visitRemoved": "Visita quitada",
+    "noStampsToRemove": "El cliente no tiene sellos que quitar.",
+    "noVisitsToRemove": "El cliente no tiene visitas que quitar.",
+    "removeStampFailed": "No se pudo quitar"
   },
   "admin_ai_knowledge": {
     "pageTitle": "IA · Knowledge base",

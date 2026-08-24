@@ -11,6 +11,8 @@ type Pass = {
   id: string;
   serialNumber: string;
   stampsCount: number;
+  /** Tarjetas de tipo VISITS. El backend lo manda (include completo del pase). */
+  visitsCount?: number;
   pointsBalance: number;
   status: string;
   createdAt: string;
@@ -162,6 +164,10 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
   const remaining = Math.max(0, required - stamps);
   const pct = p.card.type === 'STAMPS' ? Math.min(100, (stamps / required) * 100) : 0;
   const canRedeem = p.card.type === 'STAMPS' && stamps >= required;
+  // Las tarjetas de VISITAS cuentan visitas, no sellos: el texto y el contador
+  // cambian, la acción es la misma (STAMP_REMOVE).
+  const isVisits = p.card.type === 'VISITS';
+  const cuentaActual = isVisits ? (p.visitsCount ?? 0) : (p.stampsCount ?? 0);
   // El bloque de acciones se muestra mientras el pase esté operable. Un pase de
   // sellos LLENO queda en status COMPLETED (backend), así que si solo miráramos
   // ACTIVE el botón de redimir desaparecería justo cuando el premio está listo.
@@ -220,6 +226,41 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
       onChange();
     } catch (e: any) {
       toast(e.message || t('redeemFailed'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Quitar un sello. Existía solo en el escáner del teléfono, así que un
+   * error de mostrador obligaba a sacar el móvil y volver a escanear la
+   * tarjeta del cliente — que muchas veces ya se fue.
+   *
+   * Piso 0: el backend también lo garantiza. La marca puede desactivarlo
+   * (`walletAdvanced.removeStamps`); si lo hace, el backend responde 403 y el
+   * mensaje se muestra tal cual.
+   */
+  async function removeStamp() {
+    if (cuentaActual <= 0) {
+      toast(isVisits ? t('noVisitsToRemove') : t('noStampsToRemove'), 'error');
+      return;
+    }
+    if (!confirm(isVisits ? t('removeVisitConfirm') : t('removeStampConfirm'))) return;
+    setBusy(true);
+    try {
+      await api('/stamps', {
+        method: 'POST',
+        body: JSON.stringify({
+          passId: p.id,
+          action: 'STAMP_REMOVE',
+          amount: 1,
+          note: 'Corrección desde el panel',
+        }),
+      });
+      toast(isVisits ? t('visitRemoved') : t('stampRemoved'), 'success');
+      onChange();
+    } catch (e: any) {
+      toast(e.message || t('removeStampFailed'), 'error');
     } finally {
       setBusy(false);
     }
@@ -412,6 +453,17 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
                 title={t('moreStampsTitle')}
               >
                 {t('moreStampsBtn')}
+              </button>
+              {/* Quitar sello: solo tiene sentido si hay alguno. Discreto
+                  (es una corrección, no una acción de mostrador) pero al
+                  alcance, que es lo que faltaba. */}
+              <button
+                onClick={removeStamp}
+                disabled={busy || cuentaActual <= 0}
+                className="btn-ghost text-xs justify-center px-3 disabled:opacity-40"
+                title={isVisits ? t('removeVisitTitle') : t('removeStampTitle')}
+              >
+                −1
               </button>
               <button
                 onClick={redeem}

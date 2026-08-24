@@ -251,11 +251,9 @@ export class AffiliateService {
             // Dominio de marketing de la marca: los enlaces de prueba que
             // comparte el afiliado tenian soyclubify.com escrito a mano.
             baseUrl: wl.domain ? `https://${wl.domain.replace(/^https?:\/\//, '')}` : null,
-            // El Lab es un feed GLOBAL, comun a todas las marcas. Mostrarselo
-            // a un afiliado de Sellea seria ensenarle la comunidad de Clubify
-            // bajo el nombre de Sellea. Solo para la plataforma hasta que el
-            // Lab se acote por marca.
-            labEnabled: wl.slug === 'clubify',
+            // El Lab ya esta acotado por marca (`LabProposal.whiteLabelId`),
+            // asi que cada marca ve el suyo y se muestra a todas.
+            labEnabled: true,
           }
         : null,
       myCode: myCode

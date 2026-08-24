@@ -569,10 +569,8 @@ export default function AffiliatePanel() {
               para que el embajador no salga del panel. La ruta /lab
               standalone sigue funcionando, ambas montan el mismo
               componente LabFeed. */}
-          {/* El Lab es un feed GLOBAL, comun a todas las marcas: mostrarselo
-              a un afiliado de Sellea seria ensenarle la comunidad de Clubify
-              con el nombre de Sellea encima. Se abre a las demas marcas
-              cuando el feed se acote por marca. */}
+          {/* Cada marca ve SU Lab: las propuestas se sellan con la marca de
+              quien las escribe y el feed filtra por la de quien mira. */}
           {me.brand?.labEnabled !== false && (
             <button
               className={`tab ${tab === 'lab' ? 'tab-active' : ''}`}

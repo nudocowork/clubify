@@ -4433,6 +4433,12 @@ enum LabVoteKind {
 
 model LabProposal {
   id                    String      @id @default(cuid())
+  /// Marca a la que pertenece la propuesta: el Lab de cada marca es SUYO.
+  ///
+  /// Era un feed global, así que un afiliado de Sellea veía la comunidad de
+  /// Clubify — y con el nombre de Sellea encima. Se sella al crearla, desde la
+  /// marca del autor. Null = históricas, se tratan como de la plataforma.
+  whiteLabelId          String?
   title                 String
   description           String      @db.Text
   category              LabCategory
