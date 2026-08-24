@@ -158,6 +158,12 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
   const [showMore, setShowMore] = useState(false);
   const [moreAmount, setMoreAmount] = useState(2);
   const [morePin, setMorePin] = useState('');
+  // Modal de sellado: null cerrado · 'elegir' pregunta compra/regalo ·
+  // 'compra' pide el monto · 'regalo' pide el motivo.
+  const [sellarPaso, setSellarPaso] = useState<
+    null | 'elegir' | 'compra' | 'regalo'
+  >(null);
+  const [montoCompra, setMontoCompra] = useState('');
   const [morePurchase, setMorePurchase] = useState('');
   const required = p.card.stampsRequired ?? 10;
   const stamps = p.card.type === 'STAMPS' ? p.stampsCount : 0;
@@ -174,22 +180,30 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
   const operable = p.status === 'ACTIVE' || p.status === 'COMPLETED';
   const couponRedeemed = p.status === 'COMPLETED';
 
-  async function addStamp() {
-    // Fix 2026-06-10: el backend exige `purchaseAmount` para STAMPS/
-    // VISITS/HYBRID (regla anti-fraude) salvo SUPER_ADMIN. Sin esto el
-    // panel devolvía "Monto de compra requerido para registrar el
-    // sello" y el botón parecía "no funcionar". Ahora preguntamos el
-    // monto al staff antes del POST.
-    const raw = window.prompt(
-      t('stampPurchasePrompt'),
-      '',
-    );
-    if (raw === null) return; // cancelado
-    const purchaseAmount = Number(raw.replace(',', '.'));
-    if (!Number.isFinite(purchaseAmount) || purchaseAmount <= 0) {
+  /**
+   * Sellar. Primero se pregunta si hubo COMPRA o es un REGALO.
+   *
+   * Antes era un `window.prompt` pidiendo el monto a secas, asi que un sello
+   * de cortesia obligaba a inventarse una cifra — y esa cifra entraba a las
+   * ventas del negocio como si alguien hubiera pagado.
+   *
+   * El backend exige el monto para STAMPS/VISITS/HYBRID salvo que venga
+   * `giftReason`: un regalo no tiene compra que exigir, y su
+   * `purchaseAmount` se guarda en null a proposito.
+   */
+  function confirmarCompra() {
+    const monto = Number(montoCompra.replace(',', '.'));
+    if (!Number.isFinite(monto) || monto <= 0) {
       toast(t('invalidAmount'), 'error');
       return;
     }
+    void sellar({ purchaseAmount: monto });
+  }
+
+  async function sellar(opts: {
+    purchaseAmount?: number;
+    giftReason?: 'COURTESY' | 'SPECIAL_DATE';
+  }) {
     setBusy(true);
     try {
       await api('/stamps', {
@@ -198,10 +212,13 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
           passId: p.id,
           action: 'STAMP',
           amount: 1,
-          purchaseAmount,
+          ...(opts.giftReason
+            ? { giftReason: opts.giftReason }
+            : { purchaseAmount: opts.purchaseAmount }),
         }),
       });
       toast(t('stampAdded'), 'success');
+      setSellarPaso(null);
       onChange();
     } catch (e: any) {
       toast(e.message || t('stampAddFailed'), 'error');
@@ -435,7 +452,10 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
           {operable && (
             <div className="flex flex-wrap gap-2 mt-3">
               <button
-                onClick={addStamp}
+                onClick={() => {
+                  setMontoCompra('');
+                  setSellarPaso('elegir');
+                }}
                 disabled={busy || canRedeem}
                 className="flex-1 btn-ghost text-xs justify-center disabled:opacity-50"
                 title={canRedeem ? t('redeemFirstTitle') : t('addStampTitle')}
@@ -536,6 +556,121 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
           {t('viewGoogleObjectBtn')}
         </button>
       </div>
+
+      {/* Sellar: primero compra o regalo. Un regalo no pide monto — antes
+          obligaba a inventarse una cifra que entraba a las ventas. */}
+      {sellarPaso && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.5)' }}
+          onClick={() => !busy && setSellarPaso(null)}
+        >
+          <div
+            className="bg-bg rounded-2xl p-4 w-full max-w-xs shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {sellarPaso === 'elegir' && (
+              <>
+                <div className="font-semibold text-sm mb-1">
+                  {t('stampKindTitle')}
+                </div>
+                <div className="text-xs text-mute mb-3">
+                  {t('stampKindHelp')}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    className="btn-ghost text-sm py-4 flex-col gap-1"
+                    onClick={() => setSellarPaso('compra')}
+                  >
+                    <span className="text-xl">🛒</span>
+                    {t('stampKindPurchase')}
+                  </button>
+                  <button
+                    className="btn-ghost text-sm py-4 flex-col gap-1"
+                    onClick={() => setSellarPaso('regalo')}
+                  >
+                    <span className="text-xl">🎁</span>
+                    {t('stampKindGift')}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {sellarPaso === 'compra' && (
+              <>
+                <div className="font-semibold text-sm mb-3">
+                  {t('stampPurchaseTitle')}
+                </div>
+                <label className="block text-xs text-mute mb-1">
+                  {t('stampPurchaseAmount')}
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={montoCompra}
+                  onChange={(e) => setMontoCompra(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') confirmarCompra();
+                  }}
+                  className="input w-full mb-3"
+                  placeholder="0"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    className="btn-ghost flex-1 text-sm justify-center"
+                    onClick={() => setSellarPaso('elegir')}
+                    disabled={busy}
+                  >
+                    {t('back')}
+                  </button>
+                  <button
+                    className="btn flex-1 text-sm justify-center"
+                    onClick={confirmarCompra}
+                    disabled={busy}
+                  >
+                    {busy ? t('saving') : t('stampConfirm')}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {sellarPaso === 'regalo' && (
+              <>
+                <div className="font-semibold text-sm mb-1">
+                  {t('stampGiftTitle')}
+                </div>
+                <div className="text-xs text-mute mb-3">
+                  {t('stampGiftHelp')}
+                </div>
+                <div className="space-y-2">
+                  <button
+                    className="btn-ghost w-full text-sm justify-start"
+                    onClick={() => sellar({ giftReason: 'COURTESY' })}
+                    disabled={busy}
+                  >
+                    ☕ {t('stampGiftCourtesy')}
+                  </button>
+                  <button
+                    className="btn-ghost w-full text-sm justify-start"
+                    onClick={() => sellar({ giftReason: 'SPECIAL_DATE' })}
+                    disabled={busy}
+                  >
+                    🎂 {t('stampGiftSpecialDate')}
+                  </button>
+                </div>
+                <button
+                  className="btn-ghost w-full text-sm justify-center mt-3"
+                  onClick={() => setSellarPaso('elegir')}
+                  disabled={busy}
+                >
+                  {t('back')}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {showMore && (
         <div

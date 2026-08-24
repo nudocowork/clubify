@@ -995,3 +995,37 @@ El gate `walletAdvanced.removeStamps` está activo en las tres marcas
 
 Detalle: una de las 6 propuestas del Lab era literalmente **«PERMITIR QUITAR
 SELLOS EN LAS TARJETAS»**. Queda resuelta.
+
+## 2026-08-24 (noche) — Sellar preguntando: ¿compra o regalo?
+
+Antes sellar pedía el monto a secas. Para dar una cortesía había que
+**inventarse una cifra**, y esa cifra entraba a la facturación del negocio
+como si alguien hubiera pagado.
+
+- Nuevo `Stamp.giftReason`: `COURTESY` | `SPECIAL_DATE`. Migración aditiva
+  aplicada sobre 5.465 sellos, 0 afectados.
+- Campo propio y no dentro de `note`, para que el negocio pueda **medir**
+  cuántos sellos regala y por qué.
+- Con `giftReason` el backend **no exige monto** ni aplica el mínimo por sello
+  de la tarjeta (no hay compra que comparar), y guarda `purchaseAmount` en
+  **null a propósito** — aunque el cliente mande un monto. Un regalo no puede
+  contar como venta.
+- Un motivo inventado se **rechaza**, no se ignora en silencio.
+
+Interfaz en los dos sitios donde se sella:
+
+- **Panel** (ficha del cliente): modal de tres pasos — ¿compra o regalo? →
+  monto, o cortesía / fecha especial. Reemplaza el `window.prompt`.
+- **Escáner** (teléfono): debajo del monto, «¿No hubo compra? Regálalo» con los
+  dos botones.
+
+10 pruebas nuevas en `src/stamps/sello-regalado.spec.ts`.
+
+### Un bug que casi meto
+
+Al añadir `giftReason` a `act()` en el escáner, el parámetro quedó **antes** de
+`override`, así que la llamada `act(..., t.purchaseAmount, true)` del botón
+«Sellar de todos modos» pasaba `true` como motivo de regalo y el forzado del
+tope dejaba de funcionar. Corregido pasando `undefined` en el hueco. Los
+parámetros posicionales opcionales son una trampa: al insertar uno en medio, el
+compilador no siempre avisa.

@@ -1817,7 +1817,19 @@
     "visitRemoved": "Visita quitada",
     "noStampsToRemove": "El cliente no tiene sellos que quitar.",
     "noVisitsToRemove": "El cliente no tiene visitas que quitar.",
-    "removeStampFailed": "No se pudo quitar"
+    "removeStampFailed": "No se pudo quitar",
+    "stampKindTitle": "¿Cómo se gana este sello?",
+    "stampKindHelp": "Un regalo no suma a tus ventas.",
+    "stampKindPurchase": "Compra",
+    "stampKindGift": "Regalo",
+    "stampPurchaseTitle": "Sello por compra",
+    "stampPurchaseAmount": "Valor de la compra",
+    "stampGiftTitle": "Sello de regalo",
+    "stampGiftHelp": "Queda registrado como regalo, sin monto.",
+    "stampGiftCourtesy": "Cortesía",
+    "stampGiftSpecialDate": "Fecha especial",
+    "stampConfirm": "Sellar",
+    "back": "Atrás"
   },
   "admin_ai_knowledge": {
     "pageTitle": "IA · Knowledge base",

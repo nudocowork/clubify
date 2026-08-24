@@ -1817,7 +1817,19 @@
     "visitRemoved": "Visita removida",
     "noStampsToRemove": "Este cliente não tem selos para remover.",
     "noVisitsToRemove": "Este cliente não tem visitas para remover.",
-    "removeStampFailed": "Não foi possível remover"
+    "removeStampFailed": "Não foi possível remover",
+    "stampKindTitle": "Como este selo foi ganho?",
+    "stampKindHelp": "Um presente não soma às suas vendas.",
+    "stampKindPurchase": "Compra",
+    "stampKindGift": "Presente",
+    "stampPurchaseTitle": "Selo por compra",
+    "stampPurchaseAmount": "Valor da compra",
+    "stampGiftTitle": "Selo de presente",
+    "stampGiftHelp": "Fica registrado como presente, sem valor.",
+    "stampGiftCourtesy": "Cortesia",
+    "stampGiftSpecialDate": "Data especial",
+    "stampConfirm": "Selar",
+    "back": "Voltar"
   },
   "admin_ai_knowledge": {
     "pageTitle": "IA · Base de conhecimento",

@@ -22,6 +22,17 @@ export type StampDto = {
   // Solo informativo — no cambia cuántos sellos se otorgan.
   purchaseAmount?: number;
   /**
+   * El sello se REGALA: no hubo compra detrás.
+   *
+   * `COURTESY` = cortesía del negocio. `SPECIAL_DATE` = cumpleaños,
+   * aniversario, fecha especial.
+   *
+   * Cuando viene, no se exige `purchaseAmount` (no hay compra que exigir) ni
+   * se aplica el mínimo por sello de la tarjeta. Y `purchaseAmount` se guarda
+   * en null a propósito: un regalo NO puede contar como venta.
+   */
+  giftReason?: 'COURTESY' | 'SPECIAL_DATE';
+  /**
    * Saltarse el tope de sellos del día A PROPÓSITO. Solo SUPER_ADMIN, y solo
    * cuando lo pide explícitamente para corregir un error.
    *
@@ -186,7 +197,15 @@ export class StampsService {
     // Para STAMP/VISIT en cards de fidelización, el frontend exige
     // monto de compra (regla de negocio). Validamos que esté presente
     // y > 0 — pero solo para tipos de cards que lo requieren.
+    // Un sello REGALADO no tiene compra que pedir. El propio hecho de marcarlo
+    // como regalo es la justificacion, y queda registrado en `giftReason`.
+    const esRegalo =
+      dto.giftReason === 'COURTESY' || dto.giftReason === 'SPECIAL_DATE';
+    if (dto.giftReason && !esRegalo) {
+      throw new BadRequestException('Motivo de regalo invalido.');
+    }
     const requiresPurchase =
+      !esRegalo &&
       (dto.action === 'STAMP' || dto.action === 'VISIT') &&
       ['STAMPS', 'VISITS', 'HYBRID'].includes(pass.card.type);
     if (
@@ -495,10 +514,14 @@ export class StampsService {
           operatorId: user.id,
           action: dto.action,
           amount,
-          purchaseAmount:
-            dto.purchaseAmount !== undefined && dto.purchaseAmount !== null
+          // Un regalo NUNCA lleva monto, aunque el cliente mande uno: si
+          // entrara, un sello de cortesia sumaria a las ventas del negocio.
+          purchaseAmount: esRegalo
+            ? null
+            : dto.purchaseAmount !== undefined && dto.purchaseAmount !== null
               ? new Prisma.Decimal(dto.purchaseAmount)
               : undefined,
+          giftReason: esRegalo ? dto.giftReason : null,
           note: isCouponRedeem
             ? (dto.note ??
               (skipCouponTransform

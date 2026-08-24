@@ -1817,7 +1817,19 @@
     "visitRemoved": "Visit removed",
     "noStampsToRemove": "This customer has no stamps to remove.",
     "noVisitsToRemove": "This customer has no visits to remove.",
-    "removeStampFailed": "Couldn't remove it"
+    "removeStampFailed": "Couldn't remove it",
+    "stampKindTitle": "How was this stamp earned?",
+    "stampKindHelp": "A gift doesn't count toward your sales.",
+    "stampKindPurchase": "Purchase",
+    "stampKindGift": "Gift",
+    "stampPurchaseTitle": "Stamp for a purchase",
+    "stampPurchaseAmount": "Purchase amount",
+    "stampGiftTitle": "Gift stamp",
+    "stampGiftHelp": "Recorded as a gift, with no amount.",
+    "stampGiftCourtesy": "On the house",
+    "stampGiftSpecialDate": "Special date",
+    "stampConfirm": "Add stamp",
+    "back": "Back"
   },
   "admin_ai_knowledge": {
     "pageTitle": "AI · Knowledge base",

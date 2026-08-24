@@ -1624,6 +1624,15 @@ model Stamp {
   // monto pagado, así que purchaseAmount queda null (la fórmula ya está
   // implícita: amount = purchaseAmount * cashbackPercent / 100).
   purchaseAmount Decimal?    @db.Decimal(12, 2)
+  /// Por qué se REGALÓ este sello, cuando no hubo compra detrás.
+  ///
+  /// `COURTESY` (cortesía del negocio) o `SPECIAL_DATE` (cumpleaños,
+  /// aniversario, fecha especial). Null = sello normal, con su compra.
+  ///
+  /// Existe como campo propio y no dentro de `note` para que el negocio pueda
+  /// MEDIRLO: cuántos sellos regaló y por qué. Y para que un regalo nunca
+  /// cuente como venta: `purchaseAmount` queda null.
+  giftReason     String?
   note           String?
   // Wallet V3 — auditoría de ajustes manuales de sellos (+1/-1 desde escáner).
   // "note" cumple como Motivo; estos dos completan el rastro (IP + navegador/
