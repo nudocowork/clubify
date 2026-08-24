@@ -114,6 +114,9 @@ export default function AdminBusinessMapPage() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.CircleMarker[]>([]);
+  // El agrupador se vuelve a ejecutar en cada zoom; guardamos la referencia
+  // para poder desuscribirlo al desmontar.
+  const redibujarRef = useRef<(() => void) | null>(null);
   const [ready, setReady] = useState(false);
 
   // ─── Cargar data ───
@@ -248,27 +251,101 @@ export default function AdminBusinessMapPage() {
       for (const m of markersRef.current) m.remove();
       markersRef.current = [];
 
-      const puntos: [number, number][] = [];
-
+      // Todas las sedes, aplanadas.
+      const sedes: { tn: (typeof filtered)[number]; loc: MapLocation }[] = [];
       for (const tn of filtered) {
-        const color = STATUS_COLORS[tn.status];
-        for (const loc of tn.locations) {
-          // Círculo de radio fijo en píxeles: se ve igual a cualquier zoom,
-          // como el SymbolPath.CIRCLE que había antes.
-          const marker = L.circleMarker([loc.latitude, loc.longitude], {
-            radius: 8,
-            fillColor: color,
-            fillOpacity: 0.95,
-            color: '#FFFFFF',
-            weight: 2,
-          })
-            .addTo(map)
-            .bindPopup(buildInfoWindow(tn, loc, t), { maxWidth: 280 });
-          marker.bindTooltip(tn.brandName);
-          markersRef.current.push(marker);
-          puntos.push([loc.latitude, loc.longitude]);
+        for (const loc of tn.locations) sedes.push({ tn, loc });
+      }
+      const puntos: [number, number][] = sedes.map((s) => [
+        s.loc.latitude,
+        s.loc.longitude,
+      ]);
+
+      /**
+       * Agrupa las sedes que caen en el mismo punto de la PANTALLA.
+       *
+       * Sin esto, cuatro sedes a 5 km se pintan una encima de otra al ver el
+       * continente entero: el panel decía "7 sedes" y solo se contaban 3
+       * puntos. Se reagrupa en cada zoom porque lo que importa son píxeles,
+       * no kilómetros.
+       */
+      function pintar() {
+        for (const m of markersRef.current) m.remove();
+        markersRef.current = [];
+        if (!mapRef.current) return;
+
+        const CELDA = 44; // píxeles: por debajo de esto los puntos se tocan
+        const grupos = new Map<string, typeof sedes>();
+        for (const s of sedes) {
+          const p = map.latLngToLayerPoint([s.loc.latitude, s.loc.longitude]);
+          const clave = `${Math.round(p.x / CELDA)}:${Math.round(p.y / CELDA)}`;
+          const g = grupos.get(clave);
+          if (g) g.push(s);
+          else grupos.set(clave, [s]);
+        }
+
+        for (const grupo of grupos.values()) {
+          const centro: [number, number] = [
+            grupo.reduce((a, s) => a + s.loc.latitude, 0) / grupo.length,
+            grupo.reduce((a, s) => a + s.loc.longitude, 0) / grupo.length,
+          ];
+
+          if (grupo.length === 1) {
+            const { tn, loc } = grupo[0];
+            const marker = L.circleMarker([loc.latitude, loc.longitude], {
+              radius: 8,
+              fillColor: STATUS_COLORS[tn.status],
+              fillOpacity: 0.95,
+              color: '#FFFFFF',
+              weight: 2,
+            })
+              .addTo(map)
+              .bindPopup(buildInfoWindow(tn, loc, t), { maxWidth: 280 });
+            marker.bindTooltip(tn.brandName);
+            markersRef.current.push(marker);
+            continue;
+          }
+
+          // Varias sedes en el mismo sitio: un círculo con el número. Si todas
+          // comparten estado se pinta de su color; si no, gris neutro para no
+          // mentir sobre el estado del grupo.
+          const estados = new Set(grupo.map((s) => s.tn.status));
+          const color =
+            estados.size === 1
+              ? STATUS_COLORS[grupo[0].tn.status]
+              : '#64748B';
+          const cluster = L.marker(centro, {
+            icon: L.divIcon({
+              className: '',
+              html: `<div style="width:34px;height:34px;border-radius:9999px;background:${color};color:#fff;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font:600 13px/1 system-ui,sans-serif">${grupo.length}</div>`,
+              iconSize: [34, 34],
+              iconAnchor: [17, 17],
+            }),
+          }).addTo(map);
+
+          const nombres = [...new Set(grupo.map((s) => s.tn.brandName))];
+          cluster.bindTooltip(
+            `${grupo.length} sedes · ${nombres.slice(0, 3).join(', ')}${nombres.length > 3 ? '…' : ''}`,
+          );
+          // Clic = acercarse hasta separarlas. Es la forma natural de "ver los
+          // otros" sin tener que buscar el control de zoom.
+          cluster.on('click', () => {
+            map.fitBounds(
+              L.latLngBounds(
+                grupo.map(
+                  (s) => [s.loc.latitude, s.loc.longitude] as [number, number],
+                ),
+              ),
+              { padding: [80, 80], maxZoom: 17 },
+            );
+          });
+          markersRef.current.push(cluster as unknown as L.CircleMarker);
         }
       }
+
+      pintar();
+      map.on('zoomend', pintar);
+      redibujarRef.current = pintar;
 
       if (puntos.length) {
         // Con un solo punto, `fitBounds` se va a zoom máximo: lo capamos.
@@ -278,6 +355,10 @@ export default function AdminBusinessMapPage() {
 
     return () => {
       cancelado = true;
+      if (redibujarRef.current) {
+        map.off('zoomend', redibujarRef.current);
+        redibujarRef.current = null;
+      }
     };
   }, [ready, filtered]);
 

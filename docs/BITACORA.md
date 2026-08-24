@@ -1140,3 +1140,34 @@ De paso, Google avisaba en la misma consola que `places.Autocomplete` **ya no
 admite clientes nuevos**, así que ese buscador tenía fecha de caducidad.
 
 **Ya no queda una sola referencia a Google Maps en el frontend.**
+
+## 2026-08-24 — «No se ven los otros en el mapa de Sellea»
+
+**No faltaba ninguna.** Las 7 sedes de Sellea están, con coordenadas válidas
+(ninguna en 0,0 ni fuera de rango). Se veían 3 puntos porque a ese zoom caían
+en el mismo píxel:
+
+| Zona | Sedes |
+|---|---|
+| Miami | Acqua Nails + Vizage MedSpa (1,2 km) |
+| Aragua, Venezuela | Empanadas La Parada + FarCentro ×2 + SELLEA Cagua (5 km) |
+| Trujillo, Venezuela | SELLEA Farmatodo |
+
+Que el panel dijera «7 sedes» y se contaran 3 puntos sí era un defecto.
+Agregada **agrupación por espacio de PANTALLA** (no por distancia real):
+
+- Rejilla de 44 px sobre las coordenadas proyectadas al zoom actual. Se
+  recalcula en cada `zoomend`, porque lo que importa son píxeles, no
+  kilómetros.
+- Grupo de 1 → el círculo de siempre. Grupo de varias → círculo con **el
+  número**.
+- Color del grupo: el del estado si todas coinciden; **gris si no**, para no
+  mentir sobre el estado del conjunto.
+- Clic en el grupo → se acerca hasta separarlas. Es la forma natural de «ver
+  los otros» sin buscar el control de zoom.
+
+Sin dependencias nuevas (~60 líneas), en vez de `leaflet.markercluster`.
+
+**Aparte:** D'Ponke Cake & Eatery es de **Clubify**, no de Sellea, así que no
+debe aparecer en ese mapa. Su sede (Cayey, Puerto Rico) tiene coordenadas
+correctas.
