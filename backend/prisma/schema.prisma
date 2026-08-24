@@ -61,11 +61,22 @@ enum TenantStatus {
 /// Tipo/línea de producto del negocio dentro de Fidelity. Define su costo en
 /// créditos por ciclo (ver common/business-types.ts) y qué módulos ve el dueño.
 ///   FULL     = Negocio Completo (todos los módulos, 1 crédito/mes).
-///   INFOLINK = Solo InfoLink (mini-page tipo Linktree, 0.25 créditos/mes).
+///   INFOLINK = Solo InfoLink (mini-page tipo Linktree, 0.1 créditos/mes).
 /// Preparado para nuevos tipos modulares futuros (Solo Wallet, Solo Delivery…).
 enum BusinessType {
   FULL
   INFOLINK
+}
+
+/// Nivel del producto InfoLink (solo aplica a negocios businessType=INFOLINK).
+/// Modelo freemium de Sellea Infolinks:
+///   FREE = captación (0 créditos, con publicidad de Sellea y límites).
+///   PRO  = pago del usuario final vía Stripe (0.25 créditos/mes, sin publicidad).
+/// Null = negocio FULL (no aplica) o INFOLINK legacy → se trata como PRO por
+/// compat (no se le quitan funciones a nadie existente). Ver common/infolink-tier.ts.
+enum InfolinkTier {
+  FREE
+  PRO
 }
 
 enum CardType {
@@ -500,6 +511,10 @@ model Tenant {
   // Define el consumo de créditos (creditCost) y los módulos visibles. Default
   // FULL: todos los negocios existentes quedan como Negocio Completo.
   businessType                BusinessType               @default(FULL)
+  // Nivel del InfoLink (solo si businessType=INFOLINK). Null = FULL o legacy
+  // (se trata como PRO). El freemium de Sellea marca FREE en el auto-registro
+  // público y PRO cuando el usuario paga por Stripe. Ver common/infolink-tier.ts.
+  infolinkTier                InfolinkTier?
   planId                      String
   plan                        Plan                       @relation(fields: [planId], references: [id])
   // Periodicidad del plan (MENSUAL|TRIMESTRAL|SEMESTRAL|ANUAL). NO afecta
@@ -799,6 +814,10 @@ model Tenant {
   // Cuponera / Living Card: campaña que respalda este tenant (1:1, solo si
   // isCampaignHost=true).
   benefitCampaign         BenefitCampaign?
+  /// Cuponeras en las que este negocio participa como ALIADO TIPO A (spec §16):
+  /// su escáner de siempre debe reconocer también la tarjeta de esas cuponeras.
+  /// Distinto de `benefitCampaign`, que es el tenant de sistema que HOSPEDA una.
+  allyOfCampaigns         AllyBusiness[]  @relation("AllyBusinessTenant")
 
   @@index([status])
   @@index([stripeCustomerId])
@@ -1430,6 +1449,13 @@ model Card {
   stampBgType         String    @default("SOLID")
   stampBgImageUrl     String?
   logoUrl             String?
+  // Color del "chip"/fondo detrás del logo (header del pase + preview).
+  //   null       = sin chip (comportamiento histórico: logo sobre el gradiente).
+  //   "#RRGGBB"  = rectángulo de ese color detrás del logo → da contraste a
+  //                logos blancos/transparentes que quedaban invisibles.
+  // Espejo de Storefront.logoBgColor. Off por defecto (aditivo, no cambia
+  // tarjetas existentes). Ver feedback_wallet_apple_logo_chromakey_white.
+  logoBgColor         String?
   heroImageUrl        String?
   iconUrl             String?
   stampsRequired      Int?
@@ -5387,6 +5413,12 @@ model WhiteLabelPaymentLink {
   /// Solo Stripe: identifican el precio/producto para mapear el webhook.
   stripePriceId   String?
   stripeProductId String?
+  /// Qué OTORGA este link al confirmarse el pago (freemium Sellea Infolinks):
+  ///   "INFOLINK_PRO" = sube el negocio INFOLINK de FREE a PRO (tier=PRO).
+  ///   "FULL"         = lo pasa a Negocio Completo (businessType=FULL).
+  ///   null           = suscripción normal (no cambia tipo/nivel).
+  /// Lo aplica el webhook de Stripe (activate) según el stripePriceId pagado.
+  productKey      String?
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
 
@@ -5830,6 +5862,18 @@ model MercadopagoWebhookEvent {
 
 /// Estado de un negocio aliado dentro de una campaña. La campaña aprueba
 /// (o rechaza) antes de que su ficha sea visible en el marketplace.
+/// Ventana de conteo del tope por miembro de un beneficio (spec §7).
+/// LIFETIME = sin ventana (comportamiento histórico). Los períodos son de
+/// CALENDARIO en zona Bogotá, no ventanas móviles: el spec dice "2 veces al mes"
+/// y la pantalla del canje muestra "usos restantes este mes".
+enum BenefitLimitPeriod {
+  LIFETIME
+  DAY
+  WEEK
+  MONTH
+  YEAR
+}
+
 enum AllyStatus {
   PENDING
   APPROVED
@@ -5844,6 +5888,13 @@ model AllyBusiness {
   id          String           @id @default(uuid())
   campaignId  String
   campaign    BenefitCampaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  /// TIPO A vs TIPO B (spec §16/§17). Con valor: este aliado YA es cliente de la
+  /// marca blanca y su escáner de siempre debe reconocer la tarjeta de la
+  /// cuponera. Null: aliado externo, usa el escáner propio de la cuponera.
+  /// Es la única pieza que permite saber que 'el aliado X' y 'el tenant X' son
+  /// el mismo negocio.
+  tenantId    String?
+  tenantRef   Tenant?          @relation("AllyBusinessTenant", fields: [tenantId], references: [id], onDelete: SetNull)
   /// Categoría del marketplace (Restaurantes, Cafés…). Opcional.
   categoryId  String?
   category    BenefitCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -5869,12 +5920,41 @@ model AllyBusiness {
 
   /// Cuentas de login del negocio (role=ALLY_BUSINESS).
   admins      User[]       @relation("AllyBusinessAdmin")
+  locations   AllyLocation[]
   benefits    Benefit[]
   redemptions Redemption[]
   stampEvents StampEvent[]
 
   @@index([campaignId, status])
   @@index([categoryId])
+}
+
+/// Sede de un aliado (spec §5 y §9). Un aliado puede tener varias; cada una con
+/// su propio geofence y mensaje. Reemplaza al address/lat/lng único de
+/// AllyBusiness, que se conserva para no romper las fichas ya cargadas.
+model AllyLocation {
+  id             String       @id @default(uuid())
+  allyBusinessId String
+  ally           AllyBusiness @relation(fields: [allyBusinessId], references: [id], onDelete: Cascade)
+  /// Nombre visible de la sede: 'Cabecera', 'Centro'…
+  name           String
+  address        String       @default("")
+  city           String       @default("")
+  latitude       Decimal?     @db.Decimal(10, 7)
+  longitude      Decimal?     @db.Decimal(10, 7)
+  /// Radio del geofence en metros. Apple limita a 10 regiones por pase: el
+  /// geopush efectivo lo decide la campaña, no cada sede por su cuenta.
+  radiusMeters   Int          @default(150)
+  geopushMessage String       @default("")
+  geopushActive  Boolean      @default(false)
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  redemptions Redemption[]
+
+  @@index([allyBusinessId, isActive])
+  @@index([geopushActive])
 }
 
 /// Tipo de beneficio/promoción publicado por un negocio aliado (Fase 3).
@@ -5940,6 +6020,10 @@ model Benefit {
   @@index([campaignId, status, approval])
   @@index([allyBusinessId])
   @@index([categoryId])
+  /// Ventana sobre la que cuenta `maxPerMember` (spec §7). LIFETIME preserva el
+  /// comportamiento histórico: el tope era total, sin período. Combinado con
+  /// maxPerMember cubre toda la lista del spec — 'ilimitado' es maxPerMember=null.
+  limitPeriod      BenefitLimitPeriod @default(LIFETIME)
 }
 
 /// Registro de un canje (un miembro redimió un beneficio en un negocio).
@@ -5956,6 +6040,10 @@ model Redemption {
   passId         String?
   /// Usuario (cuenta del aliado) que registró el canje.
   operatorUserId String?
+  /// Sede donde se canjeó (spec §19). Null = el aliado no tiene sedes cargadas
+  /// o el canje es anterior a AllyLocation.
+  locationId     String?
+  location       AllyLocation?   @relation(fields: [locationId], references: [id], onDelete: SetNull)
   createdAt      DateTime        @default(now())
 
   @@index([benefitId, customerId])

@@ -12,6 +12,11 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { CardsService, CardDto } from '../cards/cards.service';
 import { PassesService } from '../passes/passes.service';
 import { LocationsService } from '../locations/locations.service';
+import {
+  benefitPeriodStart,
+  describeLimit,
+  type BenefitLimitPeriod,
+} from './benefit-limits';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WalletService } from '../wallet/wallet.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -29,6 +34,19 @@ type EnrollInput = {
   planId?: string | null;
   source?: 'MANUAL' | 'MERCADOPAGO';
   mp?: { preapprovalId?: string; payerId?: string; expiresAt?: string | Date };
+};
+
+/** Sede de un aliado (spec §5 y §9). Ver AllyLocationBody en cuponera.dto.ts. */
+export type AllyLocationDto = {
+  name?: string;
+  address?: string;
+  city?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  radiusMeters?: number;
+  geopushMessage?: string;
+  geopushActive?: boolean;
+  isActive?: boolean;
 };
 
 export type AllyProfileDto = {
@@ -821,6 +839,73 @@ export class CuponeraService {
     });
   }
 
+  // --- Sedes del aliado (spec §5 y §9) ---
+  //
+  // TODO scopea por `user.allyBusinessId`. En update/delete NO alcanza con
+  // buscar por id: hay que exigir TAMBIÉN el allyBusinessId, o un aliado podría
+  // editar la sede de otro adivinando el id. Por eso van con updateMany/
+  // deleteMany (las dos condiciones juntas) y se revisa el `count`.
+
+  async listAllyLocations(user: AuthUser) {
+    const ally = await this.getAllyForPortal(user);
+    return this.prisma.allyLocation.findMany({
+      where: { allyBusinessId: ally.id },
+      orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  async createAllyLocation(user: AuthUser, dto: AllyLocationDto) {
+    const ally = await this.getAllyForPortal(user);
+    const name = (dto.name ?? '').trim();
+    if (!name) throw new BadRequestException('La sede necesita un nombre');
+    return this.prisma.allyLocation.create({
+      data: { allyBusinessId: ally.id, ...this.locationData(dto), name },
+    });
+  }
+
+  async updateAllyLocation(user: AuthUser, id: string, dto: AllyLocationDto) {
+    const ally = await this.getAllyForPortal(user);
+    const res = await this.prisma.allyLocation.updateMany({
+      where: { id, allyBusinessId: ally.id },
+      data: this.locationData(dto),
+    });
+    if (res.count === 0) throw new NotFoundException('Sede no encontrada');
+    return this.prisma.allyLocation.findUnique({ where: { id } });
+  }
+
+  async deleteAllyLocation(user: AuthUser, id: string) {
+    const ally = await this.getAllyForPortal(user);
+    const res = await this.prisma.allyLocation.deleteMany({
+      where: { id, allyBusinessId: ally.id },
+    });
+    if (res.count === 0) throw new NotFoundException('Sede no encontrada');
+    return { ok: true };
+  }
+
+  /** Campos editables de una sede. Solo escribe lo que vino en el body. */
+  private locationData(dto: AllyLocationDto) {
+    const d: Record<string, unknown> = {};
+    if (dto.name !== undefined) d.name = dto.name.trim();
+    if (dto.address !== undefined) d.address = dto.address.trim();
+    if (dto.city !== undefined) d.city = dto.city.trim();
+    if (dto.latitude !== undefined) d.latitude = dto.latitude;
+    if (dto.longitude !== undefined) d.longitude = dto.longitude;
+    if (dto.radiusMeters !== undefined) d.radiusMeters = dto.radiusMeters;
+    if (dto.geopushMessage !== undefined) d.geopushMessage = dto.geopushMessage.trim();
+    if (dto.isActive !== undefined) d.isActive = dto.isActive;
+    if (dto.geopushActive !== undefined) {
+      // Un geofence sin coordenadas no dispara nunca: mejor rechazarlo que dejar
+      // al aliado con el interruptor en "activo" creyendo que funciona.
+      if (dto.geopushActive && (dto.latitude === null || dto.longitude === null)) {
+        throw new BadRequestException(
+          'Para activar el geopush la sede necesita latitud y longitud',
+        );
+      }
+      d.geopushActive = dto.geopushActive;
+    }
+    return d;
+  }
+
   // --- Público (marketplace de negocios) ---
 
   async listPublicAllies(categorySlug?: string) {
@@ -1077,11 +1162,59 @@ export class CuponeraService {
 
   /** El aliado escanea el QR del miembro → devuelve al miembro + los beneficios
    *  del negocio con su disponibilidad (para elegir cuál canjear). */
+  /**
+   * Escaneo desde el PORTAL del aliado (Tipo B, y Tipo A que igual quiera usarlo).
+   * La sesión trae `allyBusinessId`, así que el aliado sale de ahí.
+   */
   async scanMember(user: AuthUser, qrToken: string) {
     const ally = await this.getAllyForPortal(user);
     const campaign = await this.ensureLivingCampaign();
     const pass = await this.resolvePass(campaign.tenantId, qrToken);
     if (!pass) throw new NotFoundException('Tarjeta no encontrada');
+    return this.buildMemberScan(campaign, ally, pass);
+  }
+
+  /**
+   * Escaneo de una tarjeta de cuponera desde el escáner PROPIO de un aliado
+   * TIPO A (spec §16): un negocio que ya es cliente de la marca blanca y no
+   * debería tener que usar un segundo escáner.
+   *
+   * Devuelve null —NO lanza— cuando no aplica, para que el llamador siga con su
+   * flujo normal y termine en la guarda de aislamiento de siempre. Fail-closed:
+   * cualquier duda es null.
+   *
+   * La campaña se resuelve por el TENANT DEL PASE, no por el slug fijo de
+   * ensureLivingCampaign(): así funciona con varias cuponeras sin tocar nada.
+   */
+  async scanMemberAsTenantAlly(
+    user: AuthUser,
+    pass: { id: string; tenantId: string; customerId: string },
+  ) {
+    if (!user.tenantId) return null;
+    // El pase tiene que ser de un tenant que HOSPEDA una cuponera.
+    const campaign = await this.prisma.benefitCampaign.findUnique({
+      where: { tenantId: pass.tenantId },
+    });
+    if (!campaign || campaign.status !== 'ACTIVE') return null;
+    // Y el negocio que escanea tiene que ser aliado APROBADO de ESA campaña.
+    const ally = await this.prisma.allyBusiness.findFirst({
+      where: {
+        campaignId: campaign.id,
+        tenantId: user.tenantId,
+        status: 'APPROVED',
+      },
+      include: { category: { select: { id: true, name: true } } },
+    });
+    if (!ally) return null;
+    return this.buildMemberScan(campaign, ally, pass);
+  }
+
+  /** Payload del escaneo. Compartido por las dos puertas de entrada. */
+  private async buildMemberScan(
+    campaign: BenefitCampaign,
+    ally: { id: string; categoryId: string | null },
+    pass: { id: string; customerId: string },
+  ) {
 
     const [customer, membership, benefits] = await Promise.all([
       this.prisma.customer.findUnique({
@@ -1099,14 +1232,38 @@ export class CuponeraService {
     ]);
 
     const active = membership?.status === 'ACTIVE';
-    const counts = benefits.length
-      ? await this.prisma.redemption.groupBy({
-          by: ['benefitId'],
-          where: { customerId: pass.customerId, benefitId: { in: benefits.map((b) => b.id) } },
-          _count: true,
+    // Usos del miembro por beneficio, CADA UNO dentro de SU ventana (spec §7).
+    // Antes esto contaba el histórico completo, lo que mostraba "0 usos
+    // restantes" a alguien que sí podía canjear este mes — y no coincidía con
+    // lo que después decidía redeemBenefit. Una sola query: se traen los canjes
+    // desde la ventana MÁS ANTIGUA y se filtra por beneficio en memoria (si
+    // alguno es LIFETIME no se acota por fecha).
+    const now = new Date();
+    const starts = benefits.map((b) =>
+      benefitPeriodStart(b.limitPeriod as BenefitLimitPeriod, now),
+    );
+    const anyLifetime = starts.some((d) => d === null);
+    const oldest = anyLifetime
+      ? null
+      : new Date(Math.min(...starts.map((d) => (d as Date).getTime())));
+    const rows = benefits.length
+      ? await this.prisma.redemption.findMany({
+          where: {
+            customerId: pass.customerId,
+            benefitId: { in: benefits.map((b) => b.id) },
+            ...(oldest ? { createdAt: { gte: oldest } } : {}),
+          },
+          select: { benefitId: true, createdAt: true },
         })
       : [];
-    const used = new Map(counts.map((c) => [c.benefitId, c._count]));
+    const used = new Map<string, number>();
+    benefits.forEach((b, idx) => {
+      const since = starts[idx];
+      const n = rows.filter(
+        (r) => r.benefitId === b.id && (!since || r.createdAt >= since),
+      ).length;
+      used.set(b.id, n);
+    });
 
     // Sellos comunitarios aplicables a este aliado + progreso del miembro.
     const programs = await this.prisma.stampProgram.findMany({
@@ -1218,11 +1375,28 @@ export class CuponeraService {
         }
       }
       if (benefit.maxPerMember != null) {
+        // Tope por miembro dentro de su VENTANA (spec §7). LIFETIME → since=null
+        // → cuenta todo el historial, que es el comportamiento previo y el
+        // default de la columna. El conteo va DENTRO del advisory lock: si se
+        // hiciera antes, dos canjes simultáneos leerían el mismo total y
+        // pasarían los dos.
+        const since = benefitPeriodStart(
+          benefit.limitPeriod as BenefitLimitPeriod,
+          new Date(),
+        );
         const mine = await tx.redemption.count({
-          where: { benefitId: benefit.id, customerId: pass.customerId },
+          where: {
+            benefitId: benefit.id,
+            customerId: pass.customerId,
+            ...(since ? { createdAt: { gte: since } } : {}),
+          },
         });
         if (mine >= benefit.maxPerMember) {
-          throw new BadRequestException('Este miembro ya usó este beneficio');
+          throw new BadRequestException(
+            since
+              ? `Este miembro ya agotó sus canjes de este beneficio (${describeLimit(benefit.maxPerMember, benefit.limitPeriod as BenefitLimitPeriod)})`
+              : 'Este miembro ya usó este beneficio',
+          );
         }
       }
       const red = await tx.redemption.create({

@@ -3,6 +3,7 @@ import { verify, decode } from 'jsonwebtoken';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { CuponeraService } from '../cuponera/cuponera.service';
 import { ReservationsService } from '../reservations/reservations.service';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 
@@ -11,6 +12,7 @@ const QR_RESERVATION_PROTOCOL = 'clubify-reservation:';
 @Injectable()
 export class ScannerService {
   constructor(
+    private cuponera: CuponeraService,
     private prisma: PrismaService,
     private appConfig: AppConfigService,
     private reservations: ReservationsService,
@@ -47,6 +49,26 @@ export class ScannerService {
           'escribí el código del pase (CLB-…) en el campo de abajo, o pedile al ' +
           'cliente que reinstale el pase en su billetera.',
       );
+
+    // TARJETA DE CUPONERA escaneada por un ALIADO TIPO A (spec §16): un negocio
+    // que ya es cliente de la marca blanca y no debería necesitar un segundo
+    // escáner. Mismo patrón que el QR de reservas de más arriba: se detecta que
+    // el código es de otra naturaleza y se delega al módulo que sabe atenderlo.
+    //
+    // Va ANTES de la guarda de abajo y solo cuando los tenants NO coinciden, así
+    // que el flujo de siempre (escanear la tarjeta propia del negocio) ni pasa
+    // por acá. `scanMemberAsTenantAlly` devuelve null si no aplica —el pase no
+    // es de una cuponera, la campaña no está activa, o este negocio no es aliado
+    // APROBADO de ella— y entonces cae en el ForbiddenException de siempre.
+    // Fail-closed: la excepción hay que ganársela, no es el default.
+    if (user.role !== 'SUPER_ADMIN' && user.tenantId !== pass.tenantId) {
+      const cuponera = await this.cuponera.scanMemberAsTenantAlly(user, {
+        id: pass.id,
+        tenantId: pass.tenantId,
+        customerId: pass.customerId,
+      });
+      if (cuponera) return { kind: 'cuponera' as const, ...cuponera };
+    }
 
     if (user.role !== 'SUPER_ADMIN' && user.tenantId !== pass.tenantId) {
       // Mensaje en español y accionable: en negocios con varias sedes/cuentas

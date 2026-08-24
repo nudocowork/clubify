@@ -3,7 +3,7 @@ import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { CuponeraService } from './cuponera.service';
-import { AllyProfileBody, BenefitBody } from './cuponera.dto';
+import { AllyLocationBody, AllyProfileBody, BenefitBody } from './cuponera.dto';
 
 class ScanBody {
   @IsString() @MaxLength(120) qrToken!: string;
@@ -71,6 +71,28 @@ export class AllyPortalController {
   }
 
   // --- Canje por QR ---
+  // Sedes del aliado (spec §5 y §9). Cada una con su geofence y mensaje.
+  @Get('locations')
+  locations(@CurrentUser() user: AuthUser) {
+    return this.svc.listAllyLocations(user);
+  }
+  @Post('locations')
+  createLocation(@CurrentUser() user: AuthUser, @Body() body: AllyLocationBody) {
+    return this.svc.createAllyLocation(user, body);
+  }
+  @Patch('locations/:id')
+  updateLocation(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: AllyLocationBody,
+  ) {
+    return this.svc.updateAllyLocation(user, id, body);
+  }
+  @Delete('locations/:id')
+  deleteLocation(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.deleteAllyLocation(user, id);
+  }
+
   @Post('scan')
   scan(@CurrentUser() user: AuthUser, @Body() body: ScanBody) {
     return this.svc.scanMember(user, body.qrToken);
