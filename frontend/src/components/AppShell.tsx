@@ -224,26 +224,31 @@ export default function AppShell({
       supportColor: string | null;
     } | null;
   } | null>(null);
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
-    new Set(),
-  );
-  // Si el usuario ya tocó algún toggle, respetamos su preferencia. Si no,
-  // por default todas las secciones quedan colapsadas (la activa se
-  // auto-expande igual gracias al hasActive en el render).
-  const [hasUserPref, setHasUserPref] = useState(false);
+  /**
+   * Secciones que el usuario ABRIÓ. Todo lo demás está cerrado.
+   *
+   * Antes se guardaba al revés —las que había cerrado— y eso hacía que
+   * cualquier sección NUEVA (una función que estrenamos, un módulo que se
+   * activa) apareciera abierta para todos los que ya tenían preferencia
+   * guardada: no estaba en el set de "cerradas", así que contaba como
+   * abierta. El menú del cliente se iba llenando solo.
+   *
+   * Guardando las abiertas, lo que no se ha tocado está cerrado — hoy y
+   * cuando agreguemos la sección número veinte.
+   */
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set());
 
-  // Cargar/persistir preferencia de secciones colapsadas
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      const raw = localStorage.getItem('clubify:nav:collapsed');
+      const raw = localStorage.getItem('clubify:nav:open');
       if (raw) {
         const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) {
-          setCollapsedSections(new Set(arr));
-          setHasUserPref(true);
-        }
+        if (Array.isArray(arr)) setOpenSections(new Set(arr));
       }
+      // La preferencia vieja (`clubify:nav:collapsed`) se ignora y se borra: su
+      // semántica era la contraria y arrastrarla dejaría medio menú abierto.
+      localStorage.removeItem('clubify:nav:collapsed');
     } catch {}
   }, []);
 
@@ -251,36 +256,18 @@ export default function AppShell({
   // toggleSection cuando es la primera vez que el user toca un toggle
   // (estado default: todas colapsadas) para invertir la semántica del
   // set sin tener que recalcular `groups` desde el closure.
-  const sectionNamesRef = useRef<string[]>([]);
   // Href más específico que matchea el pathname actual — calculado en el
   // render del nav y leído por cada item para decidir su estado activo.
   const bestActiveHrefRef = useRef<string | null>(null);
 
   function toggleSection(name: string) {
-    if (!hasUserPref) {
-      // Primer toggle — el user quiere expandir esta sección. Como todas
-      // estaban colapsadas por default, llenamos el set con TODAS las
-      // secciones EXCEPTO la clickeada (que queda expandida).
-      const next = new Set(
-        sectionNamesRef.current.filter((n) => n && n !== name),
-      );
-      setCollapsedSections(next);
-      setHasUserPref(true);
-      try {
-        localStorage.setItem(
-          'clubify:nav:collapsed',
-          JSON.stringify(Array.from(next)),
-        );
-      } catch {}
-      return;
-    }
-    setCollapsedSections((prev) => {
+    setOpenSections((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
       try {
         localStorage.setItem(
-          'clubify:nav:collapsed',
+          'clubify:nav:open',
           JSON.stringify(Array.from(next)),
         );
       } catch {}
@@ -477,6 +464,14 @@ export default function AppShell({
       '/admin/branding',
       '/admin/integrations',
       '/admin/business-groups',
+      // Esconder del menú no basta: sin esto, una marca blanca entraba
+      // escribiendo la URL. Ventas es el equipo comercial de Clubify y la
+      // auditoría de duplicados su ledger interno.
+      '/admin/commissions/audit',
+      '/admin/industries',
+      '/admin/sales-teams',
+      '/admin/sales-leaderboard',
+      '/admin/ventas',
     ];
     const here = urlSlug
       ? pathname.replace(`/admin/${urlSlug}`, '/admin')
@@ -624,7 +619,11 @@ export default function AppShell({
               items: [
                 { href: '/admin/referrals', label: 'Referidos', icon: 'gift', hideForMarketing: true },
                 { href: '/admin/commissions', label: 'Comisiones', icon: 'trend-up', hideForMarketing: true },
-                { href: '/admin/commissions/audit', label: 'Auditoría duplicados', icon: 'trend-up', hideForMarketing: true },
+                // Auditoría de duplicados: herramienta interna del ledger de
+                // comisiones de Clubify (cruces con Hotmart, códigos
+                // sintéticos, pagos que no casan). Una marca blanca no tiene
+                // ese historial ni nada que auditar ahí.
+                { href: '/admin/commissions/audit', label: 'Auditoría duplicados', icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/payouts', label: 'Pagos a afiliados', icon: 'card', hideForMarketing: true },
                 { href: '/admin/reports/ambassadors', label: 'Reporte embajadores', icon: 'trend-up', hideForMarketing: true },
                 { href: '/admin/reports/vendors', label: 'Reporte vendedores', icon: 'trend-up', hideForMarketing: true },
@@ -633,12 +632,18 @@ export default function AppShell({
               ],
             },
             {
+              // VENTAS es de Clubify y solo de Clubify: son su equipo
+              // comercial, su CRM y sus comunicaciones internas. Una marca
+              // blanca no tiene nada que hacer aquí, y con los referidos ya
+              // abiertos a las marcas la sección se volvía visible sin
+              // sentido. La sección desaparece entera al quedarse sin items
+              // (`filter(g => g.items.length > 0)` más abajo).
               section: 'Ventas',
               items: [
-                { href: '/admin/industries', label: 'Industrias', icon: 'grid' },
-                { href: '/admin/sales-teams', label: 'Equipos de ventas', icon: 'users', hideForMarketing: true },
-                { href: '/admin/sales-leaderboard', label: 'Leaderboard CRM', icon: 'trend-up', hideForMarketing: true },
-                { href: '/admin/ventas/difusion', label: 'Difusión interna', icon: 'spark', hideForMarketing: true },
+                { href: '/admin/industries', label: 'Industrias', icon: 'grid', clubifyOnly: true },
+                { href: '/admin/sales-teams', label: 'Equipos de ventas', icon: 'users', hideForMarketing: true, clubifyOnly: true },
+                { href: '/admin/sales-leaderboard', label: 'Leaderboard CRM', icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
+                { href: '/admin/ventas/difusion', label: 'Difusión interna', icon: 'spark', hideForMarketing: true, clubifyOnly: true },
               ],
             },
             {
@@ -1202,7 +1207,6 @@ export default function AppShell({
         {(() => {
           // Mantenemos una lista actualizada de nombres de sección para
           // que toggleSection sepa cuáles colapsar al primer click.
-          sectionNamesRef.current = groups.map((g) => g.section).filter(Boolean);
           return null;
         })()}
         {(() => {
@@ -1221,11 +1225,9 @@ export default function AppShell({
           // Si el path activo está dentro de esta sección, fuerza expand para
           // que el usuario vea dónde está parado.
           const hasActive = g.items.some((n) => n.href === bestActiveHref);
-          // Default cerrado si el user nunca tocó nada (hasUserPref=false).
-          // Si ya tiene preferencia, respetamos el set guardado.
-          const collapsed =
-            !hasActive &&
-            (hasUserPref ? collapsedSections.has(g.section) : true);
+          // Cerrada salvo que el usuario la haya abierto. La sección donde
+          // esta parado se expande igual, para que vea donde esta.
+          const collapsed = !hasActive && !openSections.has(g.section);
           // Sección sin nombre = items principales sin header colapsable.
           const noHeader = !g.section;
 
