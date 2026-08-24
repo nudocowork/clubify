@@ -1082,11 +1082,59 @@ export class CuponeraService {
 
   /** El aliado escanea el QR del miembro → devuelve al miembro + los beneficios
    *  del negocio con su disponibilidad (para elegir cuál canjear). */
+  /**
+   * Escaneo desde el PORTAL del aliado (Tipo B, y Tipo A que igual quiera usarlo).
+   * La sesión trae `allyBusinessId`, así que el aliado sale de ahí.
+   */
   async scanMember(user: AuthUser, qrToken: string) {
     const ally = await this.getAllyForPortal(user);
     const campaign = await this.ensureLivingCampaign();
     const pass = await this.resolvePass(campaign.tenantId, qrToken);
     if (!pass) throw new NotFoundException('Tarjeta no encontrada');
+    return this.buildMemberScan(campaign, ally, pass);
+  }
+
+  /**
+   * Escaneo de una tarjeta de cuponera desde el escáner PROPIO de un aliado
+   * TIPO A (spec §16): un negocio que ya es cliente de la marca blanca y no
+   * debería tener que usar un segundo escáner.
+   *
+   * Devuelve null —NO lanza— cuando no aplica, para que el llamador siga con su
+   * flujo normal y termine en la guarda de aislamiento de siempre. Fail-closed:
+   * cualquier duda es null.
+   *
+   * La campaña se resuelve por el TENANT DEL PASE, no por el slug fijo de
+   * ensureLivingCampaign(): así funciona con varias cuponeras sin tocar nada.
+   */
+  async scanMemberAsTenantAlly(
+    user: AuthUser,
+    pass: { id: string; tenantId: string; customerId: string },
+  ) {
+    if (!user.tenantId) return null;
+    // El pase tiene que ser de un tenant que HOSPEDA una cuponera.
+    const campaign = await this.prisma.benefitCampaign.findUnique({
+      where: { tenantId: pass.tenantId },
+    });
+    if (!campaign || campaign.status !== 'ACTIVE') return null;
+    // Y el negocio que escanea tiene que ser aliado APROBADO de ESA campaña.
+    const ally = await this.prisma.allyBusiness.findFirst({
+      where: {
+        campaignId: campaign.id,
+        tenantId: user.tenantId,
+        status: 'APPROVED',
+      },
+      include: { category: { select: { id: true, name: true } } },
+    });
+    if (!ally) return null;
+    return this.buildMemberScan(campaign, ally, pass);
+  }
+
+  /** Payload del escaneo. Compartido por las dos puertas de entrada. */
+  private async buildMemberScan(
+    campaign: BenefitCampaign,
+    ally: { id: string; categoryId: string | null },
+    pass: { id: string; customerId: string },
+  ) {
 
     const [customer, membership, benefits] = await Promise.all([
       this.prisma.customer.findUnique({
@@ -1104,14 +1152,38 @@ export class CuponeraService {
     ]);
 
     const active = membership?.status === 'ACTIVE';
-    const counts = benefits.length
-      ? await this.prisma.redemption.groupBy({
-          by: ['benefitId'],
-          where: { customerId: pass.customerId, benefitId: { in: benefits.map((b) => b.id) } },
-          _count: true,
+    // Usos del miembro por beneficio, CADA UNO dentro de SU ventana (spec §7).
+    // Antes esto contaba el histórico completo, lo que mostraba "0 usos
+    // restantes" a alguien que sí podía canjear este mes — y no coincidía con
+    // lo que después decidía redeemBenefit. Una sola query: se traen los canjes
+    // desde la ventana MÁS ANTIGUA y se filtra por beneficio en memoria (si
+    // alguno es LIFETIME no se acota por fecha).
+    const now = new Date();
+    const starts = benefits.map((b) =>
+      benefitPeriodStart(b.limitPeriod as BenefitLimitPeriod, now),
+    );
+    const anyLifetime = starts.some((d) => d === null);
+    const oldest = anyLifetime
+      ? null
+      : new Date(Math.min(...starts.map((d) => (d as Date).getTime())));
+    const rows = benefits.length
+      ? await this.prisma.redemption.findMany({
+          where: {
+            customerId: pass.customerId,
+            benefitId: { in: benefits.map((b) => b.id) },
+            ...(oldest ? { createdAt: { gte: oldest } } : {}),
+          },
+          select: { benefitId: true, createdAt: true },
         })
       : [];
-    const used = new Map(counts.map((c) => [c.benefitId, c._count]));
+    const used = new Map<string, number>();
+    benefits.forEach((b, idx) => {
+      const since = starts[idx];
+      const n = rows.filter(
+        (r) => r.benefitId === b.id && (!since || r.createdAt >= since),
+      ).length;
+      used.set(b.id, n);
+    });
 
     // Sellos comunitarios aplicables a este aliado + progreso del miembro.
     const programs = await this.prisma.stampProgram.findMany({
