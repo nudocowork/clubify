@@ -58,6 +58,12 @@ class ProductBody {
   @IsInt()
   @Min(1)
   maxExtrasTotal?: number | null;
+  // Carta a la que pertenece el producto. Sin declararlo, el ValidationPipe
+  // (forbidNonWhitelisted) rechaza el create entero.
+  @ValidateIf((_, v) => v !== null)
+  @IsOptional()
+  @IsUUID()
+  menuId?: string | null;
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsArray() tags?: string[];
   @IsOptional() @IsBoolean() isAvailable?: boolean;
@@ -81,8 +87,10 @@ export class ProductsController {
     @CurrentUser() user: AuthUser,
     @Query('tenantId') tenantId?: string,
     @Query('categoryId') categoryId?: string,
+    // Carta que se esta editando. Ausente = menu principal.
+    @Query('menuId') menuId?: string,
   ) {
-    return this.svc.list(user, tenantId, categoryId);
+    return this.svc.list(user, tenantId, categoryId, menuId);
   }
 
   @Get(':id')

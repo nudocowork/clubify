@@ -114,6 +114,8 @@ export type UpdateTenantDto = Partial<{
   whatsappDeliveryPhone: string;
   tutorialsEnabled: boolean;
   academyEnabled: boolean;
+  /** Varias cartas, una por sede. Ver modelo `Menu`. */
+  multiMenuEnabled: boolean;
 }>;
 
 export type UpdateMyTenantDto = Partial<{

@@ -438,6 +438,10 @@ export class PublicMenuController {
     @Param('slug') slug: string,
     @Query('locale') localeRaw?: string,
     @Query('mode') modeRaw?: string,
+    // Sede desde la que se escanea el QR. Cada sede puede tener su propia
+    // carta; sin este parametro se sirve el menu principal, que es lo que
+    // pasa hoy en todos los negocios.
+    @Query('sede') sedeRaw?: string,
   ) {
     const locale = normalizeLocale(localeRaw);
     // 'mesa' (default) o 'delivery' — filtra productos por flag de visibilidad.
@@ -468,8 +472,30 @@ export class PublicMenuController {
     // SECTIONS muestra el banner por sección y agrupa por subsección
     // dentro. El layout viejo (CLASSIC/GRID/etc) ignora subsections y
     // hace flatten.
+    // Que carta sirve esta sede.
+    //
+    // `menuId = null` es el MENU PRINCIPAL, no "sin menu": es donde vive todo
+    // el catalogo de siempre. Una sede sin carta propia come del principal, y
+    // un QR con una sede que ya no existe tambien — mejor el menu general que
+    // una pantalla vacia.
+    let menuId: string | null = null;
+    const sede = (sedeRaw ?? '').trim();
+    if (sede) {
+      const carta = await this.prisma.menu.findFirst({
+        where: {
+          tenantId: t.id,
+          isActive: true,
+          // Acepta el id de la SEDE o el de la CARTA: el QR puede llevar
+          // cualquiera de los dos y no se rompe si alguien cambia el enlace.
+          OR: [{ locationId: sede }, { id: sede }],
+        },
+        select: { id: true },
+      });
+      menuId = carta?.id ?? null;
+    }
+
     const categories = await this.prisma.category.findMany({
-      where: { tenantId: t.id, isActive: true, parentId: null },
+      where: { tenantId: t.id, isActive: true, parentId: null, menuId },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
       include: {
         children: {

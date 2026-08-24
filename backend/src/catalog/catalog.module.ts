@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { CategoriesService } from './categories.service';
 import { CategoriesController } from './categories.controller';
 import { ProductsService } from './products.service';
+import { MenusService } from './menus.service';
+import { MenusController } from './menus.controller';
 import { ProductsController } from './products.controller';
 import { PublicMenuController } from './public-menu.controller';
 import { AdicionalesService } from './adicionales.service';
@@ -16,6 +18,7 @@ import { MenuBookController } from './menu-book.controller';
   providers: [
     CategoriesService,
     ProductsService,
+    MenusService,
     AdicionalesService,
     TranslationService,
     TranslationsAdminService,
@@ -24,6 +27,7 @@ import { MenuBookController } from './menu-book.controller';
   controllers: [
     CategoriesController,
     ProductsController,
+    MenusController,
     PublicMenuController,
     AdicionalesController,
     TranslationsController,

@@ -410,6 +410,11 @@ model Tenant {
   /// Grupo Empresarial al que pertenece (varios negocios, una sola suscripción
   /// Hotmart). Null = sin grupo (negocio individual). El estado financiero del
   /// grupo cascadea al status de sus negocios.
+  /// Varias cartas (una por sede). Se habilita NEGOCIO POR NEGOCIO desde el
+  /// panel de admin: la inmensa mayoría tiene un solo menú y no debe ver la
+  /// complejidad. Ver modelo `Menu`.
+  multiMenuEnabled            Boolean                    @default(false)
+  menus                       Menu[]
   businessGroupId             String?
   businessGroup               BusinessGroup?             @relation(fields: [businessGroupId], references: [id], onDelete: SetNull)
   /// Modo de reparto de comisión del vendedor (Fase 3). Default = descuento del
@@ -1696,6 +1701,8 @@ model Location {
   // Multi-sede reservas (2026-06-12)
   reservationZones  ReservationZone[]
   reservationTables ReservationTable[]
+  /// Cartas asignadas a esta sede. Ver modelo `Menu`.
+  menus             Menu[]
   reservations      Reservation[]
   reservationEvents ReservationEvent[]
 
@@ -1773,6 +1780,10 @@ model Category {
   id          String     @id @default(uuid())
   tenantId    String
   tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Carta a la que pertenece. **Null = el menú principal**, que es donde está
+  /// todo lo que existía antes de que hubiera varios menús. Ver modelo `Menu`.
+  menuId      String?
+  menu        Menu?      @relation(fields: [menuId], references: [id], onDelete: Cascade)
   parentId    String?
   parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
   children    Category[] @relation("CategoryTree")
@@ -1812,6 +1823,9 @@ model Product {
   id                   String    @id @default(uuid())
   tenantId             String
   tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Carta a la que pertenece. **Null = el menú principal**. Ver modelo `Menu`.
+  menuId               String?
+  menu                 Menu?     @relation(fields: [menuId], references: [id], onDelete: Cascade)
   /// 2026-06-12 (Bloque 2 i18n batch): nullable para que tenants sin
   /// categorías creadas puedan agregar productos. Cuando la categoría
   /// se elimina, los productos quedan huérfanos (SetNull) en lugar de
@@ -6012,4 +6026,42 @@ model ReferralSlugAlias {
   createdAt      DateTime     @default(now())
 
   @@index([referralCodeId])
+}
+
+/// Una CARTA del negocio. Casi todos tienen una sola; los multi-sede pueden
+/// tener varias, cada una asignada a su sede.
+///
+/// Nace de un caso real: una sede ofrece muchos más productos que la otra y el
+/// cliente no sabía cuáles aplicaban donde estaba sentado.
+///
+/// **Los menús son INDEPENDIENTES**: cada uno tiene sus propias categorías y
+/// productos, con sus precios y fotos. Se pueden crear duplicando otro, pero
+/// desde ese momento van por separado — cambiar un precio en uno NO lo cambia
+/// en el otro. Fue una decisión explícita de Javier (2026-08-24) sabiendo el
+/// coste de mantenimiento; la alternativa evaluada era un solo catálogo con
+/// disponibilidad por sede.
+///
+/// Compatibilidad: los negocios de siempre no tienen ningún `Menu` y sus
+/// productos tienen `menuId = null`. Eso ES el menú principal. No se migra
+/// nada hasta que el negocio active la función.
+model Menu {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name       String
+  /// Sede a la que sirve esta carta. Null = no asignada todavía.
+  /// `SetNull` y no `Cascade`: borrar una sede no puede llevarse por delante
+  /// un menú entero con sus productos.
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  /// Orden en el selector del panel.
+  position   Int       @default(0)
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  categories Category[]
+  products   Product[]
+
+  @@index([tenantId, position])
+  @@index([locationId])
 }

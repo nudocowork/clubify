@@ -143,6 +143,12 @@ class UpdateTenantBody {
   // Bloque 2 (2026-06-12): toggles per-tenant para mostrar/ocultar
   // los links de Tutoriales y Academia Clubify en los sidebars.
   @IsOptional() @IsBoolean() tutorialsEnabled?: boolean;
+  /**
+   * Varias cartas, una por sede. Se habilita NEGOCIO POR NEGOCIO: la inmensa
+   * mayoria tiene un solo menu y no tiene por que ver esta complejidad.
+   * Apagarlo NO borra nada: el menu principal es lo que siempre estuvo.
+   */
+  @IsOptional() @IsBoolean() multiMenuEnabled?: boolean;
   @IsOptional() @IsBoolean() academyEnabled?: boolean;
   // Reservations module gate (2026-06-12).
   @IsOptional() @IsBoolean() reservationsEnabled?: boolean;

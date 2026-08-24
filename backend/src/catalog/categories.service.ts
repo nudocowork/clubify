@@ -14,6 +14,8 @@ function slugify(s: string) {
 
 export type CategoryDto = {
   name: string;
+  /** Carta a la que pertenece. null/undefined = menu principal. */
+  menuId?: string | null;
   parentId?: string | null;
   description?: string;
   imageUrl?: string;
@@ -42,10 +44,14 @@ export class CategoriesService {
     return user.tenantId;
   }
 
-  list(user: AuthUser, override?: string) {
+  /**
+   * @param menuId carta que se esta editando. `undefined` = menu principal.
+   *        Ver la nota equivalente en `ProductsService.list`.
+   */
+  list(user: AuthUser, override?: string, menuId?: string) {
     const tid = this.tid(user, override);
     return this.prisma.category.findMany({
-      where: { tenantId: tid },
+      where: { tenantId: tid, menuId: menuId ?? null },
       include: {
         _count: { select: { products: true } },
         children: true,
@@ -64,6 +70,8 @@ export class CategoriesService {
     return this.prisma.category.create({
       data: {
         tenantId: tid,
+        // La carta que se esta editando. Ver ProductsService.create.
+        menuId: dto.menuId ?? null,
         parentId: dto.parentId ?? null,
         name: dto.name,
         slug,

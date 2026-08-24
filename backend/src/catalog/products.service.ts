@@ -38,6 +38,8 @@ export type ProductDto = {
    * Cuantas variantes puede marcar el cliente. null o 1 = una sola (radio).
    * >= 2 = casillas multiples. Solo tiene efecto en modo DELTA.
    */
+  /** Carta a la que pertenece. null/undefined = menu principal. */
+  menuId?: string | null;
   maxVariantsTotal?: number | null;
   /**
    * Tope de extras EN TOTAL para este producto (sumando cantidades).
@@ -70,10 +72,25 @@ export class ProductsService {
     return user.tenantId;
   }
 
-  list(user: AuthUser, override?: string, categoryId?: string) {
+  /**
+   * @param menuId carta que se esta editando. `undefined` = el menú
+   *        principal (`menuId: null`), que es donde vive todo el catalogo de
+   *        siempre. Sin este filtro, un negocio con dos cartas veria los
+   *        productos de ambas mezclados en el panel.
+   */
+  list(
+    user: AuthUser,
+    override?: string,
+    categoryId?: string,
+    menuId?: string,
+  ) {
     const tid = this.tid(user, override);
     return this.prisma.product.findMany({
-      where: { tenantId: tid, ...(categoryId ? { categoryId } : {}) },
+      where: {
+        tenantId: tid,
+        menuId: menuId ?? null,
+        ...(categoryId ? { categoryId } : {}),
+      },
       include: { variants: true, extras: true, category: true },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
     });
@@ -96,6 +113,9 @@ export class ProductsService {
     return this.prisma.product.create({
       data: {
         tenantId: tid,
+        // La carta que se esta editando. Sin esto, un producto creado desde la
+        // carta de la sede 2 aparecia en el menu principal.
+        menuId: dto.menuId ?? null,
         categoryId: dto.categoryId ?? null,
         name: dto.name,
         description: dto.description ?? '',
