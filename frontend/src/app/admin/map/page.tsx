@@ -109,6 +109,23 @@ async function resolveMapsKey(): Promise<string> {
   return ENV_API_KEY;
 }
 
+/**
+ * Google avisa de los fallos de AUTORIZACION por este callback global, no
+ * lanzando: el SDK carga bien y despues pinta su recuadro gris encima del mapa.
+ *
+ * Se registra a nivel de MODULO, no dentro de un efecto: el loader del SDK es
+ * un singleton que puede haber inyectado el script antes de que el componente
+ * monte, y para entonces `window.gm_authFailure` ya tiene que existir. Con el
+ * registro dentro del efecto no llegaba a tiempo y el admin seguia viendo solo
+ * el recuadro gris de Google sin saber que hacer.
+ */
+let avisarFalloDeAutorizacion: (() => void) | null = null;
+if (typeof window !== 'undefined') {
+  (window as unknown as { gm_authFailure?: () => void }).gm_authFailure = () => {
+    avisarFalloDeAutorizacion?.();
+  };
+}
+
 // Loader singleton: idéntico patrón a MapPicker para no doble-init Maps SDK.
 let loaderPromise: Promise<typeof google> | null = null;
 let optionsSet = false;
@@ -224,20 +241,18 @@ export default function AdminBusinessMapPage() {
   // leia "Google Maps JavaScript API error" sin saber que hacer.
   useEffect(() => {
     const marca = marcaDeLaRuta(window.location.pathname);
-    (window as unknown as { gm_authFailure?: () => void }).gm_authFailure =
-      () => {
-        const host = window.location.host;
-        setLoadErr(
-          `Google no autoriza este dominio (${host}) para la clave de Maps` +
-            (marca ? ` de ${marca}` : '') +
-            `. Hay dos formas de arreglarlo: autorizar https://${host}/* en las ` +
-            `restricciones de la clave en Google Cloud, o cargar la clave propia ` +
-            `de la marca en Master Admin → Marcas.`,
-        );
-      };
+    avisarFalloDeAutorizacion = () => {
+      const host = window.location.host;
+      setLoadErr(
+        `Google no autoriza este dominio (${host}) para la clave de Maps` +
+          (marca ? ` de ${marca}` : '') +
+          `. Dos formas de arreglarlo: autorizar https://${host}/* en las ` +
+          `restricciones de la clave en Google Cloud, o cargar la clave propia ` +
+          `de la marca en Master Admin → Marcas.`,
+      );
+    };
     return () => {
-      delete (window as unknown as { gm_authFailure?: () => void })
-        .gm_authFailure;
+      avisarFalloDeAutorizacion = null;
     };
   }, []);
 
