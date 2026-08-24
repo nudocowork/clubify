@@ -1716,6 +1716,11 @@ function AcademyTogglesCard({
   const [businessType, setBusinessType] = useState<string>(
     tenant.businessType ?? 'FULL',
   );
+  // Varias cartas, una por sede. Se habilita negocio por negocio: la inmensa
+  // mayoria tiene un solo menu y no tiene por que ver esta complejidad.
+  const [multiMenu, setMultiMenu] = useState<boolean>(
+    tenant.multiMenuEnabled ?? false,
+  );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -1731,6 +1736,7 @@ function AcademyTogglesCard({
           reservationsEnabled: reservations,
           serviceReservationsEnabled: serviceReservations,
           businessType,
+          multiMenuEnabled: multiMenu,
         }),
       });
       setMsg({ ok: true, text: t('changesSaved') });
@@ -1810,6 +1816,24 @@ function AcademyTogglesCard({
             <div className="text-sm font-semibold">{t('showAcademy')}</div>
             <div className="text-xs text-mute leading-snug">
               {t('showAcademyHelp')}
+            </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={multiMenu}
+            onChange={(e) => setMultiMenu(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">Varias cartas (una por sede)</div>
+            <div className="text-xs text-mute leading-snug">
+              Para negocios con sedes que ofrecen cosas distintas. Puede
+              duplicar su menú y luego ocultar o cambiar lo que no aplique en
+              cada sede, con su propio QR.{' '}
+              <b>Apagarlo no borra nada</b>: el menú principal es el de siempre.
             </div>
           </div>
         </label>

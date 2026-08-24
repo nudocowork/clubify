@@ -107,7 +107,22 @@ function fmt(n: number, currency = 'COP', symbolOverride?: string | null) {
   return formatPrice(n, currency, { symbolOverride });
 }
 
+type MenuResumen = {
+  id: string | null;
+  name: string;
+  locationId: string | null;
+  locationName: string | null;
+  esPrincipal: boolean;
+  categorias: number;
+  productos: number;
+};
+type MenusResp = { habilitado: boolean; menus: MenuResumen[] };
+
 export default function MenuEditor() {
+  // Carta que se esta editando. null = menu principal.
+  const [menuActivo, setMenuActivo] = useState<string | null>(null);
+  const [menus, setMenus] = useState<MenusResp | null>(null);
+  const [creandoCarta, setCreandoCarta] = useState(false);
   const t = useTranslations('app_menu');
   const [cats, setCats] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -171,12 +186,32 @@ export default function MenuEditor() {
     return () => mq.removeEventListener('change', update);
   }, []);
 
-  async function load(preserveActive = true) {
-    const c = await api<Category[]>('/catalog/categories');
+  /**
+   * Carga el catalogo de la CARTA activa.
+   *
+   * `menuActivo = null` es el menu principal, que es donde vive todo lo de
+   * siempre. Sin el filtro, un negocio con dos cartas veria los productos de
+   * ambas mezclados.
+   */
+  async function load(preserveActive = true, menuId = menuActivo) {
+    const q = menuId ? `?menuId=${encodeURIComponent(menuId)}` : '';
+    const c = await api<Category[]>(`/catalog/categories${q}`);
     setCats(c);
     if ((!preserveActive || !activeCat) && c.length) setActiveCat(c[0].id);
-    const p = await api<Product[]>('/catalog/products');
+    const p = await api<Product[]>(`/catalog/products${q}`);
     setProducts(p);
+  }
+
+  /** Las cartas del negocio. Vacio / no habilitado = solo el principal. */
+  async function loadMenus() {
+    try {
+      const r = await api<MenusResp>('/catalog/menus');
+      setMenus(r);
+    } catch {
+      // Negocio sin la funcion habilitada o backend viejo: se sigue como
+      // siempre, con una sola carta y sin selector.
+      setMenus(null);
+    }
   }
   async function loadAdicionales() {
     try {
@@ -186,6 +221,17 @@ export default function MenuEditor() {
       // tabla puede no existir todavía en deploys viejos — silencioso
     }
   }
+  useEffect(() => {
+    void loadMenus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cambiar de carta recarga el catalogo entero: son productos distintos.
+  useEffect(() => {
+    if (menus) void load(false, menuActivo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuActivo]);
+
   useEffect(() => {
     load(false);
     loadAdicionales();
@@ -365,7 +411,8 @@ export default function MenuEditor() {
     try {
       await api('/catalog/categories', {
         method: 'POST',
-        body: JSON.stringify({ name: newCatName }),
+        // Nace en la carta que se esta editando.
+        body: JSON.stringify({ name: newCatName, menuId: menuActivo }),
       });
       setNewCatName('');
       setShowCatForm(false);
@@ -501,6 +548,8 @@ export default function MenuEditor() {
     // `createdAt`, `timesOrdered`, relación `category`, etc., que el
     // PATCH rechaza con 400.
     const payload = {
+      // Nace en la carta que se esta editando.
+      menuId: menuActivo,
       // null explícito → producto sin categoría (Bloque 2 2026-06-12).
       // undefined → no tocar en update (backend respeta).
       categoryId: p.categoryId ?? null,
@@ -568,8 +617,77 @@ export default function MenuEditor() {
       ? products.filter((p) => p.categoryId === null)
       : products.filter((p) => p.categoryId === activeCat);
 
+  const cartaActual = menus?.menus.find((m) => m.id === menuActivo) ?? null;
+
   return (
     <div>
+      {/* Selector de cartas. Solo aparece si el negocio tiene la funcion
+          habilitada — la inmensa mayoria tiene un menu y no ve nada de esto. */}
+      {menus?.habilitado && (
+        <div className="card card-pad mb-4">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+                Cartas
+              </div>
+              <div className="text-[11px] text-mute mt-0.5 leading-snug max-w-md">
+                Cada sede puede tener la suya, con su propio QR. Los productos
+                duplicados <b>siguen al menú principal</b> hasta que los
+                desenganches: cambias un precio una vez y cambia en todas.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCreandoCarta(true)}
+              className="btn-ghost text-xs"
+            >
+              + Nueva carta
+            </button>
+          </div>
+
+          <div className="flex gap-2 flex-wrap mt-3">
+            {menus.menus.map((m) => (
+              <button
+                key={m.id ?? 'principal'}
+                type="button"
+                onClick={() => setMenuActivo(m.id)}
+                className={`px-3 py-2 rounded-lg border text-left transition ${
+                  menuActivo === m.id
+                    ? 'border-brand bg-brand/5'
+                    : 'border-line hover:bg-bg2'
+                }`}
+              >
+                <div className="text-sm font-semibold">{m.name}</div>
+                <div className="text-[11px] text-mute">
+                  {m.productos} producto{m.productos === 1 ? '' : 's'}
+                  {m.locationName ? ` · ${m.locationName}` : ''}
+                  {!m.esPrincipal && !m.locationName ? ' · sin sede' : ''}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {cartaActual && !cartaActual.esPrincipal && !cartaActual.locationName && (
+            <div className="mt-3 text-[11px] text-amber-700 leading-snug">
+              ⚠️ Esta carta no está asignada a ninguna sede todavía, así que
+              ningún QR la abre. Asígnala desde Ubicaciones.
+            </div>
+          )}
+        </div>
+      )}
+
+      {creandoCarta && (
+        <NuevaCartaModal
+          menus={menus?.menus ?? []}
+          onClose={() => setCreandoCarta(false)}
+          onCreada={async (id) => {
+            setCreandoCarta(false);
+            await loadMenus();
+            setMenuActivo(id);
+          }}
+        />
+      )}
+
       <div className="page-head">
         <h1 className="page-title">
           {mainLabel}{' '}
@@ -2771,6 +2889,140 @@ function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string 
               ↗ {t('open')}
             </Link>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Alta de una carta nueva.
+ *
+ * Lo importante es el duplicado: montar 545 productos a mano otra vez no es
+ * una opcion. Al duplicar, cada producto queda SIGUIENDO al original — cambiar
+ * un precio en el menu principal lo cambia aqui tambien — hasta que el negocio
+ * lo desenganche para esa sede.
+ */
+function NuevaCartaModal({
+  menus,
+  onClose,
+  onCreada,
+}: {
+  menus: MenuResumen[];
+  onClose: () => void;
+  onCreada: (id: string) => void;
+}) {
+  const [nombre, setNombre] = useState('');
+  const [duplicar, setDuplicar] = useState(true);
+  const [origen, setOrigen] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const elegido = menus.find((m) => m.id === origen) ?? menus[0] ?? null;
+
+  async function crear() {
+    if (nombre.trim().length < 2) {
+      toast('Ponle un nombre a la carta.', 'error');
+      return;
+    }
+    setGuardando(true);
+    try {
+      const r = await api<{ id: string }>('/catalog/menus', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: nombre.trim(),
+          duplicar,
+          // null = duplicar el menu principal, que no es una fila sino todo lo
+          // que no tiene carta asignada.
+          duplicarDe: origen,
+        }),
+      });
+      toast('Carta creada', 'success');
+      onCreada(r.id);
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo crear la carta', 'error');
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.5)' }}
+      onClick={() => !guardando && onClose()}
+    >
+      <div
+        className="bg-bg rounded-2xl p-4 w-full max-w-sm shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="font-semibold text-sm mb-3">Nueva carta</div>
+
+        <label className="block text-xs text-mute mb-1">Nombre</label>
+        <input
+          className="input w-full mb-3"
+          placeholder="Carta sede Norte"
+          value={nombre}
+          onChange={(e) => setNombre(e.target.value)}
+          autoFocus
+        />
+
+        <label className="flex items-start gap-2 cursor-pointer mb-2">
+          <input
+            type="checkbox"
+            checked={duplicar}
+            onChange={(e) => setDuplicar(e.target.checked)}
+            className="mt-0.5"
+          />
+          <div>
+            <div className="text-sm font-semibold">Copiar un menú que ya tengo</div>
+            <div className="text-[11px] text-mute leading-snug">
+              Trae categorías, productos, variantes y extras. Después ocultas o
+              cambias lo que no aplique en esa sede.
+            </div>
+          </div>
+        </label>
+
+        {duplicar && menus.length > 1 && (
+          <select
+            className="input w-full mb-2"
+            value={origen ?? ''}
+            onChange={(e) => setOrigen(e.target.value || null)}
+          >
+            {menus.map((m) => (
+              <option key={m.id ?? 'principal'} value={m.id ?? ''}>
+                Copiar de: {m.name} ({m.productos} productos)
+              </option>
+            ))}
+          </select>
+        )}
+
+        {duplicar && elegido && (
+          <div className="text-[11px] text-mute mb-3 leading-snug">
+            Se copiarán <b>{elegido.productos} productos</b>. Quedarán
+            sincronizados con «{elegido.name}»: los cambios de precio, nombre y
+            foto se propagan solos. Lo que ocultes aquí no afecta allá.
+            {/* El stock no viaja: es fisico de cada sede. */}
+            <div className="mt-1">
+              El <b>stock no se copia</b>: el inventario es de cada sede.
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            className="btn-ghost flex-1 text-sm justify-center"
+            onClick={onClose}
+            disabled={guardando}
+          >
+            Cancelar
+          </button>
+          <button
+            className="btn flex-1 text-sm justify-center"
+            onClick={crear}
+            disabled={guardando}
+          >
+            {guardando ? 'Creando…' : 'Crear carta'}
+          </button>
         </div>
       </div>
     </div>
