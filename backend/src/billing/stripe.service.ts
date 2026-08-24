@@ -12,6 +12,7 @@ import { addPlanPeriod } from '../common/plan-period';
 import { fmtSmsDate } from './sms-templates';
 import { decryptSecret } from '../common/crypto/secret-box';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
+import { HotmartService } from './hotmart.service';
 
 /** Contexto extraído de un evento de pago Stripe, normalizado. */
 type StripeCtx = {
@@ -23,6 +24,14 @@ type StripeCtx = {
   amountUsd: number | null;
   // PDF Soft 10: timestamp real del pago (event.created) para fijar purchasedAt.
   paidAt: Date | null;
+  /**
+   * Identidad UNICA de este cobro, para deduplicar comisiones.
+   *
+   * Es la factura (`in_…`) o, si no la hay, el id del evento. NUNCA el id de
+   * suscripcion: ese es constante entre renovaciones, y usarlo como clave
+   * haria que solo la PRIMERA renovacion generara comision.
+   */
+  transaccionId: string | null;
 };
 
 type BrandCtx = {
@@ -54,9 +63,18 @@ function buyerContactOf(eventLike: unknown): {
  * Pasarela Stripe por marca blanca (cuenta PROPIA por marca). El cobro se hace
  * con Stripe Payment Links (la marca pega su link en el config); nosotros solo
  * procesamos el webhook firmado con SU webhookSecret. Espeja el flujo de
- * Hotmart (activación, pending "pago → datos", SMS, idempotencia) pero SIN
- * comisiones de referido (eso es del sistema de afiliados de Clubify, no de
- * las marcas blancas Stripe).
+ * Hotmart: activación, pending "pago → datos", SMS, idempotencia y
+ * **comisiones de referido**.
+ *
+ * Las comisiones estaban excluidas a propósito: se asumía que el programa de
+ * afiliados era de Clubify y no de las marcas blancas. Se cambió el 2026-08-24
+ * a pedido de Javier, porque Sellea cobra por Stripe y quiere su propio
+ * programa de referidos. Con la exclusión, su panel dejaba crear afiliados,
+ * generar enlaces y atribuir registros — todo se veía funcionar hasta que
+ * tocaba pagar, y ahí la columna de dinero estaba en cero.
+ *
+ * Las comisiones quedan acotadas a la marca: el afiliado lleva el
+ * `whiteLabelId` de quien lo creó, así que las de Sellea son de Sellea.
  */
 @Injectable()
 export class StripeService {
@@ -70,6 +88,11 @@ export class StripeService {
     private brandEmail: BrandEmailService,
     private onboardingWebhook: OnboardingWebhookService,
     private pendingActivation: PendingActivationService,
+    // Las comisiones de referido las genera un metodo agnostico de pasarela
+    // que vive en HotmartService por historia (nacio dentro de su webhook).
+    // Sin esta llamada, una marca que cobra por Stripe podia tener afiliados,
+    // enlaces y atribucion funcionando y no generar NI UNA comision.
+    private hotmart: HotmartService,
   ) {}
 
   /** Carga la marca por slug + descifra secretKey/webhookSecret y arma el
@@ -187,6 +210,12 @@ export class StripeService {
     // PDF Soft 10: fecha real del evento de pago (Unix seconds → Date).
     const paidAt =
       typeof event.created === 'number' ? new Date(event.created * 1000) : null;
+    // La factura identifica el cobro; en checkout.session no hay, y el id del
+    // evento sirve igual (es unico por evento).
+    const transaccionId: string | null =
+      (typeof obj.id === 'string' && obj.id.startsWith('in_') ? obj.id : null) ??
+      (typeof obj.invoice === 'string' ? obj.invoice : null) ??
+      (typeof event.id === 'string' ? event.id : null);
 
     if (event.type === 'checkout.session.completed') {
       email = obj.customer_details?.email ?? obj.customer_email ?? null;
@@ -221,7 +250,7 @@ export class StripeService {
         this.logger.warn(`retrieve subscription ${subscriptionId} falló: ${(e as Error).message}`);
       }
     }
-    return { email, customerId, subscriptionId, priceId, nextCharge, amountUsd, paidAt };
+    return { email, customerId, subscriptionId, priceId, nextCharge, amountUsd, paidAt, transaccionId };
   }
 
   private async onPaymentSucceeded(brand: BrandCtx, event: Stripe.Event) {
@@ -325,6 +354,9 @@ export class StripeService {
         typeof event.created === 'number'
           ? new Date(event.created * 1000)
           : null,
+      // Eventos de suscripcion (cancelada, reanudada): no son un cobro, no
+      // generan comision y por tanto no necesitan clave de deduplicacion.
+      transaccionId: typeof event.id === 'string' ? event.id : null,
     };
   }
 
@@ -474,9 +506,11 @@ export class StripeService {
       priceId: null,
       nextCharge: null,
       amountUsd: null,
-      // Solo BÚSQUEDA del tenant: findTenant no lee paidAt (ese campo fija
-      // purchasedAt en el camino de alta, no acá). null como el resto.
+      // Solo BÚSQUEDA del tenant: findTenant no lee paidAt ni transaccionId
+      // (fijan purchasedAt y deduplican comisiones en el camino de cobro, no
+      // acá). null como el resto.
       paidAt: null,
+      transaccionId: null,
     });
   }
 
@@ -605,11 +639,34 @@ export class StripeService {
         lastPaymentAttemptAt: new Date(),
         suspendedAt: null,
         trialEndsAt: null,
+        // Los SEIS campos de dedup, no tres. Faltaban los pre-avisos, asi que
+        // un negocio que renovaba no volvia a recibir el aviso de 7 dias, ni
+        // el de 3, ni el del dia — y el fallo es mudo. Ver [[clubify-cobros-trampas]].
         paymentReminderSentFor: null,
         paymentFailureNoticeSentAt: null,
         pausePendingNoticeSentAt: null,
+        preReminder7dSentFor: null,
+        preReminder3dSentFor: null,
+        preReminderTodaySentFor: null,
       },
     });
+
+    // Comisiones del referido. Best-effort: si falla, el cobro NO se rompe —
+    // el negocio queda activo igual y la comision se puede reconciliar.
+    await this.hotmart
+      .generarComisionesDeCobro({
+        tenantId: tenant.id,
+        // Stripe manda el monto en la moneda del cobro; la base de comision
+        // la resuelve el generador desde el plan, no desde aqui.
+        montoCanonicoUsd: null,
+        transaccionId: ctx.transaccionId,
+      })
+      .catch((e) =>
+        this.logger.warn(
+          `comisiones Stripe tenant=${tenant.id}: ${(e as Error).message}`,
+        ),
+      );
+
     // PDF 1256 §8: auditar + limpiar la marca de liberación de crédito (permite
     // liberar de nuevo si el negocio se vuelve a suspender en un ciclo futuro).
     await this.billing.clearCreditRelease(tenant.id);

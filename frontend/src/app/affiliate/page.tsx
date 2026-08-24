@@ -34,6 +34,19 @@ type Me = {
     | 'AFFILIATE_AMBASSADOR'
     | 'AFFILIATE_SOCIO'
     | 'AFFILIATE_VENDOR';
+  /**
+   * La marca del afiliado, resuelta en el backend desde su ReferralCode.
+   * null = no se pudo resolver: NO se pinta ningun nombre de plataforma.
+   */
+  brand: {
+    slug: string;
+    name: string;
+    logoUrl: string | null;
+    primaryColor: string | null;
+    academiaUrl: string | null;
+    labEnabled: boolean;
+    baseUrl: string | null;
+  } | null;
   myCode: {
     id: string;
     code: string;
@@ -176,6 +189,12 @@ export default function AffiliatePanel() {
     me.role === 'AFFILIATE_VENDOR' && me.myCode?.role === 'VENDOR';
   const isAmbassador =
     me.role === 'AFFILIATE_AMBASSADOR' && me.myCode?.role === 'AMBASSADOR';
+  // Nombre de la marca para los textos. Sin marca resuelta se usa una
+  // formula neutra ("la plataforma") en vez de escribir Clubify: un nombre
+  // ausente no delata a nadie, uno equivocado si.
+  const marca = me.brand?.name?.trim() || null;
+  const nMarca = marca ?? 'la plataforma';
+
   // Link corto público `/ref/<slug>`. El backend loguea visita (UTM +
   // referer + país + IP) y redirige a /signup?ref=CODE&via=slug.
   // Compartible en redes, mucho más memorable que /signup?ref=XYZ123.
@@ -218,7 +237,22 @@ export default function AffiliatePanel() {
       <header className="border-b border-line bg-white px-5 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
           <Link href="/" className="flex items-center gap-2">
-            <Logo size={28} />
+            {/* El logo de SU marca. `<Logo>` es el de Clubify escrito a mano:
+                un afiliado de Sellea veia la marca de otra plataforma en su
+                propio panel. Solo se usa cuando la marca ES Clubify. */}
+            {me.brand?.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={me.brand.logoUrl}
+                alt={me.brand.name}
+                className="h-7 w-auto max-w-[130px] object-contain"
+              />
+            ) : me.brand?.slug === 'clubify' || !me.brand ? (
+              <Logo size={28} />
+            ) : (
+              // Marca sin logo cargado: su nombre, nunca el de otra.
+              <span className="font-bold text-sm">{me.brand.name}</span>
+            )}
             <span className="font-semibold text-sm hidden sm:inline">Panel afiliado</span>
           </Link>
           <div className="flex items-center gap-3">
@@ -249,7 +283,7 @@ export default function AffiliatePanel() {
           {isSocio ? (
             <>
               Recibes el <strong>{me.myCode?.commissionPercent}%</strong> de
-              TODAS las ventas de Clubify, sin importar qué código se use.
+              TODAS las ventas de {nMarca}, sin importar qué código se use.
             </>
           ) : isVendor ? (
             <>
@@ -292,7 +326,7 @@ export default function AffiliatePanel() {
               <div className="text-[11px] text-mute mt-1 leading-relaxed">
                 <strong>Tip:</strong> tu código es de <em>atribución</em>{' '}
                 — identifica quién te envió. Los cupones de descuento para el
-                cliente los crea Clubify Admin y se asocian a campañas.
+                cliente los crea el administrador de {nMarca} y se asocian a campañas.
               </div>
             </div>
             {!isSocio && (
@@ -517,26 +551,36 @@ export default function AffiliatePanel() {
           >
             📚 Material de apoyo
           </button>
-          {/* Academia Clubify — link externo (Bloque 2 2026-06-12).
-              Visible para todos los roles AFFILIATE_*. */}
-          <a
-            href="https://academy.soyclubify.lat/Embajadores"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="tab"
-          >
-            🎓 Academia Clubify
-          </a>
+          {/* Academia de LA MARCA. El enlace de Clubify estaba escrito a
+              mano, asi que un afiliado de Sellea entraba a la academia de
+              otra plataforma. Sin academia propia la pestana no aparece:
+              mejor ausente que ajena. Se carga en Master Admin -> Marcas. */}
+          {me.brand?.academiaUrl && (
+            <a
+              href={me.brand.academiaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="tab"
+            >
+              🎓 Academia {marca ?? ''}
+            </a>
+          )}
           {/* Clubify Lab — feed comunitario embebido como tab interno
               para que el embajador no salga del panel. La ruta /lab
               standalone sigue funcionando, ambas montan el mismo
               componente LabFeed. */}
-          <button
-            className={`tab ${tab === 'lab' ? 'tab-active' : ''}`}
-            onClick={() => setTab('lab')}
-          >
-            🧪 Clubify Lab
-          </button>
+          {/* El Lab es un feed GLOBAL, comun a todas las marcas: mostrarselo
+              a un afiliado de Sellea seria ensenarle la comunidad de Clubify
+              con el nombre de Sellea encima. Se abre a las demas marcas
+              cuando el feed se acote por marca. */}
+          {me.brand?.labEnabled !== false && (
+            <button
+              className={`tab ${tab === 'lab' ? 'tab-active' : ''}`}
+              onClick={() => setTab('lab')}
+            >
+              🧪 {marca ? `${marca} Lab` : 'Lab'}
+            </button>
+          )}
           <button
             className={`tab ${tab === 'settings' ? 'tab-active' : ''}`}
             onClick={() => setTab('settings')}
@@ -550,8 +594,10 @@ export default function AffiliatePanel() {
         {tab === 'clients' && <ClientsList isVendor={isVendor} />}
         {tab === 'commissions' && <CommissionsList />}
         {tab === 'team' && isAmbassador && <TeamView me={me} />}
-        {tab === 'trial' && <TrialStatsView />}
-        {tab === 'materials' && <SupportMaterialsList />}
+        {tab === 'trial' && (
+          <TrialStatsView marca={nMarca} baseUrl={me.brand?.baseUrl ?? null} />
+        )}
+        {tab === 'materials' && <SupportMaterialsList marca={nMarca} />}
         {tab === 'lab' && <LabFeed />}
         {tab === 'settings' && (
           <SettingsView
@@ -2019,6 +2065,8 @@ function SettingsView({
   me: Me;
   onUpdated: (u: { fullName: string; phone?: string | null }) => void;
 }) {
+  // Mismo criterio que arriba: sin marca resuelta, formula neutra.
+  const nMarca = me.brand?.name?.trim() || 'la plataforma';
   const [fullName, setFullName] = useState(me.user?.fullName ?? '');
   const [phone, setPhone] = useState(me.user?.phone ?? '');
   const [busy, setBusy] = useState(false);
@@ -2044,7 +2092,7 @@ function SettingsView({
     <form onSubmit={save} className="card card-pad max-w-md space-y-3">
       <h3 className="font-semibold m-0 mb-1">Tus datos</h3>
       <div className="text-xs text-mute mb-3">
-        Estos datos los ve el administrador de Clubify y se usan para enviarte
+        Estos datos los ve el administrador de {nMarca} y se usan para enviarte
         notificaciones por WhatsApp cuando hay eventos en tus clientes.
       </div>
       <div>
@@ -2677,7 +2725,15 @@ const PAYMENT_STATUS_LABEL: Record<string, string> = {
   SUSPENDED: 'Suspendido',
 };
 
-function TrialStatsView() {
+function TrialStatsView({
+  marca,
+  baseUrl,
+}: {
+  /** Nombre de la marca para los textos que se comparten. */
+  marca: string;
+  /** Dominio de marketing de la marca. null = cae a la env global. */
+  baseUrl: string | null;
+}) {
   const [data, setData] = useState<TrialStatsResp | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -2697,12 +2753,15 @@ function TrialStatsView() {
   // parámetro ?mode=free|card que interpreta /trial.
   const trialLinks = useMemo(() => {
     if (!data?.shareCode) return { free: '', card: '' };
+    // El dominio de la MARCA primero: un afiliado de Sellea compartia
+    // soyclubify.com. Solo si la marca no tiene dominio propio caemos a la env.
     const base =
+      baseUrl?.replace(/\/+$/, '') ??
       process.env.NEXT_PUBLIC_LANDING_URL?.replace(/\/+$/, '') ??
       'https://soyclubify.com';
     const root = `${base}/trial?ref=${data.shareCode}`;
     return { free: `${root}&mode=free`, card: `${root}&mode=card` };
-  }, [data?.shareCode]);
+  }, [data?.shareCode, baseUrl]);
 
   async function copyTrial(url: string) {
     if (!url) return;
@@ -2717,7 +2776,7 @@ function TrialStatsView() {
     if (typeof navigator !== 'undefined' && (navigator as any).share) {
       try {
         await (navigator as any).share({
-          title: 'Prueba Clubify gratis',
+          title: `Prueba ${marca} gratis`,
           text,
           url,
         });
@@ -2776,7 +2835,7 @@ function TrialStatsView() {
                   onClick={() =>
                     shareTrial(
                       trialLinks.free,
-                      'Prueba Clubify gratis por 5 días — sin tarjeta.',
+                      `Prueba ${marca} gratis por 5 días — sin tarjeta.`,
                     )
                   }
                   className="btn-primary text-xs cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
@@ -2811,7 +2870,7 @@ function TrialStatsView() {
                 </button>
                 <button
                   onClick={() =>
-                    shareTrial(trialLinks.card, 'Prueba Clubify gratis por 5 días.')
+                    shareTrial(trialLinks.card, `Prueba ${marca} gratis por 5 días.`)
                   }
                   className="btn-primary text-xs cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
                 >
@@ -3010,7 +3069,7 @@ const M_TYPE_LABEL: Record<SupportMaterialType, string> = {
   OTHER: 'Recurso',
 };
 
-function SupportMaterialsList() {
+function SupportMaterialsList({ marca }: { marca: string }) {
   const [items, setItems] = useState<SupportMaterial[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -3061,7 +3120,7 @@ function SupportMaterialsList() {
         <div className="text-4xl mb-2">📚</div>
         <div className="font-semibold mb-1">Aún no hay materiales</div>
         <div className="text-xs text-mute leading-relaxed max-w-sm mx-auto">
-          El equipo Clubify sube aquí scripts, videos, PDFs y plantillas que te
+          El equipo de {marca} sube aquí scripts, videos, PDFs y plantillas que te
           ayudan a vender. Vuelve en unos días si todavía no hay nada disponible.
         </div>
       </div>

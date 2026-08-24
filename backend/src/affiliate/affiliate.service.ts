@@ -215,9 +215,49 @@ export class AffiliateService {
     // fallback explícito al parentEmbajadorCode para vendors.
     const parentForVendor =
       myCode?.role === 'VENDOR' ? myCode.parentEmbajadorCode : null;
+
+    // LA MARCA del afiliado. Sin esto el panel pintaba el logo de Clubify y
+    // decia "Academia Clubify" / "Clubify Lab" a un afiliado de Sellea.
+    // Sale del ReferralCode, que es donde vive la marca de un afiliado (no
+    // tiene tenantId). Ver [[clubify-fugas-de-marca]] y [[clubify-afiliados-y-roles]].
+    const wl = myCode?.whiteLabelId
+      ? await this.prisma.whiteLabel
+          .findUnique({
+            where: { id: myCode.whiteLabelId },
+            select: {
+              slug: true,
+              name: true,
+              logoUrl: true,
+              primaryColor: true,
+              academiaUrl: true,
+              domain: true,
+            },
+          })
+          .catch(() => null)
+      : null;
+
     return {
       user: userRow,
       role: user.role,
+      // null = marca sin resolver. El panel NO debe inventar un nombre: un pie
+      // ausente no delata a nadie, uno equivocado si.
+      brand: wl
+        ? {
+            slug: wl.slug,
+            name: wl.name,
+            logoUrl: wl.logoUrl,
+            primaryColor: wl.primaryColor,
+            academiaUrl: wl.academiaUrl,
+            // Dominio de marketing de la marca: los enlaces de prueba que
+            // comparte el afiliado tenian soyclubify.com escrito a mano.
+            baseUrl: wl.domain ? `https://${wl.domain.replace(/^https?:\/\//, '')}` : null,
+            // El Lab es un feed GLOBAL, comun a todas las marcas. Mostrarselo
+            // a un afiliado de Sellea seria ensenarle la comunidad de Clubify
+            // bajo el nombre de Sellea. Solo para la plataforma hasta que el
+            // Lab se acote por marca.
+            labEnabled: wl.slug === 'clubify',
+          }
+        : null,
       myCode: myCode
         ? {
             id: myCode.id,

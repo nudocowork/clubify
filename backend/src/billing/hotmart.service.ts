@@ -1406,56 +1406,14 @@ export class HotmartService {
       ),
     );
 
-    // Generar la comisión recurrente del referido. Idempotente por
-    // tx/período: si ya creamos una comisión para esta misma transacción
-    // o en los últimos 25 días, skipea.
-    //
-    // FASE FOUNDATION 2026-06-05: si el tenant fue traído por un
-    // ReferralCode con role=VENDOR, usamos el nuevo 3-way generator
-    // que crea hasta 3 commission rows (influencer + embajador +
-    // vendor) con dedup por hotmartTransactionId + recipientCodeId.
-    // Para sales sin vendor en la chain (legacy INFLUENCER/AMBASSADOR
-    // directos), seguimos con el flujo histórico de generateReferralCommission.
-    try {
-      // HOTFIX 2026-06-05 (bug #6 CRÍTICO): si un tenant fue
-      // reasignado a otro afiliado, el findFirst sin orderBy podía
-      // devolver el VENDOR viejo (no convertido) y generar 3-way
-      // commissions a alguien que ya no atrae al cliente. Ahora:
-      //  1) Filtramos por status PAYING/ACTIVE (atribución viva).
-      //  2) Ordenamos por createdAt desc para tomar la atribución
-      //     más reciente.
-      const vendorUse = await this.prisma.referralUse.findFirst({
-        where: {
-          tenantId: tenant.id,
-          referralCode: { role: 'VENDOR' },
-          status: { in: ['PAYING', 'ACTIVE'] },
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
-      if (vendorUse) {
-        // 2026-07-31: la base la resuelve el generador (override manual del
-        // tenant o canónico del plan), NUNCA el monto crudo pagado (FX). No le
-        // pasamos el monto de Hotmart; paymentAmountUsd queda como compat.
-        await this.referralsService.generateCommissionsForPayment({
-          tenantId: tenant.id,
-          paymentAmountUsd: canonicalUsd,
-          hotmartTransactionId: transactionId ?? null,
-        });
-      } else {
-        // La base se resuelve dentro (override manual → canónico). No pasamos
-        // el monto crudo de Hotmart.
-        await this.generateReferralCommission({
-          tenantId: tenant.id,
-          paidAmount: null,
-          transactionId,
-        });
-      }
-    } catch (e) {
-      this.logger.warn(
-        `generación de comisión falló: ${(e as Error).message}`,
-      );
-    }
+    // Comisiones del cobro. La lógica vive en un metodo aparte porque la
+    // comparten las tres pasarelas — ver generarComisionesDeCobro.
+    await this.generarComisionesDeCobro({
+      tenantId: tenant.id,
+      montoCanonicoUsd: canonicalUsd,
+      transaccionId: transactionId ?? null,
+    });
+
     // SMS al dueño (best-effort): si la cuenta venía SUSPENDED, "cuenta
     // reactivada"; si no, "pago confirmado" (con info del próximo cobro).
     if (wasSuspended) {
@@ -2071,6 +2029,85 @@ export class HotmartService {
    * "use sintético" — para no perder la atribución global. Lo modelamos
    * creando un ReferralUse para el código del socio con tenantId del cliente.
    */
+  /**
+   * Genera las comisiones de un COBRO CONFIRMADO. Agnóstica de pasarela.
+   *
+   * Vive en este archivo por historia — nació dentro del webhook de Hotmart —
+   * pero no depende de Hotmart: la base de la comisión sale del override
+   * manual del tenant o del precio canónico del plan según su periodicidad,
+   * NUNCA del monto crudo que mandó la pasarela (que llega con FX aplicado).
+   *
+   * Por eso la llaman también **Stripe y Cross**: sin esto, una marca que
+   * cobra por Stripe (Sellea) podía tener afiliados, enlaces y atribución
+   * funcionando y no generar NI UNA comisión — el panel se veía bien hasta
+   * que tocaba pagar.
+   *
+   * Idempotente: dedup por transacción y por período (25 días).
+   *
+   * @param transaccionId id de la transacción en la pasarela, si lo hay. Es la
+   *        clave de deduplicación; sin él manda el dedup por período.
+   */
+  async generarComisionesDeCobro(opts: {
+    tenantId: string;
+    montoCanonicoUsd?: number | null;
+    transaccionId?: string | null;
+  }) {
+    const { tenantId, transaccionId } = opts;
+    const montoCanonicoUsd = opts.montoCanonicoUsd ?? null;
+    // Generar la comisión recurrente del referido. Idempotente por
+    // tx/período: si ya creamos una comisión para esta misma transacción
+    // o en los últimos 25 días, skipea.
+    //
+    // FASE FOUNDATION 2026-06-05: si el tenant fue traído por un
+    // ReferralCode con role=VENDOR, usamos el nuevo 3-way generator
+    // que crea hasta 3 commission rows (influencer + embajador +
+    // vendor) con dedup por hotmartTransactionId + recipientCodeId.
+    // Para sales sin vendor en la chain (legacy INFLUENCER/AMBASSADOR
+    // directos), seguimos con el flujo histórico de generateReferralCommission.
+    try {
+      // HOTFIX 2026-06-05 (bug #6 CRÍTICO): si un tenant fue
+      // reasignado a otro afiliado, el findFirst sin orderBy podía
+      // devolver el VENDOR viejo (no convertido) y generar 3-way
+      // commissions a alguien que ya no atrae al cliente. Ahora:
+      //  1) Filtramos por status PAYING/ACTIVE (atribución viva).
+      //  2) Ordenamos por createdAt desc para tomar la atribución
+      //     más reciente.
+      const vendorUse = await this.prisma.referralUse.findFirst({
+        where: {
+          tenantId: tenantId,
+          referralCode: { role: 'VENDOR' },
+          status: { in: ['PAYING', 'ACTIVE'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      if (vendorUse) {
+        // 2026-07-31: la base la resuelve el generador (override manual del
+        // tenant o canónico del plan), NUNCA el monto crudo pagado (FX). No le
+        // pasamos el monto de Hotmart; paymentAmountUsd queda como compat.
+        await this.referralsService.generateCommissionsForPayment({
+          tenantId: tenantId,
+          // `paymentAmountUsd` es compat: el generador resuelve la base por su
+          // cuenta. Cuando la pasarela no manda monto (Stripe/Cross) va 0.
+          paymentAmountUsd: montoCanonicoUsd ?? 0,
+          hotmartTransactionId: transaccionId ?? null,
+        });
+      } else {
+        // La base se resuelve dentro (override manual → canónico). No pasamos
+        // el monto crudo de Hotmart.
+        await this.generateReferralCommission({
+          tenantId: tenantId,
+          paidAmount: null,
+          transactionId: transaccionId ?? undefined,
+        });
+      }
+    } catch (e) {
+      this.logger.warn(
+        `generación de comisión falló: ${(e as Error).message}`,
+      );
+    }
+  }
+
   private async generateReferralCommission(opts: {
     tenantId: string;
     paidAmount: number | null;

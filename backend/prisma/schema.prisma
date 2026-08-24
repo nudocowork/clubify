@@ -4774,6 +4774,13 @@ model WhiteLabel {
   /// Twitter Card) en WhatsApp/redes. Si null, se usa el logo de la marca; nunca
   /// la imagen de Clubify. Recomendado 1200×630.
   shareImageUrl            String?
+  /// Academia de la marca: el curso/portal externo para sus afiliados.
+  ///
+  /// El panel del afiliado tenía el enlace de Clubify escrito a mano
+  /// (`academy.soyclubify.lat`), así que un afiliado de Sellea veía —y podía
+  /// entrar a— la academia de otra plataforma. Null = la marca no tiene
+  /// academia y la pestaña NO se muestra; no se hereda la ajena.
+  academiaUrl              String?
   /// Color secundario / tinta (textos y fondos oscuros).
   secondaryColor           String?
   /// Color de fondos suaves (crema).

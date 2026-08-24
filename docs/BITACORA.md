@@ -905,3 +905,59 @@ Me equivoqué a mitad del diagnóstico: dije que el hotmail no existía. Existí
 era la misma cuenta, cuyo correo se corrigió mientras yo consultaba. La primera
 consulta y la segunda vieron estados distintos de la misma fila. Al mirar datos
 que alguien está editando en vivo, la foto envejece entre consulta y consulta.
+
+## 2026-08-24 — Comisiones por Stripe/Cross y el panel del afiliado por marca
+
+### Sellea podía tener afiliados y no cobrar ni una comisión
+
+Medido: Sellea cobra por **STRIPE**, y las comisiones automáticas solo las
+disparaba el webhook de **Hotmart** (36 referencias en `hotmart.service.ts`,
+**cero** en `stripe.service.ts` y `cross.service.ts`). El cron
+`reconcileRecurringCommissions` está desactivado a propósito.
+
+O sea: su panel dejaba crear afiliados, generar enlaces y atribuir registros —
+todo se veía funcionar hasta que tocaba pagar.
+
+**Ojo, la exclusión era deliberada** y estaba escrita en el encabezado de
+`stripe.service.ts`: *«pero SIN comisiones de referido (eso es del sistema de
+afiliados de Clubify, no de las marcas blancas Stripe)»*. Se cambió a pedido de
+Javier; el comentario ahora dice por qué.
+
+- Extraído `generarComisionesDeCobro()` — agnóstico de pasarela. Vive en
+  `hotmart.service.ts` por historia (nació dentro de su webhook) pero no
+  depende de Hotmart: la base sale del override manual del tenant o del precio
+  canónico del plan, **nunca** del monto crudo con FX.
+- Lo llaman las **tres** pasarelas. Best-effort: si falla, el cobro no se rompe.
+- Dedup por transacción: en Stripe es la **factura** (`in_…`) o el id del
+  evento — nunca el id de suscripción, que es constante entre renovaciones y
+  habría hecho que solo la primera generara comisión. En Cross, `providerRef`.
+- Las comisiones quedan acotadas a la marca: el afiliado lleva el
+  `whiteLabelId` de quien lo creó.
+
+**De paso, el mismo fallo de los 6 campos en las otras dos pasarelas:** Stripe
+y Cross limpiaban 3 de 6 al renovar. Faltaban los pre-avisos. Ver
+[[clubify-cobros-trampas]].
+
+### El panel del afiliado era todo de Clubify
+
+11 menciones escritas a mano, el logo, la academia y el Lab. Un afiliado de
+Sellea veía la marca de otra plataforma en su propio panel.
+
+- `GET /affiliate/me` ahora devuelve `brand` (nombre, logo, color, academia,
+  dominio), resuelto desde su `ReferralCode` — que es donde vive la marca de un
+  afiliado, porque no tiene `tenantId`.
+- Textos, logo y enlaces de prueba salen de ahí. **Sin marca resuelta se dice
+  «la plataforma»**, nunca un nombre inventado.
+- **Academia**: nuevo campo `WhiteLabel.academiaUrl` (migración aplicada). El
+  enlace de Clubify estaba escrito a mano y mandaba a los afiliados de otras
+  marcas a su academia. Sin academia propia, la pestaña **no aparece**: mejor
+  ausente que ajena. La de Clubify quedó cargada.
+- **Lab**: el feed es GLOBAL, sin filtro por marca. Enseñárselo a un afiliado de
+  Sellea sería mostrarle la comunidad de Clubify con el nombre de Sellea
+  encima. Por ahora solo se muestra a la plataforma; se abre a las demás
+  cuando el feed se acote por marca.
+- Los enlaces de prueba tenían `soyclubify.com` escrito a mano; ahora usan el
+  dominio de la marca.
+
+Verificado: `Nest application successfully started`, sin errores de
+dependencias por la nueva inyección.
