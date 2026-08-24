@@ -12,6 +12,11 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { CardsService, CardDto } from '../cards/cards.service';
 import { PassesService } from '../passes/passes.service';
 import { LocationsService } from '../locations/locations.service';
+import {
+  benefitPeriodStart,
+  describeLimit,
+  type BenefitLimitPeriod,
+} from './benefit-limits';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WalletService } from '../wallet/wallet.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -1218,11 +1223,28 @@ export class CuponeraService {
         }
       }
       if (benefit.maxPerMember != null) {
+        // Tope por miembro dentro de su VENTANA (spec §7). LIFETIME → since=null
+        // → cuenta todo el historial, que es el comportamiento previo y el
+        // default de la columna. El conteo va DENTRO del advisory lock: si se
+        // hiciera antes, dos canjes simultáneos leerían el mismo total y
+        // pasarían los dos.
+        const since = benefitPeriodStart(
+          benefit.limitPeriod as BenefitLimitPeriod,
+          new Date(),
+        );
         const mine = await tx.redemption.count({
-          where: { benefitId: benefit.id, customerId: pass.customerId },
+          where: {
+            benefitId: benefit.id,
+            customerId: pass.customerId,
+            ...(since ? { createdAt: { gte: since } } : {}),
+          },
         });
         if (mine >= benefit.maxPerMember) {
-          throw new BadRequestException('Este miembro ya usó este beneficio');
+          throw new BadRequestException(
+            since
+              ? `Este miembro ya agotó sus canjes de este beneficio (${describeLimit(benefit.maxPerMember, benefit.limitPeriod as BenefitLimitPeriod)})`
+              : 'Este miembro ya usó este beneficio',
+          );
         }
       }
       const red = await tx.redemption.create({
