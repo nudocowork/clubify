@@ -66,6 +66,11 @@ type Product = {
   maxExtrasTotal?: number | null;
   imageUrl: string | null;
   tags: string[];
+  /** De qué producto salió, si esta carta se creó duplicando otra. */
+  sourceProductId?: string | null;
+  sourceProduct?: { id: string; name: string } | null;
+  /** Sigue al original: precio, nombre y foto se propagan desde allá. */
+  syncWithSource?: boolean;
   isAvailable: boolean;
   availableForMesa?: boolean;
   availableForDelivery?: boolean;
@@ -122,6 +127,8 @@ export default function MenuEditor() {
   // Carta que se esta editando. null = menu principal.
   const [menuActivo, setMenuActivo] = useState<string | null>(null);
   const [menus, setMenus] = useState<MenusResp | null>(null);
+  // Sedes del negocio, para asignarle una a cada carta.
+  const [sedes, setSedes] = useState<{ id: string; name: string }[]>([]);
   const [creandoCarta, setCreandoCarta] = useState(false);
   const t = useTranslations('app_menu');
   const [cats, setCats] = useState<Category[]>([]);
@@ -223,6 +230,9 @@ export default function MenuEditor() {
   }
   useEffect(() => {
     void loadMenus();
+    void api<{ id: string; name: string }[]>('/locations')
+      .then((r) => setSedes(r ?? []))
+      .catch(() => setSedes([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -667,10 +677,39 @@ export default function MenuEditor() {
             ))}
           </div>
 
-          {cartaActual && !cartaActual.esPrincipal && !cartaActual.locationName && (
-            <div className="mt-3 text-[11px] text-amber-700 leading-snug">
-              ⚠️ Esta carta no está asignada a ninguna sede todavía, así que
-              ningún QR la abre. Asígnala desde Ubicaciones.
+          {cartaActual && !cartaActual.esPrincipal && (
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] text-mute">Sede que usa esta carta:</span>
+              <select
+                className="input text-xs py-1.5 w-auto"
+                value={cartaActual.locationId ?? ''}
+                onChange={async (e) => {
+                  try {
+                    await api(`/catalog/menus/${cartaActual.id}`, {
+                      method: 'PATCH',
+                      body: JSON.stringify({
+                        locationId: e.target.value || null,
+                      }),
+                    });
+                    await loadMenus();
+                    toast('Sede asignada', 'success');
+                  } catch (err: any) {
+                    toast(err?.message || 'No se pudo asignar', 'error');
+                  }
+                }}
+              >
+                <option value="">Sin asignar</option>
+                {sedes.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              {!cartaActual.locationId && (
+                <span className="text-[11px] text-amber-700">
+                  ⚠️ Sin sede, ningún QR abre esta carta.
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -854,7 +893,13 @@ export default function MenuEditor() {
       {/* M1.2: identificación clara entre Menú Mesa (informativo) y Menú
           Delivery (con carrito + WhatsApp). Misma data de productos pero
           rutas distintas — cada una con su propósito. */}
-      {tenantSlug && <PublicMenuLinks slug={tenantSlug} mainLabel={mainLabel} />}
+      {tenantSlug && (
+        <PublicMenuLinks
+          slug={tenantSlug}
+          mainLabel={mainLabel}
+          carta={cartaActual}
+        />
+      )}
 
       {showCatForm && (
         <form onSubmit={createCategory} className="card card-pad mb-4 flex gap-2">
@@ -1373,6 +1418,7 @@ export default function MenuEditor() {
       {editing && (
         <ProductDrawer
           value={editing}
+          onSyncChanged={() => void load()}
           categories={cats}
           adicionales={adicionales}
           mainLabel={mainLabel}
@@ -2173,8 +2219,11 @@ function ProductDrawer({
   tenantCurrencySymbol,
   onCancel,
   onSave,
+  onSyncChanged,
 }: {
   value: Partial<Product>;
+  /** Se llama tras enganchar/desenganchar, para recargar el catalogo. */
+  onSyncChanged?: () => void;
   categories: Category[];
   adicionales: Adicional[];
   mainLabel: string;
@@ -2186,8 +2235,40 @@ function ProductDrawer({
   const t = useTranslations('app_menu');
   const [form, setForm] = useState<Partial<Product>>(value);
 
+  const [sincronizando, setSincronizando] = useState(false);
+
   function update<K extends keyof Product>(k: K, v: any) {
     setForm({ ...form, [k]: v });
+  }
+
+  /**
+   * Engancha o desengancha del original.
+   *
+   * Se guarda al instante, no al pulsar «Guardar»: al enganchar el backend
+   * trae los datos del original, y el formulario tiene que reflejarlos ya —
+   * si no, guardar despues volveria a pisarlos con lo que habia en pantalla.
+   */
+  async function cambiarSync(sync: boolean) {
+    if (!form.id) return;
+    setSincronizando(true);
+    try {
+      const r = await api<Product>(`/catalog/products/${form.id}/sync`, {
+        method: 'PATCH',
+        body: JSON.stringify({ sync }),
+      });
+      setForm(r);
+      toast(
+        sync
+          ? 'Sincronizado: ahora sigue al menú principal'
+          : 'Desenganchado: este producto va por libre',
+        'success',
+      );
+      onSyncChanged?.();
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo cambiar', 'error');
+    } finally {
+      setSincronizando(false);
+    }
   }
 
   return (
@@ -2204,6 +2285,55 @@ function ProductDrawer({
         </div>
 
         <div className="space-y-3">
+          {/* Sincronia con el menu original.
+              Solo aparece en productos que salieron de duplicar otra carta.
+              Va ARRIBA porque cambia el significado de todo lo de abajo: si
+              esta sincronizado, editar el precio aqui lo pisa el original en
+              el proximo cambio. */}
+          {form.sourceProductId && (
+            <div
+              className={`rounded-lg border p-3 ${
+                form.syncWithSource
+                  ? 'border-brand/40 bg-brand/5'
+                  : 'border-line bg-bg2'
+              }`}
+            >
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!form.syncWithSource}
+                  disabled={sincronizando}
+                  onChange={(e) => void cambiarSync(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">
+                    Sigue al menú principal
+                  </div>
+                  <div className="text-[11px] text-mute leading-snug mt-0.5">
+                    {form.syncWithSource ? (
+                      <>
+                        El <b>nombre, precio, foto, variantes y extras</b> se
+                        copian solos desde «{form.sourceProduct?.name ?? 'el original'}».
+                        Lo que cambies aquí de eso se perderá en el próximo
+                        cambio de allá.
+                        <div className="mt-1">
+                          Lo que <b>sí</b> es de esta carta: si está visible,
+                          mesa/domicilio, destacado, orden y stock.
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        Este producto va por libre. Los cambios del menú
+                        principal ya no le llegan.
+                      </>
+                    )}
+                  </div>
+                </div>
+              </label>
+            </div>
+          )}
+
           <div>
             <label className="label">{t('name')}</label>
             <input
@@ -2796,14 +2926,28 @@ function ProductDrawer({
  * sin query). Misma data de productos, distinto propósito. Cada uno con
  * botón para copiar el link y abrir en pestaña nueva.
  */
-function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string }) {
+function PublicMenuLinks({
+  slug,
+  mainLabel,
+  carta,
+}: {
+  slug: string;
+  mainLabel: string;
+  /** Carta activa. El menú principal no lleva parámetro. */
+  carta?: { id: string | null; name: string; locationId: string | null } | null;
+}) {
   const t = useTranslations('app_menu');
   const [origin, setOrigin] = useState<string>('');
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin);
   }, []);
-  const mesaUrl = `${origin}/m/${slug}`;
-  const deliveryUrl = `${origin}/d/${slug}`;
+  // Cada carta tiene su propio enlace y su propio QR: el de la sede lleva
+  // `?sede=`, y el backend resuelve que carta servir. El menú principal va sin
+  // parámetro, así que los QR ya impresos siguen funcionando igual.
+  const sedeQ =
+    carta && carta.id ? `?sede=${encodeURIComponent(carta.locationId ?? carta.id)}` : '';
+  const mesaUrl = `${origin}/m/${slug}${sedeQ}`;
+  const deliveryUrl = `${origin}/d/${slug}${sedeQ}`;
   const labelLower = mainLabel.toLowerCase();
 
   async function copy(url: string, label: string) {

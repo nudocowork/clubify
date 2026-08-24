@@ -1171,3 +1171,39 @@ Sin dependencias nuevas (~60 líneas), en vez de `leaflet.markercluster`.
 **Aparte:** D'Ponke Cake & Eatery es de **Clubify**, no de Sellea, así que no
 debe aparecer en ese mapa. Su sede (Cayey, Puerto Rico) tiene coordenadas
 correctas.
+
+## 2026-08-24 — Interfaz de cartas por sede, completa
+
+### Panel de admin
+
+Casilla **«Varias cartas (una por sede)»** en *Módulos del tenant*, junto a
+Academia y Reservas. Dice explícitamente que **apagarlo no borra nada** — el
+menú principal es el de siempre — para que se pueda probar sin miedo.
+
+### Panel del negocio (`/app/menu`)
+
+Solo aparece si la función está habilitada; el resto no ve nada.
+
+- **Selector de cartas** arriba, con el conteo de productos de cada una.
+  Cambiar de carta recarga categorías y productos de esa carta, y lo que se
+  crea nace ahí.
+- **«+ Nueva carta»** con duplicado marcado por defecto: dice cuántos
+  productos copiará, que quedan sincronizados, y que **el stock no se copia**.
+- **Asignar la sede** desde el propio selector, con aviso cuando no la tiene:
+  *sin sede, ningún QR abre esta carta*.
+- **Enlaces y QR por carta**: la carta de una sede añade `?sede=<id>` a las
+  URLs de mesa y domicilio. El menú principal va **sin parámetro**, así que
+  todos los QR ya impresos siguen funcionando exactamente igual.
+
+### Interruptor de sincronía, en la ficha del producto
+
+Solo aparece en productos que salieron de duplicar otra carta, y va **arriba
+del todo** porque cambia el significado de lo demás: si está sincronizado,
+editar el precio ahí lo pisa el original en el próximo cambio.
+
+Se guarda **al instante**, no al pulsar «Guardar»: al enganchar, el backend
+trae los datos del original y el formulario tiene que reflejarlos ya — si no,
+guardar después volvería a pisarlos con lo que hubiera en pantalla.
+
+El texto dice en cada estado qué se propaga y qué es de esta carta, para que
+nadie tenga que acordarse de la regla.
