@@ -34,15 +34,32 @@ export class MenusService {
     return user.tenantId;
   }
 
-  /** El negocio tiene la función habilitada. La activa un admin, no él. */
-  private async assertHabilitado(tenantId: string) {
+  /**
+   * El negocio tiene la función habilitada y le queda cupo.
+   *
+   * El tope lo pone el admin (`maxExtraMenus`): cada carta es un catálogo
+   * entero duplicado, y un negocio con 545 productos creando cartas sin freno
+   * multiplica la base sin que nadie lo note hasta que duele.
+   */
+  private async assertHabilitado(tenantId: string, contarCupo = false) {
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { multiMenuEnabled: true },
+      select: { multiMenuEnabled: true, maxExtraMenus: true },
     });
     if (!t?.multiMenuEnabled) {
       throw new ForbiddenException(
         'Este negocio no tiene varias cartas habilitadas.',
+      );
+    }
+    if (!contarCupo) return;
+
+    const tope = t.maxExtraMenus ?? 1;
+    const usadas = await this.prisma.menu.count({ where: { tenantId } });
+    if (usadas >= tope) {
+      throw new ForbiddenException(
+        tope === 1
+          ? 'Este negocio tiene permitida 1 carta además del menú principal, y ya la creó. Pídele al administrador que le amplíe el límite.'
+          : `Este negocio tiene permitidas ${tope} cartas además del menú principal, y ya las creó. Pídele al administrador que le amplíe el límite.`,
       );
     }
   }
@@ -59,7 +76,7 @@ export class MenusService {
     const [tenant, menus] = await Promise.all([
       this.prisma.tenant.findUnique({
         where: { id: tenantId },
-        select: { multiMenuEnabled: true },
+        select: { multiMenuEnabled: true, maxExtraMenus: true },
       }),
       this.prisma.menu.findMany({
         where: { tenantId },
@@ -86,6 +103,11 @@ export class MenusService {
 
     return {
       habilitado: !!tenant?.multiMenuEnabled,
+      // Cuántas cartas extra permite el admin y cuántas quedan libres. El
+      // panel esconde "Nueva carta" cuando no queda cupo, en vez de dejar
+      // pulsarlo para que el backend responda que no.
+      topeExtras: tenant?.maxExtraMenus ?? 1,
+      cupoLibre: Math.max(0, (tenant?.maxExtraMenus ?? 1) - menus.length),
       menus: [
         {
           id: null,
@@ -127,7 +149,7 @@ export class MenusService {
     override?: string,
   ) {
     const tenantId = this.tid(user, override);
-    await this.assertHabilitado(tenantId);
+    await this.assertHabilitado(tenantId, true);
 
     const name = (dto.name ?? '').trim();
     if (name.length < 2) {

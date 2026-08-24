@@ -1721,6 +1721,10 @@ function AcademyTogglesCard({
   const [multiMenu, setMultiMenu] = useState<boolean>(
     tenant.multiMenuEnabled ?? false,
   );
+  // Cuantas cartas EXTRA puede crear, ademas del menu principal.
+  const [maxCartas, setMaxCartas] = useState<number>(
+    tenant.maxExtraMenus ?? 1,
+  );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -1737,6 +1741,7 @@ function AcademyTogglesCard({
           serviceReservationsEnabled: serviceReservations,
           businessType,
           multiMenuEnabled: multiMenu,
+          maxExtraMenus: maxCartas,
         }),
       });
       setMsg({ ok: true, text: t('changesSaved') });
@@ -1835,6 +1840,32 @@ function AcademyTogglesCard({
               cada sede, con su propio QR.{' '}
               <b>Apagarlo no borra nada</b>: el menú principal es el de siempre.
             </div>
+            {/* El tope importa: cada carta es un catalogo entero duplicado.
+                Un negocio con 545 productos creando cartas sin freno
+                multiplica la base sin que nadie lo note. */}
+            {multiMenu && (
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <label className="text-xs text-mute">
+                  Cartas extra permitidas:
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={20}
+                  value={maxCartas}
+                  onClick={(e) => e.preventDefault()}
+                  onChange={(e) =>
+                    setMaxCartas(
+                      Math.max(0, Math.min(20, Math.floor(Number(e.target.value) || 0))),
+                    )
+                  }
+                  className="input w-20 text-sm py-1"
+                />
+                <span className="text-[11px] text-mute">
+                  además del menú principal
+                </span>
+              </div>
+            )}
           </div>
         </label>
 

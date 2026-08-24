@@ -116,6 +116,8 @@ export type UpdateTenantDto = Partial<{
   academyEnabled: boolean;
   /** Varias cartas, una por sede. Ver modelo `Menu`. */
   multiMenuEnabled: boolean;
+  /** Cuantas cartas EXTRA permite el admin. */
+  maxExtraMenus: number;
 }>;
 
 export type UpdateMyTenantDto = Partial<{

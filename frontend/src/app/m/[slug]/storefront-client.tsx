@@ -389,6 +389,15 @@ function StorefrontPublicInner() {
   //   /m/<slug>/delivery  → 'delivery'  (compat con QRs viejos, se redirige)
   const pathname = usePathname() ?? '';
   const mode: StorefrontMode = modeFromPathname(pathname);
+  /**
+   * Sede del QR (`?sede=<id>`).
+   *
+   * El QR de cada sede lleva la suya, así que el cliente ve la carta de donde
+   * está sentado — y el pedido se ata a ESA sede, no a la que se deduzca de su
+   * dirección. Un QR sin sede (los de siempre) sigue mostrando el menú
+   * principal.
+   */
+  const sedeDelQr = (searchParams?.get('sede') ?? '').trim();
   const [s, setS] = useState<Storefront | null>(null);
   const [menu, setMenu] = useState<Category[]>([]);
   const [tab, setTab] = useState<'menu' | 'promos'>('menu');
@@ -473,7 +482,10 @@ function StorefrontPublicInner() {
         .catch((e: Error) => {
           if (!cancelled) setLoadError(e.message || 'No disponible');
         }),
-      fetch(`${API}/api/public/m/${slug}/menu?locale=${locale}&mode=${mode}`)
+      fetch(
+        `${API}/api/public/m/${slug}/menu?locale=${locale}&mode=${mode}` +
+          (sedeDelQr ? `&sede=${encodeURIComponent(sedeDelQr)}` : ''),
+      )
         .then(async (r) => (r.ok ? r.json() : []))
         .then((data) => {
           if (!cancelled) setMenu(data);
@@ -1099,6 +1111,7 @@ function StorefrontPublicInner() {
         <CheckoutSheet
           items={cart}
           slug={slug}
+          sedeDelQr={sedeDelQr}
           primary={primary}
           currency={s.currency}
           country={s.country ?? 'CO'}
@@ -1781,10 +1794,16 @@ function CheckoutSheet({
   mode,
   fulfillment,
   acceptedPaymentMethods,
+  sedeDelQr,
   onClose,
 }: {
   items: CartItem[];
   slug: string;
+  /**
+   * Sede del QR por el que entro el cliente. MANDA sobre la que se deduce de
+   * su direccion: el QR sabe donde esta, la direccion solo lo aproxima.
+   */
+  sedeDelQr?: string;
   primary: string;
   currency: string;
   country: string;
@@ -1925,7 +1944,13 @@ function CheckoutSheet({
       : matchingSedes.length === 1
         ? matchingSedes[0]
         : null;
-  const effectiveSedeId = sedeId || autoSede?.id || '';
+  // La sede del QR MANDA sobre la que se deduce del departamento del cliente:
+  // el QR sabe donde esta el cliente, la direccion solo lo aproxima. Asi el
+  // pedido llega al WhatsApp de la sede correcta y el mensaje la nombra bien.
+  const sedeDelQrValida = sedeDelQr
+    ? sedes.find((x) => x.id === sedeDelQr)?.id
+    : undefined;
+  const effectiveSedeId = sedeDelQrValida || sedeId || autoSede?.id || '';
   const effectiveSede = sedes.find((s) => s.id === effectiveSedeId) ?? null;
   // Lista del selector: las sedes del estado del cliente; si no hay ninguna,
   // todas (fallback para que el cliente elija manualmente — nunca se bloquea).

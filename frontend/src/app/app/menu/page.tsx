@@ -121,7 +121,13 @@ type MenuResumen = {
   categorias: number;
   productos: number;
 };
-type MenusResp = { habilitado: boolean; menus: MenuResumen[] };
+type MenusResp = {
+  habilitado: boolean;
+  /** Cartas extra permitidas por el admin, y cuántas quedan libres. */
+  topeExtras?: number;
+  cupoLibre?: number;
+  menus: MenuResumen[];
+};
 
 export default function MenuEditor() {
   // Carta que se esta editando. null = menu principal.
@@ -646,13 +652,22 @@ export default function MenuEditor() {
                 desenganches: cambias un precio una vez y cambia en todas.
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setCreandoCarta(true)}
-              className="btn-ghost text-xs"
-            >
-              + Nueva carta
-            </button>
+            {/* Sin cupo no se ofrece el boton: mejor que no aparezca a que
+                el negocio lo pulse y el backend le diga que no. */}
+            {(menus.cupoLibre ?? 1) > 0 ? (
+              <button
+                type="button"
+                onClick={() => setCreandoCarta(true)}
+                className="btn-ghost text-xs"
+              >
+                + Nueva carta
+              </button>
+            ) : (
+              <span className="text-[11px] text-mute text-right leading-snug max-w-[180px]">
+                Llegaste al límite de {menus.topeExtras} carta
+                {menus.topeExtras === 1 ? '' : 's'}. Pídenos ampliarlo.
+              </span>
+            )}
           </div>
 
           <div className="flex gap-2 flex-wrap mt-3">

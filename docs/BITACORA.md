@@ -1207,3 +1207,45 @@ guardar después volvería a pisarlos con lo que hubiera en pantalla.
 
 El texto dice en cada estado qué se propaga y qué es de esta carta, para que
 nadie tenga que acordarse de la regla.
+
+## 2026-08-24 — QR por carta, límite de cartas y domicilio por sede
+
+### El cartel QR solo servía al menú principal
+
+Añadido selector de carta en `/app/marketing/qr-menu`, visible solo si el
+negocio tiene más de una. El menú principal va **sin parámetro**, así que los
+carteles ya impresos siguen funcionando igual.
+
+### Límite de cartas, desde el panel de admin
+
+`Tenant.maxExtraMenus` (default 1, migración aplicada sobre 101 negocios).
+
+Cada carta es un catálogo entero duplicado: un negocio con 545 productos
+creando cartas sin freno multiplica la base sin que nadie lo note hasta que
+duele. El campo aparece bajo la casilla, solo cuando está activada.
+
+El backend lo hace cumplir al crear, y el panel del negocio **esconde el botón**
+cuando no queda cupo — mejor que no aparezca a que lo pulse y reciba un no.
+
+### Domicilio por sede: el hueco real
+
+Lo que **ya estaba bien** y comprobé antes de tocar:
+
+- El ruteo del WhatsApp del pedido: sede → `ordersWhatsappPhone`, luego
+  `adminPhone` de la sede, luego el número del negocio. Nunca se pierde.
+- El mensaje **ya nombra la sede**: `🏢 Sede: {nombre} — {estado}`.
+- `Order.locationId` existe y el storefront ya lo enviaba.
+
+Lo que **faltaba**, y era lo importante:
+
+1. **El menú no pedía la carta de la sede.** El cliente escaneaba el QR de la
+   sede norte y veía el menú principal. Ahora `?sede=` viaja hasta
+   `/public/m/:slug/menu`.
+2. **El pedido ataba la sede adivinándola del departamento del cliente.** Ahora
+   **manda la sede del QR**: el QR sabe dónde está el cliente, la dirección
+   solo lo aproxima. El fallback por departamento se conserva para quien entra
+   por el enlace general.
+
+Verificado en producción: `?sede=` con una sede inexistente devuelve los mismos
+188 productos del menú principal — un QR mal impreso no deja al cliente con una
+pantalla vacía.

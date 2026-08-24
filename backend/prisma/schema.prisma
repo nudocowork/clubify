@@ -414,6 +414,14 @@ model Tenant {
   /// panel de admin: la inmensa mayoría tiene un solo menú y no debe ver la
   /// complejidad. Ver modelo `Menu`.
   multiMenuEnabled            Boolean                    @default(false)
+  /// Cuántas cartas EXTRA puede crear, además del menú principal.
+  ///
+  /// El límite lo pone el admin, no el negocio: cada carta es un catálogo
+  /// entero duplicado, y un negocio con 545 productos creando cartas sin freno
+  /// multiplica la base de datos sin que nadie lo note hasta que duele.
+  ///
+  /// Default 1 = el caso normal (una segunda sede).
+  maxExtraMenus               Int                        @default(1)
   menus                       Menu[]
   businessGroupId             String?
   businessGroup               BusinessGroup?             @relation(fields: [businessGroupId], references: [id], onDelete: SetNull)
