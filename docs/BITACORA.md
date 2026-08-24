@@ -1029,3 +1029,54 @@ Al añadir `giftReason` a `act()` en el escáner, el parámetro quedó **antes**
 tope dejaba de funcionar. Corregido pasando `undefined` en el hueco. Los
 parámetros posicionales opcionales son una trampa: al insertar uno en medio, el
 compilador no siempre avisa.
+
+## 2026-08-24 (noche) — El mapa del panel deja de depender de Google
+
+`RefererNotAllowedMapError` en `soyfidelity.com/admin/sellea/map`. Google
+restringe sus claves **por dominio**, y el panel maestro no estaba autorizado.
+Arreglarlo requería entrar a la consola de Google Cloud.
+
+**Se quitó la dependencia en vez de pedir el permiso.** El mapa ahora usa
+**Leaflet + OpenStreetMap**: sin clave, sin restricción por dominio. Funciona en
+`soyfidelity.com`, en `app.selleala.com` y en cualquier dominio de marca que se
+conecte mañana, sin que nadie autorice nada.
+
+- Leaflet **ya estaba en `package.json`** sin usarse: cero dependencias nuevas.
+- La superficie de Google era pequeña y acotada: `Map`, `Marker` (círculo),
+  `InfoWindow`, `LatLngBounds` y un listener. Todo traducido 1 a 1.
+- Se conserva el tope de zoom con un solo punto (`maxZoom: 14` en `fitBounds`),
+  la limpieza de marcadores y el encuadre automático.
+- `map.remove()` al desmontar: Leaflet no se limpia solo y el contenedor
+  quedaba marcado como inicializado.
+- Se retiró todo lo que ya no aplica: resolución de clave por marca, el
+  callback `gm_authFailure` y el panel que pedía configurar
+  `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`.
+
+**Se pierde** el mosaico de Google (satélite, street view). Para un mapa que
+solo muestra dónde están los negocios, no hace falta.
+
+**`MapPicker` sigue en Google** — el que usa el NEGOCIO para fijar las
+coordenadas de su sede. Corre en el panel del negocio, que sí está autorizado,
+y ahí el buscador de direcciones de Google sí aporta.
+
+### Verificación
+
+Medido con Chrome headless contra `soyfidelity.com/admin/sellea/map`:
+
+```
+peticiones a Google Maps    : 0  ✅
+errores RefererNotAllowed   : 0  ✅
+mosaico de OpenStreetMap    : 200, 19.708 bytes
+```
+
+Los mosaicos no llegaron a pedirse en la prueba porque sin sesión la página
+redirige al login. Falta que alguien con sesión lo confirme visualmente.
+
+### Aparte: el login con Google tampoco está autorizado en ese dominio
+
+Apareció en la misma consola:
+`[GSI_LOGGER]: The given origin is not allowed for the given client ID`.
+
+Es el mismo tipo de problema (lista de orígenes permitidos) pero con
+`NEXT_PUBLIC_GOOGLE_CLIENT_ID`, y afecta al botón «Entrar con Google» en el
+panel maestro. **Ese sí necesita la consola de Google Cloud.** No se tocó.

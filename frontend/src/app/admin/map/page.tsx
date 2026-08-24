@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
+import type * as L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import {
@@ -58,93 +59,27 @@ const STATUS_LABEL_KEY: Record<TenantStatus, string> = {
   SUSPENDED: 'statusSuspended',
 };
 
-const ENV_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 const MAP_API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
 /**
- * Resuelve la API key de Google Maps.
+ * El mapa del panel usa **OpenStreetMap con Leaflet**, no Google Maps.
  *
- * Manda la marca que se está VIENDO (`/admin/sellea/map` → Sellea), no el
- * host. Antes iba por host y desde el panel maestro —que no es dominio de
- * ninguna marca— caía siempre a la clave global de Clubify, restringida por
- * dominio: el mapa moría con RefererNotAllowedMapError mirando cualquier marca.
+ * Google restringe sus claves por dominio, y el panel maestro
+ * (`soyfidelity.com`) no estaba en la lista: el mapa moria con
+ * `RefererNotAllowedMapError` mirando cualquier marca, y arreglarlo requeria
+ * entrar a la consola de Google Cloud — que no todos tienen a mano.
  *
- * Orden: marca de la ruta → marca del host → env global.
+ * Leaflet + OSM no lleva clave ni restriccion por dominio: funciona en
+ * `soyfidelity.com`, en `app.selleala.com` y en cualquier dominio de marca
+ * que se conecte manana, sin que nadie tenga que autorizar nada.
+ *
+ * Se pierde el mosaico de Google (satelite, street view). Para un mapa que
+ * solo muestra donde estan los negocios, no hace falta.
+ *
+ * `MapPicker` (el que usa el NEGOCIO para fijar las coordenadas de su sede)
+ * sigue en Google: corre en el panel del negocio, que si esta autorizado, y
+ * ahi el buscador de direcciones de Google si aporta.
  */
-async function resolveMapsKey(): Promise<string> {
-  if (typeof window === 'undefined') return ENV_API_KEY;
-
-  const marca = marcaDeLaRuta(window.location.pathname);
-  if (marca) {
-    try {
-      const r = await fetch(
-        `${MAP_API}/api/superadmin-public/white-labels/branding?slug=${encodeURIComponent(marca)}`,
-      );
-      if (r.ok) {
-        const d = await r.json();
-        if (d?.mapsApiKey) return d.mapsApiKey as string;
-      }
-    } catch {
-      /* sigue con el host */
-    }
-  }
-
-  const host = (window.location.host || '').toLowerCase().split(':')[0];
-  const isClubify =
-    !host || host === 'localhost' || host.startsWith('127.') ||
-    host.endsWith('soyclubify.com') || host.endsWith('clubify.app');
-  if (!isClubify) {
-    try {
-      const r = await fetch(
-        `${MAP_API}/api/superadmin-public/white-labels/branding-by-host?host=${encodeURIComponent(host)}`,
-      );
-      if (r.ok) {
-        const d = await r.json();
-        if (d?.mapsApiKey) return d.mapsApiKey as string;
-      }
-    } catch {
-      /* cae a la env */
-    }
-  }
-  return ENV_API_KEY;
-}
-
-/**
- * Google avisa de los fallos de AUTORIZACION por este callback global, no
- * lanzando: el SDK carga bien y despues pinta su recuadro gris encima del mapa.
- *
- * Se registra a nivel de MODULO, no dentro de un efecto: el loader del SDK es
- * un singleton que puede haber inyectado el script antes de que el componente
- * monte, y para entonces `window.gm_authFailure` ya tiene que existir. Con el
- * registro dentro del efecto no llegaba a tiempo y el admin seguia viendo solo
- * el recuadro gris de Google sin saber que hacer.
- */
-let avisarFalloDeAutorizacion: (() => void) | null = null;
-if (typeof window !== 'undefined') {
-  (window as unknown as { gm_authFailure?: () => void }).gm_authFailure = () => {
-    avisarFalloDeAutorizacion?.();
-  };
-}
-
-// Loader singleton: idéntico patrón a MapPicker para no doble-init Maps SDK.
-let loaderPromise: Promise<typeof google> | null = null;
-let optionsSet = false;
-function loadGoogleMaps(key: string): Promise<typeof google> {
-  if (typeof window === 'undefined') return Promise.reject(new Error('SSR'));
-  if (loaderPromise) return loaderPromise;
-  if (!key) {
-    return Promise.reject(new Error('Falta la API key de Google Maps de la marca'));
-  }
-  if (!optionsSet) {
-    setOptions({ key, v: 'weekly', language: 'es' });
-    optionsSet = true;
-  }
-  loaderPromise = (async () => {
-    await importLibrary('maps');
-    return (window as any).google as typeof google;
-  })();
-  return loaderPromise;
-}
 
 /** Extrae país aproximado del address ("…, Colombia" o "…, México"). */
 function inferCountry(address: string | null | undefined): string | null {
@@ -177,9 +112,8 @@ export default function AdminBusinessMapPage() {
   });
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.Marker[]>([]);
-  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<L.CircleMarker[]>([]);
   const [ready, setReady] = useState(false);
 
   // ─── Cargar data ───
@@ -207,24 +141,33 @@ export default function AdminBusinessMapPage() {
     })();
   }, []);
 
-  // ─── Inicializar Google Maps una sola vez ───
+  // ─── Inicializar el mapa una sola vez ───
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const key = await resolveMapsKey();
-        const g = await loadGoogleMaps(key);
+        // Import dinámico: Leaflet toca `window` al cargarse y revienta en el
+        // render del servidor.
+        const L = (await import('leaflet')).default;
         if (cancelled || !mapContainerRef.current) return;
-        const map = new g.maps.Map(mapContainerRef.current, {
-          // Centro genérico LATAM (Bogotá) — el fitBounds posterior lo ajusta.
-          center: { lat: 4.6097, lng: -74.0817 },
+        // Puede quedar una instancia viva de un montaje anterior (StrictMode
+        // monta dos veces en desarrollo); sin esto Leaflet lanza
+        // "Map container is already initialized".
+        if (mapRef.current) return;
+
+        const map = L.map(mapContainerRef.current, {
+          // Centro genérico LATAM (Bogotá) — el encuadre posterior lo ajusta.
+          center: [4.6097, -74.0817],
           zoom: 4,
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: true,
+          scrollWheelZoom: true,
         });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          // La atribución es obligatoria por la licencia de OpenStreetMap.
+          attribution: '© OpenStreetMap',
+        }).addTo(map);
+
         mapRef.current = map;
-        infoWindowRef.current = new g.maps.InfoWindow();
         setReady(true);
       } catch (e: any) {
         setLoadErr(e?.message ?? t('errorLoadingMaps'));
@@ -232,27 +175,10 @@ export default function AdminBusinessMapPage() {
     })();
     return () => {
       cancelled = true;
-    };
-  }, []);
-
-  // Google avisa de los fallos de AUTORIZACION por este callback global, no
-  // lanzando: el SDK carga bien y despues pinta su recuadro gris encima del
-  // mapa. Por eso el panel de error de abajo nunca se veia y el admin solo
-  // leia "Google Maps JavaScript API error" sin saber que hacer.
-  useEffect(() => {
-    const marca = marcaDeLaRuta(window.location.pathname);
-    avisarFalloDeAutorizacion = () => {
-      const host = window.location.host;
-      setLoadErr(
-        `Google no autoriza este dominio (${host}) para la clave de Maps` +
-          (marca ? ` de ${marca}` : '') +
-          `. Dos formas de arreglarlo: autorizar https://${host}/* en las ` +
-          `restricciones de la clave en Google Cloud, o cargar la clave propia ` +
-          `de la marca en Master Admin → Marcas.`,
-      );
-    };
-    return () => {
-      avisarFalloDeAutorizacion = null;
+      // Leaflet no se limpia solo: sin esto, al volver a la página el
+      // contenedor sigue marcado como inicializado.
+      mapRef.current?.remove();
+      mapRef.current = null;
     };
   }, []);
 
@@ -313,52 +239,46 @@ export default function AdminBusinessMapPage() {
   useEffect(() => {
     if (!ready || !mapRef.current) return;
     const map = mapRef.current;
-    const g = (window as any).google as typeof google;
+    let cancelado = false;
 
-    // Limpiar markers anteriores.
-    for (const m of markersRef.current) m.setMap(null);
-    markersRef.current = [];
+    void (async () => {
+      const L = (await import('leaflet')).default;
+      if (cancelado || !mapRef.current) return;
 
-    const bounds = new g.maps.LatLngBounds();
-    let anyPoint = false;
+      for (const m of markersRef.current) m.remove();
+      markersRef.current = [];
 
-    for (const tn of filtered) {
-      const color = STATUS_COLORS[tn.status];
-      for (const loc of tn.locations) {
-        const position = { lat: loc.latitude, lng: loc.longitude };
-        const marker = new g.maps.Marker({
-          position,
-          map,
-          title: tn.brandName,
-          icon: {
-            path: g.maps.SymbolPath.CIRCLE,
-            scale: 9,
+      const puntos: [number, number][] = [];
+
+      for (const tn of filtered) {
+        const color = STATUS_COLORS[tn.status];
+        for (const loc of tn.locations) {
+          // Círculo de radio fijo en píxeles: se ve igual a cualquier zoom,
+          // como el SymbolPath.CIRCLE que había antes.
+          const marker = L.circleMarker([loc.latitude, loc.longitude], {
+            radius: 8,
             fillColor: color,
             fillOpacity: 0.95,
-            strokeColor: '#FFFFFF',
-            strokeWeight: 2,
-          },
-        });
-        marker.addListener('click', () => {
-          if (!infoWindowRef.current) return;
-          infoWindowRef.current.setContent(buildInfoWindow(tn, loc, t));
-          infoWindowRef.current.open({ anchor: marker, map });
-        });
-        markersRef.current.push(marker);
-        bounds.extend(position);
-        anyPoint = true;
+            color: '#FFFFFF',
+            weight: 2,
+          })
+            .addTo(map)
+            .bindPopup(buildInfoWindow(tn, loc, t), { maxWidth: 280 });
+          marker.bindTooltip(tn.brandName);
+          markersRef.current.push(marker);
+          puntos.push([loc.latitude, loc.longitude]);
+        }
       }
-    }
 
-    if (anyPoint) {
-      map.fitBounds(bounds, 60);
-      // Si solo hay un punto, fitBounds hace zoom 21 — capamos.
-      const listener = g.maps.event.addListenerOnce(map, 'idle', () => {
-        if ((map.getZoom() ?? 0) > 14) map.setZoom(14);
-      });
-      // listener se auto-remueve (once).
-      void listener;
-    }
+      if (puntos.length) {
+        // Con un solo punto, `fitBounds` se va a zoom máximo: lo capamos.
+        map.fitBounds(L.latLngBounds(puntos), { padding: [60, 60], maxZoom: 14 });
+      }
+    })();
+
+    return () => {
+      cancelado = true;
+    };
   }, [ready, filtered]);
 
   // ─── KPIs ───
@@ -574,14 +494,11 @@ export default function AdminBusinessMapPage() {
             <div className="p-6 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl m-4">
               <div className="font-semibold mb-1">{t('mapsNotConfigured')}</div>
               <div>{loadErr}</div>
+              {/* Ya no hay clave que configurar: el mapa no la usa. Si esto
+                  falla es que no cargaron los mosaicos de OpenStreetMap. */}
               <div className="text-xs mt-2 text-amber-800/80">
-                {t.rich('mapsNotConfiguredHint', {
-                  code: () => (
-                    <code className="bg-amber-100 px-1 rounded">
-                      NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-                    </code>
-                  ),
-                })}
+                Recarga la página. Si sigue igual, puede ser un corte temporal
+                de OpenStreetMap.
               </div>
             </div>
           ) : (
@@ -617,8 +534,8 @@ export default function AdminBusinessMapPage() {
 
 /**
  * HTML del InfoWindow del marker. Lo inyectamos como string porque
- * google.maps.InfoWindow.setContent acepta string|Node y este es el patrón
- * más simple sin tener que portaltar React adentro del SDK de Google.
+ * El popup de Leaflet acepta una cadena de HTML, que es el patrón más simple
+ * sin tener que montar React dentro del mapa.
  */
 function buildInfoWindow(
   tn: MapTenant,
