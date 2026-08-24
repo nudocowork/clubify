@@ -36,6 +36,19 @@ type EnrollInput = {
   mp?: { preapprovalId?: string; payerId?: string; expiresAt?: string | Date };
 };
 
+/** Sede de un aliado (spec §5 y §9). Ver AllyLocationBody en cuponera.dto.ts. */
+export type AllyLocationDto = {
+  name?: string;
+  address?: string;
+  city?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  radiusMeters?: number;
+  geopushMessage?: string;
+  geopushActive?: boolean;
+  isActive?: boolean;
+};
+
 export type AllyProfileDto = {
   name?: string;
   description?: string;
@@ -824,6 +837,73 @@ export class CuponeraService {
       where: { id: user.allyBusinessId },
       data: this.allyUpdatableData(dto),
     });
+  }
+
+  // --- Sedes del aliado (spec §5 y §9) ---
+  //
+  // TODO scopea por `user.allyBusinessId`. En update/delete NO alcanza con
+  // buscar por id: hay que exigir TAMBIÉN el allyBusinessId, o un aliado podría
+  // editar la sede de otro adivinando el id. Por eso van con updateMany/
+  // deleteMany (las dos condiciones juntas) y se revisa el `count`.
+
+  async listAllyLocations(user: AuthUser) {
+    const ally = await this.getAllyForPortal(user);
+    return this.prisma.allyLocation.findMany({
+      where: { allyBusinessId: ally.id },
+      orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  async createAllyLocation(user: AuthUser, dto: AllyLocationDto) {
+    const ally = await this.getAllyForPortal(user);
+    const name = (dto.name ?? '').trim();
+    if (!name) throw new BadRequestException('La sede necesita un nombre');
+    return this.prisma.allyLocation.create({
+      data: { allyBusinessId: ally.id, ...this.locationData(dto), name },
+    });
+  }
+
+  async updateAllyLocation(user: AuthUser, id: string, dto: AllyLocationDto) {
+    const ally = await this.getAllyForPortal(user);
+    const res = await this.prisma.allyLocation.updateMany({
+      where: { id, allyBusinessId: ally.id },
+      data: this.locationData(dto),
+    });
+    if (res.count === 0) throw new NotFoundException('Sede no encontrada');
+    return this.prisma.allyLocation.findUnique({ where: { id } });
+  }
+
+  async deleteAllyLocation(user: AuthUser, id: string) {
+    const ally = await this.getAllyForPortal(user);
+    const res = await this.prisma.allyLocation.deleteMany({
+      where: { id, allyBusinessId: ally.id },
+    });
+    if (res.count === 0) throw new NotFoundException('Sede no encontrada');
+    return { ok: true };
+  }
+
+  /** Campos editables de una sede. Solo escribe lo que vino en el body. */
+  private locationData(dto: AllyLocationDto) {
+    const d: Record<string, unknown> = {};
+    if (dto.name !== undefined) d.name = dto.name.trim();
+    if (dto.address !== undefined) d.address = dto.address.trim();
+    if (dto.city !== undefined) d.city = dto.city.trim();
+    if (dto.latitude !== undefined) d.latitude = dto.latitude;
+    if (dto.longitude !== undefined) d.longitude = dto.longitude;
+    if (dto.radiusMeters !== undefined) d.radiusMeters = dto.radiusMeters;
+    if (dto.geopushMessage !== undefined) d.geopushMessage = dto.geopushMessage.trim();
+    if (dto.isActive !== undefined) d.isActive = dto.isActive;
+    if (dto.geopushActive !== undefined) {
+      // Un geofence sin coordenadas no dispara nunca: mejor rechazarlo que dejar
+      // al aliado con el interruptor en "activo" creyendo que funciona.
+      if (dto.geopushActive && (dto.latitude === null || dto.longitude === null)) {
+        throw new BadRequestException(
+          'Para activar el geopush la sede necesita latitud y longitud',
+        );
+      }
+      d.geopushActive = dto.geopushActive;
+    }
+    return d;
   }
 
   // --- Público (marketplace de negocios) ---
