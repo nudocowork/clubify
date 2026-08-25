@@ -24,6 +24,7 @@ import {
 } from 'class-validator';
 import { CardType } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { CuponeraService } from './cuponera.service';
 import { MercadoPagoService } from './mercadopago.service';
 import { CardDto } from '../cards/cards.service';
@@ -362,8 +363,18 @@ export class CuponeraAdminController {
     return this.svc.listAllBenefits();
   }
   @Patch('benefits/:id/approval')
-  setBenefitApproval(@Param('id') id: string, @Body() body: BenefitApprovalBody) {
-    return this.svc.setBenefitApproval(id, body.approval);
+  setBenefitApproval(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: BenefitApprovalBody,
+  ) {
+    return this.svc.setBenefitApproval(id, body.approval, user);
+  }
+
+  /** Historial de cambios de cualquier beneficio (spec §6). */
+  @Get('benefits/:id/history')
+  benefitHistory(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.listBenefitHistory(user, id);
   }
   @Patch('benefit-approval-required')
   setRequireApproval(@Body() body: RequireApprovalBody) {

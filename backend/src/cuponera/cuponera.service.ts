@@ -12,6 +12,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { CardsService, CardDto } from '../cards/cards.service';
 import { PassesService } from '../passes/passes.service';
 import { LocationsService } from '../locations/locations.service';
+import { actorOf, diffBenefit } from './benefit-history';
 import {
   benefitPeriodStart,
   describeLimit,
@@ -1241,6 +1242,49 @@ export class CuponeraService {
     });
   }
 
+  // --- Historial de cambios del beneficio (spec §6) ---
+
+  /**
+   * Deja constancia de una edición. NUNCA lanza: perder el historial es malo,
+   * pero tumbar la edición del aliado por un fallo al registrar es peor.
+   * Si el diff sale vacío (no cambió nada de lo que se rastrea) no escribe.
+   */
+  private async recordBenefitChange(
+    benefitId: string,
+    user: AuthUser | null,
+    action: 'CREATE' | 'UPDATE' | 'APPROVAL' | 'DELETE',
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+  ) {
+    try {
+      const changes = diffBenefit(before, after);
+      if (action === 'UPDATE' && Object.keys(changes).length === 0) return;
+      const actor = actorOf(
+        user ? { id: user.id, fullName: (user as any).fullName ?? null, role: user.role } : null,
+      );
+      await this.prisma.benefitChange.create({
+        data: { benefitId, action, changes: changes as any, ...actor },
+      });
+    } catch {
+      /* el historial no puede romper la operación */
+    }
+  }
+
+  /** Historial de un beneficio, del más nuevo al más viejo (§6). */
+  async listBenefitHistory(user: AuthUser, benefitId: string) {
+    // El aliado solo ve el historial de SUS beneficios; el admin de Fidelity, el
+    // de cualquiera.
+    if (user.role === 'ALLY_BUSINESS') {
+      const ally = await this.getAllyForPortal(user);
+      await this.assertAllyBenefit(ally.id, benefitId);
+    }
+    return this.prisma.benefitChange.findMany({
+      where: { benefitId },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+  }
+
   // --- Sedes del aliado (spec §5 y §9) ---
   //
   // TODO scopea por `user.allyBusinessId`. En update/delete NO alcanza con
@@ -1446,15 +1490,17 @@ export class CuponeraService {
     const campaign = await this.ensureLivingCampaign();
     const categoryId =
       dto.categoryId === undefined ? undefined : await this.assertCategory(campaign.id, dto.categoryId);
-    return this.prisma.benefit.update({
-      where: { id },
-      data: {
-        ...this.benefitData(dto),
-        ...(dto.title !== undefined ? { title: dto.title } : {}),
-        ...(categoryId !== undefined ? { categoryId } : {}),
-        ...(dto.status ? { status: dto.status as any } : {}),
-      },
-    });
+    // El "antes" se lee ANTES de escribir: después ya no hay con qué comparar.
+    const before = await this.prisma.benefit.findUnique({ where: { id } });
+    const data = {
+      ...this.benefitData(dto),
+      ...(dto.title !== undefined ? { title: dto.title } : {}),
+      ...(categoryId !== undefined ? { categoryId } : {}),
+      ...(dto.status ? { status: dto.status as any } : {}),
+    };
+    const updated = await this.prisma.benefit.update({ where: { id }, data });
+    await this.recordBenefitChange(id, user, 'UPDATE', before ?? {}, data);
+    return updated;
   }
 
   async deleteAllyBenefit(user: AuthUser, id: string) {
@@ -1479,11 +1525,19 @@ export class CuponeraService {
     });
   }
 
-  async setBenefitApproval(id: string, approval: 'PENDING' | 'APPROVED' | 'REJECTED') {
+  async setBenefitApproval(
+    id: string,
+    approval: 'PENDING' | 'APPROVED' | 'REJECTED',
+    user?: AuthUser,
+  ) {
     const campaign = await this.ensureLivingCampaign();
     const b = await this.prisma.benefit.findFirst({ where: { id, campaignId: campaign.id } });
     if (!b) throw new NotFoundException('Beneficio no encontrado');
-    return this.prisma.benefit.update({ where: { id }, data: { approval } });
+    const updated = await this.prisma.benefit.update({ where: { id }, data: { approval } });
+    // Aprobar o rechazar también es un cambio del beneficio: si no queda en el
+    // historial, no se puede reconstruir por qué dejó de estar visible.
+    await this.recordBenefitChange(id, user ?? null, 'APPROVAL', b, { approval });
+    return updated;
   }
 
   async setRequireBenefitApproval(value: boolean) {

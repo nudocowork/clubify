@@ -5759,6 +5759,7 @@ model Benefit {
   approval         BenefitApproval  @default(APPROVED)
   /// Contador denormalizado de canjes (fuente de verdad: tabla Redemption).
   redemptionCount  Int              @default(0)
+  history          BenefitChange[]
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
@@ -5774,6 +5775,31 @@ model Benefit {
 }
 
 /// Registro de un canje (un miembro redimió un beneficio en un negocio).
+/// Historial de cambios de un beneficio (spec §6). El beneficio lo puede editar
+/// el aliado o el admin de la cuponera, y el spec pide poder reconstruir quién
+/// cambió qué: sin esto, un "15% OFF" que ayer era 30% no deja rastro.
+///
+/// `changes` guarda SOLO los campos que cambiaron, con antes y después:
+///   { "percentOff": { "from": 30, "to": 15 } }
+/// Guardar la fila entera duplicaría el beneficio en cada edición y haría más
+/// difícil leer qué pasó.
+model BenefitChange {
+  id        String   @id @default(uuid())
+  benefitId String
+  benefit   Benefit  @relation(fields: [benefitId], references: [id], onDelete: Cascade)
+  /// Quién lo cambió. Null = el usuario se borró; el registro se conserva.
+  userId    String?
+  /// Se congela el nombre y el rol al momento del cambio: si la cuenta se borra
+  /// o cambia de rol, el historial tiene que seguir siendo legible.
+  actorName String   @default("")
+  actorRole String   @default("")
+  action    String   @default("UPDATE") // CREATE | UPDATE | APPROVAL | DELETE
+  changes   Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([benefitId, createdAt])
+}
+
 model Redemption {
   id             String          @id @default(uuid())
   campaignId     String
