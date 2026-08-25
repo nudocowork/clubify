@@ -39,7 +39,10 @@ function buildNavGroups(badges: Badges): NavGroup[] {
         { href: '/superadmin/creditos', label: 'Centro de Créditos', icon: '💳' },
         { href: '/superadmin/cobros', label: 'Centro de Cobros', icon: '🧾', badge: badges.billing },
         { href: '/superadmin/empresas-domicilio', label: 'Empresas de Domicilios', icon: '🛵' },
-        { href: '/superadmin/living-card', label: 'Living Card', icon: '🎟️' },
+        { href: '/superadmin/cuponeras', label: 'Cuponeras', icon: '🎟️' },
+        // Panel de la campaña Living Card (la primera cuponera). Sigue vivo:
+        // 'Cuponeras' administra TODAS; este edita el detalle de esa.
+        { href: '/superadmin/living-card', label: 'Living Card', icon: '🪪' },
         { href: '/superadmin/modulos', label: 'Módulos', icon: '⊞' },
       ],
     },
