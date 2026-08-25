@@ -170,6 +170,38 @@ class StampProgramBody {
   @IsOptional() @IsIn(['ACTIVE', 'PAUSED']) status?: 'ACTIVE' | 'PAUSED';
 }
 
+/** Alta de cuponera (spec §2). La marca blanca es obligatoria. */
+class CampaignCreateBody {
+  @IsString() @MaxLength(120) name!: string;
+  @IsString() @MaxLength(120) whiteLabelId!: string;
+  @IsOptional() @IsString() @MaxLength(60) slug?: string;
+  @IsOptional() @IsString() @MaxLength(2000) description?: string;
+  @IsOptional() @IsString() @MaxLength(80) country?: string;
+  @IsOptional() @IsString() @MaxLength(80) city?: string;
+  @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsString() @MaxLength(200) domain?: string;
+  @IsOptional() @IsString() logoUrl?: string;
+  @IsOptional() @IsString() coverUrl?: string;
+  @IsOptional() @IsString() @MaxLength(32) primaryColor?: string;
+  @IsOptional() @IsString() @MaxLength(32) secondaryColor?: string;
+}
+
+/** Edición. El slug no se edita: cuelga de URLs vivas. */
+class CampaignUpdateBody {
+  @IsOptional() @IsString() @MaxLength(120) name?: string;
+  @IsOptional() @IsString() @MaxLength(120) whiteLabelId?: string;
+  @IsOptional() @IsString() @MaxLength(2000) description?: string;
+  @IsOptional() @IsString() @MaxLength(80) country?: string;
+  @IsOptional() @IsString() @MaxLength(80) city?: string;
+  @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsString() @MaxLength(200) domain?: string;
+  @IsOptional() @IsString() logoUrl?: string;
+  @IsOptional() @IsString() coverUrl?: string;
+  @IsOptional() @IsString() @MaxLength(32) primaryColor?: string;
+  @IsOptional() @IsString() @MaxLength(32) secondaryColor?: string;
+  @IsOptional() @IsIn(['DRAFT', 'ACTIVE', 'PAUSED']) status?: 'DRAFT' | 'ACTIVE' | 'PAUSED';
+}
+
 /**
  * Panel Master Admin de la campaña Living Card (Cuponera). PLATFORM_OWNER (o
  * SUPER_ADMIN de la marca). Todo cuelga de la única campaña Living Card, que se
@@ -186,6 +218,22 @@ export class CuponeraAdminController {
   @Get()
   overview() {
     return this.svc.getCampaignAdmin();
+  }
+
+  // --- CUPONERAS (spec §1 y §2) ---
+  // Fidelity administra VARIAS. Van con /campaigns en PLURAL para no chocar con
+  // /campaign (singular), que edita la única de Living Card.
+  @Get('campaigns')
+  listCampaigns() {
+    return this.svc.listCampaigns();
+  }
+  @Post('campaigns')
+  createCampaign(@Body() body: CampaignCreateBody) {
+    return this.svc.createCampaign(body);
+  }
+  @Patch('campaigns/:id')
+  updateCampaignById(@Param('id') id: string, @Body() body: CampaignUpdateBody) {
+    return this.svc.updateCampaignById(id, body);
   }
 
   @Get('metrics')

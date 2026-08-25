@@ -37,6 +37,29 @@ type EnrollInput = {
 };
 
 /** Sede de un aliado (spec §5 y §9). Ver AllyLocationBody en cuponera.dto.ts. */
+/** Alta de una cuponera desde el Master Admin de Fidelity (spec §2). */
+export type CampaignCreateDto = {
+  name?: string;
+  slug?: string;
+  /** OBLIGATORIO: la cuponera se vincula a una marca blanca existente. */
+  whiteLabelId: string;
+  description?: string;
+  country?: string | null;
+  city?: string | null;
+  currency?: string | null;
+  domain?: string | null;
+  logoUrl?: string | null;
+  coverUrl?: string | null;
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
+};
+
+/** Edición de una cuponera. Todo opcional; el slug no se edita. */
+export type CampaignUpdateDto = Partial<Omit<CampaignCreateDto, 'whiteLabelId' | 'slug'>> & {
+  whiteLabelId?: string;
+  status?: 'DRAFT' | 'ACTIVE' | 'PAUSED';
+};
+
 export type AllyLocationDto = {
   name?: string;
   address?: string;
@@ -186,6 +209,162 @@ export class CuponeraService {
         status: 'ACTIVE',
         isCampaignHost: true,
         hotmartSubscriberCode: `campaign-${SYSTEM_TENANT_SLUG}`,
+        primaryColor: '#0a90bd',
+        secondaryColor: '#075e7d',
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // CUPONERAS (spec §1 y §2) — el Master Admin de Fidelity administra VARIAS.
+  //
+  // Ojo con la jerarquía: Fidelity es el Master Admin; Clubify es UNA marca
+  // blanca más. Cada cuponera se vincula a la marca blanca que corresponda, y
+  // por eso `whiteLabelId` es obligatorio al crearla: sin él la cuponera queda
+  // colgando de la nada y el aliado Tipo A nunca podría resolverse.
+  //
+  // Cada cuponera tiene su PROPIO tenant de sistema (isCampaignHost=true), que
+  // es lo que le da su stack de Wallet sin reescribir nada.
+  // ---------------------------------------------------------------------------
+
+  /** Todas las cuponeras con su marca blanca y sus conteos (§1). */
+  async listCampaigns() {
+    const campaigns = await this.prisma.benefitCampaign.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        whiteLabel: { select: { id: true, name: true, slug: true } },
+        _count: {
+          select: { allies: true, memberships: true, benefits: true, redemptions: true },
+        },
+      },
+    });
+    return campaigns.map((c) => ({
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      status: c.status,
+      whiteLabel: c.whiteLabel,
+      createdAt: c.createdAt,
+      counts: {
+        allies: c._count.allies,
+        members: c._count.memberships,
+        benefits: c._count.benefits,
+        redemptions: c._count.redemptions,
+      },
+    }));
+  }
+
+  /** Crea una cuponera + su tenant de sistema (§2). */
+  async createCampaign(dto: CampaignCreateDto) {
+    const name = (dto.name ?? '').trim();
+    if (!name) throw new BadRequestException('La cuponera necesita un nombre');
+
+    // La slugify del servicio cae a 'cat' cuando no queda nada (viene de
+    // categorías). Para una cuponera eso daría un slug absurdo en silencio, así
+    // que se valida ANTES que haya algo alfanumérico.
+    const raw = (dto.slug || name).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (!/[a-z0-9]/i.test(raw)) throw new BadRequestException('Slug inválido');
+    const slug = this.slugify(raw);
+
+    const dup = await this.prisma.benefitCampaign.findUnique({ where: { slug } });
+    if (dup) throw new BadRequestException(`Ya existe una cuponera con el slug "${slug}"`);
+
+    // La marca blanca tiene que EXISTIR: si no, la cuponera queda huérfana y
+    // ningún aliado Tipo A podría vincularse.
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: dto.whiteLabelId },
+      select: { id: true },
+    });
+    if (!wl) throw new BadRequestException('La marca blanca no existe');
+
+    const tenant = await this.ensureCampaignTenant(`sys-${slug}`, name, wl.id);
+    return this.prisma.benefitCampaign.create({
+      data: {
+        whiteLabelId: wl.id,
+        tenantId: tenant.id,
+        name,
+        slug,
+        status: 'DRAFT', // nace apagada: se publica cuando está cargada
+        welcomeText: (dto.description ?? `Bienvenido a ${name}`).trim(),
+        config: {
+          country: dto.country ?? null,
+          city: dto.city ?? null,
+          currency: dto.currency ?? 'COP',
+          domain: dto.domain ?? null,
+          logoUrl: dto.logoUrl ?? null,
+          coverUrl: dto.coverUrl ?? null,
+          primaryColor: dto.primaryColor ?? null,
+          secondaryColor: dto.secondaryColor ?? null,
+        },
+      },
+      include: { whiteLabel: { select: { id: true, name: true, slug: true } } },
+    });
+  }
+
+  /**
+   * Edita la ficha de UNA cuponera por id (§2). El slug NO se toca: cuelga de
+   * URLs vivas. Distinta de `updateCampaign(dto)`, que edita la campaña única
+   * de Living Card y se mantiene por compatibilidad.
+   */
+  async updateCampaignById(id: string, dto: CampaignUpdateDto) {
+    const campaign = await this.prisma.benefitCampaign.findUnique({ where: { id } });
+    if (!campaign) throw new NotFoundException('Cuponera no encontrada');
+
+    if (dto.whiteLabelId !== undefined) {
+      const wl = await this.prisma.whiteLabel.findUnique({
+        where: { id: dto.whiteLabelId },
+        select: { id: true },
+      });
+      if (!wl) throw new BadRequestException('La marca blanca no existe');
+    }
+
+    const cfg = (campaign.config ?? {}) as Record<string, unknown>;
+    const keys = [
+      'country', 'city', 'currency', 'domain',
+      'logoUrl', 'coverUrl', 'primaryColor', 'secondaryColor',
+    ] as const;
+    for (const k of keys) if (dto[k] !== undefined) cfg[k] = dto[k];
+
+    return this.prisma.benefitCampaign.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(dto.description !== undefined ? { welcomeText: dto.description.trim() } : {}),
+        ...(dto.whiteLabelId !== undefined ? { whiteLabelId: dto.whiteLabelId } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
+        config: cfg as any,
+      },
+      include: { whiteLabel: { select: { id: true, name: true, slug: true } } },
+    });
+  }
+
+  /**
+   * Tenant de sistema de UNA cuponera. Versión parametrizada de
+   * ensureSystemTenant, que estaba clavada al slug de Living Card.
+   */
+  private async ensureCampaignTenant(slug: string, name: string, whiteLabelId: string) {
+    const existing = await this.prisma.tenant.findUnique({ where: { slug } });
+    if (existing) {
+      if (!existing.isCampaignHost) {
+        await this.prisma.tenant.update({
+          where: { id: existing.id },
+          data: { isCampaignHost: true },
+        });
+      }
+      return existing;
+    }
+    const plan = await this.ensureFreePlan();
+    return this.prisma.tenant.create({
+      data: {
+        name,
+        brandName: name,
+        slug,
+        email: `campaign+${slug}@clubify.app`,
+        planId: plan.id,
+        whiteLabelId,
+        status: 'ACTIVE',
+        isCampaignHost: true,
+        hotmartSubscriberCode: `campaign-${slug}`,
         primaryColor: '#0a90bd',
         secondaryColor: '#075e7d',
       },
