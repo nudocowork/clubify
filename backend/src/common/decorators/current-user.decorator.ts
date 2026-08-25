@@ -20,6 +20,8 @@ export type AuthUser = {
   /** Negocio aliado de la sesión (role=ALLY_BUSINESS). El portal
    *  /cuponera/negocio scopea a esta ficha. (Cuponera Fase 2) */
   allyBusinessId?: string | null;
+  /** Cuponera que administra (role=CUPONERA_ADMIN). Ver spec §3. */
+  campaignId?: string | null;
 };
 
 export const CurrentUser = createParamDecorator(

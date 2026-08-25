@@ -23,6 +23,7 @@ export type JwtPayload = {
   // Negocio aliado de la sesión (role=ALLY_BUSINESS). El portal
   // /cuponera/negocio scopea a esta ficha. (Cuponera Fase 2)
   allyBusinessId?: string | null;
+  campaignId?: string | null;
 };
 
 @Injectable()
@@ -45,6 +46,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       whiteLabelId: payload.whiteLabelId ?? null,
       deliveryCompanyId: payload.deliveryCompanyId ?? null,
       allyBusinessId: payload.allyBusinessId ?? null,
+      campaignId: payload.campaignId ?? null,
     };
   }
 }

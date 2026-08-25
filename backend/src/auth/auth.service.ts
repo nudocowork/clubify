@@ -24,7 +24,8 @@ import {
   isValidCategorySlug,
   DEFAULT_CATEGORY_SLUG,
 } from '../common/business-categories';
-import { cycleCreditCost } from '../common/business-types';
+import { cycleCreditCost, cycleCreditCostForTenant } from '../common/business-types';
+import { normalizeInfolinkTier, type InfolinkTier } from '../common/infolink-tier';
 // HotmartService se resuelve LAZY vía ModuleRef.get + require() inline
 // (ver consumePendingForTenant en signup). NO importar acá estáticamente
 // — el ciclo de archivos (auth.service ↔ hotmart.service via PreregAlerts)
@@ -156,6 +157,7 @@ export class AuthService {
       whiteLabelId?: string | null;
       deliveryCompanyId?: string | null;
       allyBusinessId?: string | null;
+      campaignId?: string | null;
     },
     ip: string | undefined,
     opts: {
@@ -191,6 +193,7 @@ export class AuthService {
       deliveryCompanyId: user.deliveryCompanyId ?? null,
       // Negocio aliado (role=ALLY_BUSINESS). null = no aplica.
       allyBusinessId: user.allyBusinessId ?? null,
+      campaignId: user.campaignId ?? null,
     };
 
     const accessToken =
@@ -1521,10 +1524,15 @@ export class AuthService {
       fullName: string;
       brandName: string;
       phone?: string;
+      /** Nivel del InfoLink. FREE = captación gratis (0 créditos, freemium
+       *  público de Sellea). PRO = pago (0.25 créditos de la marca). Default
+       *  PRO para no cambiar el flujo del link compartible existente. */
+      tier?: string;
     },
     ip?: string,
   ) {
     const email = dto.email.toLowerCase().trim();
+    const tier: InfolinkTier = normalizeInfolinkTier(dto.tier);
     const brandName = dto.brandName.trim();
     if (!brandName) throw new BadRequestException('Nombre del negocio requerido');
 
@@ -1575,6 +1583,7 @@ export class AuthService {
             phone: dto.phone?.trim() || null,
             whatsappPhone: dto.phone?.trim() || null,
             businessType: 'INFOLINK',
+            infolinkTier: tier,
             businessCategorySlug: DEFAULT_CATEGORY_SLUG,
             status: 'SUSPENDED', // se activa abajo si la marca tiene créditos
             planId: plan.id,
@@ -1604,13 +1613,14 @@ export class AuthService {
       throw e;
     }
 
-    // Cobro del ciclo: 0.25 (InfoLink mensual). Race-safe. Marca ilimitada activa
-    // sin cobrar. Sin cupo → queda bloqueado (SUSPENDED).
-    const cost = cycleCreditCost('INFOLINK', 'MENSUAL');
+    // Cobro del ciclo según el nivel: FREE = 0 (captación, activa directo),
+    // PRO = 0.25 (InfoLink mensual). Race-safe. Marca ilimitada activa sin
+    // cobrar. Sin cupo → queda bloqueado (SUSPENDED).
+    const cost = cycleCreditCostForTenant('INFOLINK', tier, 'MENSUAL');
     const oneMonth = new Date();
     oneMonth.setMonth(oneMonth.getMonth() + 1);
     let blocked = true;
-    if (brand.creditsUnlimited) {
+    if (brand.creditsUnlimited || cost === 0) {
       await this.prisma.tenant.update({
         where: { id: tenant.id },
         data: { status: 'ACTIVE', currentPeriodEnd: oneMonth },

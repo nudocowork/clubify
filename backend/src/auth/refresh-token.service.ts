@@ -25,6 +25,7 @@ export type RefreshPayload = {
   // Negocio aliado (role=ALLY_BUSINESS). Mismo motivo: DEBE viajar en el refresh
   // para que el portal /cuponera/negocio siga scopeado a su ficha. (Cuponera F2)
   allyBusinessId?: string | null;
+  campaignId?: string | null;
 };
 
 export type IssueOpts = {
@@ -150,6 +151,7 @@ export class RefreshTokenService {
         whiteLabelId: true,
         deliveryCompanyId: true,
         allyBusinessId: true,
+        campaignId: true,
         isActive: true,
         passwordChangedAt: true,
       },
@@ -179,6 +181,7 @@ export class RefreshTokenService {
       whiteLabelId: user.whiteLabelId ?? null,
       deliveryCompanyId: user.deliveryCompanyId ?? null,
       allyBusinessId: user.allyBusinessId ?? null,
+      campaignId: user.campaignId ?? null,
     };
     const newToken = await this.issue({
       userId: user.id,

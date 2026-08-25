@@ -339,6 +339,88 @@ export class CuponeraService {
   }
 
   /**
+   * Crea el ADMINISTRADOR de una cuponera (spec §3). NO entra al Master Admin
+   * de Fidelity: su rol es CUPONERA_ADMIN y solo ve el panel de SU cuponera.
+   *
+   * Sin tenantId a propósito — una cuponera no es un negocio. El scope sale de
+   * `User.campaignId`, igual que ALLY_BUSINESS lo saca de allyBusinessId.
+   */
+  async createCampaignAdmin(
+    campaignId: string,
+    dto: { email: string; fullName: string; password?: string },
+  ) {
+    const campaign = await this.prisma.benefitCampaign.findUnique({
+      where: { id: campaignId },
+      select: { id: true, name: true },
+    });
+    if (!campaign) throw new NotFoundException('Cuponera no encontrada');
+
+    const email = (dto.email ?? '').trim().toLowerCase();
+    if (!email.includes('@')) throw new BadRequestException('Email inválido');
+    const fullName = (dto.fullName ?? '').trim();
+    if (!fullName) throw new BadRequestException('El administrador necesita un nombre');
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) throw new BadRequestException('Ya existe un usuario con ese email');
+
+    // Si no mandan clave se genera una y se devuelve UNA sola vez: queda
+    // hasheada, no hay forma de recuperarla después.
+    const tempPassword = dto.password || nanoid(10);
+    const passwordHash = await argon2.hash(tempPassword);
+
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        fullName,
+        role: 'CUPONERA_ADMIN',
+        campaignId: campaign.id,
+      },
+      select: { id: true, email: true, fullName: true, role: true, campaignId: true },
+    });
+
+    return {
+      admin: user,
+      campaign: { id: campaign.id, name: campaign.name },
+      loginEmail: email,
+      tempPassword: dto.password ? undefined : tempPassword,
+    };
+  }
+
+  /** Administradores de una cuponera (§3). Nunca devuelve el hash. */
+  async listCampaignAdmins(campaignId: string) {
+    return this.prisma.user.findMany({
+      where: { campaignId, role: 'CUPONERA_ADMIN' },
+      select: { id: true, email: true, fullName: true, isActive: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * Cuponera del usuario logueado. Para CUPONERA_ADMIN sale de su `campaignId`;
+   * PLATFORM_OWNER/SUPER_ADMIN pueden pedir cualquiera por id (spec §1: "entrar
+   * administrativamente a cualquier cuponera").
+   */
+  async resolveAdminCampaign(user: AuthUser, requestedId?: string) {
+    if (user.role === 'CUPONERA_ADMIN') {
+      if (!user.campaignId) throw new ForbiddenException('Sesión sin cuponera');
+      // Un admin de cuponera NO puede mirar otra pidiéndola por id.
+      if (requestedId && requestedId !== user.campaignId) {
+        throw new ForbiddenException('Esa cuponera no es tuya');
+      }
+      const c = await this.prisma.benefitCampaign.findUnique({ where: { id: user.campaignId } });
+      if (!c) throw new NotFoundException('Cuponera no encontrada');
+      return c;
+    }
+    if (requestedId) {
+      const c = await this.prisma.benefitCampaign.findUnique({ where: { id: requestedId } });
+      if (!c) throw new NotFoundException('Cuponera no encontrada');
+      return c;
+    }
+    return this.ensureLivingCampaign();
+  }
+
+  /**
    * Tenant de sistema de UNA cuponera. Versión parametrizada de
    * ensureSystemTenant, que estaba clavada al slug de Living Card.
    */

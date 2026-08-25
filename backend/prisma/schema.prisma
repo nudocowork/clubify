@@ -50,6 +50,11 @@ enum Role {
   // vía User.allyBusinessId. Sin tenantId. Su portal (/cuponera/negocio)
   // gestiona SOLO su ficha/promos. Mismo patrón que DELIVERY_COMPANY.
   ALLY_BUSINESS
+  // Cuponera — spec §3: ADMINISTRADOR de UNA cuponera. Vinculado vía
+  // User.campaignId. NO entra al Master Admin de Fidelity: solo ve el panel de
+  // su cuponera. Sin tenantId (la cuponera no es un negocio). Mismo patrón que
+  // ALLY_BUSINESS y DELIVERY_COMPANY.
+  CUPONERA_ADMIN
 }
 
 enum TenantStatus {
@@ -1095,6 +1100,9 @@ model User {
   // (role=ALLY_BUSINESS). NULL = usuario normal. Su portal gestiona su ficha.
   allyBusinessId String?
   allyBusiness   AllyBusiness? @relation("AllyBusinessAdmin", fields: [allyBusinessId], references: [id], onDelete: SetNull)
+  /// Cuponera que administra (spec §3). Solo para role=CUPONERA_ADMIN.
+  campaignId     String?
+  campaign       BenefitCampaign? @relation("CampaignAdmin", fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([role])
@@ -1102,6 +1110,7 @@ model User {
   @@index([whiteLabelId])
   @@index([deliveryCompanyId])
   @@index([allyBusinessId])
+  @@index([campaignId])
 }
 
 model Customer {
@@ -5484,6 +5493,8 @@ model BenefitCampaign {
   stampPrograms StampProgram[]
   stampCards    StampCard[]
   stampEvents   StampEvent[]
+  /// Administradores de esta cuponera (spec §3). No entran al Master Admin.
+  admins        User[]          @relation("CampaignAdmin")
 
   @@index([whiteLabelId])
 }

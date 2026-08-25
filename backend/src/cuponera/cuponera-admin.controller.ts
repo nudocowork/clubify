@@ -170,6 +170,14 @@ class StampProgramBody {
   @IsOptional() @IsIn(['ACTIVE', 'PAUSED']) status?: 'ACTIVE' | 'PAUSED';
 }
 
+/** Alta del administrador de una cuponera (spec §3). */
+class CampaignAdminBody {
+  @IsString() @MaxLength(180) email!: string;
+  @IsString() @MaxLength(120) fullName!: string;
+  /** Si no viene, se genera una y se devuelve una sola vez. */
+  @IsOptional() @IsString() @MaxLength(200) password?: string;
+}
+
 /** Alta de cuponera (spec §2). La marca blanca es obligatoria. */
 class CampaignCreateBody {
   @IsString() @MaxLength(120) name!: string;
@@ -234,6 +242,18 @@ export class CuponeraAdminController {
   @Patch('campaigns/:id')
   updateCampaignById(@Param('id') id: string, @Body() body: CampaignUpdateBody) {
     return this.svc.updateCampaignById(id, body);
+  }
+
+  // Administrador propio de una cuponera (spec §3). NO entra al Master Admin de
+  // Fidelity: solo ve el panel de SU cuponera. La clave temporal se devuelve UNA
+  // sola vez — queda hasheada y no hay forma de recuperarla después.
+  @Get('campaigns/:id/admins')
+  listCampaignAdmins(@Param('id') id: string) {
+    return this.svc.listCampaignAdmins(id);
+  }
+  @Post('campaigns/:id/admins')
+  createCampaignAdmin(@Param('id') id: string, @Body() body: CampaignAdminBody) {
+    return this.svc.createCampaignAdmin(id, body);
   }
 
   @Get('metrics')
