@@ -338,6 +338,147 @@ export class CuponeraService {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // PANEL DE LA CUPONERA (spec §4)
+  //
+  // Consultas propias, TODAS scopeadas por campaignId. No se reusan los métodos
+  // del panel de Fidelity porque esos llaman `ensureLivingCampaign()` por
+  // dentro (48 sitios): a un admin de otra cuponera le mostrarían Living Card.
+  // Parametrizar esos 48 es un refactor aparte; mientras tanto el panel tiene
+  // sus propias lecturas y no depende de ellos.
+  //
+  // La campaña SIEMPRE sale de `resolveAdminCampaign`, nunca de un id del
+  // cliente: es lo que impide que un admin mire la cuponera de otro.
+  // ---------------------------------------------------------------------------
+
+  /** Números de la pantalla inicial del panel (§4). */
+  async panelOverview(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    const cid = campaign.id;
+    const monthStart = benefitPeriodStart('MONTH', new Date())!;
+
+    const [
+      members, activeMembers, allies, activeAllies,
+      benefits, redemptionsMonth, redemptionsTotal, walletCards,
+    ] = await Promise.all([
+      this.prisma.livingMembership.count({ where: { campaignId: cid } }),
+      this.prisma.livingMembership.count({ where: { campaignId: cid, status: 'ACTIVE' } }),
+      this.prisma.allyBusiness.count({ where: { campaignId: cid } }),
+      this.prisma.allyBusiness.count({ where: { campaignId: cid, status: 'APPROVED' } }),
+      this.prisma.benefit.count({
+        where: { campaignId: cid, status: 'ACTIVE', approval: 'APPROVED' },
+      }),
+      this.prisma.redemption.count({ where: { campaignId: cid, createdAt: { gte: monthStart } } }),
+      this.prisma.redemption.count({ where: { campaignId: cid } }),
+      // Tarjeta emitida = membresía con su pase creado.
+      this.prisma.livingMembership.count({ where: { campaignId: cid, passId: { not: null } } }),
+    ]);
+
+    // Rankings: se agrupan los canjes y después se traen los nombres, para no
+    // pedirle a Postgres un join que Prisma no expresa en groupBy.
+    const [topBenefits, topAllies] = await Promise.all([
+      this.prisma.redemption.groupBy({
+        by: ['benefitId'],
+        where: { campaignId: cid },
+        _count: { benefitId: true },
+        orderBy: { _count: { benefitId: 'desc' } },
+        take: 5,
+      }),
+      this.prisma.redemption.groupBy({
+        by: ['allyBusinessId'],
+        where: { campaignId: cid },
+        _count: { allyBusinessId: true },
+        orderBy: { _count: { allyBusinessId: 'desc' } },
+        take: 5,
+      }),
+    ]);
+
+    const [benefitNames, allyNames] = await Promise.all([
+      topBenefits.length
+        ? this.prisma.benefit.findMany({
+            where: { id: { in: topBenefits.map((b) => b.benefitId) } },
+            select: { id: true, title: true },
+          })
+        : [],
+      topAllies.length
+        ? this.prisma.allyBusiness.findMany({
+            where: { id: { in: topAllies.map((a) => a.allyBusinessId) } },
+            select: { id: true, name: true },
+          })
+        : [],
+    ]);
+    const bName = new Map(benefitNames.map((b) => [b.id, b.title]));
+    const aName = new Map(allyNames.map((a) => [a.id, a.name]));
+
+    return {
+      campaign: { id: cid, name: campaign.name, slug: campaign.slug, status: campaign.status },
+      counts: {
+        members,
+        activeMembers,
+        allies,
+        activeAllies,
+        benefits,
+        redemptionsMonth,
+        redemptionsTotal,
+        walletCards,
+      },
+      topBenefits: topBenefits.map((b) => ({
+        id: b.benefitId,
+        title: bName.get(b.benefitId) ?? '(eliminado)',
+        redemptions: b._count.benefitId,
+      })),
+      topAllies: topAllies.map((a) => ({
+        id: a.allyBusinessId,
+        name: aName.get(a.allyBusinessId) ?? '(eliminado)',
+        redemptions: a._count.allyBusinessId,
+      })),
+    };
+  }
+
+  /** Aliados de la cuponera del admin (§4 → Aliados). */
+  async panelAllies(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.prisma.allyBusiness.findMany({
+      where: { campaignId: campaign.id },
+      include: {
+        category: { select: { id: true, name: true } },
+        _count: { select: { benefits: true, redemptions: true, locations: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+  }
+
+  /** Beneficiarios (§4 → Beneficiarios). */
+  async panelMembers(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.prisma.livingMembership.findMany({
+      where: { campaignId: campaign.id },
+      include: {
+        customer: { select: { id: true, fullName: true, phone: true, email: true } },
+        plan: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+  }
+
+  /** Historial de canjes (§4 → Redenciones). Incluye la sede (§19). */
+  async panelRedemptions(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.prisma.redemption.findMany({
+      where: { campaignId: campaign.id },
+      include: {
+        benefit: { select: { id: true, title: true } },
+        ally: { select: { id: true, name: true } },
+        location: { select: { id: true, name: true } },
+        customer: { select: { id: true, fullName: true, phone: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+  }
+
   /**
    * Crea el ADMINISTRADOR de una cuponera (spec §3). NO entra al Master Admin
    * de Fidelity: su rol es CUPONERA_ADMIN y solo ve el panel de SU cuponera.

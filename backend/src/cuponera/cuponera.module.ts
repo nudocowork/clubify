@@ -3,6 +3,7 @@ import { CuponeraService } from './cuponera.service';
 import { CuponeraAdminController } from './cuponera-admin.controller';
 import { CuponeraPublicController } from './cuponera-public.controller';
 import { AllyPortalController } from './ally-portal.controller';
+import { CuponeraPanelController } from './cuponera-panel.controller';
 import { MercadoPagoService } from './mercadopago.service';
 import { MercadoPagoController } from './mercadopago.controller';
 import { CardsModule } from '../cards/cards.module';
@@ -23,6 +24,7 @@ import { WalletModule } from '../wallet/wallet.module';
     CuponeraAdminController,
     CuponeraPublicController,
     AllyPortalController,
+    CuponeraPanelController,
     MercadoPagoController,
   ],
   exports: [CuponeraService],
