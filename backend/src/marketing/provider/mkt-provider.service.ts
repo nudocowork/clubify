@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { GrowBusinessService } from '../../integrations/grow-business.service';
+import { GrowBusinessService, type SendContext } from '../../integrations/grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../../integrations/brand-sms-creds.util';
 import {
   SendResult,
@@ -94,6 +94,8 @@ export class MktProviderService {
     toName?: string;
     subject: string;
     html: string;
+    /** Contexto para el historial MessageLog (marca/negocio/feature del envío). */
+    ctx?: SendContext;
   }): Promise<SendResult> {
     const email = (input.toEmail || '').trim().toLowerCase();
     if (!email.includes('@')) {
@@ -109,7 +111,7 @@ export class MktProviderService {
     if (!creds) {
       return { ok: false, skipped: true, error: 'La marca no tiene subcuenta de correo configurada.' };
     }
-    const res = await this.grow.sendEmailWithCreds(creds, email, input.subject || '(sin asunto)', input.html || '');
+    const res = await this.grow.sendEmailWithCreds(creds, email, input.subject || '(sin asunto)', input.html || '', { ctx: input.ctx });
     if (!res.ok) {
       return { ok: false, error: res.message ?? 'Error enviando el correo.' };
     }
@@ -128,6 +130,8 @@ export class MktProviderService {
     whiteLabelId: string;
     toPhone: string;
     message: string;
+    /** Contexto para el historial MessageLog (marca/negocio/feature del envío). */
+    ctx?: SendContext;
   }): Promise<SendResult> {
     const phone = (input.toPhone || '').trim();
     if (!phone) {
@@ -140,7 +144,7 @@ export class MktProviderService {
     if (!creds) {
       return { ok: false, skipped: true, error: 'La marca no tiene subcuenta de SMS configurada.' };
     }
-    const res = await this.grow.sendSmsWithCreds(creds, phone, input.message);
+    const res = await this.grow.sendSmsWithCreds(creds, phone, input.message, input.ctx);
     if (!res.ok) {
       return { ok: false, error: ('message' in res && res.message) ? res.message : 'Error enviando el SMS.' };
     }

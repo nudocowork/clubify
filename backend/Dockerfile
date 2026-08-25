@@ -35,10 +35,11 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package*.json ./
-# Scripts de migration (wrapper que auto-resuelve P3018/P3009 "already exists"
-# para schemas pre-existentes via db push). El startCommand de railway.json
-# llama a scripts/migrate-resolve-and-deploy.mjs antes de arrancar el server,
-# así nunca hay desfase entre el código y las columnas físicas de la DB.
+# Scripts operativos (migraciones aditivas, diagnósticos de solo lectura).
+# OJO: el startCommand de railway.json es `node dist/main.js` a secas — NO
+# corre migraciones al arrancar. El comentario anterior decía lo contrario y
+# era falso; cambiar el esquema en producción es un paso MANUAL y deliberado,
+# con un script aditivo de SQL crudo. Ver docs/ESTADO-PRODUCCION.md.
 COPY --from=build /app/scripts ./scripts
 # Imágenes default Apple Wallet (icon/logo/strip) — los certs reales se
 # inyectan via env vars base64, pero estas PNGs vienen del repo.

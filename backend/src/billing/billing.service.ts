@@ -5,6 +5,8 @@ import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { SmsTemplatesService } from './sms-templates.service';
 import { fmtSmsDate } from './sms-templates';
+import { BrandEmailService } from '../email/brand-email.service';
+import { fmtEmailDate } from '../email/brand-email-templates';
 import { addPlanPeriod } from '../common/plan-period';
 import { cycleCreditCostForTenant } from '../common/business-types';
 import { AuditService } from '../audit/audit.service';
@@ -45,6 +47,7 @@ export class BillingService {
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
     private smsTemplates: SmsTemplatesService,
+    private brandEmail: BrandEmailService,
     private audit: AuditService,
   ) {}
 
@@ -420,7 +423,13 @@ export class BillingService {
         trialEndsAt: { lt: now },
         currentPeriodEnd: null,
       },
-      select: { id: true, brandName: true, trialEndsAt: true, gracePeriodDays: true },
+      select: {
+        id: true,
+        brandName: true,
+        trialEndsAt: true,
+        gracePeriodDays: true,
+        manualPayment: true,
+      },
     });
     // Solo suspendemos si trialEndsAt + gracePeriodDays ya pasó. La gracia 0
     // mantiene el comportamiento anterior (corte duro al vencer trial).
@@ -430,11 +439,23 @@ export class BillingService {
       return cutoff < now.getTime();
     });
 
+    let trialSuspendedCount = 0;
     for (const t of expiredTrials) {
+      // Gate pago-por-fuera: puede haber pagado en efectivo/Nequi y que el
+      // registro del pago venga con días de retraso — suspender a un cliente
+      // que sí pagó es peor que dejarle unos días de más a uno que no. Queda
+      // visible en la lista de revisión (GET /tenants/manual-payments/review).
+      if (t.manualPayment) {
+        this.logger.warn(
+          `Tenant ${t.brandName} (${t.id}) con trial vencido pero paga POR FUERA (manualPayment) — NO auto-suspendido; aparece en la lista de revisión.`,
+        );
+        continue;
+      }
       await this.prisma.tenant.update({
         where: { id: t.id },
         data: { status: 'SUSPENDED', suspendedAt: now },
       });
+      trialSuspendedCount++;
       this.logger.warn(`Tenant ${t.brandName} (${t.id}) suspended: trial expired`);
     }
 
@@ -447,7 +468,7 @@ export class BillingService {
     const dunning = await this.processOverdueAccounts(now);
 
     return {
-      suspendedCount: expiredTrials.length,
+      suspendedCount: trialSuspendedCount,
       reminderCount:
         reminder7dCount + reminder3dCount + reminderCount + reminderTodayCount,
       overdueReminderCount: dunning.reminders,
@@ -602,29 +623,73 @@ export class BillingService {
       ) {
         continue;
       }
+      let notified = false;
       const target = await this.resolveBillingTarget(t.id);
-      if (!target) continue;
-      const ownerName = await this.ownerFirstName(t.id);
-      const message = await this.smsTemplates.render(
-        'payment_reminder_7d',
-        { ownerName },
-        t.id,
-      );
-      const r = await this.growBusiness.sendSmsWithCreds(
-        target.creds,
-        target.phone,
-        message,
-      );
-      if (r.ok) {
+      if (target) {
+        const ownerName = await this.ownerFirstName(t.id);
+        const message = await this.smsTemplates.render(
+          'payment_reminder_7d',
+          { ownerName },
+          t.id,
+        );
+        const r = await this.growBusiness.sendSmsWithCreds(
+          target.creds,
+          target.phone,
+          message,
+          { tenantId: t.id, templateId: 'payment_reminder_7d', feature: 'billing' },
+        );
+        if (r.ok) {
+          notified = true;
+          this.logger.log(`SMS D-7 → ${t.brandName} (${target.phone})`);
+        }
+      }
+      if (
+        await this.mailReminder(t, 'email_payment_reminder_7d', 'D-7', {
+          chargeDate: fmtEmailDate(t.currentPeriodEnd),
+        })
+      ) {
+        notified = true;
+      }
+      if (notified) {
         await this.prisma.tenant.update({
           where: { id: t.id },
           data: { preReminder7dSentFor: t.currentPeriodEnd },
         });
         sent++;
-        this.logger.log(`SMS D-7 → ${t.brandName} (${target.phone})`);
       }
     }
     return sent;
+  }
+
+  /**
+   * ¿Ya se avisó hoy? Los avisos de mora se disparan por `daysOverdue === N`,
+   * que es cierto durante todo el día: sin esto, cada corrida extra del cron
+   * (o del endpoint manual /billing/run-daily-check) le repite al cliente el
+   * mismo correo y el mismo SMS.
+   */
+  private avisadoHoy(marca: Date | null | undefined, now: Date): boolean {
+    if (!marca) return false;
+    return marca.toDateString() === now.toDateString();
+  }
+
+  /**
+   * Correo de un aviso de cobro. Canal INDEPENDIENTE del SMS: sale aunque el
+   * negocio no tenga teléfono ni credenciales de SMS. El gate real lo pone
+   * BrandEmailService (una marca sin remitente ni cuenta propios no envía).
+   * Devuelve true solo si el correo salió de verdad, para que el dedup por
+   * ciclo se marque únicamente cuando algún canal llegó.
+   */
+  private async mailReminder(
+    t: { id: string; brandName: string },
+    templateId: string,
+    tag: string,
+    vars: Record<string, string>,
+  ): Promise<boolean> {
+    const r = await this.brandEmail
+      .sendTemplate({ templateId, tenantId: t.id, vars })
+      .catch(() => ({ sent: false }));
+    if (r.sent) this.logger.log(`Correo ${tag} → ${t.brandName}`);
+    return r.sent;
   }
 
   /** PDF 1256 §4: recordatorio "3 días antes" del próximo cobro. Mismo patrón
@@ -666,26 +731,39 @@ export class BillingService {
       ) {
         continue;
       }
+      let notified = false;
       const target = await this.resolveBillingTarget(t.id);
-      if (!target) continue;
-      const ownerName = await this.ownerFirstName(t.id);
-      const message = await this.smsTemplates.render(
-        'payment_reminder_3d',
-        { ownerName },
-        t.id,
-      );
-      const r = await this.growBusiness.sendSmsWithCreds(
-        target.creds,
-        target.phone,
-        message,
-      );
-      if (r.ok) {
+      if (target) {
+        const ownerName = await this.ownerFirstName(t.id);
+        const message = await this.smsTemplates.render(
+          'payment_reminder_3d',
+          { ownerName },
+          t.id,
+        );
+        const r = await this.growBusiness.sendSmsWithCreds(
+          target.creds,
+          target.phone,
+          message,
+          { tenantId: t.id, templateId: 'payment_reminder_3d', feature: 'billing' },
+        );
+        if (r.ok) {
+          notified = true;
+          this.logger.log(`SMS D-3 → ${t.brandName} (${target.phone})`);
+        }
+      }
+      if (
+        await this.mailReminder(t, 'email_payment_reminder_3d', 'D-3', {
+          chargeDate: fmtEmailDate(t.currentPeriodEnd),
+        })
+      ) {
+        notified = true;
+      }
+      if (notified) {
         await this.prisma.tenant.update({
           where: { id: t.id },
           data: { preReminder3dSentFor: t.currentPeriodEnd },
         });
         sent++;
-        this.logger.log(`SMS D-3 → ${t.brandName} (${target.phone})`);
       }
     }
     return sent;
@@ -697,12 +775,18 @@ export class BillingService {
    */
   private async sendPreChargeReminderToday(now: Date) {
     const dayMs = 24 * 60 * 60 * 1000;
-    const to = new Date(now.getTime() + dayMs);
+    // La ventana arranca a las 00:00 de HOY, no en `now`. El cron corre a las
+    // 3AM: con `gte: now` un negocio cuyo cobro cae entre las 00:00 y las 03:00
+    // quedaba fuera y nunca recibía el aviso de "hoy renovamos" — pasaba
+    // directo a la vía de mora al día siguiente.
+    const desde = new Date(now);
+    desde.setHours(0, 0, 0, 0);
+    const to = new Date(desde.getTime() + dayMs);
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
         isCampaignHost: false,
-        currentPeriodEnd: { gte: now, lt: to },
+        currentPeriodEnd: { gte: desde, lt: to },
         // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
         // marcas que cobran directo por Stripe (antes solo Clubify).
         OR: [
@@ -733,26 +817,41 @@ export class BillingService {
       ) {
         continue;
       }
+      let notified = false;
       const target = await this.resolveBillingTarget(t.id);
-      if (!target) continue;
-      const ownerName = await this.ownerFirstName(t.id);
-      const message = await this.smsTemplates.render(
-        'payment_due_today',
-        { ownerName },
-        t.id,
-      );
-      const r = await this.growBusiness.sendSmsWithCreds(
-        target.creds,
-        target.phone,
-        message,
-      );
-      if (r.ok) {
+      if (target) {
+        const ownerName = await this.ownerFirstName(t.id);
+        const message = await this.smsTemplates.render(
+          'payment_due_today',
+          { ownerName },
+          t.id,
+        );
+        const r = await this.growBusiness.sendSmsWithCreds(
+          target.creds,
+          target.phone,
+          message,
+          { tenantId: t.id, templateId: 'payment_due_today', feature: 'billing' },
+        );
+        if (r.ok) {
+          notified = true;
+          this.logger.log(
+            `SMS día-de-cobro → ${t.brandName} (${target.phone})`,
+          );
+        }
+      }
+      if (
+        await this.mailReminder(t, 'email_payment_due_today', 'D-0', {
+          chargeDate: fmtEmailDate(t.currentPeriodEnd),
+        })
+      ) {
+        notified = true;
+      }
+      if (notified) {
         await this.prisma.tenant.update({
           where: { id: t.id },
           data: { preReminderTodaySentFor: t.currentPeriodEnd },
         });
         sent++;
-        this.logger.log(`SMS día-de-cobro → ${t.brandName} (${target.phone})`);
       }
     }
     return sent;
@@ -808,30 +907,43 @@ export class BillingService {
       ) {
         continue; // ya enviado para este ciclo
       }
+      let notified = false;
       const target = await this.resolveBillingTarget(t.id);
-      if (!target) continue;
-      const ownerName = await this.ownerFirstName(t.id);
-      const message = await this.smsTemplates.render('payment_reminder_tomorrow', {
-        ownerName,
-        brandName: t.brandName,
-        chargeDate: fmtSmsDate(t.currentPeriodEnd),
-      }, t.id);
-      const r = await this.growBusiness.sendSmsWithCreds(
-        target.creds,
-        target.phone,
-        message,
-      );
-      if (r.ok) {
+      if (target) {
+        const ownerName = await this.ownerFirstName(t.id);
+        const message = await this.smsTemplates.render('payment_reminder_tomorrow', {
+          ownerName,
+          brandName: t.brandName,
+          chargeDate: fmtSmsDate(t.currentPeriodEnd),
+        }, t.id);
+        const r = await this.growBusiness.sendSmsWithCreds(
+          target.creds,
+          target.phone,
+          message,
+          { tenantId: t.id, templateId: 'payment_reminder_tomorrow', feature: 'billing' },
+        );
+        if (r.ok) {
+          notified = true;
+          this.logger.log(`SMS D-1 enviado a ${t.brandName} (${target.phone})`);
+        } else {
+          this.logger.warn(
+            `SMS D-1 falló para ${t.brandName}: ${r.message ?? 'unknown'}`,
+          );
+        }
+      }
+      if (
+        await this.mailReminder(t, 'email_payment_reminder_tomorrow', 'D-1', {
+          chargeDate: fmtEmailDate(t.currentPeriodEnd),
+        })
+      ) {
+        notified = true;
+      }
+      if (notified) {
         await this.prisma.tenant.update({
           where: { id: t.id },
           data: { paymentReminderSentFor: t.currentPeriodEnd },
         });
         sent++;
-        this.logger.log(`SMS D-1 enviado a ${t.brandName} (${target.phone})`);
-      } else {
-        this.logger.warn(
-          `SMS D-1 falló para ${t.brandName}: ${r.message ?? 'unknown'}`,
-        );
       }
     }
     return sent;
@@ -882,6 +994,9 @@ export class BillingService {
         currentPeriodEnd: true,
         lastChargeAt: true,
         planPeriodicity: true,
+        paymentFailureNoticeSentAt: true,
+        pausePendingNoticeSentAt: true,
+        manualPayment: true,
       },
     });
 
@@ -942,6 +1057,19 @@ export class BillingService {
       const pauseDate = new Date(dueSince.getTime() + graceDays * dayMs);
 
       if (daysOverdue >= graceDays) {
+        // Gate pago-por-fuera (manualPayment): este negocio paga por Nequi/
+        // efectivo/transferencia y NINGUNA pasarela va a confirmar su pago.
+        // Suspender a un cliente que sí pagó en efectivo es peor que dejarle
+        // unos días de más a uno que no — así que NO se auto-suspende. Los
+        // recordatorios D+1/D+2 sí le siguen llegando (ramas de abajo), y el
+        // negocio aparece en GET /tenants/manual-payments/review para que un
+        // humano lo persiga o lo desconecte a mano.
+        if (t.manualPayment) {
+          this.logger.warn(
+            `Tenant ${t.brandName} (${t.id}) en mora ${daysOverdue}d pero paga POR FUERA (manualPayment) — NO auto-pausado; revisar en la lista de cobranza manual.`,
+          );
+          continue;
+        }
         // Tope de seguridad SOLO para la vía "fecha vencida" (no la de falla
         // explícita de Hotmart): evita pausar en masa cuentas legacy con
         // currentPeriodEnd viejo que nunca avanzó.
@@ -962,13 +1090,21 @@ export class BillingService {
           daysOverdue,
         });
         await this.releaseBrandCreditOnSuspend(t.id, 'dunning').catch(() => null);
+        // Correo "cuenta pausada" — independiente del SMS.
+        this.brandEmail
+          .sendTemplate({ templateId: 'email_account_paused', tenantId: t.id })
+          .catch(() => null);
         const target = await this.resolveBillingTarget(t.id);
         if (target) {
           const message = await this.smsTemplates.render('account_paused', {
             brandName: t.brandName,
           }, t.id);
           this.growBusiness
-            .sendSmsWithCreds(target.creds, target.phone, message)
+            .sendSmsWithCreds(target.creds, target.phone, message, {
+              tenantId: t.id,
+              templateId: 'account_paused',
+              feature: 'billing',
+            })
             .catch((e) =>
               this.logger.warn(
                 `SMS "pausada" falló para ${t.brandName}: ${e?.message ?? e}`,
@@ -980,6 +1116,19 @@ export class BillingService {
             `${byFailure ? ' (cobro fallido)' : ' (fecha vencida)'}.`,
         );
       } else if (daysOverdue === OVERDUE_NOTICE_DAY) {
+        // Ya se avisó hoy: no repetimos el aviso al cliente.
+        if (this.avisadoHoy(t.pausePendingNoticeSentAt, now)) continue;
+        await this.prisma.tenant.update({
+          where: { id: t.id },
+          data: { pausePendingNoticeSentAt: now },
+        });
+        // Correo "tu cuenta está por pausarse" — independiente del SMS.
+        this.brandEmail
+          .sendTemplate({
+            templateId: 'email_account_will_pause',
+            tenantId: t.id,
+          })
+          .catch(() => null);
         const target = await this.resolveBillingTarget(t.id);
         if (!target) continue;
         // PDF734: D+2 usa el mensaje personal "pago no procesado" (antes era
@@ -994,12 +1143,27 @@ export class BillingService {
           target.creds,
           target.phone,
           message,
+          { tenantId: t.id, templateId: 'payment_not_processed_2d', feature: 'billing' },
         );
         if (r.ok) {
           notices++;
           this.logger.log(`SMS D+2 "no procesado" → ${t.brandName}`);
         }
       } else if (daysOverdue === OVERDUE_REMINDER_DAY) {
+        // Ya se avisó hoy: no repetimos el aviso al cliente.
+        if (this.avisadoHoy(t.paymentFailureNoticeSentAt, now)) continue;
+        await this.prisma.tenant.update({
+          where: { id: t.id },
+          data: { paymentFailureNoticeSentAt: now },
+        });
+        // Correo "pago vencido" — independiente del SMS.
+        this.brandEmail
+          .sendTemplate({
+            templateId: 'email_payment_overdue',
+            tenantId: t.id,
+            vars: { pauseDate: fmtEmailDate(pauseDate) },
+          })
+          .catch(() => null);
         const target = await this.resolveBillingTarget(t.id);
         if (!target) continue;
         const message = await this.smsTemplates.render(
@@ -1011,6 +1175,7 @@ export class BillingService {
           target.creds,
           target.phone,
           message,
+          { tenantId: t.id, templateId: 'payment_overdue_reminder', feature: 'billing' },
         );
         if (r.ok) {
           reminders++;

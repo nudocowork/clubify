@@ -5,6 +5,7 @@ import * as path from 'path';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GoogleWalletService } from './google-wallet.service';
 import { resolveStampIconRenderer, resolveCustomImageRenderer } from './stamp-icons';
+import { removeBorderConnectedWhite } from './logo-chroma';
 import { nextRewardLabel } from './free-rewards.util';
 import { resolveWalletAdvanced, WalletAdvancedFlags } from '../common/white-label/wallet-advanced.util';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
@@ -1300,12 +1301,11 @@ export class WalletService {
 
       // Si el PNG/JPG fuente NO tiene canal alpha (fondo blanco sólido),
       // hacemos chroma-key automático para que el logo se integre con el
-      // gradient del pase en vez de mostrar un cuadro blanco detrás.
-      // Umbral conservador: RGB todos >= 240 → píxel considerado "blanco
-      // de fondo" y se vuelve transparente. Píxeles más oscuros se
-      // mantienen como están. Logos con detalles blancos legítimos (texto
-      // blanco sobre forma oscura) NO se afectan porque están rodeados de
-      // píxeles oscuros que se preservan.
+      // fondo del pase en vez de mostrar un cuadro blanco detrás.
+      // OJO: solo el blanco CONECTADO al borde (flood-fill) — el fondo real.
+      // Las letras/detalles blancos dentro del logo se conservan; el
+      // chroma-key global anterior los borraba también y el logo quedaba
+      // ilegible (PDF de peticiones de clientes 2026-08).
       const prepared = await this.prepareLogoForWallet(src);
 
       // Chip/fondo detrás del logo (opcional, por tarjeta). Si el negocio lo
@@ -1337,12 +1337,13 @@ export class WalletService {
 
   /**
    * Si el logo subido tiene fondo blanco SÓLIDO (todos los píxeles opacos),
-   * convierte los píxeles cercanos al blanco en transparentes para que se
-   * integre con el gradient del pase. Si la fuente ya tiene transparencia
-   * REAL (al menos un píxel con alpha != 255), se respeta el diseño
-   * original completo — porque ahí el diseñador ya decidió qué es fondo
-   * vs. qué es contenido, y un blanco intencional en el logo no debería
-   * borrarse.
+   * vuelve transparente SOLO el blanco conectado al borde de la imagen (el
+   * fondo real) para que se integre con el fondo del pase. Los blancos
+   * interiores — letras o detalles blancos dentro del logo — se conservan:
+   * quitarlos dejaba el logo ilegible (PDF de peticiones de clientes
+   * 2026-08). Si la fuente ya tiene transparencia REAL (al menos un píxel
+   * con alpha != 255), se respeta el diseño original completo — ahí el
+   * diseñador ya decidió qué es fondo vs. qué es contenido.
    */
   /** Parsea el color del chip/fondo del logo (#rgb o #rrggbb) a {r,g,b}
    *  para sharp. Devuelve null si viene vacío, 'transparent' o inválido
@@ -1380,20 +1381,11 @@ export class WalletService {
       return src;
     }
 
-    // Fuente plana sin transparencia → asumimos blanco como fondo y lo
-    // recortamos. Logos con contenido blanco se verían afectados, pero un
-    // diseñador que necesita blanco-sobre-color subiría PNG con alpha.
-    const THRESHOLD = 240;
-    const out = Buffer.from(data);
-    for (let i = 0; i < out.length; i += 4) {
-      const r = out[i];
-      const g = out[i + 1];
-      const b = out[i + 2];
-      if (r >= THRESHOLD && g >= THRESHOLD && b >= THRESHOLD) {
-        out[i + 3] = 0;
-      }
-    }
-    return sharp(out, {
+    // Fuente plana sin transparencia → recortar el fondo blanco por
+    // flood-fill desde los bordes. Un logo SIN blanco en el borde (p. ej.
+    // letras blancas sobre fondo de color) sale intacto.
+    const out = removeBorderConnectedWhite(data, info.width, info.height);
+    return sharp(Buffer.from(out.buffer, out.byteOffset, out.byteLength), {
       raw: { width: info.width, height: info.height, channels: 4 },
     })
       .png()

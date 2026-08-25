@@ -204,7 +204,20 @@ export class OnboardingSyncService {
       if (b[k] !== undefined) data[k] = b[k] ? String(b[k]) : null;
     }
     for (const k of ['primaryColor', 'secondaryColor']) {
-      if (b[k]) data[k] = String(b[k]); // no-nulos con default: solo si truthy
+      // Se VALIDA que sea un hex. Este `String(...)` sin comprobar dejó entrar
+      // «Degodoy cocina» en el color de un negocio: el navegador ignoraba el
+      // `background`, y en la página de reservas el botón seleccionado quedaba
+      // blanco sobre blanco. El cliente vioó que «no marcaba» y que no podía
+      // avanzar. Un color inválido se descarta y se deja el anterior.
+      const v = esHex(b[k]);
+      if (v) data[k] = v;
+      else if (b[k]) {
+        // Ruidoso a propósito: un color descartado en silencio es un branding
+        // que «no se aplica» sin que nadie sepa por qué.
+        console.warn(
+          `[onboarding-sync] tenant=${tenantId}: ${k}="${String(b[k]).slice(0, 40)}" no es un color — se ignora.`,
+        );
+      }
     }
     if (Object.keys(data).length) {
       await this.prisma.tenant.update({
@@ -334,7 +347,10 @@ export class OnboardingSyncService {
       if (b[k] !== undefined && b[k] != null) data[k] = String(b[k]);
     }
     for (const k of ['primaryColor', 'secondaryColor']) {
-      if (b[k]) data[k] = String(b[k]);
+      // Mismo motivo que en syncBranding: sin validar, cualquier texto se
+      // guardaba como color y rompía la interfaz en silencio.
+      const v = esHex(b[k]);
+      if (v) data[k] = v;
     }
     // Fondo de la tarjeta de fidelidad (photo_card_android). Al setear una
     // imagen activamos stampBgType=IMAGE para que se renderice detrás de los
@@ -666,4 +682,15 @@ export class OnboardingSyncService {
       status: 'ACTIVE',
     };
   }
+}
+
+/**
+ * Devuelve el color si es un hex válido (#rgb o #rrggbb), o null.
+ *
+ * Existe porque el onboarding es una fuente EXTERNA: manda lo que le escriban
+ * en su formulario, y aquí no se puede confiar en que sea un color.
+ */
+function esHex(v: unknown): string | null {
+  const c = String(v ?? '').trim();
+  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(c) ? c : null;
 }

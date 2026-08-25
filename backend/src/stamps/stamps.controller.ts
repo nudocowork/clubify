@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Ip, Param, Post, Query } from '@nestjs/common';
-import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 import { StampAction } from '@prisma/client';
 import { StampsService } from './stamps.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -18,6 +18,14 @@ class StampBody {
   // Required en STAMP/VISIT para cards STAMPS/VISITS/HYBRID (validado en svc).
   // Solo informativo — no afecta la cantidad de sellos otorgados.
   @IsOptional() purchaseAmount?: number;
+  // Saltarse el tope de sellos del dia a proposito. Solo lo honra el service
+  // para SUPER_ADMIN; para el resto se ignora y el tope se aplica igual.
+  @IsOptional() @IsBoolean() override?: boolean;
+  // Sello regalado: sin compra detras. Sin este campo el ValidationPipe
+  // (forbidNonWhitelisted) rechaza el request entero.
+  @IsOptional() @IsIn(['COURTESY', 'SPECIAL_DATE']) giftReason?:
+    | 'COURTESY'
+    | 'SPECIAL_DATE';
 }
 
 @Controller('stamps')

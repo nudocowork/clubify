@@ -18,7 +18,9 @@ import { invalidateBusinessTypeCache } from '../common/guards/infolink-only.guar
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
-import { addPlanPeriod } from '../common/plan-period';
+import { addPlanPeriod, normalizePlanPeriod } from '../common/plan-period';
+import { getCanonicalBundlePrice } from '../common/plan-pricing';
+import { resolveManualPaymentPeriod } from '../common/manual-payment-period';
 import { cycleCreditCostForTenant, normalizeBusinessType, BusinessType } from '../common/business-types';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { QueueService } from '../jobs/queue.service';
@@ -112,6 +114,10 @@ export type UpdateTenantDto = Partial<{
   whatsappDeliveryPhone: string;
   tutorialsEnabled: boolean;
   academyEnabled: boolean;
+  /** Varias cartas, una por sede. Ver modelo `Menu`. */
+  multiMenuEnabled: boolean;
+  /** Cuantas cartas EXTRA permite el admin. */
+  maxExtraMenus: number;
 }>;
 
 export type UpdateMyTenantDto = Partial<{
@@ -489,6 +495,29 @@ export class TenantsService {
   }
 
   /**
+   * El dueño activo del negocio: el mismo que elegiría `setOwnerPassword`
+   * (TENANT_OWNER activo, el más antiguo). Se expone para que el panel de
+   * soporte muestre A QUÉ correo le va a cambiar la contraseña ANTES de
+   * escribirla, no después.
+   */
+  async ownerOfTenant(tenantId: string) {
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, email: true, fullName: true, lastLoginAt: true },
+    });
+    if (!owner) return { owner: null };
+    return {
+      owner: {
+        id: owner.id,
+        email: owner.email,
+        fullName: owner.fullName,
+        lastLoginAt: owner.lastLoginAt,
+      },
+    };
+  }
+
+  /**
    * #11 (2026-06-16): ranking de negocios por cantidad de pases emitidos.
    * Mayor a menor por default; `order='asc'` invierte. Incluye negocios con
    * 0 pases. Excluye borrados.
@@ -573,14 +602,32 @@ export class TenantsService {
     if (tenants.length === 0) return [];
 
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const orderStats = await this.prisma.order.groupBy({
-      by: ['tenantId'],
-      where: { createdAt: { gte: since }, status: { not: 'CANCELLED' } },
-      _count: { _all: true },
-      _sum: { total: true },
-    });
+    // Conteo y plata van en bases distintas (regla 2026-08-20): orders30 mide
+    // actividad (todo menos cancelados) pero revenue30 solo suma pedidos que
+    // llegaron a CONFIRMED+ — un PENDING eterno no es facturación del negocio.
+    const [orderStats, revenueStats] = await Promise.all([
+      this.prisma.order.groupBy({
+        by: ['tenantId'],
+        where: { createdAt: { gte: since }, status: { not: 'CANCELLED' } },
+        _count: { _all: true },
+      }),
+      this.prisma.order.groupBy({
+        by: ['tenantId'],
+        where: {
+          createdAt: { gte: since },
+          status: { in: ['CONFIRMED', 'READY', 'DELIVERED'] },
+        },
+        _sum: { total: true },
+      }),
+    ]);
+    const revByTenant = new Map(
+      revenueStats.map((s) => [s.tenantId, Number(s._sum.total ?? 0)]),
+    );
     const byTenant = new Map(
-      orderStats.map((s) => [s.tenantId, { count: s._count._all, total: Number(s._sum.total ?? 0) }]),
+      orderStats.map((s) => [
+        s.tenantId,
+        { count: s._count._all, total: revByTenant.get(s.tenantId) ?? 0 },
+      ]),
     );
 
     const now = Date.now();
@@ -1404,17 +1451,15 @@ export class TenantsService {
     };
   }
 
-  async convertToPaying(id: string, actorId: string, periodDays?: number) {
+  async convertToPaying(id: string, actorId: string) {
     const t = await this.prisma.tenant.findFirst({ where: { id } }); // aislado por marca (middleware)
     if (!t) throw new NotFoundException('Tenant');
     const now = new Date();
-    // Bug #1: por default el periodo se extiende según la periodicidad real
-    // del plan (Trimestral = +3 meses). Solo se usa `periodDays` si el caller
-    // lo pasa explícito (override puntual).
-    const newPeriodEnd =
-      periodDays != null
-        ? new Date(now.getTime() + periodDays * 24 * 60 * 60 * 1000)
-        : addPlanPeriod(now, t.planPeriodicity);
+    // FIX 2026-08-20: se ELIMINÓ el override `periodDays`. El frontend lo
+    // mandaba SIEMPRE en 30, así que "marcar pagado" a un plan trimestral o
+    // anual daba 30 días en vez del ciclo real. Ningún caller lo usaba con
+    // intención legítima; la periodicidad del plan manda (1/3/6/12 meses).
+    const newPeriodEnd = addPlanPeriod(now, t.planPeriodicity);
     // Marca blanca: "marcar pagado" ACTIVA → consume 1 crédito (bloquea si no hay).
     const credit = await this.chargeBrandCreditForActivation(t, 'marcar pagado');
     let updated;
@@ -1457,7 +1502,6 @@ export class TenantsService {
         previousStatus: t.status,
         previousPeriodEnd: t.currentPeriodEnd?.toISOString() ?? null,
         newPeriodEnd: newPeriodEnd.toISOString(),
-        periodDays,
       },
     });
 
@@ -1469,6 +1513,355 @@ export class TenantsService {
       .catch(() => null);
 
     return updated;
+  }
+
+  // ──────────── Pagos manuales (Nequi / efectivo / transferencia) ────────────
+
+  /**
+   * Registra un cobro hecho POR FUERA de las pasarelas y deja el negocio al
+   * día. Como ninguna pasarela va a confirmar este pago, este registro es la
+   * única verdad de que el ciclo quedó cubierto:
+   *   - crea la fila ManualPayment con el ciclo cubierto (ver
+   *     resolveManualPaymentPeriod: encadena desde currentPeriodEnd si el
+   *     ciclo vigente no venció; si venció, arranca hoy),
+   *   - activa el negocio, avanza currentPeriodEnd y limpia la mora,
+   *   - limpia los flags de dedup de recordatorios para que la serie del
+   *     ciclo NUEVO vuelva a salir,
+   *   - consume el crédito de marca solo si esto ACTIVA el negocio
+   *     (chargeBrandCreditForActivation, misma regla que "marcar pagado" —
+   *     ya respeta la periodicidad),
+   *   - audita quién registró, cuánto y qué ciclo cubre.
+   */
+  async registerManualPayment(
+    id: string,
+    dto: {
+      method: 'NEQUI' | 'EFECTIVO' | 'TRANSFERENCIA' | 'OTRO';
+      amount?: number;
+      currency?: string;
+      reference?: string;
+      note?: string;
+      paidAt?: string;
+    },
+    actorId: string,
+  ) {
+    const t = await this.prisma.tenant.findFirst({ where: { id } }); // aislado por marca (middleware)
+    if (!t) throw new NotFoundException('Tenant');
+    const now = new Date();
+    const paidAt = dto.paidAt ? new Date(dto.paidAt) : now;
+    if (Number.isNaN(paidAt.getTime())) {
+      throw new BadRequestException('Fecha de pago inválida');
+    }
+    // Margen de 1 día por zonas horarias; más allá es un error de captura
+    // (un pago "futuro" no existe todavía y correría mal el historial).
+    if (paidAt.getTime() > now.getTime() + 24 * 60 * 60 * 1000) {
+      throw new BadRequestException('La fecha de pago no puede ser futura');
+    }
+    // La FECHA DE PAGO manda: trimestral pagado el 4-jul queda cubierto hasta
+    // el 4-oct. Antes se pasaba `now` y la fecha escrita por el usuario no se
+    // usaba para nada — se guardaba en el historial y el ciclo salía de otro
+    // lado. Ver `manual-payment-period.ts`.
+    const period = resolveManualPaymentPeriod(
+      paidAt,
+      t.currentPeriodEnd,
+      t.planPeriodicity,
+    );
+    // Marca blanca: si esto ACTIVA el negocio consume el crédito del ciclo
+    // (no-op si ya estaba ACTIVE, o si la marca es Clubify/ilimitada).
+    const credit = await this.chargeBrandCreditForActivation(t, 'pago manual');
+    let payment;
+    let updated;
+    try {
+      [payment, updated] = await this.prisma.$transaction([
+        this.prisma.manualPayment.create({
+          data: {
+            tenantId: t.id,
+            whiteLabelId: t.whiteLabelId,
+            method: dto.method,
+            amount: dto.amount ?? null,
+            currency: dto.currency ? dto.currency.toUpperCase() : null,
+            reference: dto.reference ?? null,
+            note: dto.note ?? null,
+            paidAt,
+            periodStart: period.periodStart,
+            periodEnd: period.periodEnd,
+            periodicity: period.periodicity,
+            actorId,
+          },
+        }),
+        this.prisma.tenant.update({
+          where: { id },
+          data: {
+            status: 'ACTIVE',
+            suspendedAt: null,
+            trialEndsAt: null,
+            currentPeriodEnd: period.periodEnd,
+            // Fecha del cobro REAL (no la de registro) → "monto facturado" por rango.
+            lastChargeAt: paidAt,
+            failedPaymentCount: 0,
+            // Dedup por ciclo: los crons comparan estos campos contra
+            // currentPeriodEnd (o el día del envío). Si no se limpian, el
+            // negocio NO recibe ningún aviso del ciclo nuevo — el fallo
+            // silencioso más probable de este flujo. Mismo reset que hace
+            // hotmart.service al procesar una renovación real.
+            preReminder7dSentFor: null,
+            preReminder3dSentFor: null,
+            preReminderTodaySentFor: null,
+            paymentReminderSentFor: null,
+            paymentFailureNoticeSentAt: null,
+            pausePendingNoticeSentAt: null,
+            // Permite volver a liberar el crédito de marca si el negocio se
+            // suspende en un ciclo futuro (espejo de clearCreditRelease).
+            creditReleasedAt: null,
+          },
+        }),
+      ]);
+    } catch (e) {
+      await credit.rollback();
+      throw e;
+    }
+    await credit.commit();
+    invalidateTenantStatusCache(id);
+    // Transición real a ACTIVE (primer pago o reactivación) → webhook.
+    if (t.status !== 'ACTIVE') {
+      void this.onboardingWebhook.emitBusinessActivated(id);
+    }
+    this.audit.log({
+      actorId,
+      tenantId: id,
+      action: 'tenant.manual_payment_registered',
+      resource: `manual_payment:${payment.id}`,
+      metadata: {
+        brandName: t.brandName,
+        method: dto.method,
+        amount: dto.amount ?? null,
+        currency: dto.currency ?? null,
+        reference: dto.reference ?? null,
+        paidAt: paidAt.toISOString(),
+        periodStart: period.periodStart.toISOString(),
+        periodEnd: period.periodEnd.toISOString(),
+        periodicity: period.periodicity,
+        // Queda en auditoría: si el pago acorta la cobertura anterior, se ve
+        // quien lo hizo y desde qué fecha.
+        acortaCoberturaPrevia: period.acorta,
+        previousStatus: t.status,
+        previousPeriodEnd: t.currentPeriodEnd?.toISOString() ?? null,
+      },
+    });
+
+    // Comisión del afiliado, igual que en «marcar pagado» (`convertToPaying`).
+    // Un cobro por Nequi o efectivo es el MISMO hecho económico que uno por
+    // pasarela: quien refirió al negocio cobra igual. No hacerlo aquí dejaba
+    // sin pagar a los afiliados de todo negocio que cobra por fuera — y en
+    // silencio, porque nada lo reporta.
+    //
+    // Fire-and-forget a propósito: si el cálculo falla no se cae el registro
+    // del pago (que ya ocurrió y no se puede deshacer); el admin tiene
+    // «Generar comisión ahora» para reintentarlo a mano.
+    this.referrals
+      .backfillCommissionForCurrentAssignment(id, false)
+      .catch(() => null);
+
+    return {
+      payment,
+      tenant: {
+        id: updated.id,
+        status: updated.status,
+        currentPeriodEnd: updated.currentPeriodEnd,
+        lastChargeAt: updated.lastChargeAt,
+        suspendedAt: updated.suspendedAt,
+        manualPayment: updated.manualPayment,
+      },
+    };
+  }
+
+  /** Marca / desmarca el negocio como "paga por fuera" (Tenant.manualPayment).
+   *  Con el flag activo el cron de mora NO lo suspende solo (nadie puede
+   *  confirmar sus pagos), sigue recibiendo los recordatorios, y entra a la
+   *  lista de revisión cuando su ciclo vence sin pago manual que lo cubra. */
+  async setManualPaymentMode(id: string, enabled: boolean, actorId: string) {
+    const t = await this.prisma.tenant.findFirst({
+      where: { id }, // aislado por marca (middleware)
+      select: { id: true, brandName: true, manualPayment: true },
+    });
+    if (!t) throw new NotFoundException('Tenant');
+    // Idempotente: sin cambio real no ensuciamos la auditoría.
+    if (t.manualPayment === enabled) {
+      return { id: t.id, manualPayment: t.manualPayment };
+    }
+    const updated = await this.prisma.tenant.update({
+      where: { id },
+      data: { manualPayment: enabled },
+      select: { id: true, manualPayment: true },
+    });
+    this.audit.log({
+      actorId,
+      tenantId: id,
+      action: 'tenant.manual_payment_mode_changed',
+      resource: `tenant:${id}`,
+      metadata: { brandName: t.brandName, from: t.manualPayment, to: enabled },
+    });
+    return updated;
+  }
+
+  /** Historial de pagos manuales del negocio + contexto para el modal de
+   *  registro: importe sugerido = precio canónico según la periodicidad del
+   *  plan, con override por Setting (la misma verdad que usa Hotmart para
+   *  comisiones — ver common/plan-pricing). */
+  async listManualPayments(id: string) {
+    const t = await this.prisma.tenant.findFirst({
+      where: { id }, // aislado por marca (middleware)
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        manualPayment: true,
+        planPeriodicity: true,
+        currentPeriodEnd: true,
+      },
+    });
+    if (!t) throw new NotFoundException('Tenant');
+    const payments = await this.prisma.manualPayment.findMany({
+      where: { tenantId: id },
+      orderBy: { paidAt: 'desc' },
+    });
+    const suggestedAmount = await getCanonicalBundlePrice(
+      this.prisma,
+      t.planPeriodicity,
+    );
+    return {
+      tenantId: t.id,
+      brandName: t.brandName,
+      status: t.status,
+      manualPayment: t.manualPayment,
+      planPeriodicity: normalizePlanPeriod(t.planPeriodicity),
+      currentPeriodEnd: t.currentPeriodEnd,
+      suggestedAmount,
+      suggestedCurrency: 'USD',
+      payments,
+    };
+  }
+
+  /**
+   * Lista de revisión de cobranza manual: negocios que pagan POR FUERA
+   * (manualPayment=true) cuyo ciclo ya venció y no tienen un ManualPayment
+   * que cubra el ciclo vigente. Es la pantalla de "a estos hay que
+   * perseguirlos o desconectarlos": el cron de mora NO los suspende solo.
+   *
+   * Incluye también los que nunca arrancaron ciclo (TRIAL vencido sin
+   * currentPeriodEnd): el gate de suspensión también los salta, y si no
+   * aparecieran acá quedarían invisibles para siempre.
+   *
+   * Aislamiento por marca: el middleware Prisma acota el findMany de Tenant
+   * por `id IN (negocios de la marca)` en sesión de marca, y el de
+   * ManualPayment por su tenantId — no hace falta filtro manual.
+   */
+  async listManualPaymentReview() {
+    const now = new Date();
+    const dayMs = 24 * 60 * 60 * 1000;
+    // TODOS los marcados como "paga por fuera", no solo los vencidos.
+    // Antes solo devolvía los vencidos y la pantalla salía vacía incluso con
+    // negocios recién marcados: quien la abre espera ver a quién gestiona, no
+    // una lista que casi siempre está en blanco. Los vencidos van primero.
+    const tenants = await this.prisma.tenant.findMany({
+      where: { manualPayment: true },
+      select: {
+        id: true,
+        brandName: true,
+        email: true,
+        phone: true,
+        status: true,
+        planPeriodicity: true,
+        currentPeriodEnd: true,
+        trialEndsAt: true,
+        whiteLabelId: true,
+      },
+    });
+    if (tenants.length === 0) {
+      return { count: 0, pendientes: 0, items: [] };
+    }
+
+    const pagos = await this.prisma.manualPayment.findMany({
+      where: { tenantId: { in: tenants.map((t) => t.id) } },
+      orderBy: { paidAt: 'desc' },
+      select: {
+        id: true,
+        tenantId: true,
+        method: true,
+        amount: true,
+        currency: true,
+        paidAt: true,
+        periodStart: true,
+        periodEnd: true,
+      },
+    });
+    const lastByTenant = new Map<string, (typeof pagos)[number]>();
+    // Hasta cuándo lo deja cubierto el pago manual más lejano. Se usa incluso
+    // si `currentPeriodEnd` quedó desincronizado: el pago registrado es el
+    // hecho, la metadata puede estar vieja.
+    const coveredUntil = new Map<string, Date>();
+    for (const p of pagos) {
+      if (!lastByTenant.has(p.tenantId)) lastByTenant.set(p.tenantId, p);
+      const prev = coveredUntil.get(p.tenantId);
+      if (!prev || p.periodEnd.getTime() > prev.getTime()) {
+        coveredUntil.set(p.tenantId, p.periodEnd);
+      }
+    }
+
+    const items = tenants.map((t) => {
+      const cubierto = coveredUntil.get(t.id) ?? null;
+      const hasta = cubierto ?? t.currentPeriodEnd ?? t.trialEndsAt ?? null;
+      const vencido = !!hasta && hasta.getTime() < now.getTime();
+      const estado = (
+        t.status === 'SUSPENDED'
+          ? 'DESCONECTADO'
+          : vencido
+            ? 'VENCIDO'
+            : 'AL_DIA'
+      ) as 'DESCONECTADO' | 'VENCIDO' | 'AL_DIA';
+      const last = lastByTenant.get(t.id) ?? null;
+      return {
+        tenantId: t.id,
+        brandName: t.brandName,
+        email: t.email,
+        phone: t.phone,
+        status: t.status,
+        whiteLabelId: t.whiteLabelId,
+        planPeriodicity: normalizePlanPeriod(t.planPeriodicity),
+        estado,
+        /** Hasta cuándo está cubierto. Null = nunca arrancó ciclo. */
+        coveredUntil: hasta,
+        dueSince: vencido ? hasta : null,
+        daysOverdue:
+          vencido && hasta
+            ? Math.max(0, Math.floor((now.getTime() - hasta.getTime()) / dayMs))
+            : 0,
+        reason: t.currentPeriodEnd
+          ? ('CICLO_VENCIDO' as const)
+          : ('TRIAL_VENCIDO' as const),
+        lastManualPayment: last && {
+          id: last.id,
+          method: last.method,
+          amount: last.amount,
+          currency: last.currency,
+          paidAt: last.paidAt,
+          periodStart: last.periodStart,
+          periodEnd: last.periodEnd,
+        },
+      };
+    });
+    // Vencidos primero (más días arriba), luego los que están al día por
+    // cobertura más próxima: así la pantalla ordena el trabajo por sí sola.
+    const orden = { VENCIDO: 0, AL_DIA: 1, DESCONECTADO: 2 };
+    items.sort((a, b) => {
+      if (orden[a.estado] !== orden[b.estado]) return orden[a.estado] - orden[b.estado];
+      if (a.estado === 'VENCIDO') return b.daysOverdue - a.daysOverdue;
+      return (a.coveredUntil?.getTime() ?? Infinity) - (b.coveredUntil?.getTime() ?? Infinity);
+    });
+    return {
+      count: items.length,
+      pendientes: items.filter((i) => i.estado === 'VENCIDO').length,
+      items,
+    };
   }
 
   /**

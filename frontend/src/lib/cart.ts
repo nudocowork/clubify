@@ -9,6 +9,12 @@
 export type CartItem = {
   productId: string;
   variantId?: string;
+  /**
+   * Variantes marcadas cuando el producto permite varias
+   * (`maxVariantsTotal >= 2`). Solo se guarda si hay mas de una: un pedido
+   * normal de una sola variante conserva la forma de siempre.
+   */
+  variantIds?: string[];
   variantName?: string;
   extraIds: string[];
   extras: { id: string; name: string; price: number }[];

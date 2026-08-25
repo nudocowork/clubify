@@ -206,13 +206,41 @@ export default function OrdersBoard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeDays, locationId]);
 
+  /**
+   * Al entregar un DOMICILIO, pregunta si se suma el sello.
+   *
+   * En domicilio no hay sello automático: «entregado» lo marca quien reparte y
+   * eso no siempre significa que el cliente lo recibió conforme. Pero dejarlo
+   * al olvido hacía que el sello se perdiera, así que el sistema pregunta y el
+   * negocio decide en el momento.
+   *
+   * Best-effort: si algo falla acá, el pedido YA quedó entregado. Un problema
+   * al sellar no puede deshacer el cambio de estado.
+   */
+  async function preguntarSello(o: Order | undefined, nuevo: Order['status']) {
+    if (!o || nuevo !== 'DELIVERED' || o.fulfillment !== 'DELIVERY') return;
+    if (!window.confirm(`¿Sumas el sello de fidelidad a este pedido?
+
+Pedido #${o.code ?? o.id.slice(0, 6)}`))
+      return;
+    try {
+      const r: any = await api(`/orders/${o.id}/stamp`, { method: 'POST' });
+      if (r?.stamped) toast('Sello sumado', 'success');
+      else toast(r?.reason ?? 'No se pudo sumar el sello', 'error');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo sumar el sello', 'error');
+    }
+  }
+
   async function setStatus(id: string, status: Order['status']) {
     setBusy(id);
     try {
+      const antes = Object.values(board).flat().find((o) => o.id === id);
       await api(`/orders/${id}/status`, {
         method: 'PATCH',
         body: JSON.stringify({ status }),
       });
+      await preguntarSello(antes, status);
       await load();
     } catch (e: any) {
       toast(e.message || t('errorChangeStatus'), 'error');
@@ -263,6 +291,10 @@ export default function OrdersBoard() {
     };
     if (from === target) return;
 
+    // Se captura ANTES del movimiento optimista: dentro del setBoard el pedido
+    // solo existe en el callback, y después del await ya cambió de columna.
+    const movido = (board[from] ?? []).find((o) => o.id === id);
+
     // Optimistic move
     setBoard((prev) => {
       const fromList = (prev[from] ?? []).filter((o) => o.id !== id);
@@ -282,6 +314,7 @@ export default function OrdersBoard() {
         body: JSON.stringify({ status: target }),
       });
       toast(t('toastOrderMoved'), 'success');
+      await preguntarSello(movido, target as Order['status']);
     } catch (err: any) {
       toast(err.message || t('errorCouldNotMove'), 'error');
       load();

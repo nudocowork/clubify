@@ -8,6 +8,7 @@ import { MenuLayout } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { hasAdminBypass } from '../common/roles/admin-bypass';
+import { normalizeAcceptedPaymentMethods } from '../common/customer-payment';
 import { safeUrlOrNull } from '../common/util/safe-url';
 
 export type StorefrontDto = {
@@ -23,6 +24,10 @@ export type StorefrontDto = {
   // theme.menuPopups). Domicilio sigue en la columna ordersDeliveryEnabled.
   fulfillmentPickupEnabled?: boolean;
   fulfillmentDineInEnabled?: boolean;
+  // Métodos de pago aceptados en el checkout. Van a theme.paymentMethods
+  // (JSON, sin migración, igual que theme.fulfillment). undefined = no tocar;
+  // [] = reset a «todos» (se borra la clave — nunca guardamos lista vacía).
+  acceptedPaymentMethods?: string[];
   // M3: popup global del Menú Libro.
   bookPopupEnabled?: boolean;
   bookPopupTitle?: string | null;
@@ -150,13 +155,15 @@ export class StorefrontService {
         nextImageUrl,
       );
     }
-    // PDF1145: pickup/dineIn se persisten en theme.fulfillment (JSON). Merge
-    // read-modify-write para no pisar otras claves de theme (menuPopups, etc.).
-    // Solo se lee/reescribe theme cuando el dto toca alguno de los dos flags.
+    // PDF1145: pickup/dineIn (y ahora los métodos de pago) se persisten en
+    // theme (JSON). Merge read-modify-write para no pisar otras claves de
+    // theme (menuPopups, etc.). Solo se lee/reescribe theme cuando el dto
+    // toca alguno de estos campos.
     let themeToWrite = dto.theme;
     if (
       dto.fulfillmentPickupEnabled !== undefined ||
-      dto.fulfillmentDineInEnabled !== undefined
+      dto.fulfillmentDineInEnabled !== undefined ||
+      dto.acceptedPaymentMethods !== undefined
     ) {
       const cur = await this.prisma.storefront.findUnique({
         where: { tenantId: tid },
@@ -169,6 +176,16 @@ export class StorefrontService {
       if (dto.fulfillmentDineInEnabled !== undefined)
         fulfillment.dineIn = dto.fulfillmentDineInEnabled;
       themeToWrite = { ...base, fulfillment };
+      if (dto.acceptedPaymentMethods !== undefined) {
+        const accepted = normalizeAcceptedPaymentMethods(
+          dto.acceptedPaymentMethods,
+        );
+        // null (lista vacía o solo basura) = volver al default «todos»:
+        // se borra la clave en vez de guardar []. Nunca persistimos una
+        // lista vacía — dejaría el checkout sin opciones de pago.
+        if (accepted) themeToWrite.paymentMethods = accepted;
+        else delete themeToWrite.paymentMethods;
+      }
     }
     return this.prisma.storefront.upsert({
       where: { tenantId: tid },

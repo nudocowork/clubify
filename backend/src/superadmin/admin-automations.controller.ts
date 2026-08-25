@@ -18,7 +18,9 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { SuperAdminService } from './superadmin.service';
 
 class MessageTemplateBody {
-  @IsOptional() @IsString() @MaxLength(2000) text?: string | null;
+  @IsOptional() @IsString() @MaxLength(4000) text?: string | null;
+  /** Solo canal EMAIL: asunto del correo. */
+  @IsOptional() @IsString() @MaxLength(200) subject?: string | null;
 }
 class FolderBody {
   @IsString() @MaxLength(60) name!: string;
@@ -34,6 +36,13 @@ class TestPhoneBody {
 }
 class TestSendBody {
   @IsOptional() @IsString() @MaxLength(2000) text?: string | null;
+}
+class TestEmailAddrBody {
+  @IsOptional() @IsString() @MaxLength(160) email?: string;
+}
+class TestEmailSendBody {
+  @IsOptional() @IsString() @MaxLength(200) subject?: string | null;
+  @IsOptional() @IsString() @MaxLength(4000) body?: string | null;
 }
 
 /**
@@ -88,6 +97,33 @@ export class AdminAutomationsController {
     return this.svc.setBrandTestPhone(await this.resolveBrandId(user), body.phone ?? '', user.id);
   }
 
+  /** Guarda el correo de prueba de la marca. */
+  @Patch('test-email')
+  async setTestEmail(
+    @Body() body: TestEmailAddrBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.setBrandTestEmail(
+      await this.resolveBrandId(user),
+      body.email ?? '',
+      user.id,
+    );
+  }
+
+  /** Manda el correo de una automatización al correo de prueba guardado. */
+  @Post('message-templates/:templateId/test-email')
+  async testEmailTemplate(
+    @Param('templateId') templateId: string,
+    @Body() body: TestEmailSendBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.testBrandEmailTemplate(
+      await this.resolveBrandId(user),
+      templateId,
+      { subject: body.subject, body: body.body },
+    );
+  }
+
   /** Envía un SMS de prueba de una plantilla al número guardado. */
   @Post('message-templates/:templateId/test')
   async test(
@@ -109,6 +145,7 @@ export class AdminAutomationsController {
       templateId,
       body.text ?? null,
       user.id,
+      body.subject,
     );
   }
 

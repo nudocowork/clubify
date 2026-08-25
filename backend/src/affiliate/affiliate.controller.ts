@@ -44,6 +44,18 @@ export class AffiliateController {
     return this.svc.updateProfile(user, body);
   }
 
+  /**
+   * El afiliado elige la ruta de su enlace corto: /ref/<ruta>.
+   * Solo toca su propio codigo; el service lo garantiza.
+   */
+  @Patch('me/slug')
+  setMySlug(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { slug: string },
+  ) {
+    return this.svc.setMySlug(user, body?.slug ?? '');
+  }
+
   @Post('ambassadors')
   createAmbassador(
     @CurrentUser() user: AuthUser,

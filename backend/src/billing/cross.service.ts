@@ -8,6 +8,7 @@ import { addPlanPeriod } from '../common/plan-period';
 import { fmtSmsDate } from './sms-templates';
 import { decryptSecret } from '../common/crypto/secret-box';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
+import { HotmartService } from './hotmart.service';
 import {
   CreateCheckoutInput,
   CheckoutResult,
@@ -61,6 +62,9 @@ export class CrossService implements PaymentProvider {
     private growBusiness: GrowBusinessService,
     private smsTemplates: SmsTemplatesService,
     private onboardingWebhook: OnboardingWebhookService,
+    // Comisiones de referido: metodo agnostico de pasarela que vive en
+    // HotmartService por historia. Ver su doc.
+    private hotmart: HotmartService,
   ) {}
 
   // ── Carga de marca / credenciales ─────────────────────────────────────────
@@ -377,7 +381,11 @@ export class CrossService implements PaymentProvider {
       // signup lo consuma (flujo pago → datos).
       return { ok: true, action: 'pending_no_account' };
     }
-    await this.activate(tenant, { amountUsd }, brand.whiteLabelId);
+    await this.activate(
+      tenant,
+      { amountUsd, transaccionId: evt.providerRef ?? null },
+      brand.whiteLabelId,
+    );
     return { ok: true, action: 'activated' };
   }
 
@@ -391,7 +399,14 @@ export class CrossService implements PaymentProvider {
       planPeriodicity: string | null;
       currentPeriodEnd: Date | null;
     },
-    ctx: { amountUsd: number | null },
+    ctx: {
+      amountUsd: number | null;
+      /**
+       * Referencia del cobro en el proveedor (`providerRef`). Deduplica las
+       * comisiones: sin ella manda el dedup por periodo de 25 dias.
+       */
+      transaccionId?: string | null;
+    },
     _whiteLabelId: string,
   ) {
     const wasSuspended = tenant.status === 'SUSPENDED';
@@ -420,11 +435,32 @@ export class CrossService implements PaymentProvider {
         lastPaymentAttemptAt: new Date(),
         suspendedAt: null,
         trialEndsAt: null,
+        // Los SEIS campos de dedup, no tres. Sin los pre-avisos, un negocio que
+        // renueva no vuelve a recibir el aviso de 7 dias, ni el de 3, ni el
+        // del dia — y el fallo es mudo. Ver [[clubify-cobros-trampas]].
         paymentReminderSentFor: null,
         paymentFailureNoticeSentAt: null,
         pausePendingNoticeSentAt: null,
+        preReminder7dSentFor: null,
+        preReminder3dSentFor: null,
+        preReminderTodaySentFor: null,
       },
     });
+
+    // Comisiones del referido, igual que Hotmart y Stripe. Best-effort: si
+    // falla, el cobro no se rompe y la comision se puede reconciliar.
+    await this.hotmart
+      .generarComisionesDeCobro({
+        tenantId: tenant.id,
+        montoCanonicoUsd: null,
+        transaccionId: ctx.transaccionId ?? null,
+      })
+      .catch((e) =>
+        this.logger.warn(
+          `comisiones Cross tenant=${tenant.id}: ${(e as Error).message}`,
+        ),
+      );
+
     await this.billing.clearCreditRelease(tenant.id).catch(() => null);
     await this.billing
       .auditLifecycle(

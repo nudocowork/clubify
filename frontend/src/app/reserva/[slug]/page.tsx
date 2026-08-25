@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { safeBrandColor, autoTextColor } from '@/lib/contrast';
 import { useParams } from 'next/navigation';
 import { PhoneInput } from '@/components/PhoneInput';
 
@@ -273,7 +274,14 @@ export default function PublicReservation() {
   }
 
   const dates = nextDates(info.reservationDays, 7);
-  const primary = info.primaryColor || '#22C55E';
+  // Validado, no solo «no vacío»: un negocio tenía el NOMBRE escrito en el
+  // campo del color, el navegador ignoraba el `background` y el botón
+  // seleccionado quedaba blanco sobre blanco — invisible. Se veía como si la
+  // pantalla no reaccionara al clic.
+  const primary = safeBrandColor(info.primaryColor);
+  // El texto de lo seleccionado NO puede ser blanco fijo: hay marcas con color
+  // claro (una con #ffffff) donde quedaría igual de ilegible.
+  const onPrimary = autoTextColor(primary);
 
   // F2: negocio con >1 sede → primero elige sede, luego zonas de esa sede.
   const multiSede = (info.locations?.length ?? 0) > 1;
@@ -390,7 +398,7 @@ export default function PublicReservation() {
                     }`}
                     style={
                       partyMode === 'preset' && party === p
-                        ? { background: primary }
+                        ? { background: primary, color: onPrimary }
                         : {}
                     }
                   >
@@ -404,7 +412,11 @@ export default function PublicReservation() {
                       ? 'text-white'
                       : 'bg-white border border-line text-ink'
                   }`}
-                  style={partyMode === 'otro' ? { background: primary } : {}}
+                  style={
+                    partyMode === 'otro'
+                      ? { background: primary, color: onPrimary }
+                      : {}
+                  }
                 >
                   Otro
                 </button>
@@ -494,7 +506,9 @@ export default function PublicReservation() {
                           ? 'bg-bg2 border border-line text-mute cursor-not-allowed line-through opacity-60'
                           : 'bg-white border border-line text-ink'
                       }`}
-                      style={time === s ? { background: primary } : {}}
+                      style={
+                        time === s ? { background: primary, color: onPrimary } : {}
+                      }
                       title={isFull ? 'Sin lugares disponibles' : ''}
                     >
                       {to12h(s)}
@@ -570,7 +584,7 @@ export default function PublicReservation() {
               >
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-base shrink-0"
-                  style={{ background: primary }}
+                  style={{ background: primary, color: onPrimary }}
                 >
                   ✨
                 </div>
@@ -581,7 +595,7 @@ export default function PublicReservation() {
                 {zoneSlug === null && (
                   <div
                     className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs shrink-0"
-                    style={{ background: primary }}
+                    style={{ background: primary, color: onPrimary }}
                   >
                     ✓
                   </div>
@@ -673,7 +687,7 @@ export default function PublicReservation() {
                             }`}
                             style={
                               sel
-                                ? { background: primary, color: '#fff', borderColor: primary }
+                                ? { background: primary, color: onPrimary, borderColor: primary }
                                 : { borderColor: '#e2e8f0', background: 'white' }
                             }
                             title={
@@ -734,7 +748,7 @@ export default function PublicReservation() {
             <div className="text-center">
               <div
                 className="w-16 h-16 mx-auto rounded-full flex items-center justify-center text-white text-3xl mb-3"
-                style={{ background: primary }}
+                style={{ background: primary, color: onPrimary }}
               >
                 ✓
               </div>
@@ -839,7 +853,7 @@ export default function PublicReservation() {
                 (step === 3 && (!name.trim() || !phone.trim()))
               }
               className="w-full mt-4 py-3 rounded-lg font-bold text-white disabled:opacity-50"
-              style={{ background: primary }}
+              style={{ background: primary, color: onPrimary }}
             >
               {submitting ? 'Enviando…' : step === 3 ? 'Confirmar reserva' : 'Continuar'}
             </button>

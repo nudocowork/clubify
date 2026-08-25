@@ -76,6 +76,14 @@ export default function ScanPage() {
   const scannerRef = useRef<any>(null);
   const [data, setData] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Cuando el tope diario bloquea un sello y quien escanea es SUPER_ADMIN,
+  // guardamos los argumentos del intento para poder reintentarlo forzado.
+  const [topeBloqueado, setTopeBloqueado] = useState<{
+    action: string;
+    amount: number;
+    pin?: string;
+    purchaseAmount?: number;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [manual, setManual] = useState('');
   const [scanning, setScanning] = useState(false);
@@ -538,6 +546,16 @@ export default function ScanPage() {
     amount = 1,
     pin?: string,
     purchaseAmount?: number,
+    // Sello REGALADO: sin compra detras. El backend no exige monto cuando
+    // viene esto, y guarda `purchaseAmount` en null — un regalo no puede
+    // contar como venta del negocio.
+    giftReason?: 'COURTESY' | 'SPECIAL_DATE',
+    // Solo lo manda el boton "Sellar de todos modos", que aparece unicamente
+    // a un SUPER_ADMIN despues de que el tope del dia haya bloqueado el sello.
+    // Antes el admin se saltaba el tope sin enterarse: sellaba de mas creyendo
+    // que el limite estaba puesto, y no habia forma de probar el limite desde
+    // una cuenta de admin.
+    override?: boolean,
   ) {
     if (!data?.pass) return;
     setBusy(true);
@@ -549,7 +567,13 @@ export default function ScanPage() {
           action,
           amount,
           ...(pin ? { pin } : {}),
-          ...(purchaseAmount !== undefined ? { purchaseAmount } : {}),
+          // Un regalo no manda monto: son excluyentes.
+          ...(giftReason
+            ? { giftReason }
+            : purchaseAmount !== undefined
+              ? { purchaseAmount }
+              : {}),
+          ...(override ? { override: true } : {}),
         }),
       });
       // El backend devuelve `pass` sin includes (solo campos del Pass).
@@ -585,9 +609,18 @@ export default function ScanPage() {
           },
         });
       }
+      setTopeBloqueado(null);
       playScanSuccess();
     } catch (e: any) {
       setErr(e.message);
+      // Si lo que bloqueo fue el tope del dia y quien escanea es admin,
+      // guardamos con que argumentos reintentar para ofrecer el forzado.
+      const esTope = /sello/i.test(e?.message ?? '') && /(ya recibió|máximo)/i.test(e?.message ?? '');
+      setTopeBloqueado(
+        esTope && user?.role === 'SUPER_ADMIN'
+          ? { action, amount, pin, purchaseAmount }
+          : null,
+      );
       playScanError();
     } finally {
       setBusy(false);
@@ -866,6 +899,34 @@ export default function ScanPage() {
         {err && (
           <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
             {err}
+            {/* Forzar el sello por encima del tope: solo para admin y solo
+                despues de que el tope haya bloqueado. Queda anotado en el
+                historial del sello para poder distinguirlo despues. */}
+            {topeBloqueado && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  const t = topeBloqueado;
+                  setTopeBloqueado(null);
+                  setErr(null);
+                  // `undefined` = sin motivo de regalo; el `true` final es
+                  // el override del tope. Sin este hueco, el true caia en
+                  // giftReason y el forzado dejaba de funcionar.
+                  void act(
+                    t.action,
+                    t.amount,
+                    t.pin,
+                    t.purchaseAmount,
+                    undefined,
+                    true,
+                  );
+                }}
+                className="mt-2 block w-full text-center text-xs font-semibold px-3 py-2 rounded-md bg-white/70 border border-bad-ink/20 hover:bg-white disabled:opacity-50"
+              >
+                Sellar de todos modos (queda registrado)
+              </button>
+            )}
           </div>
         )}
 
@@ -1315,6 +1376,52 @@ export default function ScanPage() {
                   <div className="text-[11px] text-mute mt-1.5 leading-snug">
                     El monto es <b>solo informativo</b> (alimenta los KPIs de
                     facturación). No cambia cuántos sellos se otorgan: 1 compra = 1 sello.
+                  </div>
+                </div>
+
+                {/* Regalo: sin compra detrás. Antes había que inventarse un
+                    monto para poder sellar una cortesía, y esa cifra entraba a
+                    la facturación del negocio como si alguien hubiera pagado. */}
+                <div className="rounded-lg border border-line p-3">
+                  <div className="text-[11px] font-semibold text-mute mb-2">
+                    ¿No hubo compra? Regálalo
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={async () => {
+                        setPurchaseErr(null);
+                        await act(showPurchase, 1, undefined, undefined, 'COURTESY');
+                        setShowPurchase(null);
+                        setPurchaseAmount('');
+                      }}
+                      className="btn-ghost text-xs justify-center py-2.5 disabled:opacity-50"
+                    >
+                      ☕ Cortesía
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={async () => {
+                        setPurchaseErr(null);
+                        await act(
+                          showPurchase,
+                          1,
+                          undefined,
+                          undefined,
+                          'SPECIAL_DATE',
+                        );
+                        setShowPurchase(null);
+                        setPurchaseAmount('');
+                      }}
+                      className="btn-ghost text-xs justify-center py-2.5 disabled:opacity-50"
+                    >
+                      🎂 Fecha especial
+                    </button>
+                  </div>
+                  <div className="text-[10px] text-mute mt-1.5 leading-snug">
+                    Queda registrado como regalo y <b>no suma a tus ventas</b>.
                   </div>
                 </div>
                 {purchaseErr && (

@@ -426,6 +426,19 @@ model Tenant {
   /// Grupo Empresarial al que pertenece (varios negocios, una sola suscripción
   /// Hotmart). Null = sin grupo (negocio individual). El estado financiero del
   /// grupo cascadea al status de sus negocios.
+  /// Varias cartas (una por sede). Se habilita NEGOCIO POR NEGOCIO desde el
+  /// panel de admin: la inmensa mayoría tiene un solo menú y no debe ver la
+  /// complejidad. Ver modelo `Menu`.
+  multiMenuEnabled            Boolean                    @default(false)
+  /// Cuántas cartas EXTRA puede crear, además del menú principal.
+  ///
+  /// El límite lo pone el admin, no el negocio: cada carta es un catálogo
+  /// entero duplicado, y un negocio con 545 productos creando cartas sin freno
+  /// multiplica la base de datos sin que nadie lo note hasta que duele.
+  ///
+  /// Default 1 = el caso normal (una segunda sede).
+  maxExtraMenus               Int                        @default(1)
+  menus                       Menu[]
   businessGroupId             String?
   businessGroup               BusinessGroup?             @relation(fields: [businessGroupId], references: [id], onDelete: SetNull)
   /// Modo de reparto de comisión del vendedor (Fase 3). Default = descuento del
@@ -628,6 +641,11 @@ model Tenant {
   // del payload Hotmart). Útil para reportes y debugging — antes solo
   // teníamos currentPeriodEnd que es el PRÓXIMO cobro.
   lastChargeAt                DateTime?
+  /// Este negocio paga POR FUERA de las pasarelas: Nequi, efectivo,
+  /// transferencia. Ninguna pasarela va a confirmar su pago, así que el sistema
+  /// NO lo suspende solo — aparece en la lista de revisión y se desconecta a
+  /// mano. Ver `ManualPayment` y `billing.service` (gate de suspensión).
+  manualPayment               Boolean                    @default(false)
   suspendedAt                 DateTime?
   // Tracking de notificaciones de cobro automáticas (idempotencia del cron):
   // - paymentReminderSentFor: igualamos a currentPeriodEnd cuando ya
@@ -1654,6 +1672,15 @@ model Stamp {
   // monto pagado, así que purchaseAmount queda null (la fórmula ya está
   // implícita: amount = purchaseAmount * cashbackPercent / 100).
   purchaseAmount Decimal?    @db.Decimal(12, 2)
+  /// Por qué se REGALÓ este sello, cuando no hubo compra detrás.
+  ///
+  /// `COURTESY` (cortesía del negocio) o `SPECIAL_DATE` (cumpleaños,
+  /// aniversario, fecha especial). Null = sello normal, con su compra.
+  ///
+  /// Existe como campo propio y no dentro de `note` para que el negocio pueda
+  /// MEDIRLO: cuántos sellos regaló y por qué. Y para que un regalo nunca
+  /// cuente como venta: `purchaseAmount` queda null.
+  giftReason     String?
   note           String?
   // Wallet V3 — auditoría de ajustes manuales de sellos (+1/-1 desde escáner).
   // "note" cumple como Motivo; estos dos completan el rastro (IP + navegador/
@@ -1717,6 +1744,8 @@ model Location {
   // Multi-sede reservas (2026-06-12)
   reservationZones  ReservationZone[]
   reservationTables ReservationTable[]
+  /// Cartas asignadas a esta sede. Ver modelo `Menu`.
+  menus             Menu[]
   reservations      Reservation[]
   reservationEvents ReservationEvent[]
 
@@ -1794,6 +1823,10 @@ model Category {
   id          String     @id @default(uuid())
   tenantId    String
   tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Carta a la que pertenece. **Null = el menú principal**, que es donde está
+  /// todo lo que existía antes de que hubiera varios menús. Ver modelo `Menu`.
+  menuId      String?
+  menu        Menu?      @relation(fields: [menuId], references: [id], onDelete: Cascade)
   parentId    String?
   parent      Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Cascade)
   children    Category[] @relation("CategoryTree")
@@ -1833,6 +1866,29 @@ model Product {
   id                   String    @id @default(uuid())
   tenantId             String
   tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Carta a la que pertenece. **Null = el menú principal**. Ver modelo `Menu`.
+  menuId               String?
+  menu                 Menu?     @relation(fields: [menuId], references: [id], onDelete: Cascade)
+
+  /// De qué producto salió este, cuando se creó duplicando otra carta.
+  ///
+  /// `SetNull` a propósito: borrar el producto original NO borra su copia en la
+  /// otra carta — solo la deja independiente. Borrar algo en el menú principal
+  /// no puede vaciarle la carta a una sede sin avisar.
+  sourceProductId      String?
+  sourceProduct        Product?  @relation("ProductSync", fields: [sourceProductId], references: [id], onDelete: SetNull)
+  syncedCopies         Product[] @relation("ProductSync")
+
+  /// Este producto SIGUE al original: cambiar el nombre, la descripción, el
+  /// precio o la foto en el menú principal los cambia aquí también.
+  ///
+  /// Lo que NUNCA se sincroniza es cómo se muestra en ESTA carta: si está
+  /// visible, si sale en mesa o domicilio, su posición y su stock. Ese es el
+  /// punto entero de tener dos cartas — la sede B esconde lo que no tiene.
+  ///
+  /// Se apaga en cuanto el negocio quiere precios propios en esa sede, y desde
+  /// ahí el producto va por libre.
+  syncWithSource       Boolean   @default(false)
   /// 2026-06-12 (Bloque 2 i18n batch): nullable para que tenants sin
   /// categorías creadas puedan agregar productos. Cuando la categoría
   /// se elimina, los productos quedan huérfanos (SetNull) en lugar de
@@ -1883,6 +1939,25 @@ model Product {
   createdAt            DateTime  @default(now())
 
   variants ProductVariant[]
+  /// Cuántas variantes puede elegir el cliente EN TOTAL.
+  ///
+  /// Null o 1 = comportamiento de siempre: se elige UNA (botones de radio),
+  /// típico de tamaño (pequeño / mediano / grande).
+  ///
+  /// >= 2 = el cliente marca varias, hasta ese número — para productos donde
+  /// las "variantes" son opciones combinables ("elige 2 salsas de estas 5").
+  /// Solo tiene efecto con `variantPriceMode = DELTA`: en ABSOLUTE cada
+  /// variante define un precio final propio y sumar dos no significa nada.
+  maxVariantsTotal Int?
+
+  /// Tope de extras que el cliente puede elegir EN TOTAL para este producto,
+  /// sumando cantidades. Null = sin tope (comportamiento histórico).
+  ///
+  /// Distinto de `ProductExtra.maxQty`, que limita UN extra concreto. Un
+  /// producto puede ofrecer 20 ingredientes y permitir solo 5: sin este tope,
+  /// el cliente elige 10 y al negocio le toca explicarle por qué no.
+  maxExtrasTotal Int?
+
   extras   ProductExtra[]
 
   @@index([tenantId, categoryId, position])
@@ -2204,10 +2279,15 @@ model BrandWorkflowFolder {
   id           String   @id @default(uuid())
   whiteLabelId String
   name         String
+  /// Carpeta contenedora. Null = está en la raíz. Sin `@relation`: el árbol se
+  /// arma en código, igual que en TeamClubify. Una FK con cascada borraría
+  /// silenciosamente subárboles enteros al eliminar una carpeta padre.
+  parentId     String?
   position     Int      @default(0)
   createdAt    DateTime @default(now())
 
   @@index([whiteLabelId])
+  @@index([parentId])
 }
 
 model BrandWorkflowEnrollment {
@@ -2242,9 +2322,115 @@ model BrandWorkflowLog {
   @@index([workflowId, createdAt])
 }
 
+// ── PAGOS POR FUERA DE LAS PASARELAS ──
+// Nequi, efectivo, transferencia. Cada vez que alguien cobra así, queda una
+// fila acá: es el único rastro que existe, porque no hay webhook que lo
+// confirme. Sirve de auditoría (quién lo registró y cuándo) y para saber si el
+// ciclo vigente está cubierto.
+//
+// El ciclo que cubre el pago se calcula con la PERIODICIDAD del plan, no con 30
+// días: un trimestral corre la fecha 3 meses y un anual 12. Se guarda
+// `periodicity` con la que se calculó porque el plan puede cambiar después y
+// entonces el histórico dejaría de cuadrar.
+model ManualPayment {
+  id           String  @id @default(uuid())
+  tenantId     String
+  whiteLabelId String?
+
+  /// NEQUI | EFECTIVO | TRANSFERENCIA | OTRO
+  method String
+  /// Importe cobrado. Opcional: a veces solo interesa dejar el ciclo cubierto.
+  amount   Decimal? @db.Decimal(10, 2)
+  currency String?
+  /// Número de comprobante, referencia de Nequi, etc.
+  reference String?
+  note      String?
+
+  /// Cuándo pagó el cliente (puede ser anterior a cuando se registra).
+  paidAt DateTime
+  /// Ciclo cubierto, calculado con `addPlanPeriod` sobre la periodicidad.
+  periodStart DateTime
+  periodEnd   DateTime
+  /// Periodicidad usada en el cálculo (MENSUAL|TRIMESTRAL|SEMESTRAL|ANUAL).
+  periodicity String?
+
+  /// Quién lo registró. Sin FK: el histórico sobrevive al borrado del usuario.
+  actorId   String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, paidAt])
+  @@index([whiteLabelId, paidAt])
+  @@index([periodEnd])
+}
+
+// ── HISTORIAL DE ENVÍOS — todo mensaje que sale por Grow Business ──
+// Se escribe en `GrowBusinessService.postChannelMessage`, que es el Único punto
+// por el que pasan SMS, WhatsApp y correo. Registrar ahí cubre los 26 servicios
+// que envían sin tocar ninguno.
+//
+// Aislamiento GRATIS: al tener `tenantId`, el middleware de tenant lo acota
+// solo. Un dueño de negocio ve lo suyo; un admin de marca, lo de sus negocios;
+// el dueño de la plataforma, todo. No hace falta filtrar a mano.
+//
+// NO guarda el HTML: solo `preview`, el texto recortado. `MktAction` sí guarda
+// el cuerpo entero y ese camino es el que convirtió a `QrPoster` en el 77% de
+// la base de datos. Retención de 90 días en `retention.service.ts`.
+model MessageLog {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  /// SMS | WhatsApp | Email
+  channel String
+  /// sent | failed
+  status  String
+  /// Subcuenta de Grow Business por la que salió. Siempre se conoce, aunque no
+  /// se sepa el negocio: sirve para responder «esto salió por la de quién».
+  locationId String
+
+  /// Marca y negocio. Opcionales porque hay envíos sin negocio (avisos a la
+  /// marca) y porque el contexto se fue enhebrando por partes.
+  whiteLabelId String?
+  tenantId     String?
+
+  toPhone String?
+  toEmail String?
+  subject String?
+  /// Texto plano recortado (~300 chars). Basta para saber qué salió.
+  preview String? @db.Text
+
+  /// Id de la plantilla del catálogo (`email_payment_reminder_3d`,
+  /// `payment_reminder_3d`…). Es lo que permite preguntar «¿salieron los
+  /// recordatorios D-3 de esta marca?».
+  templateId String?
+  /// De qué parte del producto vino: billing | reviews | orders | reservations
+  /// | marketing | auth | prueba…
+  feature String?
+
+  providerMessageId String?
+  /// Motivo del fallo, recortado. Null cuando salió bien.
+  error String?
+
+  @@index([whiteLabelId, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([status, createdAt])
+  @@index([templateId, createdAt])
+  @@index([createdAt])
+}
+
 // ── EMAIL MARKETING (contact-based) — módulo `marketing/`, brand-scoped ──
 // Audiencia: los CONTACTOS (leads/clientes) de la marca, no los negocios.
 // Independiente de BrandWorkflow* (tenant-based). Ver plan / marketing/identity.ts.
+//
+// ⚠️ NO CORRAS `prisma db push` CONTRA PRODUCCIÓN CON ESTOS MODELOS.
+// La migración crea dos ÍNDICES ÚNICOS PARCIALES que Prisma NO sabe expresar
+// en el schema y que por tanto NO aparecen abajo:
+//     MktContact_wl_phoneNorm_uq  UNIQUE (whiteLabelId, phoneNorm)
+//                                 WHERE phoneNorm IS NOT NULL AND NOT deleted
+//     MktContact_wl_email_uq      UNIQUE (whiteLabelId, email)
+//                                 WHERE email IS NOT NULL AND NOT deleted
+// Un `db push` los borraría y el motor empezaría a DUPLICAR contactos.
+// Para cambios de esquema en prod: script SQL aditivo (ver
+// backend/scripts/apply-mkt-*-migration.cjs). Ver docs/ESTADO-PRODUCCION.md.
 model MktContact {
   id           String @id @default(uuid())
   whiteLabelId String
@@ -2305,6 +2491,59 @@ model MktWorkflowFolder {
 }
 
 // Cola durable de inscripciones (NO cola en memoria — no sobrevive en serverless).
+// ── PLANTILLAS DE CORREO (editor visual por bloques) ──
+// El editor de la pestaña Plantillas, al estilo del de GoHighLevel.
+//
+// REGLA DURA: las imágenes van a S3 (`POST /media/upload`) y acá solo se guarda
+// su URL. NUNCA base64. El editor de carteles QR sí las incrusta como
+// `data:image` dentro de su JSON y por eso `QrPoster` llegó a pesar 258 MB de
+// una base de 337 — el 77%, con 293 filas. Hay una validación en el servicio
+// que rechaza el guardado si detecta `data:image`.
+model MktEmailTemplate {
+  id           String  @id @default(uuid())
+  whiteLabelId String
+  folderId     String?
+
+  name    String
+  /// Asunto por defecto al usar la plantilla.
+  subject String?
+
+  /// Bloques del editor (texto, imágenes por URL, botones, columnas…).
+  /// Pequeño a propósito: texto y enlaces, nunca binarios.
+  blocks Json @default("[]")
+  /// HTML renderizado por el editor, listo para enviar sin recalcular.
+  html String? @db.Text
+
+  /// Miniatura para la galería. URL de S3, igual que el resto.
+  thumbnailUrl String?
+  /// Plantilla de fábrica: se ofrece a todas las marcas y no se puede borrar.
+  isPreset Boolean @default(false)
+
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([whiteLabelId, updatedAt])
+  @@index([folderId])
+  @@index([isPreset])
+}
+
+// Carpetas de plantillas. Anidadas, igual que las de workflows.
+model MktEmailTemplateFolder {
+  id           String  @id @default(uuid())
+  whiteLabelId String
+  name         String
+  /// Carpeta contenedora. Null = raíz. Sin `@relation`: el árbol se arma en
+  /// código, para que borrar una carpeta no arrastre su subárbol en cascada.
+  parentId String?
+  position Int     @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([whiteLabelId])
+  @@index([parentId])
+}
+
 model MktEnrollment {
   id            String    @id @default(uuid())
   workflowId    String
@@ -2766,6 +3005,8 @@ model ReferralCode {
   // Slug corto y human-friendly para links `/ref/<slug>`. Único, opcional.
   // Default: lowercase(code) backfill en migration. Customizable desde admin.
   slug                           String?        @unique
+  /// Rutas ANTERIORES de este código. Ver modelo ReferralSlugAlias.
+  slugAliases                    ReferralSlugAlias[]
   ownerName                      String
   ownerEmail                     String
   ownerWhatsapp                  String
@@ -4278,6 +4519,12 @@ enum LabVoteKind {
 
 model LabProposal {
   id                    String      @id @default(cuid())
+  /// Marca a la que pertenece la propuesta: el Lab de cada marca es SUYO.
+  ///
+  /// Era un feed global, así que un afiliado de Sellea veía la comunidad de
+  /// Clubify — y con el nombre de Sellea encima. Se sella al crearla, desde la
+  /// marca del autor. Null = históricas, se tratan como de la plataforma.
+  whiteLabelId          String?
   title                 String
   description           String      @db.Text
   category              LabCategory
@@ -4619,6 +4866,13 @@ model WhiteLabel {
   /// Twitter Card) en WhatsApp/redes. Si null, se usa el logo de la marca; nunca
   /// la imagen de Clubify. Recomendado 1200×630.
   shareImageUrl            String?
+  /// Academia de la marca: el curso/portal externo para sus afiliados.
+  ///
+  /// El panel del afiliado tenía el enlace de Clubify escrito a mano
+  /// (`academy.soyclubify.lat`), así que un afiliado de Sellea veía —y podía
+  /// entrar a— la academia de otra plataforma. Null = la marca no tiene
+  /// academia y la pestaña NO se muestra; no se hereda la ajena.
+  academiaUrl              String?
   /// Color secundario / tinta (textos y fondos oscuros).
   secondaryColor           String?
   /// Color de fondos suaves (crema).
@@ -4634,6 +4888,16 @@ model WhiteLabel {
   /// VERIFICADO en el proveedor de envío (Resend/DKIM). Si es null, los emails
   /// salen del remitente global de Clubify. Ver [[email/brand-email]].
   emailFrom                String?
+  /// Conexión de EMAIL PROPIA de la marca (Json). Es el escalón de arriba de
+  /// `emailFrom`: en vez de mandar por la cuenta de la plataforma con el
+  /// remitente de la marca, la marca manda por SU PROPIA cuenta, con su
+  /// reputación de envío separada de la de todos los demás.
+  /// Forma: { provider: "RESEND", apiKey, fromName, fromEmail, replyTo }
+  /// `apiKey` se guarda CIFRADO (enc:v1:…); al frontend va siempre enmascarado.
+  /// Cascada de envío, de mejor a peor: emailConfig propio > emailFrom sobre la
+  /// cuenta de plataforma > nada (una marca blanca sin ninguno de los dos no
+  /// envía: no mandamos correos suyos desde el remitente de Clubify).
+  emailConfig              Json?
   /// Letra inicial mostrada en el avatar cuadrado.
   initial                  String?
   /// WhatsApp del botón "Agendar demo" de la landing de la marca (ej.
@@ -5896,4 +6160,61 @@ model StampEvent {
 
   @@index([programId, customerId, createdAt])
   @@index([allyBusinessId, createdAt])
+}
+
+/// Rutas `/ref/<slug>` que este código tuvo antes.
+///
+/// El slug es la ruta REAL del afiliado, no un redirector: al cambiarla, la
+/// anterior dejaba de resolver y todo enlace ya compartido se caía con 404.
+/// Cada vez que alguien cambia su ruta, la vieja queda registrada acá y
+/// `resolveBySlug` la sigue aceptando — misma atribución, mismo código.
+///
+/// `slug` es único y además se comprueba contra `ReferralCode.slug`: una ruta
+/// no puede ser alias de uno y ruta viva de otro.
+model ReferralSlugAlias {
+  id             String       @id @default(uuid())
+  slug           String       @unique
+  referralCodeId String
+  referralCode   ReferralCode @relation(fields: [referralCodeId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@index([referralCodeId])
+}
+
+/// Una CARTA del negocio. Casi todos tienen una sola; los multi-sede pueden
+/// tener varias, cada una asignada a su sede.
+///
+/// Nace de un caso real: una sede ofrece muchos más productos que la otra y el
+/// cliente no sabía cuáles aplicaban donde estaba sentado.
+///
+/// **Los menús son INDEPENDIENTES**: cada uno tiene sus propias categorías y
+/// productos, con sus precios y fotos. Se pueden crear duplicando otro, pero
+/// desde ese momento van por separado — cambiar un precio en uno NO lo cambia
+/// en el otro. Fue una decisión explícita de Javier (2026-08-24) sabiendo el
+/// coste de mantenimiento; la alternativa evaluada era un solo catálogo con
+/// disponibilidad por sede.
+///
+/// Compatibilidad: los negocios de siempre no tienen ningún `Menu` y sus
+/// productos tienen `menuId = null`. Eso ES el menú principal. No se migra
+/// nada hasta que el negocio active la función.
+model Menu {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name       String
+  /// Sede a la que sirve esta carta. Null = no asignada todavía.
+  /// `SetNull` y no `Cascade`: borrar una sede no puede llevarse por delante
+  /// un menú entero con sus productos.
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  /// Orden en el selector del panel.
+  position   Int       @default(0)
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  categories Category[]
+  products   Product[]
+
+  @@index([tenantId, position])
+  @@index([locationId])
 }

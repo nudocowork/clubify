@@ -5,6 +5,7 @@ import {
   phoneKeyOf,
   phoneNormOf,
   emailNormOf,
+  samePhone,
   UniqueContactViolation,
   type ContactRow,
   type ContactStore,
@@ -27,6 +28,9 @@ const ROW = {
   phoneNorm: true,
   deleted: true,
 } as const;
+
+/** Etiqueta que marca a los contactos que vienen de un NEGOCIO (Tenant) de la marca. */
+const TAG_NEGOCIO = 'negocio';
 
 /**
  * Base de contactos (leads/clientes) de la marca para el motor de email
@@ -106,6 +110,111 @@ export class MktContactService {
     }
     const contacts = await this.prisma.mktContact.count({ where: { whiteLabelId, deleted: false } });
     return { processed, contacts };
+  }
+
+  /**
+   * Sincroniza los NEGOCIOS (Tenant) de la marca como contactos, con la
+   * etiqueta `negocio` para distinguirlos de los leads. Idempotente por diseño:
+   *  - Toda alta pasa por el resolver de identidad → correrlo dos veces no
+   *    duplica fichas.
+   *  - En fichas que YA existían solo se AGREGA la etiqueta y se RELLENA el
+   *    nombre vacío; nunca se pisa lo editado a mano ni se toca email/phone de
+   *    una ficha existente: la identidad solo se escribe vía resolver, porque
+   *    los índices únicos parciales de producción dependen de ese camino.
+   */
+  async syncTenants(whiteLabelId: string): Promise<{
+    created: number;
+    updated: number;
+    skipped: number;
+    contacts: number;
+  }> {
+    const tenants = await this.prisma.tenant.findMany({
+      where: { whiteLabelId, deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        brandName: true,
+        email: true,
+        phone: true,
+        whatsappPhone: true,
+      },
+    });
+    // Fotografía de ids previos: distingue «creado» de «ya existía» sin
+    // duplicar la lógica de identidad fuera del resolver.
+    const existing = new Set(
+      (
+        await this.prisma.mktContact.findMany({
+          where: { whiteLabelId },
+          select: { id: true },
+        })
+      ).map((c) => c.id),
+    );
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+    for (const t of tenants) {
+      // `||` y no `??`: un whatsappPhone en cadena vacía no debe tapar el phone real.
+      const phone = t.whatsappPhone || t.phone;
+      const name = t.brandName || t.name;
+      if (!emailNormOf(t.email) && !phoneNormOf(phone)) {
+        skipped++; // sin correo ni teléfono no hay a quién escribirle
+        continue;
+      }
+      const row = await this.upsert(whiteLabelId, {
+        name,
+        email: t.email,
+        phone,
+        tags: [TAG_NEGOCIO],
+      });
+      if (!existing.has(row.id)) {
+        existing.add(row.id); // dos negocios con el mismo teléfono → un solo «creado»
+        created++;
+        continue;
+      }
+      // Ficha preexistente: el resolver la reusó sin escribir. Solo etiqueta y
+      // nombre vacío; se cuenta «actualizado» únicamente si de verdad se
+      // escribió algo, así la segunda corrida reporta 0 y se ve la idempotencia.
+      const cur = await this.prisma.mktContact.findUnique({
+        where: { id: row.id },
+        select: { name: true, tags: true },
+      });
+      const data: { tags?: { set: string[] }; name?: string } = {};
+      if (cur && !cur.tags.includes(TAG_NEGOCIO)) data.tags = { set: [...cur.tags, TAG_NEGOCIO] };
+      if (cur && !cur.name && name) data.name = name;
+      if (Object.keys(data).length) {
+        await this.prisma.mktContact.update({ where: { id: row.id }, data });
+        updated++;
+      }
+    }
+    const contacts = await this.prisma.mktContact.count({
+      where: { whiteLabelId, deleted: false },
+    });
+    return { created, updated, skipped, contacts };
+  }
+
+  /**
+   * Negocio (Tenant) de la marca que corresponde a un contacto, por identidad
+   * (mismo veredicto samePhone / email exacto del resolver). Best-effort y
+   * resuelto al momento del envío: MktContact no guarda tenantId (el schema lo
+   * edita otra persona en paralelo) y el historial MessageLog sí lo necesita.
+   */
+  async findTenantIdForContact(
+    whiteLabelId: string,
+    contact: { email: string | null; phone: string | null },
+  ): Promise<string | null> {
+    const email = emailNormOf(contact.email);
+    if (!email && !phoneNormOf(contact.phone)) return null;
+    const tenants = await this.prisma.tenant.findMany({
+      where: { whiteLabelId, deletedAt: null },
+      select: { id: true, email: true, phone: true, whatsappPhone: true },
+    });
+    const match = tenants.find(
+      (t) =>
+        (contact.phone &&
+          (samePhone(t.whatsappPhone, contact.phone) || samePhone(t.phone, contact.phone))) ||
+        (email && emailNormOf(t.email) === email),
+    );
+    return match?.id ?? null;
   }
 
   async list(whiteLabelId: string, opts: { q?: string; take?: number; skip?: number }) {

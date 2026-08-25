@@ -83,6 +83,8 @@ export const messages = {
 
     // Producto modal
     'product.extras': 'Extras',
+    'product.extrasLimit': 'Puedes elegir hasta {{n}}.',
+    'product.extrasLimitReached': 'Llegaste al máximo. Quita uno para cambiar.',
     'product.notes': 'Notas (opcional)',
     'product.add_to_cart': 'Agregar · {{total}}',
 
@@ -122,6 +124,7 @@ export const messages = {
     'checkout.submit': 'Enviar pedido por WhatsApp',
     'checkout.delivery_note': '💡 El costo del domicilio se acuerda con el proveedor al confirmar el pedido — no se cobra aquí.',
     'checkout.city_other': 'Otra…',
+    'checkout.other_region': '¿No está? Agrega tu ubicación',
     'checkout.order_ships_to': '📍 Tu pedido se enviará a:',
     'checkout.change_location': 'Cambiar sede',
     'checkout.confirm_location': 'Confirma la sede de tu pedido',
@@ -288,6 +291,8 @@ export const messages = {
 
     // Product modal
     'product.extras': 'Extras',
+    'product.extrasLimit': 'You can pick up to {{n}}.',
+    'product.extrasLimitReached': 'You reached the maximum. Remove one to swap.',
     'product.notes': 'Notes (optional)',
     'product.add_to_cart': 'Add · {{total}}',
 
@@ -327,6 +332,7 @@ export const messages = {
     'checkout.submit': 'Place order on WhatsApp',
     'checkout.delivery_note': '💡 Delivery cost is arranged with the provider when confirming the order — not charged here.',
     'checkout.city_other': 'Other…',
+    'checkout.other_region': 'Not listed? Add your location',
     'checkout.order_ships_to': '📍 Your order ships to:',
     'checkout.change_location': 'Change location',
     'checkout.confirm_location': 'Confirm your order location',
@@ -493,6 +499,8 @@ export const messages = {
 
     // Product modal
     'product.extras': 'Extras',
+    'product.extrasLimit': 'Você pode escolher até {{n}}.',
+    'product.extrasLimitReached': 'Você chegou ao máximo. Remova um para trocar.',
     'product.notes': 'Notas (opcional)',
     'product.add_to_cart': 'Adicionar · {{total}}',
 
@@ -532,6 +540,7 @@ export const messages = {
     'checkout.submit': 'Enviar pedido pelo WhatsApp',
     'checkout.delivery_note': '💡 O custo da entrega é combinado com o fornecedor ao confirmar o pedido — não é cobrado aqui.',
     'checkout.city_other': 'Outra…',
+    'checkout.other_region': 'Não está? Adicione sua localização',
     'checkout.order_ships_to': '📍 Seu pedido será enviado para:',
     'checkout.change_location': 'Mudar unidade',
     'checkout.confirm_location': 'Confirme a unidade do pedido',
@@ -698,6 +707,8 @@ export const messages = {
 
     // Product modal
     'product.extras': 'Extra',
+    'product.extrasLimit': 'Puoi sceglierne fino a {{n}}.',
+    'product.extrasLimitReached': 'Hai raggiunto il massimo. Rimuovine uno per cambiare.',
     'product.notes': 'Note (facoltativo)',
     'product.add_to_cart': 'Aggiungi · {{total}}',
 
@@ -737,6 +748,7 @@ export const messages = {
     'checkout.submit': 'Invia ordine su WhatsApp',
     'checkout.delivery_note': '💡 Il costo della consegna si concorda con il fornitore alla conferma dell\'ordine — non si paga qui.',
     'checkout.city_other': 'Altra…',
+    'checkout.other_region': 'Non è in elenco? Aggiungi la tua posizione',
     'checkout.order_ships_to': '📍 Il tuo ordine sarà spedito a:',
     'checkout.change_location': 'Cambia sede',
     'checkout.confirm_location': 'Conferma la sede del tuo ordine',

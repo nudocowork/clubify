@@ -4,13 +4,17 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { EmailService } from '../email/email.service';
 import { BillingService } from './billing.service';
+import { PendingActivationService } from './pending-activation.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
 import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
-import { addPlanPeriod } from '../common/plan-period';
+import { addPlanPeriod, parsePlanPeriodLabel } from '../common/plan-period';
+import { getCanonicalBundlePrice } from '../common/plan-pricing';
 import { SmsTemplatesService } from './sms-templates.service';
+import { BrandEmailService } from '../email/brand-email.service';
+import { fmtEmailDate } from '../email/brand-email-templates';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { parseWlIdFromSrc, parseAffiliateRawFromSrc } from './hotmart-src';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
@@ -61,7 +65,9 @@ export type HotmartWebhookPayload = {
     buyer?: { email?: string; name?: string };
     subscription?: {
       subscriber?: { code?: string };
-      plan?: { name?: string };
+      /** Plan REAL contratado, ej. "Plan Trimestral 150 USD". Es la fuente
+       *  autoritativa de la periodicidad — ver parsePlanPeriodLabel. */
+      plan?: { id?: number; name?: string };
       date_next_charge?: number;
       status?: string;
     };
@@ -69,6 +75,14 @@ export type HotmartWebhookPayload = {
       transaction?: string;
       status?: string;
       approved_date?: number;
+      // OJO (2026-08-18): en los payloads REALES de compra Hotmart manda
+      // `date_next_charge` ACÁ, dentro de purchase — NO en subscription (donde
+      // en PURCHASE_APPROVED solo llegan plan/status/subscriber). Leerlo solo
+      // de subscription hacía que la fecha oficial de Hotmart se descartara en
+      // todas las altas y cayéramos siempre al fallback local. El evento
+      // UPDATE_SUBSCRIPTION_CHARGE_DATE sí la manda en subscription, así que
+      // hay que mirar ambas: usar nextChargeFromPayload().
+      date_next_charge?: number;
       // Hotmart manda el monto pagado en USD aquí. Lo usamos para calcular
       // la comisión del referido. Si no viene, caemos a plan.priceMonthly.
       // OJO: Hotmart manda la moneda como `currency_value` (ej. "PAB", "COP",
@@ -93,43 +107,107 @@ export type HotmartWebhookPayload = {
   };
 };
 
+/**
+ * Fecha del próximo cobro según Hotmart, mirando las DOS rutas del payload.
+ *
+ * FIX 2026-08-18: los payloads de compra la traen en `data.purchase`; el código
+ * solo leía `data.subscription`, que en PURCHASE_APPROVED ni siquiera existe
+ * (subscription trae plan/status/subscriber y nada más). Resultado: la fecha
+ * oficial se descartaba en todas las altas. El evento
+ * UPDATE_SUBSCRIPTION_CHARGE_DATE sí la manda en subscription, así que hay que
+ * soportar ambas rutas.
+ */
+function nextChargeFromPayload(payload: HotmartWebhookPayload): Date | null {
+  const raw =
+    payload.data?.purchase?.date_next_charge ??
+    payload.data?.subscription?.date_next_charge;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 @Injectable()
 export class HotmartService {
   private logger = new Logger(HotmartService.name);
 
+  /**
+   * Un grupo empresarial paga UNA suscripción de Hotmart por varios negocios.
+   * El código de suscriptor vive en uno solo, así que el webhook movía su
+   * fecha y dejaba a los hermanos con la del ciclo anterior: se quedaban a un
+   * día de que el cron los marcara en mora estando al día.
+   *
+   * Pasó tres veces seguidas con el grupo Aldehir (Mistíka) y hubo que
+   * corregirlo a mano cada vez.
+   *
+   * Propaga la fecha del ciclo a los hermanos ACTIVOS y limpia sus SEIS
+   * campos de deduplicación — sin eso no reciben ningún aviso del ciclo
+   * nuevo. Ver [[clubify-cobros-trampas]].
+   *
+   * No toca `hotmartSubscriberCode` de nadie: el código pertenece a quien
+   * paga, y duplicarlo haría que el próximo webhook casara con varios.
+   */
+  private async propagarCicloAlGrupo(tenantId: string, hasta: Date) {
+    const yo = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { businessGroupId: true },
+    });
+    if (!yo?.businessGroupId) return;
+
+    const r = await this.prisma.tenant.updateMany({
+      where: {
+        businessGroupId: yo.businessGroupId,
+        id: { not: tenantId },
+        // Un negocio dado de baja del grupo no revive por un cobro ajeno.
+        status: { in: ['ACTIVE', 'TRIAL'] },
+      },
+      data: {
+        currentPeriodEnd: hasta,
+        status: 'ACTIVE',
+        trialEndsAt: null,
+        failedPaymentCount: 0,
+        suspendedAt: null,
+        paymentReminderSentFor: null,
+        paymentFailureNoticeSentAt: null,
+        pausePendingNoticeSentAt: null,
+        preReminder7dSentFor: null,
+        preReminder3dSentFor: null,
+        preReminderTodaySentFor: null,
+      },
+    });
+    if (r.count) {
+      this.logger.log(
+        `Ciclo propagado al grupo ${yo.businessGroupId}: ${r.count} negocio(s) hasta ${hasta.toISOString().slice(0, 10)}`,
+      );
+    }
+  }
+
   constructor(
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
+    // Solo para los avisos de cadena de referidos (notifyReferralChain); el
+    // correo al COMPRADOR sale por PendingActivationService → BrandEmailService.
     private email: EmailService,
+    private pendingActivation: PendingActivationService,
     private billing: BillingService,
     private referralsService: ReferralsService,
     private alerts: PreregAlertsService,
     private commissionExceptions: CommissionExceptionsService,
     private smsTemplates: SmsTemplatesService,
+    private brandEmail: BrandEmailService,
     private wlNotifications: WhiteLabelNotificationsService,
     private businessGroups: BusinessGroupsService,
     private onboardingWebhook: OnboardingWebhookService,
   ) {}
 
   /** Precio canónico del bundle en USD (68/150/278/500) según periodicidad,
-   *  con override por Setting `landing.plans.<period>.price`. Replica
-   *  CommissionRecalcService.getBundlePrice vía prisma para no acoplar este
-   *  módulo (evita ciclos de DI). Devuelve 0 si no se puede resolver. */
+   *  con override por Setting `landing.plans.<period>.price`. Delegado a
+   *  common/plan-pricing (misma verdad que el importe sugerido de los pagos
+   *  manuales). Se pasa prisma directo — sin acoplar servicios (evita ciclos
+   *  de DI, igual que la réplica que había antes). */
   private async getCanonicalBundlePrice(
     periodicity: string | null,
   ): Promise<number> {
-    const DEFAULTS: Record<string, number> = {
-      MENSUAL: 68,
-      TRIMESTRAL: 150,
-      SEMESTRAL: 278,
-      ANUAL: 500,
-    };
-    const period = (periodicity ?? 'MENSUAL').toUpperCase();
-    const key = `landing.plans.${period.toLowerCase()}.price`;
-    const row = await this.prisma.setting.findUnique({ where: { key } });
-    const fromSetting = row?.value != null ? Number(row.value) : NaN;
-    if (Number.isFinite(fromSetting) && fromSetting > 0) return fromSetting;
-    return DEFAULTS[period] ?? 0;
+    return getCanonicalBundlePrice(this.prisma, periodicity);
   }
 
   /**
@@ -377,13 +455,12 @@ export class HotmartService {
     // Grupo Empresarial: si el subscriberCode (o el email del responsable en el
     // primer pago) matchea un grupo, el cobro es del GRUPO → activamos/suspendemos
     // el grupo y cascadea a TODOS sus negocios. No hay un tenant único.
-    const nextChargeRaw = payload.data?.subscription?.date_next_charge;
     const groupAction = await this.businessGroups
       .tryHandleHotmartEvent({
         event,
         subscriberCode,
         buyerEmail,
-        nextChargeDate: nextChargeRaw ? new Date(nextChargeRaw) : null,
+        nextChargeDate: nextChargeFromPayload(payload),
       })
       .catch((e) => {
         this.logger.error(`group hotmart handler falló: ${(e as Error)?.message}`);
@@ -427,6 +504,9 @@ export class HotmartService {
           subscriberCode,
           transactionId,
           payload,
+          // Marca del webhook (ruta /:slug). La tabla no la guarda, pero el
+          // aviso al comprador sí debe salir con la identidad correcta.
+          whiteLabelId: scope?.whiteLabelId ?? null,
         }).catch((e) =>
           this.logger.warn(
             `storePendingPayment falló para ${buyerEmail}: ${(e as Error).message}`,
@@ -994,6 +1074,17 @@ export class HotmartService {
             .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
             .catch(() => null);
         }
+        // Correo del evento. Una disputa NO es un cobro fallido: el dinero se
+        // cobró y el banco lo está discutiendo, así que va su propio texto.
+        this.brandEmail
+          .sendTemplate({
+            templateId:
+              event === 'PURCHASE_PROTEST'
+                ? 'email_dispute'
+                : 'email_payment_failed',
+            tenantId: tenant.id,
+          })
+          .catch(() => null);
         // Aviso a la cadena de atribución (embajador → influencer → admin)
         // si el dueño activó las notificaciones de pago fallido.
         this.notifyReferralChain(tenant.id, tenant.brandName, 'PAYMENT_FAILED').catch(
@@ -1044,21 +1135,45 @@ export class HotmartService {
               ? 'admin_chargeback'
               : 'admin_cancellation';
         this.maybeSendAdminNotice(tenant, adminNoticeId).catch(() => null);
+        // Correo del cierre del ciclo. A diferencia del SMS admin_*, va ON por
+        // defecto: su gate es que la marca tenga con qué enviar.
+        this.brandEmail
+          .sendTemplate({
+            templateId:
+              event === 'PURCHASE_REFUNDED'
+                ? 'email_refunded'
+                : event === 'PURCHASE_CHARGEBACK'
+                  ? 'email_chargeback'
+                  : 'email_cancellation',
+            tenantId: tenant.id,
+          })
+          .catch(() => null);
         return { ok: true, action: 'suspended' };
       }
 
       case 'UPDATE_SUBSCRIPTION_CHARGE_DATE': {
-        const next = payload.data?.subscription?.date_next_charge;
+        const next = nextChargeFromPayload(payload);
         if (next) {
           await this.prisma.tenant.update({
             where: { id: tenant.id },
-            data: { currentPeriodEnd: new Date(next) },
+            data: { currentPeriodEnd: next },
           });
         }
         // Stage 4: aviso "Mover próximo cobro" si la marca lo activó.
         this.maybeSendAdminNotice(tenant, 'admin_charge_date_moved').catch(
           () => null,
         );
+        // Solo si de verdad hay fecha nueva. Sin ella el correo diría "tu
+        // nueva fecha es el <la vieja>" — o dejaría el hueco a la vista.
+        if (next) {
+          this.brandEmail
+            .sendTemplate({
+              templateId: 'email_charge_date_moved',
+              tenantId: tenant.id,
+              vars: { nextChargeDate: fmtEmailDate(next) },
+            })
+            .catch(() => null);
+        }
         return { ok: true, action: 'updated_next_charge' };
       }
 
@@ -1139,14 +1254,32 @@ export class HotmartService {
       where: { id: tenant.id },
       select: { planPeriodicity: true, purchasedAt: true },
     });
-    const nextChargeRaw = payload.data?.subscription?.date_next_charge;
-    let nextCharge = nextChargeRaw ? new Date(nextChargeRaw) : null;
+    // FIX 2026-08-18 (caso El Arrayán express): la periodicidad la escribía SOLO
+    // el form de /activar (dto.planPeriodicity). Si el comprador no entraba por
+    // el link de recuperación con ?email=, quedaba null y TODO el sistema lo
+    // leía como MENSUAL: próximo cobro a +1 mes sobre un plan trimestral (y la
+    // suspensión automática 3 días después de esa fecha falsa, con el cliente
+    // al día), comisión sobre el canónico mensual, y MRR sub-contado.
+    // Hotmart manda el plan REAL en subscription.plan.name ("Plan Trimestral
+    // 150 USD") → fuente autoritativa. Solo lo escribimos cuando falta: un
+    // valor ya cargado (o corregido a mano por un admin) NO se pisa.
+    let effectivePeriod = planForBase?.planPeriodicity ?? null;
+    const periodFromHotmart = effectivePeriod
+      ? null
+      : parsePlanPeriodLabel(payload.data?.subscription?.plan?.name);
+    if (periodFromHotmart) {
+      effectivePeriod = periodFromHotmart;
+      this.logger.log(
+        `activatePurchase tenant=${tenant.id}: planPeriodicity ausente — derivada de Hotmart ("${payload.data?.subscription?.plan?.name}") = ${periodFromHotmart}`,
+      );
+    }
+    let nextCharge = nextChargeFromPayload(payload);
     if (!nextCharge && !tenant.currentPeriodEnd) {
       // Bug #1: el fallback debe respetar la periodicidad real del plan
       // (Trimestral = +3 meses, no +30 días fijos). Antes siempre sumaba 30d.
-      nextCharge = addPlanPeriod(new Date(), planForBase?.planPeriodicity);
+      nextCharge = addPlanPeriod(new Date(), effectivePeriod);
       this.logger.warn(
-        `activatePurchase tenant=${tenant.id}: primer pago sin date_next_charge — fallback por periodicidad ${planForBase?.planPeriodicity ?? 'MENSUAL'}=${nextCharge.toISOString()}`,
+        `activatePurchase tenant=${tenant.id}: primer pago sin date_next_charge — fallback por periodicidad ${effectivePeriod ?? 'MENSUAL'}=${nextCharge.toISOString()}`,
       );
     } else if (!nextCharge) {
       this.logger.warn(
@@ -1156,12 +1289,18 @@ export class HotmartService {
     // lastChargeAt — timestamp del pago aprobado real (no calculado).
     const approvedDate = payload.data?.purchase?.approved_date;
     const lastChargeAt = approvedDate ? new Date(approvedDate) : new Date();
-    const canonicalUsd = await this.getCanonicalBundlePrice(
-      planForBase?.planPeriodicity ?? null,
-    );
+    // Ancla canónica para validar el monto. Usa `effectivePeriod`, NO
+    // planForBase.planPeriodicity: cuando la DB tiene la periodicidad en null
+    // (caso El Arrayán) esa variable ya trae la derivada de Hotmart. Con null,
+    // getCanonicalBundlePrice cae a MENSUAL=$68 y resolvePaidUsd valida en banda
+    // [0.3x,1.6x]=[20,109]: un trimestral real de $150 quedaría FUERA de banda,
+    // se descartaría como moneda local y el pago se registraría como $68.
+    const canonicalUsd = await this.getCanonicalBundlePrice(effectivePeriod);
     // El monto REAL pagado (USD), validado contra el canónico para descartar
     // moneda local (Hotmart no manda currency_code). Va a AUDITORÍA
-    // (lastPaymentAmountUsd), NUNCA a la base de comisiones.
+    // (lastPaymentAmountUsd), NUNCA a la base de comisiones: la comisión se
+    // calcula sobre el precio PACTADO canónico. Solo se persiste si vino > 0
+    // (no pisamos con 0/undefined en eventos que no traen price).
     const realPriceUsd = this.resolvePaidUsd(
       payload,
       'activatePurchase',
@@ -1171,6 +1310,12 @@ export class HotmartService {
       where: { id: tenant.id },
       data: {
         status: 'ACTIVE',
+        // Periodicidad derivada del plan de Hotmart cuando el alta la dejó en
+        // null (ver comentario arriba). Va en el mismo update que el resto para
+        // que la fecha de cobro y el canónico de la comisión queden coherentes
+        // de una. Como el canónico del plan ES la base de comisión cuando no
+        // hay override manual, sin esto un trimestral cobraba sobre $68.
+        ...(periodFromHotmart ? { planPeriodicity: periodFromHotmart } : {}),
         // 2026-07-31: el monto crudo (FX) va a auditoría, NO a la base de
         // comisiones. subscriptionPriceUsd es override MANUAL only; si está
         // vacío las comisiones usan el canónico del plan. Antes se pisaba acá
@@ -1207,12 +1352,32 @@ export class HotmartService {
         // restantes" junto con el plan pagado. trialStartedAt y trialSource
         // se preservan para analytics de conversión.
         trialEndsAt: null,
-        // Reset de tracking de notificaciones para el nuevo ciclo
+        // Reset de tracking de notificaciones para el nuevo ciclo.
+        //
+        // Tienen que ser los SEIS. Faltaban los tres pre-avisos, así que un
+        // negocio que renovaba no volvía a recibir el aviso de 7 días, ni el
+        // de 3, ni el del día — y nadie se enteraba, porque el fallo es mudo:
+        // el cron los ve marcados como ya enviados para siempre.
         paymentReminderSentFor: null,
         paymentFailureNoticeSentAt: null,
         pausePendingNoticeSentAt: null,
+        preReminder7dSentFor: null,
+        preReminder3dSentFor: null,
+        preReminderTodaySentFor: null,
       },
     });
+
+    // Grupo empresarial: una sola suscripción de Hotmart paga por VARIOS
+    // negocios, pero el webhook solo movía al que lleva el código. Los
+    // hermanos se quedaban con la fecha vieja y había que corregirlos a mano
+    // (grupo Aldehir, 3 cobros seguidos). Ahora avanzan juntos.
+    if (nextCharge) {
+      await this.propagarCicloAlGrupo(tenant.id, nextCharge).catch((e) =>
+        this.logger.warn(
+          `propagarCicloAlGrupo tenant=${tenant.id}: ${(e as Error).message}`,
+        ),
+      );
+    }
     // Fase D: primer pago (TRIAL/nuevo) o reactivación (SUSPENDED) → webhook
     // business.activated. Las renovaciones (ya ACTIVE) NO disparan. tenant.status
     // acá es el estado PREVIO (se cargó antes del update).
@@ -1241,56 +1406,14 @@ export class HotmartService {
       ),
     );
 
-    // Generar la comisión recurrente del referido. Idempotente por
-    // tx/período: si ya creamos una comisión para esta misma transacción
-    // o en los últimos 25 días, skipea.
-    //
-    // FASE FOUNDATION 2026-06-05: si el tenant fue traído por un
-    // ReferralCode con role=VENDOR, usamos el nuevo 3-way generator
-    // que crea hasta 3 commission rows (influencer + embajador +
-    // vendor) con dedup por hotmartTransactionId + recipientCodeId.
-    // Para sales sin vendor en la chain (legacy INFLUENCER/AMBASSADOR
-    // directos), seguimos con el flujo histórico de generateReferralCommission.
-    try {
-      // HOTFIX 2026-06-05 (bug #6 CRÍTICO): si un tenant fue
-      // reasignado a otro afiliado, el findFirst sin orderBy podía
-      // devolver el VENDOR viejo (no convertido) y generar 3-way
-      // commissions a alguien que ya no atrae al cliente. Ahora:
-      //  1) Filtramos por status PAYING/ACTIVE (atribución viva).
-      //  2) Ordenamos por createdAt desc para tomar la atribución
-      //     más reciente.
-      const vendorUse = await this.prisma.referralUse.findFirst({
-        where: {
-          tenantId: tenant.id,
-          referralCode: { role: 'VENDOR' },
-          status: { in: ['PAYING', 'ACTIVE'] },
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
-      if (vendorUse) {
-        // 2026-07-31: la base la resuelve el generador (override manual del
-        // tenant o canónico del plan), NUNCA el monto crudo pagado (FX). No le
-        // pasamos el monto de Hotmart; paymentAmountUsd queda como compat.
-        await this.referralsService.generateCommissionsForPayment({
-          tenantId: tenant.id,
-          paymentAmountUsd: canonicalUsd,
-          hotmartTransactionId: transactionId ?? null,
-        });
-      } else {
-        // La base se resuelve dentro (override manual → canónico). No pasamos
-        // el monto crudo de Hotmart.
-        await this.generateReferralCommission({
-          tenantId: tenant.id,
-          paidAmount: null,
-          transactionId,
-        });
-      }
-    } catch (e) {
-      this.logger.warn(
-        `generación de comisión falló: ${(e as Error).message}`,
-      );
-    }
+    // Comisiones del cobro. La lógica vive en un metodo aparte porque la
+    // comparten las tres pasarelas — ver generarComisionesDeCobro.
+    await this.generarComisionesDeCobro({
+      tenantId: tenant.id,
+      montoCanonicoUsd: canonicalUsd,
+      transaccionId: transactionId ?? null,
+    });
+
     // SMS al dueño (best-effort): si la cuenta venía SUSPENDED, "cuenta
     // reactivada"; si no, "pago confirmado" (con info del próximo cobro).
     if (wasSuspended) {
@@ -1308,6 +1431,21 @@ export class HotmartService {
           nextChargeInfo,
         }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+    }
+    // CORREO del mismo hecho: primera compra → "panel listo"; cuenta que
+    // revivió → "reactivada"; renovación → "pago confirmado".
+    if (wasSuspended || !alreadyConfirmedTx) {
+      this.brandEmail
+        .sendTemplate({
+          templateId: wasSuspended
+            ? 'email_account_reactivated'
+            : isFirstHotmartPurchase
+              ? 'email_panel_ready'
+              : 'email_payment_confirmed',
+          tenantId: tenant.id,
+          vars: { nextChargeDate: nextCharge ? fmtEmailDate(nextCharge) : '' },
+        })
         .catch(() => null);
     }
 
@@ -1367,6 +1505,7 @@ export class HotmartService {
     subscriberCode?: string;
     transactionId?: string;
     payload: HotmartWebhookPayload;
+    whiteLabelId?: string | null;
   }) {
     const email = args.buyerEmail.toLowerCase();
     const existing = await this.prisma.pendingHotmartPayment.findFirst({
@@ -1399,64 +1538,49 @@ export class HotmartService {
       email,
       name: args.payload.data?.buyer?.name ?? null,
       phone: buyerAny?.checkout_phone ?? buyerAny?.phone ?? null,
+      whiteLabelId: args.whiteLabelId ?? null,
     }).catch(() => null);
   }
 
   /**
-   * Recuperación de pago "huérfano": email + WhatsApp/SMS al COMPRADOR
-   * con el link a /activar (pre-llenado por email), y SMS al equipo
-   * comercial. Marca recoveryNotifiedAt para no re-enviar en reintentos
-   * del webhook.
+   * Recuperación de pago "huérfano": correo + WhatsApp/SMS al COMPRADOR con el
+   * link a /activar (pre-llenado por email), y SMS al equipo comercial. Marca
+   * recoveryNotifiedAt para no re-enviar en reintentos del webhook.
    *
-   * Fix 2026-06-11: antes solo se mandaba email + alert interna.
-   * Si el correo del comprador caía en spam o no lo leía, quedaba en
-   * limbo (caso Carlos Pérez urbancafe501@gmail.com). Ahora también:
-   *  - WhatsApp al comprador (fallback SMS si no hay WA en la subcuenta).
-   *  - Link `/activar?email=<email>` para que la página pre-llene el form
-   *    desde el PendingHotmartPayment (nombre, teléfono, plan, precio).
+   * Fix 2026-08-21: delega en PendingActivationService. El correo anterior
+   * salía por EmailService, que sin RESEND_API_KEY en producción escribe en el
+   * log y no llega a nadie — por eso se acumularon compradores que pagaron y
+   * nunca supieron que debían crear su cuenta. Ahora sale por la subcuenta de
+   * Grow Business de la marca (plantilla `email_buyer_activation`, editable
+   * desde Automatizaciones) y el WhatsApp/SMS también sale con la identidad de
+   * la marca del comprador.
    */
   private async notifyPendingRecovery(opts: {
     email: string;
     name: string | null;
     phone: string | null;
+    /** null = plataforma. PendingHotmartPayment no guarda la marca, así que el
+     *  reenvío manual siempre pasa null; el webhook sí conoce su scope. */
+    whiteLabelId?: string | null;
   }) {
-    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
-    const activateUrl = `${appUrl}/activar?email=${encodeURIComponent(opts.email)}`;
-    const greeting = opts.name ? ` ${opts.name}` : '';
-    await this.email.send({
-      to: opts.email,
-      subject: 'Completa tu cuenta de Clubify',
-      html: `<p>Hola${greeting},</p>
-<p>Recibimos tu pago 🎉. Solo falta crear tu cuenta para empezar a usar Clubify.</p>
-<p><a href="${activateUrl}" style="display:inline-block;background:#22C55E;color:#fff;padding:12px 20px;border-radius:999px;text-decoration:none;font-weight:600">Completar mi cuenta →</a></p>
-<p>Importante: usa el mismo correo con el que pagaste (<strong>${opts.email}</strong>) para que activemos tu cuenta al instante.</p>`,
-      text: `Recibimos tu pago. Completa tu cuenta en ${activateUrl} usando el correo ${opts.email}.`,
+    const r = await this.pendingActivation.notifyBuyer({
+      gateway: 'HOTMART',
+      whiteLabelId: opts.whiteLabelId ?? null,
+      email: opts.email,
+      name: opts.name,
+      phone: opts.phone,
     });
-
-    // WhatsApp/SMS al comprador con el link pre-llenado.
-    const buyerNotify = await this.alerts
-      .sendBuyerActivationLink({
-        email: opts.email,
-        name: opts.name,
-        phone: opts.phone,
-        activateUrl,
-      })
-      .catch((e) => ({ ok: false, channel: 'none' as const, error: e?.message }));
-
-    this.alerts
-      .sendTeamAlert(
-        `💳 Pago Hotmart recibido SIN cuenta aún.\n` +
-          `Email: ${opts.email}\n` +
-          `Aviso al comprador: email ✅, ${buyerNotify.ok ? `${buyerNotify.channel} ✅` : `WhatsApp/SMS ❌ (sin tel válido)`}\n` +
-          `Link: ${activateUrl}`,
-      )
-      .catch(() => null);
-    await this.prisma.pendingHotmartPayment
-      .updateMany({
-        where: { email: opts.email, consumedAt: null, recoveryNotifiedAt: null },
-        data: { recoveryNotifiedAt: new Date() },
-      })
-      .catch(() => null);
+    // Solo marcamos si ALGO le llegó al comprador: si los dos canales fallaron
+    // (caída de GHL, sin teléfono válido), dar el aviso por hecho dejaría al
+    // comprador en el limbo sin que ningún reintento vuelva a intentarlo.
+    if (r.emailSent || r.channel !== 'none') {
+      await this.prisma.pendingHotmartPayment
+        .updateMany({
+          where: { email: opts.email, consumedAt: null, recoveryNotifiedAt: null },
+          data: { recoveryNotifiedAt: new Date() },
+        })
+        .catch(() => null);
+    }
   }
 
   /**
@@ -1516,11 +1640,19 @@ export class HotmartService {
     ]);
 
     type Row = {
+      /** id de la fila en SU tabla Pending* — lo necesita «Asignar a negocio». */
+      id: string;
       gateway: 'HOTMART' | 'STRIPE' | 'CROSS';
       email: string;
       name: string | null;
       phone: string | null;
+      /** Precio PACTADO del plan en USD (68/150/278/500). Es el que manda. */
       amountUsd: number | null;
+      /** Lo que Hotmart dijo, tal cual, con su moneda. Solo informativo. */
+      paidRaw: number | null;
+      paidCurrency: string | null;
+      /** MENSUAL|TRIMESTRAL|… deducida del plan del pago, si vino. */
+      periodicity: string | null;
       purchaseDate: string | null;
       activationLink: string;
       createdAt: Date;
@@ -1532,13 +1664,44 @@ export class HotmartService {
       const raw = (p.rawPayload as any) ?? {};
       const buyer = raw?.data?.buyer ?? {};
       const approved = raw?.data?.purchase?.approved_date;
-      const priceVal = raw?.data?.purchase?.price?.value;
+      // El monto se mostraba en CRUDO como si fuera USD, y Hotmart manda el
+      // valor en la moneda del producto: salían cifras como $501.764,21, que
+      // son pesos. La regla del negocio es la misma que ya usa el cálculo de
+      // comisiones (`resolvePaidUsd`): manda el precio PACTADO del plan, no lo
+      // que diga el payload. Ojo, la moneda viene en `currency_value`, no en
+      // `currency_code` — mirar solo el segundo fue el bug original.
+      const precio = raw?.data?.purchase?.price ?? {};
+      const priceVal = typeof precio.value === 'number' ? precio.value : null;
+      const moneda = String(
+        precio.currency_code || precio.currency_value || '',
+      ).toUpperCase() || null;
+      const periodicity = parsePlanPeriodLabel(
+        raw?.data?.subscription?.plan?.name ?? '',
+      );
+      const canonico = await this.getCanonicalBundlePrice(periodicity);
+      // Se acepta el valor del payload solo si dice USD y cae en la banda del
+      // plan; si no, se muestra el pactado. Nunca una cifra inventada.
+      const enBanda =
+        priceVal != null &&
+        canonico > 0 &&
+        priceVal >= canonico * 0.3 &&
+        priceVal <= canonico * 1.6;
+      const amountUsd =
+        priceVal != null && (!moneda || moneda === 'USD') && enBanda
+          ? priceVal
+          : canonico > 0
+            ? canonico
+            : null;
       out.push({
+        id: p.id,
         gateway: 'HOTMART',
         email: p.email,
         name: buyer?.name ?? null,
         phone: buyer?.checkout_phone ?? buyer?.phone ?? null,
-        amountUsd: typeof priceVal === 'number' ? priceVal : null,
+        amountUsd,
+        paidRaw: priceVal,
+        paidCurrency: moneda,
+        periodicity,
         purchaseDate:
           typeof approved === 'number'
             ? new Date(approved).toISOString()
@@ -1555,11 +1718,17 @@ export class HotmartService {
       const amt =
         typeof obj?.amount_total === 'number' ? obj.amount_total / 100 : null;
       out.push({
+        id: p.id,
         gateway: 'STRIPE',
         email: p.email,
         name: cd?.name ?? null,
         phone: cd?.phone ?? null,
+        // Stripe sí manda la moneda fiable, así que se respeta: si no es USD,
+        // el monto en dólares queda en null en vez de mentir.
         amountUsd: obj?.currency === 'usd' ? amt : null,
+        paidRaw: amt,
+        paidCurrency: obj?.currency ? String(obj.currency).toUpperCase() : null,
+        periodicity: null,
         purchaseDate:
           typeof created === 'number'
             ? new Date(created * 1000).toISOString()
@@ -1575,11 +1744,16 @@ export class HotmartService {
         (p.rawPayload as any)?.data?.customer ??
         {};
       out.push({
+        id: p.id,
         gateway: 'CROSS',
         email: p.email,
         name: cust?.name ?? null,
         phone: cust?.phone ?? null,
+        // Cross guarda el importe ya en USD en su propia columna.
         amountUsd: p.amountUsd != null ? Number(p.amountUsd) : null,
+        paidRaw: p.amountUsd != null ? Number(p.amountUsd) : null,
+        paidCurrency: 'USD',
+        periodicity: null,
         purchaseDate: p.createdAt.toISOString(),
         activationLink: link(p.email),
         createdAt: p.createdAt,
@@ -1855,6 +2029,85 @@ export class HotmartService {
    * "use sintético" — para no perder la atribución global. Lo modelamos
    * creando un ReferralUse para el código del socio con tenantId del cliente.
    */
+  /**
+   * Genera las comisiones de un COBRO CONFIRMADO. Agnóstica de pasarela.
+   *
+   * Vive en este archivo por historia — nació dentro del webhook de Hotmart —
+   * pero no depende de Hotmart: la base de la comisión sale del override
+   * manual del tenant o del precio canónico del plan según su periodicidad,
+   * NUNCA del monto crudo que mandó la pasarela (que llega con FX aplicado).
+   *
+   * Por eso la llaman también **Stripe y Cross**: sin esto, una marca que
+   * cobra por Stripe (Sellea) podía tener afiliados, enlaces y atribución
+   * funcionando y no generar NI UNA comisión — el panel se veía bien hasta
+   * que tocaba pagar.
+   *
+   * Idempotente: dedup por transacción y por período (25 días).
+   *
+   * @param transaccionId id de la transacción en la pasarela, si lo hay. Es la
+   *        clave de deduplicación; sin él manda el dedup por período.
+   */
+  async generarComisionesDeCobro(opts: {
+    tenantId: string;
+    montoCanonicoUsd?: number | null;
+    transaccionId?: string | null;
+  }) {
+    const { tenantId, transaccionId } = opts;
+    const montoCanonicoUsd = opts.montoCanonicoUsd ?? null;
+    // Generar la comisión recurrente del referido. Idempotente por
+    // tx/período: si ya creamos una comisión para esta misma transacción
+    // o en los últimos 25 días, skipea.
+    //
+    // FASE FOUNDATION 2026-06-05: si el tenant fue traído por un
+    // ReferralCode con role=VENDOR, usamos el nuevo 3-way generator
+    // que crea hasta 3 commission rows (influencer + embajador +
+    // vendor) con dedup por hotmartTransactionId + recipientCodeId.
+    // Para sales sin vendor en la chain (legacy INFLUENCER/AMBASSADOR
+    // directos), seguimos con el flujo histórico de generateReferralCommission.
+    try {
+      // HOTFIX 2026-06-05 (bug #6 CRÍTICO): si un tenant fue
+      // reasignado a otro afiliado, el findFirst sin orderBy podía
+      // devolver el VENDOR viejo (no convertido) y generar 3-way
+      // commissions a alguien que ya no atrae al cliente. Ahora:
+      //  1) Filtramos por status PAYING/ACTIVE (atribución viva).
+      //  2) Ordenamos por createdAt desc para tomar la atribución
+      //     más reciente.
+      const vendorUse = await this.prisma.referralUse.findFirst({
+        where: {
+          tenantId: tenantId,
+          referralCode: { role: 'VENDOR' },
+          status: { in: ['PAYING', 'ACTIVE'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      if (vendorUse) {
+        // 2026-07-31: la base la resuelve el generador (override manual del
+        // tenant o canónico del plan), NUNCA el monto crudo pagado (FX). No le
+        // pasamos el monto de Hotmart; paymentAmountUsd queda como compat.
+        await this.referralsService.generateCommissionsForPayment({
+          tenantId: tenantId,
+          // `paymentAmountUsd` es compat: el generador resuelve la base por su
+          // cuenta. Cuando la pasarela no manda monto (Stripe/Cross) va 0.
+          paymentAmountUsd: montoCanonicoUsd ?? 0,
+          hotmartTransactionId: transaccionId ?? null,
+        });
+      } else {
+        // La base se resuelve dentro (override manual → canónico). No pasamos
+        // el monto crudo de Hotmart.
+        await this.generateReferralCommission({
+          tenantId: tenantId,
+          paidAmount: null,
+          transactionId: transaccionId ?? undefined,
+        });
+      }
+    } catch (e) {
+      this.logger.warn(
+        `generación de comisión falló: ${(e as Error).message}`,
+      );
+    }
+  }
+
   private async generateReferralCommission(opts: {
     tenantId: string;
     paidAmount: number | null;

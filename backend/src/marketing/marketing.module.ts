@@ -7,6 +7,10 @@ import { MktEngineService } from './mkt-engine.service';
 import { MarketingController } from './marketing.controller';
 import { MktWorkflowsController } from './mkt-workflows.controller';
 import { MktWebhookController } from './mkt-webhook.controller';
+import { MktTemplateService } from './mkt-template.service';
+import { MktTemplateFoldersService } from './mkt-template-folders.service';
+import { MktTemplateSendService } from './mkt-template-send.service';
+import { MktTemplatesController } from './mkt-templates.controller';
 
 /**
  * Motor de Email Marketing (contact-based) para las marcas — apartado de
@@ -19,8 +23,21 @@ import { MktWebhookController } from './mkt-webhook.controller';
  */
 @Module({
   imports: [IntegrationsModule],
-  providers: [MktProviderService, MktContactService, MktActionService, MktEngineService],
-  controllers: [MarketingController, MktWorkflowsController, MktWebhookController],
+  providers: [
+    MktProviderService,
+    MktContactService,
+    MktActionService,
+    MktEngineService,
+    MktTemplateService,
+    MktTemplateFoldersService,
+    MktTemplateSendService,
+  ],
+  controllers: [
+    MarketingController,
+    MktWorkflowsController,
+    MktWebhookController,
+    MktTemplatesController,
+  ],
   exports: [MktProviderService, MktContactService, MktEngineService],
 })
 export class MarketingModule {}

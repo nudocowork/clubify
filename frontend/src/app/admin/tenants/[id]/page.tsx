@@ -9,6 +9,7 @@ import { ReferralAssignmentCard } from '@/components/ReferralAssignmentCard';
 import { DeliveryAlertsCard } from '@/components/DeliveryAlertsCard';
 import { CustomerOrderAlertsCard } from '@/components/CustomerOrderAlertsCard';
 import { StampAuditTable } from '@/components/StampAuditTable';
+import { ManualPaymentsCard } from '@/components/ManualPaymentsCard';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import {
@@ -253,10 +254,12 @@ export default function TenantDetail() {
   }
 
   /**
-   * Convierte el tenant a cliente pagante (ACTIVE + currentPeriodEnd
-   * +30d + sin trialEndsAt). Útil cuando paga por fuera de Hotmart.
-   * Automáticamente dispara backfill de comisión si tiene asignación
-   * a INFLUENCER/AMBASSADOR.
+   * Convierte el tenant a cliente pagante (ACTIVE + sin trialEndsAt).
+   * Útil cuando paga por fuera de Hotmart. El ciclo lo corre el BACKEND
+   * según la periodicidad del plan (trimestral = 3 meses, anual = 12) —
+   * mandar `periodDays: 30` desde aquí le daba 30 días a cualquier plan,
+   * por eso el backend eliminó ese parámetro. Automáticamente dispara
+   * backfill de comisión si tiene asignación a INFLUENCER/AMBASSADOR.
    */
   async function convertToPaying() {
     if (
@@ -268,7 +271,6 @@ export default function TenantDetail() {
     try {
       await api(`/tenants/${id}/convert-to-paying`, {
         method: 'POST',
-        body: JSON.stringify({ periodDays: 30 }),
       });
       await load();
       toast(tr('businessConvertedToPaying'), 'success');
@@ -825,6 +827,10 @@ export default function TenantDetail() {
 
         <PlanCurrentCard tenant={t} isSuperAdmin={isSuperAdmin} onChange={load} />
 
+        {/* Cobranza manual (Nequi/efectivo/transferencia): flag "paga por
+            fuera", registro de pagos e historial. Endpoints SUPER_ADMIN-only. */}
+        {isSuperAdmin && <ManualPaymentsCard tenantId={t.id} onChange={load} />}
+
         {isSuperAdmin && (
           <div className="card card-pad">
             <h2 className="text-base font-semibold m-0">{tr('locationsOverride')}</h2>
@@ -987,6 +993,22 @@ function OwnerPasswordModal({
   const [pwd, setPwd] = useState('');
   const [confirm, setConfirm] = useState('');
   const [saving, setSaving] = useState(false);
+  // A QUE correo le vamos a cambiar la contrasena. Se muestra ANTES de
+  // escribirla: el aviso posterior se va solo y el admin se queda sin saberlo.
+  // Caso Limorada (2026-08-23): la cuenta era @gmail, se intentaba entrar con
+  // @hotmail, y fueron 11 intentos fallidos antes de dar con el correo.
+  const [duenio, setDuenio] = useState<{
+    email: string;
+    fullName?: string | null;
+    lastLoginAt?: string | null;
+  } | null>(null);
+  const [cargandoDuenio, setCargandoDuenio] = useState(true);
+  useEffect(() => {
+    api<{ owner: typeof duenio }>(`/tenants/${tenantId}/owner`)
+      .then((r) => setDuenio(r?.owner ?? null))
+      .catch(() => setDuenio(null))
+      .finally(() => setCargandoDuenio(false));
+  }, [tenantId]);
   const valid = pwd.trim().length >= 8 && pwd === confirm;
 
   const submit = async () => {
@@ -1023,6 +1045,54 @@ function OwnerPasswordModal({
           <b>{brandName || 'este negocio'}</b> sin necesitar la actual. Queda
           registrada en auditoría y sus sesiones actuales se cerrarán.
         </p>
+        {/* El correo, arriba y copiable. Es el dato que faltaba. */}
+        <div className="mt-4 rounded-lg border border-line bg-bg2 p-3">
+          <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+            La contraseña es para esta cuenta
+          </div>
+          {cargandoDuenio ? (
+            <div className="mt-1 h-5 w-40 animate-shimmer rounded" />
+          ) : duenio ? (
+            <>
+              <div className="mt-1 flex items-center gap-2">
+                <code className="text-sm font-semibold break-all">
+                  {duenio.email}
+                </code>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(duenio.email);
+                      toast('Correo copiado', 'success');
+                    } catch {
+                      toast('No se pudo copiar', 'error');
+                    }
+                  }}
+                  className="text-[11px] font-semibold px-2 py-0.5 rounded bg-white border border-line hover:bg-bg2 whitespace-nowrap"
+                >
+                  Copiar
+                </button>
+              </div>
+              <div className="mt-1 text-[11px] text-mute">
+                {duenio.lastLoginAt
+                  ? `Último ingreso: ${new Date(duenio.lastLoginAt).toLocaleString('es-CO')}`
+                  : 'Nunca ha iniciado sesión.'}
+              </div>
+              {/* Si el cliente dice otro correo, el problema no es la
+                  contraseña: hay que corregir el correo primero. */}
+              <div className="mt-1.5 text-[11px] text-amber-700 leading-snug">
+                Si el dueño te dice otro correo, cámbialo primero — con el
+                correo equivocado el ingreso va a fallar aunque la contraseña
+                sea correcta.
+              </div>
+            </>
+          ) : (
+            <div className="mt-1 text-sm text-bad-ink">
+              Este negocio no tiene un dueño activo.
+            </div>
+          )}
+        </div>
+
         <div className="mt-4 space-y-3">
           <div>
             <label className="label">Nueva contraseña</label>
@@ -1646,6 +1716,15 @@ function AcademyTogglesCard({
   const [businessType, setBusinessType] = useState<string>(
     tenant.businessType ?? 'FULL',
   );
+  // Varias cartas, una por sede. Se habilita negocio por negocio: la inmensa
+  // mayoria tiene un solo menu y no tiene por que ver esta complejidad.
+  const [multiMenu, setMultiMenu] = useState<boolean>(
+    tenant.multiMenuEnabled ?? false,
+  );
+  // Cuantas cartas EXTRA puede crear, ademas del menu principal.
+  const [maxCartas, setMaxCartas] = useState<number>(
+    tenant.maxExtraMenus ?? 1,
+  );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -1661,6 +1740,8 @@ function AcademyTogglesCard({
           reservationsEnabled: reservations,
           serviceReservationsEnabled: serviceReservations,
           businessType,
+          multiMenuEnabled: multiMenu,
+          maxExtraMenus: maxCartas,
         }),
       });
       setMsg({ ok: true, text: t('changesSaved') });
@@ -1741,6 +1822,50 @@ function AcademyTogglesCard({
             <div className="text-xs text-mute leading-snug">
               {t('showAcademyHelp')}
             </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={multiMenu}
+            onChange={(e) => setMultiMenu(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">Varias cartas (una por sede)</div>
+            <div className="text-xs text-mute leading-snug">
+              Para negocios con sedes que ofrecen cosas distintas. Puede
+              duplicar su menú y luego ocultar o cambiar lo que no aplique en
+              cada sede, con su propio QR.{' '}
+              <b>Apagarlo no borra nada</b>: el menú principal es el de siempre.
+            </div>
+            {/* El tope importa: cada carta es un catalogo entero duplicado.
+                Un negocio con 545 productos creando cartas sin freno
+                multiplica la base sin que nadie lo note. */}
+            {multiMenu && (
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <label className="text-xs text-mute">
+                  Cartas extra permitidas:
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={20}
+                  value={maxCartas}
+                  onClick={(e) => e.preventDefault()}
+                  onChange={(e) =>
+                    setMaxCartas(
+                      Math.max(0, Math.min(20, Math.floor(Number(e.target.value) || 0))),
+                    )
+                  }
+                  className="input w-20 text-sm py-1"
+                />
+                <span className="text-[11px] text-mute">
+                  además del menú principal
+                </span>
+              </div>
+            )}
           </div>
         </label>
 

@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Body,
   Controller,
   Get,
@@ -37,6 +38,10 @@ class StatusBody {
 class EditOrderItem {
   @IsString() productId!: string;
   @IsOptional() @IsString() variantId?: string;
+  // Multi-seleccion de variantes (productos con maxVariantsTotal >= 2). Sin
+  // este campo el ValidationPipe (forbidNonWhitelisted) rechaza el pedido
+  // entero con "property variantIds should not exist".
+  @IsOptional() @IsArray() @IsString({ each: true }) variantIds?: string[];
   @IsOptional() @IsArray() @IsString({ each: true }) extraIds?: string[];
   @IsInt() @Min(1) qty!: number;
   @IsOptional() @IsString() note?: string;
@@ -58,6 +63,10 @@ class PatchOrderPaymentBody {
 class ManualOrderItem {
   @IsString() productId!: string;
   @IsOptional() @IsString() variantId?: string;
+  // Multi-seleccion de variantes (productos con maxVariantsTotal >= 2). Sin
+  // este campo el ValidationPipe (forbidNonWhitelisted) rechaza el pedido
+  // entero con "property variantIds should not exist".
+  @IsOptional() @IsArray() @IsString({ each: true }) variantIds?: string[];
   @IsOptional() @IsArray() @IsString({ each: true }) extraIds?: string[];
   @IsInt() @Min(1) qty!: number;
   @IsOptional() @IsString() note?: string;
@@ -198,5 +207,17 @@ export class OrdersController {
     @Param('id') id: string,
   ) {
     return this.svc.acceptDeliveryPayment(user, id);
+  }
+
+  /**
+   * Sella este pedido a pedido del negocio — el «¿Sumas sello?» que sale al
+   * marcar entregado un domicilio. En domicilio no hay sello automático
+   * («entregado» lo marca quien reparte), pero dejarlo al olvido hacía que se
+   * perdiera. El sistema pregunta; el negocio decide.
+   */
+  @Post(':id/stamp')
+  stampOrder(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    if (!user.tenantId) throw new ForbiddenException();
+    return this.svc.stampOrderManually(user.tenantId, id);
   }
 }

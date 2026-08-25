@@ -34,6 +34,19 @@ type Me = {
     | 'AFFILIATE_AMBASSADOR'
     | 'AFFILIATE_SOCIO'
     | 'AFFILIATE_VENDOR';
+  /**
+   * La marca del afiliado, resuelta en el backend desde su ReferralCode.
+   * null = no se pudo resolver: NO se pinta ningun nombre de plataforma.
+   */
+  brand: {
+    slug: string;
+    name: string;
+    logoUrl: string | null;
+    primaryColor: string | null;
+    academiaUrl: string | null;
+    labEnabled: boolean;
+    baseUrl: string | null;
+  } | null;
   myCode: {
     id: string;
     code: string;
@@ -144,6 +157,10 @@ export default function AffiliatePanel() {
   const [tab, setTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
   const [impersonation, setImpersonation] = useState<ReturnType<typeof getImpersonationBackup>>(null);
+  // Acortador de la ruta del enlace de referido.
+  const [editandoRuta, setEditandoRuta] = useState(false);
+  const [nuevaRuta, setNuevaRuta] = useState('');
+  const [guardandoRuta, setGuardandoRuta] = useState(false);
 
   useEffect(() => {
     api<Me>('/affiliate/me')
@@ -172,6 +189,12 @@ export default function AffiliatePanel() {
     me.role === 'AFFILIATE_VENDOR' && me.myCode?.role === 'VENDOR';
   const isAmbassador =
     me.role === 'AFFILIATE_AMBASSADOR' && me.myCode?.role === 'AMBASSADOR';
+  // Nombre de la marca para los textos. Sin marca resuelta se usa una
+  // formula neutra ("la plataforma") en vez de escribir Clubify: un nombre
+  // ausente no delata a nadie, uno equivocado si.
+  const marca = me.brand?.name?.trim() || null;
+  const nMarca = marca ?? 'la plataforma';
+
   // Link corto público `/ref/<slug>`. El backend loguea visita (UTM +
   // referer + país + IP) y redirige a /signup?ref=CODE&via=slug.
   // Compartible en redes, mucho más memorable que /signup?ref=XYZ123.
@@ -214,7 +237,22 @@ export default function AffiliatePanel() {
       <header className="border-b border-line bg-white px-5 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
           <Link href="/" className="flex items-center gap-2">
-            <Logo size={28} />
+            {/* El logo de SU marca. `<Logo>` es el de Clubify escrito a mano:
+                un afiliado de Sellea veia la marca de otra plataforma en su
+                propio panel. Solo se usa cuando la marca ES Clubify. */}
+            {me.brand?.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={me.brand.logoUrl}
+                alt={me.brand.name}
+                className="h-7 w-auto max-w-[130px] object-contain"
+              />
+            ) : me.brand?.slug === 'clubify' || !me.brand ? (
+              <Logo size={28} />
+            ) : (
+              // Marca sin logo cargado: su nombre, nunca el de otra.
+              <span className="font-bold text-sm">{me.brand.name}</span>
+            )}
             <span className="font-semibold text-sm hidden sm:inline">Panel afiliado</span>
           </Link>
           <div className="flex items-center gap-3">
@@ -245,7 +283,7 @@ export default function AffiliatePanel() {
           {isSocio ? (
             <>
               Recibes el <strong>{me.myCode?.commissionPercent}%</strong> de
-              TODAS las ventas de Clubify, sin importar qué código se use.
+              TODAS las ventas de {nMarca}, sin importar qué código se use.
             </>
           ) : isVendor ? (
             <>
@@ -288,7 +326,7 @@ export default function AffiliatePanel() {
               <div className="text-[11px] text-mute mt-1 leading-relaxed">
                 <strong>Tip:</strong> tu código es de <em>atribución</em>{' '}
                 — identifica quién te envió. Los cupones de descuento para el
-                cliente los crea Clubify Admin y se asocian a campañas.
+                cliente los crea el administrador de {nMarca} y se asocian a campañas.
               </div>
             </div>
             {!isSocio && (
@@ -313,10 +351,143 @@ export default function AffiliatePanel() {
                     📋 Copiar
                   </button>
                 </div>
+                {/* Acortar la ruta. La generada sale del nombre completo y
+                    queda larguisima (/ref/briggit-stefany-labrador). No es un
+                    redirector aparte: es la ruta real, asi que conserva
+                    codigo, atribucion y registro de visita. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNuevaRuta('');
+                    setEditandoRuta(true);
+                  }}
+                  className="mt-1.5 text-[11px] text-brand font-semibold hover:underline"
+                >
+                  ✂️ Acortar mi link
+                </button>
               </div>
             )}
           </div>
         )}
+
+        {editandoRuta && me.myCode && (() => {
+          // Misma normalizacion que el backend, solo para la vista previa:
+          // quien valida y decide es el servidor.
+          const limpio = nuevaRuta
+            .normalize('NFD')
+            .replace(/[̀-ͯ]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 40);
+          const base =
+            typeof window !== 'undefined' ? window.location.origin : '';
+          const actual = me.myCode.slug;
+          const valido = limpio.length >= 3 && limpio !== actual;
+          async function guardar() {
+            if (!valido) return;
+            setGuardandoRuta(true);
+            try {
+              await api('/affiliate/me/slug', {
+                method: 'PATCH',
+                body: JSON.stringify({ slug: limpio }),
+              });
+              toast('Listo, tu link ahora es /ref/' + limpio, 'success');
+              setEditandoRuta(false);
+              // Recargamos el perfil para que el link de arriba muestre
+              // la ruta nueva sin tener que refrescar la pagina.
+              const fresco = await api<Me>('/affiliate/me');
+              if (fresco) setMe(fresco);
+            } catch (e: unknown) {
+              toast((e as Error)?.message || 'No se pudo cambiar la ruta', 'error');
+            } finally {
+              setGuardandoRuta(false);
+            }
+          }
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+              onClick={() => setEditandoRuta(false)}
+            >
+              <div
+                className="bg-white rounded-xl w-full max-w-md p-5 shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 className="text-lg font-bold mb-1">Acortar mi link</h3>
+                <p className="text-xs text-mute mb-4">
+                  Ponle la ruta que quieras. Lleva a la misma página, con tu
+                  mismo código y tu misma atribución.
+                </p>
+
+                <div className="rounded-lg bg-bg2 border border-line p-3 mb-4">
+                  <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
+                    Ahora
+                  </div>
+                  <code className="text-xs break-all">
+                    {base}/ref/{actual}
+                  </code>
+                </div>
+
+                <label className="text-xs font-semibold text-mute block mb-1">
+                  Nueva ruta
+                </label>
+                <div className="flex items-stretch rounded-lg border border-line overflow-hidden">
+                  <span className="px-2.5 flex items-center bg-bg2 text-xs text-mute whitespace-nowrap">
+                    /ref/
+                  </span>
+                  <input
+                    autoFocus
+                    className="flex-1 px-2.5 py-2 text-sm outline-none"
+                    placeholder={actual}
+                    value={nuevaRuta}
+                    onChange={(e) => setNuevaRuta(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && valido && !guardandoRuta) {
+                        void guardar();
+                      }
+                    }}
+                  />
+                </div>
+                {limpio && limpio.length < 3 && (
+                  <p className="text-[11px] text-bad-ink mt-1.5">
+                    Necesita al menos 3 letras o números.
+                  </p>
+                )}
+                {valido && (
+                  <>
+                    <p className="text-[11px] text-mute mt-2 break-all">
+                      Quedará así: <b>{base}/ref/{limpio}</b>
+                    </p>
+                    {/* La ruta anterior deja de resolver: no hay alias. Si ya
+                        la compartio, tiene que saberlo antes de cambiarla. */}
+                    <p className="text-[11px] text-amber-700 mt-1.5 leading-snug">
+                      ⚠️ Tu link anterior dejará de funcionar. Si ya lo
+                      compartiste, avisa a quien lo tenga.
+                    </p>
+                  </>
+                )}
+
+                <div className="mt-5 flex gap-2 justify-end">
+                  <button
+                    type="button"
+                    className="btn-ghost text-sm"
+                    onClick={() => setEditandoRuta(false)}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!valido || guardandoRuta}
+                    onClick={guardar}
+                    className="btn text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {guardandoRuta ? 'Guardando…' : 'Guardar ruta'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Difusión interna: banner que el SUPER_ADMIN puede activar
             desde /admin/ventas/difusion. Si no hay nada activo no
@@ -380,26 +551,34 @@ export default function AffiliatePanel() {
           >
             📚 Material de apoyo
           </button>
-          {/* Academia Clubify — link externo (Bloque 2 2026-06-12).
-              Visible para todos los roles AFFILIATE_*. */}
-          <a
-            href="https://academy.soyclubify.lat/Embajadores"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="tab"
-          >
-            🎓 Academia Clubify
-          </a>
+          {/* Academia de LA MARCA. El enlace de Clubify estaba escrito a
+              mano, asi que un afiliado de Sellea entraba a la academia de
+              otra plataforma. Sin academia propia la pestana no aparece:
+              mejor ausente que ajena. Se carga en Master Admin -> Marcas. */}
+          {me.brand?.academiaUrl && (
+            <a
+              href={me.brand.academiaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="tab"
+            >
+              🎓 Academia {marca ?? ''}
+            </a>
+          )}
           {/* Clubify Lab — feed comunitario embebido como tab interno
               para que el embajador no salga del panel. La ruta /lab
               standalone sigue funcionando, ambas montan el mismo
               componente LabFeed. */}
-          <button
-            className={`tab ${tab === 'lab' ? 'tab-active' : ''}`}
-            onClick={() => setTab('lab')}
-          >
-            🧪 Clubify Lab
-          </button>
+          {/* Cada marca ve SU Lab: las propuestas se sellan con la marca de
+              quien las escribe y el feed filtra por la de quien mira. */}
+          {me.brand?.labEnabled !== false && (
+            <button
+              className={`tab ${tab === 'lab' ? 'tab-active' : ''}`}
+              onClick={() => setTab('lab')}
+            >
+              🧪 {marca ? `${marca} Lab` : 'Lab'}
+            </button>
+          )}
           <button
             className={`tab ${tab === 'settings' ? 'tab-active' : ''}`}
             onClick={() => setTab('settings')}
@@ -413,8 +592,10 @@ export default function AffiliatePanel() {
         {tab === 'clients' && <ClientsList isVendor={isVendor} />}
         {tab === 'commissions' && <CommissionsList />}
         {tab === 'team' && isAmbassador && <TeamView me={me} />}
-        {tab === 'trial' && <TrialStatsView />}
-        {tab === 'materials' && <SupportMaterialsList />}
+        {tab === 'trial' && (
+          <TrialStatsView marca={nMarca} baseUrl={me.brand?.baseUrl ?? null} />
+        )}
+        {tab === 'materials' && <SupportMaterialsList marca={nMarca} />}
         {tab === 'lab' && <LabFeed />}
         {tab === 'settings' && (
           <SettingsView
@@ -1882,6 +2063,8 @@ function SettingsView({
   me: Me;
   onUpdated: (u: { fullName: string; phone?: string | null }) => void;
 }) {
+  // Mismo criterio que arriba: sin marca resuelta, formula neutra.
+  const nMarca = me.brand?.name?.trim() || 'la plataforma';
   const [fullName, setFullName] = useState(me.user?.fullName ?? '');
   const [phone, setPhone] = useState(me.user?.phone ?? '');
   const [busy, setBusy] = useState(false);
@@ -1907,7 +2090,7 @@ function SettingsView({
     <form onSubmit={save} className="card card-pad max-w-md space-y-3">
       <h3 className="font-semibold m-0 mb-1">Tus datos</h3>
       <div className="text-xs text-mute mb-3">
-        Estos datos los ve el administrador de Clubify y se usan para enviarte
+        Estos datos los ve el administrador de {nMarca} y se usan para enviarte
         notificaciones por WhatsApp cuando hay eventos en tus clientes.
       </div>
       <div>
@@ -2540,7 +2723,15 @@ const PAYMENT_STATUS_LABEL: Record<string, string> = {
   SUSPENDED: 'Suspendido',
 };
 
-function TrialStatsView() {
+function TrialStatsView({
+  marca,
+  baseUrl,
+}: {
+  /** Nombre de la marca para los textos que se comparten. */
+  marca: string;
+  /** Dominio de marketing de la marca. null = cae a la env global. */
+  baseUrl: string | null;
+}) {
   const [data, setData] = useState<TrialStatsResp | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -2560,12 +2751,15 @@ function TrialStatsView() {
   // parámetro ?mode=free|card que interpreta /trial.
   const trialLinks = useMemo(() => {
     if (!data?.shareCode) return { free: '', card: '' };
+    // El dominio de la MARCA primero: un afiliado de Sellea compartia
+    // soyclubify.com. Solo si la marca no tiene dominio propio caemos a la env.
     const base =
+      baseUrl?.replace(/\/+$/, '') ??
       process.env.NEXT_PUBLIC_LANDING_URL?.replace(/\/+$/, '') ??
       'https://soyclubify.com';
     const root = `${base}/trial?ref=${data.shareCode}`;
     return { free: `${root}&mode=free`, card: `${root}&mode=card` };
-  }, [data?.shareCode]);
+  }, [data?.shareCode, baseUrl]);
 
   async function copyTrial(url: string) {
     if (!url) return;
@@ -2580,7 +2774,7 @@ function TrialStatsView() {
     if (typeof navigator !== 'undefined' && (navigator as any).share) {
       try {
         await (navigator as any).share({
-          title: 'Prueba Clubify gratis',
+          title: `Prueba ${marca} gratis`,
           text,
           url,
         });
@@ -2639,7 +2833,7 @@ function TrialStatsView() {
                   onClick={() =>
                     shareTrial(
                       trialLinks.free,
-                      'Prueba Clubify gratis por 5 días — sin tarjeta.',
+                      `Prueba ${marca} gratis por 5 días — sin tarjeta.`,
                     )
                   }
                   className="btn-primary text-xs cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
@@ -2674,7 +2868,7 @@ function TrialStatsView() {
                 </button>
                 <button
                   onClick={() =>
-                    shareTrial(trialLinks.card, 'Prueba Clubify gratis por 5 días.')
+                    shareTrial(trialLinks.card, `Prueba ${marca} gratis por 5 días.`)
                   }
                   className="btn-primary text-xs cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"
                 >
@@ -2873,7 +3067,7 @@ const M_TYPE_LABEL: Record<SupportMaterialType, string> = {
   OTHER: 'Recurso',
 };
 
-function SupportMaterialsList() {
+function SupportMaterialsList({ marca }: { marca: string }) {
   const [items, setItems] = useState<SupportMaterial[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -2924,7 +3118,7 @@ function SupportMaterialsList() {
         <div className="text-4xl mb-2">📚</div>
         <div className="font-semibold mb-1">Aún no hay materiales</div>
         <div className="text-xs text-mute leading-relaxed max-w-sm mx-auto">
-          El equipo Clubify sube aquí scripts, videos, PDFs y plantillas que te
+          El equipo de {marca} sube aquí scripts, videos, PDFs y plantillas que te
           ayudan a vender. Vuelve en unos días si todavía no hay nada disponible.
         </div>
       </div>

@@ -28,10 +28,12 @@ const CLUBIFY_ROOTS = ['soyclubify.com', 'clubify.app'];
 // reescribe. Cualquier otro primer segmento se trata como slug de marca
 // blanca: /admin/sellea sirve el mismo panel con la URL por marca.
 const RESERVED_ADMIN_ROUTES = new Set([
+  'academia',
   'accounting',
   'affiliate-registration',
   'ai-knowledge',
   'audit',
+  'automatizaciones',
   'branding',
   'business-categories',
   'business-groups',
@@ -42,7 +44,10 @@ const RESERVED_ADMIN_ROUTES = new Set([
   'lab',
   'maintenance',
   'map',
+  'mensajes',
+  'pagos-manuales',
   'payouts',
+  'pending-payments',
   'rankings',
   'referrals',
   'reports',

@@ -28,9 +28,13 @@ export async function generateMetadata({
       };
     }
     const o = await res.json();
-    const brand = o?.tenant?.brandName ?? 'Clubify';
-    const title = `Pedido en ${brand}`;
-    const description = `Sigue el estado de tu pedido en ${brand}.`;
+    // Igual que en la tarjeta: la vista previa del pedido la ve el cliente del
+    // negocio. Sin nombre del negocio no se pone ninguno — nunca Clubify.
+    const brand = o?.tenant?.brandName ?? '';
+    const title = brand ? `Pedido en ${brand}` : 'Pedido';
+    const description = brand
+      ? `Sigue el estado de tu pedido en ${brand}.`
+      : 'Sigue el estado de tu pedido.';
     return {
       title,
       description,

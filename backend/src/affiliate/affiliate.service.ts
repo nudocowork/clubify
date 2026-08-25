@@ -9,6 +9,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AuthService } from '../auth/auth.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
+import { cambiarSlugConAlias } from '../referrals/slug-alias';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -173,6 +174,34 @@ export class AffiliateService {
     });
   }
 
+  /**
+   * El afiliado elige la ruta de SU enlace corto `/ref/<ruta>`.
+   *
+   * La ruta se generaba del nombre completo y quedaba larguisima
+   * (`/ref/briggit-stefany-labrador`). Esto deja ponerle la que quiera. No es
+   * un redirector aparte: es la ruta real, asi que conserva codigo,
+   * atribucion y registro de visita.
+   *
+   * Solo toca SU propio codigo — `myCodes` ya filtra por `ownerUserId`, asi
+   * que un afiliado no puede reescribir la ruta de otro.
+   */
+  async setMySlug(user: AuthUser, nuevo: string) {
+    this.assertAffiliate(user);
+    const codes = await this.myCodes(user.id);
+    const mio = codes.find((c) => c.ownerUserId === user.id);
+    if (!mio) throw new NotFoundException('No tenes un codigo propio.');
+
+    // Toda la logica vive en un solo sitio: normalizacion, reservadas,
+    // unicidad contra rutas vivas Y contra alias de otros, y el registro de
+    // la ruta anterior para que los enlaces ya compartidos no se caigan.
+    const slug = await cambiarSlugConAlias(this.prisma, {
+      codeId: mio.id,
+      slugActual: mio.slug,
+      nuevo,
+    });
+    return { slug };
+  }
+
   async me(user: AuthUser) {
     this.assertAffiliate(user);
     const userRow = await this.prisma.user.findUnique({
@@ -186,9 +215,47 @@ export class AffiliateService {
     // fallback explícito al parentEmbajadorCode para vendors.
     const parentForVendor =
       myCode?.role === 'VENDOR' ? myCode.parentEmbajadorCode : null;
+
+    // LA MARCA del afiliado. Sin esto el panel pintaba el logo de Clubify y
+    // decia "Academia Clubify" / "Clubify Lab" a un afiliado de Sellea.
+    // Sale del ReferralCode, que es donde vive la marca de un afiliado (no
+    // tiene tenantId). Ver [[clubify-fugas-de-marca]] y [[clubify-afiliados-y-roles]].
+    const wl = myCode?.whiteLabelId
+      ? await this.prisma.whiteLabel
+          .findUnique({
+            where: { id: myCode.whiteLabelId },
+            select: {
+              slug: true,
+              name: true,
+              logoUrl: true,
+              primaryColor: true,
+              academiaUrl: true,
+              domain: true,
+            },
+          })
+          .catch(() => null)
+      : null;
+
     return {
       user: userRow,
       role: user.role,
+      // null = marca sin resolver. El panel NO debe inventar un nombre: un pie
+      // ausente no delata a nadie, uno equivocado si.
+      brand: wl
+        ? {
+            slug: wl.slug,
+            name: wl.name,
+            logoUrl: wl.logoUrl,
+            primaryColor: wl.primaryColor,
+            academiaUrl: wl.academiaUrl,
+            // Dominio de marketing de la marca: los enlaces de prueba que
+            // comparte el afiliado tenian soyclubify.com escrito a mano.
+            baseUrl: wl.domain ? `https://${wl.domain.replace(/^https?:\/\//, '')}` : null,
+            // El Lab ya esta acotado por marca (`LabProposal.whiteLabelId`),
+            // asi que cada marca ve el suyo y se muestra a todas.
+            labEnabled: true,
+          }
+        : null,
       myCode: myCode
         ? {
             id: myCode.id,

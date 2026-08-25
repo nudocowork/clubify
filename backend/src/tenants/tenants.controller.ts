@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UnauthorizedException } from '@nestjs/common';
-import { IsArray, IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { TenantsService } from './tenants.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
@@ -48,6 +48,28 @@ class BillingBody {
 class ChangePlanPeriodBody {
   @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL'])
   periodicity!: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
+}
+
+/** Registro de un cobro hecho POR FUERA de las pasarelas (Nequi, efectivo,
+ *  transferencia). El ciclo cubierto NO viene en el body: lo calcula el
+ *  servicio con la periodicidad real del plan (addPlanPeriod) — el cliente
+ *  no puede decidir cuánto tiempo compra. */
+class RegisterManualPaymentBody {
+  @IsIn(['NEQUI', 'EFECTIVO', 'TRANSFERENCIA', 'OTRO'])
+  method!: 'NEQUI' | 'EFECTIVO' | 'TRANSFERENCIA' | 'OTRO';
+  /** Importe cobrado. Opcional: a veces solo interesa dejar el ciclo cubierto. */
+  @IsOptional() @IsNumber() @Min(0) amount?: number;
+  @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  /** Número de comprobante, referencia de Nequi, etc. */
+  @IsOptional() @IsString() @MaxLength(120) reference?: string;
+  @IsOptional() @IsString() @MaxLength(1000) note?: string;
+  /** Cuándo pagó el cliente (ISO). Default: ahora. No puede ser futura. */
+  @IsOptional() @IsDateString() paidAt?: string;
+}
+
+/** Marcar / desmarcar el negocio como "paga por fuera" (Tenant.manualPayment). */
+class ManualPaymentModeBody {
+  @IsBoolean() enabled!: boolean;
 }
 
 /** Reset de contraseña del dueño desde el panel admin (sin pedir la actual). */
@@ -121,6 +143,14 @@ class UpdateTenantBody {
   // Bloque 2 (2026-06-12): toggles per-tenant para mostrar/ocultar
   // los links de Tutoriales y Academia Clubify en los sidebars.
   @IsOptional() @IsBoolean() tutorialsEnabled?: boolean;
+  /**
+   * Varias cartas, una por sede. Se habilita NEGOCIO POR NEGOCIO: la inmensa
+   * mayoria tiene un solo menu y no tiene por que ver esta complejidad.
+   * Apagarlo NO borra nada: el menu principal es lo que siempre estuvo.
+   */
+  @IsOptional() @IsBoolean() multiMenuEnabled?: boolean;
+  /** Cuantas cartas EXTRA puede crear, ademas del menu principal. */
+  @IsOptional() @IsInt() @Min(0) @Max(20) maxExtraMenus?: number;
   @IsOptional() @IsBoolean() academyEnabled?: boolean;
   // Reservations module gate (2026-06-12).
   @IsOptional() @IsBoolean() reservationsEnabled?: boolean;
@@ -185,6 +215,15 @@ export class TenantsController {
     @Query('limit') limit?: string,
   ) {
     return this.svc.listTrialHistory(id, limit ? Number(limit) : 100);
+  }
+
+  /** Lista de revisión de cobranza manual: negocios "paga por fuera" con el
+   *  ciclo vencido y sin pago manual que lo cubra. Declarada ANTES de
+   *  @Get(':id') por el orden de rutas de NestJS (feedback_nestjs_route_order). */
+  @Get('manual-payments/review')
+  @Roles('SUPER_ADMIN')
+  manualPaymentReview() {
+    return this.svc.listManualPaymentReview();
   }
 
   @Get(':id')
@@ -254,20 +293,53 @@ export class TenantsController {
   }
 
   /**
-   * Convierte el tenant en cliente pagante (status=ACTIVE,
-   * currentPeriodEnd=now+30d, trialEndsAt=null). Dispara backfill de
-   * comisión si tiene asignación a INFLUENCER/AMBASSADOR.
+   * Convierte el tenant en cliente pagante (status=ACTIVE, currentPeriodEnd
+   * según la periodicidad real del plan, trialEndsAt=null). Dispara backfill
+   * de comisión si tiene asignación a INFLUENCER/AMBASSADOR.
    * Útil cuando el cliente paga por fuera de Hotmart.
+   *
+   * FIX 2026-08-20: ya NO acepta `periodDays`. El frontend lo mandaba
+   * SIEMPRE en 30, así que marcar pagado a un trimestral/anual le daba 30
+   * días. La periodicidad del plan manda (1/3/6/12 meses) — si algún día se
+   * necesita un override real, que sea una acción explícita y auditada.
    */
   @Post(':id/convert-to-paying')
   @Roles('SUPER_ADMIN')
-  convertToPaying(
+  convertToPaying(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.svc.convertToPaying(id, user.id);
+  }
+
+  /** Registra un pago manual (Nequi/efectivo/transferencia): crea la fila
+   *  ManualPayment, activa el negocio y avanza su ciclo según la
+   *  periodicidad del plan. Devuelve { payment, tenant }. */
+  @Post(':id/manual-payments')
+  @Roles('SUPER_ADMIN')
+  registerManualPayment(
     @Param('id') id: string,
-    @Body() body: { periodDays?: number },
+    @Body() body: RegisterManualPaymentBody,
     @CurrentUser() user: AuthUser,
   ) {
-    // Sin periodDays explícito → el servicio usa la periodicidad real del plan.
-    return this.svc.convertToPaying(id, user.id, body?.periodDays);
+    return this.svc.registerManualPayment(id, body, user.id);
+  }
+
+  /** Historial de pagos manuales del negocio + contexto del modal (importe
+   *  sugerido según periodicidad, ciclo vigente, flag manualPayment). */
+  @Get(':id/manual-payments')
+  @Roles('SUPER_ADMIN')
+  listManualPayments(@Param('id') id: string) {
+    return this.svc.listManualPayments(id);
+  }
+
+  /** Marca / desmarca "paga por fuera": con el flag activo el cron de mora
+   *  no lo suspende solo (los recordatorios sí siguen saliendo). */
+  @Patch(':id/manual-payment-mode')
+  @Roles('SUPER_ADMIN')
+  setManualPaymentMode(
+    @Param('id') id: string,
+    @Body() body: ManualPaymentModeBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.setManualPaymentMode(id, body.enabled, user.id);
   }
 
   @Patch(':id/billing')
@@ -304,6 +376,21 @@ export class TenantsController {
   @Roles('SUPER_ADMIN', 'MARKETING')
   impersonate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.svc.impersonate(id, user.id);
+  }
+
+  /**
+   * Soporte: quién es el dueño al que le vas a cambiar la contraseña.
+   *
+   * Sin esto el admin escribía la contraseña a ciegas y solo veía a QUÉ correo
+   * se la puso en el aviso posterior, que se va solo. Costó 11 intentos de
+   * login fallidos con Limorada (2026-08-23): la cuenta era `@gmail` y se
+   * intentaba entrar con `@hotmail`. El login no lo puede decir —revelaría qué
+   * correos existen—, pero el panel de soporte sí.
+   */
+  @Get(':id/owner')
+  @Roles('SUPER_ADMIN')
+  owner(@Param('id') id: string) {
+    return this.svc.ownerOfTenant(id);
   }
 
   /** Soporte: cambiar la contraseña del dueño del negocio SIN saber la actual.

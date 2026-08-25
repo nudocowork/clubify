@@ -1,0 +1,1896 @@
+'use client';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { api, getToken } from '@/lib/api';
+import { toast } from '@/components/Toast';
+import {
+  BLOCK_META,
+  ELEMENT_ORDER,
+  FONT_STACKS,
+  LAYOUTS,
+  SOCIAL_NETWORKS,
+  containsDataImage,
+  coerceDoc,
+  emptyDoc,
+  findDataImage,
+  newBlock,
+  newRow,
+  renderEmailHtml,
+  uid,
+  type EmailBlock,
+  type EmailBlockType,
+  type EmailDoc,
+  type EmailDocSettings,
+  type EmailRow,
+  type SocialNetworkKind,
+} from '@/lib/email-blocks';
+import SendTemplateModal from '@/components/marketing/SendTemplateModal';
+
+// Editor visual de plantillas de correo por bloques (estilo GoHighLevel):
+// barra lateral con Elementos y Diseños, lienzo central, panel de propiedades
+// y barra superior con nombre, vista escritorio/móvil, deshacer/rehacer,
+// previsualizar, enviar y guardar. El lienzo es una APROXIMACIÓN con divs
+// (nuestra UI); lo que viaja al backend es el HTML de CORREO generado por
+// renderEmailHtml() — tablas + estilos en línea — porque los clientes de
+// correo no soportan flexbox/grid.
+
+const ACCENT = '#16a34a';
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+
+type Template = {
+  id: string;
+  folderId?: string | null;
+  name: string;
+  subject?: string | null;
+  blocks?: any;
+  html?: string | null;
+  thumbnailUrl?: string | null;
+  isPreset?: boolean;
+};
+
+type Sel = { rowId: string; colId: string | null; blockId: string | null } | null;
+type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+
+// El wrapper api() fija Content-Type: application/json, así que la subida
+// multipart va con fetch directo (mismo patrón que FileUploader). La imagen
+// vive en S3 y al bloque solo entra la URL — NUNCA un data:image.
+async function uploadEmailImage(file: File): Promise<string> {
+  const fd = new FormData();
+  fd.append('file', file, file.name);
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${API}/api/media/upload?folder=email-templates`, {
+    method: 'POST',
+    headers,
+    body: fd,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    let msg = text;
+    try {
+      msg = JSON.parse(text)?.message ?? text;
+    } catch {
+      /* texto plano */
+    }
+    throw new Error(msg || `Error ${res.status} subiendo la imagen`);
+  }
+  const data = await res.json();
+  if (!data?.url) throw new Error('El servidor no devolvió la URL de la imagen.');
+  return data.url as string;
+}
+
+function locate(d: EmailDoc, blockId: string) {
+  for (let ri = 0; ri < d.rows.length; ri++) {
+    const row = d.rows[ri];
+    for (let ci = 0; ci < row.columns.length; ci++) {
+      const bi = row.columns[ci].blocks.findIndex((b) => b.id === blockId);
+      if (bi >= 0) return { ri, ci, bi, row, col: row.columns[ci], block: row.columns[ci].blocks[bi] };
+    }
+  }
+  return null;
+}
+
+function withColumnBlocks(
+  d: EmailDoc,
+  ri: number,
+  ci: number,
+  fn: (blocks: EmailBlock[]) => EmailBlock[],
+): EmailDoc {
+  return {
+    ...d,
+    rows: d.rows.map((r, i) =>
+      i !== ri
+        ? r
+        : { ...r, columns: r.columns.map((c, j) => (j !== ci ? c : { ...c, blocks: fn(c.blocks) })) },
+    ),
+  };
+}
+
+const inp =
+  'w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500';
+const lbl = 'mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400';
+
+export default function EmailTemplateEditor({
+  templateId,
+  onClose,
+}: {
+  templateId: string;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [readOnly, setReadOnly] = useState(false);
+  const [name, setName] = useState('');
+  const [subject, setSubject] = useState('');
+  const [doc, setDoc] = useState<EmailDoc | null>(null);
+  const [sel, setSel] = useState<Sel>(null);
+  const [viewMode, setViewMode] = useState<'desktop' | 'mobile'>('desktop');
+  const [sidebarTab, setSidebarTab] = useState<'elementos' | 'disenos'>('elementos');
+  const [sidebarOpen, setSidebarOpen] = useState(false); // drawer móvil
+  // En móvil el panel de propiedades es una hoja inferior que solo aparece al
+  // seleccionar algo; este flag permite abrir los AJUSTES del correo (asunto,
+  // colores) sin tener nada seleccionado.
+  const [settingsOpenMobile, setSettingsOpenMobile] = useState(false);
+  const [preview, setPreview] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [exitAsk, setExitAsk] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Historial deshacer/rehacer. `histVersion` remonta los inputs NO
+  // controlados (contentEditable) tras un undo/redo para que reflejen el
+  // estado restaurado — un contentEditable solo pinta su HTML al montar.
+  const pastRef = useRef<EmailDoc[]>([]);
+  const futureRef = useRef<EmailDoc[]>([]);
+  const lastEditRef = useRef<{ key: string; at: number } | null>(null);
+  const [histVersion, setHistVersion] = useState(0);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  // Secuencia de mutaciones: si el doc cambia MIENTRAS un guardado está en
+  // vuelo, al terminar no se marca limpio (el autoguardado vuelve a disparar).
+  const mutSeq = useRef(0);
+  const savingRef = useRef(false);
+
+  async function load() {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const t = await api<Template>(`/admin/marketing/templates/${templateId}`);
+      if (!t) throw new Error('La plantilla no existe (¿la borró otra sesión?).');
+      setName(t.name ?? 'Plantilla');
+      setSubject(t.subject ?? '');
+      setReadOnly(!!t.isPreset);
+      let d = coerceDoc(t.blocks);
+      // Plantilla guardada solo como HTML (importada o de otra herramienta):
+      // no se puede reconstruir en bloques, así que se conserva íntegra en un
+      // bloque de código para no perder contenido.
+      if (d.rows.length === 0 && t.html) {
+        d = emptyDoc();
+        d.rows = [newRow([100], [[newBlock('html', { html: t.html })]])];
+      }
+      setDoc(d);
+      pastRef.current = [];
+      futureRef.current = [];
+      setCanUndo(false);
+      setCanRedo(false);
+      setDirty(false);
+      setSaveState('idle');
+    } catch (e: any) {
+      setLoadError(e?.message || 'No se pudo cargar la plantilla.');
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, [templateId]);
+
+  function touchMeta() {
+    mutSeq.current++;
+    setDirty(true);
+    setSaveState((s) => (s === 'saved' ? 'idle' : s));
+  }
+
+  function change(next: EmailDoc, coalesceKey?: string) {
+    if (readOnly) return;
+    if (doc) {
+      const now = Date.now();
+      const le = lastEditRef.current;
+      // Coalescencia: teclear en un mismo campo no genera 40 pasos de undo;
+      // el tope del historial ya guarda el estado previo a la ráfaga.
+      const skipPush = !!coalesceKey && !!le && le.key === coalesceKey && now - le.at < 900;
+      if (!skipPush) {
+        pastRef.current.push(doc);
+        if (pastRef.current.length > 60) pastRef.current.shift();
+      }
+      lastEditRef.current = coalesceKey ? { key: coalesceKey, at: now } : null;
+      futureRef.current = [];
+    }
+    mutSeq.current++;
+    setDoc(next);
+    setDirty(true);
+    setSaveState((s) => (s === 'saved' ? 'idle' : s));
+    setCanUndo(pastRef.current.length > 0);
+    setCanRedo(false);
+  }
+
+  function undo() {
+    if (!doc || pastRef.current.length === 0) return;
+    futureRef.current.push(doc);
+    const prev = pastRef.current.pop()!;
+    lastEditRef.current = null;
+    mutSeq.current++;
+    setDoc(prev);
+    setDirty(true);
+    setHistVersion((v) => v + 1);
+    setCanUndo(pastRef.current.length > 0);
+    setCanRedo(true);
+  }
+  function redo() {
+    if (!doc || futureRef.current.length === 0) return;
+    pastRef.current.push(doc);
+    const next = futureRef.current.pop()!;
+    lastEditRef.current = null;
+    mutSeq.current++;
+    setDoc(next);
+    setDirty(true);
+    setHistVersion((v) => v + 1);
+    setCanUndo(true);
+    setCanRedo(futureRef.current.length > 0);
+  }
+
+  // ── Mutaciones del documento ──────────────────────────────────────────────
+  function updateBlock(blockId: string, patch: Record<string, any>, coalesceKey?: string) {
+    if (!doc) return;
+    const loc = locate(doc, blockId);
+    if (!loc) return;
+    change(
+      withColumnBlocks(doc, loc.ri, loc.ci, (blocks) =>
+        blocks.map((b) => (b.id === blockId ? { ...b, props: { ...b.props, ...patch } } : b)),
+      ),
+      coalesceKey,
+    );
+  }
+
+  function updateSettings(patch: Partial<EmailDocSettings>, coalesceKey?: string) {
+    if (!doc) return;
+    change({ ...doc, settings: { ...doc.settings, ...patch } }, coalesceKey);
+  }
+
+  function addElement(type: EmailBlockType) {
+    if (!doc || readOnly) return;
+    const b = newBlock(type);
+    let next: EmailDoc;
+    if (sel?.blockId) {
+      const loc = locate(doc, sel.blockId);
+      if (loc) {
+        next = withColumnBlocks(doc, loc.ri, loc.ci, (blocks) => {
+          const arr = [...blocks];
+          arr.splice(loc.bi + 1, 0, b);
+          return arr;
+        });
+        change(next);
+        setSel({ rowId: loc.row.id, colId: loc.col.id, blockId: b.id });
+        setSidebarOpen(false);
+        return;
+      }
+    }
+    if (sel?.colId) {
+      const ri = doc.rows.findIndex((r) => r.id === sel.rowId);
+      const ci = ri >= 0 ? doc.rows[ri].columns.findIndex((c) => c.id === sel.colId) : -1;
+      if (ri >= 0 && ci >= 0) {
+        next = withColumnBlocks(doc, ri, ci, (blocks) => [...blocks, b]);
+        change(next);
+        setSel({ rowId: sel.rowId, colId: sel.colId, blockId: b.id });
+        setSidebarOpen(false);
+        return;
+      }
+    }
+    if (doc.rows.length > 0) {
+      const ri = doc.rows.length - 1;
+      next = withColumnBlocks(doc, ri, 0, (blocks) => [...blocks, b]);
+      change(next);
+      const row = doc.rows[ri];
+      setSel({ rowId: row.id, colId: row.columns[0].id, blockId: b.id });
+    } else {
+      const row = newRow([100], [[b]]);
+      change({ ...doc, rows: [row] });
+      setSel({ rowId: row.id, colId: row.columns[0].id, blockId: b.id });
+    }
+    setSidebarOpen(false);
+  }
+
+  function addLayout(widths: number[]) {
+    if (!doc || readOnly) return;
+    const row = newRow(widths);
+    let idx = doc.rows.length;
+    if (sel) {
+      const i = doc.rows.findIndex((r) => r.id === sel.rowId);
+      if (i >= 0) idx = i + 1;
+    }
+    const rows = [...doc.rows];
+    rows.splice(idx, 0, row);
+    change({ ...doc, rows });
+    setSel({ rowId: row.id, colId: row.columns[0].id, blockId: null });
+    setSidebarOpen(false);
+  }
+
+  function moveBlock(blockId: string, dir: -1 | 1) {
+    if (!doc) return;
+    const loc = locate(doc, blockId);
+    if (!loc) return;
+    const to = loc.bi + dir;
+    if (to < 0 || to >= loc.col.blocks.length) return;
+    change(
+      withColumnBlocks(doc, loc.ri, loc.ci, (blocks) => {
+        const arr = [...blocks];
+        const [b] = arr.splice(loc.bi, 1);
+        arr.splice(to, 0, b);
+        return arr;
+      }),
+    );
+  }
+
+  function duplicateBlock(blockId: string) {
+    if (!doc) return;
+    const loc = locate(doc, blockId);
+    if (!loc) return;
+    const copy: EmailBlock = { ...loc.block, id: uid(), props: JSON.parse(JSON.stringify(loc.block.props)) };
+    change(
+      withColumnBlocks(doc, loc.ri, loc.ci, (blocks) => {
+        const arr = [...blocks];
+        arr.splice(loc.bi + 1, 0, copy);
+        return arr;
+      }),
+    );
+    setSel({ rowId: loc.row.id, colId: loc.col.id, blockId: copy.id });
+  }
+
+  function deleteBlock(blockId: string) {
+    if (!doc) return;
+    const loc = locate(doc, blockId);
+    if (!loc) return;
+    change(withColumnBlocks(doc, loc.ri, loc.ci, (blocks) => blocks.filter((b) => b.id !== blockId)));
+    setSel({ rowId: loc.row.id, colId: loc.col.id, blockId: null });
+  }
+
+  function moveRow(rowId: string, dir: -1 | 1) {
+    if (!doc) return;
+    const i = doc.rows.findIndex((r) => r.id === rowId);
+    const to = i + dir;
+    if (i < 0 || to < 0 || to >= doc.rows.length) return;
+    const rows = [...doc.rows];
+    const [r] = rows.splice(i, 1);
+    rows.splice(to, 0, r);
+    change({ ...doc, rows });
+  }
+
+  function duplicateRow(rowId: string) {
+    if (!doc) return;
+    const i = doc.rows.findIndex((r) => r.id === rowId);
+    if (i < 0) return;
+    const src = doc.rows[i];
+    const copy: EmailRow = {
+      id: uid(),
+      columns: src.columns.map((c) => ({
+        id: uid(),
+        widthPct: c.widthPct,
+        blocks: c.blocks.map((b) => ({ ...b, id: uid(), props: JSON.parse(JSON.stringify(b.props)) })),
+      })),
+    };
+    const rows = [...doc.rows];
+    rows.splice(i + 1, 0, copy);
+    change({ ...doc, rows });
+  }
+
+  function deleteRow(rowId: string) {
+    if (!doc) return;
+    change({ ...doc, rows: doc.rows.filter((r) => r.id !== rowId) });
+    setSel(null);
+  }
+
+  // ── Guardado (manual + autoguardado) ──────────────────────────────────────
+  async function save(auto = false): Promise<boolean> {
+    if (!doc || readOnly) return false;
+    if (savingRef.current) return false;
+    const offending = findDataImage(doc);
+    const html = offending ? '' : renderEmailHtml(doc, { title: subject || name });
+    if (offending || containsDataImage(html)) {
+      const msg = `El bloque «${offending ?? 'Código HTML'}» contiene una imagen incrustada (data:image). Súbela con «Subir imagen» para obtener una URL — el servidor rechaza ese formato.`;
+      setSaveState('error');
+      setSaveError(msg);
+      if (!auto) toast(msg, 'error');
+      return false;
+    }
+    const seq = mutSeq.current;
+    savingRef.current = true;
+    setSaveState('saving');
+    setSaveError(null);
+    try {
+      await api(`/admin/marketing/templates/${templateId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: name.trim() || 'Plantilla sin nombre',
+          subject: subject.trim() ? subject.trim() : null,
+          blocks: doc,
+          html,
+        }),
+      });
+      if (mutSeq.current === seq) {
+        setDirty(false);
+        setSaveState('saved');
+      } else {
+        // Cambió algo durante el guardado: sigue sucio, el autosave reintenta.
+        setSaveState('idle');
+      }
+      return true;
+    } catch (e: any) {
+      setSaveState('error');
+      setSaveError(e?.message || 'No se pudo guardar la plantilla.');
+      if (!auto) toast(e?.message || 'No se pudo guardar la plantilla.', 'error');
+      return false;
+    } finally {
+      savingRef.current = false;
+    }
+  }
+
+  // Autoguardado: 2,5 s después del último cambio. Si falla queda la franja
+  // de error con «Reintentar» — nunca un fallo silencioso.
+  useEffect(() => {
+    if (!dirty || !doc || readOnly || loading) return;
+    const t = setTimeout(() => {
+      save(true);
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [doc, name, subject, dirty]);
+
+  // Cerrar la pestaña con cambios sin guardar: el navegador pide confirmación.
+  useEffect(() => {
+    if (!dirty) return;
+    const h = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', h);
+    return () => window.removeEventListener('beforeunload', h);
+  }, [dirty]);
+
+  // Atajos: Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y / Ctrl+S. Dentro de un campo de
+  // texto se respeta el undo nativo del navegador.
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = e.key.toLowerCase();
+      if (k === 's') {
+        e.preventDefault();
+        save(false);
+        return;
+      }
+      const t = e.target as HTMLElement | null;
+      const typing =
+        !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      if (typing) return;
+      if (k === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((k === 'z' && e.shiftKey) || k === 'y') {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [doc, name, subject]);
+
+  function requestClose() {
+    if (!dirty) {
+      onClose();
+      return;
+    }
+    setExitAsk(true);
+  }
+
+  async function openSend() {
+    if (readOnly) return;
+    if (dirty) {
+      // El envío usa lo GUARDADO en el servidor: guardar primero evita mandar
+      // una versión vieja sin que el usuario lo note.
+      const ok = await save(false);
+      if (!ok) {
+        toast('Guarda la plantilla antes de enviar.', 'error');
+        return;
+      }
+    }
+    setSendOpen(true);
+  }
+
+  const previewHtml = useMemo(
+    () => (doc ? renderEmailHtml(doc, { title: subject || name }) : ''),
+    [doc, subject, name],
+  );
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-100">
+        <p className="text-sm text-slate-400">Cargando plantilla…</p>
+      </div>
+    );
+  }
+  if (loadError || !doc) {
+    return (
+      <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-100 p-4">
+        <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-amber-50 p-6 text-center">
+          <p className="text-sm font-semibold text-amber-900">No se pudo abrir la plantilla</p>
+          <p className="mt-1 text-xs text-amber-800">{loadError ?? 'Documento vacío.'}</p>
+          <div className="mt-4 flex justify-center gap-2">
+            <button onClick={onClose} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">
+              ← Volver
+            </button>
+            <button onClick={load} className="rounded-lg bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-700">
+              Reintentar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const selBlock = sel?.blockId ? locate(doc, sel.blockId)?.block ?? null : null;
+  const selRow = sel ? doc.rows.find((r) => r.id === sel.rowId) ?? null : null;
+
+  const saveLabel =
+    saveState === 'saving'
+      ? 'Guardando…'
+      : saveState === 'saved'
+        ? '✓ Guardado'
+        : saveState === 'error'
+          ? '⚠ Sin guardar'
+          : dirty
+            ? 'Cambios sin guardar'
+            : '';
+
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col bg-slate-100">
+      {/* ── Barra superior ── */}
+      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+        <button onClick={requestClose} className="rounded-lg px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100">
+          ← Plantillas
+        </button>
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-600 md:hidden"
+          title="Elementos y diseños"
+        >
+          ＋ Bloques
+        </button>
+        <button
+          onClick={() => {
+            setSel(null);
+            setSettingsOpenMobile(true);
+          }}
+          className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-600 md:hidden"
+          title="Ajustes del correo (asunto, colores, tipografía)"
+        >
+          ⚙
+        </button>
+        <input
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            touchMeta();
+          }}
+          disabled={readOnly}
+          className="min-w-0 max-w-[240px] flex-1 rounded-lg px-2 py-1 text-sm font-semibold text-slate-800 outline-none hover:bg-slate-50 focus:bg-slate-50"
+          placeholder="Nombre de la plantilla"
+        />
+        <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          {(
+            [
+              ['desktop', '🖥️', 'Vista escritorio'],
+              ['mobile', '📱', 'Vista móvil'],
+            ] as const
+          ).map(([k, icon, title]) => (
+            <button
+              key={k}
+              onClick={() => setViewMode(k)}
+              title={title}
+              className="rounded-md px-2 py-1 text-sm"
+              style={viewMode === k ? { background: 'white', boxShadow: '0 1px 2px rgba(0,0,0,.08)' } : {}}
+            >
+              {icon}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={undo}
+            disabled={!canUndo || readOnly}
+            title="Deshacer (Ctrl+Z)"
+            className="rounded-lg px-2 py-1 text-base text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+          >
+            ↶
+          </button>
+          <button
+            onClick={redo}
+            disabled={!canRedo || readOnly}
+            title="Rehacer (Ctrl+Shift+Z)"
+            className="rounded-lg px-2 py-1 text-base text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+          >
+            ↷
+          </button>
+        </div>
+        <span
+          className={`hidden text-xs sm:inline ${saveState === 'error' ? 'font-medium text-rose-600' : 'text-slate-400'}`}
+          title={saveError ?? undefined}
+        >
+          {saveLabel}
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setPreview(true)}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          >
+            👁 Previsualizar
+          </button>
+          {!readOnly && (
+            <>
+              <button
+                onClick={openSend}
+                className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+              >
+                ✉️ Enviar
+              </button>
+              <button
+                onClick={() => save(false)}
+                disabled={saveState === 'saving'}
+                className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+                style={{ background: ACCENT }}
+              >
+                {saveState === 'saving' ? 'Guardando…' : 'Guardar plantilla'}
+              </button>
+            </>
+          )}
+        </div>
+      </header>
+
+      {readOnly && (
+        <div className="border-b border-sky-200 bg-sky-50 px-4 py-2 text-xs text-sky-800">
+          Plantilla de fábrica: solo lectura. Desde la galería usa «Usar plantilla» para crear una copia editable.
+        </div>
+      )}
+      {saveState === 'error' && saveError && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-800">
+          <span className="flex-1">{saveError}</span>
+          <button
+            onClick={() => save(false)}
+            className="rounded-lg bg-rose-600 px-2.5 py-1 font-semibold text-white hover:bg-rose-700"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1">
+        {/* ── Barra lateral: Elementos y Diseños ── */}
+        <Sidebar
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          tab={sidebarTab}
+          setTab={setSidebarTab}
+          onAddElement={addElement}
+          onAddLayout={addLayout}
+          disabled={readOnly}
+        />
+
+        {/* ── Lienzo ── */}
+        <div className="min-w-0 flex-1 overflow-auto" onClick={() => setSel(null)}>
+          <div
+            className="mx-auto my-6 min-h-[320px] shadow-sm transition-all"
+            style={{
+              width: viewMode === 'desktop' ? doc.settings.contentWidth : 375,
+              maxWidth: 'calc(100% - 16px)',
+              background: doc.settings.contentBackground,
+              fontFamily: doc.settings.fontFamily,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {doc.rows.length === 0 ? (
+              <div className="flex min-h-[320px] flex-col items-center justify-center gap-2 p-8 text-center text-sm text-slate-400">
+                <span className="text-3xl">✉️</span>
+                <p>El correo está vacío.</p>
+                <p className="text-xs">
+                  Añade un <b>diseño</b> o un <b>elemento</b> desde el panel de la izquierda
+                  <span className="md:hidden"> (botón «＋ Bloques»)</span>.
+                </p>
+              </div>
+            ) : (
+              doc.rows.map((row) => (
+                <CanvasRow
+                  key={row.id}
+                  row={row}
+                  settings={doc.settings}
+                  sel={sel}
+                  viewMode={viewMode}
+                  readOnly={readOnly}
+                  onSelectCol={(colId) => setSel({ rowId: row.id, colId, blockId: null })}
+                  onSelectBlock={(colId, blockId) => setSel({ rowId: row.id, colId, blockId })}
+                  onMoveRow={(dir) => moveRow(row.id, dir)}
+                  onDupRow={() => duplicateRow(row.id)}
+                  onDelRow={() => deleteRow(row.id)}
+                  onMoveBlock={moveBlock}
+                  onDupBlock={duplicateBlock}
+                  onDelBlock={deleteBlock}
+                />
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* ── Panel de propiedades: lateral en escritorio, hoja inferior en móvil ── */}
+        <div
+          className={`${
+            sel || settingsOpenMobile
+              ? 'fixed inset-x-0 bottom-0 z-50 max-h-[60vh] overflow-y-auto rounded-t-2xl border-t border-slate-200 bg-white shadow-2xl'
+              : 'hidden'
+          } md:static md:z-auto md:block md:max-h-none md:w-[300px] md:shrink-0 md:overflow-y-auto md:rounded-none md:border-l md:border-t-0 md:shadow-none md:bg-white`}
+        >
+          <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2 md:hidden">
+            <span className="text-xs font-semibold text-slate-500">Propiedades</span>
+            <button
+              onClick={() => {
+                setSel(null);
+                setSettingsOpenMobile(false);
+              }}
+              className="rounded px-2 py-0.5 text-slate-400 hover:bg-slate-100"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="space-y-4 p-4">
+            {selBlock ? (
+              <BlockProps
+                key={`${selBlock.id}:${histVersion}`}
+                block={selBlock}
+                readOnly={readOnly}
+                onPatch={(patch, coalesce) =>
+                  updateBlock(selBlock.id, patch, coalesce ? `${coalesce}:${selBlock.id}` : undefined)
+                }
+              />
+            ) : sel && selRow ? (
+              <div className="text-sm text-slate-500">
+                <h4 className="mb-1 text-sm font-semibold text-slate-800">Columna seleccionada</h4>
+                <p className="text-xs">
+                  Los elementos nuevos del panel izquierdo se insertan en esta columna. Haz clic en un
+                  bloque para editar sus propiedades.
+                </p>
+              </div>
+            ) : (
+              <TemplateProps
+                key={`settings:${histVersion}`}
+                subject={subject}
+                onSubject={(v) => {
+                  setSubject(v);
+                  touchMeta();
+                }}
+                settings={doc.settings}
+                readOnly={readOnly}
+                onPatch={(p, coalesce) => updateSettings(p, coalesce)}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Previsualización ── */}
+      {preview && (
+        <PreviewModal html={previewHtml} subject={subject || name} onClose={() => setPreview(false)} />
+      )}
+
+      {/* ── Enviar a contactos ── */}
+      {sendOpen && (
+        <SendTemplateModal
+          templateId={templateId}
+          templateName={name}
+          defaultSubject={subject || name}
+          onClose={() => setSendOpen(false)}
+        />
+      )}
+
+      {/* ── Salir con cambios sin guardar ── */}
+      {exitAsk && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4" onClick={() => setExitAsk(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-slate-800">Hay cambios sin guardar</h3>
+            <p className="mt-2 text-sm text-slate-500">
+              Si sales sin guardar, los últimos cambios de la plantilla se pierden.
+            </p>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button onClick={() => setExitAsk(false)} className="rounded-lg px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100">
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  setExitAsk(false);
+                  onClose();
+                }}
+                className="rounded-lg border border-rose-300 px-3 py-1.5 text-sm font-medium text-rose-600 hover:bg-rose-50"
+              >
+                Salir sin guardar
+              </button>
+              <button
+                onClick={async () => {
+                  const ok = await save(false);
+                  if (ok) {
+                    setExitAsk(false);
+                    onClose();
+                  }
+                }}
+                className="rounded-lg px-4 py-1.5 text-sm font-semibold text-white"
+                style={{ background: ACCENT }}
+              >
+                Guardar y salir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Barra lateral ───────────────────────────────────────────────────────────
+function Sidebar({
+  open,
+  onClose,
+  tab,
+  setTab,
+  onAddElement,
+  onAddLayout,
+  disabled,
+}: {
+  open: boolean;
+  onClose: () => void;
+  tab: 'elementos' | 'disenos';
+  setTab: (t: 'elementos' | 'disenos') => void;
+  onAddElement: (t: EmailBlockType) => void;
+  onAddLayout: (widths: number[]) => void;
+  disabled: boolean;
+}) {
+  const content = (
+    <>
+      <div className="flex gap-1 border-b border-slate-100 p-2">
+        {(
+          [
+            ['elementos', 'Elementos'],
+            ['disenos', 'Diseños'],
+          ] as const
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setTab(k)}
+            className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold ${
+              tab === k ? 'bg-emerald-50 text-emerald-700' : 'text-slate-500 hover:bg-slate-50'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <div className="flex-1 overflow-y-auto p-2">
+        {tab === 'elementos' ? (
+          <div className="grid grid-cols-2 gap-2">
+            {ELEMENT_ORDER.map((t) => (
+              <button
+                key={t}
+                onClick={() => onAddElement(t)}
+                disabled={disabled}
+                className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 bg-white px-2 py-3 text-center hover:border-emerald-300 hover:bg-emerald-50/40 disabled:opacity-40"
+                title={`Añadir ${BLOCK_META[t].label.toLowerCase()}`}
+              >
+                <span className="text-xl leading-none">{BLOCK_META[t].icon}</span>
+                <span className="text-[11px] font-medium text-slate-600">{BLOCK_META[t].label}</span>
+              </button>
+            ))}
+            <p className="col-span-2 px-1 pt-1 text-[11px] leading-snug text-slate-400">
+              Clic para insertar. Se añade a la columna seleccionada, o debajo del bloque activo.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {LAYOUTS.map((l) => (
+              <button
+                key={l.key}
+                onClick={() => onAddLayout(l.widths)}
+                disabled={disabled}
+                className="w-full rounded-xl border border-slate-200 bg-white p-2 hover:border-emerald-300 hover:bg-emerald-50/40 disabled:opacity-40"
+                title={`Añadir fila: ${l.label}`}
+              >
+                <span className="flex h-8 gap-1">
+                  {l.widths.map((w, i) => (
+                    <span key={i} className="rounded-sm bg-slate-200" style={{ flexBasis: `${w}%` }} />
+                  ))}
+                </span>
+                <span className="mt-1 block text-[11px] font-medium text-slate-600">{l.label}</span>
+              </button>
+            ))}
+            <p className="px-1 text-[11px] leading-snug text-slate-400">
+              Cada diseño añade una fila nueva; en móvil las columnas se apilan.
+            </p>
+          </div>
+        )}
+      </div>
+    </>
+  );
+  return (
+    <>
+      {/* Escritorio: columna fija */}
+      <aside className="hidden w-56 shrink-0 flex-col border-r border-slate-200 bg-white md:flex">{content}</aside>
+      {/* Móvil: cajón sobre el lienzo */}
+      {open && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+          <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+              <span className="text-xs font-semibold text-slate-500">Añadir bloques</span>
+              <button onClick={onClose} className="rounded px-2 py-0.5 text-slate-400 hover:bg-slate-100">
+                ✕
+              </button>
+            </div>
+            {content}
+          </aside>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Lienzo: fila, columnas y bloques ────────────────────────────────────────
+function CanvasRow({
+  row,
+  settings,
+  sel,
+  viewMode,
+  readOnly,
+  onSelectCol,
+  onSelectBlock,
+  onMoveRow,
+  onDupRow,
+  onDelRow,
+  onMoveBlock,
+  onDupBlock,
+  onDelBlock,
+}: {
+  row: EmailRow;
+  settings: EmailDocSettings;
+  sel: Sel;
+  viewMode: 'desktop' | 'mobile';
+  readOnly: boolean;
+  onSelectCol: (colId: string) => void;
+  onSelectBlock: (colId: string, blockId: string) => void;
+  onMoveRow: (dir: -1 | 1) => void;
+  onDupRow: () => void;
+  onDelRow: () => void;
+  onMoveBlock: (blockId: string, dir: -1 | 1) => void;
+  onDupBlock: (blockId: string) => void;
+  onDelBlock: (blockId: string) => void;
+}) {
+  const active = sel?.rowId === row.id;
+  const btn =
+    'rounded bg-white/95 px-1.5 py-0.5 text-xs text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50';
+  return (
+    <div className={`group/row relative ${active ? 'outline outline-1 outline-emerald-200' : ''}`}>
+      {!readOnly && (
+        <div
+          className={`absolute -top-3 right-2 z-10 flex gap-1 transition-opacity ${
+            active ? 'opacity-100' : 'opacity-0 group-hover/row:opacity-100'
+          }`}
+        >
+          <button onClick={() => onMoveRow(-1)} className={btn} title="Subir fila">
+            ↑
+          </button>
+          <button onClick={() => onMoveRow(1)} className={btn} title="Bajar fila">
+            ↓
+          </button>
+          <button onClick={onDupRow} className={btn} title="Duplicar fila">
+            ⧉
+          </button>
+          <button onClick={onDelRow} className={`${btn} text-rose-500`} title="Eliminar fila">
+            🗑
+          </button>
+        </div>
+      )}
+      <div className={viewMode === 'mobile' ? 'flex flex-col' : 'flex'}>
+        {row.columns.map((col) => {
+          const colActive = active && sel?.colId === col.id && !sel?.blockId;
+          return (
+            <div
+              key={col.id}
+              style={{ width: viewMode === 'mobile' ? '100%' : `${col.widthPct}%` }}
+              className={`min-h-[44px] ${colActive ? 'bg-emerald-50/40 outline-dashed outline-1 outline-emerald-400' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectCol(col.id);
+              }}
+            >
+              {col.blocks.length === 0 && (
+                <div className="m-2 rounded-lg border border-dashed border-slate-200 p-3 text-center text-[11px] text-slate-300">
+                  Columna vacía
+                </div>
+              )}
+              {col.blocks.map((b) => (
+                <CanvasBlock
+                  key={b.id}
+                  block={b}
+                  settings={settings}
+                  selected={sel?.blockId === b.id}
+                  readOnly={readOnly}
+                  onSelect={() => onSelectBlock(col.id, b.id)}
+                  onMove={(dir) => onMoveBlock(b.id, dir)}
+                  onDup={() => onDupBlock(b.id)}
+                  onDel={() => onDelBlock(b.id)}
+                />
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CanvasBlock({
+  block,
+  settings,
+  selected,
+  readOnly,
+  onSelect,
+  onMove,
+  onDup,
+  onDel,
+}: {
+  block: EmailBlock;
+  settings: EmailDocSettings;
+  selected: boolean;
+  readOnly: boolean;
+  onSelect: () => void;
+  onMove: (dir: -1 | 1) => void;
+  onDup: () => void;
+  onDel: () => void;
+}) {
+  const btn =
+    'rounded bg-white px-1.5 py-0.5 text-xs text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50';
+  return (
+    <div
+      className={`group/block relative cursor-pointer ${
+        selected ? 'ring-2 ring-inset ring-emerald-400' : 'hover:ring-1 hover:ring-inset hover:ring-slate-200'
+      }`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSelect();
+      }}
+    >
+      {selected && !readOnly && (
+        <div className="absolute -top-3 right-1 z-10 flex items-center gap-1">
+          <span className="rounded bg-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+            {BLOCK_META[block.type].label}
+          </span>
+          <button onClick={(e) => { e.stopPropagation(); onMove(-1); }} className={btn} title="Subir">
+            ↑
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onMove(1); }} className={btn} title="Bajar">
+            ↓
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onDup(); }} className={btn} title="Duplicar">
+            ⧉
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onDel(); }} className={`${btn} text-rose-500`} title="Eliminar">
+            🗑
+          </button>
+        </div>
+      )}
+      <BlockVisual block={block} settings={settings} />
+    </div>
+  );
+}
+
+// Aproximación visual de cada bloque en el lienzo. Puede usar divs porque es
+// nuestra UI — el HTML del correo real sale de renderEmailHtml().
+function BlockVisual({ block, settings }: { block: EmailBlock; settings: EmailDocSettings }) {
+  const p = block.props ?? {};
+  switch (block.type) {
+    case 'text':
+      return (
+        <div
+          style={{
+            padding: '10px 14px',
+            fontFamily: settings.fontFamily,
+            fontSize: Number(p.fontSize) || 15,
+            lineHeight: 1.55,
+            color: p.color || settings.textColor,
+            textAlign: p.align || 'left',
+            overflowWrap: 'anywhere',
+          }}
+          dangerouslySetInnerHTML={{ __html: p.html || '<span style="opacity:.4">Texto vacío</span>' }}
+        />
+      );
+    case 'image':
+    case 'logo': {
+      const url = String(p.url || '').trim();
+      if (!url) {
+        return (
+          <div className="m-3 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 p-6 text-center text-xs text-slate-400">
+            🖼️ {block.type === 'logo' ? 'Logotipo' : 'Imagen'}: súbela desde el panel de propiedades
+          </div>
+        );
+      }
+      const w = p.width ? Number(p.width) : null;
+      const align = p.align || 'center';
+      return (
+        <div style={{ padding: '10px 14px', textAlign: align as any }}>
+          <img
+            src={url}
+            alt={p.alt || ''}
+            style={{
+              display: 'inline-block',
+              width: w ? `${w}px` : '100%',
+              maxWidth: '100%',
+              height: 'auto',
+              borderRadius: Number(p.radius) || 0,
+            }}
+          />
+        </div>
+      );
+    }
+    case 'button':
+      return (
+        <div style={{ padding: '10px 14px', textAlign: (p.align || 'center') as any }}>
+          <span
+            style={{
+              display: 'inline-block',
+              padding: `${Number(p.paddingV) || 12}px ${Number(p.paddingH) || 28}px`,
+              background: p.background || settings.linkColor,
+              color: p.color || '#ffffff',
+              fontFamily: settings.fontFamily,
+              fontSize: Number(p.fontSize) || 15,
+              fontWeight: 700,
+              borderRadius: Number(p.radius) || 0,
+            }}
+          >
+            {p.label || 'Botón'}
+          </span>
+        </div>
+      );
+    case 'divider':
+      return (
+        <div style={{ padding: `${Number(p.paddingV) || 12}px 14px` }}>
+          <div style={{ borderTop: `${Number(p.thickness) || 1}px solid ${p.color || '#e2e8f0'}` }} />
+        </div>
+      );
+    case 'spacer':
+      return (
+        <div
+          style={{ height: Number(p.height) || 24 }}
+          className="flex items-center justify-center text-[10px] text-slate-300"
+          title={`Espaciador · ${Number(p.height) || 24}px`}
+        />
+      );
+    case 'social': {
+      const size = Number(p.size) || 34;
+      const nets = (Array.isArray(p.networks) ? p.networks : []).filter((n: any) => n);
+      if (nets.length === 0) {
+        return (
+          <div className="m-3 rounded-lg border border-dashed border-slate-200 p-3 text-center text-xs text-slate-400">
+            🌐 Añade redes desde el panel de propiedades
+          </div>
+        );
+      }
+      return (
+        <div style={{ padding: '10px 14px', textAlign: (p.align || 'center') as any }}>
+          {nets.map((n: any, i: number) => {
+            const meta = SOCIAL_NETWORKS[n.kind as SocialNetworkKind] ?? SOCIAL_NETWORKS.web;
+            return (
+              <span
+                key={i}
+                title={meta.label + (n.url ? '' : ' (sin URL: no saldrá en el correo)')}
+                style={{
+                  display: 'inline-block',
+                  width: size,
+                  height: size,
+                  lineHeight: `${size}px`,
+                  margin: '0 5px',
+                  background: meta.color,
+                  borderRadius: '50%',
+                  color: '#fff',
+                  fontSize: Math.round(size * 0.38),
+                  fontWeight: 700,
+                  textAlign: 'center',
+                  opacity: n.url ? 1 : 0.35,
+                }}
+              >
+                {meta.abbr}
+              </span>
+            );
+          })}
+        </div>
+      );
+    }
+    case 'footer':
+      return (
+        <div
+          style={{
+            padding: '16px 14px',
+            fontFamily: settings.fontFamily,
+            fontSize: Number(p.fontSize) || 12,
+            lineHeight: 1.6,
+            color: p.color || '#94a3b8',
+            textAlign: 'center',
+            overflowWrap: 'anywhere',
+          }}
+          dangerouslySetInnerHTML={{ __html: p.html || '<span style="opacity:.5">Pie de página vacío</span>' }}
+        />
+      );
+    case 'html':
+      return p.html ? (
+        <div style={{ overflow: 'hidden' }} dangerouslySetInnerHTML={{ __html: p.html }} />
+      ) : (
+        <div className="m-3 rounded-lg border border-dashed border-slate-200 p-3 text-center text-xs text-slate-400">
+          ＜＞ Bloque de código vacío
+        </div>
+      );
+    default:
+      return null;
+  }
+}
+
+// ── Panel de propiedades ────────────────────────────────────────────────────
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <span className={lbl}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function ColorInput({
+  value,
+  onChange,
+  allowEmpty,
+  emptyHint,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  allowEmpty?: boolean;
+  emptyHint?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="color"
+        value={/^#[0-9a-fA-F]{6}$/.test(value) ? value : '#000000'}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-8 w-10 cursor-pointer rounded border border-slate-300"
+      />
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={allowEmpty ? emptyHint || 'Automático' : '#000000'}
+        className={`${inp} font-mono text-xs`}
+      />
+      {allowEmpty && value && (
+        <button
+          onClick={() => onChange('')}
+          className="rounded px-1.5 py-1 text-xs text-slate-400 hover:bg-slate-100"
+          title={emptyHint || 'Usar el color automático'}
+        >
+          ↺
+        </button>
+      )}
+    </div>
+  );
+}
+
+function AlignPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex gap-1">
+      {(
+        [
+          ['left', '⬅', 'Izquierda'],
+          ['center', '⏺', 'Centro'],
+          ['right', '➡', 'Derecha'],
+        ] as const
+      ).map(([k, icon, title]) => (
+        <button
+          key={k}
+          onClick={() => onChange(k)}
+          title={title}
+          className={`flex-1 rounded-lg border px-2 py-1 text-sm ${
+            value === k ? 'border-emerald-400 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'
+          }`}
+        >
+          {icon}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function NumInput({
+  value,
+  onChange,
+  min,
+  max,
+  suffix,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  max?: number;
+  suffix?: string;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (!Number.isFinite(v)) return;
+          onChange(Math.max(min ?? -Infinity, Math.min(max ?? Infinity, v)));
+        }}
+        className={inp}
+      />
+      {suffix && <span className="text-xs text-slate-400">{suffix}</span>}
+    </div>
+  );
+}
+
+// Editor de texto enriquecido mínimo (negrita/cursiva/subrayado/enlace) sobre
+// contentEditable + execCommand. execCommand está "deprecado" pero sigue
+// funcionando en todos los navegadores y es la única vía sin meter una
+// dependencia de editor completa para un caso tan chico. NO controlado: el
+// HTML solo se pinta al montar (por eso el padre lo re-monta tras undo/redo).
+function RichTextArea({
+  initialHtml,
+  onChange,
+  minHeight = 90,
+  disabled,
+}: {
+  initialHtml: string;
+  onChange: (html: string) => void;
+  minHeight?: number;
+  disabled?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const savedRange = useRef<Range | null>(null);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+
+  useEffect(() => {
+    if (ref.current) ref.current.innerHTML = initialHtml || '';
+    // Solo al montar: si se re-pintara en cada cambio, el cursor saltaría al
+    // inicio con cada tecla.
+  }, []);
+
+  function emit() {
+    if (ref.current) onChange(ref.current.innerHTML);
+  }
+  function exec(cmd: string, val?: string) {
+    document.execCommand(cmd, false, val);
+    emit();
+  }
+  // preventDefault en mousedown: si el botón roba el foco, se pierde la
+  // selección del contentEditable y el comando no aplica a nada.
+  const keep = (e: React.MouseEvent) => e.preventDefault();
+
+  function openLink(e: React.MouseEvent) {
+    e.preventDefault();
+    const s = window.getSelection();
+    if (s && s.rangeCount > 0) savedRange.current = s.getRangeAt(0).cloneRange();
+    setLinkOpen(true);
+  }
+  function applyLink() {
+    const url = linkUrl.trim();
+    if (!url) return;
+    const s = window.getSelection();
+    if (savedRange.current && s) {
+      s.removeAllRanges();
+      s.addRange(savedRange.current);
+    }
+    exec('createLink', /^https?:\/\//i.test(url) ? url : `https://${url}`);
+    setLinkOpen(false);
+    setLinkUrl('');
+  }
+
+  const tb = 'rounded px-2 py-0.5 text-xs font-semibold text-slate-600 hover:bg-slate-100';
+  return (
+    <div className="rounded-lg border border-slate-300">
+      <div className="flex flex-wrap items-center gap-0.5 border-b border-slate-100 px-1 py-1">
+        <button onMouseDown={keep} onClick={() => exec('bold')} className={tb} title="Negrita">
+          B
+        </button>
+        <button onMouseDown={keep} onClick={() => exec('italic')} className={`${tb} italic`} title="Cursiva">
+          I
+        </button>
+        <button onMouseDown={keep} onClick={() => exec('underline')} className={`${tb} underline`} title="Subrayado">
+          U
+        </button>
+        <button onMouseDown={keep} onClick={openLink} className={tb} title="Convertir la selección en enlace">
+          🔗
+        </button>
+        <button onMouseDown={keep} onClick={() => exec('unlink')} className={tb} title="Quitar enlace">
+          ⛓️‍💥
+        </button>
+        <button
+          onMouseDown={keep}
+          onClick={() => {
+            exec('removeFormat');
+            exec('unlink');
+          }}
+          className={tb}
+          title="Limpiar formato"
+        >
+          ⌫
+        </button>
+      </div>
+      {linkOpen && (
+        <div className="flex items-center gap-1 border-b border-slate-100 px-2 py-1.5">
+          <input
+            autoFocus
+            value={linkUrl}
+            onChange={(e) => setLinkUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') applyLink();
+              if (e.key === 'Escape') setLinkOpen(false);
+            }}
+            placeholder="https://…"
+            className="w-full rounded border border-slate-200 px-2 py-1 text-xs outline-none focus:border-emerald-400"
+          />
+          <button onClick={applyLink} className="rounded bg-emerald-600 px-2 py-1 text-xs font-semibold text-white">
+            Aplicar
+          </button>
+        </div>
+      )}
+      <div
+        ref={ref}
+        contentEditable={!disabled}
+        onInput={emit}
+        onBlur={emit}
+        className="prose-sm max-w-none px-3 py-2 text-sm text-slate-700 outline-none"
+        style={{ minHeight }}
+      />
+    </div>
+  );
+}
+
+// Origen de una imagen: subir a S3 (queda la URL) o pegar una URL externa.
+// Un data:image se rechaza acá mismo, con explicación — el backend devolvería
+// 400 igual, pero este mensaje dice QUÉ hacer en su lugar.
+function ImageSource({
+  url,
+  onUrl,
+  disabled,
+}: {
+  url: string;
+  onUrl: (u: string) => void;
+  disabled?: boolean;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!f.type.startsWith('image/')) {
+      toast('Solo imágenes (JPG, PNG, WebP, GIF).', 'error');
+      return;
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      toast('La imagen no puede pesar más de 10 MB.', 'error');
+      return;
+    }
+    setUploading(true);
+    try {
+      const u = await uploadEmailImage(f);
+      onUrl(u);
+      toast('Imagen subida ✓', 'success');
+    } catch (err: any) {
+      toast(err?.message || 'No se pudo subir la imagen.', 'error');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <button
+        onClick={() => fileRef.current?.click()}
+        disabled={uploading || disabled}
+        className="w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+      >
+        {uploading ? 'Subiendo…' : '⇪ Subir imagen'}
+      </button>
+      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onFile} />
+      <Field label="O pega una URL">
+        <input
+          value={url}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (/^\s*data:/i.test(v)) {
+              toast(
+                'Las imágenes incrustadas (data:image) no se aceptan: usa «Subir imagen» para obtener una URL.',
+                'error',
+              );
+              return;
+            }
+            onUrl(v);
+          }}
+          disabled={disabled}
+          placeholder="https://…"
+          className={`${inp} font-mono text-xs`}
+        />
+      </Field>
+    </div>
+  );
+}
+
+function TemplateProps({
+  subject,
+  onSubject,
+  settings,
+  readOnly,
+  onPatch,
+}: {
+  subject: string;
+  onSubject: (v: string) => void;
+  settings: EmailDocSettings;
+  readOnly: boolean;
+  onPatch: (p: Partial<EmailDocSettings>, coalesce?: string) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <h4 className="text-sm font-semibold text-slate-800">Ajustes del correo</h4>
+      <Field label="Asunto por defecto">
+        <input
+          value={subject}
+          onChange={(e) => onSubject(e.target.value)}
+          disabled={readOnly}
+          placeholder="Asunto del correo"
+          className={inp}
+        />
+      </Field>
+      <Field label="Tipografía">
+        <select
+          value={settings.fontFamily}
+          onChange={(e) => onPatch({ fontFamily: e.target.value })}
+          disabled={readOnly}
+          className={inp}
+        >
+          {FONT_STACKS.map((f) => (
+            <option key={f.value} value={f.value}>
+              {f.label}
+            </option>
+          ))}
+          {!FONT_STACKS.some((f) => f.value === settings.fontFamily) && (
+            <option value={settings.fontFamily}>Personalizada</option>
+          )}
+        </select>
+      </Field>
+      <Field label="Ancho del contenido (px)">
+        <NumInput
+          value={settings.contentWidth}
+          min={480}
+          max={700}
+          onChange={(v) => onPatch({ contentWidth: v }, 'set:width')}
+          suffix="px"
+        />
+      </Field>
+      <Field label="Fondo exterior">
+        <ColorInput value={settings.backgroundColor} onChange={(v) => onPatch({ backgroundColor: v }, 'set:bg')} />
+      </Field>
+      <Field label="Fondo del contenido">
+        <ColorInput
+          value={settings.contentBackground}
+          onChange={(v) => onPatch({ contentBackground: v }, 'set:cbg')}
+        />
+      </Field>
+      <Field label="Color del texto">
+        <ColorInput value={settings.textColor} onChange={(v) => onPatch({ textColor: v }, 'set:tc')} />
+      </Field>
+      <Field label="Color de acento (botones)">
+        <ColorInput value={settings.linkColor} onChange={(v) => onPatch({ linkColor: v }, 'set:lc')} />
+      </Field>
+      <p className="text-[11px] leading-snug text-slate-400">
+        Haz clic en un bloque del lienzo para editar sus propiedades, o en una columna para elegir dónde
+        entran los elementos nuevos.
+      </p>
+    </div>
+  );
+}
+
+function BlockProps({
+  block,
+  readOnly,
+  onPatch,
+}: {
+  block: EmailBlock;
+  readOnly: boolean;
+  onPatch: (patch: Record<string, any>, coalesce?: string) => void;
+}) {
+  const p = block.props ?? {};
+  const title = (
+    <h4 className="text-sm font-semibold text-slate-800">
+      {BLOCK_META[block.type].icon} {BLOCK_META[block.type].label}
+    </h4>
+  );
+  switch (block.type) {
+    case 'text':
+      return (
+        <div className="space-y-3">
+          {title}
+          <RichTextArea
+            initialHtml={p.html || ''}
+            disabled={readOnly}
+            onChange={(html) => onPatch({ html }, 'text')}
+          />
+          <Field label="Alineación">
+            <AlignPicker value={p.align || 'left'} onChange={(v) => onPatch({ align: v })} />
+          </Field>
+          <Field label="Tamaño de letra">
+            <NumInput value={Number(p.fontSize) || 15} min={10} max={48} suffix="px" onChange={(v) => onPatch({ fontSize: v }, 'fs')} />
+          </Field>
+          <Field label="Color (vacío = color del texto general)">
+            <ColorInput value={p.color || ''} allowEmpty emptyHint="Heredar" onChange={(v) => onPatch({ color: v }, 'color')} />
+          </Field>
+        </div>
+      );
+    case 'image':
+    case 'logo':
+      return (
+        <div className="space-y-3">
+          {title}
+          <ImageSource url={p.url || ''} disabled={readOnly} onUrl={(url) => onPatch({ url })} />
+          <Field label="Texto alternativo">
+            <input value={p.alt || ''} onChange={(e) => onPatch({ alt: e.target.value }, 'alt')} disabled={readOnly} className={inp} placeholder="Describe la imagen" />
+          </Field>
+          <Field label="Ancho">
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={!p.width}
+                  onChange={(e) => onPatch({ width: e.target.checked ? null : block.type === 'logo' ? 140 : 300 })}
+                  disabled={readOnly}
+                />
+                Completo
+              </label>
+              {p.width ? (
+                <NumInput value={Number(p.width)} min={24} max={700} suffix="px" onChange={(v) => onPatch({ width: v }, 'w')} />
+              ) : null}
+            </div>
+          </Field>
+          <Field label="Alineación">
+            <AlignPicker value={p.align || 'center'} onChange={(v) => onPatch({ align: v })} />
+          </Field>
+          <Field label="Enlace al hacer clic (opcional)">
+            <input value={p.href || ''} onChange={(e) => onPatch({ href: e.target.value }, 'href')} disabled={readOnly} className={`${inp} font-mono text-xs`} placeholder="https://…" />
+          </Field>
+          {block.type === 'image' && (
+            <Field label="Esquinas redondeadas">
+              <NumInput value={Number(p.radius) || 0} min={0} max={48} suffix="px" onChange={(v) => onPatch({ radius: v }, 'r')} />
+            </Field>
+          )}
+        </div>
+      );
+    case 'button':
+      return (
+        <div className="space-y-3">
+          {title}
+          <Field label="Texto del botón">
+            <input value={p.label || ''} onChange={(e) => onPatch({ label: e.target.value }, 'label')} disabled={readOnly} className={inp} />
+          </Field>
+          <Field label="Enlace">
+            <input value={p.href || ''} onChange={(e) => onPatch({ href: e.target.value }, 'href')} disabled={readOnly} className={`${inp} font-mono text-xs`} placeholder="https://…" />
+          </Field>
+          <Field label="Color de fondo (vacío = acento)">
+            <ColorInput value={p.background || ''} allowEmpty emptyHint="Acento" onChange={(v) => onPatch({ background: v }, 'bg')} />
+          </Field>
+          <Field label="Color del texto">
+            <ColorInput value={p.color || '#ffffff'} onChange={(v) => onPatch({ color: v }, 'color')} />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Tamaño de letra">
+              <NumInput value={Number(p.fontSize) || 15} min={10} max={32} onChange={(v) => onPatch({ fontSize: v }, 'fs')} />
+            </Field>
+            <Field label="Esquinas">
+              <NumInput value={Number(p.radius) || 0} min={0} max={40} onChange={(v) => onPatch({ radius: v }, 'r')} />
+            </Field>
+            <Field label="Alto interno">
+              <NumInput value={Number(p.paddingV) || 12} min={4} max={32} onChange={(v) => onPatch({ paddingV: v }, 'pv')} />
+            </Field>
+            <Field label="Ancho interno">
+              <NumInput value={Number(p.paddingH) || 28} min={8} max={80} onChange={(v) => onPatch({ paddingH: v }, 'ph')} />
+            </Field>
+          </div>
+          <Field label="Alineación">
+            <AlignPicker value={p.align || 'center'} onChange={(v) => onPatch({ align: v })} />
+          </Field>
+        </div>
+      );
+    case 'divider':
+      return (
+        <div className="space-y-3">
+          {title}
+          <Field label="Color">
+            <ColorInput value={p.color || '#e2e8f0'} onChange={(v) => onPatch({ color: v }, 'color')} />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Grosor">
+              <NumInput value={Number(p.thickness) || 1} min={1} max={12} suffix="px" onChange={(v) => onPatch({ thickness: v }, 't')} />
+            </Field>
+            <Field label="Espacio vertical">
+              <NumInput value={Number(p.paddingV) || 12} min={0} max={60} suffix="px" onChange={(v) => onPatch({ paddingV: v }, 'pv')} />
+            </Field>
+          </div>
+        </div>
+      );
+    case 'spacer':
+      return (
+        <div className="space-y-3">
+          {title}
+          <Field label="Altura">
+            <NumInput value={Number(p.height) || 24} min={4} max={200} suffix="px" onChange={(v) => onPatch({ height: v }, 'h')} />
+          </Field>
+        </div>
+      );
+    case 'social': {
+      const nets: { kind: SocialNetworkKind; url: string }[] = Array.isArray(p.networks) ? p.networks : [];
+      const setNets = (arr: { kind: SocialNetworkKind; url: string }[]) => onPatch({ networks: arr });
+      return (
+        <div className="space-y-3">
+          {title}
+          <div className="space-y-2">
+            {nets.map((n, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <select
+                  value={n.kind}
+                  onChange={(e) => setNets(nets.map((x, j) => (j === i ? { ...x, kind: e.target.value as SocialNetworkKind } : x)))}
+                  disabled={readOnly}
+                  className="w-28 rounded-lg border border-slate-300 px-1.5 py-1.5 text-xs outline-none focus:border-emerald-500"
+                >
+                  {Object.entries(SOCIAL_NETWORKS).map(([k, meta]) => (
+                    <option key={k} value={k}>
+                      {meta.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={n.url}
+                  onChange={(e) => onPatch({ networks: nets.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)) }, `net${i}`)}
+                  disabled={readOnly}
+                  placeholder="https://…"
+                  className={`${inp} font-mono text-xs`}
+                />
+                <button
+                  onClick={() => setNets(nets.filter((_, j) => j !== i))}
+                  disabled={readOnly}
+                  className="rounded px-1.5 py-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                  title="Quitar"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={() => setNets([...nets, { kind: 'web', url: '' }])}
+              disabled={readOnly}
+              className="w-full rounded-lg border border-dashed border-slate-300 px-2 py-1.5 text-xs text-slate-500 hover:border-emerald-300 hover:text-emerald-700"
+            >
+              + Añadir red
+            </button>
+            <p className="text-[11px] text-slate-400">Las redes sin URL no salen en el correo.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Tamaño">
+              <NumInput value={Number(p.size) || 34} min={20} max={60} suffix="px" onChange={(v) => onPatch({ size: v }, 'size')} />
+            </Field>
+            <Field label="Alineación">
+              <AlignPicker value={p.align || 'center'} onChange={(v) => onPatch({ align: v })} />
+            </Field>
+          </div>
+        </div>
+      );
+    }
+    case 'footer':
+      return (
+        <div className="space-y-3">
+          {title}
+          <RichTextArea initialHtml={p.html || ''} disabled={readOnly} minHeight={70} onChange={(html) => onPatch({ html }, 'text')} />
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Tamaño de letra">
+              <NumInput value={Number(p.fontSize) || 12} min={9} max={18} onChange={(v) => onPatch({ fontSize: v }, 'fs')} />
+            </Field>
+            <Field label="Color">
+              <ColorInput value={p.color || '#94a3b8'} onChange={(v) => onPatch({ color: v }, 'color')} />
+            </Field>
+          </div>
+        </div>
+      );
+    case 'html':
+      return (
+        <div className="space-y-3">
+          {title}
+          <Field label="HTML del bloque">
+            <textarea
+              value={p.html || ''}
+              onChange={(e) => onPatch({ html: e.target.value }, 'html')}
+              disabled={readOnly}
+              rows={10}
+              spellCheck={false}
+              className={`${inp} font-mono text-xs`}
+              placeholder="<table>…</table>"
+            />
+          </Field>
+          <p className="text-[11px] leading-snug text-slate-400">
+            Recuerda: los clientes de correo solo entienden tablas y estilos en línea. Las imágenes
+            incrustadas (data:image) se rechazan al guardar — usa URLs.
+          </p>
+        </div>
+      );
+    default:
+      return null;
+  }
+}
+
+// ── Previsualización ────────────────────────────────────────────────────────
+function PreviewModal({ html, subject, onClose }: { html: string; subject: string; onClose: () => void }) {
+  const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
+  return (
+    <div className="fixed inset-0 z-[75] flex flex-col bg-black/50 p-3 sm:p-6" onClick={onClose}>
+      <div
+        className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-2.5">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-slate-800">Previsualización</p>
+            <p className="truncate text-xs text-slate-400">Asunto: {subject || '(sin asunto)'}</p>
+          </div>
+          <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+            {(
+              [
+                ['desktop', '🖥️ Escritorio'],
+                ['mobile', '📱 Móvil'],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setMode(k)}
+                className="rounded-md px-2 py-1 text-xs font-medium"
+                style={mode === k ? { background: 'white', boxShadow: '0 1px 2px rgba(0,0,0,.08)' } : { color: '#64748b' }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button onClick={onClose} className="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-100" title="Cerrar">
+            ✕
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto bg-slate-100 p-4">
+          <iframe
+            title="Previsualización del correo"
+            srcDoc={html}
+            className="mx-auto block h-full rounded-lg bg-white shadow"
+            style={{ width: mode === 'desktop' ? '100%' : 375, maxWidth: '100%', border: 0 }}
+            sandbox=""
+          />
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -2,13 +2,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
+import type * as L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import {
   BUSINESS_CATEGORIES,
   getCategoryBySlug,
 } from '@/lib/business-categories';
+import { marcaDeLaRuta } from '@/lib/brand-from-path';
 
 type TenantStatus = 'ACTIVE' | 'TRIAL' | 'SUSPENDED';
 
@@ -57,52 +59,27 @@ const STATUS_LABEL_KEY: Record<TenantStatus, string> = {
   SUSPENDED: 'statusSuspended',
 };
 
-const ENV_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 const MAP_API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
-/** Resuelve la API key de Google Maps de la marca por host (branding-by-host).
- *  Cae a la env global (Clubify) si el host no es de una marca o no tiene key. */
-async function resolveMapsKey(): Promise<string> {
-  if (typeof window === 'undefined') return ENV_API_KEY;
-  const host = (window.location.host || '').toLowerCase().split(':')[0];
-  const isClubify =
-    !host || host === 'localhost' || host.startsWith('127.') ||
-    host.endsWith('soyclubify.com') || host.endsWith('clubify.app');
-  if (!isClubify) {
-    try {
-      const r = await fetch(
-        `${MAP_API}/api/superadmin-public/white-labels/branding-by-host?host=${encodeURIComponent(host)}`,
-      );
-      if (r.ok) {
-        const d = await r.json();
-        if (d?.mapsApiKey) return d.mapsApiKey as string;
-      }
-    } catch {
-      /* cae a la env */
-    }
-  }
-  return ENV_API_KEY;
-}
-
-// Loader singleton: idéntico patrón a MapPicker para no doble-init Maps SDK.
-let loaderPromise: Promise<typeof google> | null = null;
-let optionsSet = false;
-function loadGoogleMaps(key: string): Promise<typeof google> {
-  if (typeof window === 'undefined') return Promise.reject(new Error('SSR'));
-  if (loaderPromise) return loaderPromise;
-  if (!key) {
-    return Promise.reject(new Error('Falta la API key de Google Maps de la marca'));
-  }
-  if (!optionsSet) {
-    setOptions({ key, v: 'weekly', language: 'es' });
-    optionsSet = true;
-  }
-  loaderPromise = (async () => {
-    await importLibrary('maps');
-    return (window as any).google as typeof google;
-  })();
-  return loaderPromise;
-}
+/**
+ * El mapa del panel usa **OpenStreetMap con Leaflet**, no Google Maps.
+ *
+ * Google restringe sus claves por dominio, y el panel maestro
+ * (`soyfidelity.com`) no estaba en la lista: el mapa moria con
+ * `RefererNotAllowedMapError` mirando cualquier marca, y arreglarlo requeria
+ * entrar a la consola de Google Cloud — que no todos tienen a mano.
+ *
+ * Leaflet + OSM no lleva clave ni restriccion por dominio: funciona en
+ * `soyfidelity.com`, en `app.selleala.com` y en cualquier dominio de marca
+ * que se conecte manana, sin que nadie tenga que autorizar nada.
+ *
+ * Se pierde el mosaico de Google (satelite, street view). Para un mapa que
+ * solo muestra donde estan los negocios, no hace falta.
+ *
+ * `MapPicker` (el que usa el NEGOCIO para fijar las coordenadas de su sede)
+ * sigue en Google: corre en el panel del negocio, que si esta autorizado, y
+ * ahi el buscador de direcciones de Google si aporta.
+ */
 
 /** Extrae país aproximado del address ("…, Colombia" o "…, México"). */
 function inferCountry(address: string | null | undefined): string | null {
@@ -135,9 +112,11 @@ export default function AdminBusinessMapPage() {
   });
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.Marker[]>([]);
-  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markersRef = useRef<L.CircleMarker[]>([]);
+  // El agrupador se vuelve a ejecutar en cada zoom; guardamos la referencia
+  // para poder desuscribirlo al desmontar.
+  const redibujarRef = useRef<(() => void) | null>(null);
   const [ready, setReady] = useState(false);
 
   // ─── Cargar data ───
@@ -145,7 +124,15 @@ export default function AdminBusinessMapPage() {
     (async () => {
       try {
         const [tn, a] = await Promise.all([
-          api<MapTenant[]>('/admin/business-map'),
+          // La marca que se esta viendo va como parametro: el panel maestro
+          // no tiene marca propia y sin esto el mapa de Sellea mostraba los
+          // negocios de todas las marcas mezclados.
+          api<MapTenant[]>(
+            '/admin/business-map' +
+              (marcaDeLaRuta(window.location.pathname)
+                ? `?marca=${encodeURIComponent(marcaDeLaRuta(window.location.pathname) as string)}`
+                : ''),
+          ),
           api<Affiliate[]>('/admin/business-map/affiliates'),
         ]);
         setTenants(tn);
@@ -157,24 +144,33 @@ export default function AdminBusinessMapPage() {
     })();
   }, []);
 
-  // ─── Inicializar Google Maps una sola vez ───
+  // ─── Inicializar el mapa una sola vez ───
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const key = await resolveMapsKey();
-        const g = await loadGoogleMaps(key);
+        // Import dinámico: Leaflet toca `window` al cargarse y revienta en el
+        // render del servidor.
+        const L = (await import('leaflet')).default;
         if (cancelled || !mapContainerRef.current) return;
-        const map = new g.maps.Map(mapContainerRef.current, {
-          // Centro genérico LATAM (Bogotá) — el fitBounds posterior lo ajusta.
-          center: { lat: 4.6097, lng: -74.0817 },
+        // Puede quedar una instancia viva de un montaje anterior (StrictMode
+        // monta dos veces en desarrollo); sin esto Leaflet lanza
+        // "Map container is already initialized".
+        if (mapRef.current) return;
+
+        const map = L.map(mapContainerRef.current, {
+          // Centro genérico LATAM (Bogotá) — el encuadre posterior lo ajusta.
+          center: [4.6097, -74.0817],
           zoom: 4,
-          mapTypeControl: false,
-          streetViewControl: false,
-          fullscreenControl: true,
+          scrollWheelZoom: true,
         });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          // La atribución es obligatoria por la licencia de OpenStreetMap.
+          attribution: '© OpenStreetMap',
+        }).addTo(map);
+
         mapRef.current = map;
-        infoWindowRef.current = new g.maps.InfoWindow();
         setReady(true);
       } catch (e: any) {
         setLoadErr(e?.message ?? t('errorLoadingMaps'));
@@ -182,6 +178,10 @@ export default function AdminBusinessMapPage() {
     })();
     return () => {
       cancelled = true;
+      // Leaflet no se limpia solo: sin esto, al volver a la página el
+      // contenedor sigue marcado como inicializado.
+      mapRef.current?.remove();
+      mapRef.current = null;
     };
   }, []);
 
@@ -242,52 +242,124 @@ export default function AdminBusinessMapPage() {
   useEffect(() => {
     if (!ready || !mapRef.current) return;
     const map = mapRef.current;
-    const g = (window as any).google as typeof google;
+    let cancelado = false;
 
-    // Limpiar markers anteriores.
-    for (const m of markersRef.current) m.setMap(null);
-    markersRef.current = [];
+    void (async () => {
+      const L = (await import('leaflet')).default;
+      if (cancelado || !mapRef.current) return;
 
-    const bounds = new g.maps.LatLngBounds();
-    let anyPoint = false;
+      for (const m of markersRef.current) m.remove();
+      markersRef.current = [];
 
-    for (const tn of filtered) {
-      const color = STATUS_COLORS[tn.status];
-      for (const loc of tn.locations) {
-        const position = { lat: loc.latitude, lng: loc.longitude };
-        const marker = new g.maps.Marker({
-          position,
-          map,
-          title: tn.brandName,
-          icon: {
-            path: g.maps.SymbolPath.CIRCLE,
-            scale: 9,
-            fillColor: color,
-            fillOpacity: 0.95,
-            strokeColor: '#FFFFFF',
-            strokeWeight: 2,
-          },
-        });
-        marker.addListener('click', () => {
-          if (!infoWindowRef.current) return;
-          infoWindowRef.current.setContent(buildInfoWindow(tn, loc, t));
-          infoWindowRef.current.open({ anchor: marker, map });
-        });
-        markersRef.current.push(marker);
-        bounds.extend(position);
-        anyPoint = true;
+      // Todas las sedes, aplanadas.
+      const sedes: { tn: (typeof filtered)[number]; loc: MapLocation }[] = [];
+      for (const tn of filtered) {
+        for (const loc of tn.locations) sedes.push({ tn, loc });
       }
-    }
+      const puntos: [number, number][] = sedes.map((s) => [
+        s.loc.latitude,
+        s.loc.longitude,
+      ]);
 
-    if (anyPoint) {
-      map.fitBounds(bounds, 60);
-      // Si solo hay un punto, fitBounds hace zoom 21 — capamos.
-      const listener = g.maps.event.addListenerOnce(map, 'idle', () => {
-        if ((map.getZoom() ?? 0) > 14) map.setZoom(14);
-      });
-      // listener se auto-remueve (once).
-      void listener;
-    }
+      /**
+       * Agrupa las sedes que caen en el mismo punto de la PANTALLA.
+       *
+       * Sin esto, cuatro sedes a 5 km se pintan una encima de otra al ver el
+       * continente entero: el panel decía "7 sedes" y solo se contaban 3
+       * puntos. Se reagrupa en cada zoom porque lo que importa son píxeles,
+       * no kilómetros.
+       */
+      function pintar() {
+        for (const m of markersRef.current) m.remove();
+        markersRef.current = [];
+        if (!mapRef.current) return;
+
+        const CELDA = 44; // píxeles: por debajo de esto los puntos se tocan
+        const grupos = new Map<string, typeof sedes>();
+        for (const s of sedes) {
+          const p = map.latLngToLayerPoint([s.loc.latitude, s.loc.longitude]);
+          const clave = `${Math.round(p.x / CELDA)}:${Math.round(p.y / CELDA)}`;
+          const g = grupos.get(clave);
+          if (g) g.push(s);
+          else grupos.set(clave, [s]);
+        }
+
+        for (const grupo of grupos.values()) {
+          const centro: [number, number] = [
+            grupo.reduce((a, s) => a + s.loc.latitude, 0) / grupo.length,
+            grupo.reduce((a, s) => a + s.loc.longitude, 0) / grupo.length,
+          ];
+
+          if (grupo.length === 1) {
+            const { tn, loc } = grupo[0];
+            const marker = L.circleMarker([loc.latitude, loc.longitude], {
+              radius: 8,
+              fillColor: STATUS_COLORS[tn.status],
+              fillOpacity: 0.95,
+              color: '#FFFFFF',
+              weight: 2,
+            })
+              .addTo(map)
+              .bindPopup(buildInfoWindow(tn, loc, t), { maxWidth: 280 });
+            marker.bindTooltip(tn.brandName);
+            markersRef.current.push(marker);
+            continue;
+          }
+
+          // Varias sedes en el mismo sitio: un círculo con el número. Si todas
+          // comparten estado se pinta de su color; si no, gris neutro para no
+          // mentir sobre el estado del grupo.
+          const estados = new Set(grupo.map((s) => s.tn.status));
+          const color =
+            estados.size === 1
+              ? STATUS_COLORS[grupo[0].tn.status]
+              : '#64748B';
+          const cluster = L.marker(centro, {
+            icon: L.divIcon({
+              className: '',
+              html: `<div style="width:34px;height:34px;border-radius:9999px;background:${color};color:#fff;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;font:600 13px/1 system-ui,sans-serif">${grupo.length}</div>`,
+              iconSize: [34, 34],
+              iconAnchor: [17, 17],
+            }),
+          }).addTo(map);
+
+          const nombres = [...new Set(grupo.map((s) => s.tn.brandName))];
+          cluster.bindTooltip(
+            `${grupo.length} sedes · ${nombres.slice(0, 3).join(', ')}${nombres.length > 3 ? '…' : ''}`,
+          );
+          // Clic = acercarse hasta separarlas. Es la forma natural de "ver los
+          // otros" sin tener que buscar el control de zoom.
+          cluster.on('click', () => {
+            map.fitBounds(
+              L.latLngBounds(
+                grupo.map(
+                  (s) => [s.loc.latitude, s.loc.longitude] as [number, number],
+                ),
+              ),
+              { padding: [80, 80], maxZoom: 17 },
+            );
+          });
+          markersRef.current.push(cluster as unknown as L.CircleMarker);
+        }
+      }
+
+      pintar();
+      map.on('zoomend', pintar);
+      redibujarRef.current = pintar;
+
+      if (puntos.length) {
+        // Con un solo punto, `fitBounds` se va a zoom máximo: lo capamos.
+        map.fitBounds(L.latLngBounds(puntos), { padding: [60, 60], maxZoom: 14 });
+      }
+    })();
+
+    return () => {
+      cancelado = true;
+      if (redibujarRef.current) {
+        map.off('zoomend', redibujarRef.current);
+        redibujarRef.current = null;
+      }
+    };
   }, [ready, filtered]);
 
   // ─── KPIs ───
@@ -503,14 +575,11 @@ export default function AdminBusinessMapPage() {
             <div className="p-6 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl m-4">
               <div className="font-semibold mb-1">{t('mapsNotConfigured')}</div>
               <div>{loadErr}</div>
+              {/* Ya no hay clave que configurar: el mapa no la usa. Si esto
+                  falla es que no cargaron los mosaicos de OpenStreetMap. */}
               <div className="text-xs mt-2 text-amber-800/80">
-                {t.rich('mapsNotConfiguredHint', {
-                  code: () => (
-                    <code className="bg-amber-100 px-1 rounded">
-                      NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-                    </code>
-                  ),
-                })}
+                Recarga la página. Si sigue igual, puede ser un corte temporal
+                de OpenStreetMap.
               </div>
             </div>
           ) : (
@@ -546,8 +615,8 @@ export default function AdminBusinessMapPage() {
 
 /**
  * HTML del InfoWindow del marker. Lo inyectamos como string porque
- * google.maps.InfoWindow.setContent acepta string|Node y este es el patrón
- * más simple sin tener que portaltar React adentro del SDK de Google.
+ * El popup de Leaflet acepta una cadena de HTML, que es el patrón más simple
+ * sin tener que montar React dentro del mapa.
  */
 function buildInfoWindow(
   tn: MapTenant,

@@ -225,18 +225,14 @@ export type ShellProps = {
    *  presente, reemplaza el fondo por defecto del template. */
   customBackground?: string;
   /** Marca blanca del negocio (per marca). El badge "Hecho con {marca}" la
-   *  usa. Puede faltar mientras el backend propaga el deploy → fallback Clubify. */
+   *  usa. Si falta, el badge NO se pinta (nunca se inventa una marca). */
   brand?: BrandBadgeBrand;
 };
 
-/** Fallback Clubify mientras el backend propaga `brand` a la respuesta. */
-const CLUBIFY_BADGE_FALLBACK: BrandBadgeBrand = {
-  name: 'Clubify',
-  websiteUrl: 'https://soyclubify.com',
-  initial: 'C',
-  primaryColor: '#22C55E',
-  attribution: { madeWith: 'Hecho con Clubify' },
-};
+// Sin respaldo a Clubify: si el backend no manda la marca, no se pinta el
+// badge. Un negocio de Sellea mostrando «Hecho con Clubify» a sus clientes
+// delata la plataforma — y el respaldo, puesto «mientras el backend propaga el
+// deploy», se quedó para siempre. Un pie ausente no delata a nadie.
 
 // =============================================================
 //  Colores de texto por elemento (theme.text) — opcional
@@ -256,6 +252,10 @@ export type InfoLinkTextColors = {
   button?: string | null;
   /** Texto secundario: el nombre del negocio bajo el título. */
   meta?: string | null;
+  /** Pie de atribución «Hecho con {marca}». SOLO el color — el texto y la
+   *  marca los resuelve el backend y no se tocan desde aquí (un negocio de
+   *  Sellea nunca debe mostrar otra marca). */
+  badge?: string | null;
 };
 
 /** Lee `theme.text` de forma segura (objeto o vacío). */
@@ -268,6 +268,49 @@ function textColors(link: ShellLink): InfoLinkTextColors {
  *  pisar el color por defecto (className) del shell. */
 function colorStyle(c?: string | null): CSSProperties | undefined {
   return c && String(c).trim() ? { color: c } : undefined;
+}
+
+/** Badge «Hecho con {marca}» con color de texto opcional (theme.text.badge).
+ *
+ *  BrandBadge no acepta color (y no se toca: su texto/marca son sagrados),
+ *  así que el tinte se aplica por CSS desde fuera. El color entra como
+ *  custom property INLINE (no interpolado en el <style>) para que un valor
+ *  raro guardado en el JSON del theme no pueda inyectar CSS.
+ *
+ *  Con color custom, la variante "pill" pierde su pastilla blanca a
+ *  propósito: el color elegido debe leerse contra el fondo de la página
+ *  (que es contra lo que el editor mide el contraste), no contra blanco —
+ *  si no, elegir blanco sobre fondo negro daría blanco-sobre-blanco.
+ *  El `span:not([style])` excluye el cuadrito de la inicial (tiene su
+ *  background inline con el color de la marca) para no tintarlo. */
+function ShellBrandBadge({
+  brand,
+  variant,
+  color,
+}: {
+  brand?: BrandBadgeBrand;
+  variant?: 'subtle' | 'pill';
+  color?: string | null;
+}) {
+  if (!brand) return null;
+  const c = color && String(color).trim() ? String(color).trim() : null;
+  if (!c) return <BrandBadge brand={brand} variant={variant ?? 'subtle'} />;
+  return (
+    <div
+      className="il-badge-tint"
+      style={{ ['--il-badge-c' as string]: c } as CSSProperties}
+    >
+      <style>{`
+        .il-badge-tint a,
+        .il-badge-tint a span:not([style]) {
+          color: var(--il-badge-c) !important;
+          background: transparent !important;
+          box-shadow: none !important;
+        }
+      `}</style>
+      <BrandBadge brand={brand} variant={variant ?? 'subtle'} />
+    </div>
+  );
 }
 
 // =============================================================
@@ -378,7 +421,7 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
         )}
 
         <div className="mt-10 text-center">
-          <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} variant="pill" />
+          <ShellBrandBadge brand={brand} variant="pill" color={tc.badge} />
         </div>
       </article>
     </div>
@@ -503,7 +546,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
 
         {sectionsNode && <div className="mt-8 text-ink">{sectionsNode}</div>}
 
-        <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} />
+        <ShellBrandBadge brand={brand} color={tc.badge} />
       </article>
     </div>
   );
@@ -708,7 +751,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
           {sectionsNode && (
             <div className="mt-7 pb-2 text-ink">{sectionsNode}</div>
           )}
-          <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} />
+          <ShellBrandBadge brand={brand} color={tc.badge} />
         </div>
       </article>
     </div>
@@ -848,7 +891,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
         {sectionsNode && (
           <div className="px-5 pt-5 text-ink">{sectionsNode}</div>
         )}
-        <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} />
+        <ShellBrandBadge brand={brand} color={tc.badge} />
       </article>
     </div>
   );
@@ -995,7 +1038,7 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
         )}
 
         <div className="mt-10 text-center">
-          <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} variant="pill" />
+          <ShellBrandBadge brand={brand} variant="pill" color={tc.badge} />
         </div>
       </article>
     </div>

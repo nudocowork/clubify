@@ -5,8 +5,10 @@ import { toast } from '@/components/Toast';
 
 // Constructor visual de Workflows de la MARCA (audiencia: sus negocios/tenants).
 // SMS al dueño por la subcuenta de Grow Business de la marca. Backend:
-// /admin/workflows/* (motor durable por @Cron). Estilo GHL: tabla de carpetas +
-// lienzo con nodos.
+// /admin/workflows/* (motor durable por @Cron). Lista estilo TeamClubify:
+// carpetas ANIDADAS (parentId) + migas de pan + selección múltiple con acciones
+// en lote + menú «⋮» por fila. El árbol se arma acá en código a partir de
+// parentId — el backend rechaza los ciclos, la UI ni los ofrece como destino.
 
 type Stats = { active: number; completed: number };
 type WF = {
@@ -14,7 +16,7 @@ type WF = {
   trigger: any; rootId: string | null; nodes: any; drip: any; sendWindow: any; reentry: boolean;
   createdAt?: string; _stats: Stats;
 };
-type Folder = { id: string; name: string; createdAt?: string };
+type Folder = { id: string; name: string; parentId?: string | null; createdAt?: string };
 type WFNode = { id: string; type: string; config: any; next?: string | null; yes?: string | null; no?: string | null };
 
 const ACCENT = '#16a34a';
@@ -41,117 +43,491 @@ function uid() { try { return 'n' + crypto.randomUUID().slice(0, 8); } catch { r
 function fmtDate(s?: string) { return s ? new Date(s).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'; }
 const inp = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500';
 
+// ── Helpers del árbol de carpetas ───────────────────────────────────────────
+type TreeOption = { id: string; name: string; depth: number };
+
+// La carpeta y TODAS sus descendientes. Sirve para excluir destinos que
+// crearían un ciclo (mover una carpeta dentro de su propio subárbol la haría
+// desaparecer de la vista junto con todo lo que contiene).
+function descendantsOf(folders: Folder[], rootId: string): Set<string> {
+  const out = new Set<string>([rootId]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const f of folders) {
+      if (f.parentId && out.has(f.parentId) && !out.has(f.id)) { out.add(f.id); grew = true; }
+    }
+  }
+  return out;
+}
+
+// Aplana el árbol en orden de recorrido (padre antes que hijas) con la
+// profundidad de cada carpeta, para pintar menús "Mover a…" con sangría.
+// Las carpetas con padre roto (dato corrupto) se anexan al final: que nunca
+// desaparezcan de los menús.
+function flattenTree(folders: Folder[], exclude?: Set<string>): TreeOption[] {
+  const out: TreeOption[] = [];
+  const seen = new Set<string>();
+  const walk = (parent: string | null, depth: number) => {
+    if (depth > 20) return;
+    for (const f of folders) {
+      if ((f.parentId ?? null) !== parent || seen.has(f.id) || exclude?.has(f.id)) continue;
+      seen.add(f.id);
+      out.push({ id: f.id, name: f.name, depth });
+      walk(f.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  for (const f of folders) {
+    if (!seen.has(f.id) && !exclude?.has(f.id)) out.push({ id: f.id, name: f.name, depth: 0 });
+  }
+  return out;
+}
+
+type NameModalState = { title: string; initial: string; placeholder?: string; submitLabel: string; onSubmit: (name: string) => Promise<void> };
+type ConfirmModalState = { title: string; body: React.ReactNode; confirmLabel: string; onConfirm: () => Promise<void> };
+
 export default function BrandWorkflowsPanel() {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [wfs, setWfs] = useState<WF[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [currentFolder, setCurrentFolder] = useState<string | null>(null);
+  const [currentFolder, setCurrentFolder] = useState<string | null>(null); // null = raíz
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [nameModal, setNameModal] = useState<NameModalState | null>(null);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState | null>(null);
 
   async function load() {
-    setLoading(true);
-    try { const d: any = await api('/admin/workflows'); setWfs(d?.workflows ?? []); setFolders(d?.folders ?? []); }
-    catch { /* noop */ } finally { setLoading(false); }
+    setLoading(true); setLoadError(null);
+    try {
+      const d: any = await api('/admin/workflows');
+      const fs: Folder[] = d?.folders ?? [];
+      setWfs(d?.workflows ?? []); setFolders(fs);
+      // Si la carpeta en la que estabas ya no existe (la borró otra sesión),
+      // vuelve a la raíz en vez de quedarte mirando una vista vacía fantasma.
+      setCurrentFolder((cur) => (cur && !fs.some((f) => f.id === cur) ? null : cur));
+    } catch (e: any) {
+      setLoadError(e?.message || 'No se pudo conectar con el servidor.');
+    } finally { setLoading(false); }
   }
   useEffect(() => { load(); }, []);
 
+  // Navegar entre carpetas limpia la selección (evita actuar sobre filas que ya no ves).
+  function goFolder(id: string | null) { setCurrentFolder(id); setSelected(new Set()); }
+  function toggleSel(id: string) { setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }
+
   async function addWf() {
     setBusy(true);
-    try { const w: any = await api('/admin/workflows', { method: 'POST', body: JSON.stringify({ name: 'Nuevo workflow' }) }); setWfs((p) => [{ ...w, folderId: null, nodes: {}, drip: {}, sendWindow: {}, _stats: { active: 0, completed: 0 } }, ...p]); setOpenId(w.id); }
-    catch (e: any) { toast(e.message ?? 'Error', 'error'); } finally { setBusy(false); }
+    try {
+      const w: any = await api('/admin/workflows', { method: 'POST', body: JSON.stringify({ name: 'Nuevo workflow', folderId: currentFolder }) });
+      setWfs((p) => [{ ...w, folderId: w.folderId ?? currentFolder ?? null, nodes: w.nodes ?? {}, drip: w.drip ?? {}, sendWindow: w.sendWindow ?? {}, _stats: { active: 0, completed: 0 } }, ...p]);
+      setOpenId(w.id);
+    } catch (e: any) { toast(e?.message || 'No se pudo crear el workflow', 'error'); } finally { setBusy(false); }
   }
-  async function newFolder() {
-    const name = window.prompt('Nombre de la nueva carpeta:')?.trim(); if (!name) return;
-    setBusy(true);
-    try { const f: any = await api('/admin/workflows/folders', { method: 'POST', body: JSON.stringify({ name }) }); setFolders((p) => [...p, f]); }
-    catch (e: any) { toast(e.message ?? 'Error', 'error'); } finally { setBusy(false); }
+
+  function askNewFolder() {
+    const here = inFolder ? ` dentro de "${inFolder.name}"` : '';
+    setNameModal({
+      title: `Nueva carpeta${here}`,
+      initial: '',
+      placeholder: 'Nombre de la carpeta',
+      submitLabel: 'Crear carpeta',
+      onSubmit: async (name) => {
+        const f: any = await api('/admin/workflows/folders', { method: 'POST', body: JSON.stringify({ name, parentId: currentFolder }) });
+        setFolders((p) => [...p, f]);
+      },
+    });
   }
-  function move(id: string, folderId: string | null) {
+
+  function askRenameFolder(f: Folder) {
+    setNameModal({
+      title: `Renombrar la carpeta "${f.name}"`,
+      initial: f.name,
+      submitLabel: 'Guardar',
+      onSubmit: async (name) => {
+        if (name === f.name) return;
+        // Primero el servidor, luego la lista: si falla, el usuario lo ve en el
+        // modal y la carpeta conserva su nombre real (nada de "se deshizo solo").
+        await api(`/admin/workflows/folders/${f.id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+        setFolders((p) => p.map((x) => (x.id === f.id ? { ...x, name } : x)));
+      },
+    });
+  }
+
+  // Optimista CON reversa: se pinta al instante y, si el servidor rechaza,
+  // se restaura el estado anterior y se avisa — nunca se descarta el error.
+  function moveWf(id: string, folderId: string | null) {
+    const prev = wfs;
     setWfs((p) => p.map((w) => (w.id === id ? { ...w, folderId } : w)));
-    api(`/admin/workflows/${id}`, { method: 'PATCH', body: JSON.stringify({ folderId }) }).catch(() => {});
+    api(`/admin/workflows/${id}`, { method: 'PATCH', body: JSON.stringify({ folderId }) })
+      .catch((e: any) => { setWfs(prev); toast(e?.message || 'No se pudo mover el workflow', 'error'); });
   }
-  async function renameFolder(f: Folder) {
-    const name = window.prompt('Nuevo nombre:', f.name)?.trim(); if (!name || name === f.name) return;
-    setFolders((p) => p.map((x) => (x.id === f.id ? { ...x, name } : x)));
-    api(`/admin/workflows/folders/${f.id}`, { method: 'PATCH', body: JSON.stringify({ name }) }).catch(() => {});
+
+  function moveFolderTo(id: string, parentId: string | null) {
+    const prev = folders;
+    setFolders((p) => p.map((f) => (f.id === id ? { ...f, parentId } : f)));
+    api(`/admin/workflows/folders/${id}/move`, { method: 'PATCH', body: JSON.stringify({ parentId }) })
+      .catch((e: any) => { setFolders(prev); toast(e?.message || 'No se pudo mover la carpeta', 'error'); });
   }
-  async function delFolder(f: Folder) {
-    if (!window.confirm(`¿Eliminar "${f.name}"? Los workflows quedan sin carpeta.`)) return;
-    setFolders((p) => p.filter((x) => x.id !== f.id)); setWfs((p) => p.map((w) => (w.folderId === f.id ? { ...w, folderId: null } : w)));
-    api(`/admin/workflows/folders/${f.id}`, { method: 'DELETE' }).catch(() => {});
+
+  function setStatusWf(id: string, published: boolean) {
+    const prev = wfs;
+    setWfs((p) => p.map((w) => (w.id === id ? { ...w, status: published ? 'published' : 'draft' } : w)));
+    api(`/admin/workflows/${id}`, { method: 'PATCH', body: JSON.stringify({ status: published ? 'published' : 'draft' }) })
+      .catch((e: any) => { setWfs(prev); toast(e?.message || 'No se pudo cambiar el estado', 'error'); });
+  }
+
+  async function duplicate(id: string) {
+    setBusy(true);
+    try {
+      const w: any = await api(`/admin/workflows/${id}/duplicate`, { method: 'POST' });
+      setWfs((p) => [{ ...w, folderId: w.folderId ?? null, nodes: w.nodes ?? {}, drip: w.drip ?? {}, sendWindow: w.sendWindow ?? {}, _stats: { active: 0, completed: 0 } }, ...p]);
+      toast('Workflow duplicado (en borrador)', 'success');
+    } catch (e: any) { toast(e?.message || 'No se pudo duplicar', 'error'); } finally { setBusy(false); }
+  }
+
+  // Exportar el flujo como JSON (para clonarlo entre marcas). La lista ya trae
+  // el workflow completo, así que no hace falta otra llamada.
+  function exportWf(w: WF) {
+    const data = { name: w.name, trigger: w.trigger, rootId: w.rootId, nodes: w.nodes, drip: w.drip, sendWindow: w.sendWindow, reentry: w.reentry };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${(w.name || 'workflow').replace(/[^\w\- ]+/g, '').trim() || 'workflow'}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function askDeleteWf(w: WF) {
+    setConfirmModal({
+      title: `Eliminar el workflow "${w.name}"`,
+      body: 'Se eliminan también todas sus inscripciones (los negocios que van por el flujo). Esta acción no se puede deshacer.',
+      confirmLabel: 'Eliminar workflow',
+      onConfirm: async () => {
+        await api(`/admin/workflows/${w.id}`, { method: 'DELETE' });
+        setWfs((p) => p.filter((x) => x.id !== w.id));
+        setSelected((s) => { const n = new Set(s); n.delete(w.id); return n; });
+        toast('Workflow eliminado', 'success');
+      },
+    });
+  }
+
+  function askDeleteFolder(f: Folder) {
+    const directWfs = wfs.filter((w) => (w.folderId ?? null) === f.id).length;
+    const directSubs = folders.filter((x) => (x.parentId ?? null) === f.id).length;
+    const parent = folders.find((x) => x.id === (f.parentId ?? '')) ?? null;
+    const dest = parent ? `la carpeta "${parent.name}"` : 'el inicio';
+    const hasContent = directWfs > 0 || directSubs > 0;
+    setConfirmModal({
+      title: `Eliminar la carpeta "${f.name}"`,
+      body: hasContent
+        ? `Contiene ${directWfs} workflow(s) y ${directSubs} subcarpeta(s). Todo su contenido se moverá a ${dest} — no se elimina ningún workflow.`
+        : 'La carpeta está vacía. Esta acción no se puede deshacer.',
+      confirmLabel: 'Eliminar carpeta',
+      onConfirm: async () => {
+        await api(`/admin/workflows/folders/${f.id}`, { method: 'DELETE' });
+        // Espejo local de lo que hizo el servidor: el contenido sube al padre.
+        const newParent = f.parentId ?? null;
+        setFolders((p) => p.filter((x) => x.id !== f.id).map((x) => ((x.parentId ?? null) === f.id ? { ...x, parentId: newParent } : x)));
+        setWfs((p) => p.map((w) => ((w.folderId ?? null) === f.id ? { ...w, folderId: newParent } : w)));
+        setCurrentFolder((cur) => (cur === f.id ? newParent : cur));
+        toast(hasContent ? 'Carpeta eliminada; su contenido subió un nivel' : 'Carpeta eliminada', 'success');
+      },
+    });
+  }
+
+  // ── Acciones en lote (una sola llamada al servidor) ──
+  function bulkMove(folderId: string | null) {
+    const ids = [...selected]; if (!ids.length) return;
+    const prev = wfs;
+    setWfs((p) => p.map((w) => (selected.has(w.id) ? { ...w, folderId } : w)));
+    setSelected(new Set());
+    api('/admin/workflows/bulk/move', { method: 'POST', body: JSON.stringify({ ids, folderId }) })
+      .then((r: any) => toast(`${r?.count ?? ids.length} workflow(s) movidos`, 'success'))
+      .catch((e: any) => { setWfs(prev); setSelected(new Set(ids)); toast(e?.message || 'No se pudieron mover los workflows', 'error'); });
+  }
+
+  function askBulkDelete() {
+    const ids = [...selected]; if (!ids.length) return;
+    setConfirmModal({
+      title: `Eliminar ${ids.length} workflow(s)`,
+      body: 'Se eliminan también todas sus inscripciones. Esta acción no se puede deshacer.',
+      confirmLabel: `Eliminar ${ids.length} workflow(s)`,
+      onConfirm: async () => {
+        await api('/admin/workflows/bulk/delete', { method: 'POST', body: JSON.stringify({ ids }) });
+        setWfs((p) => p.filter((w) => !ids.includes(w.id)));
+        setSelected(new Set());
+        toast('Workflows eliminados', 'success');
+      },
+    });
   }
 
   const open = wfs.find((w) => w.id === openId) ?? null;
-  async function duplicate(id: string) {
-    setBusy(true);
-    try { const w: any = await api(`/admin/workflows/${id}/duplicate`, { method: 'POST' }); setWfs((p) => [{ ...w, folderId: w.folderId ?? null, nodes: w.nodes ?? {}, drip: w.drip ?? {}, sendWindow: w.sendWindow ?? {}, _stats: { active: 0, completed: 0 } }, ...p]); }
-    catch { await load(); }
-    finally { setBusy(false); }
-  }
-
   if (open) return <Editor key={open.id} wf={open} onBack={() => { setOpenId(null); load(); }} onDeleted={() => { setWfs((p) => p.filter((w) => w.id !== open.id)); setOpenId(null); }} />;
 
-  if (loading) return <div className="py-10 text-center text-sm text-slate-400">Cargando…</div>;
-
   const inFolder = folders.find((f) => f.id === currentFolder) ?? null;
-  const showFolders = currentFolder === null ? folders : [];
-  const rows = wfs.filter((w) => (w.folderId ?? null) === currentFolder);
+  // Miga de pan: ruta completa desde la raíz hasta la carpeta actual (con tope
+  // por si los datos trajeran un ciclo — la UI no debe colgarse por eso).
+  const trail: Folder[] = [];
+  { let cur = inFolder; for (let i = 0; i < 20 && cur; i++) { trail.unshift(cur); cur = folders.find((f) => f.id === (cur!.parentId ?? '')) ?? null; } }
+  // Carpetas hijas del nivel actual (en la raíz: las que no tienen padre).
+  const showFolders = folders.filter((f) => (f.parentId ?? null) === currentFolder);
+  // Orden por nombre: primero signos, luego números, luego letras (como TeamClubify).
+  const rank = (s: string) => { const c = (s || '').trim().charAt(0); if (/[a-zA-ZáéíóúñÁÉÍÓÚÑ]/.test(c)) return 2; if (/[0-9]/.test(c)) return 1; return 0; };
+  const rows = wfs.filter((w) => (w.folderId ?? null) === currentFolder).sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name, 'es', { numeric: true }));
+  const empty = showFolders.length === 0 && rows.length === 0;
+  const allSelected = rows.length > 0 && rows.every((w) => selected.has(w.id));
+  function toggleAll() { setSelected(allSelected ? new Set() : new Set(rows.map((w) => w.id))); }
+  const moveOptions = flattenTree(folders);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm text-slate-500">Flujos con esperas, ramas y ventana horaria para tus negocios. El SMS va al dueño por tu subcuenta.</p>
+        <p className="text-sm text-slate-500">Flujos con esperas, ramas y ventana horaria para tus negocios. Organízalos en carpetas (y subcarpetas).</p>
         <div className="ml-auto flex gap-2">
-          <button onClick={newFolder} disabled={busy} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700">📁 Nueva carpeta</button>
-          <button onClick={addWf} disabled={busy} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white" style={{ background: ACCENT }}>+ Nuevo workflow</button>
+          <button onClick={askNewFolder} disabled={busy || loading} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">📁 Nueva carpeta</button>
+          <button onClick={addWf} disabled={busy || loading} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: ACCENT }}>+ Nuevo workflow</button>
         </div>
       </div>
 
-      {currentFolder !== null && (
-        <div className="flex items-center gap-2 text-sm">
-          <button onClick={() => setCurrentFolder(null)} className="text-slate-500 hover:text-slate-800">← Atrás</button>
-          <span className="text-slate-400">/</span><span className="font-semibold text-slate-800">📁 {inFolder?.name}</span>
+      {/* Miga de pan al entrar a una carpeta: ← Atrás | Inicio / A / B */}
+      {!loading && !loadError && currentFolder !== null && (
+        <div className="flex flex-wrap items-center gap-1.5 text-sm">
+          <button onClick={() => goFolder(trail.length > 1 ? trail[trail.length - 2].id : null)} className="text-slate-500 hover:text-slate-800">← Atrás</button>
+          <span className="text-slate-300">|</span>
+          <button onClick={() => goFolder(null)} className="text-slate-500 hover:text-slate-800">Inicio</button>
+          {trail.map((f, i) => (
+            <span key={f.id} className="flex items-center gap-1.5">
+              <span className="text-slate-400">/</span>
+              {i === trail.length - 1
+                ? <span className="font-semibold text-slate-800">📁 {f.name}</span>
+                : <button onClick={() => goFolder(f.id)} className="text-slate-500 hover:text-slate-800">📁 {f.name}</button>}
+            </span>
+          ))}
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-        <table className="w-full min-w-[720px] text-sm">
-          <thead className="border-b border-slate-100 text-left text-xs font-medium text-slate-500">
-            <tr className="[&>th]:px-3 [&>th]:py-2.5"><th>Nombre</th><th>Estado</th><th>Total de inscritos</th><th>Inscripción activa</th><th>Fecha de creación</th><th className="text-right">Carpeta</th></tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {showFolders.map((f) => (
-              <tr key={f.id} className="group [&>td]:px-3 [&>td]:py-3 hover:bg-slate-50/70">
-                <td><div className="flex items-center gap-2"><span className="text-lg">📁</span>
-                  <button onClick={() => setCurrentFolder(f.id)} className="font-medium text-slate-800 hover:text-emerald-700">{f.name}</button>
-                  <button onClick={() => renameFolder(f)} className="px-1 text-xs text-slate-400 opacity-0 group-hover:opacity-100">✎</button>
-                  <button onClick={() => delFolder(f)} className="px-1 text-xs text-rose-500 opacity-0 group-hover:opacity-100">🗑</button>
-                </div></td><td /><td /><td />
-                <td className="whitespace-nowrap text-slate-400">{fmtDate(f.createdAt)}</td>
-                <td className="text-right"><button onClick={() => setCurrentFolder(f.id)} className="text-slate-400">›</button></td>
+      {/* Barra de acciones en lote (aparece al seleccionar) */}
+      {!loading && !loadError && selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+          <span className="font-medium text-emerald-800">{selected.size} seleccionado(s)</span>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <select
+              value=""
+              onChange={(e) => { const v = e.target.value; if (v === '') return; bulkMove(v === '__root__' ? null : v);}}
+              className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 outline-none focus:border-emerald-400"
+            >
+              <option value="">📁 Mover a…</option>
+              {currentFolder !== null && <option value="__root__">Inicio (sin carpeta)</option>}
+              {moveOptions.filter((o) => o.id !== currentFolder).map((o) => (
+                <option key={o.id} value={o.id}>{' '.repeat(o.depth * 2) + '📁 ' + o.name}</option>
+              ))}
+            </select>
+            <button onClick={askBulkDelete} className="rounded-lg border border-rose-300 bg-white px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50">🗑 Eliminar</button>
+            <button onClick={() => setSelected(new Set())} className="rounded-lg px-2 py-1 text-xs text-slate-500 hover:text-slate-800">Deseleccionar</button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="rounded-2xl border border-slate-200 bg-white py-12 text-center text-sm text-slate-400">Cargando workflows…</div>
+      ) : loadError ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-8 text-center">
+          <p className="text-sm font-semibold text-amber-900">No se pudo cargar la lista</p>
+          <p className="mt-1 text-xs text-amber-800">{loadError}</p>
+          <button onClick={load} className="mt-3 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700">Reintentar</button>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+          <table className="w-full min-w-[820px] text-sm">
+            <thead className="border-b border-slate-100 text-left text-xs font-medium text-slate-500">
+              <tr className="[&>th]:px-3 [&>th]:py-2.5">
+                <th className="w-8"><input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={rows.length === 0} title="Seleccionar todos" /></th>
+                <th>Nombre</th><th>Estado</th><th>Total de inscritos</th><th>Inscripción activa</th><th>Fecha de creación</th><th className="text-right">Acciones</th>
               </tr>
-            ))}
-            {rows.map((w) => (
-              <tr key={w.id} className="[&>td]:px-3 [&>td]:py-3 hover:bg-slate-50/70">
-                <td><button onClick={() => setOpenId(w.id)} className="flex items-center gap-2 font-medium text-slate-800 hover:text-emerald-700">{w.name} <span className="text-slate-400">↗</span></button></td>
-                <td><span className="rounded-full px-2 py-0.5 text-[11px]" style={w.status === 'published' ? { background: '#dcfce7', color: '#15803d' } : { background: '#f1f5f9', color: '#64748b' }}>{w.status === 'published' ? 'Publicado' : 'Borrador'}</span></td>
-                <td className="text-slate-800">{w._stats.active + w._stats.completed}</td>
-                <td className="text-slate-800">{w._stats.active}</td>
-                <td className="whitespace-nowrap text-slate-400">{fmtDate(w.createdAt)}</td>
-                <td className="text-right"><div className="flex items-center justify-end gap-2">
-                  <button onClick={() => duplicate(w.id)} disabled={busy} title="Duplicar workflow" className="whitespace-nowrap text-xs text-slate-400 hover:text-emerald-700">⧉ Duplicar</button>
-                  <select value={w.folderId ?? ''} onChange={(e) => move(w.id, e.target.value || null)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500"><option value="">Sin carpeta</option>{folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</select>
-                </div></td>
-              </tr>
-            ))}
-            {showFolders.length === 0 && rows.length === 0 && <tr><td colSpan={6} className="px-3 py-10 text-center text-slate-400">{currentFolder ? 'Carpeta vacía.' : 'Aún no hay workflows ni carpetas.'}</td></tr>}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {showFolders.map((f) => (
+                <FolderRowItem key={f.id} f={f} folders={folders} onOpen={() => goFolder(f.id)} onRename={() => askRenameFolder(f)} onDelete={() => askDeleteFolder(f)} onMove={(pid) => moveFolderTo(f.id, pid)} />
+              ))}
+              {rows.map((w) => (
+                <WorkflowRowItem key={w.id} w={w} moveOptions={moveOptions} selected={selected.has(w.id)} busy={busy} onToggle={() => toggleSel(w.id)} onOpen={() => setOpenId(w.id)} onMove={(fid) => moveWf(w.id, fid)} onDelete={() => askDeleteWf(w)} onDuplicate={() => duplicate(w.id)} onExport={() => exportWf(w)} onSetStatus={(pub) => setStatusWf(w.id, pub)} />
+              ))}
+              {empty && (
+                <tr><td colSpan={7} className="px-3 py-10 text-center text-slate-400">
+                  {currentFolder ? 'Carpeta vacía. Mueve workflows aquí con «Mover a carpeta».' : 'Aún no hay workflows ni carpetas. Crea el primero con «+ Nuevo workflow».'}
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {nameModal && <NameModal {...nameModal} onClose={() => setNameModal(null)} />}
+      {confirmModal && <ConfirmModal {...confirmModal} onClose={() => setConfirmModal(null)} />}
+    </div>
+  );
+}
+
+// ── Modales (reemplazan window.prompt / window.confirm) ─────────────────────
+// El guardado ocurre DENTRO del modal: si el servidor rechaza, el error se ve
+// (toast) y el modal sigue abierto — la lista solo cambia tras el OK real.
+function NameModal({ title, initial, placeholder, submitLabel, onSubmit, onClose }: NameModalState & { onClose: () => void }) {
+  const [name, setName] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  async function go() {
+    const v = name.trim();
+    if (!v || saving) return;
+    setSaving(true);
+    try { await onSubmit(v); onClose(); }
+    catch (e: any) { toast(e?.message || 'No se pudo guardar', 'error'); setSaving(false); }
+  }
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-3 text-sm font-semibold text-slate-800">{title}</h3>
+        <input
+          autoFocus value={name} onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') go(); if (e.key === 'Escape') onClose(); }}
+          className={inp} placeholder={placeholder || 'Nombre'} maxLength={60}
+        />
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100">Cancelar</button>
+          <button onClick={go} disabled={saving || !name.trim()} className="rounded-lg px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: ACCENT }}>{saving ? 'Guardando…' : submitLabel}</button>
+        </div>
       </div>
     </div>
   );
 }
+
+function ConfirmModal({ title, body, confirmLabel, onConfirm, onClose }: ConfirmModalState & { onClose: () => void }) {
+  const [saving, setSaving] = useState(false);
+  async function go() {
+    if (saving) return;
+    setSaving(true);
+    try { await onConfirm(); onClose(); }
+    catch (e: any) { toast(e?.message || 'No se pudo completar la acción', 'error'); setSaving(false); }
+  }
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+        <p className="mt-2 text-sm text-slate-500">{body}</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100">Cancelar</button>
+          <button onClick={go} disabled={saving} className="rounded-lg bg-rose-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50">{saving ? 'Eliminando…' : confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Lista de destinos para "Mover a…" con sangría por profundidad.
+function MoveTargets({ options, activeId, rootLabel, onPick }: { options: TreeOption[]; activeId: string | null; rootLabel: string; onPick: (id: string | null) => void }) {
+  const item = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm hover:bg-slate-50';
+  return (
+    <div className="mt-0.5 max-h-48 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/70 p-1">
+      <button onClick={() => onPick(null)} className={`${item} ${activeId == null ? 'font-semibold text-emerald-700' : 'text-slate-700'}`}><span className="w-4" /> {rootLabel}</button>
+      {options.map((t) => (
+        <button key={t.id} onClick={() => onPick(t.id)} className={`${item} ${activeId === t.id ? 'font-semibold text-emerald-700' : 'text-slate-700'}`}>
+          <span className="w-4 text-center">📁</span><span className="truncate" style={{ paddingLeft: t.depth * 12 }}>{t.name}</span>
+        </button>
+      ))}
+      {options.length === 0 && <p className="px-2.5 py-1.5 text-xs text-slate-400">No hay otra carpeta.</p>}
+    </div>
+  );
+}
+
+function FolderRowItem({ f, folders, onOpen, onRename, onDelete, onMove }: { f: Folder; folders: Folder[]; onOpen: () => void; onRename: () => void; onDelete: () => void; onMove: (parentId: string | null) => void }) {
+  // Menú con position:fixed — un dropdown absoluto dentro de la tabla quedaría
+  // recortado por el contenedor overflow-x-auto.
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const menu = pos != null;
+  function openMenu(e: React.MouseEvent) { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); setPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) }); }
+  const close = () => { setPos(null); setMoveOpen(false); };
+  const item = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50';
+  // Destinos válidos: ni ella misma ni sus descendientes (sería un ciclo; el
+  // backend también lo rechaza — acá ni se ofrece).
+  const targets = flattenTree(folders, descendantsOf(folders, f.id));
+  return (
+    <tr className="group [&>td]:px-3 [&>td]:py-3 hover:bg-slate-50/70">
+      <td />
+      <td>
+        <button onClick={onOpen} className="flex items-center gap-2 text-left font-medium text-slate-800 hover:text-emerald-700">
+          <span className="text-lg">📁</span> {f.name}
+        </button>
+      </td>
+      <td /><td /><td />
+      <td className="whitespace-nowrap text-slate-400">{fmtDate(f.createdAt)}</td>
+      <td className="text-right">
+        <div className="inline-block">
+          <button onClick={(e) => (menu ? close() : openMenu(e))} title="Opciones de la carpeta" className="rounded-lg px-2 py-1 text-lg leading-none text-slate-400 hover:bg-slate-100">⋮</button>
+          {menu && pos && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={close} />
+              <div style={{ top: pos.top, right: pos.right }} className="fixed z-50 w-56 rounded-xl border border-slate-200 bg-white p-1 text-left shadow-lg">
+                <button onClick={() => { close(); onOpen(); }} className={item}><span className="w-4 text-center">📂</span> Abrir</button>
+                <button onClick={() => { close(); onRename(); }} className={item}><span className="w-4 text-center">✎</span> Renombrar</button>
+                <div className="relative">
+                  <button onClick={() => setMoveOpen((v) => !v)} className={`${item} justify-between`}><span className="flex items-center gap-2"><span className="w-4 text-center">📁</span> Mover a carpeta</span><span className="text-slate-400">›</span></button>
+                  {moveOpen && <MoveTargets options={targets} activeId={f.parentId ?? null} rootLabel="Inicio (raíz)" onPick={(pid) => { close(); onMove(pid); }} />}
+                </div>
+                <div className="my-1 border-t border-slate-100" />
+                <button onClick={() => { close(); onDelete(); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-rose-600 hover:bg-rose-50"><span className="w-4 text-center">🗑</span> Eliminar</button>
+              </div>
+            </>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function WorkflowRowItem({ w, moveOptions, selected, busy, onToggle, onOpen, onMove, onDelete, onDuplicate, onExport, onSetStatus }: { w: WF; moveOptions: TreeOption[]; selected: boolean; busy: boolean; onToggle: () => void; onOpen: () => void; onMove: (folderId: string | null) => void; onDelete: () => void; onDuplicate: () => void; onExport: () => void; onSetStatus: (published: boolean) => void }) {
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const menu = pos != null;
+  const published = w.status === 'published';
+  function openMenu(e: React.MouseEvent) { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); setPos({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) }); }
+  const close = () => { setPos(null); setMoveOpen(false); };
+  const item = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-50';
+  return (
+    <tr className={`group [&>td]:px-3 [&>td]:py-3 hover:bg-slate-50/70 ${selected ? 'bg-emerald-50/50' : ''}`}>
+      <td><input type="checkbox" checked={selected} onChange={onToggle} onClick={(e) => e.stopPropagation()} /></td>
+      <td><button onClick={onOpen} className="flex items-center gap-2 text-left font-medium text-slate-800 hover:text-emerald-700">{w.name} <span className="text-slate-400">↗</span></button></td>
+      <td><span className="rounded-full px-2 py-0.5 text-[11px]" style={published ? { background: '#dcfce7', color: '#15803d' } : { background: '#f1f5f9', color: '#64748b' }}>{published ? 'Publicado' : 'Borrador'}</span></td>
+      <td className="text-slate-800">{w._stats.active + w._stats.completed}</td>
+      <td className="text-slate-800">{w._stats.active}</td>
+      <td className="whitespace-nowrap text-slate-400">{fmtDate(w.createdAt)}</td>
+      <td className="text-right">
+        <div className="inline-block">
+          <button onClick={(e) => (menu ? close() : openMenu(e))} title="Opciones" className="rounded-lg px-2 py-1 text-lg leading-none text-slate-400 hover:bg-slate-100">⋮</button>
+          {menu && pos && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={close} />
+              <div style={{ top: pos.top, right: pos.right }} className="fixed z-50 w-56 rounded-xl border border-slate-200 bg-white p-1 text-left shadow-lg">
+                <button onClick={() => { close(); onOpen(); }} className={item}><span className="w-4 text-center">✏️</span> Editar flujo</button>
+                <button onClick={() => { close(); onSetStatus(!published); }} className={item}><span className="w-4 text-center">{published ? '⏸' : '▶'}</span> {published ? 'Desactivar (borrador)' : 'Activar (publicar)'}</button>
+                <button onClick={() => { close(); onDuplicate(); }} disabled={busy} className={item}><span className="w-4 text-center">📄</span> Duplicar</button>
+                <button onClick={() => { close(); onExport(); }} className={item}><span className="w-4 text-center">⬇</span> Exportar JSON</button>
+                <div className="relative">
+                  <button onClick={() => setMoveOpen((v) => !v)} className={`${item} justify-between`}><span className="flex items-center gap-2"><span className="w-4 text-center">📁</span> Mover a carpeta</span><span className="text-slate-400">›</span></button>
+                  {moveOpen && <MoveTargets options={moveOptions} activeId={w.folderId ?? null} rootLabel="Sin carpeta" onPick={(fid) => { close(); onMove(fid); }} />}
+                </div>
+                <div className="my-1 border-t border-slate-100" />
+                <button onClick={() => { close(); onDelete(); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-rose-600 hover:bg-rose-50"><span className="w-4 text-center">🗑</span> Eliminar</button>
+              </div>
+            </>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 
 type Tab = 'creador' | 'config' | 'inscribir' | 'registros';
 function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDeleted: () => void }) {
@@ -288,7 +664,6 @@ function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, set
     const raf = requestAnimationFrame(measure);
     window.addEventListener('resize', measure);
     return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', measure); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [structSig]);
   const trigLabel = TRIGGERS.find((t) => t.key === trigger.type)?.label ?? trigger.type;
   return (
@@ -433,7 +808,7 @@ function EnrollTab({ workflowId, published }: { workflowId: string; published: b
       {done > 0 && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">✓ {done} negocio(s) inscrito(s).</p>}
       <div className="flex gap-2"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar negocio…" className={inp} /><button onClick={search} disabled={busy} className="rounded-lg border border-slate-300 px-3 text-sm">Buscar</button></div>
       <div className="space-y-1 rounded-xl border border-slate-200 bg-white p-2">
-        {(list ?? []).map((t) => (<label key={t.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50"><input type="checkbox" checked={sel.has(t.id)} onChange={() => setSel((s) => { const n = new Set(s); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; })} /><span className="flex-1 truncate">{t.name}</span><span className="text-[11px] text-slate-400">{t.phone || t.whatsappPhone || 'sin tel'}</span></label>))}
+        {(list ?? []).map((t) => (<label key={t.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50"><input type="checkbox" checked={sel.has(t.id)} onChange={() => setSel((s) => { const n = new Set(s); if (n.has(t.id)) n.delete(t.id); else n.add(t.id); return n; })} /><span className="flex-1 truncate">{t.name}</span><span className="text-[11px] text-slate-400">{t.phone || t.whatsappPhone || 'sin tel'}</span></label>))}
         {list && list.length === 0 && <p className="py-4 text-center text-xs text-slate-400">Sin negocios.</p>}
       </div>
       <div className="flex justify-end"><button onClick={go} disabled={busy || !published || sel.size === 0} className="rounded-lg px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50" style={{ background: ACCENT }}>Inscribir {sel.size || ''}</button></div>

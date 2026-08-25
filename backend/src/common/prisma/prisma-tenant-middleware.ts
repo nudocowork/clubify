@@ -217,6 +217,17 @@ function guardWhiteLabelCreate(
   if (model === 'User' && tid == null) {
     const wl = args?.data?.whiteLabelId;
     if (whiteLabelId && wl === whiteLabelId) return args;
+    // Afiliados (influencer, embajador, vendedor, socio): NO tienen tenantId
+    // NI whiteLabelId por diseño. No pertenecen a un negocio — traen negocios.
+    // Su marca vive en el `ReferralCode` al que quedan vinculados, y ese sí
+    // lleva `whiteLabelId` (resolveAffiliateWhiteLabelId), así que el
+    // aislamiento entre marcas se mantiene donde importa.
+    //
+    // Sin esta salida, crear un influencer desde el panel de una marca fallaba
+    // con 403 y el código recién creado se revertía: pasaba con
+    // stefany@clubify.com el 2026-08-22, tres intentos seguidos.
+    const role = args?.data?.role;
+    if (typeof role === 'string' && role.startsWith('AFFILIATE_')) return args;
   }
   if (tid == null) {
     throw new ForbiddenException(

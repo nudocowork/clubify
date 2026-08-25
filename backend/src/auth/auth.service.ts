@@ -11,15 +11,17 @@ import { AppConfigService } from '../common/config/app-config.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { TwoFactorService } from './two-factor.service';
 import { PreregAlertsService } from './prereg-alerts.service';
-import { resolvePeriodicity } from './plan-from-offer';
+import { periodicityFromOfferCode, resolvePeriodicity } from './plan-from-offer';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { parsePlanPeriodLabel } from '../common/plan-period';
 import {
   welcomeOwnerTemplate,
   passwordResetTemplate,
   inviteAffiliateTemplate,
 } from '../email/templates/templates';
 import { resolveBrandEmail } from '../email/brand-email';
+import { BrandEmailService } from '../email/brand-email.service';
 import {
   isValidCategorySlug,
   DEFAULT_CATEGORY_SLUG,
@@ -72,6 +74,7 @@ export class AuthService {
     private jwt: JwtService,
     private audit: AuditService,
     private email: EmailService,
+    private brandEmail: BrandEmailService,
     private appConfig: AppConfigService,
     private refreshTokens: RefreshTokenService,
     private twoFactor: TwoFactorService,
@@ -990,17 +993,32 @@ export class AuthService {
       Number(purchase?.original_offer_price?.value) ||
       null;
     // Fix 2026-06-12: la moneda viene en el payload, no asumir USD.
+    // Fix 2026-08-18: en producción Hotmart la manda como `currency_value`
+    // (ej. {"value":148.55,"currency_value":"USD"}); leyendo solo
+    // `currency_code` esto quedaba SIEMPRE null y el guard de moneda de abajo
+    // no filtraba nada → un pago en COP (541498) se leía como plan ANUAL.
     const purchaseCurrency =
       (purchase?.price?.currency_code ??
+        purchase?.price?.currency_value ??
         purchase?.original_offer_price?.currency_code ??
+        purchase?.original_offer_price?.currency_value ??
         null) as string | null;
 
     // Periodicidad — precedencia DETERMINISTA (forward fix #2): OFFER CODE del
     // pago matcheado contra el `off=` de los checkoutUrls de los 4 planes →
-    // NOMBRE del producto → MONTO (solo si la moneda es USD explícita). El offer
+    // NOMBRE DEL PLAN de la suscripción → NOMBRE del producto → MONTO (solo si
+    // la moneda es USD explícita).
+    //
+    // El paso por `subscription.plan.name` ("Plan Trimestral 150 USD") viene de
+    // feat/emails-sobre-314: el producto de Clubify se llama "CLUBIFY - TARJETAS
+    // DE FIDELIZACION", sin palabra de periodicidad, así que el nombre del
+    // PRODUCTO casi nunca casa. Se conserva la heurística por monto ESTRICTA de
+    // acá (currency === 'USD'), no la de esa rama, que asumía USD cuando la
+    // moneda venía ausente — exactamente el bug que este fix cierra. El offer
     // code arregla el bug del "Plan Anual": un mensual pagado en moneda local sin
     // `currency_code` antes se adivinaba por monto (value alto → ANUAL). Solo
     // informativo para el pre-fill UI; el backend NO depende de esto para activar.
+    const planName: string = String(raw?.data?.subscription?.plan?.name ?? '');
     const productName: string = String(product?.name ?? '');
     const offerCode: string | null = purchase?.offer?.code?.trim?.() || null;
     const PLAN_URL_KEYS = {
@@ -1020,13 +1038,10 @@ export class AuthService {
       semestral: urlByKey.get(PLAN_URL_KEYS.semestral) ?? null,
       anual: urlByKey.get(PLAN_URL_KEYS.anual) ?? null,
     };
-    const periodicity = resolvePeriodicity({
-      offerCode,
-      plans,
-      productName,
-      value,
-      currency: purchaseCurrency,
-    });
+    const periodicity =
+      periodicityFromOfferCode(offerCode, plans) ??
+      parsePlanPeriodLabel(planName) ??
+      resolvePeriodicity({ productName, value, currency: purchaseCurrency });
 
     return {
       found: true,
@@ -1357,21 +1372,33 @@ export class AuthService {
     // de la marca: nombre (asunto/cuerpo dicen "Sellea"), remitente propio
     // (from=hola@selleala.com si está verificado) y link al panel de la marca
     // (selleala.com/login). Sin marca / sin remitente propio → default Clubify.
+    // Releemos el tenant DESPUES de los tres consumePendingForTenant: si el
+    // comprador pago antes de crear la cuenta, ya quedo activa y el correo
+    // no puede pedirle "completa el pago". Leemos el estado en vez de fiarnos
+    // del flag `activated` de cada bloque, asi tambien cubre la activacion que
+    // entre por webhook entre medias. Caso real: Mr. Pedidos, 2026-08-22.
     const welcomeBrandRow = await this.prisma.tenant
       .findUnique({
         where: { id: tenant.id },
-        select: { whiteLabelId: true, whiteLabel: { select: { name: true } } },
+        select: {
+          whiteLabelId: true,
+          status: true,
+          whiteLabel: { select: { name: true } },
+        },
       })
       .catch(() => null);
+    const yaPago = welcomeBrandRow?.status === 'ACTIVE';
     const brandEmail = await resolveBrandEmail(
       this.prisma,
       welcomeBrandRow?.whiteLabelId ?? null,
       this.appConfig.APP_URL,
     );
-    this.email.send({
+    // Sale por la subcuenta de Grow Business de la marca, igual que el resto
+    // de los correos. Antes iba por EmailService, que sin RESEND_API_KEY cae al
+    // adaptador de consola: el correo se escribía en el log y nunca llegaba.
+    void this.brandEmail.sendRaw({
+      whiteLabelId: welcomeBrandRow?.whiteLabelId ?? null,
       to: email,
-      from: brandEmail.from,
-      replyTo: brandEmail.replyTo,
       ...welcomeOwnerTemplate({
         tenant,
         fullName: dto.fullName.trim(),
@@ -1381,6 +1408,7 @@ export class AuthService {
           ? { name: welcomeBrandRow.whiteLabel.name }
           : null,
         loginUrl: brandEmail.hasBrandSender ? brandEmail.loginUrl : undefined,
+        yaPago,
       }),
     });
 

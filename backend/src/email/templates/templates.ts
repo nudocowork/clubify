@@ -1,4 +1,4 @@
-type Tenant = {
+export type Tenant = {
   brandName: string;
   logoUrl: string | null;
   primaryColor: string | null;
@@ -64,6 +64,13 @@ function shell(opts: {
 </table>
 </body></html>`;
 }
+
+/**
+ * Mismo marco visual (logo, color, pie) para los correos cuyo CUERPO es
+ * editable por la marca desde Automatizaciones. La marca escribe texto plano;
+ * el HTML de alrededor lo pone el sistema, así ningún correo se ve roto.
+ */
+export const emailShell = shell;
 
 // ─────────── Plantillas ───────────
 
@@ -297,29 +304,70 @@ export function welcomeOwnerTemplate(args: {
   // Link al panel de la marca (ej https://selleala.com/login). Si no viene,
   // cae al panel global. Ver [[email/brand-email]].
   loginUrl?: string;
+  /**
+   * La cuenta YA quedo pagada al crearse. Pasa cuando el comprador paga
+   * primero y crea la cuenta despues: los `consumePendingForTenant` del
+   * signup la activan al instante.
+   *
+   * Sin esto el correo le pedia "completa el pago para activarla" a alguien
+   * que acababa de pagar (caso real 2026-08-22, Mr. Pedidos). El texto tiene
+   * que decir lo contrario: ya esta activa, entra.
+   */
+  yaPago?: boolean;
 }) {
   const firstName = args.fullName.split(' ')[0];
-  const brandName = args.brand?.name ?? 'Clubify';
+  // Sin marca resuelta NO se escribe "Clubify": un negocio de marca blanca
+  // leeria el nombre de otra plataforma en su propio correo de bienvenida.
+  // Ver [[clubify-fugas-de-marca]].
+  const brandName = args.brand?.name?.trim() || null;
+  const enMarca = brandName ? ` en ${brandName}` : '';
   const link = args.loginUrl || `${args.appUrl}/app`;
-  return {
-    subject: `Bienvenido a ${brandName}, ${firstName}`,
-    text: `Tu cuenta de ${args.tenant.brandName} ya está creada. Completa el pago para activarla y entrar al panel: ${link}`,
-    html: shell({
-      tenant: args.tenant,
-      platform: args.brand ?? null,
-      preheader: `Completa el pago para activar ${args.tenant.brandName}`,
-      body: `
+  const yaPago = args.yaPago === true;
+  // Dos correos distintos con el mismo esqueleto: cambia lo de arriba (el
+  // estado de la cuenta), se mantienen abajo los primeros pasos.
+  const asunto = yaPago
+    ? `Tu cuenta ya está activa, ${firstName}`
+    : brandName
+      ? `Bienvenido a ${brandName}, ${firstName}`
+      : `Bienvenido, ${firstName}`;
+  const resumen = yaPago
+    ? `Tu cuenta de ${args.tenant.brandName} ya está activa. Entra al panel: ${link}`
+    : `Tu cuenta de ${args.tenant.brandName} ya está creada. Completa el pago para activarla y entrar al panel: ${link}`;
+  const cabecera = yaPago
+    ? `
+        <h2 style="margin:0 0 12px;font-size:24px;font-weight:700">¡Listo, ${firstName}!</h2>
+        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
+          Recibimos tu pago y tu cuenta de <b>${args.tenant.brandName}</b>${enMarca}
+          ya quedó <b>activa</b>. No tienes que hacer nada más: entra y empieza.
+        </p>
+        <div style="background:linear-gradient(135deg,#10B981,#059669);border-radius:14px;padding:18px 20px;color:#fff">
+          <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.85">Pago confirmado</div>
+          <div style="font-size:22px;font-weight:700;margin-top:4px">Tu panel está abierto</div>
+          <div style="font-size:13px;opacity:.85;margin-top:6px">Ya puedes cargar tu menú y empezar a vender</div>
+        </div>`
+    : `
         <h2 style="margin:0 0 12px;font-size:24px;font-weight:700">¡Bienvenido, ${firstName}!</h2>
         <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          Tu cuenta de <b>${args.tenant.brandName}</b> en ${brandName} ya está creada.
+          Tu cuenta de <b>${args.tenant.brandName}</b>${enMarca} ya está creada.
           Solo falta completar el pago seguro para activarla.
         </p>
         <div style="background:linear-gradient(135deg,#6366F1,#A855F7);border-radius:14px;padding:18px 20px;color:#fff">
           <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.85">Activa tu cuenta</div>
           <div style="font-size:22px;font-weight:700;margin-top:4px">Pago seguro · activación inmediata</div>
           <div style="font-size:13px;opacity:.85;margin-top:6px">Apenas se aprueba entras al panel y empiezas a vender</div>
-        </div>
-        <p style="margin:18px 0 8px;color:#374151;line-height:1.55">Una vez dentro, lo siguiente:</p>
+        </div>`;
+  return {
+    subject: asunto,
+    text: resumen,
+    html: shell({
+      tenant: args.tenant,
+      platform: args.brand ?? null,
+      preheader: yaPago
+        ? `Tu cuenta de ${args.tenant.brandName} ya está activa`
+        : `Completa el pago para activar ${args.tenant.brandName}`,
+      body: `
+        ${cabecera}
+        <p style="margin:18px 0 8px;color:#374151;line-height:1.55">Lo siguiente:</p>
         <ol style="margin:0;padding-left:20px;color:#374151;line-height:1.8">
           <li>Sube tu menú (categorías + productos)</li>
           <li>Personaliza tu tarjeta de fidelización</li>
@@ -328,7 +376,7 @@ export function welcomeOwnerTemplate(args: {
         </ol>
         <p style="margin:16px 0 0;color:#6B7280;font-size:13px">Si te trabas en algo, escríbenos por WhatsApp y te ayudamos en vivo.</p>
       `,
-      cta: { label: 'Ir a mi cuenta →', href: link },
+      cta: { label: yaPago ? 'Entrar a mi panel →' : 'Ir a mi cuenta →', href: link },
     }),
   };
 }
