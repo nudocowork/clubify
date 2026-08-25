@@ -20,6 +20,7 @@ export type CardDto = {
   stampInactiveColor?: string | null;
   stampContourColor?: string | null;
   centerBgColor?: string | null;
+  logoBgColor?: string | null;
   stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   stampBgImageUrl?: string | null;
   stampIconImageUrl?: string | null;
@@ -88,6 +89,7 @@ export class CardsService {
     'stampInactiveColor',
     'stampContourColor',
     'centerBgColor',
+    'logoBgColor',
     'stampBgType',
     'stampBgImageUrl',
     'logoUrl',
@@ -248,6 +250,7 @@ export class CardsService {
         stampInactiveColor: dto.stampInactiveColor ?? undefined,
         stampContourColor: dto.stampContourColor ?? undefined,
         centerBgColor: dto.centerBgColor ?? undefined,
+        logoBgColor: dto.logoBgColor ?? undefined,
         // Wallet V3 — tarjetas NUEVAS nacen con color uniforme (SOLID, default
         // del schema); las existentes quedaron en GRADIENT por la migración.
         stampBgType: dto.stampBgType ?? undefined,
@@ -325,6 +328,7 @@ export class CardsService {
       'stampInactiveColor',
       'stampContourColor',
       'centerBgColor',
+      'logoBgColor',
       'stampBgImageUrl',
       'stampIconImageUrl',
       'cashbackPercent',

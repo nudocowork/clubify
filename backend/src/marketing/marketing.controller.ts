@@ -83,6 +83,54 @@ export class MarketingController {
     return this.provider.getConnectionInfo(await this.brandId(user));
   }
 
+  /**
+   * Panel Infolinks (freemium): métricas + lista de usuarios "Solo InfoLink" de
+   * la marca. Brand-scoped. Solo lectura. Alimenta la sección admin Infolinks (2F).
+   */
+  @Get('infolinks')
+  async infolinks(@CurrentUser() user: AuthUser) {
+    const whiteLabelId = await this.brandId(user);
+    const tenants = await this.prisma.tenant.findMany({
+      where: { whiteLabelId, businessType: 'INFOLINK' },
+      select: {
+        id: true,
+        brandName: true,
+        email: true,
+        phone: true,
+        slug: true,
+        infolinkTier: true,
+        status: true,
+        createdAt: true,
+        infoLinks: { select: { slug: true, views: true }, orderBy: { createdAt: 'asc' }, take: 1 },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    const users = tenants.map((t) => {
+      const first = t.infoLinks[0];
+      return {
+        id: t.id,
+        name: t.brandName,
+        email: t.email,
+        phone: t.phone,
+        url: first ? `${t.slug}/${first.slug}` : t.slug,
+        tier: (t.infolinkTier ?? 'PRO') as 'FREE' | 'PRO',
+        status: t.status,
+        createdAt: t.createdAt,
+        visits: first?.views ?? 0,
+      };
+    });
+    const metrics = {
+      total: users.length,
+      free: users.filter((u) => u.tier === 'FREE').length,
+      pro: users.filter((u) => u.tier === 'PRO').length,
+      active: users.filter((u) => u.status === 'ACTIVE').length,
+      suspended: users.filter((u) => u.status !== 'ACTIVE').length,
+      totalVisits: users.reduce((s, u) => s + u.visits, 0),
+    };
+    return { metrics, users };
+  }
+
   /** Envío de prueba (email o SMS) para validar credenciales/permisos. */
   @Post('test-send')
   async testSend(@Body() body: TestSendDto, @CurrentUser() user: AuthUser) {

@@ -69,6 +69,7 @@ export type PaymentLinkDto = {
   sortOrder?: number;
   stripePriceId?: string | null;
   stripeProductId?: string | null;
+  productKey?: string | null;
 };
 
 export type WhiteLabelDto = {
@@ -876,6 +877,7 @@ export class SuperAdminService {
     sortOrder: number;
     stripePriceId: string | null;
     stripeProductId: string | null;
+    productKey?: string | null;
   }) {
     return { ...l, amountUsd: Number(l.amountUsd) };
   }
@@ -1654,6 +1656,7 @@ export class SuperAdminService {
         sortOrder: dto.sortOrder ?? 0,
         stripePriceId: dto.stripePriceId?.trim() || null,
         stripeProductId: dto.stripeProductId?.trim() || null,
+        productKey: dto.productKey?.trim() || null,
       },
     });
     await this.logAction(actorId, 'superadmin.white_label.payment_link.create', `whiteLabel:${whiteLabelId}`, {
@@ -1680,6 +1683,7 @@ export class SuperAdminService {
         sortOrder: dto.sortOrder === undefined ? undefined : dto.sortOrder,
         stripePriceId: dto.stripePriceId === undefined ? undefined : dto.stripePriceId?.trim() || null,
         stripeProductId: dto.stripeProductId === undefined ? undefined : dto.stripeProductId?.trim() || null,
+        productKey: dto.productKey === undefined ? undefined : dto.productKey?.trim() || null,
       },
     });
     await this.logAction(actorId, 'superadmin.white_label.payment_link.update', `whiteLabel:${whiteLabelId}`, {

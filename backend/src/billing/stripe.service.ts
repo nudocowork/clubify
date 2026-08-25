@@ -13,6 +13,7 @@ import { fmtSmsDate } from './sms-templates';
 import { decryptSecret } from '../common/crypto/secret-box';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { HotmartService } from './hotmart.service';
+import { invalidateBusinessTypeCache } from '../common/guards/infolink-only.guard';
 
 /** Contexto extraído de un evento de pago Stripe, normalizado. */
 type StripeCtx = {
@@ -296,6 +297,10 @@ export class StripeService {
     const ctx = await this.extractCtx(brand, event);
     const tenant = await this.findTenant(brand.whiteLabelId, ctx);
     if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    // Freemium: InfoLink PRO cancelado → vuelve a FREE, no se suspende.
+    if (await this.downgradeInfolinkPro(tenant.id)) {
+      return { ok: true, action: 'infolink_downgraded_to_free' };
+    }
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: { status: 'SUSPENDED', suspendedAt: new Date() },
@@ -401,6 +406,10 @@ export class StripeService {
     const ctx = this.ctxFromSubscription(event);
     const tenant = await this.findTenant(brand.whiteLabelId, ctx);
     if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    // Freemium: InfoLink PRO pausado → vuelve a FREE, no se suspende.
+    if (await this.downgradeInfolinkPro(tenant.id)) {
+      return { ok: true, action: 'infolink_downgraded_to_free' };
+    }
     if (tenant.status !== 'SUSPENDED') {
       await this.prisma.tenant.update({
         where: { id: tenant.id },
@@ -622,10 +631,16 @@ export class StripeService {
       where: { id: tenant.id },
       select: { purchasedAt: true },
     });
+    // Freemium Sellea: si el link de pago pagado (por priceId) otorga un
+    // producto, lo aplicamos al confirmar el pago (server-side, nunca desde el
+    // cliente). INFOLINK_PRO → tier=PRO; FULL → Negocio Completo. Pagos normales
+    // (sin productKey) no cambian tipo/nivel. Ver project_sellea_infolinks_freemium.
+    const entitlement = await this.resolveEntitlementPatch(whiteLabelId, ctx.priceId);
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
         status: 'ACTIVE',
+        ...entitlement,
         // 2026-07-31: monto crudo → auditoría, no a la base de comisiones.
         ...(ctx.amountUsd != null ? { lastPaymentAmountUsd: ctx.amountUsd } : {}),
         ...(nextCharge ? { currentPeriodEnd: nextCharge } : {}),
@@ -667,6 +682,11 @@ export class StripeService {
         ),
       );
 
+    // Si el pago lo pasó a Negocio Completo, invalidamos el cache del
+    // InfoLinkOnlyGuard para que los módulos se desbloqueen sin esperar el TTL.
+    if ((entitlement as { businessType?: string }).businessType === 'FULL') {
+      invalidateBusinessTypeCache(tenant.id);
+    }
     // PDF 1256 §8: auditar + limpiar la marca de liberación de crédito (permite
     // liberar de nuevo si el negocio se vuelve a suspender en un ciclo futuro).
     await this.billing.clearCreditRelease(tenant.id);
@@ -880,6 +900,47 @@ export class StripeService {
       if (link) return link.periodicity;
     }
     return fallback;
+  }
+
+  /**
+   * Freemium: qué OTORGA el pago según el link (productKey) que matchea el
+   * priceId pagado. Devuelve el patch a aplicar sobre el tenant:
+   *   INFOLINK_PRO → { infolinkTier: 'PRO' }        (sube de FREE a PRO)
+   *   FULL         → { businessType: 'FULL', infolinkTier: null } (Negocio Completo)
+   *   sin productKey / sin priceId → {}             (suscripción normal)
+   */
+  private async resolveEntitlementPatch(
+    whiteLabelId: string,
+    priceId: string | null,
+  ): Promise<Record<string, unknown>> {
+    if (!priceId) return {};
+    const link = await this.prisma.whiteLabelPaymentLink.findFirst({
+      where: { whiteLabelId, stripePriceId: priceId },
+      select: { productKey: true },
+    });
+    if (link?.productKey === 'INFOLINK_PRO') return { infolinkTier: 'PRO' };
+    if (link?.productKey === 'FULL') return { businessType: 'FULL', infolinkTier: null };
+    return {};
+  }
+
+  /**
+   * Freemium: si el tenant es "Solo InfoLink", cancelar/pausar el PRO NO lo
+   * suspende — vuelve a FREE y su Infolink público SIGUE VIVO (con publicidad y
+   * límites de nuevo). Devuelve true si lo manejó (el caller NO debe suspender);
+   * false si es Negocio Completo → sigue el flujo normal de suspensión.
+   */
+  private async downgradeInfolinkPro(tenantId: string): Promise<boolean> {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { businessType: true },
+    });
+    if (t?.businessType !== 'INFOLINK') return false;
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { infolinkTier: 'FREE' },
+    });
+    this.logger.log(`InfoLink PRO cancelado/pausado → FREE (sigue activo) tenant=${tenantId}`);
+    return true;
   }
 
   /** Resuelve el tenant de la marca por subscription/customer/email. Scopeado
