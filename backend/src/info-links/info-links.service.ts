@@ -421,6 +421,10 @@ export class InfoLinksService {
         mapsUrl: true,
         slug: true,
         status: true,
+        // Tipo/nivel del negocio → el render público decide si muestra la
+        // publicidad de Sellea (solo InfoLink FREE). PRO/FULL no la muestran.
+        businessType: true,
+        infolinkTier: true,
         // Marca blanca del negocio: el infolink muestra "Hecho con {marca}".
         whiteLabelId: true,
         locations: {

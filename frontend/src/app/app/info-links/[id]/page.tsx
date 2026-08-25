@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { PhoneInput } from '@/components/PhoneInput';
 import { useTenantCountry } from '@/lib/useTenantCountry';
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { publicHostForTenant } from '@/lib/public-domain';
@@ -52,6 +52,7 @@ import {
 import { FULL_LOOKS, type FullLookId } from '@/lib/info-link-full-looks';
 import type { InfoLinkTextColors } from '@/components/info-link-shells';
 import { autoTextColor, contrastRatio } from '@/lib/contrast';
+import { infolinkCapabilities } from '@/lib/infolink-tier';
 import {
   DEFAULT_POPUP_CONFIG,
   POPUP_TEMPLATES,
@@ -303,6 +304,15 @@ export default function InfoLinkEditor() {
 
   function addButton() {
     if (!link) return;
+    // Tope de botones por nivel del InfoLink (FREE = 5). PRO/FULL = ilimitado.
+    const caps = infolinkCapabilities(tenant?.businessType, tenant?.infolinkTier);
+    if (caps.maxButtons != null && link.buttons.length >= caps.maxButtons) {
+      alert(
+        `Tu plan Gratis permite hasta ${caps.maxButtons} botones. ` +
+          `Mejora a PRO para botones ilimitados.`,
+      );
+      return;
+    }
     const fresh: Button = {
       label: t('newButton'),
       type: 'EXTERNAL',
@@ -378,6 +388,15 @@ export default function InfoLinkEditor() {
   // del panel (comportamiento histórico, no regresiona el link canónico ni el
   // testeo local). El vanity (rootSlug) sí usa shareHost, igual que antes.
   const shareHost = publicHostForTenant(tenant);
+  // Capacidades por nivel del InfoLink (freemium). FREE limita botones; PRO/FULL
+  // ilimitado. Solo afecta a negocios INFOLINK+FREE — el resto no ve gating.
+  const caps = infolinkCapabilities(tenant?.businessType, tenant?.infolinkTier);
+  const atButtonCap = caps.maxButtons != null && link.buttons.length >= caps.maxButtons;
+  // Cross-sell a "Sellea Completo": solo para negocios Solo-InfoLink y solo si la
+  // marca tiene configurado un Payment Link con productKey=FULL (sino, dormido).
+  const isInfolinkBiz = tenant?.businessType === 'INFOLINK';
+  const completoUrl =
+    tenant?.whiteLabel?.paymentLinks?.find((l: any) => l.productKey === 'FULL')?.url ?? null;
   const hasOwnDomain = !!tenant?.customDomain;
   const publicBase = hasOwnDomain
     ? `https://${shareHost}`
@@ -438,6 +457,31 @@ export default function InfoLinkEditor() {
         <div className="rounded-lg bg-ok-soft text-ok-ink px-3 py-2 mb-4 text-sm">
           {t('savedAt', { time: savedAt.toLocaleTimeString('es-CO') })}
         </div>
+      )}
+
+      {isInfolinkBiz && completoUrl && (
+        <a
+          href={completoUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="no-underline"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18,
+            background: 'linear-gradient(120deg,#1A1033,#2f1f52 70%,#43285c)',
+            color: '#FFF6F0', borderRadius: 16, padding: '14px 18px',
+          }}
+        >
+          <span style={{ fontSize: 24 }}>🚀</span>
+          <span style={{ flex: 1 }}>
+            <b style={{ fontSize: 15 }}>Haz crecer tu negocio con Sellea</b>
+            <span style={{ display: 'block', fontSize: 12.5, color: 'rgba(255,246,240,.78)', marginTop: 2 }}>
+              Suma fidelización, Wallet, promociones y más — con la misma cuenta, sin perder tu InfoLink.
+            </span>
+          </span>
+          <span style={{ background: '#FF4D3D', color: '#fff', fontWeight: 800, fontSize: 13, padding: '9px 16px', borderRadius: 999, whiteSpace: 'nowrap', flex: 'none' }}>
+            Conocer Sellea Completo →
+          </span>
+        </a>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-5">
@@ -576,6 +620,7 @@ export default function InfoLinkEditor() {
             primary={primary}
             tenantLogoUrl={tenant?.logoUrl ?? null}
             heroImageUrl={link.heroImageUrl}
+            lockPro={!caps.customBackground}
             onChange={(patch) => update('theme', { ...link.theme, ...patch })}
           />
 
@@ -657,8 +702,19 @@ export default function InfoLinkEditor() {
           {/* Botones */}
           <div className="card card-pad">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold m-0">{t('buttons')}</h3>
-              <button className="btn-ghost text-sm" onClick={addButton}>
+              <h3 className="font-semibold m-0">
+                {t('buttons')}
+                {caps.maxButtons != null && (
+                  <span className="text-xs font-normal text-mute ml-2">
+                    {link.buttons.length}/{caps.maxButtons} · plan Gratis
+                  </span>
+                )}
+              </h3>
+              <button
+                className={`btn-ghost text-sm ${atButtonCap ? 'opacity-60' : ''}`}
+                onClick={addButton}
+                title={atButtonCap ? 'Límite del plan Gratis — mejora a PRO' : undefined}
+              >
                 <Icon name="plus" /> {t('button')}
               </button>
             </div>
@@ -1663,6 +1719,31 @@ function PublicLinkPreview({
 }
 
 // =====================================================
+/** Candado PRO: en plan FREE muestra el panel atenuado + overlay "Disponible
+ *  con PRO". Solo se activa para negocios INFOLINK+FREE (freemium Sellea); el
+ *  resto ve el panel normal. El upgrade real (Stripe) llega en 2D. */
+function ProLock({ active, feature, children }: { active: boolean; feature: string; children: ReactNode }) {
+  if (!active) return <>{children}</>;
+  return (
+    <div className="relative">
+      <div className="pointer-events-none opacity-50 select-none" aria-hidden="true">
+        {children}
+      </div>
+      <button
+        type="button"
+        onClick={() =>
+          alert(`${feature} está disponible con PRO. Mejora tu plan para desbloquearlo.`)
+        }
+        className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-xl"
+        style={{ background: 'rgba(255,251,247,.62)', backdropFilter: 'blur(1px)' }}
+      >
+        <span className="text-sm font-bold text-ink">🔒 Disponible con PRO</span>
+        <span className="text-xs text-mute">Toca para mejorar tu plan</span>
+      </button>
+    </div>
+  );
+}
+
 // VisualSection — wrapper que agrupa logo + banner + tipografía + looks
 // =====================================================
 //
@@ -1679,6 +1760,7 @@ function VisualSection({
   primary,
   tenantLogoUrl,
   heroImageUrl,
+  lockPro,
   onChange,
 }: {
   theme: {
@@ -1694,6 +1776,8 @@ function VisualSection({
   primary: string;
   tenantLogoUrl: string | null;
   heroImageUrl: string | null;
+  /** Plan FREE: bloquea fondos/colores personalizados (candado "PRO"). */
+  lockPro?: boolean;
   onChange: (patch: {
     logoContainer?: LogoContainerConfig | null;
     bannerConfig?: BannerConfig | null;
@@ -1820,24 +1904,27 @@ function VisualSection({
         />
       </div>
 
-      {/* Fondo personalizable (Bloque 1 2026-06-12) */}
+      {/* Fondo personalizable (Bloque 1 2026-06-12) — PRO */}
       <div className="border-t border-line pt-5">
-        <BackgroundPanel
-          value={theme.background ?? null}
-          onChange={(next) => onChange({ background: next })}
-        />
+        <ProLock active={!!lockPro} feature="El fondo personalizado">
+          <BackgroundPanel
+            value={theme.background ?? null}
+            onChange={(next) => onChange({ background: next })}
+          />
+        </ProLock>
       </div>
 
-      {/* Colores de texto por elemento (2026-08-19) — para que un fondo
-          custom no deje el texto ilegible. Aditivo: campo vacío = default. */}
+      {/* Colores de texto por elemento (2026-08-19) — PRO. Aditivo. */}
       <div className="border-t border-line pt-5">
-        <TextColorsPanel
-          value={theme.text ?? null}
-          template={resolveTemplate(theme)}
-          primary={primary}
-          background={theme.background ?? null}
-          onChange={(next) => onChange({ text: next })}
-        />
+        <ProLock active={!!lockPro} feature="Los colores de texto personalizados">
+          <TextColorsPanel
+            value={theme.text ?? null}
+            template={resolveTemplate(theme)}
+            primary={primary}
+            background={theme.background ?? null}
+            onChange={(next) => onChange({ text: next })}
+          />
+        </ProLock>
       </div>
 
       {/* Popup promocional global — principal */}

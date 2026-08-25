@@ -49,6 +49,9 @@ export type WalletPassPreviewProps = {
   stampInactiveColor?: string | null;
   stampContourColor?: string | null;
   centerBgColor?: string | null;
+  /** Chip/fondo detrás del logo del header. null = sin chip (bg blanco 15%
+   *  histórico). Un color da contraste a logos blancos/transparentes. */
+  logoBgColor?: string | null;
   // Wallet V3 — modo de fondo del área de sellos.
   stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   stampBgImageUrl?: string | null;
@@ -95,6 +98,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     stampInactiveColor,
     stampContourColor,
     centerBgColor,
+    logoBgColor,
     stampBgType = 'GRADIENT',
     stampBgImageUrl,
     stampIconImageUrl,
@@ -217,14 +221,20 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
       <div className="flex items-start justify-between gap-2.5 px-4 pt-3.5 pb-2 relative">
         <div className="flex items-center gap-2 min-w-0">
           <div
-            className="w-7 h-7 rounded-md bg-white/15 backdrop-blur flex items-center justify-center font-bold text-[12px] shrink-0 overflow-hidden"
+            className={`w-7 h-7 rounded-md flex items-center justify-center font-bold text-[12px] shrink-0 overflow-hidden ${
+              logoBgColor ? '' : 'bg-white/15 backdrop-blur'
+            }`}
+            style={logoBgColor ? { background: logoBgColor } : undefined}
           >
             {brandLogoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
+              // object-contain (no cover): así el logo no se recorta y calza
+              // con el pase real (Apple usa fit:contain). Con chip, un pelín
+              // de padding para que respire.
               <img
                 src={brandLogoUrl}
                 alt=""
-                className="w-full h-full object-cover"
+                className={`w-full h-full object-contain ${logoBgColor ? 'p-0.5' : ''}`}
               />
             ) : (
               initial

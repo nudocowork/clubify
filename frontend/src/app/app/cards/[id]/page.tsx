@@ -42,6 +42,7 @@ type Card = {
   stampInactiveColor?: string | null;
   stampContourColor?: string | null;
   centerBgColor?: string | null;
+  logoBgColor?: string | null;
   stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   stampBgImageUrl?: string | null;
   stampIconImageUrl?: string | null;
@@ -399,6 +400,7 @@ export default function CardDetail() {
               stampInactiveColor={card.stampInactiveColor}
               stampContourColor={card.stampContourColor}
               centerBgColor={card.centerBgColor}
+              logoBgColor={card.logoBgColor}
               stampBgType={card.stampBgType}
               stampBgImageUrl={card.stampBgImageUrl}
               stampIconImageUrl={card.stampIconImageUrl}
@@ -934,6 +936,7 @@ function EditCardModal({
     stampInactiveColor: card.stampInactiveColor ?? (null as string | null),
     stampContourColor: card.stampContourColor ?? (null as string | null),
     centerBgColor: card.centerBgColor ?? (null as string | null),
+    logoBgColor: card.logoBgColor ?? (null as string | null),
     stampBgType: (card.stampBgType ?? 'GRADIENT') as 'GRADIENT' | 'SOLID' | 'IMAGE',
     stampBgImageUrl: card.stampBgImageUrl ?? (null as string | null),
     stampIconImageUrl: card.stampIconImageUrl ?? (null as string | null),
@@ -1028,6 +1031,7 @@ function EditCardModal({
         stampInactiveColor: form.stampInactiveColor,
         stampContourColor: form.stampContourColor,
         centerBgColor: form.centerBgColor,
+        logoBgColor: form.logoBgColor,
         stampBgType: form.stampBgType,
         stampBgImageUrl: form.stampBgType === 'IMAGE' ? form.stampBgImageUrl : null,
         freeRewards: form.freeRewards,
@@ -1386,6 +1390,57 @@ function EditCardModal({
                 }
               />
             </div>
+          </div>
+
+          {/* Fondo/chip detrás del logo — da contraste a logos blancos o
+              transparentes que quedaban invisibles sobre la tarjeta y el
+              pase. Off por defecto (no cambia tarjetas existentes). */}
+          <div className="rounded-lg border border-line p-3">
+            <div className="flex items-center justify-between">
+              <label className="label m-0">Fondo detrás del logo</label>
+              <button
+                type="button"
+                onClick={() =>
+                  setForm({
+                    ...form,
+                    logoBgColor: form.logoBgColor ? null : '#FFFFFF',
+                  })
+                }
+                className="text-[11px] text-brand hover:underline"
+              >
+                {form.logoBgColor ? 'Quitar' : 'Activar'}
+              </button>
+            </div>
+            <div className="text-[11px] text-mute mt-0.5 leading-snug">
+              Si tu logo es blanco o se ve invisible, activá un fondo detrás.
+              Off = el logo va directo sobre el color de la tarjeta.
+            </div>
+            {form.logoBgColor && (
+              <div className="flex items-center gap-2 mt-2">
+                <input
+                  type="color"
+                  className="input h-9 p-1 w-16"
+                  value={form.logoBgColor}
+                  onChange={(e) =>
+                    setForm({ ...form, logoBgColor: e.target.value })
+                  }
+                />
+                <button
+                  type="button"
+                  className="text-[11px] px-2 py-1 rounded border border-line hover:bg-bg2/50"
+                  onClick={() => setForm({ ...form, logoBgColor: '#FFFFFF' })}
+                >
+                  Blanco
+                </button>
+                <button
+                  type="button"
+                  className="text-[11px] px-2 py-1 rounded border border-line hover:bg-bg2/50"
+                  onClick={() => setForm({ ...form, logoBgColor: '#111111' })}
+                >
+                  Oscuro
+                </button>
+              </div>
+            )}
           </div>
 
           <button

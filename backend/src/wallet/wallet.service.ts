@@ -364,8 +364,9 @@ export class WalletService {
 
     let tenantLogos: Record<string, Buffer> = {};
     let usedLogoUrl: string | null = null;
+    const logoChip = (pass.card as any).logoBgColor as string | null | undefined;
     for (const url of candidates) {
-      const attempt = await this.generateTenantLogos(url);
+      const attempt = await this.generateTenantLogos(url, logoChip);
       const main = attempt['logo.png'];
       // Un PNG 160×50 totalmente transparente pesa ~130 bytes. Si lo que
       // generamos es <500 bytes, asumimos que el chroma-key vació la
@@ -1260,6 +1261,7 @@ export class WalletService {
    */
   private async generateTenantLogos(
     logoUrl: string | null,
+    logoBgColor?: string | null,
   ): Promise<Record<string, Buffer>> {
     const sharp = (await import('sharp')).default;
     const transparent = (w: number, h: number) =>
@@ -1306,14 +1308,21 @@ export class WalletService {
       // píxeles oscuros que se preservan.
       const prepared = await this.prepareLogoForWallet(src);
 
-      const make = (w: number, h: number) =>
-        sharp(prepared)
-          .resize(w, h, {
-            fit: 'contain',
-            background: { r: 0, g: 0, b: 0, alpha: 0 },
-          })
+      // Chip/fondo detrás del logo (opcional, por tarjeta). Si el negocio lo
+      // activó, aplanamos el logo (que puede haber quedado transparente tras
+      // el chroma-key, o traer contenido blanco) SOBRE ese color → el logo
+      // vuelve a ser visible. Sin chip, se mantiene el fondo transparente
+      // histórico (logo sobre el gradiente del pase).
+      const chip = this.parseChipColor(logoBgColor);
+      const make = (w: number, h: number) => {
+        const img = sharp(prepared).resize(w, h, {
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        });
+        return (chip ? img.flatten({ background: chip }) : img)
           .png()
           .toBuffer();
+      };
       const [l1, l2, l3] = await Promise.all([
         make(160, 50),
         make(320, 100),
@@ -1335,6 +1344,21 @@ export class WalletService {
    * vs. qué es contenido, y un blanco intencional en el logo no debería
    * borrarse.
    */
+  /** Parsea el color del chip/fondo del logo (#rgb o #rrggbb) a {r,g,b}
+   *  para sharp. Devuelve null si viene vacío, 'transparent' o inválido
+   *  (= sin chip). */
+  private parseChipColor(
+    hex?: string | null,
+  ): { r: number; g: number; b: number } | null {
+    if (!hex) return null;
+    let h = hex.trim().replace(/^#/, '');
+    if (h.toLowerCase() === 'transparent') return null;
+    if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+    const n = parseInt(h, 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
   private async prepareLogoForWallet(src: Buffer): Promise<Buffer> {
     const sharp = (await import('sharp')).default;
     const { data, info } = await sharp(src)

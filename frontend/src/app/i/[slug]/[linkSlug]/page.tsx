@@ -18,6 +18,7 @@ import {
   type InfoLinkPopup,
 } from '@/lib/info-link-extras';
 import { InfoLinkGlobalPopup } from '@/components/info-link-global-popup';
+import { infolinkCapabilities } from '@/lib/infolink-tier';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -80,6 +81,10 @@ type Tenant = {
   mapsUrl: string | null;
   slug: string;
   locations?: Location[];
+  // Freemium Sellea: nivel del negocio → decide si mostramos la tarjeta de
+  // captación (solo INFOLINK + FREE). PRO/FULL no la muestran.
+  businessType?: string | null;
+  infolinkTier?: string | null;
 };
 
 type Link = {
@@ -199,6 +204,13 @@ export default function PublicInfoLink() {
 
   const { tenant, link } = data;
   const primary = link.theme?.primaryColor ?? tenant.primaryColor ?? '#22C55E';
+  // Freemium: la tarjeta de captación "Crea tu Infolink gratis" solo aparece en
+  // negocios INFOLINK + FREE. PRO/FULL no la muestran (el badge de marca queda
+  // igual para todos). Aditivo: los infolinks existentes no cambian.
+  const showFreemiumCta = infolinkCapabilities(
+    tenant.businessType,
+    tenant.infolinkTier,
+  ).showSelleaAds;
 
   // #20 (2026-06-17): si la sede tiene mapsUrl (link EXACTO de Google Maps),
   // lo abrimos tal cual; si no, búsqueda por nombre+dirección (o lat,lng).
@@ -549,6 +561,38 @@ export default function PublicInfoLink() {
         customBackground={customBg}
         brand={data.brand}
       />
+      {showFreemiumCta && (
+        <a
+          href="/infolink"
+          target="_blank"
+          rel="noreferrer"
+          className="fixed left-1/2 z-40 flex items-center gap-3 rounded-2xl px-4 py-2.5 shadow-lg no-underline"
+          style={{
+            bottom: 'calc(0.75rem + env(safe-area-inset-bottom))',
+            transform: 'translateX(-50%)',
+            width: 'min(420px, calc(100% - 24px))',
+            background: '#1A1033',
+            color: '#FFF6F0',
+          }}
+        >
+          <span
+            style={{ width: 32, height: 32, borderRadius: 9, background: '#FF4D3D', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, flex: 'none' }}
+          >
+            {(data.brand?.name?.[0] ?? 'S').toUpperCase()}
+          </span>
+          <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, lineHeight: 1.3 }}>
+            Crea tu Infolink gratis
+            <small style={{ display: 'block', opacity: 0.7, fontWeight: 600, fontSize: 11 }}>
+              Reúne todo en un link · {data.brand?.name ?? 'Sellea'}
+            </small>
+          </span>
+          <span
+            style={{ background: '#fff', color: '#1A1033', fontSize: 11.5, fontWeight: 800, padding: '7px 12px', borderRadius: 999, flex: 'none' }}
+          >
+            Crear el mío
+          </span>
+        </a>
+      )}
       <InfoLinkPopupModal
         popup={openPopup?.config ?? null}
         primary={primary}

@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 import { addPlanPeriod, bundleMonths } from '../common/plan-period';
-import { cycleCreditCost, round2 } from '../common/business-types';
+import { cycleCreditCost, cycleCreditCostForTenant, round2 } from '../common/business-types';
 
 /**
  * Cron de renovaciones automáticas (Fase 2 del Master Admin).
@@ -97,13 +97,13 @@ export class RenewalsService {
         whiteLabelId: { not: null },
         currentPeriodEnd: { not: null, lte: horizon },
       },
-      select: { whiteLabelId: true, businessType: true, planPeriodicity: true },
+      select: { whiteLabelId: true, businessType: true, infolinkTier: true, planPeriodicity: true },
     });
 
     const byWl = new Map<string, number>();
     for (const t of tenants) {
       if (!t.whiteLabelId) continue;
-      const cost = cycleCreditCost(t.businessType, t.planPeriodicity);
+      const cost = cycleCreditCostForTenant(t.businessType, t.infolinkTier, t.planPeriodicity);
       byWl.set(t.whiteLabelId, (byWl.get(t.whiteLabelId) ?? 0) + cost);
     }
 
@@ -152,6 +152,7 @@ export class RenewalsService {
         currentPeriodEnd: true,
         planPeriodicity: true,
         businessType: true,
+        infolinkTier: true,
       },
       take: 1000,
     });
@@ -249,7 +250,7 @@ export class RenewalsService {
 
       // Costo del ciclo según tipo de negocio × periodicidad. Completo mensual=1,
       // InfoLink mensual=0.25, Completo anual=12, InfoLink anual=3, etc.
-      const cost = cycleCreditCost(t.businessType, t.planPeriodicity);
+      const cost = cycleCreditCostForTenant(t.businessType, t.infolinkTier, t.planPeriodicity);
       if (wl.creditsAvailable >= cost) {
         // Renovar: consume `cost` créditos + extiende currentPeriodEnd por la
         // periodicidad. Race-safe en dos niveles:

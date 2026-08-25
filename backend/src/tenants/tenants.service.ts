@@ -19,7 +19,7 @@ import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.
 import { ReferralsService } from '../referrals/referrals.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
 import { addPlanPeriod } from '../common/plan-period';
-import { cycleCreditCost, normalizeBusinessType, BusinessType } from '../common/business-types';
+import { cycleCreditCostForTenant, normalizeBusinessType, BusinessType } from '../common/business-types';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { QueueService } from '../jobs/queue.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
@@ -662,7 +662,7 @@ export class TenantsService {
     const wl = tenant.whiteLabel;
     const isWhiteLabel = !!wl && wl.slug !== 'clubify';
     // Costo del ciclo según tipo de negocio × periodicidad (InfoLink = 0.25/mes).
-    const activationCost = cycleCreditCost(tenant.businessType, tenant.planPeriodicity);
+    const activationCost = cycleCreditCostForTenant(tenant.businessType, tenant.infolinkTier, tenant.planPeriodicity);
     const brandCredits = {
       isWhiteLabel,
       unlimited: isWhiteLabel ? !!wl?.creditsUnlimited : true,
@@ -1114,7 +1114,7 @@ export class TenantsService {
     // y solo marcas no-Clubify no-ilimitadas. Clubify (Hotmart) no usa créditos.
     let consumedBrandCredit = false;
     // Costo del ciclo según tipo de negocio × periodicidad (InfoLink mensual=0.25).
-    const activationCost = cycleCreditCost(previous.businessType, previous.planPeriodicity);
+    const activationCost = cycleCreditCostForTenant(previous.businessType, previous.infolinkTier, previous.planPeriodicity);
     const activatesNow =
       (dto.mode === 'free' || dto.mode === 'paid') && previous.status !== 'ACTIVE';
     if (activatesNow && previous.whiteLabelId) {
@@ -1284,6 +1284,7 @@ export class TenantsService {
         suspendedAt: true,
         whiteLabelId: true,
         businessType: true,
+        infolinkTier: true,
         planPeriodicity: true,
       },
     });
@@ -1354,6 +1355,7 @@ export class TenantsService {
       status: TenantStatus;
       brandName: string;
       businessType?: string | null;
+      infolinkTier?: string | null;
       planPeriodicity?: string | null;
     },
     source: string,
@@ -1367,7 +1369,7 @@ export class TenantsService {
     });
     if (!wl || wl.slug === 'clubify' || wl.creditsUnlimited) return noop;
     // Costo según tipo de negocio × periodicidad (InfoLink mensual = 0.25).
-    const cost = cycleCreditCost(previous.businessType, previous.planPeriodicity);
+    const cost = cycleCreditCostForTenant(previous.businessType, previous.infolinkTier, previous.planPeriodicity);
     const debit = await this.prisma.whiteLabel.updateMany({
       where: { id: wl.id, creditsAvailable: { gte: cost } },
       data: { creditsAvailable: { decrement: cost }, creditsUsed: { increment: cost } },
@@ -1784,7 +1786,7 @@ export class TenantsService {
             paymentGateway: true,
             paymentLinks: {
               where: { active: true },
-              select: { periodicity: true, amountUsd: true, gateway: true },
+              select: { periodicity: true, amountUsd: true, gateway: true, productKey: true, url: true },
             },
             // Academia — videos-tutorial ACTIVOS de la marca. El panel del
             // negocio los usa para mostrar el botón "▶ Ver tutorial" por módulo.

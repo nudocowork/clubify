@@ -6,7 +6,7 @@ import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-cre
 import { SmsTemplatesService } from './sms-templates.service';
 import { fmtSmsDate } from './sms-templates';
 import { addPlanPeriod } from '../common/plan-period';
-import { cycleCreditCost } from '../common/business-types';
+import { cycleCreditCostForTenant } from '../common/business-types';
 import { AuditService } from '../audit/audit.service';
 
 // Secuencia de mora (PDF 2026-07-01, P4). Día 0 = 1er cobro fallido o fecha
@@ -96,6 +96,7 @@ export class BillingService {
         creditReleasedAt: true,
         whiteLabelId: true,
         businessType: true,
+        infolinkTier: true,
         planPeriodicity: true,
         whiteLabel: { select: { id: true, slug: true, creditsUnlimited: true } },
       },
@@ -112,7 +113,7 @@ export class BillingService {
     if (!consumed) return false;
     // Se libera el costo del ciclo según el tipo de negocio × periodicidad
     // (mismo valor que se cobró al activar/renovar: InfoLink mensual = 0.25).
-    const cost = cycleCreditCost(t.businessType, t.planPeriodicity);
+    const cost = cycleCreditCostForTenant(t.businessType, t.infolinkTier, t.planPeriodicity);
     // Devolver el crédito + registrar en el ledger + auditar. Marca idempotente.
     await this.prisma.$transaction([
       this.prisma.whiteLabel.update({
