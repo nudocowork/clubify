@@ -621,10 +621,30 @@ export class StripeService {
     // FIX PDF123 (cobro duplicado): si el webhook se re-procesa para el MISMO
     // período (Stripe puede reintentar/duplicar), no reenviamos "Pago recibido".
     // Un período nuevo (renovación) trae otra fecha → sí notifica.
-    const alreadyConfirmedPeriod =
-      !!nextCharge &&
-      !!tenant.currentPeriodEnd &&
-      nextCharge.getTime() === tenant.currentPeriodEnd.getTime();
+    //
+    // FIX 2026-08-26 (avisos duplicados): esto era leer-y-luego-escribir, y
+    // perdía la carrera. Una sola compra de suscripción dispara TRES eventos
+    // que caen aquí — `checkout.session.completed`, `invoice.paid` e
+    // `invoice.payment_succeeded` — y llegan en el mismo segundo. Los tres
+    // leían el `currentPeriodEnd` viejo, los tres se creían los primeros, y el
+    // negocio recibía el correo y el WhatsApp por duplicado.
+    //
+    // Ahora el período se RECLAMA con un UPDATE condicional: Postgres serializa
+    // la fila, así que solo una de las tres peticiones se lleva el `count: 1` y
+    // es la única que avisa. Las otras dos ven 0 y se callan. Sin candado
+    // explícito y sin transacción larga en mitad del camino del pago.
+    let alreadyConfirmedPeriod = false;
+    if (nextCharge) {
+      const reclamo = await this.prisma.tenant.updateMany({
+        where: {
+          id: tenant.id,
+          OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { not: nextCharge } }],
+        },
+        data: { currentPeriodEnd: nextCharge },
+      });
+      // count 0 = otro evento del mismo pago ya reclamó este período.
+      alreadyConfirmedPeriod = reclamo.count === 0;
+    }
     // PDF Soft 10: fecha real de compra — set-once en la 1ª activación (nunca se
     // pisa en renovaciones). Preferimos el timestamp real del evento (ctx.paidAt).
     const curPurchase = await this.prisma.tenant.findUnique({
