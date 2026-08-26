@@ -555,8 +555,11 @@ export class ReferralsController {
    */
   @Roles('SUPER_ADMIN')
   @Get('tenants/:tenantId/assignment')
-  getTenantAssignment(@Param('tenantId') tenantId: string) {
-    return this.svc.getTenantAssignment(tenantId);
+  getTenantAssignment(
+    @CurrentUser() user: AuthUser,
+    @Param('tenantId') tenantId: string,
+  ) {
+    return this.svc.getTenantAssignment(user, tenantId);
   }
 
   @Roles('SUPER_ADMIN')
@@ -742,6 +745,9 @@ export class AdminCommissionsController {
       role: role as any,
       tenantId,
       codeId,
+      // Feed server-to-server de Team Clubify: dataset completo (sin aislar por
+      // marca). El panel /admin sí aísla.
+      crossBrand: true,
     });
   }
 

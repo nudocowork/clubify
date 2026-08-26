@@ -10,6 +10,10 @@ import { Cron } from '@nestjs/schedule';
 import { CommissionStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  resolveBrandScope,
+  brandWhiteLabelWhere,
+} from '../common/white-label/brand-scope.util';
 import { AuditService } from '../audit/audit.service';
 import { ReferralsService } from './referrals.service';
 import { batchTotal, recalcBatchTotal } from './payout-batch.util';
@@ -381,6 +385,17 @@ export class CutoffService {
   async currentCutoff(user: AuthUser) {
     this.assertAdmin(user);
 
+    // AISLAMIENTO POR MARCA: un SUPER_ADMIN de marca blanca solo ve las
+    // comisiones de SU marca (por recipientCode). PayoutBatch es global (sin
+    // whiteLabelId), pero los importes/filas que muestra la vista salen de las
+    // comisiones, que sí se scopean. Default a Clubify (nunca "ver todo").
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    const brandCode = brandWhiteLabelWhere(scope);
+    const brandCommWhere: Prisma.CommissionWhereInput = Object.keys(brandCode)
+      .length
+      ? { recipientCode: brandCode }
+      : {};
+
     const today = bogotaYmd();
     const nextYmd = nextCutoffYmd(today);
 
@@ -401,8 +416,8 @@ export class CutoffService {
     const [rows, holdRows] = await Promise.all([
       this.prisma.commission.findMany({
         where: openIds.length
-          ? { ...PAYABLE_BASE, payoutBatchId: { in: openIds } }
-          : { ...PAYABLE_BASE, payoutBatchId: null },
+          ? { ...PAYABLE_BASE, payoutBatchId: { in: openIds }, ...brandCommWhere }
+          : { ...PAYABLE_BASE, payoutBatchId: null, ...brandCommWhere },
         select: CUTOFF_ROW_SELECT,
         orderBy: { createdAt: 'asc' },
       }),
@@ -413,6 +428,7 @@ export class CutoffService {
           status: CommissionStatus.PENDING,
           paymentStatus: { in: ['PENDING', 'PARTIAL'] },
           recipientCodeId: { not: null },
+          ...brandCommWhere,
         },
         select: CUTOFF_ROW_SELECT,
         orderBy: { createdAt: 'asc' },
@@ -457,7 +473,7 @@ export class CutoffService {
     let unbatchedCount = 0;
     if (!isPreview) {
       const orphans = await this.prisma.commission.findMany({
-        where: { ...PAYABLE_BASE, payoutBatchId: null },
+        where: { ...PAYABLE_BASE, payoutBatchId: null, ...brandCommWhere },
         select: { amount: true, amountPaid: true },
       });
       unbatchedCount = orphans.length;
@@ -950,11 +966,23 @@ export class CutoffService {
   /** Detalle de un corte: cabecera + sus comisiones (para el drill-in y el CSV). */
   async batchDetail(user: AuthUser, batchId: string) {
     this.assertAdmin(user);
+
+    // AISLAMIENTO POR MARCA: solo las comisiones de la marca del admin. El corte
+    // (PayoutBatch) es global, así que las embebidas se filtran por recipientCode
+    // y el total se RECALCULA desde ellas (si no, cabecera y lista se contradicen).
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    const brandCode = brandWhiteLabelWhere(scope);
+    const brandCommWhere: Prisma.CommissionWhereInput = Object.keys(brandCode)
+      .length
+      ? { recipientCode: brandCode }
+      : {};
+
     const b = await this.prisma.payoutBatch.findUnique({
       where: { id: batchId },
       include: {
         closedBy: { select: { id: true, fullName: true, email: true } },
         commissions: {
+          where: brandCommWhere,
           select: {
             id: true,
             amount: true,
@@ -981,10 +1009,19 @@ export class CutoffService {
       },
     });
     if (!b) throw new NotFoundException('Corte no encontrado');
+    // Si el admin está scopeado a una marca y el corte no tiene NINGUNA comisión
+    // suya, no debe siquiera confirmar que el corte existe.
+    if (Object.keys(brandCommWhere).length && b.commissions.length === 0) {
+      throw new NotFoundException('Corte no encontrado');
+    }
 
     const today = bogotaYmd();
     const daysOpen =
       b.status === 'OPEN' ? daysBetweenYmd(bogotaYmd(b.cutoffDate), today) : 0;
+    // Total RECALCULADO desde las comisiones scopeadas (no el b.totalUsd global).
+    const scopedTotalUsd = round2(
+      b.commissions.reduce((s, c) => s + Number(c.amount), 0),
+    );
 
     return {
       id: b.id,
@@ -995,7 +1032,7 @@ export class CutoffService {
       periodStart: b.periodStart,
       periodEnd: b.periodEnd,
       paymentDate: b.paymentDate,
-      totalUsd: Number(b.totalUsd),
+      totalUsd: scopedTotalUsd,
       currency: b.currency,
       notes: b.notes,
       reference: b.reference,

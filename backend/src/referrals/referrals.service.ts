@@ -1264,16 +1264,25 @@ export class ReferralsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const since = new Date(Date.now() - days * 86400_000);
 
+    // AISLAMIENTO POR MARCA: visitas/conversiones solo de los códigos de la
+    // marca del admin (ReferralVisit y ReferralUse cuelgan de referralCode, que
+    // tiene whiteLabelId). Default a Clubify (nunca "ver todo").
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    const brandWhere = brandWhiteLabelWhere(scope);
+    const brandCodeWhere = Object.keys(brandWhere).length
+      ? { referralCode: brandWhere }
+      : {};
+
     const [visits, uses] = await Promise.all([
       this.prisma.referralVisit.findMany({
-        where: { createdAt: { gte: since } },
+        where: { createdAt: { gte: since }, ...brandCodeWhere },
         include: {
           referralCode: { select: { code: true, ownerName: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.referralUse.findMany({
-        where: { createdAt: { gte: since }, viaSlug: { not: null } },
+        where: { createdAt: { gte: since }, viaSlug: { not: null }, ...brandCodeWhere },
         select: { viaSlug: true, status: true },
       }),
     ]);
@@ -2410,13 +2419,17 @@ export class ReferralsService {
    * AMBASSADOR. Los de role SOCIO son atribuciones globales internas,
    * no la asignación "del dueño del negocio".
    */
-  async getTenantAssignment(tenantId: string) {
+  async getTenantAssignment(user: AuthUser, tenantId: string) {
     const use = await this.prisma.referralUse.findFirst({
       where: {
         tenantId,
         // #3 (2026-06-16): VENDOR también es una asignación "del dueño del
         // negocio" (vendedor directo). SOCIO sigue excluido (atribución global).
         referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] } },
+        // IDOR / aislamiento: solo si el negocio es de la marca del admin.
+        ...(user.whiteLabelId
+          ? { tenant: { whiteLabelId: user.whiteLabelId } }
+          : {}),
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -5416,10 +5429,17 @@ export class ReferralsService {
     user: AuthUser,
   ): Promise<Array<{ id: string; brandName: string }>> {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    // AISLAMIENTO POR MARCA: solo negocios de la marca del admin.
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    const brandWhere = brandWhiteLabelWhere(scope);
+    const brandTenantWhere = Object.keys(brandWhere).length
+      ? { tenant: brandWhere }
+      : {};
     const uses = await this.prisma.referralUse.findMany({
       where: {
         tenantId: { not: null },
         commissions: { some: { status: { not: CommissionStatus.REJECTED } } },
+        ...brandTenantWhere,
       },
       select: { tenant: { select: { id: true, brandName: true } } },
     });
@@ -5442,8 +5462,12 @@ export class ReferralsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const isReal = (c: string | null | undefined) =>
       !!c && !/^(comp-|trial-|manual-|wl-|sim-|campaign-)/i.test(c);
+    // AISLAMIENTO POR MARCA: un admin de marca blanca no debe ver los negocios
+    // de Clubify (que pagan Hotmart). Scope directo por whiteLabelId del tenant.
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    const brandWhere = brandWhiteLabelWhere(scope);
     const tenants = await this.prisma.tenant.findMany({
-      where: { status: 'ACTIVE' },
+      where: { status: 'ACTIVE', ...brandWhere },
       select: {
         id: true,
         brandName: true,
@@ -5531,6 +5555,9 @@ export class ReferralsService {
       role?: 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR' | 'SOCIO';
       tenantId?: string;
       codeId?: string;
+      // Solo el feed server-to-server de Team Clubify: omite el aislamiento por
+      // marca y devuelve el dataset completo. El panel /admin NUNCA lo pasa.
+      crossBrand?: boolean;
     },
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
@@ -5565,6 +5592,26 @@ export class ReferralsService {
     if (opts.codeId) baseWhere.recipientCodeId = opts.codeId;
     if (opts.tenantId) baseWhere.referralUse = { tenantId: opts.tenantId };
     if (opts.role) baseWhere.recipientCode = { role: opts.role };
+
+    // AISLAMIENTO POR MARCA (crítico): sin esto, un SUPER_ADMIN de una marca
+    // blanca (Sellea) veía las comisiones de TODAS las marcas, incluida Clubify.
+    // Commission no tiene whiteLabelId propio → se scopea por la marca del
+    // negocio (referralUse.tenant). Default a Clubify (nunca "ver todo").
+    // `crossBrand` = solo el feed server-to-server de Team Clubify, que necesita
+    // el dataset completo; el panel NUNCA lo pasa.
+    if (!opts.crossBrand) {
+      const brandScope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+      const brandWhere = brandWhiteLabelWhere(brandScope);
+      if (Object.keys(brandWhere).length > 0) {
+        // La comisión pertenece a la marca del CÓDIGO que cobra (recipientCode
+        // tiene whiteLabelId directo). Merge con el filtro de rol/código si ya
+        // existe. (Alineado con el reporte de Javier: scope por "quien cobra".)
+        baseWhere.recipientCode = {
+          ...(baseWhere.recipientCode ?? {}),
+          ...brandWhere,
+        };
+      }
+    }
 
     const BUCKET_STATUS: Record<string, CommissionStatus> = {
       pending_approval: CommissionStatus.PENDING,
@@ -6593,9 +6640,14 @@ export class ReferralsService {
 
     const code = await this.prisma.referralCode.findUnique({
       where: { id: codeId },
-      select: { id: true, ownerName: true },
+      select: { id: true, ownerName: true, whiteLabelId: true },
     });
     if (!code) throw new NotFoundException('Código no encontrado');
+    // IDOR / dinero: un admin de marca blanca no puede pagar comisiones de un
+    // afiliado de otra marca aunque conozca el codeId.
+    if (user.whiteLabelId && code.whiteLabelId !== user.whiteLabelId) {
+      throw new NotFoundException('Código no encontrado');
+    }
 
     // Brief PASO 6: pagar EXIGE un lote de corte, para que todo pago quede
     // reproducible y con la fecha REAL de la transferencia (no "ahora"). Se
@@ -6779,6 +6831,15 @@ export class ReferralsService {
 
   async listPayoutBatches(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+
+    // AISLAMIENTO POR MARCA: PayoutBatch es global (sin whiteLabelId). El conteo
+    // y el total de cada lote se RECALCULAN con solo las comisiones de la marca
+    // del admin, y se ocultan los lotes que no tienen ninguna suya. Default a
+    // Clubify (nunca "ver todo").
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    const brandCode = brandWhiteLabelWhere(scope);
+    const scoped = Object.keys(brandCode).length > 0;
+
     const batches = await this.prisma.payoutBatch.findMany({
       // Los abiertos primero (son los que hay que atender); dentro de cada
       // grupo, el más reciente arriba. `paymentDate` es null en los abiertos,
@@ -6789,35 +6850,60 @@ export class ReferralsService {
         closedBy: { select: { id: true, fullName: true, email: true } },
       },
     });
+
+    // Conteo + suma por lote de SOLO las comisiones de la marca.
+    const scopedByBatch = new Map<string, { count: number; total: number }>();
+    if (scoped && batches.length) {
+      const grouped = await this.prisma.commission.groupBy({
+        by: ['payoutBatchId'],
+        where: {
+          payoutBatchId: { in: batches.map((b) => b.id) },
+          recipientCode: brandCode,
+        },
+        _count: { _all: true },
+        _sum: { amount: true },
+      });
+      for (const g of grouped) {
+        if (!g.payoutBatchId) continue;
+        scopedByBatch.set(g.payoutBatchId, {
+          count: g._count._all,
+          total: Math.round(Number(g._sum.amount ?? 0) * 100) / 100,
+        });
+      }
+    }
+
     const today = bogotaYmd();
-    return batches.map((b) => {
-      const daysOpen =
-        b.status === 'OPEN' ? daysBetweenYmd(bogotaYmd(b.cutoffDate), today) : 0;
-      return {
-        id: b.id,
-        code: b.code,
-        cutoffDate: b.cutoffDate,
-        periodStart: b.periodStart,
-        periodEnd: b.periodEnd,
-        paymentDate: b.paymentDate,
-        kind: b.kind,
-        status: b.status,
-        totalUsd: Number(b.totalUsd),
-        currency: b.currency,
-        notes: b.notes,
-        reference: b.reference,
-        generatedAuto: b.generatedAuto,
-        closedAt: b.closedAt,
-        closedBy: b.closedBy
-          ? { id: b.closedBy.id, name: b.closedBy.fullName, email: b.closedBy.email }
-          : null,
-        commissionsCount: b._count.commissions,
-        daysOpen,
-        // Un corte abierto hace más de 5 días: o nadie transfirió, o alguien
-        // transfirió y no lo registró (el caso del 31/07).
-        isStale: b.status === 'OPEN' && daysOpen > 5,
-      };
-    });
+    return batches
+      .filter((b) => !scoped || scopedByBatch.has(b.id))
+      .map((b) => {
+        const s = scopedByBatch.get(b.id);
+        const daysOpen =
+          b.status === 'OPEN' ? daysBetweenYmd(bogotaYmd(b.cutoffDate), today) : 0;
+        return {
+          id: b.id,
+          code: b.code,
+          cutoffDate: b.cutoffDate,
+          periodStart: b.periodStart,
+          periodEnd: b.periodEnd,
+          paymentDate: b.paymentDate,
+          kind: b.kind,
+          status: b.status,
+          totalUsd: scoped ? (s?.total ?? 0) : Number(b.totalUsd),
+          currency: b.currency,
+          notes: b.notes,
+          reference: b.reference,
+          generatedAuto: b.generatedAuto,
+          closedAt: b.closedAt,
+          closedBy: b.closedBy
+            ? { id: b.closedBy.id, name: b.closedBy.fullName, email: b.closedBy.email }
+            : null,
+          commissionsCount: scoped ? (s?.count ?? 0) : b._count.commissions,
+          daysOpen,
+          // Un corte abierto hace más de 5 días: o nadie transfirió, o alguien
+          // transfirió y no lo registró (el caso del 31/07).
+          isStale: b.status === 'OPEN' && daysOpen > 5,
+        };
+      });
   }
 }
 
