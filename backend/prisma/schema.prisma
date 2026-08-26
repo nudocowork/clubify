@@ -4953,6 +4953,12 @@ model WhiteLabel {
   /// marca define qué ofrece su plan; nunca se muestran features que no incluye.
   subscriptionFeatureKeys String[] @default([])
 
+  /// Visibilidad de la tarjeta "Grow Business · SMS" (conectar un negocio a una
+  /// subcuenta GHL) en el detalle de negocio del admin. Default true (Clubify y
+  /// marcas que la usan). false = ocultarla para esa marca SIN tocar el módulo
+  /// GROW_BUSINESS_SMS (ese gatea el ENVÍO real de SMS, no la card). Solo UI.
+  showGrowBusinessCard    Boolean @default(true)
+
   /// Wallet V3 — bloque "Wallet Avanzado". Permisos de la marca sobre las
   /// funciones nuevas de Wallet. Objeto con claves booleanas:
   ///   { customBackgrounds, freeRewards, removeStamps, showNextReward,

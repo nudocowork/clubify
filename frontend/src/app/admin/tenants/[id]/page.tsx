@@ -802,8 +802,8 @@ export default function TenantDetail() {
           <div className="card card-pad">
             <h2 className="text-base font-semibold m-0">Notas internas</h2>
             <p className="mt-1 text-sm text-mute">
-              Solo visibles desde Clubify — el dueño del negocio no las ve.
-              Observaciones operativas (ej. &quot;pagó por Nequi&quot;).
+              Solo visibles para el equipo — el dueño del negocio no las ve.
+              Observaciones operativas del negocio (ej. la forma de pago acordada).
             </p>
             <textarea
               className="input mt-3 w-full min-h-[120px] resize-y"
@@ -869,6 +869,7 @@ export default function TenantDetail() {
             marca del negocio tiene el módulo GROW_BUSINESS_SMS habilitado
             (Módulos en Master Admin). enabledModules null = Clubify (todo on). */}
         {isSuperAdmin &&
+          t.whiteLabel?.showGrowBusinessCard !== false &&
           (t.enabledModules
             ? t.enabledModules.includes('GROW_BUSINESS_SMS')
             : true) && (
