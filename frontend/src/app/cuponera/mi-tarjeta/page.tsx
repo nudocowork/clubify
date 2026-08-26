@@ -10,20 +10,27 @@ type Pass = { id: string; serialNumber: string; memberName: string };
 type StampProg = { id: string; name: string; rewardText: string; stampsCount: number; stampsRequired: number };
 
 export default function MiTarjetaPage() {
-  const [phone, setPhone] = useState('');
+  // Se llama `q` porque acepta teléfono o correo: quien compró por Hotmart o
+  // Stripe puede no haber dejado teléfono nunca.
+  const [q, setQ] = useState('');
   const [passes, setPasses] = useState<Pass[] | null>(null);
   const [stamps, setStamps] = useState<StampProg[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
 
   async function search() {
-    if (phone.replace(/\D/g, '').length < 7) return;
+    const texto = q.trim();
+    const esEmail = texto.includes('@');
+    if (!esEmail && texto.replace(/\D/g, '').length < 7) return;
     setLoading(true);
     setSearched(true);
     try {
       const [r, s] = await Promise.all([
-        api<{ passes: Pass[] }>(`/cuponera/public/card/by-phone?phone=${encodeURIComponent(phone)}`),
-        api<{ programs: StampProg[] }>(`/cuponera/public/stamps/by-phone?phone=${encodeURIComponent(phone)}`).catch(() => ({ programs: [] })),
+        api<{ passes: Pass[] }>(`/cuponera/public/card/find?q=${encodeURIComponent(texto)}`),
+        // Los sellos siguen siendo por teléfono; con un correo no aplican.
+        esEmail
+          ? Promise.resolve({ programs: [] as StampProg[] })
+          : api<{ programs: StampProg[] }>(`/cuponera/public/stamps/by-phone?phone=${encodeURIComponent(texto)}`).catch(() => ({ programs: [] })),
       ]);
       setPasses(r.passes);
       setStamps(s.programs ?? []);
@@ -53,15 +60,16 @@ export default function MiTarjetaPage() {
       <div style={{ background: '#fff', borderRadius: 20, padding: '30px 26px', boxShadow: '0 8px 30px rgba(0,0,0,.07)', marginTop: 20 }}>
         <h1 style={{ fontSize: 24, fontWeight: 900, margin: '0 0 6px' }}>Mi tarjeta</h1>
         <p style={{ color: '#64748b', fontSize: 14, marginBottom: 20 }}>
-          Ingresa tu teléfono para recuperar tu Living Card y añadirla a Apple o Google Wallet.
+          Ingresá tu teléfono o el correo con el que compraste para recuperar tu
+          Living Card y añadirla a Apple o Google Wallet.
         </p>
 
         <div style={{ display: 'flex', gap: 10 }}>
           <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && search()}
-            placeholder="+57 300 000 0000"
+            placeholder="+57 300 000 0000 o tu@correo.com"
             style={{ flex: 1, padding: '12px 14px', border: '1px solid #d7dbe0', borderRadius: 11, fontSize: 15, outline: 'none' }}
           />
           <button onClick={search} disabled={loading} style={{ background: PC, color: '#fff', border: 'none', padding: '0 20px', borderRadius: 11, fontWeight: 800, cursor: 'pointer', fontSize: 14 }}>

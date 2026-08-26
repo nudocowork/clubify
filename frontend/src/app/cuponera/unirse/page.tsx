@@ -13,6 +13,10 @@ type Plan = {
   interval: 'MONTHLY' | 'ANNUAL';
   description: string;
   benefitsAllowance: number | null;
+  /** Link de compra de la pasarela (Hotmart/Stripe). Vacío = se cobra por
+   *  MercadoPago con el formulario de acá. */
+  checkoutUrl?: string | null;
+  checkoutGateway?: 'HOTMART' | 'STRIPE' | 'MERCADOPAGO';
 };
 
 const money = (cents: number, currency = 'COP') =>
@@ -47,10 +51,26 @@ export default function UnirsePage() {
   }, []);
 
   const selected = plans.find((p) => p.id === planId) || plans[0] || null;
+  const externo = !!selected?.checkoutUrl;
+  const nombrePasarela =
+    selected?.checkoutGateway === 'HOTMART'
+      ? 'Hotmart'
+      : selected?.checkoutGateway === 'STRIPE'
+        ? 'Stripe'
+        : 'MercadoPago';
 
   async function pay() {
     setNotice(null);
     if (!selected) return;
+
+    // Hotmart y Stripe se cobran en un link que ya existe: el comprador va
+    // directo y el alta la hace el webhook. No se pide teléfono porque esas
+    // pasarelas no lo exigen, y pedirlo acá solo agrega una barrera a la venta.
+    if (selected.checkoutUrl) {
+      window.location.href = selected.checkoutUrl;
+      return;
+    }
+
     if (!form.fullName.trim() || form.phone.replace(/\D/g, '').length < 8 || !form.email.trim()) {
       setNotice('Completa nombre, teléfono y email.');
       return;
@@ -117,19 +137,31 @@ export default function UnirsePage() {
               </div>
             )}
 
-            <div style={{ display: 'grid', gap: 12, marginBottom: 18 }}>
-              <input style={inp} placeholder="Nombre completo" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
-              <input style={inp} placeholder="Teléfono (+57 300 000 0000)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-              <input style={inp} placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            </div>
+            {/* Con link externo, los datos los pide la pasarela: repetirlos acá
+                solo agrega una barrera antes de pagar. */}
+            {!externo && (
+              <div style={{ display: 'grid', gap: 12, marginBottom: 18 }}>
+                <input style={inp} placeholder="Nombre completo" value={form.fullName} onChange={(e) => setForm({ ...form, fullName: e.target.value })} />
+                <input style={inp} placeholder="Teléfono (+57 300 000 0000)" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <input style={inp} placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              </div>
+            )}
 
             <button
               onClick={pay}
               disabled={submitting}
               style={{ width: '100%', background: PC, color: '#fff', border: 'none', padding: '14px', borderRadius: 12, fontWeight: 800, fontSize: 15, cursor: submitting ? 'wait' : 'pointer' }}
             >
-              {submitting ? 'Redirigiendo…' : 'Pagar con MercadoPago'}
+              {submitting ? 'Redirigiendo…' : `Pagar con ${nombrePasarela}`}
             </button>
+
+            {externo && (
+              <div style={{ marginTop: 14, fontSize: 12.5, color: '#64748b', lineHeight: 1.6 }}>
+                Al terminar el pago, volvé acá y entrá a{' '}
+                <a href="/cuponera/mi-tarjeta" style={{ color: PC, fontWeight: 700 }}>Mi tarjeta</a>{' '}
+                con el mismo correo con el que compraste para descargarla.
+              </div>
+            )}
 
             {notice && (
               <div style={{ marginTop: 14, padding: 14, background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 12, fontSize: 13, color: '#9a3412' }}>

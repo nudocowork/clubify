@@ -17,6 +17,8 @@ import { BrandEmailService } from '../email/brand-email.service';
 import { fmtEmailDate } from '../email/brand-email-templates';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { parseWlIdFromSrc, parseAffiliateRawFromSrc } from './hotmart-src';
+import { ModuleRef } from '@nestjs/core';
+import { MembershipBillingService } from '../cuponera/membership-billing.service';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
 import { BusinessGroupsService } from '../business-groups/business-groups.service';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
@@ -62,7 +64,17 @@ export type HotmartWebhookPayload = {
   event?: HotmartEventType;
   hottok?: string;
   data?: {
-    buyer?: { email?: string; name?: string };
+    buyer?: {
+      email?: string;
+      name?: string;
+      /** V2 manda el teléfono del checkout partido en dos campos. Se usa
+       *  para dar de alta beneficiarios de cuponera (§24), que se buscan
+       *  por teléfono; si no viene, se cae al email. */
+      checkout_phone?: string;
+      phone?: string;
+      phone_number?: string;
+      phone_local_code?: string;
+    };
     subscription?: {
       subscriber?: { code?: string };
       /** Plan REAL contratado, ej. "Plan Trimestral 150 USD". Es la fuente
@@ -126,9 +138,55 @@ function nextChargeFromPayload(payload: HotmartWebhookPayload): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * Teléfono del comprador en un payload de Hotmart. V2 lo manda partido
+ * (phone_local_code = indicativo, phone_number = resto) y a veces entero en
+ * checkout_phone. Solo lo usa la cuponera (§24), donde el beneficiario se
+ * identifica por teléfono; para los negocios la clave es el email.
+ * Devuelve '' si no vino: enrollMember cae al email en ese caso.
+ */
+function hotmartBuyerPhone(payload: HotmartWebhookPayload): string {
+  const b = payload.data?.buyer;
+  if (!b) return '';
+  const entero = (b.checkout_phone || b.phone || '').trim();
+  if (entero) return entero;
+  const code = (b.phone_local_code || '').trim();
+  const num = (b.phone_number || '').trim();
+  if (!num) return '';
+  return code ? `+${code.replace(/^\+/, '')}${num}` : num;
+}
+
 @Injectable()
 export class HotmartService {
   private logger = new Logger(HotmartService.name);
+
+  /**
+   * MembershipBillingService se resuelve TARDE y por el contenedor, no por
+   * inyección: importar CuponeraModule desde acá cierra el ciclo
+   * Billing → Cuponera → Locations → Tenants → Billing. Con ModuleRef no hay
+   * arista en el grafo de módulos.
+   *
+   * Si el módulo de cuponera no está montado (un deploy sin él), devuelve null y
+   * el webhook sigue su curso normal en vez de romperse — que es justo lo que
+   * queremos del camino de dinero de la plataforma.
+   */
+  private cuponeraBillingRef: MembershipBillingService | null | undefined;
+
+  private cuponeraBilling(): MembershipBillingService | null {
+    if (this.cuponeraBillingRef === undefined) {
+      try {
+        this.cuponeraBillingRef = this.moduleRef.get(MembershipBillingService, {
+          strict: false,
+        });
+      } catch {
+        this.logger.warn(
+          'CuponeraModule no está montado: los webhooks no darán de alta membresías de cuponera.',
+        );
+        this.cuponeraBillingRef = null;
+      }
+    }
+    return this.cuponeraBillingRef ?? null;
+  }
 
   /**
    * Un grupo empresarial paga UNA suscripción de Hotmart por varios negocios.
@@ -183,6 +241,7 @@ export class HotmartService {
 
   constructor(
     private prisma: PrismaService,
+    private moduleRef: ModuleRef,
     private growBusiness: GrowBusinessService,
     // Solo para los avisos de cadena de referidos (notifyReferralChain); el
     // correo al COMPRADOR sale por PendingActivationService → BrandEmailService.
@@ -437,6 +496,20 @@ export class HotmartService {
       if (creditHandled) {
         return { ok: true, action: creditHandled };
       }
+    }
+
+    // Cuponera (spec §24-25): si el producto está mapeado a un plan de membresía,
+    // la compra NO es de un negocio ni de un pack de créditos — es una persona
+    // comprando su Living Card. Va ACÁ, antes de findTenant, por la misma razón
+    // que los créditos: el comprador no tiene tenant, y sin este corte caería en
+    // storePendingPayment y le mandaríamos un correo diciéndole que cree un
+    // negocio, que es justo lo que NO compró.
+    const cuponeraAction = await this.tryHandleCuponeraMembership(payload).catch((e) => {
+      this.logger.error(`tryHandleCuponeraMembership falló: ${(e as Error)?.message}`);
+      return null;
+    });
+    if (cuponeraAction) {
+      return { ok: true, action: cuponeraAction };
     }
 
     // Master Admin: refund/chargeback de pack de créditos. Si el
@@ -950,6 +1023,109 @@ export class HotmartService {
    *  - La transacción no corresponde a un pack de créditos
    *  - La compra ya estaba REFUNDED (idempotency)
    */
+  /**
+   * Compra/baja de una membresía de cuponera por Hotmart (spec §24-25).
+   * Devuelve null si el producto NO está mapeado a ningún plan — o sea, si esto
+   * es una compra normal de la plataforma y tiene que seguir su curso.
+   */
+  private async tryHandleCuponeraMembership(
+    payload: HotmartWebhookPayload,
+  ): Promise<string | null> {
+    const svc = this.cuponeraBilling();
+    if (!svc) return null;
+
+    const event = payload.event;
+    if (!event) return null;
+
+    const productId = payload.data?.product?.id;
+    const offerCode = payload.data?.purchase?.offer?.code;
+    const buyerEmail = payload.data?.buyer?.email?.toLowerCase() ?? null;
+    const subscriberCode = payload.data?.subscription?.subscriber?.code ?? null;
+    const transaction = payload.data?.purchase?.transaction ?? null;
+
+    const ALTA = event === 'PURCHASE_APPROVED' || event === 'PURCHASE_COMPLETE';
+    const BAJA =
+      event === 'PURCHASE_REFUNDED' ||
+      event === 'PURCHASE_CHARGEBACK' ||
+      event === 'SUBSCRIPTION_CANCELLATION';
+    const FALLIDO = event === 'PURCHASE_DELAYED' || event === 'PURCHASE_PROTEST';
+    if (!ALTA && !BAJA && !FALLIDO) return null;
+
+    // En baja/fallido el payload no siempre trae producto; se resuelve por la
+    // referencia de suscripción. Si no hay membresía con esa referencia, esto no
+    // era una cuponera y devolvemos null para no comernos el evento.
+    if (!ALTA) {
+      const ref = subscriberCode ?? transaction;
+      const membership = ref
+        ? await this.prisma.livingMembership.findFirst({
+            where: { provider: 'HOTMART', OR: [{ providerRef: ref }] },
+            select: { id: true },
+          })
+        : null;
+      if (!membership) return null;
+      return FALLIDO
+        ? svc.paymentFailed({
+            provider: 'HOTMART',
+            ref,
+            email: buyerEmail,
+            reason: event,
+          })
+        : svc.deactivate({
+            provider: 'HOTMART',
+            ref,
+            email: buyerEmail,
+            reason: event,
+          });
+    }
+
+    const match = await svc.matchHotmartPlan(
+      productId === undefined || productId === null ? null : String(productId),
+      offerCode,
+    );
+    if (!match) return null;
+    if (match === 'ambiguous') return 'cuponera_membership_offer_ambiguous';
+
+    if (!buyerEmail) {
+      this.logger.error(
+        `[CUPONERA-PAGOS] compra Hotmart sin email de comprador (tx=${transaction ?? '-'}). ` +
+          `No hay a quién dar de alta.`,
+      );
+      return 'cuponera_membership_no_email';
+    }
+
+    // Una renovación reusa el mismo subscriberCode: si ya hay membresía con esa
+    // referencia, se corre el vencimiento en vez de dar de alta de nuevo.
+    if (subscriberCode) {
+      const yaEs = await this.prisma.livingMembership.findFirst({
+        where: { providerRef: subscriberCode },
+        select: { id: true },
+      });
+      if (yaEs) {
+        return svc.renew({
+          provider: 'HOTMART',
+          ref: subscriberCode,
+          email: buyerEmail,
+          until: nextChargeFromPayload(payload),
+          transactionRef: transaction,
+          amountCents: null,
+          currency: match.plan.currency,
+        });
+      }
+    }
+
+    return svc.activate({
+      match,
+      provider: 'HOTMART',
+      transactionRef: transaction ?? `hotmart:${subscriberCode ?? buyerEmail}`,
+      subscriptionRef: subscriberCode,
+      email: buyerEmail,
+      fullName: payload.data?.buyer?.name ?? null,
+      phone: hotmartBuyerPhone(payload),
+      expiresAt: nextChargeFromPayload(payload),
+      raw: { event, transaction, subscriberCode },
+    });
+  }
+
   async tryHandleCreditRefund(payload: HotmartWebhookPayload): Promise<string | null> {
     const transactionId = payload.data?.purchase?.transaction;
     if (!transactionId) return null;

@@ -48,6 +48,74 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-26 — Cuponera: Hotmart y Stripe (spec §24-25) + candado de membresía
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — **NO desplegado**
+
+### Qué cambié
+
+- **Candado de membresía (§24).** Los canjes comparaban `status !== 'ACTIVE'`
+  cada uno por su cuenta y **nadie miraba `expiresAt`**. Como el cobro que deja
+  de llegar no genera ningún webhook, una membresía se quedaba ACTIVE para
+  siempre y la tarjeta seguía canjeando gratis. Ahora hay una puerta única
+  (`assertMembershipUsable`) que mira estado **y** fecha, corrige la fila a
+  EXPIRED al detectarlo, y tiene 3 días de margen (las pasarelas reintentan una
+  tarjeta rechazada durante días; cortar el mismo día deja plantado en la caja a
+  alguien que sí renueva). `redeemStampReward` **no tenía ningún control**: un
+  miembro dado de baja podía seguir cobrando premios de sellos.
+- **`MembershipBillingService`** — alta/renovación/baja/pago fallido, agnóstico
+  de pasarela. Lo usan las tres.
+- **Hotmart y Stripe** enganchados en sus webhooks existentes (misma técnica que
+  los packs de créditos): si el producto está mapeado a un plan, se corta antes
+  de `findTenant`. Sin ese corte, quien compra una cuponera caía en
+  `storePendingPayment` y **recibía un correo invitándolo a crear un negocio**.
+- **MercadoPago completado (§25).** Solo entendía `preapproval` + `authorized`:
+  una cancelación no cortaba nada y las renovaciones no corrían la fecha, así que
+  el socio pagaba todos los meses y se le vencía igual.
+- `enrollMember` ahora respeta la **cuponera del plan comprado** (antes siempre
+  daba de alta en Living Card) e identifica por **email** si no hay teléfono
+  (Hotmart y Stripe no lo exigen).
+- Admin: sección «Pagos — Hotmart y Stripe» en `/superadmin/living-card` para
+  mapear cada plan y ver qué URL pegar en cada proveedor. Endpoint
+  `GET /cuponera/admin/gateways`.
+- Público: `/cuponera/unirse` manda al link de la pasarela del plan; «Mi tarjeta»
+  ahora busca **por teléfono o correo** (quien compra por Hotmart/Stripe termina
+  en la página de gracias de la pasarela y puede no haber dejado teléfono nunca).
+
+### Qué toqué de PRODUCCIÓN
+
+- **Nada.** Ni base, ni variables, ni despliegue.
+- La migración `backend/scripts/apply-cuponera-gateways.cjs` está escrita y
+  probada **solo contra la base local**. Es aditiva e idempotente.
+
+### Qué falta / qué hay que validar del otro lado
+
+- [ ] Aplicar `APPLY=1 node scripts/apply-cuponera-gateways.cjs` a producción
+      **antes** de desplegar este código.
+- [ ] Cargar el mapeo de cada plan (id de producto Hotmart / price id de Stripe)
+      desde `/superadmin/living-card` → «Pagos — Hotmart y Stripe».
+- [ ] Probar una compra real. Nada de esto se ejerció con dinero de verdad.
+- [ ] Decidir si la cancelación corta el acceso en el acto (hoy sí, igual que un
+      tenant) o respeta el período ya pagado. Es un cambio de una línea.
+
+### Riesgos y avisos
+
+- ⚠️ **El código tiene columnas que producción todavía no tiene.** Desplegar sin
+  correr la migración primero rompe las consultas de planes de cuponera.
+- ⚠️ **`railway up` sube el DIRECTORIO DE TRABAJO, no el commit.** Si alguien
+  despliega con esta rama en disco, sube estos cambios aunque no los quiera.
+- ⚠️ Hotmart/Stripe entran por la ruta **de la marca** (`/webhooks/hotmart/<slug>`),
+  no por una nueva: el cobro lo recibe la cuenta de la marca dueña de la cuponera.
+- 🔁 **Un `git stash` desde otra sesión se llevó trabajo en curso de esta**
+  (etiquetado «WIP Javi cuponera gateways», pero era de acá). Se recuperó. Al
+  destrabar el stash apareció una copia **vieja** de `living-card/page.tsx` cuyo
+  `PushSection` no tenía la segmentación por aliado/plan que ya está en HEAD: se
+  descartó y se conservó HEAD. Si alguien vuelve a stashear para desplegar,
+  avisar.
+
+---
+
 ## 2026-08-26 — FUGA CROSS-MARCA en PROGRAMA: Sellea veía comisiones de Clubify
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** `feat/commissions-auto-cutoffs` — commit `52d46aa`, **desplegado y verificado**

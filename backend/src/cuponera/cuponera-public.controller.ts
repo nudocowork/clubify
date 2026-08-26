@@ -50,6 +50,15 @@ export class CuponeraPublicController {
     });
   }
 
+  /** "Mi tarjeta" por teléfono O email. La ruta by-phone se mantiene para no
+   *  romper links viejos. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Get('card/find')
+  cardFind(@Query('q') q: string) {
+    return this.svc.findCard(q || '');
+  }
+
   /** Directorio público de negocios aliados aprobados (opcional por categoría). */
   @Public()
   @Get('allies')
