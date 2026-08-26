@@ -20,12 +20,33 @@ Lee primero, siempre:
    `IF NOT EXISTS`, idempotente. Modelo a copiar:
    `backend/scripts/apply-email-config-migration.cjs`.
 
-2. **Nunca desplegar sin comprobar qué corre.** El backend se ha desplegado con
-   `railway up` desde directorios locales, no desde git; puede haber código en
-   producción que no está en ninguna rama. Comprobar con
-   `railway status --json`.
+2. **Desplegar SIEMPRE con `node scripts/desplegar.cjs backend|frontend`**, no
+   con `railway up` ni `vercel deploy` a pelo. El script se niega a desplegar
+   si hay cambios sin commitear, si te faltan commits de la otra máquina, o si
+   tienes commits sin empujar. Cada una de esas tres cosas nos costó trabajo
+   perdido en un mismo día.
 
-3. **Al terminar un bloque de trabajo, escribir la entrada en
+   `railway up` sube **el directorio local**, no lo que hay en git: desplegar
+   estando por detrás borra de producción lo que subió el otro. La señal de
+   que te pasó es que una ruta que daba **401 pasa a dar 404**.
+
+3. **Nunca `git add -A` en este repo.** Commitear siempre por rutas
+   explícitas.
+
+   El repo vive dentro de **OneDrive**, que sincroniza el directorio de
+   trabajo entre las dos máquinas: el trabajo **sin commitear** de una aparece
+   en la copia de la otra. Un `git add -A` se lo lleva dentro de un commit
+   ajeno, con el mensaje equivocado y —si estaba a medias— sin compilar. Pasó
+   el 2026-08-26 con el editor de correos.
+
+   Si te encuentras cambios que no son tuyos: **no los revierta**. Devolverlos
+   a su estado anterior en git los cambia en disco, OneDrive sincroniza, y le
+   borras a la otra persona lo que tiene abierto. Avisa y déjalos.
+
+   *(El arreglo de raíz es sacar el repo de OneDrive y clonarlo en una ruta
+   local. Mientras siga ahí, estas reglas son lo que hay.)*
+
+4. **Al terminar un bloque de trabajo, escribir la entrada en
    `docs/BITACORA.md` y hacer push** — aunque quede a medias. Es el único canal
    por el que la otra máquina se entera.
 

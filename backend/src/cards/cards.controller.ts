@@ -89,6 +89,10 @@ class CardBody {
   // tipos).
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString()
   transformIntoCardId?: string | null;
+  // false = el cupón se canjea y ahí termina, sin convertirse en nada.
+  // `transformIntoCardId: null` no servía para expresarlo: null ya significa
+  // "auto, la primera tarjeta de sellos activa".
+  @IsOptional() @IsBoolean() transformOnRedeem?: boolean;
 }
 
 // Preview REAL del strip de sellos (imagen PNG generada por Sharp, la misma que

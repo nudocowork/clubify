@@ -11,7 +11,7 @@ import { useTenantCountry, stateExamplePlaceholder } from '@/lib/useTenantCountr
 import { regionsForCountry } from '@/lib/regions';
 import type { MapPickResult } from '@/components/MapPicker';
 
-// Leaflet usa `window` al importar — dynamic import sin SSR
+// Google Maps toca `window` al cargar — import dinámico sin SSR
 const MapPicker = dynamic(
   () => import('@/components/MapPicker').then((m) => m.MapPicker),
   { ssr: false, loading: () => <div className="h-[440px] rounded-input bg-bg2 animate-shimmer" /> },

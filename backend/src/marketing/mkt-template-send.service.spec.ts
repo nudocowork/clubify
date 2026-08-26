@@ -25,6 +25,8 @@ type ContactRow = {
   email: string | null;
   optOut: boolean;
   deleted: boolean;
+  phone?: string | null;
+  company?: string | null;
 };
 
 type Where = Record<string, unknown>;
@@ -34,7 +36,7 @@ const matches = (row: Record<string, unknown>, where: Where): boolean =>
     return row[k] === v;
   });
 
-function fakePrisma(state: { tpls: TplRow[]; contacts: ContactRow[] }) {
+function fakePrisma(state: { tpls: TplRow[]; contacts: ContactRow[]; marcas?: Record<string, string> }) {
   return {
     mktEmailTemplate: {
       findFirst: async ({ where }: { where: Where }) => state.tpls.find((t) => matches(t, where)) ?? null,
@@ -43,10 +45,23 @@ function fakePrisma(state: { tpls: TplRow[]; contacts: ContactRow[] }) {
       findFirst: async ({ where }: { where: Where }) =>
         state.contacts.find((c) => matches(c, where)) ?? null,
     },
+    // El nombre de la marca alimenta el token {{marca}} del correo.
+    whiteLabel: {
+      findUnique: async ({ where }: { where: { id: string } }) => {
+        const name = state.marcas?.[where.id];
+        return name ? { name } : null;
+      },
+    },
   } as unknown as PrismaService;
 }
 
-type SentCall = { toEmail: string; subject: string; html: string; ctx?: Record<string, unknown> };
+type SentCall = {
+  toEmail: string;
+  subject: string;
+  html: string;
+  text?: string;
+  ctx?: Record<string, unknown>;
+};
 
 function fakeProvider(behavior?: (input: SentCall) => { ok: boolean; skipped?: boolean; error?: string }) {
   const calls: SentCall[] = [];
@@ -72,13 +87,14 @@ const TPL: TplRow = {
 };
 
 describe('MktTemplateSendService', () => {
-  let state: { tpls: TplRow[]; contacts: ContactRow[] };
+  let state: { tpls: TplRow[]; contacts: ContactRow[]; marcas?: Record<string, string> };
 
   beforeEach(() => {
     state = {
       tpls: [{ ...TPL }],
+      marcas: { [WL]: 'Sellea' },
       contacts: [
-        { id: 'c1', whiteLabelId: WL, name: 'Ana', email: 'ana@ejemplo.com', optOut: false, deleted: false },
+        { id: 'c1', whiteLabelId: WL, name: 'Ana', email: 'ana@ejemplo.com', optOut: false, deleted: false, company: 'Panadería Ana' },
         { id: 'c2', whiteLabelId: WL, name: 'Beto', email: 'beto@ejemplo.com', optOut: true, deleted: false },
         { id: 'c3', whiteLabelId: WL, name: 'Caro', email: null, optOut: false, deleted: false },
         { id: 'c4', whiteLabelId: OTRA, name: 'Dora', email: 'dora@ejemplo.com', optOut: false, deleted: false },
@@ -112,6 +128,52 @@ describe('MktTemplateSendService', () => {
       feature: 'plantilla-correo',
       templateId: 'tpl1',
     });
+  });
+
+  it('sustituye las variables del contacto en asunto y cuerpo — nunca salen las llaves', async () => {
+    state.tpls[0].subject = 'Hola {{nombre}}, algo de {{marca}}';
+    state.tpls[0].html = '<p>Hola {{nombre}} de {{empresa}}. Te escribe {{marca}}.</p>';
+    const { provider, calls } = fakeProvider();
+    const svc = new MktTemplateSendService(fakePrisma(state), provider);
+    await svc.sendToContacts(WL, 'tpl1', '', ['c1']);
+    expect(calls[0].subject).toBe('Hola Ana, algo de Sellea');
+    expect(calls[0].html).toContain('Hola Ana de Panadería Ana. Te escribe Sellea.');
+    // Lo que de verdad importa: que al cliente NO le llegue "{{nombre}}".
+    expect(calls[0].html).not.toMatch(/\{\{/);
+    expect(calls[0].subject).not.toMatch(/\{\{/);
+  });
+
+  it('un token sin valor se queda vacío, no se inventa ni se deja el marcador', async () => {
+    state.tpls[0].html = '<p>Tu teléfono: {{telefono}}|</p>';
+    const { provider, calls } = fakeProvider();
+    const svc = new MktTemplateSendService(fakePrisma(state), provider);
+    await svc.sendToContacts(WL, 'tpl1', 'x', ['c1']); // c1 no tiene teléfono
+    expect(calls[0].html).toContain('Tu teléfono: |');
+  });
+
+  it('adjunta la parte de texto plano derivada del HTML ya personalizado', async () => {
+    state.tpls[0].html =
+      '<html><head><style>p{color:red}</style></head><body>' +
+      '<!--[if mso]><v:roundrect>Botón</v:roundrect><![endif]-->' +
+      '<p>Hola {{nombre}}</p><a href="https://ejemplo.com/x">Ver oferta</a></body></html>';
+    const { provider, calls } = fakeProvider();
+    const svc = new MktTemplateSendService(fakePrisma(state), provider);
+    await svc.sendToContacts(WL, 'tpl1', 'x', ['c1']);
+    expect(calls[0].text).toContain('Hola Ana');
+    // El enlace se conserva legible y el VML de Outlook no ensucia el texto.
+    expect(calls[0].text).toContain('Ver oferta: https://ejemplo.com/x');
+    expect(calls[0].text).not.toContain('roundrect');
+    expect(calls[0].text).not.toContain('color:red');
+  });
+
+  it('si no se puede resolver la marca, {{marca}} queda vacío — jamás dice "Clubify"', async () => {
+    state.marcas = {};
+    state.tpls[0].html = '<p>Te escribe {{marca}}.</p>';
+    const { provider, calls } = fakeProvider();
+    const svc = new MktTemplateSendService(fakePrisma(state), provider);
+    await svc.sendToContacts(WL, 'tpl1', 'x', ['c1']);
+    expect(calls[0].html).toContain('Te escribe .');
+    expect(calls[0].html).not.toMatch(/Clubify/i);
   });
 
   it('respeta el tope por llamada y deduplica ids repetidos', async () => {

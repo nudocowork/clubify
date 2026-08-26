@@ -21,6 +21,7 @@ import { ReferralsModule } from './referrals/referrals.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { CuponeraModule } from './cuponera/cuponera.module';
+import { ConveniosModule } from './convenios/convenios.module';
 import { BadgesModule } from './badges/badges.module';
 import { AffiliateModule } from './affiliate/affiliate.module';
 import { PayoutsModule } from './payouts/payouts.module';
@@ -104,6 +105,7 @@ import { MarketingModule } from './marketing/marketing.module';
     // 2026-07-17 en 149e58c porque backend/src/cuponera/ todavía no estaba en el
     // repo (import colgante rompía el build); la carpeta ya está commiteada.
     CuponeraModule,
+    ConveniosModule,
     BadgesModule,
     AffiliateModule,
     PayoutsModule,

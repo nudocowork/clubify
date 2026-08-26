@@ -94,6 +94,8 @@ export class MktProviderService {
     toName?: string;
     subject: string;
     html: string;
+    /** Parte de texto plano: clientes sin HTML y puntuación antispam. */
+    text?: string;
     /** Contexto para el historial MessageLog (marca/negocio/feature del envío). */
     ctx?: SendContext;
   }): Promise<SendResult> {
@@ -111,7 +113,10 @@ export class MktProviderService {
     if (!creds) {
       return { ok: false, skipped: true, error: 'La marca no tiene subcuenta de correo configurada.' };
     }
-    const res = await this.grow.sendEmailWithCreds(creds, email, input.subject || '(sin asunto)', input.html || '', { ctx: input.ctx });
+    const res = await this.grow.sendEmailWithCreds(creds, email, input.subject || '(sin asunto)', input.html || '', {
+      text: input.text,
+      ctx: input.ctx,
+    });
     if (!res.ok) {
       return { ok: false, error: res.message ?? 'Error enviando el correo.' };
     }

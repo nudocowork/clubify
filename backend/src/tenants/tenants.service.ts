@@ -522,30 +522,92 @@ export class TenantsService {
    * Mayor a menor por default; `order='asc'` invierte. Incluye negocios con
    * 0 pases. Excluye borrados.
    */
-  async rankingByPasses(order: 'asc' | 'desc' = 'desc', user?: AuthUser) {
+  /**
+   * Ranking de negocios.
+   *
+   * `criterio`:
+   *   - `pases`      → por cuántos pases han emitido (el de siempre).
+   *   - `antiguedad` → por cuándo entraron. Sirve para lo contrario: ver quién
+   *                    lleva más tiempo, que no siempre es quien más emite.
+   *
+   * `desde` acota los pases a los emitidos a partir de esa fecha, para poder
+   * preguntar "quién movió más ESTE mes" en vez de arrastrar el histórico —
+   * si no, los negocios veteranos copan la lista para siempre y no se ve quién
+   * está creciendo ahora.
+   */
+  async rankingByPasses(
+    order: 'asc' | 'desc' = 'desc',
+    user?: AuthUser,
+    criterio: 'pases' | 'antiguedad' = 'pases',
+    desde?: Date | null,
+  ) {
     // Aislamiento por MARCA BLANCA: cada marca ve SOLO el ranking de SUS
     // negocios (mismo scoping que list()). Sin marca en sesión → default
     // Clubify (+ legacy null). El cross-brand global vive en /superadmin.
     const brandWhere = await this.brandTenantWhere(user?.whiteLabelId ?? null);
     const tenants = await this.prisma.tenant.findMany({
       where: { deletedAt: null, isCampaignHost: false, ...brandWhere },
-      select: { id: true, brandName: true, name: true, status: true },
+      select: {
+        id: true,
+        brandName: true,
+        name: true,
+        status: true,
+        createdAt: true,
+      },
     });
-    const grouped = await this.prisma.pass.groupBy({
-      by: ['tenantId'],
-      where: { tenantId: { in: tenants.map((t) => t.id) } },
-      _count: { _all: true },
-    });
-    const countMap = new Map(grouped.map((g) => [g.tenantId, g._count._all]));
+
+    // Los pases del período, y aparte SIEMPRE el total histórico: cuando se
+    // filtra por fecha hay que poder comparar "40 este mes, de 1.200 en total".
+    // Sin el total al lado, el número del período no dice nada.
+    const ids = tenants.map((t) => t.id);
+    const [delPeriodo, historico] = await Promise.all([
+      this.prisma.pass.groupBy({
+        by: ['tenantId'],
+        where: {
+          tenantId: { in: ids },
+          ...(desde ? { issuedAt: { gte: desde } } : {}),
+        },
+        _count: { _all: true },
+      }),
+      desde
+        ? this.prisma.pass.groupBy({
+            by: ['tenantId'],
+            where: { tenantId: { in: ids } },
+            _count: { _all: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const mapaPeriodo = new Map(delPeriodo.map((g) => [g.tenantId, g._count._all]));
+    const mapaTotal = historico
+      ? new Map(historico.map((g) => [g.tenantId, g._count._all]))
+      : mapaPeriodo;
+
     const rows = tenants.map((t) => ({
       id: t.id,
       brandName: t.brandName || t.name,
       status: t.status,
-      passCount: countMap.get(t.id) ?? 0,
+      /** Pases del período consultado (o el total, si no se filtró). */
+      passCount: mapaPeriodo.get(t.id) ?? 0,
+      /** Total histórico, siempre. Es la referencia para leer el anterior. */
+      passTotal: mapaTotal.get(t.id) ?? 0,
+      createdAt: t.createdAt,
     }));
-    rows.sort((a, b) =>
-      order === 'asc' ? a.passCount - b.passCount : b.passCount - a.passCount,
-    );
+
+    if (criterio === 'antiguedad') {
+      // `desc` = los más antiguos primero, que es lo que se busca al ordenar
+      // por antigüedad. Ordenar por fecha descendente daría los más nuevos y
+      // sería justo lo contrario de lo que dice el botón.
+      rows.sort((a, b) =>
+        order === 'desc'
+          ? a.createdAt.getTime() - b.createdAt.getTime()
+          : b.createdAt.getTime() - a.createdAt.getTime(),
+      );
+    } else {
+      rows.sort((a, b) =>
+        order === 'asc' ? a.passCount - b.passCount : b.passCount - a.passCount,
+      );
+    }
     return rows;
   }
 

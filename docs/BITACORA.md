@@ -248,6 +248,92 @@ de marca blanca veía datos de TODAS las marcas en el apartado PROGRAMA.
 - [ ] **UX**: convertir el detalle de marca blanca (`superadmin/marcas`) de drawer
       lateral a página completa `/superadmin/marcas/[id]` (pedido del founder).
 
+## 2026-08-26 — Rediseño del sistema de plantillas de correo (galería de Email Marketing)
+**Máquina/quién:** Javier
+**Rama / PR:** `chore/merge-emails-sobre-314` — sin PR todavía
+
+### Qué cambié
+- **Un solo motor de HTML.** Cada plantilla de fábrica se escribía dos veces
+  (bloques + HTML maquetado a mano en el seed) y las dos versiones ya habían
+  divergido. Como el editor regenera `html` desde los bloques **en cada
+  guardado**, el HTML bonito desaparecía en cuanto alguien abría la copia y la
+  guardaba. Ahora el seed renderiza con `renderEmailHtml()`, el mismo motor del
+  editor, cargándolo con `ts-node` desde `frontend/src/lib/email-blocks.ts`.
+- **8 bloques nuevos** en `email-blocks.ts`: `heading`, `buttons` (CTA doble),
+  `feature`, `product`, `order` (resumen de pedido), `quote`, `rating`,
+  `coupon`. Y **filas con fondo y relleno** (`row.props`), que es lo que
+  permite bandas de color sin meter HTML a mano.
+- **Tokens** (`EMAIL_TOKENS`) para color, tipografía y ritmo vertical. El acento
+  vive en `settings.linkColor`: lo heredan botones, antetítulos, iconos y
+  cupones, así que cambiarlo repinta la plantilla entera de una vez.
+- **Preheader** por plantilla, **VML** en todos los botones (Outlook),
+  `color-scheme` para modo oscuro, y media queries que apilan columnas, bajan el
+  relleno lateral a 20 px y ensanchan el botón en móvil.
+- **9 plantillas de fábrica** (antes 5): Bienvenida, Agradecimiento post-compra,
+  Promoción, Novedades, Recordatorio de cita, Te extrañamos, Cumpleaños,
+  Recompensa lista para canjear, Pide tu reseña. Definidas en
+  `backend/scripts/lib/email-presets.cjs`.
+- **Arreglado: el envío no interpolaba nada.** `MktTemplateSendService` mandaba
+  `template.html` tal cual — un `{{nombre}}` en una plantilla de la galería le
+  llegaba al cliente con las llaves puestas. Ahora resuelve `{{nombre}}`,
+  `{{email}}`, `{{telefono}}`, `{{empresa}}` y `{{marca}}` en asunto y cuerpo.
+  `{{marca}}` que no se puede resolver queda **vacío**, nunca «Clubify».
+- **Arreglado: el correo salía solo en HTML.** Ahora lleva parte de texto plano
+  (`htmlToText`), que GHL ya aceptaba (`opts.text` → campo `message`).
+- **Arreglado: las miniaturas de la galería.** Salían todas como el sobre gris
+  ✉️ porque el listado no devuelve `blocks` ni `html` (a propósito, pesan). La
+  miniatura pide el detalle cuando la tarjeta entra en pantalla y lo cachea.
+- **Docs:** `docs/plantillas-correo/README.md` (cómo añadir una plantilla) y
+  `preview.html` generado con `node scripts/preview-email-templates.cjs`.
+
+### Qué toqué de PRODUCCIÓN
+- **Fusionada `origin/feat/commissions-auto-cutoffs`** antes de nada. Las dos
+  ramas habían divergido en las dos direcciones y desplegar cualquiera habría
+  borrado el trabajo de la otra. Conflicto único: esta bitácora. 253 tests en
+  verde tras la fusión.
+- **Backend desplegado** (Railway, `SUCCESS` 2026-08-26 20:03). Lleva lo de los
+  dos: el gating server-side de Infolinks FREE de Jhon y la interpolación de
+  variables + texto plano de aquí.
+- **Frontend desplegado** (Vercel, producción). Verificado que las pantallas de
+  Jhon siguen vivas: `/cuponera/admin` 200, `/cuponera/panel` 200,
+  `/superadmin/cuponeras` 307, y una ruta inventada 404 (prueba calibrada).
+- **Seed corrido.** 5 plantillas actualizadas + 4 creadas = **9 de fábrica**.
+  Verificado en la base: 10–13 KB de HTML cada una (antes 2,7 KB), 6–9 tipos de
+  bloque, VML y preheader en todas. Las 2 plantillas propias de marcas, intactas.
+- Sin cambios de esquema propios. Ninguna migración, ningún `db push`.
+
+### Aviso que estuvo cerca de costar caro
+Se desplegó el backend a las 17:02 desde esta rama **sin la de Jhon**, que ya
+tenía 11 commits suyos del día. Sus rutas grandes sobrevivieron (venían de un
+merge anterior), pero su gating freemium de Infolinks (`548d5611`, 10:54) NO iba
+en ese despliegue: estuvo unas 3 h fuera de producción. El despliegue de las
+20:03 lo restauró. **La lección de siempre: `git fetch` y comparar ramas ANTES
+de desplegar, no después.** El frontend no llegó a salir mal porque se comprobó
+a tiempo — habría dejado en 404 las tres pantallas de cuponera de Jhon.
+
+### Qué falta / qué hay que validar del otro lado
+- [x] ~~Fusionar la rama de Jhon~~ · ~~backend~~ · ~~frontend~~ · ~~seed~~ — todo hecho el 26-08.
+- [ ] Mandarse una prueba real a Gmail y a Outlook: el VML de los botones solo
+      se puede comprobar en un Outlook de escritorio de verdad.
+- [ ] Jhon: tus 11 commits ya están en `chore/merge-emails-sobre-314`. Si sigues
+      en `feat/commissions-auto-cutoffs`, trae la fusión antes de desplegar o te
+      llevarás por delante las plantillas nuevas.
+
+### Riesgos y avisos
+- **Orden de despliegue: primero el frontend, después el seed.** Un editor viejo
+  no conoce los 8 bloques nuevos; `coerceDoc()` los descarta al abrir, así que
+  si alguien abre y guarda una plantilla nueva con el frontend viejo, se le come
+  los bloques que no entiende. Con el frontend desplegado antes, no pasa.
+- Las plantillas ya guardadas por los negocios **no se tocan**. Al abrirlas y
+  guardarlas heredan el relleno lateral nuevo de las filas (32 px) y se ven algo
+  más aireadas. Es el rediseño, no un fallo.
+- `MktProviderService.sendEmail` acepta ahora `text?`. Es opcional: quien no lo
+  pase sigue funcionando igual.
+- Queda sin tocar, visto de paso: `mkt-engine.service.ts` resuelve `{{marca}}`
+  con `?? 'Clubify'` (línea ~47). Solo salta si falta la fila de WhiteLabel, que
+  con la FK no debería pasar, pero es la misma clase de fuga de marca de siempre.
+
+---
 ## 2026-08-26 — Automatizaciones activas por defecto + nota descartable (punto 1 SELLEALA)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** `feat/commissions-auto-cutoffs` — commit `43f4147`, desplegado

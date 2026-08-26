@@ -5,7 +5,7 @@ import { api, getUser } from '@/lib/api';
 import type { MapPickResult } from '@/components/MapPicker';
 import { useAuthBrand } from '@/components/AuthBrand';
 
-// Leaflet usa `window` al import — dynamic import sin SSR
+// Google Maps toca `window` al cargar — import dinámico sin SSR
 const MapPicker = dynamic(
   () => import('@/components/MapPicker').then((m) => m.MapPicker),
   { ssr: false, loading: () => <div className="h-[360px] rounded-input bg-bg2 animate-pulse" /> },

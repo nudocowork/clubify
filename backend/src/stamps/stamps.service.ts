@@ -375,8 +375,16 @@ export class StampsService {
     // Resolver stamps card target ANTES de la transacción si vamos a
     // transformar. La query es read-only (resolveOrCreateStampsCard puede
     // hacer un upsert pero ahora la metemos al tx por consistencia).
+    // El negocio puede pedir que el cupón NO se convierta en nada: se canjea,
+    // queda usado y ahí termina. Es un descuento suelto, no una puerta de
+    // entrada al programa de sellos. Sin este gate, resolveOrCreateStampsCard
+    // llegaría a CREARLE una tarjeta de sellos al negocio que no quiere tener
+    // una.
+    const noTransformar =
+      isCouponRedeem && (pass.card as any).transformOnRedeem === false;
+
     let stampsCardForTransform: { id: string } | null = null;
-    if (isCouponRedeem) {
+    if (isCouponRedeem && !noTransformar) {
       stampsCardForTransform = await this.resolveOrCreateStampsCard(
         pass.tenantId,
         pass.cardId,
@@ -412,6 +420,13 @@ export class StampsService {
       passUpdateData.cardId = stampsCardForTransform.id;
       passUpdateData.stampsCount = 0;
       passUpdateData.status = 'ACTIVE';
+    } else if (noTransformar) {
+      // Sin transformación hay que CERRAR el pase a mano. `completed` excluye
+      // a propósito las redenciones de cupón (se asumía que siempre acababan
+      // transformadas y ACTIVE), así que sin esto el cupón se quedaría ACTIVE
+      // y el mismo QR se podría canjear una y otra vez. COMPLETED es además lo
+      // que mira el guard de re-redención de más arriba.
+      passUpdateData.status = 'COMPLETED';
     }
 
     // HOTFIX 2026-06-05 (bug C): cleanupOrphanStampsPass debe correr
@@ -478,7 +493,7 @@ export class StampsService {
       // transformado in-place (mismo serial/qrToken/wallet) — y no queda cupón
       // "usado" colgando. El delete cascada borra Stamp/WalletDevice del pase
       // absorbido (onDelete: Cascade); el conteo se conserva copiándolo abajo.
-      skipCouponTransform = false;
+      skipCouponTransform = noTransformar;
       if (isCouponRedeem && stampsCardForTransform && pass.customerId) {
         const existing = await tx.pass.findUnique({
           where: {
@@ -525,7 +540,7 @@ export class StampsService {
           note: isCouponRedeem
             ? (dto.note ??
               (skipCouponTransform
-                ? 'Cupón redimido (conservando tarjeta de sellos)'
+                ? 'Cupón redimido — sin convertir a tarjeta de sellos'
                 : 'Cupón redimido — transformado a tarjeta de sellos'))
             : notaFinal,
           // Wallet V3 — auditoría de ajustes manuales (ip + navegador/dispositivo).

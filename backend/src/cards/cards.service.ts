@@ -67,6 +67,7 @@ export type CardDto = {
   stampIcon?: string;
   isActive?: boolean;
   transformIntoCardId?: string | null;
+  transformOnRedeem?: boolean;
 };
 
 @Injectable()
@@ -284,6 +285,7 @@ export class CardsService {
         socialLinks: dto.socialLinks ?? {},
         stampIcon: dto.stampIcon ?? '☕',
         transformIntoCardId: dto.transformIntoCardId ?? undefined,
+        transformOnRedeem: dto.transformOnRedeem ?? undefined,
       },
     });
   }

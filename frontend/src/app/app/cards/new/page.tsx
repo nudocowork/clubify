@@ -85,6 +85,9 @@ const FROM_SCRATCH_DEFAULTS = {
   // COUPON/DISCOUNT/GIFT: tarjeta de sellos destino al redeem. null
   // = auto (primera stamps activa, o se crea).
   transformIntoCardId: null as string | null,
+  // false = no se convierte en nada: se canjea y la tarjeta queda usada.
+  // Hace falta aparte porque transformIntoCardId=null ya significa "auto".
+  transformOnRedeem: true,
 };
 
 type LocationLite = { id: string; name: string };
@@ -148,8 +151,11 @@ export default function NewCardWizard() {
         form.type === 'DISCOUNT' ||
         form.type === 'GIFT';
       const STAMP_DEFAULT_REWARD = '¡Has ganado tu recompensa!';
-      const COUPON_DEFAULT_REWARD =
-        '¡Felicidades por canjear tu cupón! Empieza a acumular sellos para seguir obteniendo recompensas.';
+      // Si el cupón NO se convierte en tarjeta de sellos, invitar a "acumular
+      // sellos" sería mentirle al cliente: no va a acumular nada.
+      const COUPON_DEFAULT_REWARD = form.transformOnRedeem
+        ? '¡Felicidades por canjear tu cupón! Empieza a acumular sellos para seguir obteniendo recompensas.'
+        : '¡Felicidades por canjear tu cupón! Gracias por tu visita.';
       const payload = isCoupon
         ? {
             ...form,
@@ -842,7 +848,14 @@ function Step3Configure({
           form.type === 'GIFT') && (
           <CouponTransformTargetPicker
             value={form.transformIntoCardId}
-            onChange={(id) => set('transformIntoCardId', id)}
+            transformOnRedeem={form.transformOnRedeem}
+            onChange={(id, transformar) =>
+              setForm({
+                ...form,
+                transformIntoCardId: id,
+                transformOnRedeem: transformar,
+              })
+            }
           />
         )}
 
@@ -1776,12 +1789,24 @@ function TiersEditor({
  * la crea si no existe. El user puede elegir explícitamente otra para
  * conectar el cupón a una tarjeta de fidelización específica.
  */
+/**
+ * A qué se convierte el cupón al canjearse.
+ *
+ * Tres estados, no dos. `transformIntoCardId = null` NO servía para decir
+ * "a ninguna": null ya significa "auto, la primera tarjeta de sellos activa".
+ * Por eso el backend tiene un campo aparte, `transformOnRedeem`, y aquí un
+ * valor centinela para el desplegable.
+ */
+const SIN_CONVERTIR = '__none__';
+
 function CouponTransformTargetPicker({
   value,
+  transformOnRedeem,
   onChange,
 }: {
   value: string | null;
-  onChange: (id: string | null) => void;
+  transformOnRedeem: boolean;
+  onChange: (id: string | null, transformOnRedeem: boolean) => void;
 }) {
   const t = useTranslations('app_cards_new');
   const [options, setOptions] = useState<
@@ -1813,21 +1838,26 @@ function CouponTransformTargetPicker({
       </label>
       <select
         className="input"
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value || null)}
+        value={!transformOnRedeem ? SIN_CONVERTIR : (value ?? '')}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === SIN_CONVERTIR) onChange(null, false);
+          else onChange(v || null, true);
+        }}
         disabled={loading}
       >
-        <option value="">
-          {t('autoFirstStampsCard')}
-        </option>
+        <option value="">{t('autoFirstStampsCard')}</option>
         {options.map((o) => (
           <option key={o.id} value={o.id}>
             {o.name}
           </option>
         ))}
+        <option value={SIN_CONVERTIR}>{t('noTransform')}</option>
       </select>
       <div className="text-[11px] text-mute mt-1 leading-snug">
-        {t('transformHint')}
+        {!transformOnRedeem
+          ? 'El cliente canjea el cupón y su tarjeta queda marcada como usada. No entra al programa de sellos ni se le crea ninguna tarjeta.'
+          : t('transformHint')}
       </div>
     </div>
   );
