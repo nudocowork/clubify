@@ -87,39 +87,37 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
   `preview.html` generado con `node scripts/preview-email-templates.cjs`.
 
 ### Qué toqué de PRODUCCIÓN
-- **Backend DESPLEGADO** (Railway, 2026-08-26 17:02, commit `13a2bff4`, vía
-  `node scripts/desplegar.cjs backend`). Verificado en vivo: `/api/health` 200
-  con `uptimeSec` bajo, `/api/admin/marketing/templates` 401 (existe) y una ruta
-  inventada 404 (la prueba está calibrada). Lleva la interpolación de variables
-  y la parte de texto plano.
-- **Frontend NO desplegado.** Bloqueado por la sesión de Vercel: esta máquina
-  tiene el CLI en la cuenta `growbusiness`, que no ve el equipo de Jhon. El
-  arreglo ya está en `scripts/desplegar.cjs` (sesión aislada con
-  `--global-config`), pero falta hacer el login una vez, y es interactivo.
-- **Seed NO corrido.** Las 9 plantillas siguen sin estar en la base; producción
-  mantiene las 5 viejas. Se retiene A PROPÓSITO: ver riesgos.
-- Sin cambios de esquema. Ninguna migración, ningún `db push`.
+- **Fusionada `origin/feat/commissions-auto-cutoffs`** antes de nada. Las dos
+  ramas habían divergido en las dos direcciones y desplegar cualquiera habría
+  borrado el trabajo de la otra. Conflicto único: esta bitácora. 253 tests en
+  verde tras la fusión.
+- **Backend desplegado** (Railway, `SUCCESS` 2026-08-26 20:03). Lleva lo de los
+  dos: el gating server-side de Infolinks FREE de Jhon y la interpolación de
+  variables + texto plano de aquí.
+- **Frontend desplegado** (Vercel, producción). Verificado que las pantallas de
+  Jhon siguen vivas: `/cuponera/admin` 200, `/cuponera/panel` 200,
+  `/superadmin/cuponeras` 307, y una ruta inventada 404 (prueba calibrada).
+- **Seed corrido.** 5 plantillas actualizadas + 4 creadas = **9 de fábrica**.
+  Verificado en la base: 10–13 KB de HTML cada una (antes 2,7 KB), 6–9 tipos de
+  bloque, VML y preheader en todas. Las 2 plantillas propias de marcas, intactas.
+- Sin cambios de esquema propios. Ninguna migración, ningún `db push`.
 
-### Cómo se termina (dos comandos y medio)
-```bash
-# 1. Una sola vez, INTERACTIVO, con montiieljaviier@gmail.com:
-npx vercel login --global-config "C:\Users\USUARIO\.vercel-clubify"
-
-# 2. Frontend (tiene que ir ANTES que el seed):
-node scripts/desplegar.cjs frontend
-
-# 3. Y ya las plantillas:
-cd backend && railway run node scripts/seed-email-templates.cjs
-```
+### Aviso que estuvo cerca de costar caro
+Se desplegó el backend a las 17:02 desde esta rama **sin la de Jhon**, que ya
+tenía 11 commits suyos del día. Sus rutas grandes sobrevivieron (venían de un
+merge anterior), pero su gating freemium de Infolinks (`548d5611`, 10:54) NO iba
+en ese despliegue: estuvo unas 3 h fuera de producción. El despliegue de las
+20:03 lo restauró. **La lección de siempre: `git fetch` y comparar ramas ANTES
+de desplegar, no después.** El frontend no llegó a salir mal porque se comprobó
+a tiempo — habría dejado en 404 las tres pantallas de cuponera de Jhon.
 
 ### Qué falta / qué hay que validar del otro lado
-- [ ] Login aislado de Vercel (interactivo, una vez) y desplegar el frontend.
-- [ ] Correr el seed DESPUÉS del frontend (crea 4 plantillas nuevas y
-      **actualiza** las 5 existentes por nombre; idempotente, verifica antes
-      de escribir).
-- [x] ~~Desplegar el backend~~ — hecho y verificado el 2026-08-26 a las 17:02.
-- [ ] Mandarse una prueba real a Gmail y a Outlook: el VML solo se puede
-      comprobar en un Outlook de escritorio de verdad.
+- [x] ~~Fusionar la rama de Jhon~~ · ~~backend~~ · ~~frontend~~ · ~~seed~~ — todo hecho el 26-08.
+- [ ] Mandarse una prueba real a Gmail y a Outlook: el VML de los botones solo
+      se puede comprobar en un Outlook de escritorio de verdad.
+- [ ] Jhon: tus 11 commits ya están en `chore/merge-emails-sobre-314`. Si sigues
+      en `feat/commissions-auto-cutoffs`, trae la fusión antes de desplegar o te
+      llevarás por delante las plantillas nuevas.
 
 ### Riesgos y avisos
 - **Orden de despliegue: primero el frontend, después el seed.** Un editor viejo
