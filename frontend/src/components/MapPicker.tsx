@@ -347,10 +347,17 @@ export function MapPicker({
         </div>
       )}
 
+      {/* `position: relative` en línea, no confiado al CSS de Leaflet.
+          Los paneles del mapa se posicionan en ABSOLUTO; si el contenedor no
+          es su contexto de posicionamiento, se anclan al documento y el mapa
+          aparece fuera del modal, encima del formulario. Leaflet lo pone en su
+          hoja de estilos, pero cuando el componente se carga con `dynamic` esa
+          hoja puede llegar después de que el mapa ya se dibujó. En línea no
+          depende de nada. */}
       <div
         ref={containerRef}
         className="rounded-input overflow-hidden border border-line bg-bg2"
-        style={{ height }}
+        style={{ height, position: 'relative', width: '100%' }}
       />
 
       {picked && (

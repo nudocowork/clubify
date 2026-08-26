@@ -10,6 +10,14 @@ import { PhoneInput } from '@/components/PhoneInput';
 import { useTenantCountry, stateExamplePlaceholder } from '@/lib/useTenantCountry';
 import { regionsForCountry } from '@/lib/regions';
 import type { MapPickResult } from '@/components/MapPicker';
+// El CSS de Leaflet va AQUÍ, estático, aunque el componente se cargue con
+// `dynamic`. Importado solo dentro de MapPicker viaja en el trozo diferido y
+// puede no estar aplicado cuando el mapa se dibuja: sin
+// `.leaflet-container { position: relative }` sus paneles están posicionados
+// en absoluto contra el documento y se salen del modal, encima del formulario.
+// El mapa de /admin/map nunca falló porque ahí el CSS sí se importa a nivel de
+// página.
+import 'leaflet/dist/leaflet.css';
 
 // Leaflet usa `window` al importar — dynamic import sin SSR
 const MapPicker = dynamic(
