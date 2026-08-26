@@ -87,17 +87,37 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
   `preview.html` generado con `node scripts/preview-email-templates.cjs`.
 
 ### Qué toqué de PRODUCCIÓN
-- **Nada todavía.** El seed **no se ha corrido** contra producción: las 9
-  plantillas siguen sin estar en la base. Falta correr
-  `railway run node scripts/seed-email-templates.cjs`.
+- **Backend DESPLEGADO** (Railway, 2026-08-26 17:02, commit `13a2bff4`, vía
+  `node scripts/desplegar.cjs backend`). Verificado en vivo: `/api/health` 200
+  con `uptimeSec` bajo, `/api/admin/marketing/templates` 401 (existe) y una ruta
+  inventada 404 (la prueba está calibrada). Lleva la interpolación de variables
+  y la parte de texto plano.
+- **Frontend NO desplegado.** Bloqueado por la sesión de Vercel: esta máquina
+  tiene el CLI en la cuenta `growbusiness`, que no ve el equipo de Jhon. El
+  arreglo ya está en `scripts/desplegar.cjs` (sesión aislada con
+  `--global-config`), pero falta hacer el login una vez, y es interactivo.
+- **Seed NO corrido.** Las 9 plantillas siguen sin estar en la base; producción
+  mantiene las 5 viejas. Se retiene A PROPÓSITO: ver riesgos.
 - Sin cambios de esquema. Ninguna migración, ningún `db push`.
-- Sin despliegue de backend ni de frontend.
+
+### Cómo se termina (dos comandos y medio)
+```bash
+# 1. Una sola vez, INTERACTIVO, con montiieljaviier@gmail.com:
+npx vercel login --global-config "C:\Users\USUARIO\.vercel-clubify"
+
+# 2. Frontend (tiene que ir ANTES que el seed):
+node scripts/desplegar.cjs frontend
+
+# 3. Y ya las plantillas:
+cd backend && railway run node scripts/seed-email-templates.cjs
+```
 
 ### Qué falta / qué hay que validar del otro lado
-- [ ] Correr el seed contra producción (crea 4 plantillas nuevas y **actualiza**
-      las 5 existentes por nombre; es idempotente y verifica antes de escribir).
-- [ ] Desplegar frontend y backend: sin el frontend nuevo, las plantillas
-      renderizadas con bloques nuevos se ven mal en el editor viejo (ver riesgos).
+- [ ] Login aislado de Vercel (interactivo, una vez) y desplegar el frontend.
+- [ ] Correr el seed DESPUÉS del frontend (crea 4 plantillas nuevas y
+      **actualiza** las 5 existentes por nombre; idempotente, verifica antes
+      de escribir).
+- [x] ~~Desplegar el backend~~ — hecho y verificado el 2026-08-26 a las 17:02.
 - [ ] Mandarse una prueba real a Gmail y a Outlook: el VML solo se puede
       comprobar en un Outlook de escritorio de verdad.
 
