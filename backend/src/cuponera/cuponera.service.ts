@@ -1340,6 +1340,82 @@ export class CuponeraService {
     });
   }
 
+  // --- Push del aliado (spec §22) ---
+
+  /** Cuántos envíos le quedan al aliado en su ventana. */
+  async allyPushQuota(user: AuthUser) {
+    const ally = await this.getAllyForPortal(user);
+    const campaign = await this.ensureLivingCampaign();
+    const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+    // Default 1 por semana. La cuponera lo sube o lo baja desde su config; 0 lo
+    // apaga por completo.
+    const limite = Number.isFinite(Number(cfg.allyPushPerWeek)) ? Number(cfg.allyPushPerWeek) : 1;
+    const desde = benefitPeriodStart('WEEK', new Date())!;
+    const usados = await this.prisma.allyPush.count({
+      where: { allyBusinessId: ally.id, createdAt: { gte: desde } },
+    });
+    return {
+      limite,
+      usados,
+      restantes: Math.max(0, limite - usados),
+      // La semana arranca el LUNES, mismo criterio que los topes de beneficio.
+      renuevaEl: new Date(desde.getTime() + 7 * 24 * 60 * 60 * 1000),
+    };
+  }
+
+  /**
+   * El aliado avisa a quienes ya usaron su beneficio (§22). No puede escribirle
+   * a toda la comunidad: eso es del admin de la cuponera. El segmento sale de
+   * SU allyBusinessId, nunca de un id que venga en el body.
+   */
+  async sendAllyPush(user: AuthUser, dto: { title: string; body: string }) {
+    const ally = await this.getAllyForPortal(user);
+    if (ally.status !== 'APPROVED') {
+      throw new BadRequestException('Tu negocio todavía no está aprobado en la cuponera');
+    }
+    const title = (dto.title ?? '').trim();
+    const body = (dto.body ?? '').trim();
+    if (!title || !body) throw new BadRequestException('Falta el título o el mensaje');
+
+    const cuota = await this.allyPushQuota(user);
+    if (cuota.limite === 0) {
+      throw new BadRequestException('La cuponera tiene desactivados los avisos de los aliados');
+    }
+    if (cuota.restantes <= 0) {
+      throw new BadRequestException(
+        `Ya usaste tus ${cuota.limite} ${cuota.limite === 1 ? 'aviso' : 'avisos'} de esta semana. ` +
+        `Vuelven a estar disponibles el ${cuota.renuevaEl.toLocaleDateString('es-CO')}.`,
+      );
+    }
+
+    const r = await this.sendSegmentPush({ allyId: ally.id, title, body });
+
+    // Se registra DESPUÉS del envío y solo si salió: si el push falla, no le
+    // gastamos el cupo de la semana al aliado.
+    await this.prisma.allyPush.create({
+      data: {
+        campaignId: (await this.ensureLivingCampaign()).id,
+        allyBusinessId: ally.id,
+        userId: user.id,
+        title, body,
+        targeted: (r as any)?.targeted ?? 0,
+        sent: (r as any)?.sent ?? 0,
+      },
+    }).catch(() => null);
+
+    return { ...r, quota: await this.allyPushQuota(user) };
+  }
+
+  /** Historial de avisos del aliado (§20 "Push enviados"). */
+  async listAllyPushes(user: AuthUser) {
+    const ally = await this.getAllyForPortal(user);
+    return this.prisma.allyPush.findMany({
+      where: { allyBusinessId: ally.id },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+  }
+
   // --- Historial de cambios del beneficio (spec §6) ---
 
   /**

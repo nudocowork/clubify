@@ -47,7 +47,7 @@ const STATUS: Record<string, { label: string; color: string; bg: string }> = {
   REJECTED: { label: 'Rechazado', color: '#991b1b', bg: '#fee2e2' },
   SUSPENDED: { label: 'Suspendido', color: '#991b1b', bg: '#fee2e2' },
 };
-const TABS = ['Ficha', 'Sedes', 'Promociones', 'Canjear', 'Historial'] as const;
+const TABS = ['Ficha', 'Sedes', 'Promociones', 'Canjear', 'Avisos', 'Historial'] as const;
 
 export default function AllyPanel() {
   const router = useRouter();
@@ -88,6 +88,7 @@ export default function AllyPanel() {
       {tab === 'Sedes' && <SedesTab flash={flash} />}
       {tab === 'Promociones' && <PromosTab flash={flash} />}
       {tab === 'Canjear' && <CanjearTab flash={flash} />}
+      {tab === 'Avisos' && <AvisosTab flash={flash} />}
       {tab === 'Historial' && <HistorialTab />}
     </div>
   );
@@ -662,5 +663,119 @@ function HistorialBeneficio({ benefitId }: { benefitId: string }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// ── AVISOS DEL ALIADO (spec §22) ──────────────────────────────────────────────
+// El aliado le escribe a quienes ya usaron su beneficio. La cuota se muestra
+// SIEMPRE, también cuando queda: saber que hay un límite antes de escribir el
+// mensaje evita redactarlo para después no poder mandarlo.
+type Cuota = { limite: number; usados: number; restantes: number; renuevaEl: string };
+type Envio = { id: string; title: string; body: string; targeted: number; sent: number; createdAt: string };
+
+function AvisosTab({ flash }: { flash: (m: string) => void }) {
+  const [cuota, setCuota] = useState<Cuota | null>(null);
+  const [envios, setEnvios] = useState<Envio[]>([]);
+  const [f, setF] = useState({ title: '', body: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const cargar = async () => {
+    try {
+      const [c, h] = await Promise.all([
+        api<Cuota>('/cuponera/ally/push'),
+        api<Envio[]>('/cuponera/ally/push/history'),
+      ]);
+      setCuota(c); setEnvios(h ?? []);
+    } catch { /* la pantalla ya muestra el error del envío */ }
+  };
+  useEffect(() => { cargar(); }, []);
+
+  async function enviar() {
+    if (!f.title.trim() || !f.body.trim()) return flash('Falta el título o el mensaje');
+    setBusy(true); setErr(null);
+    try {
+      const r = await api<any>('/cuponera/ally/push', { method: 'POST', body: JSON.stringify(f) });
+      flash(`Aviso enviado a ${r?.sent ?? 0} ${r?.sent === 1 ? 'persona' : 'personas'}`);
+      setF({ title: '', body: '' });
+      cargar();
+    } catch (e: any) { setErr(e?.message || 'No se pudo enviar'); }
+    finally { setBusy(false); }
+  }
+
+  const sinCupo = cuota != null && cuota.restantes <= 0;
+  const apagado = cuota != null && cuota.limite === 0;
+
+  return (
+    <Card>
+      <div style={{ fontSize: 13.5, color: '#475569', marginBottom: 12, lineHeight: 1.5 }}>
+        Un aviso les llega a las personas que ya usaron tu beneficio. No va a toda la
+        comunidad: eso lo maneja la cuponera.
+      </div>
+
+      {cuota && !apagado && (
+        <div style={{
+          background: sinCupo ? '#fffbeb' : '#f0fdf4',
+          border: `1px solid ${sinCupo ? '#fde68a' : '#bbf7d0'}`,
+          color: sinCupo ? '#92400e' : '#166534',
+          borderRadius: 9, padding: '10px 12px', fontSize: 12.5, marginBottom: 14,
+        }}>
+          {sinCupo
+            ? <>Ya usaste tus {cuota.limite} {cuota.limite === 1 ? 'aviso' : 'avisos'} de esta semana.
+                Vuelven el {new Date(cuota.renuevaEl).toLocaleDateString('es-CO')}.</>
+            : <>Te {cuota.restantes === 1 ? 'queda' : 'quedan'} <b>{cuota.restantes}</b> de {cuota.limite}
+                {cuota.limite === 1 ? ' aviso' : ' avisos'} esta semana.</>}
+        </div>
+      )}
+
+      {apagado && (
+        <div style={{ background: '#f3f4f6', border: '1px solid #e5e7eb', color: '#4b5563', borderRadius: 9, padding: '10px 12px', fontSize: 12.5, marginBottom: 14 }}>
+          La cuponera tiene desactivados los avisos de los aliados.
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gap: 12 }}>
+        <div>
+          <label style={lbl}>Título</label>
+          <input style={inp} maxLength={60} value={f.title} placeholder="Hoy 20% OFF"
+            onChange={(e) => setF({ ...f, title: e.target.value })} disabled={sinCupo || apagado} />
+        </div>
+        <div>
+          <label style={lbl}>Mensaje</label>
+          <input style={inp} maxLength={180} value={f.body} placeholder="Vení con tu Living Card"
+            onChange={(e) => setF({ ...f, body: e.target.value })} disabled={sinCupo || apagado} />
+          <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>
+            Se ve en la pantalla bloqueada del celular. Corto y concreto funciona mejor.
+          </div>
+        </div>
+        <div>
+          <button style={btn()} onClick={enviar} disabled={busy || sinCupo || apagado}>
+            {busy ? 'Enviando…' : 'Enviar aviso'}
+          </button>
+        </div>
+      </div>
+
+      {err && <div style={{ fontSize: 13, color: '#b91c1c', marginTop: 10 }}>{err}</div>}
+
+      {envios.length > 0 && (
+        <div style={{ marginTop: 20, borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>Avisos enviados</div>
+          {envios.map((e) => (
+            <div key={e.id} style={{ padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                <b style={{ fontSize: 13.5 }}>{e.title}</b>
+                <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                  {new Date(e.createdAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}
+                </span>
+              </div>
+              <div style={{ fontSize: 12.5, color: '#475569', marginTop: 2 }}>{e.body}</div>
+              <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 3 }}>
+                Llegó a {e.sent} de {e.targeted}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }

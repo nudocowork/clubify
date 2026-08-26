@@ -5938,6 +5938,7 @@ model AllyBusiness {
   /// Cuentas de login del negocio (role=ALLY_BUSINESS).
   admins      User[]       @relation("AllyBusinessAdmin")
   locations   AllyLocation[]
+  pushes      AllyPush[]
   benefits    Benefit[]
   redemptions Redemption[]
   stampEvents StampEvent[]
@@ -6053,6 +6054,30 @@ model Benefit {
 ///   { "percentOff": { "from": 30, "to": 15 } }
 /// Guardar la fila entera duplicaría el beneficio en cada edición y haría más
 /// difícil leer qué pasó.
+/// Envío de push hecho POR un aliado (spec §22). Existe por dos razones que se
+/// resuelven con la misma fila:
+///   1. el LÍMITE anti-spam — "la cuponera podrá establecer límites" — se cuenta
+///      sobre esta tabla, no sobre Notification: un envío crea una Notification
+///      POR CLIENTE, así que contar esas sería contar destinatarios, no envíos;
+///   2. "Push enviados" en las métricas del aliado (§20).
+model AllyPush {
+  id             String       @id @default(uuid())
+  campaignId     String
+  allyBusinessId String
+  ally           AllyBusiness @relation(fields: [allyBusinessId], references: [id], onDelete: Cascade)
+  /// Quién lo mandó. Null = el usuario se borró; la fila se conserva.
+  userId         String?
+  title          String
+  body           String
+  /// Cuántos pases se apuntaron y a cuántos llegó de verdad.
+  targeted       Int          @default(0)
+  sent           Int          @default(0)
+  createdAt      DateTime     @default(now())
+
+  @@index([allyBusinessId, createdAt])
+  @@index([campaignId, createdAt])
+}
+
 model BenefitChange {
   id        String   @id @default(uuid())
   benefitId String
