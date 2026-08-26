@@ -3492,29 +3492,72 @@ export class ReferralsService {
   //  - affiliate.publicRegistration.influencerCommissionPct
   //  - affiliate.publicRegistration.ambassadorCommissionPct
 
-  private static readonly PUBLIC_REG_SETTING_KEYS = [
-    'affiliate.publicRegistration.enabled',
-    'affiliate.publicRegistration.allowInfluencer',
-    'affiliate.publicRegistration.allowAmbassador',
-    'affiliate.publicRegistration.influencerCommissionPct',
-    'affiliate.publicRegistration.ambassadorCommissionPct',
-  ];
+  /** Marca blanca dueña de un HOST (dominio propio) para el registro público de
+   *  afiliados. null = Clubify / dominio desconocido → usa la config GLOBAL. */
+  async resolveSignupBrandByHost(
+    host?: string | null,
+  ): Promise<{ id: string; slug: string } | null> {
+    const norm = (s?: string | null) =>
+      (s ?? '').trim().toLowerCase().replace(/^www\./, '').split(':')[0];
+    const h = norm(host);
+    if (!h) return null;
+    const wls = await this.prisma.whiteLabel.findMany({
+      select: { id: true, slug: true, domain: true, appDomain: true },
+    });
+    const match = wls.find(
+      (w) => norm(w.appDomain) === h || norm(w.domain) === h,
+    );
+    if (!match || match.slug === 'clubify') return null;
+    return { id: match.id, slug: match.slug };
+  }
 
-  async getPublicAffiliateRegistrationConfig() {
+  /** Clave de Setting por marca: `<base>.<slug>` para marca blanca; `<base>`
+   *  global (Clubify). Cada marca opt-in por separado: NO hereda el toggle de
+   *  Clubify → aislamiento (una marca no se activa porque Clubify esté activo). */
+  private regKey(base: string, brandSlug?: string | null): string {
+    return brandSlug && brandSlug !== 'clubify' ? `${base}.${brandSlug}` : base;
+  }
+
+  /** Slug de la marca de un whiteLabelId (para que el admin de una marca edite
+   *  SU propia config). null = Clubify (config global). */
+  async slugForWhiteLabelId(id?: string | null): Promise<string | null> {
+    if (!id) return null;
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      select: { slug: true },
+    });
+    return wl?.slug && wl.slug !== 'clubify' ? wl.slug : null;
+  }
+
+  /** Config del registro público resuelta por HOST (endpoint público). */
+  async getPublicAffiliateRegistrationConfigForHost(host?: string | null) {
+    const brand = await this.resolveSignupBrandByHost(host);
+    return this.getPublicAffiliateRegistrationConfig(brand?.slug);
+  }
+
+  async getPublicAffiliateRegistrationConfig(brandSlug?: string | null) {
+    const k = (base: string) => this.regKey(base, brandSlug);
+    const keys = [
+      k('affiliate.publicRegistration.enabled'),
+      k('affiliate.publicRegistration.allowInfluencer'),
+      k('affiliate.publicRegistration.allowAmbassador'),
+      k('affiliate.publicRegistration.influencerCommissionPct'),
+      k('affiliate.publicRegistration.ambassadorCommissionPct'),
+    ];
     const settings = await this.prisma.setting.findMany({
-      where: { key: { in: ReferralsService.PUBLIC_REG_SETTING_KEYS } },
+      where: { key: { in: keys } },
     });
     const map = new Map(settings.map((s) => [s.key, s.value]));
-    const enabled = map.get('affiliate.publicRegistration.enabled') === 'true';
+    const enabled = map.get(k('affiliate.publicRegistration.enabled')) === 'true';
     const allowInfluencer =
-      map.get('affiliate.publicRegistration.allowInfluencer') !== 'false';
+      map.get(k('affiliate.publicRegistration.allowInfluencer')) !== 'false';
     const allowAmbassador =
-      map.get('affiliate.publicRegistration.allowAmbassador') !== 'false';
+      map.get(k('affiliate.publicRegistration.allowAmbassador')) !== 'false';
     const influencerCommissionPct = Number(
-      map.get('affiliate.publicRegistration.influencerCommissionPct') ?? '10',
+      map.get(k('affiliate.publicRegistration.influencerCommissionPct')) ?? '10',
     );
     const ambassadorCommissionPct = Number(
-      map.get('affiliate.publicRegistration.ambassadorCommissionPct') ?? '15',
+      map.get(k('affiliate.publicRegistration.ambassadorCommissionPct')) ?? '15',
     );
     return {
       enabled,
@@ -3525,32 +3568,36 @@ export class ReferralsService {
     };
   }
 
-  async updatePublicAffiliateRegistrationConfig(patch: {
-    enabled?: boolean;
-    allowInfluencer?: boolean;
-    allowAmbassador?: boolean;
-    influencerCommissionPct?: number;
-    ambassadorCommissionPct?: number;
-  }) {
+  async updatePublicAffiliateRegistrationConfig(
+    patch: {
+      enabled?: boolean;
+      allowInfluencer?: boolean;
+      allowAmbassador?: boolean;
+      influencerCommissionPct?: number;
+      ambassadorCommissionPct?: number;
+    },
+    brandSlug?: string | null,
+  ) {
+    const k = (base: string) => this.regKey(base, brandSlug);
     const writes: Array<[string, string]> = [];
     if (patch.enabled !== undefined) {
-      writes.push(['affiliate.publicRegistration.enabled', String(patch.enabled)]);
+      writes.push([k('affiliate.publicRegistration.enabled'), String(patch.enabled)]);
     }
     if (patch.allowInfluencer !== undefined) {
-      writes.push(['affiliate.publicRegistration.allowInfluencer', String(patch.allowInfluencer)]);
+      writes.push([k('affiliate.publicRegistration.allowInfluencer'), String(patch.allowInfluencer)]);
     }
     if (patch.allowAmbassador !== undefined) {
-      writes.push(['affiliate.publicRegistration.allowAmbassador', String(patch.allowAmbassador)]);
+      writes.push([k('affiliate.publicRegistration.allowAmbassador'), String(patch.allowAmbassador)]);
     }
     if (patch.influencerCommissionPct !== undefined) {
       writes.push([
-        'affiliate.publicRegistration.influencerCommissionPct',
+        k('affiliate.publicRegistration.influencerCommissionPct'),
         String(Math.max(0, Math.min(100, patch.influencerCommissionPct))),
       ]);
     }
     if (patch.ambassadorCommissionPct !== undefined) {
       writes.push([
-        'affiliate.publicRegistration.ambassadorCommissionPct',
+        k('affiliate.publicRegistration.ambassadorCommissionPct'),
         String(Math.max(0, Math.min(100, patch.ambassadorCommissionPct))),
       ]);
     }
@@ -3561,7 +3608,7 @@ export class ReferralsService {
         update: { value },
       });
     }
-    return this.getPublicAffiliateRegistrationConfig();
+    return this.getPublicAffiliateRegistrationConfig(brandSlug);
   }
 
   async selfRegisterAffiliate(
@@ -3574,8 +3621,12 @@ export class ReferralsService {
       country?: string;
     },
     ip?: string,
+    host?: string | null,
   ) {
-    const config = await this.getPublicAffiliateRegistrationConfig();
+    // Marca por el HOST (dominio propio, ej. app.selleala.com): la config y el
+    // afiliado se AÍSLAN por marca. null = Clubify → config global.
+    const brand = await this.resolveSignupBrandByHost(host);
+    const config = await this.getPublicAffiliateRegistrationConfig(brand?.slug);
     if (!config.enabled) {
       throw new BadRequestException('El registro público de afiliados no está habilitado.');
     }
@@ -3612,7 +3663,10 @@ export class ReferralsService {
         country: dto.country?.trim() || null,
         role: dto.role,
         commissionPercent,
-        whiteLabelId: await this.resolveAffiliateWhiteLabelId({}),
+        // El afiliado nace BAJO la marca del host (Sellea en su dominio), no Clubify.
+        whiteLabelId: await this.resolveAffiliateWhiteLabelId({
+          parentWhiteLabelId: brand?.id ?? null,
+        }),
         isActive: true,
       },
     });

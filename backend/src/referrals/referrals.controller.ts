@@ -1067,8 +1067,10 @@ export class PublicAffiliateSignupController {
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Get('config')
-  config() {
-    return this.svc.getPublicAffiliateRegistrationConfig();
+  config(@Headers('host') host?: string) {
+    // Config resuelta por el HOST (dominio de la marca) → cada marca su propio
+    // on/off y %. Sin marca (Clubify/dev) → config global.
+    return this.svc.getPublicAffiliateRegistrationConfigForHost(host);
   }
 
   /** Crea User AFFILIATE_INFLUENCER o AFFILIATE_AMBASSADOR + ReferralCode
@@ -1076,8 +1078,13 @@ export class PublicAffiliateSignupController {
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('register')
-  register(@Body() body: SelfRegisterAffiliateBody, @Ip() ip: string) {
-    return this.svc.selfRegisterAffiliate(body, ip);
+  register(
+    @Body() body: SelfRegisterAffiliateBody,
+    @Ip() ip: string,
+    @Headers('host') host?: string,
+  ) {
+    // El host decide bajo qué marca nace el afiliado (Sellea en su dominio).
+    return this.svc.selfRegisterAffiliate(body, ip, host);
   }
 }
 
@@ -1091,12 +1098,21 @@ export class AdminAffiliateRegistrationController {
   constructor(private svc: ReferralsService) {}
 
   @Get()
-  get() {
-    return this.svc.getPublicAffiliateRegistrationConfig();
+  async get(@CurrentUser() user: AuthUser) {
+    // El admin de una marca blanca edita/ve SU propia config (por su whiteLabelId).
+    return this.svc.getPublicAffiliateRegistrationConfig(
+      await this.svc.slugForWhiteLabelId(user.whiteLabelId),
+    );
   }
 
   @Post()
-  update(@Body() body: UpdatePublicAffiliateRegConfigBody) {
-    return this.svc.updatePublicAffiliateRegistrationConfig(body);
+  async update(
+    @CurrentUser() user: AuthUser,
+    @Body() body: UpdatePublicAffiliateRegConfigBody,
+  ) {
+    return this.svc.updatePublicAffiliateRegistrationConfig(
+      body,
+      await this.svc.slugForWhiteLabelId(user.whiteLabelId),
+    );
   }
 }
