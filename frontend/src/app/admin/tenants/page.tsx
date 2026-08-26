@@ -606,21 +606,60 @@ export default function TenantsPage() {
  * #11 (2026-06-16): ranking de negocios por pases emitidos (mayor a menor,
  * con botón para invertir). Modal sobre la lista de negocios.
  */
+type RankingRow = {
+  id: string;
+  brandName: string;
+  status: string;
+  passCount: number;
+  passTotal: number;
+  createdAt: string;
+};
+
+/** Períodos del filtro. `null` = todo el histórico. */
+const PERIODOS: { dias: number | null; label: string }[] = [
+  { dias: null, label: 'Todo' },
+  { dias: 30, label: '30 días' },
+  { dias: 90, label: '90 días' },
+  { dias: 365, label: '1 año' },
+];
+
+/** «hace 2 años y 3 meses», que se lee mejor que una fecha suelta. */
+function antiguedadTexto(desde: string): string {
+  const meses = Math.max(
+    0,
+    Math.round((Date.now() - new Date(desde).getTime()) / (30.44 * 86_400_000)),
+  );
+  if (meses < 1) return 'este mes';
+  if (meses < 12) return `${meses} ${meses === 1 ? 'mes' : 'meses'}`;
+  const anios = Math.floor(meses / 12);
+  const resto = meses % 12;
+  const a = `${anios} ${anios === 1 ? 'año' : 'años'}`;
+  return resto === 0 ? a : `${a} y ${resto} ${resto === 1 ? 'mes' : 'meses'}`;
+}
+
 function PassesRankingModal({ onClose }: { onClose: () => void }) {
   const t = useTranslations('admin_tenants');
   const [order, setOrder] = useState<'desc' | 'asc'>('desc');
-  const [rows, setRows] = useState<
-    { id: string; brandName: string; status: string; passCount: number }[]
-  >([]);
+  const [criterio, setCriterio] = useState<'pases' | 'antiguedad'>('pases');
+  const [dias, setDias] = useState<number | null>(null);
+  const [rows, setRows] = useState<RankingRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setLoading(true);
-    api<typeof rows>(`/tenants/ranking?order=${order}`)
+    api<RankingRow[]>(
+      `/tenants/ranking?order=${order}&criterio=${criterio}` +
+        (dias ? `&dias=${dias}` : ''),
+    )
       .then((r) => setRows(r ?? []))
       .catch(() => setRows([]))
       .finally(() => setLoading(false));
-  }, [order]);
+  }, [order, criterio, dias]);
+
+  // El total de pases emitidos, que es el dato que faltaba: sin él, el
+  // ranking dice quién va primero pero no de cuánto estamos hablando.
+  const totalPases = rows.reduce((s, r) => s + r.passTotal, 0);
+  const totalPeriodo = rows.reduce((s, r) => s + r.passCount, 0);
 
   return (
     <div
@@ -640,19 +679,79 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
             ×
           </button>
         </div>
-        <div className="px-4 py-2 border-b border-line flex items-center justify-between">
-          <span className="text-xs text-mute">
+        <div className="px-4 py-2.5 border-b border-line space-y-2">
+          {/* Por qué se ordena. «Antigüedad» responde una pregunta distinta a
+              «pases»: quién lleva más tiempo con nosotros no suele ser quien
+              más emite. */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex rounded-lg bg-bg2 p-0.5">
+              {(
+                [
+                  ['pases', 'Por pases'],
+                  ['antiguedad', 'Por antigüedad'],
+                ] as const
+              ).map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => setCriterio(k)}
+                  className={`px-2.5 py-1 text-xs rounded-md font-medium ${
+                    criterio === k ? 'bg-white shadow-sm' : 'text-mute'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <button
+              className="btn-ghost text-xs ml-auto"
+              onClick={() => setOrder((o) => (o === 'desc' ? 'asc' : 'desc'))}
+            >
+              ⇅ {t('rankingInvert')}
+            </button>
+          </div>
+
+          {/* El período acota SOLO el conteo de pases; el orden por antigüedad
+              no depende de él, así que ahí no se ofrece y no confunde. */}
+          {criterio === 'pases' && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] text-mute">Pases emitidos en:</span>
+              {PERIODOS.map((p) => (
+                <button
+                  key={p.label}
+                  onClick={() => setDias(p.dias)}
+                  className={`px-2 py-0.5 text-[11px] rounded-full border ${
+                    dias === p.dias
+                      ? 'border-brand text-brand font-semibold bg-brand-soft'
+                      : 'border-line text-mute'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="text-xs text-mute">
             {t('rankingCount', { count: rows.length })} ·{' '}
-            {order === 'desc'
-              ? t('rankingOrderDesc')
-              : t('rankingOrderAsc')}
-          </span>
-          <button
-            className="btn-ghost text-xs"
-            onClick={() => setOrder((o) => (o === 'desc' ? 'asc' : 'desc'))}
-          >
-            ⇅ {t('rankingInvert')}
-          </button>
+            <b className="text-ink">{totalPases.toLocaleString('es-CO')}</b>{' '}
+            pases emitidos en total
+            {dias != null && criterio === 'pases' && (
+              <>
+                {' '}
+                · <b className="text-ink">{totalPeriodo.toLocaleString('es-CO')}</b>{' '}
+                en el período
+              </>
+            )}
+            {criterio === 'antiguedad' && (
+              <>
+                {' '}
+                ·{' '}
+                {order === 'desc'
+                  ? 'los más antiguos primero'
+                  : 'los más nuevos primero'}
+              </>
+            )}
+          </div>
         </div>
         <div className="overflow-y-auto p-2">
           {loading ? (
@@ -674,10 +773,21 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{r.brandName}</div>
-                    <div className="text-[11px] text-mute">{r.status}</div>
+                    <div className="text-[11px] text-mute">
+                      {r.status} · lleva {antiguedadTexto(r.createdAt)}
+                    </div>
                   </div>
-                  <div className="font-bold text-brand whitespace-nowrap">
-                    {t('passesCount', { count: r.passCount })}
+                  <div className="text-right whitespace-nowrap">
+                    <div className="font-bold text-brand">
+                      {t('passesCount', { count: r.passCount })}
+                    </div>
+                    {/* Con período activo, el total al lado: "40" no se puede
+                        leer sin saber si viene de 50 o de 5.000. */}
+                    {dias != null && criterio === 'pases' && (
+                      <div className="text-[10px] text-mute">
+                        de {r.passTotal.toLocaleString('es-CO')} en total
+                      </div>
+                    )}
                   </div>
                 </Link>
               ))}

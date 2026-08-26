@@ -200,8 +200,24 @@ export class TenantsController {
   // #11 (2026-06-16): ranking de negocios por pases emitidos. Debe ir ANTES
   // de @Get(':id') sino el router matchea "ranking" como :id.
   @Get('ranking')
-  ranking(@Query('order') order?: string, @CurrentUser() user?: AuthUser) {
-    return this.svc.rankingByPasses(order === 'asc' ? 'asc' : 'desc', user);
+  ranking(
+    @Query('order') order?: string,
+    @CurrentUser() user?: AuthUser,
+    @Query('criterio') criterio?: string,
+    @Query('dias') dias?: string,
+  ) {
+    // `dias` acota los pases al período; sin él, el histórico completo.
+    const n = Number(dias);
+    const desde =
+      Number.isFinite(n) && n > 0
+        ? new Date(Date.now() - n * 24 * 60 * 60 * 1000)
+        : null;
+    return this.svc.rankingByPasses(
+      order === 'asc' ? 'asc' : 'desc',
+      user,
+      criterio === 'antiguedad' ? 'antiguedad' : 'pases',
+      desde,
+    );
   }
 
   /** Historial de modificaciones de trial — audit log filtrado.
