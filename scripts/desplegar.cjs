@@ -188,6 +188,30 @@ if (OBJETIVO === 'backend') {
   }
   fs.cpSync(enlaceOrigen, enlaceDestino, { recursive: true });
 
+  // ── Sesión de Vercel aislada ─────────────────────────────────────────────
+  //
+  // En esta máquina conviven DOS cuentas de Vercel (montiieljaviier y
+  // growbusiness) y el CLI guarda el token en UN SOLO sitio:
+  // %APPDATA%\com.vercel.cli\Data\auth.json. Entrar con una sobrescribe a la
+  // otra, y la que estaba se queda fuera sin avisar — se descubre cuando un
+  // despliegue falla con "Not authorized".
+  //
+  // `--global-config` le da a cada cuenta su propia carpeta. Ahí el CLI guarda
+  // y RENUEVA su token por su cuenta, así que las dos sesiones conviven.
+  //
+  // OJO: la carpeta hay que crearla haciendo `vercel login` DENTRO de ella, no
+  // copiando la de al lado. El token es de sesión corta y el original lo va
+  // renovando: una copia nace caducada (probado).
+  const CONFIG_CLUBIFY = path.join(os.homedir(), '.vercel-clubify');
+  const aislada = fs.existsSync(path.join(CONFIG_CLUBIFY, 'auth.json'));
+  if (!aislada) {
+    console.log(
+      `  ⚠ Sin sesión aislada. Se usa la compartida, que la otra cuenta puede\n` +
+        `    cerrar en cualquier momento. Para separarlas, una sola vez:\n\n` +
+        `      npx vercel login --global-config "${CONFIG_CLUBIFY}"\n`,
+    );
+  }
+
   // El proyecto de Vercel vive en el equipo de Jhon: sin --scope, el CLI
   // resuelve el equipo equivocado y devuelve "Not authorized".
   console.log('  Subiendo a Vercel…\n');
@@ -200,6 +224,7 @@ if (OBJETIVO === 'backend') {
       '--yes',
       '--scope',
       'jhonarias888-1963s-projects',
+      ...(aislada ? ['--global-config', CONFIG_CLUBIFY] : []),
     ],
     { stdio: 'inherit', shell: true, cwd: path.join(COPIA, 'frontend') },
   );
