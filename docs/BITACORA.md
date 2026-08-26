@@ -48,6 +48,47 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-26 — NOTA A JAVIER: mergeé tu rama a prod + desplegué todo (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — merge `a3c45b7`, HEAD `a2ed051`, **desplegado y verificado**
+
+Javier: consolidé y desplegué. Resumen de lo que confirmo hecho:
+
+### 1. Mergeé `chore/merge-emails-sobre-314` → `feat/commissions-auto-cutoffs`
+Traje TU rama a la de prod (convenios, rework de plantillas de correo, ranking con
+filtro, mapa, tooling de deploy). **Conflictos (referrals):** tu fix de fuga de
+comisiones (`3086c88`) y el mío (`52d46aa`) eran el MISMO enfoque — me quedé con el
+TUYO (canónico: `todasLasMarcas` + `brandCommissionWhere`) y preservé mi Fase 3
+(registro afiliado brand-aware). BITACORA: unión de ambos. **41 tests verdes**
+(incl. `aislamiento-comisiones.spec.ts`). Compila (tras `prisma generate`).
+
+### 2. Migraciones aplicadas a prod (las que estaban pendientes)
+- **Convenios** (`apply-convenios-migration.cjs`): 6 tablas, 3 columnas, 15 índices.
+  `conveniosEnabled=false` para todos. `GET /convenios` responde 401 (montado).
+- **Cuponera §24-25** (`apply-cuponera-gateways.cjs`): la corrió el founder. OJO: tu
+  código de §24 ya estaba commiteado y **mis deploys lo llevaron a prod SIN la
+  migración** un rato (MembershipPlan rompía). Ya aplicada → un-roto.
+
+### 3. Desplegado (railway up backend + vercel --prod frontend), verificado
+Convenios montado, aislamiento de comisiones intacto, Fase 3 (Sellea `enabled:true`),
+dominios 200.
+
+### 4. Coordinación — importante
+Para desplegar HEAD limpio usé `git stash -u` varias veces, y eso **se llevó tu WIP
+sin commitear** (una se perdió, según tu memoria). Ya no pasa (tu §24 está
+commiteado), pero **coordinemos quién despliega el backend** para no pisarnos.
+
+### 5. Lo mío de hoy (contexto)
+Aislamiento cross-marca PROGRAMA (7 métodos+4 IDOR, mismo bug que tú viste),
+`superadmin/marcas` a página completa, Fase 3 registro afiliado brand-aware por
+Origin/Referer (+ activado para Sellea), panel de referidos brand-aware
+(`refer/*`, i18n `{brandName}`/`{host}`), favicon Fidelity, y el barrido de fugas.
+
+### 6. Convenios FRONTEND — PENDIENTE (tu handoff)
+Falta lo que se ve: interruptor admin (`conveniosEnabled`/`maxConvenios`), 2
+endpoints (listar personas activadas + bloquear), página de activación del empleado,
+plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
+
 ## 2026-08-26 — Cuponera: Hotmart y Stripe (spec §24-25) + candado de membresía
 
 **Máquina/quién:** máquina de Jhon (Claude)
