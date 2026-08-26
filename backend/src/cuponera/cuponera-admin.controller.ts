@@ -119,6 +119,8 @@ class CreateAllyBody {
   @IsOptional() @IsString() @MaxLength(30) whatsapp?: string;
   @IsOptional() @IsString() @MaxLength(80) city?: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
+  /** Tipo A (§16): el negocio de la marca blanca que ES este aliado. */
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() tenantId?: string | null;
 }
 
 class AllyStatusBody {
@@ -347,6 +349,11 @@ export class CuponeraAdminController {
   @Post('allies')
   createAlly(@Body() body: CreateAllyBody) {
     return this.svc.createAlly(body);
+  }
+  /** Negocios elegibles como aliado Tipo A (§16). */
+  @Get('allies/tenants')
+  listTenantsForAlly() {
+    return this.svc.listTenantsForAlly();
   }
   @Patch('allies/:id/status')
   setAllyStatus(@Param('id') id: string, @Body() body: AllyStatusBody) {

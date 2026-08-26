@@ -529,6 +529,31 @@ export class CuponeraService {
     };
   }
 
+  /**
+   * Negocios elegibles como aliado TIPO A (§16). Excluye los tenants de sistema
+   * y los que YA son aliados de esta cuponera: un negocio no puede serlo dos
+   * veces, y ofrecerlo llevaría a un choque al guardar.
+   */
+  async listTenantsForAlly() {
+    const campaign = await this.ensureLivingCampaign();
+    const yaAliados = await this.prisma.allyBusiness.findMany({
+      where: { campaignId: campaign.id, tenantId: { not: null } },
+      select: { tenantId: true },
+    });
+    const excluir = yaAliados.map((a) => a.tenantId as string);
+    return this.prisma.tenant.findMany({
+      where: {
+        isCampaignHost: false,
+        status: 'ACTIVE',
+        ...(campaign.whiteLabelId ? { whiteLabelId: campaign.whiteLabelId } : {}),
+        ...(excluir.length ? { id: { notIn: excluir } } : {}),
+      },
+      select: { id: true, name: true, brandName: true, slug: true },
+      orderBy: { name: 'asc' },
+      take: 500,
+    });
+  }
+
   /** Administradores de una cuponera (§3). Nunca devuelve el hash. */
   async listCampaignAdmins(campaignId: string) {
     return this.prisma.user.findMany({
@@ -1120,7 +1145,27 @@ export class CuponeraService {
     whatsapp?: string;
     city?: string;
     description?: string;
+    /**
+     * ALIADO TIPO A (spec §16): el Tenant de la marca blanca que ES este
+     * negocio. Con valor, su escáner de siempre reconoce la tarjeta de la
+     * cuponera. Sin valor = Tipo B (externo), usa el portal web.
+     */
+    tenantId?: string | null;
   }) {
+    // Se verifica que el negocio EXISTA y que no sea un tenant de sistema:
+    // vincular un aliado al tenant que HOSPEDA la cuponera sería circular.
+    let tenantId: string | null = null;
+    if (dto.tenantId) {
+      const t = await this.prisma.tenant.findUnique({
+        where: { id: dto.tenantId },
+        select: { id: true, isCampaignHost: true },
+      });
+      if (!t) throw new BadRequestException('El negocio no existe');
+      if (t.isCampaignHost) {
+        throw new BadRequestException('Ese es un negocio de sistema, no puede ser aliado');
+      }
+      tenantId = t.id;
+    }
     const campaign = await this.ensureLivingCampaign();
     const categoryId = await this.assertCategory(campaign.id, dto.categoryId);
     const email = dto.email.trim().toLowerCase();
@@ -1137,6 +1182,7 @@ export class CuponeraService {
         name: dto.name,
         slug,
         categoryId,
+        tenantId,
         whatsapp: dto.whatsapp || null,
         city: dto.city || '',
         description: dto.description || '',

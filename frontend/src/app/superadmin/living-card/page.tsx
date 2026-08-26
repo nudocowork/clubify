@@ -244,13 +244,19 @@ function CategoriesSection({ categories, onChange }: { categories: Category[]; o
 
 const ALLY_STATUS: Record<string, { label: string; color: string }> = { PENDING: { label: 'Pendiente', color: '#b45309' }, APPROVED: { label: 'Aprobado', color: '#16a34a' }, REJECTED: { label: 'Rechazado', color: '#dc2626' }, SUSPENDED: { label: 'Suspendido', color: '#dc2626' } };
 function AlliesSection({ allies, categories, onChange }: { allies: Ally[]; categories: Category[]; onChange: () => void }) {
-  const empty = { name: '', email: '', ownerFullName: '', categoryId: '', whatsapp: '', city: '' };
+  const empty = { name: '', email: '', ownerFullName: '', categoryId: '', whatsapp: '', city: '', tenantId: '' };
+  // Negocios elegibles como aliado Tipo A (§16). Se cargan aparte porque el
+  // endpoint excluye los que ya son aliados de esta cuponera.
+  const [tenants, setTenants] = useState<{ id: string; name: string; brandName: string | null }[]>([]);
+  useEffect(() => {
+    api<any[]>('/cuponera/admin/allies/tenants').then((r) => setTenants(r ?? [])).catch(() => setTenants([]));
+  }, []);
   const [form, setForm] = useState<any>(empty); const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ email: string; tempPassword?: string } | null>(null); const [msg, setMsg] = useState<string | null>(null);
   async function create() {
     if (!form.name.trim() || !form.email.trim() || !form.ownerFullName.trim()) { setMsg('Nombre, email y responsable requeridos'); return; }
     setBusy(true); setMsg(null);
-    try { const r = await api<{ loginEmail: string; tempPassword?: string }>('/cuponera/admin/allies', { method: 'POST', body: JSON.stringify({ ...form, categoryId: form.categoryId || null }) }); setCreated({ email: r.loginEmail, tempPassword: r.tempPassword }); setForm(empty); onChange(); }
+    try { const r = await api<{ loginEmail: string; tempPassword?: string }>('/cuponera/admin/allies', { method: 'POST', body: JSON.stringify({ ...form, categoryId: form.categoryId || null, tenantId: form.tenantId || null }) }); setCreated({ email: r.loginEmail, tempPassword: r.tempPassword }); setForm(empty); onChange(); }
     catch (e: any) { setMsg(e?.message || 'Error al crear'); } finally { setBusy(false); }
   }
   async function setStatus(a: Ally, status: string) { await api(`/cuponera/admin/allies/${a.id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }); onChange(); }
@@ -285,6 +291,21 @@ function AlliesSection({ allies, categories, onChange }: { allies: Ally[]; categ
         <div><label style={labelStyle}>Responsable</label><input style={inputStyle} value={form.ownerFullName} onChange={(e) => setForm({ ...form, ownerFullName: e.target.value })} /></div>
         <div><label style={labelStyle}>Categoría</label><select style={inputStyle} value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}><option value="">Sin categoría</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
         <div><label style={labelStyle}>Ciudad</label><input style={inputStyle} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={labelStyle}>¿Este negocio ya es cliente de la marca? (opcional)</label>
+          <select style={inputStyle} value={form.tenantId}
+            onChange={(e) => setForm({ ...form, tenantId: e.target.value })}>
+            <option value="">No — es un aliado externo</option>
+            {tenants.map((t) => (
+              <option key={t.id} value={t.id}>{t.brandName || t.name}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 4 }}>
+            Si lo vinculás, el negocio podrá leer la tarjeta de la cuponera con
+            <b> su escáner de siempre</b>, sin instalar nada. Si lo dejás en “externo”,
+            canjea desde el portal web del aliado.
+          </div>
+        </div>
         <button style={btn()} disabled={busy} onClick={create}>{busy ? '…' : 'Crear negocio'}</button>
       </div>
       {msg && <div style={{ fontSize: 12.5, color: '#b91c1c', marginTop: 10 }}>{msg}</div>}
