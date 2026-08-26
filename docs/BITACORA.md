@@ -48,6 +48,45 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-26 — Automatizaciones activas por defecto + nota descartable (punto 1 SELLEALA)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — commit `43f4147`, desplegado
+
+Punto 1 del PDF SELLEALA. El "apartado de automatizaciones" es el **sistema B**:
+`/admin/automatizaciones` → pestaña "Mensajes automáticos" (`AutomatizacionesPanel`),
+plantillas de marca (SMS/WhatsApp + correo gemelo) que salen por la subcuenta de
+Grow Business de la marca. Sellea ya tenía subcuenta + 4/5 presets `admin_*` ON +
+todos los correos ON por defecto.
+
+### Qué cambié
+- **Nota descartable (2-3 líneas)** en `AutomatizacionesPanel` explicando que las
+  automatizaciones vienen activas por defecto y cómo gestionarlas. Patrón
+  `localStorage` (`clubify:admin:automations-note:dismissed`), como `InsightsCard`.
+
+### Qué toqué de PRODUCCIÓN
+- **DB (1 fila)**: `Setting sms.enabled.wl.<selleaId>.admin_charge_date_moved='true'`
+  (script `enable-sellea-admin-charge-date-moved.cjs`, idempotente). Era el único
+  preset `admin_*` que faltaba en Sellea → ahora los 5 ON. Event-driven, va al
+  negocio (no al cliente final), reversible.
+- **Frontend**: `vercel --prod`, READY, dominios 200. ⚠️ **Este deploy también
+  shippeó ~723 líneas de la cuponera/livingcard de Javi** (commits `1bbccce`,
+  `c7ae391`, `231f524`, `9d8d702`, `27c0405`: QrScanner, carnet, beneficios,
+  superadmin/living-card) que estaban en la rama pero no en prod — con OK explícito
+  del founder (confirmó que la cuponera estaba lista).
+
+### Listado por canal (activas por defecto en Sellea) — entregable
+- **Correo (todas ON)**: panel listo, activación comprador, recordatorios cobro
+  7d/3d/mañana/hoy/vencido, confirmado/fallido, por pausar/pausada/reactivada,
+  reembolso, chargeback, cancelación, mover fecha, disputa.
+- **WhatsApp**: Cobros (7d/3d/mañana/hoy/vencido, no procesado 2d, por pausar/
+  pausada/reactivada) + confirmado/fallido + Operativas (reserva nueva/cancelada,
+  domicilio, reseña, pedidos al cliente con opt-in) + `admin_*` los 5 (disputa,
+  reembolso, chargeback, cancelación, mover fecha).
+
+### Riesgos
+- Sin envío masivo: todo event-driven. Gate duro = subcuenta Grow Business (Sellea
+  la tiene). Si se desconectara, no sale nada.
+
 ## 2026-08-26 — Bug "Sin definir" (periodicidad) — diagnóstico + backfill puntual
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** `feat/commissions-auto-cutoffs` — script `backfill-plan-periodicity-mensual-group.cjs`
