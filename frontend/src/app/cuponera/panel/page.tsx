@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { api, getUser, clearSession } from '@/lib/api';
 import { PhoneInput } from '@/components/PhoneInput';
 import { ImageUploader } from '@/components/ImageUploader';
+import { QrScanner } from '@/components/QrScanner';
 
 const PC = '#0a90bd';
 
@@ -242,14 +243,16 @@ function PromosTab({ flash }: { flash: (m: string) => void }) {
 // ─────────── Canjear ───────────
 function CanjearTab({ flash }: { flash: (m: string) => void }) {
   const [qr, setQr] = useState('');
+  const [camara, setCamara] = useState(false);
   const [scan, setScan] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  async function doScan() {
-    if (!qr.trim()) return;
+  async function doScan(texto?: string) {
+    const codigo = (texto ?? qr).trim();
+    if (!codigo) return;
     setBusy(true); setErr(null); setScan(null);
-    try { setScan(await api('/cuponera/ally/scan', { method: 'POST', body: JSON.stringify({ qrToken: qr.trim() }) })); }
+    try { setScan(await api('/cuponera/ally/scan', { method: 'POST', body: JSON.stringify({ qrToken: codigo }) })); }
     catch (e: any) { setErr(e?.message || 'No se encontró la tarjeta'); }
     finally { setBusy(false); }
   }
@@ -283,12 +286,31 @@ function CanjearTab({ flash }: { flash: (m: string) => void }) {
 
   return (
     <Card>
+      {/* Escanear es el camino principal (§6); pegar el código queda como
+          respaldo para cuando la cámara no está disponible. */}
+      {!camara ? (
+        <button onClick={() => { setErr(null); setCamara(true); }} style={{ ...btn(), width: '100%', padding: '13px 18px', fontSize: 15 }}>
+          Escanear con la cámara
+        </button>
+      ) : (
+        <div style={{ marginBottom: 14 }}>
+          <QrScanner
+            onResult={(texto) => { setCamara(false); setQr(texto); void doScan(texto); }}
+            onClose={() => setCamara(false)}
+          />
+        </div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '14px 0 10px' }}>
+        <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+        <span style={{ fontSize: 11.5, color: '#94a3b8' }}>o escribí el código</span>
+        <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+      </div>
       <label style={lbl}>Código QR del miembro</label>
       <div style={{ display: 'flex', gap: 10 }}>
-        <input style={inp} value={qr} onChange={(e) => setQr(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doScan()} placeholder="Pega o escanea el código (QR-…)" />
-        <button onClick={doScan} disabled={busy} style={btn()}>{busy ? '…' : 'Buscar'}</button>
+        <input style={inp} value={qr} onChange={(e) => setQr(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void doScan(); }} placeholder="Pega o escanea el código (QR-…)" />
+        <button onClick={() => doScan()} disabled={busy} style={btn()}>{busy ? '…' : 'Buscar'}</button>
       </div>
-      <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>Usa un lector de QR físico o pega el código. El escaneo con cámara llega pronto.</p>
+      <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>También podés usar un lector físico o escribir el código a mano.</p>
 
       {err && <div style={{ marginTop: 16, padding: 14, background: '#fef2f2', borderRadius: 12, color: '#991b1b', fontSize: 13.5 }}>{err}</div>}
 
