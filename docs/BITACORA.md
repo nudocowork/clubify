@@ -70,21 +70,27 @@ pasarela hardcodeada):
 - `admin/commissions` "Pagan suscripción **Hotmart**" → "Pagan su suscripción".
 - `csvHotmartTx` (es/en/pt) "**Hotmart** TX" → "Pasarela TX"/"Gateway TX".
 
+**Grupo A (fallbacks que caían a 'Clubify' ante fallo) — commit `dcf15f5`, LIVE:**
+- `d/[slug]/layout`: title fallback "Negocio · Clubify" (solo si falla la carga
+  del storefront de domicilios) → "Negocio".
+- `wallet.service`: el nombre mostrado del pase caía a "Clubify" si el negocio no
+  tiene `brandName` → ahora cae a su `Tenant.name` (el pase muestra el negocio, no
+  la plataforma); se agregó `name` al select de la reserva.
+
 ### Qué toqué de PRODUCCIÓN
-- **Frontend**: `vercel --prod` (dpl `o4GreFf5`), READY, dominios prod 200.
-- **Backend**: `railway up --service backend` desde la raíz. Swap verificado
-  (uptime 1550→20→46), CORS 204 con ACAO, `platformName` confirmado en
-  `/api/public/service-reservations/primor-barber-shop` = "Clubify".
-- **Sin migración** (solo un `select` extra en el endpoint público).
+- **Frontend**: `vercel --prod` ×2, READY, dominios prod 200.
+- **Backend**: `railway up --service backend` desde la raíz ×2. Swaps verificados
+  por reset de uptime (1550→20; 815→55), CORS 204 con ACAO, `platformName`
+  confirmado en `/api/public/service-reservations/primor-barber-shop` = "Clubify".
+- **Sin migración** (solo `select` extra en dos endpoints).
 - DB: nada. Variables: nada.
 
 ### Qué falta / qué hay que validar del otro lado
-- [ ] **~10 casos AMBIGUOS** sin tocar (esperan criterio del founder): "Hotmart"
+- [ ] **Grupo B AMBIGUO** sin tocar (esperan criterio del founder): "Hotmart"
       en `CardVerificationLockscreen`/`TrialExpiredLockscreen` (gated por
       `planName==='Elite'`, no por marca); "Clubify Lab" (nav+página+correos, solo
       si una marca habilita módulo COMMUNITY); SMS al reseller "Clubify: se
-      acreditaron créditos"; fallbacks `brandName || 'Clubify'` en `d/[slug]` (title
-      de error) y `wallet.service` (pase). Detalle en la memoria del batch SELLEALA.
+      acreditaron créditos". Detalle en la memoria del batch SELLEALA.
 - [ ] Puntos 1-2-3 del PDF (automatizaciones default, confirmación de compra e2e,
       bug "Sin definir"+backfill) y el OTP siguen pendientes.
 
