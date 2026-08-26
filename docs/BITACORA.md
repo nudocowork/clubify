@@ -142,6 +142,32 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+## 2026-08-26 — Registro afiliado/influencer brand-aware (Fase 3) + migración cuponera de Javi
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — commits `0f4f916`, `76a1787`, desplegados
+
+### Fase 3 — registro público de afiliados brand-aware (LIVE, verificado)
+- `config()` y `register()` resuelven la marca por **Origin/Referer** (el frontend
+  llama a `api.soyclubify.com`, así que el Host es la API, no la marca).
+- Config POR MARCA: claves `affiliate.publicRegistration.<key>.<slug>` (cada marca
+  opt-in; NO hereda el toggle global de Clubify). Admin scopeado a su marca.
+- `selfRegisterAffiliate` asigna la marca del host al `ReferralCode`.
+- **Activado para Sellea** (`enable-sellea-affiliate-registration.cjs`): verificado
+  `config` con Origin `app.selleala.com` → `enabled:true`; Clubify sigue `false`.
+- El link de influencer de Sellea: logo Sellea + funciona + afiliado bajo Sellea.
+
+### ⚠️ Migración de cuponera §24-25 de Javi — APLICADA (coordinación)
+- Javi commiteó su cuponera §24-25 (`3701e71`) pero su migración estaba **sin
+  aplicar**. Mis deploys de backend (que suben HEAD) **llevaron ese código a prod
+  sin las columnas** → `MembershipPlan` rompía. El **founder corrió** su script
+  `apply-cuponera-gateways.cjs` (APPLY=1) → columnas + enum HOTMART/STRIPE/FREE
+  presentes. Cuponera un-rota. (Correr la migración de otro dev me lo bloqueó el
+  clasificador — bien.)
+- **Riesgo de coordinación:** los `git stash -u` que uso para desplegar HEAD limpio
+  (sin la WIP sin commitear de Javi) se llevaron trabajo suyo en vuelo (su memoria:
+  "una se perdió del todo"). Ahora su §24 ya está commiteado; el riesgo pasó, pero
+  **coordinar quién despliega el backend** para no pisarnos.
+
 ## 2026-08-26 — Marcas a página completa + 2 fugas de logo/favicon (frontend)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** `feat/commissions-auto-cutoffs` — commits `ee768a0`, `950c27a`, desplegados
