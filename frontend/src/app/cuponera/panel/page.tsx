@@ -127,6 +127,7 @@ function FichaTab({ ally, onSaved }: { ally: Ally; onSaved: (a: Ally) => void })
 // ─────────── Promociones ───────────
 function PromosTab({ flash }: { flash: (m: string) => void }) {
   const [benefits, setBenefits] = useState<Benefit[]>([]);
+  const [verHist, setVerHist] = useState<string | null>(null);
   const empty = { title: '', type: 'PERCENT_OFF', percentOff: 10, amountOffCents: 0, description: '', maxPerMember: 1, limitPeriod: 'LIFETIME', validUntil: '' };
   const [form, setForm] = useState<any>(empty);
   const [busy, setBusy] = useState(false);
@@ -161,7 +162,8 @@ function PromosTab({ flash }: { flash: (m: string) => void }) {
       {benefits.length > 0 && (
         <div style={{ marginBottom: 18 }}>
           {benefits.map((b) => (
-            <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid #eef0f2' }}>
+            <div key={b.id}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid #eef0f2' }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{b.title} <span style={{ color: PC, fontSize: 12.5 }}>· {valueLabel(b)}</span></div>
                 <div style={{ fontSize: 11.5, color: '#6b7280' }}>
@@ -170,6 +172,9 @@ function PromosTab({ flash }: { flash: (m: string) => void }) {
               </div>
               <button onClick={() => toggle(b)} style={btn('#e5e7eb', '#374151')}>{b.status === 'ACTIVE' ? 'Pausar' : 'Activar'}</button>
               <button onClick={() => del(b)} style={btn('#fee2e2', '#b91c1c')}>Eliminar</button>
+              <button onClick={() => setVerHist(verHist === b.id ? null : b.id)} style={btn('#eef2f7', '#111827')}>Historial</button>
+              </div>
+              {verHist === b.id && <HistorialBeneficio benefitId={b.id} />}
             </div>
           ))}
         </div>
@@ -548,6 +553,70 @@ function SedesTab({ flash }: { flash: (m: string) => void }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── HISTORIAL DE UN BENEFICIO (spec §6) ───────────────────────────────────────
+// Muestra qué cambió, quién y cuándo. El nombre y el rol vienen congelados de la
+// fila: si la cuenta se borró, el historial igual se lee.
+type Cambio = {
+  id: string;
+  action: 'CREATE' | 'UPDATE' | 'APPROVAL' | 'DELETE';
+  actorName: string;
+  actorRole: string;
+  changes: Record<string, { from: unknown; to: unknown }>;
+  createdAt: string;
+};
+
+const CAMPO_ES: Record<string, string> = {
+  type: 'tipo', title: 'título', description: 'descripción', terms: 'condiciones',
+  percentOff: '% de descuento', amountOffCents: 'monto de descuento',
+  normalPriceCents: 'precio normal', memberPriceCents: 'precio para miembros',
+  currency: 'moneda', validFrom: 'vigente desde', validUntil: 'vigente hasta',
+  maxRedemptions: 'canjes totales', maxPerMember: 'usos por miembro',
+  limitPeriod: 'período del límite', status: 'estado', approval: 'aprobación',
+  categoryId: 'categoría',
+};
+const ACCION_ES: Record<Cambio['action'], string> = {
+  CREATE: 'creó la promoción', UPDATE: 'editó', APPROVAL: 'cambió la aprobación', DELETE: 'eliminó',
+};
+const valor = (v: unknown) =>
+  v === null || v === undefined || v === '' ? '—' : String(v);
+
+function HistorialBeneficio({ benefitId }: { benefitId: string }) {
+  const [rows, setRows] = useState<Cambio[] | null>(null);
+  useEffect(() => {
+    (async () => {
+      try { setRows(((await api(`/cuponera/ally/benefits/${benefitId}/history`)) as Cambio[]) ?? []); }
+      catch { setRows([]); }
+    })();
+  }, [benefitId]);
+
+  if (rows === null) return <div style={{ fontSize: 12.5, color: '#94a3b8', padding: '8px 0 12px' }}>Cargando historial…</div>;
+  if (rows.length === 0) return (
+    <div style={{ fontSize: 12.5, color: '#94a3b8', padding: '8px 0 12px' }}>
+      Sin cambios registrados todavía.
+    </div>
+  );
+
+  return (
+    <div style={{ background: '#f8fafc', borderRadius: 10, padding: '10px 12px', margin: '2px 0 12px' }}>
+      {rows.map((c) => (
+        <div key={c.id} style={{ padding: '7px 0', borderBottom: '1px solid #eef2f7' }}>
+          <div style={{ fontSize: 12, color: '#334155' }}>
+            <b>{c.actorName || 'Alguien'}</b>
+            {c.actorRole ? <span style={{ color: '#94a3b8' }}> ({c.actorRole === 'ALLY_BUSINESS' ? 'aliado' : 'administración'})</span> : null}
+            {' '}{ACCION_ES[c.action]}
+            <span style={{ color: '#94a3b8' }}> · {new Date(c.createdAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}</span>
+          </div>
+          {Object.entries(c.changes || {}).map(([campo, d]) => (
+            <div key={campo} style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>
+              {CAMPO_ES[campo] ?? campo}: <s style={{ color: '#94a3b8' }}>{valor(d.from)}</s> → <b>{valor(d.to)}</b>
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
