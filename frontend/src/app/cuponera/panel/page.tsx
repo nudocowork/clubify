@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getUser, clearSession } from '@/lib/api';
 import { PhoneInput } from '@/components/PhoneInput';
+import { ImageUploader } from '@/components/ImageUploader';
 
 const PC = '#0a90bd';
 
@@ -112,8 +113,22 @@ function FichaTab({ ally, onSaved }: { ally: Ally; onSaved: (a: Ally) => void })
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Nombre</label><input style={inp} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
         <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Descripción</label><textarea style={{ ...inp, minHeight: 70 }} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></div>
-        <div><label style={lbl}>Logo (URL)</label><input style={inp} value={f.logoUrl} onChange={(e) => setF({ ...f, logoUrl: e.target.value })} /></div>
-        <div><label style={lbl}>Portada (URL)</label><input style={inp} value={f.coverUrl} onChange={(e) => setF({ ...f, coverUrl: e.target.value })} /></div>
+        {/* Adjuntar, no pegar una URL: al aliado que atiende un restaurante
+            pedirle "la URL del logo" es pedirle que lo suba a otro lado primero. */}
+        <div>
+          <label style={lbl}>Logo</label>
+          <ImageUploader value={f.logoUrl || null} onChange={(url) => setF({ ...f, logoUrl: url || '' })} folder="logos" />
+          <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 5 }}>
+            Cuadrado y con fondo claro se ve mejor en la cartelera.
+          </div>
+        </div>
+        <div>
+          <label style={lbl}>Portada</label>
+          <ImageUploader value={f.coverUrl || null} onChange={(url) => setF({ ...f, coverUrl: url || '' })} folder="covers" />
+          <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 5 }}>
+            La foto grande de tu ficha. Horizontal.
+          </div>
+        </div>
         <div><label style={lbl}>Dirección</label><input style={inp} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} /></div>
         <div><label style={lbl}>Ciudad</label><input style={inp} value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} /></div>
         <div>

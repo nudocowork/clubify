@@ -1151,6 +1151,28 @@ export class CuponeraService {
      * cuponera. Sin valor = Tipo B (externo), usa el portal web.
      */
     tenantId?: string | null;
+    // Ficha del negocio (spec §5). Todo opcional: el aliado puede completarla
+    // desde su portal, pero cargarla acá evita la ida y vuelta.
+    logoUrl?: string | null;
+    coverUrl?: string | null;
+    address?: string;
+    instagram?: string;
+    website?: string;
+    /**
+     * PRIMER BENEFICIO (spec §5, §6 y §7). Un aliado SIN beneficio no aparece
+     * en la cartelera, así que darlo de alta sin esto deja el trabajo a medias
+     * y a alguien volviendo después a terminarlo.
+     */
+    benefit?: {
+      title: string;
+      type?: string;
+      percentOff?: number | null;
+      amountOffCents?: number | null;
+      terms?: string;
+      validUntil?: string | null;
+      maxPerMember?: number | null;
+      limitPeriod?: string;
+    } | null;
   }) {
     // Se verifica que el negocio EXISTA y que no sea un tenant de sistema:
     // vincular un aliado al tenant que HOSPEDA la cuponera sería circular.
@@ -1186,6 +1208,11 @@ export class CuponeraService {
         whatsapp: dto.whatsapp || null,
         city: dto.city || '',
         description: dto.description || '',
+        logoUrl: dto.logoUrl || null,
+        coverUrl: dto.coverUrl || null,
+        address: dto.address || '',
+        instagram: dto.instagram || null,
+        website: dto.website || null,
         status: 'PENDING',
         admins: {
           create: {
@@ -1199,8 +1226,33 @@ export class CuponeraService {
       include: { admins: { select: { id: true, email: true, fullName: true } } },
     });
 
+    // Beneficio inicial. Nace con la MISMA regla de aprobación que uno creado
+    // desde el portal: si la campaña exige revisión queda PENDING, si no, activo.
+    let benefit = null;
+    if (dto.benefit?.title?.trim()) {
+      const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+      benefit = await this.prisma.benefit.create({
+        data: {
+          campaignId: campaign.id,
+          allyBusinessId: ally.id,
+          categoryId,
+          title: dto.benefit.title.trim(),
+          type: (dto.benefit.type as any) || 'PERCENT_OFF',
+          percentOff: dto.benefit.percentOff ?? null,
+          amountOffCents: dto.benefit.amountOffCents ?? null,
+          terms: dto.benefit.terms || '',
+          validUntil: dto.benefit.validUntil ? new Date(dto.benefit.validUntil) : null,
+          maxPerMember: dto.benefit.maxPerMember ?? null,
+          limitPeriod: (dto.benefit.limitPeriod as any) || 'LIFETIME',
+          status: 'ACTIVE',
+          approval: cfg.requireBenefitApproval ? 'PENDING' : 'APPROVED',
+        },
+      });
+    }
+
     return {
       ally,
+      benefit,
       loginEmail: email,
       tempPassword: dto.password ? undefined : tempPassword,
     };
