@@ -51,6 +51,12 @@ function LoginInner() {
           ? '/admin'
           : data.user.role === 'DELIVERY_COMPANY'
           ? '/domicilios'
+          // Cuponeras: ninguno de los dos tiene tenantId, así que el default
+          // '/app' (panel del negocio) les quedaba roto.
+          : data.user.role === 'CUPONERA_ADMIN'
+          ? '/cuponera/admin'
+          : data.user.role === 'ALLY_BUSINESS'
+          ? '/cuponera/panel'
           : data.user.role?.startsWith('AFFILIATE_')
           ? '/affiliate'
           : '/app',
@@ -83,6 +89,12 @@ function LoginInner() {
           ? '/admin'
           : data.user.role === 'DELIVERY_COMPANY'
           ? '/domicilios'
+          // Cuponeras: ninguno de los dos tiene tenantId, así que el default
+          // '/app' (panel del negocio) les quedaba roto.
+          : data.user.role === 'CUPONERA_ADMIN'
+          ? '/cuponera/admin'
+          : data.user.role === 'ALLY_BUSINESS'
+          ? '/cuponera/panel'
           : data.user.role?.startsWith('AFFILIATE_')
           ? '/affiliate'
           : '/app',
