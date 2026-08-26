@@ -92,6 +92,15 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
   alguien que se unió gratis y para siempre. El valor `FREE` de `MembershipSource`
   va en la **misma** migración pendiente, no en una segunda.
 
+- **Fotos y horarios del aliado.** Las columnas `photos`/`hours` existían y el
+  PATCH ya las guardaba, pero **sin validar nada**: el aliado es un negocio
+  externo con login propio y eso se pinta en la cartelera pública, así que se
+  escribía lo que llegara (miles de entradas, o un `javascript:` que después
+  sale en un `src`). Ahora el servidor acota: fotos solo http(s)/rutas
+  propias/`data:image`, máximo 8; horarios solo las siete claves de día, texto
+  ≤40. Se agregó el editor en el panel del aliado y **los horarios en la ficha
+  pública, donde no se pintaban** (el aliado los cargaba para nadie).
+
 ### Qué toqué de PRODUCCIÓN
 
 - **Nada.** Ni base, ni variables, ni despliegue.
