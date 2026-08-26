@@ -77,20 +77,29 @@ pasarela hardcodeada):
   tiene `brandName` → ahora cae a su `Tenant.name` (el pase muestra el negocio, no
   la plataforma); se agregó `name` al select de la reserva.
 
+**Grupo B (con criterio del founder) — commit `003e0e7`, LIVE:**
+- Lockscreens 'Elite' (CardVerification/TrialExpired, dicen "pago en Hotmart"):
+  se gatearon en `AppShell` a tenants de Clubify (`whiteLabelSlug` null/'clubify')
+  → una marca blanca en plan "Elite" ya no ve el flujo Hotmart.
+- "Clubify Lab": nav → `{marca} Lab` dinámico (`whiteLabelName`); página de
+  moderación `/admin/lab` y correos al autor → neutralizados a "Lab" (sin contexto
+  de marca a mano; COMMUNITY es Clubify-only hoy). El aviso interno al equipo se dejó.
+- SMS al reseller "Clubify: Se acreditaron créditos" → `{platform}`, pasando
+  `platform=wl.name` explícito (el envío no lleva tenantId; sin eso caía a "Clubify").
+
 ### Qué toqué de PRODUCCIÓN
-- **Frontend**: `vercel --prod` ×2, READY, dominios prod 200.
-- **Backend**: `railway up --service backend` desde la raíz ×2. Swaps verificados
-  por reset de uptime (1550→20; 815→55), CORS 204 con ACAO, `platformName`
+- **Frontend**: `vercel --prod` ×3, READY, dominios prod 200.
+- **Backend**: `railway up --service backend` desde la raíz ×3. Swaps verificados
+  por reset de uptime (1550→20; 815→55; 1798→36), CORS 204 con ACAO, `platformName`
   confirmado en `/api/public/service-reservations/primor-barber-shop` = "Clubify".
 - **Sin migración** (solo `select` extra en dos endpoints).
 - DB: nada. Variables: nada.
 
 ### Qué falta / qué hay que validar del otro lado
-- [ ] **Grupo B AMBIGUO** sin tocar (esperan criterio del founder): "Hotmart"
-      en `CardVerificationLockscreen`/`TrialExpiredLockscreen` (gated por
-      `planName==='Elite'`, no por marca); "Clubify Lab" (nav+página+correos, solo
-      si una marca habilita módulo COMMUNITY); SMS al reseller "Clubify: se
-      acreditaron créditos". Detalle en la memoria del batch SELLEALA.
+- [ ] Barrido de fugas: **grupos A y B cerrados**. Quedan solo los de bajísima
+      prioridad (`pagar/[slug]` test VIRTUALPRO; "Nequi" como método de pago manual).
+- [ ] Del PDF SELLEALA siguen los **puntos 1-2-3** (automatizaciones default,
+      confirmación de compra e2e, bug "Sin definir"+backfill) y el **OTP**.
 - [ ] Puntos 1-2-3 del PDF (automatizaciones default, confirmación de compra e2e,
       bug "Sin definir"+backfill) y el OTP siguen pendientes.
 
