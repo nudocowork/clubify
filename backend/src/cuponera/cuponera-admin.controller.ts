@@ -24,6 +24,7 @@ import {
 } from 'class-validator';
 import { CardType } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { CuponeraService } from './cuponera.service';
 import { MercadoPagoService } from './mercadopago.service';
 import { CardDto } from '../cards/cards.service';
@@ -170,6 +171,46 @@ class StampProgramBody {
   @IsOptional() @IsIn(['ACTIVE', 'PAUSED']) status?: 'ACTIVE' | 'PAUSED';
 }
 
+/** Alta del administrador de una cuponera (spec §3). */
+class CampaignAdminBody {
+  @IsString() @MaxLength(180) email!: string;
+  @IsString() @MaxLength(120) fullName!: string;
+  /** Si no viene, se genera una y se devuelve una sola vez. */
+  @IsOptional() @IsString() @MaxLength(200) password?: string;
+}
+
+/** Alta de cuponera (spec §2). La marca blanca es obligatoria. */
+class CampaignCreateBody {
+  @IsString() @MaxLength(120) name!: string;
+  @IsString() @MaxLength(120) whiteLabelId!: string;
+  @IsOptional() @IsString() @MaxLength(60) slug?: string;
+  @IsOptional() @IsString() @MaxLength(2000) description?: string;
+  @IsOptional() @IsString() @MaxLength(80) country?: string;
+  @IsOptional() @IsString() @MaxLength(80) city?: string;
+  @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsString() @MaxLength(200) domain?: string;
+  @IsOptional() @IsString() logoUrl?: string;
+  @IsOptional() @IsString() coverUrl?: string;
+  @IsOptional() @IsString() @MaxLength(32) primaryColor?: string;
+  @IsOptional() @IsString() @MaxLength(32) secondaryColor?: string;
+}
+
+/** Edición. El slug no se edita: cuelga de URLs vivas. */
+class CampaignUpdateBody {
+  @IsOptional() @IsString() @MaxLength(120) name?: string;
+  @IsOptional() @IsString() @MaxLength(120) whiteLabelId?: string;
+  @IsOptional() @IsString() @MaxLength(2000) description?: string;
+  @IsOptional() @IsString() @MaxLength(80) country?: string;
+  @IsOptional() @IsString() @MaxLength(80) city?: string;
+  @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsString() @MaxLength(200) domain?: string;
+  @IsOptional() @IsString() logoUrl?: string;
+  @IsOptional() @IsString() coverUrl?: string;
+  @IsOptional() @IsString() @MaxLength(32) primaryColor?: string;
+  @IsOptional() @IsString() @MaxLength(32) secondaryColor?: string;
+  @IsOptional() @IsIn(['DRAFT', 'ACTIVE', 'PAUSED']) status?: 'DRAFT' | 'ACTIVE' | 'PAUSED';
+}
+
 /**
  * Panel Master Admin de la campaña Living Card (Cuponera). PLATFORM_OWNER (o
  * SUPER_ADMIN de la marca). Todo cuelga de la única campaña Living Card, que se
@@ -186,6 +227,34 @@ export class CuponeraAdminController {
   @Get()
   overview() {
     return this.svc.getCampaignAdmin();
+  }
+
+  // --- CUPONERAS (spec §1 y §2) ---
+  // Fidelity administra VARIAS. Van con /campaigns en PLURAL para no chocar con
+  // /campaign (singular), que edita la única de Living Card.
+  @Get('campaigns')
+  listCampaigns() {
+    return this.svc.listCampaigns();
+  }
+  @Post('campaigns')
+  createCampaign(@Body() body: CampaignCreateBody) {
+    return this.svc.createCampaign(body);
+  }
+  @Patch('campaigns/:id')
+  updateCampaignById(@Param('id') id: string, @Body() body: CampaignUpdateBody) {
+    return this.svc.updateCampaignById(id, body);
+  }
+
+  // Administrador propio de una cuponera (spec §3). NO entra al Master Admin de
+  // Fidelity: solo ve el panel de SU cuponera. La clave temporal se devuelve UNA
+  // sola vez — queda hasheada y no hay forma de recuperarla después.
+  @Get('campaigns/:id/admins')
+  listCampaignAdmins(@Param('id') id: string) {
+    return this.svc.listCampaignAdmins(id);
+  }
+  @Post('campaigns/:id/admins')
+  createCampaignAdmin(@Param('id') id: string, @Body() body: CampaignAdminBody) {
+    return this.svc.createCampaignAdmin(id, body);
   }
 
   @Get('metrics')
@@ -294,8 +363,18 @@ export class CuponeraAdminController {
     return this.svc.listAllBenefits();
   }
   @Patch('benefits/:id/approval')
-  setBenefitApproval(@Param('id') id: string, @Body() body: BenefitApprovalBody) {
-    return this.svc.setBenefitApproval(id, body.approval);
+  setBenefitApproval(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: BenefitApprovalBody,
+  ) {
+    return this.svc.setBenefitApproval(id, body.approval, user);
+  }
+
+  /** Historial de cambios de cualquier beneficio (spec §6). */
+  @Get('benefits/:id/history')
+  benefitHistory(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.listBenefitHistory(user, id);
   }
   @Patch('benefit-approval-required')
   setRequireApproval(@Body() body: RequireApprovalBody) {

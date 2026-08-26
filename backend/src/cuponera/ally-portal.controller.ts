@@ -65,6 +65,10 @@ export class AllyPortalController {
   toggleBenefit(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: BenefitStatusBody) {
     return this.svc.updateAllyBenefit(user, id, { status: body.status });
   }
+  @Get('benefits/:id/history')
+  benefitHistory(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.listBenefitHistory(user, id);
+  }
   @Delete('benefits/:id')
   deleteBenefit(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.svc.deleteAllyBenefit(user, id);

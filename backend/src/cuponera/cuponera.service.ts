@@ -12,6 +12,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { CardsService, CardDto } from '../cards/cards.service';
 import { PassesService } from '../passes/passes.service';
 import { LocationsService } from '../locations/locations.service';
+import { actorOf, diffBenefit } from './benefit-history';
 import {
   benefitPeriodStart,
   describeLimit,
@@ -37,6 +38,29 @@ type EnrollInput = {
 };
 
 /** Sede de un aliado (spec §5 y §9). Ver AllyLocationBody en cuponera.dto.ts. */
+/** Alta de una cuponera desde el Master Admin de Fidelity (spec §2). */
+export type CampaignCreateDto = {
+  name?: string;
+  slug?: string;
+  /** OBLIGATORIO: la cuponera se vincula a una marca blanca existente. */
+  whiteLabelId: string;
+  description?: string;
+  country?: string | null;
+  city?: string | null;
+  currency?: string | null;
+  domain?: string | null;
+  logoUrl?: string | null;
+  coverUrl?: string | null;
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
+};
+
+/** Edición de una cuponera. Todo opcional; el slug no se edita. */
+export type CampaignUpdateDto = Partial<Omit<CampaignCreateDto, 'whiteLabelId' | 'slug'>> & {
+  whiteLabelId?: string;
+  status?: 'DRAFT' | 'ACTIVE' | 'PAUSED';
+};
+
 export type AllyLocationDto = {
   name?: string;
   address?: string;
@@ -186,6 +210,385 @@ export class CuponeraService {
         status: 'ACTIVE',
         isCampaignHost: true,
         hotmartSubscriberCode: `campaign-${SYSTEM_TENANT_SLUG}`,
+        primaryColor: '#0a90bd',
+        secondaryColor: '#075e7d',
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // CUPONERAS (spec §1 y §2) — el Master Admin de Fidelity administra VARIAS.
+  //
+  // Ojo con la jerarquía: Fidelity es el Master Admin; Clubify es UNA marca
+  // blanca más. Cada cuponera se vincula a la marca blanca que corresponda, y
+  // por eso `whiteLabelId` es obligatorio al crearla: sin él la cuponera queda
+  // colgando de la nada y el aliado Tipo A nunca podría resolverse.
+  //
+  // Cada cuponera tiene su PROPIO tenant de sistema (isCampaignHost=true), que
+  // es lo que le da su stack de Wallet sin reescribir nada.
+  // ---------------------------------------------------------------------------
+
+  /** Todas las cuponeras con su marca blanca y sus conteos (§1). */
+  async listCampaigns() {
+    const campaigns = await this.prisma.benefitCampaign.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        whiteLabel: { select: { id: true, name: true, slug: true } },
+        _count: {
+          select: { allies: true, memberships: true, benefits: true, redemptions: true },
+        },
+      },
+    });
+    return campaigns.map((c) => ({
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      status: c.status,
+      whiteLabel: c.whiteLabel,
+      createdAt: c.createdAt,
+      counts: {
+        allies: c._count.allies,
+        members: c._count.memberships,
+        benefits: c._count.benefits,
+        redemptions: c._count.redemptions,
+      },
+    }));
+  }
+
+  /** Crea una cuponera + su tenant de sistema (§2). */
+  async createCampaign(dto: CampaignCreateDto) {
+    const name = (dto.name ?? '').trim();
+    if (!name) throw new BadRequestException('La cuponera necesita un nombre');
+
+    // La slugify del servicio cae a 'cat' cuando no queda nada (viene de
+    // categorías). Para una cuponera eso daría un slug absurdo en silencio, así
+    // que se valida ANTES que haya algo alfanumérico.
+    const raw = (dto.slug || name).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (!/[a-z0-9]/i.test(raw)) throw new BadRequestException('Slug inválido');
+    const slug = this.slugify(raw);
+
+    const dup = await this.prisma.benefitCampaign.findUnique({ where: { slug } });
+    if (dup) throw new BadRequestException(`Ya existe una cuponera con el slug "${slug}"`);
+
+    // La marca blanca tiene que EXISTIR: si no, la cuponera queda huérfana y
+    // ningún aliado Tipo A podría vincularse.
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: dto.whiteLabelId },
+      select: { id: true },
+    });
+    if (!wl) throw new BadRequestException('La marca blanca no existe');
+
+    const tenant = await this.ensureCampaignTenant(`sys-${slug}`, name, wl.id);
+    return this.prisma.benefitCampaign.create({
+      data: {
+        whiteLabelId: wl.id,
+        tenantId: tenant.id,
+        name,
+        slug,
+        status: 'DRAFT', // nace apagada: se publica cuando está cargada
+        welcomeText: (dto.description ?? `Bienvenido a ${name}`).trim(),
+        config: {
+          country: dto.country ?? null,
+          city: dto.city ?? null,
+          currency: dto.currency ?? 'COP',
+          domain: dto.domain ?? null,
+          logoUrl: dto.logoUrl ?? null,
+          coverUrl: dto.coverUrl ?? null,
+          primaryColor: dto.primaryColor ?? null,
+          secondaryColor: dto.secondaryColor ?? null,
+        },
+      },
+      include: { whiteLabel: { select: { id: true, name: true, slug: true } } },
+    });
+  }
+
+  /**
+   * Edita la ficha de UNA cuponera por id (§2). El slug NO se toca: cuelga de
+   * URLs vivas. Distinta de `updateCampaign(dto)`, que edita la campaña única
+   * de Living Card y se mantiene por compatibilidad.
+   */
+  async updateCampaignById(id: string, dto: CampaignUpdateDto) {
+    const campaign = await this.prisma.benefitCampaign.findUnique({ where: { id } });
+    if (!campaign) throw new NotFoundException('Cuponera no encontrada');
+
+    if (dto.whiteLabelId !== undefined) {
+      const wl = await this.prisma.whiteLabel.findUnique({
+        where: { id: dto.whiteLabelId },
+        select: { id: true },
+      });
+      if (!wl) throw new BadRequestException('La marca blanca no existe');
+    }
+
+    const cfg = (campaign.config ?? {}) as Record<string, unknown>;
+    const keys = [
+      'country', 'city', 'currency', 'domain',
+      'logoUrl', 'coverUrl', 'primaryColor', 'secondaryColor',
+    ] as const;
+    for (const k of keys) if (dto[k] !== undefined) cfg[k] = dto[k];
+
+    return this.prisma.benefitCampaign.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(dto.description !== undefined ? { welcomeText: dto.description.trim() } : {}),
+        ...(dto.whiteLabelId !== undefined ? { whiteLabelId: dto.whiteLabelId } : {}),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
+        config: cfg as any,
+      },
+      include: { whiteLabel: { select: { id: true, name: true, slug: true } } },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // PANEL DE LA CUPONERA (spec §4)
+  //
+  // Consultas propias, TODAS scopeadas por campaignId. No se reusan los métodos
+  // del panel de Fidelity porque esos llaman `ensureLivingCampaign()` por
+  // dentro (48 sitios): a un admin de otra cuponera le mostrarían Living Card.
+  // Parametrizar esos 48 es un refactor aparte; mientras tanto el panel tiene
+  // sus propias lecturas y no depende de ellos.
+  //
+  // La campaña SIEMPRE sale de `resolveAdminCampaign`, nunca de un id del
+  // cliente: es lo que impide que un admin mire la cuponera de otro.
+  // ---------------------------------------------------------------------------
+
+  /** Números de la pantalla inicial del panel (§4). */
+  async panelOverview(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    const cid = campaign.id;
+    const monthStart = benefitPeriodStart('MONTH', new Date())!;
+
+    const [
+      members, activeMembers, allies, activeAllies,
+      benefits, redemptionsMonth, redemptionsTotal, walletCards,
+    ] = await Promise.all([
+      this.prisma.livingMembership.count({ where: { campaignId: cid } }),
+      this.prisma.livingMembership.count({ where: { campaignId: cid, status: 'ACTIVE' } }),
+      this.prisma.allyBusiness.count({ where: { campaignId: cid } }),
+      this.prisma.allyBusiness.count({ where: { campaignId: cid, status: 'APPROVED' } }),
+      this.prisma.benefit.count({
+        where: { campaignId: cid, status: 'ACTIVE', approval: 'APPROVED' },
+      }),
+      this.prisma.redemption.count({ where: { campaignId: cid, createdAt: { gte: monthStart } } }),
+      this.prisma.redemption.count({ where: { campaignId: cid } }),
+      // Tarjeta emitida = membresía con su pase creado.
+      this.prisma.livingMembership.count({ where: { campaignId: cid, passId: { not: null } } }),
+    ]);
+
+    // Rankings: se agrupan los canjes y después se traen los nombres, para no
+    // pedirle a Postgres un join que Prisma no expresa en groupBy.
+    const [topBenefits, topAllies] = await Promise.all([
+      this.prisma.redemption.groupBy({
+        by: ['benefitId'],
+        where: { campaignId: cid },
+        _count: { benefitId: true },
+        orderBy: { _count: { benefitId: 'desc' } },
+        take: 5,
+      }),
+      this.prisma.redemption.groupBy({
+        by: ['allyBusinessId'],
+        where: { campaignId: cid },
+        _count: { allyBusinessId: true },
+        orderBy: { _count: { allyBusinessId: 'desc' } },
+        take: 5,
+      }),
+    ]);
+
+    const [benefitNames, allyNames] = await Promise.all([
+      topBenefits.length
+        ? this.prisma.benefit.findMany({
+            where: { id: { in: topBenefits.map((b) => b.benefitId) } },
+            select: { id: true, title: true },
+          })
+        : [],
+      topAllies.length
+        ? this.prisma.allyBusiness.findMany({
+            where: { id: { in: topAllies.map((a) => a.allyBusinessId) } },
+            select: { id: true, name: true },
+          })
+        : [],
+    ]);
+    const bName = new Map(benefitNames.map((b) => [b.id, b.title]));
+    const aName = new Map(allyNames.map((a) => [a.id, a.name]));
+
+    return {
+      campaign: { id: cid, name: campaign.name, slug: campaign.slug, status: campaign.status },
+      counts: {
+        members,
+        activeMembers,
+        allies,
+        activeAllies,
+        benefits,
+        redemptionsMonth,
+        redemptionsTotal,
+        walletCards,
+      },
+      topBenefits: topBenefits.map((b) => ({
+        id: b.benefitId,
+        title: bName.get(b.benefitId) ?? '(eliminado)',
+        redemptions: b._count.benefitId,
+      })),
+      topAllies: topAllies.map((a) => ({
+        id: a.allyBusinessId,
+        name: aName.get(a.allyBusinessId) ?? '(eliminado)',
+        redemptions: a._count.allyBusinessId,
+      })),
+    };
+  }
+
+  /** Aliados de la cuponera del admin (§4 → Aliados). */
+  async panelAllies(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.prisma.allyBusiness.findMany({
+      where: { campaignId: campaign.id },
+      include: {
+        category: { select: { id: true, name: true } },
+        _count: { select: { benefits: true, redemptions: true, locations: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+  }
+
+  /** Beneficiarios (§4 → Beneficiarios). */
+  async panelMembers(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.prisma.livingMembership.findMany({
+      where: { campaignId: campaign.id },
+      include: {
+        customer: { select: { id: true, fullName: true, phone: true, email: true } },
+        plan: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+  }
+
+  /** Historial de canjes (§4 → Redenciones). Incluye la sede (§19). */
+  async panelRedemptions(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.prisma.redemption.findMany({
+      where: { campaignId: campaign.id },
+      include: {
+        benefit: { select: { id: true, title: true } },
+        ally: { select: { id: true, name: true } },
+        location: { select: { id: true, name: true } },
+        customer: { select: { id: true, fullName: true, phone: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+  }
+
+  /**
+   * Crea el ADMINISTRADOR de una cuponera (spec §3). NO entra al Master Admin
+   * de Fidelity: su rol es CUPONERA_ADMIN y solo ve el panel de SU cuponera.
+   *
+   * Sin tenantId a propósito — una cuponera no es un negocio. El scope sale de
+   * `User.campaignId`, igual que ALLY_BUSINESS lo saca de allyBusinessId.
+   */
+  async createCampaignAdmin(
+    campaignId: string,
+    dto: { email: string; fullName: string; password?: string },
+  ) {
+    const campaign = await this.prisma.benefitCampaign.findUnique({
+      where: { id: campaignId },
+      select: { id: true, name: true },
+    });
+    if (!campaign) throw new NotFoundException('Cuponera no encontrada');
+
+    const email = (dto.email ?? '').trim().toLowerCase();
+    if (!email.includes('@')) throw new BadRequestException('Email inválido');
+    const fullName = (dto.fullName ?? '').trim();
+    if (!fullName) throw new BadRequestException('El administrador necesita un nombre');
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) throw new BadRequestException('Ya existe un usuario con ese email');
+
+    // Si no mandan clave se genera una y se devuelve UNA sola vez: queda
+    // hasheada, no hay forma de recuperarla después.
+    const tempPassword = dto.password || nanoid(10);
+    const passwordHash = await argon2.hash(tempPassword);
+
+    const user = await this.prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        fullName,
+        role: 'CUPONERA_ADMIN',
+        campaignId: campaign.id,
+      },
+      select: { id: true, email: true, fullName: true, role: true, campaignId: true },
+    });
+
+    return {
+      admin: user,
+      campaign: { id: campaign.id, name: campaign.name },
+      loginEmail: email,
+      tempPassword: dto.password ? undefined : tempPassword,
+    };
+  }
+
+  /** Administradores de una cuponera (§3). Nunca devuelve el hash. */
+  async listCampaignAdmins(campaignId: string) {
+    return this.prisma.user.findMany({
+      where: { campaignId, role: 'CUPONERA_ADMIN' },
+      select: { id: true, email: true, fullName: true, isActive: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * Cuponera del usuario logueado. Para CUPONERA_ADMIN sale de su `campaignId`;
+   * PLATFORM_OWNER/SUPER_ADMIN pueden pedir cualquiera por id (spec §1: "entrar
+   * administrativamente a cualquier cuponera").
+   */
+  async resolveAdminCampaign(user: AuthUser, requestedId?: string) {
+    if (user.role === 'CUPONERA_ADMIN') {
+      if (!user.campaignId) throw new ForbiddenException('Sesión sin cuponera');
+      // Un admin de cuponera NO puede mirar otra pidiéndola por id.
+      if (requestedId && requestedId !== user.campaignId) {
+        throw new ForbiddenException('Esa cuponera no es tuya');
+      }
+      const c = await this.prisma.benefitCampaign.findUnique({ where: { id: user.campaignId } });
+      if (!c) throw new NotFoundException('Cuponera no encontrada');
+      return c;
+    }
+    if (requestedId) {
+      const c = await this.prisma.benefitCampaign.findUnique({ where: { id: requestedId } });
+      if (!c) throw new NotFoundException('Cuponera no encontrada');
+      return c;
+    }
+    return this.ensureLivingCampaign();
+  }
+
+  /**
+   * Tenant de sistema de UNA cuponera. Versión parametrizada de
+   * ensureSystemTenant, que estaba clavada al slug de Living Card.
+   */
+  private async ensureCampaignTenant(slug: string, name: string, whiteLabelId: string) {
+    const existing = await this.prisma.tenant.findUnique({ where: { slug } });
+    if (existing) {
+      if (!existing.isCampaignHost) {
+        await this.prisma.tenant.update({
+          where: { id: existing.id },
+          data: { isCampaignHost: true },
+        });
+      }
+      return existing;
+    }
+    const plan = await this.ensureFreePlan();
+    return this.prisma.tenant.create({
+      data: {
+        name,
+        brandName: name,
+        slug,
+        email: `campaign+${slug}@clubify.app`,
+        planId: plan.id,
+        whiteLabelId,
+        status: 'ACTIVE',
+        isCampaignHost: true,
+        hotmartSubscriberCode: `campaign-${slug}`,
         primaryColor: '#0a90bd',
         secondaryColor: '#075e7d',
       },
@@ -839,6 +1242,49 @@ export class CuponeraService {
     });
   }
 
+  // --- Historial de cambios del beneficio (spec §6) ---
+
+  /**
+   * Deja constancia de una edición. NUNCA lanza: perder el historial es malo,
+   * pero tumbar la edición del aliado por un fallo al registrar es peor.
+   * Si el diff sale vacío (no cambió nada de lo que se rastrea) no escribe.
+   */
+  private async recordBenefitChange(
+    benefitId: string,
+    user: AuthUser | null,
+    action: 'CREATE' | 'UPDATE' | 'APPROVAL' | 'DELETE',
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+  ) {
+    try {
+      const changes = diffBenefit(before, after);
+      if (action === 'UPDATE' && Object.keys(changes).length === 0) return;
+      const actor = actorOf(
+        user ? { id: user.id, fullName: (user as any).fullName ?? null, role: user.role } : null,
+      );
+      await this.prisma.benefitChange.create({
+        data: { benefitId, action, changes: changes as any, ...actor },
+      });
+    } catch {
+      /* el historial no puede romper la operación */
+    }
+  }
+
+  /** Historial de un beneficio, del más nuevo al más viejo (§6). */
+  async listBenefitHistory(user: AuthUser, benefitId: string) {
+    // El aliado solo ve el historial de SUS beneficios; el admin de Fidelity, el
+    // de cualquiera.
+    if (user.role === 'ALLY_BUSINESS') {
+      const ally = await this.getAllyForPortal(user);
+      await this.assertAllyBenefit(ally.id, benefitId);
+    }
+    return this.prisma.benefitChange.findMany({
+      where: { benefitId },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+  }
+
   // --- Sedes del aliado (spec §5 y §9) ---
   //
   // TODO scopea por `user.allyBusinessId`. En update/delete NO alcanza con
@@ -1044,15 +1490,17 @@ export class CuponeraService {
     const campaign = await this.ensureLivingCampaign();
     const categoryId =
       dto.categoryId === undefined ? undefined : await this.assertCategory(campaign.id, dto.categoryId);
-    return this.prisma.benefit.update({
-      where: { id },
-      data: {
-        ...this.benefitData(dto),
-        ...(dto.title !== undefined ? { title: dto.title } : {}),
-        ...(categoryId !== undefined ? { categoryId } : {}),
-        ...(dto.status ? { status: dto.status as any } : {}),
-      },
-    });
+    // El "antes" se lee ANTES de escribir: después ya no hay con qué comparar.
+    const before = await this.prisma.benefit.findUnique({ where: { id } });
+    const data = {
+      ...this.benefitData(dto),
+      ...(dto.title !== undefined ? { title: dto.title } : {}),
+      ...(categoryId !== undefined ? { categoryId } : {}),
+      ...(dto.status ? { status: dto.status as any } : {}),
+    };
+    const updated = await this.prisma.benefit.update({ where: { id }, data });
+    await this.recordBenefitChange(id, user, 'UPDATE', before ?? {}, data);
+    return updated;
   }
 
   async deleteAllyBenefit(user: AuthUser, id: string) {
@@ -1077,11 +1525,19 @@ export class CuponeraService {
     });
   }
 
-  async setBenefitApproval(id: string, approval: 'PENDING' | 'APPROVED' | 'REJECTED') {
+  async setBenefitApproval(
+    id: string,
+    approval: 'PENDING' | 'APPROVED' | 'REJECTED',
+    user?: AuthUser,
+  ) {
     const campaign = await this.ensureLivingCampaign();
     const b = await this.prisma.benefit.findFirst({ where: { id, campaignId: campaign.id } });
     if (!b) throw new NotFoundException('Beneficio no encontrado');
-    return this.prisma.benefit.update({ where: { id }, data: { approval } });
+    const updated = await this.prisma.benefit.update({ where: { id }, data: { approval } });
+    // Aprobar o rechazar también es un cambio del beneficio: si no queda en el
+    // historial, no se puede reconstruir por qué dejó de estar visible.
+    await this.recordBenefitChange(id, user ?? null, 'APPROVAL', b, { approval });
+    return updated;
   }
 
   async setRequireBenefitApproval(value: boolean) {

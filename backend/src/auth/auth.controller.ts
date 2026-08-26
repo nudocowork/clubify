@@ -35,6 +35,10 @@ class InfoLinkSignupDto {
   @IsString() @MaxLength(120) fullName!: string;
   @IsString() @MaxLength(120) brandName!: string;
   @IsOptional() @IsString() @MaxLength(40) phone?: string;
+  // Nivel del InfoLink. FREE = freemium público (0 créditos). PRO = pago
+  // (0.25). Default PRO (link compartible de marca existente). El freemium
+  // público de Sellea (selleala.com/infolink) manda FREE.
+  @IsOptional() @IsIn(['FREE', 'PRO']) tier?: 'FREE' | 'PRO';
 }
 
 class RefreshDto {

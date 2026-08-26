@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { api, setSession } from '@/lib/api';
 
 type Brand = {
@@ -22,7 +22,13 @@ type Brand = {
 export default function InfoLinkSignupPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const brandSlug = String(params?.brand ?? '');
+  // Freemium: el auto-registro público es GRATIS (tier FREE = 0 créditos, activa
+  // directo). `?tier=pro` deja el flujo patrocinado por la marca (0.25 créditos).
+  const tier: 'FREE' | 'PRO' =
+    (searchParams?.get('tier') || '').toLowerCase() === 'pro' ? 'PRO' : 'FREE';
+  const isFree = tier === 'FREE';
 
   const [brand, setBrand] = useState<Brand | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -69,6 +75,7 @@ export default function InfoLinkSignupPage() {
           email: form.email.trim(),
           password: form.password,
           phone: form.phone.trim() || undefined,
+          tier,
         }),
       });
       setSession(res.accessToken, res.user, { refreshToken: res.refreshToken });
@@ -105,9 +112,15 @@ export default function InfoLinkSignupPage() {
           ) : (
             <div style={{ fontSize: 34, marginBottom: 6 }}>🔗</div>
           )}
-          <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>Crea tu InfoLink</h1>
+          <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>
+            {isFree ? 'Crea tu InfoLink gratis' : 'Crea tu InfoLink'}
+          </h1>
           <p style={{ color: '#6b7785', fontSize: 13.5, marginTop: 6 }}>
-            {brand ? `Tu mini-página con ${brand.name}. Lista en minutos.` : 'Cargando…'}
+            {brand
+              ? isFree
+                ? `Tu mini-página con ${brand.name}. Gratis y lista en minutos.`
+                : `Tu mini-página con ${brand.name}. Lista en minutos.`
+              : 'Cargando…'}
           </p>
         </div>
 
@@ -127,7 +140,7 @@ export default function InfoLinkSignupPage() {
           </div>
         ) : (
           <form onSubmit={submit}>
-            {brand && !brand.hasCredits && (
+            {!isFree && brand && !brand.hasCredits && (
               <div style={{ marginBottom: 12, fontSize: 12.5, color: '#92610a', background: '#fef3c7', borderRadius: 10, padding: '8px 10px' }}>
                 Podrás registrarte, pero la marca deberá activar tu InfoLink (sin cupo disponible ahora).
               </div>
@@ -162,10 +175,10 @@ export default function InfoLinkSignupPage() {
               disabled={busy}
               style={{ width: '100%', padding: '13px', borderRadius: 12, border: 'none', background: primary, color: '#fff', fontWeight: 700, fontSize: 15, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}
             >
-              {busy ? 'Creando…' : 'Crear mi InfoLink'}
+              {busy ? 'Creando…' : isFree ? 'Crear mi InfoLink gratis' : 'Crear mi InfoLink'}
             </button>
             <p style={{ textAlign: 'center', color: '#9aa5b1', fontSize: 11.5, marginTop: 12 }}>
-              Al registrarte aceptas los términos del servicio.
+              {isFree ? 'Gratis · sin tarjeta · ' : ''}Al registrarte aceptas los términos del servicio.
             </p>
           </form>
         )}

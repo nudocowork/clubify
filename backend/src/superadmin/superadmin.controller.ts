@@ -97,6 +97,8 @@ class PaymentLinkBody {
   @IsOptional() @IsInt() @Min(0) sortOrder?: number;
   @IsOptional() @IsString() @MaxLength(120) stripePriceId?: string | null;
   @IsOptional() @IsString() @MaxLength(120) stripeProductId?: string | null;
+  // Freemium: qué otorga este link al pagarse (Sellea Infolinks).
+  @IsOptional() @IsIn(['INFOLINK_PRO', 'FULL']) productKey?: string | null;
 }
 
 class AdjustCreditsBody {

@@ -24,6 +24,8 @@ class CardBody {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() stampInactiveColor?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() stampContourColor?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() centerBgColor?: string | null;
+  // Chip/fondo detrás del logo (header del pase + preview). null = sin chip.
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() logoBgColor?: string | null;
   // Wallet V3 — fondo del área de sellos. GRADIENT (legacy) | SOLID (uniforme) | IMAGE.
   @IsOptional() @IsIn(['GRADIENT', 'SOLID', 'IMAGE']) stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampBgImageUrl?: string | null;
@@ -104,6 +106,7 @@ class PreviewStripsBody {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampInactiveColor?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampContourColor?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() centerBgColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() logoBgColor?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() heroImageUrl?: string | null;
   @IsOptional() @IsIn(['GRADIENT', 'SOLID', 'IMAGE']) stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampBgImageUrl?: string | null;

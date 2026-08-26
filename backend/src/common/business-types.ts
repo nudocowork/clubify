@@ -12,7 +12,7 @@ import { bundleMonths } from './plan-period';
  * Convención de créditos del sistema: 1 crédito = 30 días (1 mes) de servicio
  * para un Negocio Completo. Un ciclo de renovación/activación cuesta
  *   creditCost × meses_del_ciclo (Mensual=1, Trimestral=3, Semestral=6, Anual=12)
- * Ej: InfoLink anual = 0.25 × 12 = 3 créditos; Completo anual = 1 × 12 = 12.
+ * Ej: InfoLink anual = 0.1 × 12 = 1.2 créditos; Completo anual = 1 × 12 = 12.
  *
  * ESPEJO: frontend/src/lib/business-types.ts — mantener sincronizado.
  */
@@ -40,7 +40,9 @@ export const BUSINESS_TYPES: Record<BusinessType, BusinessTypeDef> = {
     key: 'INFOLINK',
     label: 'Solo InfoLink',
     shortLabel: 'InfoLink',
-    creditCost: 0.25,
+    // Costo real del InfoLink: 0.1 crédito/mes (antes 0.25). Global para todas
+    // las marcas. Cambio 24-ago-2026 (sin negocios INFOLINK en prod → no re-cobra).
+    creditCost: 0.1,
   },
 };
 
@@ -81,4 +83,21 @@ export function cycleCreditCost(
   periodicity: string | null | undefined,
 ): number {
   return round2(creditCostFor(type) * bundleMonths(periodicity));
+}
+
+/**
+ * Igual que cycleCreditCost pero consciente del NIVEL del InfoLink (freemium).
+ * Un InfoLink en tier FREE es de captación → NO consume créditos (0). El resto
+ * (INFOLINK PRO = 0.25, FULL = 1) cobra normal. Úsalo en el auto-registro y en
+ * el cron de renovación para no cobrarle a las cuentas gratis.
+ */
+export function cycleCreditCostForTenant(
+  type: string | null | undefined,
+  infolinkTier: string | null | undefined,
+  periodicity: string | null | undefined,
+): number {
+  if (normalizeBusinessType(type) === 'INFOLINK' && infolinkTier === 'FREE') {
+    return 0;
+  }
+  return cycleCreditCost(type, periodicity);
 }

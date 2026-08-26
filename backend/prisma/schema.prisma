@@ -50,6 +50,11 @@ enum Role {
   // vía User.allyBusinessId. Sin tenantId. Su portal (/cuponera/negocio)
   // gestiona SOLO su ficha/promos. Mismo patrón que DELIVERY_COMPANY.
   ALLY_BUSINESS
+  // Cuponera — spec §3: ADMINISTRADOR de UNA cuponera. Vinculado vía
+  // User.campaignId. NO entra al Master Admin de Fidelity: solo ve el panel de
+  // su cuponera. Sin tenantId (la cuponera no es un negocio). Mismo patrón que
+  // ALLY_BUSINESS y DELIVERY_COMPANY.
+  CUPONERA_ADMIN
 }
 
 enum TenantStatus {
@@ -1113,6 +1118,9 @@ model User {
   // (role=ALLY_BUSINESS). NULL = usuario normal. Su portal gestiona su ficha.
   allyBusinessId String?
   allyBusiness   AllyBusiness? @relation("AllyBusinessAdmin", fields: [allyBusinessId], references: [id], onDelete: SetNull)
+  /// Cuponera que administra (spec §3). Solo para role=CUPONERA_ADMIN.
+  campaignId     String?
+  campaign       BenefitCampaign? @relation("CampaignAdmin", fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([role])
@@ -1120,6 +1128,7 @@ model User {
   @@index([whiteLabelId])
   @@index([deliveryCompanyId])
   @@index([allyBusinessId])
+  @@index([campaignId])
 }
 
 model Customer {
@@ -5748,6 +5757,8 @@ model BenefitCampaign {
   stampPrograms StampProgram[]
   stampCards    StampCard[]
   stampEvents   StampEvent[]
+  /// Administradores de esta cuponera (spec §3). No entran al Master Admin.
+  admins        User[]          @relation("CampaignAdmin")
 
   @@index([whiteLabelId])
 }
@@ -6012,6 +6023,7 @@ model Benefit {
   approval         BenefitApproval  @default(APPROVED)
   /// Contador denormalizado de canjes (fuente de verdad: tabla Redemption).
   redemptionCount  Int              @default(0)
+  history          BenefitChange[]
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
@@ -6027,6 +6039,31 @@ model Benefit {
 }
 
 /// Registro de un canje (un miembro redimió un beneficio en un negocio).
+/// Historial de cambios de un beneficio (spec §6). El beneficio lo puede editar
+/// el aliado o el admin de la cuponera, y el spec pide poder reconstruir quién
+/// cambió qué: sin esto, un "15% OFF" que ayer era 30% no deja rastro.
+///
+/// `changes` guarda SOLO los campos que cambiaron, con antes y después:
+///   { "percentOff": { "from": 30, "to": 15 } }
+/// Guardar la fila entera duplicaría el beneficio en cada edición y haría más
+/// difícil leer qué pasó.
+model BenefitChange {
+  id        String   @id @default(uuid())
+  benefitId String
+  benefit   Benefit  @relation(fields: [benefitId], references: [id], onDelete: Cascade)
+  /// Quién lo cambió. Null = el usuario se borró; el registro se conserva.
+  userId    String?
+  /// Se congela el nombre y el rol al momento del cambio: si la cuenta se borra
+  /// o cambia de rol, el historial tiene que seguir siendo legible.
+  actorName String   @default("")
+  actorRole String   @default("")
+  action    String   @default("UPDATE") // CREATE | UPDATE | APPROVAL | DELETE
+  changes   Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([benefitId, createdAt])
+}
+
 model Redemption {
   id             String          @id @default(uuid())
   campaignId     String
