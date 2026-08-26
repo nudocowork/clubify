@@ -62,6 +62,27 @@ export default function AutomatizacionesPanel() {
   const [emailConnected, setEmailConnected] = useState(true);
   const [testingMailId, setTestingMailId] = useState<string | null>(null);
   const [savingMailId, setSavingMailId] = useState<string | null>(null);
+  // Nota descartable (2-3 líneas): explica que estas automatizaciones vienen
+  // activas por defecto. Se recuerda el descarte por navegador (patrón
+  // localStorage de InsightsCard). `noteChecked` evita el flash antes de leerla.
+  const [noteDismissed, setNoteDismissed] = useState(false);
+  const [noteChecked, setNoteChecked] = useState(false);
+
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('clubify:admin:automations-note:dismissed') === '1') {
+        setNoteDismissed(true);
+      }
+    } catch {}
+    setNoteChecked(true);
+  }, []);
+
+  function dismissNote() {
+    setNoteDismissed(true);
+    try {
+      localStorage.setItem('clubify:admin:automations-note:dismissed', '1');
+    } catch {}
+  }
 
   function applyData(d: any) {
     const list: BrandMsgTemplate[] = d?.templates ?? [];
@@ -331,6 +352,28 @@ export default function AutomatizacionesPanel() {
           </button>
         )}
       </div>
+      {noteChecked && !noteDismissed && (
+        <div
+          className="rounded-lg p-3 mb-4 flex items-start gap-2"
+          style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534' }}
+        >
+          <span className="text-base leading-none" aria-hidden>✅</span>
+          <p className="text-xs leading-relaxed m-0 flex-1">
+            Estas automatizaciones vienen <b>activas por defecto</b> para que tus
+            negocios reciban avisos de cobro, cancelaciones y novedades sin
+            configurarlas. Puedes <b>desactivar o editar</b> cualquiera desde su
+            tarjeta. Correo y WhatsApp se controlan por separado.
+          </p>
+          <button
+            onClick={dismissNote}
+            aria-label="Descartar nota"
+            className="text-sm leading-none shrink-0 hover:opacity-70"
+            style={{ color: '#166534' }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div
         className="rounded-lg p-3 text-xs mb-4"
         style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}
