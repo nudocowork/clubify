@@ -44,7 +44,7 @@ type EnrollInput = {
    *  manda el webhook: el plan comprado es el que decide la campaña, no el slug
    *  fijo — si no, comprar un plan de OTRA cuponera daba de alta en Living Card. */
   campaignId?: string | null;
-  source?: 'MANUAL' | 'MERCADOPAGO' | 'HOTMART' | 'STRIPE';
+  source?: 'MANUAL' | 'MERCADOPAGO' | 'HOTMART' | 'STRIPE' | 'FREE';
   mp?: { preapprovalId?: string; payerId?: string; expiresAt?: string | Date };
   /** Referencia recurrente de la pasarela (subscriberCode / subscription /
    *  preapproval). Es lo único que trae la cancelación para encontrar a quién
@@ -1002,6 +1002,10 @@ export class CuponeraService {
   ): Date | null {
     if (override) return new Date(override);
     if (!plan) return null;
+    // Un plan gratuito NO vence. Sin este corte, el intervalo del plan le
+    // pondría vencimiento a un mes y el candado de canje apagaría al mes a
+    // alguien que se unió gratis y para siempre (spec §23).
+    if (plan.priceCents <= 0) return null;
     const d = new Date();
     if (plan.interval === 'ANNUAL') d.setFullYear(d.getFullYear() + 1);
     else d.setMonth(d.getMonth() + 1);
@@ -1121,6 +1125,57 @@ export class CuponeraService {
       passId: pass.id,
       status: membership.status,
     };
+  }
+
+  /**
+   * Alta sin pago de una cuponera gratuita (spec §23: "El usuario se registra y
+   * obtiene acceso"). Endpoint PÚBLICO, así que las guardas son el producto:
+   *
+   *  · El plan tiene que costar 0. Si no, esto sería una puerta para saltarse
+   *    el pago de un plan pago con solo mandar su id.
+   *  · La cuponera tiene que estar ACTIVE. Una en DRAFT todavía no existe para
+   *    el público y no debería juntar miembros.
+   */
+  async joinFree(dto: {
+    fullName: string;
+    phone?: string;
+    email?: string;
+    planId?: string;
+    campaignId?: string;
+  }) {
+    const campaign = dto.campaignId
+      ? await this.prisma.benefitCampaign.findUnique({ where: { id: dto.campaignId } })
+      : await this.ensureLivingCampaign();
+    if (!campaign) throw new NotFoundException('Cuponera no encontrada');
+    if (campaign.status !== 'ACTIVE') {
+      throw new BadRequestException('Esta cuponera todavía no está abierta al público.');
+    }
+
+    const plan = dto.planId
+      ? await this.prisma.membershipPlan.findFirst({
+          where: { id: dto.planId, campaignId: campaign.id, isActive: true },
+        })
+      : await this.prisma.membershipPlan.findFirst({
+          where: { campaignId: campaign.id, isActive: true, priceCents: 0 },
+          orderBy: { sortOrder: 'asc' },
+        });
+    if (!plan) throw new NotFoundException('Plan no encontrado');
+    if (plan.priceCents > 0) {
+      throw new BadRequestException('Este plan es de pago: hay que completar el pago para activarlo.');
+    }
+
+    const nombre = (dto.fullName || '').trim();
+    if (nombre.length < 2) throw new BadRequestException('Falta el nombre');
+
+    const r = await this.enrollMember({
+      campaignId: campaign.id,
+      planId: plan.id,
+      fullName: nombre,
+      phone: dto.phone ?? '',
+      email: dto.email ?? null,
+      source: 'FREE',
+    });
+    return { passId: r.passId, membershipId: r.membershipId, planName: plan.name };
   }
 
   async listMembers() {

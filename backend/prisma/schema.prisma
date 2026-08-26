@@ -5723,6 +5723,8 @@ enum MembershipSource {
   MERCADOPAGO
   HOTMART
   STRIPE
+  /// Alta sin pago: plan de precio 0 en una cuponera gratuita (spec §23).
+  FREE
 }
 
 enum MembershipOrderStatus {

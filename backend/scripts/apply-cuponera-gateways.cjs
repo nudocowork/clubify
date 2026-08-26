@@ -9,6 +9,8 @@ const STMTS = [
   // reescribe la tabla; los valores viejos siguen intactos.
   `ALTER TYPE "MembershipSource" ADD VALUE IF NOT EXISTS 'HOTMART'`,
   `ALTER TYPE "MembershipSource" ADD VALUE IF NOT EXISTS 'STRIPE'`,
+  // Alta sin pago de una cuponera gratuita (spec §23).
+  `ALTER TYPE "MembershipSource" ADD VALUE IF NOT EXISTS 'FREE'`,
 
   // Tabla de traducción producto-de-pasarela → plan. Sin esto el webhook
   // recibe el pago y no sabe a quién dar de alta.
@@ -71,7 +73,7 @@ const estado = async () => ({
 const completo = (e) =>
   PLAN_COLS.every((c) => e.plan.includes(c)) &&
   MS_COLS.every((c) => e.membership.includes(c)) &&
-  ['HOTMART', 'STRIPE'].every((v) => e.source.includes(v));
+  ['HOTMART', 'STRIPE', 'FREE'].every((v) => e.source.includes(v));
 
 (async () => {
   const url = process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL || '';

@@ -5,6 +5,16 @@ import { Public } from '../common/decorators/public.decorator';
 import { CuponeraService } from './cuponera.service';
 import { MercadoPagoService } from './mercadopago.service';
 
+/** Alta gratuita (spec §23). El teléfono es opcional: una cuponera gratuita no
+ *  debería exigir más datos que un nombre para dejarte entrar. */
+class JoinFreeBody {
+  @IsString() @MaxLength(120) fullName!: string;
+  @IsOptional() @IsString() @MaxLength(30) phone?: string;
+  @IsOptional() @IsString() @MaxLength(160) email?: string;
+  @IsOptional() @IsString() @MaxLength(80) planId?: string;
+  @IsOptional() @IsString() @MaxLength(80) campaignId?: string;
+}
+
 class SubscribeBody {
   @IsString() @MaxLength(80) planId!: string;
   @IsString() @MaxLength(120) fullName!: string;
@@ -57,6 +67,15 @@ export class CuponeraPublicController {
   @Get('card/find')
   cardFind(@Query('q') q: string) {
     return this.svc.findCard(q || '');
+  }
+
+  /** Alta sin pago en una cuponera gratuita (spec §23). El tope por minuto es
+   *  más bajo que el de pago: acá no hay una pasarela frenando de por medio. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 8 } })
+  @Post('join-free')
+  joinFree(@Body() body: JoinFreeBody) {
+    return this.svc.joinFree(body);
   }
 
   /** Directorio público de negocios aliados aprobados (opcional por categoría). */

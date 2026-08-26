@@ -51,7 +51,8 @@ export default function UnirsePage() {
   }, []);
 
   const selected = plans.find((p) => p.id === planId) || plans[0] || null;
-  const externo = !!selected?.checkoutUrl;
+  const gratis = !!selected && selected.priceCents <= 0;
+  const externo = !gratis && !!selected?.checkoutUrl;
   const nombrePasarela =
     selected?.checkoutGateway === 'HOTMART'
       ? 'Hotmart'
@@ -62,6 +63,28 @@ export default function UnirsePage() {
   async function pay() {
     setNotice(null);
     if (!selected) return;
+
+    // Cuponera gratuita (§23): se entra registrándose, sin pasarela de por medio.
+    if (gratis) {
+      if (!form.fullName.trim()) { setNotice('Poné tu nombre para unirte.'); return; }
+      if (!form.email.trim() && form.phone.replace(/\D/g, '').length < 8) {
+        setNotice('Dejá un teléfono o un correo para poder darte tu tarjeta.');
+        return;
+      }
+      setSubmitting(true);
+      try {
+        const r = await api<{ passId: string }>('/cuponera/public/join-free', {
+          method: 'POST',
+          body: JSON.stringify({ planId: selected.id, ...form }),
+        });
+        window.location.href = r.passId ? `/w/${r.passId}` : '/cuponera/mi-tarjeta';
+      } catch (e: any) {
+        setNotice((e?.message && String(e.message)) || 'No pudimos completar tu registro.');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
 
     // Hotmart y Stripe se cobran en un link que ya existe: el comprador va
     // directo y el alta la hace el webhook. No se pide teléfono porque esas
@@ -127,8 +150,10 @@ export default function UnirsePage() {
               <div style={{ border: `1.5px solid ${PC}`, borderRadius: 14, padding: 18, marginBottom: 20 }}>
                 <div style={{ fontWeight: 800, fontSize: 17 }}>{selected.name}</div>
                 <div style={{ fontSize: 28, fontWeight: 900, color: PC, margin: '6px 0' }}>
-                  {money(selected.priceCents, selected.currency)}
-                  <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}> {selected.interval === 'ANNUAL' ? '/ año' : '/ mes'}</span>
+                  {gratis ? 'Gratis' : money(selected.priceCents, selected.currency)}
+                  {!gratis && (
+                    <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}> {selected.interval === 'ANNUAL' ? '/ año' : '/ mes'}</span>
+                  )}
                 </div>
                 {selected.description && <p style={{ fontSize: 13.5, color: '#475569' }}>{selected.description}</p>}
                 <div style={{ fontSize: 13, color: '#334155', marginTop: 6 }}>
@@ -152,7 +177,9 @@ export default function UnirsePage() {
               disabled={submitting}
               style={{ width: '100%', background: PC, color: '#fff', border: 'none', padding: '14px', borderRadius: 12, fontWeight: 800, fontSize: 15, cursor: submitting ? 'wait' : 'pointer' }}
             >
-              {submitting ? 'Redirigiendo…' : `Pagar con ${nombrePasarela}`}
+              {submitting
+                ? gratis ? 'Creando tu tarjeta…' : 'Redirigiendo…'
+                : gratis ? 'Unirme gratis' : `Pagar con ${nombrePasarela}`}
             </button>
 
             {externo && (
