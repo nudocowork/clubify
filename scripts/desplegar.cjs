@@ -18,8 +18,8 @@
  *      un commit ajeno, con su mensaje equivocado y, si estaba a medias, sin
  *      compilar.
  *
- * Este script no arregla la causa —para eso hay que sacar el repo de OneDrive—
- * pero impide desplegar en las situaciones en las que se pierde algo.
+ * Este script despliega SIEMPRE una copia limpia del commit, nunca la carpeta,
+ * asi que el trabajo a medias de la otra maquina nunca llega a produccion.
  *
  * ── Uso ────────────────────────────────────────────────────────────────────
  *
@@ -60,22 +60,18 @@ try {
 
 const rama = git('rev-parse --abbrev-ref HEAD');
 
-// ── 2. El directorio de trabajo tiene que estar limpio ─────────────────────
+// ── 2. Avisar de lo que hay suelto, pero no bloquear ───────────────────────
 //
-// Es el freno que faltaba: con OneDrive de por medio, lo que hay sin commitear
-// puede no ser tuyo. Y `railway up` lo subiría a producción igual.
+// Con OneDrive sincronizando, el directorio casi NUNCA está limpio: el trabajo
+// sin commitear de la otra máquina aparece aquí solo. Bloquear por eso haría
+// el script inservible. Lo que se hace en su lugar es no subir el directorio
+// (ver el paso 5): se despliega una copia limpia del commit.
 const sucio = git('status --porcelain');
-if (sucio && !FORZAR) {
-  morir(
-    'Hay cambios sin commitear.',
-    sucio
-      .split('\n')
-      .slice(0, 20)
-      .map((l) => `    ${l}`)
-      .join('\n'),
-    '    Revisa CADA archivo antes de decidir. Con OneDrive sincronizando,\n' +
-      '    puede haber trabajo de la otra máquina aquí metido.\n' +
-      '    Commitea lo tuyo por rutas explícitas — NUNCA `git add -A`.',
+if (sucio) {
+  const n = sucio.split('\n').length;
+  console.log(
+    `  ⚠ Hay ${n} archivo(s) sin commitear. NO van a subir — se despliega\n` +
+      `    el commit, no la carpeta. Si algo de eso era tuyo, commitéalo antes.\n`,
   );
 }
 
@@ -115,22 +111,83 @@ if (adelante > 0 && !FORZAR) {
 }
 
 // ── 4. Decir en voz alta qué se va a desplegar ─────────────────────────────
-const ultimo = git('log -1 --format=%h %s');
+// Comillas obligatorias: sin ellas el shell parte «%h %s» en dos argumentos y
+// git intenta interpretar «%s» como una revisión.
+const ultimo = git('log -1 --pretty=format:"%h %s"');
 console.log(`  rama:   ${rama}`);
 console.log(`  commit: ${ultimo}`);
 console.log(`  estado: limpio, sincronizado con origin\n`);
 
-// ── 5. Desplegar ───────────────────────────────────────────────────────────
+// ── 5. Clonar el commit a una carpeta limpia y desplegar DESDE AHÍ ─────────
+//
+// Esta es la pieza que resuelve el problema de raíz. Ni `railway up` ni
+// `vercel deploy` suben lo que hay en git: suben LA CARPETA. Y esta carpeta
+// vive en OneDrive, así que contiene el trabajo a medias de la otra máquina.
+// Desplegar desde aquí ha mandado a producción código de otro sin terminar.
+//
+// Con un clon del commit se sube exactamente lo que está en git y nada más.
+// De paso el paquete es más pequeño: sin node_modules, sin .next, sin basura.
+const os = require('os');
+const path = require('path');
+const fs = require('fs');
+
+const COPIA = path.join(os.tmpdir(), `clubify-deploy-${OBJETIVO}`);
+fs.rmSync(COPIA, { recursive: true, force: true });
+
+console.log('  Clonando el commit a una carpeta limpia…');
+execSync(`git clone --quiet --no-hardlinks . "${COPIA}"`, { stdio: 'inherit' });
+execSync(`git -C "${COPIA}" checkout --quiet ${git('rev-parse HEAD')}`);
+
+const sueltos = execSync(`git -C "${COPIA}" status --porcelain`, {
+  encoding: 'utf8',
+}).trim();
+if (sueltos) {
+  morir('La copia limpia no salió limpia.', sueltos, '    Revisa a mano.');
+}
+console.log('  Copia verificada: solo lo que está en git.\n');
+
 if (OBJETIVO === 'backend') {
-  // Desde la RAÍZ del repo, no desde backend/ — el railway.json de la raíz es
-  // el que apunta al Dockerfile correcto.
-  console.log('  Subiendo a Railway…\n');
+  // Se sube desde la RAÍZ del repo, no desde backend/ — el railway.json de la
+  // raíz es el que apunta al Dockerfile correcto.
+  //
+  // La copia hay que enlazarla al proyecto: Railway asocia proyecto ↔ carpeta.
+  // Y `railway up <ruta>` con una ruta de fuera falla con "prefix not found",
+  // así que se entra en la copia y se sube desde dentro.
+  console.log('  Enlazando y subiendo a Railway…\n');
+  const link = spawnSync(
+    'railway',
+    [
+      'link',
+      '--project', 'ba90d94d-7e6d-4056-85ad-0e3f24e8d43a',
+      '--environment', 'production',
+      '--service', 'backend',
+    ],
+    { stdio: 'inherit', shell: true, cwd: COPIA },
+  );
+  if (link.status) process.exit(link.status);
+
   const r = spawnSync('railway', ['up', '--service', 'backend', '--detach'], {
     stdio: 'inherit',
     shell: true,
+    cwd: COPIA,
   });
   process.exit(r.status ?? 0);
 } else {
+  // `frontend/.vercel/` está en .gitignore, así que la copia limpia NO lo
+  // trae — y sin ese fichero, `vercel deploy --yes` no encuentra a qué
+  // proyecto apunta y CREA UNO NUEVO en vez de actualizar el de siempre.
+  // Es configuración local de la máquina, no código: se copia a mano.
+  const enlaceOrigen = path.join(process.cwd(), 'frontend', '.vercel');
+  const enlaceDestino = path.join(COPIA, 'frontend', '.vercel');
+  if (!fs.existsSync(enlaceOrigen)) {
+    morir(
+      'Esta máquina no tiene enlazado el proyecto de Vercel.',
+      `  Falta ${enlaceOrigen}`,
+      '    cd frontend && npx vercel link --scope jhonarias888-1963s-projects',
+    );
+  }
+  fs.cpSync(enlaceOrigen, enlaceDestino, { recursive: true });
+
   // El proyecto de Vercel vive en el equipo de Jhon: sin --scope, el CLI
   // resuelve el equipo equivocado y devuelve "Not authorized".
   console.log('  Subiendo a Vercel…\n');
@@ -144,7 +201,7 @@ if (OBJETIVO === 'backend') {
       '--scope',
       'jhonarias888-1963s-projects',
     ],
-    { stdio: 'inherit', shell: true, cwd: 'frontend' },
+    { stdio: 'inherit', shell: true, cwd: path.join(COPIA, 'frontend') },
   );
   process.exit(r.status ?? 0);
 }
