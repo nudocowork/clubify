@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getUser, clearSession } from '@/lib/api';
+import { PhoneInput } from '@/components/PhoneInput';
 
 const PC = '#0a90bd';
 
@@ -115,7 +116,13 @@ function FichaTab({ ally, onSaved }: { ally: Ally; onSaved: (a: Ally) => void })
         <div><label style={lbl}>Portada (URL)</label><input style={inp} value={f.coverUrl} onChange={(e) => setF({ ...f, coverUrl: e.target.value })} /></div>
         <div><label style={lbl}>Dirección</label><input style={inp} value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} /></div>
         <div><label style={lbl}>Ciudad</label><input style={inp} value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} /></div>
-        <div><label style={lbl}>WhatsApp</label><input style={inp} value={f.whatsapp} onChange={(e) => setF({ ...f, whatsapp: e.target.value })} /></div>
+        <div>
+          <label style={lbl}>WhatsApp</label>
+          {/* PhoneInput trae el selector de país con bandera y prefijo: escribir
+              el número "a mano" era la fuente de los +57 duplicados y los
+              números sin prefijo que después no se podían llamar. */}
+          <PhoneInput value={f.whatsapp} onChange={(v) => setF({ ...f, whatsapp: v })} />
+        </div>
         <div><label style={lbl}>Instagram</label><input style={inp} value={f.instagram} onChange={(e) => setF({ ...f, instagram: e.target.value })} /></div>
         <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Sitio web</label><input style={inp} value={f.website} onChange={(e) => setF({ ...f, website: e.target.value })} /></div>
       </div>
@@ -376,7 +383,7 @@ type Sede = {
 const SEDE_VACIA = {
   name: '', address: '', city: '',
   latitude: '' as string | number, longitude: '' as string | number,
-  radiusMeters: 150, geopushMessage: '', geopushActive: false,
+  radiusMeters: 300, geopushMessage: '', geopushActive: false,
 };
 
 function SedesTab({ flash }: { flash: (m: string) => void }) {

@@ -5961,7 +5961,7 @@ model AllyLocation {
   longitude      Decimal?     @db.Decimal(10, 7)
   /// Radio del geofence en metros. Apple limita a 10 regiones por pase: el
   /// geopush efectivo lo decide la campaña, no cada sede por su cuenta.
-  radiusMeters   Int          @default(150)
+  radiusMeters   Int          @default(300)
   geopushMessage String       @default("")
   geopushActive  Boolean      @default(false)
   isActive       Boolean      @default(true)
