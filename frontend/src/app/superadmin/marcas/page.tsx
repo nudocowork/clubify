@@ -98,7 +98,9 @@ export default function MarcasBlancasPage() {
   const [items, setItems] = useState<WhiteLabel[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'todas' | 'activas' | 'suspendidas'>('todas');
-  const [drawerId, setDrawerId] = useState<string | null>(null);
+  // El detalle de una marca es una PÁGINA COMPLETA, no un drawer: la marca
+  // seleccionada vive en la URL (?brand=<id>) → addressable + botón atrás.
+  const brandId = params.get('brand');
   const [createOpen, setCreateOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -157,6 +159,19 @@ export default function MarcasBlancasPage() {
     } catch (e: any) {
       flashToast(e.message ?? 'Error');
     }
+  }
+
+  // Página completa de administración de una marca (reemplaza la lista).
+  if (brandId) {
+    return (
+      <BrandDetailFull
+        id={brandId}
+        onBack={() => {
+          load();
+          router.push('/superadmin/marcas');
+        }}
+      />
+    );
   }
 
   return (
@@ -267,7 +282,7 @@ export default function MarcasBlancasPage() {
               {filtered.map((w) => (
                 <tr
                   key={w.id}
-                  onClick={() => setDrawerId(w.id)}
+                  onClick={() => router.push('/superadmin/marcas?brand=' + w.id)}
                   className="cursor-pointer transition"
                   style={{ borderBottom: '1px solid #eef0f2' }}
                   onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#f7fbf8')}
@@ -326,7 +341,7 @@ export default function MarcasBlancasPage() {
                   <td style={{ padding: '14px 16px' }}>
                     <BrandRowActions
                       status={w.status}
-                      onEnter={() => setDrawerId(w.id)}
+                      onEnter={() => router.push('/superadmin/marcas?brand=' + w.id)}
                       onToggle={() => toggleStatus(w)}
                     />
                   </td>
@@ -344,17 +359,6 @@ export default function MarcasBlancasPage() {
         </div>
       </div>
 
-      {drawerId && (
-        <Drawer
-          id={drawerId}
-          onClose={() => setDrawerId(null)}
-          onChanged={(msg) => {
-            flashToast(msg);
-            load();
-          }}
-        />
-      )}
-
       {createOpen && (
         <CreateModal
           onClose={() => {
@@ -366,7 +370,7 @@ export default function MarcasBlancasPage() {
             router.replace('/superadmin/marcas');
             flashToast(`${w.name} creada`);
             load();
-            setDrawerId(w.id);
+            router.push('/superadmin/marcas?brand=' + w.id);
           }}
         />
       )}
@@ -406,20 +410,30 @@ function StatusBadge({ status }: { status: 'ACTIVE' | 'SUSPENDED' }) {
   );
 }
 
-function Drawer({
+function BrandDetailFull({
   id,
-  onClose,
-  onChanged,
+  onBack,
 }: {
   id: string;
-  onClose: () => void;
-  onChanged: (msg: string) => void;
+  onBack: () => void;
 }) {
   const router = useRouter();
   const [w, setW] = useState<WhiteLabelDetail | null>(null);
   const [invites, setInvites] = useState<AdminInvite[]>([]);
   const [entering, setEntering] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  // Página completa (no drawer): gestiona su propio toast y refresca sus datos
+  // al cambiar. `onClose` = volver a la lista de marcas.
+  const flash = (m: string) => {
+    setToast(m);
+    setTimeout(() => setToast(null), 2400);
+  };
+  const onClose = onBack;
+  const onChanged = (msg: string) => {
+    flash(msg);
+    reloadAdmins();
+  };
 
   async function reloadAdmins() {
     try {
@@ -512,62 +526,99 @@ function Drawer({
   }
 
   return (
-    <>
-      <div
-        onClick={onClose}
-        className="fixed inset-0 z-40"
-        style={{ background: 'rgba(0,0,0,.32)' }}
-      />
-      <div
-        className="fixed right-0 top-0 bottom-0 z-50 overflow-y-auto"
-        style={{
-          width: 440,
-          background: 'white',
-          boxShadow: '-12px 0 40px rgba(0,0,0,.14)',
-        }}
-      >
-        {!w ? (
-          <div className="p-6 text-sm" style={{ color: '#9aa4af' }}>
-            Cargando…
-          </div>
-        ) : (
-          <>
-            <div
-              className="px-5 py-4 flex items-center gap-3 border-b"
-              style={{ borderColor: '#eef0f2' }}
+    <div className="max-w-6xl mx-auto pb-12">
+      {/* Barra superior: volver + acciones principales */}
+      <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+        <button
+          onClick={onClose}
+          className="inline-flex items-center gap-1.5 text-sm font-semibold"
+          style={{
+            color: '#16241c',
+            padding: '8px 13px',
+            borderRadius: 9,
+            background: 'white',
+            border: '1px solid #d7dbe0',
+          }}
+        >
+          ← Volver a marcas
+        </button>
+        {w && (
+          <div className="flex gap-2">
+            <button
+              onClick={enterAs}
+              disabled={entering || w.status === 'SUSPENDED'}
+              className="py-2.5 px-4 rounded-[10px] text-sm font-bold text-white disabled:opacity-50"
+              style={{
+                background: 'linear-gradient(180deg, #28c95f, #16a34a)',
+                boxShadow: '0 2px 6px rgba(22,163,74,.35)',
+              }}
+              title={
+                w.status === 'SUSPENDED'
+                  ? 'Reactiva la marca primero'
+                  : 'Iniciar sesión como super admin de esta marca'
+              }
             >
-              <div
-                className="w-12 h-12 rounded-[13px] flex items-center justify-center text-white font-bold shrink-0"
-                style={{ background: w.primaryColor }}
-              >
-                {w.initial ?? w.name[0]?.toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-[17px]" style={{ color: '#16241c' }}>
-                  {w.name}
-                </div>
-                <div className="text-xs" style={{ color: '#6b7785' }}>
-                  {w.domain ?? '—'}
-                </div>
-              </div>
-              <button onClick={onClose} className="text-xl leading-none" style={{ color: '#9aa4af' }}>
-                ×
-              </button>
+              {entering ? 'Entrando…' : 'Entrar como empresa'}
+            </button>
+            <button
+              onClick={toggleStatus}
+              className="text-sm font-semibold px-4 py-2.5 rounded-[10px]"
+              style={{
+                background: 'white',
+                color: w.status === 'ACTIVE' ? '#b91c1c' : '#15803d',
+                border: `1px solid ${w.status === 'ACTIVE' ? '#fecaca' : '#bbf7d0'}`,
+              }}
+            >
+              {w.status === 'ACTIVE' ? 'Suspender' : 'Activar'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {!w ? (
+        <div className="p-6 text-sm" style={{ color: '#9aa4af' }}>
+          Cargando…
+        </div>
+      ) : (
+        <>
+          {/* Cabecera de la marca */}
+          <div
+            className="flex items-center gap-3 p-5 rounded-[14px] mb-5 flex-wrap"
+            style={{
+              background: 'white',
+              border: '1px solid #e7e9ec',
+              boxShadow: '0 1px 2px rgba(16,24,40,.04)',
+            }}
+          >
+            <div
+              className="w-14 h-14 rounded-[14px] flex items-center justify-center text-white font-bold shrink-0 text-lg"
+              style={{ background: w.primaryColor }}
+            >
+              {w.initial ?? w.name[0]?.toUpperCase()}
             </div>
-
-            <div className="p-5 space-y-5">
-              <div className="flex items-center gap-3 flex-wrap">
-                <StatusBadge status={w.status} />
-                <span className="text-xs" style={{ color: '#6b7785' }}>
-                  Creada el{' '}
-                  {new Date(w.createdAt).toLocaleDateString('es-MX', {
-                    day: '2-digit',
-                    month: 'long',
-                    year: 'numeric',
-                  })}
-                </span>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-[20px]" style={{ color: '#16241c' }}>
+                {w.name}
               </div>
+              <div className="text-sm" style={{ color: '#6b7785' }}>
+                {w.domain ?? '—'}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <StatusBadge status={w.status} />
+              <span className="text-xs" style={{ color: '#6b7785' }}>
+                Creada el{' '}
+                {new Date(w.createdAt).toLocaleDateString('es-MX', {
+                  day: '2-digit',
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </span>
+            </div>
+          </div>
 
+          {/* Secciones en grid amplio (2 columnas en pantallas grandes) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
               <div>
                 <SectionTitle>Créditos</SectionTitle>
                 {w.creditsUnlimited ? (
@@ -628,6 +679,7 @@ function Drawer({
                 </button>
               </div>
 
+              <div className="lg:col-span-2">
               <BrandingConfig
                 whiteLabelId={w.id}
                 initial={{
@@ -654,6 +706,7 @@ function Drawer({
                   onChanged(msg);
                 }}
               />
+              </div>
 
               <DomainConfig
                 whiteLabelId={w.id}
@@ -717,7 +770,7 @@ function Drawer({
                 </div>
               </div>
 
-              <div>
+              <div className="lg:col-span-2">
                 <div className="flex items-center justify-between mb-2">
                   <SectionTitle>Administradores ({w.admins.length})</SectionTitle>
                   <button
@@ -848,34 +901,6 @@ function Drawer({
               </div>
             </div>
 
-            <div
-              className="sticky bottom-0 px-5 py-4 border-t flex gap-2"
-              style={{ background: 'white', borderColor: '#eef0f2' }}
-            >
-              <button
-                onClick={enterAs}
-                disabled={entering || w.status === 'SUSPENDED'}
-                className="flex-1 py-2.5 rounded-[10px] text-sm font-bold text-white disabled:opacity-50"
-                style={{
-                  background: 'linear-gradient(180deg, #28c95f, #16a34a)',
-                  boxShadow: '0 2px 6px rgba(22,163,74,.35)',
-                }}
-                title={w.status === 'SUSPENDED' ? 'Reactiva la marca primero' : 'Iniciar sesión como super admin de esta marca'}
-              >
-                {entering ? 'Entrando…' : 'Entrar como empresa'}
-              </button>
-              <button
-                onClick={toggleStatus}
-                className="text-sm font-semibold px-4 py-2.5 rounded-[10px]"
-                style={{
-                  background: 'white',
-                  color: w.status === 'ACTIVE' ? '#b91c1c' : '#15803d',
-                  border: `1px solid ${w.status === 'ACTIVE' ? '#fecaca' : '#bbf7d0'}`,
-                }}
-              >
-                {w.status === 'ACTIVE' ? 'Suspender' : 'Activar'}
-              </button>
-            </div>
             {inviteOpen && (
               <InviteWhiteLabelAdminModal
                 whiteLabelId={w.id}
@@ -891,8 +916,19 @@ function Drawer({
             )}
           </>
         )}
-      </div>
-    </>
+        {toast && (
+          <div
+            className="fixed left-1/2 bottom-7 -translate-x-1/2 px-4 py-2.5 rounded-[10px] text-sm font-semibold shadow-lg z-50"
+            style={{
+              background: '#0f172a',
+              color: 'white',
+              boxShadow: '0 12px 30px rgba(0,0,0,.25)',
+            }}
+          >
+            {toast}
+          </div>
+        )}
+    </div>
   );
 }
 
