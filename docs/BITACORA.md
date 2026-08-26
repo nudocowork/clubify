@@ -83,6 +83,15 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
   ahora busca **por teléfono o correo** (quien compra por Hotmart/Stripe termina
   en la página de gracias de la pasarela y puede no haber dejado teléfono nunca).
 
+- **Membresía gratuita (§23).** No funcionaba: un plan de precio 0 igual pasaba
+  por `createSubscription`, que exige credenciales de MercadoPago y le pide a MP
+  un cobro de cero. Ahora hay `POST /cuponera/public/join-free` con dos guardas
+  (el plan tiene que costar 0 — si no, mandar el id de un plan pago era entrar
+  gratis; y la cuponera tiene que estar ACTIVE, una en DRAFT no capta miembros).
+  Un plan gratuito **no vence**: dejar correr el intervalo apagaba al mes a
+  alguien que se unió gratis y para siempre. El valor `FREE` de `MembershipSource`
+  va en la **misma** migración pendiente, no en una segunda.
+
 ### Qué toqué de PRODUCCIÓN
 
 - **Nada.** Ni base, ni variables, ni despliegue.
