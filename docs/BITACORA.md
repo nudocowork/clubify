@@ -48,6 +48,54 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-26 — FUGA CROSS-MARCA en PROGRAMA: Sellea veía comisiones de Clubify
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — commit `52d46aa`, **desplegado y verificado**
+
+Reportado por el founder ("¿cómo tengo comisiones de Clubify en Sellea?") +
+reporte de Javier "Aislamiento de Sellea" (para ejecutar Jhon). Un SUPER_ADMIN
+de marca blanca veía datos de TODAS las marcas en el apartado PROGRAMA.
+
+**Verificado en prod:** de 84 comisiones que Sellea veía, **0 eran suyas**; el
+"$292.50 / 14 comisiones" (PENDIENTE POR APROBAR de la captura) era 100% de Clubify.
+
+### Qué cambié (aislamiento por marca; default a Clubify, nunca "ver todo")
+- `listAdminCommissions` (referrals): scope por `recipientCode.whiteLabelId`.
+- `currentCutoff` / `batchDetail` / `listPayoutBatches` (cutoff): PayoutBatch es
+  GLOBAL (sin whiteLabelId) → se filtran/recalculan las comisiones embebidas por
+  marca (total recalculado, lotes sin comisiones de la marca ocultos, 404 en drill-in).
+- `visitsSummary`: scope por `referralCode.whiteLabelId`.
+- `listCommissionBusinesses` / `listUnattributedBusinesses`: scope por tenant.
+- Candados IDOR en drill-ins por id: `ambassadorDetail`, `vendorDetail`,
+  `payAllForPerson` (MUTACIÓN de dinero), `getTenantAssignment`.
+- El feed `integration/*` (Team Clubify, x-api-key) sigue con dataset completo
+  vía `crossBrand: true`.
+
+### Qué toqué de PRODUCCIÓN
+- **Backend**: `railway up`. El 1er intento compiló y pasó healthcheck pero NO
+  swappeó (quedó FAILED, gotcha conocido); el 2º (`2d0cd569`) swappeó (uptime→15).
+- **DB / variables: nada.** Sin migración.
+- ⚠️ **WIP de Javi (cuponera §24, gateways Hotmart/Stripe en membresías) NO
+  desplegada:** estaba sin commitear en el working tree y agrega columnas a
+  `MembershipPlan` que la DB no tiene. La stasheé (`git stash -u`) para desplegar
+  HEAD limpio y la restauré tras el upload. **Sigue sin commitear, intacta, para
+  que Javier la termine/commitee.** (Hubo churn de git resuelto; su WIP quedó sin
+  marcadores de conflicto.)
+
+### Qué falta (mismo reporte de Javier + auditoría)
+- [ ] **Frontend**: fugas de "Clubify" en pantallas de Sellea (el componente `Logo`
+      hardcodeado; `affiliate/page.tsx:250` `|| !me.brand` pinta Clubify; Lab;
+      SupportWidget; títulos de registro de embajador/vendedor). Fase 2.
+- [ ] **Registro público de afiliados/influencer brand-aware** (resolver marca por
+      host + config por marca + registrar bajo la marca). Fase 3.
+- [ ] **FOUNDER (no código) — Stripe de Sellea:** la *secret key* guardada
+      (`ed_61V15…`) NO es de Stripe (debe ser `sk_live_…`) y el webhook no está dado
+      de alta → ninguna venta de Sellea notifica (por eso el cliente de Humberto no
+      recibió acceso). Cambiar la key + registrar el webhook
+      `https://api.soyclubify.com/api/webhooks/stripe/sellea`.
+- [ ] **UX**: convertir el detalle de marca blanca (`superadmin/marcas`) de drawer
+      lateral a página completa `/superadmin/marcas/[id]` (pedido del founder).
+
 ## 2026-08-26 — Automatizaciones activas por defecto + nota descartable (punto 1 SELLEALA)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** `feat/commissions-auto-cutoffs` — commit `43f4147`, desplegado
