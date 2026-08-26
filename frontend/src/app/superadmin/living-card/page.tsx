@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { ImageUploader } from '@/components/ImageUploader';
+import { PhoneInput } from '@/components/PhoneInput';
 
 const PC = '#0a90bd';
 
@@ -244,13 +246,37 @@ function CategoriesSection({ categories, onChange }: { categories: Category[]; o
 
 const ALLY_STATUS: Record<string, { label: string; color: string }> = { PENDING: { label: 'Pendiente', color: '#b45309' }, APPROVED: { label: 'Aprobado', color: '#16a34a' }, REJECTED: { label: 'Rechazado', color: '#dc2626' }, SUSPENDED: { label: 'Suspendido', color: '#dc2626' } };
 function AlliesSection({ allies, categories, onChange }: { allies: Ally[]; categories: Category[]; onChange: () => void }) {
-  const empty = { name: '', email: '', ownerFullName: '', categoryId: '', whatsapp: '', city: '' };
+  const empty = { name: '', email: '', ownerFullName: '', categoryId: '', whatsapp: '', city: '', tenantId: '', logoUrl: '', coverUrl: '', address: '', instagram: '', website: '', bTitle: '', bType: 'PERCENT_OFF', bPercent: '', bAmount: '', bMax: '', bPeriod: 'LIFETIME', bUntil: '', bTerms: '' };
+  // Negocios elegibles como aliado Tipo A (§16). Se cargan aparte porque el
+  // endpoint excluye los que ya son aliados de esta cuponera.
+  const [tenants, setTenants] = useState<{ id: string; name: string; brandName: string | null }[]>([]);
+  useEffect(() => {
+    api<any[]>('/cuponera/admin/allies/tenants').then((r) => setTenants(r ?? [])).catch(() => setTenants([]));
+  }, []);
   const [form, setForm] = useState<any>(empty); const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<{ email: string; tempPassword?: string } | null>(null); const [msg, setMsg] = useState<string | null>(null);
   async function create() {
     if (!form.name.trim() || !form.email.trim() || !form.ownerFullName.trim()) { setMsg('Nombre, email y responsable requeridos'); return; }
     setBusy(true); setMsg(null);
-    try { const r = await api<{ loginEmail: string; tempPassword?: string }>('/cuponera/admin/allies', { method: 'POST', body: JSON.stringify({ ...form, categoryId: form.categoryId || null }) }); setCreated({ email: r.loginEmail, tempPassword: r.tempPassword }); setForm(empty); onChange(); }
+    try { const r = await api<{ loginEmail: string; tempPassword?: string }>('/cuponera/admin/allies', { method: 'POST', body: JSON.stringify({
+        name: form.name, email: form.email, ownerFullName: form.ownerFullName,
+        categoryId: form.categoryId || null,
+        tenantId: form.tenantId || null,
+        whatsapp: form.whatsapp, city: form.city,
+        logoUrl: form.logoUrl || null, coverUrl: form.coverUrl || null,
+        address: form.address, instagram: form.instagram, website: form.website,
+        // El beneficio va solo si le pusieron título: sin eso no hay nada que crear.
+        benefit: form.bTitle.trim() ? {
+          title: form.bTitle,
+          type: form.bType,
+          percentOff: form.bType === 'PERCENT_OFF' ? Number(form.bPercent) || null : null,
+          amountOffCents: form.bType === 'AMOUNT_OFF' ? Number(form.bAmount) || null : null,
+          maxPerMember: form.bMax === '' ? null : Number(form.bMax),
+          limitPeriod: form.bPeriod,
+          validUntil: form.bUntil || null,
+          terms: form.bTerms,
+        } : null,
+      }) }); setCreated({ email: r.loginEmail, tempPassword: r.tempPassword }); setForm(empty); onChange(); }
     catch (e: any) { setMsg(e?.message || 'Error al crear'); } finally { setBusy(false); }
   }
   async function setStatus(a: Ally, status: string) { await api(`/cuponera/admin/allies/${a.id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }); onChange(); }
@@ -285,6 +311,76 @@ function AlliesSection({ allies, categories, onChange }: { allies: Ally[]; categ
         <div><label style={labelStyle}>Responsable</label><input style={inputStyle} value={form.ownerFullName} onChange={(e) => setForm({ ...form, ownerFullName: e.target.value })} /></div>
         <div><label style={labelStyle}>Categoría</label><select style={inputStyle} value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}><option value="">Sin categoría</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
         <div><label style={labelStyle}>Ciudad</label><input style={inputStyle} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></div>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={labelStyle}>¿Este negocio ya es cliente de la marca? (opcional)</label>
+          <select style={inputStyle} value={form.tenantId}
+            onChange={(e) => setForm({ ...form, tenantId: e.target.value })}>
+            <option value="">No — es un aliado externo</option>
+            {tenants.map((t) => (
+              <option key={t.id} value={t.id}>{t.brandName || t.name}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 4 }}>
+            Si lo vinculás, el negocio podrá leer la tarjeta de la cuponera con
+            <b> su escáner de siempre</b>, sin instalar nada. Si lo dejás en “externo”,
+            canjea desde el portal web del aliado.
+          </div>
+        </div>
+        {/* Ficha (§5): logo adjuntable, no una URL pegada. */}
+        <div>
+          <label style={labelStyle}>Logo</label>
+          <ImageUploader value={form.logoUrl || null} onChange={(u) => setForm({ ...form, logoUrl: u || '' })} folder="logos" />
+        </div>
+        <div>
+          <label style={labelStyle}>Portada</label>
+          <ImageUploader value={form.coverUrl || null} onChange={(u) => setForm({ ...form, coverUrl: u || '' })} folder="covers" />
+        </div>
+        <div>
+          <label style={labelStyle}>WhatsApp</label>
+          <PhoneInput value={form.whatsapp} onChange={(v) => setForm({ ...form, whatsapp: v })} />
+        </div>
+        <div><label style={labelStyle}>Dirección</label><input style={inputStyle} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
+        <div><label style={labelStyle}>Instagram</label><input style={inputStyle} placeholder="sincuenta" value={form.instagram} onChange={(e) => setForm({ ...form, instagram: e.target.value })} /></div>
+        <div><label style={labelStyle}>Sitio web</label><input style={inputStyle} placeholder="https://" value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} /></div>
+
+        {/* Beneficio inicial (§5, §6, §7). Un aliado sin beneficio no aparece
+            en la cartelera: cargarlo acá evita dar de alta a medias. */}
+        <div style={{ gridColumn: '1 / -1', borderTop: '1px solid #e5e7eb', paddingTop: 14, marginTop: 4 }}>
+          <div style={{ fontWeight: 800, fontSize: 14 }}>Su beneficio</div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+            Sin beneficio el negocio no sale en la cartelera. Se puede cambiar después.
+          </div>
+        </div>
+        <div><label style={labelStyle}>Qué ofrece</label><input style={inputStyle} placeholder="15% de descuento en day pass" value={form.bTitle} onChange={(e) => setForm({ ...form, bTitle: e.target.value })} /></div>
+        <div>
+          <label style={labelStyle}>Tipo</label>
+          <select style={inputStyle} value={form.bType} onChange={(e) => setForm({ ...form, bType: e.target.value })}>
+            <option value="PERCENT_OFF">Porcentaje de descuento</option>
+            <option value="AMOUNT_OFF">Monto fijo de descuento</option>
+            <option value="TWO_FOR_ONE">2x1</option>
+            <option value="FREEBIE">Producto gratis</option>
+            <option value="OTHER">Otro</option>
+          </select>
+        </div>
+        {form.bType === 'PERCENT_OFF' && (
+          <div><label style={labelStyle}>% de descuento</label><input type="number" style={inputStyle} value={form.bPercent} onChange={(e) => setForm({ ...form, bPercent: e.target.value })} /></div>
+        )}
+        {form.bType === 'AMOUNT_OFF' && (
+          <div><label style={labelStyle}>Monto del descuento</label><input type="number" style={inputStyle} value={form.bAmount} onChange={(e) => setForm({ ...form, bAmount: e.target.value })} /></div>
+        )}
+        <div><label style={labelStyle}>Usos por beneficiario</label><input type="number" style={inputStyle} placeholder="vacío = ilimitado" value={form.bMax} onChange={(e) => setForm({ ...form, bMax: e.target.value })} /></div>
+        <div>
+          <label style={labelStyle}>¿Cada cuánto se renuevan?</label>
+          <select style={inputStyle} value={form.bPeriod} onChange={(e) => setForm({ ...form, bPeriod: e.target.value })}>
+            <option value="LIFETIME">Una sola vez</option>
+            <option value="DAY">Por día</option>
+            <option value="WEEK">Por semana</option>
+            <option value="MONTH">Por mes</option>
+            <option value="YEAR">Por año</option>
+          </select>
+        </div>
+        <div><label style={labelStyle}>Vigencia hasta</label><input type="date" style={inputStyle} value={form.bUntil} onChange={(e) => setForm({ ...form, bUntil: e.target.value })} /></div>
+        <div style={{ gridColumn: '1 / -1' }}><label style={labelStyle}>Condiciones</label><input style={inputStyle} placeholder="No acumulable con otras promociones" value={form.bTerms} onChange={(e) => setForm({ ...form, bTerms: e.target.value })} /></div>
         <button style={btn()} disabled={busy} onClick={create}>{busy ? '…' : 'Crear negocio'}</button>
       </div>
       {msg && <div style={{ fontSize: 12.5, color: '#b91c1c', marginTop: 10 }}>{msg}</div>}

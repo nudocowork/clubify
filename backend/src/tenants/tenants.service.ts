@@ -725,6 +725,8 @@ export class TenantsService {
           select: {
             slug: true,
             name: true,
+            // Visibilidad de la tarjeta "Grow Business · SMS" por marca (solo UI).
+            showGrowBusinessCard: true,
             // Pasarela de pago de la marca → el detalle muestra dinámicamente
             // "Pasarela: Stripe/Hotmart/…" + el identificador correcto (PDF 1256
             // §1). Reutilizable para cualquier marca sin tocar código.

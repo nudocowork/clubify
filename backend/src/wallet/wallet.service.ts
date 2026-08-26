@@ -123,9 +123,12 @@ export class WalletService {
     // serialNumber están vacíos. Defensivo siempre con fallbacks.
     // #24 (2026-06-16): si la tarjeta tiene walletBrandName propio, ese gana
     // sobre el brandName del negocio (para el nombre mostrado en el pase).
+    // Fallback = nombre real del negocio, NUNCA 'Clubify' (delataría la
+    // plataforma en el pase de una marca blanca). brandName es el nombre a
+    // mostrar del negocio; si falta, su `name` de registro.
     const brandName =
-      (pass.card.walletBrandName?.trim() || pass.tenant.brandName || 'Clubify').trim() ||
-      'Clubify';
+      (pass.card.walletBrandName?.trim() || pass.tenant.brandName || pass.tenant.name).trim() ||
+      pass.tenant.name;
     // Marca blanca dueña del pass — el link "Creado por X" del reverso apunta
     // al dominio público de la marca (no hardcode Clubify). resolveTenant cae
     // al row real `clubify` cuando el negocio no tiene whiteLabelId (legacy).
@@ -1655,6 +1658,7 @@ export class WalletService {
         tenant: {
           select: {
             id: true,
+            name: true,
             brandName: true,
             primaryColor: true,
             logoUrl: true,
@@ -1678,7 +1682,8 @@ export class WalletService {
     });
     if (!r) throw new NotFoundException('Reservation');
 
-    const brandName = (r.tenant.brandName || 'Clubify').trim() || 'Clubify';
+    // Fallback = nombre del negocio, nunca 'Clubify' (fuga en pase marca blanca).
+    const brandName = (r.tenant.brandName || r.tenant.name).trim() || r.tenant.name;
     const resBrand = await this.brand.resolveTenant(r.tenant.id);
     const resBrandHref = resBrand.websiteUrl;
     const resBrandDomain = resBrand.websiteUrl.replace(/^https?:\/\//, '');

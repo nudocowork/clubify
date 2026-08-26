@@ -18,6 +18,10 @@ class StampActionBody {
   @IsOptional() @IsString() @MaxLength(120) passId?: string;
   @IsOptional() @IsString() @MaxLength(120) qrToken?: string;
 }
+class AllyPushBody {
+  @IsString() @MaxLength(60) title!: string;
+  @IsString() @MaxLength(180) body!: string;
+}
 class BenefitStatusBody {
   @IsIn(['DRAFT', 'ACTIVE', 'PAUSED']) status!: 'DRAFT' | 'ACTIVE' | 'PAUSED';
 }
@@ -111,6 +115,20 @@ export class AllyPortalController {
   }
 
   // --- Sellos comunitarios (Fase 5) ---
+  // Avisos del aliado (spec §22). El segmento sale de SU negocio, no del body.
+  @Get('push')
+  pushQuota(@CurrentUser() user: AuthUser) {
+    return this.svc.allyPushQuota(user);
+  }
+  @Get('push/history')
+  pushHistory(@CurrentUser() user: AuthUser) {
+    return this.svc.listAllyPushes(user);
+  }
+  @Post('push')
+  sendPush(@CurrentUser() user: AuthUser, @Body() body: AllyPushBody) {
+    return this.svc.sendAllyPush(user, body);
+  }
+
   @Post('stamp')
   grantStamp(@CurrentUser() user: AuthUser, @Body() body: StampActionBody) {
     return this.svc.grantStamp(user, body);

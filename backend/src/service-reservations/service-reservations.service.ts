@@ -579,6 +579,9 @@ export class ServiceReservationsService {
         timezone: true,
         logoUrl: true,
         primaryColor: true,
+        // Marca blanca del negocio: el footer "Reservas con X" debe usar la
+        // marca real, nunca "Clubify" hardcodeado (delataría la plataforma).
+        whiteLabel: { select: { name: true } },
       },
     });
     if (!t || t.status === 'SUSPENDED' || !t.serviceReservationsEnabled) {
@@ -604,6 +607,9 @@ export class ServiceReservationsService {
     ]);
     return {
       businessName: t.brandName,
+      // Marca de la plataforma para el footer ("Reservas con X"). Marca blanca
+      // → su nombre; Clubify puro (sin whiteLabel) → "Clubify".
+      platformName: t.whiteLabel?.name ?? 'Clubify',
       logoUrl: t.logoUrl,
       primaryColor: t.primaryColor,
       timezone: t.timezone,

@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import {
   IsArray,
+  IsObject,
   IsBoolean,
   IsEnum,
   IsHexColor,
@@ -119,6 +120,25 @@ class CreateAllyBody {
   @IsOptional() @IsString() @MaxLength(30) whatsapp?: string;
   @IsOptional() @IsString() @MaxLength(80) city?: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
+  /** Tipo A (§16): el negocio de la marca blanca que ES este aliado. */
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() tenantId?: string | null;
+  // Ficha (§5)
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() logoUrl?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() coverUrl?: string | null;
+  @IsOptional() @IsString() @MaxLength(300) address?: string;
+  @IsOptional() @IsString() @MaxLength(120) instagram?: string;
+  @IsOptional() @IsString() @MaxLength(200) website?: string;
+  /** Primer beneficio (§5, §6, §7). Sin él el aliado no sale en la cartelera. */
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsObject() benefit?: {
+    title: string;
+    type?: string;
+    percentOff?: number | null;
+    amountOffCents?: number | null;
+    terms?: string;
+    validUntil?: string | null;
+    maxPerMember?: number | null;
+    limitPeriod?: string;
+  } | null;
 }
 
 class AllyStatusBody {
@@ -347,6 +367,11 @@ export class CuponeraAdminController {
   @Post('allies')
   createAlly(@Body() body: CreateAllyBody) {
     return this.svc.createAlly(body);
+  }
+  /** Negocios elegibles como aliado Tipo A (§16). */
+  @Get('allies/tenants')
+  listTenantsForAlly() {
+    return this.svc.listTenantsForAlly();
   }
   @Patch('allies/:id/status')
   setAllyStatus(@Param('id') id: string, @Body() body: AllyStatusBody) {

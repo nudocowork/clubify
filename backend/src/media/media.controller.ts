@@ -29,6 +29,11 @@ import { Public } from '../common/decorators/public.decorator';
   'AFFILIATE_INFLUENCER',
   'AFFILIATE_AMBASSADOR',
   'AFFILIATE_SOCIO',
+  // Cuponera: el aliado sube su logo y sus fotos desde el portal, y el admin de
+  // la cuponera los suyos. Sin estos dos, "adjuntar logo" devolvía 403 y el
+  // único camino era pegar una URL.
+  'ALLY_BUSINESS',
+  'CUPONERA_ADMIN',
 )
 export class MediaController {
   // Bucket público del Onboarding (Supabase). Las fotos que el onboarding sube

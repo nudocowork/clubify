@@ -4,7 +4,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { SettingsService } from '../settings/settings.service';
 import { normalizePlanPeriod, addPlanPeriod, bundleMonths } from '../common/plan-period';
-import { cycleCreditCost } from '../common/business-types';
+import { cycleCreditCostForTenant } from '../common/business-types';
 import {
   bogotaYmd,
   bogotaDayStartUtc,
@@ -1899,6 +1899,7 @@ export class AdminReportsService {
         status: true,
         currentPeriodEnd: true,
         businessType: true,
+        infolinkTier: true,
         planPeriodicity: true,
       },
     });
@@ -1931,7 +1932,7 @@ export class AdminReportsService {
     // Extiende por la periodicidad del plan (Anual = +12 meses), no +30 fijos,
     // y cobra el ciclo completo según el tipo de negocio (InfoLink anual = 3).
     const newPeriodEnd = addPlanPeriod(base, tenant.planPeriodicity);
-    const cost = cycleCreditCost(tenant.businessType, tenant.planPeriodicity);
+    const cost = cycleCreditCostForTenant(tenant.businessType, tenant.infolinkTier, tenant.planPeriodicity);
     const months = bundleMonths(tenant.planPeriodicity);
 
     // Marca ilimitada: activa sin consumir crédito ni crear transacción.

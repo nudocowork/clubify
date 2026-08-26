@@ -19,7 +19,7 @@ export async function generateMetadata({
     });
     if (!res.ok) {
       return {
-        title: 'Negocio · Clubify',
+        title: 'Negocio',
         description: 'Pide directo desde tu mesa o lleva tu pedido.',
       };
     }
@@ -75,7 +75,7 @@ export async function generateMetadata({
     };
   } catch {
     return {
-      title: 'Negocio · Clubify',
+      title: 'Negocio',
       description: 'Pide a domicilio desde el menú digital.',
     };
   }

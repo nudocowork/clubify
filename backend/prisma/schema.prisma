@@ -4982,6 +4982,12 @@ model WhiteLabel {
   /// marca define qué ofrece su plan; nunca se muestran features que no incluye.
   subscriptionFeatureKeys String[] @default([])
 
+  /// Visibilidad de la tarjeta "Grow Business · SMS" (conectar un negocio a una
+  /// subcuenta GHL) en el detalle de negocio del admin. Default true (Clubify y
+  /// marcas que la usan). false = ocultarla para esa marca SIN tocar el módulo
+  /// GROW_BUSINESS_SMS (ese gatea el ENVÍO real de SMS, no la card). Solo UI.
+  showGrowBusinessCard    Boolean @default(true)
+
   /// Wallet V3 — bloque "Wallet Avanzado". Permisos de la marca sobre las
   /// funciones nuevas de Wallet. Objeto con claves booleanas:
   ///   { customBackgrounds, freeRewards, removeStamps, showNextReward,
@@ -5961,6 +5967,7 @@ model AllyBusiness {
   /// Cuentas de login del negocio (role=ALLY_BUSINESS).
   admins      User[]       @relation("AllyBusinessAdmin")
   locations   AllyLocation[]
+  pushes      AllyPush[]
   benefits    Benefit[]
   redemptions Redemption[]
   stampEvents StampEvent[]
@@ -5984,7 +5991,7 @@ model AllyLocation {
   longitude      Decimal?     @db.Decimal(10, 7)
   /// Radio del geofence en metros. Apple limita a 10 regiones por pase: el
   /// geopush efectivo lo decide la campaña, no cada sede por su cuenta.
-  radiusMeters   Int          @default(150)
+  radiusMeters   Int          @default(300)
   geopushMessage String       @default("")
   geopushActive  Boolean      @default(false)
   isActive       Boolean      @default(true)
@@ -6076,6 +6083,30 @@ model Benefit {
 ///   { "percentOff": { "from": 30, "to": 15 } }
 /// Guardar la fila entera duplicaría el beneficio en cada edición y haría más
 /// difícil leer qué pasó.
+/// Envío de push hecho POR un aliado (spec §22). Existe por dos razones que se
+/// resuelven con la misma fila:
+///   1. el LÍMITE anti-spam — "la cuponera podrá establecer límites" — se cuenta
+///      sobre esta tabla, no sobre Notification: un envío crea una Notification
+///      POR CLIENTE, así que contar esas sería contar destinatarios, no envíos;
+///   2. "Push enviados" en las métricas del aliado (§20).
+model AllyPush {
+  id             String       @id @default(uuid())
+  campaignId     String
+  allyBusinessId String
+  ally           AllyBusiness @relation(fields: [allyBusinessId], references: [id], onDelete: Cascade)
+  /// Quién lo mandó. Null = el usuario se borró; la fila se conserva.
+  userId         String?
+  title          String
+  body           String
+  /// Cuántos pases se apuntaron y a cuántos llegó de verdad.
+  targeted       Int          @default(0)
+  sent           Int          @default(0)
+  createdAt      DateTime     @default(now())
+
+  @@index([allyBusinessId, createdAt])
+  @@index([campaignId, createdAt])
+}
+
 model BenefitChange {
   id        String   @id @default(uuid())
   benefitId String

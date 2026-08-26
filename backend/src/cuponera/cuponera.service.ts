@@ -529,6 +529,31 @@ export class CuponeraService {
     };
   }
 
+  /**
+   * Negocios elegibles como aliado TIPO A (§16). Excluye los tenants de sistema
+   * y los que YA son aliados de esta cuponera: un negocio no puede serlo dos
+   * veces, y ofrecerlo llevaría a un choque al guardar.
+   */
+  async listTenantsForAlly() {
+    const campaign = await this.ensureLivingCampaign();
+    const yaAliados = await this.prisma.allyBusiness.findMany({
+      where: { campaignId: campaign.id, tenantId: { not: null } },
+      select: { tenantId: true },
+    });
+    const excluir = yaAliados.map((a) => a.tenantId as string);
+    return this.prisma.tenant.findMany({
+      where: {
+        isCampaignHost: false,
+        status: 'ACTIVE',
+        ...(campaign.whiteLabelId ? { whiteLabelId: campaign.whiteLabelId } : {}),
+        ...(excluir.length ? { id: { notIn: excluir } } : {}),
+      },
+      select: { id: true, name: true, brandName: true, slug: true },
+      orderBy: { name: 'asc' },
+      take: 500,
+    });
+  }
+
   /** Administradores de una cuponera (§3). Nunca devuelve el hash. */
   async listCampaignAdmins(campaignId: string) {
     return this.prisma.user.findMany({
@@ -1120,7 +1145,49 @@ export class CuponeraService {
     whatsapp?: string;
     city?: string;
     description?: string;
+    /**
+     * ALIADO TIPO A (spec §16): el Tenant de la marca blanca que ES este
+     * negocio. Con valor, su escáner de siempre reconoce la tarjeta de la
+     * cuponera. Sin valor = Tipo B (externo), usa el portal web.
+     */
+    tenantId?: string | null;
+    // Ficha del negocio (spec §5). Todo opcional: el aliado puede completarla
+    // desde su portal, pero cargarla acá evita la ida y vuelta.
+    logoUrl?: string | null;
+    coverUrl?: string | null;
+    address?: string;
+    instagram?: string;
+    website?: string;
+    /**
+     * PRIMER BENEFICIO (spec §5, §6 y §7). Un aliado SIN beneficio no aparece
+     * en la cartelera, así que darlo de alta sin esto deja el trabajo a medias
+     * y a alguien volviendo después a terminarlo.
+     */
+    benefit?: {
+      title: string;
+      type?: string;
+      percentOff?: number | null;
+      amountOffCents?: number | null;
+      terms?: string;
+      validUntil?: string | null;
+      maxPerMember?: number | null;
+      limitPeriod?: string;
+    } | null;
   }) {
+    // Se verifica que el negocio EXISTA y que no sea un tenant de sistema:
+    // vincular un aliado al tenant que HOSPEDA la cuponera sería circular.
+    let tenantId: string | null = null;
+    if (dto.tenantId) {
+      const t = await this.prisma.tenant.findUnique({
+        where: { id: dto.tenantId },
+        select: { id: true, isCampaignHost: true },
+      });
+      if (!t) throw new BadRequestException('El negocio no existe');
+      if (t.isCampaignHost) {
+        throw new BadRequestException('Ese es un negocio de sistema, no puede ser aliado');
+      }
+      tenantId = t.id;
+    }
     const campaign = await this.ensureLivingCampaign();
     const categoryId = await this.assertCategory(campaign.id, dto.categoryId);
     const email = dto.email.trim().toLowerCase();
@@ -1137,9 +1204,15 @@ export class CuponeraService {
         name: dto.name,
         slug,
         categoryId,
+        tenantId,
         whatsapp: dto.whatsapp || null,
         city: dto.city || '',
         description: dto.description || '',
+        logoUrl: dto.logoUrl || null,
+        coverUrl: dto.coverUrl || null,
+        address: dto.address || '',
+        instagram: dto.instagram || null,
+        website: dto.website || null,
         status: 'PENDING',
         admins: {
           create: {
@@ -1153,8 +1226,33 @@ export class CuponeraService {
       include: { admins: { select: { id: true, email: true, fullName: true } } },
     });
 
+    // Beneficio inicial. Nace con la MISMA regla de aprobación que uno creado
+    // desde el portal: si la campaña exige revisión queda PENDING, si no, activo.
+    let benefit = null;
+    if (dto.benefit?.title?.trim()) {
+      const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+      benefit = await this.prisma.benefit.create({
+        data: {
+          campaignId: campaign.id,
+          allyBusinessId: ally.id,
+          categoryId,
+          title: dto.benefit.title.trim(),
+          type: (dto.benefit.type as any) || 'PERCENT_OFF',
+          percentOff: dto.benefit.percentOff ?? null,
+          amountOffCents: dto.benefit.amountOffCents ?? null,
+          terms: dto.benefit.terms || '',
+          validUntil: dto.benefit.validUntil ? new Date(dto.benefit.validUntil) : null,
+          maxPerMember: dto.benefit.maxPerMember ?? null,
+          limitPeriod: (dto.benefit.limitPeriod as any) || 'LIFETIME',
+          status: 'ACTIVE',
+          approval: cfg.requireBenefitApproval ? 'PENDING' : 'APPROVED',
+        },
+      });
+    }
+
     return {
       ally,
+      benefit,
       loginEmail: email,
       tempPassword: dto.password ? undefined : tempPassword,
     };
@@ -1239,6 +1337,82 @@ export class CuponeraService {
     return this.prisma.allyBusiness.update({
       where: { id: user.allyBusinessId },
       data: this.allyUpdatableData(dto),
+    });
+  }
+
+  // --- Push del aliado (spec §22) ---
+
+  /** Cuántos envíos le quedan al aliado en su ventana. */
+  async allyPushQuota(user: AuthUser) {
+    const ally = await this.getAllyForPortal(user);
+    const campaign = await this.ensureLivingCampaign();
+    const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+    // Default 1 por semana. La cuponera lo sube o lo baja desde su config; 0 lo
+    // apaga por completo.
+    const limite = Number.isFinite(Number(cfg.allyPushPerWeek)) ? Number(cfg.allyPushPerWeek) : 1;
+    const desde = benefitPeriodStart('WEEK', new Date())!;
+    const usados = await this.prisma.allyPush.count({
+      where: { allyBusinessId: ally.id, createdAt: { gte: desde } },
+    });
+    return {
+      limite,
+      usados,
+      restantes: Math.max(0, limite - usados),
+      // La semana arranca el LUNES, mismo criterio que los topes de beneficio.
+      renuevaEl: new Date(desde.getTime() + 7 * 24 * 60 * 60 * 1000),
+    };
+  }
+
+  /**
+   * El aliado avisa a quienes ya usaron su beneficio (§22). No puede escribirle
+   * a toda la comunidad: eso es del admin de la cuponera. El segmento sale de
+   * SU allyBusinessId, nunca de un id que venga en el body.
+   */
+  async sendAllyPush(user: AuthUser, dto: { title: string; body: string }) {
+    const ally = await this.getAllyForPortal(user);
+    if (ally.status !== 'APPROVED') {
+      throw new BadRequestException('Tu negocio todavía no está aprobado en la cuponera');
+    }
+    const title = (dto.title ?? '').trim();
+    const body = (dto.body ?? '').trim();
+    if (!title || !body) throw new BadRequestException('Falta el título o el mensaje');
+
+    const cuota = await this.allyPushQuota(user);
+    if (cuota.limite === 0) {
+      throw new BadRequestException('La cuponera tiene desactivados los avisos de los aliados');
+    }
+    if (cuota.restantes <= 0) {
+      throw new BadRequestException(
+        `Ya usaste tus ${cuota.limite} ${cuota.limite === 1 ? 'aviso' : 'avisos'} de esta semana. ` +
+        `Vuelven a estar disponibles el ${cuota.renuevaEl.toLocaleDateString('es-CO')}.`,
+      );
+    }
+
+    const r = await this.sendSegmentPush({ allyId: ally.id, title, body });
+
+    // Se registra DESPUÉS del envío y solo si salió: si el push falla, no le
+    // gastamos el cupo de la semana al aliado.
+    await this.prisma.allyPush.create({
+      data: {
+        campaignId: (await this.ensureLivingCampaign()).id,
+        allyBusinessId: ally.id,
+        userId: user.id,
+        title, body,
+        targeted: (r as any)?.targeted ?? 0,
+        sent: (r as any)?.sent ?? 0,
+      },
+    }).catch(() => null);
+
+    return { ...r, quota: await this.allyPushQuota(user) };
+  }
+
+  /** Historial de avisos del aliado (§20 "Push enviados"). */
+  async listAllyPushes(user: AuthUser) {
+    const ally = await this.getAllyForPortal(user);
+    return this.prisma.allyPush.findMany({
+      where: { allyBusinessId: ally.id },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
     });
   }
 
@@ -1566,9 +1740,14 @@ export class CuponeraService {
       memberPriceCents: b.memberPriceCents,
       currency: b.currency,
       validUntil: b.validUntil,
+      // El tope y su ventana van SIEMPRE, no solo en `full`: la tarjeta de la
+      // cartelera ya muestra "2 por mes" y pedir un segundo fetch para eso
+      // obligaría a golpear la API por cada tarjeta de la grilla.
+      maxPerMember: b.maxPerMember,
+      limitPeriod: b.limitPeriod,
       ally: b.ally,
       category: b.category,
-      ...(full ? { terms: b.terms, validFrom: b.validFrom, maxPerMember: b.maxPerMember } : {}),
+      ...(full ? { terms: b.terms, validFrom: b.validFrom } : {}),
     };
   }
 
@@ -1580,7 +1759,16 @@ export class CuponeraService {
         ...(categorySlug ? { category: { slug: categorySlug } } : {}),
       },
       include: {
-        ally: { select: { name: true, slug: true, city: true, logoUrl: true } },
+        ally: {
+          select: {
+            name: true, slug: true, city: true, logoUrl: true,
+            locations: {
+              where: { isActive: true },
+              select: { id: true, name: true, address: true, city: true },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
         category: { select: { name: true, slug: true, icon: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -1593,7 +1781,16 @@ export class CuponeraService {
     const b = await this.prisma.benefit.findFirst({
       where: { id, ...this.publicBenefitWhere(campaign.id) },
       include: {
-        ally: { select: { name: true, slug: true, city: true, address: true, logoUrl: true, whatsapp: true } },
+        ally: {
+          select: {
+            name: true, slug: true, city: true, address: true, logoUrl: true, whatsapp: true,
+            locations: {
+              where: { isActive: true },
+              select: { id: true, name: true, address: true, city: true },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
         category: { select: { name: true, slug: true, icon: true } },
       },
     });

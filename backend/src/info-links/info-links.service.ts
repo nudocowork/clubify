@@ -14,6 +14,7 @@ import {
   normalizeLocale,
 } from '../catalog/translation.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
+import { infolinkCapabilities, type InfolinkCapabilities } from '../common/infolink-tier';
 
 function slugify(s: string) {
   return (
@@ -406,6 +407,34 @@ export class InfoLinksService {
 
   // ============ Público ============
 
+  /**
+   * Gating freemium para el RENDER público: un tier FREE publica máx.
+   * `maxButtons` botones ACTIVOS y SIN fondo/colores de texto custom (apariencia
+   * PRO). NO muta la DB — solo lo que se devuelve al público (no bypaseable por
+   * API). PRO/FULL (maxButtons null + customBackground) pasan sin cambios.
+   * Downgrade-safe: la config PRO queda en DB y se recupera al volver a PRO.
+   */
+  private gateInfolinkForTier<T extends { buttons?: any; theme?: any }>(
+    link: T,
+    caps: InfolinkCapabilities,
+  ): T {
+    if (caps.maxButtons == null && caps.customBackground) return link;
+    const gated: any = { ...link };
+    if (caps.maxButtons != null && Array.isArray(gated.buttons)) {
+      let active = 0;
+      gated.buttons = gated.buttons.filter((btn: any) => {
+        if (btn?.isActive === false) return true; // inactivo: no cuenta ni renderiza
+        active += 1;
+        return active <= (caps.maxButtons as number);
+      });
+    }
+    if (!caps.customBackground && gated.theme && typeof gated.theme === 'object') {
+      const { background, text, ...rest } = gated.theme as Record<string, any>;
+      gated.theme = rest;
+    }
+    return gated as T;
+  }
+
   async getPublic(tenantSlug: string, linkSlug: string, localeRaw?: string) {
     const locale = normalizeLocale(localeRaw);
     const tenant = await this.prisma.tenant.findUnique({
@@ -449,6 +478,14 @@ export class InfoLinksService {
     });
     if (!link || !link.isActive) throw new NotFoundException('Link no disponible');
 
+    // Enforcement freemium (server-side, no bypaseable): un InfoLink FREE
+    // publica máx. 5 botones y SIN fondo/colores custom, aunque se hayan
+    // guardado por API. No borra nada en DB → al volver a PRO se recupera.
+    const gatedLink = this.gateInfolinkForTier(
+      link,
+      infolinkCapabilities((tenant as any).businessType, (tenant as any).infolinkTier),
+    );
+
     // Incrementa views (best-effort, no bloquea respuesta)
     this.prisma.infoLink
       .update({ where: { id: link.id }, data: { views: { increment: 1 } } })
@@ -472,7 +509,7 @@ export class InfoLinksService {
       attribution: b.attribution,
     };
 
-    if (locale === 'es') return { tenant, link, brand };
+    if (locale === 'es') return { tenant, link: gatedLink, brand };
 
     // Fase 5: traducción del title + subtitle del InfoLink. El JSON
     // de sections/buttons queda en ES por ahora (estructuras complejas
@@ -494,7 +531,7 @@ export class InfoLinksService {
         text: link.subtitle,
       });
     }
-    if (items.length === 0) return { tenant, link, brand };
+    if (items.length === 0) return { tenant, link: gatedLink, brand };
     const tr = await this.translator.translateMenuBatch(
       tenant.id,
       items,
@@ -503,7 +540,7 @@ export class InfoLinksService {
     return {
       tenant,
       link: {
-        ...link,
+        ...gatedLink,
         title: tr.get(`infolink:${link.id}:title`) ?? link.title,
         subtitle:
           link.subtitle == null

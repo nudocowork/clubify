@@ -600,15 +600,17 @@ export class LabService {
     if (!proposal.author?.email) return;
     try {
       await this.email.send({
+        // Correo al AUTOR: neutro de marca (el Lab/COMMUNITY podría habilitarse
+        // en una marca blanca; nombrar "Clubify" delataría la plataforma).
         to: proposal.author.email,
-        subject: `Tu propuesta en Clubify Lab cambió de estado`,
+        subject: `Tu propuesta en el Lab cambió de estado`,
         html: `
           <p>Hola ${proposal.author.fullName},</p>
           <p>Tu propuesta <b>"${proposal.title}"</b> ahora está en estado
             <b>${newStatus}</b>.</p>
           ${reason ? `<p><i>${reason}</i></p>` : ''}
-          <p>Puedes verla en <a href="https://app.soyclubify.com/lab/${proposal.id}">Clubify Lab</a>.</p>
-          <p>— El equipo de Clubify</p>
+          <p>Puedes verla en <a href="https://app.soyclubify.com/lab/${proposal.id}">el Lab</a>.</p>
+          <p>— El equipo</p>
         `,
       });
     } catch (e) {

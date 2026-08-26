@@ -136,6 +136,138 @@ cd backend && railway run node scripts/seed-email-templates.cjs
   con la FK no debería pasar, pero es la misma clase de fuga de marca de siempre.
 
 ---
+## 2026-08-26 — Automatizaciones activas por defecto + nota descartable (punto 1 SELLEALA)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — commit `43f4147`, desplegado
+
+Punto 1 del PDF SELLEALA. El "apartado de automatizaciones" es el **sistema B**:
+`/admin/automatizaciones` → pestaña "Mensajes automáticos" (`AutomatizacionesPanel`),
+plantillas de marca (SMS/WhatsApp + correo gemelo) que salen por la subcuenta de
+Grow Business de la marca. Sellea ya tenía subcuenta + 4/5 presets `admin_*` ON +
+todos los correos ON por defecto.
+
+### Qué cambié
+- **Nota descartable (2-3 líneas)** en `AutomatizacionesPanel` explicando que las
+  automatizaciones vienen activas por defecto y cómo gestionarlas. Patrón
+  `localStorage` (`clubify:admin:automations-note:dismissed`), como `InsightsCard`.
+
+### Qué toqué de PRODUCCIÓN
+- **DB (1 fila)**: `Setting sms.enabled.wl.<selleaId>.admin_charge_date_moved='true'`
+  (script `enable-sellea-admin-charge-date-moved.cjs`, idempotente). Era el único
+  preset `admin_*` que faltaba en Sellea → ahora los 5 ON. Event-driven, va al
+  negocio (no al cliente final), reversible.
+- **Frontend**: `vercel --prod`, READY, dominios 200. ⚠️ **Este deploy también
+  shippeó ~723 líneas de la cuponera/livingcard de Javi** (commits `1bbccce`,
+  `c7ae391`, `231f524`, `9d8d702`, `27c0405`: QrScanner, carnet, beneficios,
+  superadmin/living-card) que estaban en la rama pero no en prod — con OK explícito
+  del founder (confirmó que la cuponera estaba lista).
+
+### Listado por canal (activas por defecto en Sellea) — entregable
+- **Correo (todas ON)**: panel listo, activación comprador, recordatorios cobro
+  7d/3d/mañana/hoy/vencido, confirmado/fallido, por pausar/pausada/reactivada,
+  reembolso, chargeback, cancelación, mover fecha, disputa.
+- **WhatsApp**: Cobros (7d/3d/mañana/hoy/vencido, no procesado 2d, por pausar/
+  pausada/reactivada) + confirmado/fallido + Operativas (reserva nueva/cancelada,
+  domicilio, reseña, pedidos al cliente con opt-in) + `admin_*` los 5 (disputa,
+  reembolso, chargeback, cancelación, mover fecha).
+
+### Riesgos
+- Sin envío masivo: todo event-driven. Gate duro = subcuenta Grow Business (Sellea
+  la tiene). Si se desconectara, no sale nada.
+
+## 2026-08-26 — Bug "Sin definir" (periodicidad) — diagnóstico + backfill puntual
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — script `backfill-plan-periodicity-mensual-group.cjs`
+
+Punto 3 del PDF SELLEALA. La columna PLAN muestra "Sin definir" ⇔
+`Tenant.planPeriodicity` es NULL; la cadencia default cae a "Mensual" → de ahí
+la inconsistencia reportada.
+
+### Causa
+Esos tenants nacieron antes del forward-fix (`auth/plan-from-offer.ts`
+`resolvePeriodicity`: offer code → nombre → monto USD). El offer code, el nombre
+del producto y el monto **nunca se persistieron** en el Tenant → no hay dato para
+re-derivar. **Forward-fix YA vivo** (desplegado hoy en los deploys del barrido);
+los signups nuevos derivan bien.
+
+### Qué toqué de PRODUCCIÓN
+- **DB (2 filas)**: `planPeriodicity` NULL → **MENSUAL** en `jamarea-restobar-marino`
+  y `hacienda-don-antonio` (grupo empresarial mensual, confirmado por el founder).
+  Script idempotente (solo escribe si está NULL). NO se tocó `subscriptionPriceUsd`
+  (queda null → comisión cae a base canónica Mensual=68, correcto).
+- Verificado: null total 24 → 22.
+
+### Qué falta / decidido dejar como está
+- **Dejados en "Sin definir" a propósito** (decisión del founder): `zekkei`,
+  `vizage-medspa` (Sellea) — reales pero sin confirmar periodicidad; `prueba-selleala`
+  y `sys-living-card` — prueba/demo. 11 TRIAL + 7 SUSPENDED también quedan null (correcto).
+- El founder mencionó "cevicheria marea mistica" en el grupo mensual pero NO estaba
+  entre los null → sin acción (verificar aparte si su periodicidad ya es Mensual).
+
+### Riesgos
+- Ninguno: solo se fijó Mensual donde el founder lo confirmó; base de comisión 68/mes
+  es la correcta para esos negocios.
+
+## 2026-08-26 — Barrido de fugas de marca/pasarela (6 corregidas) — batch SELLEALA
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — commit `b0f55b8`, **desplegado y verificado**
+
+Continúa el hilo de fugas del 22-ago. Un agente barrió todo `frontend/src` +
+`backend/src` (230 menciones de Clubify/Hotmart/Nequi) y trió fugas reales vs.
+usos legítimos (superadmin, landing propia, comentarios). **6 fugas confirmadas**
+(texto visible que un admin/usuario/cliente de marca blanca vería con la marca o
+pasarela hardcodeada):
+
+### Qué cambié
+- `tenant-status.guard.ts:68` — el 402 de suspensión decía "volver a usar
+  **Clubify**"; corre para tenants de CUALQUIER marca → neutro "tu cuenta".
+- `cita/[slug]` (página pública de reservas): footer "Reservas con **Clubify**"
+  → dinámico `Reservas con {platformName}`. El endpoint público
+  `service-reservations.publicInfo` ahora devuelve
+  `platformName = whiteLabel.name ?? 'Clubify'`.
+- `app/reviews` plantilla por defecto "Revisar en **Clubify**" → "Revisar aquí".
+- `AffiliateCredentialsModal` "panel de afiliado de **Clubify**" → sin marca.
+- `admin/commissions` "Pagan suscripción **Hotmart**" → "Pagan su suscripción".
+- `csvHotmartTx` (es/en/pt) "**Hotmart** TX" → "Pasarela TX"/"Gateway TX".
+
+**Grupo A (fallbacks que caían a 'Clubify' ante fallo) — commit `dcf15f5`, LIVE:**
+- `d/[slug]/layout`: title fallback "Negocio · Clubify" (solo si falla la carga
+  del storefront de domicilios) → "Negocio".
+- `wallet.service`: el nombre mostrado del pase caía a "Clubify" si el negocio no
+  tiene `brandName` → ahora cae a su `Tenant.name` (el pase muestra el negocio, no
+  la plataforma); se agregó `name` al select de la reserva.
+
+**Grupo B (con criterio del founder) — commit `003e0e7`, LIVE:**
+- Lockscreens 'Elite' (CardVerification/TrialExpired, dicen "pago en Hotmart"):
+  se gatearon en `AppShell` a tenants de Clubify (`whiteLabelSlug` null/'clubify')
+  → una marca blanca en plan "Elite" ya no ve el flujo Hotmart.
+- "Clubify Lab": nav → `{marca} Lab` dinámico (`whiteLabelName`); página de
+  moderación `/admin/lab` y correos al autor → neutralizados a "Lab" (sin contexto
+  de marca a mano; COMMUNITY es Clubify-only hoy). El aviso interno al equipo se dejó.
+- SMS al reseller "Clubify: Se acreditaron créditos" → `{platform}`, pasando
+  `platform=wl.name` explícito (el envío no lleva tenantId; sin eso caía a "Clubify").
+
+### Qué toqué de PRODUCCIÓN
+- **Frontend**: `vercel --prod` ×3, READY, dominios prod 200.
+- **Backend**: `railway up --service backend` desde la raíz ×3. Swaps verificados
+  por reset de uptime (1550→20; 815→55; 1798→36), CORS 204 con ACAO, `platformName`
+  confirmado en `/api/public/service-reservations/primor-barber-shop` = "Clubify".
+- **Sin migración** (solo `select` extra en dos endpoints).
+- DB: nada. Variables: nada.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Barrido de fugas: **grupos A y B cerrados**. Quedan solo los de bajísima
+      prioridad (`pagar/[slug]` test VIRTUALPRO; "Nequi" como método de pago manual).
+- [ ] Del PDF SELLEALA siguen los **puntos 1-2-3** (automatizaciones default,
+      confirmación de compra e2e, bug "Sin definir"+backfill) y el **OTP**.
+- [ ] Puntos 1-2-3 del PDF (automatizaciones default, confirmación de compra e2e,
+      bug "Sin definir"+backfill) y el OTP siguen pendientes.
+
+### Riesgos y avisos
+- El fix de `cita` necesita AMBOS deploys: sin el backend, el front cae a
+  "Clubify" con gracia (sin regresión), pero la fuga persiste. Ambos ya vivos.
+- Ningún tenant Sellea tiene reservas activas hoy → el fix se verificó con un
+  tenant Clubify; para Sellea resuelve a "Sellea" por el mismo `whiteLabel.name`.
 
 ## 2026-08-22 — Fugas de marca, pagos que no se reconocían, y plantillas de correo
 **Máquina/quién:** Javier

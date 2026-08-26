@@ -2560,7 +2560,7 @@
     "csvPaid": "Paid",
     "csvOutstanding": "Outstanding",
     "csvStatus": "Status",
-    "csvHotmartTx": "Hotmart TX",
+    "csvHotmartTx": "Gateway TX",
     "csvEnabledDate": "Enabled on",
     "csvPaidDate": "Payment date",
     "lifecycleCancelled": "Cancelled",

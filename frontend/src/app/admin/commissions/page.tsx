@@ -242,7 +242,7 @@ function UnattributedPanel() {
       {open && (
         <div className="mt-3 space-y-2">
           <p className="text-xs text-mute">
-            Pagan suscripción Hotmart pero no tienen embajador/influencer
+            Pagan su suscripción pero no tienen embajador/influencer
             atribuido. Asignalos manualmente para que su comisión se genere en el
             próximo cobro.
           </p>

@@ -515,7 +515,7 @@ const DEFAULT_TEMPLATE =
   'Teléfono: {customerPhone}\n' +
   'Calificación: {rating}/5\n\n' +
   'Comentario:\n{feedback}\n\n' +
-  'Revisar en Clubify:\n{feedbackUrl}';
+  'Revisar aquí:\n{feedbackUrl}';
 
 const TOKENS = [
   '{businessName}',
