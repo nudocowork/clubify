@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Logo } from '@/components/Logo';
+import { useAuthBrand, BrandMark } from '@/components/AuthBrand';
 import { PhoneInput } from '@/components/PhoneInput';
 import { setSession } from '@/lib/api';
 
@@ -84,6 +84,8 @@ function RegistroAfiliadoInner() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Logo/nombre de la marca del host (Sellea en selleala.com) → nunca Clubify.
+  const { brand } = useAuthBrand();
 
   useEffect(() => {
     fetch(`${API}/api/public/affiliate-signup/config`)
@@ -153,7 +155,7 @@ function RegistroAfiliadoInner() {
     return (
       <main className="min-h-screen bg-bg flex items-center justify-center px-4">
         <div className="w-full max-w-md card card-pad text-center">
-          <Logo size={32} />
+          <BrandMark brand={brand} size={32} />
           <h1 className="text-xl font-bold mt-4">Registro no disponible</h1>
           <p className="text-sm text-mute mt-2">
             El registro público de afiliados no está habilitado por ahora.
@@ -173,13 +175,13 @@ function RegistroAfiliadoInner() {
     <main className="min-h-screen bg-bg flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md card card-pad">
         <Link href="/" className="flex items-center mb-4">
-          <Logo size={32} />
+          <BrandMark brand={brand} size={32} />
         </Link>
 
         <h1 className="text-xl font-bold">Únete como afiliado</h1>
         <p className="text-sm text-mute mt-1.5">
-          Genera ingresos refiriendo negocios a Clubify. Tu comisión se acredita
-          automáticamente con cada venta.
+          Genera ingresos refiriendo negocios a {brand?.name ?? 'Clubify'}. Tu
+          comisión se acredita automáticamente con cada venta.
         </p>
 
         {config.allowInfluencer &&
