@@ -1612,9 +1612,14 @@ export class CuponeraService {
       memberPriceCents: b.memberPriceCents,
       currency: b.currency,
       validUntil: b.validUntil,
+      // El tope y su ventana van SIEMPRE, no solo en `full`: la tarjeta de la
+      // cartelera ya muestra "2 por mes" y pedir un segundo fetch para eso
+      // obligaría a golpear la API por cada tarjeta de la grilla.
+      maxPerMember: b.maxPerMember,
+      limitPeriod: b.limitPeriod,
       ally: b.ally,
       category: b.category,
-      ...(full ? { terms: b.terms, validFrom: b.validFrom, maxPerMember: b.maxPerMember } : {}),
+      ...(full ? { terms: b.terms, validFrom: b.validFrom } : {}),
     };
   }
 
@@ -1626,7 +1631,16 @@ export class CuponeraService {
         ...(categorySlug ? { category: { slug: categorySlug } } : {}),
       },
       include: {
-        ally: { select: { name: true, slug: true, city: true, logoUrl: true } },
+        ally: {
+          select: {
+            name: true, slug: true, city: true, logoUrl: true,
+            locations: {
+              where: { isActive: true },
+              select: { id: true, name: true, address: true, city: true },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
         category: { select: { name: true, slug: true, icon: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -1639,7 +1653,16 @@ export class CuponeraService {
     const b = await this.prisma.benefit.findFirst({
       where: { id, ...this.publicBenefitWhere(campaign.id) },
       include: {
-        ally: { select: { name: true, slug: true, city: true, address: true, logoUrl: true, whatsapp: true } },
+        ally: {
+          select: {
+            name: true, slug: true, city: true, address: true, logoUrl: true, whatsapp: true,
+            locations: {
+              where: { isActive: true },
+              select: { id: true, name: true, address: true, city: true },
+              orderBy: { createdAt: 'asc' },
+            },
+          },
+        },
         category: { select: { name: true, slug: true, icon: true } },
       },
     });
