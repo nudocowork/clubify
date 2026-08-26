@@ -1540,18 +1540,62 @@ export class CuponeraService {
 
   /** Edición de la ficha por el admin (desde Master Admin) o por el propio
    *  negocio (portal). `byOwner` limita el scope al ally de la sesión. */
+  /** Días válidos de horario. Fuera de esto no se guarda nada. */
+  private static readonly DIAS = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'] as const;
+  private static readonly MAX_FOTOS = 8;
+
+  /**
+   * Normaliza la galería del aliado.
+   *
+   * El aliado es un negocio EXTERNO con login propio, y esto se pinta en la
+   * cartelera pública. Sin acotar, un PATCH podía guardar miles de entradas o
+   * un `javascript:` que después sale en un href/src. Se aceptan solo http(s),
+   * rutas propias y data:image, con tope de cantidad y de largo.
+   */
+  private normalizePhotos(input: unknown): string[] | undefined {
+    if (input === undefined) return undefined;
+    if (!Array.isArray(input)) return [];
+    const ok = (u: string) =>
+      /^https?:\/\//i.test(u) || u.startsWith('/') || /^data:image\//i.test(u);
+    return input
+      .filter((x): x is string => typeof x === 'string')
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0 && x.length <= 2000 && ok(x))
+      .slice(0, CuponeraService.MAX_FOTOS);
+  }
+
+  /**
+   * Normaliza los horarios a { lun..dom: texto }. Se deja texto libre a
+   * propósito ("8-18", "8-12 y 14-19", "Cerrado"): imponer un formato rígido
+   * obliga al negocio a mentir cuando su realidad no encaja. Lo que sí se acota
+   * son las claves y el largo, porque el JSON es libre y se muestra en público.
+   */
+  private normalizeHours(input: unknown): Record<string, string> | undefined {
+    if (input === undefined) return undefined;
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+    const src = input as Record<string, unknown>;
+    const out: Record<string, string> = {};
+    for (const d of CuponeraService.DIAS) {
+      const v = src[d];
+      if (typeof v !== 'string') continue;
+      const t = v.trim().slice(0, 40);
+      if (t) out[d] = t;
+    }
+    return out;
+  }
+
   private allyUpdatableData(dto: AllyProfileDto) {
     return {
       name: dto.name ?? undefined,
       description: dto.description ?? undefined,
       logoUrl: dto.logoUrl ?? undefined,
       coverUrl: dto.coverUrl ?? undefined,
-      photos: dto.photos ? (dto.photos as any) : undefined,
+      photos: this.normalizePhotos(dto.photos) as any,
       address: dto.address ?? undefined,
       city: dto.city ?? undefined,
       latitude: dto.latitude ?? undefined,
       longitude: dto.longitude ?? undefined,
-      hours: dto.hours ? (dto.hours as any) : undefined,
+      hours: this.normalizeHours(dto.hours) as any,
       whatsapp: dto.whatsapp ?? undefined,
       instagram: dto.instagram ?? undefined,
       website: dto.website ?? undefined,
