@@ -125,6 +125,38 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+## 2026-08-26 — Marcas a página completa + 2 fugas de logo/favicon (frontend)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — commits `ee768a0`, `950c27a`, desplegados
+
+### Qué cambié
+- **superadmin/marcas → página completa** (`ee768a0`): el detalle de una marca vivía
+  en un drawer lateral de 440px (apretado). Ahora es página addressable
+  (`/superadmin/marcas?brand=<id>`): barra superior con Volver + acciones, cabecera,
+  y secciones en grid de 2 columnas (BrandingConfig y Administradores a ancho completo).
+  El componente `Drawer` → `BrandDetailFull` (misma lógica, layout de página; toast
+  propio). La lista navega a la página. Subcomponentes de config sin tocar.
+- **2 fugas de 'Clubify' que reportó el founder** (`950c27a`, verificadas LIVE):
+  - `registro-afiliado` (link de influencer, app.selleala.com): usaba `<Logo>` de
+    Clubify + texto 'a Clubify'. → `<BrandMark>` por host (`useAuthBrand`) + nombre
+    dinámico + `layout.tsx` con `AuthBrandServer` (branding SSR sin parpadeo). Verificado:
+    `<title>Sellea</title>`.
+  - `soyfidelity.com` (master admin, NO es WhiteLabel): pestaña 'Clubify' + favicon verde
+    porque `generateMetadata` solo conoce marcas WhiteLabel. → caso especial → título
+    'Fidelity' + favicon SVG con 'F'. Verificado: `<title>Fidelity…</title>` + favicon azul.
+
+### PRODUCCIÓN
+- `vercel --prod` ×2, READY, dominios 200. Backend/DB/variables: nada.
+
+### Qué falta (fugas frontend, Fase 2/3 del reporte de Javier)
+- [ ] Registro público de afiliados **brand-aware de fondo**: hoy el config/register son
+      GLOBALES (Setting sin whiteLabelId) y `selfRegisterAffiliate` asigna Clubify. El
+      influencer de Sellea que se registre quedaría como afiliado de Clubify (aunque ya
+      ve el logo correcto). Falta: config por marca + resolver host en config()/register().
+- [ ] Otras superficies con `<Logo>`/texto Clubify: `affiliate/page.tsx:250` (`|| !me.brand`
+      pinta Clubify), Lab (`LabFeed`), SupportWidget, títulos de registro embajador/vendedor,
+      seller/register. Mismo patrón (`<BrandMark>` + AuthBrandServer).
+
 ## 2026-08-26 — FUGA CROSS-MARCA en PROGRAMA: Sellea veía comisiones de Clubify
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** `feat/commissions-auto-cutoffs` — commit `52d46aa`, **desplegado y verificado**
