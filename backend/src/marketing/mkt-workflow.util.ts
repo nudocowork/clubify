@@ -72,6 +72,45 @@ export function resolveMerge(text: string, ctx: Record<string, string>): string 
   });
 }
 
+/**
+ * Versión en texto plano de un correo HTML, para la parte `text` del envío.
+ *
+ * Se deriva del HTML (y no de los bloques) a propósito: el HTML es lo único
+ * que tienen TODAS las plantillas —incluidas las importadas de otra
+ * herramienta, que llegan sin bloques que recorrer—. Un correo solo-HTML
+ * puntúa peor en los filtros antispam y no se lee en clientes sin HTML.
+ */
+export function htmlToText(html: string): string {
+  return String(html || '')
+    // Primero los comentarios: se lleva el VML de Outlook y los condicionales.
+    // Al ser no-codicioso, `<!--[if !mso]><!-- -->` desaparece entero y deja
+    // dentro el <a> real, que es justo lo que queremos conservar.
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<(script|style|head|title)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+    // Relleno invisible del preheader: si no se quita, el texto plano empieza
+    // con una tira de caracteres raros.
+    .replace(/&#8199;|&#65279;|&#847;|&zwnj;/g, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|tr|h[1-6]|li|td)>/gi, '\n')
+    .replace(/<a\b[^>]*href\s*=\s*"([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, href: string, txt: string) => {
+      const etiqueta = txt.replace(/<[^>]+>/g, '').trim();
+      const url = String(href).trim();
+      if (!url || url === '#') return etiqueta;
+      return etiqueta && etiqueta !== url ? `${etiqueta}: ${url}` : url;
+    })
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /** Evalúa condiciones contra el contexto del contacto. */
 export function evalWF(
   conditions: WFCondition[] | undefined,

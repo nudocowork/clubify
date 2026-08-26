@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { MktProviderService } from './provider/mkt-provider.service';
+import { htmlToText, resolveMerge } from './mkt-workflow.util';
 
 // ── Envío de una plantilla a contactos seleccionados ────────────────────────
 // Envío puntual (no automatización): el usuario elige contactos en la galería
@@ -62,6 +63,13 @@ export class MktTemplateSendService {
     }
     const finalSubject = subject?.trim() || template.subject?.trim() || template.name;
 
+    // Nombre de la marca para `{{marca}}`. Se resuelve UNA vez: es el mismo
+    // para todo el lote. Si no se pudiera resolver, el token queda vacío — un
+    // correo de una marca blanca NO puede acabar diciendo "Clubify".
+    const marca =
+      (await this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId }, select: { name: true } }))
+        ?.name ?? '';
+
     const report: SendReport = { ok: true, requested: ids.length, sent: 0, skipped: [], failed: [] };
     for (const contactId of ids) {
       // El where con whiteLabelId hace el aislamiento: un id de otra marca
@@ -82,12 +90,27 @@ export class MktTemplateSendService {
         report.skipped.push({ contactId, reason: 'El contacto no tiene correo.' });
         continue;
       }
+      // Variables del contacto. Sin esto, un `{{nombre}}` en la plantilla le
+      // llegaba al cliente escrito tal cual: el asunto y el cuerpo salían con
+      // las llaves puestas. Los tokens sin valor se quedan vacíos, nunca con
+      // el nombre de otro contacto ni con un marcador visible.
+      const ctx: Record<string, string> = {
+        nombre: contact.name ?? '',
+        email: contact.email,
+        telefono: contact.phone ?? '',
+        empresa: contact.company ?? '',
+        marca,
+      };
+      const htmlPersonalizado = resolveMerge(html, ctx);
       const res = await this.provider.sendEmail({
         whiteLabelId,
         toEmail: contact.email,
         toName: contact.name ?? undefined,
-        subject: finalSubject,
-        html,
+        subject: resolveMerge(finalSubject, ctx),
+        html: htmlPersonalizado,
+        // Parte de texto plano: lo que se ve en clientes sin HTML y lo que
+        // mira el filtro antispam cuando el correo va solo en HTML.
+        text: htmlToText(htmlPersonalizado),
         // Queda en MessageLog: qué salió, por qué marca y desde qué plantilla.
         ctx: { whiteLabelId, feature: 'plantilla-correo', templateId: template.id },
       });

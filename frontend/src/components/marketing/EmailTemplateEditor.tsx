@@ -395,6 +395,9 @@ export default function EmailTemplateEditor({
         widthPct: c.widthPct,
         blocks: c.blocks.map((b) => ({ ...b, id: uid(), props: JSON.parse(JSON.stringify(b.props)) })),
       })),
+      // La copia se lleva el fondo y el relleno: duplicar una banda de color y
+      // que salga blanca sería lo contrario de lo que espera quien la duplica.
+      props: { ...defaultRowProps(), ...(src.props ?? {}) },
     };
     const rows = [...doc.rows];
     rows.splice(i + 1, 0, copy);
@@ -1125,19 +1128,102 @@ function CanvasBlock({
 // nuestra UI — el HTML del correo real sale de renderEmailHtml().
 function BlockVisual({ block, settings }: { block: EmailBlock; settings: EmailDocSettings }) {
   const p = block.props ?? {};
+  const T = EMAIL_TOKENS;
+  const acento = settings.linkColor || T.color.acento;
+  // El relleno LATERAL lo pone la fila (igual que en el correo); aquí solo va
+  // el ritmo vertical, para que el lienzo y el HTML final coincidan.
+  const box = (bottom: number = T.espacio.s, extra: React.CSSProperties = {}): React.CSSProperties => ({
+    padding: `0 0 ${bottom}px 0`,
+    fontFamily: settings.fontFamily,
+    ...extra,
+  });
+  const vacio = (icono: string, texto: string) => (
+    <div className="my-2 rounded-lg border border-dashed border-slate-200 p-3 text-center text-xs text-slate-400">
+      {icono} {texto}
+    </div>
+  );
+  const btnChip = (label: string, outline = false) => (
+    <span
+      style={{
+        display: 'inline-block',
+        padding: `${Number(p.paddingV) || 14}px ${Number(p.paddingH) || 32}px`,
+        background: outline ? '#fff' : p.background || acento,
+        border: outline ? `2px solid ${p.background || acento}` : undefined,
+        color: outline ? p.background || acento : p.color || '#ffffff',
+        fontSize: Number(p.fontSize) || T.texto.body.size,
+        fontWeight: 700,
+        lineHeight: 1.2,
+        borderRadius: Number(p.radius) || 0,
+      }}
+    >
+      {label || 'Botón'}
+    </span>
+  );
+  const estrellas = (n: number, color: string, size: number) => {
+    const llenas = Math.max(0, Math.min(5, Math.round(Number(n) || 0)));
+    return (
+      <span style={{ fontSize: size, letterSpacing: 2, lineHeight: 1.2 }}>
+        <span style={{ color }}>{'★'.repeat(llenas)}</span>
+        <span style={{ color: T.color.borde }}>{'★'.repeat(5 - llenas)}</span>
+      </span>
+    );
+  };
+
   switch (block.type) {
+    case 'heading': {
+      const isH1 = p.level === 'h1';
+      return (
+        <div style={box(T.espacio.s, { textAlign: (p.align || 'left') as any })}>
+          {p.kicker ? (
+            <div
+              style={{
+                fontSize: T.texto.small.size,
+                fontWeight: 700,
+                letterSpacing: 1.5,
+                textTransform: 'uppercase',
+                color: p.kickerColor || acento,
+                paddingBottom: 8,
+              }}
+            >
+              {p.kicker}
+            </div>
+          ) : null}
+          <div
+            style={{
+              fontSize: isH1 ? T.texto.h1.size : T.texto.h2.size,
+              lineHeight: `${isH1 ? T.texto.h1.line : T.texto.h2.line}px`,
+              fontWeight: 700,
+              color: p.color || settings.textColor,
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {p.title || <span style={{ opacity: 0.4 }}>Título vacío</span>}
+          </div>
+          {p.subtitle ? (
+            <div
+              style={{
+                fontSize: T.texto.body.size,
+                lineHeight: `${T.texto.body.line}px`,
+                color: T.color.tintaSuave,
+                paddingTop: 10,
+              }}
+            >
+              {p.subtitle}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
     case 'text':
       return (
         <div
-          style={{
-            padding: '10px 14px',
-            fontFamily: settings.fontFamily,
-            fontSize: Number(p.fontSize) || 15,
-            lineHeight: 1.55,
+          style={box(T.espacio.s, {
+            fontSize: Number(p.fontSize) || T.texto.body.size,
+            lineHeight: 1.6,
             color: p.color || settings.textColor,
-            textAlign: p.align || 'left',
+            textAlign: (p.align || 'left') as any,
             overflowWrap: 'anywhere',
-          }}
+          })}
           dangerouslySetInnerHTML={{ __html: p.html || '<span style="opacity:.4">Texto vacío</span>' }}
         />
       );
@@ -1146,15 +1232,14 @@ function BlockVisual({ block, settings }: { block: EmailBlock; settings: EmailDo
       const url = String(p.url || '').trim();
       if (!url) {
         return (
-          <div className="m-3 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 p-6 text-center text-xs text-slate-400">
+          <div className="my-2 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 p-6 text-center text-xs text-slate-400">
             🖼️ {block.type === 'logo' ? 'Logotipo' : 'Imagen'}: súbela desde el panel de propiedades
           </div>
         );
       }
       const w = p.width ? Number(p.width) : null;
-      const align = p.align || 'center';
       return (
-        <div style={{ padding: '10px 14px', textAlign: align as any }}>
+        <div style={box(T.espacio.s, { textAlign: (p.align || 'center') as any })}>
           <img
             src={url}
             alt={p.alt || ''}
@@ -1171,49 +1256,264 @@ function BlockVisual({ block, settings }: { block: EmailBlock; settings: EmailDo
     }
     case 'button':
       return (
-        <div style={{ padding: '10px 14px', textAlign: (p.align || 'center') as any }}>
+        <div style={box(T.espacio.m, { paddingTop: 8, textAlign: (p.align || 'center') as any })}>
+          {btnChip(p.label)}
+        </div>
+      );
+    case 'buttons':
+      return (
+        <div
+          style={box(T.espacio.m, {
+            paddingTop: 8,
+            textAlign: (p.align || 'center') as any,
+            display: 'flex',
+            gap: 12,
+            justifyContent: p.align === 'left' ? 'flex-start' : p.align === 'right' ? 'flex-end' : 'center',
+            flexWrap: 'wrap',
+          })}
+        >
+          {btnChip(p.label)}
+          {btnChip(p.label2, true)}
+        </div>
+      );
+    case 'feature': {
+      const stacked = p.layout === 'stacked';
+      const chip = (
+        <span
+          style={{
+            display: 'inline-block',
+            width: 44,
+            height: 44,
+            lineHeight: '44px',
+            textAlign: 'center',
+            borderRadius: 22,
+            background: p.iconBg || acento,
+            color: p.iconColor || '#fff',
+            fontSize: 20,
+            flex: '0 0 auto',
+          }}
+        >
+          {p.icon || '•'}
+        </span>
+      );
+      const cuerpo = (
+        <div>
+          <div style={{ fontSize: 17, lineHeight: '24px', fontWeight: 700, color: settings.textColor }}>
+            {p.title || <span style={{ opacity: 0.4 }}>Sin título</span>}
+          </div>
+          {p.text ? (
+            <div style={{ fontSize: T.texto.body.size - 1, lineHeight: '24px', color: T.color.tintaSuave, paddingTop: 4 }}>
+              {p.text}
+            </div>
+          ) : null}
+        </div>
+      );
+      if (stacked) {
+        return (
+          <div style={box(T.espacio.s, { textAlign: (p.align || 'center') as any })}>
+            {chip}
+            <div style={{ height: 12 }} />
+            {cuerpo}
+          </div>
+        );
+      }
+      return (
+        <div style={box(T.espacio.s, { display: 'flex', gap: 14, alignItems: 'flex-start' })}>
+          {chip}
+          {cuerpo}
+        </div>
+      );
+    }
+    case 'product': {
+      const url = String(p.url || '').trim();
+      const radius = Number(p.radius) || 0;
+      return (
+        <div style={box(T.espacio.s)}>
+          <div
+            style={{
+              background: p.background || '#fff',
+              border: `1px solid ${p.borderColor || T.color.borde}`,
+              borderRadius: radius,
+              overflow: 'hidden',
+            }}
+          >
+            {url ? (
+              <img src={url} alt={p.alt || ''} style={{ display: 'block', width: '100%', height: 'auto' }} />
+            ) : (
+              <div className="border-b border-dashed border-slate-200 bg-slate-50 p-5 text-center text-xs text-slate-400">
+                🖼️ Foto del producto (opcional)
+              </div>
+            )}
+            <div style={{ padding: '18px 20px 20px' }}>
+              <div style={{ fontSize: 17, lineHeight: '24px', fontWeight: 700, color: settings.textColor }}>
+                {p.title || 'Sin nombre'}
+              </div>
+              {p.description ? (
+                <div style={{ fontSize: 15, lineHeight: '23px', color: T.color.tintaSuave, paddingTop: 6 }}>
+                  {p.description}
+                </div>
+              ) : null}
+              {p.price ? (
+                <div style={{ fontSize: 20, lineHeight: '28px', fontWeight: 700, color: settings.textColor, paddingTop: 8 }}>
+                  {p.price}
+                  {p.oldPrice ? (
+                    <span style={{ fontSize: 15, fontWeight: 400, color: T.color.tintaSuave, textDecoration: 'line-through', marginLeft: 8 }}>
+                      {p.oldPrice}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+              {p.label ? (
+                <div style={{ paddingTop: 14 }}>
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      padding: '11px 24px',
+                      background: acento,
+                      color: '#fff',
+                      fontSize: 15,
+                      fontWeight: 700,
+                      borderRadius: T.radio,
+                    }}
+                  >
+                    {p.label}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      );
+    }
+    case 'order': {
+      const items: any[] = Array.isArray(p.items) ? p.items : [];
+      const totals: any[] = Array.isArray(p.totals) ? p.totals : [];
+      if (!items.length && !totals.length) return vacio('🧾', 'Añade líneas al pedido desde propiedades');
+      return (
+        <div style={box(T.espacio.m)}>
+          {p.title ? (
+            <div style={{ fontSize: T.texto.h2.size, lineHeight: `${T.texto.h2.line}px`, fontWeight: 700, color: settings.textColor, paddingBottom: 6 }}>
+              {p.title}
+            </div>
+          ) : null}
+          {items.map((it, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: 12,
+                padding: '12px 0',
+                borderBottom: `1px solid ${T.color.borde}`,
+                fontSize: 15,
+                color: settings.textColor,
+              }}
+            >
+              <span>
+                {it?.name || '—'}
+                {it?.qty ? <span style={{ color: T.color.tintaSuave }}> × {it.qty}</span> : null}
+              </span>
+              <span style={{ whiteSpace: 'nowrap' }}>{it?.price || ''}</span>
+            </div>
+          ))}
+          {totals.map((t, i) => (
+            <div
+              key={i}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: 12,
+                paddingTop: 8,
+                fontSize: t?.strong ? 17 : 15,
+                fontWeight: t?.strong ? 700 : 400,
+                color: t?.strong ? settings.textColor : T.color.tintaSuave,
+              }}
+            >
+              <span>{t?.label || ''}</span>
+              <span style={{ whiteSpace: 'nowrap' }}>{t?.value || ''}</span>
+            </div>
+          ))}
+          {p.note ? (
+            <div style={{ fontSize: T.texto.small.size, color: T.color.tintaSuave, paddingTop: 12 }}>{p.note}</div>
+          ) : null}
+        </div>
+      );
+    }
+    case 'quote':
+      return (
+        <div style={box(T.espacio.s)}>
+          <div
+            style={{
+              background: p.background || T.color.acentoSuave,
+              borderLeft: `4px solid ${p.accent || acento}`,
+              borderRadius: T.radio,
+              padding: '18px 22px',
+            }}
+          >
+            {Number(p.stars) > 0 ? <div style={{ paddingBottom: 8 }}>{estrellas(p.stars, '#f59e0b', 16)}</div> : null}
+            <div style={{ fontSize: T.texto.body.size, lineHeight: `${T.texto.body.line}px`, color: settings.textColor, fontStyle: 'italic' }}>
+              «{p.text || ''}»
+            </div>
+            <div style={{ fontSize: T.texto.small.size, color: T.color.tintaSuave, paddingTop: 10 }}>
+              {p.author || ''}
+              {p.role ? ` · ${p.role}` : ''}
+            </div>
+          </div>
+        </div>
+      );
+    case 'rating':
+      return (
+        <div style={box(T.espacio.s, { textAlign: (p.align || 'center') as any })}>
+          {estrellas(p.stars, p.color || '#f59e0b', Number(p.size) || 22)}
+          {p.label ? (
+            <div style={{ fontSize: T.texto.small.size, color: T.color.tintaSuave, paddingTop: 6 }}>{p.label}</div>
+          ) : null}
+        </div>
+      );
+    case 'coupon':
+      return (
+        <div style={box(T.espacio.m, { paddingTop: 4, textAlign: 'center' })}>
           <span
             style={{
               display: 'inline-block',
-              padding: `${Number(p.paddingV) || 12}px ${Number(p.paddingH) || 28}px`,
-              background: p.background || settings.linkColor,
-              color: p.color || '#ffffff',
-              fontFamily: settings.fontFamily,
-              fontSize: Number(p.fontSize) || 15,
-              fontWeight: 700,
-              borderRadius: Number(p.radius) || 0,
+              background: p.background || T.color.acentoSuave,
+              border: `2px dashed ${p.borderColor || acento}`,
+              borderRadius: T.radio,
+              padding: '16px 30px',
             }}
           >
-            {p.label || 'Botón'}
+            {p.label ? (
+              <div style={{ fontSize: T.texto.small.size, color: T.color.tintaSuave, paddingBottom: 6 }}>{p.label}</div>
+            ) : null}
+            <div style={{ fontSize: 24, lineHeight: '30px', fontWeight: 700, letterSpacing: 3, color: p.color || acento }}>
+              {p.code || 'CODIGO'}
+            </div>
+            {p.note ? (
+              <div style={{ fontSize: T.texto.small.size, color: T.color.tintaSuave, paddingTop: 8 }}>{p.note}</div>
+            ) : null}
           </span>
         </div>
       );
     case 'divider':
       return (
-        <div style={{ padding: `${Number(p.paddingV) || 12}px 14px` }}>
-          <div style={{ borderTop: `${Number(p.thickness) || 1}px solid ${p.color || '#e2e8f0'}` }} />
+        <div style={{ padding: `${Number(p.paddingV) || 12}px 0` }}>
+          <div style={{ borderTop: `${Number(p.thickness) || 1}px solid ${p.color || T.color.borde}` }} />
         </div>
       );
     case 'spacer':
       return (
         <div
-          style={{ height: Number(p.height) || 24 }}
+          style={{ height: Number(p.height) || T.espacio.m }}
           className="flex items-center justify-center text-[10px] text-slate-300"
-          title={`Espaciador · ${Number(p.height) || 24}px`}
+          title={`Espaciador · ${Number(p.height) || T.espacio.m}px`}
         />
       );
     case 'social': {
       const size = Number(p.size) || 34;
       const nets = (Array.isArray(p.networks) ? p.networks : []).filter((n: any) => n);
-      if (nets.length === 0) {
-        return (
-          <div className="m-3 rounded-lg border border-dashed border-slate-200 p-3 text-center text-xs text-slate-400">
-            🌐 Añade redes desde el panel de propiedades
-          </div>
-        );
-      }
+      if (nets.length === 0) return vacio('🌐', 'Añade redes desde el panel de propiedades');
       return (
-        <div style={{ padding: '10px 14px', textAlign: (p.align || 'center') as any }}>
+        <div style={box(T.espacio.s, { textAlign: (p.align || 'center') as any })}>
           {nets.map((n: any, i: number) => {
             const meta = SOCIAL_NETWORKS[n.kind as SocialNetworkKind] ?? SOCIAL_NETWORKS.web;
             return (
@@ -1246,30 +1546,32 @@ function BlockVisual({ block, settings }: { block: EmailBlock; settings: EmailDo
       return (
         <div
           style={{
-            padding: '16px 14px',
+            padding: `${T.espacio.m}px 0 8px 0`,
             fontFamily: settings.fontFamily,
-            fontSize: Number(p.fontSize) || 12,
+            fontSize: Number(p.fontSize) || T.texto.small.size,
             lineHeight: 1.6,
-            color: p.color || '#94a3b8',
+            color: p.color || T.color.tintaSuave,
             textAlign: 'center',
             overflowWrap: 'anywhere',
           }}
-          dangerouslySetInnerHTML={{ __html: p.html || '<span style="opacity:.5">Pie de página vacío</span>' }}
-        />
+        >
+          <span dangerouslySetInnerHTML={{ __html: p.html || '<span style="opacity:.5">Pie de página vacío</span>' }} />
+          {p.address ? <div style={{ paddingTop: 8 }}>{p.address}</div> : null}
+          {p.unsubscribeUrl ? (
+            <div style={{ paddingTop: 8, textDecoration: 'underline' }}>{p.unsubscribeLabel || 'Darme de baja'}</div>
+          ) : null}
+        </div>
       );
     case 'html':
       return p.html ? (
         <div style={{ overflow: 'hidden' }} dangerouslySetInnerHTML={{ __html: p.html }} />
       ) : (
-        <div className="m-3 rounded-lg border border-dashed border-slate-200 p-3 text-center text-xs text-slate-400">
-          ＜＞ Bloque de código vacío
-        </div>
+        vacio('＜＞', 'Bloque de código vacío')
       );
     default:
       return null;
   }
 }
-
 // ── Panel de propiedades ────────────────────────────────────────────────────
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -1747,6 +2049,327 @@ function BlockProps({
     </h4>
   );
   switch (block.type) {
+    case 'heading':
+      return (
+        <div className="space-y-3">
+          {title}
+          <Field label="Antetítulo (opcional)">
+            <input
+              value={p.kicker || ''}
+              onChange={(e) => onPatch({ kicker: e.target.value }, 'kicker')}
+              disabled={readOnly}
+              className={inp}
+              placeholder="POR TIEMPO LIMITADO"
+            />
+          </Field>
+          <Field label="Título">
+            <textarea
+              value={p.title || ''}
+              onChange={(e) => onPatch({ title: e.target.value }, 'title')}
+              disabled={readOnly}
+              rows={2}
+              className={inp}
+            />
+          </Field>
+          <Field label="Bajada (opcional)">
+            <textarea
+              value={p.subtitle || ''}
+              onChange={(e) => onPatch({ subtitle: e.target.value }, 'sub')}
+              disabled={readOnly}
+              rows={2}
+              className={inp}
+            />
+          </Field>
+          <Field label="Jerarquía">
+            <select
+              value={p.level || 'h2'}
+              onChange={(e) => onPatch({ level: e.target.value })}
+              disabled={readOnly}
+              className={inp}
+            >
+              <option value="h1">Principal (30 px)</option>
+              <option value="h2">De sección (22 px)</option>
+            </select>
+          </Field>
+          <Field label="Alineación">
+            <AlignPicker value={p.align || 'left'} onChange={(v) => onPatch({ align: v })} />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Color del título">
+              <ColorInput value={p.color || ''} allowEmpty emptyHint="Heredar" onChange={(v) => onPatch({ color: v }, 'color')} />
+            </Field>
+            <Field label="Color del antetítulo">
+              <ColorInput value={p.kickerColor || ''} allowEmpty emptyHint="Acento" onChange={(v) => onPatch({ kickerColor: v }, 'kc')} />
+            </Field>
+          </div>
+          <p className="text-[11px] leading-snug text-slate-400">
+            Sobre una banda de color, pon los dos colores en blanco.
+          </p>
+        </div>
+      );
+    case 'buttons':
+      return (
+        <div className="space-y-3">
+          {title}
+          <Field label="Botón principal">
+            <input value={p.label || ''} onChange={(e) => onPatch({ label: e.target.value }, 'label')} disabled={readOnly} className={inp} />
+          </Field>
+          <Field label="Enlace del principal">
+            <input value={p.href || ''} onChange={(e) => onPatch({ href: e.target.value }, 'href')} disabled={readOnly} className={`${inp} font-mono text-xs`} placeholder="https://…" />
+          </Field>
+          <Field label="Botón secundario (contorno)">
+            <input value={p.label2 || ''} onChange={(e) => onPatch({ label2: e.target.value }, 'label2')} disabled={readOnly} className={inp} />
+          </Field>
+          <Field label="Enlace del secundario">
+            <input value={p.href2 || ''} onChange={(e) => onPatch({ href2: e.target.value }, 'href2')} disabled={readOnly} className={`${inp} font-mono text-xs`} placeholder="https://…" />
+          </Field>
+          <Field label="Color (vacío = acento)">
+            <ColorInput value={p.background || ''} allowEmpty emptyHint="Acento" onChange={(v) => onPatch({ background: v }, 'bg')} />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Esquinas">
+              <NumInput value={Number(p.radius) || 0} min={0} max={40} onChange={(v) => onPatch({ radius: v }, 'r')} />
+            </Field>
+            <Field label="Alineación">
+              <AlignPicker value={p.align || 'center'} onChange={(v) => onPatch({ align: v })} />
+            </Field>
+          </div>
+          <p className="text-[11px] leading-snug text-slate-400">En el móvil se apilan uno debajo del otro.</p>
+        </div>
+      );
+    case 'feature':
+      return (
+        <div className="space-y-3">
+          {title}
+          <div className="grid grid-cols-[70px_1fr] gap-2">
+            <Field label="Icono">
+              <input
+                value={p.icon || ''}
+                onChange={(e) => onPatch({ icon: e.target.value }, 'icon')}
+                disabled={readOnly}
+                maxLength={2}
+                className={`${inp} text-center text-lg`}
+              />
+            </Field>
+            <Field label="Título">
+              <input value={p.title || ''} onChange={(e) => onPatch({ title: e.target.value }, 'title')} disabled={readOnly} className={inp} />
+            </Field>
+          </div>
+          <Field label="Texto">
+            <textarea value={p.text || ''} onChange={(e) => onPatch({ text: e.target.value }, 'text')} disabled={readOnly} rows={3} className={inp} />
+          </Field>
+          <Field label="Disposición">
+            <select value={p.layout || 'row'} onChange={(e) => onPatch({ layout: e.target.value })} disabled={readOnly} className={inp}>
+              <option value="row">Icono al lado (1 columna ancha)</option>
+              <option value="stacked">Icono arriba (tarjetas de 2 o 3)</option>
+            </select>
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Fondo del icono">
+              <ColorInput value={p.iconBg || ''} allowEmpty emptyHint="Acento" onChange={(v) => onPatch({ iconBg: v }, 'ibg')} />
+            </Field>
+            <Field label="Alineación (apilado)">
+              <AlignPicker value={p.align || 'center'} onChange={(v) => onPatch({ align: v })} />
+            </Field>
+          </div>
+          <p className="text-[11px] leading-snug text-slate-400">
+            El icono es un emoji o una letra: no se bloquea como una imagen.
+          </p>
+        </div>
+      );
+    case 'product':
+      return (
+        <div className="space-y-3">
+          {title}
+          <ImageSource url={p.url || ''} disabled={readOnly} onUrl={(url) => onPatch({ url })} />
+          <Field label="Texto alternativo de la foto">
+            <input value={p.alt || ''} onChange={(e) => onPatch({ alt: e.target.value }, 'alt')} disabled={readOnly} className={inp} />
+          </Field>
+          <Field label="Nombre">
+            <input value={p.title || ''} onChange={(e) => onPatch({ title: e.target.value }, 'title')} disabled={readOnly} className={inp} />
+          </Field>
+          <Field label="Descripción">
+            <textarea value={p.description || ''} onChange={(e) => onPatch({ description: e.target.value }, 'desc')} disabled={readOnly} rows={2} className={inp} />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Precio">
+              <input value={p.price || ''} onChange={(e) => onPatch({ price: e.target.value }, 'price')} disabled={readOnly} className={inp} placeholder="$120.000" />
+            </Field>
+            <Field label="Precio anterior">
+              <input value={p.oldPrice || ''} onChange={(e) => onPatch({ oldPrice: e.target.value }, 'old')} disabled={readOnly} className={inp} placeholder="$150.000" />
+            </Field>
+          </div>
+          <Field label="Texto del botón (vacío = sin botón)">
+            <input value={p.label || ''} onChange={(e) => onPatch({ label: e.target.value }, 'label')} disabled={readOnly} className={inp} />
+          </Field>
+          <Field label="Enlace">
+            <input value={p.href || ''} onChange={(e) => onPatch({ href: e.target.value }, 'href')} disabled={readOnly} className={`${inp} font-mono text-xs`} placeholder="https://…" />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Borde">
+              <ColorInput value={p.borderColor || '#e5e7eb'} onChange={(v) => onPatch({ borderColor: v }, 'bc')} />
+            </Field>
+            <Field label="Esquinas">
+              <NumInput value={Number(p.radius) || 0} min={0} max={24} suffix="px" onChange={(v) => onPatch({ radius: v }, 'r')} />
+            </Field>
+          </div>
+        </div>
+      );
+    case 'order': {
+      const items: any[] = Array.isArray(p.items) ? p.items : [];
+      const totals: any[] = Array.isArray(p.totals) ? p.totals : [];
+      const setItem = (i: number, patch: any) =>
+        onPatch({ items: items.map((x, j) => (j === i ? { ...x, ...patch } : x)) }, `it${i}`);
+      const setTotal = (i: number, patch: any) =>
+        onPatch({ totals: totals.map((x, j) => (j === i ? { ...x, ...patch } : x)) }, `tt${i}`);
+      const fila = 'rounded-lg border border-slate-300 px-2 py-1.5 text-xs outline-none focus:border-emerald-500';
+      return (
+        <div className="space-y-3">
+          {title}
+          <Field label="Encabezado">
+            <input value={p.title || ''} onChange={(e) => onPatch({ title: e.target.value }, 'title')} disabled={readOnly} className={inp} />
+          </Field>
+          <div>
+            <span className={lbl}>Líneas</span>
+            <div className="space-y-1.5">
+              {items.map((it, i) => (
+                <div key={i} className="flex items-center gap-1">
+                  <input value={it?.name || ''} onChange={(e) => setItem(i, { name: e.target.value })} disabled={readOnly} placeholder="Concepto" className={`${fila} min-w-0 flex-1`} />
+                  <input value={it?.qty || ''} onChange={(e) => setItem(i, { qty: e.target.value })} disabled={readOnly} placeholder="1" className={`${fila} w-10 text-center`} />
+                  <input value={it?.price || ''} onChange={(e) => setItem(i, { price: e.target.value })} disabled={readOnly} placeholder="$0" className={`${fila} w-20`} />
+                  <button
+                    onClick={() => onPatch({ items: items.filter((_, j) => j !== i) })}
+                    disabled={readOnly}
+                    className="rounded px-1.5 py-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                    title="Quitar línea"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => onPatch({ items: [...items, { name: '', qty: '1', price: '' }] })}
+                disabled={readOnly}
+                className="w-full rounded-lg border border-dashed border-slate-300 px-2 py-1.5 text-xs text-slate-500 hover:border-emerald-300 hover:text-emerald-700"
+              >
+                + Añadir línea
+              </button>
+            </div>
+          </div>
+          <div>
+            <span className={lbl}>Totales</span>
+            <div className="space-y-1.5">
+              {totals.map((t, i) => (
+                <div key={i} className="flex items-center gap-1">
+                  <input value={t?.label || ''} onChange={(e) => setTotal(i, { label: e.target.value })} disabled={readOnly} placeholder="Total" className={`${fila} min-w-0 flex-1`} />
+                  <input value={t?.value || ''} onChange={(e) => setTotal(i, { value: e.target.value })} disabled={readOnly} placeholder="$0" className={`${fila} w-20`} />
+                  <label className="flex items-center gap-1 text-[11px] text-slate-500" title="Resaltado">
+                    <input type="checkbox" checked={!!t?.strong} onChange={(e) => setTotal(i, { strong: e.target.checked })} disabled={readOnly} />B
+                  </label>
+                  <button
+                    onClick={() => onPatch({ totals: totals.filter((_, j) => j !== i) })}
+                    disabled={readOnly}
+                    className="rounded px-1.5 py-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                    title="Quitar total"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => onPatch({ totals: [...totals, { label: '', value: '', strong: false }] })}
+                disabled={readOnly}
+                className="w-full rounded-lg border border-dashed border-slate-300 px-2 py-1.5 text-xs text-slate-500 hover:border-emerald-300 hover:text-emerald-700"
+              >
+                + Añadir total
+              </button>
+            </div>
+          </div>
+          <Field label="Nota al pie del pedido">
+            <textarea value={p.note || ''} onChange={(e) => onPatch({ note: e.target.value }, 'note')} disabled={readOnly} rows={2} className={inp} />
+          </Field>
+        </div>
+      );
+    }
+    case 'quote':
+      return (
+        <div className="space-y-3">
+          {title}
+          <Field label="Testimonio">
+            <textarea value={p.text || ''} onChange={(e) => onPatch({ text: e.target.value }, 'text')} disabled={readOnly} rows={4} className={inp} />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Quién lo dice">
+              <input value={p.author || ''} onChange={(e) => onPatch({ author: e.target.value }, 'author')} disabled={readOnly} className={inp} />
+            </Field>
+            <Field label="Detalle">
+              <input value={p.role || ''} onChange={(e) => onPatch({ role: e.target.value }, 'role')} disabled={readOnly} className={inp} placeholder="Cliente desde 2024" />
+            </Field>
+          </div>
+          <Field label="Estrellas (0 = ninguna)">
+            <NumInput value={Number(p.stars) || 0} min={0} max={5} onChange={(v) => onPatch({ stars: v }, 'stars')} />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Fondo">
+              <ColorInput value={p.background || '#eef2ff'} onChange={(v) => onPatch({ background: v }, 'bg')} />
+            </Field>
+            <Field label="Barra lateral">
+              <ColorInput value={p.accent || ''} allowEmpty emptyHint="Acento" onChange={(v) => onPatch({ accent: v }, 'ac')} />
+            </Field>
+          </div>
+        </div>
+      );
+    case 'rating':
+      return (
+        <div className="space-y-3">
+          {title}
+          <Field label="Estrellas llenas">
+            <NumInput value={Number(p.stars) || 5} min={0} max={5} onChange={(v) => onPatch({ stars: v }, 'stars')} />
+          </Field>
+          <Field label="Texto debajo (opcional)">
+            <input value={p.label || ''} onChange={(e) => onPatch({ label: e.target.value }, 'label')} disabled={readOnly} className={inp} placeholder="4,9 sobre 5 · 320 opiniones" />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Color">
+              <ColorInput value={p.color || '#f59e0b'} onChange={(v) => onPatch({ color: v }, 'color')} />
+            </Field>
+            <Field label="Tamaño">
+              <NumInput value={Number(p.size) || 22} min={12} max={48} suffix="px" onChange={(v) => onPatch({ size: v }, 'size')} />
+            </Field>
+          </div>
+          <Field label="Alineación">
+            <AlignPicker value={p.align || 'center'} onChange={(v) => onPatch({ align: v })} />
+          </Field>
+        </div>
+      );
+    case 'coupon':
+      return (
+        <div className="space-y-3">
+          {title}
+          <Field label="Código">
+            <input
+              value={p.code || ''}
+              onChange={(e) => onPatch({ code: e.target.value.toUpperCase() }, 'code')}
+              disabled={readOnly}
+              className={`${inp} font-mono tracking-widest`}
+            />
+          </Field>
+          <Field label="Texto de arriba">
+            <input value={p.label || ''} onChange={(e) => onPatch({ label: e.target.value }, 'label')} disabled={readOnly} className={inp} />
+          </Field>
+          <Field label="Letra pequeña">
+            <input value={p.note || ''} onChange={(e) => onPatch({ note: e.target.value }, 'note')} disabled={readOnly} className={inp} placeholder="Válido hasta el 30 de septiembre" />
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Fondo">
+              <ColorInput value={p.background || '#eef2ff'} onChange={(v) => onPatch({ background: v }, 'bg')} />
+            </Field>
+            <Field label="Borde y código">
+              <ColorInput value={p.borderColor || ''} allowEmpty emptyHint="Acento" onChange={(v) => onPatch({ borderColor: v, color: v }, 'bc')} />
+            </Field>
+          </div>
+        </div>
+      );
     case 'text':
       return (
         <div className="space-y-3">
@@ -1929,12 +2552,34 @@ function BlockProps({
         <div className="space-y-3">
           {title}
           <RichTextArea initialHtml={p.html || ''} disabled={readOnly} minHeight={70} onChange={(html) => onPatch({ html }, 'text')} />
+          <Field label="Dirección o datos del negocio (opcional)">
+            <input
+              value={p.address || ''}
+              onChange={(e) => onPatch({ address: e.target.value }, 'addr')}
+              disabled={readOnly}
+              className={inp}
+              placeholder="Calle 10 #4-56, Bogotá · NIT 900.123.456"
+            />
+          </Field>
+          <Field label="Enlace de baja (opcional)">
+            <input
+              value={p.unsubscribeUrl || ''}
+              onChange={(e) => onPatch({ unsubscribeUrl: e.target.value }, 'unsub')}
+              disabled={readOnly}
+              className={`${inp} font-mono text-xs`}
+              placeholder="https://…"
+            />
+            <p className="mt-1 text-[11px] leading-snug text-slate-400">
+              Si lo dejas vacío queda la instrucción de responder BAJA, que es la que sí funciona hoy:
+              esas respuestas se marcan como baja en Contactos.
+            </p>
+          </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Tamaño de letra">
-              <NumInput value={Number(p.fontSize) || 12} min={9} max={18} onChange={(v) => onPatch({ fontSize: v }, 'fs')} />
+              <NumInput value={Number(p.fontSize) || 13} min={9} max={18} onChange={(v) => onPatch({ fontSize: v }, 'fs')} />
             </Field>
             <Field label="Color">
-              <ColorInput value={p.color || '#94a3b8'} onChange={(v) => onPatch({ color: v }, 'color')} />
+              <ColorInput value={p.color || '#6b7280'} onChange={(v) => onPatch({ color: v }, 'color')} />
             </Field>
           </div>
         </div>

@@ -448,7 +448,7 @@ function wrapTd(td: string): string {
 }
 
 /** Relleno vertical estándar de un bloque. El lateral lo pone la fila. */
-function pad(bottom = EMAIL_TOKENS.espacio.s, top = 0): string {
+function pad(bottom: number = EMAIL_TOKENS.espacio.s, top: number = 0): string {
   return `padding:${top}px 0 ${bottom}px 0;`;
 }
 

@@ -316,7 +316,7 @@ export default function EmailTemplatesPanel() {
   }
 
   async function openPreview(t: Template) {
-    const local = tplHtml(t);
+    const local = tplHtml(t) ?? htmlCache.get(t.id) ?? null;
     if (local) {
       setPreviewTpl({ name: t.name, html: local });
       return;
@@ -326,6 +326,7 @@ export default function EmailTemplatesPanel() {
     try {
       const full = await api<Template>(`/admin/marketing/templates/${t.id}`);
       const html = full ? tplHtml(full) : null;
+      htmlCache.set(t.id, html);
       if (!html) {
         toast('La plantilla está vacía: ábrela en el editor para armarla.', 'info');
         return;
@@ -344,6 +345,9 @@ export default function EmailTemplatesPanel() {
       <EmailTemplateEditor
         templateId={openId}
         onClose={() => {
+          // La miniatura cacheada es del contenido ANTERIOR: si no se tira,
+          // la tarjeta sigue enseñando la plantilla como estaba antes de editar.
+          htmlCache.delete(openId);
           setOpenId(null);
           // Recarga al volver: el editor guarda por su cuenta y la miniatura
           // y el nombre de la tarjeta deben reflejarlo.
@@ -575,10 +579,50 @@ function tplHtml(t: Template): string | null {
   return null;
 }
 
+// El listado NO trae `html` ni `blocks` a propósito (pesan, y son muchos por
+// carpeta): sin esto TODAS las tarjetas enseñaban el sobre gris de "sin
+// contenido", que es justo lo contrario de una galería. La miniatura pide el
+// detalle cuando la tarjeta entra en pantalla y lo guarda aquí, así navegar
+// entre carpetas no vuelve a pedir lo mismo.
+const htmlCache = new Map<string, string | null>();
+
 function MiniPreview({ tpl }: { tpl: Template }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.28);
-  const html = useMemo(() => tplHtml(tpl), [tpl]);
+  const local = useMemo(() => tplHtml(tpl), [tpl]);
+  const [fetched, setFetched] = useState<string | null>(() => htmlCache.get(tpl.id) ?? null);
+  const html = local ?? fetched;
+
+  // Carga diferida del detalle. Si falla, la tarjeta se queda con el sobre:
+  // una miniatura no puede tumbar la galería.
+  useEffect(() => {
+    if (local || fetched || htmlCache.has(tpl.id)) {
+      if (!local && !fetched && htmlCache.has(tpl.id)) setFetched(htmlCache.get(tpl.id) ?? null);
+      return;
+    }
+    const el = boxRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    let vivo = true;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        io.disconnect();
+        api<Template>(`/admin/marketing/templates/${tpl.id}`)
+          .then((full) => {
+            const h = full ? tplHtml(full) : null;
+            htmlCache.set(tpl.id, h);
+            if (vivo) setFetched(h);
+          })
+          .catch(() => undefined);
+      },
+      { rootMargin: '250px' },
+    );
+    io.observe(el);
+    return () => {
+      vivo = false;
+      io.disconnect();
+    };
+  }, [tpl.id, local, fetched]);
 
   useEffect(() => {
     const el = boxRef.current;
@@ -591,13 +635,15 @@ function MiniPreview({ tpl }: { tpl: Template }) {
   }, [html]);
 
   if (!html) {
-    return tpl.thumbnailUrl ? (
-      <div className="h-36 overflow-hidden bg-slate-100">
-        {/* Miniatura subida por el backend (si existe) */}
-        <img src={tpl.thumbnailUrl} alt="" className="h-full w-full object-cover object-top" />
+    return (
+      <div ref={boxRef} className="h-36 overflow-hidden bg-slate-100">
+        {tpl.thumbnailUrl ? (
+          /* Miniatura subida por el backend (si existe) */
+          <img src={tpl.thumbnailUrl} alt="" className="h-full w-full object-cover object-top" />
+        ) : (
+          <div className="flex h-full items-center justify-center text-3xl">✉️</div>
+        )}
       </div>
-    ) : (
-      <div className="flex h-36 items-center justify-center bg-slate-100 text-3xl">✉️</div>
     );
   }
   return (

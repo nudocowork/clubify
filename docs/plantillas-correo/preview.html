@@ -1,0 +1,1029 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plantillas de correo de fábrica — Clubify PRO</title>
+<style>
+  :root { --borde:#e5e7eb; --tinta:#111827; --suave:#6b7280; --acento:#4f46e5; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#f4f5f7; color:var(--tinta);
+         font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; }
+  header.top { position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid var(--borde);
+               padding:14px 20px; display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
+  header.top h1 { margin:0; font-size:17px; }
+  header.top p { margin:0; font-size:13px; color:var(--suave); }
+  .anchos { margin-left:auto; display:flex; gap:6px; }
+  .anchos button { border:1px solid var(--borde); background:#fff; border-radius:8px;
+                   padding:7px 14px; font-size:13px; font-weight:600; cursor:pointer; }
+  .anchos button[aria-pressed="true"] { background:var(--acento); border-color:var(--acento); color:#fff; }
+  main { display:grid; gap:22px; padding:22px;
+         grid-template-columns:repeat(auto-fill, minmax(min(100%, 640px), 1fr)); }
+  .tarjeta { background:#fff; border:1px solid var(--borde); border-radius:12px; overflow:hidden; }
+  .tarjeta > header { padding:14px 16px; border-bottom:1px solid var(--borde); }
+  .tarjeta h2 { margin:0 0 4px; font-size:15px; }
+  .asunto, .pre { margin:0; font-size:12px; color:var(--suave); }
+  .marco { background:#f4f5f7; padding:16px; display:flex; justify-content:center; }
+  iframe { width:700px; max-width:100%; height:900px; border:0; background:#fff;
+           box-shadow:0 1px 3px rgba(0,0,0,.12); transition:width .15s ease; }
+  details { border-top:1px solid var(--borde); }
+  summary { padding:10px 16px; font-size:12px; color:var(--suave); cursor:pointer; }
+  pre { margin:0; padding:0 16px 14px; font-size:12px; line-height:1.6; white-space:pre-wrap; color:#374151; }
+  .meta { margin:0; padding:10px 16px; border-top:1px solid var(--borde); font-size:11px; color:#9ca3af; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>Plantillas de correo de fábrica</h1>
+    <p>9 plantillas · generado desde <code>backend/scripts/lib/email-presets.cjs</code>
+       · a 620 px o menos las columnas se apilan a propósito</p>
+  </div>
+  <div class="anchos">
+    <button data-w="320">320 px</button>
+    <button data-w="480">480 px</button>
+    <button data-w="600">600 px</button>
+    <button data-w="700" aria-pressed="true">Escritorio</button>
+  </div>
+</header>
+<main>
+
+    <section class="tarjeta">
+      <header>
+        <h2>Bienvenida</h2>
+        <p class="asunto">Asunto: <b>¡Qué gusto tenerte por aquí!</b></p>
+        <p class="pre">Vista previa: Gracias por unirte: esto es lo que viene ahora.</p>
+      </header>
+      <div class="marco">
+        <iframe title="Bienvenida" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot; /&gt;
+&lt;meta name=&quot;x-apple-disable-message-reformatting&quot; /&gt;
+&lt;meta name=&quot;color-scheme&quot; content=&quot;light dark&quot; /&gt;
+&lt;meta name=&quot;supported-color-schemes&quot; content=&quot;light dark&quot; /&gt;
+&lt;title&gt;¡Qué gusto tenerte por aquí!&lt;/title&gt;
+&lt;!--[if mso]&gt;&lt;xml&gt;&lt;o:OfficeDocumentSettings&gt;&lt;o:PixelsPerInch&gt;96&lt;/o:PixelsPerInch&gt;&lt;/o:OfficeDocumentSettings&gt;&lt;/xml&gt;&lt;![endif]--&gt;
+&lt;style&gt;
+  /* Mejora progresiva: los clientes que ignoran &lt;style&gt; (Outlook escritorio)
+     ven la versión de escritorio, que funciona igual porque todo va inline. */
+  :root { color-scheme: light dark; supported-color-schemes: light dark; }
+  body { margin:0; padding:0; width:100% !important; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+  table { border-collapse:collapse; }
+  img { -ms-interpolation-mode:bicubic; }
+  a { text-decoration:none; }
+  @media only screen and (max-width: 620px) {
+    .cf-container { width: 100% !important; }
+    /* Apilar columnas: el &lt;td&gt; pasa a bloque al 100% y pierde el canalón. */
+    .cf-col { display: block !important; width: 100% !important; padding: 0 !important; }
+    .cf-pad { padding-left: 20px !important; padding-right: 20px !important; }
+    /* Botón a lo ancho: se toca con el pulgar sin apuntar. */
+    .cf-btn-wrap { width: 100% !important; }
+    .cf-btn { display: block !important; text-align: center !important; }
+    .cf-stack { display: block !important; width: 100% !important; padding: 0 0 10px 0 !important; }
+    .cf-h1 { font-size: 26px !important; line-height: 34px !important; }
+    .cf-h2 { font-size: 20px !important; line-height: 28px !important; }
+  }
+  /* Dark mode: solo se retocan los fondos y el texto principal. El resto de
+     colores son de marca y deben sobrevivir a la inversión tal cual. */
+  @media (prefers-color-scheme: dark) {
+    .cf-body, .cf-body-bg { background-color: #0b1220 !important; }
+    .cf-card { background-color: #131c2e !important; }
+    .cf-ink { color: #e5e7eb !important; }
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body class=&quot;cf-body&quot; style=&quot;margin:0;padding:0;background-color:#f4f5f7;&quot;&gt;
+&lt;div style=&quot;display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f5f7;opacity:0;&quot;&gt;Gracias por unirte: esto es lo que viene ahora.&amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &lt;/div&gt;
+&lt;center class=&quot;cf-body-bg&quot; style=&quot;width:100%;background-color:#f4f5f7;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f5f7;&quot;&gt;
+&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:32px 10px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; class=&quot;cf-container cf-card&quot; width=&quot;600&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:600px;max-width:100%;background-color:#ffffff;border-radius:12px;&quot;&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:24px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;background-color:#4f46e5;padding:36px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:0px 0 16px 0;text-align:center;&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#ffffff;padding-bottom:8px;&quot;&gt;Bienvenido&lt;/div&gt;&lt;div class=&quot;cf-h1&quot; style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:30px;line-height:38px;font-weight:700;color:#ffffff;&quot;&gt;Qué gusto tenerte por aquí&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#6b7280;padding-top:10px;&quot;&gt;Desde hoy te vamos a contar lo bueno antes que a nadie.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:24px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#111827;text-align:center;&quot;&gt;Gracias por unirte. A partir de ahora vas a recibir por aquí las novedades, los beneficios y algún detalle que tenemos preparado para ti.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;33.33%&quot; valign=&quot;top&quot; style=&quot;width:33.33%;vertical-align:top;padding:0 8px 0 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;left&quot; style=&quot;padding:0px 0 16px 0;text-align:left;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; align=&quot;left&quot;&gt;&lt;tr&gt;&lt;td width=&quot;44&quot; height=&quot;44&quot; align=&quot;center&quot; valign=&quot;middle&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;width:44px;height:44px;border-radius:22px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:20px;line-height:44px;color:#ffffff;text-align:center;&quot;&gt;🎁&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;div style=&quot;height:12px;line-height:12px;font-size:0;&quot;&gt;&amp;nbsp;&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:17px;line-height:24px;font-weight:700;color:#111827;&quot;&gt;Beneficios&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:24px;color:#6b7280;padding-top:4px;&quot;&gt;Promociones que solo salen por correo.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;td class=&quot;cf-col&quot; width=&quot;33.34%&quot; valign=&quot;top&quot; style=&quot;width:33.34%;vertical-align:top;padding:0 8px;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;left&quot; style=&quot;padding:0px 0 16px 0;text-align:left;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; align=&quot;left&quot;&gt;&lt;tr&gt;&lt;td width=&quot;44&quot; height=&quot;44&quot; align=&quot;center&quot; valign=&quot;middle&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;width:44px;height:44px;border-radius:22px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:20px;line-height:44px;color:#ffffff;text-align:center;&quot;&gt;⚡&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;div style=&quot;height:12px;line-height:12px;font-size:0;&quot;&gt;&amp;nbsp;&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:17px;line-height:24px;font-weight:700;color:#111827;&quot;&gt;Primero tú&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:24px;color:#6b7280;padding-top:4px;&quot;&gt;Te enteras antes de cada novedad.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;td class=&quot;cf-col&quot; width=&quot;33.33%&quot; valign=&quot;top&quot; style=&quot;width:33.33%;vertical-align:top;padding:0 0 0 8px;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;left&quot; style=&quot;padding:0px 0 16px 0;text-align:left;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; align=&quot;left&quot;&gt;&lt;tr&gt;&lt;td width=&quot;44&quot; height=&quot;44&quot; align=&quot;center&quot; valign=&quot;middle&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;width:44px;height:44px;border-radius:22px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:20px;line-height:44px;color:#ffffff;text-align:center;&quot;&gt;💬&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;div style=&quot;height:12px;line-height:12px;font-size:0;&quot;&gt;&amp;nbsp;&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:17px;line-height:24px;font-weight:700;color:#111827;&quot;&gt;Trato directo&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:24px;color:#6b7280;padding-top:4px;&quot;&gt;Respondes a este correo y te leemos.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:8px 0 24px 0;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:50px;v-text-anchor:middle;width:193px;&quot; arcsize=&quot;16%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#4f46e5&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#ffffff;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;&quot;&gt;Descubrir más&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#4f46e5&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:14px 32px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;&quot;&gt;Descubrir más&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:12px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;border-top:1px solid #e5e7eb;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:24px 0 8px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Recibiste este correo porque estás en nuestra lista de contactos.&lt;br&gt;Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/center&gt;
+&lt;/body&gt;
+&lt;/html&gt;"></iframe>
+      </div>
+      <details>
+        <summary>Fallback de texto plano (585 caracteres)</summary>
+        <pre>Gracias por unirte: esto es lo que viene ahora.
+
+Bienvenido
+Qué gusto tenerte por aquí
+Desde hoy te vamos a contar lo bueno antes que a nadie.
+
+Gracias por unirte. A partir de ahora vas a recibir por aquí las novedades, los beneficios y algún detalle que tenemos preparado para ti.
+
+Beneficios
+Promociones que solo salen por correo.
+
+Primero tú
+Te enteras antes de cada novedad.
+
+Trato directo
+Respondes a este correo y te leemos.
+
+Descubrir más
+
+—
+
+Recibiste este correo porque estás en nuestra lista de contactos.
+Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
+      </details>
+      <p class="meta">11.481 bytes · plantilla 1 de 9</p>
+    </section>
+
+    <section class="tarjeta">
+      <header>
+        <h2>Agradecimiento post-compra</h2>
+        <p class="asunto">Asunto: <b>¡Gracias por tu compra!</b></p>
+        <p class="pre">Vista previa: Tu compra está confirmada. Aquí tienes el resumen.</p>
+      </header>
+      <div class="marco">
+        <iframe title="Agradecimiento post-compra" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot; /&gt;
+&lt;meta name=&quot;x-apple-disable-message-reformatting&quot; /&gt;
+&lt;meta name=&quot;color-scheme&quot; content=&quot;light dark&quot; /&gt;
+&lt;meta name=&quot;supported-color-schemes&quot; content=&quot;light dark&quot; /&gt;
+&lt;title&gt;¡Gracias por tu compra!&lt;/title&gt;
+&lt;!--[if mso]&gt;&lt;xml&gt;&lt;o:OfficeDocumentSettings&gt;&lt;o:PixelsPerInch&gt;96&lt;/o:PixelsPerInch&gt;&lt;/o:OfficeDocumentSettings&gt;&lt;/xml&gt;&lt;![endif]--&gt;
+&lt;style&gt;
+  /* Mejora progresiva: los clientes que ignoran &lt;style&gt; (Outlook escritorio)
+     ven la versión de escritorio, que funciona igual porque todo va inline. */
+  :root { color-scheme: light dark; supported-color-schemes: light dark; }
+  body { margin:0; padding:0; width:100% !important; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+  table { border-collapse:collapse; }
+  img { -ms-interpolation-mode:bicubic; }
+  a { text-decoration:none; }
+  @media only screen and (max-width: 620px) {
+    .cf-container { width: 100% !important; }
+    /* Apilar columnas: el &lt;td&gt; pasa a bloque al 100% y pierde el canalón. */
+    .cf-col { display: block !important; width: 100% !important; padding: 0 !important; }
+    .cf-pad { padding-left: 20px !important; padding-right: 20px !important; }
+    /* Botón a lo ancho: se toca con el pulgar sin apuntar. */
+    .cf-btn-wrap { width: 100% !important; }
+    .cf-btn { display: block !important; text-align: center !important; }
+    .cf-stack { display: block !important; width: 100% !important; padding: 0 0 10px 0 !important; }
+    .cf-h1 { font-size: 26px !important; line-height: 34px !important; }
+    .cf-h2 { font-size: 20px !important; line-height: 28px !important; }
+  }
+  /* Dark mode: solo se retocan los fondos y el texto principal. El resto de
+     colores son de marca y deben sobrevivir a la inversión tal cual. */
+  @media (prefers-color-scheme: dark) {
+    .cf-body, .cf-body-bg { background-color: #0b1220 !important; }
+    .cf-card { background-color: #131c2e !important; }
+    .cf-ink { color: #e5e7eb !important; }
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body class=&quot;cf-body&quot; style=&quot;margin:0;padding:0;background-color:#f4f5f7;&quot;&gt;
+&lt;div style=&quot;display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f5f7;opacity:0;&quot;&gt;Tu compra está confirmada. Aquí tienes el resumen.&amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &lt;/div&gt;
+&lt;center class=&quot;cf-body-bg&quot; style=&quot;width:100%;background-color:#f4f5f7;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f5f7;&quot;&gt;
+&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:32px 10px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; class=&quot;cf-container cf-card&quot; width=&quot;600&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:600px;max-width:100%;background-color:#ffffff;border-radius:12px;&quot;&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:24px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:0px 0 16px 0;text-align:center;&quot;&gt;&lt;div class=&quot;cf-h1&quot; style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:30px;line-height:38px;font-weight:700;color:#111827;&quot;&gt;¡Mil gracias!&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#6b7280;padding-top:10px;&quot;&gt;Tu compra ya está confirmada. Nos hace muy felices que nos hayas elegido.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 24px 0;&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:22px;line-height:30px;font-weight:700;color:#111827;padding-bottom:6px;&quot;&gt;Resumen de tu pedido&lt;/div&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:12px 0;border-bottom:1px solid #e5e7eb;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:22px;color:#111827;&quot;&gt;Producto o servicio&lt;span style=&quot;color:#6b7280;&quot;&gt; × 1&lt;/span&gt;&lt;/td&gt;&lt;td align=&quot;right&quot; style=&quot;padding:12px 0;border-bottom:1px solid #e5e7eb;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:22px;color:#111827;white-space:nowrap;&quot;&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:12px 0;border-bottom:1px solid #e5e7eb;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:22px;color:#111827;&quot;&gt;Otro concepto&lt;span style=&quot;color:#6b7280;&quot;&gt; × 1&lt;/span&gt;&lt;/td&gt;&lt;td align=&quot;right&quot; style=&quot;padding:12px 0;border-bottom:1px solid #e5e7eb;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:22px;color:#111827;white-space:nowrap;&quot;&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:8px 0 0 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:24px;color:#6b7280;&quot;&gt;Subtotal&lt;/td&gt;&lt;td align=&quot;right&quot; style=&quot;padding:8px 0 0 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:24px;color:#6b7280;white-space:nowrap;&quot;&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&quot;padding:8px 0 0 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:17px;line-height:24px;font-weight:700;color:#111827;&quot;&gt;Total&lt;/td&gt;&lt;td align=&quot;right&quot; style=&quot;padding:8px 0 0 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:17px;line-height:24px;font-weight:700;color:#111827;white-space:nowrap;&quot;&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#6b7280;padding-top:12px;&quot;&gt;Si algo no llega como esperabas, respóndenos a este correo y lo resolvemos.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; bgcolor=&quot;#eef2ff&quot; style=&quot;background-color:#eef2ff;padding:28px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:0px 0 16px 0;text-align:center;&quot;&gt;&lt;span style=&quot;font-size:22px;line-height:26px;color:#f59e0b;letter-spacing:2px;&quot;&gt;★★★★★&lt;span style=&quot;color:#e5e7eb;&quot;&gt;&lt;/span&gt;&lt;/span&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#6b7280;padding-top:6px;&quot;&gt;¿Nos regalas un minuto?&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#111827;text-align:center;&quot;&gt;Tu opinión ayuda a que más personas nos conozcan — y a que mejoremos lo que haga falta.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:8px 0 24px 0;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:50px;v-text-anchor:middle;width:223px;&quot; arcsize=&quot;16%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#4f46e5&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#ffffff;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;&quot;&gt;Dejar mi opinión&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#4f46e5&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:14px 32px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;&quot;&gt;Dejar mi opinión&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:24px 0 8px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Recibiste este correo porque estás en nuestra lista de contactos.&lt;br&gt;Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/center&gt;
+&lt;/body&gt;
+&lt;/html&gt;"></iframe>
+      </div>
+      <details>
+        <summary>Fallback de texto plano (575 caracteres)</summary>
+        <pre>Tu compra está confirmada. Aquí tienes el resumen.
+
+¡Mil gracias!
+Tu compra ya está confirmada. Nos hace muy felices que nos hayas elegido.
+
+Resumen de tu pedido
+- Producto o servicio x1
+- Otro concepto x1
+Subtotal: 
+Total: 
+Si algo no llega como esperabas, respóndenos a este correo y lo resolvemos.
+
+★★★★★ ¿Nos regalas un minuto?
+
+Tu opinión ayuda a que más personas nos conozcan — y a que mejoremos lo que haga falta.
+
+Dejar mi opinión
+
+Recibiste este correo porque estás en nuestra lista de contactos.
+Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
+      </details>
+      <p class="meta">10.337 bytes · plantilla 2 de 9</p>
+    </section>
+
+    <section class="tarjeta">
+      <header>
+        <h2>Promoción</h2>
+        <p class="asunto">Asunto: <b>Una oferta pensada para ti</b></p>
+        <p class="pre">Vista previa: Por tiempo limitado: aprovecha tu descuento.</p>
+      </header>
+      <div class="marco">
+        <iframe title="Promoción" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot; /&gt;
+&lt;meta name=&quot;x-apple-disable-message-reformatting&quot; /&gt;
+&lt;meta name=&quot;color-scheme&quot; content=&quot;light dark&quot; /&gt;
+&lt;meta name=&quot;supported-color-schemes&quot; content=&quot;light dark&quot; /&gt;
+&lt;title&gt;Una oferta pensada para ti&lt;/title&gt;
+&lt;!--[if mso]&gt;&lt;xml&gt;&lt;o:OfficeDocumentSettings&gt;&lt;o:PixelsPerInch&gt;96&lt;/o:PixelsPerInch&gt;&lt;/o:OfficeDocumentSettings&gt;&lt;/xml&gt;&lt;![endif]--&gt;
+&lt;style&gt;
+  /* Mejora progresiva: los clientes que ignoran &lt;style&gt; (Outlook escritorio)
+     ven la versión de escritorio, que funciona igual porque todo va inline. */
+  :root { color-scheme: light dark; supported-color-schemes: light dark; }
+  body { margin:0; padding:0; width:100% !important; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+  table { border-collapse:collapse; }
+  img { -ms-interpolation-mode:bicubic; }
+  a { text-decoration:none; }
+  @media only screen and (max-width: 620px) {
+    .cf-container { width: 100% !important; }
+    /* Apilar columnas: el &lt;td&gt; pasa a bloque al 100% y pierde el canalón. */
+    .cf-col { display: block !important; width: 100% !important; padding: 0 !important; }
+    .cf-pad { padding-left: 20px !important; padding-right: 20px !important; }
+    /* Botón a lo ancho: se toca con el pulgar sin apuntar. */
+    .cf-btn-wrap { width: 100% !important; }
+    .cf-btn { display: block !important; text-align: center !important; }
+    .cf-stack { display: block !important; width: 100% !important; padding: 0 0 10px 0 !important; }
+    .cf-h1 { font-size: 26px !important; line-height: 34px !important; }
+    .cf-h2 { font-size: 20px !important; line-height: 28px !important; }
+  }
+  /* Dark mode: solo se retocan los fondos y el texto principal. El resto de
+     colores son de marca y deben sobrevivir a la inversión tal cual. */
+  @media (prefers-color-scheme: dark) {
+    .cf-body, .cf-body-bg { background-color: #0b1220 !important; }
+    .cf-card { background-color: #131c2e !important; }
+    .cf-ink { color: #e5e7eb !important; }
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body class=&quot;cf-body&quot; style=&quot;margin:0;padding:0;background-color:#f4f5f7;&quot;&gt;
+&lt;div style=&quot;display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f5f7;opacity:0;&quot;&gt;Por tiempo limitado: aprovecha tu descuento.&amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &lt;/div&gt;
+&lt;center class=&quot;cf-body-bg&quot; style=&quot;width:100%;background-color:#f4f5f7;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f5f7;&quot;&gt;
+&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:32px 10px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; class=&quot;cf-container cf-card&quot; width=&quot;600&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:600px;max-width:100%;background-color:#ffffff;border-radius:12px;&quot;&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;background-color:#4f46e5;padding:40px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:0px 0 16px 0;text-align:center;&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#ffffff;padding-bottom:8px;&quot;&gt;Solo por unos días&lt;/div&gt;&lt;div class=&quot;cf-h1&quot; style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:30px;line-height:38px;font-weight:700;color:#ffffff;&quot;&gt;Una oferta difícil de ignorar&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:0px 0px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:24px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#111827;text-align:center;&quot;&gt;Preparamos una promoción especial para nuestros clientes. Es por tiempo limitado, así que no la dejes pasar.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;50%&quot; valign=&quot;top&quot; style=&quot;width:50%;vertical-align:top;padding:0 8px 0 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; bgcolor=&quot;#ffffff&quot; style=&quot;border:1px solid #e5e7eb;border-radius:8px;&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:18px 20px 20px 20px;&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:17px;line-height:24px;font-weight:700;color:#111827;&quot;&gt;Primer producto&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:23px;color:#6b7280;padding-top:6px;&quot;&gt;Una línea diciendo qué es.&lt;/div&gt;&lt;div style=&quot;padding-top:14px;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:43px;v-text-anchor:middle;width:150px;&quot; arcsize=&quot;19%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#4f46e5&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#ffffff;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;font-weight:bold;&quot;&gt;Ver&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#4f46e5&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:11px 24px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;&quot;&gt;Ver&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;td class=&quot;cf-col&quot; width=&quot;50%&quot; valign=&quot;top&quot; style=&quot;width:50%;vertical-align:top;padding:0 0 0 8px;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; bgcolor=&quot;#ffffff&quot; style=&quot;border:1px solid #e5e7eb;border-radius:8px;&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:18px 20px 20px 20px;&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:17px;line-height:24px;font-weight:700;color:#111827;&quot;&gt;Segundo producto&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:23px;color:#6b7280;padding-top:6px;&quot;&gt;Una línea diciendo qué es.&lt;/div&gt;&lt;div style=&quot;padding-top:14px;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:43px;v-text-anchor:middle;width:150px;&quot; arcsize=&quot;19%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#4f46e5&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#ffffff;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;font-weight:bold;&quot;&gt;Ver&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#4f46e5&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:11px 24px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;&quot;&gt;Ver&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:4px 0 24px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; align=&quot;center&quot; bgcolor=&quot;#eef2ff&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:16px 30px;border:2px dashed #4f46e5;border-radius:8px;&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#6b7280;padding-bottom:6px;&quot;&gt;Usa este código al pagar&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:24px;line-height:30px;font-weight:700;letter-spacing:3px;color:#4f46e5;&quot;&gt;BIENVENIDO&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#6b7280;padding-top:8px;&quot;&gt;Válido hasta agotar existencias.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:8px 0 24px 0;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:50px;v-text-anchor:middle;width:252px;&quot; arcsize=&quot;16%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#4f46e5&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#ffffff;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;&quot;&gt;Quiero mi descuento&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#4f46e5&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:14px 32px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;&quot;&gt;Quiero mi descuento&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Aplican términos y condiciones. La promoción no es acumulable con otras.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:12px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;border-top:1px solid #e5e7eb;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:24px 0 8px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Recibiste este correo porque estás en nuestra lista de contactos.&lt;br&gt;Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/center&gt;
+&lt;/body&gt;
+&lt;/html&gt;"></iframe>
+      </div>
+      <details>
+        <summary>Fallback de texto plano (632 caracteres)</summary>
+        <pre>Por tiempo limitado: aprovecha tu descuento.
+
+Solo por unos días
+Una oferta difícil de ignorar
+
+[Imagen de la promoción]
+
+Preparamos una promoción especial para nuestros clientes. Es por tiempo limitado, así que no la dejes pasar.
+
+Primer producto
+Una línea diciendo qué es.
+Ver
+
+Segundo producto
+Una línea diciendo qué es.
+Ver
+
+Usa este código al pagar
+BIENVENIDO
+Válido hasta agotar existencias.
+
+Quiero mi descuento
+
+Aplican términos y condiciones. La promoción no es acumulable con otras.
+
+—
+
+Recibiste este correo porque estás en nuestra lista de contactos.
+Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
+      </details>
+      <p class="meta">12.933 bytes · plantilla 3 de 9</p>
+    </section>
+
+    <section class="tarjeta">
+      <header>
+        <h2>Novedades</h2>
+        <p class="asunto">Asunto: <b>Esto es lo nuevo que tenemos para contarte</b></p>
+        <p class="pre">Vista previa: Un resumen rápido de lo que ha pasado y lo que viene.</p>
+      </header>
+      <div class="marco">
+        <iframe title="Novedades" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot; /&gt;
+&lt;meta name=&quot;x-apple-disable-message-reformatting&quot; /&gt;
+&lt;meta name=&quot;color-scheme&quot; content=&quot;light dark&quot; /&gt;
+&lt;meta name=&quot;supported-color-schemes&quot; content=&quot;light dark&quot; /&gt;
+&lt;title&gt;Esto es lo nuevo que tenemos para contarte&lt;/title&gt;
+&lt;!--[if mso]&gt;&lt;xml&gt;&lt;o:OfficeDocumentSettings&gt;&lt;o:PixelsPerInch&gt;96&lt;/o:PixelsPerInch&gt;&lt;/o:OfficeDocumentSettings&gt;&lt;/xml&gt;&lt;![endif]--&gt;
+&lt;style&gt;
+  /* Mejora progresiva: los clientes que ignoran &lt;style&gt; (Outlook escritorio)
+     ven la versión de escritorio, que funciona igual porque todo va inline. */
+  :root { color-scheme: light dark; supported-color-schemes: light dark; }
+  body { margin:0; padding:0; width:100% !important; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+  table { border-collapse:collapse; }
+  img { -ms-interpolation-mode:bicubic; }
+  a { text-decoration:none; }
+  @media only screen and (max-width: 620px) {
+    .cf-container { width: 100% !important; }
+    /* Apilar columnas: el &lt;td&gt; pasa a bloque al 100% y pierde el canalón. */
+    .cf-col { display: block !important; width: 100% !important; padding: 0 !important; }
+    .cf-pad { padding-left: 20px !important; padding-right: 20px !important; }
+    /* Botón a lo ancho: se toca con el pulgar sin apuntar. */
+    .cf-btn-wrap { width: 100% !important; }
+    .cf-btn { display: block !important; text-align: center !important; }
+    .cf-stack { display: block !important; width: 100% !important; padding: 0 0 10px 0 !important; }
+    .cf-h1 { font-size: 26px !important; line-height: 34px !important; }
+    .cf-h2 { font-size: 20px !important; line-height: 28px !important; }
+  }
+  /* Dark mode: solo se retocan los fondos y el texto principal. El resto de
+     colores son de marca y deben sobrevivir a la inversión tal cual. */
+  @media (prefers-color-scheme: dark) {
+    .cf-body, .cf-body-bg { background-color: #0b1220 !important; }
+    .cf-card { background-color: #131c2e !important; }
+    .cf-ink { color: #e5e7eb !important; }
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body class=&quot;cf-body&quot; style=&quot;margin:0;padding:0;background-color:#f4f5f7;&quot;&gt;
+&lt;div style=&quot;display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f5f7;opacity:0;&quot;&gt;Un resumen rápido de lo que ha pasado y lo que viene.&amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &lt;/div&gt;
+&lt;center class=&quot;cf-body-bg&quot; style=&quot;width:100%;background-color:#f4f5f7;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f5f7;&quot;&gt;
+&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:32px 10px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; class=&quot;cf-container cf-card&quot; width=&quot;600&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:600px;max-width:100%;background-color:#ffffff;border-radius:12px;&quot;&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:24px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;left&quot; style=&quot;padding:0px 0 16px 0;text-align:left;&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#4f46e5;padding-bottom:8px;&quot;&gt;Boletín&lt;/div&gt;&lt;div class=&quot;cf-h1&quot; style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:30px;line-height:38px;font-weight:700;color:#111827;&quot;&gt;Novedades del mes&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#6b7280;padding-top:10px;&quot;&gt;Lo que ha pasado por aquí y lo que viene, en dos minutos.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:12px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;border-top:1px solid #e5e7eb;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;50%&quot; valign=&quot;top&quot; style=&quot;width:50%;vertical-align:top;padding:0 8px 0 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;left&quot; style=&quot;padding:0px 0 16px 0;text-align:left;&quot;&gt;&lt;div class=&quot;cf-h2&quot; style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:22px;line-height:30px;font-weight:700;color:#111827;&quot;&gt;Lo más destacado&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#111827;text-align:left;&quot;&gt;La noticia principal: un producto nuevo, un cambio de horario, una apertura…&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;td class=&quot;cf-col&quot; width=&quot;50%&quot; valign=&quot;top&quot; style=&quot;width:50%;vertical-align:top;padding:0 0 0 8px;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;left&quot; style=&quot;padding:0px 0 16px 0;text-align:left;&quot;&gt;&lt;div class=&quot;cf-h2&quot; style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:22px;line-height:30px;font-weight:700;color:#111827;&quot;&gt;También te interesa&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#111827;text-align:left;&quot;&gt;Un segundo tema, más breve. Dos o tres líneas bastan.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:12px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;border-top:1px solid #e5e7eb;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; bgcolor=&quot;#eef2ff&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;tr&gt;&lt;td width=&quot;4&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;width:4px;font-size:0;line-height:0;border-radius:8px 0 0 8px;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;td style=&quot;padding:18px 22px;&quot;&gt;&lt;div style=&quot;padding-bottom:8px;&quot;&gt;&lt;span style=&quot;font-size:16px;line-height:19px;color:#f59e0b;letter-spacing:2px;&quot;&gt;★★★★★&lt;span style=&quot;color:#e5e7eb;&quot;&gt;&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#111827;font-style:italic;&quot;&gt;«Vengo cada semana desde que abrieron. El trato es lo que marca la diferencia.»&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#6b7280;padding-top:10px;&quot;&gt;Un cliente de siempre&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:8px 0 24px 0;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:50px;v-text-anchor:middle;width:292px;&quot; arcsize=&quot;16%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#4f46e5&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#ffffff;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;&quot;&gt;Ver todas las novedades&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#4f46e5&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:14px 32px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;&quot;&gt;Ver todas las novedades&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:24px 0 8px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Recibiste este correo porque estás en nuestra lista de contactos.&lt;br&gt;Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/center&gt;
+&lt;/body&gt;
+&lt;/html&gt;"></iframe>
+      </div>
+      <details>
+        <summary>Fallback de texto plano (647 caracteres)</summary>
+        <pre>Un resumen rápido de lo que ha pasado y lo que viene.
+
+Boletín
+Novedades del mes
+Lo que ha pasado por aquí y lo que viene, en dos minutos.
+
+—
+
+[Imagen de la primera novedad]
+
+Lo más destacado
+
+La noticia principal: un producto nuevo, un cambio de horario, una apertura…
+
+[Imagen de la segunda novedad]
+
+También te interesa
+
+Un segundo tema, más breve. Dos o tres líneas bastan.
+
+—
+
+«Vengo cada semana desde que abrieron. El trato es lo que marca la diferencia.» — Un cliente de siempre
+
+Ver todas las novedades
+
+Recibiste este correo porque estás en nuestra lista de contactos.
+Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
+      </details>
+      <p class="meta">11.006 bytes · plantilla 4 de 9</p>
+    </section>
+
+    <section class="tarjeta">
+      <header>
+        <h2>Recordatorio de cita</h2>
+        <p class="asunto">Asunto: <b>Te esperamos: recuerda tu cita</b></p>
+        <p class="pre">Vista previa: Recuerda tu próxima cita: aquí están los datos.</p>
+      </header>
+      <div class="marco">
+        <iframe title="Recordatorio de cita" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot; /&gt;
+&lt;meta name=&quot;x-apple-disable-message-reformatting&quot; /&gt;
+&lt;meta name=&quot;color-scheme&quot; content=&quot;light dark&quot; /&gt;
+&lt;meta name=&quot;supported-color-schemes&quot; content=&quot;light dark&quot; /&gt;
+&lt;title&gt;Te esperamos: recuerda tu cita&lt;/title&gt;
+&lt;!--[if mso]&gt;&lt;xml&gt;&lt;o:OfficeDocumentSettings&gt;&lt;o:PixelsPerInch&gt;96&lt;/o:PixelsPerInch&gt;&lt;/o:OfficeDocumentSettings&gt;&lt;/xml&gt;&lt;![endif]--&gt;
+&lt;style&gt;
+  /* Mejora progresiva: los clientes que ignoran &lt;style&gt; (Outlook escritorio)
+     ven la versión de escritorio, que funciona igual porque todo va inline. */
+  :root { color-scheme: light dark; supported-color-schemes: light dark; }
+  body { margin:0; padding:0; width:100% !important; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+  table { border-collapse:collapse; }
+  img { -ms-interpolation-mode:bicubic; }
+  a { text-decoration:none; }
+  @media only screen and (max-width: 620px) {
+    .cf-container { width: 100% !important; }
+    /* Apilar columnas: el &lt;td&gt; pasa a bloque al 100% y pierde el canalón. */
+    .cf-col { display: block !important; width: 100% !important; padding: 0 !important; }
+    .cf-pad { padding-left: 20px !important; padding-right: 20px !important; }
+    /* Botón a lo ancho: se toca con el pulgar sin apuntar. */
+    .cf-btn-wrap { width: 100% !important; }
+    .cf-btn { display: block !important; text-align: center !important; }
+    .cf-stack { display: block !important; width: 100% !important; padding: 0 0 10px 0 !important; }
+    .cf-h1 { font-size: 26px !important; line-height: 34px !important; }
+    .cf-h2 { font-size: 20px !important; line-height: 28px !important; }
+  }
+  /* Dark mode: solo se retocan los fondos y el texto principal. El resto de
+     colores son de marca y deben sobrevivir a la inversión tal cual. */
+  @media (prefers-color-scheme: dark) {
+    .cf-body, .cf-body-bg { background-color: #0b1220 !important; }
+    .cf-card { background-color: #131c2e !important; }
+    .cf-ink { color: #e5e7eb !important; }
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body class=&quot;cf-body&quot; style=&quot;margin:0;padding:0;background-color:#f4f5f7;&quot;&gt;
+&lt;div style=&quot;display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f5f7;opacity:0;&quot;&gt;Recuerda tu próxima cita: aquí están los datos.&amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &lt;/div&gt;
+&lt;center class=&quot;cf-body-bg&quot; style=&quot;width:100%;background-color:#f4f5f7;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f5f7;&quot;&gt;
+&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:32px 10px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; class=&quot;cf-container cf-card&quot; width=&quot;600&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:600px;max-width:100%;background-color:#ffffff;border-radius:12px;&quot;&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; bgcolor=&quot;#111827&quot; style=&quot;background-color:#111827;padding:36px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:0px 0 16px 0;text-align:center;&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#ffffff;padding-bottom:8px;&quot;&gt;Recordatorio&lt;/div&gt;&lt;div class=&quot;cf-h1&quot; style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:30px;line-height:38px;font-weight:700;color:#ffffff;&quot;&gt;¡No se te olvide!&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#6b7280;padding-top:10px;&quot;&gt;Te escribimos para recordarte tu próxima cita con nosotros.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:24px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td width=&quot;44&quot; valign=&quot;top&quot; style=&quot;width:44px;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td width=&quot;44&quot; height=&quot;44&quot; align=&quot;center&quot; valign=&quot;middle&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;width:44px;height:44px;border-radius:22px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:20px;line-height:44px;color:#ffffff;text-align:center;&quot;&gt;📅&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;td width=&quot;14&quot; style=&quot;width:14px;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;td valign=&quot;top&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:17px;line-height:24px;font-weight:700;color:#111827;&quot;&gt;Fecha y hora&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:24px;color:#6b7280;padding-top:4px;&quot;&gt;Escribe aquí el día y la hora.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td width=&quot;44&quot; valign=&quot;top&quot; style=&quot;width:44px;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td width=&quot;44&quot; height=&quot;44&quot; align=&quot;center&quot; valign=&quot;middle&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;width:44px;height:44px;border-radius:22px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:20px;line-height:44px;color:#ffffff;text-align:center;&quot;&gt;📍&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;td width=&quot;14&quot; style=&quot;width:14px;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;td valign=&quot;top&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:17px;line-height:24px;font-weight:700;color:#111827;&quot;&gt;Dónde&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:24px;color:#6b7280;padding-top:4px;&quot;&gt;Escribe aquí la dirección exacta.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td width=&quot;44&quot; valign=&quot;top&quot; style=&quot;width:44px;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td width=&quot;44&quot; height=&quot;44&quot; align=&quot;center&quot; valign=&quot;middle&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;width:44px;height:44px;border-radius:22px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:20px;line-height:44px;color:#ffffff;text-align:center;&quot;&gt;⏱️&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;td width=&quot;14&quot; style=&quot;width:14px;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;td valign=&quot;top&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:17px;line-height:24px;font-weight:700;color:#111827;&quot;&gt;Cuánto dura&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:24px;color:#6b7280;padding-top:4px;&quot;&gt;Escribe aquí la duración aproximada.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:8px 0 24px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; align=&quot;center&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-stack&quot; style=&quot;padding:0 6px 0 0;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:50px;v-text-anchor:middle;width:250px;&quot; arcsize=&quot;16%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#4f46e5&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#ffffff;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;&quot;&gt;Confirmar asistencia&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#4f46e5&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:14px 26px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;&quot;&gt;Confirmar asistencia&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/td&gt;&lt;td class=&quot;cf-stack&quot; style=&quot;padding:0 0 0 6px;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:50px;v-text-anchor:middle;width:231px;&quot; arcsize=&quot;16%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#ffffff&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#4f46e5;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;&quot;&gt;Necesito cambiarla&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#ffffff&quot; style=&quot;border-radius:8px;border:2px solid #4f46e5;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:14px 26px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:700;line-height:1.2;color:#4f46e5;text-decoration:none;border-radius:8px;&quot;&gt;Necesito cambiarla&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Si no puedes asistir, avísanos con tiempo y la reagendamos sin problema.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:12px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;border-top:1px solid #e5e7eb;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:24px 0 8px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Recibiste este correo porque estás en nuestra lista de contactos.&lt;br&gt;Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/center&gt;
+&lt;/body&gt;
+&lt;/html&gt;"></iframe>
+      </div>
+      <details>
+        <summary>Fallback de texto plano (530 caracteres)</summary>
+        <pre>Recuerda tu próxima cita: aquí están los datos.
+
+Recordatorio
+¡No se te olvide!
+Te escribimos para recordarte tu próxima cita con nosotros.
+
+Fecha y hora
+Escribe aquí el día y la hora.
+
+Dónde
+Escribe aquí la dirección exacta.
+
+Cuánto dura
+Escribe aquí la duración aproximada.
+
+Confirmar asistencia
+Necesito cambiarla
+
+Si no puedes asistir, avísanos con tiempo y la reagendamos sin problema.
+
+—
+
+Recibiste este correo porque estás en nuestra lista de contactos.
+Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
+      </details>
+      <p class="meta">12.289 bytes · plantilla 5 de 9</p>
+    </section>
+
+    <section class="tarjeta">
+      <header>
+        <h2>Te extrañamos</h2>
+        <p class="asunto">Asunto: <b>Hace tiempo que no te vemos</b></p>
+        <p class="pre">Vista previa: Hace tiempo que no te vemos: tenemos algo para que vuelvas.</p>
+      </header>
+      <div class="marco">
+        <iframe title="Te extrañamos" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot; /&gt;
+&lt;meta name=&quot;x-apple-disable-message-reformatting&quot; /&gt;
+&lt;meta name=&quot;color-scheme&quot; content=&quot;light dark&quot; /&gt;
+&lt;meta name=&quot;supported-color-schemes&quot; content=&quot;light dark&quot; /&gt;
+&lt;title&gt;Hace tiempo que no te vemos&lt;/title&gt;
+&lt;!--[if mso]&gt;&lt;xml&gt;&lt;o:OfficeDocumentSettings&gt;&lt;o:PixelsPerInch&gt;96&lt;/o:PixelsPerInch&gt;&lt;/o:OfficeDocumentSettings&gt;&lt;/xml&gt;&lt;![endif]--&gt;
+&lt;style&gt;
+  /* Mejora progresiva: los clientes que ignoran &lt;style&gt; (Outlook escritorio)
+     ven la versión de escritorio, que funciona igual porque todo va inline. */
+  :root { color-scheme: light dark; supported-color-schemes: light dark; }
+  body { margin:0; padding:0; width:100% !important; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+  table { border-collapse:collapse; }
+  img { -ms-interpolation-mode:bicubic; }
+  a { text-decoration:none; }
+  @media only screen and (max-width: 620px) {
+    .cf-container { width: 100% !important; }
+    /* Apilar columnas: el &lt;td&gt; pasa a bloque al 100% y pierde el canalón. */
+    .cf-col { display: block !important; width: 100% !important; padding: 0 !important; }
+    .cf-pad { padding-left: 20px !important; padding-right: 20px !important; }
+    /* Botón a lo ancho: se toca con el pulgar sin apuntar. */
+    .cf-btn-wrap { width: 100% !important; }
+    .cf-btn { display: block !important; text-align: center !important; }
+    .cf-stack { display: block !important; width: 100% !important; padding: 0 0 10px 0 !important; }
+    .cf-h1 { font-size: 26px !important; line-height: 34px !important; }
+    .cf-h2 { font-size: 20px !important; line-height: 28px !important; }
+  }
+  /* Dark mode: solo se retocan los fondos y el texto principal. El resto de
+     colores son de marca y deben sobrevivir a la inversión tal cual. */
+  @media (prefers-color-scheme: dark) {
+    .cf-body, .cf-body-bg { background-color: #0b1220 !important; }
+    .cf-card { background-color: #131c2e !important; }
+    .cf-ink { color: #e5e7eb !important; }
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body class=&quot;cf-body&quot; style=&quot;margin:0;padding:0;background-color:#f4f5f7;&quot;&gt;
+&lt;div style=&quot;display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f5f7;opacity:0;&quot;&gt;Hace tiempo que no te vemos: tenemos algo para que vuelvas.&amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &lt;/div&gt;
+&lt;center class=&quot;cf-body-bg&quot; style=&quot;width:100%;background-color:#f4f5f7;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f5f7;&quot;&gt;
+&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:32px 10px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; class=&quot;cf-container cf-card&quot; width=&quot;600&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:600px;max-width:100%;background-color:#ffffff;border-radius:12px;&quot;&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:24px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:16px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:0px 0 16px 0;text-align:center;&quot;&gt;&lt;div class=&quot;cf-h1&quot; style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:30px;line-height:38px;font-weight:700;color:#111827;&quot;&gt;Hace tiempo que no te vemos&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#6b7280;padding-top:10px;&quot;&gt;Y se nota. Queremos que vuelvas, así que te lo ponemos fácil.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; bgcolor=&quot;#eef2ff&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;tr&gt;&lt;td width=&quot;4&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;width:4px;font-size:0;line-height:0;border-radius:8px 0 0 8px;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;td style=&quot;padding:18px 22px;&quot;&gt;&lt;div style=&quot;padding-bottom:8px;&quot;&gt;&lt;span style=&quot;font-size:16px;line-height:19px;color:#f59e0b;letter-spacing:2px;&quot;&gt;★★★★★&lt;span style=&quot;color:#e5e7eb;&quot;&gt;&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#111827;font-style:italic;&quot;&gt;«Volví después de meses y seguía siendo igual de bueno. Me alegró el día.»&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#6b7280;padding-top:10px;&quot;&gt;Otro cliente que volvió&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; bgcolor=&quot;#eef2ff&quot; style=&quot;background-color:#eef2ff;padding:28px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:4px 0 24px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; align=&quot;center&quot; bgcolor=&quot;#eef2ff&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:16px 30px;border:2px dashed #4f46e5;border-radius:8px;&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#6b7280;padding-bottom:6px;&quot;&gt;Un motivo para pasarte&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:24px;line-height:30px;font-weight:700;letter-spacing:3px;color:#4f46e5;&quot;&gt;VUELVE&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#6b7280;padding-top:8px;&quot;&gt;Enséñalo al llegar. Válido durante los próximos 30 días.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:8px 0 24px 0;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:50px;v-text-anchor:middle;width:193px;&quot; arcsize=&quot;16%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#4f46e5&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#ffffff;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;&quot;&gt;Quiero volver&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#4f46e5&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:14px 32px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;&quot;&gt;Quiero volver&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Si prefieres que dejemos de escribirte, respóndenos con la palabra BAJA y listo.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:12px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;border-top:1px solid #e5e7eb;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:24px 0 8px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Recibiste este correo porque estás en nuestra lista de contactos.&lt;br&gt;Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/center&gt;
+&lt;/body&gt;
+&lt;/html&gt;"></iframe>
+      </div>
+      <details>
+        <summary>Fallback de texto plano (577 caracteres)</summary>
+        <pre>Hace tiempo que no te vemos: tenemos algo para que vuelvas.
+
+Hace tiempo que no te vemos
+Y se nota. Queremos que vuelvas, así que te lo ponemos fácil.
+
+«Volví después de meses y seguía siendo igual de bueno. Me alegró el día.» — Otro cliente que volvió
+
+Un motivo para pasarte
+VUELVE
+Enséñalo al llegar. Válido durante los próximos 30 días.
+
+Quiero volver
+
+Si prefieres que dejemos de escribirte, respóndenos con la palabra BAJA y listo.
+
+—
+
+Recibiste este correo porque estás en nuestra lista de contactos.
+Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
+      </details>
+      <p class="meta">10.059 bytes · plantilla 6 de 9</p>
+    </section>
+
+    <section class="tarjeta">
+      <header>
+        <h2>Cumpleaños</h2>
+        <p class="asunto">Asunto: <b>🎉 Feliz cumpleaños</b></p>
+        <p class="pre">Vista previa: Es tu día y tenemos un detalle esperándote.</p>
+      </header>
+      <div class="marco">
+        <iframe title="Cumpleaños" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot; /&gt;
+&lt;meta name=&quot;x-apple-disable-message-reformatting&quot; /&gt;
+&lt;meta name=&quot;color-scheme&quot; content=&quot;light dark&quot; /&gt;
+&lt;meta name=&quot;supported-color-schemes&quot; content=&quot;light dark&quot; /&gt;
+&lt;title&gt;🎉 Feliz cumpleaños&lt;/title&gt;
+&lt;!--[if mso]&gt;&lt;xml&gt;&lt;o:OfficeDocumentSettings&gt;&lt;o:PixelsPerInch&gt;96&lt;/o:PixelsPerInch&gt;&lt;/o:OfficeDocumentSettings&gt;&lt;/xml&gt;&lt;![endif]--&gt;
+&lt;style&gt;
+  /* Mejora progresiva: los clientes que ignoran &lt;style&gt; (Outlook escritorio)
+     ven la versión de escritorio, que funciona igual porque todo va inline. */
+  :root { color-scheme: light dark; supported-color-schemes: light dark; }
+  body { margin:0; padding:0; width:100% !important; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+  table { border-collapse:collapse; }
+  img { -ms-interpolation-mode:bicubic; }
+  a { text-decoration:none; }
+  @media only screen and (max-width: 620px) {
+    .cf-container { width: 100% !important; }
+    /* Apilar columnas: el &lt;td&gt; pasa a bloque al 100% y pierde el canalón. */
+    .cf-col { display: block !important; width: 100% !important; padding: 0 !important; }
+    .cf-pad { padding-left: 20px !important; padding-right: 20px !important; }
+    /* Botón a lo ancho: se toca con el pulgar sin apuntar. */
+    .cf-btn-wrap { width: 100% !important; }
+    .cf-btn { display: block !important; text-align: center !important; }
+    .cf-stack { display: block !important; width: 100% !important; padding: 0 0 10px 0 !important; }
+    .cf-h1 { font-size: 26px !important; line-height: 34px !important; }
+    .cf-h2 { font-size: 20px !important; line-height: 28px !important; }
+  }
+  /* Dark mode: solo se retocan los fondos y el texto principal. El resto de
+     colores son de marca y deben sobrevivir a la inversión tal cual. */
+  @media (prefers-color-scheme: dark) {
+    .cf-body, .cf-body-bg { background-color: #0b1220 !important; }
+    .cf-card { background-color: #131c2e !important; }
+    .cf-ink { color: #e5e7eb !important; }
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body class=&quot;cf-body&quot; style=&quot;margin:0;padding:0;background-color:#f4f5f7;&quot;&gt;
+&lt;div style=&quot;display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f5f7;opacity:0;&quot;&gt;Es tu día y tenemos un detalle esperándote.&amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &lt;/div&gt;
+&lt;center class=&quot;cf-body-bg&quot; style=&quot;width:100%;background-color:#f4f5f7;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f5f7;&quot;&gt;
+&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:32px 10px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; class=&quot;cf-container cf-card&quot; width=&quot;600&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:600px;max-width:100%;background-color:#ffffff;border-radius:12px;&quot;&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; bgcolor=&quot;#eef2ff&quot; style=&quot;background-color:#eef2ff;padding:34px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:0px 0 16px 0;text-align:center;&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#4f46e5;padding-bottom:8px;&quot;&gt;Hoy es tu día&lt;/div&gt;&lt;div class=&quot;cf-h1&quot; style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:30px;line-height:38px;font-weight:700;color:#111827;&quot;&gt;¡Feliz cumpleaños!&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#111827;text-align:center;&quot;&gt;Queríamos ser de los primeros en desearte un buen día. Y no venimos con las manos vacías.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:4px 0 24px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; align=&quot;center&quot; bgcolor=&quot;#eef2ff&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:16px 30px;border:2px dashed #4f46e5;border-radius:8px;&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#6b7280;padding-bottom:6px;&quot;&gt;Tu regalo de cumpleaños&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:24px;line-height:30px;font-weight:700;letter-spacing:3px;color:#4f46e5;&quot;&gt;CUMPLE&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#6b7280;padding-top:8px;&quot;&gt;Válido durante todo el mes. Solo tienes que enseñarlo.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td width=&quot;44&quot; valign=&quot;top&quot; style=&quot;width:44px;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td width=&quot;44&quot; height=&quot;44&quot; align=&quot;center&quot; valign=&quot;middle&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;width:44px;height:44px;border-radius:22px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:20px;line-height:44px;color:#ffffff;text-align:center;&quot;&gt;🎂&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;td width=&quot;14&quot; style=&quot;width:14px;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;td valign=&quot;top&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:17px;line-height:24px;font-weight:700;color:#111827;&quot;&gt;Cómo usarlo&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:24px;color:#6b7280;padding-top:4px;&quot;&gt;Enséñanos este correo cuando vengas y nosotros nos encargamos del resto.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:8px 0 24px 0;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:50px;v-text-anchor:middle;width:233px;&quot; arcsize=&quot;16%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#4f46e5&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#ffffff;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;&quot;&gt;Ver dónde estamos&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#4f46e5&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:14px 32px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;&quot;&gt;Ver dónde estamos&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:12px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;border-top:1px solid #e5e7eb;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:24px 0 8px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Recibiste este correo porque estás en nuestra lista de contactos.&lt;br&gt;Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/center&gt;
+&lt;/body&gt;
+&lt;/html&gt;"></iframe>
+      </div>
+      <details>
+        <summary>Fallback de texto plano (500 caracteres)</summary>
+        <pre>Es tu día y tenemos un detalle esperándote.
+
+Hoy es tu día
+¡Feliz cumpleaños!
+
+Queríamos ser de los primeros en desearte un buen día. Y no venimos con las manos vacías.
+
+Tu regalo de cumpleaños
+CUMPLE
+Válido durante todo el mes. Solo tienes que enseñarlo.
+
+Cómo usarlo
+Enséñanos este correo cuando vengas y nosotros nos encargamos del resto.
+
+Ver dónde estamos
+
+—
+
+Recibiste este correo porque estás en nuestra lista de contactos.
+Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
+      </details>
+      <p class="meta">9918 bytes · plantilla 7 de 9</p>
+    </section>
+
+    <section class="tarjeta">
+      <header>
+        <h2>Recompensa lista para canjear</h2>
+        <p class="asunto">Asunto: <b>Tu recompensa ya te está esperando</b></p>
+        <p class="pre">Vista previa: Completaste tu tarjeta: tu recompensa te espera.</p>
+      </header>
+      <div class="marco">
+        <iframe title="Recompensa lista para canjear" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot; /&gt;
+&lt;meta name=&quot;x-apple-disable-message-reformatting&quot; /&gt;
+&lt;meta name=&quot;color-scheme&quot; content=&quot;light dark&quot; /&gt;
+&lt;meta name=&quot;supported-color-schemes&quot; content=&quot;light dark&quot; /&gt;
+&lt;title&gt;Tu recompensa ya te está esperando&lt;/title&gt;
+&lt;!--[if mso]&gt;&lt;xml&gt;&lt;o:OfficeDocumentSettings&gt;&lt;o:PixelsPerInch&gt;96&lt;/o:PixelsPerInch&gt;&lt;/o:OfficeDocumentSettings&gt;&lt;/xml&gt;&lt;![endif]--&gt;
+&lt;style&gt;
+  /* Mejora progresiva: los clientes que ignoran &lt;style&gt; (Outlook escritorio)
+     ven la versión de escritorio, que funciona igual porque todo va inline. */
+  :root { color-scheme: light dark; supported-color-schemes: light dark; }
+  body { margin:0; padding:0; width:100% !important; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+  table { border-collapse:collapse; }
+  img { -ms-interpolation-mode:bicubic; }
+  a { text-decoration:none; }
+  @media only screen and (max-width: 620px) {
+    .cf-container { width: 100% !important; }
+    /* Apilar columnas: el &lt;td&gt; pasa a bloque al 100% y pierde el canalón. */
+    .cf-col { display: block !important; width: 100% !important; padding: 0 !important; }
+    .cf-pad { padding-left: 20px !important; padding-right: 20px !important; }
+    /* Botón a lo ancho: se toca con el pulgar sin apuntar. */
+    .cf-btn-wrap { width: 100% !important; }
+    .cf-btn { display: block !important; text-align: center !important; }
+    .cf-stack { display: block !important; width: 100% !important; padding: 0 0 10px 0 !important; }
+    .cf-h1 { font-size: 26px !important; line-height: 34px !important; }
+    .cf-h2 { font-size: 20px !important; line-height: 28px !important; }
+  }
+  /* Dark mode: solo se retocan los fondos y el texto principal. El resto de
+     colores son de marca y deben sobrevivir a la inversión tal cual. */
+  @media (prefers-color-scheme: dark) {
+    .cf-body, .cf-body-bg { background-color: #0b1220 !important; }
+    .cf-card { background-color: #131c2e !important; }
+    .cf-ink { color: #e5e7eb !important; }
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body class=&quot;cf-body&quot; style=&quot;margin:0;padding:0;background-color:#f4f5f7;&quot;&gt;
+&lt;div style=&quot;display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f5f7;opacity:0;&quot;&gt;Completaste tu tarjeta: tu recompensa te espera.&amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &lt;/div&gt;
+&lt;center class=&quot;cf-body-bg&quot; style=&quot;width:100%;background-color:#f4f5f7;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f5f7;&quot;&gt;
+&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:32px 10px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; class=&quot;cf-container cf-card&quot; width=&quot;600&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:600px;max-width:100%;background-color:#ffffff;border-radius:12px;&quot;&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;background-color:#4f46e5;padding:36px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:0px 0 16px 0;text-align:center;&quot;&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#ffffff;padding-bottom:8px;&quot;&gt;Lo lograste&lt;/div&gt;&lt;div class=&quot;cf-h1&quot; style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:30px;line-height:38px;font-weight:700;color:#ffffff;&quot;&gt;Tu recompensa está lista&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#6b7280;padding-top:10px;&quot;&gt;Completaste tu tarjeta. Ahora toca disfrutarla.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:28px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:0px 0 16px 0;text-align:center;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; align=&quot;center&quot;&gt;&lt;tr&gt;&lt;td width=&quot;44&quot; height=&quot;44&quot; align=&quot;center&quot; valign=&quot;middle&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;width:44px;height:44px;border-radius:22px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:20px;line-height:44px;color:#ffffff;text-align:center;&quot;&gt;🎁&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;div style=&quot;height:12px;line-height:12px;font-size:0;&quot;&gt;&amp;nbsp;&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:17px;line-height:24px;font-weight:700;color:#111827;&quot;&gt;Escribe aquí tu recompensa&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:15px;line-height:24px;color:#6b7280;padding-top:4px;&quot;&gt;Un renglón describiendo exactamente qué se lleva el cliente.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#111827;text-align:center;&quot;&gt;Solo tienes que enseñar tu tarjeta al llegar. Nosotros hacemos el resto.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:8px 0 24px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; align=&quot;center&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-stack&quot; style=&quot;padding:0 6px 0 0;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:50px;v-text-anchor:middle;width:191px;&quot; arcsize=&quot;16%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#4f46e5&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#ffffff;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;&quot;&gt;Ver mi tarjeta&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#4f46e5&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:14px 26px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;&quot;&gt;Ver mi tarjeta&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/td&gt;&lt;td class=&quot;cf-stack&quot; style=&quot;padding:0 0 0 6px;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:50px;v-text-anchor:middle;width:161px;&quot; arcsize=&quot;16%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#ffffff&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#4f46e5;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;&quot;&gt;Cómo llegar&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#ffffff&quot; style=&quot;border-radius:8px;border:2px solid #4f46e5;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:14px 26px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:700;line-height:1.2;color:#4f46e5;text-decoration:none;border-radius:8px;&quot;&gt;Cómo llegar&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Tu recompensa no caduca, pero está más rica hoy.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:12px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;border-top:1px solid #e5e7eb;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:24px 0 8px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Recibiste este correo porque estás en nuestra lista de contactos.&lt;br&gt;Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/center&gt;
+&lt;/body&gt;
+&lt;/html&gt;"></iframe>
+      </div>
+      <details>
+        <summary>Fallback de texto plano (515 caracteres)</summary>
+        <pre>Completaste tu tarjeta: tu recompensa te espera.
+
+Lo lograste
+Tu recompensa está lista
+Completaste tu tarjeta. Ahora toca disfrutarla.
+
+Escribe aquí tu recompensa
+Un renglón describiendo exactamente qué se lleva el cliente.
+
+Solo tienes que enseñar tu tarjeta al llegar. Nosotros hacemos el resto.
+
+Ver mi tarjeta
+Cómo llegar
+
+Tu recompensa no caduca, pero está más rica hoy.
+
+—
+
+Recibiste este correo porque estás en nuestra lista de contactos.
+Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
+      </details>
+      <p class="meta">10.289 bytes · plantilla 8 de 9</p>
+    </section>
+
+    <section class="tarjeta">
+      <header>
+        <h2>Pide tu reseña</h2>
+        <p class="asunto">Asunto: <b>¿Nos regalas un minuto?</b></p>
+        <p class="pre">Vista previa: Una opinión tuya nos ayuda más de lo que parece.</p>
+      </header>
+      <div class="marco">
+        <iframe title="Pide tu reseña" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;meta http-equiv=&quot;X-UA-Compatible&quot; content=&quot;IE=edge&quot; /&gt;
+&lt;meta name=&quot;x-apple-disable-message-reformatting&quot; /&gt;
+&lt;meta name=&quot;color-scheme&quot; content=&quot;light dark&quot; /&gt;
+&lt;meta name=&quot;supported-color-schemes&quot; content=&quot;light dark&quot; /&gt;
+&lt;title&gt;¿Nos regalas un minuto?&lt;/title&gt;
+&lt;!--[if mso]&gt;&lt;xml&gt;&lt;o:OfficeDocumentSettings&gt;&lt;o:PixelsPerInch&gt;96&lt;/o:PixelsPerInch&gt;&lt;/o:OfficeDocumentSettings&gt;&lt;/xml&gt;&lt;![endif]--&gt;
+&lt;style&gt;
+  /* Mejora progresiva: los clientes que ignoran &lt;style&gt; (Outlook escritorio)
+     ven la versión de escritorio, que funciona igual porque todo va inline. */
+  :root { color-scheme: light dark; supported-color-schemes: light dark; }
+  body { margin:0; padding:0; width:100% !important; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+  table { border-collapse:collapse; }
+  img { -ms-interpolation-mode:bicubic; }
+  a { text-decoration:none; }
+  @media only screen and (max-width: 620px) {
+    .cf-container { width: 100% !important; }
+    /* Apilar columnas: el &lt;td&gt; pasa a bloque al 100% y pierde el canalón. */
+    .cf-col { display: block !important; width: 100% !important; padding: 0 !important; }
+    .cf-pad { padding-left: 20px !important; padding-right: 20px !important; }
+    /* Botón a lo ancho: se toca con el pulgar sin apuntar. */
+    .cf-btn-wrap { width: 100% !important; }
+    .cf-btn { display: block !important; text-align: center !important; }
+    .cf-stack { display: block !important; width: 100% !important; padding: 0 0 10px 0 !important; }
+    .cf-h1 { font-size: 26px !important; line-height: 34px !important; }
+    .cf-h2 { font-size: 20px !important; line-height: 28px !important; }
+  }
+  /* Dark mode: solo se retocan los fondos y el texto principal. El resto de
+     colores son de marca y deben sobrevivir a la inversión tal cual. */
+  @media (prefers-color-scheme: dark) {
+    .cf-body, .cf-body-bg { background-color: #0b1220 !important; }
+    .cf-card { background-color: #131c2e !important; }
+    .cf-ink { color: #e5e7eb !important; }
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body class=&quot;cf-body&quot; style=&quot;margin:0;padding:0;background-color:#f4f5f7;&quot;&gt;
+&lt;div style=&quot;display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f5f7;opacity:0;&quot;&gt;Una opinión tuya nos ayuda más de lo que parece.&amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &amp;#8199;&amp;#65279;&amp;#847; &lt;/div&gt;
+&lt;center class=&quot;cf-body-bg&quot; style=&quot;width:100%;background-color:#f4f5f7;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;background-color:#f4f5f7;&quot;&gt;
+&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:32px 10px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; class=&quot;cf-container cf-card&quot; width=&quot;600&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;width:600px;max-width:100%;background-color:#ffffff;border-radius:12px;&quot;&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:24px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:0px 0 16px 0;text-align:center;&quot;&gt;&lt;div class=&quot;cf-h1&quot; style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:30px;line-height:38px;font-weight:700;color:#111827;&quot;&gt;¿Cómo nos fue?&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#6b7280;padding-top:10px;&quot;&gt;Un minuto tuyo nos ayuda más de lo que parece.&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:0px 0 16px 0;text-align:center;&quot;&gt;&lt;span style=&quot;font-size:32px;line-height:38px;color:#f59e0b;letter-spacing:2px;&quot;&gt;★★★★★&lt;span style=&quot;color:#e5e7eb;&quot;&gt;&lt;/span&gt;&lt;/span&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#6b7280;padding-top:6px;&quot;&gt;Toca las estrellas para contarnos&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:8px 0 24px 0;&quot;&gt;&lt;!--[if mso]&gt;&lt;v:roundrect xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:w=&quot;urn:schemas-microsoft-com:office:word&quot; href=&quot;#&quot; style=&quot;height:50px;v-text-anchor:middle;width:223px;&quot; arcsize=&quot;16%&quot; strokecolor=&quot;#4f46e5&quot; strokeweight=&quot;1px&quot; fillcolor=&quot;#4f46e5&quot;&gt;&lt;w:anchorlock/&gt;&lt;center style=&quot;color:#ffffff;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:bold;&quot;&gt;Dejar mi opinión&lt;/center&gt;&lt;/v:roundrect&gt;&lt;![endif]--&gt;&lt;!--[if !mso]&gt;&lt;!-- --&gt;&lt;table role=&quot;presentation&quot; class=&quot;cf-btn-wrap&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; style=&quot;border-collapse:separate;&quot;&gt;&lt;tr&gt;&lt;td bgcolor=&quot;#4f46e5&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;a href=&quot;#&quot; target=&quot;_blank&quot; class=&quot;cf-btn&quot; style=&quot;display:inline-block;padding:14px 32px;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;font-weight:700;line-height:1.2;color:#ffffff;text-decoration:none;border-radius:8px;&quot;&gt;Dejar mi opinión&lt;/a&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;!--&lt;![endif]--&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:12px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;border-top:1px solid #e5e7eb;font-size:0;line-height:0;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td align=&quot;center&quot; style=&quot;padding:0px 0 16px 0;text-align:center;&quot;&gt;&lt;div class=&quot;cf-h2&quot; style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:22px;line-height:30px;font-weight:700;color:#111827;&quot;&gt;Lo que dicen otros clientes&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot; bgcolor=&quot;#eef2ff&quot; style=&quot;border-radius:8px;&quot;&gt;&lt;tr&gt;&lt;td width=&quot;4&quot; bgcolor=&quot;#4f46e5&quot; style=&quot;width:4px;font-size:0;line-height:0;border-radius:8px 0 0 8px;&quot;&gt;&amp;nbsp;&lt;/td&gt;&lt;td style=&quot;padding:18px 22px;&quot;&gt;&lt;div style=&quot;padding-bottom:8px;&quot;&gt;&lt;span style=&quot;font-size:16px;line-height:19px;color:#f59e0b;letter-spacing:2px;&quot;&gt;★★★★★&lt;span style=&quot;color:#e5e7eb;&quot;&gt;&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:26px;color:#111827;font-style:italic;&quot;&gt;«Servicio rápido y gente amable. Vuelvo seguro.»&lt;/div&gt;&lt;div style=&quot;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:20px;color:#6b7280;padding-top:10px;&quot;&gt;Una clienta reciente&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:0px 0 16px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;¿Algo no salió bien? Respóndenos a este correo antes de calificarnos: lo arreglamos.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;tr&gt;&lt;td class=&quot;cf-pad&quot; style=&quot;padding:8px 32px;&quot;&gt;
+&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td class=&quot;cf-col&quot; width=&quot;100%&quot; valign=&quot;top&quot; style=&quot;width:100%;vertical-align:top;padding:0;&quot;&gt;&lt;table role=&quot;presentation&quot; width=&quot;100%&quot; cellpadding=&quot;0&quot; cellspacing=&quot;0&quot; border=&quot;0&quot;&gt;&lt;tr&gt;&lt;td style=&quot;padding:24px 0 8px 0;font-family:-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:21px;color:#6b7280;text-align:center;&quot;&gt;Recibiste este correo porque estás en nuestra lista de contactos.&lt;br&gt;Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/td&gt;&lt;/tr&gt;
+&lt;/table&gt;
+&lt;/center&gt;
+&lt;/body&gt;
+&lt;/html&gt;"></iframe>
+      </div>
+      <details>
+        <summary>Fallback de texto plano (498 caracteres)</summary>
+        <pre>Una opinión tuya nos ayuda más de lo que parece.
+
+¿Cómo nos fue?
+Un minuto tuyo nos ayuda más de lo que parece.
+
+★★★★★ Toca las estrellas para contarnos
+
+Dejar mi opinión
+
+—
+
+Lo que dicen otros clientes
+
+«Servicio rápido y gente amable. Vuelvo seguro.» — Una clienta reciente
+
+¿Algo no salió bien? Respóndenos a este correo antes de calificarnos: lo arreglamos.
+
+Recibiste este correo porque estás en nuestra lista de contactos.
+Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
+      </details>
+      <p class="meta">9839 bytes · plantilla 9 de 9</p>
+    </section>
+</main>
+<script>
+  // El iframe reencuadra y las media queries del correo se disparan igual que
+  // en un cliente real, así que esto comprueba el responsive de verdad.
+  const botones = document.querySelectorAll('.anchos button');
+  botones.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      botones.forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
+      document.querySelectorAll('iframe').forEach((f) => { f.style.width = btn.dataset.w + 'px'; });
+    });
+  });
+</script>
+</body>
+</html>

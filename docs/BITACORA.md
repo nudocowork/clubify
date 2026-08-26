@@ -48,6 +48,75 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-26 — Rediseño del sistema de plantillas de correo (galería de Email Marketing)
+**Máquina/quién:** Javier
+**Rama / PR:** `chore/merge-emails-sobre-314` — sin PR todavía
+
+### Qué cambié
+- **Un solo motor de HTML.** Cada plantilla de fábrica se escribía dos veces
+  (bloques + HTML maquetado a mano en el seed) y las dos versiones ya habían
+  divergido. Como el editor regenera `html` desde los bloques **en cada
+  guardado**, el HTML bonito desaparecía en cuanto alguien abría la copia y la
+  guardaba. Ahora el seed renderiza con `renderEmailHtml()`, el mismo motor del
+  editor, cargándolo con `ts-node` desde `frontend/src/lib/email-blocks.ts`.
+- **8 bloques nuevos** en `email-blocks.ts`: `heading`, `buttons` (CTA doble),
+  `feature`, `product`, `order` (resumen de pedido), `quote`, `rating`,
+  `coupon`. Y **filas con fondo y relleno** (`row.props`), que es lo que
+  permite bandas de color sin meter HTML a mano.
+- **Tokens** (`EMAIL_TOKENS`) para color, tipografía y ritmo vertical. El acento
+  vive en `settings.linkColor`: lo heredan botones, antetítulos, iconos y
+  cupones, así que cambiarlo repinta la plantilla entera de una vez.
+- **Preheader** por plantilla, **VML** en todos los botones (Outlook),
+  `color-scheme` para modo oscuro, y media queries que apilan columnas, bajan el
+  relleno lateral a 20 px y ensanchan el botón en móvil.
+- **9 plantillas de fábrica** (antes 5): Bienvenida, Agradecimiento post-compra,
+  Promoción, Novedades, Recordatorio de cita, Te extrañamos, Cumpleaños,
+  Recompensa lista para canjear, Pide tu reseña. Definidas en
+  `backend/scripts/lib/email-presets.cjs`.
+- **Arreglado: el envío no interpolaba nada.** `MktTemplateSendService` mandaba
+  `template.html` tal cual — un `{{nombre}}` en una plantilla de la galería le
+  llegaba al cliente con las llaves puestas. Ahora resuelve `{{nombre}}`,
+  `{{email}}`, `{{telefono}}`, `{{empresa}}` y `{{marca}}` en asunto y cuerpo.
+  `{{marca}}` que no se puede resolver queda **vacío**, nunca «Clubify».
+- **Arreglado: el correo salía solo en HTML.** Ahora lleva parte de texto plano
+  (`htmlToText`), que GHL ya aceptaba (`opts.text` → campo `message`).
+- **Arreglado: las miniaturas de la galería.** Salían todas como el sobre gris
+  ✉️ porque el listado no devuelve `blocks` ni `html` (a propósito, pesan). La
+  miniatura pide el detalle cuando la tarjeta entra en pantalla y lo cachea.
+- **Docs:** `docs/plantillas-correo/README.md` (cómo añadir una plantilla) y
+  `preview.html` generado con `node scripts/preview-email-templates.cjs`.
+
+### Qué toqué de PRODUCCIÓN
+- **Nada todavía.** El seed **no se ha corrido** contra producción: las 9
+  plantillas siguen sin estar en la base. Falta correr
+  `railway run node scripts/seed-email-templates.cjs`.
+- Sin cambios de esquema. Ninguna migración, ningún `db push`.
+- Sin despliegue de backend ni de frontend.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Correr el seed contra producción (crea 4 plantillas nuevas y **actualiza**
+      las 5 existentes por nombre; es idempotente y verifica antes de escribir).
+- [ ] Desplegar frontend y backend: sin el frontend nuevo, las plantillas
+      renderizadas con bloques nuevos se ven mal en el editor viejo (ver riesgos).
+- [ ] Mandarse una prueba real a Gmail y a Outlook: el VML solo se puede
+      comprobar en un Outlook de escritorio de verdad.
+
+### Riesgos y avisos
+- **Orden de despliegue: primero el frontend, después el seed.** Un editor viejo
+  no conoce los 8 bloques nuevos; `coerceDoc()` los descarta al abrir, así que
+  si alguien abre y guarda una plantilla nueva con el frontend viejo, se le come
+  los bloques que no entiende. Con el frontend desplegado antes, no pasa.
+- Las plantillas ya guardadas por los negocios **no se tocan**. Al abrirlas y
+  guardarlas heredan el relleno lateral nuevo de las filas (32 px) y se ven algo
+  más aireadas. Es el rediseño, no un fallo.
+- `MktProviderService.sendEmail` acepta ahora `text?`. Es opcional: quien no lo
+  pase sigue funcionando igual.
+- Queda sin tocar, visto de paso: `mkt-engine.service.ts` resuelve `{{marca}}`
+  con `?? 'Clubify'` (línea ~47). Solo salta si falta la fila de WhiteLabel, que
+  con la FK no debería pasar, pero es la misma clase de fuga de marca de siempre.
+
+---
+
 ## 2026-08-22 — Fugas de marca, pagos que no se reconocían, y plantillas de correo
 **Máquina/quién:** Javier
 **Rama / PR:** `chore/merge-emails-sobre-314` — todo desplegado y verificado
