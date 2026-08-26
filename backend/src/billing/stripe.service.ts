@@ -864,6 +864,28 @@ export class StripeService {
     whiteLabelId: string | null,
     opts: { email: string; name: string | null; phone: string | null },
   ) {
+    // Se RECLAMA el aviso ANTES de mandarlo, no después.
+    //
+    // Antes se enviaba y luego se marcaba, y una compra dispara tres eventos
+    // en el mismo segundo (`checkout.session.completed`, `invoice.paid`,
+    // `invoice.payment_succeeded`): los tres podían pasar el control antes de
+    // que ninguno llegara a marcarlo, y el comprador recibía el enlace de
+    // activación por triplicado. Es la misma carrera que duplicaba el aviso de
+    // pago al negocio.
+    //
+    // El UPDATE condicional lo serializa Postgres: solo uno se lleva el
+    // `count: 1` y es el único que envía.
+    const reclamo = await this.prisma.pendingStripePayment.updateMany({
+      where: {
+        email: opts.email,
+        ...(whiteLabelId ? { whiteLabelId } : {}),
+        consumedAt: null,
+        recoveryNotifiedAt: null,
+      },
+      data: { recoveryNotifiedAt: new Date() },
+    });
+    if (reclamo.count === 0) return;
+
     const r = await this.pendingActivation.notifyBuyer({
       gateway: 'STRIPE',
       whiteLabelId,
@@ -871,18 +893,24 @@ export class StripeService {
       name: opts.name,
       phone: opts.phone,
     });
-    if (r.emailSent || r.channel !== 'none') {
+
+    // Si no salió NADA —ni correo ni mensaje— se devuelve la marca. Si no, el
+    // comprador se quedaría sin su enlace y nadie lo reintentaría nunca: ese
+    // fue el fallo original, pagos cobrados sin producto entregado.
+    if (!r.emailSent && r.channel === 'none') {
       await this.prisma.pendingStripePayment
         .updateMany({
           where: {
             email: opts.email,
             ...(whiteLabelId ? { whiteLabelId } : {}),
             consumedAt: null,
-            recoveryNotifiedAt: null,
           },
-          data: { recoveryNotifiedAt: new Date() },
+          data: { recoveryNotifiedAt: null },
         })
         .catch(() => null);
+      this.logger.warn(
+        `aviso de activación no salió para ${opts.email}: marca devuelta para reintentar`,
+      );
     }
   }
 
