@@ -882,7 +882,10 @@ export default function AppShell({
                     items: [
                       // Clubify Lab — propuestas y votación pública. Accesible a
                       // todos los roles autenticados (item 13 sprint).
-                      { href: '/lab', label: '🧪 Clubify Lab', icon: 'spark' as IconName },
+                      // Nombre de plataforma dinámico: marca blanca → su nombre,
+                      // Clubify → "Clubify". No hardcodear "Clubify" (fuga si una
+                      // marca habilita el módulo COMMUNITY).
+                      { href: '/lab', label: `🧪 ${tenantInfo?.whiteLabelName || 'Clubify'} Lab`, icon: 'spark' as IconName },
                       // Tutoriales — link externo a la academia (Bloque 2 2026-06-12).
                       // SUPER_ADMIN puede ocultarlo per-tenant desde
                       // /admin/tenants/[id] vía Tenant.tutorialsEnabled.
@@ -941,6 +944,10 @@ export default function AppShell({
     variant === 'app' &&
     user.role === 'TENANT_OWNER' &&
     tenantInfo &&
+    // El flujo de pago Hotmart (estos lockscreens dicen "pago en Hotmart") es
+    // SOLO de Clubify. Una marca blanca cobra por su propia pasarela; mostrarle
+    // este lockscreen delataría la plataforma. Clubify = slug null o 'clubify'.
+    (!tenantInfo.whiteLabelSlug || tenantInfo.whiteLabelSlug === 'clubify') &&
     !tenantInfo.hotmartSubscriberCode &&
     !tenantInfo.whiteLabelCreditsUnlimited &&
     planName === 'Elite'

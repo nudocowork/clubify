@@ -138,10 +138,10 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
     label: 'Marca · Créditos acreditados',
     description:
       'Se envía a la marca blanca cuando se le acreditan créditos (compra Hotmart o asignación manual).',
-    vars: ['brandName', 'credits', 'available'],
+    vars: ['platform', 'brandName', 'credits', 'available'],
     group: 'marca',
     default:
-      'Clubify: Se acreditaron {credits} créditos a {brandName}. Saldo disponible: {available}.',
+      '{platform}: Se acreditaron {credits} créditos a {brandName}. Saldo disponible: {available}.',
   },
   {
     id: 'wl_credits_low',

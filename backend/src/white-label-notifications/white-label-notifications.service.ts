@@ -111,6 +111,10 @@ export class WhiteLabelNotificationsService {
       data: { lowCreditsNotifiedAt: null, pendingClientsNotifiedAt: null },
     });
     await this.send(wl.notifyPhone, 'wl_credits_purchased', {
+      // {platform} = la propia marca blanca (el SMS lo recibe SU dueño). Se pasa
+      // explícito porque este envío no lleva tenantId, y sin él {platform}
+      // caería a "Clubify" y delataría la plataforma al reseller.
+      platform: wl.name,
       brandName: wl.name,
       credits: String(creditsAdded),
       available: String(available),
