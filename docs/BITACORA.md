@@ -48,6 +48,39 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-26 — Bug "Sin definir" (periodicidad) — diagnóstico + backfill puntual
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — script `backfill-plan-periodicity-mensual-group.cjs`
+
+Punto 3 del PDF SELLEALA. La columna PLAN muestra "Sin definir" ⇔
+`Tenant.planPeriodicity` es NULL; la cadencia default cae a "Mensual" → de ahí
+la inconsistencia reportada.
+
+### Causa
+Esos tenants nacieron antes del forward-fix (`auth/plan-from-offer.ts`
+`resolvePeriodicity`: offer code → nombre → monto USD). El offer code, el nombre
+del producto y el monto **nunca se persistieron** en el Tenant → no hay dato para
+re-derivar. **Forward-fix YA vivo** (desplegado hoy en los deploys del barrido);
+los signups nuevos derivan bien.
+
+### Qué toqué de PRODUCCIÓN
+- **DB (2 filas)**: `planPeriodicity` NULL → **MENSUAL** en `jamarea-restobar-marino`
+  y `hacienda-don-antonio` (grupo empresarial mensual, confirmado por el founder).
+  Script idempotente (solo escribe si está NULL). NO se tocó `subscriptionPriceUsd`
+  (queda null → comisión cae a base canónica Mensual=68, correcto).
+- Verificado: null total 24 → 22.
+
+### Qué falta / decidido dejar como está
+- **Dejados en "Sin definir" a propósito** (decisión del founder): `zekkei`,
+  `vizage-medspa` (Sellea) — reales pero sin confirmar periodicidad; `prueba-selleala`
+  y `sys-living-card` — prueba/demo. 11 TRIAL + 7 SUSPENDED también quedan null (correcto).
+- El founder mencionó "cevicheria marea mistica" en el grupo mensual pero NO estaba
+  entre los null → sin acción (verificar aparte si su periodicidad ya es Mensual).
+
+### Riesgos
+- Ninguno: solo se fijó Mensual donde el founder lo confirmó; base de comisión 68/mes
+  es la correcta para esos negocios.
+
 ## 2026-08-26 — Barrido de fugas de marca/pasarela (6 corregidas) — batch SELLEALA
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** `feat/commissions-auto-cutoffs` — commit `b0f55b8`, **desplegado y verificado**
