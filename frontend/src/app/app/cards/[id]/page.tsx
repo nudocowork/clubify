@@ -965,6 +965,10 @@ function EditCardModal({
     // COUPON/DISCOUNT/GIFT: tarjeta de sellos destino a la que se transforma el
     // cupón al redimirse. null = auto (primera tarjeta de sellos activa).
     transformIntoCardId: (card as any).transformIntoCardId ?? (null as string | null),
+    // false = el cupón no se convierte en nada: se canjea y queda usado.
+    // Los cupones anteriores a este campo vienen en true, que es lo que el
+    // sistema hacía siempre.
+    transformOnRedeem: (card as any).transformOnRedeem !== false,
   });
   // Buffer raw del input de multiRewards: el array `form.multiRewards`
   // solo guarda entradas válidas (at>0 + reward no vacío), pero mientras
@@ -1055,7 +1059,10 @@ function EditCardModal({
       }
       if (card.type === 'DISCOUNT') payload.discountPercent = form.discountPercent;
       if (card.type === 'POINTS') payload.pointsPerCurrency = form.pointsPerCurrency;
-      if (isCouponType) payload.transformIntoCardId = form.transformIntoCardId;
+      if (isCouponType) {
+        payload.transformIntoCardId = form.transformIntoCardId;
+        payload.transformOnRedeem = form.transformOnRedeem;
+      }
       await api(`/cards/${card.id}`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
@@ -1302,12 +1309,24 @@ function EditCardModal({
                 {t('transformInto')}{' '}
                 <span className="text-mute font-normal">{t('targetStampsCard')}</span>
               </label>
+              {/* Tres estados, no dos: `transformIntoCardId = null` ya
+                  significa "auto", así que "a ninguna" necesita su propio
+                  valor (`transformOnRedeem` en el backend). */}
               <select
                 className="input"
-                value={form.transformIntoCardId ?? ''}
-                onChange={(e) =>
-                  setForm({ ...form, transformIntoCardId: e.target.value || null })
+                value={
+                  !form.transformOnRedeem
+                    ? '__none__'
+                    : (form.transformIntoCardId ?? '')
                 }
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setForm({
+                    ...form,
+                    transformIntoCardId: v === '__none__' ? null : v || null,
+                    transformOnRedeem: v !== '__none__',
+                  });
+                }}
               >
                 <option value="">{t('autoFirstStampsCard')}</option>
                 {stampsCardOptions.map((o) => (
@@ -1315,9 +1334,12 @@ function EditCardModal({
                     {o.name}
                   </option>
                 ))}
+                <option value="__none__">{t('noTransform')}</option>
               </select>
               <div className="text-[11px] text-mute mt-1 leading-snug">
-                {t('transformHint')}
+                {!form.transformOnRedeem
+                  ? 'El cliente canjea el cupón y su tarjeta queda marcada como usada. No entra al programa de sellos ni se le crea ninguna tarjeta.'
+                  : t('transformHint')}
               </div>
             </div>
           )}

@@ -1663,7 +1663,8 @@
     "targetStampsCard": "(target stamps card)",
     "autoFirstStampsCard": "Auto · use the first active stamps card",
     "transformHint": "The customer's same wallet pass switches from coupon to stamps card without requiring any new install. If you leave \"Auto\", the business's first active stamps card is used (or a generic one is created if none exists).",
-    "yourBrand": "Your brand"
+    "yourBrand": "Your brand",
+    "noTransform": "Do not convert · the coupon is marked used and that is it"
   },
   "app_customers_id": {
     "stampPurchasePrompt": "Purchase amount (in $) to register the stamp:",
@@ -2531,7 +2532,8 @@
     "transformInto": "On redemption, transform into:",
     "targetStampsCard": "(target stamps card)",
     "autoFirstStampsCard": "Auto · use the first active stamps card",
-    "transformHint": "The customer's same wallet pass switches from coupon to stamps card without requiring any new install. If you leave \"Auto\", the business's first active stamps card is used (or a generic one is created if none exists)."
+    "transformHint": "The customer's same wallet pass switches from coupon to stamps card without requiring any new install. If you leave \"Auto\", the business's first active stamps card is used (or a generic one is created if none exists).",
+    "noTransform": "Do not convert · the coupon is marked used and that is it"
   },
   "admin_commissions": {
     "pageTitle": "Commissions",

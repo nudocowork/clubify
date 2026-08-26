@@ -1532,6 +1532,17 @@ model Card {
   transformIntoCard   Card?     @relation("CouponTransformTarget", fields: [transformIntoCardId], references: [id], onDelete: SetNull)
   // Relación inversa (cards que apuntan a esta como destino del transform).
   transformedFrom     Card[]    @relation("CouponTransformTarget")
+  // ¿El cupón se convierte en tarjeta de sellos al canjearse?
+  //
+  // `transformIntoCardId = null` NO servía para decir "en ninguna": null ya
+  // significa "auto, la primera de sellos activa". Hacía falta un campo aparte
+  // para poder expresar "este cupón se canjea y se acabó" — un negocio que
+  // reparte un descuento suelto no quiere meter al cliente en su programa de
+  // sellos sin más.
+  //
+  // Default `true` = lo que el sistema hacía hasta ahora. Ningún cupón
+  // existente cambia de comportamiento.
+  transformOnRedeem   Boolean   @default(true)
   // v2: si está activa la integración orders→sello
   autoStampOnOrder    Boolean   @default(true)
   autoStampAmount     Int       @default(1)

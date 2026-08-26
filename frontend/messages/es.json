@@ -1663,7 +1663,8 @@
     "targetStampsCard": "(tarjeta de sellos destino)",
     "autoFirstStampsCard": "Auto · usar la primera tarjeta de sellos activa",
     "transformHint": "El mismo wallet pass del cliente cambia de cupón a tarjeta de sellos sin pedir instalar nada nuevo. Si dejas \"Auto\", se usa la primera tarjeta de sellos activa del negocio (o se crea una genérica si no existe ninguna).",
-    "yourBrand": "Tu marca"
+    "yourBrand": "Tu marca",
+    "noTransform": "No convertir · el cupón queda usado y ahí termina"
   },
   "app_customers_id": {
     "stampPurchasePrompt": "Monto de la compra (en $) para registrar el sello:",
@@ -2531,7 +2532,8 @@
     "transformInto": "Al redimirse, transformar en:",
     "targetStampsCard": "(tarjeta de sellos destino)",
     "autoFirstStampsCard": "Auto · usar la primera tarjeta de sellos activa",
-    "transformHint": "El mismo wallet pass del cliente cambia de cupón a tarjeta de sellos sin pedir instalar nada nuevo. Si dejas \"Auto\", se usa la primera tarjeta de sellos activa del negocio (o se crea una genérica si no existe ninguna)."
+    "transformHint": "El mismo wallet pass del cliente cambia de cupón a tarjeta de sellos sin pedir instalar nada nuevo. Si dejas \"Auto\", se usa la primera tarjeta de sellos activa del negocio (o se crea una genérica si no existe ninguna).",
+    "noTransform": "No convertir · el cupón queda usado y ahí termina"
   },
   "admin_commissions": {
     "pageTitle": "Comisiones",
