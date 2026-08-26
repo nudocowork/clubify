@@ -1067,10 +1067,14 @@ export class PublicAffiliateSignupController {
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Get('config')
-  config(@Headers('host') host?: string) {
-    // Config resuelta por el HOST (dominio de la marca) → cada marca su propio
-    // on/off y %. Sin marca (Clubify/dev) → config global.
-    return this.svc.getPublicAffiliateRegistrationConfigForHost(host);
+  config(
+    @Headers('origin') origin?: string,
+    @Headers('referer') referer?: string,
+  ) {
+    // El frontend llama a la API en api.soyclubify.com → el Host es la API, no
+    // la marca. La marca se resuelve por Origin/Referer (dominio del frontend,
+    // ej. app.selleala.com). Sin marca (Clubify/dev) → config global.
+    return this.svc.getPublicAffiliateRegistrationConfigForHost(origin || referer);
   }
 
   /** Crea User AFFILIATE_INFLUENCER o AFFILIATE_AMBASSADOR + ReferralCode
@@ -1081,10 +1085,12 @@ export class PublicAffiliateSignupController {
   register(
     @Body() body: SelfRegisterAffiliateBody,
     @Ip() ip: string,
-    @Headers('host') host?: string,
+    @Headers('origin') origin?: string,
+    @Headers('referer') referer?: string,
   ) {
-    // El host decide bajo qué marca nace el afiliado (Sellea en su dominio).
-    return this.svc.selfRegisterAffiliate(body, ip, host);
+    // Origin/Referer (dominio del frontend) decide bajo qué marca nace el
+    // afiliado (Sellea en su dominio). El Host es siempre la API, no sirve.
+    return this.svc.selfRegisterAffiliate(body, ip, origin || referer);
   }
 }
 

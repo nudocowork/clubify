@@ -3497,8 +3497,15 @@ export class ReferralsService {
   async resolveSignupBrandByHost(
     host?: string | null,
   ): Promise<{ id: string; slug: string } | null> {
-    const norm = (s?: string | null) =>
-      (s ?? '').trim().toLowerCase().replace(/^www\./, '').split(':')[0];
+    const norm = (s?: string | null) => {
+      let v = (s ?? '').trim().toLowerCase();
+      // El frontend llama a la API en api.soyclubify.com, así que el HOST no
+      // sirve; usamos Origin/Referer, que vienen como URL (https://app.selleala
+      // .com/...). Extraemos el hostname.
+      const m = v.match(/^https?:\/\/([^/:]+)/);
+      if (m) v = m[1];
+      return v.replace(/^www\./, '').split(':')[0].split('/')[0];
+    };
     const h = norm(host);
     if (!h) return null;
     const wls = await this.prisma.whiteLabel.findMany({
