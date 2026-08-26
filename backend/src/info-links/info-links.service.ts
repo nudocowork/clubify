@@ -530,17 +530,46 @@ export class InfoLinksService {
     const link = await this.prisma.infoLink.findUnique({
       where: { rootSlug: clean },
     });
-    if (!link || !link.isActive) {
-      throw new NotFoundException('No disponible');
+    if (link?.isActive) {
+      // Reutilizamos getPublic para no duplicar la lógica de tenant lookup +
+      // tracking + traducción. Como ya tenemos el link, solo necesitamos el
+      // tenantSlug + linkSlug que getPublic acepta.
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: link.tenantId },
+        select: { slug: true },
+      });
+      if (tenant) return this.getPublic(tenant.slug, link.slug, localeRaw);
     }
-    // Reutilizamos getPublic para no duplicar la lógica de tenant lookup +
-    // tracking + traducción. Como ya tenemos el link, solo necesitamos el
-    // tenantSlug + linkSlug que getPublic acepta.
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: link.tenantId },
-      select: { slug: true },
+
+    // No es un rootSlug: puede ser el SLUG DEL NEGOCIO.
+    //
+    // Fix 2026-08-26 (caso Amor Espresso café): el generador de carteles
+    // produce `/i/<slugDelNegocio>` para los QR de tipo INFOLINK — sin el
+    // segundo tramo del enlace. Esa URL no resuelve, y hay 72 carteles ya
+    // generados así, varios impresos y entregados a clientes.
+    //
+    // Cambiar la URL no es opción: el QR está en la pared. Así que la
+    // resolvemos: el slug del negocio lleva a su infolink principal.
+    const porNegocio = await this.prisma.tenant.findUnique({
+      where: { slug: clean },
+      select: {
+        slug: true,
+        infoLinks: {
+          where: { isActive: true },
+          // El MÁS ANTIGUO: es el que existía cuando se imprimió el cartel.
+          // Con varios enlaces (Amor Espresso tiene dos), mandar al recién
+          // creado cambiaría a dónde apunta un QR ya impreso.
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+          select: { slug: true },
+        },
+      },
     });
-    if (!tenant) throw new NotFoundException('No disponible');
-    return this.getPublic(tenant.slug, link.slug, localeRaw);
+    const principal = porNegocio?.infoLinks?.[0];
+    if (porNegocio && principal) {
+      return this.getPublic(porNegocio.slug, principal.slug, localeRaw);
+    }
+
+    throw new NotFoundException('No disponible');
   }
 }
