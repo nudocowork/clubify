@@ -103,14 +103,22 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ### Qué toqué de PRODUCCIÓN
 
-- **Nada.** Ni base, ni variables, ni despliegue.
-- La migración `backend/scripts/apply-cuponera-gateways.cjs` está escrita y
-  probada **solo contra la base local**. Es aditiva e idempotente.
+- ✅ **BASE DE DATOS (26-ago ~17:00):** aplicada
+  `backend/scripts/apply-cuponera-gateways.cjs` sobre el servicio
+  **`Postgres-Nq8w`** (ojo: NO el que se llama `Postgres`; el backend apunta a
+  `tramway.proxy.rlwy.net`, que es el público de Nq8w).
+  Verificado a mano después: 7/7 columnas nuevas, 3/3 índices,
+  `MembershipSource = MANUAL,MERCADOPAGO,HOTMART,STRIPE,FREE`, 103 tenants
+  intactos, API respondiendo en ~0,5 s sin reinicio.
+  Aditiva e idempotente: volver a correrla no hace nada.
+- ❌ **Código NO desplegado.** La base va por delante del código, que es el
+  orden seguro: las columnas nuevas están y nadie las lee todavía.
+- Variables: sin tocar.
 
 ### Qué falta / qué hay que validar del otro lado
 
-- [ ] Aplicar `APPLY=1 node scripts/apply-cuponera-gateways.cjs` a producción
-      **antes** de desplegar este código.
+- [x] ~~Aplicar la migración a producción~~ — hecho el 26-ago. **Desplegar ya es
+      seguro**: la base tiene las columnas y el código de prod todavía no las usa.
 - [ ] Cargar el mapeo de cada plan (id de producto Hotmart / price id de Stripe)
       desde `/superadmin/living-card` → «Pagos — Hotmart y Stripe».
 - [ ] Probar una compra real. Nada de esto se ejerció con dinero de verdad.
@@ -119,8 +127,8 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ### Riesgos y avisos
 
-- ⚠️ **El código tiene columnas que producción todavía no tiene.** Desplegar sin
-  correr la migración primero rompe las consultas de planes de cuponera.
+- ✅ Ya NO aplica el aviso de "el código tiene columnas que prod no tiene": la
+  migración se aplicó. Desplegar esta rama es seguro.
 - ⚠️ **`railway up` sube el DIRECTORIO DE TRABAJO, no el commit.** Si alguien
   despliega con esta rama en disco, sube estos cambios aunque no los quiera.
 - ⚠️ Hotmart/Stripe entran por la ruta **de la marca** (`/webhooks/hotmart/<slug>`),
