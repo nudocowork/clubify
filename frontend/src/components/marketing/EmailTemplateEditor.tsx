@@ -5,11 +5,13 @@ import { toast } from '@/components/Toast';
 import {
   BLOCK_META,
   ELEMENT_ORDER,
+  EMAIL_TOKENS,
   FONT_STACKS,
   LAYOUTS,
   SOCIAL_NETWORKS,
   containsDataImage,
   coerceDoc,
+  defaultRowProps,
   emptyDoc,
   findDataImage,
   newBlock,
@@ -21,6 +23,7 @@ import {
   type EmailDoc,
   type EmailDocSettings,
   type EmailRow,
+  type EmailRowProps,
   type SocialNetworkKind,
 } from '@/lib/email-blocks';
 import SendTemplateModal from '@/components/marketing/SendTemplateModal';
@@ -256,6 +259,20 @@ export default function EmailTemplateEditor({
   function updateSettings(patch: Partial<EmailDocSettings>, coalesceKey?: string) {
     if (!doc) return;
     change({ ...doc, settings: { ...doc.settings, ...patch } }, coalesceKey);
+  }
+
+  /** Fondo y relleno de la BANDA: es lo que hace las cabeceras de color. */
+  function updateRow(rowId: string, patch: Partial<EmailRowProps>, coalesceKey?: string) {
+    if (!doc) return;
+    change(
+      {
+        ...doc,
+        rows: doc.rows.map((r) =>
+          r.id === rowId ? { ...r, props: { ...defaultRowProps(), ...r.props, ...patch } } : r,
+        ),
+      },
+      coalesceKey,
+    );
   }
 
   function addElement(type: EmailBlockType) {
@@ -758,13 +775,14 @@ export default function EmailTemplateEditor({
                 }
               />
             ) : sel && selRow ? (
-              <div className="text-sm text-slate-500">
-                <h4 className="mb-1 text-sm font-semibold text-slate-800">Columna seleccionada</h4>
-                <p className="text-xs">
-                  Los elementos nuevos del panel izquierdo se insertan en esta columna. Haz clic en un
-                  bloque para editar sus propiedades.
-                </p>
-              </div>
+              <RowProps
+                key={`row:${selRow.id}:${histVersion}`}
+                row={selRow}
+                readOnly={readOnly}
+                onPatch={(patch, coalesce) =>
+                  updateRow(selRow.id, patch, coalesce ? `${coalesce}:${selRow.id}` : undefined)
+                }
+              />
             ) : (
               <TemplateProps
                 key={`settings:${histVersion}`}
@@ -976,6 +994,7 @@ function CanvasRow({
   onDelBlock: (blockId: string) => void;
 }) {
   const active = sel?.rowId === row.id;
+  const rp = { ...defaultRowProps(), ...(row.props ?? {}) };
   const btn =
     'rounded bg-white/95 px-1.5 py-0.5 text-xs text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-slate-50';
   return (
@@ -1000,7 +1019,15 @@ function CanvasRow({
           </button>
         </div>
       )}
-      <div className={viewMode === 'mobile' ? 'flex flex-col' : 'flex'}>
+      <div
+        className={viewMode === 'mobile' ? 'flex flex-col' : 'flex'}
+        style={{
+          background: rp.background || undefined,
+          // El lienzo imita lo que hace el correo: en móvil el relleno lateral
+          // baja a 20 px por media query, y aquí se ve igual.
+          padding: `${rp.paddingV}px ${viewMode === 'mobile' ? 20 : rp.paddingH}px`,
+        }}
+      >
         {row.columns.map((col) => {
           const colActive = active && sel?.colId === col.id && !sel?.blockId;
           return (
@@ -1538,6 +1565,80 @@ function ImageSource({
   );
 }
 
+/**
+ * Propiedades de la FILA (banda). Aquí viven el fondo de color y el relleno,
+ * que es lo que convierte una fila normal en una cabecera de marca o en una
+ * sección destacada sin tocar HTML.
+ */
+function RowProps({
+  row,
+  readOnly,
+  onPatch,
+}: {
+  row: EmailRow;
+  readOnly: boolean;
+  onPatch: (patch: Partial<EmailRowProps>, coalesce?: string) => void;
+}) {
+  const rp = { ...defaultRowProps(), ...(row.props ?? {}) };
+  const bandas: { label: string; value: string }[] = [
+    { label: 'Sin fondo', value: '' },
+    { label: 'Acento', value: EMAIL_TOKENS.color.acento },
+    { label: 'Acento suave', value: EMAIL_TOKENS.color.acentoSuave },
+    { label: 'Gris claro', value: EMAIL_TOKENS.color.fondo },
+    { label: 'Tinta', value: EMAIL_TOKENS.color.tinta },
+  ];
+  return (
+    <div className="space-y-4">
+      <h4 className="text-sm font-semibold text-slate-800">▭ Fila (banda)</h4>
+      <Field label="Fondo de la banda">
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {bandas.map((b) => (
+            <button
+              key={b.label}
+              onClick={() => onPatch({ background: b.value })}
+              disabled={readOnly}
+              title={b.label}
+              className={`h-7 w-7 rounded-md border ${
+                rp.background === b.value ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-slate-200'
+              }`}
+              style={
+                b.value
+                  ? { background: b.value }
+                  : {
+                      backgroundImage:
+                        'linear-gradient(45deg,#e2e8f0 25%,transparent 25%,transparent 75%,#e2e8f0 75%)',
+                      backgroundSize: '8px 8px',
+                    }
+              }
+            />
+          ))}
+        </div>
+        <ColorInput
+          value={rp.background}
+          allowEmpty
+          emptyHint="Sin fondo"
+          onChange={(v) => onPatch({ background: v }, 'rowbg')}
+        />
+      </Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Espacio arriba/abajo">
+          <NumInput value={rp.paddingV} min={0} max={120} suffix="px" onChange={(v) => onPatch({ paddingV: v }, 'rowpv')} />
+        </Field>
+        <Field label="Espacio a los lados">
+          <NumInput value={rp.paddingH} min={0} max={60} suffix="px" onChange={(v) => onPatch({ paddingH: v }, 'rowph')} />
+        </Field>
+      </div>
+      <p className="text-[11px] leading-snug text-slate-400">
+        Con fondo de color, acuérdate de poner los textos de esta fila en blanco. En el móvil el
+        espacio lateral baja a 20 px automáticamente.
+      </p>
+      <p className="text-[11px] leading-snug text-slate-400">
+        Los elementos nuevos del panel izquierdo entran en la columna seleccionada.
+      </p>
+    </div>
+  );
+}
+
 function TemplateProps({
   subject,
   onSubject,
@@ -1562,6 +1663,20 @@ function TemplateProps({
           placeholder="Asunto del correo"
           className={inp}
         />
+      </Field>
+      <Field label="Texto de vista previa (preheader)">
+        <input
+          value={settings.preheader ?? ''}
+          onChange={(e) => onPatch({ preheader: e.target.value }, 'set:pre')}
+          disabled={readOnly}
+          maxLength={140}
+          placeholder="Lo que se lee junto al asunto en la bandeja"
+          className={inp}
+        />
+        <p className="mt-1 text-[11px] leading-snug text-slate-400">
+          Va oculto dentro del correo. Entre 40 y 90 caracteres: si lo dejas vacío, el cliente de
+          correo enseña las primeras palabras del cuerpo, que casi nunca es lo que quieres.
+        </p>
       </Field>
       <Field label="Tipografía">
         <select
@@ -1601,8 +1716,12 @@ function TemplateProps({
       <Field label="Color del texto">
         <ColorInput value={settings.textColor} onChange={(v) => onPatch({ textColor: v }, 'set:tc')} />
       </Field>
-      <Field label="Color de acento (botones)">
+      <Field label="Color de acento">
         <ColorInput value={settings.linkColor} onChange={(v) => onPatch({ linkColor: v }, 'set:lc')} />
+        <p className="mt-1 text-[11px] leading-snug text-slate-400">
+          Botones, antetítulos, iconos y cupones lo heredan. Cámbialo aquí y la plantilla entera se
+          repinta con el color de tu marca.
+        </p>
       </Field>
       <p className="text-[11px] leading-snug text-slate-400">
         Haz clic en un bloque del lienzo para editar sus propiedades, o en una columna para elegir dónde

@@ -6,6 +6,7 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { CuponeraService } from '../cuponera/cuponera.service';
 import { ReservationsService } from '../reservations/reservations.service';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
+import { ConveniosCanjeService } from '../convenios/convenios-canje.service';
 
 const QR_RESERVATION_PROTOCOL = 'clubify-reservation:';
 
@@ -16,6 +17,7 @@ export class ScannerService {
     private prisma: PrismaService,
     private appConfig: AppConfigService,
     private reservations: ReservationsService,
+    private convenios: ConveniosCanjeService,
   ) {}
 
   async verifyQr(user: AuthUser, qrToken: string) {
@@ -77,6 +79,23 @@ export class ScannerService {
       throw new ForbiddenException(
         'Esta tarjeta pertenece a otro negocio. Verificá que iniciaste sesión ' +
           'con la cuenta de la sede correcta.',
+      );
+    }
+
+    // RAMA NUEVA — tarjeta de CONVENIO (empleados de una empresa aliada).
+    //
+    // Se añade, no se reescriben las condiciones de arriba: un pase de
+    // convenio se resuelve exactamente igual (mismo qrToken, mismos fallbacks
+    // por JWT y serial), y solo cambia QUÉ se le devuelve al cajero. Todo lo
+    // de sellos sigue por su camino sin enterarse.
+    //
+    // El desvío se decide leyendo `card.convenioId`, que ya viene incluido en
+    // el pase: ni una consulta extra para los millones de escaneos normales.
+    if ((pass.card as any).convenioId) {
+      return this.convenios.resolverParaCaja(
+        user,
+        pass.id,
+        (user as any).locationId ?? null,
       );
     }
 

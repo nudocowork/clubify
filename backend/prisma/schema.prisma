@@ -439,6 +439,13 @@ model Tenant {
   /// Default 1 = el caso normal (una segunda sede).
   maxExtraMenus               Int                        @default(1)
   menus                       Menu[]
+  /// Convenios con empresas aliadas. Se habilita NEGOCIO POR NEGOCIO desde el
+  /// panel de admin, igual que las cartas por sede: la mayoría no lo necesita
+  /// y no debe ver la complejidad. Ver modelo `Convenio`.
+  conveniosEnabled            Boolean                    @default(false)
+  /// Cuántos convenios ACTIVOS puede tener a la vez.
+  maxConvenios                Int                        @default(3)
+  convenios                   Convenio[]
   businessGroupId             String?
   businessGroup               BusinessGroup?             @relation(fields: [businessGroupId], references: [id], onDelete: SetNull)
   /// Modo de reparto de comisión del vendedor (Fase 3). Default = descuento del
@@ -1182,6 +1189,9 @@ model Customer {
   livingMemberships   LivingMembership[]
   cuponeraRedemptions Redemption[]
   cuponeraStampCards  StampCard[]
+  /// Convenios: la tarjeta de empleado de una empresa aliada. Un cliente
+  /// normal no tiene ninguna.
+  convenioTarjetas    ConvenioTarjeta[]
 
   @@unique([tenantId, email])
   @@unique([tenantId, phone])
@@ -1543,6 +1553,12 @@ model Card {
   // Default `true` = lo que el sistema hacía hasta ahora. Ningún cupón
   // existente cambia de comportamiento.
   transformOnRedeem   Boolean   @default(true)
+  /// Si esta tarjeta es la plantilla de un CONVENIO con una empresa aliada.
+  /// El escáner lo lee del `card` que ya trae incluido en el pase para
+  /// desviarse al flujo de convenios sin una consulta extra por escaneo.
+  /// null = tarjeta normal, que es la inmensa mayoría.
+  convenioId          String?
+  convenio            Convenio? @relation(fields: [convenioId], references: [id], onDelete: Cascade)
   // v2: si está activa la integración orders→sello
   autoStampOnOrder    Boolean   @default(true)
   autoStampAmount     Int       @default(1)
@@ -1759,6 +1775,8 @@ model Location {
   menus             Menu[]
   reservations      Reservation[]
   reservationEvents ReservationEvent[]
+  convenioSedes     ConvenioSede[]
+  convenioCanjes    ConvenioCanje[]
 
   @@index([tenantId])
 }
@@ -6228,4 +6246,236 @@ model Menu {
 
   @@index([tenantId, position])
   @@index([locationId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONVENIOS — beneficios para los empleados de una empresa aliada.
+//
+// Un negocio (Nudo Cowork) le da un beneficio permanente a la gente de una
+// empresa aliada (Confenalco) para atraerlos como clientes. No hay venta, no
+// hay saldo, no hay sellos: es un descuento que se puede usar repetidamente
+// mientras el negocio lo tenga encendido.
+//
+// Distinto de la CUPONERA (`BenefitCampaign`), que va al revés: allí la
+// plataforma monta la campaña, los negocios son los aliados que dan el
+// beneficio, y el miembro PAGA una membresía. Aquí el negocio monta el
+// convenio, el aliado es una empresa cuyos empleados reciben, y es gratis.
+// Se le copiaron las formas —tipos de beneficio, topes, el candado del canje,
+// el contador denormalizado— porque ya sobrevivieron producción, pero NO las
+// tablas: mezclarlas volvería frágiles dos sistemas independientes.
+//
+// Reutiliza sin tocar: `Card` (plantilla del pase), `Pass` (emisión + QR +
+// billetera), `Customer` y el escáner. Ver `Card.convenioId`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ConvenioStatus {
+  ACTIVE
+  PAUSED
+  FINISHED
+}
+
+/// Cómo se comprueba que quien activa la tarjeta pertenece al aliado.
+///
+/// NO hay verificación por código al correo: todo el correo sale por Grow
+/// Business y una marca blanca sin subcuenta propia no puede enviar, así que
+/// ese método quedaría roto en silencio justo para esas marcas.
+enum ConvenioVerificacion {
+  /// Cualquiera con el enlace obtiene la tarjeta. Para convenios amplios o de
+  /// bajo impacto; el panel avisa del riesgo al elegirlo.
+  ABIERTO
+  /// El aliado reparte un código entre su gente y se pide al activar.
+  CODIGO
+  /// Solo los documentos/correos que el aliado cargó pueden activar.
+  LISTA
+}
+
+model Convenio {
+  id           String               @id @default(uuid())
+  tenantId     String
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Nombre de la empresa aliada ("Confenalco").
+  name         String
+  slug         String
+  /// Logo del aliado. Se muestra en la tarjeta junto al del negocio.
+  logoUrl      String?
+  description  String               @default("")
+  /// Responsable en la empresa aliada, para renovar el convenio.
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  verificacion ConvenioVerificacion @default(CODIGO)
+  /// Código que reparte el aliado (verificacion=CODIGO). Se guarda en
+  /// mayúsculas y se compara sin distinguir may/min ni espacios.
+  codigo       String?
+  status       ConvenioStatus       @default(ACTIVE)
+  /// Si se define, el convenio se apaga solo al llegar la fecha.
+  endsAt       DateTime?
+  /// Token del informe de solo lectura que el negocio le pasa al aliado.
+  /// Solo agregados, nunca datos personales de los empleados.
+  reportToken  String               @unique
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  /// Plantilla de billetera del convenio: un `Card` normal del propio negocio,
+  /// marcado con `convenioId`. La dirección de la relación importa — el
+  /// escáner resuelve un pase y necesita saber SI ES de convenio leyendo la
+  /// tarjeta que ya trae incluida, sin una consulta extra por cada escaneo.
+  /// Vacío hasta que se emite la primera tarjeta.
+  cards    Card[]
+  /// Sedes donde aplican sus cupones. Vacío = todas las del negocio.
+  sedes    ConvenioSede[]
+  cupones  ConvenioCupon[]
+  tarjetas ConvenioTarjeta[]
+  canjes   ConvenioCanje[]
+  lista    ConvenioListaBlanca[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, status])
+}
+
+/// Sede del negocio donde aplica el convenio. Sin filas = todas.
+model ConvenioSede {
+  id         String   @id @default(uuid())
+  convenioId String
+  convenio   Convenio @relation(fields: [convenioId], references: [id], onDelete: Cascade)
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@unique([convenioId, locationId])
+  @@index([locationId])
+}
+
+enum ConvenioBeneficio {
+  PERCENT_OFF
+  AMOUNT_OFF
+  FREEBIE
+  TWO_FOR_ONE
+  OTHER
+}
+
+/// Ventana de calendario del tope por persona. Mismo criterio que la cuponera
+/// (`BenefitLimitPeriod`), pero en la zona horaria DEL NEGOCIO, no fija a
+/// Bogotá: hay negocios en México y Puerto Rico.
+enum ConvenioPeriodo {
+  SIEMPRE
+  DIA
+  SEMANA
+  MES
+  ANIO
+}
+
+model ConvenioCupon {
+  id            String            @id @default(uuid())
+  convenioId    String
+  convenio      Convenio          @relation(fields: [convenioId], references: [id], onDelete: Cascade)
+  name          String
+  tipo          ConvenioBeneficio @default(PERCENT_OFF)
+  /// % (tipo=PERCENT_OFF) o dinero en la unidad menor (COP = pesos).
+  valor         Int               @default(0)
+  description   String            @default("")
+  /// Texto libre, visible en el reverso del pase.
+  terms         String            @default("")
+  /// EL INTERRUPTOR. Apagarlo bloquea el canje al instante y pone la tarjeta
+  /// en gris; volver a encenderlo la reactiva SIN reemitir nada.
+  isActive      Boolean           @default(true)
+  /// Cuántas veces puede usarlo UNA persona por período. null = sin tope.
+  maxPorPersona Int?
+  periodo       ConvenioPeriodo   @default(SIEMPRE)
+  /// Tope global de canjes del cupón. Al alcanzarlo se apaga solo.
+  maxTotal      Int?
+  /// Compra mínima para que aplique, en la unidad menor.
+  compraMinima  Int?
+  /// Techo del descuento en dinero (para porcentajes).
+  topeDescuento Int?
+  endsAt        DateTime?
+  /// Contador denormalizado. La verdad está en `ConvenioCanje`; esto evita un
+  /// count() en cada listado.
+  canjesCount   Int               @default(0)
+  position      Int               @default(0)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  canjes ConvenioCanje[]
+
+  @@index([convenioId, isActive])
+}
+
+enum ConvenioTarjetaStatus {
+  ACTIVE
+  BLOCKED
+}
+
+/// La tarjeta que el empleado instala. Una por persona y convenio.
+model ConvenioTarjeta {
+  id                   String                @id @default(uuid())
+  convenioId           String
+  convenio             Convenio              @relation(fields: [convenioId], references: [id], onDelete: Cascade)
+  customerId           String
+  customer             Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// Pase de billetera. Es quien lleva el QR y lo que el escáner resuelve.
+  passId               String?               @unique
+  /// Documento de identidad. Se pide al activar y es parte del valor del
+  /// convenio para el negocio. Dato personal: ver `dataPolicyAcceptedAt`.
+  documento            String?
+  status               ConvenioTarjetaStatus @default(ACTIVE)
+  /// Bloquear a UNA persona sin apagar el cupón para todos.
+  blockedAt            DateTime?
+  blockedBy            String?
+  /// Por dónde llegó la activación (qr, enlace, whatsapp…). Para medir qué
+  /// canal del aliado funciona.
+  origen               String?
+  /// Evidencia de que aceptó la política de tratamiento de datos, igual que
+  /// en `Pass`. Obligatorio porque aquí se guarda documento de identidad.
+  dataPolicyAcceptedAt DateTime?
+  dataPolicyUrl        String?
+  createdAt            DateTime              @default(now())
+
+  canjes ConvenioCanje[]
+
+  @@unique([convenioId, customerId])
+  @@index([convenioId, status])
+}
+
+model ConvenioCanje {
+  id             String          @id @default(uuid())
+  convenioId     String
+  convenio       Convenio        @relation(fields: [convenioId], references: [id], onDelete: Cascade)
+  cuponId        String
+  cupon          ConvenioCupon   @relation(fields: [cuponId], references: [id], onDelete: Cascade)
+  tarjetaId      String
+  tarjeta        ConvenioTarjeta @relation(fields: [tarjetaId], references: [id], onDelete: Cascade)
+  locationId     String?
+  location       Location?       @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  /// Quién lo registró en la caja.
+  operatorUserId String?
+  /// Total del tiquete, si el negocio activó pedirlo. Es lo único que permite
+  /// decirle al aliado cuánto facturó su convenio.
+  compraMonto    Int?
+  /// Descuento aplicado, calculado en el servidor.
+  descuentoMonto Int?
+  /// Anulación dentro de la ventana corta. Un canje anulado NO cuenta para
+  /// los topes ni para los informes.
+  revertedAt     DateTime?
+  revertedBy     String?
+  createdAt      DateTime        @default(now())
+
+  @@index([convenioId, createdAt])
+  @@index([cuponId, tarjetaId, createdAt])
+  @@index([locationId, createdAt])
+}
+
+/// Lista blanca del aliado (verificacion=LISTA). Documento o correo; se
+/// normalizan en minúsculas/sin espacios antes de guardar y comparar.
+model ConvenioListaBlanca {
+  id         String    @id @default(uuid())
+  convenioId String
+  convenio   Convenio  @relation(fields: [convenioId], references: [id], onDelete: Cascade)
+  /// Uno de los dos, o ambos.
+  documento  String?
+  email      String?
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([convenioId, documento])
+  @@index([convenioId, email])
 }
