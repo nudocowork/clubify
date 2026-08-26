@@ -161,6 +161,7 @@ export function MapPicker({
   // Inicializa el mapa una sola vez.
   useEffect(() => {
     let cancelled = false;
+    let ro: ResizeObserver | null = null;
     (async () => {
       try {
         // Import dinámico: Leaflet toca `window` al cargarse y revienta en el
@@ -197,12 +198,35 @@ export function MapPicker({
         }
 
         mapRef.current = map;
+
+        // Leaflet mide el contenedor UNA vez, al crearse, y coloca los tiles
+        // en posiciones absolutas a partir de esa medida. Dentro de un modal
+        // el contenedor todavía no tiene su tamaño final en ese instante
+        // (se está abriendo, o el ancho depende de un layout que aún no
+        // resolvió), así que el mapa se dibujaba con las medidas equivocadas
+        // y los tiles se salían de la ventana, encima del formulario.
+        //
+        // `invalidateSize()` le dice que vuelva a medir. Una vez tras el
+        // primer pintado, y luego cada vez que el contenedor cambie de
+        // tamaño — que es lo que pasa al abrir el modal, al rotar el móvil o
+        // al plegarse el menú lateral.
+        requestAnimationFrame(() => {
+          if (!cancelled) map.invalidateSize();
+        });
+        if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
+          ro = new ResizeObserver(() => {
+            if (!cancelled) map.invalidateSize();
+          });
+          ro.observe(containerRef.current);
+        }
       } catch (e: any) {
         setLoadErr(e?.message ?? 'No se pudo cargar el mapa.');
       }
     })();
     return () => {
       cancelled = true;
+      ro?.disconnect();
+      ro = null;
       // Leaflet no se limpia solo: sin esto el contenedor queda marcado como
       // inicializado y al volver a abrir el formulario falla.
       mapRef.current?.remove();
