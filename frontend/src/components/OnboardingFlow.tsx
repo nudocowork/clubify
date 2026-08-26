@@ -4,12 +4,8 @@ import dynamic from 'next/dynamic';
 import { api, getUser } from '@/lib/api';
 import type { MapPickResult } from '@/components/MapPicker';
 import { useAuthBrand } from '@/components/AuthBrand';
-// Estático a propósito, aunque MapPicker se cargue con `dynamic`: dentro del
-// componente el CSS viaja en el trozo diferido y el mapa puede dibujarse antes
-// de que se aplique, con los paneles saliéndose del contenedor.
-import 'leaflet/dist/leaflet.css';
 
-// Leaflet usa `window` al import — dynamic import sin SSR
+// Google Maps toca `window` al cargar — import dinámico sin SSR
 const MapPicker = dynamic(
   () => import('@/components/MapPicker').then((m) => m.MapPicker),
   { ssr: false, loading: () => <div className="h-[360px] rounded-input bg-bg2 animate-pulse" /> },
