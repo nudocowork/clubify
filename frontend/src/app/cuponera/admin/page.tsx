@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { api, getUser, clearSession } from '@/lib/api';
 
 const PC = '#0a90bd';
@@ -59,6 +59,15 @@ function Stat({ n, label, hint }: { n: number; label: string; hint?: string }) {
 
 export default function CuponeraAdminPage() {
   const router = useRouter();
+  // ?campaignId= lo usa el Master Admin para entrar a CUALQUIER cuponera sin
+  // volver a iniciar sesión (§1). No hace falta suplantar a nadie: el backend
+  // ya autoriza a PLATFORM_OWNER en resolveAdminCampaign, y a un CUPONERA_ADMIN
+  // le rechaza cualquier id que no sea el suyo. La auditoría queda intacta
+  // porque el owner sigue siendo él mismo.
+  const params = useSearchParams();
+  const campaignId = params.get('campaignId') || '';
+  const qs = campaignId ? `?campaignId=${encodeURIComponent(campaignId)}` : '';
+  const [verComo, setVerComo] = useState(false);
   const [tab, setTab] = useState<Tab>('Dashboard');
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -78,10 +87,10 @@ export default function CuponeraAdminPage() {
     (async () => {
       try {
         const [o, a, m, r] = await Promise.all([
-          api('/cuponera/panel/overview'),
-          api('/cuponera/panel/allies'),
-          api('/cuponera/panel/members'),
-          api('/cuponera/panel/redemptions'),
+          api(`/cuponera/panel/overview${qs}`),
+          api(`/cuponera/panel/allies${qs}`),
+          api(`/cuponera/panel/members${qs}`),
+          api(`/cuponera/panel/redemptions${qs}`),
         ]);
         setOv(o as Overview);
         // api() devuelve null en respuesta vacía.
@@ -92,7 +101,8 @@ export default function CuponeraAdminPage() {
         setErr(e?.message || 'No se pudo cargar el panel');
       } finally { setLoading(false); }
     })();
-  }, [router]);
+    setVerComo(!!campaignId && u.role !== 'CUPONERA_ADMIN');
+  }, [router, qs, campaignId]);
 
   if (loading) return <div style={{ padding: 28, color: '#64748b' }}>Cargando…</div>;
   if (err) return <div style={{ padding: 28, color: '#b91c1c' }}>{err}</div>;
@@ -112,6 +122,13 @@ export default function CuponeraAdminPage() {
           Salir
         </button>
       </div>
+
+      {verComo && (
+        <div style={{ background: '#eef2ff', border: '1px solid #c7d2fe', color: '#3730a3', borderRadius: 10, padding: '10px 13px', fontSize: 12.5, marginBottom: 12, display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span>Estás viendo esta cuponera <b>desde la administración</b>, con tu propia cuenta.</span>
+          <a href="/superadmin/cuponeras" style={{ color: '#3730a3', fontWeight: 700, textDecoration: 'underline' }}>Volver a Cuponeras</a>
+        </div>
+      )}
 
       {draft && (
         <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 10, padding: '10px 13px', fontSize: 12.5, marginBottom: 16 }}>

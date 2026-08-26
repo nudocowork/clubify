@@ -235,6 +235,16 @@ export default function CuponerasPage() {
               {c.status === 'ACTIVE' && (
                 <button style={btn('#6b7280')} onClick={() => setStatus(c, 'PAUSED')}>Pausar</button>
               )}
+              {/* Entrar sin volver a iniciar sesión (§1). Es un link con el id de
+                  la cuponera, no una suplantación: el backend ya autoriza al
+                  Master Admin en cualquier cuponera, así que el owner entra
+                  siendo él mismo y la auditoría no se pierde. */}
+              <a
+                href={`/cuponera/admin?campaignId=${encodeURIComponent(c.id)}`}
+                style={{ ...btn(), textDecoration: 'none', display: 'inline-block' }}
+              >
+                Entrar al panel
+              </a>
               <button style={btn('#eef2f7', '#111827')} onClick={() => openAdmins(c)}>
                 Administradores
               </button>
