@@ -48,6 +48,52 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-26 — Barrido de fugas de marca/pasarela (6 corregidas) — batch SELLEALA
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — commit `b0f55b8`, **desplegado y verificado**
+
+Continúa el hilo de fugas del 22-ago. Un agente barrió todo `frontend/src` +
+`backend/src` (230 menciones de Clubify/Hotmart/Nequi) y trió fugas reales vs.
+usos legítimos (superadmin, landing propia, comentarios). **6 fugas confirmadas**
+(texto visible que un admin/usuario/cliente de marca blanca vería con la marca o
+pasarela hardcodeada):
+
+### Qué cambié
+- `tenant-status.guard.ts:68` — el 402 de suspensión decía "volver a usar
+  **Clubify**"; corre para tenants de CUALQUIER marca → neutro "tu cuenta".
+- `cita/[slug]` (página pública de reservas): footer "Reservas con **Clubify**"
+  → dinámico `Reservas con {platformName}`. El endpoint público
+  `service-reservations.publicInfo` ahora devuelve
+  `platformName = whiteLabel.name ?? 'Clubify'`.
+- `app/reviews` plantilla por defecto "Revisar en **Clubify**" → "Revisar aquí".
+- `AffiliateCredentialsModal` "panel de afiliado de **Clubify**" → sin marca.
+- `admin/commissions` "Pagan suscripción **Hotmart**" → "Pagan su suscripción".
+- `csvHotmartTx` (es/en/pt) "**Hotmart** TX" → "Pasarela TX"/"Gateway TX".
+
+### Qué toqué de PRODUCCIÓN
+- **Frontend**: `vercel --prod` (dpl `o4GreFf5`), READY, dominios prod 200.
+- **Backend**: `railway up --service backend` desde la raíz. Swap verificado
+  (uptime 1550→20→46), CORS 204 con ACAO, `platformName` confirmado en
+  `/api/public/service-reservations/primor-barber-shop` = "Clubify".
+- **Sin migración** (solo un `select` extra en el endpoint público).
+- DB: nada. Variables: nada.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **~10 casos AMBIGUOS** sin tocar (esperan criterio del founder): "Hotmart"
+      en `CardVerificationLockscreen`/`TrialExpiredLockscreen` (gated por
+      `planName==='Elite'`, no por marca); "Clubify Lab" (nav+página+correos, solo
+      si una marca habilita módulo COMMUNITY); SMS al reseller "Clubify: se
+      acreditaron créditos"; fallbacks `brandName || 'Clubify'` en `d/[slug]` (title
+      de error) y `wallet.service` (pase). Detalle en la memoria del batch SELLEALA.
+- [ ] Puntos 1-2-3 del PDF (automatizaciones default, confirmación de compra e2e,
+      bug "Sin definir"+backfill) y el OTP siguen pendientes.
+
+### Riesgos y avisos
+- El fix de `cita` necesita AMBOS deploys: sin el backend, el front cae a
+  "Clubify" con gracia (sin regresión), pero la fuga persiste. Ambos ya vivos.
+- Ningún tenant Sellea tiene reservas activas hoy → el fix se verificó con un
+  tenant Clubify; para Sellea resuelve a "Sellea" por el mismo `whiteLabel.name`.
+
 ## 2026-08-22 — Fugas de marca, pagos que no se reconocían, y plantillas de correo
 **Máquina/quién:** Javier
 **Rama / PR:** `chore/merge-emails-sobre-314` — todo desplegado y verificado
