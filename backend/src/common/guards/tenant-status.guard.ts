@@ -64,8 +64,12 @@ export class TenantStatusGuard implements CanActivate {
     throw new HttpException(
       {
         statusCode: HttpStatus.PAYMENT_REQUIRED,
+        // Neutro de marca: este guard corre para tenants de cualquier marca
+        // blanca (Sellea, etc.), no solo Clubify. Nombrar la plataforma aquí
+        // delataría la marca. El frontend ya redirige a /app/billing con su
+        // propio branding.
         message:
-          'Tu cuenta está suspendida. Reactiva la suscripción para volver a usar Clubify.',
+          'Tu cuenta está suspendida. Reactiva la suscripción para volver a usar tu cuenta.',
         code: 'TENANT_SUSPENDED',
       },
       HttpStatus.PAYMENT_REQUIRED,

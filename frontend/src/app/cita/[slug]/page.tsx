@@ -19,6 +19,7 @@ type Slot = { startAt: string; label: string };
 type Provider = { id: string; name: string; serviceIds: string[] };
 type Info = {
   businessName: string;
+  platformName?: string | null;
   logoUrl: string | null;
   primaryColor: string | null;
   timezone: string;
@@ -386,7 +387,7 @@ function Shell({
           {children}
         </div>
         <div className="text-center text-[11px] mt-4" style={{ color: '#c0c6cd' }}>
-          Reservas con Clubify
+          Reservas con {info?.platformName || 'Clubify'}
         </div>
       </div>
     </div>

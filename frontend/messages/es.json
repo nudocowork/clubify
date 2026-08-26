@@ -2558,7 +2558,7 @@
     "csvPaid": "Pagado",
     "csvOutstanding": "Pendiente",
     "csvStatus": "Estado",
-    "csvHotmartTx": "Hotmart TX",
+    "csvHotmartTx": "Pasarela TX",
     "csvEnabledDate": "Habilitada",
     "csvPaidDate": "Fecha de pago",
     "lifecycleCancelled": "Cancelada",
