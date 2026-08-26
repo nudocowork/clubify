@@ -27,6 +27,7 @@ require('ts-node').register({
 });
 const path = require('node:path');
 const {
+  BLOCK_META,
   EMAIL_TOKENS: T,
   emptyDoc,
   newBlock,
@@ -600,4 +601,11 @@ function renderAll() {
   return listas;
 }
 
-module.exports = { TEMPLATES, renderAll, verificar, EMAIL_TOKENS: T };
+/** Tipos de bloque distintos que usa un documento, con su etiqueta legible. */
+function bloquesDe(d) {
+  const vistos = [];
+  for (const bl of everyBlock(d)) if (!vistos.includes(bl.type)) vistos.push(bl.type);
+  return vistos.map((t) => ({ tipo: t, label: BLOCK_META[t]?.label ?? t }));
+}
+
+module.exports = { TEMPLATES, renderAll, verificar, bloquesDe, EMAIL_TOKENS: T };

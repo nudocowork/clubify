@@ -3,59 +3,219 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Plantillas de correo de fábrica — Clubify PRO</title>
+<meta name="color-scheme" content="light dark" />
+<title>Plantillas de fábrica del Email Marketing</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" />
 <style>
-  :root { --borde:#e5e7eb; --tinta:#111827; --suave:#6b7280; --acento:#4f46e5; }
+  :root {
+    --ground:    #edeff4;
+    --surface:   #ffffff;
+    --sunken:    #e4e7ee;
+    --ink:       #161922;
+    --muted:     #616978;
+    --hairline:  #dbdfe8;
+    --accent:    #3b37b8;
+    --on-accent: #ffffff;
+    --chip:      #eef0f7;
+    --display: 'Archivo', 'Segoe UI', system-ui, sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:    #0d0f15;
+      --surface:   #161a22;
+      --sunken:    #10131a;
+      --ink:       #e4e7ee;
+      --muted:     #939bab;
+      --hairline:  #242935;
+      --accent:    #9c97ff;
+      --on-accent: #14121f;
+      --chip:      #1e2330;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:    #0d0f15;
+    --surface:   #161a22;
+    --sunken:    #10131a;
+    --ink:       #e4e7ee;
+    --muted:     #939bab;
+    --hairline:  #242935;
+    --accent:    #9c97ff;
+    --on-accent: #14121f;
+    --chip:      #1e2330;
+  }
+
   * { box-sizing: border-box; }
-  body { margin:0; background:#f4f5f7; color:var(--tinta);
-         font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; }
-  header.top { position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid var(--borde);
-               padding:14px 20px; display:flex; flex-wrap:wrap; gap:14px; align-items:center; }
-  header.top h1 { margin:0; font-size:17px; }
-  header.top p { margin:0; font-size:13px; color:var(--suave); }
-  .anchos { margin-left:auto; display:flex; gap:6px; }
-  .anchos button { border:1px solid var(--borde); background:#fff; border-radius:8px;
-                   padding:7px 14px; font-size:13px; font-weight:600; cursor:pointer; }
-  .anchos button[aria-pressed="true"] { background:var(--acento); border-color:var(--acento); color:#fff; }
-  main { display:grid; gap:22px; padding:22px;
-         grid-template-columns:repeat(auto-fill, minmax(min(100%, 640px), 1fr)); }
-  .tarjeta { background:#fff; border:1px solid var(--borde); border-radius:12px; overflow:hidden; }
-  .tarjeta > header { padding:14px 16px; border-bottom:1px solid var(--borde); }
-  .tarjeta h2 { margin:0 0 4px; font-size:15px; }
-  .asunto, .pre { margin:0; font-size:12px; color:var(--suave); }
-  .marco { background:#f4f5f7; padding:16px; display:flex; justify-content:center; }
-  iframe { width:700px; max-width:100%; height:900px; border:0; background:#fff;
-           box-shadow:0 1px 3px rgba(0,0,0,.12); transition:width .15s ease; }
-  details { border-top:1px solid var(--borde); }
-  summary { padding:10px 16px; font-size:12px; color:var(--suave); cursor:pointer; }
-  pre { margin:0; padding:0 16px 14px; font-size:12px; line-height:1.6; white-space:pre-wrap; color:#374151; }
-  .meta { margin:0; padding:10px 16px; border-top:1px solid var(--borde); font-size:11px; color:#9ca3af; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--display);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+  /* ── Barra de instrumentos ── */
+  .barra {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 18px;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .marca { display: flex; flex-direction: column; gap: 2px; margin-right: auto; }
+  .marca h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
+  .marca p { margin: 0; font-size: 12.5px; color: var(--muted); }
+  .conmutador { display: flex; align-items: center; gap: 10px; }
+  .conmutador > span {
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .anchos { display: flex; gap: 2px; padding: 3px; background: var(--sunken); border-radius: 9px; }
+  .anchos button {
+    font: 500 12.5px/1 var(--mono);
+    padding: 8px 13px; border: 0; border-radius: 6px; cursor: pointer;
+    background: transparent; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .anchos button:hover { color: var(--ink); }
+  .anchos button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+
+  /* ── Cuerpo ── */
+  .cuerpo { display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 28px; padding: 28px 24px 72px; }
+  @media (max-width: 900px) { .cuerpo { grid-template-columns: minmax(0, 1fr); gap: 18px; } }
+
+  .indice { position: sticky; top: 86px; align-self: start; }
+  .indice h2 {
+    margin: 0 0 10px; font-size: 10.5px; font-weight: 600;
+    letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
+  }
+  .indice ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+  .indice a { display: block; padding: 6px 10px; border-radius: 6px; font-size: 13px; color: var(--muted); text-decoration: none; }
+  .indice a:hover { background: var(--surface); color: var(--ink); }
+  @media (max-width: 900px) {
+    .indice { position: static; }
+    .indice ol { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+    .indice a { background: var(--surface); border: 1px solid var(--hairline); }
+  }
+
+  .fichas { display: flex; flex-direction: column; gap: 26px; min-width: 0; }
+
+  .ficha {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 14px;
+    overflow: hidden;
+    scroll-margin-top: 84px;
+  }
+  .ficha > header { padding: 18px 22px 16px; border-bottom: 1px solid var(--hairline); }
+  .ficha h3 { margin: 0 0 8px; font-size: 19px; font-weight: 700; letter-spacing: -0.015em; text-wrap: balance; }
+  .ficha dl { margin: 0; }
+  .dato { display: flex; gap: 8px; font-size: 13px; line-height: 1.7; }
+  .dato dt {
+    flex: 0 0 82px; color: var(--muted); font-size: 10.5px; font-weight: 600;
+    letter-spacing: 0.07em; text-transform: uppercase; padding-top: 4px;
+  }
+  .dato dd { margin: 0; min-width: 0; }
+  .dato dd.mono { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+
+  /* Los chips no decoran: dicen qué bloques ejercita cada plantilla, que es lo
+     que hace que esto sea una galería y no la misma carta nueve veces. */
+  .bloques { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 13px; }
+  .bloques span {
+    font: 500 11px/1 var(--mono);
+    padding: 5px 9px; border-radius: 5px;
+    background: var(--chip); color: var(--muted);
+  }
+
+  .marco { padding: 22px; background: var(--sunken); display: flex; justify-content: center; }
+  .marco iframe {
+    width: 700px; max-width: 100%; height: 940px; border: 0;
+    background: #fff; border-radius: 6px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.16), 0 8px 24px rgba(0,0,0,.08);
+    transition: width .18s ease;
+  }
+  @media (prefers-reduced-motion: reduce) { .marco iframe { transition: none; } }
+
+  details { border-top: 1px solid var(--hairline); }
+  summary { padding: 12px 22px; cursor: pointer; list-style: none; font-size: 12.5px; color: var(--muted); }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: '▸ '; }
+  details[open] summary::before { content: '▾ '; }
+  summary:hover { color: var(--ink); }
+  details pre {
+    margin: 0; padding: 0 22px 18px;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.75;
+    white-space: pre-wrap; color: var(--muted);
+    overflow-x: auto;
+  }
+  .pie-ficha {
+    margin: 0; padding: 11px 22px; border-top: 1px solid var(--hairline);
+    font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .aviso {
+    margin: 0 0 22px; padding: 13px 16px;
+    background: var(--surface); border: 1px solid var(--hairline);
+    border-radius: 10px; font-size: 13px; color: var(--muted);
+  }
+  .aviso b { color: var(--ink); font-weight: 600; }
 </style>
 </head>
 <body>
-<header class="top">
-  <div>
-    <h1>Plantillas de correo de fábrica</h1>
-    <p>9 plantillas · generado desde <code>backend/scripts/lib/email-presets.cjs</code>
-       · a 620 px o menos las columnas se apilan a propósito</p>
+<header class="barra">
+  <div class="marca">
+    <h1>Plantillas de fábrica del Email Marketing</h1>
+    <p>9 plantillas · el mismo HTML que se envía, no una maqueta aparte</p>
   </div>
-  <div class="anchos">
-    <button data-w="320">320 px</button>
-    <button data-w="480">480 px</button>
-    <button data-w="600">600 px</button>
-    <button data-w="700" aria-pressed="true">Escritorio</button>
+  <div class="conmutador">
+    <span>Ancho</span>
+    <div class="anchos">
+      <button type="button" data-w="320">320</button>
+      <button type="button" data-w="480">480</button>
+      <button type="button" data-w="600">600</button>
+      <button type="button" data-w="700" aria-pressed="true">Escritorio</button>
+    </div>
   </div>
 </header>
-<main>
 
-    <section class="tarjeta">
-      <header>
-        <h2>Bienvenida</h2>
-        <p class="asunto">Asunto: <b>¡Qué gusto tenerte por aquí!</b></p>
-        <p class="pre">Vista previa: Gracias por unirte: esto es lo que viene ahora.</p>
-      </header>
-      <div class="marco">
-        <iframe title="Bienvenida" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+<div class="cuerpo">
+  <nav class="indice" aria-label="Plantillas">
+    <h2>Plantillas</h2>
+    <ol>
+        <li><a href="#bienvenida">Bienvenida</a></li>
+        <li><a href="#agradecimiento-post-compra">Agradecimiento post-compra</a></li>
+        <li><a href="#promocion">Promoción</a></li>
+        <li><a href="#novedades">Novedades</a></li>
+        <li><a href="#recordatorio-de-cita">Recordatorio de cita</a></li>
+        <li><a href="#te-extranamos">Te extrañamos</a></li>
+        <li><a href="#cumpleanos">Cumpleaños</a></li>
+        <li><a href="#recompensa-lista-para-canjear">Recompensa lista para canjear</a></li>
+        <li><a href="#pide-tu-resena">Pide tu reseña</a></li>
+    </ol>
+  </nav>
+
+  <main class="fichas">
+    <p class="aviso">
+      Cada plantilla se ve <b>clara siempre</b>, aunque mires esta página en oscuro: así es como
+      la recibe el cliente. A <b>620 px o menos las columnas se apilan</b> a propósito — es lo que
+      hace la media query en el móvil de verdad. Los huecos de imagen salen vacíos porque
+      <b>cada negocio sube la suya</b>.
+    </p>
+
+      <article class="ficha" id="bienvenida">
+        <header>
+          <h3>Bienvenida</h3>
+          <dl>
+            <div class="dato"><dt>Asunto</dt><dd>¡Qué gusto tenerte por aquí!</dd></div>
+            <div class="dato"><dt>Bandeja</dt><dd class="mono">Gracias por unirte: esto es lo que viene ahora.</dd></div>
+          </dl>
+          <div class="bloques"><span>Logotipo</span><span>Título</span><span>Texto</span><span>Icono + texto</span><span>Botón</span><span>Divisor</span><span>Redes sociales</span><span>Pie de página</span></div>
+        </header>
+        <div class="marco">
+          <iframe title="Plantilla Bienvenida" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
@@ -126,10 +286,10 @@
 &lt;/center&gt;
 &lt;/body&gt;
 &lt;/html&gt;"></iframe>
-      </div>
-      <details>
-        <summary>Fallback de texto plano (585 caracteres)</summary>
-        <pre>Gracias por unirte: esto es lo que viene ahora.
+        </div>
+        <details>
+          <summary>Versión en texto plano — la que se lee sin HTML (585 caracteres)</summary>
+          <pre>Gracias por unirte: esto es lo que viene ahora.
 
 Bienvenido
 Qué gusto tenerte por aquí
@@ -152,18 +312,21 @@ Descubrir más
 
 Recibiste este correo porque estás en nuestra lista de contactos.
 Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
-      </details>
-      <p class="meta">11.481 bytes · plantilla 1 de 9</p>
-    </section>
+        </details>
+        <p class="pie-ficha">11.481 bytes de HTML · 8 tipos de bloque</p>
+      </article>
 
-    <section class="tarjeta">
-      <header>
-        <h2>Agradecimiento post-compra</h2>
-        <p class="asunto">Asunto: <b>¡Gracias por tu compra!</b></p>
-        <p class="pre">Vista previa: Tu compra está confirmada. Aquí tienes el resumen.</p>
-      </header>
-      <div class="marco">
-        <iframe title="Agradecimiento post-compra" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+      <article class="ficha" id="agradecimiento-post-compra">
+        <header>
+          <h3>Agradecimiento post-compra</h3>
+          <dl>
+            <div class="dato"><dt>Asunto</dt><dd>¡Gracias por tu compra!</dd></div>
+            <div class="dato"><dt>Bandeja</dt><dd class="mono">Tu compra está confirmada. Aquí tienes el resumen.</dd></div>
+          </dl>
+          <div class="bloques"><span>Logotipo</span><span>Título</span><span>Resumen de pedido</span><span>Estrellas</span><span>Texto</span><span>Botón</span><span>Redes sociales</span><span>Pie de página</span></div>
+        </header>
+        <div class="marco">
+          <iframe title="Plantilla Agradecimiento post-compra" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
@@ -232,10 +395,10 @@ Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
 &lt;/center&gt;
 &lt;/body&gt;
 &lt;/html&gt;"></iframe>
-      </div>
-      <details>
-        <summary>Fallback de texto plano (575 caracteres)</summary>
-        <pre>Tu compra está confirmada. Aquí tienes el resumen.
+        </div>
+        <details>
+          <summary>Versión en texto plano — la que se lee sin HTML (575 caracteres)</summary>
+          <pre>Tu compra está confirmada. Aquí tienes el resumen.
 
 ¡Mil gracias!
 Tu compra ya está confirmada. Nos hace muy felices que nos hayas elegido.
@@ -255,18 +418,21 @@ Dejar mi opinión
 
 Recibiste este correo porque estás en nuestra lista de contactos.
 Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
-      </details>
-      <p class="meta">10.337 bytes · plantilla 2 de 9</p>
-    </section>
+        </details>
+        <p class="pie-ficha">10.337 bytes de HTML · 8 tipos de bloque</p>
+      </article>
 
-    <section class="tarjeta">
-      <header>
-        <h2>Promoción</h2>
-        <p class="asunto">Asunto: <b>Una oferta pensada para ti</b></p>
-        <p class="pre">Vista previa: Por tiempo limitado: aprovecha tu descuento.</p>
-      </header>
-      <div class="marco">
-        <iframe title="Promoción" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+      <article class="ficha" id="promocion">
+        <header>
+          <h3>Promoción</h3>
+          <dl>
+            <div class="dato"><dt>Asunto</dt><dd>Una oferta pensada para ti</dd></div>
+            <div class="dato"><dt>Bandeja</dt><dd class="mono">Por tiempo limitado: aprovecha tu descuento.</dd></div>
+          </dl>
+          <div class="bloques"><span>Título</span><span>Imagen</span><span>Texto</span><span>Producto</span><span>Cupón</span><span>Botón</span><span>Divisor</span><span>Redes sociales</span><span>Pie de página</span></div>
+        </header>
+        <div class="marco">
+          <iframe title="Plantilla Promoción" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
@@ -339,10 +505,10 @@ Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
 &lt;/center&gt;
 &lt;/body&gt;
 &lt;/html&gt;"></iframe>
-      </div>
-      <details>
-        <summary>Fallback de texto plano (632 caracteres)</summary>
-        <pre>Por tiempo limitado: aprovecha tu descuento.
+        </div>
+        <details>
+          <summary>Versión en texto plano — la que se lee sin HTML (632 caracteres)</summary>
+          <pre>Por tiempo limitado: aprovecha tu descuento.
 
 Solo por unos días
 Una oferta difícil de ignorar
@@ -371,18 +537,21 @@ Aplican términos y condiciones. La promoción no es acumulable con otras.
 
 Recibiste este correo porque estás en nuestra lista de contactos.
 Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
-      </details>
-      <p class="meta">12.933 bytes · plantilla 3 de 9</p>
-    </section>
+        </details>
+        <p class="pie-ficha">12.933 bytes de HTML · 9 tipos de bloque</p>
+      </article>
 
-    <section class="tarjeta">
-      <header>
-        <h2>Novedades</h2>
-        <p class="asunto">Asunto: <b>Esto es lo nuevo que tenemos para contarte</b></p>
-        <p class="pre">Vista previa: Un resumen rápido de lo que ha pasado y lo que viene.</p>
-      </header>
-      <div class="marco">
-        <iframe title="Novedades" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+      <article class="ficha" id="novedades">
+        <header>
+          <h3>Novedades</h3>
+          <dl>
+            <div class="dato"><dt>Asunto</dt><dd>Esto es lo nuevo que tenemos para contarte</dd></div>
+            <div class="dato"><dt>Bandeja</dt><dd class="mono">Un resumen rápido de lo que ha pasado y lo que viene.</dd></div>
+          </dl>
+          <div class="bloques"><span>Logotipo</span><span>Título</span><span>Divisor</span><span>Imagen</span><span>Texto</span><span>Testimonio</span><span>Botón</span><span>Redes sociales</span><span>Pie de página</span></div>
+        </header>
+        <div class="marco">
+          <iframe title="Plantilla Novedades" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
@@ -458,10 +627,10 @@ Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
 &lt;/center&gt;
 &lt;/body&gt;
 &lt;/html&gt;"></iframe>
-      </div>
-      <details>
-        <summary>Fallback de texto plano (647 caracteres)</summary>
-        <pre>Un resumen rápido de lo que ha pasado y lo que viene.
+        </div>
+        <details>
+          <summary>Versión en texto plano — la que se lee sin HTML (647 caracteres)</summary>
+          <pre>Un resumen rápido de lo que ha pasado y lo que viene.
 
 Boletín
 Novedades del mes
@@ -489,18 +658,21 @@ Ver todas las novedades
 
 Recibiste este correo porque estás en nuestra lista de contactos.
 Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
-      </details>
-      <p class="meta">11.006 bytes · plantilla 4 de 9</p>
-    </section>
+        </details>
+        <p class="pie-ficha">11.006 bytes de HTML · 9 tipos de bloque</p>
+      </article>
 
-    <section class="tarjeta">
-      <header>
-        <h2>Recordatorio de cita</h2>
-        <p class="asunto">Asunto: <b>Te esperamos: recuerda tu cita</b></p>
-        <p class="pre">Vista previa: Recuerda tu próxima cita: aquí están los datos.</p>
-      </header>
-      <div class="marco">
-        <iframe title="Recordatorio de cita" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+      <article class="ficha" id="recordatorio-de-cita">
+        <header>
+          <h3>Recordatorio de cita</h3>
+          <dl>
+            <div class="dato"><dt>Asunto</dt><dd>Te esperamos: recuerda tu cita</dd></div>
+            <div class="dato"><dt>Bandeja</dt><dd class="mono">Recuerda tu próxima cita: aquí están los datos.</dd></div>
+          </dl>
+          <div class="bloques"><span>Título</span><span>Icono + texto</span><span>Botón doble</span><span>Texto</span><span>Divisor</span><span>Pie de página</span></div>
+        </header>
+        <div class="marco">
+          <iframe title="Plantilla Recordatorio de cita" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
@@ -568,10 +740,10 @@ Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
 &lt;/center&gt;
 &lt;/body&gt;
 &lt;/html&gt;"></iframe>
-      </div>
-      <details>
-        <summary>Fallback de texto plano (530 caracteres)</summary>
-        <pre>Recuerda tu próxima cita: aquí están los datos.
+        </div>
+        <details>
+          <summary>Versión en texto plano — la que se lee sin HTML (530 caracteres)</summary>
+          <pre>Recuerda tu próxima cita: aquí están los datos.
 
 Recordatorio
 ¡No se te olvide!
@@ -595,18 +767,21 @@ Si no puedes asistir, avísanos con tiempo y la reagendamos sin problema.
 
 Recibiste este correo porque estás en nuestra lista de contactos.
 Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
-      </details>
-      <p class="meta">12.289 bytes · plantilla 5 de 9</p>
-    </section>
+        </details>
+        <p class="pie-ficha">12.289 bytes de HTML · 6 tipos de bloque</p>
+      </article>
 
-    <section class="tarjeta">
-      <header>
-        <h2>Te extrañamos</h2>
-        <p class="asunto">Asunto: <b>Hace tiempo que no te vemos</b></p>
-        <p class="pre">Vista previa: Hace tiempo que no te vemos: tenemos algo para que vuelvas.</p>
-      </header>
-      <div class="marco">
-        <iframe title="Te extrañamos" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+      <article class="ficha" id="te-extranamos">
+        <header>
+          <h3>Te extrañamos</h3>
+          <dl>
+            <div class="dato"><dt>Asunto</dt><dd>Hace tiempo que no te vemos</dd></div>
+            <div class="dato"><dt>Bandeja</dt><dd class="mono">Hace tiempo que no te vemos: tenemos algo para que vuelvas.</dd></div>
+          </dl>
+          <div class="bloques"><span>Logotipo</span><span>Título</span><span>Testimonio</span><span>Cupón</span><span>Botón</span><span>Texto</span><span>Divisor</span><span>Redes sociales</span><span>Pie de página</span></div>
+        </header>
+        <div class="marco">
+          <iframe title="Plantilla Te extrañamos" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
@@ -678,10 +853,10 @@ Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
 &lt;/center&gt;
 &lt;/body&gt;
 &lt;/html&gt;"></iframe>
-      </div>
-      <details>
-        <summary>Fallback de texto plano (577 caracteres)</summary>
-        <pre>Hace tiempo que no te vemos: tenemos algo para que vuelvas.
+        </div>
+        <details>
+          <summary>Versión en texto plano — la que se lee sin HTML (577 caracteres)</summary>
+          <pre>Hace tiempo que no te vemos: tenemos algo para que vuelvas.
 
 Hace tiempo que no te vemos
 Y se nota. Queremos que vuelvas, así que te lo ponemos fácil.
@@ -700,18 +875,21 @@ Si prefieres que dejemos de escribirte, respóndenos con la palabra BAJA y listo
 
 Recibiste este correo porque estás en nuestra lista de contactos.
 Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
-      </details>
-      <p class="meta">10.059 bytes · plantilla 6 de 9</p>
-    </section>
+        </details>
+        <p class="pie-ficha">10.059 bytes de HTML · 9 tipos de bloque</p>
+      </article>
 
-    <section class="tarjeta">
-      <header>
-        <h2>Cumpleaños</h2>
-        <p class="asunto">Asunto: <b>🎉 Feliz cumpleaños</b></p>
-        <p class="pre">Vista previa: Es tu día y tenemos un detalle esperándote.</p>
-      </header>
-      <div class="marco">
-        <iframe title="Cumpleaños" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+      <article class="ficha" id="cumpleanos">
+        <header>
+          <h3>Cumpleaños</h3>
+          <dl>
+            <div class="dato"><dt>Asunto</dt><dd>🎉 Feliz cumpleaños</dd></div>
+            <div class="dato"><dt>Bandeja</dt><dd class="mono">Es tu día y tenemos un detalle esperándote.</dd></div>
+          </dl>
+          <div class="bloques"><span>Título</span><span>Texto</span><span>Cupón</span><span>Icono + texto</span><span>Botón</span><span>Divisor</span><span>Redes sociales</span><span>Pie de página</span></div>
+        </header>
+        <div class="marco">
+          <iframe title="Plantilla Cumpleaños" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
@@ -780,10 +958,10 @@ Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
 &lt;/center&gt;
 &lt;/body&gt;
 &lt;/html&gt;"></iframe>
-      </div>
-      <details>
-        <summary>Fallback de texto plano (500 caracteres)</summary>
-        <pre>Es tu día y tenemos un detalle esperándote.
+        </div>
+        <details>
+          <summary>Versión en texto plano — la que se lee sin HTML (500 caracteres)</summary>
+          <pre>Es tu día y tenemos un detalle esperándote.
 
 Hoy es tu día
 ¡Feliz cumpleaños!
@@ -803,18 +981,21 @@ Ver dónde estamos
 
 Recibiste este correo porque estás en nuestra lista de contactos.
 Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
-      </details>
-      <p class="meta">9918 bytes · plantilla 7 de 9</p>
-    </section>
+        </details>
+        <p class="pie-ficha">9918 bytes de HTML · 8 tipos de bloque</p>
+      </article>
 
-    <section class="tarjeta">
-      <header>
-        <h2>Recompensa lista para canjear</h2>
-        <p class="asunto">Asunto: <b>Tu recompensa ya te está esperando</b></p>
-        <p class="pre">Vista previa: Completaste tu tarjeta: tu recompensa te espera.</p>
-      </header>
-      <div class="marco">
-        <iframe title="Recompensa lista para canjear" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+      <article class="ficha" id="recompensa-lista-para-canjear">
+        <header>
+          <h3>Recompensa lista para canjear</h3>
+          <dl>
+            <div class="dato"><dt>Asunto</dt><dd>Tu recompensa ya te está esperando</dd></div>
+            <div class="dato"><dt>Bandeja</dt><dd class="mono">Completaste tu tarjeta: tu recompensa te espera.</dd></div>
+          </dl>
+          <div class="bloques"><span>Título</span><span>Icono + texto</span><span>Texto</span><span>Botón doble</span><span>Divisor</span><span>Redes sociales</span><span>Pie de página</span></div>
+        </header>
+        <div class="marco">
+          <iframe title="Plantilla Recompensa lista para canjear" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
@@ -881,10 +1062,10 @@ Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
 &lt;/center&gt;
 &lt;/body&gt;
 &lt;/html&gt;"></iframe>
-      </div>
-      <details>
-        <summary>Fallback de texto plano (515 caracteres)</summary>
-        <pre>Completaste tu tarjeta: tu recompensa te espera.
+        </div>
+        <details>
+          <summary>Versión en texto plano — la que se lee sin HTML (515 caracteres)</summary>
+          <pre>Completaste tu tarjeta: tu recompensa te espera.
 
 Lo lograste
 Tu recompensa está lista
@@ -904,18 +1085,21 @@ Tu recompensa no caduca, pero está más rica hoy.
 
 Recibiste este correo porque estás en nuestra lista de contactos.
 Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
-      </details>
-      <p class="meta">10.289 bytes · plantilla 8 de 9</p>
-    </section>
+        </details>
+        <p class="pie-ficha">10.289 bytes de HTML · 7 tipos de bloque</p>
+      </article>
 
-    <section class="tarjeta">
-      <header>
-        <h2>Pide tu reseña</h2>
-        <p class="asunto">Asunto: <b>¿Nos regalas un minuto?</b></p>
-        <p class="pre">Vista previa: Una opinión tuya nos ayuda más de lo que parece.</p>
-      </header>
-      <div class="marco">
-        <iframe title="Pide tu reseña" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
+      <article class="ficha" id="pide-tu-resena">
+        <header>
+          <h3>Pide tu reseña</h3>
+          <dl>
+            <div class="dato"><dt>Asunto</dt><dd>¿Nos regalas un minuto?</dd></div>
+            <div class="dato"><dt>Bandeja</dt><dd class="mono">Una opinión tuya nos ayuda más de lo que parece.</dd></div>
+          </dl>
+          <div class="bloques"><span>Logotipo</span><span>Título</span><span>Estrellas</span><span>Botón</span><span>Divisor</span><span>Testimonio</span><span>Texto</span><span>Redes sociales</span><span>Pie de página</span></div>
+        </header>
+        <div class="marco">
+          <iframe title="Plantilla Pide tu reseña" loading="lazy" srcdoc="&lt;!DOCTYPE html&gt;
 &lt;html lang=&quot;es&quot; xmlns:v=&quot;urn:schemas-microsoft-com:vml&quot; xmlns:o=&quot;urn:schemas-microsoft-com:office:office&quot;&gt;
 &lt;head&gt;
 &lt;meta charset=&quot;utf-8&quot; /&gt;
@@ -988,10 +1172,10 @@ Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
 &lt;/center&gt;
 &lt;/body&gt;
 &lt;/html&gt;"></iframe>
-      </div>
-      <details>
-        <summary>Fallback de texto plano (498 caracteres)</summary>
-        <pre>Una opinión tuya nos ayuda más de lo que parece.
+        </div>
+        <details>
+          <summary>Versión en texto plano — la que se lee sin HTML (498 caracteres)</summary>
+          <pre>Una opinión tuya nos ayuda más de lo que parece.
 
 ¿Cómo nos fue?
 Un minuto tuyo nos ayuda más de lo que parece.
@@ -1010,18 +1194,22 @@ Lo que dicen otros clientes
 
 Recibiste este correo porque estás en nuestra lista de contactos.
 Si ya no deseas recibir estos mensajes, responde con la palabra BAJA.</pre>
-      </details>
-      <p class="meta">9839 bytes · plantilla 9 de 9</p>
-    </section>
-</main>
+        </details>
+        <p class="pie-ficha">9839 bytes de HTML · 9 tipos de bloque</p>
+      </article>
+  </main>
+</div>
+
 <script>
-  // El iframe reencuadra y las media queries del correo se disparan igual que
-  // en un cliente real, así que esto comprueba el responsive de verdad.
+  // El conmutador de ancho es el instrumento de esta página: reencuadra los
+  // iframes y las media queries del correo se disparan igual que en un cliente.
   const botones = document.querySelectorAll('.anchos button');
   botones.forEach((btn) => {
     btn.addEventListener('click', () => {
       botones.forEach((b) => b.setAttribute('aria-pressed', String(b === btn)));
-      document.querySelectorAll('iframe').forEach((f) => { f.style.width = btn.dataset.w + 'px'; });
+      document.querySelectorAll('.marco iframe').forEach((f) => {
+        f.style.width = btn.dataset.w + 'px';
+      });
     });
   });
 </script>
