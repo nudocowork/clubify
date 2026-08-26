@@ -68,6 +68,25 @@ function ActivarInner() {
   const [pendingDetected, setPendingDetected] = useState(false);
   const [pendingPrice, setPendingPrice] = useState<number | null>(null);
   const [pendingCurrency, setPendingCurrency] = useState<string | null>(null);
+  /**
+   * Estado de la COMPROBACIÓN del pago contra el servidor.
+   *
+   * Fix 2026-08-24: el cartel decía «Pago confirmado · Plan Mensual · USD 68»
+   * a partir del plan que el visitante había elegido en el selector — o sea,
+   * de `localStorage`, sin comprobar nada. Quien entraba directo a /activar
+   * (por ejemplo desde «¿Ya pagaste? Completar mi cuenta») leía que su pago
+   * estaba confirmado sin haber pagado.
+   *
+   * La cuenta nunca se activaba de verdad —el backend la crea en TRIAL y solo
+   * la pasa a ACTIVE si el webhook registró un pago con ese correo—, pero la
+   * página afirmaba algo falso y creaba cuentas basura. Ahora quien decide el
+   * mensaje es el servidor: `GET /auth/check-pending`.
+   *
+   * 'idle' = todavía no hay un correo que valga la pena consultar.
+   */
+  const [pagoCheck, setPagoCheck] = useState<
+    'idle' | 'checking' | 'found' | 'not-found'
+  >('idle');
 
   const [form, setForm] = useState({
     fullName: '',
@@ -91,12 +110,18 @@ function ActivarInner() {
     const emailParam = (searchParams?.get('email') ?? '').trim();
     if (!emailParam) return;
     let cancelled = false;
+    setPagoCheck('checking');
     fetch(
       `${API}/api/auth/check-pending?email=${encodeURIComponent(emailParam)}`,
     )
       .then((r) => (r.ok ? r.json() : null))
       .then((d: any) => {
-        if (cancelled || !d?.found) return;
+        if (cancelled) return;
+        if (!d?.found) {
+          setPagoCheck('not-found');
+          return;
+        }
+        setPagoCheck('found');
         setPendingDetected(true);
         setPendingPrice(
           typeof d.purchaseValue === 'number' ? d.purchaseValue : null,
@@ -121,11 +146,76 @@ function ActivarInner() {
           if (p) setPlanPeriod(p);
         }
       })
-      .catch(() => null);
+      .catch(() => {
+        // Si la consulta falla (red del cliente, backend caído) NO afirmamos
+        // que no hay pago: volvemos a 'idle' y el formulario sigue su curso.
+        // El backend es quien decide de verdad al crear la cuenta.
+        if (!cancelled) setPagoCheck('idle');
+      });
     return () => {
       cancelled = true;
     };
   }, [searchParams]);
+
+  /**
+   * Lo mismo, pero con el correo que la persona ESCRIBE.
+   *
+   * Es el caso normal: casi nadie llega con `?email=` en la URL — llegan de la
+   * página de gracias de Hotmart o del enlace «¿Ya pagaste?». Sin esto, el
+   * único camino que comprobaba el pago era el que casi nunca se usa.
+   *
+   * Espera a que deje de teclear (600 ms) para no consultar en cada letra.
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    // El de `?email=` ya resolvió y rellenó el formulario: no lo pisamos.
+    if (searchParams?.get('email')) return;
+    const email = form.email.trim().toLowerCase();
+    if (!email.includes('@') || email.length < 6) {
+      setPagoCheck('idle');
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      setPagoCheck('checking');
+      fetch(`${API}/api/auth/check-pending?email=${encodeURIComponent(email)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: any) => {
+          if (cancelled) return;
+          if (!d?.found) {
+            setPendingDetected(false);
+            setPagoCheck('not-found');
+            return;
+          }
+          setPagoCheck('found');
+          setPendingDetected(true);
+          setPendingPrice(
+            typeof d.purchaseValue === 'number' ? d.purchaseValue : null,
+          );
+          setPendingCurrency(
+            typeof d.purchaseCurrency === 'string' ? d.purchaseCurrency : null,
+          );
+          // El plan del pago REAL manda sobre el que se eligió en el selector.
+          if (d.periodicity) {
+            const map: Record<string, PlanPeriodId> = {
+              MENSUAL: 'mensual',
+              TRIMESTRAL: 'trimestral',
+              SEMESTRAL: 'semestral',
+              ANUAL: 'anual',
+            };
+            const p = map[d.periodicity as string];
+            if (p) setPlanPeriod(p);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setPagoCheck('idle');
+        });
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [form.email, searchParams]);
 
   // Plan elegido: persistido por el picker en localStorage. Si no hay nada
   // (ej. llegó desde el email de recuperación sin pasar por el picker) lo
@@ -186,7 +276,7 @@ function ActivarInner() {
     setSubmitting(true);
     const referralCode = refCode ?? undefined;
 
-    let attribution: {
+    const attribution: {
       viaSlug?: string;
       utmSource?: string;
       utmMedium?: string;
@@ -279,13 +369,27 @@ function ActivarInner() {
         {/* Form */}
         <div className="px-6 lg:px-12 py-10 lg:py-16">
           <div className="max-w-md mx-auto lg:mx-0">
-            <div className="inline-flex items-center gap-2 bg-brand-soft text-brand-700 text-xs font-semibold px-3 py-1 rounded-full mb-5">
-              <span className="w-1.5 h-1.5 rounded-full bg-brand" />
+            {/* El cartel NUNCA afirma un pago que no vimos. «Pago detectado»
+                sale solo de check-pending; el plan que la persona eligió en el
+                selector se nombra como lo que es —una elección— y no como un
+                cobro confirmado. */}
+            <div
+              className={`inline-flex items-center gap-2 text-xs font-semibold px-3 py-1 rounded-full mb-5 ${
+                pendingDetected
+                  ? 'bg-ok-soft text-ok-ink'
+                  : 'bg-brand-soft text-brand-700'
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${pendingDetected ? 'bg-ok' : 'bg-brand'}`}
+              />
               {pendingDetected
                 ? `Pago detectado${planPeriod ? ` · Plan ${PLAN_PERIOD_MAP[planPeriod].label}` : ''}${pendingPrice ? ` · ${pendingCurrency ?? 'USD'} ${pendingPrice}` : ''}`
-                : planPeriod && planData
-                  ? `Pago confirmado · Plan ${PLAN_PERIOD_MAP[planPeriod].label} · USD ${planData.price}`
-                  : 'Pago confirmado · activa tu cuenta'}
+                : pagoCheck === 'checking'
+                  ? 'Comprobando tu pago…'
+                  : planPeriod && planData
+                    ? `Plan ${PLAN_PERIOD_MAP[planPeriod].label} elegido · USD ${planData.price}`
+                    : 'Activa tu cuenta'}
             </div>
             {pendingDetected && (
               <div className="mb-4 rounded-lg bg-ok-soft border border-ok/30 text-ok-ink px-3 py-2 text-sm">
@@ -293,13 +397,45 @@ function ActivarInner() {
                 al panel al instante.
               </div>
             )}
+            {/* Ni tampoco lo negamos de golpe: un pago recién hecho tarda unos
+                minutos en llegar por el webhook, y el error más común es haber
+                puesto un correo distinto al de la compra. */}
+            {pagoCheck === 'not-found' && (
+              <div className="mb-4 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 px-3 py-2 text-sm leading-relaxed">
+                Todavía no vemos un pago con <strong>{form.email.trim()}</strong>.
+                <ul className="mt-1.5 ml-4 list-disc space-y-0.5 text-[13px]">
+                  <li>
+                    Revisa que sea el <strong>mismo correo</strong> con el que
+                    pagaste.
+                  </li>
+                  <li>
+                    Si acabas de pagar, puede tardar unos minutos en llegar.
+                  </li>
+                </ul>
+                <div className="mt-1.5 text-[13px]">
+                  Puedes crear tu cuenta igual: queda lista y se activa sola en
+                  cuanto entre el pago.
+                </div>
+              </div>
+            )}
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight">
               Crea tu cuenta en {brandName}
             </h1>
+            {/* «Ya pagaste 🎉» solo cuando de verdad vimos el pago. Antes se
+                le decía a cualquiera que entrara, incluso sin haber comprado. */}
             <p className="text-mute mt-2 leading-relaxed">
-              Ya pagaste 🎉. Completa estos datos y entras al panel para
-              empezar a vender. Usa el <strong>mismo correo con el que
-              pagaste</strong> para activar tu cuenta al instante.
+              {pendingDetected ? (
+                <>
+                  Ya pagaste 🎉. Completa estos datos y entras al panel para
+                  empezar a vender.
+                </>
+              ) : (
+                <>
+                  Completa estos datos para entrar al panel. Usa el{' '}
+                  <strong>mismo correo con el que pagaste</strong>: así
+                  reconocemos tu compra y tu cuenta se activa al instante.
+                </>
+              )}
             </p>
 
             <form onSubmit={submit} className="mt-8 space-y-4">
