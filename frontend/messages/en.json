@@ -4494,7 +4494,7 @@
     "linkCopied": "Link copied to clipboard",
     "linkCopyFailed": "Could not copy",
     "pageTitle": "Referral program",
-    "intro": "Share Clubify with other businesses. You earn <b>25% the first month</b> and <b>25% recurring</b> while they stay active.<br></br>Payment via bank transfer or USDT.",
+    "intro": "Share {brandName} with other businesses. You earn <b>25% the first month</b> and <b>25% recurring</b> while they stay active.<br></br>Payment via bank transfer or USDT.",
     "kpiSignedUp": "Signed up",
     "kpiPaying": "Paying",
     "kpiCommissionPaid": "Commission paid",
@@ -4518,7 +4518,7 @@
     "emptyDesc": "Generate your code in under 30 seconds. It pays you <b>25% the first month</b> and <b>25% recurring</b> for every business you invite that stays.",
     "emptyBullet1": "💸 Payment via bank transfer or USDT every 30 days",
     "emptyBullet2": "📊 Right here you will see live stats of signups and conversions",
-    "emptyBullet3": "🔗 You share a link like <code>soyclubify.com/?ref=AB12CD34</code>",
+    "emptyBullet3": "🔗 You share a link like <code>{host}/?ref=AB12CD34</code>",
     "emptyCta": "Generate my code →"
   },
   "admin_integrations": {
