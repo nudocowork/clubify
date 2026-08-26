@@ -5416,10 +5416,15 @@ export class ReferralsService {
     user: AuthUser,
   ): Promise<Array<{ id: string; brandName: string }>> {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    // Mismo aislamiento que el listado: este typeahead alimenta el filtro
+    // "Negocio" del panel de comisiones, así que sin acotarlo el admin de una
+    // marca leía los NOMBRES de los negocios de las demás en un desplegable.
+    const marca = await this.brandCommissionWhere(user.whiteLabelId ?? null);
     const uses = await this.prisma.referralUse.findMany({
       where: {
         tenantId: { not: null },
         commissions: { some: { status: { not: CommissionStatus.REJECTED } } },
+        ...(Object.keys(marca).length ? { referralCode: marca } : {}),
       },
       select: { tenant: { select: { id: true, brandName: true } } },
     });
@@ -5440,6 +5445,12 @@ export class ReferralsService {
    */
   async listUnattributedBusinesses(user: AuthUser) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    // Esta lista es, por construcción, de negocios que le pagan a CLUBIFY por
+    // Hotmart: el filtro de abajo descarta los códigos `wl-` de marca blanca.
+    // Así que a un administrador de otra marca no le corresponde ninguno, y
+    // sin este corte estaba viendo la cartera de Clubify.
+    const marca = await this.brandCommissionWhere(user.whiteLabelId ?? null);
+    if (marca.whiteLabelId) return [];
     const isReal = (c: string | null | undefined) =>
       !!c && !/^(comp-|trial-|manual-|wl-|sim-|campaign-)/i.test(c);
     const tenants = await this.prisma.tenant.findMany({
@@ -5511,6 +5522,44 @@ export class ReferralsService {
     return { ok: true };
   }
 
+  private _clubifyWlIdCache: string | null | undefined;
+
+  /**
+   * Filtro de marca para el panel de comisiones, aplicado sobre el CÓDIGO
+   * DESTINATARIO (`recipientCode`), que es quien cobra.
+   *
+   * Devuelve el sub-filtro, no el where entero, porque el llamador tiene que
+   * fusionarlo con el filtro de rol — los dos apuntan a `recipientCode`.
+   *
+   * Gemelo de `TenantsService.brandTenantWhere`, con el mismo criterio:
+   * Clubify ve lo suyo MÁS lo legacy sin marca (`whiteLabelId = null`), que en
+   * esta tabla son las comisiones anteriores a que existieran marcas blancas.
+   * Sin marca en sesión se hace default a Clubify, nunca a "ver todo".
+   *
+   * Nota: una comisión sin `recipientCode` quedaría fuera de cualquier panel.
+   * Hoy no hay ninguna en producción (las 101 lo tienen), y si algún día
+   * aparece es mejor que no se vea a que se vea en la marca equivocada.
+   */
+  private async brandCommissionWhere(
+    sessionWlId: string | null,
+  ): Promise<Record<string, any>> {
+    if (this._clubifyWlIdCache === undefined) {
+      const wl = await this.prisma.whiteLabel
+        .findFirst({ where: { slug: 'clubify' }, select: { id: true } })
+        .catch(() => null);
+      this._clubifyWlIdCache = wl?.id ?? null;
+    }
+    const clubifyId = this._clubifyWlIdCache;
+    const wlId = sessionWlId ?? clubifyId;
+    // Sin marca clubify configurada (entorno de desarrollo): sin filtro, para
+    // no dejar el panel vacío en local.
+    if (!wlId) return {};
+    if (wlId === clubifyId) {
+      return { OR: [{ whiteLabelId: clubifyId }, { whiteLabelId: null }] };
+    }
+    return { whiteLabelId: wlId };
+  }
+
   async listAdminCommissions(
     user: AuthUser,
     opts: {
@@ -5531,9 +5580,36 @@ export class ReferralsService {
       role?: 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR' | 'SOCIO';
       tenantId?: string;
       codeId?: string;
+      /**
+       * Salta el aislamiento por marca y devuelve las comisiones de TODAS.
+       *
+       * Solo lo usan los dos endpoints `integration/*`, que van por
+       * `x-api-key` server-to-server para TeamClubify y necesitan la vista
+       * completa. Es explícito a propósito: se pide, no se hereda de tener
+       * rol de administrador.
+       */
+      todasLasMarcas?: boolean;
     },
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+
+    // AISLAMIENTO POR MARCA BLANCA (2026-08-26).
+    //
+    // El rol no separa nada: `SUPER_ADMIN` lo tienen también los
+    // administradores de cada marca blanca. Sin este filtro, el admin de
+    // Sellea abría su panel de comisiones y veía las de TODA la plataforma —
+    // los 71 afiliados de Clubify con sus importes y sus negocios.
+    //
+    // Se acota por la marca del CÓDIGO DESTINATARIO, que es quien cobra. No
+    // por la del negocio: en una venta cruzada el dinero es de quien lo
+    // recibe, y es su marca la que debe verlo.
+    //
+    // Mismo criterio que `TenantsService.brandTenantWhere`: sin marca en
+    // sesión se hace default a Clubify, NUNCA a "ver todo". La vista
+    // cross-brand se pide explícitamente con `todasLasMarcas`.
+    const marcaWhere = opts.todasLasMarcas
+      ? {}
+      : await this.brandCommissionWhere(user.whiteLabelId ?? null);
 
     // Filtros base (fecha / rol / negocio / código), SIN estado — se
     // reutilizan para el desglose por bucket (los KPIs muestran los 4
@@ -5564,7 +5640,16 @@ export class ReferralsService {
     }
     if (opts.codeId) baseWhere.recipientCodeId = opts.codeId;
     if (opts.tenantId) baseWhere.referralUse = { tenantId: opts.tenantId };
-    if (opts.role) baseWhere.recipientCode = { role: opts.role };
+
+    // Marca y rol viven los dos en `recipientCode`: se COMBINAN. Antes esto
+    // era `baseWhere.recipientCode = { role }` a secas, y asignar en vez de
+    // fusionar habría borrado el filtro de marca en cuanto alguien usara el
+    // desplegable de rol — o sea, la fuga volvería sola y solo a veces.
+    const recipientFiltro: any = { ...marcaWhere };
+    if (opts.role) recipientFiltro.role = opts.role;
+    if (Object.keys(recipientFiltro).length) {
+      baseWhere.recipientCode = recipientFiltro;
+    }
 
     const BUCKET_STATUS: Record<string, CommissionStatus> = {
       pending_approval: CommissionStatus.PENDING,

@@ -742,6 +742,12 @@ export class AdminCommissionsController {
       role: role as any,
       tenantId,
       codeId,
+      // TeamClubify necesita la vista COMPLETA, de todas las marcas. Va por
+      // x-api-key server-to-server, no por sesión de nadie. Se pide explícito
+      // porque el usuario sintético de arriba no tiene marca y, sin esto, el
+      // aislamiento lo mandaría por defecto a Clubify y el feed se quedaría a
+      // medias sin que nadie se entere.
+      todasLasMarcas: true,
     });
   }
 
