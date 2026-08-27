@@ -3080,6 +3080,13 @@ model ReferralCode {
   whiteLabelId                   String?
   whiteLabel                     WhiteLabel?    @relation("WhiteLabelReferralCodes", fields: [whiteLabelId], references: [id], onDelete: SetNull)
   commissionPercent              Decimal        @default(20) @db.Decimal(5, 2)
+  // COMISIÓN FIJA (monto único en USD) — EXCLUSIVO de marcas en modo FIXED_ONCE
+  // (hoy solo Sellea). Cuando NO es null, el motor paga ESTE monto una sola vez
+  // (nunca porcentaje, nunca recurrente). null = comportamiento normal (% por
+  // `commissionPercent`, recurrente). Los códigos de Clubify/otras marcas quedan
+  // en null → cero cambios para ellas. Se setea al crear el código según su
+  // marca+origen. Ver referrals.service getBrandCommissionMode/getBrandFixedAmount.
+  fixedCommissionUsd             Decimal?       @db.Decimal(10, 2)
   role                           ReferralRole   @default(INFLUENCER)
   // Si role=AMBASSADOR, parentCodeId apunta al ReferralCode del influencer
   // dueño de la campaña. Cuando un cliente usa este código, además de la

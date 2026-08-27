@@ -2298,8 +2298,19 @@ export class HotmartService {
         lastChargeAt: true,
         subscriptionPriceUsd: true,
         planPeriodicity: true,
+        whiteLabelId: true,
       },
     });
+    // COMISIÓN FIJA (EXCLUSIVO Sellea): si la marca de la venta está en modo
+    // FIXED_ONCE, la comisión directa es un MONTO FIJO pagado UNA sola vez
+    // (nunca %, nunca recurrente, sin indirecta, sin socio). Clubify y demás
+    // marcas → false → todo el flujo histórico queda intacto.
+    const saleBrandSlug = await this.referralsService.slugForWhiteLabelId(
+      tenant?.whiteLabelId ?? null,
+    );
+    const fixedOnceBrand =
+      (await this.referralsService.getBrandCommissionMode(saleBrandSlug)) ===
+      'FIXED_ONCE';
     // 2026-07-31: la base de comisión es SIEMPRE el override manual del tenant
     // (subscriptionPriceUsd, si está seteado >0) o el canónico del plan por
     // periodicidad — NUNCA el monto crudo (FX) pagado en Hotmart (opts.paidAmount
@@ -2381,14 +2392,37 @@ export class HotmartService {
       }
 
       if (!recent && !duplicateByTx) {
-        // Item 6 sprint: si el SUPER_ADMIN configuró una excepción para
-        // este (tenant, recipientCode), el % de la excepción gana.
-        const pct = await this.resolvePercent(
-          opts.tenantId,
-          use.referralCode.id,
-          Number(use.referralCode.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct),
-        );
-        const direct = round2((referralBase * pct) / 100);
+        // MONTO + periodKey según el modo de la marca de la venta.
+        let direct: number;
+        let periodKey: string;
+        let logDetalle: string;
+        if (fixedOnceBrand) {
+          // Monto FIJO en USD, PAGO ÚNICO. La cantidad sale del propio código
+          // (negocio = $30 seteado al crearlo) o, si no la trae, por rol desde
+          // la config de la marca (influencer $80 / embajador $40). periodKey
+          // CONSTANTE 'ONCE' → la @@unique([referralUseId,recipientCodeId,periodKey])
+          // impide un segundo pago PARA SIEMPRE (renovaciones y reintentos).
+          direct =
+            use.referralCode.fixedCommissionUsd != null
+              ? Number(use.referralCode.fixedCommissionUsd)
+              : await this.referralsService.getBrandFixedAmount(
+                  saleBrandSlug,
+                  use.referralCode.role === 'AMBASSADOR' ? 'embajador' : 'influencer',
+                );
+          periodKey = 'ONCE';
+          logDetalle = `$${direct} FIJO/único`;
+        } else {
+          // Item 6 sprint: si el SUPER_ADMIN configuró una excepción para
+          // este (tenant, recipientCode), el % de la excepción gana.
+          const pct = await this.resolvePercent(
+            opts.tenantId,
+            use.referralCode.id,
+            Number(use.referralCode.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct),
+          );
+          direct = round2((referralBase * pct) / 100);
+          periodKey = monthKey();
+          logDetalle = `$${direct} (${pct}% sobre $${referralBase})`;
+        }
 
         if (use.status === 'SIGNED_UP') {
           await this.prisma.referralUse.update({
@@ -2404,26 +2438,27 @@ export class HotmartService {
               status: 'PENDING',
               externalTxId: opts.transactionId ?? null,
               recipientCodeId: use.referralCode.id,
-              periodKey: monthKey(),
+              periodKey,
               availableAt: commissionAvailableAt,
             },
           })
           .catch((e: any) => {
             if (e?.code === 'P2002') {
               this.logger.warn(
-                `generateReferralCommission: skip dup directa (useId=${use.id}, code=${use.referralCode.id}, periodKey=${monthKey()})`,
+                `generateReferralCommission: skip dup directa (useId=${use.id}, code=${use.referralCode.id}, periodKey=${periodKey})`,
               );
               return null;
             }
             throw e;
           });
         this.logger.log(
-          `Comisión directa: ${use.referralCode.role} ${use.referralCode.code} $${direct} (${pct}% sobre $${referralBase})`,
+          `Comisión directa: ${use.referralCode.role} ${use.referralCode.code} ${logDetalle}`,
         );
 
         // Indirecta: si es embajador, su influencer parent gana 5% por default.
         // Configurable más adelante via Setting key `referrals.indirectPercent`.
-        if (use.referralCode.role === 'AMBASSADOR' && use.referralCode.parentCode) {
+        // FIXED_ONCE (Sellea) NO tiene indirecta: son rangos planos sin jerarquía.
+        if (!fixedOnceBrand && use.referralCode.role === 'AMBASSADOR' && use.referralCode.parentCode) {
           const parent = use.referralCode.parentCode;
           const fallbackIndirect = await this.getNumberSetting(
             'referrals.indirectPercent',
@@ -2498,14 +2533,19 @@ export class HotmartService {
 
     // 2) Comisión SOCIO (10% global). Aplica SIEMPRE, exista o no
     // un código de referido. Solo si el super admin configuró el socio.
-    await this.generateSocioCommission(
-      opts.tenantId,
-      socioBase,
-      commissionAvailableAt,
-      opts.transactionId,
-    ).catch((e) =>
-      this.logger.warn(`Comisión socio falló: ${(e as Error).message}`),
-    );
+    // EXCEPCIÓN Sellea (FIXED_ONCE): las ventas de una marca en modo fijo NO
+    // generan comisión de socio — el socio global es un acuerdo de Clubify y no
+    // debe arrastrarse a la marca blanca (decidido con el founder, 2026-08-27).
+    if (!fixedOnceBrand) {
+      await this.generateSocioCommission(
+        opts.tenantId,
+        socioBase,
+        commissionAvailableAt,
+        opts.transactionId,
+      ).catch((e) =>
+        this.logger.warn(`Comisión socio falló: ${(e as Error).message}`),
+      );
+    }
   }
 
   private async generateSocioCommission(

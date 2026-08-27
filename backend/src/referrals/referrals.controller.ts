@@ -176,8 +176,27 @@ export class ReferralsController {
 
   @Public()
   @Post('codes')
-  create(@Body() body: CreateReferralBody) {
-    return this.svc.createCode(body);
+  create(
+    @Body() body: CreateReferralBody,
+    @Headers('origin') origin?: string,
+    @Headers('referer') referer?: string,
+  ) {
+    // Origin/Referer → la marca del dominio (Sellea). En la API el Host es
+    // SIEMPRE api.soyclubify.com, así que no sirve para resolver la marca. Sin
+    // esto, el código del negocio nacía bajo Clubify (leak). Ver createCode.
+    return this.svc.createCode(body, origin || referer);
+  }
+
+  // Términos de comisión de la marca del dominio (para la página pública /refer:
+  // mostrar "$30 pago único" en Sellea en vez de un % hardcodeado). Por
+  // Origin/Referer, igual que createCode.
+  @Public()
+  @Get('public-terms')
+  publicTerms(
+    @Headers('origin') origin?: string,
+    @Headers('referer') referer?: string,
+  ) {
+    return this.svc.referralTermsForHost(origin || referer);
   }
 
   // Rutas con paths fijos primero (defense-in-depth: NestJS matchea por
@@ -468,8 +487,15 @@ export class ReferralsController {
 
   @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
   @Get('me')
-  listMine(@CurrentUser() user: AuthUser) {
-    return this.svc.listMine(user);
+  listMine(
+    @CurrentUser() user: AuthUser,
+    @Headers('origin') origin?: string,
+    @Headers('referer') referer?: string,
+  ) {
+    // Origin/Referer → la marca del dominio (Sellea), para los términos de
+    // comisión del dashboard. El dueño del negocio no lleva whiteLabelId en el
+    // token, así que el Host de la API no sirve.
+    return this.svc.listMine(user, origin || referer);
   }
 
   @Public()

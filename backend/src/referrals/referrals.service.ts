@@ -613,7 +613,7 @@ export class ReferralsService {
     return clubify?.id ?? null;
   }
 
-  async createCode(dto: CreateReferralDto) {
+  async createCode(dto: CreateReferralDto, host?: string | null) {
     if (!dto.fullName || !dto.email || !dto.whatsapp) {
       throw new BadRequestException('fullName, email and whatsapp required');
     }
@@ -628,6 +628,23 @@ export class ReferralsService {
     }
     const cleanSource = dto.source?.trim().slice(0, 60) || null;
     const slug = await this.allocateSlug(dto.fullName, code);
+    // Marca por HOST (Origin/Referer): el código del negocio nace bajo la marca
+    // de SU dominio (Sellea en app.selleala.com), NO bajo Clubify. Antes este
+    // endpoint público (/refer) siempre caía a Clubify → un negocio de Sellea
+    // que refería generaba comisiones DE CLUBIFY (leak). Fix 2026-08-27.
+    const brand = await this.resolveSignupBrandByHost(host);
+    const whiteLabelId = await this.resolveAffiliateWhiteLabelId({
+      parentWhiteLabelId: brand?.id ?? null,
+    });
+    // COMISIÓN FIJA (Sellea): un negocio-cliente que se auto-registra en /refer
+    // cobra el monto fijo 'negocio' ($30) UNA sola vez. Se guarda en el código
+    // para distinguirlo de un influencer creado por el admin (que cae al monto
+    // por rol). Solo si su marca está en modo FIXED_ONCE; cualquier otra marca
+    // (incl. Clubify) → null → comportamiento normal (% recurrente).
+    const fixedCommissionUsd =
+      (await this.getBrandCommissionMode(brand?.slug)) === 'FIXED_ONCE'
+        ? await this.getBrandFixedAmount(brand?.slug, 'negocio')
+        : null;
     const referral = await this.prisma.referralCode.create({
       data: {
         code,
@@ -636,8 +653,9 @@ export class ReferralsService {
         ownerEmail: dto.email,
         ownerWhatsapp: dto.whatsapp,
         commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct,
+        fixedCommissionUsd,
         source: cleanSource,
-        whiteLabelId: await this.resolveAffiliateWhiteLabelId({}),
+        whiteLabelId,
       },
     });
 
@@ -690,8 +708,27 @@ export class ReferralsService {
    * Devuelve los códigos del usuario autenticado (matcheando por email),
    * sus usos y comisiones, listos para el panel /app/referrals.
    */
-  async listMine(user: AuthUser) {
-    if (!user.email) return { codes: [], totals: { signedUp: 0, converted: 0, paidUsd: 0, pendingUsd: 0 } };
+  /** Términos de comisión de la marca del dominio (para pintar el dashboard del
+   *  negocio Y la página pública /refer). Resuelto por Origin/Referer, no por
+   *  user.whiteLabelId (el dueño del negocio no lo lleva en el token — va por su
+   *  tenant). fixedOnce=false = marca normal (% recurrente). */
+  async referralTermsForHost(host?: string | null) {
+    const brand = await this.resolveSignupBrandByHost(host);
+    const fixedOnce =
+      (await this.getBrandCommissionMode(brand?.slug)) === 'FIXED_ONCE';
+    if (!fixedOnce) return { fixedOnce: false as const };
+    return {
+      fixedOnce: true as const,
+      negocioAmount: await this.getBrandFixedAmount(brand?.slug, 'negocio'),
+      influencerAmount: await this.getBrandFixedAmount(brand?.slug, 'influencer'),
+      embajadorAmount: await this.getBrandFixedAmount(brand?.slug, 'embajador'),
+    };
+  }
+
+  async listMine(user: AuthUser, host?: string | null) {
+    const terms = await this.referralTermsForHost(host);
+    if (!user.email)
+      return { codes: [], totals: { signedUp: 0, converted: 0, paidUsd: 0, pendingUsd: 0 }, terms };
 
     const codes = await this.prisma.referralCode.findMany({
       where: { ownerEmail: user.email },
@@ -762,6 +799,7 @@ export class ReferralsService {
         paidUsd: Math.round(paidUsd * 100) / 100,
         pendingUsd: Math.round(pendingUsd * 100) / 100,
       },
+      terms,
     };
   }
 
@@ -3534,6 +3572,55 @@ export class ReferralsService {
       select: { slug: true },
     });
     return wl?.slug && wl.slug !== 'clubify' ? wl.slug : null;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // COMISIÓN FIJA POR MARCA (EXCLUSIVO Sellea — modo FIXED_ONCE)
+  // ───────────────────────────────────────────────────────────────────────
+  // Una marca puede pagar comisiones de referido como MONTO FIJO en USD, UNA
+  // sola vez (no porcentaje, no recurrente). Opt-in por marca vía Setting
+  // `referrals.commissionMode.<slug>` = 'FIXED_ONCE'. Montos por rol/origen en
+  // `referrals.fixed.{negocio,influencer,embajador}.<slug>`. Clubify y cualquier
+  // marca SIN el flag → 'PERCENT_RECURRING' (comportamiento histórico, intacto).
+
+  /** Modo de comisión de una marca por SLUG. Clubify / sin marca nunca es fijo
+   *  → devolvemos sin tocar la DB (evita un query por cobro en el hot path). */
+  async getBrandCommissionMode(
+    brandSlug?: string | null,
+  ): Promise<'FIXED_ONCE' | 'PERCENT_RECURRING'> {
+    if (!brandSlug || brandSlug === 'clubify') return 'PERCENT_RECURRING';
+    const row = await this.prisma.setting.findUnique({
+      where: { key: this.regKey('referrals.commissionMode', brandSlug) },
+    });
+    return row?.value === 'FIXED_ONCE' ? 'FIXED_ONCE' : 'PERCENT_RECURRING';
+  }
+
+  /** Igual pero resolviendo el slug desde el whiteLabelId (el motor tiene el id
+   *  del código/tenant, no el slug). */
+  async getBrandCommissionModeByWhiteLabelId(
+    id?: string | null,
+  ): Promise<'FIXED_ONCE' | 'PERCENT_RECURRING'> {
+    if (!id) return 'PERCENT_RECURRING';
+    return this.getBrandCommissionMode(await this.slugForWhiteLabelId(id));
+  }
+
+  /** Monto fijo (USD) por rol/origen para una marca FIXED_ONCE.
+   *  kind: 'negocio' (auto-registro de un cliente en /refer) | 'influencer' |
+   *  'embajador'. Defaults = los de Sellea; sobreescribibles por Setting. */
+  async getBrandFixedAmount(
+    brandSlug: string | null | undefined,
+    kind: 'negocio' | 'influencer' | 'embajador',
+  ): Promise<number> {
+    const defaults: Record<typeof kind, number> = {
+      negocio: 30,
+      influencer: 80,
+      embajador: 40,
+    };
+    const row = await this.prisma.setting.findUnique({
+      where: { key: this.regKey(`referrals.fixed.${kind}`, brandSlug) },
+    });
+    const n = Number(row?.value);
+    return Number.isFinite(n) && n > 0 ? n : defaults[kind];
   }
 
   /** Config del registro público resuelta por HOST (endpoint público). */
