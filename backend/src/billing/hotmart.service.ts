@@ -2258,16 +2258,37 @@ export class HotmartService {
         select: { id: true },
       });
       if (vendorUse) {
-        // 2026-07-31: la base la resuelve el generador (override manual del
-        // tenant o canónico del plan), NUNCA el monto crudo pagado (FX). No le
-        // pasamos el monto de Hotmart; paymentAmountUsd queda como compat.
-        await this.referralsService.generateCommissionsForPayment({
-          tenantId: tenantId,
-          // `paymentAmountUsd` es compat: el generador resuelve la base por su
-          // cuenta. Cuando la pasarela no manda monto (Stripe/Cross) va 0.
-          paymentAmountUsd: montoCanonicoUsd ?? 0,
-          hotmartTransactionId: transaccionId ?? null,
+        // Defensa FIXED_ONCE (Sellea): una marca en modo fijo paga monto
+        // ÚNICO por el flujo legacy (generateReferralCommission), NUNCA el 3-way
+        // de porcentaje. Sellea no tiene vendors, pero blindamos por si un code
+        // cross-brand se colara al tenant. El check solo corre cuando hay
+        // vendorUse (raro) → no pesa en el hot path del caso común.
+        const tFixed = await this.prisma.tenant.findUnique({
+          where: { id: tenantId },
+          select: { whiteLabelId: true },
         });
+        const isFixedOnce =
+          (await this.referralsService.getBrandCommissionModeByWhiteLabelId(
+            tFixed?.whiteLabelId ?? null,
+          )) === 'FIXED_ONCE';
+        if (isFixedOnce) {
+          await this.generateReferralCommission({
+            tenantId,
+            paidAmount: null,
+            transactionId: transaccionId ?? undefined,
+          });
+        } else {
+          // 2026-07-31: la base la resuelve el generador (override manual del
+          // tenant o canónico del plan), NUNCA el monto crudo pagado (FX). No le
+          // pasamos el monto de Hotmart; paymentAmountUsd queda como compat.
+          await this.referralsService.generateCommissionsForPayment({
+            tenantId: tenantId,
+            // `paymentAmountUsd` es compat: el generador resuelve la base por su
+            // cuenta. Cuando la pasarela no manda monto (Stripe/Cross) va 0.
+            paymentAmountUsd: montoCanonicoUsd ?? 0,
+            hotmartTransactionId: transaccionId ?? null,
+          });
+        }
       } else {
         // La base se resuelve dentro (override manual → canónico). No pasamos
         // el monto crudo de Hotmart.
