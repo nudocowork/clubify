@@ -231,18 +231,23 @@ export class AuthController {
    *  comparten el link. */
   @Public()
   @Throttle({ default: { ttl: 3_600_000, limit: 2 } })
-  /** Manda el PIN al correo. Tope bajo: el envío no puede volverse un arma para
-   *  bombardear el buzón de otra persona. */
+  @Post('trial-signup')
+  trialSignup(@Body() dto: TrialSignupDto, @Ip() ip: string) {
+    return this.auth.trialSignup(dto, ip);
+  }
+
+  /** Manda el PIN al correo de la prueba gratuita. Tope bajo: el envío no puede
+   *  volverse un arma para bombardear el buzón de otra persona.
+   *
+   *  OJO al orden: este método va DESPUÉS de trial-signup a propósito. Metido
+   *  entre el comentario de trial-signup y su @Post, se quedaba con SUS
+   *  decoradores y trial-signup perdía @Public() — el registro público empezaba
+   *  a devolver 401. Pasó de verdad. */
   @Public()
   @Throttle({ default: { ttl: 3_600_000, limit: 6 } })
   @Post('trial-otp')
   trialOtp(@Body() dto: TrialOtpDto, @Ip() ip: string) {
     return this.trialOtpSvc.solicitar(dto.email, ip);
-  }
-
-  @Post('trial-signup')
-  trialSignup(@Body() dto: TrialSignupDto, @Ip() ip: string) {
-    return this.auth.trialSignup(dto, ip);
   }
 
   /** Branding de la marca para tematizar la página de auto-registro InfoLink. */
