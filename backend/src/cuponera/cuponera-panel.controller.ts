@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
-  IsBoolean, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, ValidateIf, ValidateNested,
+  IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -114,6 +114,43 @@ class PanelSettingsBody {
   @IsOptional() @IsString() @MaxLength(400) welcomeText?: string;
   @IsOptional() @IsBoolean() requireBenefitApproval?: boolean;
   @IsOptional() @IsInt() @Min(0) allyPushPerWeek?: number;
+}
+
+/** Aviso a la comunidad (§20). Sin plan ni aliado = a todos. */
+class PanelPushBody {
+  @IsString() @MaxLength(60) title!: string;
+  @IsString() @MaxLength(300) body!: string;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(80) planId?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(80) allyId?: string | null;
+  @IsOptional() @IsString() scheduledAt?: string;
+}
+
+class PanelGeopushBody {
+  @IsString() @MaxLength(80) name!: string;
+  @IsNumber() latitude!: number;
+  @IsNumber() longitude!: number;
+  @IsOptional() @IsInt() @Min(0) radiusMeters?: number;
+  @IsOptional() @IsString() @MaxLength(120) walletRelevantText?: string;
+  @IsOptional() @IsString() @MaxLength(200) address?: string;
+}
+
+class PanelGeopushPatchBody {
+  @IsOptional() @IsString() @MaxLength(80) name?: string;
+  @IsOptional() @IsNumber() latitude?: number;
+  @IsOptional() @IsNumber() longitude?: number;
+  @IsOptional() @IsInt() @Min(0) radiusMeters?: number;
+  @IsOptional() @IsString() @MaxLength(120) walletRelevantText?: string;
+  @IsOptional() @IsString() @MaxLength(200) address?: string;
+}
+
+class PanelStampBody {
+  @IsString() @MaxLength(80) name!: string;
+  @IsOptional() @IsInt() @Min(1) stampsRequired?: number;
+  @IsOptional() @IsString() @MaxLength(160) rewardText?: string;
+  @IsOptional() @IsInt() @Min(1) maxPerDay?: number;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(80) categoryId?: string | null;
+  @IsOptional() @IsString() @MaxLength(300) description?: string;
+  @IsOptional() @IsIn(['ACTIVE', 'PAUSED']) status?: string;
 }
 
 class PanelApprovalBody {
@@ -281,6 +318,105 @@ export class CuponeraPanelController {
     @Query('campaignId') campaignId?: string,
   ) {
     return this.svc.panelUpdateSettings(user, body, campaignId);
+  }
+
+  // ── Alcance al beneficiario ───────────────────────────────────────────────
+
+  /** A cuánta gente llegaría el envío. Se consulta ANTES de mandar. */
+  @Get('push/reach')
+  pushReach(
+    @CurrentUser() user: AuthUser,
+    @Query('planId') planId?: string,
+    @Query('allyId') allyId?: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelPushReach(user, { planId, allyId }, campaignId);
+  }
+
+  @Get('push')
+  pushHistory(@CurrentUser() user: AuthUser, @Query('campaignId') campaignId?: string) {
+    return this.svc.panelNotifications(user, campaignId);
+  }
+
+  @Post('push')
+  sendPush(
+    @CurrentUser() user: AuthUser,
+    @Body() body: PanelPushBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelSendPush(
+      user,
+      { ...body, planId: body.planId ?? undefined, allyId: body.allyId ?? undefined },
+      campaignId,
+    );
+  }
+
+  @Get('geopush')
+  geopush(@CurrentUser() user: AuthUser, @Query('campaignId') campaignId?: string) {
+    return this.svc.panelGeopush(user, campaignId);
+  }
+
+  @Post('geopush')
+  createGeopush(
+    @CurrentUser() user: AuthUser,
+    @Body() body: PanelGeopushBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelCreateGeopush(user, body, campaignId);
+  }
+
+  @Patch('geopush/:id')
+  updateGeopush(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: PanelGeopushPatchBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelUpdateGeopush(user, id, body, campaignId);
+  }
+
+  @Delete('geopush/:id')
+  deleteGeopush(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelDeleteGeopush(user, id, campaignId);
+  }
+
+  // ── Sellos comunitarios (§21) ─────────────────────────────────────────────
+
+  @Get('stamp-programs')
+  stampPrograms(@CurrentUser() user: AuthUser, @Query('campaignId') campaignId?: string) {
+    return this.svc.panelStampPrograms(user, campaignId);
+  }
+
+  @Post('stamp-programs')
+  createStampProgram(
+    @CurrentUser() user: AuthUser,
+    @Body() body: PanelStampBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelCreateStampProgram(user, body, campaignId);
+  }
+
+  @Patch('stamp-programs/:id')
+  updateStampProgram(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: PanelStampBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelUpdateStampProgram(user, id, body, campaignId);
+  }
+
+  @Delete('stamp-programs/:id')
+  deleteStampProgram(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelDeleteStampProgram(user, id, campaignId);
   }
 
   @Patch('benefits/:id/approval')

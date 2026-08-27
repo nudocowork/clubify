@@ -140,6 +140,11 @@ describe('escrituras del panel — usan la campaña RESUELTA, no la pedida', () 
     (svc as any).listCategories = vi.fn().mockResolvedValue([]);
     (svc as any).createCategory = vi.fn().mockResolvedValue({});
     (svc as any).setBenefitApproval = vi.fn().mockResolvedValue({});
+    (svc as any).sendBroadcast = vi.fn().mockResolvedValue({});
+    (svc as any).sendSegmentPush = vi.fn().mockResolvedValue({});
+    (svc as any).createGeopush = vi.fn().mockResolvedValue({});
+    (svc as any).createStampProgram = vi.fn().mockResolvedValue({});
+    (svc as any).updateStampProgram = vi.fn().mockResolvedValue({});
     return svc;
   }
   const user = owner;
@@ -187,6 +192,40 @@ describe('escrituras del panel — usan la campaña RESUELTA, no la pedida', () 
     );
   });
 
+  it('un aviso a TODOS va al broadcast de la campaña resuelta', async () => {
+    const svc = panel();
+    await svc.panelSendPush(user, { title: 'T', body: 'B' }, 'camp-pedida');
+    expect((svc as any).sendBroadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignId: 'camp-resuelta' }),
+    );
+    expect((svc as any).sendSegmentPush).not.toHaveBeenCalled();
+  });
+
+  it('un aviso con segmento NO usa el broadcast', async () => {
+    const svc = panel();
+    await svc.panelSendPush(user, { title: 'T', body: 'B', planId: 'p1' }, 'camp-pedida');
+    expect((svc as any).sendSegmentPush).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignId: 'camp-resuelta', planId: 'p1' }),
+    );
+    expect((svc as any).sendBroadcast).not.toHaveBeenCalled();
+  });
+
+  it('un aviso sin título no llega a enviarse', async () => {
+    const svc = panel();
+    await expect(svc.panelSendPush(user, { title: '  ', body: 'B' })).rejects.toThrow(/título|mensaje/i);
+    expect((svc as any).sendBroadcast).not.toHaveBeenCalled();
+  });
+
+  it('geopush y sellos reciben la campaña resuelta', async () => {
+    const svc = panel();
+    await svc.panelCreateGeopush(user, { name: 'Z', campaignId: 'INYECTADA' }, 'camp-pedida');
+    expect((svc as any).createGeopush).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignId: 'camp-resuelta' }),
+    );
+    await svc.panelCreateStampProgram(user, { name: 'S' }, 'camp-pedida');
+    expect((svc as any).createStampProgram).toHaveBeenCalledWith({ name: 'S' }, 'camp-resuelta');
+  });
+
   it('toda escritura pasa PRIMERO por resolveAdminCampaign', async () => {
     for (const correr of [
       (s: any) => s.panelCreateAlly(user, { name: 'X' }),
@@ -194,6 +233,9 @@ describe('escrituras del panel — usan la campaña RESUELTA, no la pedida', () 
       (s: any) => s.panelEnrollMember(user, { fullName: 'A' }),
       (s: any) => s.panelCreateCategory(user, { name: 'C' }),
       (s: any) => s.panelSetBenefitApproval(user, 'b', 'APPROVED'),
+      (s: any) => s.panelSendPush(user, { title: 'T', body: 'B' }),
+      (s: any) => s.panelCreateGeopush(user, { name: 'Z' }),
+      (s: any) => s.panelCreateStampProgram(user, { name: 'S' }),
     ]) {
       const svc = panel();
       await correr(svc);

@@ -61,7 +61,7 @@ type PanelBenefit = {
   ally: { id: string; name: string } | null;
 };
 
-const TABS = ['Dashboard', 'Aliados', 'Beneficiarios', 'Beneficios', 'Redenciones', 'Configuración'] as const;
+const TABS = ['Dashboard', 'Aliados', 'Beneficiarios', 'Beneficios', 'Comunidad', 'Redenciones', 'Configuración'] as const;
 type Tab = (typeof TABS)[number];
 
 const inp: React.CSSProperties = { width: '100%', padding: '9px 11px', border: '1px solid #d7dbe0', borderRadius: 9, fontSize: 13.5, outline: 'none', boxSizing: 'border-box' };
@@ -451,6 +451,218 @@ function TabConfig({
   );
 }
 
+type Geopunto = { id: string; name: string; latitude: number | string | null; longitude: number | string | null; radiusMeters: number | null; address: string | null };
+type Sellos = { id: string; name: string; stampsRequired: number; rewardText: string; maxPerDay: number; status: string; category: { name: string } | null; _count?: { cards: number } };
+
+/**
+ * Comunidad: las tres formas de alcanzar al beneficiario.
+ *  · Aviso — llega a la tarjeta en el bolsillo (Apple/Google Wallet).
+ *  · Geopush — aparece al pasar cerca de un punto.
+ *  · Sellos — la razón para volver.
+ */
+function TabComunidad({
+  qs, plans, allies, cats, flash,
+}: {
+  qs: string; plans: Plan[]; allies: Ally[]; cats: Category[]; flash: (m: string) => void;
+}) {
+  const [msg, setMsg] = useState({ title: '', body: '', target: 'all' as string });
+  const [alcance, setAlcance] = useState<number | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  const [puntos, setPuntos] = useState<Geopunto[]>([]);
+  const [nuevoPunto, setNuevoPunto] = useState({ name: '', latitude: '', longitude: '', radiusMeters: 300, address: '' });
+  const [progs, setProgs] = useState<Sellos[]>([]);
+  const [nuevoProg, setNuevoProg] = useState({ name: '', stampsRequired: 5, rewardText: '', maxPerDay: 1, categoryId: '' });
+
+  const seg = () => {
+    if (msg.target.startsWith('plan:')) return { planId: msg.target.slice(5) };
+    if (msg.target.startsWith('ally:')) return { allyId: msg.target.slice(5) };
+    return {};
+  };
+
+  const cargar = async () => {
+    const [g, p] = await Promise.all([
+      api(`/cuponera/panel/geopush${qs}`).catch(() => null),
+      api(`/cuponera/panel/stamp-programs${qs}`).catch(() => null),
+    ]);
+    setPuntos((g as Geopunto[]) ?? []);
+    setProgs((p as Sellos[]) ?? []);
+  };
+  useEffect(() => { cargar(); }, [qs]);
+
+  // El alcance se consulta ANTES de mandar: sin ese número el aviso sale a
+  // ciegas y no hay forma de notar que el segmento quedó vacío.
+  useEffect(() => {
+    const s = seg();
+    const q = new URLSearchParams(qs.replace('?', ''));
+    if (s.planId) q.set('planId', s.planId);
+    if (s.allyId) q.set('allyId', s.allyId);
+    api<{ alcance: number }>(`/cuponera/panel/push/reach?${q}`)
+      .then((r) => setAlcance(r?.alcance ?? 0))
+      .catch(() => setAlcance(null));
+  }, [msg.target, qs]);
+
+  async function enviar() {
+    if (!msg.title.trim() || !msg.body.trim()) { flash('Falta el título o el mensaje.'); return; }
+    if (alcance === 0) { flash('Ese segmento no tiene a nadie con la tarjeta instalada.'); return; }
+    const aQuien = msg.target === 'all' ? 'toda la comunidad' : 'ese segmento';
+    if (!confirm(`Vas a enviar este aviso a ${aQuien} (${alcance ?? '?'} tarjetas). No se puede deshacer.`)) return;
+    setEnviando(true);
+    try {
+      const r: any = await api(`/cuponera/panel/push${qs}`, {
+        method: 'POST', body: JSON.stringify({ title: msg.title, body: msg.body, ...seg() }),
+      });
+      setMsg({ ...msg, title: '', body: '' });
+      flash(`Aviso enviado${typeof r?.sent === 'number' ? ` a ${r.sent} tarjetas` : ''}.`);
+    } catch (e: any) {
+      flash(e?.message || 'No se pudo enviar.');
+    } finally { setEnviando(false); }
+  }
+
+  async function crearPunto() {
+    const lat = Number(nuevoPunto.latitude), lng = Number(nuevoPunto.longitude);
+    if (!nuevoPunto.name.trim()) { flash('Poné un nombre al punto.'); return; }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) { flash('Las coordenadas tienen que ser números.'); return; }
+    await api(`/cuponera/panel/geopush${qs}`, {
+      method: 'POST',
+      body: JSON.stringify({ ...nuevoPunto, latitude: lat, longitude: lng, radiusMeters: Number(nuevoPunto.radiusMeters) || 300 }),
+    });
+    setNuevoPunto({ name: '', latitude: '', longitude: '', radiusMeters: 300, address: '' });
+    await cargar();
+    flash('Punto creado');
+  }
+
+  async function borrarPunto(g: Geopunto) {
+    if (!confirm(`¿Eliminar el punto "${g.name}"?`)) return;
+    await api(`/cuponera/panel/geopush/${g.id}${qs}`, { method: 'DELETE' });
+    await cargar();
+  }
+
+  async function crearProg() {
+    if (!nuevoProg.name.trim()) { flash('Poné un nombre al programa.'); return; }
+    await api(`/cuponera/panel/stamp-programs${qs}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...nuevoProg,
+        stampsRequired: Number(nuevoProg.stampsRequired) || 5,
+        maxPerDay: Number(nuevoProg.maxPerDay) || 1,
+        categoryId: nuevoProg.categoryId || null,
+      }),
+    });
+    setNuevoProg({ name: '', stampsRequired: 5, rewardText: '', maxPerDay: 1, categoryId: '' });
+    await cargar();
+    flash('Programa de sellos creado');
+  }
+
+  async function borrarProg(p: Sellos) {
+    if (!confirm(`¿Eliminar "${p.name}"? Los sellos que la gente ya juntó se pierden.`)) return;
+    await api(`/cuponera/panel/stamp-programs/${p.id}${qs}`, { method: 'DELETE' });
+    await cargar();
+  }
+
+  return (
+    <>
+      <div style={card}>
+        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 3 }}>Enviar un aviso</div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 14 }}>
+          Llega a la tarjeta guardada en Apple o Google Wallet. Solo lo reciben quienes la tienen instalada.
+        </div>
+        <div style={{ display: 'grid', gap: 12 }}>
+          <Campo label="A quién">
+            <select style={inp} value={msg.target} onChange={(e) => setMsg({ ...msg, target: e.target.value })}>
+              <option value="all">Toda la comunidad</option>
+              {plans.length > 0 && <optgroup label="Por plan">
+                {plans.map((p) => <option key={p.id} value={`plan:${p.id}`}>{p.name}</option>)}
+              </optgroup>}
+              {allies.length > 0 && <optgroup label="Quienes usaron un beneficio de…">
+                {allies.map((a) => <option key={a.id} value={`ally:${a.id}`}>{a.name}</option>)}
+              </optgroup>}
+            </select>
+          </Campo>
+          <Campo label="Título">
+            <input style={inp} maxLength={60} value={msg.title} onChange={(e) => setMsg({ ...msg, title: e.target.value })} placeholder="Nuevo aliado en el centro" />
+          </Campo>
+          <Campo label="Mensaje">
+            <textarea style={{ ...inp, minHeight: 70 }} maxLength={300} value={msg.body} onChange={(e) => setMsg({ ...msg, body: e.target.value })} placeholder="Café Aurora se suma con 20% para vos." />
+          </Campo>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
+          <button onClick={enviar} disabled={enviando || alcance === 0} style={{ ...btn(), opacity: alcance === 0 ? 0.5 : 1 }}>
+            {enviando ? 'Enviando…' : 'Enviar aviso'}
+          </button>
+          <span style={{ fontSize: 12.5, color: alcance === 0 ? '#b45309' : '#64748b' }}>
+            {alcance === null ? '' : alcance === 0
+              ? 'Nadie en este segmento tiene la tarjeta instalada.'
+              : `Llega a ${alcance} ${alcance === 1 ? 'tarjeta' : 'tarjetas'}.`}
+          </span>
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 3 }}>Geopush</div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+          El aviso aparece solo al pasar cerca del punto. Ideal para la zona donde están los aliados.
+        </div>
+        {puntos.map((g) => (
+          <div key={g.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 0', borderBottom: '1px solid #f3f4f6' }}>
+            <div>
+              <b style={{ fontSize: 13.5 }}>{g.name}</b>
+              <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 2 }}>
+                {Number(g.latitude ?? 0).toFixed(5)}, {Number(g.longitude ?? 0).toFixed(5)} · radio {g.radiusMeters ?? 300} m
+                {g.address ? ` · ${g.address}` : ''}
+              </div>
+            </div>
+            <button onClick={() => borrarPunto(g)} style={{ ...btn('#fee2e2', '#991b1b'), padding: '5px 11px', fontSize: 12 }}>Eliminar</button>
+          </div>
+        ))}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10, marginTop: 12 }}>
+          <Campo label="Nombre"><input style={inp} value={nuevoPunto.name} onChange={(e) => setNuevoPunto({ ...nuevoPunto, name: e.target.value })} placeholder="Zona Rosa" /></Campo>
+          <Campo label="Latitud"><input style={inp} value={nuevoPunto.latitude} onChange={(e) => setNuevoPunto({ ...nuevoPunto, latitude: e.target.value })} placeholder="4.6534" /></Campo>
+          <Campo label="Longitud"><input style={inp} value={nuevoPunto.longitude} onChange={(e) => setNuevoPunto({ ...nuevoPunto, longitude: e.target.value })} placeholder="-74.0836" /></Campo>
+          <Campo label="Radio (m)"><input type="number" style={inp} value={nuevoPunto.radiusMeters} onChange={(e) => setNuevoPunto({ ...nuevoPunto, radiusMeters: Number(e.target.value) })} /></Campo>
+          <div style={{ display: 'flex', alignItems: 'end' }}><button onClick={crearPunto} style={btn()}>Agregar</button></div>
+        </div>
+        <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 8 }}>
+          Las coordenadas salen de Google Maps: clic derecho sobre el lugar → el primer número es la latitud.
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 3 }}>Sellos comunitarios</div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+          Ej.: 5 cafés en cualquier aliado = 1 gratis. El negocio da el sello al escanear la tarjeta.
+        </div>
+        {progs.map((p) => (
+          <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 0', borderBottom: '1px solid #f3f4f6' }}>
+            <div>
+              <b style={{ fontSize: 13.5 }}>{p.name}</b>
+              <span style={{ fontSize: 12, color: PC, marginLeft: 8 }}>· {p.stampsRequired} sellos</span>
+              <div style={{ fontSize: 11.5, color: '#6b7280', marginTop: 2 }}>
+                {p.rewardText || 'Sin premio definido'} · {p.category?.name || 'cualquier aliado'} · máx {p.maxPerDay}/día · {p._count?.cards ?? 0} participando
+              </div>
+            </div>
+            <button onClick={() => borrarProg(p)} style={{ ...btn('#fee2e2', '#991b1b'), padding: '5px 11px', fontSize: 12 }}>Eliminar</button>
+          </div>
+        ))}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10, marginTop: 12 }}>
+          <Campo label="Nombre"><input style={inp} value={nuevoProg.name} onChange={(e) => setNuevoProg({ ...nuevoProg, name: e.target.value })} placeholder="Café tour" /></Campo>
+          <Campo label="Sellos"><input type="number" style={inp} value={nuevoProg.stampsRequired} onChange={(e) => setNuevoProg({ ...nuevoProg, stampsRequired: Number(e.target.value) })} /></Campo>
+          <Campo label="Máx/día"><input type="number" style={inp} value={nuevoProg.maxPerDay} onChange={(e) => setNuevoProg({ ...nuevoProg, maxPerDay: Number(e.target.value) })} /></Campo>
+          <Campo label="Categoría">
+            <select style={inp} value={nuevoProg.categoryId} onChange={(e) => setNuevoProg({ ...nuevoProg, categoryId: e.target.value })}>
+              <option value="">Cualquier aliado</option>
+              {cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </Campo>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <Campo label="Premio"><input style={inp} value={nuevoProg.rewardText} onChange={(e) => setNuevoProg({ ...nuevoProg, rewardText: e.target.value })} placeholder="Un café gratis" /></Campo>
+          </div>
+          <div><button onClick={crearProg} style={btn()}>Agregar</button></div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function CuponeraAdminPage() {
   const router = useRouter();
   // ?campaignId= lo usa el Master Admin para entrar a CUALQUIER cuponera sin
@@ -766,6 +978,10 @@ export default function CuponeraAdminPage() {
               );
             })}
         </div>
+      )}
+
+      {tab === 'Comunidad' && (
+        <TabComunidad qs={qs} plans={plans} allies={allies} cats={cats} flash={flash} />
       )}
 
       {tab === 'Configuración' && (

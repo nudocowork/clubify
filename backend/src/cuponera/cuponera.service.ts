@@ -652,6 +652,98 @@ export class CuponeraService {
     return this.panelSettings(user, campaignId);
   }
 
+  // --- Alcance al beneficiario: push y geopush (§20, §9) ---
+
+  /** A cuánta gente llega un envío ANTES de mandarlo. Sin este número, el aviso
+   *  se manda a ciegas y no hay forma de notar que el segmento quedó vacío. */
+  async panelPushReach(user: AuthUser, seg: { planId?: string; allyId?: string }, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    const ids = seg.planId || seg.allyId
+      ? await this.resolveSegment(campaign.id, seg)
+      : (await this.prisma.livingMembership.findMany({
+          where: { campaignId: campaign.id, status: 'ACTIVE' },
+          select: { customerId: true },
+        })).map((m) => m.customerId);
+    if (!ids.length) return { alcance: 0 };
+    const alcance = await this.prisma.pass.count({
+      where: { tenantId: campaign.tenantId, customerId: { in: ids }, status: 'ACTIVE' },
+    });
+    return { alcance };
+  }
+
+  async panelSendPush(
+    user: AuthUser,
+    dto: { title: string; body: string; planId?: string; allyId?: string; scheduledAt?: string },
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    if (!dto.title?.trim() || !dto.body?.trim()) {
+      throw new BadRequestException('Falta el título o el mensaje');
+    }
+    if (dto.planId || dto.allyId) {
+      return this.sendSegmentPush({
+        planId: dto.planId,
+        allyId: dto.allyId,
+        title: dto.title,
+        body: dto.body,
+        campaignId: campaign.id,
+      });
+    }
+    return this.sendBroadcast({
+      title: dto.title,
+      body: dto.body,
+      scheduledAt: dto.scheduledAt,
+      campaignId: campaign.id,
+    });
+  }
+
+  async panelNotifications(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.listNotifications(campaign.id);
+  }
+
+  async panelGeopush(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.listGeopush(campaign.id);
+  }
+
+  async panelCreateGeopush(user: AuthUser, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.createGeopush({ ...dto, campaignId: campaign.id });
+  }
+
+  async panelUpdateGeopush(user: AuthUser, id: string, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.updateGeopush(id, dto, campaign.id);
+  }
+
+  async panelDeleteGeopush(user: AuthUser, id: string, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.deleteGeopush(id, campaign.id);
+  }
+
+  // --- Sellos comunitarios (§21) ---
+
+  async panelStampPrograms(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.listStampPrograms(campaign.id);
+  }
+
+  async panelCreateStampProgram(user: AuthUser, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.createStampProgram(dto, campaign.id);
+  }
+
+  async panelUpdateStampProgram(user: AuthUser, id: string, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.updateStampProgram(id, dto, campaign.id);
+  }
+
+  async panelDeleteStampProgram(user: AuthUser, id: string, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.deleteStampProgram(id, campaign.id);
+  }
+
   /** Negocios de la marca que pueden ser aliado TIPO A (§16): su escáner de
    *  siempre reconocerá la tarjeta de la cuponera. */
   async panelTenantOptions(user: AuthUser, campaignId?: string) {
@@ -2695,8 +2787,8 @@ export class CuponeraService {
   // Sellos comunitarios (Fase 5)
   // ---------------------------------------------------------------------------
 
-  async listStampPrograms() {
-    const campaign = await this.ensureLivingCampaign();
+  async listStampPrograms(campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     return this.prisma.stampProgram.findMany({
       where: { campaignId: campaign.id },
       include: { category: { select: { name: true } }, _count: { select: { cards: true } } },
@@ -2704,8 +2796,8 @@ export class CuponeraService {
     });
   }
 
-  async createStampProgram(dto: StampProgramDto) {
-    const campaign = await this.ensureLivingCampaign();
+  async createStampProgram(dto: StampProgramDto, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     const categoryId = await this.assertCategory(campaign.id, dto.categoryId);
     if (!dto.name?.trim()) throw new BadRequestException('Nombre requerido');
     return this.prisma.stampProgram.create({
@@ -2729,8 +2821,8 @@ export class CuponeraService {
     return p;
   }
 
-  async updateStampProgram(id: string, dto: StampProgramDto) {
-    const campaign = await this.ensureLivingCampaign();
+  async updateStampProgram(id: string, dto: StampProgramDto, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertStampProgram(campaign.id, id);
     const categoryId =
       dto.categoryId === undefined ? undefined : await this.assertCategory(campaign.id, dto.categoryId);
@@ -2749,8 +2841,8 @@ export class CuponeraService {
     });
   }
 
-  async deleteStampProgram(id: string) {
-    const campaign = await this.ensureLivingCampaign();
+  async deleteStampProgram(id: string, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertStampProgram(campaign.id, id);
     await this.prisma.stampProgram.delete({ where: { id } });
     return { ok: true };
@@ -2921,8 +3013,8 @@ export class CuponeraService {
 
   /** Geopush = Location del tenant de sistema → geofence embebido en TODOS los
    *  pases de los miembros (Apple/Google muestran el aviso al acercarse). */
-  async listGeopush() {
-    const campaign = await this.ensureLivingCampaign();
+  async listGeopush(campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     return this.locations.list(this.sysUser(), campaign.tenantId);
   }
 
@@ -2933,8 +3025,9 @@ export class CuponeraService {
     radiusMeters?: number;
     walletRelevantText?: string;
     address?: string;
+    campaignId?: string;
   }) {
-    const campaign = await this.ensureLivingCampaign();
+    const campaign = await this.campaignOrLiving(dto.campaignId);
     return this.locations.create(this.sysUser(), dto, campaign.tenantId);
   }
 
@@ -2956,22 +3049,25 @@ export class CuponeraService {
       walletRelevantText: string;
       address: string;
     }>,
+    campaignId?: string,
   ) {
-    const campaign = await this.ensureLivingCampaign();
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertGeopush(campaign.tenantId, id);
     return this.locations.update(this.sysUser(), id, dto);
   }
 
-  async deleteGeopush(id: string) {
-    const campaign = await this.ensureLivingCampaign();
+  async deleteGeopush(id: string, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertGeopush(campaign.tenantId, id);
     return this.locations.remove(this.sysUser(), id);
   }
 
   /** Push GENERAL a toda la comunidad (broadcast a los pases de la Living Card).
    *  Reusa NotificationsService (crea la Notification + push Apple/Google). */
-  async sendBroadcast(dto: { title: string; body: string; scheduledAt?: string }) {
-    const campaign = await this.ensureLivingCampaign();
+  async sendBroadcast(dto: {
+    title: string; body: string; scheduledAt?: string; campaignId?: string;
+  }) {
+    const campaign = await this.campaignOrLiving(dto.campaignId);
     const card = await this.ensureLivingCard(campaign);
     return this.notifications.send(
       this.sysUser(),
@@ -2980,8 +3076,8 @@ export class CuponeraService {
     );
   }
 
-  async listNotifications() {
-    const campaign = await this.ensureLivingCampaign();
+  async listNotifications(campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     return this.notifications.list(this.sysUser(), campaign.tenantId);
   }
 
@@ -3018,8 +3114,10 @@ export class CuponeraService {
 
   /** Push a un SEGMENTO (por plan o por negocio). Crea una Notification por
    *  cliente (customerId → lastMessage correcto) y push Apple/Google por pase. */
-  async sendSegmentPush(dto: { planId?: string; allyId?: string; title: string; body: string }) {
-    const campaign = await this.ensureLivingCampaign();
+  async sendSegmentPush(dto: {
+    planId?: string; allyId?: string; title: string; body: string; campaignId?: string;
+  }) {
+    const campaign = await this.campaignOrLiving(dto.campaignId);
     const card = await this.ensureLivingCard(campaign);
     if (!dto.planId && !dto.allyId) {
       throw new BadRequestException('Falta el segmento (planId o allyId)');
