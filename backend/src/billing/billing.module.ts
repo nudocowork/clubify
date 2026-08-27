@@ -26,6 +26,12 @@ import { BusinessGroupsModule } from '../business-groups/business-groups.module'
 import { OnboardingSyncModule } from '../onboarding-sync/onboarding-sync.module';
 
 @Module({
+  // Cuponera NO se importa acá a propósito. Importarla cierra el ciclo
+  // Billing → Cuponera → Locations → Tenants → Billing, y romperlo obligaría a
+  // meter forwardRef en LocationsModule/TenantsModule, que son módulos del
+  // camino de dinero que ya corre en producción. Los webhooks resuelven
+  // MembershipBillingService por ModuleRef (ver hotmart.service / stripe.service):
+  // sin arista en el grafo y degradando solo si el módulo no está montado.
   imports: [IntegrationsModule, EmailModule, ReferralsModule, AuthModule, AdminModule, WhiteLabelNotificationsModule, BusinessGroupsModule, OnboardingSyncModule],
   controllers: [
     BillingController,

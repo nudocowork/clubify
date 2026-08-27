@@ -13,6 +13,7 @@ type Ally = {
   logoUrl: string | null;
   coverUrl: string | null;
   photos: string[];
+  hours: Record<string, string> | null;
   address: string;
   city: string;
   latitude: number | null;
@@ -22,6 +23,43 @@ type Ally = {
   website: string | null;
   category: { name: string; slug: string; icon: string } | null;
 };
+
+const DIAS: Array<[string, string]> = [
+  ['lun', 'Lunes'], ['mar', 'Martes'], ['mie', 'Miércoles'], ['jue', 'Jueves'],
+  ['vie', 'Viernes'], ['sab', 'Sábado'], ['dom', 'Domingo'],
+];
+
+/** Horarios del negocio. Solo se listan los días que el aliado cargó: mostrar
+ *  «Lunes: —» para los vacíos hace parecer cerrado a un negocio que quizá solo
+ *  no llenó el campo. */
+function Horarios({ horas }: { horas: Record<string, string> | null | undefined }) {
+  const dias = DIAS.filter(([k]) => (horas?.[k] || '').trim());
+  if (!dias.length) return null;
+  // Hoy va resaltado: es el dato que la persona busca cuando está por salir.
+  const hoy = DIAS[(new Date().getDay() + 6) % 7][0];
+  return (
+    <div style={{ marginTop: 22 }}>
+      <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 8 }}>Horarios</div>
+      <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
+        {dias.map(([k, nombre], i) => (
+          <div
+            key={k}
+            style={{
+              display: 'flex', justifyContent: 'space-between', padding: '9px 14px',
+              fontSize: 13.5, borderTop: i ? '1px solid #eef2f7' : 'none',
+              background: k === hoy ? '#f0f9ff' : '#fff',
+              fontWeight: k === hoy ? 700 : 400,
+              color: k === hoy ? '#075e7d' : '#334155',
+            }}
+          >
+            <span>{nombre}{k === hoy ? ' · hoy' : ''}</span>
+            <span>{horas![k]}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function AllyDetail() {
   const params = useParams<{ slug: string }>();
@@ -90,6 +128,8 @@ export default function AllyDetail() {
             ))}
           </div>
         )}
+
+        <Horarios horas={ally.hours} />
 
         <div style={{ marginTop: 24, padding: 16, background: '#eff6ff', borderRadius: 12, fontSize: 13.5, color: '#1e40af' }}>
           🎟️ Presenta tu <b>Living Card</b> en este negocio para acceder a los beneficios.

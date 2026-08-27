@@ -162,9 +162,25 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = h.get('host') ?? '';
   // Marca por dominio propio (host) o, si entra por /admin/<slug> en dominio
   // Clubify, por el slug (header x-wl-slug del middleware).
-  const brand =
+  let brand =
     (await resolveBrandForHost(host)) ||
     (await resolveBrandForSlug(h.get('x-wl-slug') ?? ''));
+
+  // Dominio del MASTER ADMIN (soyfidelity.com): no es una WhiteLabel del backend,
+  // pero su pestaña NO debe decir "Clubify" ni mostrar el favicon verde. Título
+  // "Fidelity" + favicon SVG con su inicial. Espeja el caso cliente de AuthBrand.
+  const mh = host.toLowerCase().split(':')[0];
+  if (!brand && (mh === 'soyfidelity.com' || mh === 'www.soyfidelity.com')) {
+    brand = {
+      name: 'Fidelity',
+      logoUrl: null,
+      shareImageUrl: null,
+      hasIcon: false,
+      primaryColor: '#2563EB',
+      slug: 'fidelity',
+      version: 0,
+    };
+  }
 
   // Negocio con dominio propio (customDomain) que NO es marca blanca: el título
   // de pestaña muestra el nombre del negocio (favicon se mantiene Clubify, PDF).

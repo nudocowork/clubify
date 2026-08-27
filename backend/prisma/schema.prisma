@@ -5750,6 +5750,10 @@ enum MembershipStatus {
 enum MembershipSource {
   MANUAL
   MERCADOPAGO
+  HOTMART
+  STRIPE
+  /// Alta sin pago: plan de precio 0 en una cuponera gratuita (spec §23).
+  FREE
 }
 
 enum MembershipOrderStatus {
@@ -5816,6 +5820,19 @@ model MembershipPlan {
   sortOrder           Int                @default(0)
   /// Id del plan de preapproval en MercadoPago (si se asocia a un plan MP).
   mpPreapprovalPlanId String?
+  /// ── Mapeo a las pasarelas (spec §24) ──────────────────────────────────────
+  /// Hotmart y Stripe no nos avisan "compraron el plan X": mandan el id de SU
+  /// producto. Estos campos son la tabla de traducción producto→plan que usa el
+  /// webhook. Sin ellos el pago llega y no se sabe a quién dar de alta.
+  hotmartProductId    String?
+  /// Desambigua cuando varias ofertas (mensual/anual) comparten productId.
+  hotmartOfferCode    String?
+  /// Price id de Stripe (price_...). Viene en la línea de la factura.
+  stripePriceId       String?
+  /// Link de pago al que mandamos al comprador (Hotmart checkout o Stripe
+  /// Payment Link). Vacío = ese plan no se vende por esa vía.
+  hotmartCheckoutUrl  String?
+  stripeCheckoutUrl   String?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
@@ -5823,6 +5840,8 @@ model MembershipPlan {
   orders      MembershipOrder[]
 
   @@index([campaignId])
+  @@index([hotmartProductId])
+  @@index([stripePriceId])
 }
 
 /// Membresía de un cliente (Customer del tenant de sistema) a una campaña.
@@ -5843,12 +5862,19 @@ model LivingMembership {
   passId          String?
   mpPreapprovalId String?
   mpPayerId       String?
+  /// Pasarela que sostiene esta membresía y su referencia recurrente
+  /// (subscriberCode de Hotmart / subscription de Stripe / preapproval de MP).
+  /// Genérico a propósito: la cancelación y la renovación llegan por webhook
+  /// identificando SOLO esta referencia, sin email ni plan.
+  provider        PaymentGateway?
+  providerRef     String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
   @@unique([campaignId, customerId])
   @@index([customerId])
   @@index([status])
+  @@index([providerRef])
 }
 
 /// Categoría de beneficios administrable (Restaurantes, Cafés, Living Kids…).

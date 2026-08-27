@@ -4494,7 +4494,7 @@
     "linkCopied": "Link copiado al portapapeles",
     "linkCopyFailed": "No se pudo copiar",
     "pageTitle": "Programa de referidos",
-    "intro": "Comparte Clubify con otros negocios. Ganas <b>25% el primer mes</b> y <b>25% recurrente</b> mientras sigan activos.<br></br>Pago vía transferencia bancaria o USDT.",
+    "intro": "Comparte {brandName} con otros negocios. Ganas <b>25% el primer mes</b> y <b>25% recurrente</b> mientras sigan activos.<br></br>Pago vía transferencia bancaria o USDT.",
     "kpiSignedUp": "Inscritos",
     "kpiPaying": "Pagando",
     "kpiCommissionPaid": "Comisión pagada",
@@ -4518,7 +4518,7 @@
     "emptyDesc": "Genera tu código en menos de 30 segundos. Te paga <b>25% el primer mes</b> y <b>25% recurrente</b> por cada negocio que invites y se quede.",
     "emptyBullet1": "💸 Pago vía transferencia bancaria o USDT cada 30 días",
     "emptyBullet2": "📊 Aquí mismo verás stats en vivo de inscritos y conversiones",
-    "emptyBullet3": "🔗 Compartes un link como <code>soyclubify.com/?ref=AB12CD34</code>",
+    "emptyBullet3": "🔗 Compartes un link como <code>{host}/?ref=AB12CD34</code>",
     "emptyCta": "Generar mi código →"
   },
   "admin_integrations": {

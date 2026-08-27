@@ -21,6 +21,9 @@ type Ally = {
   whatsapp: string | null;
   instagram: string | null;
   website: string | null;
+  /** Galería (máx. 8) y horarios { lun..dom: texto }. El servidor los acota. */
+  photos?: string[] | null;
+  hours?: Record<string, string> | null;
 };
 type Benefit = {
   id: string;
@@ -104,10 +107,19 @@ function FichaTab({ ally, onSaved }: { ally: Ally; onSaved: (a: Ally) => void })
     name: ally.name || '', description: ally.description || '', logoUrl: ally.logoUrl || '', coverUrl: ally.coverUrl || '',
     address: ally.address || '', city: ally.city || '', whatsapp: ally.whatsapp || '', instagram: ally.instagram || '', website: ally.website || '',
   });
+  const [fotos, setFotos] = useState<string[]>(Array.isArray(ally.photos) ? ally.photos : []);
+  const [horas, setHoras] = useState<Record<string, string>>(
+    ally.hours && typeof ally.hours === 'object' ? ally.hours : {},
+  );
   const [saving, setSaving] = useState(false);
   async function save() {
     setSaving(true);
-    try { onSaved(await api<Ally>('/cuponera/ally/profile', { method: 'PATCH', body: JSON.stringify(f) })); }
+    try {
+      onSaved(await api<Ally>('/cuponera/ally/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ ...f, photos: fotos, hours: horas }),
+      }));
+    }
     finally { setSaving(false); }
   }
   return (
@@ -143,8 +155,101 @@ function FichaTab({ ally, onSaved }: { ally: Ally; onSaved: (a: Ally) => void })
         <div><label style={lbl}>Instagram</label><input style={inp} value={f.instagram} onChange={(e) => setF({ ...f, instagram: e.target.value })} /></div>
         <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Sitio web</label><input style={inp} value={f.website} onChange={(e) => setF({ ...f, website: e.target.value })} /></div>
       </div>
+
+      <Galeria fotos={fotos} onChange={setFotos} />
+      <Horarios horas={horas} onChange={setHoras} />
+
       <button onClick={save} disabled={saving} style={{ ...btn(), marginTop: 20 }}>{saving ? 'Guardando…' : 'Guardar ficha'}</button>
     </Card>
+  );
+}
+
+const MAX_FOTOS = 8;
+
+/** Galería del negocio. El tope de 8 es el mismo que aplica el servidor: se
+ *  muestra acá para que el aliado no descubra el límite al guardar. */
+function Galeria({ fotos, onChange }: { fotos: string[]; onChange: (f: string[]) => void }) {
+  const lleno = fotos.length >= MAX_FOTOS;
+  return (
+    <div style={{ marginTop: 22 }}>
+      <label style={lbl}>Fotos del negocio <span style={{ color: '#94a3b8', fontWeight: 400 }}>({fotos.length}/{MAX_FOTOS})</span></label>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
+        {fotos.map((url, i) => (
+          <div key={`${url}-${i}`} style={{ position: 'relative', width: 96, height: 96, borderRadius: 10, overflow: 'hidden', border: '1px solid #e2e8f0', background: '#f8fafc' }}>
+            {/* <img> a propósito: son URLs externas de los aliados, que
+                next/image exigiría declarar dominio por dominio. */}
+            <img src={url} alt={`Foto ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            <button
+              onClick={() => onChange(fotos.filter((_, j) => j !== i))}
+              title="Quitar"
+              style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: '50%', border: 'none', background: 'rgba(15,23,42,.72)', color: '#fff', fontSize: 13, lineHeight: '22px', cursor: 'pointer', padding: 0 }}
+            >
+              ×
+            </button>
+            {i === 0 && (
+              <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(15,23,42,.72)', color: '#fff', fontSize: 10, textAlign: 'center', padding: '2px 0' }}>
+                Principal
+              </div>
+            )}
+          </div>
+        ))}
+        {!lleno && (
+          <div style={{ width: 96 }}>
+            <ImageUploader value={null} onChange={(url) => { if (url) onChange([...fotos, url].slice(0, MAX_FOTOS)); }} folder="allies" />
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
+        La primera es la que se ve más grande en tu ficha. Para cambiarla, quitá las de antes.
+      </div>
+    </div>
+  );
+}
+
+const DIAS: Array<[string, string]> = [
+  ['lun', 'Lunes'], ['mar', 'Martes'], ['mie', 'Miércoles'], ['jue', 'Jueves'],
+  ['vie', 'Viernes'], ['sab', 'Sábado'], ['dom', 'Domingo'],
+];
+
+/** Horarios en texto libre a propósito: "8-12 y 14-19" o "Cerrado" son
+ *  respuestas reales que un formulario de rangos obliga a falsear. */
+function Horarios({ horas, onChange }: { horas: Record<string, string>; onChange: (h: Record<string, string>) => void }) {
+  const set = (d: string, v: string) => onChange({ ...horas, [d]: v });
+  const copiarALaSemana = () => {
+    const base = horas.lun || '';
+    if (!base) return;
+    onChange({ ...horas, mar: base, mie: base, jue: base, vie: base });
+  };
+  return (
+    <div style={{ marginTop: 22 }}>
+      <label style={lbl}>Horarios</label>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginTop: 6 }}>
+        {DIAS.map(([k, nombre]) => (
+          <div key={k}>
+            <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 3 }}>{nombre}</div>
+            <input
+              style={inp}
+              value={horas[k] || ''}
+              maxLength={40}
+              placeholder={k === 'dom' ? 'Cerrado' : '8-18'}
+              onChange={(e) => set(k, e.target.value)}
+            />
+          </div>
+        ))}
+      </div>
+      {horas.lun && (
+        <button
+          onClick={copiarALaSemana}
+          style={{ marginTop: 8, background: 'none', border: 'none', color: '#0e7490', fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+        >
+          Usar el horario del lunes de martes a viernes
+        </button>
+      )}
+      <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 6 }}>
+        Escribilo como quieras: «8-18», «8-12 y 14-19», «Cerrado». Los días que dejes
+        vacíos no se muestran.
+      </div>
+    </div>
   );
 }
 

@@ -5,7 +5,12 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { BenefitCampaign, MembershipPlan, AllyStatus } from '@prisma/client';
+import {
+  BenefitCampaign,
+  MembershipPlan,
+  AllyStatus,
+  PaymentGateway,
+} from '@prisma/client';
 import * as argon2 from 'argon2';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -30,11 +35,25 @@ const SYSTEM_TENANT_SLUG = 'sys-living-card';
 
 type EnrollInput = {
   fullName: string;
+  /** Puede venir vacío si el pago llegó por una pasarela que no pide teléfono
+   *  (Hotmart/Stripe). En ese caso se identifica al miembro por email. */
   phone: string;
   email?: string | null;
   planId?: string | null;
-  source?: 'MANUAL' | 'MERCADOPAGO';
+  /** Cuponera destino. Si falta, Living Card (comportamiento histórico). Lo
+   *  manda el webhook: el plan comprado es el que decide la campaña, no el slug
+   *  fijo — si no, comprar un plan de OTRA cuponera daba de alta en Living Card. */
+  campaignId?: string | null;
+  source?: 'MANUAL' | 'MERCADOPAGO' | 'HOTMART' | 'STRIPE' | 'FREE';
   mp?: { preapprovalId?: string; payerId?: string; expiresAt?: string | Date };
+  /** Referencia recurrente de la pasarela (subscriberCode / subscription /
+   *  preapproval). Es lo único que trae la cancelación para encontrar a quién
+   *  dar de baja. */
+  provider?: PaymentGateway | null;
+  providerRef?: string | null;
+  /** Vencimiento que dicta la pasarela (próxima fecha de cobro). Gana sobre el
+   *  calculado a partir del intervalo del plan. */
+  expiresAt?: string | Date | null;
 };
 
 /** Sede de un aliado (spec §5 y §9). Ver AllyLocationBody en cuponera.dto.ts. */
@@ -773,6 +792,12 @@ export class CuponeraService {
     description?: string;
     sortOrder?: number;
     isActive?: boolean;
+    /** Mapeo a las pasarelas (spec §24). Ver PlanBody en el controller. */
+    hotmartProductId?: string | null;
+    hotmartOfferCode?: string | null;
+    stripePriceId?: string | null;
+    hotmartCheckoutUrl?: string | null;
+    stripeCheckoutUrl?: string | null;
   }) {
     const campaign = await this.ensureLivingCampaign();
     return this.prisma.membershipPlan.create({
@@ -786,6 +811,7 @@ export class CuponeraService {
         benefitsAllowance: dto.benefitsAllowance ?? null,
         description: dto.description || '',
         sortOrder: dto.sortOrder ?? 0,
+        ...this.mapeoPasarelas(dto),
         isActive: dto.isActive ?? true,
       },
     });
@@ -808,8 +834,90 @@ export class CuponeraService {
         description: dto.description ?? undefined,
         sortOrder: dto.sortOrder ?? undefined,
         isActive: dto.isActive ?? undefined,
+        ...this.mapeoPasarelas(dto),
       },
     });
+  }
+
+  /**
+   * Normaliza el mapeo producto-de-pasarela → plan (spec §24). Cadena vacía se
+   * guarda como null a propósito: '' en hotmartProductId haría que el webhook
+   * buscara por '' y no matcheara nunca, que es un bug silencioso y caro.
+   * `undefined` (campo no enviado) no toca la columna.
+   */
+  private mapeoPasarelas(dto: {
+    hotmartProductId?: string | null;
+    hotmartOfferCode?: string | null;
+    stripePriceId?: string | null;
+    hotmartCheckoutUrl?: string | null;
+    stripeCheckoutUrl?: string | null;
+  }) {
+    const limpio = (v: string | null | undefined) =>
+      v === undefined ? undefined : v?.trim() || null;
+    return {
+      hotmartProductId: limpio(dto.hotmartProductId),
+      hotmartOfferCode: limpio(dto.hotmartOfferCode),
+      stripePriceId: limpio(dto.stripePriceId),
+      hotmartCheckoutUrl: limpio(dto.hotmartCheckoutUrl),
+      stripeCheckoutUrl: limpio(dto.stripeCheckoutUrl),
+    };
+  }
+
+  /**
+   * Estado de las pasarelas de la cuponera (spec §24-25): qué URL hay que pegar
+   * en el panel de cada proveedor y qué planes están mapeados. Sin esta pantalla
+   * el mapeo se configura a ciegas.
+   */
+  async gatewaysStatus(campaignId?: string) {
+    const campaign = campaignId
+      ? await this.prisma.benefitCampaign.findUnique({ where: { id: campaignId } })
+      : await this.ensureLivingCampaign();
+    if (!campaign) throw new NotFoundException('Cuponera no encontrada');
+
+    const api = (process.env.API_PUBLIC_URL || 'https://api.soyclubify.com').replace(/\/+$/, '');
+    const planes = await this.prisma.membershipPlan.findMany({
+      where: { campaignId: campaign.id },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    const conHotmart = planes.filter((p) => p.hotmartProductId).length;
+    const conStripe = planes.filter((p) => p.stripePriceId).length;
+
+    // Hotmart y Stripe entran por la ruta POR MARCA, no por la de la cuponera:
+    // el cobro lo recibe la cuenta de la marca blanca dueña de la cuponera, y
+    // esa ruta ya valida el hottok / la firma contra las credenciales de la
+    // marca. MercadoPago sí es por cuponera porque sus credenciales viven en la
+    // config de la campaña.
+    return {
+      campaign: { id: campaign.id, slug: campaign.slug, name: campaign.name },
+      hotmart: {
+        webhookUrl: `${api}/api/webhooks/hotmart/<slug-de-la-marca>`,
+        planesMapeados: conHotmart,
+        listo: conHotmart > 0,
+      },
+      stripe: {
+        webhookUrl: `${api}/api/webhooks/stripe/<slug-de-la-marca>`,
+        planesMapeados: conStripe,
+        listo: conStripe > 0,
+      },
+      mercadopago: {
+        webhookUrl: `${api}/api/webhooks/mercadopago/${campaign.slug}`,
+        configurado: !!(campaign.config as any)?.mp?.accessToken,
+      },
+      planes: planes.map((p) => ({
+        id: p.id,
+        name: p.name,
+        priceCents: p.priceCents,
+        currency: p.currency,
+        interval: p.interval,
+        isActive: p.isActive,
+        hotmartProductId: p.hotmartProductId,
+        hotmartOfferCode: p.hotmartOfferCode,
+        stripePriceId: p.stripePriceId,
+        hotmartCheckoutUrl: p.hotmartCheckoutUrl,
+        stripeCheckoutUrl: p.stripeCheckoutUrl,
+      })),
+    };
   }
 
   async deletePlan(id: string) {
@@ -890,10 +998,14 @@ export class CuponeraService {
 
   private computeExpiry(
     plan: MembershipPlan | null,
-    override?: string | Date,
+    override?: string | Date | null,
   ): Date | null {
     if (override) return new Date(override);
     if (!plan) return null;
+    // Un plan gratuito NO vence. Sin este corte, el intervalo del plan le
+    // pondría vencimiento a un mes y el candado de canje apagaría al mes a
+    // alguien que se unió gratis y para siempre (spec §23).
+    if (plan.priceCents <= 0) return null;
     const d = new Date();
     if (plan.interval === 'ANNUAL') d.setFullYear(d.getFullYear() + 1);
     else d.setMonth(d.getMonth() + 1);
@@ -903,30 +1015,60 @@ export class CuponeraService {
   /** Da de alta (o reactiva) un miembro y le emite su tarjeta Living Card.
    *  Usado tanto por el alta MANUAL (Master Admin) como por el pago (MP). */
   async enrollMember(input: EnrollInput) {
-    const campaign = await this.ensureLivingCampaign();
+    // La campaña la decide el plan comprado, no un slug fijo. Sin campaignId
+    // seguimos cayendo en Living Card, que es lo que hacía siempre.
+    const campaign = input.campaignId
+      ? await this.prisma.benefitCampaign.findUnique({ where: { id: input.campaignId } })
+      : await this.ensureLivingCampaign();
+    if (!campaign) throw new NotFoundException('Cuponera no encontrada');
     const card = await this.ensureLivingCard(campaign);
     const tenantId = campaign.tenantId;
 
     const phoneNorm = (input.phone || '').replace(/\s/g, '').trim();
-    if (phoneNorm.replace(/\D/g, '').length < 8) {
-      throw new BadRequestException('Teléfono inválido');
-    }
+    const digits = phoneNorm.replace(/\D/g, '');
     const email = input.email?.trim().toLowerCase() || null;
-    const last10 = phoneNorm.replace(/\D/g, '').slice(-10);
+    const tienePhone = digits.length >= 8;
+    // Hotmart y Stripe no siempre mandan teléfono; el email sí viene siempre.
+    // Con uno de los dos alcanza — sin ninguno no hay a quién dar de alta.
+    if (!tienePhone && !email) {
+      throw new BadRequestException('Hace falta teléfono o email para dar de alta al miembro');
+    }
+    const last10 = digits.slice(-10);
 
-    // Match-or-create Customer del tenant de sistema por teléfono (exacto, luego
-    // por últimos 10 dígitos para tolerar formatos).
-    let customer = await this.prisma.customer
-      .findUnique({ where: { tenantId_phone: { tenantId, phone: phoneNorm } } })
-      .catch(() => null);
-    if (!customer && last10.length >= 8) {
+    // Match-or-create Customer del tenant de sistema: teléfono exacto, luego
+    // últimos 10 dígitos (tolera formatos), y por último email. El orden importa:
+    // el teléfono es la identidad fuerte; el email solo se usa si no hay otra.
+    let customer = tienePhone
+      ? await this.prisma.customer
+          .findUnique({ where: { tenantId_phone: { tenantId, phone: phoneNorm } } })
+          .catch(() => null)
+      : null;
+    if (!customer && tienePhone && last10.length >= 8) {
       customer = await this.prisma.customer.findFirst({
         where: { tenantId, phone: { contains: last10 } },
       });
     }
+    if (!customer && email) {
+      customer = await this.prisma.customer.findFirst({
+        where: { tenantId, email },
+        orderBy: { createdAt: 'asc' },
+      });
+    }
     if (!customer) {
       customer = await this.prisma.customer.create({
-        data: { tenantId, fullName: input.fullName, phone: phoneNorm, email },
+        data: {
+          tenantId,
+          fullName: input.fullName,
+          phone: tienePhone ? phoneNorm : null,
+          email,
+        },
+      });
+    } else if (tienePhone && !customer.phone) {
+      // El miembro compró sin teléfono y ahora lo tenemos: completarlo, porque
+      // de él dependen el SMS/WhatsApp y la búsqueda "mi tarjeta por teléfono".
+      customer = await this.prisma.customer.update({
+        where: { id: customer.id },
+        data: { phone: phoneNorm },
       });
     }
 
@@ -935,7 +1077,10 @@ export class CuponeraService {
           where: { id: input.planId, campaignId: campaign.id },
         })
       : null;
-    const expiresAt = this.computeExpiry(plan, input.mp?.expiresAt);
+    const expiresAt = this.computeExpiry(
+      plan,
+      input.expiresAt ?? input.mp?.expiresAt ?? undefined,
+    );
 
     // Emite el pase (idempotente por [cardId, customerId]) → dispara PASS_CREATED.
     const pass = await this.passes.issueInternal(card.id, customer.id);
@@ -954,6 +1099,8 @@ export class CuponeraService {
         passId: pass.id,
         ...(input.mp?.preapprovalId ? { mpPreapprovalId: input.mp.preapprovalId } : {}),
         ...(input.mp?.payerId ? { mpPayerId: input.mp.payerId } : {}),
+        ...(input.provider ? { provider: input.provider } : {}),
+        ...(input.providerRef ? { providerRef: input.providerRef } : {}),
       },
       create: {
         campaignId: campaign.id,
@@ -967,6 +1114,8 @@ export class CuponeraService {
         passId: pass.id,
         mpPreapprovalId: input.mp?.preapprovalId ?? null,
         mpPayerId: input.mp?.payerId ?? null,
+        provider: input.provider ?? null,
+        providerRef: input.providerRef ?? null,
       },
     });
 
@@ -976,6 +1125,57 @@ export class CuponeraService {
       passId: pass.id,
       status: membership.status,
     };
+  }
+
+  /**
+   * Alta sin pago de una cuponera gratuita (spec §23: "El usuario se registra y
+   * obtiene acceso"). Endpoint PÚBLICO, así que las guardas son el producto:
+   *
+   *  · El plan tiene que costar 0. Si no, esto sería una puerta para saltarse
+   *    el pago de un plan pago con solo mandar su id.
+   *  · La cuponera tiene que estar ACTIVE. Una en DRAFT todavía no existe para
+   *    el público y no debería juntar miembros.
+   */
+  async joinFree(dto: {
+    fullName: string;
+    phone?: string;
+    email?: string;
+    planId?: string;
+    campaignId?: string;
+  }) {
+    const campaign = dto.campaignId
+      ? await this.prisma.benefitCampaign.findUnique({ where: { id: dto.campaignId } })
+      : await this.ensureLivingCampaign();
+    if (!campaign) throw new NotFoundException('Cuponera no encontrada');
+    if (campaign.status !== 'ACTIVE') {
+      throw new BadRequestException('Esta cuponera todavía no está abierta al público.');
+    }
+
+    const plan = dto.planId
+      ? await this.prisma.membershipPlan.findFirst({
+          where: { id: dto.planId, campaignId: campaign.id, isActive: true },
+        })
+      : await this.prisma.membershipPlan.findFirst({
+          where: { campaignId: campaign.id, isActive: true, priceCents: 0 },
+          orderBy: { sortOrder: 'asc' },
+        });
+    if (!plan) throw new NotFoundException('Plan no encontrado');
+    if (plan.priceCents > 0) {
+      throw new BadRequestException('Este plan es de pago: hay que completar el pago para activarlo.');
+    }
+
+    const nombre = (dto.fullName || '').trim();
+    if (nombre.length < 2) throw new BadRequestException('Falta el nombre');
+
+    const r = await this.enrollMember({
+      campaignId: campaign.id,
+      planId: plan.id,
+      fullName: nombre,
+      phone: dto.phone ?? '',
+      email: dto.email ?? null,
+      source: 'FREE',
+    });
+    return { passId: r.passId, membershipId: r.membershipId, planName: plan.name };
   }
 
   async listMembers() {
@@ -1069,12 +1269,63 @@ export class CuponeraService {
         description: p.description,
         benefitsAllowance: p.benefitsAllowance,
         level: p.level,
+        // Solo los links de compra, que son públicos por definición. Los ids de
+        // producto y de price NO salen acá: son configuración interna.
+        checkoutUrl: p.hotmartCheckoutUrl || p.stripeCheckoutUrl || null,
+        checkoutGateway: p.hotmartCheckoutUrl
+          ? 'HOTMART'
+          : p.stripeCheckoutUrl
+            ? 'STRIPE'
+            : 'MERCADOPAGO',
       })),
       categories: categories.map((c) => ({
         id: c.id,
         name: c.name,
         slug: c.slug,
         icon: c.icon,
+      })),
+    };
+  }
+
+  /**
+   * "Mi tarjeta" por teléfono O email (spec §24).
+   *
+   * Hace falta el email porque quien compra por Hotmart o Stripe termina en la
+   * página de gracias de la pasarela, no en la nuestra, y muchas veces ni
+   * siquiera dejó teléfono: sin búsqueda por email pagó y no tiene forma de
+   * llegar a su tarjeta.
+   */
+  async findCard(q: string) {
+    const texto = (q || '').trim();
+    if (texto.includes('@')) return this.findCardByEmail(texto);
+    return this.findCardByPhone(texto);
+  }
+
+  private async findCardByEmail(emailRaw: string) {
+    const campaign = await this.ensureLivingCampaign();
+    const email = emailRaw.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { passes: [] };
+
+    const customers = await this.prisma.customer.findMany({
+      where: { tenantId: campaign.tenantId, email },
+      select: { id: true },
+    });
+    if (!customers.length) return { passes: [] };
+
+    const passes = await this.prisma.pass.findMany({
+      where: {
+        tenantId: campaign.tenantId,
+        customerId: { in: customers.map((c) => c.id) },
+        status: 'ACTIVE',
+      },
+      include: { customer: { select: { fullName: true } } },
+      orderBy: { issuedAt: 'desc' },
+    });
+    return {
+      passes: passes.map((p) => ({
+        id: p.id,
+        serialNumber: p.serialNumber,
+        memberName: p.customer.fullName,
       })),
     };
   }
@@ -1289,18 +1540,62 @@ export class CuponeraService {
 
   /** Edición de la ficha por el admin (desde Master Admin) o por el propio
    *  negocio (portal). `byOwner` limita el scope al ally de la sesión. */
+  /** Días válidos de horario. Fuera de esto no se guarda nada. */
+  private static readonly DIAS = ['lun', 'mar', 'mie', 'jue', 'vie', 'sab', 'dom'] as const;
+  private static readonly MAX_FOTOS = 8;
+
+  /**
+   * Normaliza la galería del aliado.
+   *
+   * El aliado es un negocio EXTERNO con login propio, y esto se pinta en la
+   * cartelera pública. Sin acotar, un PATCH podía guardar miles de entradas o
+   * un `javascript:` que después sale en un href/src. Se aceptan solo http(s),
+   * rutas propias y data:image, con tope de cantidad y de largo.
+   */
+  private normalizePhotos(input: unknown): string[] | undefined {
+    if (input === undefined) return undefined;
+    if (!Array.isArray(input)) return [];
+    const ok = (u: string) =>
+      /^https?:\/\//i.test(u) || u.startsWith('/') || /^data:image\//i.test(u);
+    return input
+      .filter((x): x is string => typeof x === 'string')
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0 && x.length <= 2000 && ok(x))
+      .slice(0, CuponeraService.MAX_FOTOS);
+  }
+
+  /**
+   * Normaliza los horarios a { lun..dom: texto }. Se deja texto libre a
+   * propósito ("8-18", "8-12 y 14-19", "Cerrado"): imponer un formato rígido
+   * obliga al negocio a mentir cuando su realidad no encaja. Lo que sí se acota
+   * son las claves y el largo, porque el JSON es libre y se muestra en público.
+   */
+  private normalizeHours(input: unknown): Record<string, string> | undefined {
+    if (input === undefined) return undefined;
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+    const src = input as Record<string, unknown>;
+    const out: Record<string, string> = {};
+    for (const d of CuponeraService.DIAS) {
+      const v = src[d];
+      if (typeof v !== 'string') continue;
+      const t = v.trim().slice(0, 40);
+      if (t) out[d] = t;
+    }
+    return out;
+  }
+
   private allyUpdatableData(dto: AllyProfileDto) {
     return {
       name: dto.name ?? undefined,
       description: dto.description ?? undefined,
       logoUrl: dto.logoUrl ?? undefined,
       coverUrl: dto.coverUrl ?? undefined,
-      photos: dto.photos ? (dto.photos as any) : undefined,
+      photos: this.normalizePhotos(dto.photos) as any,
       address: dto.address ?? undefined,
       city: dto.city ?? undefined,
       latitude: dto.latitude ?? undefined,
       longitude: dto.longitude ?? undefined,
-      hours: dto.hours ? (dto.hours as any) : undefined,
+      hours: this.normalizeHours(dto.hours) as any,
       whatsapp: dto.whatsapp ?? undefined,
       instagram: dto.instagram ?? undefined,
       website: dto.website ?? undefined,
@@ -1863,6 +2158,64 @@ export class CuponeraService {
   }
 
   /** Payload del escaneo. Compartido por las dos puertas de entrada. */
+  /**
+   * Margen tras el vencimiento antes de bloquear los beneficios.
+   *
+   * El cobro recurrente no cae exactamente el día del vencimiento: las pasarelas
+   * reintentan una tarjeta rechazada durante días (Stripe hasta ~3 semanas,
+   * Hotmart varios intentos). Sin margen, un miembro que SÍ va a renovar queda
+   * plantado en la caja del aliado por unas horas de desfase. Tres días cubre el
+   * desfase normal sin volver eterno el acceso de quien realmente se dio de baja
+   * — la baja explícita no pasa por acá: llega por webhook y cambia el status.
+   */
+  private static readonly GRACE_DAYS = 3;
+
+  /** true si la membresía tiene vencimiento y ya pasó (contando el margen). */
+  private membershipExpired(m: { expiresAt: Date | null } | null): boolean {
+    if (!m?.expiresAt) return false;
+    const limite =
+      m.expiresAt.getTime() + CuponeraService.GRACE_DAYS * 24 * 60 * 60 * 1000;
+    return limite <= Date.now();
+  }
+
+  /** Lectura sin efectos: ¿esta membresía habilita beneficios ahora mismo? */
+  private membershipUsable(
+    m: { status: string; expiresAt: Date | null } | null,
+  ): boolean {
+    return !!m && m.status === 'ACTIVE' && !this.membershipExpired(m);
+  }
+
+  /**
+   * Puerta única de todos los canjes (spec §24: "membresía inactiva →
+   * beneficios bloqueados"). Antes cada canje comparaba `status !== 'ACTIVE'` a
+   * mano y NADIE miraba `expiresAt`: si el cobro recurrente simplemente dejaba
+   * de llegar, no hay webhook que avise, así que la fila se quedaba ACTIVE para
+   * siempre y la tarjeta seguía canjeando gratis.
+   *
+   * Además corrige la fila al detectar el vencimiento, para que el panel y las
+   * métricas no sigan contando como activo a quien no lo está.
+   */
+  private async assertMembershipUsable(campaignId: string, customerId: string) {
+    const membership = await this.prisma.livingMembership.findFirst({
+      where: { campaignId, customerId },
+    });
+    if (!membership) {
+      throw new BadRequestException('Esta tarjeta no tiene membresía en esta cuponera');
+    }
+    if (membership.status === 'ACTIVE' && this.membershipExpired(membership)) {
+      await this.prisma.livingMembership
+        .update({ where: { id: membership.id }, data: { status: 'EXPIRED' } })
+        .catch(() => null);
+      throw new BadRequestException(
+        'La membresía venció. Hay que renovarla para volver a usar los beneficios.',
+      );
+    }
+    if (membership.status !== 'ACTIVE') {
+      throw new BadRequestException('La membresía no está activa');
+    }
+    return membership;
+  }
+
   private async buildMemberScan(
     campaign: BenefitCampaign,
     ally: { id: string; categoryId: string | null },
@@ -1884,7 +2237,7 @@ export class CuponeraService {
       }),
     ]);
 
-    const active = membership?.status === 'ACTIVE';
+    const active = this.membershipUsable(membership);
     // Usos del miembro por beneficio, CADA UNO dentro de SU ventana (spec §7).
     // Antes esto contaba el histórico completo, lo que mostraba "0 usos
     // restantes" a alguien que sí podía canjear este mes — y no coincidía con
@@ -1944,7 +2297,14 @@ export class CuponeraService {
       passId: pass.id,
       memberName: customer?.fullName ?? '',
       membershipActive: active,
-      membershipStatus: membership?.status ?? 'NONE',
+      // El estado que se muestra es el REAL: una fila ACTIVE cuya fecha ya pasó
+      // se lee como EXPIRED, para que el aliado no vea "activa" y un rechazo.
+      membershipStatus: membership
+        ? membership.status === 'ACTIVE' && this.membershipExpired(membership)
+          ? 'EXPIRED'
+          : membership.status
+        : 'NONE',
+      membershipExpiresAt: membership?.expiresAt ?? null,
       planName: membership?.plan?.name ?? null,
       stampPrograms: programs.map((p) => {
         const card = cardByProg.get(p.id);
@@ -1998,12 +2358,7 @@ export class CuponeraService {
       : await this.resolvePass(campaign.tenantId, dto.qrToken || '');
     if (!pass) throw new NotFoundException('Tarjeta no encontrada');
 
-    const membership = await this.prisma.livingMembership.findFirst({
-      where: { campaignId: campaign.id, customerId: pass.customerId },
-    });
-    if (!membership || membership.status !== 'ACTIVE') {
-      throw new BadRequestException('La membresía no está activa');
-    }
+    await this.assertMembershipUsable(campaign.id, pass.customerId);
 
     const benefit = await this.prisma.benefit.findFirst({
       where: { id: dto.benefitId, allyBusinessId: ally.id, campaignId: campaign.id },
@@ -2204,12 +2559,7 @@ export class CuponeraService {
       : await this.resolvePass(campaign.tenantId, dto.qrToken || '');
     if (!pass) throw new NotFoundException('Tarjeta no encontrada');
 
-    const membership = await this.prisma.livingMembership.findFirst({
-      where: { campaignId: campaign.id, customerId: pass.customerId },
-    });
-    if (!membership || membership.status !== 'ACTIVE') {
-      throw new BadRequestException('La membresía no está activa');
-    }
+    await this.assertMembershipUsable(campaign.id, pass.customerId);
 
     const program = await this.prisma.stampProgram.findFirst({
       where: { id: dto.programId, campaignId: campaign.id, status: 'ACTIVE' },
@@ -2271,6 +2621,10 @@ export class CuponeraService {
       ? await this.prisma.pass.findFirst({ where: { id: dto.passId, tenantId: campaign.tenantId } })
       : await this.resolvePass(campaign.tenantId, dto.qrToken || '');
     if (!pass) throw new NotFoundException('Tarjeta no encontrada');
+
+    // Faltaba: entregar el premio de sellos era el ÚNICO canje que no miraba la
+    // membresía. Un miembro dado de baja podía seguir cobrando premios.
+    await this.assertMembershipUsable(campaign.id, pass.customerId);
 
     const program = await this.prisma.stampProgram.findFirst({
       where: { id: dto.programId, campaignId: campaign.id },

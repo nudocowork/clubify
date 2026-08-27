@@ -14,6 +14,8 @@ import { decryptSecret } from '../common/crypto/secret-box';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { HotmartService } from './hotmart.service';
 import { invalidateBusinessTypeCache } from '../common/guards/infolink-only.guard';
+import { ModuleRef } from '@nestjs/core';
+import { MembershipBillingService } from '../cuponera/membership-billing.service';
 
 /** Contexto extraído de un evento de pago Stripe, normalizado. */
 type StripeCtx = {
@@ -81,8 +83,36 @@ function buyerContactOf(eventLike: unknown): {
 export class StripeService {
   private readonly logger = new Logger(StripeService.name);
 
+  /**
+   * MembershipBillingService se resuelve TARDE y por el contenedor, no por
+   * inyección: importar CuponeraModule desde acá cierra el ciclo
+   * Billing → Cuponera → Locations → Tenants → Billing. Con ModuleRef no hay
+   * arista en el grafo de módulos.
+   *
+   * Si el módulo de cuponera no está montado (un deploy sin él), devuelve null y
+   * el webhook sigue su curso normal en vez de romperse.
+   */
+  private cuponeraBillingRef: MembershipBillingService | null | undefined;
+
+  private cuponeraBilling(): MembershipBillingService | null {
+    if (this.cuponeraBillingRef === undefined) {
+      try {
+        this.cuponeraBillingRef = this.moduleRef.get(MembershipBillingService, {
+          strict: false,
+        });
+      } catch {
+        this.logger.warn(
+          'CuponeraModule no está montado: los webhooks no darán de alta membresías de cuponera.',
+        );
+        this.cuponeraBillingRef = null;
+      }
+    }
+    return this.cuponeraBillingRef ?? null;
+  }
+
   constructor(
     private prisma: PrismaService,
+    private moduleRef: ModuleRef,
     private billing: BillingService,
     private growBusiness: GrowBusinessService,
     private smsTemplates: SmsTemplatesService,
@@ -166,6 +196,17 @@ export class StripeService {
       this.logger.warn(`stripeWebhookEvent claim falló: ${e?.message}`);
     }
 
+    // Cuponera (spec §24-25): si el price comprado está mapeado a un plan de
+    // membresía, esto no es la suscripción de un negocio sino una persona
+    // comprando su Living Card. Se corta antes del switch porque el flujo normal
+    // buscaría un tenant, no lo encontraría y guardaría un pago pendiente
+    // invitando al comprador a crear un negocio que no compró.
+    const cuponera = await this.tryHandleCuponera(brand, event).catch((e) => {
+      this.logger.error(`tryHandleCuponera falló: ${(e as Error)?.message}`);
+      return null;
+    });
+    if (cuponera) return { ok: true, action: cuponera };
+
     switch (event.type) {
       case 'checkout.session.completed':
       case 'invoice.paid':
@@ -196,6 +237,109 @@ export class StripeService {
       default:
         return { ok: true, action: 'unhandled' };
     }
+  }
+
+  /**
+   * Membresías de cuponera compradas por Stripe (§24-25). Devuelve null cuando
+   * el evento NO es de una cuponera, para que siga su curso normal.
+   *
+   * El precheck de una sola query evita pagarle a Stripe una llamada extra
+   * (extractCtx recupera la subscription) en instalaciones que no venden
+   * cuponeras por Stripe, que hoy son todas.
+   */
+  private async tryHandleCuponera(
+    brand: BrandCtx,
+    event: Stripe.Event,
+  ): Promise<string | null> {
+    const RELEVANTES = new Set([
+      'checkout.session.completed',
+      'invoice.paid',
+      'invoice.payment_succeeded',
+      'invoice.payment_failed',
+      'customer.subscription.created',
+      'customer.subscription.deleted',
+    ]);
+    if (!RELEVANTES.has(event.type)) return null;
+
+    const svc = this.cuponeraBilling();
+    if (!svc) return null;
+
+    const hayPlanes = await this.prisma.membershipPlan.count({
+      where: { stripePriceId: { not: null }, isActive: true },
+    });
+    if (!hayPlanes) return null;
+
+    const ctx = await this.extractCtx(brand, event);
+    const ref = ctx.subscriptionId ?? ctx.transaccionId ?? null;
+
+    if (event.type === 'customer.subscription.deleted') {
+      const membership = ref
+        ? await this.prisma.livingMembership.findFirst({
+            where: { provider: 'STRIPE', providerRef: ref },
+            select: { id: true },
+          })
+        : null;
+      if (!membership) return null;
+      return svc.deactivate({
+        provider: 'STRIPE',
+        ref,
+        email: ctx.email,
+        reason: event.type,
+      });
+    }
+
+    const match = await svc.matchStripePlan(ctx.priceId);
+    if (!match) return null;
+
+    if (event.type === 'invoice.payment_failed') {
+      return svc.paymentFailed({
+        provider: 'STRIPE',
+        ref,
+        email: ctx.email,
+        reason: event.type,
+      });
+    }
+
+    // Renovación: ya hay membresía con esta suscripción → correr vencimiento.
+    if (ref) {
+      const yaEs = await this.prisma.livingMembership.findFirst({
+        where: { providerRef: ref },
+        select: { id: true },
+      });
+      if (yaEs) {
+        return svc.renew({
+          provider: 'STRIPE',
+          ref,
+          email: ctx.email,
+          until: ctx.nextCharge,
+          transactionRef: ctx.transaccionId,
+          amountCents: ctx.amountUsd != null ? Math.round(ctx.amountUsd * 100) : null,
+          currency: ctx.amountUsd != null ? 'USD' : match.plan.currency,
+        });
+      }
+    }
+
+    if (!ctx.email) {
+      this.logger.error(
+        `[CUPONERA-PAGOS] evento Stripe ${event.type} sin email de comprador ` +
+          `(sub=${ctx.subscriptionId ?? '-'}). No hay a quién dar de alta.`,
+      );
+      return 'cuponera_membership_no_email';
+    }
+
+    return svc.activate({
+      match,
+      provider: 'STRIPE',
+      transactionRef: ctx.transaccionId ?? event.id,
+      subscriptionRef: ctx.subscriptionId,
+      email: ctx.email,
+      fullName: null,
+      phone: '',
+      amountCents: ctx.amountUsd != null ? Math.round(ctx.amountUsd * 100) : null,
+      currency: ctx.amountUsd != null ? 'USD' : match.plan.currency,
+      expiresAt: ctx.nextCharge,
+      raw: { event: event.type, id: event.id },
+    });
   }
 
   /** Normaliza el evento a un contexto común. Para suscripciones, recupera la

@@ -306,6 +306,12 @@ export class AdminReportsService {
     if (!amb || amb.role !== 'AMBASSADOR') {
       throw new NotFoundException('Embajador no encontrado');
     }
+    // IDOR / aislamiento: un admin de marca blanca no abre el detalle de un
+    // embajador de otra marca aunque conozca/adivine el id (mismo scope estricto
+    // que listAmbassadors).
+    if (user.whiteLabelId && amb.whiteLabelId !== user.whiteLabelId) {
+      throw new NotFoundException('Embajador no encontrado');
+    }
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -512,6 +518,12 @@ export class AdminReportsService {
       },
     });
     if (!v || v.role !== 'VENDOR') {
+      throw new NotFoundException('Vendedor no encontrado');
+    }
+    // IDOR / aislamiento: un admin de marca blanca no abre el detalle de un
+    // vendedor de otra marca aunque conozca/adivine el id (mismo scope estricto
+    // que listVendors).
+    if (user.whiteLabelId && v.whiteLabelId !== user.whiteLabelId) {
       throw new NotFoundException('Vendedor no encontrado');
     }
 

@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
 } from '@nestjs/common';
 import {
   IsArray,
@@ -71,6 +72,14 @@ class PlanBody {
   @IsOptional() @IsString() @MaxLength(280) description?: string;
   @IsOptional() @IsInt() sortOrder?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  // ── Mapeo a las pasarelas (spec §24) ──────────────────────────────────────
+  // Se acepta null explícito para poder DESmapear un plan (dejar de venderlo
+  // por esa vía) sin borrarlo.
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(40) hotmartProductId?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(60) hotmartOfferCode?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(80) stripePriceId?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(500) hotmartCheckoutUrl?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(500) stripeCheckoutUrl?: string | null;
 }
 
 class PlanPatchBody {
@@ -83,6 +92,14 @@ class PlanPatchBody {
   @IsOptional() @IsString() @MaxLength(280) description?: string;
   @IsOptional() @IsInt() sortOrder?: number;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  // ── Mapeo a las pasarelas (spec §24) ──────────────────────────────────────
+  // Se acepta null explícito para poder DESmapear un plan (dejar de venderlo
+  // por esa vía) sin borrarlo.
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(40) hotmartProductId?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(60) hotmartOfferCode?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(80) stripePriceId?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(500) hotmartCheckoutUrl?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(500) stripeCheckoutUrl?: string | null;
 }
 
 class CategoryBody {
@@ -306,6 +323,11 @@ export class CuponeraAdminController {
   @Patch('plans/:id')
   updatePlan(@Param('id') id: string, @Body() body: PlanPatchBody) {
     return this.svc.updatePlan(id, body);
+  }
+  /** Estado de las pasarelas + qué URL pegar en cada proveedor (spec §24-25). */
+  @Get('gateways')
+  gateways(@Query('campaignId') campaignId?: string) {
+    return this.svc.gatewaysStatus(campaignId);
   }
   @Delete('plans/:id')
   deletePlan(@Param('id') id: string) {

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
+import { useAuthBrand } from '@/components/AuthBrand';
 import { AcademyButton } from '@/components/AcademyButton';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -54,6 +55,8 @@ export default function TenantReferrals() {
   const [loading, setLoading] = useState(true);
   // WhatsApp de soporte de la marca del negocio (Sellea), no el de Clubify.
   const [supportWa, setSupportWa] = useState('573167689240');
+  // Marca blanca por host: los textos dicen el nombre de LA MARCA, no Clubify.
+  const { brand } = useAuthBrand();
 
   useEffect(() => {
     // Guard: el programa de referidos es branding Clubify y se gatea por el
@@ -99,6 +102,7 @@ export default function TenantReferrals() {
         </div>
         <p className="text-mute text-sm mt-1 leading-relaxed">
           {t.rich('intro', {
+            brandName: brand?.name ?? 'Clubify',
             b: (chunks) => <b className="text-brand">{chunks}</b>,
             br: () => <br />,
           })}
@@ -270,6 +274,11 @@ function Kpi({
 
 function EmptyState() {
   const t = useTranslations('app_referrals');
+  // El link de ejemplo muestra el dominio de la marca (host actual), no
+  // soyclubify.com hardcodeado. Solo se renderiza en cliente (tras el fetch),
+  // pero el guard de window cubre el prerender.
+  const exampleHost =
+    typeof window !== 'undefined' ? window.location.host : 'soyclubify.com';
   return (
     <div className="card card-pad bg-gradient-to-br from-brand-400 to-brand-700 text-white">
       <div className="text-2xl font-bold">{t('emptyTitle')}</div>
@@ -283,6 +292,7 @@ function EmptyState() {
         <li>{t('emptyBullet2')}</li>
         <li>
           {t.rich('emptyBullet3', {
+            host: exampleHost,
             code: (chunks) => <code>{chunks}</code>,
           })}
         </li>

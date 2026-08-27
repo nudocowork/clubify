@@ -130,6 +130,247 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+## 2026-08-26 — NOTA A JAVIER: mergeé tu rama a prod + desplegué todo (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — merge `a3c45b7`, HEAD `a2ed051`, **desplegado y verificado**
+
+Javier: consolidé y desplegué. Resumen de lo que confirmo hecho:
+
+### 1. Mergeé `chore/merge-emails-sobre-314` → `feat/commissions-auto-cutoffs`
+Traje TU rama a la de prod (convenios, rework de plantillas de correo, ranking con
+filtro, mapa, tooling de deploy). **Conflictos (referrals):** tu fix de fuga de
+comisiones (`3086c88`) y el mío (`52d46aa`) eran el MISMO enfoque — me quedé con el
+TUYO (canónico: `todasLasMarcas` + `brandCommissionWhere`) y preservé mi Fase 3
+(registro afiliado brand-aware). BITACORA: unión de ambos. **41 tests verdes**
+(incl. `aislamiento-comisiones.spec.ts`). Compila (tras `prisma generate`).
+
+### 2. Migraciones aplicadas a prod (las que estaban pendientes)
+- **Convenios** (`apply-convenios-migration.cjs`): 6 tablas, 3 columnas, 15 índices.
+  `conveniosEnabled=false` para todos. `GET /convenios` responde 401 (montado).
+- **Cuponera §24-25** (`apply-cuponera-gateways.cjs`): la corrió el founder. OJO: tu
+  código de §24 ya estaba commiteado y **mis deploys lo llevaron a prod SIN la
+  migración** un rato (MembershipPlan rompía). Ya aplicada → un-roto.
+
+### 3. Desplegado (railway up backend + vercel --prod frontend), verificado
+Convenios montado, aislamiento de comisiones intacto, Fase 3 (Sellea `enabled:true`),
+dominios 200.
+
+### 4. Coordinación — importante
+Para desplegar HEAD limpio usé `git stash -u` varias veces, y eso **se llevó tu WIP
+sin commitear** (una se perdió, según tu memoria). Ya no pasa (tu §24 está
+commiteado), pero **coordinemos quién despliega el backend** para no pisarnos.
+
+### 5. Lo mío de hoy (contexto)
+Aislamiento cross-marca PROGRAMA (7 métodos+4 IDOR, mismo bug que tú viste),
+`superadmin/marcas` a página completa, Fase 3 registro afiliado brand-aware por
+Origin/Referer (+ activado para Sellea), panel de referidos brand-aware
+(`refer/*`, i18n `{brandName}`/`{host}`), favicon Fidelity, y el barrido de fugas.
+
+### 6. Convenios FRONTEND — PENDIENTE (tu handoff)
+Falta lo que se ve: interruptor admin (`conveniosEnabled`/`maxConvenios`), 2
+endpoints (listar personas activadas + bloquear), página de activación del empleado,
+plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
+
+## 2026-08-26 — Cuponera: Hotmart y Stripe (spec §24-25) + candado de membresía
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — **NO desplegado**
+
+### Qué cambié
+
+- **Candado de membresía (§24).** Los canjes comparaban `status !== 'ACTIVE'`
+  cada uno por su cuenta y **nadie miraba `expiresAt`**. Como el cobro que deja
+  de llegar no genera ningún webhook, una membresía se quedaba ACTIVE para
+  siempre y la tarjeta seguía canjeando gratis. Ahora hay una puerta única
+  (`assertMembershipUsable`) que mira estado **y** fecha, corrige la fila a
+  EXPIRED al detectarlo, y tiene 3 días de margen (las pasarelas reintentan una
+  tarjeta rechazada durante días; cortar el mismo día deja plantado en la caja a
+  alguien que sí renueva). `redeemStampReward` **no tenía ningún control**: un
+  miembro dado de baja podía seguir cobrando premios de sellos.
+- **`MembershipBillingService`** — alta/renovación/baja/pago fallido, agnóstico
+  de pasarela. Lo usan las tres.
+- **Hotmart y Stripe** enganchados en sus webhooks existentes (misma técnica que
+  los packs de créditos): si el producto está mapeado a un plan, se corta antes
+  de `findTenant`. Sin ese corte, quien compra una cuponera caía en
+  `storePendingPayment` y **recibía un correo invitándolo a crear un negocio**.
+- **MercadoPago completado (§25).** Solo entendía `preapproval` + `authorized`:
+  una cancelación no cortaba nada y las renovaciones no corrían la fecha, así que
+  el socio pagaba todos los meses y se le vencía igual.
+- `enrollMember` ahora respeta la **cuponera del plan comprado** (antes siempre
+  daba de alta en Living Card) e identifica por **email** si no hay teléfono
+  (Hotmart y Stripe no lo exigen).
+- Admin: sección «Pagos — Hotmart y Stripe» en `/superadmin/living-card` para
+  mapear cada plan y ver qué URL pegar en cada proveedor. Endpoint
+  `GET /cuponera/admin/gateways`.
+- Público: `/cuponera/unirse` manda al link de la pasarela del plan; «Mi tarjeta»
+  ahora busca **por teléfono o correo** (quien compra por Hotmart/Stripe termina
+  en la página de gracias de la pasarela y puede no haber dejado teléfono nunca).
+
+- **Membresía gratuita (§23).** No funcionaba: un plan de precio 0 igual pasaba
+  por `createSubscription`, que exige credenciales de MercadoPago y le pide a MP
+  un cobro de cero. Ahora hay `POST /cuponera/public/join-free` con dos guardas
+  (el plan tiene que costar 0 — si no, mandar el id de un plan pago era entrar
+  gratis; y la cuponera tiene que estar ACTIVE, una en DRAFT no capta miembros).
+  Un plan gratuito **no vence**: dejar correr el intervalo apagaba al mes a
+  alguien que se unió gratis y para siempre. El valor `FREE` de `MembershipSource`
+  va en la **misma** migración pendiente, no en una segunda.
+
+- **Fotos y horarios del aliado.** Las columnas `photos`/`hours` existían y el
+  PATCH ya las guardaba, pero **sin validar nada**: el aliado es un negocio
+  externo con login propio y eso se pinta en la cartelera pública, así que se
+  escribía lo que llegara (miles de entradas, o un `javascript:` que después
+  sale en un `src`). Ahora el servidor acota: fotos solo http(s)/rutas
+  propias/`data:image`, máximo 8; horarios solo las siete claves de día, texto
+  ≤40. Se agregó el editor en el panel del aliado y **los horarios en la ficha
+  pública, donde no se pintaban** (el aliado los cargaba para nadie).
+
+### Qué toqué de PRODUCCIÓN
+
+- ✅ **BASE DE DATOS (26-ago ~17:00):** aplicada
+  `backend/scripts/apply-cuponera-gateways.cjs` sobre el servicio
+  **`Postgres-Nq8w`** (ojo: NO el que se llama `Postgres`; el backend apunta a
+  `tramway.proxy.rlwy.net`, que es el público de Nq8w).
+  Verificado a mano después: 7/7 columnas nuevas, 3/3 índices,
+  `MembershipSource = MANUAL,MERCADOPAGO,HOTMART,STRIPE,FREE`, 103 tenants
+  intactos, API respondiendo en ~0,5 s sin reinicio.
+  Aditiva e idempotente: volver a correrla no hace nada.
+- ❌ **Código NO desplegado.** La base va por delante del código, que es el
+  orden seguro: las columnas nuevas están y nadie las lee todavía.
+- Variables: sin tocar.
+
+### Qué falta / qué hay que validar del otro lado
+
+- [x] ~~Aplicar la migración a producción~~ — hecho el 26-ago. **Desplegar ya es
+      seguro**: la base tiene las columnas y el código de prod todavía no las usa.
+- [ ] Cargar el mapeo de cada plan (id de producto Hotmart / price id de Stripe)
+      desde `/superadmin/living-card` → «Pagos — Hotmart y Stripe».
+- [ ] Probar una compra real. Nada de esto se ejerció con dinero de verdad.
+- [ ] Decidir si la cancelación corta el acceso en el acto (hoy sí, igual que un
+      tenant) o respeta el período ya pagado. Es un cambio de una línea.
+
+### Riesgos y avisos
+
+- ✅ Ya NO aplica el aviso de "el código tiene columnas que prod no tiene": la
+  migración se aplicó. Desplegar esta rama es seguro.
+- ⚠️ **`railway up` sube el DIRECTORIO DE TRABAJO, no el commit.** Si alguien
+  despliega con esta rama en disco, sube estos cambios aunque no los quiera.
+- ⚠️ Hotmart/Stripe entran por la ruta **de la marca** (`/webhooks/hotmart/<slug>`),
+  no por una nueva: el cobro lo recibe la cuenta de la marca dueña de la cuponera.
+- 🔁 **Un `git stash` desde otra sesión se llevó trabajo en curso de esta**
+  (etiquetado «WIP Javi cuponera gateways», pero era de acá). Se recuperó. Al
+  destrabar el stash apareció una copia **vieja** de `living-card/page.tsx` cuyo
+  `PushSection` no tenía la segmentación por aliado/plan que ya está en HEAD: se
+  descartó y se conservó HEAD. Si alguien vuelve a stashear para desplegar,
+  avisar.
+
+---
+
+## 2026-08-26 — Registro afiliado/influencer brand-aware (Fase 3) + migración cuponera de Javi
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — commits `0f4f916`, `76a1787`, desplegados
+
+### Fase 3 — registro público de afiliados brand-aware (LIVE, verificado)
+- `config()` y `register()` resuelven la marca por **Origin/Referer** (el frontend
+  llama a `api.soyclubify.com`, así que el Host es la API, no la marca).
+- Config POR MARCA: claves `affiliate.publicRegistration.<key>.<slug>` (cada marca
+  opt-in; NO hereda el toggle global de Clubify). Admin scopeado a su marca.
+- `selfRegisterAffiliate` asigna la marca del host al `ReferralCode`.
+- **Activado para Sellea** (`enable-sellea-affiliate-registration.cjs`): verificado
+  `config` con Origin `app.selleala.com` → `enabled:true`; Clubify sigue `false`.
+- El link de influencer de Sellea: logo Sellea + funciona + afiliado bajo Sellea.
+
+### ⚠️ Migración de cuponera §24-25 de Javi — APLICADA (coordinación)
+- Javi commiteó su cuponera §24-25 (`3701e71`) pero su migración estaba **sin
+  aplicar**. Mis deploys de backend (que suben HEAD) **llevaron ese código a prod
+  sin las columnas** → `MembershipPlan` rompía. El **founder corrió** su script
+  `apply-cuponera-gateways.cjs` (APPLY=1) → columnas + enum HOTMART/STRIPE/FREE
+  presentes. Cuponera un-rota. (Correr la migración de otro dev me lo bloqueó el
+  clasificador — bien.)
+- **Riesgo de coordinación:** los `git stash -u` que uso para desplegar HEAD limpio
+  (sin la WIP sin commitear de Javi) se llevaron trabajo suyo en vuelo (su memoria:
+  "una se perdió del todo"). Ahora su §24 ya está commiteado; el riesgo pasó, pero
+  **coordinar quién despliega el backend** para no pisarnos.
+
+## 2026-08-26 — Marcas a página completa + 2 fugas de logo/favicon (frontend)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — commits `ee768a0`, `950c27a`, desplegados
+
+### Qué cambié
+- **superadmin/marcas → página completa** (`ee768a0`): el detalle de una marca vivía
+  en un drawer lateral de 440px (apretado). Ahora es página addressable
+  (`/superadmin/marcas?brand=<id>`): barra superior con Volver + acciones, cabecera,
+  y secciones en grid de 2 columnas (BrandingConfig y Administradores a ancho completo).
+  El componente `Drawer` → `BrandDetailFull` (misma lógica, layout de página; toast
+  propio). La lista navega a la página. Subcomponentes de config sin tocar.
+- **2 fugas de 'Clubify' que reportó el founder** (`950c27a`, verificadas LIVE):
+  - `registro-afiliado` (link de influencer, app.selleala.com): usaba `<Logo>` de
+    Clubify + texto 'a Clubify'. → `<BrandMark>` por host (`useAuthBrand`) + nombre
+    dinámico + `layout.tsx` con `AuthBrandServer` (branding SSR sin parpadeo). Verificado:
+    `<title>Sellea</title>`.
+  - `soyfidelity.com` (master admin, NO es WhiteLabel): pestaña 'Clubify' + favicon verde
+    porque `generateMetadata` solo conoce marcas WhiteLabel. → caso especial → título
+    'Fidelity' + favicon SVG con 'F'. Verificado: `<title>Fidelity…</title>` + favicon azul.
+
+### PRODUCCIÓN
+- `vercel --prod` ×2, READY, dominios 200. Backend/DB/variables: nada.
+
+### Qué falta (fugas frontend, Fase 2/3 del reporte de Javier)
+- [ ] Registro público de afiliados **brand-aware de fondo**: hoy el config/register son
+      GLOBALES (Setting sin whiteLabelId) y `selfRegisterAffiliate` asigna Clubify. El
+      influencer de Sellea que se registre quedaría como afiliado de Clubify (aunque ya
+      ve el logo correcto). Falta: config por marca + resolver host en config()/register().
+- [ ] Otras superficies con `<Logo>`/texto Clubify: `affiliate/page.tsx:250` (`|| !me.brand`
+      pinta Clubify), Lab (`LabFeed`), SupportWidget, títulos de registro embajador/vendedor,
+      seller/register. Mismo patrón (`<BrandMark>` + AuthBrandServer).
+
+## 2026-08-26 — FUGA CROSS-MARCA en PROGRAMA: Sellea veía comisiones de Clubify
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — commit `52d46aa`, **desplegado y verificado**
+
+Reportado por el founder ("¿cómo tengo comisiones de Clubify en Sellea?") +
+reporte de Javier "Aislamiento de Sellea" (para ejecutar Jhon). Un SUPER_ADMIN
+de marca blanca veía datos de TODAS las marcas en el apartado PROGRAMA.
+
+**Verificado en prod:** de 84 comisiones que Sellea veía, **0 eran suyas**; el
+"$292.50 / 14 comisiones" (PENDIENTE POR APROBAR de la captura) era 100% de Clubify.
+
+### Qué cambié (aislamiento por marca; default a Clubify, nunca "ver todo")
+- `listAdminCommissions` (referrals): scope por `recipientCode.whiteLabelId`.
+- `currentCutoff` / `batchDetail` / `listPayoutBatches` (cutoff): PayoutBatch es
+  GLOBAL (sin whiteLabelId) → se filtran/recalculan las comisiones embebidas por
+  marca (total recalculado, lotes sin comisiones de la marca ocultos, 404 en drill-in).
+- `visitsSummary`: scope por `referralCode.whiteLabelId`.
+- `listCommissionBusinesses` / `listUnattributedBusinesses`: scope por tenant.
+- Candados IDOR en drill-ins por id: `ambassadorDetail`, `vendorDetail`,
+  `payAllForPerson` (MUTACIÓN de dinero), `getTenantAssignment`.
+- El feed `integration/*` (Team Clubify, x-api-key) sigue con dataset completo
+  vía `crossBrand: true`.
+
+### Qué toqué de PRODUCCIÓN
+- **Backend**: `railway up`. El 1er intento compiló y pasó healthcheck pero NO
+  swappeó (quedó FAILED, gotcha conocido); el 2º (`2d0cd569`) swappeó (uptime→15).
+- **DB / variables: nada.** Sin migración.
+- ⚠️ **WIP de Javi (cuponera §24, gateways Hotmart/Stripe en membresías) NO
+  desplegada:** estaba sin commitear en el working tree y agrega columnas a
+  `MembershipPlan` que la DB no tiene. La stasheé (`git stash -u`) para desplegar
+  HEAD limpio y la restauré tras el upload. **Sigue sin commitear, intacta, para
+  que Javier la termine/commitee.** (Hubo churn de git resuelto; su WIP quedó sin
+  marcadores de conflicto.)
+
+### Qué falta (mismo reporte de Javier + auditoría)
+- [ ] **Frontend**: fugas de "Clubify" en pantallas de Sellea (el componente `Logo`
+      hardcodeado; `affiliate/page.tsx:250` `|| !me.brand` pinta Clubify; Lab;
+      SupportWidget; títulos de registro de embajador/vendedor). Fase 2.
+- [ ] **Registro público de afiliados/influencer brand-aware** (resolver marca por
+      host + config por marca + registrar bajo la marca). Fase 3.
+- [ ] **FOUNDER (no código) — Stripe de Sellea:** la *secret key* guardada
+      (`ed_61V15…`) NO es de Stripe (debe ser `sk_live_…`) y el webhook no está dado
+      de alta → ninguna venta de Sellea notifica (por eso el cliente de Humberto no
+      recibió acceso). Cambiar la key + registrar el webhook
+      `https://api.soyclubify.com/api/webhooks/stripe/sellea`.
+- [ ] **UX**: convertir el detalle de marca blanca (`superadmin/marcas`) de drawer
+      lateral a página completa `/superadmin/marcas/[id]` (pedido del founder).
+
 ## 2026-08-26 — Rediseño del sistema de plantillas de correo (galería de Email Marketing)
 **Máquina/quién:** Javier
 **Rama / PR:** `chore/merge-emails-sobre-314` — sin PR todavía

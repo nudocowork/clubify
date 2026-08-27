@@ -98,6 +98,7 @@ export default function LivingCardAdminPage() {
       <GeopushSection flash={flash} />
       <PushSection plans={plans} allies={allies} flash={flash} />
       <MercadoPagoSection onSaved={() => { flash('MercadoPago guardado'); }} />
+      <GatewaysSection flash={flash} />
       <MembersSection members={members} plans={plans} onEnrolled={() => { loadAll(); flash('Miembro dado de alta'); }} />
     </div>
   );
@@ -557,6 +558,143 @@ function MercadoPagoSection({ onSaved }: { onSaved: () => void }) {
         <div><label style={labelStyle}>Webhook Secret</label><input style={inputStyle} type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder="clave de firma" /></div>
       </div>
       <button style={{ ...btn(), marginTop: 16 }} disabled={busy} onClick={save}>{busy ? 'Guardando…' : 'Guardar credenciales'}</button>
+    </Section>
+  );
+}
+
+// ─────────────────────── Pasarelas: Hotmart y Stripe ───────────────────────
+type GwPlan = {
+  id: string; name: string; priceCents: number; currency: string; interval: string; isActive: boolean;
+  hotmartProductId: string | null; hotmartOfferCode: string | null; stripePriceId: string | null;
+  hotmartCheckoutUrl: string | null; stripeCheckoutUrl: string | null;
+};
+type GwStatus = {
+  hotmart: { webhookUrl: string; planesMapeados: number; listo: boolean };
+  stripe: { webhookUrl: string; planesMapeados: number; listo: boolean };
+  mercadopago: { webhookUrl: string; configurado: boolean };
+  planes: GwPlan[];
+};
+
+function GatewaysSection({ flash }: { flash: (m: string) => void }) {
+  const [st, setSt] = useState<GwStatus | null>(null);
+  const [edit, setEdit] = useState<Record<string, Partial<GwPlan>>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = () => api<GwStatus>('/cuponera/admin/gateways').then(setSt).catch(() => setSt(null));
+  useEffect(() => { load(); }, []);
+
+  const campo = (p: GwPlan, k: keyof GwPlan) =>
+    (edit[p.id]?.[k] as string | undefined) ?? ((p[k] as string | null) ?? '');
+  const set = (id: string, k: keyof GwPlan, v: string) =>
+    setEdit((e) => ({ ...e, [id]: { ...e[id], [k]: v } }));
+
+  async function guardar(p: GwPlan) {
+    const cambios = edit[p.id];
+    if (!cambios) return;
+    setBusy(p.id);
+    try {
+      // Se manda null (no '') para DESmapear: '' haría que el webhook buscara
+      // por cadena vacía y no matcheara nunca.
+      const body = Object.fromEntries(
+        Object.entries(cambios).map(([k, v]) => [k, (v as string)?.trim() ? (v as string).trim() : null]),
+      );
+      await api(`/cuponera/admin/plans/${p.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      setEdit((e) => { const n = { ...e }; delete n[p.id]; return n; });
+      await load();
+      flash(`Pasarelas de "${p.name}" guardadas`);
+    } finally { setBusy(null); }
+  }
+
+  if (!st) return null;
+
+  const chip = (ok: boolean, texto: string) => (
+    <span style={{ fontSize: 12, fontWeight: 700, color: ok ? '#16a34a' : '#9ca3af' }}>
+      {ok ? '✓' : '○'} {texto}
+    </span>
+  );
+
+  return (
+    <Section
+      title="Pagos — Hotmart y Stripe"
+      desc="Cada plan se vende con el producto que ya existe en la pasarela. Acá se dice cuál es cuál: sin este mapeo el pago llega y el sistema no sabe a quién dar de alta."
+    >
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 14 }}>
+        {chip(st.hotmart.listo, `Hotmart · ${st.hotmart.planesMapeados} ${st.hotmart.planesMapeados === 1 ? 'plan' : 'planes'}`)}
+        {chip(st.stripe.listo, `Stripe · ${st.stripe.planesMapeados} ${st.stripe.planesMapeados === 1 ? 'plan' : 'planes'}`)}
+        {chip(st.mercadopago.configurado, 'MercadoPago')}
+      </div>
+
+      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 16, lineHeight: 1.7 }}>
+        <b>Webhooks.</b> Hotmart y Stripe cobran en la cuenta de la marca dueña de la
+        cuponera, así que usan la ruta de esa marca (la misma que ya reciben sus
+        negocios) — no hay que crear una nueva:
+        <div style={{ marginTop: 6, wordBreak: 'break-all' }}>
+          <code>{st.hotmart.webhookUrl}</code><br />
+          <code>{st.stripe.webhookUrl}</code>
+        </div>
+        <div style={{ marginTop: 6 }}>
+          MercadoPago sí es propio de esta cuponera: <code style={{ wordBreak: 'break-all' }}>{st.mercadopago.webhookUrl}</code>
+        </div>
+      </div>
+
+      {st.planes.length === 0 && (
+        <div style={{ fontSize: 13, color: '#6b7280' }}>
+          Todavía no hay planes. Creá uno arriba, en «Planes de membresía».
+        </div>
+      )}
+
+      {st.planes.map((p) => {
+        const tocado = !!edit[p.id];
+        return (
+          <div key={p.id} style={{ borderTop: '1px solid #eef0f2', padding: '14px 0' }}>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
+              {p.name}{' '}
+              <span style={{ color: '#6b7280', fontWeight: 400, fontSize: 12.5 }}>
+                {money(p.priceCents, p.currency)} · {p.interval === 'ANNUAL' ? 'Anual' : 'Mensual'}
+                {!p.isActive && ' · inactivo'}
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={labelStyle}>Hotmart · id de producto</label>
+                <input style={inputStyle} value={campo(p, 'hotmartProductId')} placeholder="1234567"
+                  onChange={(e) => set(p.id, 'hotmartProductId', e.target.value)} />
+              </div>
+              <div>
+                <label style={labelStyle}>Hotmart · código de oferta</label>
+                <input style={inputStyle} value={campo(p, 'hotmartOfferCode')} placeholder="abc12def"
+                  onChange={(e) => set(p.id, 'hotmartOfferCode', e.target.value)} />
+              </div>
+              <div>
+                <label style={labelStyle}>Stripe · price id</label>
+                <input style={inputStyle} value={campo(p, 'stripePriceId')} placeholder="price_1Ab…"
+                  onChange={(e) => set(p.id, 'stripePriceId', e.target.value)} />
+              </div>
+              <div style={{ gridColumn: 'span 1' }}>
+                <label style={labelStyle}>Link de compra Hotmart</label>
+                <input style={inputStyle} value={campo(p, 'hotmartCheckoutUrl')} placeholder="https://pay.hotmart.com/…"
+                  onChange={(e) => set(p.id, 'hotmartCheckoutUrl', e.target.value)} />
+              </div>
+              <div>
+                <label style={labelStyle}>Link de compra Stripe</label>
+                <input style={inputStyle} value={campo(p, 'stripeCheckoutUrl')} placeholder="https://buy.stripe.com/…"
+                  onChange={(e) => set(p.id, 'stripeCheckoutUrl', e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'end' }}>
+                <button style={{ ...btn(), opacity: tocado ? 1 : 0.45 }} disabled={!tocado || busy === p.id}
+                  onClick={() => guardar(p)}>
+                  {busy === p.id ? 'Guardando…' : 'Guardar'}
+                </button>
+              </div>
+            </div>
+            <div style={{ fontSize: 11.5, color: '#9ca3af', marginTop: 8 }}>
+              Si varias ofertas comparten el mismo id de producto (mensual y anual),
+              el código de oferta es obligatorio: sin él el sistema no adivina cuál
+              compraron y no da de alta a nadie.
+            </div>
+          </div>
+        );
+      })}
     </Section>
   );
 }

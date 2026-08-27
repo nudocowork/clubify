@@ -4494,7 +4494,7 @@
     "linkCopied": "Link copiado para a área de transferência",
     "linkCopyFailed": "Não foi possível copiar",
     "pageTitle": "Programa de indicações",
-    "intro": "Compartilhe o Clubify com outros negócios. Você ganha <b>25% no primeiro mês</b> e <b>25% recorrente</b> enquanto continuarem ativos.<br></br>Pagamento via transferência bancária ou USDT.",
+    "intro": "Compartilhe o {brandName} com outros negócios. Você ganha <b>25% no primeiro mês</b> e <b>25% recorrente</b> enquanto continuarem ativos.<br></br>Pagamento via transferência bancária ou USDT.",
     "kpiSignedUp": "Inscritos",
     "kpiPaying": "Pagando",
     "kpiCommissionPaid": "Comissão paga",
@@ -4518,7 +4518,7 @@
     "emptyDesc": "Gere seu código em menos de 30 segundos. Ele paga <b>25% no primeiro mês</b> e <b>25% recorrente</b> por cada negócio que você convidar e que ficar.",
     "emptyBullet1": "💸 Pagamento via transferência bancária ou USDT a cada 30 dias",
     "emptyBullet2": "📊 Aqui mesmo você verá estatísticas ao vivo de inscritos e conversões",
-    "emptyBullet3": "🔗 Você compartilha um link como <code>soyclubify.com/?ref=AB12CD34</code>",
+    "emptyBullet3": "🔗 Você compartilha um link como <code>{host}/?ref=AB12CD34</code>",
     "emptyCta": "Gerar meu código →"
   },
   "admin_integrations": {

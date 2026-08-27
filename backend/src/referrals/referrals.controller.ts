@@ -555,8 +555,11 @@ export class ReferralsController {
    */
   @Roles('SUPER_ADMIN')
   @Get('tenants/:tenantId/assignment')
-  getTenantAssignment(@Param('tenantId') tenantId: string) {
-    return this.svc.getTenantAssignment(tenantId);
+  getTenantAssignment(
+    @CurrentUser() user: AuthUser,
+    @Param('tenantId') tenantId: string,
+  ) {
+    return this.svc.getTenantAssignment(user, tenantId);
   }
 
   @Roles('SUPER_ADMIN')
@@ -1067,8 +1070,14 @@ export class PublicAffiliateSignupController {
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
   @Get('config')
-  config() {
-    return this.svc.getPublicAffiliateRegistrationConfig();
+  config(
+    @Headers('origin') origin?: string,
+    @Headers('referer') referer?: string,
+  ) {
+    // El frontend llama a la API en api.soyclubify.com → el Host es la API, no
+    // la marca. La marca se resuelve por Origin/Referer (dominio del frontend,
+    // ej. app.selleala.com). Sin marca (Clubify/dev) → config global.
+    return this.svc.getPublicAffiliateRegistrationConfigForHost(origin || referer);
   }
 
   /** Crea User AFFILIATE_INFLUENCER o AFFILIATE_AMBASSADOR + ReferralCode
@@ -1076,8 +1085,15 @@ export class PublicAffiliateSignupController {
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post('register')
-  register(@Body() body: SelfRegisterAffiliateBody, @Ip() ip: string) {
-    return this.svc.selfRegisterAffiliate(body, ip);
+  register(
+    @Body() body: SelfRegisterAffiliateBody,
+    @Ip() ip: string,
+    @Headers('origin') origin?: string,
+    @Headers('referer') referer?: string,
+  ) {
+    // Origin/Referer (dominio del frontend) decide bajo qué marca nace el
+    // afiliado (Sellea en su dominio). El Host es siempre la API, no sirve.
+    return this.svc.selfRegisterAffiliate(body, ip, origin || referer);
   }
 }
 
@@ -1091,12 +1107,21 @@ export class AdminAffiliateRegistrationController {
   constructor(private svc: ReferralsService) {}
 
   @Get()
-  get() {
-    return this.svc.getPublicAffiliateRegistrationConfig();
+  async get(@CurrentUser() user: AuthUser) {
+    // El admin de una marca blanca edita/ve SU propia config (por su whiteLabelId).
+    return this.svc.getPublicAffiliateRegistrationConfig(
+      await this.svc.slugForWhiteLabelId(user.whiteLabelId),
+    );
   }
 
   @Post()
-  update(@Body() body: UpdatePublicAffiliateRegConfigBody) {
-    return this.svc.updatePublicAffiliateRegistrationConfig(body);
+  async update(
+    @CurrentUser() user: AuthUser,
+    @Body() body: UpdatePublicAffiliateRegConfigBody,
+  ) {
+    return this.svc.updatePublicAffiliateRegistrationConfig(
+      body,
+      await this.svc.slugForWhiteLabelId(user.whiteLabelId),
+    );
   }
 }
