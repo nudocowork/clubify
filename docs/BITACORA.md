@@ -115,20 +115,45 @@ plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
 - **Despliegue:** `vercel --prod` desde `team_clubify/`. `team.soyclubify.com`
   responde 200.
 
+**Segundo bloque del mismo día — el barrido dejó de fallar en silencio**
+(commit `d30aa6a`, desplegado). Cuando una línea fallaba, el error viajaba en la
+respuesta del cron y nadie la leía nunca:
+- Cada pasada deja constancia por línea (`last_import_at` / `last_import_error`)
+  y **avisa por la campana solo cuando CAMBIA de estado** — se rompió o se
+  arregló. Avisar en cada pasada sería una queja cada 10 minutos y en dos días
+  nadie miraría la campana. Va a gerentes/admin y al dueño de la línea; tema
+  nuevo «Líneas de WhatsApp», apagable como cualquier otro.
+- En **Integraciones → WhatsApp** cada línea dice si está trayendo los chats y
+  desde cuándo no.
+- Un fallo **pasajero** del proveedor (timeout, 500) ya no se confunde con no
+  tener permiso: antes `.catch(() => null)` los mezclaba y **un solo tropiezo
+  dejaba el resto de la pasada en «solo el último mensaje de cada chat»**.
+- Segunda migración aditiva, ya aplicada:
+  `node scripts/add-connection-import-status.cjs`.
+
 ### Qué falta / qué hay que validar del otro lado
 - [ ] Las fotos VIEJAS solo se recuperan cuando algo vuelve a pasar por ese
       mensaje (abrir el chat, el barrido de 3 h, o el botón «Sincronizar»). No
       hice un backfill de todo el histórico.
 - [ ] Los adjuntos ENTRANTES (una foto que manda el cliente) todavía no los
       captura el webhook en el momento: entran cuando el hilo se completa.
+- [ ] **Railway sigue bloqueado por tres variables VACÍAS** en el servicio `web`:
+      `BLOB_PUBLIC_READ_WRITE_TOKEN`, `GROW_BUSINESS_API_KEY`,
+      `GROW_BUSINESS_ACCOUNT_ID`. Existen en la lista (32 variables) pero sin
+      valor: «existe» y «tiene valor» son cosas distintas y la pantalla no las
+      distingue. Hay que pegarlas en la UI de Railway y después correr
+      `node scripts/preflight-railway.cjs`.
 
 ### Riesgos y avisos
-- Cuando una línea falla en una pasada del barrido, **falla en silencio**: la
-  ruta devuelve el error por línea y nadie lo lee. Fue lo que dejó tres mensajes
-  fuera durante tres horas. Sigue sin resolverse.
-- Verificación repetible: `npx tsx scripts/verify-thread-refresh.ts <leadId>` —
-  corre dos pasadas y falla si la segunda trae algo (dedup roto = hilo duplicado
-  en cada apertura). Probado en un hilo de 9 y en uno de 480 mensajes.
+- Producción de Team Clubify sigue en **Vercel** (`vercel --prod` desde
+  `team_clubify/`, siempre con `git fetch` antes). El corte a Railway sigue en
+  espera por lo de arriba.
+- Verificaciones repetibles que dejé, las dos contra la base real:
+  `npx tsx scripts/verify-thread-refresh.ts <leadId>` (dos pasadas; falla si la
+  segunda trae algo = cada apertura duplicaría el hilo. Probado en uno de 9 y en
+  uno de 480 mensajes) y `npx tsx scripts/verify-inbox-sync-alert.ts` (avisa al
+  romperse, calla mientras sigue roto, avisa al arreglarse; restaura la línea y
+  borra las notificaciones que crea).
 
 ## 2026-08-27 — DESPLEGADO: backend + frontend (panel de la cuponera y pasarelas)
 
