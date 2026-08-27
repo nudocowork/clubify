@@ -48,6 +48,55 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-27 — Comisión FIJA de pago único para Sellea + fugas Clubify (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — commits `e497fa55`, `f4bb2e43`,
+`b64d849c`. **COMMITEADO LOCAL, sin push ni deploy todavía** (a propósito, ver
+riesgos).
+
+### Qué cambié
+Sellea pasa a pagar comisiones de referido como **monto FIJO en USD, UNA sola
+vez** (no %, no recurrente). 100% aislado por marca — Clubify y las demás no
+cambian. Montos (config, ajustables): **negocio $30 · influencer $80 · embajador
+$40**. Socio (10% global) **apagado para Sellea**. Decisiones tomadas con el
+founder.
+- **Esquema:** `ReferralCode.fixedCommissionUsd` (nullable). Si != null → monto
+  fijo, `periodKey='ONCE'` (la @@unique impide 2º pago, renovaciones incluidas).
+- **Config por-marca** (Settings, patrón `regKey`): `commissionMode.sellea=
+  FIXED_ONCE` + `fixed.{negocio,influencer,embajador}.sellea`.
+- **TODOS los caminos de comisión** honran el modo fijo (no solo el webhook):
+  `generateReferralCommission`, backfill de reasignación, cron recurrente
+  (hoy desactivado, defensivo), `computeExpectedCommissionRows` (auditor/recalc),
+  implementación (bloqueada), grupo (saltada), socio (saltada).
+- **Fix de leak:** `/refer` (`POST /referrals/codes`) ahora es brand-aware por
+  Origin/Referer — antes el código del negocio Sellea nacía bajo **Clubify**.
+- **Frontend:** dashboard del negocio con color de marca (inline, sin tocar
+  theming global) + texto "$30 pago único"; `/refer` muestra el monto real;
+  panel admin de referidos "Clubify"→nombre de marca (i18n); panel de afiliado
+  (`payouts`, `team`) sin fugas "Clubify".
+
+### Qué toqué de PRODUCCIÓN
+- **NADA todavía.** No corrí migración, no desplegué, no pusheé. Todo está
+  commiteado local esperando la secuencia coordinada (abajo).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **Correr la migración ANTES de desplegar** el backend:
+      `node scripts/apply-referral-fixed-commission.cjs` (agrega la columna +
+      siembra los 4 Settings de Sellea). El código lee la columna → sin ella,
+      las queries de `ReferralCode` fallan en prod.
+- [ ] Push + deploy backend (railway up desde raíz) + deploy frontend (vercel).
+- [ ] El deploy del backend **también arregla** el error `transformOnRedeem`
+      al crear tarjetas de descuento (prod iba por detrás del commit b69a3688).
+- [ ] Probar en Sellea: generar código de negocio (=$30), y verificar que una
+      venta referida genera UNA comisión fija (no %, no recurrente).
+
+### Riesgos y avisos
+- ⚠️ **ORDEN OBLIGATORIO: migración → deploy backend → deploy frontend.** Si el
+  backend despliega sin la columna, se rompen los referidos en prod.
+- El trabajo de `card_logo_bg_color` (cards/wallet) que estaba sin commitear al
+  inicio del día **desapareció del working tree** durante mi sesión (sync de
+  OneDrive). NO lo toqué (regla #3). Si era tuyo y lo necesitás, está en tu copia.
+
 ## 2026-08-26 — NOTA A JAVIER: mergeé tu rama a prod + desplegué todo (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** `feat/commissions-auto-cutoffs` — merge `a3c45b7`, HEAD `a2ed051`, **desplegado y verificado**
