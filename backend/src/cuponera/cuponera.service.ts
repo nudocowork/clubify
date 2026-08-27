@@ -484,6 +484,123 @@ export class CuponeraService {
   }
 
   /** Historial de canjes (§4 → Redenciones). Incluye la sede (§19). */
+  // --- Escrituras del panel (spec §4 y §28: "conseguir aliados, administrar
+  // miembros"). Todas pasan por resolveAdminCampaign ANTES de tocar nada: un
+  // CUPONERA_ADMIN solo puede escribir en la suya, y el campaignId del cliente
+  // se ignora o se rechaza. El id resuelto es el que baja al método de escritura,
+  // nunca el que vino en el body.
+
+  /** Alta de aliado desde el panel de la cuponera. */
+  async panelCreateAlly(user: AuthUser, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.createAlly({ ...dto, campaignId: campaign.id });
+  }
+
+  /** Aprobar / rechazar / suspender un aliado. Nace PENDING, así que sin esto
+   *  un aliado recién creado no aparece nunca en la cartelera. */
+  async panelSetAllyStatus(user: AuthUser, id: string, status: AllyStatus, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.setAllyStatus(id, status, campaign.id);
+  }
+
+  /** Editar la ficha de un aliado desde el panel. */
+  async panelUpdateAlly(user: AuthUser, id: string, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    await this.assertAlly(campaign.id, id);
+    const categoryId =
+      dto.categoryId === undefined
+        ? undefined
+        : await this.assertCategory(campaign.id, dto.categoryId);
+    return this.prisma.allyBusiness.update({
+      where: { id },
+      data: { ...this.allyUpdatableData(dto), ...(categoryId !== undefined ? { categoryId } : {}) },
+    });
+  }
+
+  /** Alta manual de beneficiario (el que paga por fuera, o el invitado). */
+  async panelEnrollMember(
+    user: AuthUser,
+    dto: { fullName: string; phone?: string; email?: string; planId?: string | null },
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.enrollMember({
+      campaignId: campaign.id,
+      fullName: dto.fullName,
+      phone: dto.phone ?? '',
+      email: dto.email ?? null,
+      planId: dto.planId ?? null,
+      source: 'MANUAL',
+    });
+  }
+
+  async panelCategories(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.listCategories(campaign.id);
+  }
+
+  async panelCreateCategory(
+    user: AuthUser,
+    dto: { name: string; icon?: string; sortOrder?: number },
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.createCategory({ ...dto, campaignId: campaign.id });
+  }
+
+  /** Planes de la cuponera: hacen falta para dar de alta a un beneficiario. */
+  async panelPlans(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.prisma.membershipPlan.findMany({
+      where: { campaignId: campaign.id },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  /** Beneficios de la cuponera, con su aliado. Los PENDING son la bandeja de
+   *  aprobación: sin esta pantalla, un beneficio que exige revisión no se
+   *  publica nunca. */
+  async panelBenefits(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.prisma.benefit.findMany({
+      where: { campaignId: campaign.id },
+      include: { ally: { select: { id: true, name: true } } },
+      orderBy: [{ approval: 'asc' }, { createdAt: 'desc' }],
+      take: 300,
+    });
+  }
+
+  async panelSetBenefitApproval(
+    user: AuthUser,
+    id: string,
+    approval: 'PENDING' | 'APPROVED' | 'REJECTED',
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.setBenefitApproval(id, approval, user, campaign.id);
+  }
+
+  /** Negocios de la marca que pueden ser aliado TIPO A (§16): su escáner de
+   *  siempre reconocerá la tarjeta de la cuponera. */
+  async panelTenantOptions(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    const yaAliados = await this.prisma.allyBusiness.findMany({
+      where: { campaignId: campaign.id, tenantId: { not: null } },
+      select: { tenantId: true },
+    });
+    const excluidos = yaAliados.map((a) => a.tenantId!) ;
+    return this.prisma.tenant.findMany({
+      where: {
+        isCampaignHost: false,
+        ...(campaign.whiteLabelId ? { whiteLabelId: campaign.whiteLabelId } : {}),
+        ...(excluidos.length ? { id: { notIn: excluidos } } : {}),
+      },
+      select: { id: true, name: true, brandName: true, slug: true },
+      orderBy: { name: 'asc' },
+      take: 300,
+    });
+  }
+
   async panelRedemptions(user: AuthUser, campaignId?: string) {
     const campaign = await this.resolveAdminCampaign(user, campaignId);
     return this.prisma.redemption.findMany({
@@ -587,6 +704,21 @@ export class CuponeraService {
    * PLATFORM_OWNER/SUPER_ADMIN pueden pedir cualquiera por id (spec §1: "entrar
    * administrativamente a cualquier cuponera").
    */
+  /**
+   * Campaña por id, o Living Card si no se pasa ninguno. Es el default que
+   * tenían clavado ~50 métodos del Master Admin: mantenerlo hace que agregar el
+   * parámetro NO cambie nada de lo que ya funciona.
+   *
+   * NO autoriza: para eso está `resolveAdminCampaign`. Los llamadores del panel
+   * resuelven primero por ahí y recién entonces pasan el id.
+   */
+  private async campaignOrLiving(campaignId?: string | null) {
+    if (!campaignId) return this.ensureLivingCampaign();
+    const c = await this.prisma.benefitCampaign.findUnique({ where: { id: campaignId } });
+    if (!c) throw new NotFoundException('Cuponera no encontrada');
+    return c;
+  }
+
   async resolveAdminCampaign(user: AuthUser, requestedId?: string) {
     if (user.role === 'CUPONERA_ADMIN') {
       if (!user.campaignId) throw new ForbiddenException('Sesión sin cuponera');
@@ -939,16 +1071,21 @@ export class CuponeraService {
   // Categorías de beneficios
   // ---------------------------------------------------------------------------
 
-  async listCategories() {
-    const campaign = await this.ensureLivingCampaign();
+  async listCategories(campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     return this.prisma.benefitCategory.findMany({
       where: { campaignId: campaign.id },
       orderBy: { sortOrder: 'asc' },
     });
   }
 
-  async createCategory(dto: { name: string; icon?: string; sortOrder?: number }) {
-    const campaign = await this.ensureLivingCampaign();
+  async createCategory(dto: {
+    name: string;
+    icon?: string;
+    sortOrder?: number;
+    campaignId?: string;
+  }) {
+    const campaign = await this.campaignOrLiving(dto.campaignId);
     const slug = this.slugify(dto.name);
     return this.prisma.benefitCategory.create({
       data: {
@@ -1388,6 +1525,8 @@ export class CuponeraService {
 
   /** Crea un negocio aliado + su cuenta de login (role=ALLY_BUSINESS). */
   async createAlly(dto: {
+    /** Cuponera destino. Sin esto, Living Card (comportamiento histórico). */
+    campaignId?: string;
     name: string;
     email: string;
     ownerFullName: string;
@@ -1439,7 +1578,7 @@ export class CuponeraService {
       }
       tenantId = t.id;
     }
-    const campaign = await this.ensureLivingCampaign();
+    const campaign = await this.campaignOrLiving(dto.campaignId);
     const categoryId = await this.assertCategory(campaign.id, dto.categoryId);
     const email = dto.email.trim().toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
@@ -1532,8 +1671,8 @@ export class CuponeraService {
     return ally;
   }
 
-  async setAllyStatus(id: string, status: AllyStatus) {
-    const campaign = await this.ensureLivingCampaign();
+  async setAllyStatus(id: string, status: AllyStatus, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertAlly(campaign.id, id);
     return this.prisma.allyBusiness.update({ where: { id }, data: { status } });
   }
@@ -1998,8 +2137,9 @@ export class CuponeraService {
     id: string,
     approval: 'PENDING' | 'APPROVED' | 'REJECTED',
     user?: AuthUser,
+    campaignId?: string,
   ) {
-    const campaign = await this.ensureLivingCampaign();
+    const campaign = await this.campaignOrLiving(campaignId);
     const b = await this.prisma.benefit.findFirst({ where: { id, campaignId: campaign.id } });
     if (!b) throw new NotFoundException('Beneficio no encontrado');
     const updated = await this.prisma.benefit.update({ where: { id }, data: { approval } });
