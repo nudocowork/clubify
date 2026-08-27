@@ -130,6 +130,51 @@ plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
   corre dos pasadas y falla si la segunda trae algo (dedup roto = hilo duplicado
   en cada apertura). Probado en un hilo de 9 y en uno de 480 mensajes.
 
+## 2026-08-27 — DESPLEGADO: backend + frontend (panel de la cuponera y pasarelas)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama:** `feat/commissions-auto-cutoffs` — **EN PRODUCCIÓN**
+
+### Qué toqué de PRODUCCIÓN
+
+- ✅ **Backend desplegado** (`railway up --service backend` **desde la RAÍZ** —
+  `rootDirectory` confirmado en `/backend`). Swap verificado: uptime 7715 s → 20 s.
+- ✅ **Frontend desplegado** (`vercel --prod`). El `promote` devolvió **409 "is
+  already the current production deployment"**, que es la CONFIRMACIÓN de que
+  swappeó solo. Verificado buscando cadenas de la UI nueva dentro de los chunks
+  que sirve `soyclubify.com` — el HTML no sirve porque la página se renderiza en
+  cliente.
+- ❌ Base de datos: **sin cambios**. El panel no necesitó migraciones.
+
+### Lo que había en producción ANTES (y no sabíamos)
+
+- **El código de pasarelas §24-25 YA estaba desplegado.** Lo arrastró el deploy
+  de la otra sesión del 26-ago 22:11. Por suerte en el orden correcto: la
+  migración se había aplicado a las ~17:00.
+- **La cuponera ya no está en `DRAFT`: está `ACTIVE`.** Alguien la publicó. La
+  cartelera pública está viva.
+
+### Qué falta / qué hay que validar del otro lado
+
+- [ ] ⚠️ **La cuponera está ACTIVE pero VACÍA: 0 aliados, 0 beneficios, 0 planes.**
+      Quien entre a `soyclubify.com/livingcard/cartelera` ve una página en blanco.
+      Ahora se puede cargar todo desde `soyclubify.com/cuponera/admin`.
+- [ ] Cargar el mapeo de planes a Hotmart/Stripe en `/superadmin/living-card` →
+      «Pagos — Hotmart y Stripe».
+- [ ] Una compra real. Las pasarelas están vivas (los webhooks responden y
+      rechazan credenciales inválidas) pero **nunca pasó dinero por ahí**.
+
+### Riesgos y avisos
+
+- 🔍 **Cómo verificar un deploy de backend:** comparar la ruta sospechosa contra
+  una **inventada**. Un 404 solo significa "no desplegada" si la inventada
+  también da 404. Y `/webhooks/hotmart` da 404 en GET porque es POST-only: hay
+  que probarlo con POST (devuelve 200 `invalid_hottok`).
+- 🔍 **`vercel inspect` mostró "Aliases" VACÍO** en un deployment que sí era
+  producción. No sirve como prueba; el 409 del `promote` sí.
+
+---
+
 ## 2026-08-27 — Panel de la cuponera: de 4 endpoints de lectura a 32
 
 **Máquina/quién:** máquina de Jhon (Claude)
