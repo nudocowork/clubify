@@ -89,6 +89,68 @@ Falta lo que se ve: interruptor admin (`conveniosEnabled`/`maxConvenios`), 2
 endpoints (listar personas activadas + bloquear), página de activación del empleado,
 plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
 
+## 2026-08-27 — Panel de la cuponera: de 4 endpoints de lectura a 32
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — **NO desplegado**
+**Commits:** `21d333e3`, `d1d1ca88`, `8966bcdf`
+
+### Qué cambié
+
+El panel de la cuponera (`/cuponera/admin`, rol `CUPONERA_ADMIN`) era **solo
+lectura**: 4 endpoints, todos GET. Quien administra una cuponera no podía dar de
+alta ni un aliado ni un beneficiario — que es literalmente su trabajo (§28:
+"conseguir aliados, administrar miembros y crear una comunidad de beneficios").
+
+Ahora son **32 endpoints**:
+
+- **Aliados:** alta (con su primer beneficio en el mismo formulario, porque un
+  aliado sin beneficio no aparece en la cartelera), edición, y
+  aprobar/rechazar/suspender. El aliado **nace PENDING** y el aviso lo dice: si
+  no, parece publicado y no lo está.
+- **Beneficiarios:** alta manual con emisión de tarjeta.
+- **Beneficios:** la bandeja de aprobación, que **no existía**. Si la cuponera
+  exige revisión, lo que carga el aliado quedaba PENDING y no había pantalla
+  para aprobarlo → no se publicaba nunca.
+- **Configuración:** categorías y planes (sin ellos el desplegable del alta de
+  aliado queda vacío y no hay plan que asignarle a un socio), más tres ajustes:
+  bienvenida, revisar-antes-de-publicar y tope semanal de avisos por aliado
+  (acotado 0-20 en el servidor).
+- **Comunidad:** avisos a la tarjeta Wallet, geopush (radio 300 m) y sellos.
+
+**El aviso muestra el alcance ANTES de enviar, contando TARJETAS INSTALADAS y no
+miembros.** En local hay 2 socios activos y 0 tarjetas puestas: el aviso habría
+salido a nadie sin que nada lo indicara.
+
+### Qué toqué de PRODUCCIÓN
+
+- **Nada.** Ni base, ni variables, ni despliegue. Sin migraciones: todo esto usa
+  columnas que ya existen.
+
+### Qué falta / qué hay que validar del otro lado
+
+- [ ] Desplegar. Sigue pendiente el backend con las pasarelas (§24-25), cuya
+      migración **ya se aplicó** el 26-ago.
+- [ ] Probar el ciclo con datos reales. La cuponera de prod está en `DRAFT` con
+      0 aliados: nada de esto se ejerció de verdad.
+
+### Riesgos y avisos
+
+- ⚠️ **Publicar/pausar la cuponera y diseñar la tarjeta Wallet NO están en el
+  panel a propósito.** Son decisiones de Fidelity (§1-2); ponerlas ahí dejaría
+  que una cuponera se auto-publique. Si alguien las "agrega por comodidad",
+  rompe el modelo.
+- 🔑 **Cómo se hizo sin abrir un agujero:** los métodos del Master Admin tenían
+  clavado `ensureLivingCampaign()`. Se les agregó un `campaignId` opcional con
+  el MISMO default (nada de lo que ya funcionaba cambia), y cada escritura del
+  panel resuelve por `resolveAdminCampaign` y baja el id **RESUELTO** — nunca el
+  del cliente ni uno metido en el body. **Ese invariante es frágil: un método
+  nuevo que pase el `campaignId` del cliente compilaría igual.** Hay 11 tests
+  que lo vigilan en `test/cuponera-admin-role.test.ts`; si agregás una escritura
+  al panel, sumala ahí.
+
+---
+
 ## 2026-08-26 — Cuponera: Hotmart y Stripe (spec §24-25) + candado de membresía
 
 **Máquina/quién:** máquina de Jhon (Claude)
