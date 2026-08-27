@@ -89,6 +89,47 @@ Falta lo que se ve: interruptor admin (`conveniosEnabled`/`maxConvenios`), 2
 endpoints (listar personas activadas + bloquear), página de activación del empleado,
 plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
 
+## 2026-08-27 — Team Clubify: el chat se completa al abrirlo y las fotos ya se ven (Jhon)
+**Máquina/quién:** Jhon (Mac)
+**Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commit `9bd5901` · desplegado
+
+### Qué cambié
+- **El chat se completa al ABRIRLO.** El barrido cada 10 minutos era la única vía
+  y no es una garantía: si en esa pasada el proveedor falla o la línea no llega a
+  procesarse, el hilo se queda corto justo cuando alguien lo mira. Ahora abrir un
+  chat lo completa contra el proveedor en segundo plano (una página, una vez cada
+  2 minutos por hilo). Primero se pinta lo guardado: nunca espera al proveedor.
+- **Las fotos.** El proveedor las entrega en `attachments` y no había dónde
+  guardarlas: el mensaje entraba como el TEXTO `type message: image` y la imagen
+  se perdía — en el caso que lo destapó, la lista de precios que le mandaron al
+  cliente. Columna nueva + se pintan en el hilo, y al volver a pasar por un
+  mensaje ya guardado se le completa la imagen que le faltaba.
+- `type message: <tipo>` es enrutamiento del proveedor, no lo que leyó el
+  cliente: se quita del cuerpo.
+- Deduplicar dejó de ser 300 consultas por apertura: una sola por `ext_id`.
+
+### Qué toqué de PRODUCCIÓN
+- **Base de datos (Team Clubify, aditivo):** `ConversationMessage.attachments`
+  (`TEXT[] NOT NULL DEFAULT '{}'`), con `scripts/add-message-attachments.cjs`
+  (idempotente, `IF NOT EXISTS`). Ya aplicada.
+- **Despliegue:** `vercel --prod` desde `team_clubify/`. `team.soyclubify.com`
+  responde 200.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Las fotos VIEJAS solo se recuperan cuando algo vuelve a pasar por ese
+      mensaje (abrir el chat, el barrido de 3 h, o el botón «Sincronizar»). No
+      hice un backfill de todo el histórico.
+- [ ] Los adjuntos ENTRANTES (una foto que manda el cliente) todavía no los
+      captura el webhook en el momento: entran cuando el hilo se completa.
+
+### Riesgos y avisos
+- Cuando una línea falla en una pasada del barrido, **falla en silencio**: la
+  ruta devuelve el error por línea y nadie lo lee. Fue lo que dejó tres mensajes
+  fuera durante tres horas. Sigue sin resolverse.
+- Verificación repetible: `npx tsx scripts/verify-thread-refresh.ts <leadId>` —
+  corre dos pasadas y falla si la segunda trae algo (dedup roto = hilo duplicado
+  en cada apertura). Probado en un hilo de 9 y en uno de 480 mensajes.
+
 ## 2026-08-27 — Panel de la cuponera: de 4 endpoints de lectura a 32
 
 **Máquina/quién:** máquina de Jhon (Claude)
