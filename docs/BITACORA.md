@@ -155,6 +155,58 @@ respuesta del cron y nadie la leía nunca:
   romperse, calla mientras sigue roto, avisa al arreglarse; restaura la línea y
   borra las notificaciones que crea).
 
+## 2026-08-27 — Living Card cargada: 7 categorías + 3 planes (PRODUCCIÓN)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+
+### Qué toqué de PRODUCCIÓN
+
+- **Base de datos (contenido, no esquema):** creadas 7 categorías
+  (Restaurantes, Cafés, Belleza y bienestar, Gimnasios y deporte, Salud, Moda y
+  tiendas, Ocio y entretenimiento) y 3 planes en la cuponera `living-card`.
+- Se hizo por los métodos del panel (misma validación que la UI), no por SQL.
+
+### Decisión importante: los planes PAGOS quedaron INACTIVOS
+
+| Plan | Precio | Estado |
+|---|---|---|
+| Living Card Gratis | $0 | **ACTIVO** — visible y funcionando |
+| Living Card Mensual | $50.000 | inactivo |
+| Living Card Anual | $500.000 | inactivo |
+
+**Por qué:** MercadoPago NO está configurado y ningún plan está mapeado a
+Hotmart/Stripe, así que **nadie puede pagar**. Publicar "$50.000" en una página
+pública donde el botón Pagar devuelve *"MercadoPago no está configurado
+todavía"* es peor que no mostrarlo. Se activan con un clic (Configuración →
+Planes) en cuanto haya pasarela.
+
+⚠️ **Los precios son los del spec §23, no confirmados con el negocio.** Revisar
+antes de activarlos.
+
+### Verificado en producción (no solo en local)
+
+Registro gratuito real por HTTP público, de punta a punta:
+`POST /cuponera/public/join-free` → emitió el pase →
+`GET /cuponera/public/card/find?q=<email>` lo encontró →
+`GET /passes/<id>/google` devolvió 200. **El cliente de prueba se borró.**
+
+### Qué falta
+
+- [ ] **Aliados: siguen en 0.** La cartelera dice "Todavía no hay beneficios
+      publicados" (degrada bien, no está rota). Cargarlos desde
+      `soyclubify.com/cuponera/admin` → Aliados.
+- [ ] Confirmar los precios y activar los planes pagos.
+- [ ] Configurar una pasarela: MercadoPago (Configuración) o mapear los planes a
+      Hotmart/Stripe (`/superadmin/living-card` → «Pagos»).
+
+### Aviso
+
+- `requireBenefitApproval` está en **false**: lo que carga un aliado se publica
+  **solo**, sin pasar por la bandeja de revisión. Si se quiere revisar antes,
+  encenderlo en Configuración.
+
+---
+
 ## 2026-08-27 — DESPLEGADO: backend + frontend (panel de la cuponera y pasarelas)
 
 **Máquina/quién:** máquina de Jhon (Claude)
