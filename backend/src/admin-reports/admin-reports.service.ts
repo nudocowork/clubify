@@ -1937,8 +1937,19 @@ export class AdminReportsService {
     }
 
     const now = new Date();
+    // La base es AHORA, salvo que sea una RENOVACIÓN real de un negocio activo
+    // — ahí sí se respetan los días que le quedaban y se extiende desde su
+    // vencimiento.
+    //
+    // FIX 2026-08-27: antes se extendía siempre que hubiera un vencimiento
+    // futuro, sin mirar el estado. Un negocio SUSPENDIDO puede arrastrar uno de
+    // un intento anterior que quedó a medias (ver el rollback de abajo), y
+    // entonces la activación le regalaba un mes entero. Pasó con «Divine
+    // Medical Aesthetics Center», que quedó venciendo en octubre en vez de
+    // septiembre mientras el negocio creado seis minutos después salía bien.
+    const esRenovacion = tenant.status === 'ACTIVE';
     const base =
-      tenant.currentPeriodEnd && tenant.currentPeriodEnd > now
+      esRenovacion && tenant.currentPeriodEnd && tenant.currentPeriodEnd > now
         ? tenant.currentPeriodEnd
         : now;
     // Extiende por la periodicidad del plan (Anual = +12 meses), no +30 fijos,
@@ -1976,19 +1987,32 @@ export class AdminReportsService {
     }
 
     try {
-      await this.prisma.tenant.update({
-        where: { id: tenant.id },
-        data: { status: 'ACTIVE', currentPeriodEnd: newPeriodEnd, lastChargeAt: now },
-      });
-      await this.prisma.creditTransaction.create({
-        data: {
-          whiteLabelId: wlId,
-          type: 'CONSUME',
-          amount: -cost,
-          tenantId: tenant.id,
-          note: `Activación manual · ${tenant.brandName} · +${months}m · ${cost} créd`,
-        },
-      });
+      // Las dos escrituras van JUNTAS o no van.
+      //
+      // FIX 2026-08-27: estaban sueltas, y el rollback de abajo solo devolvía
+      // el crédito. Si el registro del movimiento fallaba después de haber
+      // activado el negocio, quedaba con su vencimiento puesto, sin movimiento,
+      // y con el crédito devuelto — o sea, activado gratis. Y el siguiente
+      // intento extendía DESDE ese vencimiento, regalando otro mes encima.
+      await this.prisma.$transaction([
+        this.prisma.tenant.update({
+          where: { id: tenant.id },
+          data: {
+            status: 'ACTIVE',
+            currentPeriodEnd: newPeriodEnd,
+            lastChargeAt: now,
+          },
+        }),
+        this.prisma.creditTransaction.create({
+          data: {
+            whiteLabelId: wlId,
+            type: 'CONSUME',
+            amount: -cost,
+            tenantId: tenant.id,
+            note: `Activación manual · ${tenant.brandName} · +${months}m · ${cost} créd`,
+          },
+        }),
+      ]);
     } catch (e) {
       // Rollback del crédito si la activación falló.
       await this.prisma.whiteLabel.update({
