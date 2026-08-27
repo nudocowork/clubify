@@ -45,7 +45,14 @@ const ALLY_STATUS: Record<Ally['status'], { t: string; bg: string; c: string }> 
 };
 
 type Category = { id: string; name: string; icon: string };
-type Plan = { id: string; name: string; priceCents: number; currency: string };
+type Plan = {
+  id: string; name: string; priceCents: number; currency: string;
+  interval?: 'MONTHLY' | 'ANNUAL'; isActive?: boolean; description?: string;
+};
+type Settings = {
+  name: string; status: string; welcomeText: string;
+  requireBenefitApproval: boolean; allyPushPerWeek: number;
+};
 type TenantOpt = { id: string; name: string; brandName: string | null };
 type PanelBenefit = {
   id: string; title: string; type: string; status: string;
@@ -54,7 +61,7 @@ type PanelBenefit = {
   ally: { id: string; name: string } | null;
 };
 
-const TABS = ['Dashboard', 'Aliados', 'Beneficiarios', 'Beneficios', 'Redenciones'] as const;
+const TABS = ['Dashboard', 'Aliados', 'Beneficiarios', 'Beneficios', 'Redenciones', 'Configuración'] as const;
 type Tab = (typeof TABS)[number];
 
 const inp: React.CSSProperties = { width: '100%', padding: '9px 11px', border: '1px solid #d7dbe0', borderRadius: 9, fontSize: 13.5, outline: 'none', boxSizing: 'border-box' };
@@ -274,6 +281,176 @@ function FormMiembro({
   );
 }
 
+/**
+ * Configuración de la cuponera: categorías, planes y ajustes.
+ *
+ * Sin categorías, el desplegable del alta de aliado queda vacío para siempre.
+ * Sin planes, no se le puede asignar nada a un beneficiario ni vender nada.
+ * Y el interruptor de revisión es lo que le da sentido a la bandeja de
+ * beneficios: si está apagado, todo se publica solo.
+ */
+function TabConfig({
+  qs, cats, plans, onCambio, flash,
+}: {
+  qs: string; cats: Category[]; plans: Plan[];
+  onCambio: () => Promise<void>; flash: (m: string) => void;
+}) {
+  const [cfg, setCfg] = useState<Settings | null>(null);
+  const [nuevaCat, setNuevaCat] = useState({ name: '', icon: '' });
+  const [nuevoPlan, setNuevoPlan] = useState({ name: '', priceCents: 0, interval: 'MONTHLY' as const });
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api<Settings>(`/cuponera/panel/settings${qs}`).then(setCfg).catch(() => setCfg(null));
+  }, [qs]);
+
+  async function guardarCfg(patch: Partial<Settings>) {
+    setBusy(true);
+    try {
+      setCfg(await api<Settings>(`/cuponera/panel/settings${qs}`, { method: 'PATCH', body: JSON.stringify(patch) }));
+      flash('Ajustes guardados');
+    } finally { setBusy(false); }
+  }
+
+  async function crearCat() {
+    if (!nuevaCat.name.trim()) return;
+    await api(`/cuponera/panel/categories${qs}`, { method: 'POST', body: JSON.stringify(nuevaCat) });
+    setNuevaCat({ name: '', icon: '' });
+    await onCambio();
+    flash('Categoría creada');
+  }
+
+  async function borrarCat(c: Category) {
+    if (!confirm(`¿Eliminar la categoría "${c.name}"? Los aliados que la tengan quedan sin categoría.`)) return;
+    await api(`/cuponera/panel/categories/${c.id}${qs}`, { method: 'DELETE' });
+    await onCambio();
+  }
+
+  async function crearPlan() {
+    if (!nuevoPlan.name.trim()) return;
+    await api(`/cuponera/panel/plans${qs}`, {
+      method: 'POST',
+      body: JSON.stringify({ ...nuevoPlan, priceCents: Number(nuevoPlan.priceCents) || 0 }),
+    });
+    setNuevoPlan({ name: '', priceCents: 0, interval: 'MONTHLY' });
+    await onCambio();
+    flash('Plan creado');
+  }
+
+  async function togglePlan(p: Plan) {
+    await api(`/cuponera/panel/plans/${p.id}${qs}`, { method: 'PATCH', body: JSON.stringify({ isActive: !p.isActive }) });
+    await onCambio();
+  }
+
+  async function borrarPlan(p: Plan) {
+    if (!confirm(`¿Eliminar el plan "${p.name}"?`)) return;
+    try {
+      await api(`/cuponera/panel/plans/${p.id}${qs}`, { method: 'DELETE' });
+      await onCambio();
+    } catch (e: any) {
+      flash(e?.message || 'No se pudo eliminar: puede tener beneficiarios asignados.');
+    }
+  }
+
+  return (
+    <>
+      <div style={card}>
+        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 3 }}>Categorías</div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+          Agrupan a los aliados en la cartelera. Sin categorías, el desplegable del alta de aliado queda vacío.
+        </div>
+        {cats.map((c) => (
+          <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+            <span style={{ fontSize: 13.5 }}>{c.icon ? `${c.icon} ` : ''}{c.name}</span>
+            <button onClick={() => borrarCat(c)} style={{ ...btn('#fee2e2', '#991b1b'), padding: '5px 11px', fontSize: 12 }}>Eliminar</button>
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+          <input style={{ ...inp, width: 70 }} maxLength={2} value={nuevaCat.icon}
+            onChange={(e) => setNuevaCat({ ...nuevaCat, icon: e.target.value })} placeholder="☕" />
+          <input style={{ ...inp, flex: 1, minWidth: 160 }} value={nuevaCat.name}
+            onChange={(e) => setNuevaCat({ ...nuevaCat, name: e.target.value })} placeholder="Cafés y restaurantes" />
+          <button onClick={crearCat} style={btn()}>Agregar</button>
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 3 }}>Planes de membresía</div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+          Un plan de precio <b>0</b> es una cuponera gratuita: la persona se registra y entra.
+        </div>
+        {plans.map((p) => (
+          <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 0', borderBottom: '1px solid #f3f4f6' }}>
+            <div>
+              <b style={{ fontSize: 13.5 }}>{p.name}</b>
+              <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 8 }}>
+                {p.priceCents > 0 ? money(p.priceCents, p.currency) : 'Gratis'}
+                {p.interval === 'ANNUAL' ? ' / año' : p.priceCents > 0 ? ' / mes' : ''}
+                {p.isActive === false ? ' · inactivo' : ''}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 7 }}>
+              <button onClick={() => togglePlan(p)} style={{ ...btn('#eef2f7', '#111827'), padding: '5px 11px', fontSize: 12 }}>
+                {p.isActive === false ? 'Activar' : 'Desactivar'}
+              </button>
+              <button onClick={() => borrarPlan(p)} style={{ ...btn('#fee2e2', '#991b1b'), padding: '5px 11px', fontSize: 12 }}>Eliminar</button>
+            </div>
+          </div>
+        ))}
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+          <input style={{ ...inp, flex: 1, minWidth: 150 }} value={nuevoPlan.name}
+            onChange={(e) => setNuevoPlan({ ...nuevoPlan, name: e.target.value })} placeholder="Living Card Mensual" />
+          <input type="number" style={{ ...inp, width: 130 }} value={nuevoPlan.priceCents}
+            onChange={(e) => setNuevoPlan({ ...nuevoPlan, priceCents: Number(e.target.value) })} placeholder="50000" />
+          <select style={{ ...inp, width: 120 }} value={nuevoPlan.interval}
+            onChange={(e) => setNuevoPlan({ ...nuevoPlan, interval: e.target.value as any })}>
+            <option value="MONTHLY">Mensual</option>
+            <option value="ANNUAL">Anual</option>
+          </select>
+          <button onClick={crearPlan} style={btn()}>Agregar</button>
+        </div>
+      </div>
+
+      {cfg && (
+        <div style={card}>
+          <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 12 }}>Ajustes</div>
+
+          <Campo label="Texto de bienvenida">
+            <input style={inp} defaultValue={cfg.welcomeText}
+              onBlur={(e) => e.target.value !== cfg.welcomeText && guardarCfg({ welcomeText: e.target.value })} />
+          </Campo>
+
+          <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 16, cursor: 'pointer' }}>
+            <input type="checkbox" checked={cfg.requireBenefitApproval} disabled={busy}
+              onChange={(e) => guardarCfg({ requireBenefitApproval: e.target.checked })} style={{ marginTop: 3 }} />
+            <span style={{ fontSize: 13 }}>
+              <b>Revisar los beneficios antes de publicarlos</b>
+              <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 2 }}>
+                Con esto encendido, lo que carga un aliado queda <b>por revisar</b> y aparece en
+                la pestaña Beneficios hasta que lo apruebes. Apagado, se publica solo.
+              </div>
+            </span>
+          </label>
+
+          <div style={{ marginTop: 16, maxWidth: 260 }}>
+            <Campo label="Avisos que puede enviar cada aliado por semana">
+              <input type="number" min={0} max={20} style={inp} defaultValue={cfg.allyPushPerWeek}
+                onBlur={(e) => Number(e.target.value) !== cfg.allyPushPerWeek && guardarCfg({ allyPushPerWeek: Number(e.target.value) })} />
+            </Campo>
+            <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 5 }}>
+              0 los apaga. Sin tope, un aliado puede hacer que la gente desinstale la tarjeta.
+            </div>
+          </div>
+
+          <div style={{ marginTop: 18, fontSize: 11.5, color: '#94a3b8' }}>
+            Publicar o pausar la cuponera se hace desde la administración de Fidelity, no acá.
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export default function CuponeraAdminPage() {
   const router = useRouter();
   // ?campaignId= lo usa el Master Admin para entrar a CUALQUIER cuponera sin
@@ -301,6 +478,15 @@ export default function CuponeraAdminPage() {
   const [nuevoMiembro, setNuevoMiembro] = useState(false);
 
   const flash = (m: string) => { setAviso(m); setTimeout(() => setAviso(null), 6000); };
+
+  const recargarConfig = async () => {
+    const [ct, pl] = await Promise.all([
+      api(`/cuponera/panel/categories${qs}`).catch(() => null),
+      api(`/cuponera/panel/plans${qs}`).catch(() => null),
+    ]);
+    setCats((ct as Category[]) ?? []);
+    setPlans((pl as Plan[]) ?? []);
+  };
 
   // Recarga puntual: tras crear o aprobar algo hay que refrescar solo lo que
   // cambió, no la pantalla entera.
@@ -580,6 +766,10 @@ export default function CuponeraAdminPage() {
               );
             })}
         </div>
+      )}
+
+      {tab === 'Configuración' && (
+        <TabConfig qs={qs} cats={cats} plans={plans} flash={flash} onCambio={recargarConfig} />
       )}
 
       {tab === 'Redenciones' && (

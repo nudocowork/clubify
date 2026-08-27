@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
-  IsIn, IsInt, IsOptional, IsString, MaxLength, Min, ValidateIf, ValidateNested,
+  IsBoolean, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -78,6 +78,42 @@ class PanelCategoryBody {
   @IsString() @MaxLength(60) name!: string;
   @IsOptional() @IsString() @MaxLength(8) icon?: string;
   @IsOptional() @IsInt() sortOrder?: number;
+}
+
+class PanelCategoryPatchBody {
+  @IsOptional() @IsString() @MaxLength(60) name?: string;
+  @IsOptional() @IsString() @MaxLength(8) icon?: string;
+  @IsOptional() @IsInt() sortOrder?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+class PanelPlanBody {
+  @IsString() @MaxLength(60) name!: string;
+  @IsInt() @Min(0) priceCents!: number;
+  @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsIn(['MONTHLY', 'ANNUAL']) interval?: 'MONTHLY' | 'ANNUAL';
+  @IsOptional() @IsInt() @Min(0) level?: number;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(0) benefitsAllowance?: number | null;
+  @IsOptional() @IsString() @MaxLength(280) description?: string;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+class PanelPlanPatchBody {
+  @IsOptional() @IsString() @MaxLength(60) name?: string;
+  @IsOptional() @IsInt() @Min(0) priceCents?: number;
+  @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsIn(['MONTHLY', 'ANNUAL']) interval?: 'MONTHLY' | 'ANNUAL';
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(0) benefitsAllowance?: number | null;
+  @IsOptional() @IsString() @MaxLength(280) description?: string;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+/** Ajustes propios de la cuponera. `status` NO está: publicar o pausar es
+ *  decisión de Fidelity (§1-2), no de la cuponera sobre sí misma. */
+class PanelSettingsBody {
+  @IsOptional() @IsString() @MaxLength(400) welcomeText?: string;
+  @IsOptional() @IsBoolean() requireBenefitApproval?: boolean;
+  @IsOptional() @IsInt() @Min(0) allyPushPerWeek?: number;
 }
 
 class PanelApprovalBody {
@@ -184,6 +220,67 @@ export class CuponeraPanelController {
   @Get('benefits')
   benefits(@CurrentUser() user: AuthUser, @Query('campaignId') campaignId?: string) {
     return this.svc.panelBenefits(user, campaignId);
+  }
+
+  @Patch('categories/:id')
+  updateCategory(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: PanelCategoryPatchBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelUpdateCategory(user, id, body, campaignId);
+  }
+
+  @Delete('categories/:id')
+  deleteCategory(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelDeleteCategory(user, id, campaignId);
+  }
+
+  @Post('plans')
+  createPlan(
+    @CurrentUser() user: AuthUser,
+    @Body() body: PanelPlanBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelCreatePlan(user, body, campaignId);
+  }
+
+  @Patch('plans/:id')
+  updatePlan(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: PanelPlanPatchBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelUpdatePlan(user, id, body, campaignId);
+  }
+
+  @Delete('plans/:id')
+  deletePlan(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelDeletePlan(user, id, campaignId);
+  }
+
+  @Get('settings')
+  settings(@CurrentUser() user: AuthUser, @Query('campaignId') campaignId?: string) {
+    return this.svc.panelSettings(user, campaignId);
+  }
+
+  @Patch('settings')
+  updateSettings(
+    @CurrentUser() user: AuthUser,
+    @Body() body: PanelSettingsBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    return this.svc.panelUpdateSettings(user, body, campaignId);
   }
 
   @Patch('benefits/:id/approval')

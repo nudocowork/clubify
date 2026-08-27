@@ -580,6 +580,78 @@ export class CuponeraService {
     return this.setBenefitApproval(id, approval, user, campaign.id);
   }
 
+  async panelUpdateCategory(
+    user: AuthUser,
+    id: string,
+    dto: { name?: string; icon?: string; sortOrder?: number; isActive?: boolean },
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.updateCategory(id, dto, campaign.id);
+  }
+
+  async panelDeleteCategory(user: AuthUser, id: string, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.deleteCategory(id, campaign.id);
+  }
+
+  async panelCreatePlan(user: AuthUser, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.createPlan({ ...dto, campaignId: campaign.id });
+  }
+
+  async panelUpdatePlan(user: AuthUser, id: string, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.updatePlan(id, dto, campaign.id);
+  }
+
+  async panelDeletePlan(user: AuthUser, id: string, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.deletePlan(id, campaign.id);
+  }
+
+  /**
+   * Ajustes que la cuponera maneja sola. Deliberadamente NO incluye `status`:
+   * publicar o pausar una cuponera es decisión de Fidelity (§1-2), y dejarlo
+   * acá permitiría auto-publicarse.
+   */
+  async panelSettings(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+    return {
+      name: campaign.name,
+      status: campaign.status,
+      welcomeText: campaign.welcomeText,
+      requireBenefitApproval: !!cfg.requireBenefitApproval,
+      allyPushPerWeek: Number.isFinite(Number(cfg.allyPushPerWeek)) ? Number(cfg.allyPushPerWeek) : 1,
+    };
+  }
+
+  async panelUpdateSettings(
+    user: AuthUser,
+    dto: { welcomeText?: string; requireBenefitApproval?: boolean; allyPushPerWeek?: number },
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+    if (dto.requireBenefitApproval !== undefined) {
+      cfg.requireBenefitApproval = !!dto.requireBenefitApproval;
+    }
+    if (dto.allyPushPerWeek !== undefined) {
+      // 0 apaga los avisos del aliado; el tope evita que una cuponera se
+      // autorice a spamear a su comunidad.
+      cfg.allyPushPerWeek = Math.max(0, Math.min(20, Math.round(dto.allyPushPerWeek)));
+    }
+    await this.prisma.benefitCampaign.update({
+      where: { id: campaign.id },
+      data: {
+        welcomeText: dto.welcomeText ?? undefined,
+        config: cfg as any,
+      },
+    });
+    return this.panelSettings(user, campaignId);
+  }
+
   /** Negocios de la marca que pueden ser aliado TIPO A (§16): su escáner de
    *  siempre reconocerá la tarjeta de la cuponera. */
   async panelTenantOptions(user: AuthUser, campaignId?: string) {
@@ -924,6 +996,8 @@ export class CuponeraService {
     description?: string;
     sortOrder?: number;
     isActive?: boolean;
+    /** Cuponera destino. Sin esto, Living Card (comportamiento histórico). */
+    campaignId?: string;
     /** Mapeo a las pasarelas (spec §24). Ver PlanBody en el controller. */
     hotmartProductId?: string | null;
     hotmartOfferCode?: string | null;
@@ -931,7 +1005,7 @@ export class CuponeraService {
     hotmartCheckoutUrl?: string | null;
     stripeCheckoutUrl?: string | null;
   }) {
-    const campaign = await this.ensureLivingCampaign();
+    const campaign = await this.campaignOrLiving(dto.campaignId);
     return this.prisma.membershipPlan.create({
       data: {
         campaignId: campaign.id,
@@ -949,8 +1023,12 @@ export class CuponeraService {
     });
   }
 
-  async updatePlan(id: string, dto: Partial<Parameters<CuponeraService['createPlan']>[0]>) {
-    const campaign = await this.ensureLivingCampaign();
+  async updatePlan(
+    id: string,
+    dto: Partial<Parameters<CuponeraService['createPlan']>[0]>,
+    campaignId?: string,
+  ) {
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertPlan(campaign.id, id);
     return this.prisma.membershipPlan.update({
       where: { id },
@@ -1052,8 +1130,8 @@ export class CuponeraService {
     };
   }
 
-  async deletePlan(id: string) {
-    const campaign = await this.ensureLivingCampaign();
+  async deletePlan(id: string, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertPlan(campaign.id, id);
     await this.prisma.membershipPlan.delete({ where: { id } });
     return { ok: true };
@@ -1101,8 +1179,9 @@ export class CuponeraService {
   async updateCategory(
     id: string,
     dto: { name?: string; icon?: string; sortOrder?: number; isActive?: boolean },
+    campaignId?: string,
   ) {
-    const campaign = await this.ensureLivingCampaign();
+    const campaign = await this.campaignOrLiving(campaignId);
     const cat = await this.prisma.benefitCategory.findFirst({
       where: { id, campaignId: campaign.id },
     });
@@ -1119,8 +1198,8 @@ export class CuponeraService {
     });
   }
 
-  async deleteCategory(id: string) {
-    const campaign = await this.ensureLivingCampaign();
+  async deleteCategory(id: string, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     const cat = await this.prisma.benefitCategory.findFirst({
       where: { id, campaignId: campaign.id },
     });
