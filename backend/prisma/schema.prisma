@@ -344,6 +344,33 @@ model Setting {
   updatedAt DateTime @updatedAt
 }
 
+/// PIN de verificación de correo para la prueba gratuita.
+///
+/// Existe porque `/auth/trial-signup` es público y sin pago: hoy solo lo frenan
+/// el tope de 2/hora por IP y el dedup, que no prueban que el correo sea real ni
+/// de quien lo escribe.
+///
+/// El código se guarda HASHEADO: es una credencial de un solo uso. Un volcado de
+/// la tabla no debe alcanzar para crear cuentas.
+model TrialEmailOtp {
+  id         String    @id @default(uuid())
+  email      String
+  /// argon2 del PIN. NUNCA en claro.
+  codeHash   String
+  /// Intentos de validación fallidos. Al llegar al tope, el código muere.
+  attempts   Int       @default(0)
+  /// Se marca al usarlo. Un código sirve UNA vez.
+  consumedAt DateTime?
+  expiresAt  DateTime
+  /// Para investigar abuso: de dónde se pidió.
+  ip         String?
+  createdAt  DateTime  @default(now())
+
+  /// La búsqueda es siempre "el último código vivo de este correo".
+  @@index([email, createdAt])
+  @@index([expiresAt])
+}
+
 /// Snapshot diario de métricas de infraestructura (módulo "Estado del
 /// Servidor" en /superadmin). Cada fila = una foto de la salud del sistema en
 /// un instante. Se llena con un @Cron diario (server-status.snapshot) y con

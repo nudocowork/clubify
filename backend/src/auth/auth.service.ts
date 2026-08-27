@@ -13,6 +13,7 @@ import { TwoFactorService } from './two-factor.service';
 import { PreregAlertsService } from './prereg-alerts.service';
 import { periodicityFromOfferCode, resolvePeriodicity } from './plan-from-offer';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { TrialOtpService } from './trial-otp.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { parsePlanPeriodLabel } from '../common/plan-period';
 import {
@@ -80,6 +81,7 @@ export class AuthService {
     private twoFactor: TwoFactorService,
     private preregAlerts: PreregAlertsService,
     private growBusiness: GrowBusinessService,
+    private trialOtp: TrialOtpService,
     private moduleRef: ModuleRef,
   ) {
     const clientId = appConfig.get('GOOGLE_CLIENT_ID');
@@ -1734,6 +1736,21 @@ export class AuthService {
    *  - No cobra ni dispara checkout — el dueño accede directo al panel
    *    y al expirar el trial cae en el lockscreen "Activar ahora" (F3).
    */
+  /**
+   * ¿Se exige el PIN por correo para la prueba gratuita?
+   *
+   * Apagado por defecto A PROPÓSITO: encenderlo con el frontend viejo arriba
+   * dejaría a todo el mundo sin poder registrarse. Se enciende con
+   * `Setting['trial.otp.required'] = 'true'` cuando backend y frontend están
+   * los dos desplegados.
+   */
+  private async trialOtpRequerido(): Promise<boolean> {
+    const s = await this.prisma.setting
+      .findUnique({ where: { key: 'trial.otp.required' } })
+      .catch(() => null);
+    return s?.value === 'true';
+  }
+
   async trialSignup(
     dto: {
       email: string;
@@ -1744,6 +1761,8 @@ export class AuthService {
       company?: string;
       city?: string;
       referralCode?: string;
+      /** PIN de 6 dígitos enviado al correo. Ver TrialOtpService. */
+      otp?: string;
       source?: 'LANDING' | 'AMBASSADOR' | 'INFLUENCER' | 'VENDOR' | 'CAMPAIGN' | 'DIRECT';
       attribution?: {
         viaSlug?: string;
@@ -1756,6 +1775,18 @@ export class AuthService {
     ip?: string,
   ) {
     const email = dto.email.toLowerCase().trim();
+
+    // PIN por correo (PDF Software 15). Va ANTES que cualquier otra cosa: si el
+    // correo no se verificó, no se toca la base ni se filtra si ya existe.
+    //
+    // Detrás de un interruptor (`trial.otp.required`, apagado por defecto) para
+    // que backend y frontend puedan desplegarse por separado: si el backend
+    // empezara a exigirlo con el frontend viejo arriba, nadie podría registrarse.
+    // Se enciende cuando los dos están desplegados.
+    if (await this.trialOtpRequerido()) {
+      await this.trialOtp.consumir(email, dto.otp ?? '');
+    }
+
     const phoneRaw = (dto.phone ?? '').replace(/[^\d+]/g, '');
     const firstName = dto.firstName.trim();
     const lastName = dto.lastName.trim();

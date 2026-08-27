@@ -4,6 +4,7 @@ import { PassportModule } from '@nestjs/passport';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from '../common/prisma/prisma.module';
 import { EmailModule } from '../email/email.module';
+import { TrialOtpService } from './trial-otp.service';
 import { AppConfigService } from '../common/config/app-config.service';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
@@ -36,6 +37,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
     }),
   ],
   providers: [
+    TrialOtpService,
     AuthService,
     JwtStrategy,
     RefreshTokenService,
