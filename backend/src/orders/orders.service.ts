@@ -451,7 +451,6 @@ export class OrdersService {
     const tenant = await this.prisma.tenant.findUnique({
       where: { slug: dto.tenantSlug },
       include: {
-        cards: { where: { isActive: true, autoStampOnOrder: true }, take: 1 },
         // theme.paymentMethods = métodos de pago que el negocio acepta.
         // Se valida acá porque el selector filtrado del checkout NO es una
         // validación: un POST directo podría declarar «TARJETA» a un negocio
@@ -1702,16 +1701,25 @@ export class OrdersService {
   }
 
   /**
-   * Suma sello/puntos al cliente automáticamente cuando el pedido se ENTREGA.
-   * Itera todas las tarjetas activas del tenant con `autoStampOnOrder = true`
-   * para que un negocio pueda tener simultáneamente, por ej., una tarjeta de
-   * sellos (cumple compras) y una de puntos (acumula por monto).
+   * Suma sello/puntos al entregar, pero SOLO si el negocio lo pidió.
    *
-   * Regla 2026-08-20: antes se disparaba al CONFIRMAR y un pedido que luego se
-   * cancelaba dejaba el sello regalado (ocurrió en producción). Ahora el sello
-   * se gana solo en DELIVERED; el negocio conserva el sello manual intacto.
-   * OJO: la columna `Card.autoStampOnOrder` conserva su nombre viejo — un
-   * rename de columna en producción es una migración aparte.
+   * Regla 2026-08-26: el sello lo da el negocio, no el sistema. La casilla
+   * `autoStampOnOrder` pasó a `false` por defecto y se apagó en las 168
+   * tarjetas que la tenían — que eran todas, porque venía así de fábrica y
+   * nadie la había elegido. Un pedido del menú de domicilios sellaba solo y el
+   * negocio se enteraba después (caso La Gloriosa: solo dan sello a quien come
+   * en el local).
+   *
+   * Ahora, al pasar un pedido a ENTREGADO, el panel PREGUNTA y el negocio
+   * decide en el momento (`preguntarSello` → `POST /orders/:id/stamp`). Este
+   * camino automático se queda para quien quiera activarlo, como opt-in.
+   *
+   * Regla anterior que sigue viva (2026-08-20): aunque esté encendido, el sello
+   * se gana en DELIVERED y no al CONFIRMAR — un pedido que se confirmaba y
+   * luego se cancelaba dejaba el sello regalado, y pasó en producción.
+   *
+   * OJO: la columna conserva su nombre viejo — renombrar una columna en
+   * producción es una migración aparte.
    */
   private async autoStampOnDelivered(tenantId: string, customerId: string, orderId: string) {
     const cards = await this.prisma.card.findMany({

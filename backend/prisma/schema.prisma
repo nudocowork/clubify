@@ -1559,8 +1559,20 @@ model Card {
   /// null = tarjeta normal, que es la inmensa mayoría.
   convenioId          String?
   convenio            Convenio? @relation(fields: [convenioId], references: [id], onDelete: Cascade)
-  // v2: si está activa la integración orders→sello
-  autoStampOnOrder    Boolean   @default(true)
+  /// ¿Un pedido entregado suma sello SOLO? Por defecto NO.
+  ///
+  /// Nació en `true` y nadie lo tocó nunca: las 168 tarjetas activas lo tenían
+  /// puesto porque venía así de fábrica, no porque alguien lo eligiera. El
+  /// resultado es que un pedido del menú de domicilios sellaba solo, y el
+  /// negocio se enteraba después.
+  ///
+  /// El caso que lo destapó (La Gloriosa, 2026-08-26): solo dan sello a quien
+  /// come en el local, y los pedidos en línea les regalaban uno cada vez.
+  ///
+  /// Ahora el sello lo da el negocio. Al pasar un pedido a ENTREGADO el panel
+  /// pregunta, y decide en el momento. La casilla se queda por si algún negocio
+  /// quiere el automático de vuelta — pero es opt-in, no lo contrario.
+  autoStampOnOrder    Boolean   @default(false)
   autoStampAmount     Int       @default(1)
   // Emoji que se usa para representar cada sello visualmente (☕, 🍕, 🍔, etc).
   // El cliente lo elige al crear la tarjeta.

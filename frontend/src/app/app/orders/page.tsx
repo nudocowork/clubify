@@ -207,18 +207,24 @@ export default function OrdersBoard() {
   }, [scopeDays, locationId]);
 
   /**
-   * Al entregar un DOMICILIO, pregunta si se suma el sello.
+   * Al entregar CUALQUIER pedido, pregunta si se suma el sello.
    *
-   * En domicilio no hay sello automático: «entregado» lo marca quien reparte y
-   * eso no siempre significa que el cliente lo recibió conforme. Pero dejarlo
-   * al olvido hacía que el sello se perdiera, así que el sistema pregunta y el
-   * negocio decide en el momento.
+   * El sello lo da el negocio, nunca el sistema solo (regla de Javier,
+   * 2026-08-26). Antes los pedidos en línea sellaban automáticamente al pasar a
+   * entregado, y el negocio se enteraba después: «entregado» lo marca quien
+   * reparte o quien cierra la comanda, y eso no siempre significa que el cliente
+   * se lo ganó.
+   *
+   * Antes esta pregunta salía SOLO en domicilio, porque era el único caso sin
+   * automático. Al quitar el automático de todos, tiene que salir en todos — si
+   * no, mesa y recogida se quedarían sin sello y sin que nadie pregunte, que es
+   * el fallo contrario y más silencioso.
    *
    * Best-effort: si algo falla acá, el pedido YA quedó entregado. Un problema
    * al sellar no puede deshacer el cambio de estado.
    */
   async function preguntarSello(o: Order | undefined, nuevo: Order['status']) {
-    if (!o || nuevo !== 'DELIVERED' || o.fulfillment !== 'DELIVERY') return;
+    if (!o || nuevo !== 'DELIVERED') return;
     if (!window.confirm(`¿Sumas el sello de fidelidad a este pedido?
 
 Pedido #${o.code ?? o.id.slice(0, 6)}`))
