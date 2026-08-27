@@ -48,6 +48,88 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-26 — Convenios, aislamiento de comisiones y el webhook de Stripe de Sellea
+**Máquina/quién:** Javier (montiieljaviier) con Claude
+**Rama / PR:** `chore/merge-emails-sobre-314` (todo empujado)
+
+### Qué cambié
+
+- **Convenios** (beneficios para empleados de una empresa aliada). Backend
+  completo en `backend/src/convenios/`: esquema, servicio de administración,
+  servicio de canje con candado, controlador y rama nueva en el escáner. 31
+  tests. **Falta todo el frontend** — hay un traspaso detallado con la API y las
+  seis piezas que faltan; Javier tiene el enlace.
+- **Aislamiento por marca en comisiones.** `listAdminCommissions` solo miraba el
+  rol, y `SUPER_ADMIN` lo tienen también los admins de marca blanca: el admin de
+  Sellea veía las comisiones de TODA la plataforma. Acotado por la marca del
+  código destinatario. También `listCommissionBusinesses` y
+  `listUnattributedBusinesses`. Los endpoints `integration/*` de TeamClubify
+  piden `todasLasMarcas: true` explícito — si tocas eso, no se los comas.
+- **Stripe: firma inválida devuelve 400, no 200.** Contestábamos 200 a todo,
+  así que Stripe mostraba «0 % de error» mientras tirábamos cada evento.
+- **Avisos duplicados, dos caminos.** Una compra dispara TRES eventos en el
+  mismo segundo (`checkout.session.completed`, `invoice.paid`,
+  `invoice.payment_succeeded`). Las dos guardas leían-y-luego-escribían y las
+  tres pasaban. Ahora se reclama con UPDATE condicional.
+- **Ranking de negocios**: filtro por período, orden por antigüedad, total de
+  pases emitidos.
+- **Cupones**: opción «no convertir a ninguna tarjeta» (`Card.transformOnRedeem`).
+- **Mapa revertido a Google Maps** y pines individuales, por decisión de Javier.
+- **`scripts/desplegar.cjs`**: despliega una COPIA LIMPIA del commit, no la
+  carpeta. Úsalo en vez de `railway up` / `vercel deploy` a pelo.
+
+### Qué toqué de PRODUCCIÓN
+
+- **Migración de Convenios aplicada** (`scripts/apply-convenios-migration.cjs`),
+  aditiva e idempotente. 6 tablas, 5 enums, 3 columnas. Nadie lo tiene
+  habilitado (`conveniosEnabled` arranca en false).
+- **Migración `Card.transformOnRedeem`** aplicada. Los 68 cupones existentes
+  quedan en `true` = comportamiento de siempre.
+- **Backend desplegado varias veces**; frontend también.
+- **NO toqué** las credenciales de Stripe de Sellea salvo reescribir el
+  `webhookSecret` con el mismo valor que ya tenía (fue un no-op).
+
+### Qué falta / qué hay que validar del otro lado
+
+- [ ] **Frontend de Convenios** — es el grueso. Ver el traspaso.
+- [ ] **Stripe de Sellea: la clave secreta sigue mal.** Lo guardado es
+      `ed_61V1…GMVM`, que no es una clave de Stripe; Stripe la rechaza con
+      «Invalid API Key provided». Hay que crear una nueva (`sk_live_`) porque la
+      vieja ya no se puede revelar. Los avisos salen igual sin ella, pero lo que
+      consulta a Stripe no.
+- [ ] **Hay DOS endpoints de webhook** apuntando a la misma URL
+      (`inspiring-bliss-thin` y `webhookSELLEA`). Sobra el primero, que además
+      usa formato *Thin* que nuestro código no entiende.
+- [ ] **Rotar el `whsec_` de Sellea**: pasó por un chat.
+- [ ] **Recordatorio a las 2 h** al comprador que no activó — no existe.
+- [ ] **Separar el aviso al negocio del aviso a Sellea** con los datos del
+      cliente — hoy sale uno solo.
+- [ ] **Fugas de marca en el panel del afiliado**: `Logo` es el de Clubify a
+      fuego, y hay un `|| !me.brand` que pinta Clubify cuando la marca no
+      resuelve. Está en el documento que Javier le pasó a Jhon.
+
+### Riesgos y avisos
+
+- **El repo está dentro de OneDrive** y se sincroniza entre las dos máquinas: el
+  trabajo SIN COMMITEAR de una aparece en la copia de la otra. **Nunca
+  `git add -A`.** Hoy se coló trabajo ajeno a medias dentro de un commit.
+- **Si te encuentras cambios que no son tuyos, NO los reviertas.** Devolverlos
+  en git los cambia en disco, OneDrive sincroniza, y le borras a la otra persona
+  lo que tiene abierto.
+- **Nunca `prisma migrate diff` contra producción.** Genera 423 líneas que
+  además BORRAN índices que no se pueden expresar en el schema, entre ellos
+  `Pass_legacyQrTokens_idx` — el que hace que un QR ya instalado nunca deje de
+  escanear.
+- **Dos sesiones de Vercel** conviven en esta máquina y el CLI guarda el token
+  en un solo sitio. La de Clubify vive aislada en `~/.vercel-clubify`; el script
+  de despliegue la usa sola.
+- **El patrón de fallo del día**: leer-decidir-escribir sin atomicidad. Salió
+  tres veces (avisos al negocio, avisos al comprador, y casi en el filtro de
+  marca). Si algo puede llegar dos veces en el mismo segundo, recláma­lo con un
+  UPDATE condicional y mira el `count`.
+
+---
+
 ## 2026-08-26 — Rediseño del sistema de plantillas de correo (galería de Email Marketing)
 **Máquina/quién:** Javier
 **Rama / PR:** `chore/merge-emails-sobre-314` — sin PR todavía
