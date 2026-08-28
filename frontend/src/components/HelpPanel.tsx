@@ -92,7 +92,10 @@ const FAQS: FAQ[] = [
   {
     category: 'Pago',
     q: '¿Cuándo me cobran?',
-    a: 'Se cobra al crear la cuenta vía Hotmart (USD 50/mes para Elite, USD 99/mes para Pro, equivalente al cambio del día en tu moneda local). Apenas se aprueba el pago entras al panel. La suscripción se renueva mensualmente hasta que canceles desde tu panel.',
+    // Sin nombrar la pasarela ni los precios: los fija cada marca, y este panel
+    // lo ve también un cliente de marca blanca. El importe real está en
+    // /app/billing, que es la única fuente que no se desactualiza.
+    a: 'Se cobra al crear la cuenta, por la pasarela de pagos de tu plataforma. Apenas se aprueba el pago entras al panel. La suscripción se renueva automáticamente hasta que canceles desde tu panel. El importe de tu plan lo ves en Facturación.',
     href: '/app/billing',
   },
   {
@@ -103,7 +106,7 @@ const FAQS: FAQ[] = [
   {
     category: 'Pago',
     q: '¿Puedo cambiar de plan?',
-    a: 'Sí. Plan Elite (USD 50) o Pro (USD 99 con automatizaciones WhatsApp). Cambias en /app/billing y te ajustamos en Hotmart.',
+    a: 'Sí. Los planes disponibles y su precio los ves en Facturación; ahí mismo cambias y te ajustamos el cobro.',
     href: '/app/billing',
   },
 ];

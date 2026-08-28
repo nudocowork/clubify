@@ -814,7 +814,18 @@ export class TenantsService {
         !!subscriptionIdentifier &&
         /^(wl-|manual-|comp-|trial-|sim-)/i.test(subscriptionIdentifier),
     };
-    return { ...tenant, enabledModules, brandPlans, brandCredits, hasVendor, subscription };
+    // La PASARELA de la marca viaja al frontend para que los textos no digan
+    // "Hotmart" a alguien que paga con Stripe. Es null para Clubify/sin marca,
+    // y el frontend cae a un genérico ("la pasarela de pagos").
+    return {
+      ...tenant,
+      enabledModules,
+      brandPlans,
+      brandCredits,
+      brandGateway,
+      hasVendor,
+      subscription,
+    };
   }
 
   /** #9: asegura un Plan "Sin plan" (precio 0) reutilizable para crear

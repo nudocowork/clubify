@@ -172,6 +172,9 @@ export default function AppShell({
   const [pendingCreditsCount, setPendingCreditsCount] = useState(0);
   const [tenantInfo, setTenantInfo] = useState<{
     brandName?: string;
+    /** Pasarela de la marca (HOTMART/STRIPE/…). Null para Clubify o marca sin
+     *  pasarela definida: los textos caen a "la pasarela de pagos". */
+    brandGateway?: string | null;
     hotmartSubscriberCode?: string | null;
     businessCategorySlug?: string | null;
     mainSectionLabelOverride?: string | null;
@@ -962,6 +965,7 @@ export default function AppShell({
         <TrialExpiredLockscreen
           brandName={tenantInfo.brandName}
           trialEndsAt={tenantInfo.trialEndsAt ?? null}
+          brandGateway={tenantInfo.brandGateway ?? null}
         />
       );
     }
@@ -971,6 +975,7 @@ export default function AppShell({
         <CardVerificationLockscreen
           brandName={tenantInfo.brandName}
           planName={planName}
+          brandGateway={tenantInfo.brandGateway ?? null}
         />
       );
     }

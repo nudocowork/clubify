@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api, clearSession } from '@/lib/api';
+import { nombrePasarela } from '@/lib/pasarela';
 
 /**
  * Lockscreen específico para tenants que terminaron sus 5 días de prueba
@@ -14,10 +15,14 @@ import { api, clearSession } from '@/lib/api';
 export function TrialExpiredLockscreen({
   brandName,
   trialEndsAt,
+  brandGateway,
 }: {
   brandName?: string;
   trialEndsAt: string | null;
+  /** Pasarela de la marca; sin ella se dice "la pasarela de pagos". */
+  brandGateway?: string | null;
 }) {
+  const pasarela = nombrePasarela(brandGateway);
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
 
@@ -106,7 +111,7 @@ export function TrialExpiredLockscreen({
 
           <div className="mt-6 pt-5 border-t border-line2 text-xs text-mute leading-relaxed">
             <p>
-              Pago seguro vía Hotmart. Apenas se apruebe entras al panel con
+              Pago seguro vía {pasarela}. Apenas se apruebe entras al panel con
               todo desbloqueado. Cancelas cuando quieras.
             </p>
           </div>

@@ -291,6 +291,60 @@ respuesta del cron y nadie la leía nunca:
   romperse, calla mientras sigue roto, avisa al arreglarse; restaura la línea y
   borra las notificaciones que crea).
 
+## 2026-08-28 — Fugas de marca en las pantallas de bloqueo (punto 6 SELLEALA) — DESPLEGADO
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Commits:** `36a949c6`
+
+### Qué cambié
+
+Dos **pantallas de bloqueo** decían "Hotmart" a secas — un cliente de Sellea,
+que cobra por Stripe, leía el nombre de una pasarela que no usa y el de la
+plataforma que la marca no quiere mostrar:
+
+- `CardVerificationLockscreen`: "completa el pago seguro en Hotmart", "Ir al pago
+  seguro en Hotmart", "Ya completé Hotmart", "Apenas Hotmart confirme".
+- `TrialExpiredLockscreen`: "Pago seguro vía Hotmart".
+- `HelpPanel` (FAQ): "vía Hotmart" **y los precios de Clubify** (USD 50 / USD 99),
+  que para una marca blanca son falsos porque fija los suyos.
+
+`/tenants/me` **ya calculaba `brandGateway` pero no lo devolvía**. Ahora sí, y
+AppShell lo baja a los dos lockscreens. Helper nuevo: `frontend/src/lib/pasarela.ts`.
+
+**El fallback es genérico a propósito:** sin pasarela conocida se dice "la
+pasarela de pagos". Poner "Hotmart" por defecto es el bug que esto arregla, así
+que CROSS y MANUAL también caen al genérico.
+
+**Los tres textos exactos del PDF ya estaban corregidos** por el barrido
+anterior; lo que quedaba eran estos, que el grep original no listó.
+
+### Qué NO se tocó, a propósito
+
+Los "Clubify" de la web pública (landing, `/industrias`) y del flujo de prueba
+gratuita: esa web es de Clubify y **los trials son siempre de la plataforma**
+(`whiteLabelId` nulo), así que ahí el nombre es correcto.
+
+### Qué toqué de PRODUCCIÓN
+
+- Backend desplegado (swap verificado: uptime 37889 s → 14 s).
+- Frontend desplegado (`promote` → 409 = ya era producción).
+- Base de datos: **sin cambios**.
+
+### Verificado después
+
+Bundle del dominio real: 0 chunks con los textos viejos de Hotmart, y el
+genérico presente. Las tres rutas públicas de auth responden bien
+(`trial-otp` 400 validación, `trial-signup` 400 pidiendo el PIN, `signup` 400).
+
+### Aviso
+
+⚠️ **El frontend NO tiene infraestructura de tests**: sin script `test`, sin
+vitest en `package.json`, sin un solo archivo. Escribí uno para el helper, vi que
+nadie lo correría y lo borré — un test huérfano da confianza falsa. Montarla es
+una decisión aparte.
+
+---
+
 ## 2026-08-27 — OTP de la prueba gratuita ACTIVO + incidente de 401 (PRODUCCIÓN)
 
 **Máquina/quién:** máquina de Jhon (Claude)
