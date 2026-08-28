@@ -122,6 +122,10 @@ const COMMON_TIMEZONES: { value: string; label: string }[] = [
   { value: 'America/El_Salvador', label: '🇸🇻 El Salvador (UTC-6)' },
   { value: 'America/Managua', label: '🇳🇮 Managua (UTC-6)' },
   { value: 'America/Santo_Domingo', label: '🇩🇴 Santo Domingo (UTC-4)' },
+  // Puerto Rico: UTC-4 todo el año, NO cambia con el horario de verano de
+  // Estados Unidos. Poner New York a un negocio de allí lo desfasa una hora
+  // media parte del año — y esa hora decide de qué día es un sello.
+  { value: 'America/Puerto_Rico', label: '🇵🇷 Puerto Rico (UTC-4)' },
   { value: 'Europe/Madrid', label: '🇪🇸 Madrid (UTC+1/+2 DST)' },
   { value: 'America/New_York', label: '🇺🇸 New York (UTC-5/-4 DST)' },
   { value: 'America/Chicago', label: '🇺🇸 Chicago (UTC-6/-5 DST)' },

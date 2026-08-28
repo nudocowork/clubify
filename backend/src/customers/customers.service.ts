@@ -120,7 +120,19 @@ export class CustomersService {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      // El tope estaba en 100 y la pantalla NO pagina, así que un negocio con
+      // más de 100 clientes simplemente no veía el resto — y como el orden es
+      // por más recientes, lo que desaparecía eran sus clientes MÁS ANTIGUOS,
+      // que suelen ser los mejores. Sin aviso de que faltaba nadie.
+      //
+      // Lo reportó SUGAR & KISS (195 clientes, veía 100). Medido el 2026-08-28:
+      // le pasaba a 20 de los 77 negocios con clientes; el mayor tiene 380 y
+      // toda la plataforma suma 5.099. Con 2.000 hay margen de sobra.
+      //
+      // Esto es un parche honesto, no la solución: el día que un negocio pase
+      // de 2.000 vuelve el mismo silencio. Lo que toca es paginar la pantalla
+      // (el endpoint ya acepta `search` para acotar mientras tanto).
+      take: 2000,
     });
   }
 
