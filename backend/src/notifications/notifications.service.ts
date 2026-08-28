@@ -200,9 +200,21 @@ export class NotificationsService {
     let targeted = 0;
     let delivered = 0;
     for (const p of passes) {
-      targeted += p.walletDevices.length;
+      // FIX 2026-08-28: los dos contadores miraban SOLO Apple.
+      //
+      // `walletDevices` es la tabla de registros de Apple, y `pushPassUpdate`
+      // devuelve el resultado de Google aparte, en `.google`. Así que a un
+      // cliente de Google Wallet el push SÍ le salía, pero el panel informaba
+      // «0 destinatarios» — y el negocio lo leía como que ese cliente no tenía
+      // la tarjeta.
+      //
+      // No es un caso raro: de 5.083 pases, 3.579 son de Google y 1.276 de
+      // Apple. O sea que el contador mentía para la mayoría.
+      const tieneGoogle = !!p.googleObjectId;
+      const alcanzables = p.walletDevices.length + (tieneGoogle ? 1 : 0);
+      targeted += alcanzables;
       this.logger.log(
-        `Push to pass ${p.id} (${p.walletDevices.length} Apple devices)`,
+        `Push to pass ${p.id} (${p.walletDevices.length} Apple + ${tieneGoogle ? 1 : 0} Google)`,
       );
       try {
         await this.prisma.pass.update({
@@ -214,7 +226,9 @@ export class NotificationsService {
         const r = await this.wallet.pushPassUpdate(p.id, {
           message: { header: dto.title, body: dto.body },
         });
-        delivered += r?.sent ?? 0;
+        // `sent` son los de Apple; Google va aparte y solo cuenta si de verdad
+        // salió (`ok`), no si simplemente se intentó.
+        delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
       } catch (e) {
         this.logger.warn(`Push pass ${p.id} falló: ${(e as Error).message}`);
       }
