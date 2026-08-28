@@ -51,8 +51,8 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 ## 2026-08-27 — Comisión FIJA de pago único para Sellea + fugas Clubify (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** `feat/commissions-auto-cutoffs` — commits `e497fa55`, `f4bb2e43`,
-`b64d849c`. **COMMITEADO LOCAL, sin push ni deploy todavía** (a propósito, ver
-riesgos).
+`b64d849c`, `f14d3783`. **DESPLEGADO Y VERIFICADO EN PRODUCCIÓN** (migración →
+backend → frontend, en orden).
 
 ### Qué cambié
 Sellea pasa a pagar comisiones de referido como **monto FIJO en USD, UNA sola
@@ -76,23 +76,29 @@ founder.
   (`payouts`, `team`) sin fugas "Clubify".
 
 ### Qué toqué de PRODUCCIÓN
-- **NADA todavía.** No corrí migración, no desplegué, no pusheé. Todo está
-  commiteado local esperando la secuencia coordinada (abajo).
+- **Migración** (`scripts/apply-referral-fixed-commission.cjs`): columna
+  `ReferralCode.fixedCommissionUsd` + 4 Settings de Sellea (commissionMode=
+  FIXED_ONCE, fixed.negocio=30/influencer=80/embajador=40). Aditiva, verificada 4/4.
+- **Backend** desplegado (`desplegar.cjs backend` → clona el commit, no la
+  carpeta; swap confirmado por uptime 21719→19s).
+- **Frontend** desplegado (`desplegar.cjs frontend`, Vercel, READY).
+- **Verificado end-to-end:** `/referrals/public-terms` con Origin Sellea →
+  `{fixedOnce:true, negocio 30, influencer 80, embajador 40}`; sin Origin
+  (Clubify) → `{fixedOnce:false}` (aislamiento OK); `/referrals/me`=401 (montado);
+  app.selleala.com + app.soyclubify.com + /refer = 200.
 
 ### Qué falta / qué hay que validar del otro lado
-- [ ] **Correr la migración ANTES de desplegar** el backend:
-      `node scripts/apply-referral-fixed-commission.cjs` (agrega la columna +
-      siembra los 4 Settings de Sellea). El código lee la columna → sin ella,
-      las queries de `ReferralCode` fallan en prod.
-- [ ] Push + deploy backend (railway up desde raíz) + deploy frontend (vercel).
-- [ ] El deploy del backend **también arregla** el error `transformOnRedeem`
-      al crear tarjetas de descuento (prod iba por detrás del commit b69a3688).
-- [ ] Probar en Sellea: generar código de negocio (=$30), y verificar que una
-      venta referida genera UNA comisión fija (no %, no recurrente).
+- [x] Migración corrida. [x] Push. [x] Deploy backend. [x] Deploy frontend.
+- [x] El deploy del backend arregló el error `transformOnRedeem` al crear
+      tarjetas de descuento (prod iba por detrás del commit b69a3688).
+- [ ] Prueba funcional real en Sellea: generar código de negocio (debe decir
+      "$30 pago único"), y confirmar que una venta referida genera UNA comisión
+      fija (no %, no recurrente). El código está verificado; falta el e2e con
+      una venta real.
+- [ ] Aparte (pendiente de antes): arreglar la secret key de Stripe de Sellea
+      para el punto 2 (compra e2e).
 
 ### Riesgos y avisos
-- ⚠️ **ORDEN OBLIGATORIO: migración → deploy backend → deploy frontend.** Si el
-  backend despliega sin la columna, se rompen los referidos en prod.
 - El trabajo de `card_logo_bg_color` (cards/wallet) que estaba sin commitear al
   inicio del día **desapareció del working tree** durante mi sesión (sync de
   OneDrive). NO lo toqué (regla #3). Si era tuyo y lo necesitás, está en tu copia.
