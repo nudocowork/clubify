@@ -204,6 +204,62 @@ respuesta del cron y nadie la leía nunca:
   romperse, calla mientras sigue roto, avisa al arreglarse; restaura la línea y
   borra las notificaciones que crea).
 
+## 2026-08-27 — OTP de la prueba gratuita ACTIVO + incidente de 401 (PRODUCCIÓN)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+
+### 🚨 Incidente: el registro público estuvo devolviendo 401
+
+Al agregar `POST /auth/trial-otp` lo puse **entre el comentario de
+`trial-signup` y su `@Post`**. En NestJS los decoradores se pegan al primer
+método que aparece debajo y un comentario en medio no separa nada, así que el
+método nuevo **se llevó los decoradores de `trial-signup`**, incluido
+`@Public()`. El registro público devolvió **401** durante unos minutos, entre el
+despliegue del OTP y el arreglo (`01a14a05`).
+
+**No lo atrapó nada de lo habitual:** `tsc` compila, la app arranca y las rutas
+se mapean igual. Lo único que cambia es QUIÉN puede entrar.
+
+→ Se agregó `backend/test/auth-rutas-publicas.test.ts`, que lee los metadatos y
+verifica que las 6 rutas públicas de auth lo sean. Probado al revés: quitando
+`@Public()` de trial-signup el test falla. **`logout` es público a propósito** —
+uno tiene que poder cerrar sesión con el token vencido.
+
+### Qué toqué de PRODUCCIÓN
+
+- **Base:** tabla `TrialEmailOtp` (`apply-trial-otp.cjs`) + fila
+  `Setting['trial.otp.required'] = 'true'`.
+- **Backend:** desplegado dos veces (el OTP y el arreglo del 401).
+- **Frontend:** desplegado (`vercel --prod`; el `promote` dio 409 = ya era
+  producción).
+
+### El OTP ya está ACTIVO. Verificado sin crear ninguna cuenta:
+
+| Prueba | Resultado |
+|---|---|
+| Pedir PIN a un correo | `{"enviado":true}` — Grow Business lo aceptó |
+| Registro SIN código | 400 "El código son 6 dígitos" |
+| Registro con código inventado | 400 "Ese código venció o ya se usó" |
+| ¿Se creó alguna cuenta? | **0** — el chequeo corre antes de tocar la base |
+
+### Aviso importante sobre el interruptor
+
+`Setting['trial.otp.required']` controla **solo el backend**. El formulario
+deshabilita el botón hasta tener 6 dígitos **pase lo que pase**, así que
+desplegar el frontend ya activa el PIN para el usuario aunque el flag esté
+apagado. **Apagar el flag NO alcanza para revertir**: hay que revertir también
+el frontend.
+
+### Contexto que quizá cambie la prioridad
+
+El pedido nació de "se están creando trials con correos falsos". Revisé:
+los `sectest.*` del PDF son **0** en producción, los 11 trials de mayo-junio son
+negocios reales, y el único reciente con pinta de falso es `secaudit1@test.com`
+de ayer — **una cuenta de auditoría nuestra**. La puerta estaba abierta, pero el
+abuso no aparece en los datos.
+
+---
+
 ## 2026-08-27 — Living Card cargada: 7 categorías + 3 planes (PRODUCCIÓN)
 
 **Máquina/quién:** máquina de Jhon (Claude)
