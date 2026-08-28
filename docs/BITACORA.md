@@ -48,6 +48,38 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-28 — Panel de comisiones de Sellea muestra MONTO FIJO, no % (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit 657399c8)
+
+### Qué cambié
+- El motor ya generaba la comisión fija de Sellea, pero **el panel de referidos
+  seguía mostrando y pidiendo PORCENTAJES** (Configuración, columnas de las
+  tablas de influencers/embajadores, modales de creación). Desinformaba.
+- `getConfig` (backend) ahora devuelve `commissionMode` + `fixed{negocio,
+  influencer,embajador}`, resuelto por `user.whiteLabelId`. Marcas no-fijas →
+  `PERCENT_RECURRING` + `fixed:null` (UI de % idéntica a la de siempre).
+- `admin/referrals`: el modo se resuelve una vez en el componente raíz y se
+  propaga por contexto (`useCommissionMode`). En FIXED_ONCE: ConfigTab muestra
+  panel de montos fijos (y oculta el socio global); columnas "%" → monto fijo;
+  modales de creación → campo de monto fijo de solo lectura. i18n es/en/pt.
+
+### Qué toqué de PRODUCCIÓN
+- **Desplegado backend** (`desplegar.cjs backend`; nuevo deployment Online, ID
+  coincide) **y frontend** (READY). Sin cambios de DB ni de variables.
+- Verificado en prod: `/api/referrals/public-terms` → Sellea `{fixedOnce:true,
+  negocio 30, influencer 80, embajador 40}`; sin Origin (Clubify) `{fixedOnce:false}`.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Confirmar visualmente en Sellea → Referidos → Configuración que se ven los
+      montos fijos (no %). `getConfig` es con auth → no se pudo curl-verificar.
+
+### Riesgos y avisos
+- Aislado por marca. Si el fetch de config falla / no hay permiso, cae a
+  `PERCENT_RECURRING` (UI de % de siempre) → nunca rompe otras marcas.
+
+---
+
 ## 2026-08-28 — Mensaje de credenciales del afiliado: dice la MARCA, no "Clubify" (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commit d92de228)
