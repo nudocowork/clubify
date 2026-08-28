@@ -48,6 +48,32 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-28 — Mensaje de credenciales del afiliado: dice la MARCA, no "Clubify" (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit d92de228)
+
+### Qué cambié
+- `AffiliateCredentialsModal.tsx`: el mensaje que el admin copia/envía al nuevo
+  afiliado (influencer/embajador) decía "panel de afiliado." a secas (antes "de
+  Clubify", ya neutralizado en b0f55b85). Ahora es **brand-aware** por host
+  (`useAuthBrand`): en Sellea dice "panel de afiliado de **Sellea**". Cae a
+  "Clubify" solo cuando `brand` es null, que solo pasa en el propio host de
+  Clubify → nunca fuga en marca blanca.
+
+### Qué toqué de PRODUCCIÓN
+- **Desplegado el frontend** (`desplegar.cjs frontend`, READY). Sin DB, sin vars.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Verificar creando un afiliado en Sellea. Si aún aparece "de Clubify", es el
+      **Service Worker con el bundle viejo** en el navegador (la captura del
+      reporte era de un mensaje anterior al deploy): hard-refresh / limpiar caché.
+
+### Riesgos y avisos
+- Cambio de texto aislado, brand-aware con fallback correcto. Sin riesgo para
+  otras marcas.
+
+---
+
 ## 2026-08-27 — Comisión FIJA de pago único para Sellea + fugas Clubify (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** `feat/commissions-auto-cutoffs` — commits `e497fa55`, `f4bb2e43`,
