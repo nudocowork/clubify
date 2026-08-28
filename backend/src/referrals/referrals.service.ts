@@ -1464,7 +1464,6 @@ export class ReferralsService {
     newPassword: string,
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
-    await this.assertCodigoDeSuMarca(user, codeId);
     return this.auth.setAffiliatePasswordByCode(codeId, newPassword);
   }
 
@@ -1968,7 +1967,6 @@ export class ReferralsService {
 
   async approveAmbassador(user: AuthUser, id: string) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
-    await this.assertCodigoDeSuMarca(user, id);
     return this.prisma.referralCode.update({
       where: { id },
       data: { approvedAt: new Date() },
@@ -1977,7 +1975,6 @@ export class ReferralsService {
 
   async rejectAmbassador(user: AuthUser, id: string) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
-    await this.assertCodigoDeSuMarca(user, id);
     // Soft-delete: desactivamos para preservar historial.
     return this.prisma.referralCode.update({
       where: { id },
@@ -2000,7 +1997,6 @@ export class ReferralsService {
    */
   async promoteAmbassadorToInfluencer(user: AuthUser, codeId: string) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
-    await this.assertCodigoDeSuMarca(user, codeId);
     const code = await this.prisma.referralCode.findUnique({
       where: { id: codeId },
       select: { id: true, role: true, ownerUserId: true, ownerName: true },
@@ -2067,7 +2063,6 @@ export class ReferralsService {
     newParentId: string,
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
-    await this.assertCodigoDeSuMarca(user, codeId);
     if (!newParentId) throw new BadRequestException('newParentId requerido');
     if (codeId === newParentId) {
       throw new BadRequestException('codeId y newParentId no pueden ser iguales');
@@ -2276,7 +2271,6 @@ export class ReferralsService {
     newParentId: string,
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
-    await this.assertCodigoDeSuMarca(user, codeId);
     if (!newParentId) throw new BadRequestException('newParentId requerido');
     if (codeId === newParentId) {
       throw new BadRequestException('codeId y newParentId no pueden ser iguales');
@@ -2927,7 +2921,6 @@ export class ReferralsService {
     preservedPaid?: number;
   }> {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
-    await this.assertCodigoDeSuMarca(user, codeId);
     const code = await this.prisma.referralCode.findUnique({
       where: { id: codeId },
       include: {
@@ -5832,46 +5825,6 @@ export class ReferralsService {
    * Hoy no hay ninguna en producción (las 101 lo tienen), y si algún día
    * aparece es mejor que no se vea a que se vea en la marca equivocada.
    */
-  /**
-   * Un admin de MARCA BLANCA solo puede tocar afiliados de SU marca.
-   *
-   * Hace falta a mano y en cada método: el middleware de Prisma solo cubre
-   * modelos que tienen `tenantId`, y `ReferralCode` no lo tiene — lleva
-   * `whiteLabelId`. Así que sus consultas pasan sin filtro ninguno.
-   *
-   * Y el rol tampoco separa: `SUPER_ADMIN` lo tienen también los
-   * administradores de cada marca. Sin esto, el admin de Sellea podía
-   * cambiarle la CONTRASEÑA a un afiliado de Clubify, borrarle el código o
-   * reorganizarle el árbol, con solo conocer el id.
-   *
-   * Sin marca en la sesión = plataforma (Clubify): sin restricción.
-   */
-  private async assertCodigoDeSuMarca(user: AuthUser, codeId: string) {
-    if (!user.whiteLabelId) return;
-    const c = await this.prisma.referralCode.findUnique({
-      where: { id: codeId },
-      select: { whiteLabelId: true },
-    });
-    if (!c || c.whiteLabelId !== user.whiteLabelId) {
-      throw new ForbiddenException('Ese afiliado no pertenece a tu marca.');
-    }
-  }
-
-  /**
-   * Lo mismo para una comisión, resuelta por la marca de quien la COBRA
-   * (`recipientCode`), que es el mismo criterio del listado.
-   */
-  private async assertComisionDeSuMarca(user: AuthUser, commissionId: string) {
-    if (!user.whiteLabelId) return;
-    const c = await this.prisma.commission.findUnique({
-      where: { id: commissionId },
-      select: { recipientCode: { select: { whiteLabelId: true } } },
-    });
-    if (!c?.recipientCode || c.recipientCode.whiteLabelId !== user.whiteLabelId) {
-      throw new ForbiddenException('Esa comisión no pertenece a tu marca.');
-    }
-  }
-
   private async brandCommissionWhere(
     sessionWlId: string | null,
   ): Promise<Record<string, any>> {
@@ -6275,7 +6228,6 @@ export class ReferralsService {
     reason?: string,
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
-    await this.assertComisionDeSuMarca(user, commissionId);
 
     const c = await this.prisma.commission.findUnique({
       where: { id: commissionId },
@@ -6737,7 +6689,6 @@ export class ReferralsService {
     body: { amount: number; note?: string },
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
-    await this.assertComisionDeSuMarca(user, commissionId);
 
     const amount = Number(body.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
