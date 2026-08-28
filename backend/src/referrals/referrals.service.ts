@@ -1804,9 +1804,27 @@ export class ReferralsService {
           select: { id: true, code: true, ownerName: true, commissionPercent: true, role: true },
         })
       : null;
+    // Modo de comisión de la MARCA del admin (por user.whiteLabelId, no por
+    // Origin: robusto tanto si entra por su dominio como si un platform-owner
+    // la administra). En FIXED_ONCE (Sellea) el panel debe mostrar montos
+    // fijos en USD, no porcentajes. Las demás marcas → null (siguen con %).
+    const commissionMode = await this.getBrandCommissionModeByWhiteLabelId(
+      user.whiteLabelId ?? null,
+    );
+    const brandSlug = await this.slugForWhiteLabelId(user.whiteLabelId ?? null);
+    const fixed =
+      commissionMode === 'FIXED_ONCE'
+        ? {
+            negocio: await this.getBrandFixedAmount(brandSlug, 'negocio'),
+            influencer: await this.getBrandFixedAmount(brandSlug, 'influencer'),
+            embajador: await this.getBrandFixedAmount(brandSlug, 'embajador'),
+          }
+        : null;
     return {
       socioCodeId: socioId,
       socio,
+      commissionMode,
+      fixed,
       indirectPercent: Number(
         map.get('referrals.indirectPercent') ?? COMMISSION_DEFAULTS.indirectPct,
       ),

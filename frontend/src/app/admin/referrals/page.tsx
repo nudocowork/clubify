@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { api, startImpersonation } from '@/lib/api';
@@ -8,6 +8,29 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { AffiliateCredentialsModal } from '@/components/AffiliateCredentialsModal';
 import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
+
+// =============================================================
+//        MODO DE COMISIÓN DE LA MARCA (FIXED_ONCE = Sellea)
+// =============================================================
+//
+// Sellea paga comisiones como MONTO FIJO en USD, pago único (no %). Todo el
+// panel de referidos está construido alrededor de porcentajes; para no ensuciar
+// a las demás marcas, la marca en modo FIXED_ONCE se resuelve UNA vez en el
+// componente raíz (por user.whiteLabelId, vía /referrals/config) y se propaga
+// por contexto. Los sub-componentes que muestran/piden % consultan este modo y,
+// si es fijo, muestran el monto en USD. Fallback = PERCENT_RECURRING → la UI de
+// % de siempre (Clubify y demás marcas quedan idénticas).
+type CommissionMode = {
+  mode: 'FIXED_ONCE' | 'PERCENT_RECURRING';
+  fixed: { negocio: number; influencer: number; embajador: number } | null;
+};
+const CommissionModeContext = createContext<CommissionMode>({
+  mode: 'PERCENT_RECURRING',
+  fixed: null,
+});
+function useCommissionMode(): CommissionMode {
+  return useContext(CommissionModeContext);
+}
 
 // =============================================================
 //                      SEARCH UTILITIES
@@ -231,6 +254,25 @@ export default function AdminReferrals() {
   const t = useTranslations('admin_referrals');
   const [tab, setTab] = useState<Tab>('summary');
 
+  // Modo de comisión de la marca (FIXED_ONCE en Sellea). Se resuelve una vez y
+  // se propaga por contexto. Si el fetch falla o no aplica → % de siempre.
+  const [commMode, setCommMode] = useState<CommissionMode>({
+    mode: 'PERCENT_RECURRING',
+    fixed: null,
+  });
+  useEffect(() => {
+    api<ConfigResp>('/referrals/config')
+      .then((c) =>
+        setCommMode({
+          mode: c.commissionMode === 'FIXED_ONCE' ? 'FIXED_ONCE' : 'PERCENT_RECURRING',
+          fixed: c.fixed ?? null,
+        }),
+      )
+      .catch(() => {
+        /* sin permiso / marca % → se queda en PERCENT_RECURRING */
+      });
+  }, []);
+
   // #10 (2026-06-16): la pestaña "Campañas" se eliminó del panel. El modelo
   // Campaign y su data se mantienen (las campañas viejas siguen funcionando
   // vía parentCodeId), pero ya no se gestionan desde acá: los influencers se
@@ -246,33 +288,35 @@ export default function AdminReferrals() {
   ];
 
   return (
-    <div>
-      <div className="page-head">
-        <h1 className="page-title">{t('pageTitle')}</h1>
-      </div>
+    <CommissionModeContext.Provider value={commMode}>
+      <div>
+        <div className="page-head">
+          <h1 className="page-title">{t('pageTitle')}</h1>
+        </div>
 
-      <div className="tabs mb-5 flex-wrap">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            className={`tab ${tab === t.id ? 'tab-active' : ''}`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+        <div className="tabs mb-5 flex-wrap">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              className={`tab ${tab === t.id ? 'tab-active' : ''}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-      {tab === 'summary' && <SummaryTab />}
-      {tab === 'influencers' && <InfluencersTab />}
-      {tab === 'ambassadors' && <AmbassadorsTab />}
-      {tab === 'clients' && <ClientsTab />}
-      {tab === 'commissions' && <CommissionsTab />}
-      {tab === 'payouts' && <PayoutsTab />}
-      {tab === 'config' && <ConfigTab />}
-      {tab === 'leaderboard' && <LeaderboardTab />}
-      {tab === 'codes' && <CodesTab />}
-    </div>
+        {tab === 'summary' && <SummaryTab />}
+        {tab === 'influencers' && <InfluencersTab />}
+        {tab === 'ambassadors' && <AmbassadorsTab />}
+        {tab === 'clients' && <ClientsTab />}
+        {tab === 'commissions' && <CommissionsTab />}
+        {tab === 'payouts' && <PayoutsTab />}
+        {tab === 'config' && <ConfigTab />}
+        {tab === 'leaderboard' && <LeaderboardTab />}
+        {tab === 'codes' && <CodesTab />}
+      </div>
+    </CommissionModeContext.Provider>
   );
 }
 
@@ -2040,6 +2084,7 @@ function SumRow({
 
 function InfluencersTab() {
   const t = useTranslations('admin_referrals');
+  const { mode, fixed } = useCommissionMode();
   const router = useRouter();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2110,7 +2155,7 @@ function InfluencersTab() {
         <table className="w-full text-sm min-w-[940px]">
           <thead className="bg-bg2">
             <tr>
-              {[t('colInfluencer'), t('colCode'), '%', t('colCampaign'), t('colAmbassadors'), t('colClients'), t('colPaid'), t('colPending'), ''].map(
+              {[t('colInfluencer'), t('colCode'), mode === 'FIXED_ONCE' ? t('colCommission') : '%', t('colCampaign'), t('colAmbassadors'), t('colClients'), t('colPaid'), t('colPending'), ''].map(
                 (h, i) => (
                   <th
                     key={h || `col-${i}`}
@@ -2145,7 +2190,11 @@ function InfluencersTab() {
                   <div className="text-xs text-mute">{r.ownerEmail}</div>
                 </td>
                 <td className="px-4 py-3 font-mono font-bold">{r.code}</td>
-                <td className="px-4 py-3">{r.commissionPercent}%</td>
+                <td className="px-4 py-3">
+                  {mode === 'FIXED_ONCE' && fixed
+                    ? `${fmtUsd(fixed.influencer)} ${t('fixedOnceLabel')}`
+                    : `${r.commissionPercent}%`}
+                </td>
                 <td className="px-4 py-3 text-xs">{r.campaignName ?? '—'}</td>
                 <td className="px-4 py-3 text-center">{r.ambassadorsCount}</td>
                 <td className="px-4 py-3 text-center">
@@ -2298,6 +2347,7 @@ function InfluencersTab() {
 
 function AmbassadorsTab() {
   const t = useTranslations('admin_referrals');
+  const { mode, fixed } = useCommissionMode();
   const router = useRouter();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2376,7 +2426,7 @@ function AmbassadorsTab() {
           <table className="w-full text-sm min-w-[1040px]">
             <thead className="bg-bg2">
               <tr>
-                {[t('colAmbassador'), t('colCode'), '%', t('colReportsTo'), t('colCampaign'), t('colActive'), t('colTotal'), t('colVendors'), t('colPaid'), t('colPending'), ''].map(
+                {[t('colAmbassador'), t('colCode'), mode === 'FIXED_ONCE' ? t('colCommission') : '%', t('colReportsTo'), t('colCampaign'), t('colActive'), t('colTotal'), t('colVendors'), t('colPaid'), t('colPending'), ''].map(
                   (h, i) => (
                     <th
                       key={h || `col-${i}`}
@@ -2421,7 +2471,11 @@ function AmbassadorsTab() {
                     <div className="text-xs text-mute">{r.ownerEmail}</div>
                   </td>
                   <td className="px-4 py-3 font-mono font-bold">{r.code}</td>
-                  <td className="px-4 py-3">{r.commissionPercent}%</td>
+                  <td className="px-4 py-3">
+                    {mode === 'FIXED_ONCE' && fixed
+                      ? `${fmtUsd(fixed.embajador)} ${t('fixedOnceLabel')}`
+                      : `${r.commissionPercent}%`}
+                  </td>
                   <td className="px-4 py-3 text-xs">
                     {r.isCompanyDirect ? (
                       <span className="text-violet-700 font-medium">{t('company')}</span>
@@ -3433,6 +3487,11 @@ function CreateInfluencerModal({
   onCreated: () => void;
 }) {
   const t = useTranslations('admin_referrals');
+  const { mode, fixed } = useCommissionMode();
+  // Marca de comisión FIJA (Sellea): el % no aplica (el motor usa el monto por
+  // rol). Ocultamos el input y mostramos el monto que se pagará por venta.
+  const isFixed = mode === 'FIXED_ONCE' && !!fixed;
+  const fixedAmount = fixed?.influencer ?? 0;
   const [form, setForm] = useState({
     fullName: '',
     email: '',
@@ -3559,18 +3618,29 @@ function CreateInfluencerModal({
 
         <div className="grid grid-cols-2 gap-3 mt-3">
           <div>
-            <label className="label">{t('fieldCommissionPercent')}</label>
-            <input
-              className="input"
-              type="number"
-              min={0}
-              max={100}
-              step={1}
-              value={form.commissionPercent}
-              onChange={(e) =>
-                setForm({ ...form, commissionPercent: Number(e.target.value) })
-              }
-            />
+            <label className="label">
+              {isFixed ? t('fieldCommissionFixed') : t('fieldCommissionPercent')}
+            </label>
+            {isFixed ? (
+              <div className="input flex items-center bg-bg2 font-semibold cursor-not-allowed">
+                {fmtUsd(fixedAmount)}
+                <span className="text-xs font-normal text-mute ml-1">
+                  {t('fixedOnceLabel')}
+                </span>
+              </div>
+            ) : (
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={form.commissionPercent}
+                onChange={(e) =>
+                  setForm({ ...form, commissionPercent: Number(e.target.value) })
+                }
+              />
+            )}
           </div>
           <div>
             <label className="label">{t('fieldCustomCodeOptional')}</label>
@@ -3625,6 +3695,11 @@ function CompanyDirectAmbassadorModal({
   const t = useTranslations('admin_referrals');
   // Nombre de la marca (Sellea) para la descripción que decía "Clubify".
   const { brand } = useAuthBrand();
+  // Marca de comisión FIJA (Sellea): mismo trato que en el modal de influencer,
+  // pero con el monto de embajador.
+  const { mode, fixed } = useCommissionMode();
+  const isFixed = mode === 'FIXED_ONCE' && !!fixed;
+  const fixedAmount = fixed?.embajador ?? 0;
   const [form, setForm] = useState({
     fullName: '',
     email: '',
@@ -3751,18 +3826,29 @@ function CompanyDirectAmbassadorModal({
 
         <div className="grid grid-cols-2 gap-3 mt-3">
           <div>
-            <label className="label">{t('fieldCommissionPercent')}</label>
-            <input
-              className="input"
-              type="number"
-              min={0}
-              max={100}
-              step={1}
-              value={form.commissionPercent}
-              onChange={(e) =>
-                setForm({ ...form, commissionPercent: Number(e.target.value) })
-              }
-            />
+            <label className="label">
+              {isFixed ? t('fieldCommissionFixed') : t('fieldCommissionPercent')}
+            </label>
+            {isFixed ? (
+              <div className="input flex items-center bg-bg2 font-semibold cursor-not-allowed">
+                {fmtUsd(fixedAmount)}
+                <span className="text-xs font-normal text-mute ml-1">
+                  {t('fixedOnceLabel')}
+                </span>
+              </div>
+            ) : (
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={form.commissionPercent}
+                onChange={(e) =>
+                  setForm({ ...form, commissionPercent: Number(e.target.value) })
+                }
+              />
+            )}
           </div>
           <div>
             <label className="label">{t('fieldCustomCodeOptional')}</label>
@@ -4138,6 +4224,10 @@ function CommissionsTab() {
 type ConfigResp = {
   socioCodeId: string;
   socio: { id: string; code: string; ownerName: string; commissionPercent: number; role: string } | null;
+  // FIXED_ONCE = comisión fija de pago único (Sellea). PERCENT_RECURRING (o
+  // ausente) = el modelo histórico de % recurrente (Clubify y demás marcas).
+  commissionMode?: 'FIXED_ONCE' | 'PERCENT_RECURRING';
+  fixed?: { negocio: number; influencer: number; embajador: number } | null;
   indirectPercent: number;
   defaultInfluencerPercent: number;
   defaultAmbassadorPercent: number;
@@ -4212,75 +4302,108 @@ function ConfigTab() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <div className="card card-pad space-y-4">
-        <div>
-          <h3 className="font-semibold m-0 mb-1">{t('defaultCommissions')}</h3>
-          <div className="text-xs text-mute mb-3">
-            {t('defaultCommissionsHint')}
+        {cfg.commissionMode === 'FIXED_ONCE' && cfg.fixed ? (
+          // Marca de comisión FIJA (Sellea): monto en USD por rol, pago único.
+          // No hay porcentajes ni indirecta que configurar.
+          <div>
+            <h3 className="font-semibold m-0 mb-1">{t('fixedModeTitle')}</h3>
+            <div className="text-xs text-mute mb-3">{t('fixedModeHint')}</div>
+            <div className="space-y-2">
+              {[
+                { label: t('fixedRoleBusiness'), amount: cfg.fixed.negocio },
+                { label: t('fixedRoleInfluencer'), amount: cfg.fixed.influencer },
+                { label: t('fixedRoleAmbassador'), amount: cfg.fixed.embajador },
+              ].map((row) => (
+                <div
+                  key={row.label}
+                  className="flex items-center justify-between bg-bg2 rounded-lg px-3 py-2.5"
+                >
+                  <span className="text-sm font-medium">{row.label}</span>
+                  <span className="font-bold tabular-nums">
+                    {fmtUsd(row.amount)}{' '}
+                    <span className="text-xs font-normal text-mute">
+                      {t('fixedOnceLabel')}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">{t('influencerDirect')}</label>
+        ) : (
+          <div>
+            <h3 className="font-semibold m-0 mb-1">{t('defaultCommissions')}</h3>
+            <div className="text-xs text-mute mb-3">
+              {t('defaultCommissionsHint')}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">{t('influencerDirect')}</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  className="input"
+                  value={cfg.defaultInfluencerPercent}
+                  onChange={(e) =>
+                    setCfg({ ...cfg, defaultInfluencerPercent: Number(e.target.value) })
+                  }
+                />
+              </div>
+              <div>
+                <label className="label">{t('ambassador')}</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  className="input"
+                  value={cfg.defaultAmbassadorPercent}
+                  onChange={(e) =>
+                    setCfg({ ...cfg, defaultAmbassadorPercent: Number(e.target.value) })
+                  }
+                />
+              </div>
+            </div>
+            <div className="mt-3">
+              <label className="label">{t('influencerIndirect')}</label>
               <input
                 type="number"
                 min={0}
                 max={100}
                 className="input"
-                value={cfg.defaultInfluencerPercent}
-                onChange={(e) =>
-                  setCfg({ ...cfg, defaultInfluencerPercent: Number(e.target.value) })
-                }
-              />
-            </div>
-            <div>
-              <label className="label">{t('ambassador')}</label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                className="input"
-                value={cfg.defaultAmbassadorPercent}
-                onChange={(e) =>
-                  setCfg({ ...cfg, defaultAmbassadorPercent: Number(e.target.value) })
-                }
+                value={cfg.indirectPercent}
+                onChange={(e) => setCfg({ ...cfg, indirectPercent: Number(e.target.value) })}
               />
             </div>
           </div>
-          <div className="mt-3">
-            <label className="label">{t('influencerIndirect')}</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              className="input"
-              value={cfg.indirectPercent}
-              onChange={(e) => setCfg({ ...cfg, indirectPercent: Number(e.target.value) })}
-            />
-          </div>
-        </div>
+        )}
       </div>
 
       <div className="card card-pad space-y-4">
-        <div>
-          <h3 className="font-semibold m-0 mb-1">{t('globalPartner')}</h3>
-          <div className="text-xs text-mute mb-3">
-            {t('globalPartnerHint', { brandName: brand?.name ?? 'Clubify' })}
+        {/* Socio global (10% recurrente): NO aplica en marcas de comisión fija
+            (Sellea lo tiene apagado a propósito) → se oculta. */}
+        {cfg.commissionMode !== 'FIXED_ONCE' && (
+          <div>
+            <h3 className="font-semibold m-0 mb-1">{t('globalPartner')}</h3>
+            <div className="text-xs text-mute mb-3">
+              {t('globalPartnerHint', { brandName: brand?.name ?? 'Clubify' })}
+            </div>
+            {socioOptions.length > 0 && (
+              <select
+                className="input mb-3"
+                value={cfg.socioCodeId}
+                onChange={(e) => setCfg({ ...cfg, socioCodeId: e.target.value })}
+              >
+                <option value="">{t('noPartnerConfigured')}</option>
+                {socioOptions.map((r: any) => (
+                  <option key={r.id} value={r.id}>
+                    {r.ownerName} ({r.code}) — {Number(r.commissionPercent)}%
+                  </option>
+                ))}
+              </select>
+            )}
+            <SocioInviteForm onCreated={load} />
           </div>
-          {socioOptions.length > 0 && (
-            <select
-              className="input mb-3"
-              value={cfg.socioCodeId}
-              onChange={(e) => setCfg({ ...cfg, socioCodeId: e.target.value })}
-            >
-              <option value="">{t('noPartnerConfigured')}</option>
-              {socioOptions.map((r: any) => (
-                <option key={r.id} value={r.id}>
-                  {r.ownerName} ({r.code}) — {Number(r.commissionPercent)}%
-                </option>
-              ))}
-            </select>
-          )}
-          <SocioInviteForm onCreated={load} />
-        </div>
+        )}
 
         <div>
           <h3 className="font-semibold m-0 mb-1">{t('payments')}</h3>
