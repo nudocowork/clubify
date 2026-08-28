@@ -66,6 +66,12 @@ function TrialInner() {
   const [submitting, setSubmitting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // PIN por correo. `pidiendo` evita doble envío; `enviado` cambia el botón de
+  // "Enviar código" a "Crear cuenta" sin ocultar el formulario.
+  const [otp, setOtp] = useState('');
+  const [otpEnviado, setOtpEnviado] = useState(false);
+  const [pidiendoOtp, setPidiendoOtp] = useState(false);
+  const [otpAviso, setOtpAviso] = useState<string | null>(null);
 
   // Atribución: ?ref=<code> y ?source=<type> en el URL. Si el embajador
   // comparte /prueba?ref=JUAN123, el ref se manda al backend y atribuye
@@ -143,6 +149,35 @@ function TrialInner() {
     window.location.href = url;
   }
 
+  async function pedirCodigo() {
+    const email = form.email.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setErr('Escribe un correo válido para recibir el código.');
+      return;
+    }
+    setErr(null);
+    setPidiendoOtp(true);
+    try {
+      const res = await fetch(`${API}/api/auth/trial-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || 'No pudimos enviar el código.');
+      setOtpEnviado(true);
+      setOtpAviso(
+        data?.enviado
+          ? `Te mandamos un código de 6 dígitos a ${email}. Vence en 10 minutos.`
+          : 'No pudimos enviar el correo. Escribinos y te activamos la prueba a mano.',
+      );
+    } catch (e: any) {
+      setErr(e?.message || 'No pudimos enviar el código.');
+    } finally {
+      setPidiendoOtp(false);
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -176,6 +211,7 @@ function TrialInner() {
           city: form.city.trim() || undefined,
           referralCode: refCode ?? undefined,
           source: source ?? undefined,
+          otp: otp.replace(/\D/g, '') || undefined,
         }),
       });
       const data = await res.json();
@@ -409,10 +445,54 @@ function TrialInner() {
               </div>
             )}
 
+            {/* Verificación del correo. Se pide DESPUÉS de llenar los datos: si
+                el código llegara antes, el visitante se va al buzón y vuelve a
+                un formulario vacío. */}
+            {!otpEnviado ? (
+              <button
+                type="button"
+                onClick={pedirCodigo}
+                disabled={pidiendoOtp || !form.email}
+                className="btn-secondary w-full justify-center py-3 text-sm font-semibold disabled:opacity-50 mt-2"
+              >
+                {pidiendoOtp ? 'Enviando código…' : 'Enviarme el código al correo'}
+              </button>
+            ) : (
+              <div className="mt-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Código de 6 dígitos
+                </label>
+                <input
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  className="input w-full text-center text-2xl font-bold tracking-[0.4em]"
+                />
+                <button
+                  type="button"
+                  onClick={pedirCodigo}
+                  disabled={pidiendoOtp}
+                  className="mt-2 text-xs text-slate-500 underline disabled:opacity-50"
+                >
+                  {pidiendoOtp ? 'Reenviando…' : 'No me llegó, reenviar'}
+                </button>
+              </div>
+            )}
+
+            {otpAviso && (
+              <div className="mt-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-xs text-sky-900">
+                {otpAviso}
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={
                 submitting ||
+                !otpEnviado ||
+                otp.length !== 6 ||
                 !form.firstName ||
                 !form.lastName ||
                 !form.email ||

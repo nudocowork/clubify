@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { api, startImpersonation } from '@/lib/api';
+import { useAuthBrand } from '@/components/AuthBrand';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { AffiliateCredentialsModal } from '@/components/AffiliateCredentialsModal';
@@ -872,6 +873,8 @@ function CommissionNotesModal({
 
 function CodesTab() {
   const t = useTranslations('admin_referrals');
+  // Nombre de la marca (Sellea en su dominio) para textos que decían "Clubify".
+  const { brand } = useAuthBrand();
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [commissionFor, setCommissionFor] = useState<{
@@ -1159,6 +1162,7 @@ function CodesTab() {
             <h2 className="font-bold text-lg">{t('captureLinkTitle')}</h2>
             <p className="text-sm text-mute mt-1.5 leading-relaxed">
               {t.rich('captureLinkDesc', {
+                brandName: brand?.name ?? 'Clubify',
                 b: (chunks) => <b className="text-ink">{chunks}</b>,
               })}
             </p>
@@ -1197,7 +1201,10 @@ function CodesTab() {
               <div className="mt-2 flex flex-wrap gap-2">
                 <a
                   href={`https://wa.me/?text=${encodeURIComponent(
-                    t('whatsappInviteMessage', { link: captureLink }),
+                    t('whatsappInviteMessage', {
+                      link: captureLink,
+                      brandName: brand?.name ?? 'Clubify',
+                    }),
                   )}`}
                   target="_blank"
                   rel="noreferrer"
@@ -3616,6 +3623,8 @@ function CompanyDirectAmbassadorModal({
   onCreated: () => void;
 }) {
   const t = useTranslations('admin_referrals');
+  // Nombre de la marca (Sellea) para la descripción que decía "Clubify".
+  const { brand } = useAuthBrand();
   const [form, setForm] = useState({
     fullName: '',
     email: '',
@@ -3708,6 +3717,7 @@ function CompanyDirectAmbassadorModal({
         </div>
         <p className="text-xs text-mute leading-relaxed mb-4">
           {t.rich('companyDirectAmbassadorDesc', {
+            brandName: brand?.name ?? 'Clubify',
             code: (chunks) => <code>{chunks}</code>,
           })}
         </p>
@@ -4142,6 +4152,8 @@ type ConfigResp = {
 
 function ConfigTab() {
   const t = useTranslations('admin_referrals');
+  // Nombre de la marca (Sellea en su dominio) para el hint del socio que decía "Clubify".
+  const { brand } = useAuthBrand();
   const [cfg, setCfg] = useState<ConfigResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -4251,7 +4263,7 @@ function ConfigTab() {
         <div>
           <h3 className="font-semibold m-0 mb-1">{t('globalPartner')}</h3>
           <div className="text-xs text-mute mb-3">
-            {t('globalPartnerHint')}
+            {t('globalPartnerHint', { brandName: brand?.name ?? 'Clubify' })}
           </div>
           {socioOptions.length > 0 && (
             <select

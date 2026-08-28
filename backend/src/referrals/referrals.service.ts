@@ -446,6 +446,7 @@ export class ReferralsService {
             planPeriodicity: true,
             subscriptionPriceUsd: true,
             lastChargeAt: true,
+            whiteLabelId: true,
             plan: { select: { priceMonthly: true } },
           },
         },
@@ -458,11 +459,19 @@ export class ReferralsService {
     });
     const indirectPct = indirectRow?.value ? Number(indirectRow.value) : 5;
 
+    // FIXED_ONCE (Sellea): esas marcas pagan comisión ÚNICA en el primer cobro;
+    // el cron recurrente NO debe generarles NADA. Precomputamos sus whiteLabelIds
+    // una sola vez → skip O(1) por tenant, sin query por-candidato.
+    const fixedOnceWlIds = await this.fixedOnceWhiteLabelIds();
+
     let created = 0;
     for (const use of candidates) {
       const cpeDate = use.tenant?.currentPeriodEnd;
       if (!cpeDate) continue;
       if (!use.tenantId) continue;
+      // Marca de pago único → sin comisión recurrente. Ya cobró su monto fijo.
+      if (use.tenant?.whiteLabelId && fixedOnceWlIds.has(use.tenant.whiteLabelId))
+        continue;
       const months = bundleMonths(use.tenant?.planPeriodicity ?? null);
       // Base = precio REAL pagado en Hotmart (subscriptionPriceUsd) si lo
       // tenemos, sino el canónico del bundle (68/150/278/500). NUNCA
@@ -613,7 +622,7 @@ export class ReferralsService {
     return clubify?.id ?? null;
   }
 
-  async createCode(dto: CreateReferralDto) {
+  async createCode(dto: CreateReferralDto, host?: string | null) {
     if (!dto.fullName || !dto.email || !dto.whatsapp) {
       throw new BadRequestException('fullName, email and whatsapp required');
     }
@@ -628,6 +637,23 @@ export class ReferralsService {
     }
     const cleanSource = dto.source?.trim().slice(0, 60) || null;
     const slug = await this.allocateSlug(dto.fullName, code);
+    // Marca por HOST (Origin/Referer): el código del negocio nace bajo la marca
+    // de SU dominio (Sellea en app.selleala.com), NO bajo Clubify. Antes este
+    // endpoint público (/refer) siempre caía a Clubify → un negocio de Sellea
+    // que refería generaba comisiones DE CLUBIFY (leak). Fix 2026-08-27.
+    const brand = await this.resolveSignupBrandByHost(host);
+    const whiteLabelId = await this.resolveAffiliateWhiteLabelId({
+      parentWhiteLabelId: brand?.id ?? null,
+    });
+    // COMISIÓN FIJA (Sellea): un negocio-cliente que se auto-registra en /refer
+    // cobra el monto fijo 'negocio' ($30) UNA sola vez. Se guarda en el código
+    // para distinguirlo de un influencer creado por el admin (que cae al monto
+    // por rol). Solo si su marca está en modo FIXED_ONCE; cualquier otra marca
+    // (incl. Clubify) → null → comportamiento normal (% recurrente).
+    const fixedCommissionUsd =
+      (await this.getBrandCommissionMode(brand?.slug)) === 'FIXED_ONCE'
+        ? await this.getBrandFixedAmount(brand?.slug, 'negocio')
+        : null;
     const referral = await this.prisma.referralCode.create({
       data: {
         code,
@@ -636,8 +662,9 @@ export class ReferralsService {
         ownerEmail: dto.email,
         ownerWhatsapp: dto.whatsapp,
         commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct,
+        fixedCommissionUsd,
         source: cleanSource,
-        whiteLabelId: await this.resolveAffiliateWhiteLabelId({}),
+        whiteLabelId,
       },
     });
 
@@ -690,8 +717,27 @@ export class ReferralsService {
    * Devuelve los códigos del usuario autenticado (matcheando por email),
    * sus usos y comisiones, listos para el panel /app/referrals.
    */
-  async listMine(user: AuthUser) {
-    if (!user.email) return { codes: [], totals: { signedUp: 0, converted: 0, paidUsd: 0, pendingUsd: 0 } };
+  /** Términos de comisión de la marca del dominio (para pintar el dashboard del
+   *  negocio Y la página pública /refer). Resuelto por Origin/Referer, no por
+   *  user.whiteLabelId (el dueño del negocio no lo lleva en el token — va por su
+   *  tenant). fixedOnce=false = marca normal (% recurrente). */
+  async referralTermsForHost(host?: string | null) {
+    const brand = await this.resolveSignupBrandByHost(host);
+    const fixedOnce =
+      (await this.getBrandCommissionMode(brand?.slug)) === 'FIXED_ONCE';
+    if (!fixedOnce) return { fixedOnce: false as const };
+    return {
+      fixedOnce: true as const,
+      negocioAmount: await this.getBrandFixedAmount(brand?.slug, 'negocio'),
+      influencerAmount: await this.getBrandFixedAmount(brand?.slug, 'influencer'),
+      embajadorAmount: await this.getBrandFixedAmount(brand?.slug, 'embajador'),
+    };
+  }
+
+  async listMine(user: AuthUser, host?: string | null) {
+    const terms = await this.referralTermsForHost(host);
+    if (!user.email)
+      return { codes: [], totals: { signedUp: 0, converted: 0, paidUsd: 0, pendingUsd: 0 }, terms };
 
     const codes = await this.prisma.referralCode.findMany({
       where: { ownerEmail: user.email },
@@ -762,6 +808,7 @@ export class ReferralsService {
         paidUsd: Math.round(paidUsd * 100) / 100,
         pendingUsd: Math.round(pendingUsd * 100) / 100,
       },
+      terms,
     };
   }
 
@@ -2645,6 +2692,7 @@ export class ReferralsService {
         suspendedAt: true,
         planPeriodicity: true,
         subscriptionPriceUsd: true,
+        whiteLabelId: true,
         plan: { select: { priceMonthly: true } },
       },
     });
@@ -2685,6 +2733,45 @@ export class ReferralsService {
       last &&
       (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25;
     if (recent) return;
+
+    // FIXED_ONCE (EXCLUSIVO Sellea): el backfill de una reasignación/atribución
+    // manual también debe pagar MONTO FIJO, UNA sola vez — nunca % ni 3-way.
+    // Espeja generateReferralCommission. Va ANTES del branch VENDOR para que una
+    // marca fija jamás caiga al split de porcentaje. periodKey='ONCE' → la
+    // @@unique impide un 2º pago. Sellea no tiene indirecta (rangos planos).
+    const saleSlug = await this.slugForWhiteLabelId(tenant.whiteLabelId ?? null);
+    if ((await this.getBrandCommissionMode(saleSlug)) === 'FIXED_ONCE') {
+      const fixedAmt =
+        code.fixedCommissionUsd != null
+          ? Number(code.fixedCommissionUsd)
+          : await this.getBrandFixedAmount(
+              saleSlug,
+              code.role === 'AMBASSADOR' ? 'embajador' : 'influencer',
+            );
+      await this.prisma.commission
+        .create({
+          data: {
+            referralUseId: useId,
+            amount: fixedAmt,
+            status: 'PENDING',
+            recipientCodeId: code.id,
+            periodKey: 'ONCE',
+          },
+        })
+        .catch((e: any) => {
+          if (e?.code === 'P2002') {
+            this.logger.warn(
+              `backfillCommissionForAssignment: skip dup fijo ONCE (useId=${useId}, code=${code.id})`,
+            );
+            return null;
+          }
+          throw e;
+        });
+      this.logger.log(
+        `backfill FIJO/único: ${code.role} ${code.code} $${fixedAmt} (useId=${useId})`,
+      );
+      return;
+    }
 
     // #3 (2026-06-16): VENDEDOR asignado directo a una empresa. El split
     // 3-way (influencer / embajador − vendedor / vendedor) ya lo resuelve
@@ -3543,6 +3630,73 @@ export class ReferralsService {
     return wl?.slug && wl.slug !== 'clubify' ? wl.slug : null;
   }
 
+  // ───────────────────────────────────────────────────────────────────────
+  // COMISIÓN FIJA POR MARCA (EXCLUSIVO Sellea — modo FIXED_ONCE)
+  // ───────────────────────────────────────────────────────────────────────
+  // Una marca puede pagar comisiones de referido como MONTO FIJO en USD, UNA
+  // sola vez (no porcentaje, no recurrente). Opt-in por marca vía Setting
+  // `referrals.commissionMode.<slug>` = 'FIXED_ONCE'. Montos por rol/origen en
+  // `referrals.fixed.{negocio,influencer,embajador}.<slug>`. Clubify y cualquier
+  // marca SIN el flag → 'PERCENT_RECURRING' (comportamiento histórico, intacto).
+
+  /** Modo de comisión de una marca por SLUG. Clubify / sin marca nunca es fijo
+   *  → devolvemos sin tocar la DB (evita un query por cobro en el hot path). */
+  async getBrandCommissionMode(
+    brandSlug?: string | null,
+  ): Promise<'FIXED_ONCE' | 'PERCENT_RECURRING'> {
+    if (!brandSlug || brandSlug === 'clubify') return 'PERCENT_RECURRING';
+    const row = await this.prisma.setting.findUnique({
+      where: { key: this.regKey('referrals.commissionMode', brandSlug) },
+    });
+    return row?.value === 'FIXED_ONCE' ? 'FIXED_ONCE' : 'PERCENT_RECURRING';
+  }
+
+  /** Igual pero resolviendo el slug desde el whiteLabelId (el motor tiene el id
+   *  del código/tenant, no el slug). */
+  async getBrandCommissionModeByWhiteLabelId(
+    id?: string | null,
+  ): Promise<'FIXED_ONCE' | 'PERCENT_RECURRING'> {
+    if (!id) return 'PERCENT_RECURRING';
+    return this.getBrandCommissionMode(await this.slugForWhiteLabelId(id));
+  }
+
+  /** Monto fijo (USD) por rol/origen para una marca FIXED_ONCE.
+   *  kind: 'negocio' (auto-registro de un cliente en /refer) | 'influencer' |
+   *  'embajador'. Defaults = los de Sellea; sobreescribibles por Setting. */
+  async getBrandFixedAmount(
+    brandSlug: string | null | undefined,
+    kind: 'negocio' | 'influencer' | 'embajador',
+  ): Promise<number> {
+    const defaults: Record<typeof kind, number> = {
+      negocio: 30,
+      influencer: 80,
+      embajador: 40,
+    };
+    const row = await this.prisma.setting.findUnique({
+      where: { key: this.regKey(`referrals.fixed.${kind}`, brandSlug) },
+    });
+    const n = Number(row?.value);
+    return Number.isFinite(n) && n > 0 ? n : defaults[kind];
+  }
+
+  /** whiteLabelIds de TODAS las marcas en modo FIXED_ONCE (2 queries). Lo usan
+   *  los crons/recalcs recurrentes para SALTAR esas marcas: su comisión es única
+   *  (se paga en el primer cobro), nunca recurrente. */
+  async fixedOnceWhiteLabelIds(): Promise<Set<string>> {
+    const base = 'referrals.commissionMode.';
+    const rows = await this.prisma.setting.findMany({
+      where: { key: { startsWith: base }, value: 'FIXED_ONCE' },
+      select: { key: true },
+    });
+    const slugs = rows.map((r) => r.key.slice(base.length)).filter(Boolean);
+    if (!slugs.length) return new Set();
+    const wls = await this.prisma.whiteLabel.findMany({
+      where: { slug: { in: slugs } },
+      select: { id: true },
+    });
+    return new Set(wls.map((w) => w.id));
+  }
+
   /** Config del registro público resuelta por HOST (endpoint público). */
   async getPublicAffiliateRegistrationConfigForHost(host?: string | null) {
     const brand = await this.resolveSignupBrandByHost(host);
@@ -4372,10 +4526,37 @@ export class ReferralsService {
     // upline. Se devuelve para congelarlo (snapshot) en cada comisión.
     const tRow = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { commissionDistributionMode: true },
+      select: { commissionDistributionMode: true, whiteLabelId: true },
     });
     const mode = tRow?.commissionDistributionMode ?? 'DISCOUNT_FROM_INFLUENCER';
     if (!chain.sourceCodeId) return { chain, rows, mode };
+
+    // FIXED_ONCE (Sellea): el ESPERADO es el MONTO FIJO del código que hizo la
+    // venta (el referidor), no un % del `amount`. Sin indirecta ni vendor (rangos
+    // planos, sin jerarquía). Que el auditor/recalc conozcan esto evita marcar
+    // como "mal" una comisión fija correcta y evita que recalcCommissionToExpected
+    // / applyAllAuditFindings la recalculen a porcentaje.
+    const saleSlug = await this.slugForWhiteLabelId(tRow?.whiteLabelId ?? null);
+    if ((await this.getBrandCommissionMode(saleSlug)) === 'FIXED_ONCE') {
+      const src = await this.prisma.referralCode.findUnique({
+        where: { id: chain.sourceCodeId },
+        select: { role: true, fixedCommissionUsd: true },
+      });
+      const fixedAmt =
+        src?.fixedCommissionUsd != null
+          ? Number(src.fixedCommissionUsd)
+          : await this.getBrandFixedAmount(
+              saleSlug,
+              src?.role === 'AMBASSADOR' ? 'embajador' : 'influencer',
+            );
+      rows.push({
+        recipientCodeId: chain.sourceCodeId,
+        vendorCodeId: null,
+        amount: fixedAmt,
+        appliedPercent: 0,
+      });
+      return { chain, rows, mode };
+    }
 
     // Cada nivel puede tener su propia excepción por tenant. Si no hay, cae al
     // % normal del ReferralCode (que vino en `chain`).
@@ -4675,9 +4856,18 @@ export class ReferralsService {
     if (!group?.referralCodeId) return { generated: false, reason: 'grupo-sin-recipiente' };
     const code = await this.prisma.referralCode.findUnique({
       where: { id: group.referralCodeId },
-      select: { id: true, commissionPercent: true, isActive: true },
+      select: { id: true, commissionPercent: true, isActive: true, whiteLabelId: true },
     });
     if (!code || code.isActive === false) return { generated: false, reason: 'code-inactivo' };
+    // FIXED_ONCE (Sellea): las comisiones de GRUPO son porcentuales y recurrentes
+    // → no aplican al modelo de pago único. Se saltan para no pagarle % a una
+    // marca de monto fijo.
+    if (
+      (await this.getBrandCommissionModeByWhiteLabelId(code.whiteLabelId)) ===
+      'FIXED_ONCE'
+    ) {
+      return { generated: false, reason: 'marca-pago-unico' };
+    }
     // BRUTO = precio REAL del grupo (priceUsd, ej: 3×$50=$150) si está seteado;
     // sino cae al canónico de la periodicidad.
     const base =
@@ -5298,6 +5488,23 @@ export class ReferralsService {
     const amount = Number(amountUsd);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException('El valor de implementación debe ser > 0');
+    }
+
+    // FIXED_ONCE (Sellea): no existe comisión de implementación aparte — el
+    // modelo es UN solo monto fijo por referido. La bloqueamos para no crear un
+    // pago porcentual extra sobre una marca de pago único.
+    const implTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { whiteLabelId: true },
+    });
+    if (
+      (await this.getBrandCommissionModeByWhiteLabelId(
+        implTenant?.whiteLabelId ?? null,
+      )) === 'FIXED_ONCE'
+    ) {
+      throw new BadRequestException(
+        'Las marcas de pago único no usan comisión de implementación: pagan un monto fijo por referido.',
+      );
     }
 
     const chain = await this.getAttributionChain(tenantId);

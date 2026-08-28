@@ -10,6 +10,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { AuthService } from './auth.service';
+import { TrialOtpService } from './trial-otp.service';
 import { TwoFactorService } from './two-factor.service';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -100,7 +101,14 @@ class SignupDto {
 
 /** Registro al modo prueba (5 días gratis). Endpoint público pero el link
  *  /prueba o /trial NO se publicita — solo embajadores/equipo comercial. */
+/** Pedido del PIN de la prueba gratuita. Solo el correo: pedir el código NO
+ *  crea nada ni revela si ese correo ya tiene cuenta. */
+export class TrialOtpDto {
+  @IsEmail() email!: string;
+}
+
 class TrialSignupDto {
+  @IsOptional() @IsString() @MaxLength(6) otp?: string;
   @IsEmail() email!: string;
   @IsString() @MinLength(8) password!: string;
   @IsString() @MinLength(1) @MaxLength(60) firstName!: string;
@@ -139,6 +147,7 @@ export class AuthController {
   constructor(
     private auth: AuthService,
     private twoFactor: TwoFactorService,
+    private trialOtpSvc: TrialOtpService,
   ) {}
 
   // Brute-force defense: 10 intentos por minuto por IP. Errores 401
@@ -225,6 +234,20 @@ export class AuthController {
   @Post('trial-signup')
   trialSignup(@Body() dto: TrialSignupDto, @Ip() ip: string) {
     return this.auth.trialSignup(dto, ip);
+  }
+
+  /** Manda el PIN al correo de la prueba gratuita. Tope bajo: el envío no puede
+   *  volverse un arma para bombardear el buzón de otra persona.
+   *
+   *  OJO al orden: este método va DESPUÉS de trial-signup a propósito. Metido
+   *  entre el comentario de trial-signup y su @Post, se quedaba con SUS
+   *  decoradores y trial-signup perdía @Public() — el registro público empezaba
+   *  a devolver 401. Pasó de verdad. */
+  @Public()
+  @Throttle({ default: { ttl: 3_600_000, limit: 6 } })
+  @Post('trial-otp')
+  trialOtp(@Body() dto: TrialOtpDto, @Ip() ip: string) {
+    return this.trialOtpSvc.solicitar(dto.email, ip);
   }
 
   /** Branding de la marca para tematizar la página de auto-registro InfoLink. */

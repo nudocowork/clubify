@@ -484,6 +484,287 @@ export class CuponeraService {
   }
 
   /** Historial de canjes (§4 → Redenciones). Incluye la sede (§19). */
+  // --- Escrituras del panel (spec §4 y §28: "conseguir aliados, administrar
+  // miembros"). Todas pasan por resolveAdminCampaign ANTES de tocar nada: un
+  // CUPONERA_ADMIN solo puede escribir en la suya, y el campaignId del cliente
+  // se ignora o se rechaza. El id resuelto es el que baja al método de escritura,
+  // nunca el que vino en el body.
+
+  /** Alta de aliado desde el panel de la cuponera. */
+  async panelCreateAlly(user: AuthUser, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.createAlly({ ...dto, campaignId: campaign.id });
+  }
+
+  /** Aprobar / rechazar / suspender un aliado. Nace PENDING, así que sin esto
+   *  un aliado recién creado no aparece nunca en la cartelera. */
+  async panelSetAllyStatus(user: AuthUser, id: string, status: AllyStatus, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.setAllyStatus(id, status, campaign.id);
+  }
+
+  /** Editar la ficha de un aliado desde el panel. */
+  async panelUpdateAlly(user: AuthUser, id: string, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    await this.assertAlly(campaign.id, id);
+    const categoryId =
+      dto.categoryId === undefined
+        ? undefined
+        : await this.assertCategory(campaign.id, dto.categoryId);
+    return this.prisma.allyBusiness.update({
+      where: { id },
+      data: { ...this.allyUpdatableData(dto), ...(categoryId !== undefined ? { categoryId } : {}) },
+    });
+  }
+
+  /** Alta manual de beneficiario (el que paga por fuera, o el invitado). */
+  async panelEnrollMember(
+    user: AuthUser,
+    dto: { fullName: string; phone?: string; email?: string; planId?: string | null },
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.enrollMember({
+      campaignId: campaign.id,
+      fullName: dto.fullName,
+      phone: dto.phone ?? '',
+      email: dto.email ?? null,
+      planId: dto.planId ?? null,
+      source: 'MANUAL',
+    });
+  }
+
+  async panelCategories(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.listCategories(campaign.id);
+  }
+
+  async panelCreateCategory(
+    user: AuthUser,
+    dto: { name: string; icon?: string; sortOrder?: number },
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.createCategory({ ...dto, campaignId: campaign.id });
+  }
+
+  /** Planes de la cuponera: hacen falta para dar de alta a un beneficiario. */
+  async panelPlans(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.prisma.membershipPlan.findMany({
+      where: { campaignId: campaign.id },
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  /** Beneficios de la cuponera, con su aliado. Los PENDING son la bandeja de
+   *  aprobación: sin esta pantalla, un beneficio que exige revisión no se
+   *  publica nunca. */
+  async panelBenefits(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.prisma.benefit.findMany({
+      where: { campaignId: campaign.id },
+      include: { ally: { select: { id: true, name: true } } },
+      orderBy: [{ approval: 'asc' }, { createdAt: 'desc' }],
+      take: 300,
+    });
+  }
+
+  async panelSetBenefitApproval(
+    user: AuthUser,
+    id: string,
+    approval: 'PENDING' | 'APPROVED' | 'REJECTED',
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.setBenefitApproval(id, approval, user, campaign.id);
+  }
+
+  async panelUpdateCategory(
+    user: AuthUser,
+    id: string,
+    dto: { name?: string; icon?: string; sortOrder?: number; isActive?: boolean },
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.updateCategory(id, dto, campaign.id);
+  }
+
+  async panelDeleteCategory(user: AuthUser, id: string, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.deleteCategory(id, campaign.id);
+  }
+
+  async panelCreatePlan(user: AuthUser, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.createPlan({ ...dto, campaignId: campaign.id });
+  }
+
+  async panelUpdatePlan(user: AuthUser, id: string, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.updatePlan(id, dto, campaign.id);
+  }
+
+  async panelDeletePlan(user: AuthUser, id: string, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.deletePlan(id, campaign.id);
+  }
+
+  /**
+   * Ajustes que la cuponera maneja sola. Deliberadamente NO incluye `status`:
+   * publicar o pausar una cuponera es decisión de Fidelity (§1-2), y dejarlo
+   * acá permitiría auto-publicarse.
+   */
+  async panelSettings(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+    return {
+      name: campaign.name,
+      status: campaign.status,
+      welcomeText: campaign.welcomeText,
+      requireBenefitApproval: !!cfg.requireBenefitApproval,
+      allyPushPerWeek: Number.isFinite(Number(cfg.allyPushPerWeek)) ? Number(cfg.allyPushPerWeek) : 1,
+    };
+  }
+
+  async panelUpdateSettings(
+    user: AuthUser,
+    dto: { welcomeText?: string; requireBenefitApproval?: boolean; allyPushPerWeek?: number },
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    const cfg = ((campaign.config as any) || {}) as Record<string, any>;
+    if (dto.requireBenefitApproval !== undefined) {
+      cfg.requireBenefitApproval = !!dto.requireBenefitApproval;
+    }
+    if (dto.allyPushPerWeek !== undefined) {
+      // 0 apaga los avisos del aliado; el tope evita que una cuponera se
+      // autorice a spamear a su comunidad.
+      cfg.allyPushPerWeek = Math.max(0, Math.min(20, Math.round(dto.allyPushPerWeek)));
+    }
+    await this.prisma.benefitCampaign.update({
+      where: { id: campaign.id },
+      data: {
+        welcomeText: dto.welcomeText ?? undefined,
+        config: cfg as any,
+      },
+    });
+    return this.panelSettings(user, campaignId);
+  }
+
+  // --- Alcance al beneficiario: push y geopush (§20, §9) ---
+
+  /** A cuánta gente llega un envío ANTES de mandarlo. Sin este número, el aviso
+   *  se manda a ciegas y no hay forma de notar que el segmento quedó vacío. */
+  async panelPushReach(user: AuthUser, seg: { planId?: string; allyId?: string }, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    const ids = seg.planId || seg.allyId
+      ? await this.resolveSegment(campaign.id, seg)
+      : (await this.prisma.livingMembership.findMany({
+          where: { campaignId: campaign.id, status: 'ACTIVE' },
+          select: { customerId: true },
+        })).map((m) => m.customerId);
+    if (!ids.length) return { alcance: 0 };
+    const alcance = await this.prisma.pass.count({
+      where: { tenantId: campaign.tenantId, customerId: { in: ids }, status: 'ACTIVE' },
+    });
+    return { alcance };
+  }
+
+  async panelSendPush(
+    user: AuthUser,
+    dto: { title: string; body: string; planId?: string; allyId?: string; scheduledAt?: string },
+    campaignId?: string,
+  ) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    if (!dto.title?.trim() || !dto.body?.trim()) {
+      throw new BadRequestException('Falta el título o el mensaje');
+    }
+    if (dto.planId || dto.allyId) {
+      return this.sendSegmentPush({
+        planId: dto.planId,
+        allyId: dto.allyId,
+        title: dto.title,
+        body: dto.body,
+        campaignId: campaign.id,
+      });
+    }
+    return this.sendBroadcast({
+      title: dto.title,
+      body: dto.body,
+      scheduledAt: dto.scheduledAt,
+      campaignId: campaign.id,
+    });
+  }
+
+  async panelNotifications(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.listNotifications(campaign.id);
+  }
+
+  async panelGeopush(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.listGeopush(campaign.id);
+  }
+
+  async panelCreateGeopush(user: AuthUser, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.createGeopush({ ...dto, campaignId: campaign.id });
+  }
+
+  async panelUpdateGeopush(user: AuthUser, id: string, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.updateGeopush(id, dto, campaign.id);
+  }
+
+  async panelDeleteGeopush(user: AuthUser, id: string, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.deleteGeopush(id, campaign.id);
+  }
+
+  // --- Sellos comunitarios (§21) ---
+
+  async panelStampPrograms(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.listStampPrograms(campaign.id);
+  }
+
+  async panelCreateStampProgram(user: AuthUser, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.createStampProgram(dto, campaign.id);
+  }
+
+  async panelUpdateStampProgram(user: AuthUser, id: string, dto: any, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.updateStampProgram(id, dto, campaign.id);
+  }
+
+  async panelDeleteStampProgram(user: AuthUser, id: string, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.deleteStampProgram(id, campaign.id);
+  }
+
+  /** Negocios de la marca que pueden ser aliado TIPO A (§16): su escáner de
+   *  siempre reconocerá la tarjeta de la cuponera. */
+  async panelTenantOptions(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    const yaAliados = await this.prisma.allyBusiness.findMany({
+      where: { campaignId: campaign.id, tenantId: { not: null } },
+      select: { tenantId: true },
+    });
+    const excluidos = yaAliados.map((a) => a.tenantId!) ;
+    return this.prisma.tenant.findMany({
+      where: {
+        isCampaignHost: false,
+        ...(campaign.whiteLabelId ? { whiteLabelId: campaign.whiteLabelId } : {}),
+        ...(excluidos.length ? { id: { notIn: excluidos } } : {}),
+      },
+      select: { id: true, name: true, brandName: true, slug: true },
+      orderBy: { name: 'asc' },
+      take: 300,
+    });
+  }
+
   async panelRedemptions(user: AuthUser, campaignId?: string) {
     const campaign = await this.resolveAdminCampaign(user, campaignId);
     return this.prisma.redemption.findMany({
@@ -587,6 +868,21 @@ export class CuponeraService {
    * PLATFORM_OWNER/SUPER_ADMIN pueden pedir cualquiera por id (spec §1: "entrar
    * administrativamente a cualquier cuponera").
    */
+  /**
+   * Campaña por id, o Living Card si no se pasa ninguno. Es el default que
+   * tenían clavado ~50 métodos del Master Admin: mantenerlo hace que agregar el
+   * parámetro NO cambie nada de lo que ya funciona.
+   *
+   * NO autoriza: para eso está `resolveAdminCampaign`. Los llamadores del panel
+   * resuelven primero por ahí y recién entonces pasan el id.
+   */
+  private async campaignOrLiving(campaignId?: string | null) {
+    if (!campaignId) return this.ensureLivingCampaign();
+    const c = await this.prisma.benefitCampaign.findUnique({ where: { id: campaignId } });
+    if (!c) throw new NotFoundException('Cuponera no encontrada');
+    return c;
+  }
+
   async resolveAdminCampaign(user: AuthUser, requestedId?: string) {
     if (user.role === 'CUPONERA_ADMIN') {
       if (!user.campaignId) throw new ForbiddenException('Sesión sin cuponera');
@@ -792,6 +1088,8 @@ export class CuponeraService {
     description?: string;
     sortOrder?: number;
     isActive?: boolean;
+    /** Cuponera destino. Sin esto, Living Card (comportamiento histórico). */
+    campaignId?: string;
     /** Mapeo a las pasarelas (spec §24). Ver PlanBody en el controller. */
     hotmartProductId?: string | null;
     hotmartOfferCode?: string | null;
@@ -799,7 +1097,7 @@ export class CuponeraService {
     hotmartCheckoutUrl?: string | null;
     stripeCheckoutUrl?: string | null;
   }) {
-    const campaign = await this.ensureLivingCampaign();
+    const campaign = await this.campaignOrLiving(dto.campaignId);
     return this.prisma.membershipPlan.create({
       data: {
         campaignId: campaign.id,
@@ -817,8 +1115,12 @@ export class CuponeraService {
     });
   }
 
-  async updatePlan(id: string, dto: Partial<Parameters<CuponeraService['createPlan']>[0]>) {
-    const campaign = await this.ensureLivingCampaign();
+  async updatePlan(
+    id: string,
+    dto: Partial<Parameters<CuponeraService['createPlan']>[0]>,
+    campaignId?: string,
+  ) {
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertPlan(campaign.id, id);
     return this.prisma.membershipPlan.update({
       where: { id },
@@ -920,8 +1222,8 @@ export class CuponeraService {
     };
   }
 
-  async deletePlan(id: string) {
-    const campaign = await this.ensureLivingCampaign();
+  async deletePlan(id: string, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertPlan(campaign.id, id);
     await this.prisma.membershipPlan.delete({ where: { id } });
     return { ok: true };
@@ -939,16 +1241,21 @@ export class CuponeraService {
   // Categorías de beneficios
   // ---------------------------------------------------------------------------
 
-  async listCategories() {
-    const campaign = await this.ensureLivingCampaign();
+  async listCategories(campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     return this.prisma.benefitCategory.findMany({
       where: { campaignId: campaign.id },
       orderBy: { sortOrder: 'asc' },
     });
   }
 
-  async createCategory(dto: { name: string; icon?: string; sortOrder?: number }) {
-    const campaign = await this.ensureLivingCampaign();
+  async createCategory(dto: {
+    name: string;
+    icon?: string;
+    sortOrder?: number;
+    campaignId?: string;
+  }) {
+    const campaign = await this.campaignOrLiving(dto.campaignId);
     const slug = this.slugify(dto.name);
     return this.prisma.benefitCategory.create({
       data: {
@@ -964,8 +1271,9 @@ export class CuponeraService {
   async updateCategory(
     id: string,
     dto: { name?: string; icon?: string; sortOrder?: number; isActive?: boolean },
+    campaignId?: string,
   ) {
-    const campaign = await this.ensureLivingCampaign();
+    const campaign = await this.campaignOrLiving(campaignId);
     const cat = await this.prisma.benefitCategory.findFirst({
       where: { id, campaignId: campaign.id },
     });
@@ -982,8 +1290,8 @@ export class CuponeraService {
     });
   }
 
-  async deleteCategory(id: string) {
-    const campaign = await this.ensureLivingCampaign();
+  async deleteCategory(id: string, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     const cat = await this.prisma.benefitCategory.findFirst({
       where: { id, campaignId: campaign.id },
     });
@@ -1388,6 +1696,8 @@ export class CuponeraService {
 
   /** Crea un negocio aliado + su cuenta de login (role=ALLY_BUSINESS). */
   async createAlly(dto: {
+    /** Cuponera destino. Sin esto, Living Card (comportamiento histórico). */
+    campaignId?: string;
     name: string;
     email: string;
     ownerFullName: string;
@@ -1439,7 +1749,7 @@ export class CuponeraService {
       }
       tenantId = t.id;
     }
-    const campaign = await this.ensureLivingCampaign();
+    const campaign = await this.campaignOrLiving(dto.campaignId);
     const categoryId = await this.assertCategory(campaign.id, dto.categoryId);
     const email = dto.email.trim().toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
@@ -1532,8 +1842,8 @@ export class CuponeraService {
     return ally;
   }
 
-  async setAllyStatus(id: string, status: AllyStatus) {
-    const campaign = await this.ensureLivingCampaign();
+  async setAllyStatus(id: string, status: AllyStatus, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertAlly(campaign.id, id);
     return this.prisma.allyBusiness.update({ where: { id }, data: { status } });
   }
@@ -1998,8 +2308,9 @@ export class CuponeraService {
     id: string,
     approval: 'PENDING' | 'APPROVED' | 'REJECTED',
     user?: AuthUser,
+    campaignId?: string,
   ) {
-    const campaign = await this.ensureLivingCampaign();
+    const campaign = await this.campaignOrLiving(campaignId);
     const b = await this.prisma.benefit.findFirst({ where: { id, campaignId: campaign.id } });
     if (!b) throw new NotFoundException('Beneficio no encontrado');
     const updated = await this.prisma.benefit.update({ where: { id }, data: { approval } });
@@ -2476,8 +2787,8 @@ export class CuponeraService {
   // Sellos comunitarios (Fase 5)
   // ---------------------------------------------------------------------------
 
-  async listStampPrograms() {
-    const campaign = await this.ensureLivingCampaign();
+  async listStampPrograms(campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     return this.prisma.stampProgram.findMany({
       where: { campaignId: campaign.id },
       include: { category: { select: { name: true } }, _count: { select: { cards: true } } },
@@ -2485,8 +2796,8 @@ export class CuponeraService {
     });
   }
 
-  async createStampProgram(dto: StampProgramDto) {
-    const campaign = await this.ensureLivingCampaign();
+  async createStampProgram(dto: StampProgramDto, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     const categoryId = await this.assertCategory(campaign.id, dto.categoryId);
     if (!dto.name?.trim()) throw new BadRequestException('Nombre requerido');
     return this.prisma.stampProgram.create({
@@ -2510,8 +2821,8 @@ export class CuponeraService {
     return p;
   }
 
-  async updateStampProgram(id: string, dto: StampProgramDto) {
-    const campaign = await this.ensureLivingCampaign();
+  async updateStampProgram(id: string, dto: StampProgramDto, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertStampProgram(campaign.id, id);
     const categoryId =
       dto.categoryId === undefined ? undefined : await this.assertCategory(campaign.id, dto.categoryId);
@@ -2530,8 +2841,8 @@ export class CuponeraService {
     });
   }
 
-  async deleteStampProgram(id: string) {
-    const campaign = await this.ensureLivingCampaign();
+  async deleteStampProgram(id: string, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertStampProgram(campaign.id, id);
     await this.prisma.stampProgram.delete({ where: { id } });
     return { ok: true };
@@ -2702,8 +3013,8 @@ export class CuponeraService {
 
   /** Geopush = Location del tenant de sistema → geofence embebido en TODOS los
    *  pases de los miembros (Apple/Google muestran el aviso al acercarse). */
-  async listGeopush() {
-    const campaign = await this.ensureLivingCampaign();
+  async listGeopush(campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     return this.locations.list(this.sysUser(), campaign.tenantId);
   }
 
@@ -2714,8 +3025,9 @@ export class CuponeraService {
     radiusMeters?: number;
     walletRelevantText?: string;
     address?: string;
+    campaignId?: string;
   }) {
-    const campaign = await this.ensureLivingCampaign();
+    const campaign = await this.campaignOrLiving(dto.campaignId);
     return this.locations.create(this.sysUser(), dto, campaign.tenantId);
   }
 
@@ -2737,22 +3049,25 @@ export class CuponeraService {
       walletRelevantText: string;
       address: string;
     }>,
+    campaignId?: string,
   ) {
-    const campaign = await this.ensureLivingCampaign();
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertGeopush(campaign.tenantId, id);
     return this.locations.update(this.sysUser(), id, dto);
   }
 
-  async deleteGeopush(id: string) {
-    const campaign = await this.ensureLivingCampaign();
+  async deleteGeopush(id: string, campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     await this.assertGeopush(campaign.tenantId, id);
     return this.locations.remove(this.sysUser(), id);
   }
 
   /** Push GENERAL a toda la comunidad (broadcast a los pases de la Living Card).
    *  Reusa NotificationsService (crea la Notification + push Apple/Google). */
-  async sendBroadcast(dto: { title: string; body: string; scheduledAt?: string }) {
-    const campaign = await this.ensureLivingCampaign();
+  async sendBroadcast(dto: {
+    title: string; body: string; scheduledAt?: string; campaignId?: string;
+  }) {
+    const campaign = await this.campaignOrLiving(dto.campaignId);
     const card = await this.ensureLivingCard(campaign);
     return this.notifications.send(
       this.sysUser(),
@@ -2761,8 +3076,8 @@ export class CuponeraService {
     );
   }
 
-  async listNotifications() {
-    const campaign = await this.ensureLivingCampaign();
+  async listNotifications(campaignId?: string) {
+    const campaign = await this.campaignOrLiving(campaignId);
     return this.notifications.list(this.sysUser(), campaign.tenantId);
   }
 
@@ -2799,8 +3114,10 @@ export class CuponeraService {
 
   /** Push a un SEGMENTO (por plan o por negocio). Crea una Notification por
    *  cliente (customerId → lastMessage correcto) y push Apple/Google por pase. */
-  async sendSegmentPush(dto: { planId?: string; allyId?: string; title: string; body: string }) {
-    const campaign = await this.ensureLivingCampaign();
+  async sendSegmentPush(dto: {
+    planId?: string; allyId?: string; title: string; body: string; campaignId?: string;
+  }) {
+    const campaign = await this.campaignOrLiving(dto.campaignId);
     const card = await this.ensureLivingCard(campaign);
     if (!dto.planId && !dto.allyId) {
       throw new BadRequestException('Falta el segmento (planId o allyId)');

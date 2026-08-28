@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
-import { useAuthBrand } from '@/components/AuthBrand';
+import { useAuthBrand, type AuthBrand } from '@/components/AuthBrand';
+import { darkenHex } from '@/lib/panel-brand-theme';
 import { AcademyButton } from '@/components/AcademyButton';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -31,6 +32,12 @@ type CodeRow = {
   uses: Use[];
 };
 
+// Términos de comisión de la marca (EXCLUSIVO Sellea, modo FIXED_ONCE): monto
+// fijo por negocio, pago único. Ausente/fixedOnce=false → marca normal (%).
+type ReferralTerms =
+  | { fixedOnce: false }
+  | { fixedOnce: true; negocioAmount: number; influencerAmount: number; embajadorAmount: number };
+
 type MyReferrals = {
   codes: CodeRow[];
   totals: {
@@ -39,6 +46,7 @@ type MyReferrals = {
     paidUsd: number;
     pendingUsd: number;
   };
+  terms?: ReferralTerms;
 };
 
 const STATUS_LABEL_KEY: Record<Use['status'], { labelKey: string; cls: string }> = {
@@ -92,6 +100,8 @@ export default function TenantReferrals() {
 
   const totals = data!.totals;
   const codes = data!.codes;
+  // Modo comisión fija (Sellea): cambia el copy a "$N pago único" y el color.
+  const fixedTerms = data?.terms?.fixedOnce ? data.terms : null;
 
   return (
     <div className="max-w-4xl">
@@ -101,8 +111,9 @@ export default function TenantReferrals() {
           <AcademyButton moduleKey="referidos" />
         </div>
         <p className="text-mute text-sm mt-1 leading-relaxed">
-          {t.rich('intro', {
+          {t.rich(fixedTerms ? 'introFixed' : 'intro', {
             brandName: brand?.name ?? 'Clubify',
+            amount: fixedTerms ? fixedTerms.negocioAmount : 0,
             b: (chunks) => <b className="text-brand">{chunks}</b>,
             br: () => <br />,
           })}
@@ -126,7 +137,7 @@ export default function TenantReferrals() {
       </div>
 
       {codes.length === 0 ? (
-        <EmptyState />
+        <EmptyState brand={brand} terms={fixedTerms} />
       ) : (
         <div className="space-y-4">
           {codes.map((c) => (
@@ -272,18 +283,37 @@ function Kpi({
   );
 }
 
-function EmptyState() {
+function EmptyState({
+  brand,
+  terms,
+}: {
+  brand: AuthBrand | null;
+  terms: Extract<ReferralTerms, { fixedOnce: true }> | null;
+}) {
   const t = useTranslations('app_referrals');
   // El link de ejemplo muestra el dominio de la marca (host actual), no
   // soyclubify.com hardcodeado. Solo se renderiza en cliente (tras el fetch),
   // pero el guard de window cubre el prerender.
   const exampleHost =
     typeof window !== 'undefined' ? window.location.host : 'soyclubify.com';
+  // Color de la marca (Sellea) SOLO en esta tarjeta, vía inline — NO tocamos el
+  // theming global `.brand-panel`, así ninguna otra pantalla ni marca cambia.
+  // Clubify (brand null) conserva el verde por las clases Tailwind.
+  const c = brand?.primaryColor;
+  const bgStyle = c
+    ? { background: `linear-gradient(to bottom right, ${c}, ${darkenHex(c, 0.22)})` }
+    : undefined;
   return (
-    <div className="card card-pad bg-gradient-to-br from-brand-400 to-brand-700 text-white">
+    <div
+      className={`card card-pad text-white ${
+        c ? '' : 'bg-gradient-to-br from-brand-400 to-brand-700'
+      }`}
+      style={bgStyle}
+    >
       <div className="text-2xl font-bold">{t('emptyTitle')}</div>
       <p className="text-white/85 leading-relaxed mt-2">
-        {t.rich('emptyDesc', {
+        {t.rich(terms ? 'emptyDescFixed' : 'emptyDesc', {
+          amount: terms ? terms.negocioAmount : 0,
           b: (chunks) => <b>{chunks}</b>,
         })}
       </p>

@@ -129,6 +129,60 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
   UPDATE condicional y mira el `count`.
 
 ---
+## 2026-08-27 — Comisión FIJA de pago único para Sellea + fugas Clubify (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — commits `e497fa55`, `f4bb2e43`,
+`b64d849c`, `f14d3783`. **DESPLEGADO Y VERIFICADO EN PRODUCCIÓN** (migración →
+backend → frontend, en orden).
+
+### Qué cambié
+Sellea pasa a pagar comisiones de referido como **monto FIJO en USD, UNA sola
+vez** (no %, no recurrente). 100% aislado por marca — Clubify y las demás no
+cambian. Montos (config, ajustables): **negocio $30 · influencer $80 · embajador
+$40**. Socio (10% global) **apagado para Sellea**. Decisiones tomadas con el
+founder.
+- **Esquema:** `ReferralCode.fixedCommissionUsd` (nullable). Si != null → monto
+  fijo, `periodKey='ONCE'` (la @@unique impide 2º pago, renovaciones incluidas).
+- **Config por-marca** (Settings, patrón `regKey`): `commissionMode.sellea=
+  FIXED_ONCE` + `fixed.{negocio,influencer,embajador}.sellea`.
+- **TODOS los caminos de comisión** honran el modo fijo (no solo el webhook):
+  `generateReferralCommission`, backfill de reasignación, cron recurrente
+  (hoy desactivado, defensivo), `computeExpectedCommissionRows` (auditor/recalc),
+  implementación (bloqueada), grupo (saltada), socio (saltada).
+- **Fix de leak:** `/refer` (`POST /referrals/codes`) ahora es brand-aware por
+  Origin/Referer — antes el código del negocio Sellea nacía bajo **Clubify**.
+- **Frontend:** dashboard del negocio con color de marca (inline, sin tocar
+  theming global) + texto "$30 pago único"; `/refer` muestra el monto real;
+  panel admin de referidos "Clubify"→nombre de marca (i18n); panel de afiliado
+  (`payouts`, `team`) sin fugas "Clubify".
+
+### Qué toqué de PRODUCCIÓN
+- **Migración** (`scripts/apply-referral-fixed-commission.cjs`): columna
+  `ReferralCode.fixedCommissionUsd` + 4 Settings de Sellea (commissionMode=
+  FIXED_ONCE, fixed.negocio=30/influencer=80/embajador=40). Aditiva, verificada 4/4.
+- **Backend** desplegado (`desplegar.cjs backend` → clona el commit, no la
+  carpeta; swap confirmado por uptime 21719→19s).
+- **Frontend** desplegado (`desplegar.cjs frontend`, Vercel, READY).
+- **Verificado end-to-end:** `/referrals/public-terms` con Origin Sellea →
+  `{fixedOnce:true, negocio 30, influencer 80, embajador 40}`; sin Origin
+  (Clubify) → `{fixedOnce:false}` (aislamiento OK); `/referrals/me`=401 (montado);
+  app.selleala.com + app.soyclubify.com + /refer = 200.
+
+### Qué falta / qué hay que validar del otro lado
+- [x] Migración corrida. [x] Push. [x] Deploy backend. [x] Deploy frontend.
+- [x] El deploy del backend arregló el error `transformOnRedeem` al crear
+      tarjetas de descuento (prod iba por detrás del commit b69a3688).
+- [ ] Prueba funcional real en Sellea: generar código de negocio (debe decir
+      "$30 pago único"), y confirmar que una venta referida genera UNA comisión
+      fija (no %, no recurrente). El código está verificado; falta el e2e con
+      una venta real.
+- [ ] Aparte (pendiente de antes): arreglar la secret key de Stripe de Sellea
+      para el punto 2 (compra e2e).
+
+### Riesgos y avisos
+- El trabajo de `card_logo_bg_color` (cards/wallet) que estaba sin commitear al
+  inicio del día **desapareció del working tree** durante mi sesión (sync de
+  OneDrive). NO lo toqué (regla #3). Si era tuyo y lo necesitás, está en tu copia.
 
 ## 2026-08-26 — NOTA A JAVIER: mergeé tu rama a prod + desplegué todo (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
@@ -170,6 +224,287 @@ Origin/Referer (+ activado para Sellea), panel de referidos brand-aware
 Falta lo que se ve: interruptor admin (`conveniosEnabled`/`maxConvenios`), 2
 endpoints (listar personas activadas + bloquear), página de activación del empleado,
 plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
+
+## 2026-08-27 — Team Clubify: el chat se completa al abrirlo y las fotos ya se ven (Jhon)
+**Máquina/quién:** Jhon (Mac)
+**Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commit `9bd5901` · desplegado
+
+### Qué cambié
+- **El chat se completa al ABRIRLO.** El barrido cada 10 minutos era la única vía
+  y no es una garantía: si en esa pasada el proveedor falla o la línea no llega a
+  procesarse, el hilo se queda corto justo cuando alguien lo mira. Ahora abrir un
+  chat lo completa contra el proveedor en segundo plano (una página, una vez cada
+  2 minutos por hilo). Primero se pinta lo guardado: nunca espera al proveedor.
+- **Las fotos.** El proveedor las entrega en `attachments` y no había dónde
+  guardarlas: el mensaje entraba como el TEXTO `type message: image` y la imagen
+  se perdía — en el caso que lo destapó, la lista de precios que le mandaron al
+  cliente. Columna nueva + se pintan en el hilo, y al volver a pasar por un
+  mensaje ya guardado se le completa la imagen que le faltaba.
+- `type message: <tipo>` es enrutamiento del proveedor, no lo que leyó el
+  cliente: se quita del cuerpo.
+- Deduplicar dejó de ser 300 consultas por apertura: una sola por `ext_id`.
+
+### Qué toqué de PRODUCCIÓN
+- **Base de datos (Team Clubify, aditivo):** `ConversationMessage.attachments`
+  (`TEXT[] NOT NULL DEFAULT '{}'`), con `scripts/add-message-attachments.cjs`
+  (idempotente, `IF NOT EXISTS`). Ya aplicada.
+- **Despliegue:** `vercel --prod` desde `team_clubify/`. `team.soyclubify.com`
+  responde 200.
+
+**Segundo bloque del mismo día — el barrido dejó de fallar en silencio**
+(commit `d30aa6a`, desplegado). Cuando una línea fallaba, el error viajaba en la
+respuesta del cron y nadie la leía nunca:
+- Cada pasada deja constancia por línea (`last_import_at` / `last_import_error`)
+  y **avisa por la campana solo cuando CAMBIA de estado** — se rompió o se
+  arregló. Avisar en cada pasada sería una queja cada 10 minutos y en dos días
+  nadie miraría la campana. Va a gerentes/admin y al dueño de la línea; tema
+  nuevo «Líneas de WhatsApp», apagable como cualquier otro.
+- En **Integraciones → WhatsApp** cada línea dice si está trayendo los chats y
+  desde cuándo no.
+- Un fallo **pasajero** del proveedor (timeout, 500) ya no se confunde con no
+  tener permiso: antes `.catch(() => null)` los mezclaba y **un solo tropiezo
+  dejaba el resto de la pasada en «solo el último mensaje de cada chat»**.
+- Segunda migración aditiva, ya aplicada:
+  `node scripts/add-connection-import-status.cjs`.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Las fotos VIEJAS solo se recuperan cuando algo vuelve a pasar por ese
+      mensaje (abrir el chat, el barrido de 3 h, o el botón «Sincronizar»). No
+      hice un backfill de todo el histórico.
+- [ ] Los adjuntos ENTRANTES (una foto que manda el cliente) todavía no los
+      captura el webhook en el momento: entran cuando el hilo se completa.
+- [ ] **Railway sigue bloqueado por tres variables VACÍAS** en el servicio `web`:
+      `BLOB_PUBLIC_READ_WRITE_TOKEN`, `GROW_BUSINESS_API_KEY`,
+      `GROW_BUSINESS_ACCOUNT_ID`. Existen en la lista (32 variables) pero sin
+      valor: «existe» y «tiene valor» son cosas distintas y la pantalla no las
+      distingue. Hay que pegarlas en la UI de Railway y después correr
+      `node scripts/preflight-railway.cjs`.
+
+### Riesgos y avisos
+- Producción de Team Clubify sigue en **Vercel** (`vercel --prod` desde
+  `team_clubify/`, siempre con `git fetch` antes). El corte a Railway sigue en
+  espera por lo de arriba.
+- Verificaciones repetibles que dejé, las dos contra la base real:
+  `npx tsx scripts/verify-thread-refresh.ts <leadId>` (dos pasadas; falla si la
+  segunda trae algo = cada apertura duplicaría el hilo. Probado en uno de 9 y en
+  uno de 480 mensajes) y `npx tsx scripts/verify-inbox-sync-alert.ts` (avisa al
+  romperse, calla mientras sigue roto, avisa al arreglarse; restaura la línea y
+  borra las notificaciones que crea).
+
+## 2026-08-27 — OTP de la prueba gratuita ACTIVO + incidente de 401 (PRODUCCIÓN)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+
+### 🚨 Incidente: el registro público estuvo devolviendo 401
+
+Al agregar `POST /auth/trial-otp` lo puse **entre el comentario de
+`trial-signup` y su `@Post`**. En NestJS los decoradores se pegan al primer
+método que aparece debajo y un comentario en medio no separa nada, así que el
+método nuevo **se llevó los decoradores de `trial-signup`**, incluido
+`@Public()`. El registro público devolvió **401** durante unos minutos, entre el
+despliegue del OTP y el arreglo (`01a14a05`).
+
+**No lo atrapó nada de lo habitual:** `tsc` compila, la app arranca y las rutas
+se mapean igual. Lo único que cambia es QUIÉN puede entrar.
+
+→ Se agregó `backend/test/auth-rutas-publicas.test.ts`, que lee los metadatos y
+verifica que las 6 rutas públicas de auth lo sean. Probado al revés: quitando
+`@Public()` de trial-signup el test falla. **`logout` es público a propósito** —
+uno tiene que poder cerrar sesión con el token vencido.
+
+### Qué toqué de PRODUCCIÓN
+
+- **Base:** tabla `TrialEmailOtp` (`apply-trial-otp.cjs`) + fila
+  `Setting['trial.otp.required'] = 'true'`.
+- **Backend:** desplegado dos veces (el OTP y el arreglo del 401).
+- **Frontend:** desplegado (`vercel --prod`; el `promote` dio 409 = ya era
+  producción).
+
+### El OTP ya está ACTIVO. Verificado sin crear ninguna cuenta:
+
+| Prueba | Resultado |
+|---|---|
+| Pedir PIN a un correo | `{"enviado":true}` — Grow Business lo aceptó |
+| Registro SIN código | 400 "El código son 6 dígitos" |
+| Registro con código inventado | 400 "Ese código venció o ya se usó" |
+| ¿Se creó alguna cuenta? | **0** — el chequeo corre antes de tocar la base |
+
+### Aviso importante sobre el interruptor
+
+`Setting['trial.otp.required']` controla **solo el backend**. El formulario
+deshabilita el botón hasta tener 6 dígitos **pase lo que pase**, así que
+desplegar el frontend ya activa el PIN para el usuario aunque el flag esté
+apagado. **Apagar el flag NO alcanza para revertir**: hay que revertir también
+el frontend.
+
+### Contexto que quizá cambie la prioridad
+
+El pedido nació de "se están creando trials con correos falsos". Revisé:
+los `sectest.*` del PDF son **0** en producción, los 11 trials de mayo-junio son
+negocios reales, y el único reciente con pinta de falso es `secaudit1@test.com`
+de ayer — **una cuenta de auditoría nuestra**. La puerta estaba abierta, pero el
+abuso no aparece en los datos.
+
+---
+
+## 2026-08-27 — Living Card cargada: 7 categorías + 3 planes (PRODUCCIÓN)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+
+### Qué toqué de PRODUCCIÓN
+
+- **Base de datos (contenido, no esquema):** creadas 7 categorías
+  (Restaurantes, Cafés, Belleza y bienestar, Gimnasios y deporte, Salud, Moda y
+  tiendas, Ocio y entretenimiento) y 3 planes en la cuponera `living-card`.
+- Se hizo por los métodos del panel (misma validación que la UI), no por SQL.
+
+### Decisión importante: los planes PAGOS quedaron INACTIVOS
+
+| Plan | Precio | Estado |
+|---|---|---|
+| Living Card Gratis | $0 | **ACTIVO** — visible y funcionando |
+| Living Card Mensual | $50.000 | inactivo |
+| Living Card Anual | $500.000 | inactivo |
+
+**Por qué:** MercadoPago NO está configurado y ningún plan está mapeado a
+Hotmart/Stripe, así que **nadie puede pagar**. Publicar "$50.000" en una página
+pública donde el botón Pagar devuelve *"MercadoPago no está configurado
+todavía"* es peor que no mostrarlo. Se activan con un clic (Configuración →
+Planes) en cuanto haya pasarela.
+
+⚠️ **Los precios son los del spec §23, no confirmados con el negocio.** Revisar
+antes de activarlos.
+
+### Verificado en producción (no solo en local)
+
+Registro gratuito real por HTTP público, de punta a punta:
+`POST /cuponera/public/join-free` → emitió el pase →
+`GET /cuponera/public/card/find?q=<email>` lo encontró →
+`GET /passes/<id>/google` devolvió 200. **El cliente de prueba se borró.**
+
+### Qué falta
+
+- [ ] **Aliados: siguen en 0.** La cartelera dice "Todavía no hay beneficios
+      publicados" (degrada bien, no está rota). Cargarlos desde
+      `soyclubify.com/cuponera/admin` → Aliados.
+- [ ] Confirmar los precios y activar los planes pagos.
+- [ ] Configurar una pasarela: MercadoPago (Configuración) o mapear los planes a
+      Hotmart/Stripe (`/superadmin/living-card` → «Pagos»).
+
+### Aviso
+
+- `requireBenefitApproval` está en **false**: lo que carga un aliado se publica
+  **solo**, sin pasar por la bandeja de revisión. Si se quiere revisar antes,
+  encenderlo en Configuración.
+
+---
+
+## 2026-08-27 — DESPLEGADO: backend + frontend (panel de la cuponera y pasarelas)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama:** `feat/commissions-auto-cutoffs` — **EN PRODUCCIÓN**
+
+### Qué toqué de PRODUCCIÓN
+
+- ✅ **Backend desplegado** (`railway up --service backend` **desde la RAÍZ** —
+  `rootDirectory` confirmado en `/backend`). Swap verificado: uptime 7715 s → 20 s.
+- ✅ **Frontend desplegado** (`vercel --prod`). El `promote` devolvió **409 "is
+  already the current production deployment"**, que es la CONFIRMACIÓN de que
+  swappeó solo. Verificado buscando cadenas de la UI nueva dentro de los chunks
+  que sirve `soyclubify.com` — el HTML no sirve porque la página se renderiza en
+  cliente.
+- ❌ Base de datos: **sin cambios**. El panel no necesitó migraciones.
+
+### Lo que había en producción ANTES (y no sabíamos)
+
+- **El código de pasarelas §24-25 YA estaba desplegado.** Lo arrastró el deploy
+  de la otra sesión del 26-ago 22:11. Por suerte en el orden correcto: la
+  migración se había aplicado a las ~17:00.
+- **La cuponera ya no está en `DRAFT`: está `ACTIVE`.** Alguien la publicó. La
+  cartelera pública está viva.
+
+### Qué falta / qué hay que validar del otro lado
+
+- [ ] ⚠️ **La cuponera está ACTIVE pero VACÍA: 0 aliados, 0 beneficios, 0 planes.**
+      Quien entre a `soyclubify.com/livingcard/cartelera` ve una página en blanco.
+      Ahora se puede cargar todo desde `soyclubify.com/cuponera/admin`.
+- [ ] Cargar el mapeo de planes a Hotmart/Stripe en `/superadmin/living-card` →
+      «Pagos — Hotmart y Stripe».
+- [ ] Una compra real. Las pasarelas están vivas (los webhooks responden y
+      rechazan credenciales inválidas) pero **nunca pasó dinero por ahí**.
+
+### Riesgos y avisos
+
+- 🔍 **Cómo verificar un deploy de backend:** comparar la ruta sospechosa contra
+  una **inventada**. Un 404 solo significa "no desplegada" si la inventada
+  también da 404. Y `/webhooks/hotmart` da 404 en GET porque es POST-only: hay
+  que probarlo con POST (devuelve 200 `invalid_hottok`).
+- 🔍 **`vercel inspect` mostró "Aliases" VACÍO** en un deployment que sí era
+  producción. No sirve como prueba; el 409 del `promote` sí.
+
+---
+
+## 2026-08-27 — Panel de la cuponera: de 4 endpoints de lectura a 32
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama / PR:** `feat/commissions-auto-cutoffs` — **NO desplegado**
+**Commits:** `21d333e3`, `d1d1ca88`, `8966bcdf`
+
+### Qué cambié
+
+El panel de la cuponera (`/cuponera/admin`, rol `CUPONERA_ADMIN`) era **solo
+lectura**: 4 endpoints, todos GET. Quien administra una cuponera no podía dar de
+alta ni un aliado ni un beneficiario — que es literalmente su trabajo (§28:
+"conseguir aliados, administrar miembros y crear una comunidad de beneficios").
+
+Ahora son **32 endpoints**:
+
+- **Aliados:** alta (con su primer beneficio en el mismo formulario, porque un
+  aliado sin beneficio no aparece en la cartelera), edición, y
+  aprobar/rechazar/suspender. El aliado **nace PENDING** y el aviso lo dice: si
+  no, parece publicado y no lo está.
+- **Beneficiarios:** alta manual con emisión de tarjeta.
+- **Beneficios:** la bandeja de aprobación, que **no existía**. Si la cuponera
+  exige revisión, lo que carga el aliado quedaba PENDING y no había pantalla
+  para aprobarlo → no se publicaba nunca.
+- **Configuración:** categorías y planes (sin ellos el desplegable del alta de
+  aliado queda vacío y no hay plan que asignarle a un socio), más tres ajustes:
+  bienvenida, revisar-antes-de-publicar y tope semanal de avisos por aliado
+  (acotado 0-20 en el servidor).
+- **Comunidad:** avisos a la tarjeta Wallet, geopush (radio 300 m) y sellos.
+
+**El aviso muestra el alcance ANTES de enviar, contando TARJETAS INSTALADAS y no
+miembros.** En local hay 2 socios activos y 0 tarjetas puestas: el aviso habría
+salido a nadie sin que nada lo indicara.
+
+### Qué toqué de PRODUCCIÓN
+
+- **Nada.** Ni base, ni variables, ni despliegue. Sin migraciones: todo esto usa
+  columnas que ya existen.
+
+### Qué falta / qué hay que validar del otro lado
+
+- [ ] Desplegar. Sigue pendiente el backend con las pasarelas (§24-25), cuya
+      migración **ya se aplicó** el 26-ago.
+- [ ] Probar el ciclo con datos reales. La cuponera de prod está en `DRAFT` con
+      0 aliados: nada de esto se ejerció de verdad.
+
+### Riesgos y avisos
+
+- ⚠️ **Publicar/pausar la cuponera y diseñar la tarjeta Wallet NO están en el
+  panel a propósito.** Son decisiones de Fidelity (§1-2); ponerlas ahí dejaría
+  que una cuponera se auto-publique. Si alguien las "agrega por comodidad",
+  rompe el modelo.
+- 🔑 **Cómo se hizo sin abrir un agujero:** los métodos del Master Admin tenían
+  clavado `ensureLivingCampaign()`. Se les agregó un `campaignId` opcional con
+  el MISMO default (nada de lo que ya funcionaba cambia), y cada escritura del
+  panel resuelve por `resolveAdminCampaign` y baja el id **RESUELTO** — nunca el
+  del cliente ni uno metido en el body. **Ese invariante es frágil: un método
+  nuevo que pase el `campaignId` del cliente compilaría igual.** Hay 11 tests
+  que lo vigilan en `test/cuponera-admin-role.test.ts`; si agregás una escritura
+  al panel, sumala ahí.
+
+---
 
 ## 2026-08-26 — Cuponera: Hotmart y Stripe (spec §24-25) + candado de membresía
 

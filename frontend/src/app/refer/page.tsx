@@ -1,5 +1,5 @@
 'use client';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -25,6 +25,15 @@ function ReferInner() {
   const [err, setErr] = useState<string | null>(null);
   // Marca blanca por host (Sellea, Fideliso…): null en Clubify → branding default.
   const { brand } = useAuthBrand();
+  // Términos de comisión de la marca (EXCLUSIVO Sellea = monto fijo pago único).
+  // fixedOnce=false → % clásico. Resuelto por Origin/Referer en el backend.
+  const [terms, setTerms] = useState<{ fixedOnce: boolean; negocioAmount?: number } | null>(null);
+
+  useEffect(() => {
+    api('/referrals/public-terms')
+      .then((t: any) => setTerms(t))
+      .catch(() => setTerms(null));
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -78,9 +87,19 @@ function ReferInner() {
                 </button>
               </div>
               <div className="text-sm text-mute mt-4">
-                Comisión:{' '}
-                <strong>{Number(result.commissionPercent)}%</strong> por cada negocio
-                que se vuelva cliente pago.
+                {result.fixedCommissionUsd != null ? (
+                  <>
+                    Comisión:{' '}
+                    <strong>${Number(result.fixedCommissionUsd)} por negocio</strong>{' '}
+                    (pago único) que se vuelva cliente.
+                  </>
+                ) : (
+                  <>
+                    Comisión:{' '}
+                    <strong>{Number(result.commissionPercent)}%</strong> por cada
+                    negocio que se vuelva cliente pago.
+                  </>
+                )}
               </div>
               {result.accountReady && (
                 <div className="mt-5 rounded-lg bg-brand-soft p-4">
@@ -103,8 +122,15 @@ function ReferInner() {
               <h1 className="page-title">Programa de referidos</h1>
             </div>
             <p className="text-mute mb-5 leading-relaxed">
-              Recomienda {brand?.name ?? 'Clubify'} y gana <strong className="text-brand">25% de comisión</strong> por
-              cada negocio que se vuelva cliente pago.
+              Recomienda {brand?.name ?? 'Clubify'} y gana{' '}
+              {terms?.fixedOnce && terms.negocioAmount != null ? (
+                <strong className="text-brand">
+                  ${terms.negocioAmount} por negocio (pago único)
+                </strong>
+              ) : (
+                <strong className="text-brand">25% de comisión</strong>
+              )}{' '}
+              por cada negocio que se vuelva cliente pago.
             </p>
             <form onSubmit={submit} className="card card-pad space-y-3">
               <div>

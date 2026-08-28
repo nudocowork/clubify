@@ -120,3 +120,126 @@ describe('createCampaignAdmin', () => {
     expect(prisma.user.create.mock.calls[0][0].select.passwordHash).toBeUndefined();
   });
 });
+
+/**
+ * Escrituras del panel (§4 y §28: "conseguir aliados, administrar miembros").
+ *
+ * El invariante que se protege acá no es el aislamiento —ya lo cubre
+ * `resolveAdminCampaign` arriba— sino que cada escritura baje el id RESUELTO y
+ * nunca el que vino del cliente. Un método nuevo que pase `campaignId` directo
+ * al escritor compilaría igual y dejaría escribir en cualquier cuponera.
+ */
+describe('escrituras del panel — usan la campaña RESUELTA, no la pedida', () => {
+  function panel() {
+    const svc = Object.create(CuponeraService.prototype) as CuponeraService;
+    // El owner puede pedir cualquiera; lo que importa es qué id se propaga.
+    (svc as any).resolveAdminCampaign = vi.fn().mockResolvedValue({ id: 'camp-resuelta' });
+    (svc as any).createAlly = vi.fn().mockResolvedValue({});
+    (svc as any).setAllyStatus = vi.fn().mockResolvedValue({});
+    (svc as any).enrollMember = vi.fn().mockResolvedValue({});
+    (svc as any).listCategories = vi.fn().mockResolvedValue([]);
+    (svc as any).createCategory = vi.fn().mockResolvedValue({});
+    (svc as any).setBenefitApproval = vi.fn().mockResolvedValue({});
+    (svc as any).sendBroadcast = vi.fn().mockResolvedValue({});
+    (svc as any).sendSegmentPush = vi.fn().mockResolvedValue({});
+    (svc as any).createGeopush = vi.fn().mockResolvedValue({});
+    (svc as any).createStampProgram = vi.fn().mockResolvedValue({});
+    (svc as any).updateStampProgram = vi.fn().mockResolvedValue({});
+    return svc;
+  }
+  const user = owner;
+
+  it('createAlly recibe la campaña resuelta', async () => {
+    const svc = panel();
+    await svc.panelCreateAlly(user, { name: 'X', campaignId: 'INYECTADA' }, 'camp-pedida');
+    expect((svc as any).createAlly).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignId: 'camp-resuelta' }),
+    );
+  });
+
+  it('un campaignId metido en el body NO gana', async () => {
+    const svc = panel();
+    await svc.panelCreateAlly(user, { name: 'X', campaignId: 'camp-ajena' }, undefined);
+    const arg = (svc as any).createAlly.mock.calls[0][0];
+    expect(arg.campaignId).toBe('camp-resuelta');
+  });
+
+  it('setAllyStatus recibe la campaña resuelta', async () => {
+    const svc = panel();
+    await svc.panelSetAllyStatus(user, 'ally-1', 'APPROVED' as any, 'camp-pedida');
+    expect((svc as any).setAllyStatus).toHaveBeenCalledWith('ally-1', 'APPROVED', 'camp-resuelta');
+  });
+
+  it('enrollMember recibe la campaña resuelta y source MANUAL', async () => {
+    const svc = panel();
+    await svc.panelEnrollMember(user, { fullName: 'Ana' }, 'camp-pedida');
+    expect((svc as any).enrollMember).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignId: 'camp-resuelta', source: 'MANUAL' }),
+    );
+  });
+
+  it('setBenefitApproval recibe la campaña resuelta', async () => {
+    const svc = panel();
+    await svc.panelSetBenefitApproval(user, 'ben-1', 'APPROVED', 'camp-pedida');
+    expect((svc as any).setBenefitApproval).toHaveBeenCalledWith('ben-1', 'APPROVED', user, 'camp-resuelta');
+  });
+
+  it('createCategory recibe la campaña resuelta', async () => {
+    const svc = panel();
+    await svc.panelCreateCategory(user, { name: 'Cafés' }, 'camp-pedida');
+    expect((svc as any).createCategory).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignId: 'camp-resuelta' }),
+    );
+  });
+
+  it('un aviso a TODOS va al broadcast de la campaña resuelta', async () => {
+    const svc = panel();
+    await svc.panelSendPush(user, { title: 'T', body: 'B' }, 'camp-pedida');
+    expect((svc as any).sendBroadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignId: 'camp-resuelta' }),
+    );
+    expect((svc as any).sendSegmentPush).not.toHaveBeenCalled();
+  });
+
+  it('un aviso con segmento NO usa el broadcast', async () => {
+    const svc = panel();
+    await svc.panelSendPush(user, { title: 'T', body: 'B', planId: 'p1' }, 'camp-pedida');
+    expect((svc as any).sendSegmentPush).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignId: 'camp-resuelta', planId: 'p1' }),
+    );
+    expect((svc as any).sendBroadcast).not.toHaveBeenCalled();
+  });
+
+  it('un aviso sin título no llega a enviarse', async () => {
+    const svc = panel();
+    await expect(svc.panelSendPush(user, { title: '  ', body: 'B' })).rejects.toThrow(/título|mensaje/i);
+    expect((svc as any).sendBroadcast).not.toHaveBeenCalled();
+  });
+
+  it('geopush y sellos reciben la campaña resuelta', async () => {
+    const svc = panel();
+    await svc.panelCreateGeopush(user, { name: 'Z', campaignId: 'INYECTADA' }, 'camp-pedida');
+    expect((svc as any).createGeopush).toHaveBeenCalledWith(
+      expect.objectContaining({ campaignId: 'camp-resuelta' }),
+    );
+    await svc.panelCreateStampProgram(user, { name: 'S' }, 'camp-pedida');
+    expect((svc as any).createStampProgram).toHaveBeenCalledWith({ name: 'S' }, 'camp-resuelta');
+  });
+
+  it('toda escritura pasa PRIMERO por resolveAdminCampaign', async () => {
+    for (const correr of [
+      (s: any) => s.panelCreateAlly(user, { name: 'X' }),
+      (s: any) => s.panelSetAllyStatus(user, 'a', 'APPROVED'),
+      (s: any) => s.panelEnrollMember(user, { fullName: 'A' }),
+      (s: any) => s.panelCreateCategory(user, { name: 'C' }),
+      (s: any) => s.panelSetBenefitApproval(user, 'b', 'APPROVED'),
+      (s: any) => s.panelSendPush(user, { title: 'T', body: 'B' }),
+      (s: any) => s.panelCreateGeopush(user, { name: 'Z' }),
+      (s: any) => s.panelCreateStampProgram(user, { name: 'S' }),
+    ]) {
+      const svc = panel();
+      await correr(svc);
+      expect((svc as any).resolveAdminCampaign).toHaveBeenCalled();
+    }
+  });
+});
