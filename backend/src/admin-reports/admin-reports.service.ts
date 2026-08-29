@@ -1937,13 +1937,14 @@ export class AdminReportsService {
     }
 
     const now = new Date();
-    const base =
-      tenant.currentPeriodEnd && tenant.currentPeriodEnd > now
-        ? tenant.currentPeriodEnd
-        : now;
-    // Extiende por la periodicidad del plan (Anual = +12 meses), no +30 fijos,
-    // y cobra el ciclo completo según el tipo de negocio (InfoLink anual = 3).
-    const newPeriodEnd = addPlanPeriod(base, tenant.planPeriodicity);
+    // El próximo cobro se ancla a la ACTIVACIÓN (cuándo se activa el crédito),
+    // NO al currentPeriodEnd previo. Antes se extendía "desde el fin de periodo
+    // si aún es futuro", pero ese futuro solía ser tiempo de PRUEBA / ventana
+    // ilimitada (no pagado) y se apilaba sobre el mes pagado: Vizage (activada
+    // 14-ago, prueba hasta 28-ago) quedaba en 28-sep en vez de 14-sep. Regla del
+    // dueño 2026-08-29: la fecha = activación + periodo, siempre. Extiende por la
+    // periodicidad del plan (Anual = +12 meses), no +30 fijos.
+    const newPeriodEnd = addPlanPeriod(now, tenant.planPeriodicity);
     const cost = cycleCreditCostForTenant(tenant.businessType, tenant.infolinkTier, tenant.planPeriodicity);
     const months = bundleMonths(tenant.planPeriodicity);
 

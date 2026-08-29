@@ -365,7 +365,9 @@ export class TenantsController {
     @Body() body: BillingBody,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.svc.updateBilling(id, body, user.id);
+    // Pasamos el whiteLabelId del actor: un admin de MARCA BLANCA no puede fijar
+    // una fecha de cobro arbitraria (se ancla a la activación). Solo plataforma.
+    return this.svc.updateBilling(id, body, user.id, user.whiteLabelId ?? null);
   }
 
   /** Cambia la periodicidad del plan (Mensual/Trimestral/Semestral/Anual).

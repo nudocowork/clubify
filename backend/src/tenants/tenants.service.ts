@@ -1156,6 +1156,10 @@ export class TenantsService {
       hotmartSubscriberCode?: string;
     },
     actorId: string,
+    // whiteLabelId del que ejecuta. Si viene seteado = admin de MARCA BLANCA:
+    // NO puede fijar una fecha de cobro arbitraria (se ancla a la activación).
+    // null/undefined = plataforma (Clubify), que sí conserva el override manual.
+    actorWhiteLabelId?: string | null,
   ) {
     const previous = await this.getById(id);
     const now = new Date();
@@ -1206,7 +1210,13 @@ export class TenantsService {
           // Activación manual = fecha de cobro real → monto facturado por rango.
           lastChargeAt: now,
         };
-        if (dto.nextChargeDate) {
+        if (actorWhiteLabelId) {
+          // Marca blanca: la fecha NO es editable. Se ancla a la activación
+          // (hoy + periodo del plan), igual que la activación por crédito.
+          // Regla del dueño 2026-08-29 — "las fechas = cuando se activan los
+          // créditos, y la marca blanca no las puede modificar".
+          data.currentPeriodEnd = addPlanPeriod(now, previous.planPeriodicity);
+        } else if (dto.nextChargeDate) {
           const parsed = new Date(dto.nextChargeDate);
           if (Number.isNaN(parsed.getTime())) {
             throw new BadRequestException('nextChargeDate inválido');
