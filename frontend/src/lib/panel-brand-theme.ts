@@ -35,6 +35,7 @@ export function authBrandCss(color: string): string {
 .brand-auth .text-ok,.brand-auth [class*="text-ok"]{color:${c}!important}
 .brand-auth .btn-primary{background-color:${c}!important;border-color:${c}!important}
 .brand-auth .btn-primary:hover{background-color:${hover}!important;border-color:${hover}!important}
+.brand-auth .tab-active{background-color:${c}!important}
 .brand-auth .btn-link{color:${c}!important}
 .brand-auth .input:focus{border-color:${c}!important;box-shadow:0 0 0 3px ${c}33!important}
 `;
@@ -81,6 +82,7 @@ export function panelBrandCss(color: string, sidebarBg?: string | null): string 
 .brand-panel [class*="bg-brand-soft"]{background-color:${soft}!important}
 .brand-panel [class*="text-brand"]{color:${c}!important}
 .brand-panel [class*="border-brand"]{border-color:${c}!important}
+.brand-panel .tab-active{background-color:${c}!important}
 .brand-panel .hover\\:bg-brand-700:hover,.brand-panel .hover\\:border-brand-700:hover{background-color:${c}!important;border-color:${c}!important}
 .brand-panel [class~="text-ok"]{color:${c}!important}
 .brand-panel [class~="bg-ok"]:not([class*="bg-ok-soft"]){background-color:${c}!important}
