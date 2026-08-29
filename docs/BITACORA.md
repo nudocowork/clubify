@@ -48,6 +48,40 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-29 — Fecha de próximo cobro se ancla a la activación del crédito (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit 9e7c5122)
+
+### Qué cambié
+- Regla del dueño: "las fechas = cuando se activan los créditos, y la marca
+  blanca no las modifica". Raíz: `activateTenant` calculaba el periodo desde el
+  `currentPeriodEnd` previo si era futuro → apilaba el tiempo de PRUEBA/ventana
+  ilimitada (Vizage 28-sep en vez de 14-sep; Farmacia 26-oct en vez de 28-ago).
+- `activateTenant`: `newPeriodEnd = addPlanPeriod(hoy, periodicidad)` (anclado a
+  la activación, sin apilar).
+- `PATCH /tenants/:id/billing`: admin de MARCA BLANCA ya no fija `nextChargeDate`
+  arbitrario (se ancla a hoy+periodo); plataforma conserva el override.
+
+### Qué toqué de PRODUCCIÓN
+- **Desplegado backend** (`desplegar.cjs backend`; swap verificado, deployment
+  6c23a6ea Online, /api 200). Sin migración.
+- DATOS: Vizage ya corregido ayer (28-sep→14-sep). **PENDIENTE de aplicar**
+  `backend/scripts/fix-sellea-period-anchor.cjs --apply` (lo corre Jhon; el
+  clasificador bloquea escrituras a prod desde la sesión) → Farmacia FarCentro
+  26-oct→28-ago. **OJO: Farmacia queda VENCIDA y el cron le cobrará 1 crédito a
+  SELLEA** — decisión aprobada por el dueño (anclado estricto a la activación).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Correr el script de datos de Farmacia (arriba). Los otros 5 negocios de
+      Sellea ya estaban correctos (currentPeriodEnd = último cobro + periodo).
+
+### Riesgos y avisos
+- Cambio en lógica de facturación (activación por crédito). Solo afecta el
+  cálculo del próximo cobro al activar; no toca renovaciones (webhook/cron) ni
+  otras marcas más allá de la regla general de anclaje.
+
+---
+
 ## 2026-08-28 — Panel de comisiones de Sellea muestra MONTO FIJO, no % (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commit 657399c8)
