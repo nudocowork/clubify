@@ -138,6 +138,12 @@ export async function resolveAuthBrandForHost(host: string): Promise<AuthBrand> 
       faviconUrl: d.faviconUrl ?? null,
       primaryColor: d.primaryColor || '#16a34a',
       secondaryColor: d.secondaryColor ?? null,
+      // El enlace de prueba de la marca (página /prueba). DEBE ir en la semilla
+      // SSR: useAuthBrand omite el fetch del cliente cuando ya hay semilla, así
+      // que si no lo copiamos aquí, /prueba nunca ve el link → "Prueba no
+      // disponible" aunque el admin ya lo haya configurado. (Bug 2026-08-30.)
+      trialCheckoutUrl: d.trialCheckoutUrl ?? null,
+      trialDays: d.trialDays ?? 7,
     };
     lastKnownAuthBrandByHost.set(h, brand);
     return brand;
