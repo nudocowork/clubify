@@ -107,6 +107,27 @@ vuelo tres veces esta semana.
 
 ---
 
+## 2026-08-30 — Fix: /prueba de Sellea salía en verde Clubify (faltaba layout) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit cdfdcaa1)
+
+### Qué cambié
+- `app/prueba/layout.tsx` (NUEVO) con `AuthBrandServer`. La página no tenía
+  layout propio → no recibía la clase `.brand-auth` ni el `authBrandCss` → todo
+  lo `brand` (pill "🎁 Prueba", botón `.btn-primary`, links `text-brand`) salía
+  en VERDE Clubify aunque la marca fuera Sellea (naranja #FF4D3D). Mismo patrón
+  que `/login`, `/registro-afiliado`, `/affiliate`.
+
+### Qué toqué de PRODUCCIÓN
+- Redeploy frontend. Sin backend, sin DB.
+
+### Riesgos y avisos
+- El root layout solo siembra el CONTEXTO de marca (para el logo); NO inyecta el
+  override de color. Toda página pública en dominio de marca necesita su
+  `layout.tsx` con `AuthBrandServer` o saldrá en verde. Regla durable.
+
+---
+
 ## 2026-08-30 — Fix: /prueba de Sellea no veía el enlace de Stripe (semilla SSR) (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commit edc05276)
