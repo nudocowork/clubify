@@ -48,6 +48,38 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-30 — Sellea: correo y cumpleaños OBLIGATORIOS en el registro de tarjeta (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit b8823a32)
+
+### Qué cambié
+- En el formulario público de instalación de tarjeta (`/c/[cardId]`), el correo
+  y el cumpleaños pasan de opcionales a **obligatorios SOLO para Sellea**
+  (`brand.slug` = `sellea`/`selleala`). Las demás marcas y Clubify quedan igual.
+- Frontend (`c/[cardId]/page.tsx`): `FormFields` marca ambos como requeridos,
+  quita el "(opcional)" de la etiqueta (nuevas claves i18n `card.email_required`,
+  `card.birthday_required` + sus `_err` en es/en/pt/it), valida al enviar y
+  bloquea el botón hasta completarlos. `BrandBadgeBrand` gana `slug?` (aditivo).
+- Backend (`passes.service.ts` `enrollPublic`): exige correo + cumpleaños válido
+  cuando la marca es Sellea (400 con mensaje claro), como defensa ante un POST
+  directo a la API. Resuelve la marca por `resolveByWhiteLabelId`.
+
+### Qué toqué de PRODUCCIÓN
+- **Sin migración** (las columnas `email`/`birthday` ya existen y son nulables;
+  solo se refuerza a nivel de app). Despliegue backend + frontend.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Verificar en vivo en un dominio Sellea que ambos campos salen requeridos y
+      que otra marca (o Clubify) los sigue mostrando opcionales.
+
+### Riesgos y avisos
+- Gate por slug hardcodeado (`sellea`/`selleala`), mismo criterio que
+  `slug-alias.ts`. Si Sellea cambiara de slug habría que ajustarlo aquí.
+- Un cliente Sellea que ya se había registrado sin correo/cumpleaños, al
+  reinstalar deberá completarlos (backfillea datos faltantes, no duplica).
+
+---
+
 ## 2026-08-30 — Sellea: página dedicada de prueba /prueba (por marca) (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commits 1a88dd51, fc0ea78b)
