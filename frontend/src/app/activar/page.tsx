@@ -234,27 +234,58 @@ function ActivarInner() {
     setPlanPeriod(valid.includes(raw as PlanPeriodId) ? (raw as PlanPeriodId) : null);
   }, [pendingDetected]);
 
-  // Precio del plan para el badge informativo.
+  // Precio del plan para el badge informativo. En una marca blanca (ej. Sellea)
+  // el precio es el del plan de la marca (WhiteLabelPaymentLink, ej. USD 80), NO
+  // el precio global de Clubify de `/landing-plans` (ej. USD 68) — eran fuentes
+  // distintas y por eso /activar mostraba 68 en un dominio de Sellea.
   useEffect(() => {
     if (!planPeriod) return;
     let cancelled = false;
-    fetch(`${API}/api/landing-plans`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: any) => {
-        if (cancelled || !d) return;
-        const v = d[planPeriod];
-        if (!v) return;
-        setPlanData({
-          id: planPeriod,
-          name: PLAN_PERIOD_MAP[planPeriod].label,
-          price: Number.isFinite(v.price) && v.price > 0 ? v.price : 0,
-        });
-      })
-      .catch(() => null);
+    const setPrice = (price: number) =>
+      setPlanData({
+        id: planPeriod,
+        name: PLAN_PERIOD_MAP[planPeriod].label,
+        price,
+      });
+    const globalFallback = () =>
+      fetch(`${API}/api/landing-plans`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: any) => {
+          if (cancelled || !d) return;
+          const v = d[planPeriod];
+          if (!v) return;
+          setPrice(Number.isFinite(v.price) && v.price > 0 ? v.price : 0);
+        })
+        .catch(() => null);
+
+    if (brand) {
+      const host =
+        typeof window !== 'undefined' ? window.location.host : '';
+      fetch(
+        `${API}/api/superadmin-public/white-labels/payment-links-by-host?host=${encodeURIComponent(host)}`,
+      )
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: any) => {
+          if (cancelled) return;
+          const link = d?.links?.find(
+            (l: any) =>
+              String(l.periodicity || '').toUpperCase() ===
+              planPeriod.toUpperCase(),
+          );
+          if (link && Number(link.amountUsd) > 0) {
+            setPrice(Number(link.amountUsd));
+          } else {
+            void globalFallback();
+          }
+        })
+        .catch(() => globalFallback());
+    } else {
+      void globalFallback();
+    }
     return () => {
       cancelled = true;
     };
-  }, [planPeriod]);
+  }, [planPeriod, brand]);
 
   // Atribución oculta del referido (ref/via/utm/referer) + quoteToken.
   const [refCode, setRefCode] = useState<string | null>(null);

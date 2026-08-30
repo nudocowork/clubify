@@ -849,20 +849,32 @@ export class StripeService {
     whiteLabelId: string,
   ) {
     const wasSuspended = tenant.status === 'SUSPENDED';
+    const now = new Date();
+    // PRUEBA DE 7 DÍAS (enlace de Sellea): mientras Stripe tenga la suscripción
+    // en prueba (`trial_end` en el futuro), el negocio queda en TRIAL con
+    // vencimiento = fin de la prueba, SIN cobrar ni consumir crédito. El día 7
+    // Stripe cobra (invoice con monto>0) → `trial_end` ya pasó → esta misma
+    // función lo detecta como NO-prueba → pasa a ACTIVE y ahí sí se consume el
+    // crédito (consumeTrialConversionCredit) y se generan comisiones.
+    const inTrial = !!ctx.trialEnd && ctx.trialEnd.getTime() > now.getTime();
     // Próximo cobro: Stripe es la fuente. Fallback (primer pago sin fecha) →
-    // periodicidad del link de pago que matchea el priceId.
+    // periodicidad del link de pago que matchea el priceId. En prueba NO usamos
+    // el fallback mensual: la fecha que vale es el fin de la prueba (7 días).
     let nextCharge = ctx.nextCharge;
-    if (!nextCharge && !tenant.currentPeriodEnd) {
+    if (!inTrial && !nextCharge && !tenant.currentPeriodEnd) {
       const periodicity = await this.resolvePeriodicity(whiteLabelId, ctx.priceId, tenant.planPeriodicity);
-      nextCharge = addPlanPeriod(new Date(), periodicity);
+      nextCharge = addPlanPeriod(now, periodicity);
     }
+    // En prueba, la fecha que se muestra y se guarda es el fin de la prueba
+    // (cuándo llega el primer cobro), no un período mensual.
+    const periodEnd = inTrial ? ctx.trialEnd : nextCharge;
     // FIX PDF123 (cobro duplicado): si el webhook se re-procesa para el MISMO
     // período (Stripe puede reintentar/duplicar), no reenviamos "Pago recibido".
     // Un período nuevo (renovación) trae otra fecha → sí notifica.
     const alreadyConfirmedPeriod =
-      !!nextCharge &&
+      !!periodEnd &&
       !!tenant.currentPeriodEnd &&
-      nextCharge.getTime() === tenant.currentPeriodEnd.getTime();
+      periodEnd.getTime() === tenant.currentPeriodEnd.getTime();
     // PDF Soft 10: fecha real de compra — set-once en la 1ª activación (nunca se
     // pisa en renovaciones). Preferimos el timestamp real del evento (ctx.paidAt).
     const curPurchase = await this.prisma.tenant.findUnique({
@@ -877,21 +889,28 @@ export class StripeService {
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
-        status: 'ACTIVE',
+        // En prueba queda TRIAL (con vencimiento a 7 días); el cobro real del
+        // día 7 lo pasa a ACTIVE.
+        status: inTrial ? 'TRIAL' : 'ACTIVE',
         ...entitlement,
-        // 2026-07-31: monto crudo → auditoría, no a la base de comisiones.
-        ...(ctx.amountUsd != null ? { lastPaymentAmountUsd: ctx.amountUsd } : {}),
-        ...(nextCharge ? { currentPeriodEnd: nextCharge } : {}),
-        lastChargeAt: new Date(),
+        // 2026-07-31: monto crudo → auditoría, no a la base de comisiones. En
+        // prueba no hubo cobro (monto $0), así que no tocamos el último monto.
+        ...(!inTrial && ctx.amountUsd != null ? { lastPaymentAmountUsd: ctx.amountUsd } : {}),
+        ...(periodEnd ? { currentPeriodEnd: periodEnd } : {}),
+        // Solo hay cobro real fuera de la prueba. Durante la prueba la tarjeta
+        // está anclada pero no se cobró → no marcamos lastChargeAt.
+        ...(inTrial ? {} : { lastChargeAt: now }),
         ...(curPurchase?.purchasedAt
           ? {}
-          : { purchasedAt: ctx.paidAt ?? new Date() }),
+          : { purchasedAt: ctx.paidAt ?? now }),
         stripeCustomerId: ctx.customerId ?? tenant.stripeCustomerId,
         stripeSubscriptionId: ctx.subscriptionId ?? tenant.stripeSubscriptionId,
         failedPaymentCount: 0,
-        lastPaymentAttemptAt: new Date(),
+        lastPaymentAttemptAt: now,
         suspendedAt: null,
-        trialEndsAt: null,
+        // En prueba, guardamos cuándo termina (día 7) para el panel y los
+        // recordatorios; al convertir a ACTIVE se limpia.
+        trialEndsAt: inTrial ? ctx.trialEnd : null,
         // Los SEIS campos de dedup, no tres. Faltaban los pre-avisos, asi que
         // un negocio que renovaba no volvia a recibir el aviso de 7 dias, ni
         // el de 3, ni el del dia — y el fallo es mudo. Ver [[clubify-cobros-trampas]].
@@ -906,19 +925,23 @@ export class StripeService {
 
     // Comisiones del referido. Best-effort: si falla, el cobro NO se rompe —
     // el negocio queda activo igual y la comision se puede reconciliar.
-    await this.hotmart
-      .generarComisionesDeCobro({
-        tenantId: tenant.id,
-        // Stripe manda el monto en la moneda del cobro; la base de comision
-        // la resuelve el generador desde el plan, no desde aqui.
-        montoCanonicoUsd: null,
-        transaccionId: ctx.transaccionId,
-      })
-      .catch((e) =>
-        this.logger.warn(
-          `comisiones Stripe tenant=${tenant.id}: ${(e as Error).message}`,
-        ),
-      );
+    // NO durante la prueba: en el día 0 no entró dinero; la comisión se genera
+    // en el cobro real del día 7 (cuando esta función corre con inTrial=false).
+    if (!inTrial) {
+      await this.hotmart
+        .generarComisionesDeCobro({
+          tenantId: tenant.id,
+          // Stripe manda el monto en la moneda del cobro; la base de comision
+          // la resuelve el generador desde el plan, no desde aqui.
+          montoCanonicoUsd: null,
+          transaccionId: ctx.transaccionId,
+        })
+        .catch((e) =>
+          this.logger.warn(
+            `comisiones Stripe tenant=${tenant.id}: ${(e as Error).message}`,
+          ),
+        );
+    }
 
     // Si el pago lo pasó a Negocio Completo, invalidamos el cache del
     // InfoLinkOnlyGuard para que los módulos se desbloqueen sin esperar el TTL.
@@ -933,14 +956,33 @@ export class StripeService {
       tenant.id,
       { gateway: 'STRIPE', amountUsd: ctx.amountUsd ?? null },
     );
-    // Si venía SUSPENDED → "cuenta reactivada"; si no → "pago confirmado".
+    // Si venía SUSPENDED → "cuenta reactivada"; en prueba → "prueba activa, se
+    // cobra en 7 días"; si no → "pago confirmado".
     if (wasSuspended) {
       this.smsTemplates
         .render('account_reactivated', { brandName: tenant.brandName }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
+    } else if (inTrial && ctx.trialEnd && !alreadyConfirmedPeriod) {
+      // "En N días (fecha) se hace el primer cobro" — NO "próximo cobro: <mes>".
+      const trialDays = Math.max(
+        1,
+        Math.ceil((ctx.trialEnd.getTime() - now.getTime()) / 86_400_000),
+      );
+      this.smsTemplates
+        .render(
+          'trial_started',
+          {
+            brandName: tenant.brandName,
+            trialDays: String(trialDays),
+            chargeDate: fmtSmsDate(ctx.trialEnd),
+          },
+          tenant.id,
+        )
+        .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
     } else if (!alreadyConfirmedPeriod) {
-      const nextChargeInfo = nextCharge ? ` Próximo cobro: ${fmtSmsDate(nextCharge)}.` : '';
+      const nextChargeInfo = periodEnd ? ` Próximo cobro: ${fmtSmsDate(periodEnd)}.` : '';
       this.smsTemplates
         .render('payment_confirmed', { brandName: tenant.brandName, nextChargeInfo }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
@@ -958,12 +1000,14 @@ export class StripeService {
               ? 'email_panel_ready'
               : 'email_payment_confirmed',
           tenantId: tenant.id,
-          vars: { nextChargeDate: nextCharge ? fmtEmailDate(nextCharge) : '' },
+          vars: { nextChargeDate: periodEnd ? fmtEmailDate(periodEnd) : '' },
         })
         .catch(() => null);
     }
-    // Fase D: primer pago o reactivación (no renovaciones) → business.activated.
-    if (tenant.status !== 'ACTIVE') {
+    // Fase D: activación REAL (no prueba, no renovación) → business.activated.
+    // En la prueba el negocio aún no es una cuenta activada; el webhook de
+    // onboarding sale cuando el cobro del día 7 lo pasa a ACTIVE.
+    if (!inTrial && tenant.status !== 'ACTIVE') {
       void this.onboardingWebhook.emitBusinessActivated(tenant.id);
     }
   }

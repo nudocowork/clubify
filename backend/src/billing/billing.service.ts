@@ -35,6 +35,11 @@ export type TrialStatus = {
   gracePeriodDays: number;
   inGracePeriod: boolean;
   graceDaysLeft: number | null;
+  // Prueba PAGA (tarjeta anclada, ej. enlace de 7 días de Sellea): el negocio
+  // está en TRIAL pero ya tiene suscripción de Stripe y el cobro es automático
+  // al terminar la prueba. Distinto de la prueba GRATIS (sin tarjeta), que sí
+  // pide "completar el pago". El frontend usa esto para el copy correcto.
+  paidTrial: boolean;
 };
 
 const TRIAL_DAYS = 10;
@@ -346,6 +351,8 @@ export class BillingService {
         suspendedAt: true,
         failedPaymentCount: true,
         gracePeriodDays: true,
+        // Distinguir prueba PAGA (con suscripción) de la GRATIS (sin tarjeta).
+        stripeSubscriptionId: true,
       },
     });
     if (!t) {
@@ -358,6 +365,7 @@ export class BillingService {
         gracePeriodDays: 0,
         inGracePeriod: false,
         graceDaysLeft: null,
+        paidTrial: false,
       };
     }
 
@@ -421,6 +429,9 @@ export class BillingService {
       gracePeriodDays: grace,
       inGracePeriod,
       graceDaysLeft,
+      // Prueba paga = está en TRIAL Y ya ancló tarjeta (tiene suscripción). El
+      // cobro llega solo al día 7; no hay que pedirle "completar el pago".
+      paidTrial: derived === 'TRIAL' && !!t.stripeSubscriptionId,
     };
   }
 
