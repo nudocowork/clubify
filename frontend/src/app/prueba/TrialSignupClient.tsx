@@ -540,9 +540,14 @@ function TrialInner() {
           )}
         </div>
 
-        <p className="text-center text-[11px] text-mute mt-4">
-          Acceso privado · No compartas este enlace públicamente.
-        </p>
+        {/* En Clubify /prueba es un link INTERNO (embajadores/equipo comercial) →
+            se avisa que no se difunda. En una marca blanca (Sellea) es la página
+            PÚBLICA de la prueba que se comparte → sin el aviso. */}
+        {!brand && (
+          <p className="text-center text-[11px] text-mute mt-4">
+            Acceso privado · No compartas este enlace públicamente.
+          </p>
+        )}
       </div>
     </main>
   );
