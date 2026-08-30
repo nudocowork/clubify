@@ -107,6 +107,29 @@ vuelo tres veces esta semana.
 
 ---
 
+## 2026-08-30 — Fix: /prueba de Sellea no veía el enlace de Stripe (semilla SSR) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit edc05276)
+
+### Qué cambié
+- `lib/server-brand.ts` `resolveAuthBrandForHost`: ahora copia
+  `trialCheckoutUrl`+`trialDays` a la semilla SSR de la marca. Sin eso,
+  `useAuthBrand` (que omite el fetch del cliente cuando hay semilla SSR) dejaba
+  `brand.trialCheckoutUrl` en undefined → `/prueba` mostraba "Prueba no
+  disponible" aunque el admin ya había pegado el enlace de Stripe.
+- El backend YA devolvía los campos (verificado por curl a
+  `branding-by-host?host=www.selleala.com`). Solo faltaba en el SSR del front.
+
+### Qué toqué de PRODUCCIÓN
+- Redeploy frontend. Sin backend, sin DB.
+
+### Riesgos y avisos
+- Aditivo: otras marcas cargan `trialCheckoutUrl: null` en la semilla si no
+  tienen enlace (comportamiento idéntico al de antes). Clubify (brand null) usa
+  su vía global `/api/branding`, intacta.
+
+---
+
 ## 2026-08-30 — Sellea: correo y cumpleaños OBLIGATORIOS en el registro de tarjeta (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commit b8823a32)
