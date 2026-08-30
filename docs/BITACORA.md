@@ -48,6 +48,65 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-30 — Fuga cross-marca + avisos de cobro silenciosos (DESPLEGADO)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Commits:** `9a7a2b2c`, `6052ec91`
+
+### 🔓 Fuga cross-marca en el listado de negocios de una cuponera
+
+Al listar negocios para vincular como aliado Tipo A, el filtro era:
+
+    ...(campaign.whiteLabelId ? { whiteLabelId: campaign.whiteLabelId } : {})
+
+Con marca nula el spread queda vacío y **desaparece el filtro entero**: devuelve
+TODOS los negocios de la plataforma (107 hoy, en 4 marcas) a un CUPONERA_ADMIN.
+Estaba en dos sitios (panel de la cuponera y picker del Master Admin).
+
+**No hacía falta un error humano:** `BenefitCampaign.whiteLabelId` es
+**onDelete: SetNull**, así que borrar una marca deja su cuponera sin marca y el
+aislamiento se cae solo. Ahora falla CERRADO: sin marca no lista nada y loguea.
+
+Hoy NO estaba sangrando (living-card sí tiene marca, verificado).
+
+### Avisos de cobro: por qué no salió el SMS
+
+Los tres `notifyOwner` hacían `if (!target) return;` sin log. El aviso va ahora
+en `resolveBillingTarget`, que es el único que conoce el motivo, y distingue la
+decisión del negocio (avisos apagados → silencio) de la mala configuración (sin
+credenciales o sin teléfono → warning).
+
+Medido: de 96 negocios con avisos encendidos, **1** sin por dónde enviar y **3**
+sin teléfono, de los cuales solo uno es un negocio real (La Parada Bar Truck).
+Primero conté 51; estaba mal — `ownerPhone` cae a `whatsappPhone`/`phone`.
+
+### Qué toqué de PRODUCCIÓN
+
+- Backend desplegado. Swap verificado (uptime 2410 s → 8 s). Base: sin cambios.
+
+### 🌳 Cómo se desplegó, que importa para la próxima
+
+El árbol tenía **4 archivos sin commitear de la otra sesión**. Como `railway up`
+sube el DIRECTORIO, desplegar habría publicado su trabajo a medio hacer.
+
+Se desplegó desde un **worktree limpio de HEAD**, sin tocar ni un archivo del
+árbol principal:
+
+```bash
+git worktree add --detach /tmp/clubify-deploy-limpio HEAD
+cd /tmp/clubify-deploy-limpio
+railway link --project ba90d94d-7e6d-4056-85ad-0e3f24e8d43a --environment production --service backend
+railway up --service backend
+```
+
+⚠️ `railway up <ruta>` NO funciona (`prefix not found`): hay que `cd` al
+worktree y enlazarlo, porque el link de Railway es **por carpeta**.
+
+**Esto reemplaza al `git stash` antes de desplegar**, que ya barrió trabajo en
+vuelo tres veces esta semana.
+
+---
+
 ## 2026-08-30 — Sellea: correo y cumpleaños OBLIGATORIOS en el registro de tarjeta (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commit b8823a32)
