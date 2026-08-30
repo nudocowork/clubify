@@ -472,6 +472,15 @@ export class StripeService {
       select: { id: true, slug: true, creditsUnlimited: true },
     });
     if (!wl || wl.slug === 'clubify' || wl.creditsUnlimited) return;
+    // Opt-in ESTRICTO por marca: solo consume si la marca activó la feature de
+    // prueba (tiene su enlace configurado, hoy solo Sellea). Así el resto de las
+    // marcas blancas quedan tal cual, aunque una tuviera una suscripción con
+    // prueba por otra vía. Ver setBrandTrialConfig / página /prueba.
+    const trialCfg = await this.prisma.setting.findFirst({
+      where: { key: `landing.trial.checkoutUrl.${wl.slug}` },
+      select: { value: true },
+    });
+    if (!trialCfg || !(trialCfg.value ?? '').trim()) return;
     const cost = cycleCreditCostForTenant(t.businessType, t.infolinkTier, t.planPeriodicity);
     const debit = await this.prisma.whiteLabel.updateMany({
       where: { id: wl.id, creditsAvailable: { gte: cost } },
