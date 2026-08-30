@@ -2040,9 +2040,23 @@ export class SuperAdminService {
       },
     });
     if (!wl) return null;
+    // Enlace de PRUEBA por marca (página dedicada /prueba). Se guarda en Settings
+    // por-marca (sin columna nueva): `landing.trial.checkoutUrl.<slug>` = URL de
+    // Stripe del trial de N días; `landing.trial.days.<slug>` = días (default 7).
+    // Vacío/ausente → la marca no ofrece prueba (la página lo dice). Ver
+    // setBrandTrialConfig.
+    const trialRows = await this.prisma.setting.findMany({
+      where: { key: { in: [`landing.trial.checkoutUrl.${s}`, `landing.trial.days.${s}`] } },
+      select: { key: true, value: true },
+    });
+    const trialMap = new Map(trialRows.map((r) => [r.key, r.value]));
+    const trialUrlRaw = (trialMap.get(`landing.trial.checkoutUrl.${s}`) ?? '').trim();
+    const trialDaysNum = Number(trialMap.get(`landing.trial.days.${s}`));
     return {
       slug: wl.slug,
       name: wl.name,
+      trialCheckoutUrl: trialUrlRaw || null,
+      trialDays: Number.isFinite(trialDaysNum) && trialDaysNum > 0 ? Math.floor(trialDaysNum) : 7,
       // Dominio público (ej. selleala.com) y de panel (app.selleala.com). null =
       // la marca aún no tiene dominio propio → el frontend cae a soyclubify.com.
       domain: wl.domain ?? null,
@@ -2072,6 +2086,50 @@ export class SuperAdminService {
       brandingVersion: wl.updatedAt ? wl.updatedAt.getTime() : 0,
       modules: wl.modules.map((m) => m.module),
     };
+  }
+
+  /** Config del enlace de PRUEBA de una marca (página dedicada /prueba). Lee los
+   *  Settings por-marca. Para el form del super admin. */
+  async getBrandTrialConfig(whiteLabelId: string) {
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: { slug: true },
+    });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+    const rows = await this.prisma.setting.findMany({
+      where: { key: { in: [`landing.trial.checkoutUrl.${wl.slug}`, `landing.trial.days.${wl.slug}`] } },
+      select: { key: true, value: true },
+    });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const days = Number(map.get(`landing.trial.days.${wl.slug}`));
+    return {
+      trialCheckoutUrl: (map.get(`landing.trial.checkoutUrl.${wl.slug}`) ?? '').trim() || null,
+      trialDays: Number.isFinite(days) && days > 0 ? Math.floor(days) : 7,
+    };
+  }
+
+  /** Setea (o limpia) el enlace de PRUEBA de una marca. url vacío → se borra el
+   *  Setting (la marca deja de ofrecer prueba). days default 7. */
+  async setBrandTrialConfig(
+    whiteLabelId: string,
+    dto: { trialCheckoutUrl?: string | null; trialDays?: number | null },
+  ) {
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: { slug: true },
+    });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+    const urlKey = `landing.trial.checkoutUrl.${wl.slug}`;
+    const daysKey = `landing.trial.days.${wl.slug}`;
+    const url = (dto.trialCheckoutUrl ?? '').trim();
+    if (url) {
+      await this.prisma.setting.upsert({ where: { key: urlKey }, create: { key: urlKey, value: url }, update: { value: url } });
+    } else {
+      await this.prisma.setting.deleteMany({ where: { key: urlKey } });
+    }
+    const days = Math.max(1, Math.min(90, Math.floor(Number(dto.trialDays) || 7)));
+    await this.prisma.setting.upsert({ where: { key: daysKey }, create: { key: daysKey, value: String(days) }, update: { value: String(days) } });
+    return this.getBrandTrialConfig(whiteLabelId);
   }
 
   /** Links de pago ACTIVOS de una marca por HOST (dominio propio). Lo usa la

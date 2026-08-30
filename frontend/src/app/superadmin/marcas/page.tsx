@@ -2030,6 +2030,10 @@ function PaymentGatewayConfig({
   const [secretNew, setSecretNew] = useState<Record<string, string>>({});
   const [links, setLinks] = useState<PayLink[]>([]);
   const [busy, setBusy] = useState(false);
+  // Enlace de PRUEBA de la marca (página dedicada /prueba). Guardado en Settings
+  // por-marca; el cliente entra, ancla tarjeta y a los N días se le cobra.
+  const [trialUrl, setTrialUrl] = useState('');
+  const [trialDays, setTrialDays] = useState(7);
 
   async function load() {
     setLoading(true);
@@ -2056,6 +2060,11 @@ function PaymentGatewayConfig({
         setSecretNew({});
         setLinks((d.links ?? []) as PayLink[]);
       }
+      const tc = await api(`/superadmin/white-labels/${whiteLabelId}/trial-config`).catch(() => null);
+      if (tc) {
+        setTrialUrl((tc as any).trialCheckoutUrl ?? '');
+        setTrialDays((tc as any).trialDays ?? 7);
+      }
     } catch {
       /* noop */
     } finally {
@@ -2081,6 +2090,25 @@ function PaymentGatewayConfig({
       if (d) await load();
     } catch (e: any) {
       onSaved(e.message ?? 'Error al guardar pasarela');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveTrial() {
+    setBusy(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}/trial-config`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          trialCheckoutUrl: trialUrl.trim() || null,
+          trialDays: Math.max(1, Math.min(90, Number(trialDays) || 7)),
+        }),
+      });
+      onSaved('Enlace de prueba guardado');
+      await load();
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error al guardar la prueba');
     } finally {
       setBusy(false);
     }
@@ -2265,6 +2293,39 @@ function PaymentGatewayConfig({
             </div>
           </div>
         )}
+
+        {/* Enlace de PRUEBA (página dedicada /prueba). Pegar la URL de Stripe con
+            prueba de N días; el cliente ancla tarjeta y a los N días se le cobra
+            (ahí se descuenta 1 crédito). Vacío = la marca no ofrece prueba. */}
+        <div className="pt-1">
+          <SectionTitle>Enlace de prueba ({trialDays} días)</SectionTitle>
+          <p className="text-xs text-mute mb-2 mt-1 leading-relaxed">
+            URL de Stripe con período de prueba. El cliente entra por{' '}
+            <code className="bg-bg2 px-1 rounded">/prueba</code>, ancla la tarjeta,
+            y a los {trialDays} días se le cobra (ahí se descuenta 1 crédito de la
+            marca). Vacío = no ofrece prueba.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2 mb-4">
+            <input
+              className="input flex-1 min-w-0"
+              placeholder="https://buy.stripe.com/…"
+              value={trialUrl}
+              onChange={(e) => setTrialUrl(e.target.value)}
+            />
+            <input
+              className="input w-full sm:w-20 flex-none"
+              type="number"
+              min={1}
+              max={90}
+              value={trialDays}
+              onChange={(e) => setTrialDays(Number(e.target.value))}
+              title="Días de prueba"
+            />
+            <button onClick={saveTrial} disabled={busy} className="btn-primary text-sm flex-none">
+              {busy ? 'Guardando…' : 'Guardar'}
+            </button>
+          </div>
+        </div>
 
         {/* Links de pago */}
         <div className="pt-1">

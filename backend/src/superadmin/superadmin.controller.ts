@@ -63,6 +63,13 @@ class PaymentConfigBody {
   @IsOptional() @IsObject() config?: Record<string, any>;
 }
 
+// Enlace de PRUEBA por marca (página /prueba). url vacío = la marca deja de
+// ofrecer prueba. days: 1..90 (default 7). No es secreto (link público de Stripe).
+class TrialConfigBody {
+  @IsOptional() @IsString() @MaxLength(600) trialCheckoutUrl?: string | null;
+  @IsOptional() @IsInt() @Min(1) @Max(90) trialDays?: number | null;
+}
+
 // Subcuenta Grow Business (GoHighLevel) de la MARCA — desde donde salen los SMS
 // de sus negocios. apiKey se cifra server-side. Vacío = limpiar; enmascarado
 // (con •) o ya cifrado = conservar.
@@ -240,6 +247,18 @@ export class SuperAdminController {
   @Patch('white-labels/:id/payment-config')
   updatePaymentConfig(@Param('id') id: string, @Body() body: PaymentConfigBody, @CurrentUser() user: AuthUser) {
     return this.svc.updatePaymentConfig(id, body, user.id);
+  }
+
+  // -------- Enlace de PRUEBA por marca (página dedicada /prueba) --------
+
+  @Get('white-labels/:id/trial-config')
+  getTrialConfig(@Param('id') id: string) {
+    return this.svc.getBrandTrialConfig(id);
+  }
+
+  @Patch('white-labels/:id/trial-config')
+  setTrialConfig(@Param('id') id: string, @Body() body: TrialConfigBody) {
+    return this.svc.setBrandTrialConfig(id, body);
   }
 
   // -------- Subcuenta SMS (Grow Business) por marca --------
