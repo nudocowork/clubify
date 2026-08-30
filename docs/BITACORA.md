@@ -107,6 +107,49 @@ vuelo tres veces esta semana.
 
 ---
 
+## 2026-08-30 — Sellea: pago→crear cuenta tal cual Clubify (/activar) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit 0ff64bf8)
+
+### Qué cambié
+- **`check-pending` ahora reconoce el pago de Stripe.** `checkPendingPayment`
+  solo miraba `PendingHotmartPayment`; si no hay, ahora lee
+  `PendingStripePayment` (marcas con Stripe, ej. Sellea). Sin esto, un
+  comprador de Sellea que SÍ pagó veía "Todavía no vemos un pago" en /activar.
+  Nuevo `checkPendingStripePayment` (nombre/teléfono/monto del evento Stripe;
+  periodicidad null → el signup toma el plan de la suscripción al consumir).
+- **`/activar/layout.tsx` (NUEVO)** con `AuthBrandServer`: la página de crear
+  cuenta hereda el color de la marca. Sin layout salía en verde Clubify.
+- **`authBrandCss` cubre gradientes** `from/via/to-brand` + `accent-brand`. El
+  aside con degradado de /activar quedaba verde (el override por atributo no
+  alcanza las vars `--tw-gradient-*`). Scopeado a `.brand-auth`.
+
+### Cómo es el flujo (para entenderlo)
+Ambas marcas: pagar → caer en `/activar` → llenar datos → `POST /auth/signup`
+crea el tenant y consume el pago pendiente → ACTIVE. NO hay auto-creación de
+cuenta. El redirect Stripe→/activar NO está en el código: es un ajuste del
+Payment Link en el panel de Stripe ("after completion" → URL /activar).
+
+### Qué toqué de PRODUCCIÓN
+- Deploy backend (check-pending) + frontend (/activar layout + gradientes).
+  Sin migración, sin DB.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **OPERATIVO (dueño):** en cada Payment Link de Sellea en Stripe, poner
+      "After completion → Redirect to" = `https://www.selleala.com/activar`.
+      Sin eso, el comprador queda en la página de Stripe y solo llega a
+      /activar por el correo de recuperación (async), no directo.
+
+### Riesgos y avisos
+- `check-pending` no recibe marca: consulta Hotmart y luego Stripe por email.
+  Hotmart tiene precedencia (Clubify intacto).
+- Gradientes de marca en `.brand-auth` afectan a TODAS las páginas de auth de
+  marcas blancas (login/signup/activar/prueba/afiliado): antes salían en verde
+  Clubify (bug), ahora en el color de la marca. Clubify (sin `.brand-auth`)
+  intacto.
+
+---
+
 ## 2026-08-30 — Fix: /prueba de Sellea salía en verde Clubify (faltaba layout) (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commit cdfdcaa1)
