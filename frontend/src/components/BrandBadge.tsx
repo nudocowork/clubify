@@ -15,6 +15,9 @@
  */
 export type BrandBadgeBrand = {
   name: string;
+  // Slug de la marca blanca (ej. 'sellea'). Lo usan pantallas que cambian
+  // comportamiento por marca, como exigir correo/cumpleaños en el registro.
+  slug?: string | null;
   websiteUrl: string;
   initial?: string | null;
   primaryColor?: string | null;

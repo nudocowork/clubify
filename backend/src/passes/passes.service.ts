@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -229,13 +230,39 @@ export class PassesService {
     const card = await this.prisma.card.findUnique({
       where: { id: cardId },
       include: {
-        tenant: { select: { id: true, status: true, dataPolicyUrl: true } },
+        tenant: {
+          select: {
+            id: true,
+            status: true,
+            dataPolicyUrl: true,
+            whiteLabelId: true,
+          },
+        },
       },
     });
     if (!card || !card.isActive)
       throw new NotFoundException('Tarjeta no disponible');
     if (card.tenant.status === 'SUSPENDED')
       throw new NotFoundException('Negocio no disponible');
+
+    // Sellea: correo y cumpleaños son OBLIGATORIOS en el registro de la tarjeta
+    // (decisión del dueño, 2026-08-30). Defensa en profundidad: el formulario
+    // ya lo valida, pero acá lo exigimos para que un POST directo no lo evada.
+    // SOLO Sellea — el resto de marcas mantiene ambos campos opcionales.
+    const brand = await this.brand.resolveByWhiteLabelId(
+      card.tenant.whiteLabelId,
+    );
+    const requireContactFields =
+      brand.slug === 'sellea' || brand.slug === 'selleala';
+    if (requireContactFields) {
+      if (!dto.email?.trim()) {
+        throw new BadRequestException('El correo electrónico es obligatorio');
+      }
+      const bday = dto.birthday ? new Date(dto.birthday) : null;
+      if (!bday || Number.isNaN(bday.getTime())) {
+        throw new BadRequestException('La fecha de cumpleaños es obligatoria');
+      }
+    }
 
     const phoneNorm = (dto.phone || '').replace(/\s/g, '').trim();
     if (phoneNorm.length < 8) {
