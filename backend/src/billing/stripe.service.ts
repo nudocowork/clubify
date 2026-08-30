@@ -9,6 +9,7 @@ import { BrandEmailService } from '../email/brand-email.service';
 import { fmtEmailDate } from '../email/brand-email-templates';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { addPlanPeriod } from '../common/plan-period';
+import { cycleCreditCostForTenant } from '../common/business-types';
 import { fmtSmsDate } from './sms-templates';
 import { decryptSecret } from '../common/crypto/secret-box';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
@@ -27,6 +28,10 @@ type StripeCtx = {
   amountUsd: number | null;
   // PDF Soft 10: timestamp real del pago (event.created) para fijar purchasedAt.
   paidAt: Date | null;
+  // Fin de la PRUEBA de la suscripción (Stripe trial_end), si la tuvo. Distingue
+  // el "enlace de 7 días de prueba" (trialEnd != null) de la compra directa
+  // (sin prueba → null). Ver consumeTrialConversionCredit.
+  trialEnd: Date | null;
   /**
    * Identidad UNICA de este cobro, para deduplicar comisiones.
    *
@@ -352,6 +357,7 @@ export class StripeService {
     let priceId: string | null = null;
     let amountUsd: number | null = null;
     let nextCharge: Date | null = null;
+    let trialEnd: Date | null = null;
     // PDF Soft 10: fecha real del evento de pago (Unix seconds → Date).
     const paidAt =
       typeof event.created === 'number' ? new Date(event.created * 1000) : null;
@@ -389,13 +395,16 @@ export class StripeService {
         if (typeof sub.current_period_end === 'number') {
           nextCharge = new Date(sub.current_period_end * 1000);
         }
+        // trial_end queda seteado aunque la prueba ya haya terminado → sirve como
+        // marca de que la suscripción nació con prueba (enlace de 7 días).
+        if (typeof sub.trial_end === 'number') trialEnd = new Date(sub.trial_end * 1000);
         priceId = sub.items?.data?.[0]?.price?.id ?? priceId;
         if (!customerId && typeof sub.customer === 'string') customerId = sub.customer;
       } catch (e) {
         this.logger.warn(`retrieve subscription ${subscriptionId} falló: ${(e as Error).message}`);
       }
     }
-    return { email, customerId, subscriptionId, priceId, nextCharge, amountUsd, paidAt, transaccionId };
+    return { email, customerId, subscriptionId, priceId, nextCharge, amountUsd, paidAt, transaccionId, trialEnd };
   }
 
   private async onPaymentSucceeded(brand: BrandCtx, event: Stripe.Event) {
@@ -412,7 +421,80 @@ export class StripeService {
       return { ok: true, action: 'tenant_not_found' };
     }
     await this.activate(tenant, ctx, brand.whiteLabelId);
+    // Enlace de PRUEBA de 7 días: el crédito de la marca se consume cuando Stripe
+    // COBRA la tarjeta (día 7), no al anclarla. Solo en el cobro real (invoice.*,
+    // no checkout.session), y solo si la suscripción tuvo prueba. Best-effort: si
+    // falla, el negocio queda activo igual y se puede reconciliar. La compra
+    // directa (sin prueba) no entra acá → su crédito sigue por la vía de siempre.
+    if (event.type === 'invoice.paid' || event.type === 'invoice.payment_succeeded') {
+      await this.consumeTrialConversionCredit(tenant.id, ctx, brand.whiteLabelId).catch((e) =>
+        this.logger.warn(`consumeTrialConversionCredit falló: ${(e as Error).message}`),
+      );
+    }
     return { ok: true, action: 'activated' };
+  }
+
+  /**
+   * Consume 1 crédito de la marca cuando un negocio que entró por el ENLACE DE
+   * PRUEBA de 7 días paga su primer cobro real (conversión de la prueba). El
+   * discriminador es que la suscripción de Stripe TUVO prueba (`trial_end`): la
+   * compra directa no tiene prueba, así que nunca entra. Idempotente: se consume
+   * UNA sola vez (si el negocio ya tiene un CONSUME, no vuelve a cobrar). Salta
+   * marcas Clubify/ilimitadas y es race-safe (solo debita si hay crédito).
+   */
+  private async consumeTrialConversionCredit(
+    tenantId: string,
+    ctx: StripeCtx,
+    whiteLabelId: string,
+  ): Promise<void> {
+    if (!ctx.trialEnd) return; // sin prueba → compra directa, no aplica
+    if (!(ctx.amountUsd && ctx.amountUsd > 0)) return; // solo un cobro REAL (no la factura $0 de la prueba)
+    // Idempotencia: se consume en la conversión y nunca más (renovaciones ya no
+    // recobran; su crédito, si aplica, va por la vía normal de la marca).
+    const yaConsumido = await this.prisma.creditTransaction.findFirst({
+      where: { tenantId, type: 'CONSUME', refundedAt: null },
+      select: { id: true },
+    });
+    if (yaConsumido) return;
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        brandName: true,
+        businessType: true,
+        infolinkTier: true,
+        planPeriodicity: true,
+        whiteLabelId: true,
+      },
+    });
+    if (!t || t.whiteLabelId !== whiteLabelId) return;
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: { id: true, slug: true, creditsUnlimited: true },
+    });
+    if (!wl || wl.slug === 'clubify' || wl.creditsUnlimited) return;
+    const cost = cycleCreditCostForTenant(t.businessType, t.infolinkTier, t.planPeriodicity);
+    const debit = await this.prisma.whiteLabel.updateMany({
+      where: { id: wl.id, creditsAvailable: { gte: cost } },
+      data: { creditsAvailable: { decrement: cost }, creditsUsed: { increment: cost } },
+    });
+    if (debit.count === 0) {
+      this.logger.warn(
+        `consumeTrialConversionCredit: ${wl.slug} sin créditos para ${t.brandName} (${tenantId})`,
+      );
+      return;
+    }
+    await this.prisma.creditTransaction.create({
+      data: {
+        whiteLabelId: wl.id,
+        type: 'CONSUME',
+        amount: -cost,
+        tenantId,
+        note: `Prueba 7 días convertida (cobro Stripe) · ${t.brandName} · ${cost} créd`,
+      },
+    });
+    this.logger.log(
+      `consumeTrialConversionCredit: -${cost} créd a ${wl.slug} por conversión de prueba de ${t.brandName} (${tenantId})`,
+    );
   }
 
   private async onPaymentFailed(brand: BrandCtx, event: Stripe.Event) {
@@ -506,6 +588,8 @@ export class StripeService {
       // Eventos de suscripcion (cancelada, reanudada): no son un cobro, no
       // generan comision y por tanto no necesitan clave de deduplicacion.
       transaccionId: typeof event.id === 'string' ? event.id : null,
+      trialEnd:
+        typeof sub.trial_end === 'number' ? new Date(sub.trial_end * 1000) : null,
     };
   }
 
@@ -664,6 +748,7 @@ export class StripeService {
       // acá). null como el resto.
       paidAt: null,
       transaccionId: null,
+      trialEnd: null,
     });
   }
 
