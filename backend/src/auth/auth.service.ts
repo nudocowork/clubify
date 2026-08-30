@@ -984,7 +984,12 @@ export class AuthService {
       where: { email, consumedAt: null },
       orderBy: { createdAt: 'desc' },
     });
-    if (!pending) return { found: false };
+    // Marcas con Stripe (ej. Sellea): el pago pendiente vive en
+    // PendingStripePayment, NO en Hotmart. Sin este fallback, /activar mostraba
+    // "Todavía no vemos un pago" a un comprador de Sellea que SÍ pagó → parecía
+    // que no había pagado. Devolvemos el mismo shape para el pre-fill y el badge
+    // "Pago detectado ✅". (2026-08-30, para que Sellea funcione tal cual Clubify.)
+    if (!pending) return this.checkPendingStripePayment(email);
 
     const raw = (pending.rawPayload ?? {}) as any;
     const buyer = raw?.data?.buyer ?? {};
@@ -1053,6 +1058,53 @@ export class AuthService {
       purchaseValue: value,
       purchaseCurrency,
       periodicity,
+    };
+  }
+
+  /**
+   * Igual que checkPendingPayment pero para el pago pendiente de STRIPE
+   * (marcas blancas con Stripe, ej. Sellea). Lee nombre/teléfono/monto del
+   * evento Stripe guardado (checkout.session.completed o invoice.paid) para
+   * que /activar pinte "Pago detectado ✅" y pre-llene el form. La
+   * periodicidad no viene lista en el evento → null (el signup toma el plan de
+   * la suscripción real al consumir el pending; esto es solo pre-fill de UI).
+   */
+  private async checkPendingStripePayment(email: string): Promise<{
+    found: boolean;
+    buyerName?: string | null;
+    buyerPhone?: string | null;
+    productName?: string | null;
+    purchaseValue?: number | null;
+    purchaseCurrency?: string | null;
+    periodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null;
+  }> {
+    const pending = await this.prisma.pendingStripePayment.findFirst({
+      where: { email, consumedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!pending) return { found: false };
+
+    const obj = ((pending.rawPayload ?? {}) as any)?.data?.object ?? {};
+    const cd = obj?.customer_details ?? {};
+    const name = (cd?.name ?? obj?.customer_name ?? null) as string | null;
+    const phone = (cd?.phone ?? obj?.customer_phone ?? null) as string | null;
+    // Monto en CENTAVOS: checkout.session usa amount_total; invoice.paid usa
+    // amount_paid. En una prueba de 7 días el cobro inicial es 0 → válido.
+    const cents =
+      Number(obj?.amount_total ?? obj?.amount_paid ?? obj?.amount_due) || null;
+    const value = cents != null ? cents / 100 : null;
+    const currency = obj?.currency
+      ? String(obj.currency).toUpperCase()
+      : null;
+
+    return {
+      found: true,
+      buyerName: name,
+      buyerPhone: phone,
+      productName: null,
+      purchaseValue: value,
+      purchaseCurrency: currency,
+      periodicity: null,
     };
   }
 
