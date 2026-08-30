@@ -48,7 +48,38 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
-## 2026-08-29 — Fecha de próximo cobro se ancla a la activación del crédito (Jhon)
+## 2026-08-29 — Sellea: enlace de prueba 7 días + varios fixes de marca (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commits c219c013, 0dfbcce4)
+
+### Qué cambié
+- **Batch UI de Sellea (frontend, c219c013):** registro de afiliado muestra
+  monto fijo "$N pago único" (no %); link de términos → relativo + se CREÓ
+  `src/app/terminos/page.tsx` brand-aware (fin del 404); tabs verdes → naranja
+  (`.tab-active` en panel-brand-theme, admin + `.brand-auth`); panel de afiliado
+  con theme de marca (`app/affiliate/layout.tsx`).
+- **Prueba de 7 días (backend, 0dfbcce4):** ADITIVO, no cambia la compra directa.
+  El "demo 7 días" es un Stripe Payment Link con `trial_period_days=7` (se crea en
+  Stripe, externo). El negocio queda ACTIVE desde el día 0 (webhook de siempre) y
+  a los 7 días Stripe cobra. NUEVO: `stripe.service.consumeTrialConversionCredit`
+  consume 1 crédito de la marca SOLO en el cobro real de una suscripción que tuvo
+  prueba (`trial_end`), idempotente, race-safe. La compra directa (sin prueba) no
+  entra.
+
+### Qué toqué de PRODUCCIÓN
+- Frontend desplegado (Vercel, ready). Backend desplegado (Railway, deployment
+  97225ad0). Sin migración de DB.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **Operativo (no código):** crear en Stripe (cuenta de Sellea) el Payment
+      Link con 7 días de prueba y pegarlo como enlace externo de la prueba.
+- [ ] Cohete 🚀 del panel de afiliado "no abre" — pendiente de reproducir en el
+      navegador (revisar consola). El código es un toggle correcto sin blocker.
+- [ ] `/terminos` tiene contenido genérico/editable — que lo revise legal.
+
+### Riesgos y avisos
+- El consumo de crédito en la conversión es best-effort (si falla, el negocio
+  queda activo igual). Solo afecta negocios que entraron por prueba con Stripe.
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commit 9e7c5122)
 
