@@ -107,6 +107,43 @@ vuelo tres veces esta semana.
 
 ---
 
+## 2026-08-30 — Sellea: fugas de marca en aviso interno + correo de compra (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit b7e1d5e2)
+
+### Qué cambié
+- **SMS interno de preregistro** decía "Nuevo preregistro en Clubify / Revisar
+  en Clubify" para un negocio de Sellea → ahora dice el nombre de la marca
+  (`alertSignup`/`buildMessage` reciben `brandName`; el call site pasa
+  `welcomeBrandRow.whiteLabel.name`). NOTA: el ruteo (línea + destinatarios
+  Javier/Jhon) SIGUE siendo el equipo de la plataforma — es monitoreo central,
+  no se cambió; solo el TEXTO.
+- **Correo "Recibimos tu pago — crea tu cuenta"** salía con el morado default
+  (#6366F1) + inicial de la marca en vez del logo/color reales. Causa: el correo
+  del comprador NO tiene tenant, y el logo/color solo venían del tenant.
+  `BRAND_EMAIL_SELECT` ahora trae `logoUrl/iconUrl/primaryColor`, `ResolvedBrand`
+  los lleva y `renderHtml` cae al color/logo de la MARCA cuando no hay tenant.
+
+### Qué toqué de PRODUCCIÓN
+- Deploy backend. Sin migración, sin DB.
+
+### Qué falta / PENDIENTE GRANDE (trial de 7 días)
+- [ ] **Ciclo del trial mal:** hoy al pagar el negocio queda ACTIVE + vence en
+      1 MES. Debe ser: día 0 = TRIAL/demo con vencimiento a 7 días (sin consumir
+      crédito); día 7 = Stripe cobra → ACTIVE + consume 1 crédito Fidelity.
+      La activación (`stripe.service.activate`) fija `currentPeriodEnd` a
+      `addPlanPeriod(now, MENSUAL)` cuando `ctx.nextCharge` es null; nunca honra
+      `trial_end`. `consumeTrialConversionCredit` (día 7) ya existe pero no
+      cambia estado ni fecha. BLOQUEANTE: confirmar que el Payment Link de Stripe
+      tenga `trial_period_days=7` (hoy la suscripción cobró y quedó Mensual).
+- [ ] **/activar muestra "USD 68"** (precio global Clubify) en vez de "USD 80"
+      (precio de Sellea). Lee `/api/landing-plans` (global), no el precio por
+      marca. La página de facturación sí es brand-aware (WhiteLabelPaymentLink).
+- [ ] Mensaje WhatsApp "Próximo cobro: 30 sept" y panel admin (ESTADO Activo,
+      VENCE Sep 30) dependen del ciclo del trial de arriba.
+
+---
+
 ## 2026-08-30 — Sellea: pago→crear cuenta tal cual Clubify (/activar) (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commit 0ff64bf8)
