@@ -107,6 +107,53 @@ vuelo tres veces esta semana.
 
 ---
 
+## 2026-08-30 — Sellea: ciclo de prueba de 7 días (día 0 demo, día 7 activo+crédito) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit ebf6551c)
+
+### Contexto
+El Payment Link de Stripe de Sellea SÍ tiene `trial_period_days=7` (confirmado
+por el dueño), pero la activación no lo honraba: marcaba ACTIVE y vencía en 1
+MES. El dueño quiere: día 0 = cuenta DEMO/prueba con vencimiento a 7 días (sin
+cobrar, sin crédito); día 7 = Stripe cobra → ACTIVE + consume 1 crédito Fidelity.
+
+### Qué cambié (`billing/stripe.service.ts` `activate`)
+- `inTrial = ctx.trialEnd > now`. Si está en prueba: `status='TRIAL'`,
+  `trialEndsAt = currentPeriodEnd = trial_end` (7 días), NO cobra, NO consume
+  crédito, NO genera comisiones, NO emite business.activated. SMS nuevo
+  `trial_started` ("en N días (fecha) se hace el primer cobro").
+- Día 7 (invoice.paid, monto>0, trial_end pasado): cae a la rama normal →
+  ACTIVE + `consumeTrialConversionCredit` (ya existía) + comisiones + vence al
+  próximo período real.
+- `billing.service.getStatus` expone `paidTrial` (TRIAL + con suscripción Stripe
+  = tarjeta anclada). La página de facturación muestra "Prueba activa · primer
+  cobro el <fecha>" SIN el CTA de "activar" (ese es para la prueba GRATIS sin
+  tarjeta). El panel admin ya muestra TRIAL + fecha (VENCE = currentPeriodEnd).
+- `/activar` (front): el precio ahora sale del plan de la MARCA
+  (`payment-links-by-host`, USD 80), no del global de Clubify (`landing-plans`,
+  USD 68).
+
+### Qué toqué de PRODUCCIÓN
+- Deploy backend + frontend. Sin migración, sin DB (usa status TRIAL +
+  trialEndsAt que ya existían de la prueba gratis).
+
+### Qué falta / validar del otro lado
+- [ ] E2E real: compra con el enlace de prueba → verificar día 0 = TRIAL/vence
+      7 días + SMS "en 7 días"; y el cobro del día 7 → ACTIVE + -1 crédito.
+- [ ] La detección del trial depende de que `extractCtx` pueda LEER la
+      suscripción de Stripe (retrieve). Si el retrieve falla, `trialEnd` queda
+      null y caería a ACTIVE+1 mes (como el test viejo). Vigilar el warn
+      "retrieve subscription ... falló".
+
+### Riesgos y avisos
+- `status=TRIAL` se comparte con la prueba GRATIS (5 días sin tarjeta). El
+  discriminador es `stripeSubscriptionId` (→ `paidTrial`). Cualquier pantalla que
+  trate TRIAL como "esperando pago" debe chequear `paidTrial` (ya hecho en
+  billing). El cron de trials free (recordatorios) NO debe pausar a un paidTrial:
+  revisar si algún cron suspende TRIAL vencido sin mirar la suscripción.
+
+---
+
 ## 2026-08-30 — Sellea: fugas de marca en aviso interno + correo de compra (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commit b7e1d5e2)
