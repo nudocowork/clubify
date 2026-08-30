@@ -48,6 +48,35 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-30 — Sellea: página dedicada de prueba /prueba (por marca) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commits 1a88dd51, fc0ea78b)
+
+### Qué cambié
+- Página dedicada de prueba SIN migración (Settings por-marca
+  `landing.trial.checkoutUrl.<slug>` + `landing.trial.days.<slug>`).
+- Admin: Superadmin → Marcas → **"Enlace de prueba (N días)"** (pega la URL de
+  Stripe + días). Endpoints `GET/PATCH /superadmin/white-labels/:id/trial-config`.
+- `branding-by-host` expone `trialCheckoutUrl`+`trialDays` → `useAuthBrand`.
+- `/prueba` (TrialSignupClient) BRAND-AWARE (logo/color/nombre de la marca, ya no
+  `<Logo>` Clubify), usa el enlace y días de la marca; flujo botón→Stripe→/activar.
+  Marca blanca sin enlace → "prueba no disponible". Clubify intacto.
+- 🚨 SELLEA-ONLY: `consumeTrialConversionCredit` ahora exige el enlace de prueba
+  configurado (opt-in por-marca) además del trial_end → otras marcas TAL CUAL.
+
+### Qué toqué de PRODUCCIÓN
+- Backend (deployment fc9c16c3) + frontend (Vercel) desplegados. Sin migración.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] OPERATIVO: crear en Stripe (Sellea) el Payment Link con 7 días de prueba y
+      pegarlo en Superadmin → Marcas → Sellea → "Enlace de prueba".
+- [ ] Cohete 🚀 del panel afiliado (pendiente error de consola).
+
+### Riesgos y avisos
+- Aislado por marca: solo Sellea (única con enlace de prueba) recibe la feature.
+
+---
+
 ## 2026-08-29 — Sellea: enlace de prueba 7 días + varios fixes de marca (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commits c219c013, 0dfbcce4)
