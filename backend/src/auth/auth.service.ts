@@ -1499,6 +1499,9 @@ export class AuthService {
         source,
         referrerName,
         campaignName,
+        // Marca del negocio: si es blanca (Sellea), el aviso interno dice su
+        // nombre, no "Clubify". welcomeBrandRow ya trae whiteLabel.name arriba.
+        brandName: welcomeBrandRow?.whiteLabel?.name ?? null,
       })
       .catch(() => null);
 

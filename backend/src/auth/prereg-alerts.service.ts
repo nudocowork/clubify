@@ -80,6 +80,9 @@ export class PreregAlertsService {
     source: string; // "Landing principal" | "Afiliado XYZ123" | etc.
     referrerName?: string | null;
     campaignName?: string | null;
+    // Nombre de la marca del negocio (ej. "Sellea"). Si es de una marca blanca,
+    // el aviso debe decir su nombre, NO "Clubify" (fuga de marca). null=Clubify.
+    brandName?: string | null;
   }): Promise<void> {
     try {
       // GUARD anti-repetición: si este user YA fue alertado (o hubo una alerta
@@ -416,9 +419,12 @@ export class PreregAlertsService {
     source: string;
     referrerName?: string | null;
     campaignName?: string | null;
+    brandName?: string | null;
   }): string {
+    // Marca blanca (ej. Sellea) → su nombre; sin marca → Clubify.
+    const plataforma = opts.brandName?.trim() || 'Clubify';
     const lines = [
-      'Nuevo preregistro en Clubify.',
+      `Nuevo preregistro en ${plataforma}.`,
       '',
       `Nombre: ${opts.customerName}`,
       `Teléfono: ${opts.customerPhone ?? '—'}`,
@@ -437,7 +443,7 @@ export class PreregAlertsService {
         timeStyle: 'short',
       })}`,
     );
-    lines.push('', 'Revisar en Clubify.');
+    lines.push('', `Revisar en ${plataforma}.`);
     return lines.join('\n');
   }
 }
