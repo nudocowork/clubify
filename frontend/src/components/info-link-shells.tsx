@@ -586,7 +586,18 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
     >
       {/* IMPORTANTE: el article NO debe tener overflow-hidden — sino el
           logo flotante (con -mt-14) se cortaría al desbordar el banner. */}
-      <article className="max-w-md mx-auto bg-white shadow-sm min-h-screen">
+      {/* La columna de contenido llevaba `bg-white` FIJO: el negocio elegía un
+          color de fondo, se guardaba, y encima seguía viéndose la franja
+          blanca. Con fondo propio la columna se vuelve transparente y deja
+          pasar el del contenedor —igual que Aurora, Minimal y Neon, que nunca
+          tuvieron el problema—, así el color llega de borde a borde sin
+          cortar el banner, que pinta el suyo aparte.
+
+          Sin fondo configurado se queda blanca como siempre: los infolinks ya
+          publicados que no tocaron el fondo no cambian. */}
+      <article
+        className={`max-w-md mx-auto min-h-screen ${customBackground ? '' : 'bg-white shadow-sm'}`}
+      >
         {/* Banner: position relative + z-1 explícito. overflow-hidden
             solo aplica DENTRO del banner (recorta la foto al frame) sin
             afectar al logo, que está en otro contenedor afuera. */}
@@ -775,7 +786,10 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
         ...(customBackground ? { background: customBackground } : {}),
       }}
     >
-      <article className="max-w-md mx-auto bg-white shadow-sm min-h-screen pb-10">
+      {/* Mismo caso que Shop: `bg-white` fijo tapaba el fondo elegido. */}
+      <article
+        className={`max-w-md mx-auto min-h-screen pb-10 ${customBackground ? '' : 'bg-white shadow-sm'}`}
+      >
         <div className="px-5 pt-7 pb-3 border-b border-line2">
           <div className="flex items-center gap-3">
             <ShellLogoCard
