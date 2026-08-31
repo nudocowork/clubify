@@ -10,7 +10,12 @@ import { fmtEmailDate } from '../email/brand-email-templates';
 import { addPlanPeriod } from '../common/plan-period';
 import { cycleCreditCostForTenant } from '../common/business-types';
 import { AuditService } from '../audit/audit.service';
-import { decideDunning, pauseDateFor } from './dunning';
+import {
+  decideDunning,
+  pauseDateFor,
+  deriveRenewalState,
+  type RenewalStateResult,
+} from './dunning';
 
 // Secuencia de mora (PDF 2026-07-01, P4). Día 0 = 1er cobro fallido o fecha
 // de cobro vencida (lo que ocurra). El cron diario cuenta días calendario:
@@ -25,6 +30,8 @@ const PAUSE_DAYS = 5;            // gracia por defecto (1..5) → día 6 suspend
 // pausar en masa cuentas antiguas al desplegar. La vía de cobro fallido
 // (failedPaymentCount>0) no tiene este tope: es señal explícita de Hotmart.
 const STALE_OVERDUE_CAP_DAYS = 60;
+// Fase 2: un cobro dentro de estos días cuenta como "próximo" (dashboard 🔴).
+const PROXIMO_COBRO_DAYS = 7;
 
 export type TrialStatus = {
   status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'EXPIRED' | 'CANCELED';
@@ -43,6 +50,10 @@ export type TrialStatus = {
   // al terminar la prueba. Distinto de la prueba GRATIS (sin tarjeta), que sí
   // pide "completar el pago". El frontend usa esto para el copy correcto.
   paidTrial: boolean;
+  // Fase 2: estado del ciclo de RENOVACIÓN/cobro (mora de dinero), derivado con
+  // la MISMA regla que suspende (decideDunning). Distinto de la gracia de prueba
+  // de arriba. Alimenta el panel del negocio y el dashboard de cobros.
+  renewal: RenewalStateResult;
 };
 
 const TRIAL_DAYS = 10;
@@ -355,10 +366,15 @@ export class BillingService {
         suspendedAt: true,
         failedPaymentCount: true,
         gracePeriodDays: true,
+        // Fase 2: campos del ciclo de renovación para deriveRenewalState.
+        firstFailedAt: true,
+        lastPaymentAttemptAt: true,
+        lastChargeAt: true,
         // Distinguir prueba PAGA (con suscripción) de la GRATIS (sin tarjeta).
         stripeSubscriptionId: true,
       },
     });
+    const graceDays = await this.getGraceDays();
     if (!t) {
       return {
         status: 'EXPIRED',
@@ -370,11 +386,30 @@ export class BillingService {
         inGracePeriod: false,
         graceDaysLeft: null,
         paidTrial: false,
+        renewal: {
+          state: 'CANCELADO',
+          byFailure: false,
+          daysOverdue: 0,
+          graceDays,
+          graceDaysLeft: null,
+          graceLabel: null,
+          nextChargeAt: null,
+          pauseDate: null,
+        },
       };
     }
 
     const now = Date.now();
     const dayMs = 24 * 60 * 60 * 1000;
+    // Fase 2: estado del ciclo de renovación (mora de dinero) con la misma regla
+    // que suspende. reminder/notice/staleCap coinciden con processOverdueAccounts.
+    const renewal = deriveRenewalState(t, new Date(now), {
+      graceDays,
+      reminderDay: OVERDUE_REMINDER_DAY,
+      noticeDay: OVERDUE_NOTICE_DAY,
+      staleCapDays: STALE_OVERDUE_CAP_DAYS,
+      proximoCobroDays: PROXIMO_COBRO_DAYS,
+    });
     let daysLeft: number | null = null;
     // 2026-06-06: solo calculamos el contador de trial si el tenant
     // todavía está en TRIAL. Si ya pagó (status ACTIVE/PAST_DUE/SUSPENDED)
@@ -436,6 +471,7 @@ export class BillingService {
       // Prueba paga = está en TRIAL Y ya ancló tarjeta (tiene suscripción). El
       // cobro llega solo al día 7; no hay que pedirle "completar el pago".
       paidTrial: derived === 'TRIAL' && !!t.stripeSubscriptionId,
+      renewal,
     };
   }
 

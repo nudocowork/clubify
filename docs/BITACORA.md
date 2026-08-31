@@ -48,6 +48,37 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-31 — Renovaciones Fase 2: estados de renovación (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama:** `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+Derivación PURA del estado del ciclo de cobro (`deriveRenewalState` en
+`src/billing/dunning.ts`), que **reusa `decideDunning`** para que el estado
+MOSTRADO y la decisión de SUSPENDER salgan de la misma regla. Estados:
+`TRIAL | AL_DIA | COBRO_PROXIMO (≤7d) | EN_GRACIA (Día X de 5) | SUSPENDIDO |
+CANCELADO`. Devuelve `graceDaysLeft`, `graceLabel` ("Día 4 de 5"), `pauseDate`,
+`nextChargeAt`. Cableado en `billing.getStatus()` → nuevo campo `renewal` que
+sale por `GET /billing/status` (lo que consume el panel del negocio). +12 tests
+nuevos (24 en total en `test/dunning.test.ts`, verdes).
+
+Detalle fino que costó un test: la mora se detecta por `dueSince`, NO por la
+`action` de dunning — en los días intermedios de gracia (3,4,5) no toca mandar
+SMS (action='none') pero el negocio SÍ está en gracia.
+
+### Qué toqué de PRODUCCIÓN
+- **Nada.** Aditivo, sin migración (usa los campos de la Fase 1 ya migrados).
+  No desplegado: nada lo consume aún hasta el dashboard (Fase 5).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Desplegar junto con Fase 5 (dashboard) — o solo, es inocuo.
+- [ ] Fases 3 (SMS), 4 (comisiones pago por fuera), 5 (dashboard) pendientes.
+
+### Riesgos y avisos
+- `getStatus` ahora hace un `getGraceDays()` extra (lee Setting `billing.graceDays`)
+  — query barata, y no está en un guard por-request (solo en `GET /billing/status`).
+
 ## 2026-08-31 — Renovaciones/suspensión Fase 1: fix "no suspende al día 6" (DESPLEGADO)
 
 **Máquina/quién:** máquina de Jhon (Claude)

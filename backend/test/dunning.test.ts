@@ -2,8 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   decideDunning,
   pauseDateFor,
+  deriveRenewalState,
   type DunningState,
   type DunningConfig,
+  type RenewalInput,
+  type RenewalConfig,
 } from '../src/billing/dunning';
 
 /**
@@ -130,5 +133,100 @@ describe('decideDunning — pago por fuera / fecha vencida', () => {
 describe('pauseDateFor', () => {
   it('con 5 días de gracia, la fecha de pausa es el día 6', () => {
     expect(pauseDateFor(DAY0, 5)).toEqual(day(6));
+  });
+});
+
+// ── Fase 2: estado de renovación ────────────────────────────────────────────
+
+const RCFG: RenewalConfig = { ...CFG, proximoCobroDays: 7 };
+
+function rstate(over: Partial<RenewalInput> = {}): RenewalInput {
+  return {
+    status: 'ACTIVE',
+    suspendedAt: null,
+    failedPaymentCount: 0,
+    firstFailedAt: null,
+    lastPaymentAttemptAt: null,
+    currentPeriodEnd: null,
+    lastChargeAt: null,
+    ...over,
+  };
+}
+
+describe('deriveRenewalState — estados terminales', () => {
+  it('suspendedAt seteado → SUSPENDIDO', () => {
+    const r = deriveRenewalState(rstate({ suspendedAt: DAY0 }), day(3), RCFG);
+    expect(r.state).toBe('SUSPENDIDO');
+  });
+  it('status SUSPENDED → SUSPENDIDO', () => {
+    expect(deriveRenewalState(rstate({ status: 'SUSPENDED' }), day(3), RCFG).state).toBe('SUSPENDIDO');
+  });
+  it('status CANCELED → CANCELADO', () => {
+    expect(deriveRenewalState(rstate({ status: 'CANCELED' }), day(3), RCFG).state).toBe('CANCELADO');
+  });
+  it('status TRIAL → TRIAL', () => {
+    expect(deriveRenewalState(rstate({ status: 'TRIAL' }), day(3), RCFG).state).toBe('TRIAL');
+  });
+});
+
+describe('deriveRenewalState — mora (EN_GRACIA)', () => {
+  const failing = rstate({ failedPaymentCount: 1, firstFailedAt: DAY0 });
+
+  it('día 3 → EN_GRACIA, "Día 3 de 5", 3 días para suspender, pausa el día 6', () => {
+    const r = deriveRenewalState(failing, day(3), RCFG);
+    expect(r.state).toBe('EN_GRACIA');
+    expect(r.graceLabel).toBe('Día 3 de 5');
+    expect(r.graceDaysLeft).toBe(3); // 5+1-3
+    expect(r.pauseDate).toEqual(day(6));
+    expect(r.byFailure).toBe(true);
+  });
+
+  it('día 5 (último de gracia) → "Día 5 de 5", 1 día para suspender', () => {
+    const r = deriveRenewalState(failing, day(5), RCFG);
+    expect(r.state).toBe('EN_GRACIA');
+    expect(r.graceLabel).toBe('Día 5 de 5');
+    expect(r.graceDaysLeft).toBe(1);
+  });
+
+  it('día 6 → EN_GRACIA con 0 días (el cron lo suspenderá) — cae en 🟡 no procesados', () => {
+    const r = deriveRenewalState(failing, day(6), RCFG);
+    expect(r.state).toBe('EN_GRACIA');
+    expect(r.graceDaysLeft).toBe(0);
+    expect(r.graceLabel).toBe('Día 5 de 5'); // etiqueta topa en graceDays
+  });
+
+  it('pago por fuera vencido hace 6 días → EN_GRACIA (byFailure=false)', () => {
+    const manual = rstate({ currentPeriodEnd: DAY0, lastChargeAt: null });
+    const r = deriveRenewalState(manual, day(6), RCFG);
+    expect(r.state).toBe('EN_GRACIA');
+    expect(r.byFailure).toBe(false);
+  });
+});
+
+describe('deriveRenewalState — al día', () => {
+  it('cobro dentro de 3 días → COBRO_PROXIMO', () => {
+    const r = deriveRenewalState(rstate({ currentPeriodEnd: day(3) }), DAY0, RCFG);
+    expect(r.state).toBe('COBRO_PROXIMO');
+    expect(r.nextChargeAt).toEqual(day(3));
+  });
+
+  it('cobro hoy mismo → COBRO_PROXIMO (0 días)', () => {
+    const r = deriveRenewalState(rstate({ currentPeriodEnd: DAY0 }), DAY0, RCFG);
+    expect(r.state).toBe('COBRO_PROXIMO');
+  });
+
+  it('cobro dentro de 30 días → AL_DIA', () => {
+    const r = deriveRenewalState(rstate({ currentPeriodEnd: day(30) }), DAY0, RCFG);
+    expect(r.state).toBe('AL_DIA');
+    expect(r.nextChargeAt).toEqual(day(30));
+  });
+
+  it('renovado (lastChargeAt ≥ fin de ciclo) aunque la fecha ya pasó → AL_DIA, no mora', () => {
+    const r = deriveRenewalState(
+      rstate({ currentPeriodEnd: DAY0, lastChargeAt: DAY0 }),
+      day(6),
+      RCFG,
+    );
+    expect(r.state).toBe('AL_DIA');
   });
 });

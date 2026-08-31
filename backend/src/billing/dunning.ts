@@ -112,3 +112,106 @@ export function decideDunning(
   // Días intermedios de gracia (p.ej. 3, 4, 5): sin acción nueva.
   return { dueSince, byFailure, daysOverdue, action: 'none' };
 }
+
+// ── Estado de renovación (Fase 2) ───────────────────────────────────────────
+// Derivación PURA del estado del ciclo de cobro de un negocio, para el panel y
+// el dashboard de cobros. Reusa `decideDunning` para que el estado MOSTRADO y la
+// decisión de SUSPENDER salgan de la misma regla (una sola fuente de verdad).
+
+/** Estados estables del ciclo de cobro (no eventos). Los eventos "pago
+ *  procesado" / "reactivado" viven en el registro de ingresos, no acá. */
+export type RenewalState =
+  | 'TRIAL' // en prueba (gratis o paga)
+  | 'AL_DIA' // activo, cobro no inminente
+  | 'COBRO_PROXIMO' // activo, cobro dentro de la ventana (default 7 días)
+  | 'EN_GRACIA' // cobro fallido/vencido, dentro de la gracia (día 1..graceDays)
+  | 'SUSPENDIDO'
+  | 'CANCELADO';
+
+export interface RenewalInput extends DunningState {
+  /** TenantStatus crudo de la BD (TRIAL | ACTIVE | SUSPENDED | CANCELED…). */
+  status: string;
+  suspendedAt: Date | null;
+}
+
+export interface RenewalConfig extends DunningConfig {
+  /** Un cobro dentro de estos días cuenta como "próximo" (default 7). */
+  proximoCobroDays: number;
+}
+
+export interface RenewalStateResult {
+  state: RenewalState;
+  /** true = mora por cobro fallido explícito; false = por fecha vencida. */
+  byFailure: boolean;
+  /** Días en mora (0 si no está en mora). */
+  daysOverdue: number;
+  graceDays: number;
+  /** Días que faltan para la suspensión (null si no está en mora). */
+  graceDaysLeft: number | null;
+  /** Etiqueta lista para UI, p.ej. "Día 4 de 5" (null si no está en mora). */
+  graceLabel: string | null;
+  /** Próximo cobro programado (currentPeriodEnd) si el negocio está al día. */
+  nextChargeAt: Date | null;
+  /** Fecha en que se suspenderá si no paga (null si no está en mora). */
+  pauseDate: Date | null;
+}
+
+export function deriveRenewalState(
+  t: RenewalInput,
+  now: Date,
+  cfg: RenewalConfig,
+): RenewalStateResult {
+  const base = {
+    byFailure: false,
+    daysOverdue: 0,
+    graceDays: cfg.graceDays,
+    graceDaysLeft: null as number | null,
+    graceLabel: null as string | null,
+    nextChargeAt: null as Date | null,
+    pauseDate: null as Date | null,
+  };
+
+  // Estados terminales primero (ganan sobre cualquier cálculo de mora).
+  if (t.suspendedAt || t.status === 'SUSPENDED') {
+    return { ...base, state: 'SUSPENDIDO' };
+  }
+  if (t.status === 'CANCELED') {
+    return { ...base, state: 'CANCELADO' };
+  }
+  if (t.status === 'TRIAL') {
+    // La prueba tiene su propia gracia (trialEndsAt + gracePeriodDays), que
+    // maneja getStatus. Acá solo marcamos el estado.
+    return { ...base, state: 'TRIAL' };
+  }
+
+  // ACTIVE: ¿está en mora? Misma regla que la suspensión. OJO: se detecta por
+  // `dueSince`, NO por `action` — en los días intermedios de gracia (3, 4, 5)
+  // no toca mandar ningún SMS (action='none') pero el negocio SÍ está en mora.
+  const d = decideDunning(t, now, cfg);
+  if (d.dueSince) {
+    // En gracia (aún no suspendido en BD; el cron lo hará al superar el día).
+    // graceDaysLeft = días hasta la suspensión (suspende al día graceDays+1).
+    const left = Math.max(0, cfg.graceDays + 1 - d.daysOverdue);
+    return {
+      ...base,
+      state: 'EN_GRACIA',
+      byFailure: d.byFailure,
+      daysOverdue: d.daysOverdue,
+      graceDaysLeft: left,
+      graceLabel: `Día ${Math.min(d.daysOverdue, cfg.graceDays)} de ${cfg.graceDays}`,
+      pauseDate: pauseDateFor(d.dueSince, cfg.graceDays),
+    };
+  }
+
+  // Al día: ¿el próximo cobro está dentro de la ventana?
+  const nextChargeAt = t.currentPeriodEnd ?? null;
+  if (nextChargeAt) {
+    const daysToCharge = Math.ceil(
+      (nextChargeAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000),
+    );
+    if (daysToCharge >= 0 && daysToCharge <= cfg.proximoCobroDays) {
+      return { ...base, state: 'COBRO_PROXIMO', nextChargeAt };
+    }
+  }
+  return { ...base, state: 'AL_DIA', nextChargeAt };
+}
