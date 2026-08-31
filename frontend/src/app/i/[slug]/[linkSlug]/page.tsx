@@ -343,7 +343,7 @@ export default function PublicInfoLink() {
       // modal de selección de sede.
       const mapsLocs = b.type === 'MAPS' ? mapsLocsFor(b) : [];
       const mapsMulti = mapsLocs.length > 1;
-      let buttonLabel = b.label;
+      const buttonLabel = b.label;
       let buttonTagline = b.tagline ?? null;
       if (b.type === 'MAPS' && mapsLocs.length > 0 && !buttonTagline) {
         if (mapsMulti) {
