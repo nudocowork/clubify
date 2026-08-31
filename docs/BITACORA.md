@@ -8,6 +8,44 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-08-31 — El corte del 15 ya cuadra con la transferencia (DESPLEGADO)
+
+Javier transfirió **$303.85 por 21 comisiones** el 24 de agosto. El corte del
+15-08 mostraba **17 por $205.40** primero y **$343.15** después. Eran tres
+fallos distintos, todos por lo mismo: **una comisión se engancha a su corte una
+sola vez y nadie vuelve a mirar si sigue perteneciendo ahí.**
+
+| # | Fallo | Plata |
+|---|---|---|
+| 1 | El pago INDIVIDUAL no escribía `payoutBatchId` (`payAllForPerson` sí) | $137.75 sueltas |
+| 2 | Rama sin tope para lo «habilitado a mano» → caía en el corte abierto MÁS VIEJO, no en el vigente | $25.00 de más |
+| 3 | Anular una comisión no la sacaba del corte | $14.30 de más |
+
+**Estado final en producción, verificado:**
+
+```
+CORTE-2026-08-15   21 comisiones · total $303.85 · pagado $303.85
+CORTE-2026-08-31   14 comisiones · total $289.30 · pagado $0.00
+```
+
+Las 21 son exactamente las de la hoja de Javier. Barrido completo del histórico:
+solo había 3 anuladas pegadas y 3 mal fechadas, todas en los dos cortes
+abiertos. **Los cortes ya cerrados estaban limpios y no se tocaron.**
+
+**Regla que quedó fijada** (`corte-pertenencia.spec.ts`, 41 tests):
+el corte refleja **la transferencia**. Lo que se paga junto pertenece al corte
+que se está liquidando, aunque se haya adelantado. Un corte cuya fecha ya pasó
+**no acumula** — está esperando que lo cierren. Un corte **cerrado nunca se
+reescribe**, ni por una anulada dentro.
+
+Commits: `066f0e04`, `658bdc97`. Dato corregido con
+`backend/scripts/corregir-pertenencia-cortes.cjs` (idempotente, aborta si algún
+corte dejó de estar ABIERTO).
+
+**Ojo Jhon:** el arreglo toca `cutoff.service.ts` y `referrals.service.ts`
+(`dayWindowWhere`, `setCommissionStatus`, `payCommission`). Si tenías algo a
+medias ahí, revisá antes de mergear.
+
 ## Cómo escribir una entrada
 
 Se agrega **arriba** (lo más nuevo primero), con este formato:
