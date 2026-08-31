@@ -107,6 +107,34 @@ vuelo tres veces esta semana.
 
 ---
 
+## 2026-08-30 — CONTABILIDAD Fase 2 (Egresos) + backfill de ingresos (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs
+
+### Qué cambié (aditivo, no toca comisiones)
+- **Fase 2 Egresos:** modelos `Expense`+`ExpenseCategory`+`RecurringExpense` +
+  enum `ExpenseStatus` (PENDING/REVIEW/PARTIAL/PAID). `ExpenseService`+
+  `ExpensesController` (crear egreso fijo O por %, pagos parciales, "por revisar",
+  categorías, gastos recurrentes). Endpoints `/admin/contabilidad/egresos`,
+  `/categorias`, `/gastos-recurrentes`. Frontend: pestañas **Egresos** y **Gastos
+  operativos** en `/admin/contabilidad` (modal fijo/% + registrar pago parcial).
+- **Backfill:** `backfill-income-records.cjs` llena IncomeRecord desde el
+  histórico ya existente (ManualPayment + CrossTransaction reales + último cobro
+  por negocio desde `Tenant.lastPaymentAmountUsd`, marcado "estimado").
+
+### 🚨 ORDEN antes de desplegar (esta sesión no escribe a prod DB)
+Correr desde `~/Documents/AGENTES/CLUBIFY/backend` (ya linkeado a Railway), con
+`export DATABASE_PUBLIC_URL=...` (ver comando en el header de cada script):
+- [ ] 1) `node scripts/apply-expenses-migration.cjs`  (crea tablas de egresos)
+- [ ] 2) `node scripts/backfill-income-records.cjs`   (llena ingresos históricos)
+- [ ] 3) Desplegar backend + frontend con `desplegar.cjs`.
+
+### Estado Fase 1
+Ya LIVE (migración IncomeRecord aplicada + deploy). Los cobros nuevos ya capturan
+ingreso real. Ver [[project_contabilidad_central_module_2026_08_30]].
+
+---
+
 ## 2026-08-30 — CONTABILIDAD Fase 1: IncomeRecord (ingreso real por transacción) (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commit de Fase 1)
