@@ -10,6 +10,7 @@ import { BillingModule } from '../billing/billing.module';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { CommissionRecalcModule } from '../referrals/commission-recalc.module';
 import { OnboardingSyncModule } from '../onboarding-sync/onboarding-sync.module';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
   imports: [
@@ -17,6 +18,9 @@ import { OnboardingSyncModule } from '../onboarding-sync/onboarding-sync.module'
     AuditModule,
     IntegrationsModule,
     BillingModule,
+    // CONTABILIDAD Fase 1: TenantsService registra el ingreso del pago manual.
+    // FinanceModule es hoja (solo Prisma) → sin ciclo.
+    FinanceModule,
     // Fase D: TenantsService dispara el webhook business.activated (one-way,
     // OnboardingSyncModule no importa TenantsModule → sin ciclo).
     OnboardingSyncModule,

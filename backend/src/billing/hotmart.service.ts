@@ -23,6 +23,7 @@ import { WhiteLabelNotificationsService } from '../white-label-notifications/whi
 import { BusinessGroupsService } from '../business-groups/business-groups.service';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { fmtSmsDate } from './sms-templates';
+import { IncomeRecordService } from '../finance/income-record.service';
 import { decryptSecret } from '../common/crypto/secret-box';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -256,6 +257,8 @@ export class HotmartService {
     private wlNotifications: WhiteLabelNotificationsService,
     private businessGroups: BusinessGroupsService,
     private onboardingWebhook: OnboardingWebhookService,
+    // CONTABILIDAD Fase 1: histórico de ingreso real por cobro. Best-effort.
+    private incomeRecord: IncomeRecordService,
   ) {}
 
   /** Precio canónico del bundle en USD (68/150/278/500) según periodicidad,
@@ -1482,6 +1485,21 @@ export class HotmartService {
       'activatePurchase',
       canonicalUsd,
     );
+    // CONTABILIDAD (Fase 1): registrar el ingreso real de Hotmart con su
+    // desglose (bruto/fee/impuesto/neto, histórico). Solo si vino el monto
+    // real (>0); el servicio deduplica por transactionId. Best-effort, aditivo.
+    void this.incomeRecord.record({
+      gateway: 'HOTMART',
+      externalTxId: transactionId ?? tenant.hotmartTransactionId,
+      tenantId: tenant.id,
+      whiteLabelId: (tenant as { whiteLabelId?: string | null }).whiteLabelId ?? null,
+      brandName: tenant.brandName,
+      planPeriodicity: periodFromHotmart ?? null,
+      currency: 'USD',
+      grossUsd: realPriceUsd,
+      isFirstPayment: !tenant.currentPeriodEnd,
+      saleDate: lastChargeAt ?? new Date(),
+    });
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {

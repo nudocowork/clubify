@@ -24,6 +24,7 @@ import { AdminModule } from '../admin/admin.module';
 import { WhiteLabelNotificationsModule } from '../white-label-notifications/white-label-notifications.module';
 import { BusinessGroupsModule } from '../business-groups/business-groups.module';
 import { OnboardingSyncModule } from '../onboarding-sync/onboarding-sync.module';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
   // Cuponera NO se importa acá a propósito. Importarla cierra el ciclo
@@ -32,7 +33,7 @@ import { OnboardingSyncModule } from '../onboarding-sync/onboarding-sync.module'
   // camino de dinero que ya corre en producción. Los webhooks resuelven
   // MembershipBillingService por ModuleRef (ver hotmart.service / stripe.service):
   // sin arista en el grafo y degradando solo si el módulo no está montado.
-  imports: [IntegrationsModule, EmailModule, ReferralsModule, AuthModule, AdminModule, WhiteLabelNotificationsModule, BusinessGroupsModule, OnboardingSyncModule],
+  imports: [IntegrationsModule, EmailModule, ReferralsModule, AuthModule, AdminModule, WhiteLabelNotificationsModule, BusinessGroupsModule, OnboardingSyncModule, FinanceModule],
   controllers: [
     BillingController,
     HotmartWebhookController,

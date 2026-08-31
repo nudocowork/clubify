@@ -14,6 +14,7 @@ import { fmtSmsDate } from './sms-templates';
 import { decryptSecret } from '../common/crypto/secret-box';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { HotmartService } from './hotmart.service';
+import { IncomeRecordService } from '../finance/income-record.service';
 import { invalidateBusinessTypeCache } from '../common/guards/infolink-only.guard';
 import { ModuleRef } from '@nestjs/core';
 import { MembershipBillingService } from '../cuponera/membership-billing.service';
@@ -129,6 +130,9 @@ export class StripeService {
     // Sin esta llamada, una marca que cobra por Stripe podia tener afiliados,
     // enlaces y atribucion funcionando y no generar NI UNA comision.
     private hotmart: HotmartService,
+    // CONTABILIDAD Fase 1: registra el ingreso real por cobro (histórico +
+    // fee/impuesto/neto). Best-effort, aditivo, no afecta la activación.
+    private incomeRecord: IncomeRecordService,
   ) {}
 
   /** Carga la marca por slug + descifra secretKey/webhookSecret y arma el
@@ -921,6 +925,22 @@ export class StripeService {
         preReminder3dSentFor: null,
         preReminderTodaySentFor: null,
       },
+    });
+
+    // CONTABILIDAD (Fase 1): registrar el ingreso real de este cobro con su
+    // desglose bruto/fee/impuesto/neto (histórico). El servicio salta los $0
+    // (día 0 de la prueba) y deduplica por transacción. Best-effort.
+    void this.incomeRecord.record({
+      gateway: 'STRIPE',
+      externalTxId: ctx.transaccionId,
+      tenantId: tenant.id,
+      whiteLabelId,
+      brandName: tenant.brandName,
+      planPeriodicity: tenant.planPeriodicity,
+      currency: 'USD',
+      grossUsd: ctx.amountUsd,
+      isFirstPayment: !tenant.stripeSubscriptionId,
+      saleDate: ctx.paidAt ?? now,
     });
 
     // Comisiones del referido. Best-effort: si falla, el cobro NO se rompe —

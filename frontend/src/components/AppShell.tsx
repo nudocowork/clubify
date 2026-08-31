@@ -635,6 +635,15 @@ export default function AppShell({
               ],
             },
             {
+              // FINANZAS (Contabilidad): centro financiero de Clubify — ingreso
+              // real por transacción (bruto/fee/impuesto/neto), egresos, nómina,
+              // comisiones y utilidad. Solo Clubify (su propia contabilidad).
+              section: 'Finanzas',
+              items: [
+                { href: '/admin/contabilidad', label: 'Contabilidad', icon: 'cash', hideForMarketing: true, clubifyOnly: true },
+              ],
+            },
+            {
               // VENTAS es de Clubify y solo de Clubify: son su equipo
               // comercial, su CRM y sus comunicaciones internas. Una marca
               // blanca no tiene nada que hacer aquí, y con los referidos ya

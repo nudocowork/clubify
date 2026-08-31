@@ -6570,3 +6570,66 @@ model ConvenioListaBlanca {
   @@index([convenioId, documento])
   @@index([convenioId, email])
 }
+
+/// CONTABILIDAD — Fase 1. Histórico de ingreso REAL por transacción de cobro.
+/// Antes solo existía `Tenant.lastPaymentAmountUsd`, que se SOBRESCRIBE cada
+/// ciclo (sin histórico) y no guarda ni el fee de la pasarela ni el impuesto ni
+/// el neto recibido. Esta tabla es aditiva y no toca comisiones: registra una
+/// fila por cobro con el desglose bruto → fee → impuesto → neto. `netReceivedUsd`
+/// y la conciliación se llenan cuando el banco liquida (puede diferir del
+/// esperado). Ids planos (sin relación Prisma) para no tocar Tenant/WhiteLabel.
+model IncomeRecord {
+  id               String            @id @default(uuid())
+  gateway          PaymentGateway
+  /// Id único de la transacción en la pasarela (dedup). Hotmart transaction,
+  /// Stripe invoice/evt, CrossTransaction.providerRef, ManualPayment.id.
+  externalTxId     String
+  tenantId         String?
+  whiteLabelId     String?
+  /// Snapshot del nombre del negocio y del plan al momento del cobro (para
+  /// reportes históricos aunque el negocio cambie o se borre).
+  brandName        String?
+  planId           String?
+  planPeriodicity  String?
+  productName      String?
+  currency         String            @default("USD")
+  /// Lo que pagó el cliente (venta bruta).
+  grossUsd         Decimal           @db.Decimal(10, 2)
+  /// Deducciones. Se estiman con las tasas configurables (Setting
+  /// `finance.gatewayFeePct.<gateway>` y `finance.taxPct`) o se extraen del
+  /// payload cuando la pasarela lo entrega. netExpected = gross - fee - tax - other.
+  gatewayFeeUsd    Decimal           @default(0) @db.Decimal(10, 2)
+  taxUsd           Decimal           @default(0) @db.Decimal(10, 2)
+  otherDiscountUsd Decimal           @default(0) @db.Decimal(10, 2)
+  netExpectedUsd   Decimal           @db.Decimal(10, 2)
+  /// Neto REALMENTE recibido en el banco (conciliación manual). Null = aún no
+  /// conciliado.
+  netReceivedUsd   Decimal?          @db.Decimal(10, 2)
+  /// Primer pago vs recurrencia (derivado en la captura).
+  isFirstPayment   Boolean           @default(false)
+  /// Periodo contable YYYY-MM (para agrupar por mes).
+  periodKey        String?
+  /// Fecha del cobro (evento de la pasarela).
+  saleDate         DateTime
+  /// Fecha real en que el dinero llegó al banco (conciliación).
+  receivedDate     DateTime?
+  reconStatus      IncomeReconStatus @default(PENDING)
+  reconciledBy     String?
+  reconciledAt     DateTime?
+  note             String?           @db.Text
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([gateway, externalTxId])
+  @@index([tenantId])
+  @@index([whiteLabelId, saleDate])
+  @@index([periodKey])
+  @@index([reconStatus])
+  @@index([saleDate])
+}
+
+enum IncomeReconStatus {
+  PENDING // sin conciliar (aún no sabemos el neto recibido)
+  RECONCILED // neto recibido == esperado
+  REVIEW // hay diferencia entre esperado y recibido
+}

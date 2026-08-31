@@ -9,6 +9,7 @@ import { fmtSmsDate } from './sms-templates';
 import { decryptSecret } from '../common/crypto/secret-box';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { HotmartService } from './hotmart.service';
+import { IncomeRecordService } from '../finance/income-record.service';
 import {
   CreateCheckoutInput,
   CheckoutResult,
@@ -65,6 +66,8 @@ export class CrossService implements PaymentProvider {
     // Comisiones de referido: metodo agnostico de pasarela que vive en
     // HotmartService por historia. Ver su doc.
     private hotmart: HotmartService,
+    // CONTABILIDAD Fase 1: histórico de ingreso real por cobro. Best-effort.
+    private incomeRecord: IncomeRecordService,
   ) {}
 
   // ── Carga de marca / credenciales ─────────────────────────────────────────
@@ -422,6 +425,19 @@ export class CrossService implements PaymentProvider {
     const curPurchase = await this.prisma.tenant.findUnique({
       where: { id: tenant.id },
       select: { purchasedAt: true },
+    });
+    // CONTABILIDAD (Fase 1): ingreso real de Cross con desglose. Best-effort.
+    void this.incomeRecord.record({
+      gateway: 'CROSS',
+      externalTxId: ctx.transaccionId,
+      tenantId: tenant.id,
+      whiteLabelId: _whiteLabelId,
+      brandName: (tenant as { brandName?: string | null }).brandName ?? null,
+      planPeriodicity: tenant.planPeriodicity ?? null,
+      currency: 'USD',
+      grossUsd: ctx.amountUsd,
+      isFirstPayment: !tenant.currentPeriodEnd,
+      saleDate: new Date(),
     });
     await this.prisma.tenant.update({
       where: { id: tenant.id },
