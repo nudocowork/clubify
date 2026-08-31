@@ -10,6 +10,7 @@ import { publicHostForTenant } from '@/lib/public-domain';
 import { Icon } from '@/components/Icon';
 import { InfoLinkSocialCard } from '@/components/InfoLinkSocialCard';
 import type { SocialConfig } from '@/lib/info-link-social';
+import { errorDeTelefono, telLegible } from '@/lib/tel-link';
 import { ImageUploader } from '@/components/ImageUploader';
 import {
   INFO_LINK_TEMPLATES,
@@ -103,7 +104,8 @@ type Button = InfoLinkButtonStyle & {
     | 'CARD'
     | 'PROMO'
     | 'EXTERNAL'
-    | 'POPUP';
+    | 'POPUP'
+    | 'PHONE';
   url?: string;
   // Campos específicos por tipo
   // INSTAGRAM: handle del usuario sin '@', se construye https://instagram.com/<handle>
@@ -111,6 +113,9 @@ type Button = InfoLinkButtonStyle & {
   // WHATSAPP: número + mensaje pre-rellenado, se construye wa.me link
   waPhone?: string;
   waMessage?: string;
+  // PHONE: número con indicativo de país. El botón abre el marcador con
+  // `tel:`, no navega a ninguna página.
+  phoneNumber?: string;
   // MAPS: locationId opcional (legacy, 1 sola sede) — si null, usa la primera.
   locationId?: string | null;
   // MAPS multi-sede (2026-07-25): modo de qué sedes mostrar al hacer click.
@@ -194,6 +199,7 @@ const BUTTON_TYPE_LABEL: Record<string, string> = {
   PROMO: '🎁 Promociones',
   EXTERNAL: '🔗 Link externo',
   POPUP: '💬 Popup informativo',
+  PHONE: '📞 Llamada telefónica',
 };
 
 export default function InfoLinkEditor() {
@@ -996,6 +1002,32 @@ export default function InfoLinkEditor() {
                         </a>
                         {t('menuStorefrontWarnAfter')}
                       </div>
+                    </div>
+                  )}
+                  {b.type === 'PHONE' && (
+                    <div className="col-span-full">
+                      <input
+                        className="input"
+                        placeholder="+57 300 123 4567"
+                        inputMode="tel"
+                        value={b.phoneNumber ?? ''}
+                        onChange={(e) =>
+                          updateButton(i, { phoneNumber: e.target.value })
+                        }
+                      />
+                      {/* El aviso va aquí y no al guardar: sin número válido
+                          el botón no se pinta en la página pública, y el
+                          negocio se queda creyendo que lo tiene puesto. */}
+                      {errorDeTelefono(b.phoneNumber) ? (
+                        <div className="text-[11px] text-danger mt-1">
+                          {errorDeTelefono(b.phoneNumber)}
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-mute mt-1">
+                          Al tocarlo se abre el marcador con{' '}
+                          <b>{telLegible(b.phoneNumber)}</b>
+                        </div>
+                      )}
                     </div>
                   )}
                   {b.type === 'INSTAGRAM' && (
