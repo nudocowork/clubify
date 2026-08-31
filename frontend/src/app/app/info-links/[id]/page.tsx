@@ -8,6 +8,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { publicHostForTenant } from '@/lib/public-domain';
 import { Icon } from '@/components/Icon';
+import { InfoLinkSocialCard } from '@/components/InfoLinkSocialCard';
+import type { SocialConfig } from '@/lib/info-link-social';
 import { ImageUploader } from '@/components/ImageUploader';
 import {
   INFO_LINK_TEMPLATES,
@@ -175,6 +177,10 @@ type InfoLink = {
     /** Colores de texto por elemento (título/descripción/botones/secundario).
      *  Aditivo — cada campo ausente usa el color por defecto del template. */
     text?: InfoLinkTextColors | null;
+    /** Redes sociales que se pintan debajo de la descripción, y su color.
+     *  Ausente = sin fila propia; la página pública cae a los datos del
+     *  negocio (Instagram/WhatsApp/Maps de la ficha) como hasta ahora. */
+    social?: SocialConfig | null;
   };
   isActive: boolean;
   views: number;
@@ -622,6 +628,12 @@ export default function InfoLinkEditor() {
             heroImageUrl={link.heroImageUrl}
             lockPro={!caps.customBackground}
             onChange={(patch) => update('theme', { ...link.theme, ...patch })}
+          />
+
+          <InfoLinkSocialCard
+            value={link.theme?.social ?? null}
+            primary={primary}
+            onChange={(social) => update('theme', { ...link.theme, social })}
           />
 
           {/* URL — muestra la personalizada (vanity) cuando existe; si no, /i/... */}
