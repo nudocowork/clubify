@@ -150,7 +150,8 @@ class UpdateTenantBody {
    */
   @IsOptional() @IsBoolean() multiMenuEnabled?: boolean;
   /** Cuantas cartas EXTRA puede crear, ademas del menu principal. */
-  @IsOptional() @IsInt() @Min(0) @Max(20) maxExtraMenus?: number;
+  /** Cartas extra permitidas. `-1` = SIN TOPE (ver `menus.service`). */
+  @IsOptional() @IsInt() @Min(-1) @Max(20) maxExtraMenus?: number;
   @IsOptional() @IsBoolean() academyEnabled?: boolean;
   // Reservations module gate (2026-06-12).
   @IsOptional() @IsBoolean() reservationsEnabled?: boolean;

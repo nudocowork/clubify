@@ -1846,26 +1846,44 @@ function AcademyTogglesCard({
                 Un negocio con 545 productos creando cartas sin freno
                 multiplica la base sin que nadie lo note. */}
             {multiMenu && (
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                <label className="text-xs text-mute">
-                  Cartas extra permitidas:
+              <div className="mt-2 flex flex-col gap-1.5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={maxCartas < 0}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setMaxCartas(e.target.checked ? -1 : 1)}
+                  />
+                  <span className="text-xs">Sin tope de cartas</span>
                 </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={20}
-                  value={maxCartas}
-                  onClick={(e) => e.preventDefault()}
-                  onChange={(e) =>
-                    setMaxCartas(
-                      Math.max(0, Math.min(20, Math.floor(Number(e.target.value) || 0))),
-                    )
-                  }
-                  className="input w-20 text-sm py-1"
-                />
-                <span className="text-[11px] text-mute">
-                  además del menú principal
-                </span>
+                {maxCartas < 0 ? (
+                  <span className="text-[11px] text-mute">
+                    Puede crear las cartas que necesite. Úsalo con negocios de
+                    catálogo pequeño: cada carta lo duplica entero.
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="text-xs text-mute">
+                      Cartas extra permitidas:
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={20}
+                      value={maxCartas}
+                      onClick={(e) => e.preventDefault()}
+                      onChange={(e) =>
+                        setMaxCartas(
+                          Math.max(0, Math.min(20, Math.floor(Number(e.target.value) || 0))),
+                        )
+                      }
+                      className="input w-20 text-sm py-1"
+                    />
+                    <span className="text-[11px] text-mute">
+                      además del menú principal
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>

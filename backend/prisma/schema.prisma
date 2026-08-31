@@ -464,6 +464,10 @@ model Tenant {
   /// multiplica la base de datos sin que nadie lo note hasta que duele.
   ///
   /// Default 1 = el caso normal (una segunda sede).
+  /// `-1` = SIN TOPE, para cuando no se sabe de antemano cuántas hacen falta
+  /// (un coworking que abre una sala nueva y la necesita ese mismo día). Se
+  /// pone a mano por negocio; sigue siendo decisión de quien conoce el tamaño
+  /// del catálogo.
   maxExtraMenus               Int                        @default(1)
   menus                       Menu[]
   /// Convenios con empresas aliadas. Se habilita NEGOCIO POR NEGOCIO desde el

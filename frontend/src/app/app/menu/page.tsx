@@ -125,7 +125,8 @@ type MenusResp = {
   habilitado: boolean;
   /** Cartas extra permitidas por el admin, y cuántas quedan libres. */
   topeExtras?: number;
-  cupoLibre?: number;
+  /** null = sin tope. */
+  cupoLibre?: number | null;
   menus: MenuResumen[];
 };
 
@@ -664,7 +665,7 @@ export default function MenuEditor() {
                 El mensaje del limite es el MISMO para todos. Antes, si quien
                 miraba era de casa, se le indicaba la ruta interna para ampliar
                 el cupo; esas instrucciones no van en el panel del negocio. */}
-            {(menus.cupoLibre ?? 1) > 0 ? (
+            {menus.cupoLibre === null || (menus.cupoLibre ?? 1) > 0 ? (
               <button
                 type="button"
                 onClick={() => setCreandoCarta(true)}
