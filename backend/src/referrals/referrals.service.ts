@@ -43,18 +43,22 @@ function effectiveAvailableAt(c: {
   return new Date(new Date(c.createdAt).getTime() + COMMISSION_HOLD_DAYS * 86400000);
 }
 
-// availableAt (desbloqueo del hold) = fecha del cobro + 15d. GUARD B6/R4
-// (2026-08-15): si `charge` (Tenant/Group.lastChargeAt) parece VIEJO (>2 días
-// atrás), es un lastChargeAt desactualizado (p.ej. un path que corre con la
-// fecha del PRIMER cobro) → el cobro real acaba de ocurrir, usamos AHORA. Así
-// availableAt nunca vuelve a nacer en el pasado (las 24 filas fantasma
-// 16-ene/16-abr que rompían la heurística de FECHA). +2d de gracia por delays
-// de webhook.
+// availableAt (desbloqueo del hold) = fecha del cobro + 15d, SIEMPRE anclado a
+// la fecha real del cobro (lastChargeAt), NO a "hoy".
+//
+// FIX 2026-08-31: antes había un clamp (GUARD B6/R4) que, si el cobro era >2
+// días viejo, re-anclaba el desbloqueo a HOY. Pero `businessDate` se guarda con
+// la fecha CRUDA del cobro (sin clamp) → cuando una renovación se creaba tarde
+// (webhook demorado o el cron de reintentos de Hotmart), availableAt saltaba a
+// hoy+15 mientras businessDate quedaba en la fecha real → DIVERGÍAN: el
+// desbloqueo caía ~40-50 días tarde y la comisión iba al corte equivocado
+// (casos Motilart 22-jul→14-sep y Quipao 15-jul→30-ago). El clamp protegía una
+// heurística de FECHA hoy OBSOLETA: `businessDate` ya es la fecha durable que
+// lee el panel, así que availableAt puede (y debe) nacer en el pasado para una
+// renovación vieja — significa que su hold de 15 días ya venció y está lista.
 function holdReleaseFrom(charge: Date | null | undefined): Date {
-  const now = Date.now();
-  const c = charge ? new Date(charge).getTime() : now;
-  const base = c >= now - 2 * 86400000 ? c : now;
-  return new Date(base + COMMISSION_HOLD_DAYS * 86400000);
+  const c = charge ? new Date(charge).getTime() : Date.now();
+  return new Date(c + COMMISSION_HOLD_DAYS * 86400000);
 }
 
 // Días restantes hasta que una comisión se desbloquee (0 si ya está

@@ -28,15 +28,15 @@ import { decryptSecret } from '../common/crypto/secret-box';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-// availableAt (hold) = cobro + 15d. GUARD B6/R4 (2026-08-15): si el cobro
-// (lastChargeAt) parece VIEJO (>2 días atrás) es un valor desactualizado → el
-// cobro real acaba de ocurrir, usamos AHORA. Evita availableAt fantasma en el
-// pasado. Espejo del helper de referrals.service.
+// availableAt (hold) = cobro + 15d, SIEMPRE anclado a la fecha real del cobro
+// (lastChargeAt). FIX 2026-08-31: se quitó el clamp que re-anclaba a HOY los
+// cobros >2d viejos — hacía que una renovación creada tarde desbloqueara ~40-50
+// días tarde y cayera en el corte equivocado (Motilart/Quipao). El clamp
+// protegía una heurística de FECHA hoy obsoleta (businessDate ya es durable).
+// Espejo del helper de referrals.service.
 function holdReleaseFrom(charge: Date | null | undefined): Date {
-  const now = Date.now();
-  const c = charge ? new Date(charge).getTime() : now;
-  const base = c >= now - 2 * 86400000 ? c : now;
-  return new Date(base + 15 * 86400000);
+  const c = charge ? new Date(charge).getTime() : Date.now();
+  return new Date(c + 15 * 86400000);
 }
 
 /** Aislamiento por marca para la búsqueda del tenant en el webhook.

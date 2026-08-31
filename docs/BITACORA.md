@@ -48,6 +48,46 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-31 — Comisiones: fix del desbloqueo (availableAt) mal calculado (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama:** `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+Causa raíz de comisiones que se desbloqueaban ~40-50 días tarde y caían en el
+corte equivocado (casos Motilart 22-jul→14-sep, Quipao 15-jul→30-ago): el helper
+`holdReleaseFrom` (en `referrals.service.ts` y su espejo en `hotmart.service.ts`)
+tenía un **clamp** que, si el cobro era >2 días viejo, re-anclaba `availableAt` a
+HOY. Pero `businessDate` se guarda con la fecha CRUDA del cobro → cuando una
+renovación se creaba tarde (webhook demorado / cron de reintentos), los dos
+DIVERGÍAN. **Quité el clamp**: el desbloqueo se ancla SIEMPRE a la fecha real del
+cobro (`availableAt = businessDate + 15d`). El clamp protegía una heurística de
+FECHA hoy obsoleta (businessDate ya es la fecha durable). 64 tests verdes.
+
+El sistema de cortes YA es el modelo del dueño (quincenal, 24/año, auto-desbloqueo
+por availableAt, historial al cerrar) — el bug solo empujaba al corte equivocado.
+
+### Qué toqué de PRODUCCIÓN
+- **Nada aún** (solo diagnósticos de lectura). El fix de código NO está desplegado.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Desplegar backend (fix de `holdReleaseFrom`) para que no se repita.
+- [ ] Correr el backfill de datos existentes:
+      `railway run node scripts/backfill-availableat-from-businessdate.cjs`
+      (recalcula availableAt=businessDate+15 en comisiones NO pagadas; arregla
+      Motilart y otras). Es DISTINTO del `fix-commission-availableat.cjs` viejo
+      (ese usa createdAt+15, que era parte del problema — NO usarlo).
+- [ ] Correr `scripts/fix-quipao-commission-order.cjs` (intercambio Quipao 15-jul
+      Pagada $5.00 / 1-ago Disponible $5.00).
+- [ ] PENDIENTE de diseño con el dueño: renombrar cortes a "Corte 1..24" y que el
+      filtro avanzado use availableAt (desbloqueo) en vez de businessDate.
+- [ ] Investigar por qué Quipao calcula $4.95 en vez de $5.00 (base de comisión).
+
+### Riesgos y avisos
+- Quitar el clamp hace que availableAt de renovaciones viejas nazca en el pasado
+  (correcto: su hold ya venció). Las filas fantasma que el clamp "tapaba" las
+  maneja la anulación de renovación fantasma, no este helper.
+
 ## 2026-08-31 — Renovaciones Fase 2: estados de renovación (SIN DESPLEGAR)
 
 **Máquina/quién:** máquina de Jhon (Claude)
