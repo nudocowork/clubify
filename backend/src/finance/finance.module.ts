@@ -3,6 +3,8 @@ import { IncomeRecordService } from './income-record.service';
 import { FinanceController } from './finance.controller';
 import { ExpenseService } from './expense.service';
 import { ExpensesController } from './expenses.controller';
+import { PayrollService } from './payroll.service';
+import { PayrollController } from './payroll.controller';
 
 /**
  * CONTABILIDAD — Fase 1. Módulo de finanzas: captura del ingreso REAL por
@@ -12,8 +14,8 @@ import { ExpensesController } from './expenses.controller';
  * inyecte en los webhooks. Aditivo — no toca comisiones.
  */
 @Module({
-  providers: [IncomeRecordService, ExpenseService],
-  controllers: [FinanceController, ExpensesController],
-  exports: [IncomeRecordService, ExpenseService],
+  providers: [IncomeRecordService, ExpenseService, PayrollService],
+  controllers: [FinanceController, ExpensesController, PayrollController],
+  exports: [IncomeRecordService, ExpenseService, PayrollService],
 })
 export class FinanceModule {}

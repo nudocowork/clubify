@@ -19,6 +19,10 @@ type Cat = { id: string; name: string; slug: string; color: string | null; activ
 type Exp = { id: string; concept: string; categoryId: string | null; supplier: string | null; amountUsd: number; amountPaidUsd: number; outstandingUsd: number; status: string; method: string | null; expenseDate: string; pctRate: number | null; pctBase: number | null; receiptUrl: string | null };
 type ExpResumen = { count: number; totalUsd: number; paidUsd: number; outstandingUsd: number; pending: number };
 type Rec = { id: string; concept: string; categoryId: string | null; supplier: string | null; amountUsd: number; periodicity: string; active: boolean; nextDueDate: string | null };
+type PEmp = { id: string; name: string; role: string | null; payType: string | null; amountUsd: number; periodicity: string; active: boolean };
+type PRun = { id: string; periodLabel: string; totalUsd: number; amountPaidUsd: number; outstandingUsd: number; status: string; itemCount: number; createdAt: string; paidAt: string | null };
+type PResumen = { colaboradores: number; nominaProximaUsd: number; pendienteUsd: number; pagadaUsd: number };
+type PItem = { id: string; employeeName: string; role: string | null; baseUsd: number; bonusUsd: number; deductionUsd: number; totalUsd: number };
 
 const money = (n: number | null | undefined) =>
   n == null ? '—' : (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -28,8 +32,9 @@ const GATEWAY_BDG: Record<string, string> = { HOTMART: 'bg-slate-100 text-slate-
 const RECON_BDG: Record<string, { cls: string; label: string }> = { RECONCILED: { cls: 'bg-emerald-100 text-emerald-700', label: 'Conciliado' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Sin conciliar' } };
 const EXP_BDG: Record<string, { cls: string; label: string }> = { PAID: { cls: 'bg-emerald-100 text-emerald-700', label: 'Pagado' }, PARTIAL: { cls: 'bg-blue-100 text-blue-700', label: 'Parcial' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Por revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Pendiente' } };
 
-type Tab = 'ingresos' | 'conciliacion' | 'egresos' | 'gastos';
-const FUTURE_TABS = ['Próximos cobros', 'Comisiones', 'Nómina', 'Movimientos', 'Cierres', 'Reportes'];
+type Tab = 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nomina';
+const FUTURE_TABS = ['Próximos cobros', 'Comisiones', 'Movimientos', 'Cierres', 'Reportes'];
+const EXP_STATUS_LABEL: Record<string, string> = { PAID: 'Pagado', PARTIAL: 'Parcial', PENDING: 'Pendiente' };
 
 export default function ContabilidadPage() {
   const [tab, setTab] = useState<Tab>('ingresos');
@@ -48,19 +53,31 @@ export default function ContabilidadPage() {
   const [showRec, setShowRec] = useState(false);
   const [payFor, setPayFor] = useState<Exp | null>(null);
 
+  const [emps, setEmps] = useState<PEmp[]>([]);
+  const [runs, setRuns] = useState<PRun[]>([]);
+  const [pRes, setPRes] = useState<PResumen | null>(null);
+  const [showEmp, setShowEmp] = useState(false);
+  const [showGen, setShowGen] = useState(false);
+  const [payRun, setPayRun] = useState<PRun | null>(null);
+  const [detailRun, setDetailRun] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, list, c, e, er, rc] = await Promise.all([
+      const [r, list, c, e, er, rc, em, ru, pr] = await Promise.all([
         api<Resumen>(`/admin/contabilidad/ingresos/resumen?scope=${scope}`).catch(() => null),
         api<Row[]>(`/admin/contabilidad/ingresos?scope=${scope}`).catch(() => []),
         api<Cat[]>(`/admin/contabilidad/categorias`).catch(() => []),
         api<Exp[]>(`/admin/contabilidad/egresos?scope=${scope}`).catch(() => []),
         api<ExpResumen>(`/admin/contabilidad/egresos/resumen?scope=${scope}`).catch(() => null),
         api<Rec[]>(`/admin/contabilidad/gastos-recurrentes?scope=${scope}`).catch(() => []),
+        api<PEmp[]>(`/admin/contabilidad/nomina/colaboradores?scope=${scope}`).catch(() => []),
+        api<PRun[]>(`/admin/contabilidad/nomina/cortes?scope=${scope}`).catch(() => []),
+        api<PResumen>(`/admin/contabilidad/nomina/resumen?scope=${scope}`).catch(() => null),
       ]);
       setResumen(r); setRows((list ?? []) as Row[]); setCats((c ?? []) as Cat[]);
       setExps((e ?? []) as Exp[]); setExpResumen(er); setRecs((rc ?? []) as Rec[]);
+      setEmps((em ?? []) as PEmp[]); setRuns((ru ?? []) as PRun[]); setPRes(pr);
     } finally { setLoading(false); }
   }, [scope]);
   useEffect(() => { void load(); }, [load]);
@@ -88,7 +105,7 @@ export default function ContabilidadPage() {
 
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-line2 overflow-x-auto">
-        {([['ingresos', 'Ingresos'], ['conciliacion', `Conciliación${resumen && resumen.pendingRecon + resumen.inReview > 0 ? ` (${resumen.pendingRecon + resumen.inReview})` : ''}`], ['egresos', 'Egresos'], ['gastos', 'Gastos operativos']] as [Tab, string][]).map(([id, label]) => (
+        {([['ingresos', 'Ingresos'], ['conciliacion', `Conciliación${resumen && resumen.pendingRecon + resumen.inReview > 0 ? ` (${resumen.pendingRecon + resumen.inReview})` : ''}`], ['egresos', 'Egresos'], ['gastos', 'Gastos operativos'], ['nomina', 'Nómina']] as [Tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap ${tab === id ? 'border-brand text-brand' : 'border-transparent text-mute hover:text-ink'}`}>{label}</button>
         ))}
         {FUTURE_TABS.map((t) => (
@@ -209,12 +226,65 @@ export default function ContabilidadPage() {
               )}
             </>
           )}
+
+          {/* ===== NÓMINA ===== */}
+          {tab === 'nomina' && (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <Kpi lbl="Nómina próxima" dot="#7C3AED" val={money(pRes?.nominaProximaUsd ?? 0)} sub={`${pRes?.colaboradores ?? 0} colaboradores`} />
+                <Kpi lbl="Pendiente" dot="#D97706" val={money(pRes?.pendienteUsd ?? 0)} sub="cortes sin pagar" />
+                <Kpi lbl="Pagada" dot="#16A34A" val={money(pRes?.pagadaUsd ?? 0)} sub="acumulado" />
+                <div className="card card-pad flex items-center justify-center gap-2">
+                  <button className="btn-primary rounded-pill text-sm" onClick={() => setShowGen(true)}>Generar pago</button>
+                  <button className="btn-ghost rounded-pill text-sm" onClick={() => setShowEmp(true)}>+ Colaborador</button>
+                </div>
+              </div>
+              <div className="card overflow-hidden p-0 mb-5"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[700px]">
+                <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
+                  <th className="px-4 py-3 font-semibold">Colaborador</th><th className="px-4 py-3 font-semibold">Cargo</th><th className="px-4 py-3 font-semibold">Tipo</th><th className="px-4 py-3 font-semibold text-right">Monto</th><th className="px-4 py-3 font-semibold">Periodicidad</th><th className="px-4 py-3 font-semibold">Estado</th>
+                </tr></thead>
+                <tbody>{emps.length === 0 ? <tr><td colSpan={6} className="px-4 py-6 text-center text-mute">Sin colaboradores — agregá el primero.</td></tr> : emps.map((e) => (
+                  <tr key={e.id} className="border-t border-line2 hover:bg-bg2/40">
+                    <td className="px-4 py-3 font-semibold">{e.name}</td>
+                    <td className="px-4 py-3">{e.role ?? '—'}</td>
+                    <td className="px-4 py-3">{e.payType ?? '—'}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{money(e.amountUsd)}</td>
+                    <td className="px-4 py-3">{e.periodicity}</td>
+                    <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${e.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{e.active ? 'Activo' : 'Inactivo'}</span></td>
+                  </tr>
+                ))}</tbody>
+              </table></div></div>
+              <div className="font-semibold text-sm mb-2">Cortes de nómina</div>
+              {runs.length === 0 ? <div className="card card-pad text-center text-mute">Sin cortes todavía. Generá un pago con los colaboradores.</div> : (
+                <div className="card overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[750px]">
+                  <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
+                    <th className="px-4 py-3 font-semibold">Período</th><th className="px-4 py-3 font-semibold text-right">Colab.</th><th className="px-4 py-3 font-semibold text-right">Total</th><th className="px-4 py-3 font-semibold text-right">Pagado</th><th className="px-4 py-3 font-semibold text-right">Saldo</th><th className="px-4 py-3 font-semibold">Estado</th><th className="px-4 py-3"></th>
+                  </tr></thead>
+                  <tbody>{runs.map((r) => (
+                    <tr key={r.id} className="border-t border-line2 hover:bg-bg2/40">
+                      <td className="px-4 py-3 font-semibold"><button className="hover:underline text-left" onClick={() => setDetailRun(r.id)}>{r.periodLabel}</button></td>
+                      <td className="px-4 py-3 text-right">{r.itemCount}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{money(r.totalUsd)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{money(r.amountPaidUsd)}</td>
+                      <td className={`px-4 py-3 text-right tabular-nums ${r.outstandingUsd > 0 ? 'text-warn font-medium' : ''}`}>{money(r.outstandingUsd)}</td>
+                      <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${(EXP_BDG[r.status] ?? EXP_BDG.PENDING).cls}`}>{EXP_STATUS_LABEL[r.status] ?? r.status}</span></td>
+                      <td className="px-4 py-3">{r.status !== 'PAID' && <button className="text-xs font-semibold text-brand hover:underline" onClick={() => setPayRun(r)}>Registrar pago</button>}</td>
+                    </tr>
+                  ))}</tbody>
+                </table></div></div>
+              )}
+            </>
+          )}
         </>
       )}
 
       {showEgreso && <EgresoModal cats={cats} onClose={() => setShowEgreso(false)} onSaved={() => { setShowEgreso(false); void load(); }} />}
       {showRec && <RecurrenteModal cats={cats} onClose={() => setShowRec(false)} onSaved={() => { setShowRec(false); void load(); }} />}
       {payFor && <PagoModal exp={payFor} onClose={() => setPayFor(null)} onSaved={() => { setPayFor(null); void load(); }} />}
+      {showEmp && <EmpModal onClose={() => setShowEmp(false)} onSaved={() => { setShowEmp(false); void load(); }} />}
+      {showGen && <GenModal emps={emps.filter((e) => e.active)} onClose={() => setShowGen(false)} onSaved={() => { setShowGen(false); void load(); }} />}
+      {payRun && <PayRunModal run={payRun} onClose={() => setPayRun(null)} onSaved={() => { setPayRun(null); void load(); }} />}
+      {detailRun && <RunDetailModal id={detailRun} onClose={() => setDetailRun(null)} />}
     </div>
   );
 }
@@ -345,6 +415,113 @@ function PagoModal({ exp, onClose, onSaved }: { exp: Exp; onClose: () => void; o
       </div>
       <p className="text-xs text-mute mb-4">Podés pagar el total o una parte. Un pago parcial deja el saldo pendiente con historial.</p>
       <div className="flex gap-2 justify-end"><button className="btn-ghost rounded-pill" onClick={onClose}>Cancelar</button><button className="btn-primary rounded-pill" disabled={busy} onClick={save}>Registrar pago</button></div>
+    </Modal>
+  );
+}
+
+function EmpModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({ name: '', role: '', payType: 'Fijo', amountUsd: '', periodicity: 'QUINCENAL' });
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    if (!f.name.trim() || !f.amountUsd) { toast('Nombre y monto'); return; }
+    setBusy(true);
+    const r = await api(`/admin/contabilidad/nomina/colaboradores`, { method: 'POST', body: JSON.stringify({ name: f.name, role: f.role || undefined, payType: f.payType, amountUsd: Number(f.amountUsd.replace(',', '.')), periodicity: f.periodicity }) }).catch(() => null);
+    setBusy(false);
+    if (r) { toast('Colaborador guardado'); onSaved(); } else toast('No se pudo guardar');
+  }
+  return (
+    <Modal title="Nuevo colaborador" onClose={onClose}>
+      <div className="mb-3"><label className="label">Nombre</label><input className="input w-full" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div><label className="label">Cargo</label><input className="input w-full" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} placeholder="Marketing, Soporte…" /></div>
+        <div><label className="label">Tipo de pago</label><select className="input w-full" value={f.payType} onChange={(e) => setF({ ...f, payType: e.target.value })}><option>Fijo</option><option>Por proyecto</option></select></div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div><label className="label">Monto</label><input className="input w-full" value={f.amountUsd} onChange={(e) => setF({ ...f, amountUsd: e.target.value })} placeholder="$0,00" /></div>
+        <div><label className="label">Periodicidad</label><select className="input w-full" value={f.periodicity} onChange={(e) => setF({ ...f, periodicity: e.target.value })}><option>QUINCENAL</option><option>MENSUAL</option><option>PERSONALIZADO</option></select></div>
+      </div>
+      <div className="flex gap-2 justify-end"><button className="btn-ghost rounded-pill" onClick={onClose}>Cancelar</button><button className="btn-primary rounded-pill" disabled={busy} onClick={save}>Guardar</button></div>
+    </Modal>
+  );
+}
+
+function GenModal({ emps, onClose, onSaved }: { emps: PEmp[]; onClose: () => void; onSaved: () => void }) {
+  const [period, setPeriod] = useState('');
+  const [sel, setSel] = useState<Record<string, { on: boolean; bonus: string; ded: string }>>(() => Object.fromEntries(emps.map((e) => [e.id, { on: true, bonus: '', ded: '' }])));
+  const [busy, setBusy] = useState(false);
+  const rowTotal = (e: PEmp) => { const s = sel[e.id]; return e.amountUsd + (Number((s?.bonus || '0').replace(',', '.')) || 0) - (Number((s?.ded || '0').replace(',', '.')) || 0); };
+  const total = emps.filter((e) => sel[e.id]?.on).reduce((a, e) => a + rowTotal(e), 0);
+  async function save() {
+    const items = emps.filter((e) => sel[e.id]?.on).map((e) => ({ employeeId: e.id, employeeName: e.name, role: e.role, baseUsd: e.amountUsd, bonusUsd: Number((sel[e.id].bonus || '0').replace(',', '.')) || 0, deductionUsd: Number((sel[e.id].ded || '0').replace(',', '.')) || 0 }));
+    if (!period.trim() || items.length === 0) { toast('Período y al menos un colaborador'); return; }
+    setBusy(true);
+    const r = await api(`/admin/contabilidad/nomina/cortes`, { method: 'POST', body: JSON.stringify({ periodLabel: period, items }) }).catch(() => null);
+    setBusy(false);
+    if (r) { toast('Corte de nómina generado'); onSaved(); } else toast('No se pudo generar');
+  }
+  return (
+    <Modal title="Generar pago de nómina" onClose={onClose}>
+      <div className="mb-3"><label className="label">Período</label><input className="input w-full" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="Quincena 1–15 sep 2026" /></div>
+      <div className="mb-3">
+        <label className="label">Colaboradores</label>
+        {emps.length === 0 ? <p className="text-mute text-sm">No hay colaboradores activos. Agregá uno primero.</p> : (
+          <div className="flex flex-col gap-2">{emps.map((e) => (
+            <div key={e.id} className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={sel[e.id]?.on ?? false} onChange={(ev) => setSel({ ...sel, [e.id]: { ...(sel[e.id] ?? { bonus: '', ded: '' }), on: ev.target.checked } })} />
+              <span className="flex-1 truncate">{e.name} <span className="text-mute">· {money(e.amountUsd)}</span></span>
+              <input className="input w-20 text-right py-1" placeholder="+bono" value={sel[e.id]?.bonus ?? ''} onChange={(ev) => setSel({ ...sel, [e.id]: { ...(sel[e.id] ?? { on: true, ded: '' }), bonus: ev.target.value } })} />
+              <input className="input w-20 text-right py-1" placeholder="−deduc" value={sel[e.id]?.ded ?? ''} onChange={(ev) => setSel({ ...sel, [e.id]: { ...(sel[e.id] ?? { on: true, bonus: '' }), ded: ev.target.value } })} />
+              <span className="w-20 text-right tabular-nums font-medium">{money(rowTotal(e))}</span>
+            </div>
+          ))}</div>
+        )}
+      </div>
+      <div className="bg-bg2 rounded-lg px-4 py-3 mb-4 flex justify-between font-bold"><span>Total a pagar</span><span>{money(total)}</span></div>
+      <div className="flex gap-2 justify-end"><button className="btn-ghost rounded-pill" onClick={onClose}>Cancelar</button><button className="btn-primary rounded-pill" disabled={busy} onClick={save}>Generar corte</button></div>
+    </Modal>
+  );
+}
+
+function PayRunModal({ run, onClose, onSaved }: { run: PRun; onClose: () => void; onSaved: () => void }) {
+  const [amount, setAmount] = useState(String(run.outstandingUsd));
+  const [method, setMethod] = useState('Transferencia');
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    const n = Number(amount.replace(',', '.'));
+    if (!Number.isFinite(n) || n <= 0) { toast('Monto inválido'); return; }
+    setBusy(true);
+    const r = await api<{ ok: boolean; status?: string; outstanding?: number }>(`/admin/contabilidad/nomina/cortes/${run.id}/pago`, { method: 'PATCH', body: JSON.stringify({ amountPaidUsd: n, method }) }).catch(() => null);
+    setBusy(false);
+    if (r?.ok) { toast(r.status === 'PAID' ? 'Pagado ✅' : `Parcial · saldo ${money(r.outstanding ?? 0)}`); onSaved(); } else toast('No se pudo registrar');
+  }
+  return (
+    <Modal title={`Registrar pago — ${run.periodLabel}`} onClose={onClose}>
+      <div className="bg-bg2 rounded-lg px-4 py-3 mb-4 flex justify-between text-sm"><span>Total {money(run.totalUsd)} · Pagado {money(run.amountPaidUsd)}</span><b>Saldo {money(run.outstandingUsd)}</b></div>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div><label className="label">Monto a pagar</label><input className="input w-full" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+        <div><label className="label">Método</label><select className="input w-full" value={method} onChange={(e) => setMethod(e.target.value)}><option>Transferencia</option><option>Binance</option><option>Nequi</option><option>Efectivo</option></select></div>
+      </div>
+      <div className="flex gap-2 justify-end"><button className="btn-ghost rounded-pill" onClick={onClose}>Cancelar</button><button className="btn-primary rounded-pill" disabled={busy} onClick={save}>Registrar pago</button></div>
+    </Modal>
+  );
+}
+
+function RunDetailModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const [items, setItems] = useState<PItem[] | null>(null);
+  const [label, setLabel] = useState('');
+  useEffect(() => {
+    api<{ periodLabel: string; items: PItem[] }>(`/admin/contabilidad/nomina/cortes/${id}`).then((d) => { if (d) { setItems(d.items); setLabel(d.periodLabel); } }).catch(() => setItems([]));
+  }, [id]);
+  return (
+    <Modal title={`Detalle — ${label || 'corte'}`} onClose={onClose}>
+      {items == null ? <p className="text-mute">Cargando…</p> : items.length === 0 ? <p className="text-mute">Sin ítems.</p> : (
+        <table className="w-full text-sm">
+          <thead className="text-mute text-[11px] uppercase"><tr><th className="text-left py-1">Colaborador</th><th className="text-right py-1">Base</th><th className="text-right py-1">Bono</th><th className="text-right py-1">Deduc</th><th className="text-right py-1">Total</th></tr></thead>
+          <tbody>{items.map((it) => (
+            <tr key={it.id} className="border-t border-line2"><td className="py-2">{it.employeeName}{it.role ? <span className="text-mute"> · {it.role}</span> : null}</td><td className="text-right tabular-nums">{money(it.baseUsd)}</td><td className="text-right tabular-nums">{money(it.bonusUsd)}</td><td className="text-right tabular-nums text-bad">{money(it.deductionUsd)}</td><td className="text-right tabular-nums font-medium">{money(it.totalUsd)}</td></tr>
+          ))}</tbody>
+        </table>
+      )}
     </Modal>
   );
 }

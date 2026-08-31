@@ -6712,3 +6712,77 @@ model RecurringExpense {
 
   @@index([active, nextDueDate])
 }
+
+/// CONTABILIDAD — Fase 3. Colaborador de nómina. Aditivo, ids planos.
+model PayrollEmployee {
+  id           String   @id @default(uuid())
+  name         String
+  role         String? // cargo
+  payType      String? // Fijo | Por proyecto
+  /// Monto base por período (en su periodicidad).
+  amountUsd    Decimal  @db.Decimal(12, 2)
+  /// QUINCENAL | MENSUAL | PERSONALIZADO
+  periodicity  String
+  active       Boolean  @default(true)
+  whiteLabelId String?
+  note         String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([active])
+}
+
+/// CONTABILIDAD — Fase 3. Corte de nómina: agrupa el pago de varios
+/// colaboradores en un período. Pagarlo genera UN solo egreso (con su detalle en
+/// los items), no N egresos — igual que un corte de comisiones. Soporta pago
+/// PARCIAL (amountPaidUsd).
+model PayrollRun {
+  id            String        @id @default(uuid())
+  code          String?
+  periodLabel   String
+  periodStart   DateTime?
+  periodEnd     DateTime?
+  totalUsd      Decimal       @default(0) @db.Decimal(12, 2)
+  amountPaidUsd Decimal       @default(0) @db.Decimal(12, 2)
+  status        PayrollStatus @default(PENDING)
+  method        String?
+  account       String?
+  reference     String?
+  receiptUrl    String?
+  note          String?       @db.Text
+  /// Egreso generado al pagar (para trazar el movimiento único).
+  expenseId     String?
+  whiteLabelId  String?
+  actorId       String?
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  items         PayrollItem[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// CONTABILIDAD — Fase 3. Detalle del corte de nómina, por colaborador
+/// (snapshot). total = base + bonos − deducciones.
+model PayrollItem {
+  id           String     @id @default(uuid())
+  runId        String
+  run          PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employeeId   String?
+  employeeName String
+  role         String?
+  baseUsd      Decimal    @db.Decimal(12, 2)
+  bonusUsd     Decimal    @default(0) @db.Decimal(12, 2)
+  deductionUsd Decimal    @default(0) @db.Decimal(12, 2)
+  totalUsd     Decimal    @db.Decimal(12, 2)
+  createdAt    DateTime   @default(now())
+
+  @@index([runId])
+}
+
+enum PayrollStatus {
+  PENDING
+  PARTIAL
+  PAID
+}
