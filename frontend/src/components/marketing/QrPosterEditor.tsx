@@ -51,7 +51,6 @@ import {
   type FontOption,
   FONT_OPTIONS,
   FONT_CATEGORY_LABELS,
-  googleFontsUrl,
   CANVAS_PRESETS,
   defaultConfig,
   normalizeConfig,
@@ -615,6 +614,21 @@ export default function QrPosterEditor({
   const [guides, setGuides] = useState<Guide[]>([]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
+
+  // Konva dibuja una sola vez: si el canvas se pinta antes de que llegue la
+  // webfont, la vista previa se queda con la tipografía de reserva hasta que
+  // el usuario toca algo. Al terminar de cargar las fuentes, se redibuja.
+  useEffect(() => {
+    let vivo = true;
+    document.fonts?.ready
+      .then(() => {
+        if (vivo) stageRef.current?.batchDraw();
+      })
+      .catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, []);
   const [stageWidth, setStageWidth] = useState(STAGE_MAX_DISPLAY_W);
 
   useEffect(() => {
@@ -1070,6 +1084,18 @@ export default function QrPosterEditor({
     const stage = stageRef.current;
     if (!stage) return;
     setExporting(kind);
+
+    // Konva pinta el texto AL CANVAS con la fuente que el navegador tenga
+    // cargada EN ESE INSTANTE. Sin esperar, un export disparado nada más
+    // abrir el editor sale con la tipografía de reserva y no coincide con lo
+    // que se ve en pantalla. `fonts.ready` resuelve enseguida si ya están.
+    try {
+      await document.fonts?.ready;
+    } catch {
+      // Navegador sin FontFaceSet: se exporta igual, no vale la pena
+      // bloquear la descarga por esto.
+    }
+    stage.batchDraw();
     await new Promise((r) => requestAnimationFrame(() => r(null)));
 
     // PNG → transparente: oculta el grupo "bg" durante el export para que

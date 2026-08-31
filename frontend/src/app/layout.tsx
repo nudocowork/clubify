@@ -7,7 +7,7 @@ import { PWARegister } from '@/components/PWARegister';
 import { ToastProvider } from '@/components/Toast';
 import { DynamicFavicon } from '@/components/DynamicFavicon';
 import { ChunkReloadGuard } from '@/components/ChunkReloadGuard';
-import { googleFontsUrl } from '@/lib/marketing/qr-poster-config';
+import { googleFontsUrls } from '@/lib/marketing/qr-poster-config';
 import { AuthBrandProvider } from '@/components/AuthBrand';
 import { resolveAuthBrandFromHeaders } from '@/lib/server-brand';
 
@@ -415,15 +415,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         {/* TODAS las fuentes de FONT_OPTIONS cargadas globalmente —
             disponibles en cualquier página (panel admin, billing,
-            cotizaciones, editor QR, wallet pass preview). Una sola
-            request al CDN de Google, browsers cachean agresivamente.
-            Antes solo Inter estaba global y el resto cargaba on-demand
-            cuando montaba QrPosterEditor — quedaban inutilizables en
-            otras vistas. */}
-        <link
-          href={googleFontsUrl()}
-          rel="stylesheet"
-        />
+            cotizaciones, editor QR, wallet pass preview).
+
+            VARIOS <link>, no uno: consolidarlas en una sola petición metió
+            las 129 familias en una URL de 4.100 caracteres y Google la
+            rechazaba con 403: el CDN corta en 120 familias por petición y
+            eran 129. No cargaba NINGUNA fuente en toda la plataforma — de
+            ahí «las tipografías del QR no funcionan, todas se ven iguales».
+            `googleFontsUrls()` las reparte de 60 en 60. */}
+        {googleFontsUrls().map((href) => (
+          <link key={href} href={href} rel="stylesheet" />
+        ))}
       </head>
       <body>
         <ChunkReloadGuard />
