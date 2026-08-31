@@ -519,6 +519,8 @@ export class StripeService {
       data: {
         failedPaymentCount: { increment: 1 },
         lastPaymentAttemptAt: new Date(),
+        // Ancla INMUTABLE de la gracia (solo el 1er fallo). Ver hotmart.service.
+        firstFailedAt: tenant.firstFailedAt ?? new Date(),
       },
     });
     await this.billing.auditLifecycle('subscription.payment_failed', tenant.id, { gateway: 'STRIPE' });
@@ -680,6 +682,7 @@ export class StripeService {
         status: 'ACTIVE',
         suspendedAt: null,
         failedPaymentCount: 0,
+        firstFailedAt: null,
         ...(ctx.nextCharge ? { currentPeriodEnd: ctx.nextCharge } : {}),
       },
     });
@@ -910,6 +913,8 @@ export class StripeService {
         stripeCustomerId: ctx.customerId ?? tenant.stripeCustomerId,
         stripeSubscriptionId: ctx.subscriptionId ?? tenant.stripeSubscriptionId,
         failedPaymentCount: 0,
+        // Pago/activación confirmada → limpiar el ancla de mora del ciclo.
+        firstFailedAt: null,
         lastPaymentAttemptAt: now,
         suspendedAt: null,
         // En prueba, guardamos cuándo termina (día 7) para el panel y los
@@ -1256,6 +1261,7 @@ export class StripeService {
       stripeCustomerId: true,
       stripeSubscriptionId: true,
       currentPeriodEnd: true,
+      firstFailedAt: true,
     };
     if (ctx.subscriptionId) {
       const t = await this.prisma.tenant.findFirst({

@@ -671,14 +671,23 @@ model Tenant {
   stripeSubscriptionId        String?
   failedPaymentCount          Int                        @default(0)
   lastPaymentAttemptAt        DateTime?
+  /// Ancla INMUTABLE de la mora: se fija UNA sola vez en el primer cobro
+  /// fallido (o vencimiento sin pago) y NO se reescribe en los reintentos de
+  /// Hotmart — a diferencia de `lastPaymentAttemptAt`, que Hotmart pisa a `now`
+  /// en cada `PURCHASE_DELAYED` y reiniciaba el reloj de gracia (por eso nunca
+  /// llegaba al día 6 y no suspendía). El dunning cuenta los días de gracia
+  /// desde acá. Se limpia (null) al confirmarse un pago. Ver billing.service.
+  firstFailedAt               DateTime?
   // E (2026-06-12): timestamp del último pago aprobado real (approved_date
   // del payload Hotmart). Útil para reportes y debugging — antes solo
   // teníamos currentPeriodEnd que es el PRÓXIMO cobro.
   lastChargeAt                DateTime?
   /// Este negocio paga POR FUERA de las pasarelas: Nequi, efectivo,
-  /// transferencia. Ninguna pasarela va a confirmar su pago, así que el sistema
-  /// NO lo suspende solo — aparece en la lista de revisión y se desconecta a
-  /// mano. Ver `ManualPayment` y `billing.service` (gate de suspensión).
+  /// transferencia. Ninguna pasarela confirma su pago, así que el ancla de la
+  /// mora es la FECHA de vencimiento (currentPeriodEnd = último ManualPayment +
+  /// periodicidad). 2026-08-31 (decisión del dueño): el pago por fuera SÍ tiene
+  /// los mismos 5 días de gracia y se auto-suspende al día 6, igual que
+  /// Hotmart — antes se eximía. Sigue apareciendo en la lista de revisión.
   manualPayment               Boolean                    @default(false)
   suspendedAt                 DateTime?
   // Tracking de notificaciones de cobro automáticas (idempotencia del cron):

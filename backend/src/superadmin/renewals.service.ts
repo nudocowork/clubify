@@ -190,8 +190,27 @@ export class RenewalsService {
       // de iteraciones previas del mismo run.
       const wl = await this.prisma.whiteLabel.findUnique({
         where: { id: t.whiteLabelId },
-        select: { id: true, name: true, creditsAvailable: true, creditsUsed: true, status: true, creditsUnlimited: true },
+        select: { id: true, name: true, slug: true, creditsAvailable: true, creditsUsed: true, status: true, creditsUnlimited: true },
       });
+      // 2026-08-31 — FUENTE ÚNICA: los negocios que pagan REAL los gobierna el
+      // motor de dinero (billing.processOverdueAccounts), NO este cron de
+      // créditos. Antes, los 77 negocios de Clubify colgaban de la marca
+      // `clubify` (creditsUnlimited) y este cron los renovaba GRATIS cada ciclo,
+      // empujando currentPeriodEnd al futuro → el dunning veía "falla + ciclo
+      // vigente", limpiaba el fallo y NUNCA suspendía al día 6. Al saltarlos
+      // acá, su currentPeriodEnd solo avanza con un pago Hotmart confirmado y el
+      // dunning puede suspender la mora real. (STRIPE queda para revisión aparte:
+      // su marca sí tiene créditos reales y hay que ver el cobro Clubify←marca.)
+      if (wl && wl.slug === 'clubify') {
+        summary.skipped++;
+        summary.details.push({
+          tenantId: t.id,
+          brandName: t.brandName,
+          action: 'SKIPPED',
+          reason: 'Clubify paga real (Hotmart) → lo gobierna el motor de dinero',
+        });
+        continue;
+      }
       if (!wl || wl.status === 'SUSPENDED') {
         // Si la marca está suspendida, no consumimos sus créditos —
         // pero el tenant también queda en gracia hasta que el dueño

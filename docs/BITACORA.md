@@ -48,6 +48,70 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-31 — Renovaciones/suspensión Fase 1: fix "no suspende al día 6" (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama:** `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+Arreglo de raíz del bug "un negocio con cobro fallido nunca se suspende".
+Auditado con datos de prod (solo lectura). Eran **dos** causas encadenadas:
+
+1. **El reloj de gracia se anclaba en `lastPaymentAttemptAt`**, que Hotmart pisa
+   a `now` en CADA reintento (`PURCHASE_DELAYED`) → la mora volvía a 0 días y
+   nunca llegaba al umbral. **Fix:** nuevo campo INMUTABLE `Tenant.firstFailedAt`
+   (se fija solo en el 1er fallo, se limpia al confirmarse pago). El dunning
+   cuenta desde ahí.
+2. **El cron de créditos (2 AM) tapaba la falla.** Los **77 negocios de Clubify**
+   cuelgan de la marca `clubify` con `creditsUnlimited` → ese cron los renovaba
+   GRATIS cada ciclo, empujaba `currentPeriodEnd` al futuro, y el pre-check del
+   dunning ("falla + ciclo vigente = stale") borraba el fallo antes del día 6.
+   **Fix:** el cron de créditos ahora **omite la marca `clubify`** (pagan real
+   por Hotmart → los gobierna el motor de dinero, fuente única).
+
+Además, por decisión del dueño (2026-08-31):
+- **Gracia unificada a 5 días**; se suspende al **día 6** (antes `>=graceDays`,
+  ahora `>graceDays`; default 3→5).
+- **El pago por fuera (manualPayment) YA NO se exime**: mismos 5 días de gracia y
+  auto-suspensión al día 6 (ancla = fecha de vencimiento). Sigue en la lista de
+  revisión manual.
+
+Regla de mora extraída a función **pura y testeable** `src/billing/dunning.ts`
+(`decideDunning`) con 12 tests de reloj congelado que fijan el día-5-gracia /
+día-6-suspende y la inmutabilidad del ancla ante reintentos.
+
+Archivos: `prisma/schema.prisma` (+`firstFailedAt`), `src/billing/dunning.ts`
+(nuevo), `src/billing/billing.service.ts` (motor de mora), `hotmart.service.ts`,
+`stripe.service.ts` (setear/limpiar ancla), `src/superadmin/renewals.service.ts`
+(guard `clubify`), `test/dunning.test.ts` (nuevo),
+`scripts/apply-first-failed-at-migration.cjs` (nuevo).
+
+### Qué toqué de PRODUCCIÓN
+- **Nada aún.** No corrí la migración ni desplegué. Solo lecturas de diagnóstico.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **Correr la migración ANTES de desplegar** (el código hace `select` de
+      `firstFailedAt`; si la columna no existe, Prisma revienta):
+      `cd backend && railway run node scripts/apply-first-failed-at-migration.cjs`
+      (agrega la columna, backfillea morosos en vuelo, fija `billing.graceDays=5`).
+- [ ] Desplegar backend con `node scripts/desplegar.cjs backend` **después** de la
+      migración.
+- [ ] Fases 2-5 pendientes: estados de renovación, **SMS de alerta** a los 3
+      números desde +573167689240 (falta saber qué subcuenta GrowBusiness tiene
+      ese número), columna de comisiones en Pagos por fuera, y el nuevo dashboard
+      de cobros (preview ya aprobado).
+
+### Riesgos y avisos
+- Hoy en prod hay **0 negocios de Clubify vencidos y 0 con fallos**, así que el
+  guard del cron de créditos **no suspende a nadie de golpe**: de aquí en
+  adelante, cuando un Hotmart falle de verdad, el dunning suspenderá al día 6.
+- **STRIPE/Sellea** tiene el mismo patrón de "créditos que tapan", pero su marca
+  SÍ tiene créditos reales — **no lo toqué**; hay que entender el cobro
+  Clubify←marca antes. Queda señalado.
+- Cuentas internas/comp de Clubify sin Hotmart activo podrían quedar expuestas a
+  la suspensión por fecha cuando venzan (mitiga: `manualPayment` o el tope legacy
+  de 60 días). Ninguna está vencida hoy.
+
 ## 2026-08-30 — Fuga cross-marca + avisos de cobro silenciosos (DESPLEGADO)
 
 **Máquina/quién:** máquina de Jhon (Claude)
