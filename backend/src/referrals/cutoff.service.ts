@@ -17,6 +17,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { ReferralsService } from './referrals.service';
 import { batchTotal, recalcBatchTotal } from './payout-batch.util';
+import { nombreDePlan } from './plan-label';
 import {
   addDaysYmd,
   bogotaDayEndUtc,
@@ -50,6 +51,30 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const PAYABLE_BASE = {
   status: CommissionStatus.APPROVED,
   paymentStatus: { in: ['PENDING', 'PARTIAL'] },
+  recipientCodeId: { not: null },
+} satisfies Prisma.CommissionWhereInput;
+
+/**
+ * Qué comisiones PERTENECEN a un corte por fecha — se hayan pagado ya o no.
+ *
+ * Un corte es un período contable, no una cola de pago: dice qué se devengó en
+ * esa ventana. Que ya se haya transferido no la saca del período.
+ *
+ * FIX 2026-08-31: se usaba `PAYABLE_BASE` también para enganchar, y ese exige
+ * «aprobada y pendiente de pago». Así que una comisión pagada ANTES de que su
+ * corte se generara quedaba fuera para siempre — el corte, cuando nacía, ya no
+ * la veía.
+ *
+ * Pasó de verdad: 9 comisiones de Nicolás Quintero, creadas entre el 1 y el 13
+ * de agosto y pagadas todas el 24, pertenecían al corte del 31. Ese corte se
+ * generó una semana después de cobrarlas y no las miró. El historial mostraba
+ * 17 comisiones por $205.40 cuando en realidad se habían pagado 21 por $303.85.
+ *
+ * Se excluyen las que siguen retenidas (PENDING) — esas pertenecen a un corte
+ * posterior — y las anuladas (REJECTED).
+ */
+const ATTACHABLE_BASE = {
+  status: { in: [CommissionStatus.APPROVED, CommissionStatus.PAID] },
   recipientCodeId: { not: null },
 } satisfies Prisma.CommissionWhereInput;
 
@@ -216,7 +241,7 @@ export class CutoffService {
     for (const b of open) {
       const res = await this.prisma.commission.updateMany({
         where: {
-          ...PAYABLE_BASE,
+          ...ATTACHABLE_BASE,
           payoutBatchId: null,
           ...this.dayWindowWhere(bogotaYmd(b.cutoffDate)),
         },
@@ -315,7 +340,7 @@ export class CutoffService {
     // 2) Adjuntar lo disponible de SU ventana que todavía no tiene corte.
     const attached = await this.prisma.commission.updateMany({
       where: {
-        ...PAYABLE_BASE,
+        ...ATTACHABLE_BASE,
         payoutBatchId: null,
         ...this.dayWindowWhere(ymd),
       },
@@ -612,10 +637,12 @@ export class CutoffService {
         daysRemaining,
         businessName:
           c.referralUse?.tenant?.brandName ?? c.businessGroup?.name ?? '—',
-        planName:
-          c.referralUse?.tenant?.plan?.name ??
-          c.referralUse?.tenant?.planPeriodicity ??
-          null,
+        // El plan ES la periodicidad. El nombre interno del `Plan` («Elite»,
+        // «Pro», «Sin plan») es un SKU para el gating y Hotmart, y no debe
+        // verse: aquí se mandaba en crudo, así que el CORTE mostraba «Elite»
+        // mientras el «Detalle avanzado» —que sí usa el formateador— decía
+        // «Plan Mensual» para el mismo negocio.
+        planName: nombreDePlan(c.referralUse?.tenant?.planPeriodicity),
         batchCode: c.payoutBatch?.code ?? null,
       });
     }
@@ -1055,10 +1082,12 @@ export class CutoffService {
         paidAt: c.paidAt,
         businessName:
           c.referralUse?.tenant?.brandName ?? c.businessGroup?.name ?? '—',
-        planName:
-          c.referralUse?.tenant?.plan?.name ??
-          c.referralUse?.tenant?.planPeriodicity ??
-          null,
+        // El plan ES la periodicidad. El nombre interno del `Plan` («Elite»,
+        // «Pro», «Sin plan») es un SKU para el gating y Hotmart, y no debe
+        // verse: aquí se mandaba en crudo, así que el CORTE mostraba «Elite»
+        // mientras el «Detalle avanzado» —que sí usa el formateador— decía
+        // «Plan Mensual» para el mismo negocio.
+        planName: nombreDePlan(c.referralUse?.tenant?.planPeriodicity),
         recipient: c.recipientCode
           ? {
               id: c.recipientCode.id,
