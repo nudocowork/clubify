@@ -27,6 +27,14 @@ export function darkenHex(hex: string, amount = 0.12): string {
 export function authBrandCss(color: string): string {
   const c = color || '#16a34a';
   const hover = darkenHex(c, 0.12);
+  // Gradientes de marca: las clases `from-brand-*`/`via-brand-*`/`to-brand-*`
+  // setean variables `--tw-gradient-*`, NO background-color, así que el override
+  // de arriba no las alcanza → un panel `bg-gradient-to-* from-brand-400` queda
+  // VERDE Clubify aunque la marca sea otra (ej. el aside de /activar). Volteamos
+  // los tres stops al color de la marca (claro→marca→oscuro para conservar el
+  // degradado). Mismo enfoque que `.sellea-theme` en las landings.
+  const gFrom = mixHex(c, 'white', 0.14);
+  const gTo = darkenHex(c, 0.28);
   return `
 .brand-auth .text-brand,.brand-auth [class*="text-brand"]{color:${c}!important}
 .brand-auth [class*="bg-brand"]:not([class*="bg-brand-soft"]){background-color:${c}!important}
@@ -35,7 +43,12 @@ export function authBrandCss(color: string): string {
 .brand-auth .text-ok,.brand-auth [class*="text-ok"]{color:${c}!important}
 .brand-auth .btn-primary{background-color:${c}!important;border-color:${c}!important}
 .brand-auth .btn-primary:hover{background-color:${hover}!important;border-color:${hover}!important}
+.brand-auth .tab-active{background-color:${c}!important}
 .brand-auth .btn-link{color:${c}!important}
+.brand-auth [class*="accent-brand"]{accent-color:${c}!important}
+.brand-auth [class*="from-brand"]{--tw-gradient-from:${gFrom} var(--tw-gradient-from-position)!important;--tw-gradient-to:${c}00 var(--tw-gradient-to-position)!important;--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)!important}
+.brand-auth [class*="via-brand"]{--tw-gradient-to:${c}00 var(--tw-gradient-to-position)!important;--tw-gradient-stops:var(--tw-gradient-from),${c} var(--tw-gradient-via-position),var(--tw-gradient-to)!important}
+.brand-auth [class*="to-brand"]{--tw-gradient-to:${gTo} var(--tw-gradient-to-position)!important}
 .brand-auth .input:focus{border-color:${c}!important;box-shadow:0 0 0 3px ${c}33!important}
 `;
 }
@@ -81,6 +94,7 @@ export function panelBrandCss(color: string, sidebarBg?: string | null): string 
 .brand-panel [class*="bg-brand-soft"]{background-color:${soft}!important}
 .brand-panel [class*="text-brand"]{color:${c}!important}
 .brand-panel [class*="border-brand"]{border-color:${c}!important}
+.brand-panel .tab-active{background-color:${c}!important}
 .brand-panel .hover\\:bg-brand-700:hover,.brand-panel .hover\\:border-brand-700:hover{background-color:${c}!important;border-color:${c}!important}
 .brand-panel [class~="text-ok"]{color:${c}!important}
 .brand-panel [class~="bg-ok"]:not([class*="bg-ok-soft"]){background-color:${c}!important}

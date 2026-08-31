@@ -42,6 +42,9 @@ type Status = {
   trialEndsAt: string | null;
   currentPeriodEnd: string | null;
   isActiveAccess: boolean;
+  // Prueba PAGA (tarjeta anclada, ej. 7 días de Sellea): en TRIAL pero con cobro
+  // automático al terminar. NO es la prueba gratis ("Esperando pago").
+  paidTrial?: boolean;
 };
 
 const STATUS_LABELS: Record<Status['status'], { text: string; bg: string; ring: string }> = {
@@ -191,12 +194,14 @@ export default function BillingPage() {
           <div>
             <div className="flex items-center gap-2">
               <span className={`text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full ${meta.bg}`}>
-                {t(`badge_${s.status}`)}
+                {s.paidTrial ? 'En prueba' : t(`badge_${s.status}`)}
               </span>
             </div>
             <div className="mt-3 text-3xl font-bold">
               {s.status === 'TRIAL'
-                ? t('statusTrial')
+                ? s.paidTrial
+                  ? 'Prueba activa'
+                  : t('statusTrial')
                 : s.status === 'ACTIVE'
                 ? statusActiveText
                 : s.status === 'EXPIRED'
@@ -208,9 +213,33 @@ export default function BillingPage() {
                 : t('statusNone')}
             </div>
             {s.status === 'TRIAL' && (
-              <div className="text-sm text-mute mt-1">
-                {t('completePaymentHotmart')}
-              </div>
+              // Prueba paga (Sellea): la tarjeta ya está anclada; el cobro llega
+              // solo al terminar la prueba. No se le pide "completar el pago".
+              s.paidTrial ? (
+                <div className="text-sm text-mute mt-1">
+                  {s.trialEndsAt ? (
+                    <>
+                      Primer cobro el{' '}
+                      <span className="font-medium text-ink">
+                        {new Date(s.trialEndsAt).toLocaleDateString('es-CO', {
+                          day: 'numeric',
+                          month: 'long',
+                          year: 'numeric',
+                        })}
+                      </span>
+                      {typeof s.daysLeftInTrial === 'number'
+                        ? ` (en ${s.daysLeftInTrial} ${s.daysLeftInTrial === 1 ? 'día' : 'días'}).`
+                        : '.'}
+                    </>
+                  ) : (
+                    'Tu prueba está activa.'
+                  )}
+                </div>
+              ) : (
+                <div className="text-sm text-mute mt-1">
+                  {t('completePaymentHotmart')}
+                </div>
+              )
             )}
             {s.status === 'ACTIVE' && s.currentPeriodEnd && (
               <div className="text-sm text-mute mt-1">
@@ -244,8 +273,9 @@ export default function BillingPage() {
 
       </div>
 
-      {/* CTA principal */}
-      {(s.status === 'TRIAL' || s.status === 'EXPIRED' || s.status === 'PAST_DUE') && (
+      {/* CTA principal — NO en prueba paga: la tarjeta ya está anclada y el
+          cobro es automático, así que no se le pide "activar/pagar". */}
+      {((s.status === 'TRIAL' && !s.paidTrial) || s.status === 'EXPIRED' || s.status === 'PAST_DUE') && (
         <div className="card card-pad mt-4 bg-gradient-to-br from-brand-400 to-brand-700 text-white">
           <div className="flex items-start gap-4 flex-wrap">
             <div className="flex-1 min-w-0">

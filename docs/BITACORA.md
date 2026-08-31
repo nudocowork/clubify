@@ -129,6 +129,520 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
   UPDATE condicional y mira el `count`.
 
 ---
+## 2026-08-30 — Fuga cross-marca + avisos de cobro silenciosos (DESPLEGADO)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Commits:** `9a7a2b2c`, `6052ec91`
+
+### 🔓 Fuga cross-marca en el listado de negocios de una cuponera
+
+Al listar negocios para vincular como aliado Tipo A, el filtro era:
+
+    ...(campaign.whiteLabelId ? { whiteLabelId: campaign.whiteLabelId } : {})
+
+Con marca nula el spread queda vacío y **desaparece el filtro entero**: devuelve
+TODOS los negocios de la plataforma (107 hoy, en 4 marcas) a un CUPONERA_ADMIN.
+Estaba en dos sitios (panel de la cuponera y picker del Master Admin).
+
+**No hacía falta un error humano:** `BenefitCampaign.whiteLabelId` es
+**onDelete: SetNull**, así que borrar una marca deja su cuponera sin marca y el
+aislamiento se cae solo. Ahora falla CERRADO: sin marca no lista nada y loguea.
+
+Hoy NO estaba sangrando (living-card sí tiene marca, verificado).
+
+### Avisos de cobro: por qué no salió el SMS
+
+Los tres `notifyOwner` hacían `if (!target) return;` sin log. El aviso va ahora
+en `resolveBillingTarget`, que es el único que conoce el motivo, y distingue la
+decisión del negocio (avisos apagados → silencio) de la mala configuración (sin
+credenciales o sin teléfono → warning).
+
+Medido: de 96 negocios con avisos encendidos, **1** sin por dónde enviar y **3**
+sin teléfono, de los cuales solo uno es un negocio real (La Parada Bar Truck).
+Primero conté 51; estaba mal — `ownerPhone` cae a `whatsappPhone`/`phone`.
+
+### Qué toqué de PRODUCCIÓN
+
+- Backend desplegado. Swap verificado (uptime 2410 s → 8 s). Base: sin cambios.
+
+### 🌳 Cómo se desplegó, que importa para la próxima
+
+El árbol tenía **4 archivos sin commitear de la otra sesión**. Como `railway up`
+sube el DIRECTORIO, desplegar habría publicado su trabajo a medio hacer.
+
+Se desplegó desde un **worktree limpio de HEAD**, sin tocar ni un archivo del
+árbol principal:
+
+```bash
+git worktree add --detach /tmp/clubify-deploy-limpio HEAD
+cd /tmp/clubify-deploy-limpio
+railway link --project ba90d94d-7e6d-4056-85ad-0e3f24e8d43a --environment production --service backend
+railway up --service backend
+```
+
+⚠️ `railway up <ruta>` NO funciona (`prefix not found`): hay que `cd` al
+worktree y enlazarlo, porque el link de Railway es **por carpeta**.
+
+**Esto reemplaza al `git stash` antes de desplegar**, que ya barrió trabajo en
+vuelo tres veces esta semana.
+
+---
+
+## 2026-08-30 — CONTABILIDAD Fase 3 (Nómina) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs
+
+### Qué cambié (aditivo)
+- Modelos `PayrollEmployee` + `PayrollRun` + `PayrollItem` + enum `PayrollStatus`.
+  Pagar la nómina genera UN corte con su detalle (items), no N egresos.
+- `PayrollService`+`PayrollController` (`/admin/contabilidad/nomina/*`):
+  colaboradores, generar corte con bonos/deducciones, pagos parciales, resumen.
+- Frontend: pestaña **Nómina** en `/admin/contabilidad`.
+
+### 🚨 ANTES de desplegar (esta sesión no escribe a prod DB)
+Desde `~/Documents/AGENTES/CLUBIFY/backend` con `DATABASE_PUBLIC_URL` exportada:
+- [ ] `node scripts/apply-payroll-migration.cjs`  (crea 3 tablas de nómina)
+- [ ] Desplegar backend + frontend con `desplegar.cjs`.
+
+### Estado del módulo
+F1 (Ingresos) + F2 (Egresos) YA LIVE. F3 lista para migrar+deploy. Faltan F4
+Movimientos, F5 Cierres, F6 Dashboard. Ver
+[[project_contabilidad_central_module_2026_08_30]].
+
+---
+
+## 2026-08-30 — CONTABILIDAD Fase 2 (Egresos) + backfill de ingresos (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs
+
+### Qué cambié (aditivo, no toca comisiones)
+- **Fase 2 Egresos:** modelos `Expense`+`ExpenseCategory`+`RecurringExpense` +
+  enum `ExpenseStatus` (PENDING/REVIEW/PARTIAL/PAID). `ExpenseService`+
+  `ExpensesController` (crear egreso fijo O por %, pagos parciales, "por revisar",
+  categorías, gastos recurrentes). Endpoints `/admin/contabilidad/egresos`,
+  `/categorias`, `/gastos-recurrentes`. Frontend: pestañas **Egresos** y **Gastos
+  operativos** en `/admin/contabilidad` (modal fijo/% + registrar pago parcial).
+- **Backfill:** `backfill-income-records.cjs` llena IncomeRecord desde el
+  histórico ya existente (ManualPayment + CrossTransaction reales + último cobro
+  por negocio desde `Tenant.lastPaymentAmountUsd`, marcado "estimado").
+
+### 🚨 ORDEN antes de desplegar (esta sesión no escribe a prod DB)
+Correr desde `~/Documents/AGENTES/CLUBIFY/backend` (ya linkeado a Railway), con
+`export DATABASE_PUBLIC_URL=...` (ver comando en el header de cada script):
+- [ ] 1) `node scripts/apply-expenses-migration.cjs`  (crea tablas de egresos)
+- [ ] 2) `node scripts/backfill-income-records.cjs`   (llena ingresos históricos)
+- [ ] 3) Desplegar backend + frontend con `desplegar.cjs`.
+
+### Estado Fase 1
+Ya LIVE (migración IncomeRecord aplicada + deploy). Los cobros nuevos ya capturan
+ingreso real. Ver [[project_contabilidad_central_module_2026_08_30]].
+
+---
+
+## 2026-08-30 — CONTABILIDAD Fase 1: IncomeRecord (ingreso real por transacción) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit de Fase 1)
+
+### Contexto
+Arranca el módulo central Contabilidad (aprobado por el dueño). Fase 1 = el
+cimiento: guardar el ingreso REAL por cobro con desglose bruto/fee/impuesto/neto.
+Antes solo existía `Tenant.lastPaymentAmountUsd`, que se sobrescribe cada ciclo y
+descarta fee/impuesto → sin histórico. El preview navegable está en
+`~/Desktop/Contabilidad-Clubify-Preview.html`.
+
+### Qué cambié (todo ADITIVO, no toca comisiones)
+- `schema.prisma`: modelo **IncomeRecord** + enum **IncomeReconStatus**. Ids
+  planos (sin relación Prisma) → no toca Tenant/WhiteLabel.
+- `scripts/apply-income-record-migration.cjs`: crea tabla+enum+índices
+  (idempotente, IF NOT EXISTS) y siembra tasas (fee 8.6% Hotmart, 3.5% Stripe,
+  5% Cross, 0% Manual, impuesto 19%, taxBase gross).
+- `src/finance/`: `IncomeRecordService` (captura best-effort, dedup por
+  `(gateway, externalTxId)`, salta $0 de prueba) + `FinanceController`
+  (`GET /admin/contabilidad/ingresos`, `/ingresos/resumen`,
+  `PATCH /ingresos/:id/conciliar`).
+- Wire en los 4 webhooks: Stripe (`activate`), Hotmart (`activatePurchase`),
+  Cross (`activate`), Manual (`tenants.service` tras commit, solo USD).
+- Frontend: `/admin/contabilidad` (Resumen + Ingresos + Conciliación, datos
+  reales) + menú **Finanzas → Contabilidad** (clubifyOnly).
+
+### 🚨 Qué falta ANTES de desplegar (ORDEN OBLIGATORIO)
+- [ ] **1) Correr la migración en prod** (crea la tabla; esta sesión no escribe
+      a prod DB):
+      `cd backend && export DATABASE_PUBLIC_URL="$(railway variables --service Postgres-Nq8w --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["DATABASE_PUBLIC_URL"])')" && node scripts/apply-income-record-migration.cjs`
+- [ ] **2) Verificar** que `IncomeRecord` existe (el script lo imprime).
+- [ ] **3) Desplegar** backend + frontend con `desplegar.cjs`.
+      (Si se despliega ANTES de la migración: los `record()` son best-effort con
+      catch → no crashea, pero se pierden ingresos hasta que exista la tabla, y
+      `/admin/contabilidad` da 500.)
+
+### Próximas fases (no empezadas)
+F2 Egresos/Categorías/Recurrentes · F3 Nómina · F4 Movimientos+Conciliación
+avanzada · F5 Cierres inmutables+reporte · F6 Dashboard+cuentas por cobrar/pagar.
+Ver [[project_contabilidad_central_module_2026_08_30]].
+
+### Riesgos
+- Multi-moneda: pagos manuales en COP se saltan (solo USD por ahora). Stripe/
+  Hotmart/Cross ya vienen en USD.
+- Hotmart income va como whiteLabelId null (Clubify); Stripe/Cross llevan su
+  whiteLabelId. El panel filtra `scope=clubify` (whiteLabelId null) por defecto.
+
+---
+
+## 2026-08-30 — Sellea: ciclo de prueba de 7 días (día 0 demo, día 7 activo+crédito) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit ebf6551c)
+
+### Contexto
+El Payment Link de Stripe de Sellea SÍ tiene `trial_period_days=7` (confirmado
+por el dueño), pero la activación no lo honraba: marcaba ACTIVE y vencía en 1
+MES. El dueño quiere: día 0 = cuenta DEMO/prueba con vencimiento a 7 días (sin
+cobrar, sin crédito); día 7 = Stripe cobra → ACTIVE + consume 1 crédito Fidelity.
+
+### Qué cambié (`billing/stripe.service.ts` `activate`)
+- `inTrial = ctx.trialEnd > now`. Si está en prueba: `status='TRIAL'`,
+  `trialEndsAt = currentPeriodEnd = trial_end` (7 días), NO cobra, NO consume
+  crédito, NO genera comisiones, NO emite business.activated. SMS nuevo
+  `trial_started` ("en N días (fecha) se hace el primer cobro").
+- Día 7 (invoice.paid, monto>0, trial_end pasado): cae a la rama normal →
+  ACTIVE + `consumeTrialConversionCredit` (ya existía) + comisiones + vence al
+  próximo período real.
+- `billing.service.getStatus` expone `paidTrial` (TRIAL + con suscripción Stripe
+  = tarjeta anclada). La página de facturación muestra "Prueba activa · primer
+  cobro el <fecha>" SIN el CTA de "activar" (ese es para la prueba GRATIS sin
+  tarjeta). El panel admin ya muestra TRIAL + fecha (VENCE = currentPeriodEnd).
+- `/activar` (front): el precio ahora sale del plan de la MARCA
+  (`payment-links-by-host`, USD 80), no del global de Clubify (`landing-plans`,
+  USD 68).
+
+### Qué toqué de PRODUCCIÓN
+- Deploy backend + frontend. Sin migración, sin DB (usa status TRIAL +
+  trialEndsAt que ya existían de la prueba gratis).
+
+### Qué falta / validar del otro lado
+- [ ] E2E real: compra con el enlace de prueba → verificar día 0 = TRIAL/vence
+      7 días + SMS "en 7 días"; y el cobro del día 7 → ACTIVE + -1 crédito.
+- [ ] La detección del trial depende de que `extractCtx` pueda LEER la
+      suscripción de Stripe (retrieve). Si el retrieve falla, `trialEnd` queda
+      null y caería a ACTIVE+1 mes (como el test viejo). Vigilar el warn
+      "retrieve subscription ... falló".
+
+### Riesgos y avisos
+- `status=TRIAL` se comparte con la prueba GRATIS (5 días sin tarjeta). El
+  discriminador es `stripeSubscriptionId` (→ `paidTrial`). Cualquier pantalla que
+  trate TRIAL como "esperando pago" debe chequear `paidTrial` (ya hecho en
+  billing). El cron de trials free (recordatorios) NO debe pausar a un paidTrial:
+  revisar si algún cron suspende TRIAL vencido sin mirar la suscripción.
+
+---
+
+## 2026-08-30 — Sellea: fugas de marca en aviso interno + correo de compra (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit b7e1d5e2)
+
+### Qué cambié
+- **SMS interno de preregistro** decía "Nuevo preregistro en Clubify / Revisar
+  en Clubify" para un negocio de Sellea → ahora dice el nombre de la marca
+  (`alertSignup`/`buildMessage` reciben `brandName`; el call site pasa
+  `welcomeBrandRow.whiteLabel.name`). NOTA: el ruteo (línea + destinatarios
+  Javier/Jhon) SIGUE siendo el equipo de la plataforma — es monitoreo central,
+  no se cambió; solo el TEXTO.
+- **Correo "Recibimos tu pago — crea tu cuenta"** salía con el morado default
+  (#6366F1) + inicial de la marca en vez del logo/color reales. Causa: el correo
+  del comprador NO tiene tenant, y el logo/color solo venían del tenant.
+  `BRAND_EMAIL_SELECT` ahora trae `logoUrl/iconUrl/primaryColor`, `ResolvedBrand`
+  los lleva y `renderHtml` cae al color/logo de la MARCA cuando no hay tenant.
+
+### Qué toqué de PRODUCCIÓN
+- Deploy backend. Sin migración, sin DB.
+
+### Qué falta / PENDIENTE GRANDE (trial de 7 días)
+- [ ] **Ciclo del trial mal:** hoy al pagar el negocio queda ACTIVE + vence en
+      1 MES. Debe ser: día 0 = TRIAL/demo con vencimiento a 7 días (sin consumir
+      crédito); día 7 = Stripe cobra → ACTIVE + consume 1 crédito Fidelity.
+      La activación (`stripe.service.activate`) fija `currentPeriodEnd` a
+      `addPlanPeriod(now, MENSUAL)` cuando `ctx.nextCharge` es null; nunca honra
+      `trial_end`. `consumeTrialConversionCredit` (día 7) ya existe pero no
+      cambia estado ni fecha. BLOQUEANTE: confirmar que el Payment Link de Stripe
+      tenga `trial_period_days=7` (hoy la suscripción cobró y quedó Mensual).
+- [ ] **/activar muestra "USD 68"** (precio global Clubify) en vez de "USD 80"
+      (precio de Sellea). Lee `/api/landing-plans` (global), no el precio por
+      marca. La página de facturación sí es brand-aware (WhiteLabelPaymentLink).
+- [ ] Mensaje WhatsApp "Próximo cobro: 30 sept" y panel admin (ESTADO Activo,
+      VENCE Sep 30) dependen del ciclo del trial de arriba.
+
+---
+
+## 2026-08-30 — Sellea: pago→crear cuenta tal cual Clubify (/activar) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit 0ff64bf8)
+
+### Qué cambié
+- **`check-pending` ahora reconoce el pago de Stripe.** `checkPendingPayment`
+  solo miraba `PendingHotmartPayment`; si no hay, ahora lee
+  `PendingStripePayment` (marcas con Stripe, ej. Sellea). Sin esto, un
+  comprador de Sellea que SÍ pagó veía "Todavía no vemos un pago" en /activar.
+  Nuevo `checkPendingStripePayment` (nombre/teléfono/monto del evento Stripe;
+  periodicidad null → el signup toma el plan de la suscripción al consumir).
+- **`/activar/layout.tsx` (NUEVO)** con `AuthBrandServer`: la página de crear
+  cuenta hereda el color de la marca. Sin layout salía en verde Clubify.
+- **`authBrandCss` cubre gradientes** `from/via/to-brand` + `accent-brand`. El
+  aside con degradado de /activar quedaba verde (el override por atributo no
+  alcanza las vars `--tw-gradient-*`). Scopeado a `.brand-auth`.
+
+### Cómo es el flujo (para entenderlo)
+Ambas marcas: pagar → caer en `/activar` → llenar datos → `POST /auth/signup`
+crea el tenant y consume el pago pendiente → ACTIVE. NO hay auto-creación de
+cuenta. El redirect Stripe→/activar NO está en el código: es un ajuste del
+Payment Link en el panel de Stripe ("after completion" → URL /activar).
+
+### Qué toqué de PRODUCCIÓN
+- Deploy backend (check-pending) + frontend (/activar layout + gradientes).
+  Sin migración, sin DB.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **OPERATIVO (dueño):** en cada Payment Link de Sellea en Stripe, poner
+      "After completion → Redirect to" = `https://www.selleala.com/activar`.
+      Sin eso, el comprador queda en la página de Stripe y solo llega a
+      /activar por el correo de recuperación (async), no directo.
+
+### Riesgos y avisos
+- `check-pending` no recibe marca: consulta Hotmart y luego Stripe por email.
+  Hotmart tiene precedencia (Clubify intacto).
+- Gradientes de marca en `.brand-auth` afectan a TODAS las páginas de auth de
+  marcas blancas (login/signup/activar/prueba/afiliado): antes salían en verde
+  Clubify (bug), ahora en el color de la marca. Clubify (sin `.brand-auth`)
+  intacto.
+
+---
+
+## 2026-08-30 — Fix: /prueba de Sellea salía en verde Clubify (faltaba layout) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit cdfdcaa1)
+
+### Qué cambié
+- `app/prueba/layout.tsx` (NUEVO) con `AuthBrandServer`. La página no tenía
+  layout propio → no recibía la clase `.brand-auth` ni el `authBrandCss` → todo
+  lo `brand` (pill "🎁 Prueba", botón `.btn-primary`, links `text-brand`) salía
+  en VERDE Clubify aunque la marca fuera Sellea (naranja #FF4D3D). Mismo patrón
+  que `/login`, `/registro-afiliado`, `/affiliate`.
+
+### Qué toqué de PRODUCCIÓN
+- Redeploy frontend. Sin backend, sin DB.
+
+### Riesgos y avisos
+- El root layout solo siembra el CONTEXTO de marca (para el logo); NO inyecta el
+  override de color. Toda página pública en dominio de marca necesita su
+  `layout.tsx` con `AuthBrandServer` o saldrá en verde. Regla durable.
+
+---
+
+## 2026-08-30 — Fix: /prueba de Sellea no veía el enlace de Stripe (semilla SSR) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit edc05276)
+
+### Qué cambié
+- `lib/server-brand.ts` `resolveAuthBrandForHost`: ahora copia
+  `trialCheckoutUrl`+`trialDays` a la semilla SSR de la marca. Sin eso,
+  `useAuthBrand` (que omite el fetch del cliente cuando hay semilla SSR) dejaba
+  `brand.trialCheckoutUrl` en undefined → `/prueba` mostraba "Prueba no
+  disponible" aunque el admin ya había pegado el enlace de Stripe.
+- El backend YA devolvía los campos (verificado por curl a
+  `branding-by-host?host=www.selleala.com`). Solo faltaba en el SSR del front.
+
+### Qué toqué de PRODUCCIÓN
+- Redeploy frontend. Sin backend, sin DB.
+
+### Riesgos y avisos
+- Aditivo: otras marcas cargan `trialCheckoutUrl: null` en la semilla si no
+  tienen enlace (comportamiento idéntico al de antes). Clubify (brand null) usa
+  su vía global `/api/branding`, intacta.
+
+---
+
+## 2026-08-30 — Sellea: correo y cumpleaños OBLIGATORIOS en el registro de tarjeta (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit b8823a32)
+
+### Qué cambié
+- En el formulario público de instalación de tarjeta (`/c/[cardId]`), el correo
+  y el cumpleaños pasan de opcionales a **obligatorios SOLO para Sellea**
+  (`brand.slug` = `sellea`/`selleala`). Las demás marcas y Clubify quedan igual.
+- Frontend (`c/[cardId]/page.tsx`): `FormFields` marca ambos como requeridos,
+  quita el "(opcional)" de la etiqueta (nuevas claves i18n `card.email_required`,
+  `card.birthday_required` + sus `_err` en es/en/pt/it), valida al enviar y
+  bloquea el botón hasta completarlos. `BrandBadgeBrand` gana `slug?` (aditivo).
+- Backend (`passes.service.ts` `enrollPublic`): exige correo + cumpleaños válido
+  cuando la marca es Sellea (400 con mensaje claro), como defensa ante un POST
+  directo a la API. Resuelve la marca por `resolveByWhiteLabelId`.
+
+### Qué toqué de PRODUCCIÓN
+- **Sin migración** (las columnas `email`/`birthday` ya existen y son nulables;
+  solo se refuerza a nivel de app). Despliegue backend + frontend.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Verificar en vivo en un dominio Sellea que ambos campos salen requeridos y
+      que otra marca (o Clubify) los sigue mostrando opcionales.
+
+### Riesgos y avisos
+- Gate por slug hardcodeado (`sellea`/`selleala`), mismo criterio que
+  `slug-alias.ts`. Si Sellea cambiara de slug habría que ajustarlo aquí.
+- Un cliente Sellea que ya se había registrado sin correo/cumpleaños, al
+  reinstalar deberá completarlos (backfillea datos faltantes, no duplica).
+
+---
+
+## 2026-08-30 — Sellea: página dedicada de prueba /prueba (por marca) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commits 1a88dd51, fc0ea78b)
+
+### Qué cambié
+- Página dedicada de prueba SIN migración (Settings por-marca
+  `landing.trial.checkoutUrl.<slug>` + `landing.trial.days.<slug>`).
+- Admin: Superadmin → Marcas → **"Enlace de prueba (N días)"** (pega la URL de
+  Stripe + días). Endpoints `GET/PATCH /superadmin/white-labels/:id/trial-config`.
+- `branding-by-host` expone `trialCheckoutUrl`+`trialDays` → `useAuthBrand`.
+- `/prueba` (TrialSignupClient) BRAND-AWARE (logo/color/nombre de la marca, ya no
+  `<Logo>` Clubify), usa el enlace y días de la marca; flujo botón→Stripe→/activar.
+  Marca blanca sin enlace → "prueba no disponible". Clubify intacto.
+- 🚨 SELLEA-ONLY: `consumeTrialConversionCredit` ahora exige el enlace de prueba
+  configurado (opt-in por-marca) además del trial_end → otras marcas TAL CUAL.
+
+### Qué toqué de PRODUCCIÓN
+- Backend (deployment fc9c16c3) + frontend (Vercel) desplegados. Sin migración.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] OPERATIVO: crear en Stripe (Sellea) el Payment Link con 7 días de prueba y
+      pegarlo en Superadmin → Marcas → Sellea → "Enlace de prueba".
+- [ ] Cohete 🚀 del panel afiliado (pendiente error de consola).
+
+### Riesgos y avisos
+- Aislado por marca: solo Sellea (única con enlace de prueba) recibe la feature.
+
+---
+
+## 2026-08-29 — Sellea: enlace de prueba 7 días + varios fixes de marca (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commits c219c013, 0dfbcce4)
+
+### Qué cambié
+- **Batch UI de Sellea (frontend, c219c013):** registro de afiliado muestra
+  monto fijo "$N pago único" (no %); link de términos → relativo + se CREÓ
+  `src/app/terminos/page.tsx` brand-aware (fin del 404); tabs verdes → naranja
+  (`.tab-active` en panel-brand-theme, admin + `.brand-auth`); panel de afiliado
+  con theme de marca (`app/affiliate/layout.tsx`).
+- **Prueba de 7 días (backend, 0dfbcce4):** ADITIVO, no cambia la compra directa.
+  El "demo 7 días" es un Stripe Payment Link con `trial_period_days=7` (se crea en
+  Stripe, externo). El negocio queda ACTIVE desde el día 0 (webhook de siempre) y
+  a los 7 días Stripe cobra. NUEVO: `stripe.service.consumeTrialConversionCredit`
+  consume 1 crédito de la marca SOLO en el cobro real de una suscripción que tuvo
+  prueba (`trial_end`), idempotente, race-safe. La compra directa (sin prueba) no
+  entra.
+
+### Qué toqué de PRODUCCIÓN
+- Frontend desplegado (Vercel, ready). Backend desplegado (Railway, deployment
+  97225ad0). Sin migración de DB.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **Operativo (no código):** crear en Stripe (cuenta de Sellea) el Payment
+      Link con 7 días de prueba y pegarlo como enlace externo de la prueba.
+- [ ] Cohete 🚀 del panel de afiliado "no abre" — pendiente de reproducir en el
+      navegador (revisar consola). El código es un toggle correcto sin blocker.
+- [ ] `/terminos` tiene contenido genérico/editable — que lo revise legal.
+
+### Riesgos y avisos
+- El consumo de crédito en la conversión es best-effort (si falla, el negocio
+  queda activo igual). Solo afecta negocios que entraron por prueba con Stripe.
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit 9e7c5122)
+
+### Qué cambié
+- Regla del dueño: "las fechas = cuando se activan los créditos, y la marca
+  blanca no las modifica". Raíz: `activateTenant` calculaba el periodo desde el
+  `currentPeriodEnd` previo si era futuro → apilaba el tiempo de PRUEBA/ventana
+  ilimitada (Vizage 28-sep en vez de 14-sep; Farmacia 26-oct en vez de 28-ago).
+- `activateTenant`: `newPeriodEnd = addPlanPeriod(hoy, periodicidad)` (anclado a
+  la activación, sin apilar).
+- `PATCH /tenants/:id/billing`: admin de MARCA BLANCA ya no fija `nextChargeDate`
+  arbitrario (se ancla a hoy+periodo); plataforma conserva el override.
+
+### Qué toqué de PRODUCCIÓN
+- **Desplegado backend** (`desplegar.cjs backend`; swap verificado, deployment
+  6c23a6ea Online, /api 200). Sin migración.
+- DATOS: Vizage ya corregido ayer (28-sep→14-sep). **PENDIENTE de aplicar**
+  `backend/scripts/fix-sellea-period-anchor.cjs --apply` (lo corre Jhon; el
+  clasificador bloquea escrituras a prod desde la sesión) → Farmacia FarCentro
+  26-oct→28-ago. **OJO: Farmacia queda VENCIDA y el cron le cobrará 1 crédito a
+  SELLEA** — decisión aprobada por el dueño (anclado estricto a la activación).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Correr el script de datos de Farmacia (arriba). Los otros 5 negocios de
+      Sellea ya estaban correctos (currentPeriodEnd = último cobro + periodo).
+
+### Riesgos y avisos
+- Cambio en lógica de facturación (activación por crédito). Solo afecta el
+  cálculo del próximo cobro al activar; no toca renovaciones (webhook/cron) ni
+  otras marcas más allá de la regla general de anclaje.
+
+---
+
+## 2026-08-28 — Panel de comisiones de Sellea muestra MONTO FIJO, no % (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit 657399c8)
+
+### Qué cambié
+- El motor ya generaba la comisión fija de Sellea, pero **el panel de referidos
+  seguía mostrando y pidiendo PORCENTAJES** (Configuración, columnas de las
+  tablas de influencers/embajadores, modales de creación). Desinformaba.
+- `getConfig` (backend) ahora devuelve `commissionMode` + `fixed{negocio,
+  influencer,embajador}`, resuelto por `user.whiteLabelId`. Marcas no-fijas →
+  `PERCENT_RECURRING` + `fixed:null` (UI de % idéntica a la de siempre).
+- `admin/referrals`: el modo se resuelve una vez en el componente raíz y se
+  propaga por contexto (`useCommissionMode`). En FIXED_ONCE: ConfigTab muestra
+  panel de montos fijos (y oculta el socio global); columnas "%" → monto fijo;
+  modales de creación → campo de monto fijo de solo lectura. i18n es/en/pt.
+
+### Qué toqué de PRODUCCIÓN
+- **Desplegado backend** (`desplegar.cjs backend`; nuevo deployment Online, ID
+  coincide) **y frontend** (READY). Sin cambios de DB ni de variables.
+- Verificado en prod: `/api/referrals/public-terms` → Sellea `{fixedOnce:true,
+  negocio 30, influencer 80, embajador 40}`; sin Origin (Clubify) `{fixedOnce:false}`.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Confirmar visualmente en Sellea → Referidos → Configuración que se ven los
+      montos fijos (no %). `getConfig` es con auth → no se pudo curl-verificar.
+
+### Riesgos y avisos
+- Aislado por marca. Si el fetch de config falla / no hay permiso, cae a
+  `PERCENT_RECURRING` (UI de % de siempre) → nunca rompe otras marcas.
+
+---
+
+## 2026-08-28 — Mensaje de credenciales del afiliado: dice la MARCA, no "Clubify" (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit d92de228)
+
+### Qué cambié
+- `AffiliateCredentialsModal.tsx`: el mensaje que el admin copia/envía al nuevo
+  afiliado (influencer/embajador) decía "panel de afiliado." a secas (antes "de
+  Clubify", ya neutralizado en b0f55b85). Ahora es **brand-aware** por host
+  (`useAuthBrand`): en Sellea dice "panel de afiliado de **Sellea**". Cae a
+  "Clubify" solo cuando `brand` es null, que solo pasa en el propio host de
+  Clubify → nunca fuga en marca blanca.
+
+### Qué toqué de PRODUCCIÓN
+- **Desplegado el frontend** (`desplegar.cjs frontend`, READY). Sin DB, sin vars.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Verificar creando un afiliado en Sellea. Si aún aparece "de Clubify", es el
+      **Service Worker con el bundle viejo** en el navegador (la captura del
+      reporte era de un mensaje anterior al deploy): hard-refresh / limpiar caché.
+
+### Riesgos y avisos
+- Cambio de texto aislado, brand-aware con fallback correcto. Sin riesgo para
+  otras marcas.
+
+---
+
 ## 2026-08-27 — Comisión FIJA de pago único para Sellea + fugas Clubify (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** `feat/commissions-auto-cutoffs` — commits `e497fa55`, `f4bb2e43`,

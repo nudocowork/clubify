@@ -74,6 +74,16 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
     default: '{platform}: Pago de {brandName} recibido.{nextChargeInfo} ¡Gracias!',
   },
   {
+    id: 'trial_started',
+    label: 'Prueba iniciada',
+    description:
+      'Se envía cuando un negocio ancla la tarjeta y entra a la prueba de 7 días (aún no se cobra). El primer cobro es al terminar la prueba.',
+    vars: ['platform', 'brandName', 'trialDays', 'chargeDate'],
+    group: 'cliente',
+    default:
+      '{platform}: Tu prueba de {brandName} está activa 🎉 En {trialDays} días ({chargeDate}) se te hace el primer cobro. ¡Gracias!',
+  },
+  {
     id: 'payment_failed',
     label: 'Pago falló',
     description: 'Se envía cuando Hotmart reporta un pago fallido.',

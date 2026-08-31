@@ -6582,3 +6582,219 @@ model ConvenioListaBlanca {
   @@index([convenioId, documento])
   @@index([convenioId, email])
 }
+
+/// CONTABILIDAD — Fase 1. Histórico de ingreso REAL por transacción de cobro.
+/// Antes solo existía `Tenant.lastPaymentAmountUsd`, que se SOBRESCRIBE cada
+/// ciclo (sin histórico) y no guarda ni el fee de la pasarela ni el impuesto ni
+/// el neto recibido. Esta tabla es aditiva y no toca comisiones: registra una
+/// fila por cobro con el desglose bruto → fee → impuesto → neto. `netReceivedUsd`
+/// y la conciliación se llenan cuando el banco liquida (puede diferir del
+/// esperado). Ids planos (sin relación Prisma) para no tocar Tenant/WhiteLabel.
+model IncomeRecord {
+  id               String            @id @default(uuid())
+  gateway          PaymentGateway
+  /// Id único de la transacción en la pasarela (dedup). Hotmart transaction,
+  /// Stripe invoice/evt, CrossTransaction.providerRef, ManualPayment.id.
+  externalTxId     String
+  tenantId         String?
+  whiteLabelId     String?
+  /// Snapshot del nombre del negocio y del plan al momento del cobro (para
+  /// reportes históricos aunque el negocio cambie o se borre).
+  brandName        String?
+  planId           String?
+  planPeriodicity  String?
+  productName      String?
+  currency         String            @default("USD")
+  /// Lo que pagó el cliente (venta bruta).
+  grossUsd         Decimal           @db.Decimal(10, 2)
+  /// Deducciones. Se estiman con las tasas configurables (Setting
+  /// `finance.gatewayFeePct.<gateway>` y `finance.taxPct`) o se extraen del
+  /// payload cuando la pasarela lo entrega. netExpected = gross - fee - tax - other.
+  gatewayFeeUsd    Decimal           @default(0) @db.Decimal(10, 2)
+  taxUsd           Decimal           @default(0) @db.Decimal(10, 2)
+  otherDiscountUsd Decimal           @default(0) @db.Decimal(10, 2)
+  netExpectedUsd   Decimal           @db.Decimal(10, 2)
+  /// Neto REALMENTE recibido en el banco (conciliación manual). Null = aún no
+  /// conciliado.
+  netReceivedUsd   Decimal?          @db.Decimal(10, 2)
+  /// Primer pago vs recurrencia (derivado en la captura).
+  isFirstPayment   Boolean           @default(false)
+  /// Periodo contable YYYY-MM (para agrupar por mes).
+  periodKey        String?
+  /// Fecha del cobro (evento de la pasarela).
+  saleDate         DateTime
+  /// Fecha real en que el dinero llegó al banco (conciliación).
+  receivedDate     DateTime?
+  reconStatus      IncomeReconStatus @default(PENDING)
+  reconciledBy     String?
+  reconciledAt     DateTime?
+  note             String?           @db.Text
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([gateway, externalTxId])
+  @@index([tenantId])
+  @@index([whiteLabelId, saleDate])
+  @@index([periodKey])
+  @@index([reconStatus])
+  @@index([saleDate])
+}
+
+enum IncomeReconStatus {
+  PENDING // sin conciliar (aún no sabemos el neto recibido)
+  RECONCILED // neto recibido == esperado
+  REVIEW // hay diferencia entre esperado y recibido
+}
+
+/// CONTABILIDAD — Fase 2. Categoría de gasto (nómina, publicidad, software…).
+/// El admin puede crear/editar/desactivar. Aditivo, ids planos.
+model ExpenseCategory {
+  id        String   @id @default(uuid())
+  name      String
+  /// Clave estable en minúsculas para agrupar/reportar (ej. 'nomina').
+  slug      String   @unique
+  color     String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+}
+
+/// CONTABILIDAD — Fase 2. Egreso (todo el dinero que sale). Soporta monto fijo
+/// o calculado por porcentaje (pctRate sobre pctBase, ej. fee 8,6% o IVA 19%),
+/// pagos PARCIALES (amountPaidUsd) y estado "Por revisar". Aditivo, ids planos
+/// (whiteLabelId null = Clubify). No toca comisiones (un pago de comisiones se
+/// registra como UN egreso que referencia su corte).
+model Expense {
+  id            String        @id @default(uuid())
+  concept       String
+  categoryId    String?
+  supplier      String?
+  amountUsd     Decimal       @db.Decimal(12, 2)
+  currency      String        @default("USD")
+  method        String?
+  account       String?
+  status        ExpenseStatus @default(PENDING)
+  /// Suma pagada (para pagos parciales). saldo = amountUsd - amountPaidUsd.
+  amountPaidUsd Decimal       @default(0) @db.Decimal(12, 2)
+  receiptUrl    String?
+  note          String?       @db.Text
+  /// Si el monto se calculó por %: la tasa y la base (ej. fee 8,6% sobre $150).
+  pctRate       Decimal?      @db.Decimal(6, 3)
+  pctBase       Decimal?      @db.Decimal(12, 2)
+  /// Origen si vino de un gasto recurrente o de un corte de comisiones.
+  recurringId   String?
+  payoutBatchId String?
+  expenseDate   DateTime
+  whiteLabelId  String?
+  actorId       String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([whiteLabelId, expenseDate])
+  @@index([categoryId])
+  @@index([status])
+  @@index([expenseDate])
+}
+
+enum ExpenseStatus {
+  PENDING // pendiente de pago
+  REVIEW // por revisar (registrado, fuera del total pagado)
+  PARTIAL // pago parcial
+  PAID // pagado
+}
+
+/// CONTABILIDAD — Fase 2. Gasto recurrente (Railway, Claude, nómina fija…). El
+/// sistema genera el COMPROMISO cada período; NO lo marca pagado solo.
+model RecurringExpense {
+  id           String    @id @default(uuid())
+  concept      String
+  categoryId   String?
+  supplier     String?
+  amountUsd    Decimal   @db.Decimal(12, 2)
+  /// MENSUAL | QUINCENAL | ANUAL | PERSONALIZADO
+  periodicity  String
+  method       String?
+  account      String?
+  active       Boolean   @default(true)
+  nextDueDate  DateTime?
+  whiteLabelId String?
+  note         String?   @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([active, nextDueDate])
+}
+
+/// CONTABILIDAD — Fase 3. Colaborador de nómina. Aditivo, ids planos.
+model PayrollEmployee {
+  id           String   @id @default(uuid())
+  name         String
+  role         String? // cargo
+  payType      String? // Fijo | Por proyecto
+  /// Monto base por período (en su periodicidad).
+  amountUsd    Decimal  @db.Decimal(12, 2)
+  /// QUINCENAL | MENSUAL | PERSONALIZADO
+  periodicity  String
+  active       Boolean  @default(true)
+  whiteLabelId String?
+  note         String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([active])
+}
+
+/// CONTABILIDAD — Fase 3. Corte de nómina: agrupa el pago de varios
+/// colaboradores en un período. Pagarlo genera UN solo egreso (con su detalle en
+/// los items), no N egresos — igual que un corte de comisiones. Soporta pago
+/// PARCIAL (amountPaidUsd).
+model PayrollRun {
+  id            String        @id @default(uuid())
+  code          String?
+  periodLabel   String
+  periodStart   DateTime?
+  periodEnd     DateTime?
+  totalUsd      Decimal       @default(0) @db.Decimal(12, 2)
+  amountPaidUsd Decimal       @default(0) @db.Decimal(12, 2)
+  status        PayrollStatus @default(PENDING)
+  method        String?
+  account       String?
+  reference     String?
+  receiptUrl    String?
+  note          String?       @db.Text
+  /// Egreso generado al pagar (para trazar el movimiento único).
+  expenseId     String?
+  whiteLabelId  String?
+  actorId       String?
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  items         PayrollItem[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+/// CONTABILIDAD — Fase 3. Detalle del corte de nómina, por colaborador
+/// (snapshot). total = base + bonos − deducciones.
+model PayrollItem {
+  id           String     @id @default(uuid())
+  runId        String
+  run          PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employeeId   String?
+  employeeName String
+  role         String?
+  baseUsd      Decimal    @db.Decimal(12, 2)
+  bonusUsd     Decimal    @default(0) @db.Decimal(12, 2)
+  deductionUsd Decimal    @default(0) @db.Decimal(12, 2)
+  totalUsd     Decimal    @db.Decimal(12, 2)
+  createdAt    DateTime   @default(now())
+
+  @@index([runId])
+}
+
+enum PayrollStatus {
+  PENDING
+  PARTIAL
+  PAID
+}

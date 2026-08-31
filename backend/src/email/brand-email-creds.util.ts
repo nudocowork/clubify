@@ -47,6 +47,12 @@ export const BRAND_EMAIL_SELECT = {
   // no a soyclubify.com.
   domain: true,
   appDomain: true,
+  // Identidad visual de la marca para el HTML del correo (logo + color). Sin
+  // esto, un correo SIN tenant (ej. "crea tu cuenta" tras pagar) caía al morado
+  // por defecto con la inicial de la marca en vez del logo/color reales.
+  logoUrl: true,
+  iconUrl: true,
+  primaryColor: true,
 } as const;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

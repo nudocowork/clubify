@@ -14,6 +14,10 @@ export type AuthBrand = {
   faviconUrl: string | null;
   primaryColor: string;
   secondaryColor: string | null;
+  // Enlace de PRUEBA de la marca (página /prueba). null = la marca no ofrece
+  // prueba. trialDays = días del período (default 7).
+  trialCheckoutUrl?: string | null;
+  trialDays?: number;
 } | null;
 
 // Marca de auth resuelta en el SERVIDOR (SSR) y sembrada por el layout raíz.
@@ -147,6 +151,8 @@ export function useAuthBrand(): { brand: AuthBrand; loading: boolean } {
                 faviconUrl: v.faviconUrl ?? null,
                 primaryColor: v.primaryColor || '#16a34a',
                 secondaryColor: v.secondaryColor ?? null,
+                trialCheckoutUrl: v.trialCheckoutUrl ?? null,
+                trialDays: v.trialDays ?? 7,
               }
             : null;
         // Cachear SOLO positivos — nunca null (no envenenar el caché). Si el

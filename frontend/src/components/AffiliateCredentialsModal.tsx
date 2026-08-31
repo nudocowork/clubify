@@ -1,5 +1,6 @@
 'use client';
 import { toast } from '@/components/Toast';
+import { useAuthBrand } from '@/components/AuthBrand';
 
 /**
  * Modal que se muestra UNA SOLA VEZ tras crear un afiliado (influencer
@@ -21,12 +22,17 @@ export function AffiliateCredentialsModal({
   whatsapp?: string;
   onClose: () => void;
 }) {
+  // El mensaje se copia/envía al afiliado → debe llevar el nombre de la MARCA,
+  // nunca "Clubify" en una marca blanca (se resuelve por host). En Clubify el
+  // brand es null y cae a "Clubify" (que ahí sí es correcto).
+  const { brand } = useAuthBrand();
+  const brandName = brand?.name ?? 'Clubify';
   const loginAbsolute =
     typeof window !== 'undefined'
       ? `${window.location.origin}${credentials.loginUrl}`
       : credentials.loginUrl;
   const message =
-    `Hola! Ya tienes acceso al panel de afiliado.\n\n` +
+    `Hola! Ya tienes acceso al panel de afiliado de ${brandName}.\n\n` +
     `🔗 Entrá aquí: ${loginAbsolute}\n` +
     `📧 Email: ${credentials.email}\n` +
     `🔑 Contraseña: ${credentials.password}\n\n` +

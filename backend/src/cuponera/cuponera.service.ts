@@ -752,11 +752,13 @@ export class CuponeraService {
       where: { campaignId: campaign.id, tenantId: { not: null } },
       select: { tenantId: true },
     });
-    const excluidos = yaAliados.map((a) => a.tenantId!) ;
+    const excluidos = yaAliados.map((a) => a.tenantId!);
+    const marca = this.brandScopeForCampaign(campaign);
+    if (!marca) return [];
     return this.prisma.tenant.findMany({
       where: {
         isCampaignHost: false,
-        ...(campaign.whiteLabelId ? { whiteLabelId: campaign.whiteLabelId } : {}),
+        ...marca,
         ...(excluidos.length ? { id: { notIn: excluidos } } : {}),
       },
       select: { id: true, name: true, brandName: true, slug: true },
@@ -841,11 +843,13 @@ export class CuponeraService {
       select: { tenantId: true },
     });
     const excluir = yaAliados.map((a) => a.tenantId as string);
+    const marca = this.brandScopeForCampaign(campaign);
+    if (!marca) return [];
     return this.prisma.tenant.findMany({
       where: {
         isCampaignHost: false,
         status: 'ACTIVE',
-        ...(campaign.whiteLabelId ? { whiteLabelId: campaign.whiteLabelId } : {}),
+        ...marca,
         ...(excluir.length ? { id: { notIn: excluir } } : {}),
       },
       select: { id: true, name: true, brandName: true, slug: true },
@@ -881,6 +885,34 @@ export class CuponeraService {
     const c = await this.prisma.benefitCampaign.findUnique({ where: { id: campaignId } });
     if (!c) throw new NotFoundException('Cuponera no encontrada');
     return c;
+  }
+
+  /**
+   * Filtro de marca para listar negocios de una cuponera.
+   *
+   * El patrón anterior era `...(campaign.whiteLabelId ? { whiteLabelId } : {})`,
+   * que con marca nula **quitaba el filtro entero** y devolvía TODOS los
+   * negocios de la plataforma — nombres y slugs de clientes de otras marcas, a
+   * un CUPONERA_ADMIN que solo debería ver los suyos.
+   *
+   * No era teórico: `BenefitCampaign.whiteLabelId` es `onDelete: SetNull`, así
+   * que **borrar una marca deja su cuponera sin marca** y el aislamiento
+   * desaparece solo, sin que nadie toque este código.
+   *
+   * Ahora falla CERRADO: sin marca no se lista nada. Una lista vacía es un
+   * síntoma visible; una lista con los clientes de otro es una fuga silenciosa.
+   * Mismo criterio que [[feedback_tenant_scope_null_invisible]].
+   */
+  private brandScopeForCampaign(campaign: BenefitCampaign): { whiteLabelId: string } | null {
+    if (!campaign.whiteLabelId) {
+      this.logger.error(
+        `[CUPONERA] la cuponera "${campaign.slug}" no tiene marca (whiteLabelId nulo). ` +
+          `No se listan negocios para vincular: sin marca no se puede aislar. ` +
+          `Asignale una marca desde el Master Admin.`,
+      );
+      return null;
+    }
+    return { whiteLabelId: campaign.whiteLabelId };
   }
 
   async resolveAdminCampaign(user: AuthUser, requestedId?: string) {

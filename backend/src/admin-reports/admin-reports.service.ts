@@ -1937,24 +1937,19 @@ export class AdminReportsService {
     }
 
     const now = new Date();
-    // La base es AHORA, salvo que sea una RENOVACIÓN real de un negocio activo
-    // — ahí sí se respetan los días que le quedaban y se extiende desde su
-    // vencimiento.
+    // El próximo cobro se ancla a la ACTIVACIÓN (cuándo se activa el crédito),
+    // NO al currentPeriodEnd previo. Antes se extendía "desde el fin de periodo
+    // si aún es futuro", pero ese futuro solía ser tiempo de PRUEBA / ventana
+    // ilimitada (no pagado) y se apilaba sobre el mes pagado: Vizage (activada
+    // 14-ago, prueba hasta 28-ago) quedaba en 28-sep en vez de 14-sep. Regla del
+    // dueño 2026-08-29: la fecha = activación + periodo, siempre. Extiende por la
+    // periodicidad del plan (Anual = +12 meses), no +30 fijos.
     //
-    // FIX 2026-08-27: antes se extendía siempre que hubiera un vencimiento
-    // futuro, sin mirar el estado. Un negocio SUSPENDIDO puede arrastrar uno de
-    // un intento anterior que quedó a medias (ver el rollback de abajo), y
-    // entonces la activación le regalaba un mes entero. Pasó con «Divine
-    // Medical Aesthetics Center», que quedó venciendo en octubre en vez de
-    // septiembre mientras el negocio creado seis minutos después salía bien.
-    const esRenovacion = tenant.status === 'ACTIVE';
-    const base =
-      esRenovacion && tenant.currentPeriodEnd && tenant.currentPeriodEnd > now
-        ? tenant.currentPeriodEnd
-        : now;
-    // Extiende por la periodicidad del plan (Anual = +12 meses), no +30 fijos,
-    // y cobra el ciclo completo según el tipo de negocio (InfoLink anual = 3).
-    const newPeriodEnd = addPlanPeriod(base, tenant.planPeriodicity);
+    // Esta regla REEMPLAZA el arreglo del 27-ago, que solo dejaba de extender
+    // cuando el negocio no estaba activo. Aquel cubría el caso Divine (un
+    // intento a medias dejaba un vencimiento futuro que regalaba un mes); este
+    // lo cubre igual y además el de Vizage, donde el futuro venía de la prueba.
+    const newPeriodEnd = addPlanPeriod(now, tenant.planPeriodicity);
     const cost = cycleCreditCostForTenant(tenant.businessType, tenant.infolinkTier, tenant.planPeriodicity);
     const months = bundleMonths(tenant.planPeriodicity);
 

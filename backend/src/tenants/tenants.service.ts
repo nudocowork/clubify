@@ -16,6 +16,7 @@ import { AuditService } from '../audit/audit.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
 import { invalidateBusinessTypeCache } from '../common/guards/infolink-only.guard';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
+import { IncomeRecordService } from '../finance/income-record.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
 import { addPlanPeriod, normalizePlanPeriod } from '../common/plan-period';
@@ -168,6 +169,8 @@ export class TenantsService {
     private growBusiness: GrowBusinessService,
     private recalc: CommissionRecalcService,
     private onboardingWebhook: OnboardingWebhookService,
+    // CONTABILIDAD Fase 1: histórico de ingreso real (pagos manuales). Best-effort.
+    private incomeRecord: IncomeRecordService,
   ) {}
 
   /**
@@ -1156,6 +1159,10 @@ export class TenantsService {
       hotmartSubscriberCode?: string;
     },
     actorId: string,
+    // whiteLabelId del que ejecuta. Si viene seteado = admin de MARCA BLANCA:
+    // NO puede fijar una fecha de cobro arbitraria (se ancla a la activación).
+    // null/undefined = plataforma (Clubify), que sí conserva el override manual.
+    actorWhiteLabelId?: string | null,
   ) {
     const previous = await this.getById(id);
     const now = new Date();
@@ -1206,7 +1213,13 @@ export class TenantsService {
           // Activación manual = fecha de cobro real → monto facturado por rango.
           lastChargeAt: now,
         };
-        if (dto.nextChargeDate) {
+        if (actorWhiteLabelId) {
+          // Marca blanca: la fecha NO es editable. Se ancla a la activación
+          // (hoy + periodo del plan), igual que la activación por crédito.
+          // Regla del dueño 2026-08-29 — "las fechas = cuando se activan los
+          // créditos, y la marca blanca no las puede modificar".
+          data.currentPeriodEnd = addPlanPeriod(now, previous.planPeriodicity);
+        } else if (dto.nextChargeDate) {
           const parsed = new Date(dto.nextChargeDate);
           if (Number.isNaN(parsed.getTime())) {
             throw new BadRequestException('nextChargeDate inválido');
@@ -1695,6 +1708,23 @@ export class TenantsService {
       throw e;
     }
     await credit.commit();
+    // CONTABILIDAD (Fase 1): ingreso real del pago manual (si trae monto). Solo
+    // USD por ahora — un pago en moneda local (COP) mezclaría monedas en el
+    // libro USD; el soporte multi-moneda es de una fase posterior. Best-effort.
+    if (!dto.currency || dto.currency.toUpperCase() === 'USD') {
+      void this.incomeRecord.record({
+        gateway: 'MANUAL',
+        externalTxId: payment.id,
+        tenantId: t.id,
+        whiteLabelId: t.whiteLabelId,
+        brandName: t.brandName,
+        planPeriodicity: t.planPeriodicity,
+        currency: 'USD',
+        grossUsd: dto.amount ?? null,
+        isFirstPayment: !t.currentPeriodEnd,
+        saleDate: paidAt,
+      });
+    }
     invalidateTenantStatusCache(id);
     // Transición real a ACTIVE (primer pago o reactivación) → webhook.
     if (t.status !== 'ACTIVE') {

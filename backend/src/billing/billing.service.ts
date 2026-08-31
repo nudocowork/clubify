@@ -35,6 +35,11 @@ export type TrialStatus = {
   gracePeriodDays: number;
   inGracePeriod: boolean;
   graceDaysLeft: number | null;
+  // Prueba PAGA (tarjeta anclada, ej. enlace de 7 días de Sellea): el negocio
+  // está en TRIAL pero ya tiene suscripción de Stripe y el cobro es automático
+  // al terminar la prueba. Distinto de la prueba GRATIS (sin tarjeta), que sí
+  // pide "completar el pago". El frontend usa esto para el copy correcto.
+  paidTrial: boolean;
 };
 
 const TRIAL_DAYS = 10;
@@ -214,6 +219,9 @@ export class BillingService {
         },
       },
     });
+    // Estas dos salidas son SILENCIOSAS a propósito: no hay nada que arreglar.
+    // `billingAlertsEnabled=false` es una decisión del negocio, y avisarlo en
+    // cada cobro sería ruido que tapa los casos que sí importan.
     if (!tenant || !tenant.billingAlertsEnabled) return null;
 
     let creds: {
@@ -250,11 +258,30 @@ export class BillingService {
         tenant.whiteLabel?.modules?.some((m) => m.enabled) ?? false;
       if (smsModuleOn) creds = brandGrowCreds(tenant.whiteLabel);
     }
-    if (!creds) return null;
+    // A partir de acá SÍ es mala configuración, y hasta ahora se iba en
+    // silencio: los tres notifyOwner (Hotmart/Stripe/Cross) hacen
+    // `if (!target) return;` sin log, así que un negocio con los avisos
+    // ENCENDIDOS pero sin subcuenta o sin teléfono no recibía el SMS de su
+    // cobro y no quedaba rastro de por qué. Se avisa acá, que es el único sitio
+    // que conoce el motivo, y las tres pasarelas lo heredan.
+    if (!creds) {
+      this.logger.warn(
+        `[AVISOS-COBRO] tenant ${tenantId}: los avisos están ENCENDIDOS pero no ` +
+          `hay por dónde enviar (sin subcuenta asignada, sin credenciales propias, ` +
+          `y la marca no tiene GROW_BUSINESS_SMS activo). No se envió el SMS.`,
+      );
+      return null;
+    }
 
     const phone =
       tenant.billingAlertsPhone?.trim() || (await this.ownerPhone(tenantId));
-    if (!phone) return null;
+    if (!phone) {
+      this.logger.warn(
+        `[AVISOS-COBRO] tenant ${tenantId}: hay por dónde enviar pero no A QUIÉN ` +
+          `(sin billingAlertsPhone y sin teléfono del dueño). No se envió el SMS.`,
+      );
+      return null;
+    }
 
     return { creds, phone };
   }
@@ -324,6 +351,8 @@ export class BillingService {
         suspendedAt: true,
         failedPaymentCount: true,
         gracePeriodDays: true,
+        // Distinguir prueba PAGA (con suscripción) de la GRATIS (sin tarjeta).
+        stripeSubscriptionId: true,
       },
     });
     if (!t) {
@@ -336,6 +365,7 @@ export class BillingService {
         gracePeriodDays: 0,
         inGracePeriod: false,
         graceDaysLeft: null,
+        paidTrial: false,
       };
     }
 
@@ -399,6 +429,9 @@ export class BillingService {
       gracePeriodDays: grace,
       inGracePeriod,
       graceDaysLeft,
+      // Prueba paga = está en TRIAL Y ya ancló tarjeta (tiene suscripción). El
+      // cobro llega solo al día 7; no hay que pedirle "completar el pago".
+      paidTrial: derived === 'TRIAL' && !!t.stripeSubscriptionId,
     };
   }
 

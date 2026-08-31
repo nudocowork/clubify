@@ -19,6 +19,7 @@ import { LocationsModule } from './locations/locations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ReferralsModule } from './referrals/referrals.module';
 import { AccountingModule } from './accounting/accounting.module';
+import { FinanceModule } from './finance/finance.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { CuponeraModule } from './cuponera/cuponera.module';
 import { ConveniosModule } from './convenios/convenios.module';
@@ -99,6 +100,7 @@ import { MarketingModule } from './marketing/marketing.module';
     NotificationsModule,
     ReferralsModule,
     AccountingModule,
+    FinanceModule,
     CampaignsModule,
     // Cuponera / Living Card. NO confundir con CampaignsModule (afiliados/referidos):
     // son módulos distintos que comparten la palabra 'campaña'. Se desregistró el

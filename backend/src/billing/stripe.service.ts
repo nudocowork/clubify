@@ -9,10 +9,12 @@ import { BrandEmailService } from '../email/brand-email.service';
 import { fmtEmailDate } from '../email/brand-email-templates';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { addPlanPeriod } from '../common/plan-period';
+import { cycleCreditCostForTenant } from '../common/business-types';
 import { fmtSmsDate } from './sms-templates';
 import { decryptSecret } from '../common/crypto/secret-box';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { HotmartService } from './hotmart.service';
+import { IncomeRecordService } from '../finance/income-record.service';
 import { invalidateBusinessTypeCache } from '../common/guards/infolink-only.guard';
 import { ModuleRef } from '@nestjs/core';
 import { MembershipBillingService } from '../cuponera/membership-billing.service';
@@ -27,6 +29,10 @@ type StripeCtx = {
   amountUsd: number | null;
   // PDF Soft 10: timestamp real del pago (event.created) para fijar purchasedAt.
   paidAt: Date | null;
+  // Fin de la PRUEBA de la suscripción (Stripe trial_end), si la tuvo. Distingue
+  // el "enlace de 7 días de prueba" (trialEnd != null) de la compra directa
+  // (sin prueba → null). Ver consumeTrialConversionCredit.
+  trialEnd: Date | null;
   /**
    * Identidad UNICA de este cobro, para deduplicar comisiones.
    *
@@ -124,6 +130,9 @@ export class StripeService {
     // Sin esta llamada, una marca que cobra por Stripe podia tener afiliados,
     // enlaces y atribucion funcionando y no generar NI UNA comision.
     private hotmart: HotmartService,
+    // CONTABILIDAD Fase 1: registra el ingreso real por cobro (histórico +
+    // fee/impuesto/neto). Best-effort, aditivo, no afecta la activación.
+    private incomeRecord: IncomeRecordService,
   ) {}
 
   /** Carga la marca por slug + descifra secretKey/webhookSecret y arma el
@@ -352,6 +361,7 @@ export class StripeService {
     let priceId: string | null = null;
     let amountUsd: number | null = null;
     let nextCharge: Date | null = null;
+    let trialEnd: Date | null = null;
     // PDF Soft 10: fecha real del evento de pago (Unix seconds → Date).
     const paidAt =
       typeof event.created === 'number' ? new Date(event.created * 1000) : null;
@@ -389,13 +399,16 @@ export class StripeService {
         if (typeof sub.current_period_end === 'number') {
           nextCharge = new Date(sub.current_period_end * 1000);
         }
+        // trial_end queda seteado aunque la prueba ya haya terminado → sirve como
+        // marca de que la suscripción nació con prueba (enlace de 7 días).
+        if (typeof sub.trial_end === 'number') trialEnd = new Date(sub.trial_end * 1000);
         priceId = sub.items?.data?.[0]?.price?.id ?? priceId;
         if (!customerId && typeof sub.customer === 'string') customerId = sub.customer;
       } catch (e) {
         this.logger.warn(`retrieve subscription ${subscriptionId} falló: ${(e as Error).message}`);
       }
     }
-    return { email, customerId, subscriptionId, priceId, nextCharge, amountUsd, paidAt, transaccionId };
+    return { email, customerId, subscriptionId, priceId, nextCharge, amountUsd, paidAt, transaccionId, trialEnd };
   }
 
   private async onPaymentSucceeded(brand: BrandCtx, event: Stripe.Event) {
@@ -412,7 +425,89 @@ export class StripeService {
       return { ok: true, action: 'tenant_not_found' };
     }
     await this.activate(tenant, ctx, brand.whiteLabelId);
+    // Enlace de PRUEBA de 7 días: el crédito de la marca se consume cuando Stripe
+    // COBRA la tarjeta (día 7), no al anclarla. Solo en el cobro real (invoice.*,
+    // no checkout.session), y solo si la suscripción tuvo prueba. Best-effort: si
+    // falla, el negocio queda activo igual y se puede reconciliar. La compra
+    // directa (sin prueba) no entra acá → su crédito sigue por la vía de siempre.
+    if (event.type === 'invoice.paid' || event.type === 'invoice.payment_succeeded') {
+      await this.consumeTrialConversionCredit(tenant.id, ctx, brand.whiteLabelId).catch((e) =>
+        this.logger.warn(`consumeTrialConversionCredit falló: ${(e as Error).message}`),
+      );
+    }
     return { ok: true, action: 'activated' };
+  }
+
+  /**
+   * Consume 1 crédito de la marca cuando un negocio que entró por el ENLACE DE
+   * PRUEBA de 7 días paga su primer cobro real (conversión de la prueba). El
+   * discriminador es que la suscripción de Stripe TUVO prueba (`trial_end`): la
+   * compra directa no tiene prueba, así que nunca entra. Idempotente: se consume
+   * UNA sola vez (si el negocio ya tiene un CONSUME, no vuelve a cobrar). Salta
+   * marcas Clubify/ilimitadas y es race-safe (solo debita si hay crédito).
+   */
+  private async consumeTrialConversionCredit(
+    tenantId: string,
+    ctx: StripeCtx,
+    whiteLabelId: string,
+  ): Promise<void> {
+    if (!ctx.trialEnd) return; // sin prueba → compra directa, no aplica
+    if (!(ctx.amountUsd && ctx.amountUsd > 0)) return; // solo un cobro REAL (no la factura $0 de la prueba)
+    // Idempotencia: se consume en la conversión y nunca más (renovaciones ya no
+    // recobran; su crédito, si aplica, va por la vía normal de la marca).
+    const yaConsumido = await this.prisma.creditTransaction.findFirst({
+      where: { tenantId, type: 'CONSUME', refundedAt: null },
+      select: { id: true },
+    });
+    if (yaConsumido) return;
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        brandName: true,
+        businessType: true,
+        infolinkTier: true,
+        planPeriodicity: true,
+        whiteLabelId: true,
+      },
+    });
+    if (!t || t.whiteLabelId !== whiteLabelId) return;
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: { id: true, slug: true, creditsUnlimited: true },
+    });
+    if (!wl || wl.slug === 'clubify' || wl.creditsUnlimited) return;
+    // Opt-in ESTRICTO por marca: solo consume si la marca activó la feature de
+    // prueba (tiene su enlace configurado, hoy solo Sellea). Así el resto de las
+    // marcas blancas quedan tal cual, aunque una tuviera una suscripción con
+    // prueba por otra vía. Ver setBrandTrialConfig / página /prueba.
+    const trialCfg = await this.prisma.setting.findFirst({
+      where: { key: `landing.trial.checkoutUrl.${wl.slug}` },
+      select: { value: true },
+    });
+    if (!trialCfg || !(trialCfg.value ?? '').trim()) return;
+    const cost = cycleCreditCostForTenant(t.businessType, t.infolinkTier, t.planPeriodicity);
+    const debit = await this.prisma.whiteLabel.updateMany({
+      where: { id: wl.id, creditsAvailable: { gte: cost } },
+      data: { creditsAvailable: { decrement: cost }, creditsUsed: { increment: cost } },
+    });
+    if (debit.count === 0) {
+      this.logger.warn(
+        `consumeTrialConversionCredit: ${wl.slug} sin créditos para ${t.brandName} (${tenantId})`,
+      );
+      return;
+    }
+    await this.prisma.creditTransaction.create({
+      data: {
+        whiteLabelId: wl.id,
+        type: 'CONSUME',
+        amount: -cost,
+        tenantId,
+        note: `Prueba 7 días convertida (cobro Stripe) · ${t.brandName} · ${cost} créd`,
+      },
+    });
+    this.logger.log(
+      `consumeTrialConversionCredit: -${cost} créd a ${wl.slug} por conversión de prueba de ${t.brandName} (${tenantId})`,
+    );
   }
 
   private async onPaymentFailed(brand: BrandCtx, event: Stripe.Event) {
@@ -506,6 +601,8 @@ export class StripeService {
       // Eventos de suscripcion (cancelada, reanudada): no son un cobro, no
       // generan comision y por tanto no necesitan clave de deduplicacion.
       transaccionId: typeof event.id === 'string' ? event.id : null,
+      trialEnd:
+        typeof sub.trial_end === 'number' ? new Date(sub.trial_end * 1000) : null,
     };
   }
 
@@ -664,6 +761,7 @@ export class StripeService {
       // acá). null como el resto.
       paidAt: null,
       transaccionId: null,
+      trialEnd: null,
     });
   }
 
@@ -755,13 +853,25 @@ export class StripeService {
     whiteLabelId: string,
   ) {
     const wasSuspended = tenant.status === 'SUSPENDED';
+    const now = new Date();
+    // PRUEBA DE 7 DÍAS (enlace de Sellea): mientras Stripe tenga la suscripción
+    // en prueba (`trial_end` en el futuro), el negocio queda en TRIAL con
+    // vencimiento = fin de la prueba, SIN cobrar ni consumir crédito. El día 7
+    // Stripe cobra (invoice con monto>0) → `trial_end` ya pasó → esta misma
+    // función lo detecta como NO-prueba → pasa a ACTIVE y ahí sí se consume el
+    // crédito (consumeTrialConversionCredit) y se generan comisiones.
+    const inTrial = !!ctx.trialEnd && ctx.trialEnd.getTime() > now.getTime();
     // Próximo cobro: Stripe es la fuente. Fallback (primer pago sin fecha) →
-    // periodicidad del link de pago que matchea el priceId.
+    // periodicidad del link de pago que matchea el priceId. En prueba NO usamos
+    // el fallback mensual: la fecha que vale es el fin de la prueba (7 días).
     let nextCharge = ctx.nextCharge;
-    if (!nextCharge && !tenant.currentPeriodEnd) {
+    if (!inTrial && !nextCharge && !tenant.currentPeriodEnd) {
       const periodicity = await this.resolvePeriodicity(whiteLabelId, ctx.priceId, tenant.planPeriodicity);
-      nextCharge = addPlanPeriod(new Date(), periodicity);
+      nextCharge = addPlanPeriod(now, periodicity);
     }
+    // En prueba, la fecha que se muestra y se guarda es el fin de la prueba
+    // (cuándo llega el primer cobro), no un período mensual.
+    const periodEnd = inTrial ? ctx.trialEnd : nextCharge;
     // FIX PDF123 (cobro duplicado): si el webhook se re-procesa para el MISMO
     // período (Stripe puede reintentar/duplicar), no reenviamos "Pago recibido".
     // Un período nuevo (renovación) trae otra fecha → sí notifica.
@@ -777,14 +887,19 @@ export class StripeService {
     // la fila, así que solo una de las tres peticiones se lleva el `count: 1` y
     // es la única que avisa. Las otras dos ven 0 y se callan. Sin candado
     // explícito y sin transacción larga en mitad del camino del pago.
+    //
+    // Se reclama sobre `periodEnd`, no sobre `nextCharge`: durante la prueba de
+    // 7 días la fecha que vale es el fin de la prueba, y es la que se guarda.
+    // Reclamar la otra dejaría los tres eventos del cobro del día 7 creyéndose
+    // primeros otra vez.
     let alreadyConfirmedPeriod = false;
-    if (nextCharge) {
+    if (periodEnd) {
       const reclamo = await this.prisma.tenant.updateMany({
         where: {
           id: tenant.id,
-          OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { not: nextCharge } }],
+          OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { not: periodEnd } }],
         },
-        data: { currentPeriodEnd: nextCharge },
+        data: { currentPeriodEnd: periodEnd },
       });
       // count 0 = otro evento del mismo pago ya reclamó este período.
       alreadyConfirmedPeriod = reclamo.count === 0;
@@ -803,21 +918,28 @@ export class StripeService {
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
-        status: 'ACTIVE',
+        // En prueba queda TRIAL (con vencimiento a 7 días); el cobro real del
+        // día 7 lo pasa a ACTIVE.
+        status: inTrial ? 'TRIAL' : 'ACTIVE',
         ...entitlement,
-        // 2026-07-31: monto crudo → auditoría, no a la base de comisiones.
-        ...(ctx.amountUsd != null ? { lastPaymentAmountUsd: ctx.amountUsd } : {}),
-        ...(nextCharge ? { currentPeriodEnd: nextCharge } : {}),
-        lastChargeAt: new Date(),
+        // 2026-07-31: monto crudo → auditoría, no a la base de comisiones. En
+        // prueba no hubo cobro (monto $0), así que no tocamos el último monto.
+        ...(!inTrial && ctx.amountUsd != null ? { lastPaymentAmountUsd: ctx.amountUsd } : {}),
+        ...(periodEnd ? { currentPeriodEnd: periodEnd } : {}),
+        // Solo hay cobro real fuera de la prueba. Durante la prueba la tarjeta
+        // está anclada pero no se cobró → no marcamos lastChargeAt.
+        ...(inTrial ? {} : { lastChargeAt: now }),
         ...(curPurchase?.purchasedAt
           ? {}
-          : { purchasedAt: ctx.paidAt ?? new Date() }),
+          : { purchasedAt: ctx.paidAt ?? now }),
         stripeCustomerId: ctx.customerId ?? tenant.stripeCustomerId,
         stripeSubscriptionId: ctx.subscriptionId ?? tenant.stripeSubscriptionId,
         failedPaymentCount: 0,
-        lastPaymentAttemptAt: new Date(),
+        lastPaymentAttemptAt: now,
         suspendedAt: null,
-        trialEndsAt: null,
+        // En prueba, guardamos cuándo termina (día 7) para el panel y los
+        // recordatorios; al convertir a ACTIVE se limpia.
+        trialEndsAt: inTrial ? ctx.trialEnd : null,
         // Los SEIS campos de dedup, no tres. Faltaban los pre-avisos, asi que
         // un negocio que renovaba no volvia a recibir el aviso de 7 dias, ni
         // el de 3, ni el del dia — y el fallo es mudo. Ver [[clubify-cobros-trampas]].
@@ -830,21 +952,41 @@ export class StripeService {
       },
     });
 
+    // CONTABILIDAD (Fase 1): registrar el ingreso real de este cobro con su
+    // desglose bruto/fee/impuesto/neto (histórico). El servicio salta los $0
+    // (día 0 de la prueba) y deduplica por transacción. Best-effort.
+    void this.incomeRecord.record({
+      gateway: 'STRIPE',
+      externalTxId: ctx.transaccionId,
+      tenantId: tenant.id,
+      whiteLabelId,
+      brandName: tenant.brandName,
+      planPeriodicity: tenant.planPeriodicity,
+      currency: 'USD',
+      grossUsd: ctx.amountUsd,
+      isFirstPayment: !tenant.stripeSubscriptionId,
+      saleDate: ctx.paidAt ?? now,
+    });
+
     // Comisiones del referido. Best-effort: si falla, el cobro NO se rompe —
     // el negocio queda activo igual y la comision se puede reconciliar.
-    await this.hotmart
-      .generarComisionesDeCobro({
-        tenantId: tenant.id,
-        // Stripe manda el monto en la moneda del cobro; la base de comision
-        // la resuelve el generador desde el plan, no desde aqui.
-        montoCanonicoUsd: null,
-        transaccionId: ctx.transaccionId,
-      })
-      .catch((e) =>
-        this.logger.warn(
-          `comisiones Stripe tenant=${tenant.id}: ${(e as Error).message}`,
-        ),
-      );
+    // NO durante la prueba: en el día 0 no entró dinero; la comisión se genera
+    // en el cobro real del día 7 (cuando esta función corre con inTrial=false).
+    if (!inTrial) {
+      await this.hotmart
+        .generarComisionesDeCobro({
+          tenantId: tenant.id,
+          // Stripe manda el monto en la moneda del cobro; la base de comision
+          // la resuelve el generador desde el plan, no desde aqui.
+          montoCanonicoUsd: null,
+          transaccionId: ctx.transaccionId,
+        })
+        .catch((e) =>
+          this.logger.warn(
+            `comisiones Stripe tenant=${tenant.id}: ${(e as Error).message}`,
+          ),
+        );
+    }
 
     // Si el pago lo pasó a Negocio Completo, invalidamos el cache del
     // InfoLinkOnlyGuard para que los módulos se desbloqueen sin esperar el TTL.
@@ -859,14 +1001,33 @@ export class StripeService {
       tenant.id,
       { gateway: 'STRIPE', amountUsd: ctx.amountUsd ?? null },
     );
-    // Si venía SUSPENDED → "cuenta reactivada"; si no → "pago confirmado".
+    // Si venía SUSPENDED → "cuenta reactivada"; en prueba → "prueba activa, se
+    // cobra en 7 días"; si no → "pago confirmado".
     if (wasSuspended) {
       this.smsTemplates
         .render('account_reactivated', { brandName: tenant.brandName }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
+    } else if (inTrial && ctx.trialEnd && !alreadyConfirmedPeriod) {
+      // "En N días (fecha) se hace el primer cobro" — NO "próximo cobro: <mes>".
+      const trialDays = Math.max(
+        1,
+        Math.ceil((ctx.trialEnd.getTime() - now.getTime()) / 86_400_000),
+      );
+      this.smsTemplates
+        .render(
+          'trial_started',
+          {
+            brandName: tenant.brandName,
+            trialDays: String(trialDays),
+            chargeDate: fmtSmsDate(ctx.trialEnd),
+          },
+          tenant.id,
+        )
+        .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
     } else if (!alreadyConfirmedPeriod) {
-      const nextChargeInfo = nextCharge ? ` Próximo cobro: ${fmtSmsDate(nextCharge)}.` : '';
+      const nextChargeInfo = periodEnd ? ` Próximo cobro: ${fmtSmsDate(periodEnd)}.` : '';
       this.smsTemplates
         .render('payment_confirmed', { brandName: tenant.brandName, nextChargeInfo }, tenant.id)
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
@@ -884,12 +1045,14 @@ export class StripeService {
               ? 'email_panel_ready'
               : 'email_payment_confirmed',
           tenantId: tenant.id,
-          vars: { nextChargeDate: nextCharge ? fmtEmailDate(nextCharge) : '' },
+          vars: { nextChargeDate: periodEnd ? fmtEmailDate(periodEnd) : '' },
         })
         .catch(() => null);
     }
-    // Fase D: primer pago o reactivación (no renovaciones) → business.activated.
-    if (tenant.status !== 'ACTIVE') {
+    // Fase D: activación REAL (no prueba, no renovación) → business.activated.
+    // En la prueba el negocio aún no es una cuenta activada; el webhook de
+    // onboarding sale cuando el cobro del día 7 lo pasa a ACTIVE.
+    if (!inTrial && tenant.status !== 'ACTIVE') {
       void this.onboardingWebhook.emitBusinessActivated(tenant.id);
     }
   }

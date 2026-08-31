@@ -73,6 +73,9 @@ function RegistroAfiliadoInner() {
         ? 'AMBASSADOR'
         : null;
   const [config, setConfig] = useState<Config | null>(null);
+  // Comisión FIJA de pago único (Sellea): si la marca está en modo fijo,
+  // mostramos "$N pago único" en vez del porcentaje. Se resuelve por Origin.
+  const [fixed, setFixed] = useState<{ fixedOnce: boolean; influencerAmount: number; embajadorAmount: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<Role | null>(null);
   const [firstName, setFirstName] = useState('');
@@ -105,6 +108,11 @@ function RegistroAfiliadoInner() {
       })
       .catch(() => setConfig({ enabled: false, allowInfluencer: false, allowAmbassador: false, influencerCommissionPct: 0, ambassadorCommissionPct: 0 }))
       .finally(() => setLoading(false));
+    // Términos de comisión por marca (fijo vs %). Falla suave → % de siempre.
+    fetch(`${API}/api/referrals/public-terms`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((t) => { if (t) setFixed({ fixedOnce: !!t.fixedOnce, influencerAmount: t.influencerAmount ?? 0, embajadorAmount: t.embajadorAmount ?? 0 }); })
+      .catch(() => {});
   }, []);
 
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
@@ -170,6 +178,11 @@ function RegistroAfiliadoInner() {
   }
 
   const pct = role === 'INFLUENCER' ? config.influencerCommissionPct : config.ambassadorCommissionPct;
+  // Comisión FIJA de pago único (Sellea) vs porcentaje (resto de marcas).
+  const isFixed = !!fixed?.fixedOnce;
+  const fixedAmt = role === 'INFLUENCER' ? (fixed?.influencerAmount ?? 0) : (fixed?.embajadorAmount ?? 0);
+  const commBadge = isFixed ? `Comisión $${fixedAmt} · pago único` : `Comisión ${pct}%`;
+  const commBtn = isFixed ? `$${fixedAmt} pago único` : `${pct}% comisión`;
 
   return (
     <main className="min-h-screen bg-bg flex items-center justify-center px-4 py-8">
@@ -197,7 +210,7 @@ function RegistroAfiliadoInner() {
                 emoji="📣"
                 title="Influencer"
                 description="Refiere desde tus redes"
-                pct={config.influencerCommissionPct}
+                commission={isFixed ? `$${fixed?.influencerAmount ?? 0} pago único` : `${config.influencerCommissionPct}% comisión`}
               />
               <RoleCard
                 active={role === 'AMBASSADOR'}
@@ -205,7 +218,7 @@ function RegistroAfiliadoInner() {
                 emoji="🤝"
                 title="Embajador"
                 description="Coordina un equipo de vendedores"
-                pct={config.ambassadorCommissionPct}
+                commission={isFixed ? `$${fixed?.embajadorAmount ?? 0} pago único` : `${config.ambassadorCommissionPct}% comisión`}
               />
             </div>
           </div>
@@ -220,17 +233,17 @@ function RegistroAfiliadoInner() {
               <span className="font-semibold">
                 {role === 'INFLUENCER' ? '📣 Influencer' : '🤝 Embajador'}
               </span>{' '}
-              · Comisión {pct}%
+              · {commBadge}
             </div>
           )}
         {!config.allowInfluencer && config.allowAmbassador && (
           <div className="mt-4 p-3 rounded-lg bg-bg2/60 text-sm">
-            <span className="font-semibold">🤝 Embajador</span> · Comisión {pct}%
+            <span className="font-semibold">🤝 Embajador</span> · {commBadge}
           </div>
         )}
         {config.allowInfluencer && !config.allowAmbassador && (
           <div className="mt-4 p-3 rounded-lg bg-bg2/60 text-sm">
-            <span className="font-semibold">📣 Influencer</span> · Comisión {pct}%
+            <span className="font-semibold">📣 Influencer</span> · {commBadge}
           </div>
         )}
 
@@ -339,13 +352,13 @@ function RegistroAfiliadoInner() {
             }
             className="btn-primary w-full justify-center mt-2"
           >
-            {submitting ? 'Creando cuenta…' : `Registrarme · ${pct}% comisión`}
+            {submitting ? 'Creando cuenta…' : `Registrarme · ${commBtn}`}
           </button>
         </form>
 
         <p className="text-[11px] text-mute mt-4 text-center">
           Al registrarte aceptas los{' '}
-          <a href="https://soyclubify.com/terminos" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">
+          <a href="/terminos" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">
             términos y condiciones
           </a>
           .
@@ -361,14 +374,14 @@ function RoleCard({
   emoji,
   title,
   description,
-  pct,
+  commission,
 }: {
   active: boolean;
   onClick: () => void;
   emoji: string;
   title: string;
   description: string;
-  pct: number;
+  commission: string;
 }) {
   return (
     <button
@@ -381,7 +394,7 @@ function RoleCard({
       <div className="text-2xl">{emoji}</div>
       <div className="font-semibold text-sm mt-1">{title}</div>
       <div className="text-[11px] text-mute mt-0.5 leading-tight">{description}</div>
-      <div className="text-[11px] font-bold text-brand mt-1">{pct}% comisión</div>
+      <div className="text-[11px] font-bold text-brand mt-1">{commission}</div>
     </button>
   );
 }

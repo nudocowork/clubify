@@ -33,6 +33,11 @@ type ResolvedBrand = {
   supportEmail: string | null;
   /** Dominio de la marca — los links del correo apuntan acá. */
   baseUrl: string;
+  /** Identidad visual — usada por `emailShell` cuando NO hay tenant (ej. correo
+   *  "crea tu cuenta" del comprador que aún no tiene negocio). Sin esto el HTML
+   *  caía al morado por defecto y a la inicial en vez del logo/color de la marca. */
+  logoUrl: string | null;
+  primaryColor: string | null;
 };
 
 type ResolvedTenant = {
@@ -298,6 +303,8 @@ export class BrandEmailService {
           brandGrowCreds(wl) ?? (await this.platformTransport(tenantId ?? null)),
         supportEmail: wl?.contactEmail ?? null,
         baseUrl: brandBaseUrl(wl, this.appUrl()),
+        logoUrl: wl?.logoUrl ?? wl?.iconUrl ?? null,
+        primaryColor: wl?.primaryColor ?? null,
       };
     };
     if (!whiteLabelId) return platform(null);
@@ -323,6 +330,8 @@ export class BrandEmailService {
         grow: null,
         supportEmail: null,
         baseUrl: this.appUrl(),
+        logoUrl: null,
+        primaryColor: null,
       };
     }
     const isPlatform = wl.slug === PLATFORM_SLUG;
@@ -341,6 +350,8 @@ export class BrandEmailService {
       grow,
       supportEmail: wl.contactEmail ?? null,
       baseUrl: brandBaseUrl(wl, this.appUrl()),
+      logoUrl: wl.logoUrl ?? wl.iconUrl ?? null,
+      primaryColor: wl.primaryColor ?? null,
     };
   }
 
@@ -484,8 +495,10 @@ export class BrandEmailService {
     return emailShell({
       tenant: {
         brandName: tenant?.brandName || brand.name,
-        logoUrl: tenant?.logoUrl ?? null,
-        primaryColor: tenant?.primaryColor ?? null,
+        // Sin tenant (ej. correo "crea tu cuenta" del comprador) usamos el
+        // logo/color de la MARCA → nunca cae al morado por defecto con inicial.
+        logoUrl: tenant?.logoUrl ?? brand.logoUrl ?? null,
+        primaryColor: tenant?.primaryColor ?? brand.primaryColor ?? null,
         whatsappPhone: tenant?.whatsappPhone ?? null,
         slug: tenant?.slug ?? brand.slug,
       },
