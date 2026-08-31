@@ -107,6 +107,29 @@ vuelo tres veces esta semana.
 
 ---
 
+## 2026-08-30 — CONTABILIDAD Fase 3 (Nómina) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs
+
+### Qué cambié (aditivo)
+- Modelos `PayrollEmployee` + `PayrollRun` + `PayrollItem` + enum `PayrollStatus`.
+  Pagar la nómina genera UN corte con su detalle (items), no N egresos.
+- `PayrollService`+`PayrollController` (`/admin/contabilidad/nomina/*`):
+  colaboradores, generar corte con bonos/deducciones, pagos parciales, resumen.
+- Frontend: pestaña **Nómina** en `/admin/contabilidad`.
+
+### 🚨 ANTES de desplegar (esta sesión no escribe a prod DB)
+Desde `~/Documents/AGENTES/CLUBIFY/backend` con `DATABASE_PUBLIC_URL` exportada:
+- [ ] `node scripts/apply-payroll-migration.cjs`  (crea 3 tablas de nómina)
+- [ ] Desplegar backend + frontend con `desplegar.cjs`.
+
+### Estado del módulo
+F1 (Ingresos) + F2 (Egresos) YA LIVE. F3 lista para migrar+deploy. Faltan F4
+Movimientos, F5 Cierres, F6 Dashboard. Ver
+[[project_contabilidad_central_module_2026_08_30]].
+
+---
+
 ## 2026-08-30 — CONTABILIDAD Fase 2 (Egresos) + backfill de ingresos (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs
