@@ -10,6 +10,7 @@ import { DeliveryAlertsCard } from '@/components/DeliveryAlertsCard';
 import { CustomerOrderAlertsCard } from '@/components/CustomerOrderAlertsCard';
 import { StampAuditTable } from '@/components/StampAuditTable';
 import { ManualPaymentsCard } from '@/components/ManualPaymentsCard';
+import { PaymentHistoryCard } from '@/components/PaymentHistoryCard';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import {
@@ -3159,6 +3160,8 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
           {saving ? t('applying') : t('applyChange')}
         </button>
       </div>
+
+      <PaymentHistoryCard tenantId={tenant.id} />
     </div>
   );
 }

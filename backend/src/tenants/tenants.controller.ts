@@ -233,6 +233,16 @@ export class TenantsController {
     return this.svc.listTrialHistory(id, limit ? Number(limit) : 100);
   }
 
+  /** Historial de pagos unificado (Hotmart + Stripe + cobro por fuera +
+   *  crédito): responde si el negocio está pagando o no. Declarado ANTES de
+   *  @Get(':id') o el router matchea "payment-history" como :id
+   *  (feedback_nestjs_route_order). */
+  @Get(':id/payment-history')
+  @Roles('SUPER_ADMIN')
+  paymentHistory(@Param('id') id: string, @Query('limit') limit?: string) {
+    return this.svc.listPaymentHistory(id, limit ? Number(limit) : 100);
+  }
+
   /** Lista de revisión de cobranza manual: negocios "paga por fuera" con el
    *  ciclo vencido y sin pago manual que lo cubra. Declarada ANTES de
    *  @Get(':id') por el orden de rutas de NestJS (feedback_nestjs_route_order). */
