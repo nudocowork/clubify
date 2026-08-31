@@ -7,9 +7,10 @@
  *
  * Uso:  railway run node scripts/activar-varias-cartas.cjs <slug> <cartasExtra>
  *
- * `cartasExtra` es cuántas cartas ADEMÁS del menú principal. El tope existe
- * porque cada carta duplica el catálogo entero: un negocio con 545 productos
- * creando cartas sin freno multiplica la base sin que nadie lo note.
+ * `cartasExtra` es cuántas cartas ADEMÁS del menú principal, o `-1` para SIN
+ * TOPE. El tope existe porque cada carta duplica el catálogo entero: un
+ * negocio con 545 productos creando cartas sin freno multiplica la base sin
+ * que nadie lo note.
  *
  * Idempotente: volver a correrlo con los mismos valores no cambia nada.
  */
@@ -20,8 +21,8 @@ const p = new PrismaClient();
   const [slug, extrasRaw] = process.argv.slice(2);
   if (!slug) throw new Error('falta el slug del negocio');
   const extras = Number(extrasRaw);
-  if (!Number.isInteger(extras) || extras < 0 || extras > 20) {
-    throw new Error('cartasExtra tiene que ser un entero entre 0 y 20');
+  if (!Number.isInteger(extras) || extras < -1 || extras > 20) {
+    throw new Error('cartasExtra tiene que ser un entero entre -1 y 20 (-1 = sin tope)');
   }
 
   const t = await p.tenant.findFirst({
@@ -48,7 +49,9 @@ const p = new PrismaClient();
   const prods = await p.product.count({ where: { tenantId: t.id, menuId: null } });
   const cartas = await p.menu.count({ where: { tenantId: t.id } });
 
-  console.log(`después: varias cartas=true · tope=${extras}`);
+  console.log(
+    `después: varias cartas=true · tope=${extras < 0 ? 'SIN TOPE' : extras}`,
+  );
   console.log(
     `menú principal: ${cats} categorías · ${prods} productos · cartas extra creadas: ${cartas}`,
   );
