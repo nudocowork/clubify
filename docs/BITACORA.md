@@ -107,6 +107,55 @@ vuelo tres veces esta semana.
 
 ---
 
+## 2026-08-30 — CONTABILIDAD Fase 1: IncomeRecord (ingreso real por transacción) (Jhon)
+**Máquina/quién:** Jhon (máquina de Jhon)
+**Rama / PR:** feat/commissions-auto-cutoffs (commit de Fase 1)
+
+### Contexto
+Arranca el módulo central Contabilidad (aprobado por el dueño). Fase 1 = el
+cimiento: guardar el ingreso REAL por cobro con desglose bruto/fee/impuesto/neto.
+Antes solo existía `Tenant.lastPaymentAmountUsd`, que se sobrescribe cada ciclo y
+descarta fee/impuesto → sin histórico. El preview navegable está en
+`~/Desktop/Contabilidad-Clubify-Preview.html`.
+
+### Qué cambié (todo ADITIVO, no toca comisiones)
+- `schema.prisma`: modelo **IncomeRecord** + enum **IncomeReconStatus**. Ids
+  planos (sin relación Prisma) → no toca Tenant/WhiteLabel.
+- `scripts/apply-income-record-migration.cjs`: crea tabla+enum+índices
+  (idempotente, IF NOT EXISTS) y siembra tasas (fee 8.6% Hotmart, 3.5% Stripe,
+  5% Cross, 0% Manual, impuesto 19%, taxBase gross).
+- `src/finance/`: `IncomeRecordService` (captura best-effort, dedup por
+  `(gateway, externalTxId)`, salta $0 de prueba) + `FinanceController`
+  (`GET /admin/contabilidad/ingresos`, `/ingresos/resumen`,
+  `PATCH /ingresos/:id/conciliar`).
+- Wire en los 4 webhooks: Stripe (`activate`), Hotmart (`activatePurchase`),
+  Cross (`activate`), Manual (`tenants.service` tras commit, solo USD).
+- Frontend: `/admin/contabilidad` (Resumen + Ingresos + Conciliación, datos
+  reales) + menú **Finanzas → Contabilidad** (clubifyOnly).
+
+### 🚨 Qué falta ANTES de desplegar (ORDEN OBLIGATORIO)
+- [ ] **1) Correr la migración en prod** (crea la tabla; esta sesión no escribe
+      a prod DB):
+      `cd backend && export DATABASE_PUBLIC_URL="$(railway variables --service Postgres-Nq8w --json | python3 -c 'import json,sys;print(json.load(sys.stdin)["DATABASE_PUBLIC_URL"])')" && node scripts/apply-income-record-migration.cjs`
+- [ ] **2) Verificar** que `IncomeRecord` existe (el script lo imprime).
+- [ ] **3) Desplegar** backend + frontend con `desplegar.cjs`.
+      (Si se despliega ANTES de la migración: los `record()` son best-effort con
+      catch → no crashea, pero se pierden ingresos hasta que exista la tabla, y
+      `/admin/contabilidad` da 500.)
+
+### Próximas fases (no empezadas)
+F2 Egresos/Categorías/Recurrentes · F3 Nómina · F4 Movimientos+Conciliación
+avanzada · F5 Cierres inmutables+reporte · F6 Dashboard+cuentas por cobrar/pagar.
+Ver [[project_contabilidad_central_module_2026_08_30]].
+
+### Riesgos
+- Multi-moneda: pagos manuales en COP se saltan (solo USD por ahora). Stripe/
+  Hotmart/Cross ya vienen en USD.
+- Hotmart income va como whiteLabelId null (Clubify); Stripe/Cross llevan su
+  whiteLabelId. El panel filtra `scope=clubify` (whiteLabelId null) por defecto.
+
+---
+
 ## 2026-08-30 — Sellea: ciclo de prueba de 7 días (día 0 demo, día 7 activo+crédito) (Jhon)
 **Máquina/quién:** Jhon (máquina de Jhon)
 **Rama / PR:** feat/commissions-auto-cutoffs (commit ebf6551c)
