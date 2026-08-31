@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, HttpExcepti
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtService } from '@nestjs/jwt';
 import { customAlphabet } from 'nanoid';
-import { CommissionStatus } from '@prisma/client';
+import { CommissionStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import {
@@ -847,6 +847,36 @@ export class ReferralsService {
     });
   }
 
+  /**
+   * Una comisión ANULADA no pertenece a ningún corte: no se va a transferir.
+   *
+   * El enganche a corte ocurre UNA vez y nunca se vuelve a revisar, así que la
+   * que se anula DESPUÉS de engancharse se queda pegada inflando el total.
+   * Pasó con los duplicados de Tubiñez ($7.50) y Delizzibo ($6.80): el corte
+   * del 15-08 decía $343.15 cuando la transferencia fue de $303.85.
+   *
+   * Solo se tocan cortes ABIERTOS. Uno cerrado es contabilidad hecha y no se
+   * reescribe, aunque tenga una anulada dentro.
+   */
+  private async desengancharAnuladas(
+    where: Prisma.CommissionWhereInput,
+  ): Promise<number> {
+    const abiertos = await this.prisma.payoutBatch.findMany({
+      where: { status: 'OPEN' },
+      select: { id: true },
+    });
+    if (abiertos.length === 0) return 0;
+    const res = await this.prisma.commission.updateMany({
+      where: {
+        ...where,
+        status: CommissionStatus.REJECTED,
+        payoutBatchId: { in: abiertos.map((x) => x.id) },
+      },
+      data: { payoutBatchId: null },
+    });
+    return res.count;
+  }
+
   async setCommissionStatus(
     id: string,
     status: CommissionStatus,
@@ -894,6 +924,22 @@ export class ReferralsService {
         data: { status: 'REJECTED' },
       });
       cascaded = res.count;
+    }
+
+    if (status === 'REJECTED') {
+      await this.desengancharAnuladas(
+        updated.periodKey != null
+          ? {
+              OR: [
+                { id: updated.id },
+                {
+                  referralUseId: updated.referralUseId,
+                  periodKey: updated.periodKey,
+                },
+              ],
+            }
+          : { id: updated.id },
+      );
     }
 
     return { ...updated, cascaded };
@@ -3008,6 +3054,7 @@ export class ReferralsService {
             notes: `Anulada al eliminar afiliado por error (${user.email})`,
           },
         });
+        await this.desengancharAnuladas({ id: { in: voidableIds } });
       }
       // Desactivar (soft) — preserva la fila como registro de que existió y,
       // gracias al filtro isActive en reconcileRecurringCommissions, deja de
@@ -6827,14 +6874,26 @@ export class ReferralsService {
       // pago INDIVIDUAL no tocaba `payoutBatchId`. Así se perdieron 9
       // comisiones por $137.75 del pago del 24 de agosto — el corte mostraba
       // $205.40 cuando se habían transferido $303.85.
-      let corteDestino = c.payoutBatchId ?? null;
-      if (!corteDestino) {
-        const abierto = await tx.payoutBatch.findFirst({
-          where: { status: 'OPEN' },
-          orderBy: { cutoffDate: 'asc' },
-          select: { id: true },
+      //
+      // También se TRAE la que ya estaba enganchada a un corte abierto
+      // POSTERIOR: es el caso de la comisión adelantada —habilitada a mano
+      // antes de cumplir su retención— que se paga en la transferencia de
+      // ahora. Si se queda en su corte futuro, el que se está liquidando no
+      // cuadra con lo transferido.
+      //
+      // Un corte CERRADO nunca se toca: es contabilidad hecha.
+      const enLiquidacion = await tx.payoutBatch.findFirst({
+        where: { status: 'OPEN' },
+        orderBy: { cutoffDate: 'asc' },
+        select: { id: true },
+      });
+      let corteDestino = c.payoutBatchId ?? enLiquidacion?.id ?? null;
+      if (c.payoutBatchId && enLiquidacion && c.payoutBatchId !== enLiquidacion.id) {
+        const suyo = await tx.payoutBatch.findUnique({
+          where: { id: c.payoutBatchId },
+          select: { status: true },
         });
-        corteDestino = abierto?.id ?? null;
+        if (suyo?.status === 'OPEN') corteDestino = enLiquidacion.id;
       }
 
       const result = await tx.commission.updateMany({

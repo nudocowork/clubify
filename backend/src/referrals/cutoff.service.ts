@@ -1116,10 +1116,22 @@ export class CutoffService {
    * Las habilitadas A MANO son la excepción: `status=APPROVED` con un
    * `availableAt` todavía en el futuro solo puede venir de "Habilitar" del super
    * admin (el cron promueve únicamente cuando `availableAt <= ahora`). El punto
-   * de habilitar a mano es poder pagarla ya, así que entra al corte vigente.
+   * de habilitar a mano es poder pagarla ya, así que entra al corte VIGENTE.
+   *
+   * FIX 2026-08-31: esa excepción no tenía tope, y `topUpOpenBatches` recorre
+   * los cortes abiertos del más viejo al más nuevo. Así que lo habilitado a
+   * mano no caía en el corte vigente sino en el ABIERTO MÁS VIEJO — uno cuya
+   * fecha ya pasó y que se está liquidando. Tres comisiones (Hydor, Quipao y
+   * Monet, $25) se habilitaron para el 30 de agosto y quedaron pegadas al
+   * corte del 15, que ya se había transferido: mostraba $343.15 contra una
+   * transferencia de $303.85.
+   *
+   * Un corte cuya fecha YA PASÓ no acumula: está esperando que lo cierren.
+   * Solo el vigente —fecha de hoy o posterior— absorbe lo adelantado.
    */
   private dayWindowWhere(ymd: string): Prisma.CommissionWhereInput {
     const dayEnd = bogotaDayEndUtc(ymd);
+    const esCorteVigente = ymd >= bogotaYmd(new Date());
     return {
       OR: [
         { availableAt: { lt: dayEnd } },
@@ -1132,7 +1144,9 @@ export class CutoffService {
           },
         },
         // Habilitada a mano (desbloqueo adelantado por el super admin).
-        { availableAt: { gt: new Date() } },
+        ...(esCorteVigente
+          ? [{ availableAt: { gt: new Date() } } as Prisma.CommissionWhereInput]
+          : []),
       ],
     };
   }
