@@ -107,6 +107,7 @@ export class PendingActivationService {
           `Aviso al comprador: correo ${emailRes.sent ? '✅' : '❌'}, ` +
           `${buyerNotify.ok ? `${buyerNotify.channel} ✅` : 'WhatsApp/SMS ❌'}\n` +
           `Link: ${activateUrl}`,
+        'pago_sin_cuenta',
       )
       .catch(() => null);
 

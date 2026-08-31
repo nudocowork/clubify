@@ -7,6 +7,26 @@ import {
 } from '../integrations/brand-sms-creds.util';
 
 /**
+ * Qué aviso es. Sirve para que cada persona del equipo reciba SOLO los que le
+ * interesan: a Jhon le llegaban los tres de una compra y pidió quedarse con
+ * el del pago y el del preregistro.
+ *
+ * Si añades un aviso nuevo, dale su tipo aquí — sin tipo lo reciben todos, que
+ * es el comportamiento de siempre y no rompe nada.
+ */
+export type TipoAviso =
+  /** «Pago X recibido SIN cuenta aún» — alguien pagó y no completó el alta. */
+  | 'pago_sin_cuenta'
+  /** «Nueva compra» — alta nueva ya activada. */
+  | 'nueva_compra'
+  /** «Nuevo preregistro» — alguien se registró. */
+  | 'preregistro'
+  /** Recordatorios de trials a punto de vencer. */
+  | 'trial'
+  /** Cambios de estado en Clubify Lab. */
+  | 'lab';
+
+/**
  * Notificación SMS al equipo cuando un cliente se preregistra
  * (signup desde landing, link de afiliado, o cualquier punto que
  * cree un User/Tenant nuevo).
@@ -15,6 +35,15 @@ import {
  * - Setting `prereg.alertPhones` (JSON array de teléfonos E.164).
  *   Default hardcoded a Javier + Jhon (configurable después desde
  *   admin sin redeploy).
+ *
+ *   Cada entrada puede llevar `solo: TipoAviso[]` para recibir únicamente
+ *   esos avisos. Sin `solo`, recibe todos — el comportamiento de siempre.
+ *
+ *     [
+ *       { "name": "Javier", "phone": "+573248088401" },
+ *       { "name": "Jhon", "phone": "+573181666999",
+ *         "solo": ["pago_sin_cuenta", "preregistro"] }
+ *     ]
  * - Setting `prereg.alertAccountId` (id de GrowBusinessAccount a usar).
  *   Si no está seteado, usa la primera GB account `purpose=GENERAL`
  *   (o cualquier no-eliminada en último fallback).
@@ -29,9 +58,13 @@ export class PreregAlertsService {
   private logger = new Logger(PreregAlertsService.name);
 
   // Default hardcoded. Se sobrescribe via Setting prereg.alertPhones.
-  private static FALLBACK_PHONES: Array<{ name: string; phone: string }> = [
+  private static FALLBACK_PHONES: Array<{
+    name: string;
+    phone: string;
+    solo?: TipoAviso[];
+  }> = [
     { name: 'Javier', phone: '+573248088401' },
-    { name: 'Jhon', phone: '+573181666999' },
+    { name: 'Jhon', phone: '+573181666999', solo: ['pago_sin_cuenta', 'preregistro'] },
   ];
 
   constructor(
@@ -119,7 +152,7 @@ export class PreregAlertsService {
         return;
       }
       // Resolver números.
-      const phones = await this.resolvePhones();
+      const phones = await this.resolvePhones('preregistro');
       if (phones.length === 0) {
         this.logger.warn(`Sin números configurados — skip prereg alert`);
         return;
@@ -172,7 +205,10 @@ export class PreregAlertsService {
    *
    * Fire-and-forget: captura sus propios errores y devuelve void.
    */
-  async sendTeamAlert(body: string): Promise<{
+  async sendTeamAlert(
+    body: string,
+    tipo?: TipoAviso,
+  ): Promise<{
     ok: boolean;
     sent: number;
     total: number;
@@ -192,7 +228,7 @@ export class PreregAlertsService {
         this.logger.warn('sendTeamAlert: sin GrowBusinessAccount');
         return { ok: false, sent: 0, total: 0 };
       }
-      const phones = await this.resolvePhones();
+      const phones = await this.resolvePhones(tipo);
       if (phones.length === 0) {
         return { ok: false, sent: 0, total: 0 };
       }
@@ -386,8 +422,23 @@ export class PreregAlertsService {
     });
   }
 
-  private async resolvePhones(): Promise<
-    Array<{ name: string; phone: string }>
+  /**
+   * A quién le toca este aviso.
+   *
+   * Una entrada sin `solo` recibe todo: así, si mañana alguien añade un tipo
+   * de aviso nuevo, nadie deja de recibir nada por olvido. La restricción es
+   * siempre explícita.
+   */
+  private async resolvePhones(
+    tipo?: TipoAviso,
+  ): Promise<Array<{ name: string; phone: string; solo?: TipoAviso[] }>> {
+    const todos = await this.allPhones();
+    if (!tipo) return todos;
+    return todos.filter((p) => !p.solo?.length || p.solo.includes(tipo));
+  }
+
+  private async allPhones(): Promise<
+    Array<{ name: string; phone: string; solo?: TipoAviso[] }>
   > {
     const setting = await this.prisma.setting.findUnique({
       where: { key: 'prereg.alertPhones' },

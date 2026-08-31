@@ -63,7 +63,7 @@ export class TrialsService {
       );
       if (!threshold) continue;
       const body = this.buildBody(t, threshold);
-      const res = await this.alerts.sendTeamAlert(body);
+      const res = await this.alerts.sendTeamAlert(body, 'trial');
       if (res.ok || res.total === 0) {
         // Si total=0 (sin teléfonos configurados) también marcamos para
         // no loop infinito; el logger.warn ya advirtió.
