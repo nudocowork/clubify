@@ -8,6 +8,50 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-08-31 — Las 6 mejoras pedidas por clientes (DESPLEGADAS)
+
+Un commit por tarea, en el orden del documento. **Ninguna necesitó migración**:
+`InfoLink.theme` y `InfoLink.buttons` ya son columnas JSON.
+
+**T3 · Tipografías** (`bb1d1ae6`) — El reporte decía «la mayoría de fuentes del
+generador de QR no funcionan». Era peor: **no cargaba ninguna, y no solo en el
+QR**. Había un único `<link>` con las 129 familias y **el CDN de Google corta
+en 120 por petición** → 403. Medido contra el CDN y contra producción: 120 da
+200, 121 da 403. Es el número de familias, no el largo de la URL (121 mide
+3.196 car. y falla; otra de 3.781 con 120 funciona). Cada familia por separado
+responde 200 — no hay ningún nombre inválido.
+
+Como el `<link>` es global, también estaban rotas las tipografías del
+**infolink**, la **vista previa del wallet** y las cotizaciones. Ahora van de
+60 en 60 (3 peticiones, las 3 verificadas en 200 en el sitio vivo). Además el
+editor espera a `document.fonts.ready` antes de exportar y redibuja el canvas
+al cargar las fuentes — Konva pinta con la fuente que haya en ese instante.
+
+**T6 · Post-registro** (`5ae3201f`) — La ruta recibía `?welcome=1` desde el
+registro pero **nunca lo leía**. Ahora, recién registrado: aviso «AÚN NO HA
+TERMINADO TU REGISTRO» con el color del negocio, flecha, botones de Wallet, y
+la tarjeta en pequeño debajo. Quien vuelve a abrir su tarjeta ve la pantalla de
+siempre. Badges oficiales en español; en en/pt/it, botón traducido.
+
+**T4 · Fondo del Shop** (`37eb5a7b`) — `bg-white` fijo en el `<article>` tapaba
+el fondo elegido. **Stories tenía el mismo defecto**. Sin fondo configurado
+siguen blancos: los publicados no cambian.
+
+**T1+T2 · Redes sociales** (`caca44ba`) — Los «iconos genéricos» eran **emojis**
+(📷 💬 📍) y **solo existían en Minimal**, alimentados por los campos del
+NEGOCIO, no del infolink. Por eso `iconosSociales()` cae a esos campos cuando
+el infolink no configuró ninguna red: si no, todos esos infolinks se quedaban
+sin iconos. Ahora logos de marca reales (una ruta, `currentColor`), color
+editable con vista previa sobre fondo claro y oscuro, en los 5 estilos.
+
+**T5 · Botón de llamada** (`2cf720e9`) — Tipo `PHONE` → `tel:+<dígitos>`. Se
+exige indicativo de país: el infolink lo abre gente de otra ciudad. No abre en
+pestaña nueva (dejaría una en blanco tras el marcador).
+
+⚠️ **Nada de esto se probó en navegador** — tsc y eslint limpios, y la T3
+verificada contra el CDN real. Falta comprobar en móvil la T6 (iPhone SE) y la
+T5 (iOS/Android).
+
 ## 2026-08-31 — Historial de pagos por negocio + menú libro multi-imagen (DESPLEGADO)
 
 **Historial de pagos** (`70da1bf8`). En la ficha del negocio se veía el estado
