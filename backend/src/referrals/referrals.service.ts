@@ -6762,6 +6762,8 @@ export class ReferralsService {
           paymentStatus: true,
           status: true,
           notes: true,
+          // Para no reasignarle corte a una que ya lo tenía.
+          payoutBatchId: true,
           payoutItem: { select: { id: true } },
         },
       });
@@ -6814,6 +6816,27 @@ export class ReferralsService {
       // Si el row cambió entre el findUnique y aquí (otra tx paralela), el
       // update no matchea → count=0 → tiramos error de race y el admin
       // reintenta con datos frescos.
+      // Si la comisión no tenía corte, se engancha al que se está liquidando:
+      // el ABIERTO más antiguo.
+      //
+      // Regla de Javier (2026-08-31): el corte refleja LA TRANSFERENCIA. Y las
+      // comisiones adelantadas —pagadas antes de cumplir su retención— tienen
+      // que entrar al corte que se está pagando, no al de su fecha.
+      //
+      // Sin esto quedaban sueltas: `payAllForPerson` sí las engancha, pero el
+      // pago INDIVIDUAL no tocaba `payoutBatchId`. Así se perdieron 9
+      // comisiones por $137.75 del pago del 24 de agosto — el corte mostraba
+      // $205.40 cuando se habían transferido $303.85.
+      let corteDestino = c.payoutBatchId ?? null;
+      if (!corteDestino) {
+        const abierto = await tx.payoutBatch.findFirst({
+          where: { status: 'OPEN' },
+          orderBy: { cutoffDate: 'asc' },
+          select: { id: true },
+        });
+        corteDestino = abierto?.id ?? null;
+      }
+
       const result = await tx.commission.updateMany({
         where: { id: commissionId, amountPaid: c.amountPaid },
         data: {
@@ -6822,6 +6845,7 @@ export class ReferralsService {
           ...(isFullPaid
             ? { status: 'PAID' as CommissionStatus, paidAt: new Date() }
             : {}),
+          ...(corteDestino ? { payoutBatchId: corteDestino } : {}),
           notes: nextNotes,
         },
       });
