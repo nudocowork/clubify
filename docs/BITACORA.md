@@ -48,10 +48,10 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
-## 2026-08-31 — Renovaciones/suspensión Fase 1: fix "no suspende al día 6" (SIN DESPLEGAR)
+## 2026-08-31 — Renovaciones/suspensión Fase 1: fix "no suspende al día 6" (DESPLEGADO)
 
 **Máquina/quién:** máquina de Jhon (Claude)
-**Rama:** `feat/commissions-auto-cutoffs`
+**Rama / commit:** `feat/commissions-auto-cutoffs` · `dc56ebcd`
 
 ### Qué cambié
 Arreglo de raíz del bug "un negocio con cobro fallido nunca se suspende".
@@ -87,15 +87,17 @@ Archivos: `prisma/schema.prisma` (+`firstFailedAt`), `src/billing/dunning.ts`
 `scripts/apply-first-failed-at-migration.cjs` (nuevo).
 
 ### Qué toqué de PRODUCCIÓN
-- **Nada aún.** No corrí la migración ni desplegué. Solo lecturas de diagnóstico.
+- **Migración aplicada** (`railway run node scripts/apply-first-failed-at-migration.cjs`):
+  columna `Tenant.firstFailedAt` creada, **4** morosos en vuelo con ancla
+  backfilleada, Setting `billing.graceDays` fijado en **5** (no existía).
+- **Backend desplegado** (`node scripts/desplegar.cjs backend`, commit `dc56ebcd`).
+  Swap verificado: deployment ID `87eac06d` (coincide con el build), Online.
+- Al desplegar había **0** negocios de Clubify vencidos/con fallos → no se
+  suspendió a nadie de golpe.
 
 ### Qué falta / qué hay que validar del otro lado
-- [ ] **Correr la migración ANTES de desplegar** (el código hace `select` de
-      `firstFailedAt`; si la columna no existe, Prisma revienta):
-      `cd backend && railway run node scripts/apply-first-failed-at-migration.cjs`
-      (agrega la columna, backfillea morosos en vuelo, fija `billing.graceDays=5`).
-- [ ] Desplegar backend con `node scripts/desplegar.cjs backend` **después** de la
-      migración.
+- [ ] **Primera prueba real:** cuando un cobro de Hotmart falle de verdad, el
+      cron de mora (3 AM) debe suspender al día 6. Vigilar el primer caso.
 - [ ] Fases 2-5 pendientes: estados de renovación, **SMS de alerta** a los 3
       números desde +573167689240 (falta saber qué subcuenta GrowBusiness tiene
       ese número), columna de comisiones en Pagos por fuera, y el nuevo dashboard
