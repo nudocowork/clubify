@@ -6021,7 +6021,26 @@ export class ReferralsService {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      // Se ordena por la MISMA fecha que muestra la columna y que usa el
+      // filtro. Antes ordenaba por `createdAt` —cuándo se creó la fila— así
+      // que la lista salía desordenada respecto a la fecha que se ve.
+      //
+      // No era un detalle: medido el 2026-08-31, 51 de las 99 comisiones con
+      // fecha de compra la tienen a más de 36 h de la creación de su fila. Más
+      // de la mitad de la lista aparecía fuera de sitio. Pasa siempre que una
+      // comisión se genera después de la venta — reconciliaciones, cobros
+      // retroactivos, backfills.
+      //
+      // `nulls: 'last'` porque Postgres pone los nulos ARRIBA en DESC, y las 9
+      // comisiones sin fecha encabezarían la lista. Y `createdAt` de desempate
+      // para que dos compras del mismo día salgan siempre en el mismo orden.
+      orderBy:
+        dateType === 'payment'
+          ? [{ paidAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }]
+          : [
+              { businessDate: { sort: 'desc', nulls: 'last' } },
+              { createdAt: 'desc' },
+            ],
       take: 500,
     });
 
