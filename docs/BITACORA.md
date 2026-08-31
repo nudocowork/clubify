@@ -8,6 +8,49 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-08-31 — Historial de pagos por negocio + menú libro multi-imagen (DESPLEGADO)
+
+**Historial de pagos** (`70da1bf8`). En la ficha del negocio se veía el estado
+(«Pagada, próximo cobro el 24/08») pero no cómo se llegó ahí. Ahora la tarjeta
+de Facturación lleva debajo el historial unificado de las cuatro vías de pago:
+Hotmart, Stripe, cobro por fuera y crédito.
+
+No hizo falta tabla nueva: los webhooks ya se guardaban enteros
+(`HotmartWebhookEvent`, `StripeWebhookEvent`) junto a `ManualPayment` y
+`CreditTransaction`. Faltaba leerlos. `backend/src/tenants/payment-history.util.ts`.
+
+Lo que **no es obvio** y está cubierto con 18 tests:
+
+- Hotmart manda **varios eventos por el mismo cobro** (`PURCHASE_APPROVED` y,
+  ~8 días después al vencer la garantía, `PURCHASE_COMPLETE`). Sin agrupar por
+  `purchase.transaction` se duplicarían los ingresos de todos los negocios.
+- Gana el estado **más definitivo**, no el más reciente: rechazado→aprobado
+  está pagado; pagado→contracargo, no.
+- El importe es `full_price` (lo que se cobró), no `price` (ya lleva
+  descontada la comisión de Hotmart). Moneda en `currency_value`.
+- El aviso rojo solo cuenta rechazos **posteriores al último pago bueno**:
+  varios negocios reintentan 2-3 veces cada mes antes de que entre, y contarlos
+  haría sonar la alarma en negocios al día.
+
+Los eventos de Stripe no traen `tenantId` (el webhook resuelve la marca, no el
+negocio): se enlazan por `stripeCustomerId`.
+
+**Hallazgo que sale solo del historial:** Wok Explosivo tiene el cobro #4
+rechazado desde el 26-08 por «Saldo insuficiente.» — es por lo que no puede
+entrar al panel, que llevaba días sin explicación. Konys igual desde el 30-08.
+
+**Menú libro: subir varias imágenes** (`d2bee275`). Antes una a una. Ahora el
+lote entero, con concurrencia 3. Las páginas se **confirman en serie y en
+orden**: `createPage` (`catalog/menu-book.service.ts:335`) calcula `sortOrder`
+leyendo la última y sumando 1, así que dos altas en paralelo se llevan el mismo
+número y la carta sale barajada.
+
+⚠️ **Sigue abierto:** esa carrera de `sortOrder` está en el backend. El cliente
+la evita serializando, pero dos personas añadiendo páginas a la vez la
+disparan. Arreglo real: `sortOrder` atómico en SQL.
+
+⚠️ El menú libro **no se probó en navegador** (tsc y eslint limpios, nada más).
+
 ## 2026-08-31 — El corte del 15 ya cuadra con la transferencia (DESPLEGADO)
 
 Javier transfirió **$303.85 por 21 comisiones** el 24 de agosto. El corte del
