@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { IncomeRecordService } from './income-record.service';
 import { FinanceController } from './finance.controller';
+import { ExpenseService } from './expense.service';
+import { ExpensesController } from './expenses.controller';
 
 /**
  * CONTABILIDAD — Fase 1. Módulo de finanzas: captura del ingreso REAL por
@@ -10,8 +12,8 @@ import { FinanceController } from './finance.controller';
  * inyecte en los webhooks. Aditivo — no toca comisiones.
  */
 @Module({
-  providers: [IncomeRecordService],
-  controllers: [FinanceController],
-  exports: [IncomeRecordService],
+  providers: [IncomeRecordService, ExpenseService],
+  controllers: [FinanceController, ExpensesController],
+  exports: [IncomeRecordService, ExpenseService],
 })
 export class FinanceModule {}
