@@ -6119,6 +6119,20 @@ export class ReferralsService {
       const amount = Number(c.amount);
       const amountPaid = Number(c.amountPaid);
       const outstanding = Math.max(0, amount - amountPaid);
+      // ¿Es de una RENOVACIÓN o de la venta inicial?
+      //
+      // Es renovación si el negocio ya había generado una comisión antes. Se
+      // apoya en `firstChargeMsByTenant`, que ya se calcula arriba sobre TODO
+      // el historial y no solo sobre la página — si se mirara únicamente lo
+      // que se está listando, una renovación filtrada a solas parecería la
+      // primera venta.
+      const tenantIdDeLaFila = c.referralUse?.tenant?.id;
+      const primeroMs = tenantIdDeLaFila
+        ? firstChargeMsByTenant.get(tenantIdDeLaFila)
+        : undefined;
+      const esRenovacion =
+        primeroMs !== undefined &&
+        effectiveAvailableAt(c).getTime() > primeroMs;
       return {
         id: c.id,
         amount,
@@ -6126,6 +6140,7 @@ export class ReferralsService {
         outstanding: Math.round(outstanding * 100) / 100,
         currency: c.currency,
         paymentStatus: c.paymentStatus,
+        esRenovacion,
         status: c.status,
         createdAt: c.createdAt,
         // FECHA "de negocio" (columna FECHA del panel). FECHA DURABLE: si la
