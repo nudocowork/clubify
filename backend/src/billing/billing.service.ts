@@ -88,13 +88,16 @@ export class BillingService {
    * Best-effort, no bloquea. Enviado por la subcuenta del equipo.
    */
   async notifyBillingTeam(
-    kind: 'renovacion_fallida' | 'suspendido',
+    kind: 'renovacion_fallida' | 'suspendido' | 'pago_procesado',
     brandName: string,
+    opts?: { amountUsd?: number | null; renewal?: boolean },
   ): Promise<void> {
     const body =
       kind === 'renovacion_fallida'
         ? `⚠️ Cobro FALLIDO: ${brandName}. Entró en gracia (5 días). Revisar en Clubify.`
-        : `🔴 SUSPENDIDO por falta de pago: ${brandName}. Revisar en Clubify.`;
+        : kind === 'suspendido'
+          ? `🔴 SUSPENDIDO por falta de pago: ${brandName}. Revisar en Clubify.`
+          : `✅ Pago procesado${opts?.renewal ? ' (renovación)' : ''}: ${brandName}${opts?.amountUsd ? ` · $${opts.amountUsd}` : ''}. (Clubify)`;
     await Promise.all(
       BILLING_ALERT_PHONES.map((phone) =>
         this.prereg

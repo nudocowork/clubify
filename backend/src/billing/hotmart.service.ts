@@ -1643,6 +1643,21 @@ export class HotmartService {
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
     }
+    // Aviso al EQUIPO (los 3 números) de que un cobro SÍ se procesó — simétrico al
+    // aviso de cobro fallido. Solo una vez por cobro REAL (no en el re-webhook
+    // PURCHASE_COMPLETE del mismo pago); cubre 1er pago, renovación y reactivación.
+    if (!alreadyConfirmedTx) {
+      void this.billing
+        .notifyBillingTeam('pago_procesado', tenant.brandName, {
+          amountUsd: realPriceUsd ?? null,
+          renewal: !isFirstHotmartPurchase,
+        })
+        .catch((e) =>
+          this.logger.warn(
+            `notifyBillingTeam(pago_procesado) falló: ${(e as Error).message}`,
+          ),
+        );
+    }
     // CORREO del mismo hecho: primera compra → "panel listo"; cuenta que
     // revivió → "reactivada"; renovación → "pago confirmado".
     if (wasSuspended || !alreadyConfirmedTx) {

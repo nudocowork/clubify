@@ -48,6 +48,32 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-09-01 — SMS al equipo también cuando un cobro Hotmart SÍ se procesa
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+- Pedido del dueño: además del SMS de cobro FALLIDO, avisar a los **mismos 3
+  números** cuando un cobro Hotmart **SÍ se procesa**.
+- `billing.service.notifyBillingTeam` ahora acepta `kind='pago_procesado'` (+ opts
+  amountUsd/renewal): `✅ Pago procesado (renovación): <marca> · $<monto>`.
+- `hotmart.service.activatePurchase`: al confirmar un cobro real llama
+  `notifyBillingTeam('pago_procesado', ...)` **gated en `!alreadyConfirmedTx`** →
+  una vez por cobro (no en el re-webhook PURCHASE_COMPLETE del mismo pago); cubre
+  1er pago, renovación y reactivación. Solo Hotmart (Stripe no lo pidió).
+
+### Qué toqué de PRODUCCIÓN
+- Deploy backend.
+- **Cross-check** (solo lectura) del CSV de fallidos de Hotmart vs sistema: todos
+  bien tomados; Konys y Wok ya habían pagado (1-sep) y quedaron activos; VIIDA
+  Cocina Caribe (RLSCWWX6) el sistema lo ve pagado (29-ago) pero Hotmart en Retraso
+  → a verificar en Hotmart. Wok/Mauricio: activó solo al recibir el pago ✓.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Verificar VIIDA Cocina Caribe en Hotmart (¿impago real o flag viejo?).
+- [ ] El SMS de pago procesado sale para TODAS las marcas (no scopeado). Si es
+      mucho volumen, scopear o filtrar.
+
 ## 2026-09-01 — Fix: /admin/contabilidad (y 4 rutas más) se veían como marca blanca
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
