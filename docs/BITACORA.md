@@ -48,7 +48,38 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
-## 2026-09-01 — Sellea: fugas de marca en links de afiliado + comisión fija + botón sin feedback (SIN DESPLEGAR aún)
+## 2026-09-01 — Wok Explosivo: comisión de agosto REAL anulada por evento duplicado de Hotmart
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué pasó / qué cambié
+- Wok Explosivo (afiliado Nicolás Quintero, TAFMPWK5, subscriber G12D7TCG) mostraba
+  solo 2 comisiones (may, jul). La de **agosto ($5) existía pero estaba REJECTED**.
+- **AuditLog** de agosto: 03-ago `payment_succeeded` (renovación REAL, ciclo→07-sep,
+  creó la comisión) · 11-ago `payment_succeeded` (2º evento a los 8 días que NO
+  extendió el ciclo → **duplicado/fantasma** de Hotmart) · 26-ago `payment_failed`
+  (PURCHASE_DELAYED) · 31-ago SUSPENDIDO. **Sin reembolso ni contracargo** en el
+  registro → el dinero de agosto es real.
+- La comisión se anuló como efecto colateral del duplicado / suspensión (anulación
+  indebida). Restaurada a **APPROVED** con
+  `scripts/restore-wok-explosivo-august-commission.cjs` (idempotente; el dueño lo
+  corrió).
+
+### Qué toqué de PRODUCCIÓN
+- **DB:** restaurada 1 comisión (REJECTED→APPROVED, $5) vía el script. Nada más.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Nicolás cobra ese $5 en el próximo corte (verificar que entre).
+
+### Riesgos y avisos
+- **Causa de fondo SIN arreglar (delicada):** cuando Hotmart dispara un 2º evento
+  de renovación en el mismo ciclo (duplicado/fantasma), la lógica anti-fantasma /
+  suspensión puede **anular la comisión REAL**. Antes de restaurar una REJECTED,
+  mirar SIEMPRE el AuditLog: si hay `PURCHASE_REFUNDED`/`CHARGEBACK`, el rechazo es
+  correcto; si no, es anulación indebida. Distinto del bug de Motilart (ahí faltaba
+  CREARLA; aquí se creó y se anuló).
+
+## 2026-09-01 — Sellea: fugas de marca en links de afiliado + comisión fija + botón sin feedback (LIVE, commit e00c2ea9)
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
 
