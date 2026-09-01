@@ -48,6 +48,30 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-09-01 — Fix: /admin/contabilidad (y 4 rutas más) se veían como marca blanca
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+- **Bug:** en `/admin/contabilidad` desaparecía la sección del panel y "no
+  ingresaba". Causa: `AppShell.tsx` decide si `/admin/<seg>` es una ruta admin o
+  un SLUG DE MARCA BLANCA usando el set `ADMIN_ROUTE_SEGMENTS`. `contabilidad` NO
+  estaba en el set (había `accounting` en inglés, ruta que no existe) → se leía
+  como marca → `isOtherBrand=true` → escondía todos los items `clubifyOnly`
+  (incluido Contabilidad) y trataba el panel como de otra marca. Roto desde que se
+  creó la página; recién ahora se usó.
+- **Fix:** agregué `contabilidad` al set. Y de paso barrí TODAS las rutas reales
+  de `src/app/admin/*` contra el set: faltaban 4 más con el mismo bug latente
+  (`academia`, `automatizaciones`, `infolinks`, `pending-payments`) — agregadas.
+  Ahora las 32 rutas admin están listadas. Comentario nuevo explicando la regla.
+
+### Qué toqué de PRODUCCIÓN
+- **Deploy frontend.** Backend: nada.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Al agregar una ruta nueva en `src/app/admin/<seg>`, agregar `<seg>` a
+      `ADMIN_ROUTE_SEGMENTS` en AppShell (si no, la página se ve rota en marca).
+
 ## 2026-09-01 — Gracia/suspensión en DÍAS DE BOGOTÁ, 1-indexado (no hay Día 0)
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`

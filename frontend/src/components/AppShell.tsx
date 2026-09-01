@@ -36,12 +36,20 @@ type IconName = Parameters<typeof Icon>[0]['name'];
 // Subrutas reales de /admin (carpetas en app/admin). Si el primer segmento
 // tras /admin NO es una de estas, se trata como slug de marca blanca
 // (/admin/<slug>). Debe coincidir con RESERVED_ADMIN_ROUTES del middleware.
+// Primeros segmentos de rutas admin conocidas. Si un segmento NO está aquí, el
+// AppShell lo interpreta como SLUG DE MARCA BLANCA (isOtherBrand=true) y esconde
+// los items `clubifyOnly` + trata el panel como de otra marca. Por eso TODA ruta
+// real /admin/<seg> debe estar listada; si falta, esa página se ve "rota" (la
+// sección del panel desaparece). Falta = bug (pasó con `contabilidad`, que se
+// veía como marca). Mantener sincronizado con los directorios de src/app/admin/.
 const ADMIN_ROUTE_SEGMENTS = new Set([
-  'accounting', 'affiliate-registration', 'ai-knowledge', 'audit', 'branding',
-  'business-categories', 'business-groups', 'commissions', 'creditos', 'industries', 'integrations',
-  'lab', 'maintenance', 'map', 'mensajes', 'pagos-manuales', 'payouts', 'rankings', 'referrals',
-  'reports', 'sales-leaderboard', 'sales-teams', 'support-materials', 'tenants',
-  'trials', 'users', 'ventas',
+  'academia', 'accounting', 'affiliate-registration', 'ai-knowledge', 'audit',
+  'automatizaciones', 'branding', 'business-categories', 'business-groups',
+  'commissions', 'contabilidad', 'creditos', 'industries', 'infolinks',
+  'integrations', 'lab', 'maintenance', 'map', 'mensajes', 'pagos-manuales',
+  'payouts', 'pending-payments', 'rankings', 'referrals', 'reports',
+  'sales-leaderboard', 'sales-teams', 'support-materials', 'tenants', 'trials',
+  'users', 'ventas',
 ]);
 
 type NavItem = {
