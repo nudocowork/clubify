@@ -58,10 +58,10 @@ const p = new PrismaClient();
     WHERE table_name = 'PayoutBatch' AND column_name LIKE 'received%'
     ORDER BY column_name
   `);
-  const tbl = await p.$queryRawUnsafe(`SELECT to_regclass('"BatchPersonPayment"') AS t`);
+  const tbl = await p.$queryRawUnsafe(`SELECT table_name FROM information_schema.tables WHERE table_name = 'BatchPersonPayment'`);
   console.log('\nResultado:');
   console.log('  PayoutBatch.received*:', cols.map((c) => c.column_name).join(', ') || '(ninguna)');
-  console.log('  Tabla BatchPersonPayment:', tbl[0]?.t ? 'creada ✓' : 'NO creada');
+  console.log('  Tabla BatchPersonPayment:', tbl.length ? 'creada ✓' : 'NO creada');
   console.log('\nListo.');
   await p.$disconnect();
 })().catch(async (e) => {
