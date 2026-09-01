@@ -495,8 +495,8 @@ export function PremiumDashboard() {
           abren el detalle con la lista y filtros de fecha. */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
         <CobroCard
-          color="red"
-          icon="🔴"
+          color="blue"
+          icon="🔵"
           label="Próximos cobros"
           value={money(data.cobros?.proximos.amountUsd ?? 0)}
           sub={`${data.cobros?.proximos.count ?? 0} cobros · próximos 7 días`}
@@ -511,8 +511,8 @@ export function PremiumDashboard() {
           onClick={() => setCobrosBucket('procesados')}
         />
         <CobroCard
-          color="amber"
-          icon="🟡"
+          color="red"
+          icon="🔴"
           label="Pagos no procesados"
           value={money(data.cobros?.noProcesados.amountUsd ?? 0)}
           sub={`${data.cobros?.noProcesados.count ?? 0} · fallidos o vencidos`}
@@ -734,7 +734,7 @@ function CobroCard({
   sub,
   onClick,
 }: {
-  color: 'red' | 'green' | 'amber';
+  color: 'red' | 'green' | 'amber' | 'blue';
   icon: string;
   label: string;
   value: string;
@@ -745,11 +745,13 @@ function CobroCard({
     red: 'border-t-red-500',
     green: 'border-t-emerald-500',
     amber: 'border-t-amber-500',
+    blue: 'border-t-blue-500',
   }[color];
   const text = {
     red: 'text-red-600',
     green: 'text-emerald-600',
     amber: 'text-amber-600',
+    blue: 'text-blue-600',
   }[color];
   return (
     <button
@@ -798,11 +800,13 @@ function CobrosDrilldown({
 }) {
   const [rows, setRows] = useState<CobroRowAny[]>([]);
   const [loading, setLoading] = useState(true);
-  const [range, setRange] = useState(bucket === 'no-procesados' ? '30d' : '7d');
+  // "no-procesados" abre en "Todos" para que la lista cuadre con el conteo de la
+  // tarjeta (incluye suspensiones viejas, que el rango de días recortaría).
+  const [range, setRange] = useState(bucket === 'no-procesados' ? 'todos' : '7d');
   const title = {
-    proximos: '🔴 Próximos cobros',
+    proximos: '🔵 Próximos cobros',
     procesados: '🟢 Pagos procesados',
-    'no-procesados': '🟡 Pagos no procesados',
+    'no-procesados': '🔴 Pagos no procesados',
   }[bucket];
   const chips: Array<[string, string]> =
     bucket === 'proximos'
@@ -812,12 +816,19 @@ function CobrosDrilldown({
           ['15d', '15 días'],
           ['30d', '30 días'],
         ]
-      : [
-          ['hoy', 'Hoy'],
-          ['7d', 'Últimos 7 días'],
-          ['15d', '15 días'],
-          ['30d', '30 días'],
-        ];
+      : bucket === 'no-procesados'
+        ? [
+            ['todos', 'Todos'],
+            ['7d', 'Últimos 7 días'],
+            ['15d', '15 días'],
+            ['30d', '30 días'],
+          ]
+        : [
+            ['hoy', 'Hoy'],
+            ['7d', 'Últimos 7 días'],
+            ['15d', '15 días'],
+            ['30d', '30 días'],
+          ];
 
   useEffect(() => {
     let cancelled = false;

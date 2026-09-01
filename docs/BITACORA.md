@@ -48,6 +48,38 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-09-01 — Dashboard de cobros: colores intuitivos + rango "Todos" en No procesados
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+- **Colores de las 3 tarjetas** (confusión reportada por el dueño: abría la roja
+  buscando los fallos y ahí estaban los "próximos"). Ahora:
+  - 🔵 **Próximos cobros** (neutro, era 🔴)
+  - 🟢 Pagos procesados (igual)
+  - 🔴 **Pagos no procesados** (el fallo, era 🟡)
+  Solo frontend: `PremiumDashboard.tsx` (CobroCard color `blue`, iconos, títulos
+  del drill-down).
+- **Rango "Todos"** en la lista de 🔴 No procesados. Antes la lista recortaba a
+  30 días y las **suspensiones viejas** (ej. AutoTech Services, suspendido desde
+  5-jul) sumaban en el CONTEO pero **no aparecían en la LISTA**. Ahora "Todos" es
+  el rango por defecto de esa tarjeta → lista cuadra con el conteo. Backend:
+  `rangeToDays` acepta `todos`/`all` (36500 días = sin recorte). Verificado:
+  conteo=6, lista 30d=5, lista Todos=6 (AutoTech reaparece).
+
+### Qué toqué de PRODUCCIÓN
+- **Deploy backend + frontend** (rama `feat/commissions-auto-cutoffs`).
+- DB: nada (solo lectura para verificar).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Nada crítico. Es UX del dashboard de cobros.
+
+### Riesgos y avisos
+- **Recordatorio de diseño (no es bug):** el SMS de "cobro fallido" al equipo
+  dispara SOLO en el PRIMER fallo (`wasFirstFailure`, hotmart.service). Un negocio
+  ya suspendido que Hotmart sigue reintentando (ej. AutoTech, 6º intento) NO
+  re-alerta. Es a propósito, para no spamear en cada reintento.
+
 ## 2026-09-01 — Fix comisión faltante del 3er cobro (Motilart) + arreglo sistémico de dedup por ciclo
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`

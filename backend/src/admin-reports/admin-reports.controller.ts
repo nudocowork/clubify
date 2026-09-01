@@ -24,6 +24,12 @@ function rangeToDays(range: string | undefined, bucket: CobrosBucket): number {
     case 'proximo-mes':
     case 'next-month':
       return 60;
+    case 'todos':
+    case 'all':
+      // Sin recorte: ~100 años atrás. Para que la LISTA de "no procesados"
+      // muestre también las suspensiones viejas y cuadre con el CONTEO de la
+      // tarjeta (que nunca filtra por fecha). En próximos/procesados no se usa.
+      return 36500;
     default:
       return bucket === 'no-procesados' ? 30 : 7;
   }
