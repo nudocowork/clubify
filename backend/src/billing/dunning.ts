@@ -17,7 +17,16 @@
  *
  * Gracia: cubre los días 1..graceDays; al día graceDays+1 se suspende
  * (con graceDays=5 → suspende el día 6).
+ *
+ * ⏰ DÍAS EN HORA DE BOGOTÁ, 1-INDEXADOS (2026-09-01, decisión del dueño): el
+ * contador de mora cuenta DÍAS DE CALENDARIO DE BOGOTÁ, no periodos de 24h en
+ * UTC. Y NO hay "Día 0": el primer día vencido ya es Día 1. El ciclo cierra a la
+ * medianoche de Bogotá — antes, con la matemática en UTC (medianoche UTC = 7pm
+ * Bogotá), un negocio vencido "ayer" en Bogotá aún marcaba Día 0. Fallo del cobro:
+ * el día del fallo YA es Día 1. Fin de ciclo: vence el día SIGUIENTE al fin del
+ * período (tuvo hasta el final de ese día para pagar).
  */
+import { bogotaYmd, addDaysYmd, daysBetweenYmd } from '../referrals/cutoff-calendar';
 
 export interface DunningState {
   failedPaymentCount: number | null;
@@ -68,15 +77,15 @@ export function decideDunning(
   now: Date,
   cfg: DunningConfig,
 ): DunningDecision {
-  let dueSince: Date | null = null;
+  let anchor: Date | null = null;
   let byFailure = false;
 
   if ((t.failedPaymentCount ?? 0) > 0) {
-    dueSince = t.firstFailedAt ?? t.lastPaymentAttemptAt;
-    if (dueSince) byFailure = true;
+    anchor = t.firstFailedAt ?? t.lastPaymentAttemptAt;
+    if (anchor) byFailure = true;
   }
   if (
-    !dueSince &&
+    !anchor &&
     t.currentPeriodEnd &&
     t.currentPeriodEnd.getTime() < now.getTime()
   ) {
@@ -84,15 +93,28 @@ export function decideDunning(
     const renewed =
       t.lastChargeAt != null &&
       t.lastChargeAt.getTime() >= t.currentPeriodEnd.getTime();
-    if (!renewed) dueSince = t.currentPeriodEnd;
+    if (!renewed) anchor = t.currentPeriodEnd;
   }
 
-  if (!dueSince) {
+  if (!anchor) {
     return { dueSince: null, byFailure: false, daysOverdue: 0, action: 'none' };
   }
 
-  const daysOverdue = Math.floor((now.getTime() - dueSince.getTime()) / DAY_MS);
+  // Día 1 = primer día vencido en calendario de Bogotá (NO hay Día 0). Fallo del
+  // cobro: el día del fallo ya es Día 1. Fin de ciclo: vence el día SIGUIENTE al
+  // fin del período. `daysOverdue` es 1-indexado: 1..graceDays = gracia,
+  // graceDays+1 = suspende.
+  const overdueStartYmd = byFailure
+    ? bogotaYmd(anchor)
+    : addDaysYmd(bogotaYmd(anchor), 1);
+  const daysOverdue = daysBetweenYmd(overdueStartYmd, bogotaYmd(now)) + 1;
 
+  // Aún no vencido en días de Bogotá (ej. "vence hoy"): no está en mora todavía.
+  if (daysOverdue < 1) {
+    return { dueSince: null, byFailure: false, daysOverdue: 0, action: 'none' };
+  }
+
+  const dueSince = anchor;
   if (daysOverdue < cfg.reminderDay) {
     return { dueSince, byFailure, daysOverdue, action: 'none' };
   }

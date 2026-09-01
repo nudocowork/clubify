@@ -851,9 +851,15 @@ function CobrosDrilldown({
     };
   }, [bucket, range]);
 
+  // Fechas SIEMPRE en hora de Bogotá (no la del navegador del que mira): así
+  // "VENCE" coincide con el conteo de días de gracia, que el backend cuenta en
+  // días de calendario de Bogotá. Sin esto, un valor guardado a medianoche UTC
+  // (= 7pm Bogotá del día anterior) se veía un día corrido y no cuadraba con la
+  // etiqueta "Día N de 5".
   const fmtD = (s?: string | null) =>
     s
       ? new Date(s).toLocaleDateString('es-CO', {
+          timeZone: 'America/Bogota',
           day: '2-digit',
           month: 'short',
         })

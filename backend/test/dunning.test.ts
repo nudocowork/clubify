@@ -10,12 +10,15 @@ import {
 } from '../src/billing/dunning';
 
 /**
- * Regla de mora — el caso que fallaba en producción: "no suspende al día 6".
+ * Regla de mora — dos comportamientos que se fijan acá:
+ *  1) "no suspende al día 6": el reloj se ancla en `firstFailedAt` (inmutable),
+ *     no en `lastPaymentAttemptAt` (que Hotmart pisa en cada reintento).
+ *  2) DÍAS EN HORA DE BOGOTÁ, 1-INDEXADOS (2026-09-01): el primer día vencido ya
+ *     es Día 1 (no hay Día 0). Fallo del cobro → el día del fallo es Día 1. Fin de
+ *     ciclo → vence el día SIGUIENTE al fin del período. Suspende al Día 6.
  *
- * La causa raíz era que el reloj de gracia se anclaba en `lastPaymentAttemptAt`,
- * que Hotmart pisa a `now` en cada reintento → la mora volvía a 0 y nunca
- * llegaba al umbral. La corrección: anclar en `firstFailedAt` (inmutable) y
- * suspender al día (graceDays+1). Estos tests fijan ese comportamiento.
+ * `DAY0` se fija a la MEDIANOCHE DE BOGOTÁ (05:00Z) para que `day(n)` avance por
+ * días de calendario de Bogotá limpios.
  */
 
 const CFG: DunningConfig = {
@@ -25,8 +28,8 @@ const CFG: DunningConfig = {
   staleCapDays: 60,
 };
 
-// Base fija (sin Date.now): día 0 de la mora.
-const DAY0 = new Date('2026-08-01T00:00:00.000Z');
+// Medianoche de Bogotá del 2026-08-01 (= 05:00Z). day(n) = +n días de Bogotá.
+const DAY0 = new Date('2026-08-01T05:00:00.000Z');
 const day = (n: number) => new Date(DAY0.getTime() + n * 24 * 60 * 60 * 1000);
 
 // Negocio sano por defecto; cada test cambia lo que le importa.
@@ -42,31 +45,36 @@ function state(over: Partial<DunningState> = {}): DunningState {
 }
 
 describe('decideDunning — cobro fallido (Hotmart/Stripe)', () => {
+  // firstFailedAt = DAY0 → el DÍA DEL FALLO es Día 1. Día N cae en day(N-1).
   const failing = state({ failedPaymentCount: 1, firstFailedAt: DAY0 });
 
-  it('al día 5 sigue en gracia (NO suspende) — este era el reclamo', () => {
-    const d = decideDunning(failing, day(5), CFG);
-    expect(d.daysOverdue).toBe(5);
+  it('el día del fallo YA es Día 1 (no hay Día 0)', () => {
+    const d = decideDunning(failing, DAY0, CFG);
+    expect(d.daysOverdue).toBe(1);
     expect(d.byFailure).toBe(true);
+    expect(d.action).toBe('reminder'); // Día 1 = recordatorio
+  });
+
+  it('al Día 5 sigue en gracia (NO suspende) — este era el reclamo', () => {
+    const d = decideDunning(failing, day(4), CFG); // Día 5
+    expect(d.daysOverdue).toBe(5);
     expect(d.action).not.toBe('suspend');
     expect(d.action).toBe('none'); // día intermedio de gracia
   });
 
-  it('al día 6 SÍ suspende', () => {
-    const d = decideDunning(failing, day(6), CFG);
+  it('al Día 6 SÍ suspende', () => {
+    const d = decideDunning(failing, day(5), CFG); // Día 6
     expect(d.daysOverdue).toBe(6);
     expect(d.action).toBe('suspend');
   });
 
-  it('ancla INMUTABLE: aunque Hotmart reintente y mueva lastPaymentAttemptAt, suspende al día 6', () => {
-    // firstFailedAt fijo en día 0; Hotmart reintentó en día 5 (lo típico que
-    // reiniciaba el reloj). Debe seguir contando desde día 0 → suspende.
+  it('ancla INMUTABLE: aunque Hotmart reintente y mueva lastPaymentAttemptAt, suspende al Día 6', () => {
     const retried = state({
       failedPaymentCount: 4,
       firstFailedAt: DAY0,
-      lastPaymentAttemptAt: day(5),
+      lastPaymentAttemptAt: day(4),
     });
-    const d = decideDunning(retried, day(6), CFG);
+    const d = decideDunning(retried, day(5), CFG); // Día 6
     expect(d.dueSince).toEqual(DAY0);
     expect(d.action).toBe('suspend');
   });
@@ -77,7 +85,7 @@ describe('decideDunning — cobro fallido (Hotmart/Stripe)', () => {
       firstFailedAt: null,
       lastPaymentAttemptAt: DAY0,
     });
-    const d = decideDunning(legacy, day(6), CFG);
+    const d = decideDunning(legacy, day(5), CFG); // Día 6
     expect(d.dueSince).toEqual(DAY0);
     expect(d.byFailure).toBe(true);
     expect(d.action).toBe('suspend');
@@ -89,22 +97,25 @@ describe('decideDunning — cobro fallido (Hotmart/Stripe)', () => {
     expect(d.action).toBe('suspend');
   });
 
-  it('D+1 → recordatorio, D+2 → aviso de pausa', () => {
-    expect(decideDunning(failing, day(1), CFG).action).toBe('reminder');
-    expect(decideDunning(failing, day(2), CFG).action).toBe('notice');
-  });
-
-  it('mismo día del fallo (D+0) → sin acción', () => {
-    expect(decideDunning(failing, day(0), CFG).action).toBe('none');
+  it('Día 1 → recordatorio, Día 2 → aviso de pausa', () => {
+    expect(decideDunning(failing, DAY0, CFG).action).toBe('reminder'); // Día 1
+    expect(decideDunning(failing, day(1), CFG).action).toBe('notice'); // Día 2
   });
 });
 
 describe('decideDunning — pago por fuera / fecha vencida', () => {
-  it('pago por fuera vencido hace 6 días SÍ suspende (decisión del dueño 2026-08-31)', () => {
-    // manualPayment no está en el estado: el ancla es currentPeriodEnd. Sin
-    // failedPaymentCount → byFailure=false, pero igual suspende al día 6.
+  // currentPeriodEnd = DAY0 → vence el DÍA SIGUIENTE. Día N cae en day(N).
+  it('el día del vencimiento mismo NO está en mora todavía (no hay Día 0)', () => {
+    // currentPeriodEnd = DAY0 (medianoche Bogotá); mismo día por la tarde.
+    const dueEarlierToday = state({ currentPeriodEnd: DAY0 });
+    const d = decideDunning(dueEarlierToday, new Date(DAY0.getTime() + 12 * 3600 * 1000), CFG);
+    expect(d.dueSince).toBeNull();
+    expect(d.action).toBe('none');
+  });
+
+  it('pago por fuera vencido: al Día 6 SÍ suspende (decisión del dueño 2026-08-31)', () => {
     const manual = state({ currentPeriodEnd: DAY0, lastChargeAt: null });
-    const d = decideDunning(manual, day(6), CFG);
+    const d = decideDunning(manual, day(6), CFG); // Día 6
     expect(d.byFailure).toBe(false);
     expect(d.dueSince).toEqual(DAY0);
     expect(d.action).toBe('suspend');
@@ -170,34 +181,34 @@ describe('deriveRenewalState — estados terminales', () => {
 });
 
 describe('deriveRenewalState — mora (EN_GRACIA)', () => {
+  // firstFailedAt = DAY0 → Día 1 = DAY0; Día N cae en day(N-1).
   const failing = rstate({ failedPaymentCount: 1, firstFailedAt: DAY0 });
 
-  it('día 3 → EN_GRACIA, "Día 3 de 5", 3 días para suspender, pausa el día 6', () => {
-    const r = deriveRenewalState(failing, day(3), RCFG);
+  it('Día 3 → EN_GRACIA, "Día 3 de 5", 3 días para suspender', () => {
+    const r = deriveRenewalState(failing, day(2), RCFG); // Día 3
     expect(r.state).toBe('EN_GRACIA');
     expect(r.graceLabel).toBe('Día 3 de 5');
     expect(r.graceDaysLeft).toBe(3); // 5+1-3
-    expect(r.pauseDate).toEqual(day(6));
     expect(r.byFailure).toBe(true);
   });
 
-  it('día 5 (último de gracia) → "Día 5 de 5", 1 día para suspender', () => {
-    const r = deriveRenewalState(failing, day(5), RCFG);
+  it('Día 5 (último de gracia) → "Día 5 de 5", 1 día para suspender', () => {
+    const r = deriveRenewalState(failing, day(4), RCFG); // Día 5
     expect(r.state).toBe('EN_GRACIA');
     expect(r.graceLabel).toBe('Día 5 de 5');
     expect(r.graceDaysLeft).toBe(1);
   });
 
-  it('día 6 → EN_GRACIA con 0 días (el cron lo suspenderá) — cae en 🟡 no procesados', () => {
-    const r = deriveRenewalState(failing, day(6), RCFG);
+  it('Día 6 → EN_GRACIA con 0 días (el cron lo suspenderá) — cae en 🔴 no procesados', () => {
+    const r = deriveRenewalState(failing, day(5), RCFG); // Día 6
     expect(r.state).toBe('EN_GRACIA');
     expect(r.graceDaysLeft).toBe(0);
     expect(r.graceLabel).toBe('Día 5 de 5'); // etiqueta topa en graceDays
   });
 
-  it('pago por fuera vencido hace 6 días → EN_GRACIA (byFailure=false)', () => {
+  it('pago por fuera vencido: al Día 6 → EN_GRACIA (byFailure=false)', () => {
     const manual = rstate({ currentPeriodEnd: DAY0, lastChargeAt: null });
-    const r = deriveRenewalState(manual, day(6), RCFG);
+    const r = deriveRenewalState(manual, day(6), RCFG); // Día 6
     expect(r.state).toBe('EN_GRACIA');
     expect(r.byFailure).toBe(false);
   });

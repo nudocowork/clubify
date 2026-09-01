@@ -48,6 +48,39 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-09-01 — Gracia/suspensión en DÍAS DE BOGOTÁ, 1-indexado (no hay Día 0)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié (decisión del dueño)
+- **Problema:** el contador de gracia se calculaba en periodos de 24h **UTC**,
+  pero las fechas se muestran en **Bogotá**. Cerca de la medianoche no cuadraban
+  (Konys: VENCE "31 ago" pero "Día 0 de 5" — porque en UTC solo habían pasado 17h).
+- **Fix en `decideDunning` (`billing/dunning.ts`):** `daysOverdue` ahora cuenta
+  **días de calendario de Bogotá** y es **1-indexado** (el primer día vencido ya
+  es **Día 1**, no hay Día 0). Asimetría correcta: **fallo del cobro** → el día del
+  fallo es Día 1; **fin de ciclo** → vence el día SIGUIENTE al fin del período
+  (tuvo hasta el final de ese día). Suspende al **Día 6** (5 días de gracia).
+  Ejemplos: Konys (venció 31-ago Bogotá) → hoy "Día 1"; un fallo de hoy → "Día 1".
+- **Frontend:** el formateador de fechas del drill-down de cobros
+  (`PremiumDashboard.tsx`) ahora renderiza en `timeZone: 'America/Bogota'` (antes
+  usaba la hora del navegador → se corría un día).
+- Tests `dunning.test.ts` reescritos (DAY0 a medianoche de Bogotá, 25 verdes).
+
+### Qué toqué de PRODUCCIÓN
+- **Deploy backend + frontend.**
+- DB: nada.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Nada crítico. Verificado que ningún negocio en gracia salta a Día 6 con el
+      cambio (los que había estaban en Día 0 → pasan a Día 1).
+
+### Riesgos y avisos
+- El MISMO contador decide la SUSPENSIÓN. Ahora suspende al Día 6 **en días de
+  Bogotá** (borde a medianoche), no a 6×24h UTC → puede correr la suspensión hasta
+  ~1 día vs antes. Es el comportamiento pedido. `pauseDate` (fecha mostrada de
+  "se pausa el X") sigue siendo aproximada (±1 día).
+
 ## 2026-09-01 — FIX RAÍZ: cron de suspendidos anulaba comisiones REALES de cobros previos
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
