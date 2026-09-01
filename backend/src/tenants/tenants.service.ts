@@ -2074,6 +2074,44 @@ export class TenantsService {
       }
     }
 
+    // Fase 4 (2026-08-31): estado de comisiones por negocio —
+    //   🟢 asignadas = tiene afiliado Y ya se generó comisión
+    //   🟡 parcial   = tiene afiliado PERO sin comisión (revisar, caso CHANFLE)
+    //   🔴 sin       = sin afiliado atribuido
+    const ids = tenants.map((t) => t.id);
+    const chains = await Promise.all(
+      tenants.map((t) => this.referrals.getAttributionChain(t.id).catch(() => null)),
+    );
+    const sourceIds = chains
+      .map((c) => c?.sourceCodeId)
+      .filter((x): x is string => !!x);
+    const codeNames = sourceIds.length
+      ? await this.prisma.referralCode.findMany({
+          where: { id: { in: sourceIds } },
+          select: { id: true, ownerName: true },
+        })
+      : [];
+    const nameById = new Map(codeNames.map((c) => [c.id, c.ownerName]));
+    const commRows = await this.prisma.commission.findMany({
+      where: { referralUse: { tenantId: { in: ids } } },
+      select: { referralUse: { select: { tenantId: true } } },
+    });
+    const hasComm = new Set(
+      commRows.map((c) => c.referralUse?.tenantId).filter(Boolean),
+    );
+    const comisionesByTenant = new Map<
+      string,
+      { status: 'asignadas' | 'parcial' | 'sin'; afiliado: string | null }
+    >();
+    tenants.forEach((t, i) => {
+      const src = chains[i]?.sourceCodeId ?? null;
+      const status = !src ? 'sin' : hasComm.has(t.id) ? 'asignadas' : 'parcial';
+      comisionesByTenant.set(t.id, {
+        status,
+        afiliado: src ? nameById.get(src) ?? null : null,
+      });
+    });
+
     const items = tenants.map((t) => {
       const cubierto = coveredUntil.get(t.id) ?? null;
       const hasta = cubierto ?? t.currentPeriodEnd ?? t.trialEndsAt ?? null;
@@ -2113,6 +2151,11 @@ export class TenantsService {
           paidAt: last.paidAt,
           periodStart: last.periodStart,
           periodEnd: last.periodEnd,
+        },
+        // Fase 4: estado de comisiones (🟢 asignadas / 🟡 parcial / 🔴 sin).
+        comisiones: comisionesByTenant.get(t.id) ?? {
+          status: 'sin' as const,
+          afiliado: null,
         },
       };
     });

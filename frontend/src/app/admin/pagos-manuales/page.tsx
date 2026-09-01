@@ -39,6 +39,10 @@ type ReviewItem = {
     periodStart: string;
     periodEnd: string;
   } | null;
+  comisiones: {
+    status: 'asignadas' | 'parcial' | 'sin';
+    afiliado: string | null;
+  };
 };
 
 const METHOD_LABEL: Record<string, string> = {
@@ -142,6 +146,7 @@ export default function PagosManualesPage() {
                   <th className="px-4 py-3 font-semibold">Vencido hace</th>
                   <th className="px-4 py-3 font-semibold">Plan</th>
                   <th className="px-4 py-3 font-semibold">Último pago manual</th>
+                  <th className="px-4 py-3 font-semibold">Comisiones</th>
                   <th className="px-4 py-3 font-semibold"></th>
                 </tr>
               </thead>
@@ -149,14 +154,14 @@ export default function PagosManualesPage() {
                 {loading &&
                   Array.from({ length: 4 }).map((_, i) => (
                     <tr key={`sk-${i}`} className="border-t border-line2">
-                      <td colSpan={6} className="px-4 py-3.5">
+                      <td colSpan={7} className="px-4 py-3.5">
                         <div className="h-6 bg-bg2 rounded animate-shimmer" />
                       </td>
                     </tr>
                   ))}
                 {!loading && items.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center">
+                    <td colSpan={7} className="px-4 py-12 text-center">
                       <div className="text-3xl mb-1">✅</div>
                       <div className="font-semibold">Ningún negocio marcado</div>
                       <div className="text-mute text-xs mt-1 max-w-md mx-auto">
@@ -246,6 +251,24 @@ export default function PagosManualesPage() {
                           ) : (
                             <span className="text-mute2 text-xs">
                               Nunca registró un pago manual
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {it.comisiones.status === 'asignadas' ? (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold whitespace-nowrap">
+                              🟢 {it.comisiones.afiliado ?? 'Asignadas'}
+                            </span>
+                          ) : it.comisiones.status === 'parcial' ? (
+                            <span
+                              className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold whitespace-nowrap"
+                              title="Tiene afiliado pero sin comisión generada — revisar"
+                            >
+                              🟡 {it.comisiones.afiliado ?? 'Parcial'}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold whitespace-nowrap">
+                              🔴 Sin asignación
                             </span>
                           )}
                         </td>

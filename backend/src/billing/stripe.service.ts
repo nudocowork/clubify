@@ -514,14 +514,23 @@ export class StripeService {
     const ctx = await this.extractCtx(brand, event);
     const tenant = await this.findTenant(brand.whiteLabelId, ctx);
     if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    const wasFirstFailure = !tenant.firstFailedAt;
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
         failedPaymentCount: { increment: 1 },
         lastPaymentAttemptAt: new Date(),
+        // Ancla INMUTABLE de la gracia (solo el 1er fallo). Ver hotmart.service.
+        firstFailedAt: tenant.firstFailedAt ?? new Date(),
       },
     });
     await this.billing.auditLifecycle('subscription.payment_failed', tenant.id, { gateway: 'STRIPE' });
+    // Fase 3: alerta interna al equipo solo en el 1er fallo.
+    if (wasFirstFailure) {
+      await this.billing
+        .notifyBillingTeam('renovacion_fallida', tenant.brandName)
+        .catch(() => null);
+    }
     this.smsTemplates
       .render('payment_failed', { brandName: tenant.brandName }, tenant.id)
       .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
@@ -680,6 +689,7 @@ export class StripeService {
         status: 'ACTIVE',
         suspendedAt: null,
         failedPaymentCount: 0,
+        firstFailedAt: null,
         ...(ctx.nextCharge ? { currentPeriodEnd: ctx.nextCharge } : {}),
       },
     });
@@ -935,6 +945,8 @@ export class StripeService {
         stripeCustomerId: ctx.customerId ?? tenant.stripeCustomerId,
         stripeSubscriptionId: ctx.subscriptionId ?? tenant.stripeSubscriptionId,
         failedPaymentCount: 0,
+        // Pago/activación confirmada → limpiar el ancla de mora del ciclo.
+        firstFailedAt: null,
         lastPaymentAttemptAt: now,
         suspendedAt: null,
         // En prueba, guardamos cuándo termina (día 7) para el panel y los
@@ -1309,6 +1321,7 @@ export class StripeService {
       stripeCustomerId: true,
       stripeSubscriptionId: true,
       currentPeriodEnd: true,
+      firstFailedAt: true,
     };
     if (ctx.subscriptionId) {
       const t = await this.prisma.tenant.findFirst({

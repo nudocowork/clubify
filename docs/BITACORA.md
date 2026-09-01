@@ -254,6 +254,578 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
   UPDATE condicional y mira el `count`.
 
 ---
+
+## 2026-09-01 — Fix: /admin/contabilidad (y 4 rutas más) se veían como marca blanca
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+- **Bug:** en `/admin/contabilidad` desaparecía la sección del panel y "no
+  ingresaba". Causa: `AppShell.tsx` decide si `/admin/<seg>` es una ruta admin o
+  un SLUG DE MARCA BLANCA usando el set `ADMIN_ROUTE_SEGMENTS`. `contabilidad` NO
+  estaba en el set (había `accounting` en inglés, ruta que no existe) → se leía
+  como marca → `isOtherBrand=true` → escondía todos los items `clubifyOnly`
+  (incluido Contabilidad) y trataba el panel como de otra marca. Roto desde que se
+  creó la página; recién ahora se usó.
+- **Fix:** agregué `contabilidad` al set. Y de paso barrí TODAS las rutas reales
+  de `src/app/admin/*` contra el set: faltaban 4 más con el mismo bug latente
+  (`academia`, `automatizaciones`, `infolinks`, `pending-payments`) — agregadas.
+- **⚠️ HAY DOS LISTAS (segundo commit):** además de `ADMIN_ROUTE_SEGMENTS` en
+  AppShell (nav), el **`middleware.ts`** tiene su propia `RESERVED_ADMIN_ROUTES`.
+  El middleware es server-side y **REESCRIBE `/admin/<slug-no-listado>` → `/admin`**
+  (el dashboard) tratándolo como marca. Por eso, con solo el fix del AppShell, la
+  sección aparecía pero al entrar **cargaba el Dashboard**, no Contabilidad. Al
+  middleware le faltaban `contabilidad` e `infolinks` → agregadas. Verificado: las
+  32 rutas admin están en AMBAS listas. **Al crear una ruta /admin/<seg> nueva, hay
+  que agregarla a las DOS listas.**
+
+### Qué toqué de PRODUCCIÓN
+- **Deploy frontend.** Backend: nada.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Al agregar una ruta nueva en `src/app/admin/<seg>`, agregar `<seg>` a
+      `ADMIN_ROUTE_SEGMENTS` en AppShell (si no, la página se ve rota en marca).
+
+## 2026-09-01 — Gracia/suspensión en DÍAS DE BOGOTÁ, 1-indexado (no hay Día 0)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié (decisión del dueño)
+- **Problema:** el contador de gracia se calculaba en periodos de 24h **UTC**,
+  pero las fechas se muestran en **Bogotá**. Cerca de la medianoche no cuadraban
+  (Konys: VENCE "31 ago" pero "Día 0 de 5" — porque en UTC solo habían pasado 17h).
+- **Fix en `decideDunning` (`billing/dunning.ts`):** `daysOverdue` ahora cuenta
+  **días de calendario de Bogotá** y es **1-indexado** (el primer día vencido ya
+  es **Día 1**, no hay Día 0). Asimetría correcta: **fallo del cobro** → el día del
+  fallo es Día 1; **fin de ciclo** → vence el día SIGUIENTE al fin del período
+  (tuvo hasta el final de ese día). Suspende al **Día 6** (5 días de gracia).
+  Ejemplos: Konys (venció 31-ago Bogotá) → hoy "Día 1"; un fallo de hoy → "Día 1".
+- **Frontend:** el formateador de fechas del drill-down de cobros
+  (`PremiumDashboard.tsx`) ahora renderiza en `timeZone: 'America/Bogota'` (antes
+  usaba la hora del navegador → se corría un día).
+- Tests `dunning.test.ts` reescritos (DAY0 a medianoche de Bogotá, 25 verdes).
+
+### Qué toqué de PRODUCCIÓN
+- **Deploy backend + frontend.**
+- DB: nada.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Nada crítico. Verificado que ningún negocio en gracia salta a Día 6 con el
+      cambio (los que había estaban en Día 0 → pasan a Día 1).
+
+### Riesgos y avisos
+- El MISMO contador decide la SUSPENSIÓN. Ahora suspende al Día 6 **en días de
+  Bogotá** (borde a medianoche), no a 6×24h UTC → puede correr la suspensión hasta
+  ~1 día vs antes. Es el comportamiento pedido. `pauseDate` (fecha mostrada de
+  "se pausa el X") sigue siendo aproximada (±1 día).
+
+## 2026-09-01 — FIX RAÍZ: cron de suspendidos anulaba comisiones REALES de cobros previos
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+- **Causa raíz del caso Wok Explosivo (y clase entera):** el cron horario
+  `reconcileSuspendedTenantsCommissions` (`payouts.service.ts:806`) rechazaba
+  **TODAS** las comisiones PENDING/APPROVED de **cualquier** negocio SUSPENDED,
+  sin mirar la fecha del cobro. → anulaba también las de **cobros REALES
+  anteriores** a la suspensión (dinero que el cliente sí pagó, sin reembolso),
+  robándole al afiliado una comisión ganada. Sin audit ni notas (difícil de
+  rastrear). Un negocio que paga meses reales y luego se suspende perdía TODAS sus
+  comisiones pendientes.
+- **Fix:** ahora solo rechaza comisiones cuyo **`businessDate > suspendedAt`**
+  (cobros POSTERIORES a la suspensión = fantasmas/race, que es lo que el cron debe
+  cazar); legacy sin businessDate cae a `createdAt`. Los reembolsos/contracargos de
+  cobros viejos los maneja `churnReferral` (webhook), no este cron. Además ahora
+  deja `notes` en las que rechaza (trazabilidad).
+
+### Qué toqué de PRODUCCIÓN
+- **Deploy backend** con el fix (URGENTE: el cron iba a re-anular la comisión de
+  Wok Explosivo que se restauró hace un rato).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **Auditoría histórica pendiente:** este cron pudo haber anulado
+      indebidamente comisiones de OTROS afiliados (negocios que pagaron real y
+      luego se suspendieron). Vale la pena un script que liste REJECTED con
+      `businessDate < suspendedAt` y sin reembolso → candidatas a restaurar.
+
+### Riesgos y avisos
+- El fix es más conservador (sesga a NO rechazar). Puede dejar pasar algún
+  fantasma con businessDate viejo, pero eso es preferible a robarle plata a un
+  afiliado. Ver [[feedback_cutoff_total_recalc_excludes_rejected_2026_08_31]].
+
+## 2026-09-01 — Wok Explosivo: comisión de agosto REAL anulada por evento duplicado de Hotmart
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué pasó / qué cambié
+- Wok Explosivo (afiliado Nicolás Quintero, TAFMPWK5, subscriber G12D7TCG) mostraba
+  solo 2 comisiones (may, jul). La de **agosto ($5) existía pero estaba REJECTED**.
+- **AuditLog** de agosto: 03-ago `payment_succeeded` (renovación REAL, ciclo→07-sep,
+  creó la comisión) · 11-ago `payment_succeeded` (2º evento a los 8 días que NO
+  extendió el ciclo → **duplicado/fantasma** de Hotmart) · 26-ago `payment_failed`
+  (PURCHASE_DELAYED) · 31-ago SUSPENDIDO. **Sin reembolso ni contracargo** en el
+  registro → el dinero de agosto es real.
+- La comisión se anuló como efecto colateral del duplicado / suspensión (anulación
+  indebida). Restaurada a **APPROVED** con
+  `scripts/restore-wok-explosivo-august-commission.cjs` (idempotente; el dueño lo
+  corrió).
+
+### Qué toqué de PRODUCCIÓN
+- **DB:** restaurada 1 comisión (REJECTED→APPROVED, $5) vía el script. Nada más.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Nicolás cobra ese $5 en el próximo corte (verificar que entre).
+
+### Riesgos y avisos
+- **Causa de fondo SIN arreglar (delicada):** cuando Hotmart dispara un 2º evento
+  de renovación en el mismo ciclo (duplicado/fantasma), la lógica anti-fantasma /
+  suspensión puede **anular la comisión REAL**. Antes de restaurar una REJECTED,
+  mirar SIEMPRE el AuditLog: si hay `PURCHASE_REFUNDED`/`CHARGEBACK`, el rechazo es
+  correcto; si no, es anulación indebida. Distinto del bug de Motilart (ahí faltaba
+  CREARLA; aquí se creó y se anuló).
+
+## 2026-09-01 — Sellea: fugas de marca en links de afiliado + comisión fija + botón sin feedback (LIVE, commit e00c2ea9)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié (4 bugs de Sellea reportados con capturas)
+- **Fuga link para compartir** (`soyclubify.com/ref/...` en vez de Sellea): en
+  `referrals.service.ts` había `appUrl = process.env.APP_URL ?? 'soyclubify.com'`
+  hardcodeado en 4 sitios (createCode, listMine, createEmbajadorDirect,
+  createInfluencer). Ahora nuevo helper `brandShareBaseUrl(whiteLabelId)` que usa
+  `brandBaseUrl` (dominio de la marca dueña del código → `www.selleala.com`).
+- **Fuga link de login en credenciales** (`soyclubify.com/login`): reset de
+  contraseña en `auth.service.ts` `setAffiliatePasswordByCode` armaba
+  `${APP_URL}/login`. Ahora lee `whiteLabelId` del código y usa `brandBaseUrl`.
+- **Comisión fija en auto-registro de afiliado** (bug encontrado de paso):
+  `selfRegisterAffiliate` guardaba solo `commissionPercent` → un afiliado de
+  Sellea (modo FIXED_ONCE) nacía en % en vez de $80/$40 pago único. Ahora setea
+  `fixedCommissionUsd` igual que el admin y `/refer`.
+- **Botón "Registrarme" "no hace nada"**: en `registro-afiliado/page.tsx` el
+  botón se deshabilita si el formulario está incompleto (típico: contraseña < 8
+  caracteres) SIN ningún aviso. Agregado texto que explica qué falta.
+
+### Qué toqué de PRODUCCIÓN
+- Nada aún — SIN DESPLEGAR. Pendiente deploy backend + frontend.
+- DB: solo lectura (verifiqué dominios de Sellea: domain=www.selleala.com,
+  appDomain=app.selleala.com).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Desplegar backend + frontend.
+- [ ] Verificar en Sellea que los links ya no dicen soyclubify.
+
+### Riesgos y avisos
+- El helper prefiere `WhiteLabel.domain` (marketing). Clubify queda igual
+  (domain=soyclubify.com). Solo cambia para marcas con dominio propio.
+
+## 2026-09-01 — Dashboard de cobros: colores intuitivos + rango "Todos" en No procesados
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+- **Colores de las 3 tarjetas** (confusión reportada por el dueño: abría la roja
+  buscando los fallos y ahí estaban los "próximos"). Ahora:
+  - 🔵 **Próximos cobros** (neutro, era 🔴)
+  - 🟢 Pagos procesados (igual)
+  - 🔴 **Pagos no procesados** (el fallo, era 🟡)
+  Solo frontend: `PremiumDashboard.tsx` (CobroCard color `blue`, iconos, títulos
+  del drill-down).
+- **Rango "Todos"** en la lista de 🔴 No procesados. Antes la lista recortaba a
+  30 días y las **suspensiones viejas** (ej. AutoTech Services, suspendido desde
+  5-jul) sumaban en el CONTEO pero **no aparecían en la LISTA**. Ahora "Todos" es
+  el rango por defecto de esa tarjeta → lista cuadra con el conteo. Backend:
+  `rangeToDays` acepta `todos`/`all` (36500 días = sin recorte). Verificado:
+  conteo=6, lista 30d=5, lista Todos=6 (AutoTech reaparece).
+
+### Qué toqué de PRODUCCIÓN
+- **Deploy backend + frontend** (rama `feat/commissions-auto-cutoffs`).
+- DB: nada (solo lectura para verificar).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Nada crítico. Es UX del dashboard de cobros.
+
+### Riesgos y avisos
+- **Recordatorio de diseño (no es bug):** el SMS de "cobro fallido" al equipo
+  dispara SOLO en el PRIMER fallo (`wasFirstFailure`, hotmart.service). Un negocio
+  ya suspendido que Hotmart sigue reintentando (ej. AutoTech, 6º intento) NO
+  re-alerta. Es a propósito, para no spamear en cada reintento.
+
+## 2026-09-01 — Fix comisión faltante del 3er cobro (Motilart) + arreglo sistémico de dedup por ciclo
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+- **Diagnóstico (Motilart):** paga mensual; cobros reales jun/jul/ago (tx
+  `HP0274589164`, $49.52, `lastChargeAt=2026-08-22`, ciclo→22-sep). El 3er cobro
+  SÍ estaba registrado pero **no generó comisión**. Causa raíz doble, mismo
+  origen (deducir el ciclo por `createdAt`/`new Date()` en vez de `businessDate`):
+  1. `periodKey = monthKey()` = mes en que corre el código. Las comisiones de
+     **julio** se insertaron tarde (30-ago) → quedaron con período `2026-08` →
+     chocaban en la UNIQUE con el cobro de agosto.
+  2. `reconcileRecurringCommissions` deduplicaba por `createdAt ≥ inicioCiclo`;
+     esas filas (creadas 30-ago) caían en la ventana del ciclo de agosto → el
+     cron creía agosto cubierto y lo saltaba.
+- **Arreglo sistémico** (`backend/src/referrals/referrals.service.ts`):
+  - `reconcileRecurringCommissions`: dedup por **`businessDate`** (con fallback a
+    `createdAt` solo para filas legacy sin businessDate), `periodKey` derivado del
+    cobro (`monthKey(lastChargeAt)`), y ahora **escribe `businessDate`** al crear.
+  - `generateCommissionsForPayment` (webhook): `periodKey = monthKey(businessDate)`
+    + dedup por ciclo (mes de businessDate) — cubre filas de reconcile con `tx=null`.
+  - Test `backend/test/commission-cycle-dedup.test.ts` (5, verdes). Suite
+    comisiones/cortes/dunning: 69/69. `tsc` limpio.
+- **Arreglo puntual (dato):** `backend/scripts/fix-motilart-august-commission.cjs`
+  (idempotente): re-estampó julio a `2026-07` y creó las 2 de agosto ($12.50
+  Santiago + $2.50 Juan), PENDING, disponibles 06-sep.
+
+### Qué toqué de PRODUCCIÓN
+- **DB:** corrí el script puntual de Motilart (re-estampa 2 filas de julio +
+  crea 2 de agosto). Verificado: 6 comisiones, 3 meses completos.
+- **Deploy backend:** rama `feat/commissions-auto-cutoffs` con el arreglo
+  sistémico (ver commit de esta entrada).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Las 2 comisiones de agosto de Motilart pasan a APPROVED solas el **06-sep**
+      (cron promotePendingToApproved). Verificar que entren al corte correcto.
+- [ ] El arreglo sistémico beneficia a TODOS los negocios con cobros cuya
+      comisión se insertó tarde: vigilar que no reaparezca "renovación sin
+      comisión" en próximos cortes.
+
+### Riesgos y avisos
+- El cambio de `periodKey` (de mes-de-ejecución a mes-de-cobro) es hacia
+  adelante; las filas legacy conservan su período viejo. El dedup por
+  `businessDate` las respeta (fallback a `createdAt` si no tienen businessDate),
+  así que no duplica.
+
+## 2026-08-31 — Contabilidad F5 (Cierres) + F6 (Reportes) (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+**F6 Reportes/Dashboard:** `FinanceReportService` — cascada de utilidad DERIVADA
+(Bruto − Fee/IVA = Neto; Neto − Egresos − Nómina − Comisiones = Utilidad) +
+serie mensual (6 meses). Endpoint `GET /admin/contabilidad/reporte?scope=&period=`.
+Frontend: pestaña **Reportes** (cascada + serie). Nómina se toma por `periodEnd`
+del PayrollRun; comisiones por `businessDate` (status≠REJECTED, sin acotar por
+marca en v1).
+
+**F5 Cierres:** modelo nuevo `FinancialClose` (snapshot mensual congelado de la
+cascada, único por period+scope). Migración
+`apply-financial-close-migration.cjs`. Endpoints `GET/POST/DELETE
+/admin/contabilidad/cierres`. Frontend: pestaña **Cierres** (cerrar mes con
+snapshot + tabla de meses cerrados + reabrir). TSC + ESLint limpios.
+
+Con esto el módulo Contabilidad queda con TODAS las pestañas (Ingresos,
+Conciliación, Egresos, Gastos, Nómina, Movimientos, Reportes, Cierres).
+
+### Qué toqué de PRODUCCIÓN
+- Nada. Falta: correr `apply-financial-close-migration.cjs` ANTES del deploy (el
+  código consulta la tabla nueva) + desplegar backend + frontend.
+
+## 2026-08-31 — Contabilidad F4 Movimientos: terminado (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+Cerré el **F4 Movimientos** de Contabilidad que estaba aparcado sin commitear.
+Backend ya estaba (MovementsService/Controller: libro de caja DERIVADO de
+IncomeRecord + Expense + PayrollRun con saldo corrido, `GET
+/admin/contabilidad/movimientos?scope=&kind=`). Faltaba el frontend, que además
+estaba ROTO (el `mv` del `Promise.all` no estaba en el destructuring →
+`contabilidad/page.tsx` no compilaba). Corregido: agregado `mv` al destructuring,
+la pestaña **Movimientos** en la barra de tabs, y el render (resumen
+ingresos/egresos/saldo + filtro Todos/Ingresos/Egresos + tabla débito/crédito/
+saldo). TSC backend + frontend limpios (el error viejo de contabilidad ya no está).
+
+### Qué toqué de PRODUCCIÓN
+- Nada. Aditivo, sin migración (Movimientos es derivado en lectura). Falta desplegar.
+
+### Qué falta
+- [ ] Desplegar backend + frontend.
+
+## 2026-08-31 — Renovaciones Fases 3 (SMS alertas) + 4 (comisiones en Pagos por fuera) (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+**Fase 3 — SMS de alerta de cobro** a los 3 números (+573135618300 /
++573181666999 / +573248088401) por la **subcuenta del equipo**
+(`prereg.sendInternalAlert`, la misma probada con el SMS de pagos — NO desde
++573167689240 porque ese número no está en el sistema; cambiar el remitente ahí
+cuando exista). `BillingService.notifyBillingTeam('renovacion_fallida'|
+'suspendido', brandName)`. Disparadores: 1er cobro fallido (hotmart DELAYED/
+PROTEST + stripe onPaymentFailed, SOLO cuando firstFailedAt era null → no spamea
+reintentos) y auto-suspensión (processOverdueAccounts). Test: `POST
+/billing/billing-alerts/test`.
+
+**Fase 4 — columna de comisiones** en Pagos por fuera (`listManualPaymentReview`
++ `pagos-manuales/page.tsx`): 🟢 asignadas (afiliado + comisión generada) /
+🟡 parcial (afiliado SIN comisión → revisar, caso CHANFLE) / 🔴 sin asignación.
+Usa `referrals.getAttributionChain` (ya inyectado en TenantsService).
+
+### Qué toqué de PRODUCCIÓN
+- Nada. Falta desplegar backend + frontend.
+
+### Qué falta / validar
+- [ ] Desplegar. Probar el SMS con `POST /billing/billing-alerts/test`.
+- [ ] Con esto el proyecto de renovaciones/cobros queda COMPLETO (Fases 1-5).
+
+## 2026-08-31 — Dashboard de cobros (Fase 5) instalado: 3 tarjetas 🔴🟢🟡 (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+- Backend (commit aparte 47955ae3): `CobrosService` (summary + detail por bucket)
+  inyectado en `GET /admin/dashboard/metrics-v2` (campo `cobros`) + endpoints
+  `GET /admin/dashboard/cobros/:bucket?range=`. Reusa `deriveRenewalState`.
+- Frontend `PremiumDashboard.tsx`: reemplazadas las 3 tarjetas (MRR / Tasa
+  cancelación / Comisiones pendientes) por **🔴 Próximos cobros / 🟢 Procesados /
+  🟡 No procesados**, clickeables → modal drill-down con filtros de rango
+  (hoy/7/15/30d) y tabla por bucket. Se quitó el componente `Kpi` (sin uso).
+
+### Qué toqué de PRODUCCIÓN
+- Nada. Falta desplegar backend + frontend.
+
+### Qué falta
+- [ ] Desplegar (backend ya tiene el feed; frontend muestra las tarjetas).
+- [ ] Fase 3 (SMS alertas de cobro a los 3 números) + Fase 4 (columna comisiones
+      en Pagos por fuera) del proyecto de renovaciones — aún pendientes.
+
+## 2026-08-31 — Fix sistémico "atribución tardía → sin comisión" (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+`assignAffiliate` (`referrals.service.ts`): al asignar un afiliado a un negocio
+que YA pagó (ACTIVE + lastChargeAt + ciclo vigente), ahora **genera la comisión
+del periodo** vía `generateCommissionsForPayment` (idempotente por la
+UNIQUE(referralUseId,recipientCodeId,periodKey)). Antes, si el pago Hotmart
+entraba ANTES de asignar el afiliado (caso CHANFLE, 15h de diferencia), la
+comisión nunca se creaba y asignarlo a mano no la generaba retroactivamente.
+Gate: solo ACTIVE con pago real y ciclo vigente (nunca trials ni suspendidos).
+TSC + ESLint + 35 tests OK.
+
+### Qué toqué de PRODUCCIÓN
+- Nada. Falta desplegar backend para que aplique.
+
+### Qué falta
+- [ ] Desplegar backend.
+- [ ] Fases 3-5 del dashboard de cobros (SMS alertas, columna comisiones,
+      instalar dashboard) — Fase 5 backend (CobrosService) quedó a medias sin
+      commitear en `admin-reports/`. F4 Movimientos (Contabilidad) también.
+
+## 2026-08-31 — Cortes: flujo de pago POR PERSONA + comprobantes + SMS · CHANFLE (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama:** `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+**Flujo de pago por persona en el cierre de corte** (los giros no son
+instantáneos): recibir el dinero → pagar a cada persona con su comprobante →
+recién ahí se habilita cerrar. Cada evento manda SMS interno a **+12125550752**.
+- Esquema: `PayoutBatch.receivedAt/receivedProofUrl/…` + tabla nueva
+  `BatchPersonPayment` (pago por persona con comprobante). Migración
+  `apply-batch-person-payment-migration.cjs` (aditiva, idempotente).
+- Backend `cutoff.service`: `markBatchReceived`, `markPersonPaid` (pone sus
+  comisiones PAID + registra el pago), `batchPayoutStatus` (checklist), SMS al
+  cerrar, `testPayoutSms`. Endpoints en `referrals.controller`
+  (mark-received, pay-person, payout-status, payout-alerts/test).
+- SMS interno: `PreregAlertsService.sendInternalAlert(phone, body)` (reusa la
+  subcuenta GB del equipo, sin anti-dup). **Botón "🧪 Probar SMS"** en el modal.
+- Comprobantes: reusa `<FileUploader>` → `/media/upload` → proofUrl.
+- Frontend: `CloseBatchModal` rehecho (recibido + checklist por persona con
+  subida de comprobante + cierre bloqueado hasta pagar a todas). 40 tests cortes OK.
+
+**CHANFLE** (comisión no generada por atribución tardía): script
+`fix-chanfle-missing-commission.cjs` — genera $6.80 (base canónica $68×10%,
+subPrice null), businessDate=fecha del pago, hold hasta 2026-09-09, PENDING.
+
+### Qué toqué de PRODUCCIÓN
+- **Nada aún.** No corrí la migración ni los scripts, no desplegué.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Correr `apply-batch-person-payment-migration.cjs` ANTES del deploy (el
+      código consulta las columnas/tabla nuevas).
+- [ ] Correr `fix-chanfle-missing-commission.cjs`.
+- [ ] Desplegar backend + frontend (todo lo del día: Fase 2, fix availableAt, UI
+      de cortes, flujo de pagos).
+- [ ] Probar el SMS con el botón "🧪 Probar SMS" del modal (a +12125550752).
+- [ ] PENDIENTE: fix sistémico "atribución tardía → sin comisión" (generar la
+      comisión al asignar un afiliado a un negocio ya pagado).
+
+### Riesgos y avisos
+- `closeBatch` sigue siendo compatible (paga lo que reste + cierra); el bloqueo
+  hasta pagar a todos lo hace el frontend. El SMS al cerrar es best-effort.
+
+## 2026-08-31 — Comisiones UI: columnas, orden, filtro por desbloqueo, "Corte N" (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama:** `feat/commissions-auto-cutoffs`
+
+### Qué cambié (frontend + backend, aditivo)
+- **Tabla avanzada** (`commissions/page.tsx`): ocultadas 3 columnas (DÍAS REST.,
+  FECHA DE PAGO, y la de acciones "marcar pagada/habilitar" — ya no se marca a
+  mano, se desbloquea solo). La fecha ahora va **bajo el badge de estado**: si
+  PAGADA → paidAt; si no → availableAt (desbloqueo). colSpans recalculados 11→8.
+- **Filtro por desbloqueo:** nuevo tipo de fecha `available` (availableAt) en el
+  filtro avanzado (backend `listAdminCommissions` + frontend selector). Así "del
+  15 al 31 de ago" muestra las desbloqueadas en ese rango.
+- **Orden por fecha:** el detalle por persona (Corte actual) ahora ordena las
+  comisiones por fecha de compra ascendente (venían por createdAt, desordenadas).
+- **"Corte N" (1..24/año):** helper `cutoffLabel` en backend `cutoff-calendar.ts`
+  y espejo `cutoffLabelFromCode` en frontend. Aplicado al modal de cierre y al
+  historial (el `code` interno "CORTE-2026-08-15" NO cambia, solo la etiqueta).
+
+### Qué toqué de PRODUCCIÓN
+- **Nada.** Aditivo, sin migración. No desplegado.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] FALTA (grande): flujo de pago POR PERSONA en el cierre de corte — marcar
+      recibido/pagado por persona con comprobante (reusar `CommissionPayout` +
+      `/media/upload` + `payouts.service.adminMarkPayoutPaid`), cierre bloqueado
+      hasta pagar a todos, SMS interno a +12125550752 por evento (reusar
+      `prereg-alerts.sendTeamAlert`) + SMS de prueba.
+- [ ] BUG detectado (CHANFLE): comisión NO generada porque la atribución al
+      afiliado se creó 15h DESPUÉS del pago Hotmart (la generación corre en el
+      pago). Patrón "atribución tardía → sin comisión". Falta: (a) generar la de
+      CHANFLE, (b) fix sistémico (al asignar afiliado a un negocio ya pagado,
+      generar la comisión del periodo).
+
+## 2026-08-31 — Comisiones: fix del desbloqueo (availableAt) mal calculado (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama:** `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+Causa raíz de comisiones que se desbloqueaban ~40-50 días tarde y caían en el
+corte equivocado (casos Motilart 22-jul→14-sep, Quipao 15-jul→30-ago): el helper
+`holdReleaseFrom` (en `referrals.service.ts` y su espejo en `hotmart.service.ts`)
+tenía un **clamp** que, si el cobro era >2 días viejo, re-anclaba `availableAt` a
+HOY. Pero `businessDate` se guarda con la fecha CRUDA del cobro → cuando una
+renovación se creaba tarde (webhook demorado / cron de reintentos), los dos
+DIVERGÍAN. **Quité el clamp**: el desbloqueo se ancla SIEMPRE a la fecha real del
+cobro (`availableAt = businessDate + 15d`). El clamp protegía una heurística de
+FECHA hoy obsoleta (businessDate ya es la fecha durable). 64 tests verdes.
+
+El sistema de cortes YA es el modelo del dueño (quincenal, 24/año, auto-desbloqueo
+por availableAt, historial al cerrar) — el bug solo empujaba al corte equivocado.
+
+### Qué toqué de PRODUCCIÓN
+- **Nada aún** (solo diagnósticos de lectura). El fix de código NO está desplegado.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Desplegar backend (fix de `holdReleaseFrom`) para que no se repita.
+- [ ] Correr el backfill de datos existentes:
+      `railway run node scripts/backfill-availableat-from-businessdate.cjs`
+      (recalcula availableAt=businessDate+15 en comisiones NO pagadas; arregla
+      Motilart y otras). Es DISTINTO del `fix-commission-availableat.cjs` viejo
+      (ese usa createdAt+15, que era parte del problema — NO usarlo).
+- [ ] Correr `scripts/fix-quipao-commission-order.cjs` (intercambio Quipao 15-jul
+      Pagada $5.00 / 1-ago Disponible $5.00).
+- [ ] PENDIENTE de diseño con el dueño: renombrar cortes a "Corte 1..24" y que el
+      filtro avanzado use availableAt (desbloqueo) en vez de businessDate.
+- [ ] Investigar por qué Quipao calcula $4.95 en vez de $5.00 (base de comisión).
+
+### Riesgos y avisos
+- Quitar el clamp hace que availableAt de renovaciones viejas nazca en el pasado
+  (correcto: su hold ya venció). Las filas fantasma que el clamp "tapaba" las
+  maneja la anulación de renovación fantasma, no este helper.
+
+## 2026-08-31 — Renovaciones Fase 2: estados de renovación (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama:** `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+Derivación PURA del estado del ciclo de cobro (`deriveRenewalState` en
+`src/billing/dunning.ts`), que **reusa `decideDunning`** para que el estado
+MOSTRADO y la decisión de SUSPENDER salgan de la misma regla. Estados:
+`TRIAL | AL_DIA | COBRO_PROXIMO (≤7d) | EN_GRACIA (Día X de 5) | SUSPENDIDO |
+CANCELADO`. Devuelve `graceDaysLeft`, `graceLabel` ("Día 4 de 5"), `pauseDate`,
+`nextChargeAt`. Cableado en `billing.getStatus()` → nuevo campo `renewal` que
+sale por `GET /billing/status` (lo que consume el panel del negocio). +12 tests
+nuevos (24 en total en `test/dunning.test.ts`, verdes).
+
+Detalle fino que costó un test: la mora se detecta por `dueSince`, NO por la
+`action` de dunning — en los días intermedios de gracia (3,4,5) no toca mandar
+SMS (action='none') pero el negocio SÍ está en gracia.
+
+### Qué toqué de PRODUCCIÓN
+- **Nada.** Aditivo, sin migración (usa los campos de la Fase 1 ya migrados).
+  No desplegado: nada lo consume aún hasta el dashboard (Fase 5).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Desplegar junto con Fase 5 (dashboard) — o solo, es inocuo.
+- [ ] Fases 3 (SMS), 4 (comisiones pago por fuera), 5 (dashboard) pendientes.
+
+### Riesgos y avisos
+- `getStatus` ahora hace un `getGraceDays()` extra (lee Setting `billing.graceDays`)
+  — query barata, y no está en un guard por-request (solo en `GET /billing/status`).
+
+## 2026-08-31 — Renovaciones/suspensión Fase 1: fix "no suspende al día 6" (DESPLEGADO)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama / commit:** `feat/commissions-auto-cutoffs` · `dc56ebcd`
+
+### Qué cambié
+Arreglo de raíz del bug "un negocio con cobro fallido nunca se suspende".
+Auditado con datos de prod (solo lectura). Eran **dos** causas encadenadas:
+
+1. **El reloj de gracia se anclaba en `lastPaymentAttemptAt`**, que Hotmart pisa
+   a `now` en CADA reintento (`PURCHASE_DELAYED`) → la mora volvía a 0 días y
+   nunca llegaba al umbral. **Fix:** nuevo campo INMUTABLE `Tenant.firstFailedAt`
+   (se fija solo en el 1er fallo, se limpia al confirmarse pago). El dunning
+   cuenta desde ahí.
+2. **El cron de créditos (2 AM) tapaba la falla.** Los **77 negocios de Clubify**
+   cuelgan de la marca `clubify` con `creditsUnlimited` → ese cron los renovaba
+   GRATIS cada ciclo, empujaba `currentPeriodEnd` al futuro, y el pre-check del
+   dunning ("falla + ciclo vigente = stale") borraba el fallo antes del día 6.
+   **Fix:** el cron de créditos ahora **omite la marca `clubify`** (pagan real
+   por Hotmart → los gobierna el motor de dinero, fuente única).
+
+Además, por decisión del dueño (2026-08-31):
+- **Gracia unificada a 5 días**; se suspende al **día 6** (antes `>=graceDays`,
+  ahora `>graceDays`; default 3→5).
+- **El pago por fuera (manualPayment) YA NO se exime**: mismos 5 días de gracia y
+  auto-suspensión al día 6 (ancla = fecha de vencimiento). Sigue en la lista de
+  revisión manual.
+
+Regla de mora extraída a función **pura y testeable** `src/billing/dunning.ts`
+(`decideDunning`) con 12 tests de reloj congelado que fijan el día-5-gracia /
+día-6-suspende y la inmutabilidad del ancla ante reintentos.
+
+Archivos: `prisma/schema.prisma` (+`firstFailedAt`), `src/billing/dunning.ts`
+(nuevo), `src/billing/billing.service.ts` (motor de mora), `hotmart.service.ts`,
+`stripe.service.ts` (setear/limpiar ancla), `src/superadmin/renewals.service.ts`
+(guard `clubify`), `test/dunning.test.ts` (nuevo),
+`scripts/apply-first-failed-at-migration.cjs` (nuevo).
+
+### Qué toqué de PRODUCCIÓN
+- **Migración aplicada** (`railway run node scripts/apply-first-failed-at-migration.cjs`):
+  columna `Tenant.firstFailedAt` creada, **4** morosos en vuelo con ancla
+  backfilleada, Setting `billing.graceDays` fijado en **5** (no existía).
+- **Backend desplegado** (`node scripts/desplegar.cjs backend`, commit `dc56ebcd`).
+  Swap verificado: deployment ID `87eac06d` (coincide con el build), Online.
+- Al desplegar había **0** negocios de Clubify vencidos/con fallos → no se
+  suspendió a nadie de golpe.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **Primera prueba real:** cuando un cobro de Hotmart falle de verdad, el
+      cron de mora (3 AM) debe suspender al día 6. Vigilar el primer caso.
+- [ ] Fases 2-5 pendientes: estados de renovación, **SMS de alerta** a los 3
+      números desde +573167689240 (falta saber qué subcuenta GrowBusiness tiene
+      ese número), columna de comisiones en Pagos por fuera, y el nuevo dashboard
+      de cobros (preview ya aprobado).
+
+### Riesgos y avisos
+- Hoy en prod hay **0 negocios de Clubify vencidos y 0 con fallos**, así que el
+  guard del cron de créditos **no suspende a nadie de golpe**: de aquí en
+  adelante, cuando un Hotmart falle de verdad, el dunning suspenderá al día 6.
+- **STRIPE/Sellea** tiene el mismo patrón de "créditos que tapan", pero su marca
+  SÍ tiene créditos reales — **no lo toqué**; hay que entender el cobro
+  Clubify←marca antes. Queda señalado.
+- Cuentas internas/comp de Clubify sin Hotmart activo podrían quedar expuestas a
+  la suspensión por fecha cuando venzan (mitiga: `manualPayment` o el tope legacy
+  de 60 días). Ninguna está vencida hoy.
 ## 2026-08-30 — Fuga cross-marca + avisos de cobro silenciosos (DESPLEGADO)
 
 **Máquina/quién:** máquina de Jhon (Claude)
@@ -863,6 +1435,95 @@ Origin/Referer (+ activado para Sellea), panel de referidos brand-aware
 Falta lo que se ve: interruptor admin (`conveniosEnabled`/`maxConvenios`), 2
 endpoints (listar personas activadas + bloquear), página de activación del empleado,
 plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
+
+## 2026-09-01 (tarde) — Team Clubify: color por agenda + las fotos entran en el momento (Jhon)
+**Máquina/quién:** Jhon (Mac)
+**Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commits `0de54a0` y `54a7ac6` · desplegado
+
+### Qué cambié
+- **Color por agenda.** Con varias agendas por equipo, en el banco y el calendario
+  se veían todas iguales. Lo que faltaba de raíz: **una cita no guardaba de qué
+  agenda venía** (`CloserMeeting.booking_config_id`, nuevo). El distintivo es una
+  **barra de color a la izquierda**, no un punto: el punto ya lo usa el semáforo de
+  confirmación (🟢🟡🔴⚪) y dos significados en el mismo símbolo no se leen. El
+  nombre de la agenda sale solo cuando hay más de una a la vista.
+- Una agenda nueva toma sola un color libre del equipo: si nacieran todas verdes,
+  distinguirlas dependería de que alguien se acuerde de cambiarlo.
+- **Las fotos entran en el momento.** Quedaba pendiente del arreglo del 27-ago: la
+  imagen solo aparecía cuando el barrido volvía a pasar por el chat. Ahora el
+  webhook lee los adjuntos en las dos direcciones. Además, un mensaje **sin texto**
+  (solo imagen) se descartaba antes de guardarse (`if (!text) return`), y el dedup
+  por texto fusionaba dos fotos distintas porque las dos tienen el cuerpo vacío.
+- La limpieza del cuerpo (`type message: image`, `#switch_unique`) se movió a
+  `lib/server/provider-message.ts` y la usan los DOS caminos: cuando solo la hacía
+  el importador, el mismo mensaje se guardaba distinto según por dónde entró.
+
+### Qué toqué de PRODUCCIÓN
+- **Base de datos (aditivo):** `BookingConfig.color`, `CloserMeeting.booking_config_id`
+  (+ índice) con `scripts/add-agenda-colors.cjs`. El script rellena hacia atrás de
+  qué agenda vino cada cita **solo donde la respuesta es cierta**: la segunda
+  agenda de un equipo recién es posible desde hoy, así que toda cita anterior vino
+  de la primera de su equipo. 7 de 8 quedaron marcadas.
+- **Despliegue:** `vercel --prod` desde `team_clubify/`. 200 en team.soyclubify.com.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] La cita que quedó sin agenda de origen es de un equipo con dos agendas: se
+      queda sin barra de color hasta que alguien la reasigne a mano. No inventé
+      cuál era.
+- [ ] Sigue en pie lo de **Nico con rol global `admin`** (ve y administra los
+      cuatro equipos) y las **tres variables vacías de Railway**.
+
+### Riesgos y avisos
+- Verificaciones repetibles, las dos reversibles y contra la base real:
+  `npx tsx scripts/verify-agenda-colors.ts` (dos agendas del mismo equipo tienen
+  colores distintos y la cita llega pintada a banco y calendario) y
+  `npx tsx scripts/verify-inbound-attachments.ts` (la foto entra con su imagen y
+  dos fotos distintas no se fusionan; usa un número inexistente y va por el camino
+  saliente, que no dispara flujos).
+
+## 2026-09-01 — Team Clubify: varias agendas por equipo + el líder administra la suya (Jhon)
+**Máquina/quién:** Jhon (Mac)
+**Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commit `ecfca7c` · desplegado
+
+### Qué cambié
+- **Un equipo puede tener varias agendas de reserva.** Lo impedía un índice ÚNICO
+  sobre `BookingConfig.sales_team_id`: la base rechazaba la segunda. Cada agenda
+  tiene su enlace público, su horario y su formulario. Lista en Comercial →
+  equipo → Configuración: crear, configurar, abrir y eliminar. Nunca se borra la
+  última; para dejar de usarla está «inactiva».
+- **El cupo por horario se contaba sobre TODAS las reuniones del sistema**: si el
+  equipo de Nico llenaba las 10:00, la agenda de Ecuador mostraba esa hora
+  ocupada sin tener a nadie. Ahora se cuenta por equipo.
+- **Borrar un formulario solo miraba la agenda `default`** → con varias, dejaba a
+  las otras sin campos. Ahora mira todas.
+- **Permisos:** configurar agenda, banco y formularios pedía un rol GLOBAL
+  (gerente/admin/PM), así que el responsable de un equipo no podía tocar ni su
+  propia agenda. Pasa a `canManageTeam` (líder de ESE equipo o administrador), el
+  mismo criterio que ya usaban colaboradores y comisiones. Los formularios se
+  filtran por equipo y cada acción revalida que el formulario sea de uno suyo —
+  antes bastaba pasar el id de otro.
+
+### Qué toqué de PRODUCCIÓN
+- **Base de datos (Team Clubify):** `DROP INDEX BookingConfig_sales_team_id_key`
+  + índice normal en su lugar, con `scripts/allow-multiple-team-agendas.cjs`
+  (idempotente, no toca ninguna fila). Ya aplicado.
+- **Datos:** Nico quedó `lider` de Equipo Nico y responsable del equipo
+  (`scripts/set-team-lead.cjs "Equipo Nico" <email>`).
+- **Despliegue:** `vercel --prod` desde `team_clubify/`. 200 en team.soyclubify.com.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **Nico tiene rol GLOBAL `admin`** (alguien lo cambió el 1-sep). Con eso ve y
+      administra los CUATRO equipos, no solo el suyo. Si la intención era «todo lo
+      de su equipo y nada más», hay que bajarlo a `collaborator`: con la membresía
+      de líder que ya tiene le alcanza. Decisión de Jhon, no la tomé yo.
+
+### Riesgos y avisos
+- Las agendas nuevas toman slug `agenda-v#` correlativo; el enlace es editable
+  desde la pantalla, pero **cambiarlo rompe los enlaces ya repartidos**.
+- Verificación repetible: `npx tsx scripts/verify-team-agendas.ts [email]` — crea
+  una agenda de prueba, comprueba que resuelve su enlace público y que ofrece
+  horarios, la borra, y lista qué equipos administra esa persona. Probado con un
+  líder sin rol global (Eudes): administra solo el suyo, los otros tres ni los ve.
 
 ## 2026-08-27 — Team Clubify: el chat se completa al abrirlo y las fotos ya se ven (Jhon)
 **Máquina/quién:** Jhon (Mac)

@@ -675,14 +675,23 @@ model Tenant {
   stripeSubscriptionId        String?
   failedPaymentCount          Int                        @default(0)
   lastPaymentAttemptAt        DateTime?
+  /// Ancla INMUTABLE de la mora: se fija UNA sola vez en el primer cobro
+  /// fallido (o vencimiento sin pago) y NO se reescribe en los reintentos de
+  /// Hotmart — a diferencia de `lastPaymentAttemptAt`, que Hotmart pisa a `now`
+  /// en cada `PURCHASE_DELAYED` y reiniciaba el reloj de gracia (por eso nunca
+  /// llegaba al día 6 y no suspendía). El dunning cuenta los días de gracia
+  /// desde acá. Se limpia (null) al confirmarse un pago. Ver billing.service.
+  firstFailedAt               DateTime?
   // E (2026-06-12): timestamp del último pago aprobado real (approved_date
   // del payload Hotmart). Útil para reportes y debugging — antes solo
   // teníamos currentPeriodEnd que es el PRÓXIMO cobro.
   lastChargeAt                DateTime?
   /// Este negocio paga POR FUERA de las pasarelas: Nequi, efectivo,
-  /// transferencia. Ninguna pasarela va a confirmar su pago, así que el sistema
-  /// NO lo suspende solo — aparece en la lista de revisión y se desconecta a
-  /// mano. Ver `ManualPayment` y `billing.service` (gate de suspensión).
+  /// transferencia. Ninguna pasarela confirma su pago, así que el ancla de la
+  /// mora es la FECHA de vencimiento (currentPeriodEnd = último ManualPayment +
+  /// periodicidad). 2026-08-31 (decisión del dueño): el pago por fuera SÍ tiene
+  /// los mismos 5 días de gracia y se auto-suspende al día 6, igual que
+  /// Hotmart — antes se eximía. Sigue apareciendo en la lista de revisión.
   manualPayment               Boolean                    @default(false)
   suspendedAt                 DateTime?
   // Tracking de notificaciones de cobro automáticas (idempotencia del cron):
@@ -4900,11 +4909,42 @@ model PayoutBatch {
   closedBy     User?             @relation("PayoutBatchClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull)
   // true = lo abrió el cron de calendario · false = alta manual / histórico.
   generatedAuto Boolean          @default(false)
+  // Flujo de pago por persona (2026-08-31): cuándo se marcó RECIBIDO el dinero
+  // del corte + su comprobante. El cierre exige: recibido + todas las personas
+  // pagadas. Ver BatchPersonPayment.
+  receivedAt            DateTime?
+  receivedProofUrl      String?
+  receivedProofMimeType String?
+  receivedByUserId      String?
   createdAt     DateTime         @default(now())
   commissions   Commission[]
+  personPayments BatchPersonPayment[]
 
   @@index([paymentDate])
   @@index([status])
+}
+
+/// Pago a UNA persona dentro de un corte (2026-08-31). Como los giros no son
+/// instantáneos, el dueño marca "pagado" persona por persona con su comprobante;
+/// el corte solo se cierra cuando todas están pagadas. recipientCodeId es la
+/// ReferralCode que cobra (sin relación Prisma para no tocar ese modelo).
+model BatchPersonPayment {
+  id              String      @id @default(uuid())
+  batchId         String
+  batch           PayoutBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  recipientCodeId String
+  amountUsd       Decimal     @db.Decimal(10, 2)
+  proofUrl        String?
+  proofMimeType   String?
+  reference       String?
+  notes           String?     @db.Text
+  paidAt          DateTime    @default(now())
+  paidByUserId    String?
+  createdAt       DateTime    @default(now())
+
+  @@unique([batchId, recipientCodeId])
+  @@index([batchId])
+  @@index([recipientCodeId])
 }
 
 // ============================================================
@@ -6785,6 +6825,32 @@ model PayrollRun {
 
   @@index([status])
   @@index([createdAt])
+}
+
+/// CONTABILIDAD — Fase 5. Cierre contable de un MES (snapshot de la cascada de
+/// utilidad al momento de cerrar). Congela los números para que un mes cerrado
+/// no cambie aunque después se toquen ingresos/egresos. period = "YYYY-MM";
+/// scope = "clubify" | "all". Único por (period, scope). Se puede reabrir
+/// (borra el cierre) para recalcular.
+model FinancialClose {
+  id             String   @id @default(uuid())
+  period         String
+  scope          String   @default("clubify")
+  grossUsd       Decimal  @db.Decimal(12, 2)
+  feeTaxUsd      Decimal  @db.Decimal(12, 2)
+  netUsd         Decimal  @db.Decimal(12, 2)
+  egresosUsd     Decimal  @db.Decimal(12, 2)
+  nominaUsd      Decimal  @db.Decimal(12, 2)
+  comisionesUsd  Decimal  @db.Decimal(12, 2)
+  utilidadUsd    Decimal  @db.Decimal(12, 2)
+  note           String?  @db.Text
+  closedByUserId String?
+  closedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([period, scope])
+  @@index([period])
 }
 
 /// CONTABILIDAD — Fase 3. Detalle del corte de nómina, por colaborador

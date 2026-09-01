@@ -142,3 +142,25 @@ export function cutoffCode(ymd: string): string {
   parseYmd(ymd);
   return `CORTE-${ymd}`;
 }
+
+/**
+ * Etiqueta "Corte N" del corte, quincenal, 1..24 por AÑO (decisión del dueño
+ * 2026-08-31). Corte 1 = 1–15 ene, Corte 2 = 16–31 ene, Corte 3 = 1–15 feb…
+ * N = (mes−1)×2 + (primera quincena ? 1 : 2). Es solo presentación: el `code`
+ * interno ("CORTE-2026-08-15") NO cambia. Se deriva del ymd del corte.
+ */
+export function cutoffLabel(ymd: string): {
+  number: number;
+  year: number;
+  label: string;
+} {
+  const { y, m, d } = parseYmd(ymd);
+  const number = d <= 15 ? (m - 1) * 2 + 1 : m * 2;
+  return { number, year: y, label: `Corte ${number}` };
+}
+
+/** Deriva el ymd ("2026-08-15") desde el code de un lote ("CORTE-2026-08-15"). */
+export function ymdFromCutoffCode(code: string): string | null {
+  const m = /^CORTE-(\d{4}-\d{2}-\d{2})$/.exec(code ?? '');
+  return m ? m[1] : null;
+}

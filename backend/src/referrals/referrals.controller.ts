@@ -170,6 +170,23 @@ class UnpayBulkBody {
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
 }
 
+// Flujo de pago por persona (2026-08-31). El comprobante llega como URL de
+// `/media/upload` (proofUrl), no como archivo.
+class MarkReceivedBody {
+  @IsOptional() @IsString() @MaxLength(1000) proofUrl?: string;
+  @IsOptional() @IsString() @MaxLength(120) proofMimeType?: string;
+  @IsOptional() @IsString() @MaxLength(120) reference?: string;
+}
+
+class PayPersonBody {
+  @IsString() recipientCodeId!: string;
+  @IsOptional() @IsString() @MaxLength(1000) proofUrl?: string;
+  @IsOptional() @IsString() @MaxLength(120) proofMimeType?: string;
+  @IsOptional() @IsString() @MaxLength(120) reference?: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @IsOptional() @IsString() paymentDate?: string;
+}
+
 @Controller('referrals')
 export class ReferralsController {
   constructor(private svc: ReferralsService) {}
@@ -1016,6 +1033,45 @@ export class AdminCommissionsController {
   @Post('unpay-bulk')
   unpayBulk(@CurrentUser() user: AuthUser, @Body() body: UnpayBulkBody) {
     return this.cutoff.unpayBulk(user, body);
+  }
+
+  // ── Flujo de pago por persona (2026-08-31) ──────────────────────────────────
+
+  /** Paso 1: marcar el dinero del corte como RECIBIDO (con comprobante). */
+  @Roles('SUPER_ADMIN')
+  @Post('payout-batches/:id/mark-received')
+  markReceived(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: MarkReceivedBody,
+  ) {
+    return this.cutoff.markBatchReceived(user, id, body);
+  }
+
+  /** Paso 2 (una vez por persona): marcar a UNA persona como pagada. */
+  @Roles('SUPER_ADMIN')
+  @Post('payout-batches/:id/pay-person')
+  payPerson(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: PayPersonBody,
+  ) {
+    const { recipientCodeId, ...rest } = body;
+    return this.cutoff.markPersonPaid(user, id, recipientCodeId, rest);
+  }
+
+  /** Estado del flujo de pago (personas pagadas/pendientes + recibido). */
+  @Roles('SUPER_ADMIN')
+  @Get('payout-batches/:id/payout-status')
+  payoutStatus(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.cutoff.batchPayoutStatus(user, id);
+  }
+
+  /** Envío de PRUEBA del SMS interno de pagos (a +12125550752). */
+  @Roles('SUPER_ADMIN')
+  @Post('payout-alerts/test')
+  testPayoutSms(@CurrentUser() user: AuthUser) {
+    return this.cutoff.testPayoutSms(user);
   }
 }
 

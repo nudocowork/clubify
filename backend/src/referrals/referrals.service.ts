@@ -18,6 +18,7 @@ import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 import { recalcBatchTotal } from './payout-batch.util';
 import { bogotaYmd, daysBetweenYmd } from './cutoff-calendar';
 import { cambiarSlugConAlias } from './slug-alias';
+import { brandBaseUrl, BRAND_DOMAIN_SELECT } from '../email/brand-email-creds.util';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -43,18 +44,22 @@ function effectiveAvailableAt(c: {
   return new Date(new Date(c.createdAt).getTime() + COMMISSION_HOLD_DAYS * 86400000);
 }
 
-// availableAt (desbloqueo del hold) = fecha del cobro + 15d. GUARD B6/R4
-// (2026-08-15): si `charge` (Tenant/Group.lastChargeAt) parece VIEJO (>2 días
-// atrás), es un lastChargeAt desactualizado (p.ej. un path que corre con la
-// fecha del PRIMER cobro) → el cobro real acaba de ocurrir, usamos AHORA. Así
-// availableAt nunca vuelve a nacer en el pasado (las 24 filas fantasma
-// 16-ene/16-abr que rompían la heurística de FECHA). +2d de gracia por delays
-// de webhook.
+// availableAt (desbloqueo del hold) = fecha del cobro + 15d, SIEMPRE anclado a
+// la fecha real del cobro (lastChargeAt), NO a "hoy".
+//
+// FIX 2026-08-31: antes había un clamp (GUARD B6/R4) que, si el cobro era >2
+// días viejo, re-anclaba el desbloqueo a HOY. Pero `businessDate` se guarda con
+// la fecha CRUDA del cobro (sin clamp) → cuando una renovación se creaba tarde
+// (webhook demorado o el cron de reintentos de Hotmart), availableAt saltaba a
+// hoy+15 mientras businessDate quedaba en la fecha real → DIVERGÍAN: el
+// desbloqueo caía ~40-50 días tarde y la comisión iba al corte equivocado
+// (casos Motilart 22-jul→14-sep y Quipao 15-jul→30-ago). El clamp protegía una
+// heurística de FECHA hoy OBSOLETA: `businessDate` ya es la fecha durable que
+// lee el panel, así que availableAt puede (y debe) nacer en el pasado para una
+// renovación vieja — significa que su hold de 15 días ya venció y está lista.
 function holdReleaseFrom(charge: Date | null | undefined): Date {
-  const now = Date.now();
-  const c = charge ? new Date(charge).getTime() : now;
-  const base = c >= now - 2 * 86400000 ? c : now;
-  return new Date(base + COMMISSION_HOLD_DAYS * 86400000);
+  const c = charge ? new Date(charge).getTime() : Date.now();
+  return new Date(c + COMMISSION_HOLD_DAYS * 86400000);
 }
 
 // Días restantes hasta que una comisión se desbloquee (0 si ya está
@@ -517,15 +522,34 @@ export class ReferralsService {
       const periodStart =
         byLastCharge < byPeriodEnd ? byLastCharge : byPeriodEnd;
 
+      // FIX 2026-09-01 (Motilart 3er cobro sin comisión): la fecha de negocio del
+      // ciclo = fecha del cobro real (lastChargeAt). Es la que identifica a QUÉ
+      // ciclo pertenece la comisión y de la que sale el periodKey (mes de
+      // devengamiento). Antes se usaba `monthKey()` = mes en que CORRE el código:
+      // una comisión insertada tarde (backfill/reconciliación) para un ciclo viejo
+      // se estampaba con el mes de HOY, y eso (a) chocaba en la UNIQUE con el ciclo
+      // actual y (b) su createdAt reciente hacía creer que el ciclo actual ya
+      // estaba cubierto → el cobro nuevo se saltaba. Caso real: la comisión de
+      // julio de Motilart se insertó el 30-ago con periodKey '2026-08' → el cobro
+      // del 22-ago no generó comisión por ambas razones.
+      const cycleBusinessDate = use.tenant?.lastChargeAt ?? null;
+      const cyclePeriodKey = monthKey(cycleBusinessDate ?? undefined);
+
       // Helper: crea una comisión para `recipientCodeId` en este ciclo si no
-      // existe ya (dedup por ciclo de facturación + UNIQUE constraint).
+      // existe ya. Dedup por el CICLO al que pertenece la comisión
+      // (businessDate ≥ inicio de ciclo), NO por createdAt (que es cuándo se
+      // insertó la fila y puede ser mucho posterior). Filas legacy sin
+      // businessDate caen al criterio viejo (createdAt) para no re-duplicarlas.
       const ensureCommission = async (recipientCodeId: string, amount: number) => {
         if (amount <= 0) return;
         const existing = await this.prisma.commission.findFirst({
           where: {
             referralUseId: use.id,
             recipientCodeId,
-            createdAt: { gte: periodStart },
+            OR: [
+              { businessDate: { gte: periodStart } },
+              { businessDate: null, createdAt: { gte: periodStart } },
+            ],
           },
           select: { id: true },
         });
@@ -537,18 +561,21 @@ export class ReferralsService {
               amount,
               status: 'PENDING',
               recipientCodeId,
-              periodKey: monthKey(),
+              periodKey: cyclePeriodKey,
               // P3 2026-07-02: desbloqueo 15d después del pago real en Hotmart.
               // GUARD B6/R4: clamp si lastChargeAt está viejo (este cron dead
               // usaba la fecha del 1er cobro → availableAt fantasma).
               availableAt: holdReleaseFrom(use.tenant?.lastChargeAt),
+              // businessDate CONGELA la fecha del cobro (igual que el webhook), para
+              // que el panel y el dedup por ciclo lean la misma verdad durable.
+              businessDate: cycleBusinessDate ?? undefined,
             },
           });
           created += 1;
         } catch (e: any) {
           if (e?.code === 'P2002') {
             this.logger.warn(
-              `reconcileRecurringCommissions: skip dup (useId=${use.id}, recipientCodeId=${recipientCodeId}, periodKey=${monthKey()})`,
+              `reconcileRecurringCommissions: skip dup (useId=${use.id}, recipientCodeId=${recipientCodeId}, periodKey=${cyclePeriodKey})`,
             );
             return;
           }
@@ -622,6 +649,26 @@ export class ReferralsService {
     return clubify?.id ?? null;
   }
 
+  /**
+   * URL base para los links del afiliado (share `/ref/...`, login) SEGÚN LA MARCA
+   * dueña del código — nunca Clubify por defecto. Antes estos links usaban
+   * `process.env.APP_URL` hardcodeado (soyclubify.com) para todas las marcas, así
+   * que Sellea entregaba a sus afiliados enlaces `soyclubify.com/ref/...` y
+   * `soyclubify.com/login`, delatando la plataforma (fuga de marca blanca).
+   * Usa el dominio propio de la marca (`WhiteLabel.domain`) vía `brandBaseUrl`.
+   */
+  private async brandShareBaseUrl(
+    whiteLabelId: string | null | undefined,
+  ): Promise<string> {
+    const fallback = process.env.APP_URL ?? 'https://soyclubify.com';
+    if (!whiteLabelId) return fallback;
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: BRAND_DOMAIN_SELECT,
+    });
+    return brandBaseUrl(wl, fallback);
+  }
+
   async createCode(dto: CreateReferralDto, host?: string | null) {
     if (!dto.fullName || !dto.email || !dto.whatsapp) {
       throw new BadRequestException('fullName, email and whatsapp required');
@@ -686,7 +733,9 @@ export class ReferralsService {
       createdAccount = !!inviteResult?.password;
     }
 
-    const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
+    // Brand-aware: el link nace bajo el dominio de la marca dueña del código
+    // (Sellea → selleala.com), nunca soyclubify.com. Ver brandShareBaseUrl.
+    const appUrl = await this.brandShareBaseUrl(referral.whiteLabelId);
     return {
       ...referral,
       shareLink: `${appUrl}/ref/${slug}`,
@@ -753,7 +802,22 @@ export class ReferralsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    // Brand-aware: cada código puede pertenecer a una marca distinta; su link de
+    // compartir usa el dominio de SU marca (Sellea → selleala.com), nunca Clubify.
+    const fallbackUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const wlIds = [
+      ...new Set(codes.map((c) => c.whiteLabelId).filter((x): x is string => !!x)),
+    ];
+    const baseByWl = new Map<string, string>();
+    if (wlIds.length) {
+      const wls = await this.prisma.whiteLabel.findMany({
+        where: { id: { in: wlIds } },
+        select: { id: true, ...BRAND_DOMAIN_SELECT },
+      });
+      for (const w of wls) baseByWl.set(w.id, brandBaseUrl(w, fallbackUrl));
+    }
+    const baseFor = (wlId: string | null) =>
+      (wlId && baseByWl.get(wlId)) || fallbackUrl;
 
     let signedUp = 0;
     let converted = 0;
@@ -785,7 +849,7 @@ export class ReferralsService {
         commissionPercent: Number(c.commissionPercent),
         isActive: c.isActive,
         createdAt: c.createdAt,
-        shareLink: `${appUrl}/?ref=${c.code}`,
+        shareLink: `${baseFor(c.whiteLabelId)}/?ref=${c.code}`,
         usesCount: uses.length,
         convertedCount: uses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE').length,
         uses: uses.map((u) => ({
@@ -1651,7 +1715,7 @@ export class ReferralsService {
         return null;
       });
 
-    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const appUrl = await this.brandShareBaseUrl(created.whiteLabelId);
     const credentials = invite?.password
       ? { email, password: invite.password, loginUrl: '/login' }
       : null;
@@ -1761,7 +1825,7 @@ export class ReferralsService {
           );
     }
 
-    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const appUrl = await this.brandShareBaseUrl(created.whiteLabelId);
     // Si el admin fijó password, devolvemos las credenciales para que las
     // copie/comparta una sola vez (no se guardan en plain text).
     const credentials = invite?.password
@@ -3869,7 +3933,20 @@ export class ReferralsService {
       dto.role === 'INFLUENCER'
         ? config.influencerCommissionPct
         : config.ambassadorCommissionPct;
-    if (commissionPercent <= 0) {
+    // COMISIÓN FIJA (Sellea): el afiliado que se auto-registra cobra el monto
+    // fijo de pago único de su rol ($80 influencer / $40 embajador), NO el %.
+    // Antes se guardaba solo commissionPercent → un afiliado de Sellea nacía en
+    // modo porcentaje, incoherente con el resto de la marca. Mismo criterio que
+    // el admin (createInfluencer) y el auto-registro de negocio (/refer).
+    const fixedCommissionUsd =
+      (await this.getBrandCommissionMode(brand?.slug)) === 'FIXED_ONCE'
+        ? await this.getBrandFixedAmount(
+            brand?.slug,
+            dto.role === 'INFLUENCER' ? 'influencer' : 'embajador',
+          )
+        : null;
+    // El % solo es obligatorio cuando la marca NO es de monto fijo.
+    if (!fixedCommissionUsd && commissionPercent <= 0) {
       throw new BadRequestException('Comisión no configurada para este rol.');
     }
 
@@ -3889,6 +3966,7 @@ export class ReferralsService {
         country: dto.country?.trim() || null,
         role: dto.role,
         commissionPercent,
+        fixedCommissionUsd,
         // El afiliado nace BAJO la marca del host (Sellea en su dominio), no Clubify.
         whiteLabelId: await this.resolveAffiliateWhiteLabelId({
           parentWhiteLabelId: brand?.id ?? null,
@@ -4833,7 +4911,18 @@ export class ReferralsService {
     // dedupeaba las creadas y creaba las faltantes — pero la chain
     // pudo haber cambiado entre invocaciones (% diferentes) → state
     // inconsistente con plata mal calculada. Atómico = todo o nada.
-    const periodKey = monthKey();
+    // FIX 2026-09-01: periodKey (mes de devengamiento) sale del businessDate = la
+    // fecha del cobro real, NO del mes en que corre el webhook. Así cada cobro cae
+    // en su propio mes y dos cobros de meses distintos nunca colisionan en la
+    // UNIQUE(referralUseId, recipientCodeId, periodKey).
+    const periodKey = monthKey(businessDate);
+    // Ventana del CICLO de este cobro (mes de businessDate) para dedup por ciclo.
+    const cycleStart = new Date(
+      Date.UTC(businessDate.getUTCFullYear(), businessDate.getUTCMonth(), 1),
+    );
+    const cycleEnd = new Date(
+      Date.UTC(businessDate.getUTCFullYear(), businessDate.getUTCMonth() + 1, 1),
+    );
     try {
       const counts = await this.prisma.$transaction(async (tx) => {
         let g = 0;
@@ -4851,6 +4940,22 @@ export class ReferralsService {
               s++;
               continue;
             }
+          }
+          // Dedup por CICLO: si ya hay una comisión para (use, recipient) cuyo
+          // businessDate cae en el MISMO mes de cobro, es el mismo ciclo → skip.
+          // Cubre filas creadas por reconcileRecurringCommissions (tx=null) que el
+          // check por tx no ve, evitando duplicar el mismo cobro por dos caminos.
+          const sameCycle = await tx.commission.findFirst({
+            where: {
+              referralUseId: use.id,
+              recipientCodeId: row.recipientCodeId,
+              businessDate: { gte: cycleStart, lt: cycleEnd },
+            },
+            select: { id: true },
+          });
+          if (sameCycle) {
+            s++;
+            continue;
           }
           try {
             await tx.commission.create({
@@ -5869,7 +5974,44 @@ export class ReferralsService {
       resource: `tenant:${tenantId}`,
       metadata: { codeId, code: code.code, ownerName: code.ownerName, role: code.role },
     });
-    return { ok: true };
+
+    // FIX sistémico "atribución tardía → sin comisión" (2026-08-31): si el
+    // negocio YA pagó (caso CHANFLE: el pago Hotmart entró y la atribución se
+    // creó 15h DESPUÉS, cuando la generación en el pago ya había corrido sin
+    // afiliado), generamos ahora la comisión del periodo vigente. Antes,
+    // asignar el afiliado a mano NO la creaba retroactivamente. Idempotente: la
+    // UNIQUE(referralUseId, recipientCodeId, periodKey) evita duplicar si ya
+    // existe. Gate: solo ACTIVE con pago real (lastChargeAt) y ciclo vigente
+    // (currentPeriodEnd futuro) — nunca para trials sin pago ni suspendidos.
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        status: true,
+        lastChargeAt: true,
+        currentPeriodEnd: true,
+        hotmartTransactionId: true,
+      },
+    });
+    let generatedCommission = false;
+    if (
+      t?.status === 'ACTIVE' &&
+      t.lastChargeAt &&
+      t.currentPeriodEnd &&
+      t.currentPeriodEnd.getTime() > Date.now()
+    ) {
+      const r = await this.generateCommissionsForPayment({
+        tenantId,
+        paymentAmountUsd: 0, // se ignora para la base (usa subscriptionPriceUsd/canónico)
+        hotmartTransactionId: t.hotmartTransactionId ?? null,
+      }).catch((e) => {
+        this.logger.warn(
+          `assignAffiliate: no se pudo generar la comisión retroactiva para tenant=${tenantId}: ${e?.message ?? e}`,
+        );
+        return { generated: 0, skipped: 0 };
+      });
+      generatedCommission = r.generated > 0;
+    }
+    return { ok: true, generatedCommission };
   }
 
   private _clubifyWlIdCache: string | null | undefined;
@@ -5917,9 +6059,10 @@ export class ReferralsService {
       dateTo?: string;
       // TIPO de fecha sobre la que operan el filtro Y la columna FECHA (brief
       // PASO 5). 'purchase' = fecha de compra (businessDate, congelada) ·
-      // 'payment' = fecha de pago (paidAt) · 'batch' = lote de corte
-      // (payoutBatch.code). Default 'purchase' (la columna histórica).
-      dateType?: 'purchase' | 'payment' | 'batch';
+      // 'payment' = fecha de pago (paidAt) · 'available' = fecha de DESBLOQUEO
+      // (availableAt, cuando se puso disponible tras el hold de 15 días) ·
+      // 'batch' = lote de corte (payoutBatch.code). Default 'purchase'.
+      dateType?: 'purchase' | 'payment' | 'batch' | 'available';
       // En dateType='batch': código del lote a filtrar (ej "CORTE-2026-06-30").
       batchCode?: string;
       status?: 'PENDING' | 'PARTIAL' | 'PAID';
@@ -5979,7 +6122,12 @@ export class ReferralsService {
     if (dateType === 'batch') {
       if (opts.batchCode) baseWhere.payoutBatch = { code: opts.batchCode };
     } else if (opts.dateFrom || opts.dateTo) {
-      const field = dateType === 'payment' ? 'paidAt' : 'businessDate';
+      const field =
+        dateType === 'payment'
+          ? 'paidAt'
+          : dateType === 'available'
+            ? 'availableAt'
+            : 'businessDate';
       const range: any = {};
       if (opts.dateFrom) range.gte = bogotaDayStartUtc(opts.dateFrom);
       if (opts.dateTo)

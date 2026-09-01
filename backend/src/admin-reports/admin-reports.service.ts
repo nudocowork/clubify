@@ -13,6 +13,7 @@ import {
   fmtYmd,
 } from '../referrals/cutoff-calendar';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
+import { CobrosService } from './cobros.service';
 
 /**
  * Agrega el token de ruteo `src=wl_<whiteLabelId>` a un link de compra Hotmart.
@@ -70,6 +71,7 @@ export class AdminReportsService {
     private prisma: PrismaService,
     private settings: SettingsService,
     private wlNotifications: WhiteLabelNotificationsService,
+    private cobros: CobrosService,
   ) {}
 
   // P (PDF 2026-07-01): caché corta del dashboard por (marca, rango). Al
@@ -1531,12 +1533,16 @@ export class AdminReportsService {
     events.sort((a, b) => b.when.getTime() - a.when.getTime());
     const recentIncome = events.slice(0, 15);
 
+    // Fase 5: las 3 tarjetas de cobros (🔴🟢🟡) — mismo aislamiento por marca.
+    const cobros = await this.cobros.summary(wlId, now);
+
     const payload = {
       range: {
         kind: opts.range ?? 'last-30',
         from,
         to,
       },
+      cobros,
       banner: {
         billedUsd, // COBRADO real (solo negocios/grupos con lastChargeAt en rango)
         estimatedUsd, // Bug 1: PROYECTADO (estimado, sin cobro registrado) — aparte

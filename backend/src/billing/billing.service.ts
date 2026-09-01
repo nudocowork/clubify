@@ -10,18 +10,39 @@ import { fmtEmailDate } from '../email/brand-email-templates';
 import { addPlanPeriod } from '../common/plan-period';
 import { cycleCreditCostForTenant } from '../common/business-types';
 import { AuditService } from '../audit/audit.service';
+import { PreregAlertsService } from '../auth/prereg-alerts.service';
+import {
+  decideDunning,
+  pauseDateFor,
+  deriveRenewalState,
+  type RenewalStateResult,
+} from './dunning';
+
+// Fase 3 (2026-08-31): alertas internas de cobro al equipo. Se envían por la
+// subcuenta GB del equipo (sendInternalAlert) — la misma probada con el SMS de
+// pagos. La spec pedía enviar DESDE +573167689240, pero ese número no está en el
+// sistema; cuando su subcuenta exista, se cambia solo el remitente ahí.
+const BILLING_ALERT_PHONES = [
+  '+573135618300',
+  '+573181666999',
+  '+573248088401',
+];
 
 // Secuencia de mora (PDF 2026-07-01, P4). Día 0 = 1er cobro fallido o fecha
 // de cobro vencida (lo que ocurra). El cron diario cuenta días calendario:
-//   D+1 → recordatorio · D+2 → último aviso "mañana se pausa" · D+3 → suspender.
+//   D+1 → recordatorio · D+2 → último aviso "mañana se pausa".
+// 2026-08-31: la gracia por defecto pasó de 3 a 5 días (decisión del dueño).
+// La gracia cubre los días 1..N; al día N+1 se auto-suspende (con N=5 → día 6).
 const OVERDUE_REMINDER_DAY = 1;  // D+1 recordatorio
 const OVERDUE_NOTICE_DAY = 2;    // D+2 aviso de pausa
-const PAUSE_DAYS = 3;            // D+3 → suspender
+const PAUSE_DAYS = 5;            // gracia por defecto (1..5) → día 6 suspende
 // Más allá de este umbral asumimos data legacy (currentPeriodEnd viejo que
 // nunca avanzó) y NO auto-suspendemos por la vía de "fecha vencida", para no
 // pausar en masa cuentas antiguas al desplegar. La vía de cobro fallido
 // (failedPaymentCount>0) no tiene este tope: es señal explícita de Hotmart.
 const STALE_OVERDUE_CAP_DAYS = 60;
+// Fase 2: un cobro dentro de estos días cuenta como "próximo" (dashboard 🔴).
+const PROXIMO_COBRO_DAYS = 7;
 
 export type TrialStatus = {
   status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'EXPIRED' | 'CANCELED';
@@ -40,6 +61,10 @@ export type TrialStatus = {
   // al terminar la prueba. Distinto de la prueba GRATIS (sin tarjeta), que sí
   // pide "completar el pago". El frontend usa esto para el copy correcto.
   paidTrial: boolean;
+  // Fase 2: estado del ciclo de RENOVACIÓN/cobro (mora de dinero), derivado con
+  // la MISMA regla que suspende (decideDunning). Distinto de la gracia de prueba
+  // de arriba. Alimenta el panel del negocio y el dashboard de cobros.
+  renewal: RenewalStateResult;
 };
 
 const TRIAL_DAYS = 10;
@@ -54,12 +79,56 @@ export class BillingService {
     private smsTemplates: SmsTemplatesService,
     private brandEmail: BrandEmailService,
     private audit: AuditService,
+    private prereg: PreregAlertsService,
   ) {}
+
+  /**
+   * Fase 3 — alerta interna de cobro al equipo (los 3 números). `kind`:
+   * 'renovacion_fallida' (1er cobro fallido) o 'suspendido' (auto-suspensión).
+   * Best-effort, no bloquea. Enviado por la subcuenta del equipo.
+   */
+  async notifyBillingTeam(
+    kind: 'renovacion_fallida' | 'suspendido',
+    brandName: string,
+  ): Promise<void> {
+    const body =
+      kind === 'renovacion_fallida'
+        ? `⚠️ Cobro FALLIDO: ${brandName}. Entró en gracia (5 días). Revisar en Clubify.`
+        : `🔴 SUSPENDIDO por falta de pago: ${brandName}. Revisar en Clubify.`;
+    await Promise.all(
+      BILLING_ALERT_PHONES.map((phone) =>
+        this.prereg
+          .sendInternalAlert(phone, body)
+          .catch((e) =>
+            this.logger.warn(
+              `notifyBillingTeam a ${phone} falló: ${(e as Error).message}`,
+            ),
+          ),
+      ),
+    );
+  }
+
+  /** Fase 3 — envío de PRUEBA de la alerta de cobro a los 3 números. */
+  async testBillingTeamAlert(): Promise<{ ok: boolean; phones: string[] }> {
+    const results = await Promise.all(
+      BILLING_ALERT_PHONES.map((phone) =>
+        this.prereg
+          .sendInternalAlert(
+            phone,
+            '🧪 Prueba · alertas internas de cobro (cobro fallido / suspensión) activas. (Clubify)',
+          )
+          .then((r) => r.ok)
+          .catch(() => false),
+      ),
+    );
+    return { ok: results.some(Boolean), phones: BILLING_ALERT_PHONES };
+  }
 
   // ── PDF 1256 §2/§8: gracia configurable, liberación de crédito, auditoría ──
 
-  /** Días de gracia (D+N) antes de suspender por mora. Configurable desde el
-   *  panel (Setting `billing.graceDays`). Default 3. Rango 1..30. */
+  /** Días de gracia antes de suspender por mora. Configurable desde el panel
+   *  (Setting `billing.graceDays`). Default 5. Rango 1..30. La gracia cubre los
+   *  días 1..N; al día N+1 se suspende (ver processOverdueAccounts). */
   async getGraceDays(): Promise<number> {
     const row = await this.prisma.setting
       .findUnique({ where: { key: 'billing.graceDays' } })
@@ -351,10 +420,15 @@ export class BillingService {
         suspendedAt: true,
         failedPaymentCount: true,
         gracePeriodDays: true,
+        // Fase 2: campos del ciclo de renovación para deriveRenewalState.
+        firstFailedAt: true,
+        lastPaymentAttemptAt: true,
+        lastChargeAt: true,
         // Distinguir prueba PAGA (con suscripción) de la GRATIS (sin tarjeta).
         stripeSubscriptionId: true,
       },
     });
+    const graceDays = await this.getGraceDays();
     if (!t) {
       return {
         status: 'EXPIRED',
@@ -366,11 +440,30 @@ export class BillingService {
         inGracePeriod: false,
         graceDaysLeft: null,
         paidTrial: false,
+        renewal: {
+          state: 'CANCELADO',
+          byFailure: false,
+          daysOverdue: 0,
+          graceDays,
+          graceDaysLeft: null,
+          graceLabel: null,
+          nextChargeAt: null,
+          pauseDate: null,
+        },
       };
     }
 
     const now = Date.now();
     const dayMs = 24 * 60 * 60 * 1000;
+    // Fase 2: estado del ciclo de renovación (mora de dinero) con la misma regla
+    // que suspende. reminder/notice/staleCap coinciden con processOverdueAccounts.
+    const renewal = deriveRenewalState(t, new Date(now), {
+      graceDays,
+      reminderDay: OVERDUE_REMINDER_DAY,
+      noticeDay: OVERDUE_NOTICE_DAY,
+      staleCapDays: STALE_OVERDUE_CAP_DAYS,
+      proximoCobroDays: PROXIMO_COBRO_DAYS,
+    });
     let daysLeft: number | null = null;
     // 2026-06-06: solo calculamos el contador de trial si el tenant
     // todavía está en TRIAL. Si ya pagó (status ACTIVE/PAST_DUE/SUSPENDED)
@@ -432,6 +525,7 @@ export class BillingService {
       // Prueba paga = está en TRIAL Y ya ancló tarjeta (tiene suscripción). El
       // cobro llega solo al día 7; no hay que pedirle "completar el pago".
       paidTrial: derived === 'TRIAL' && !!t.stripeSubscriptionId,
+      renewal,
     };
   }
 
@@ -556,6 +650,8 @@ export class BillingService {
       data: {
         currentPeriodEnd: nextCharge,
         failedPaymentCount: 0,
+        // El pago ya estaba recibido → limpiar el ancla de mora del ciclo.
+        firstFailedAt: null,
         lastPaymentAttemptAt: t.lastChargeAt,
         paymentReminderSentFor: null,
         pausePendingNoticeSentAt: null,
@@ -996,7 +1092,6 @@ export class BillingService {
    * (cron de renovaciones) y tienen su propia suspensión.
    */
   private async processOverdueAccounts(now: Date) {
-    const dayMs = 24 * 60 * 60 * 1000;
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
@@ -1023,6 +1118,7 @@ export class BillingService {
         id: true,
         brandName: true,
         failedPaymentCount: true,
+        firstFailedAt: true,
         lastPaymentAttemptAt: true,
         currentPeriodEnd: true,
         lastChargeAt: true,
@@ -1060,63 +1156,45 @@ export class BillingService {
       ) {
         await this.prisma.tenant.update({
           where: { id: t.id },
-          data: { failedPaymentCount: 0 },
+          data: { failedPaymentCount: 0, firstFailedAt: null },
         });
         continue;
       }
-      // Inicio de la mora (día 0).
-      let dueSince: Date | null = null;
-      let byFailure = false;
-      if ((t.failedPaymentCount ?? 0) > 0 && t.lastPaymentAttemptAt) {
-        dueSince = t.lastPaymentAttemptAt;
-        byFailure = true;
-      } else if (
-        t.currentPeriodEnd &&
-        t.currentPeriodEnd.getTime() < now.getTime()
-      ) {
-        // Fecha de cobro vencida y NO renovada (sin pago posterior al ciclo).
-        const renewed =
-          t.lastChargeAt != null &&
-          t.lastChargeAt.getTime() >= t.currentPeriodEnd.getTime();
-        if (!renewed) dueSince = t.currentPeriodEnd;
+      // Regla ÚNICA de mora (pura y testeable): billing/dunning.ts. Misma regla
+      // para Hotmart, Stripe y pago por fuera — cambia el ancla, no la regla.
+      const { dueSince, byFailure, daysOverdue, action } = decideDunning(t, now, {
+        graceDays,
+        reminderDay: OVERDUE_REMINDER_DAY,
+        noticeDay: OVERDUE_NOTICE_DAY,
+        staleCapDays: STALE_OVERDUE_CAP_DAYS,
+      });
+      if (action === 'none' || !dueSince) continue;
+
+      // Tope de seguridad legacy: fecha vencida MUY vieja (currentPeriodEnd que
+      // nunca avanzó) — no la auto-suspendemos para no pausar en masa al
+      // desplegar. Solo aplica a la vía "fecha vencida", no a cobro fallido.
+      if (action === 'stale-skip') {
+        this.logger.warn(
+          `Tenant ${t.brandName} (${t.id}) vencido hace ${daysOverdue}d por fecha (posible data legacy) — NO auto-pausado. Revisar manual.`,
+        );
+        continue;
       }
-      if (!dueSince) continue;
 
-      const daysOverdue = Math.floor(
-        (now.getTime() - dueSince.getTime()) / dayMs,
-      );
-      if (daysOverdue < OVERDUE_REMINDER_DAY) continue;
+      // El día en que se suspenderá = día (graceDays + 1); la gracia cubre 1..N.
+      const pauseDate = pauseDateFor(dueSince, graceDays);
 
-      const pauseDate = new Date(dueSince.getTime() + graceDays * dayMs);
-
-      if (daysOverdue >= graceDays) {
-        // Gate pago-por-fuera (manualPayment): este negocio paga por Nequi/
-        // efectivo/transferencia y NINGUNA pasarela va a confirmar su pago.
-        // Suspender a un cliente que sí pagó en efectivo es peor que dejarle
-        // unos días de más a uno que no — así que NO se auto-suspende. Los
-        // recordatorios D+1/D+2 sí le siguen llegando (ramas de abajo), y el
-        // negocio aparece en GET /tenants/manual-payments/review para que un
-        // humano lo persiga o lo desconecte a mano.
-        if (t.manualPayment) {
-          this.logger.warn(
-            `Tenant ${t.brandName} (${t.id}) en mora ${daysOverdue}d pero paga POR FUERA (manualPayment) — NO auto-pausado; revisar en la lista de cobranza manual.`,
-          );
-          continue;
-        }
-        // Tope de seguridad SOLO para la vía "fecha vencida" (no la de falla
-        // explícita de Hotmart): evita pausar en masa cuentas legacy con
-        // currentPeriodEnd viejo que nunca avanzó.
-        if (!byFailure && daysOverdue > STALE_OVERDUE_CAP_DAYS) {
-          this.logger.warn(
-            `Tenant ${t.brandName} (${t.id}) vencido hace ${daysOverdue}d por fecha (posible data legacy) — NO auto-pausado. Revisar manual.`,
-          );
-          continue;
-        }
+      if (action === 'suspend') {
+        // 2026-08-31 (decisión del dueño): el pago POR FUERA (manualPayment) YA
+        // NO se exime — 5 días de gracia y suspensión al día 6, igual que
+        // Hotmart. Su ancla es la FECHA de vencimiento (currentPeriodEnd =
+        // último ManualPayment + periodicidad). Sigue en /manual-payments/review.
         await this.prisma.tenant.update({
           where: { id: t.id },
           data: { status: 'SUSPENDED', suspendedAt: now },
         });
         suspended++;
+        // Fase 3: alerta interna al equipo (los 3 números).
+        await this.notifyBillingTeam('suspendido', t.brandName).catch(() => null);
         // §8 auditoría + §2 liberar crédito a la marca (no-op para Clubify).
         await this.auditLifecycle('subscription.suspended', t.id, {
           reason: byFailure ? 'payment_failed' : 'overdue',
@@ -1148,7 +1226,7 @@ export class BillingService {
           `Tenant ${t.brandName} (${t.id}) auto-pausado: pago no resuelto en ${daysOverdue} día(s)` +
             `${byFailure ? ' (cobro fallido)' : ' (fecha vencida)'}.`,
         );
-      } else if (daysOverdue === OVERDUE_NOTICE_DAY) {
+      } else if (action === 'notice') {
         // Ya se avisó hoy: no repetimos el aviso al cliente.
         if (this.avisadoHoy(t.pausePendingNoticeSentAt, now)) continue;
         await this.prisma.tenant.update({
@@ -1182,7 +1260,7 @@ export class BillingService {
           notices++;
           this.logger.log(`SMS D+2 "no procesado" → ${t.brandName}`);
         }
-      } else if (daysOverdue === OVERDUE_REMINDER_DAY) {
+      } else if (action === 'reminder') {
         // Ya se avisó hoy: no repetimos el aviso al cliente.
         if (this.avisadoHoy(t.paymentFailureNoticeSentAt, now)) continue;
         await this.prisma.tenant.update({

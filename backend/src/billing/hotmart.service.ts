@@ -28,15 +28,15 @@ import { decryptSecret } from '../common/crypto/secret-box';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-// availableAt (hold) = cobro + 15d. GUARD B6/R4 (2026-08-15): si el cobro
-// (lastChargeAt) parece VIEJO (>2 días atrás) es un valor desactualizado → el
-// cobro real acaba de ocurrir, usamos AHORA. Evita availableAt fantasma en el
-// pasado. Espejo del helper de referrals.service.
+// availableAt (hold) = cobro + 15d, SIEMPRE anclado a la fecha real del cobro
+// (lastChargeAt). FIX 2026-08-31: se quitó el clamp que re-anclaba a HOY los
+// cobros >2d viejos — hacía que una renovación creada tarde desbloqueara ~40-50
+// días tarde y cayera en el corte equivocado (Motilart/Quipao). El clamp
+// protegía una heurística de FECHA hoy obsoleta (businessDate ya es durable).
+// Espejo del helper de referrals.service.
 function holdReleaseFrom(charge: Date | null | undefined): Date {
-  const now = Date.now();
-  const c = charge ? new Date(charge).getTime() : now;
-  const base = c >= now - 2 * 86400000 ? c : now;
-  return new Date(base + 15 * 86400000);
+  const c = charge ? new Date(charge).getTime() : Date.now();
+  return new Date(c + 15 * 86400000);
 }
 
 /** Aislamiento por marca para la búsqueda del tenant en el webhook.
@@ -1230,17 +1230,31 @@ export class HotmartService {
         // El derivado PAST_DUE lo calcula billing.service.getStatus()
         // basándose en failedPaymentCount > 0.
         const now = new Date();
+        const wasFirstFailure = !tenant.firstFailedAt;
         await this.prisma.tenant.update({
           where: { id: tenant.id },
           data: {
             failedPaymentCount: { increment: 1 },
             lastPaymentAttemptAt: now,
+            // Ancla INMUTABLE de la gracia: se fija solo en el 1er fallo. Antes
+            // el reloj de gracia se anclaba en lastPaymentAttemptAt, que esta
+            // misma línea pisa a `now` en CADA reintento de Hotmart → la mora
+            // volvía a 0 días y nunca llegaba al día 6 (causa raíz de que no
+            // suspendiera). Con `?? now` solo se estampa la primera vez.
+            firstFailedAt: tenant.firstFailedAt ?? now,
             paymentFailureNoticeSentAt: now,
           },
         });
         await this.billing
           .auditLifecycle('subscription.payment_failed', tenant.id, { gateway: 'HOTMART', event })
           .catch(() => null);
+        // Fase 3: alerta interna al equipo SOLO en el 1er fallo (no en cada
+        // reintento de Hotmart) para no spamear.
+        if (wasFirstFailure) {
+          await this.billing
+            .notifyBillingTeam('renovacion_fallida', tenant.brandName)
+            .catch(() => null);
+        }
         // SMS aviso de falla (best-effort). Si es PROTEST y la marca activó
         // "Pago en disputa" (admin_protest), se envía ese texto en su lugar.
         const sentProtest =
@@ -1539,6 +1553,8 @@ export class HotmartService {
         hotmartSubscriberCode: subscriberCode ?? tenant.hotmartSubscriberCode,
         hotmartTransactionId: transactionId ?? tenant.hotmartTransactionId,
         failedPaymentCount: 0,
+        // Pago confirmado → se limpia el ancla de mora para el próximo ciclo.
+        firstFailedAt: null,
         lastPaymentAttemptAt: new Date(),
         suspendedAt: null,
         // 2026-06-06: el trial termina cuando hay pago confirmado. Limpiamos
@@ -2047,6 +2063,7 @@ export class HotmartService {
           hotmartSubscriberCode: true,
           hotmartTransactionId: true,
           currentPeriodEnd: true,
+          firstFailedAt: true,
         },
       });
       if (t) return t;
@@ -2097,6 +2114,7 @@ export class HotmartService {
             hotmartSubscriberCode: true,
             hotmartTransactionId: true,
             currentPeriodEnd: true,
+            firstFailedAt: true,
           },
         });
       }

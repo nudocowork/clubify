@@ -139,7 +139,9 @@ describe('generateCutoff', () => {
       { ...approved('f', 10, '2026-08-01T12:00:00Z'), recipientCodeId: null },
     ];
     prisma = makePrisma(rows);
-    svc = new CutoffService(prisma as any, audit, referrals);
+    svc = new CutoffService(prisma as any, audit, referrals, {
+      sendInternalAlert: async () => ({ ok: true }),
+    } as any);
   });
 
   afterEach(() => {
@@ -194,7 +196,9 @@ describe('generateCutoff', () => {
 
   it('sin nada disponible igual crea el corte en $0 (la serie no se corta)', async () => {
     prisma = makePrisma([]);
-    svc = new CutoffService(prisma as any, audit, referrals);
+    svc = new CutoffService(prisma as any, audit, referrals, {
+      sendInternalAlert: async () => ({ ok: true }),
+    } as any);
     const res = await svc.generateCutoff('2026-02-28', { auto: true });
 
     expect(res.created).toBe(true);
