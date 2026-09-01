@@ -36,19 +36,28 @@ async function recalcBatchTotal(batchId) {
   });
   if (!dup) { console.log('No encontré la comisión.'); return p.$disconnect(); }
 
-  // Confirmar que es duplicado: hermana PAGADA, mismo negocio + recipiente + mismo día de cobro.
+  // Confirmar que es duplicado: hermana PAGADA del MISMO DÍA de cobro (no por
+  // timestamp exacto — el duplicado se registró a otra hora del 31-jul).
+  const dupDay = dup.businessDate ? dup.businessDate.toISOString().slice(0, 10) : null;
   const paidSibling = await p.commission.findFirst({
     where: {
       id: { not: DUP },
       status: 'PAID',
       recipientCodeId: dup.recipientCodeId,
       referralUse: { tenantId: dup.referralUse?.tenantId },
-      businessDate: dup.businessDate,
+      ...(dupDay
+        ? {
+            businessDate: {
+              gte: new Date(dupDay + 'T00:00:00.000Z'),
+              lt: new Date(dupDay + 'T23:59:59.999Z'),
+            },
+          }
+        : {}),
     },
     select: { id: true, paidAt: true, hotmartTransactionId: true, externalTxId: true },
   });
   if (!paidSibling) {
-    console.log('⚠️ No encontré una hermana PAGADA del mismo cobro. NO es claramente duplicado → NO toco nada.');
+    console.log('⚠️ No encontré una hermana PAGADA del mismo día de cobro. NO es claramente duplicado → NO toco nada.');
     return p.$disconnect();
   }
   console.log(`Duplicado confirmado: la hermana ${paidSibling.id.slice(0,8)} (tx ${paidSibling.hotmartTransactionId||paidSibling.externalTxId}) ya está PAGADA (${paidSibling.paidAt?.toISOString().slice(0,10)}).`);
