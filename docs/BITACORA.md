@@ -1230,6 +1230,50 @@ Falta lo que se ve: interruptor admin (`conveniosEnabled`/`maxConvenios`), 2
 endpoints (listar personas activadas + bloquear), página de activación del empleado,
 plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
 
+## 2026-09-01 — Team Clubify: varias agendas por equipo + el líder administra la suya (Jhon)
+**Máquina/quién:** Jhon (Mac)
+**Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commit `ecfca7c` · desplegado
+
+### Qué cambié
+- **Un equipo puede tener varias agendas de reserva.** Lo impedía un índice ÚNICO
+  sobre `BookingConfig.sales_team_id`: la base rechazaba la segunda. Cada agenda
+  tiene su enlace público, su horario y su formulario. Lista en Comercial →
+  equipo → Configuración: crear, configurar, abrir y eliminar. Nunca se borra la
+  última; para dejar de usarla está «inactiva».
+- **El cupo por horario se contaba sobre TODAS las reuniones del sistema**: si el
+  equipo de Nico llenaba las 10:00, la agenda de Ecuador mostraba esa hora
+  ocupada sin tener a nadie. Ahora se cuenta por equipo.
+- **Borrar un formulario solo miraba la agenda `default`** → con varias, dejaba a
+  las otras sin campos. Ahora mira todas.
+- **Permisos:** configurar agenda, banco y formularios pedía un rol GLOBAL
+  (gerente/admin/PM), así que el responsable de un equipo no podía tocar ni su
+  propia agenda. Pasa a `canManageTeam` (líder de ESE equipo o administrador), el
+  mismo criterio que ya usaban colaboradores y comisiones. Los formularios se
+  filtran por equipo y cada acción revalida que el formulario sea de uno suyo —
+  antes bastaba pasar el id de otro.
+
+### Qué toqué de PRODUCCIÓN
+- **Base de datos (Team Clubify):** `DROP INDEX BookingConfig_sales_team_id_key`
+  + índice normal en su lugar, con `scripts/allow-multiple-team-agendas.cjs`
+  (idempotente, no toca ninguna fila). Ya aplicado.
+- **Datos:** Nico quedó `lider` de Equipo Nico y responsable del equipo
+  (`scripts/set-team-lead.cjs "Equipo Nico" <email>`).
+- **Despliegue:** `vercel --prod` desde `team_clubify/`. 200 en team.soyclubify.com.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **Nico tiene rol GLOBAL `admin`** (alguien lo cambió el 1-sep). Con eso ve y
+      administra los CUATRO equipos, no solo el suyo. Si la intención era «todo lo
+      de su equipo y nada más», hay que bajarlo a `collaborator`: con la membresía
+      de líder que ya tiene le alcanza. Decisión de Jhon, no la tomé yo.
+
+### Riesgos y avisos
+- Las agendas nuevas toman slug `agenda-v#` correlativo; el enlace es editable
+  desde la pantalla, pero **cambiarlo rompe los enlaces ya repartidos**.
+- Verificación repetible: `npx tsx scripts/verify-team-agendas.ts [email]` — crea
+  una agenda de prueba, comprueba que resuelve su enlace público y que ofrece
+  horarios, la borra, y lista qué equipos administra esa persona. Probado con un
+  líder sin rol global (Eudes): administra solo el suyo, los otros tres ni los ve.
+
 ## 2026-08-27 — Team Clubify: el chat se completa al abrirlo y las fotos ya se ven (Jhon)
 **Máquina/quién:** Jhon (Mac)
 **Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commit `9bd5901` · desplegado
