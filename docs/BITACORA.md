@@ -1230,6 +1230,51 @@ Falta lo que se ve: interruptor admin (`conveniosEnabled`/`maxConvenios`), 2
 endpoints (listar personas activadas + bloquear), página de activación del empleado,
 plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
 
+## 2026-09-01 (tarde) — Team Clubify: color por agenda + las fotos entran en el momento (Jhon)
+**Máquina/quién:** Jhon (Mac)
+**Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commits `0de54a0` y `54a7ac6` · desplegado
+
+### Qué cambié
+- **Color por agenda.** Con varias agendas por equipo, en el banco y el calendario
+  se veían todas iguales. Lo que faltaba de raíz: **una cita no guardaba de qué
+  agenda venía** (`CloserMeeting.booking_config_id`, nuevo). El distintivo es una
+  **barra de color a la izquierda**, no un punto: el punto ya lo usa el semáforo de
+  confirmación (🟢🟡🔴⚪) y dos significados en el mismo símbolo no se leen. El
+  nombre de la agenda sale solo cuando hay más de una a la vista.
+- Una agenda nueva toma sola un color libre del equipo: si nacieran todas verdes,
+  distinguirlas dependería de que alguien se acuerde de cambiarlo.
+- **Las fotos entran en el momento.** Quedaba pendiente del arreglo del 27-ago: la
+  imagen solo aparecía cuando el barrido volvía a pasar por el chat. Ahora el
+  webhook lee los adjuntos en las dos direcciones. Además, un mensaje **sin texto**
+  (solo imagen) se descartaba antes de guardarse (`if (!text) return`), y el dedup
+  por texto fusionaba dos fotos distintas porque las dos tienen el cuerpo vacío.
+- La limpieza del cuerpo (`type message: image`, `#switch_unique`) se movió a
+  `lib/server/provider-message.ts` y la usan los DOS caminos: cuando solo la hacía
+  el importador, el mismo mensaje se guardaba distinto según por dónde entró.
+
+### Qué toqué de PRODUCCIÓN
+- **Base de datos (aditivo):** `BookingConfig.color`, `CloserMeeting.booking_config_id`
+  (+ índice) con `scripts/add-agenda-colors.cjs`. El script rellena hacia atrás de
+  qué agenda vino cada cita **solo donde la respuesta es cierta**: la segunda
+  agenda de un equipo recién es posible desde hoy, así que toda cita anterior vino
+  de la primera de su equipo. 7 de 8 quedaron marcadas.
+- **Despliegue:** `vercel --prod` desde `team_clubify/`. 200 en team.soyclubify.com.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] La cita que quedó sin agenda de origen es de un equipo con dos agendas: se
+      queda sin barra de color hasta que alguien la reasigne a mano. No inventé
+      cuál era.
+- [ ] Sigue en pie lo de **Nico con rol global `admin`** (ve y administra los
+      cuatro equipos) y las **tres variables vacías de Railway**.
+
+### Riesgos y avisos
+- Verificaciones repetibles, las dos reversibles y contra la base real:
+  `npx tsx scripts/verify-agenda-colors.ts` (dos agendas del mismo equipo tienen
+  colores distintos y la cita llega pintada a banco y calendario) y
+  `npx tsx scripts/verify-inbound-attachments.ts` (la foto entra con su imagen y
+  dos fotos distintas no se fusionan; usa un número inexistente y va por el camino
+  saliente, que no dispara flujos).
+
 ## 2026-09-01 — Team Clubify: varias agendas por equipo + el líder administra la suya (Jhon)
 **Máquina/quién:** Jhon (Mac)
 **Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commit `ecfca7c` · desplegado
