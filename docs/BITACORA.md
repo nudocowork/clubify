@@ -48,6 +48,29 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-31 — Fix sistémico "atribución tardía → sin comisión" (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+`assignAffiliate` (`referrals.service.ts`): al asignar un afiliado a un negocio
+que YA pagó (ACTIVE + lastChargeAt + ciclo vigente), ahora **genera la comisión
+del periodo** vía `generateCommissionsForPayment` (idempotente por la
+UNIQUE(referralUseId,recipientCodeId,periodKey)). Antes, si el pago Hotmart
+entraba ANTES de asignar el afiliado (caso CHANFLE, 15h de diferencia), la
+comisión nunca se creaba y asignarlo a mano no la generaba retroactivamente.
+Gate: solo ACTIVE con pago real y ciclo vigente (nunca trials ni suspendidos).
+TSC + ESLint + 35 tests OK.
+
+### Qué toqué de PRODUCCIÓN
+- Nada. Falta desplegar backend para que aplique.
+
+### Qué falta
+- [ ] Desplegar backend.
+- [ ] Fases 3-5 del dashboard de cobros (SMS alertas, columna comisiones,
+      instalar dashboard) — Fase 5 backend (CobrosService) quedó a medias sin
+      commitear en `admin-reports/`. F4 Movimientos (Contabilidad) también.
+
 ## 2026-08-31 — Cortes: flujo de pago POR PERSONA + comprobantes + SMS · CHANFLE (SIN DESPLEGAR)
 
 **Máquina/quién:** máquina de Jhon (Claude)

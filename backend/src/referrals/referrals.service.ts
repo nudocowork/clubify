@@ -5826,7 +5826,44 @@ export class ReferralsService {
       resource: `tenant:${tenantId}`,
       metadata: { codeId, code: code.code, ownerName: code.ownerName, role: code.role },
     });
-    return { ok: true };
+
+    // FIX sistémico "atribución tardía → sin comisión" (2026-08-31): si el
+    // negocio YA pagó (caso CHANFLE: el pago Hotmart entró y la atribución se
+    // creó 15h DESPUÉS, cuando la generación en el pago ya había corrido sin
+    // afiliado), generamos ahora la comisión del periodo vigente. Antes,
+    // asignar el afiliado a mano NO la creaba retroactivamente. Idempotente: la
+    // UNIQUE(referralUseId, recipientCodeId, periodKey) evita duplicar si ya
+    // existe. Gate: solo ACTIVE con pago real (lastChargeAt) y ciclo vigente
+    // (currentPeriodEnd futuro) — nunca para trials sin pago ni suspendidos.
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        status: true,
+        lastChargeAt: true,
+        currentPeriodEnd: true,
+        hotmartTransactionId: true,
+      },
+    });
+    let generatedCommission = false;
+    if (
+      t?.status === 'ACTIVE' &&
+      t.lastChargeAt &&
+      t.currentPeriodEnd &&
+      t.currentPeriodEnd.getTime() > Date.now()
+    ) {
+      const r = await this.generateCommissionsForPayment({
+        tenantId,
+        paymentAmountUsd: 0, // se ignora para la base (usa subscriptionPriceUsd/canónico)
+        hotmartTransactionId: t.hotmartTransactionId ?? null,
+      }).catch((e) => {
+        this.logger.warn(
+          `assignAffiliate: no se pudo generar la comisión retroactiva para tenant=${tenantId}: ${e?.message ?? e}`,
+        );
+        return { generated: 0, skipped: 0 };
+      });
+      generatedCommission = r.generated > 0;
+    }
+    return { ok: true, generatedCommission };
   }
 
   private _clubifyWlIdCache: string | null | undefined;
