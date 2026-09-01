@@ -48,6 +48,31 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-31 — Contabilidad F5 (Cierres) + F6 (Reportes) (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+**F6 Reportes/Dashboard:** `FinanceReportService` — cascada de utilidad DERIVADA
+(Bruto − Fee/IVA = Neto; Neto − Egresos − Nómina − Comisiones = Utilidad) +
+serie mensual (6 meses). Endpoint `GET /admin/contabilidad/reporte?scope=&period=`.
+Frontend: pestaña **Reportes** (cascada + serie). Nómina se toma por `periodEnd`
+del PayrollRun; comisiones por `businessDate` (status≠REJECTED, sin acotar por
+marca en v1).
+
+**F5 Cierres:** modelo nuevo `FinancialClose` (snapshot mensual congelado de la
+cascada, único por period+scope). Migración
+`apply-financial-close-migration.cjs`. Endpoints `GET/POST/DELETE
+/admin/contabilidad/cierres`. Frontend: pestaña **Cierres** (cerrar mes con
+snapshot + tabla de meses cerrados + reabrir). TSC + ESLint limpios.
+
+Con esto el módulo Contabilidad queda con TODAS las pestañas (Ingresos,
+Conciliación, Egresos, Gastos, Nómina, Movimientos, Reportes, Cierres).
+
+### Qué toqué de PRODUCCIÓN
+- Nada. Falta: correr `apply-financial-close-migration.cjs` ANTES del deploy (el
+  código consulta la tabla nueva) + desplegar backend + frontend.
+
 ## 2026-08-31 — Contabilidad F4 Movimientos: terminado (SIN DESPLEGAR)
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
