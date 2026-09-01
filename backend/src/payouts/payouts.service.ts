@@ -816,17 +816,34 @@ export class PayoutsService {
 
     let totalRejected = 0;
     for (const t of suspendedTenants) {
+      if (!t.suspendedAt) continue;
+      // FIX 2026-09-01 (Wok Explosivo): SOLO rechazamos comisiones de cobros
+      // POSTERIORES a la suspensión (fantasmas / race post-suspend, que es lo que
+      // este cron debe cazar). Antes rechazaba TODAS las PENDING/APPROVED del
+      // tenant suspendido → anulaba también las de cobros REALES anteriores
+      // (dinero que el cliente sí pagó y NO se reembolsó), robándole al afiliado
+      // una comisión ganada. Un reembolso/contracargo real de un cobro viejo lo
+      // maneja `churnReferral` (webhook), no este cron. `businessDate` = fecha del
+      // cobro que la comisión representa; legacy sin businessDate cae a createdAt.
       const result = await this.prisma.commission.updateMany({
         where: {
           referralUse: { tenantId: t.id },
           status: { in: ['PENDING', 'APPROVED'] },
           paymentStatus: 'PENDING',
+          OR: [
+            { businessDate: { gt: t.suspendedAt } },
+            { businessDate: null, createdAt: { gt: t.suspendedAt } },
+          ],
         },
-        data: { status: 'REJECTED' },
+        data: {
+          status: 'REJECTED',
+          notes:
+            'Anulada: comisión de un cobro POSTERIOR a la suspensión (fantasma / race post-suspend).',
+        },
       });
       if (result.count > 0) {
         this.logger.log(
-          `Commission reconcile: ${result.count} rechazadas para tenant ${t.brandName} (${t.id}) — suspendido ${t.suspendedAt?.toISOString()}`,
+          `Commission reconcile: ${result.count} rechazadas (post-suspensión) para tenant ${t.brandName} (${t.id}) — suspendido ${t.suspendedAt?.toISOString()}`,
         );
         totalRejected += result.count;
       }

@@ -48,6 +48,40 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-09-01 — FIX RAÍZ: cron de suspendidos anulaba comisiones REALES de cobros previos
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+- **Causa raíz del caso Wok Explosivo (y clase entera):** el cron horario
+  `reconcileSuspendedTenantsCommissions` (`payouts.service.ts:806`) rechazaba
+  **TODAS** las comisiones PENDING/APPROVED de **cualquier** negocio SUSPENDED,
+  sin mirar la fecha del cobro. → anulaba también las de **cobros REALES
+  anteriores** a la suspensión (dinero que el cliente sí pagó, sin reembolso),
+  robándole al afiliado una comisión ganada. Sin audit ni notas (difícil de
+  rastrear). Un negocio que paga meses reales y luego se suspende perdía TODAS sus
+  comisiones pendientes.
+- **Fix:** ahora solo rechaza comisiones cuyo **`businessDate > suspendedAt`**
+  (cobros POSTERIORES a la suspensión = fantasmas/race, que es lo que el cron debe
+  cazar); legacy sin businessDate cae a `createdAt`. Los reembolsos/contracargos de
+  cobros viejos los maneja `churnReferral` (webhook), no este cron. Además ahora
+  deja `notes` en las que rechaza (trazabilidad).
+
+### Qué toqué de PRODUCCIÓN
+- **Deploy backend** con el fix (URGENTE: el cron iba a re-anular la comisión de
+  Wok Explosivo que se restauró hace un rato).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **Auditoría histórica pendiente:** este cron pudo haber anulado
+      indebidamente comisiones de OTROS afiliados (negocios que pagaron real y
+      luego se suspendieron). Vale la pena un script que liste REJECTED con
+      `businessDate < suspendedAt` y sin reembolso → candidatas a restaurar.
+
+### Riesgos y avisos
+- El fix es más conservador (sesga a NO rechazar). Puede dejar pasar algún
+  fantasma con businessDate viejo, pero eso es preferible a robarle plata a un
+  afiliado. Ver [[feedback_cutoff_total_recalc_excludes_rejected_2026_08_31]].
+
 ## 2026-09-01 — Wok Explosivo: comisión de agosto REAL anulada por evento duplicado de Hotmart
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
