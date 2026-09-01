@@ -23,6 +23,8 @@ type PEmp = { id: string; name: string; role: string | null; payType: string | n
 type PRun = { id: string; periodLabel: string; totalUsd: number; amountPaidUsd: number; outstandingUsd: number; status: string; itemCount: number; createdAt: string; paidAt: string | null };
 type PResumen = { colaboradores: number; nominaProximaUsd: number; pendienteUsd: number; pagadaUsd: number };
 type PItem = { id: string; employeeName: string; role: string | null; baseUsd: number; bonusUsd: number; deductionUsd: number; totalUsd: number };
+type Mov = { date: string; kind: 'INGRESO' | 'EGRESO'; category: string; concept: string; party: string | null; grossUsd: number | null; debitUsd: number; creditUsd: number; balanceUsd: number; status: string; reference: string | null; hasReceipt: boolean };
+type MovResp = { movements: Mov[]; summary: { ingresosUsd: number; egresosUsd: number; saldoUsd: number; count: number } };
 
 const money = (n: number | null | undefined) =>
   n == null ? '—' : (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -32,8 +34,8 @@ const GATEWAY_BDG: Record<string, string> = { HOTMART: 'bg-slate-100 text-slate-
 const RECON_BDG: Record<string, { cls: string; label: string }> = { RECONCILED: { cls: 'bg-emerald-100 text-emerald-700', label: 'Conciliado' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Sin conciliar' } };
 const EXP_BDG: Record<string, { cls: string; label: string }> = { PAID: { cls: 'bg-emerald-100 text-emerald-700', label: 'Pagado' }, PARTIAL: { cls: 'bg-blue-100 text-blue-700', label: 'Parcial' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Por revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Pendiente' } };
 
-type Tab = 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nomina';
-const FUTURE_TABS = ['Próximos cobros', 'Comisiones', 'Movimientos', 'Cierres', 'Reportes'];
+type Tab = 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nomina' | 'movimientos';
+const FUTURE_TABS = ['Próximos cobros', 'Comisiones', 'Cierres', 'Reportes'];
 const EXP_STATUS_LABEL: Record<string, string> = { PAID: 'Pagado', PARTIAL: 'Parcial', PENDING: 'Pendiente' };
 
 export default function ContabilidadPage() {
@@ -61,10 +63,13 @@ export default function ContabilidadPage() {
   const [payRun, setPayRun] = useState<PRun | null>(null);
   const [detailRun, setDetailRun] = useState<string | null>(null);
 
+  const [mov, setMov] = useState<MovResp | null>(null);
+  const [movKind, setMovKind] = useState<'' | 'INGRESO' | 'EGRESO'>('');
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, list, c, e, er, rc, em, ru, pr] = await Promise.all([
+      const [r, list, c, e, er, rc, em, ru, pr, mv] = await Promise.all([
         api<Resumen>(`/admin/contabilidad/ingresos/resumen?scope=${scope}`).catch(() => null),
         api<Row[]>(`/admin/contabilidad/ingresos?scope=${scope}`).catch(() => []),
         api<Cat[]>(`/admin/contabilidad/categorias`).catch(() => []),
@@ -74,12 +79,14 @@ export default function ContabilidadPage() {
         api<PEmp[]>(`/admin/contabilidad/nomina/colaboradores?scope=${scope}`).catch(() => []),
         api<PRun[]>(`/admin/contabilidad/nomina/cortes?scope=${scope}`).catch(() => []),
         api<PResumen>(`/admin/contabilidad/nomina/resumen?scope=${scope}`).catch(() => null),
+        api<MovResp>(`/admin/contabilidad/movimientos?scope=${scope}${movKind ? `&kind=${movKind}` : ''}`).catch(() => null),
       ]);
       setResumen(r); setRows((list ?? []) as Row[]); setCats((c ?? []) as Cat[]);
       setExps((e ?? []) as Exp[]); setExpResumen(er); setRecs((rc ?? []) as Rec[]);
       setEmps((em ?? []) as PEmp[]); setRuns((ru ?? []) as PRun[]); setPRes(pr);
+      setMov(mv);
     } finally { setLoading(false); }
-  }, [scope]);
+  }, [scope, movKind]);
   useEffect(() => { void load(); }, [load]);
 
   const catName = useMemo(() => Object.fromEntries(cats.map((c) => [c.id, c.name])), [cats]);
@@ -105,7 +112,7 @@ export default function ContabilidadPage() {
 
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-line2 overflow-x-auto">
-        {([['ingresos', 'Ingresos'], ['conciliacion', `Conciliación${resumen && resumen.pendingRecon + resumen.inReview > 0 ? ` (${resumen.pendingRecon + resumen.inReview})` : ''}`], ['egresos', 'Egresos'], ['gastos', 'Gastos operativos'], ['nomina', 'Nómina']] as [Tab, string][]).map(([id, label]) => (
+        {([['ingresos', 'Ingresos'], ['conciliacion', `Conciliación${resumen && resumen.pendingRecon + resumen.inReview > 0 ? ` (${resumen.pendingRecon + resumen.inReview})` : ''}`], ['egresos', 'Egresos'], ['gastos', 'Gastos operativos'], ['nomina', 'Nómina'], ['movimientos', 'Movimientos']] as [Tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap ${tab === id ? 'border-brand text-brand' : 'border-transparent text-mute hover:text-ink'}`}>{label}</button>
         ))}
         {FUTURE_TABS.map((t) => (
@@ -271,6 +278,53 @@ export default function ContabilidadPage() {
                       <td className="px-4 py-3">{r.status !== 'PAID' && <button className="text-xs font-semibold text-brand hover:underline" onClick={() => setPayRun(r)}>Registrar pago</button>}</td>
                     </tr>
                   ))}</tbody>
+                </table></div></div>
+              )}
+            </>
+          )}
+
+          {/* ===== MOVIMIENTOS (F4): libro unificado ingresos + egresos ===== */}
+          {tab === 'movimientos' && (
+            <>
+              {mov && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                  <Kpi lbl="Ingresos" dot="#16A34A" val={money(mov.summary.ingresosUsd)} sub={`${mov.summary.count} movimientos`} />
+                  <Kpi lbl="Egresos" dot="#DC2626" val={money(mov.summary.egresosUsd)} sub="salidas" />
+                  <Kpi lbl="Saldo" dot="#2563EB" val={money(mov.summary.saldoUsd)} sub="ingresos − egresos" />
+                  <Kpi lbl="Total" dot="#6B7280" val={String(mov.summary.count)} sub="registros" />
+                </div>
+              )}
+              <div className="flex gap-1.5 mb-3">
+                {([['', 'Todos'], ['INGRESO', 'Ingresos'], ['EGRESO', 'Egresos']] as ['' | 'INGRESO' | 'EGRESO', string][]).map(([k, lbl]) => (
+                  <button key={k} onClick={() => setMovKind(k)} className={`text-xs px-3 py-1 rounded-pill border transition ${movKind === k ? 'bg-brand/10 border-brand text-brand font-semibold' : 'border-line2 text-mute hover:text-ink'}`}>{lbl}</button>
+                ))}
+              </div>
+              {!mov || mov.movements.length === 0 ? (
+                <div className="card card-pad text-center text-mute">Sin movimientos en este alcance.</div>
+              ) : (
+                <div className="card overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[900px]">
+                  <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
+                    <th className="px-4 py-3 font-semibold">Fecha</th>
+                    <th className="px-4 py-3 font-semibold">Tipo</th>
+                    <th className="px-4 py-3 font-semibold">Categoría</th>
+                    <th className="px-4 py-3 font-semibold">Concepto</th>
+                    <th className="px-4 py-3 font-semibold text-right">Débito</th>
+                    <th className="px-4 py-3 font-semibold text-right">Crédito</th>
+                    <th className="px-4 py-3 font-semibold text-right">Saldo</th>
+                  </tr></thead>
+                  <tbody>
+                    {mov.movements.map((m, i) => (
+                      <tr key={i} className="border-t border-line2">
+                        <td className="px-4 py-3 whitespace-nowrap">{new Date(m.date).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
+                        <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${m.kind === 'INGRESO' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{m.kind === 'INGRESO' ? 'Ingreso' : 'Egreso'}</span></td>
+                        <td className="px-4 py-3 text-mute whitespace-nowrap">{m.category}</td>
+                        <td className="px-4 py-3">{m.concept}{m.party && <span className="text-mute"> · {m.party}</span>}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-red-600">{m.debitUsd ? money(m.debitUsd) : '—'}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-emerald-600">{m.creditUsd ? money(m.creditUsd) : '—'}</td>
+                        <td className="px-4 py-3 text-right tabular-nums font-medium">{money(m.balanceUsd)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
                 </table></div></div>
               )}
             </>

@@ -48,6 +48,27 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-31 — Contabilidad F4 Movimientos: terminado (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+Cerré el **F4 Movimientos** de Contabilidad que estaba aparcado sin commitear.
+Backend ya estaba (MovementsService/Controller: libro de caja DERIVADO de
+IncomeRecord + Expense + PayrollRun con saldo corrido, `GET
+/admin/contabilidad/movimientos?scope=&kind=`). Faltaba el frontend, que además
+estaba ROTO (el `mv` del `Promise.all` no estaba en el destructuring →
+`contabilidad/page.tsx` no compilaba). Corregido: agregado `mv` al destructuring,
+la pestaña **Movimientos** en la barra de tabs, y el render (resumen
+ingresos/egresos/saldo + filtro Todos/Ingresos/Egresos + tabla débito/crédito/
+saldo). TSC backend + frontend limpios (el error viejo de contabilidad ya no está).
+
+### Qué toqué de PRODUCCIÓN
+- Nada. Aditivo, sin migración (Movimientos es derivado en lectura). Falta desplegar.
+
+### Qué falta
+- [ ] Desplegar backend + frontend.
+
 ## 2026-08-31 — Renovaciones Fases 3 (SMS alertas) + 4 (comisiones en Pagos por fuera) (SIN DESPLEGAR)
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
