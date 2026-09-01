@@ -48,6 +48,27 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-31 — Dashboard de cobros (Fase 5) instalado: 3 tarjetas 🔴🟢🟡 (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+- Backend (commit aparte 47955ae3): `CobrosService` (summary + detail por bucket)
+  inyectado en `GET /admin/dashboard/metrics-v2` (campo `cobros`) + endpoints
+  `GET /admin/dashboard/cobros/:bucket?range=`. Reusa `deriveRenewalState`.
+- Frontend `PremiumDashboard.tsx`: reemplazadas las 3 tarjetas (MRR / Tasa
+  cancelación / Comisiones pendientes) por **🔴 Próximos cobros / 🟢 Procesados /
+  🟡 No procesados**, clickeables → modal drill-down con filtros de rango
+  (hoy/7/15/30d) y tabla por bucket. Se quitó el componente `Kpi` (sin uso).
+
+### Qué toqué de PRODUCCIÓN
+- Nada. Falta desplegar backend + frontend.
+
+### Qué falta
+- [ ] Desplegar (backend ya tiene el feed; frontend muestra las tarjetas).
+- [ ] Fase 3 (SMS alertas de cobro a los 3 números) + Fase 4 (columna comisiones
+      en Pagos por fuera) del proyecto de renovaciones — aún pendientes.
+
 ## 2026-08-31 — Fix sistémico "atribución tardía → sin comisión" (SIN DESPLEGAR)
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`

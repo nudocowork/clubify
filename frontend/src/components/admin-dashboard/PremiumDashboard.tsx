@@ -75,6 +75,13 @@ type DashboardResp = {
     cancellationRate: number;
     pendingCommissionsUsd: number;
   };
+  // Fase 5: las 3 tarjetas de cobros (fuente única, mismo motor que suspende).
+  cobros?: {
+    proximos: { count: number; amountUsd: number };
+    procesados: { count: number; amountUsd: number };
+    noProcesados: { count: number; amountUsd: number };
+    generatedAt: string;
+  };
   monthlySeries: Array<{
     label: string;
     mrrUsd: number;
@@ -152,6 +159,10 @@ export function PremiumDashboard() {
   // #17: los montos financieros se muestran OCULTOS por defecto. El 👁
   // los revela. La preferencia se persiste en localStorage por dispositivo.
   const [showAmounts, setShowAmounts] = useState(false);
+  // Fase 5: drill-down de las 3 tarjetas de cobros (modal con la tabla).
+  const [cobrosBucket, setCobrosBucket] = useState<
+    'proximos' | 'procesados' | 'no-procesados' | null
+  >(null);
   useEffect(() => {
     setShowAmounts(localStorage.getItem('dashboard.showAmounts') === '1');
   }, []);
@@ -479,36 +490,43 @@ export function PremiumDashboard() {
         </div>
       </div>
 
-      {/* 3 KPIs glass (#16: se eliminó "Conversión Trial → Cliente") */}
+      {/* Fase 5: 3 tarjetas de COBROS (fuente única — mismo motor que suspende).
+          Reemplazan MRR / Tasa cancelación / Comisiones pendientes. Clickeables:
+          abren el detalle con la lista y filtros de fecha. */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
-        <Kpi
-          label="Ingreso recurrente"
-          value={money(data.kpis.mrrUsd)}
-          sub="MRR estimado · recurrente, no caja"
-          accent="brand"
-          icon="💎"
+        <CobroCard
+          color="red"
+          icon="🔴"
+          label="Próximos cobros"
+          value={money(data.cobros?.proximos.amountUsd ?? 0)}
+          sub={`${data.cobros?.proximos.count ?? 0} cobros · próximos 7 días`}
+          onClick={() => setCobrosBucket('proximos')}
         />
-        <Kpi
-          label="Tasa de cancelación"
-          value={`${data.kpis.cancellationRate}%`}
-          sub="Clientes que cancelaron"
-          accent={
-            data.kpis.cancellationRate >= 10
-              ? 'bad'
-              : data.kpis.cancellationRate >= 5
-              ? 'warn'
-              : 'ok'
-          }
-          icon="📉"
+        <CobroCard
+          color="green"
+          icon="🟢"
+          label="Pagos procesados"
+          value={money(data.cobros?.procesados.amountUsd ?? 0)}
+          sub={`${data.cobros?.procesados.count ?? 0} pagos · últimos 7 días`}
+          onClick={() => setCobrosBucket('procesados')}
         />
-        <Kpi
-          label="Comisiones pendientes"
-          value={money(data.kpis.pendingCommissionsUsd)}
-          sub="Por pagar a afiliados"
-          accent="amber"
-          icon="💰"
+        <CobroCard
+          color="amber"
+          icon="🟡"
+          label="Pagos no procesados"
+          value={money(data.cobros?.noProcesados.amountUsd ?? 0)}
+          sub={`${data.cobros?.noProcesados.count ?? 0} · fallidos o vencidos`}
+          onClick={() => setCobrosBucket('no-procesados')}
         />
       </div>
+
+      {cobrosBucket && (
+        <CobrosDrilldown
+          bucket={cobrosBucket}
+          money={money}
+          onClose={() => setCobrosBucket(null)}
+        />
+      )}
 
       {/* 2 charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
@@ -707,37 +725,270 @@ function totalClients(data: DashboardResp) {
   );
 }
 
-function Kpi({
+// Fase 5 — tarjeta de cobros clickeable (🔴🟢🟡).
+function CobroCard({
+  color,
+  icon,
   label,
   value,
   sub,
-  accent,
-  icon,
+  onClick,
 }: {
+  color: 'red' | 'green' | 'amber';
+  icon: string;
   label: string;
   value: string;
   sub: string;
-  accent: 'brand' | 'ok' | 'warn' | 'bad' | 'amber' | 'neutral';
-  icon: string;
+  onClick: () => void;
 }) {
-  const cls: Record<typeof accent, string> = {
-    brand: 'text-brand',
-    ok: 'text-ok',
-    warn: 'text-amber-600',
-    bad: 'text-red-600',
-    amber: 'text-amber-700',
-    neutral: 'text-mute',
-  } as any;
+  const border = {
+    red: 'border-t-red-500',
+    green: 'border-t-emerald-500',
+    amber: 'border-t-amber-500',
+  }[color];
+  const text = {
+    red: 'text-red-600',
+    green: 'text-emerald-600',
+    amber: 'text-amber-600',
+  }[color];
   return (
-    <div className="rounded-2xl backdrop-blur bg-white/80 border border-white/60 shadow-md2 p-4">
+    <button
+      onClick={onClick}
+      className={`text-left rounded-2xl backdrop-blur bg-white/80 border border-white/60 border-t-[3px] ${border} shadow-md2 p-4 transition hover:-translate-y-0.5`}
+    >
       <div className="flex items-start justify-between">
         <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
           {label}
         </div>
         <span className="text-lg">{icon}</span>
       </div>
-      <div className={`text-2xl font-bold mt-1 ${cls[accent]}`}>{value}</div>
+      <div className={`text-2xl font-bold mt-1 ${text}`}>{value}</div>
       <div className="text-[11px] text-mute mt-0.5">{sub}</div>
+      <div className={`text-[11px] font-semibold mt-2 ${text}`}>Ver detalle →</div>
+    </button>
+  );
+}
+
+// Fase 5 — detalle (drill-down) de una tarjeta de cobros.
+type CobroRowAny = {
+  tenantId?: string | null;
+  negocio?: string;
+  esGrupo?: boolean;
+  fechaCobro?: string | null;
+  fechaPrevista?: string | null;
+  fecha?: string | null;
+  periodicidad?: string;
+  montoUsd?: number;
+  metodo?: string;
+  pasarela?: string;
+  tipo?: string;
+  estado?: string;
+  graceLabel?: string | null;
+  diasVencidos?: number;
+};
+
+function CobrosDrilldown({
+  bucket,
+  money,
+  onClose,
+}: {
+  bucket: 'proximos' | 'procesados' | 'no-procesados';
+  money: (n: number) => string;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<CobroRowAny[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState(bucket === 'no-procesados' ? '30d' : '7d');
+  const title = {
+    proximos: '🔴 Próximos cobros',
+    procesados: '🟢 Pagos procesados',
+    'no-procesados': '🟡 Pagos no procesados',
+  }[bucket];
+  const chips: Array<[string, string]> =
+    bucket === 'proximos'
+      ? [
+          ['hoy', 'Hoy'],
+          ['7d', 'Próx. 7 días'],
+          ['15d', '15 días'],
+          ['30d', '30 días'],
+        ]
+      : [
+          ['hoy', 'Hoy'],
+          ['7d', 'Últimos 7 días'],
+          ['15d', '15 días'],
+          ['30d', '30 días'],
+        ];
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api<CobroRowAny[]>(`/admin/dashboard/cobros/${bucket}?range=${range}`)
+      .then((r) => {
+        if (!cancelled) {
+          setRows(Array.isArray(r) ? r : []);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRows([]);
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bucket, range]);
+
+  const fmtD = (s?: string | null) =>
+    s
+      ? new Date(s).toLocaleDateString('es-CO', {
+          day: '2-digit',
+          month: 'short',
+        })
+      : '—';
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto"
+      onClick={onClose}
+    >
+      <div
+        className="bg-surface rounded-xl max-w-4xl w-full p-5 shadow-xl my-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold">{title}</h2>
+          <button onClick={onClose} className="text-mute hover:text-ink text-xl">
+            ✕
+          </button>
+        </div>
+        <div className="text-xs text-mute mb-3">
+          {rows.length} {rows.length === 1 ? 'registro' : 'registros'}
+        </div>
+        <div className="flex gap-1.5 flex-wrap mb-3">
+          {chips.map(([v, lbl]) => (
+            <button
+              key={v}
+              onClick={() => setRange(v)}
+              className={`text-xs px-3 py-1 rounded-full border transition ${
+                range === v
+                  ? 'bg-brand/10 border-brand text-brand font-semibold'
+                  : 'border-line2 text-mute hover:text-ink'
+              }`}
+            >
+              {lbl}
+            </button>
+          ))}
+        </div>
+        <div className="overflow-x-auto border border-line2 rounded-lg">
+          {loading ? (
+            <div className="p-8 text-center text-mute text-sm">Cargando…</div>
+          ) : rows.length === 0 ? (
+            <div className="p-8 text-center text-mute text-sm">
+              Sin resultados en este rango.
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider">
+                {bucket === 'proximos' && (
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Fecha cobro</th>
+                    <th className="px-3 py-2 font-semibold">Negocio</th>
+                    <th className="px-3 py-2 font-semibold">Plan</th>
+                    <th className="px-3 py-2 font-semibold text-right">Monto</th>
+                    <th className="px-3 py-2 font-semibold">Método</th>
+                  </tr>
+                )}
+                {bucket === 'procesados' && (
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Fecha</th>
+                    <th className="px-3 py-2 font-semibold">Negocio</th>
+                    <th className="px-3 py-2 font-semibold">Tipo</th>
+                    <th className="px-3 py-2 font-semibold text-right">Monto</th>
+                    <th className="px-3 py-2 font-semibold">Pasarela</th>
+                  </tr>
+                )}
+                {bucket === 'no-procesados' && (
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Negocio</th>
+                    <th className="px-3 py-2 font-semibold">Vence</th>
+                    <th className="px-3 py-2 font-semibold text-center">Días</th>
+                    <th className="px-3 py-2 font-semibold">Gracia</th>
+                    <th className="px-3 py-2 font-semibold text-right">Monto</th>
+                    <th className="px-3 py-2 font-semibold">Método</th>
+                  </tr>
+                )}
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-t border-line2">
+                    {bucket === 'proximos' && (
+                      <>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {fmtD(r.fechaCobro)}
+                        </td>
+                        <td className="px-3 py-2 font-medium">
+                          {r.negocio}
+                          {r.esGrupo && (
+                            <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">
+                              Grupo
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-mute">{r.periodicidad}</td>
+                        <td className="px-3 py-2 text-right font-semibold">
+                          {money(r.montoUsd ?? 0)}
+                        </td>
+                        <td className="px-3 py-2 text-mute">{r.metodo}</td>
+                      </>
+                    )}
+                    {bucket === 'procesados' && (
+                      <>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {fmtD(r.fecha)}
+                        </td>
+                        <td className="px-3 py-2 font-medium">{r.negocio}</td>
+                        <td className="px-3 py-2 text-mute">{r.tipo}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-emerald-600">
+                          {money(r.montoUsd ?? 0)}
+                        </td>
+                        <td className="px-3 py-2 text-mute">{r.pasarela}</td>
+                      </>
+                    )}
+                    {bucket === 'no-procesados' && (
+                      <>
+                        <td className="px-3 py-2 font-medium">{r.negocio}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {fmtD(r.fechaPrevista)}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {r.diasVencidos}
+                        </td>
+                        <td className="px-3 py-2">
+                          {r.estado === 'SUSPENDIDO' ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
+                              SUSPENDIDO
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">
+                              {r.graceLabel ?? 'En gracia'}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold">
+                          {money(r.montoUsd ?? 0)}
+                        </td>
+                        <td className="px-3 py-2 text-mute">{r.metodo}</td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
