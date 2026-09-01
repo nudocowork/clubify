@@ -63,7 +63,14 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 - **Fix:** agregué `contabilidad` al set. Y de paso barrí TODAS las rutas reales
   de `src/app/admin/*` contra el set: faltaban 4 más con el mismo bug latente
   (`academia`, `automatizaciones`, `infolinks`, `pending-payments`) — agregadas.
-  Ahora las 32 rutas admin están listadas. Comentario nuevo explicando la regla.
+- **⚠️ HAY DOS LISTAS (segundo commit):** además de `ADMIN_ROUTE_SEGMENTS` en
+  AppShell (nav), el **`middleware.ts`** tiene su propia `RESERVED_ADMIN_ROUTES`.
+  El middleware es server-side y **REESCRIBE `/admin/<slug-no-listado>` → `/admin`**
+  (el dashboard) tratándolo como marca. Por eso, con solo el fix del AppShell, la
+  sección aparecía pero al entrar **cargaba el Dashboard**, no Contabilidad. Al
+  middleware le faltaban `contabilidad` e `infolinks` → agregadas. Verificado: las
+  32 rutas admin están en AMBAS listas. **Al crear una ruta /admin/<seg> nueva, hay
+  que agregarla a las DOS listas.**
 
 ### Qué toqué de PRODUCCIÓN
 - **Deploy frontend.** Backend: nada.
