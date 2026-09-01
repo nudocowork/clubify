@@ -5874,9 +5874,10 @@ export class ReferralsService {
       dateTo?: string;
       // TIPO de fecha sobre la que operan el filtro Y la columna FECHA (brief
       // PASO 5). 'purchase' = fecha de compra (businessDate, congelada) ·
-      // 'payment' = fecha de pago (paidAt) · 'batch' = lote de corte
-      // (payoutBatch.code). Default 'purchase' (la columna histórica).
-      dateType?: 'purchase' | 'payment' | 'batch';
+      // 'payment' = fecha de pago (paidAt) · 'available' = fecha de DESBLOQUEO
+      // (availableAt, cuando se puso disponible tras el hold de 15 días) ·
+      // 'batch' = lote de corte (payoutBatch.code). Default 'purchase'.
+      dateType?: 'purchase' | 'payment' | 'batch' | 'available';
       // En dateType='batch': código del lote a filtrar (ej "CORTE-2026-06-30").
       batchCode?: string;
       status?: 'PENDING' | 'PARTIAL' | 'PAID';
@@ -5936,7 +5937,12 @@ export class ReferralsService {
     if (dateType === 'batch') {
       if (opts.batchCode) baseWhere.payoutBatch = { code: opts.batchCode };
     } else if (opts.dateFrom || opts.dateTo) {
-      const field = dateType === 'payment' ? 'paidAt' : 'businessDate';
+      const field =
+        dateType === 'payment'
+          ? 'paidAt'
+          : dateType === 'available'
+            ? 'availableAt'
+            : 'businessDate';
       const range: any = {};
       if (opts.dateFrom) range.gte = bogotaDayStartUtc(opts.dateFrom);
       if (opts.dateTo)

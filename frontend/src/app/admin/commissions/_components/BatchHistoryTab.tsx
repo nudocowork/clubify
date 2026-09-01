@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
-import { CloseBatchModal } from './CurrentCutoffTab';
+import { CloseBatchModal, cutoffLabelFromCode } from './CurrentCutoffTab';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PESTAÑA "HISTORIAL DE CORTES"
@@ -225,7 +225,8 @@ export default function BatchHistoryTab() {
                   onClick={() => void openDetail(b.id)}
                 >
                   <td className="px-4 py-3">
-                    <div className="font-semibold">{b.code}</div>
+                    <div className="font-semibold">{cutoffLabelFromCode(b.code)}</div>
+                    <div className="text-[10px] text-mute font-mono">{b.code}</div>
                     {b.generatedAuto && (
                       <div className="text-[10px] text-mute">{t('batchAuto')}</div>
                     )}

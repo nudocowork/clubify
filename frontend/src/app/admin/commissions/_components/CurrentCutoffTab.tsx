@@ -12,6 +12,21 @@ import { toast } from '@/components/Toast';
 // el detalle comisión por comisión queda adentro como respaldo.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Etiqueta "Corte N" (1..24/año, quincenal) derivada del code del lote
+ * ("CORTE-2026-08-15" → "Corte 15"; "CORTE-2026-08-31" → "Corte 16").
+ * N = (mes−1)×2 + (día ≤ 15 ? 1 : 2). Solo presentación; el code no cambia.
+ * (Espejo de `cutoffLabel` en backend cutoff-calendar.ts.)
+ */
+export function cutoffLabelFromCode(code: string | null | undefined): string {
+  const m = /^CORTE-(\d{4})-(\d{2})-(\d{2})$/.exec(code ?? '');
+  if (!m) return code ?? '';
+  const month = parseInt(m[2], 10);
+  const day = parseInt(m[3], 10);
+  const n = day <= 15 ? (month - 1) * 2 + 1 : month * 2;
+  return `Corte ${n}`;
+}
+
 export type CutoffCommission = {
   id: string;
   amount: number;
@@ -481,7 +496,17 @@ export default function CurrentCutoffTab() {
                               </tr>
                             </thead>
                             <tbody>
-                              {p.commissions.map((c) => (
+                              {/* Orden por FECHA DE COMPRA ascendente (2026-08-31):
+                                  el backend las agrupa por createdAt, que difiere de
+                                  la fecha de compra (businessDate) → se veían
+                                  desordenadas. */}
+                              {[...p.commissions]
+                                .sort(
+                                  (a, b) =>
+                                    new Date(a.date).getTime() -
+                                    new Date(b.date).getTime(),
+                                )
+                                .map((c) => (
                                 <tr key={c.id}>
                                   <td className="py-1">
                                     <input
@@ -832,9 +857,10 @@ export function CloseBatchModal({
         className="bg-surface rounded-xl max-w-md w-full p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-bold mb-1">
-          {t('closeBatchTitle', { code: batch.code })}
+        <h2 className="text-lg font-bold mb-0.5">
+          Cerrar {cutoffLabelFromCode(batch.code)}
         </h2>
+        <div className="text-[11px] text-mute font-mono mb-1">{batch.code}</div>
         <p className="text-xs text-mute mb-4">{t('closeBatchSubtitle')}</p>
 
         <div className="bg-bg2 rounded-lg p-3 mb-4 text-sm">

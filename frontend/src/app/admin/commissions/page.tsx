@@ -71,7 +71,7 @@ type CommissionRow = {
 type Bucket = 'pending_approval' | 'available' | 'paid' | 'rejected';
 
 // Brief PASO 5: sobre qué fecha operan el filtro y la columna FECHA.
-type DateType = 'purchase' | 'payment' | 'batch';
+type DateType = 'purchase' | 'payment' | 'batch' | 'available';
 
 type BatchOption = {
   id: string;
@@ -722,6 +722,7 @@ function AdvancedCommissionsView() {
           >
             <option value="purchase">{t('dateTypePurchase')}</option>
             <option value="payment">{t('dateTypePayment')}</option>
+            <option value="available">Desbloqueo</option>
             <option value="batch">{t('dateTypeBatch')}</option>
           </select>
         </div>
@@ -819,9 +820,11 @@ function AdvancedCommissionsView() {
                 <th className="px-4 py-3 font-semibold">
                   {dateType === 'payment'
                     ? t('dateTypePayment')
-                    : dateType === 'batch'
-                      ? t('dateTypeBatch')
-                      : t('dateTypePurchase')}
+                    : dateType === 'available'
+                      ? 'Desbloqueo'
+                      : dateType === 'batch'
+                        ? t('dateTypeBatch')
+                        : t('dateTypePurchase')}
                 </th>
                 <th className="px-4 py-3 font-semibold">{t('thBusiness')}</th>
                 <th className="px-4 py-3 font-semibold">{t('thPlan')}</th>
@@ -830,22 +833,19 @@ function AdvancedCommissionsView() {
                 <th className="px-4 py-3 font-semibold text-right">{t('thPaid')}</th>
                 <th className="px-4 py-3 font-semibold text-right">{t('thOutstanding')}</th>
                 <th className="px-4 py-3 font-semibold">{t('thStatus')}</th>
-                <th className="px-4 py-3 font-semibold text-center">{t('thDaysLeft')}</th>
-                <th className="px-4 py-3 font-semibold">{t('thPaidDate')}</th>
-                <th className="px-4 py-3 font-semibold"></th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center text-mute">
+                  <td colSpan={8} className="px-4 py-10 text-center text-mute">
                     {t('loading')}
                   </td>
                 </tr>
               )}
               {!loading && (data?.items.length ?? 0) === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center text-mute">
+                  <td colSpan={8} className="px-4 py-12 text-center text-mute">
                     <div className="text-3xl mb-2">💸</div>
                     {t('emptyNoCommissions')}
                   </td>
@@ -854,7 +854,6 @@ function AdvancedCommissionsView() {
               {!loading &&
                 (data?.items ?? []).map((c) => {
                   const badge = lifecycleBadge(c.status, c.paymentStatus);
-                  const inHold = c.status === 'PENDING';
                   return (
                     <tr
                       key={c.id}
@@ -879,6 +878,14 @@ function AdvancedCommissionsView() {
                               title={`${t('dateTypePayment')}: ${fmtDate(c.payoutBatch.paymentDate)}`}
                             >
                               {c.payoutBatch.code}
+                            </span>
+                          ) : (
+                            <span className="text-mute">—</span>
+                          )
+                        ) : dateType === 'available' ? (
+                          c.availableAt ? (
+                            <span title="Fecha de desbloqueo (disponible tras el hold de 15 días)">
+                              {fmtDate(c.availableAt)}
                             </span>
                           ) : (
                             <span className="text-mute">—</span>
@@ -999,48 +1006,19 @@ function AdvancedCommissionsView() {
                         >
                           {t(badge.key)}
                         </span>
-                        {inHold && (
+                        {/* Fecha bajo el estado (2026-08-31): si está PAGADA, la fecha
+                            de pago (paidAt); si no, la de DESBLOQUEO (availableAt) —
+                            cubre "Disponible" y el hold. Reemplaza las columnas
+                            separadas DÍAS REST. y FECHA DE PAGO (ahora ocultas). */}
+                        {c.status === 'PAID' && c.paidAt ? (
+                          <div className="text-[10px] text-emerald-600 mt-1 whitespace-nowrap">
+                            ✓ {fmtDate(c.paidAt)}
+                          </div>
+                        ) : c.availableAt ? (
                           <div className="text-[10px] text-mute mt-1 whitespace-nowrap">
                             {t('availableOn', { date: fmtDate(c.availableAt) })}
                           </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center whitespace-nowrap">
-                        {inHold ? (
-                          <span className="inline-block px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700">
-                            {c.daysRemaining}d
-                          </span>
-                        ) : c.status === 'REJECTED' ? (
-                          <span className="text-mute text-xs">—</span>
-                        ) : (
-                          // PDF Soft(9) C1: ya habilitada (APPROVED/PAID/RETAINED) →
-                          // mostramos la FECHA en que se habilitó (availableAt) en vez
-                          // de "—", para poder auditar pagos pasados (revisar en agosto
-                          // comisiones de mayo/junio).
-                          <span className="text-[11px] text-mute" title={t('thDaysLeft')}>
-                            {fmtDate(c.availableAt)}
-                          </span>
-                        )}
-                      </td>
-                      {/* PDF Soft(9) C4: FECHA DE PAGO — día real en que se pagó la
-                          comisión (paidAt). Para llevar registro de efectividad de pagos. */}
-                      <td className="px-4 py-3 text-xs whitespace-nowrap">
-                        {c.paidAt ? (
-                          <span className="text-emerald-600 font-medium">
-                            ✓ {fmtDate(c.paidAt)}
-                          </span>
-                        ) : (
-                          <span className="text-mute">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <RowActions
-                          c={c}
-                          inHold={inHold}
-                          enabling={enabling === c.id}
-                          onEnable={() => enableCommission(c)}
-                          onPay={() => setPaying(c)}
-                        />
+                        ) : null}
                       </td>
                     </tr>
                   );
@@ -1061,7 +1039,7 @@ function AdvancedCommissionsView() {
                   <td className="px-4 py-3 text-right text-amber-700">
                     {fmtUsd(data.totals.totalOutstanding)}
                   </td>
-                  <td colSpan={3}></td>
+                  <td></td>
                 </tr>
               </tfoot>
             )}

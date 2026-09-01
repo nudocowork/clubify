@@ -48,6 +48,40 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-31 — Comisiones UI: columnas, orden, filtro por desbloqueo, "Corte N" (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama:** `feat/commissions-auto-cutoffs`
+
+### Qué cambié (frontend + backend, aditivo)
+- **Tabla avanzada** (`commissions/page.tsx`): ocultadas 3 columnas (DÍAS REST.,
+  FECHA DE PAGO, y la de acciones "marcar pagada/habilitar" — ya no se marca a
+  mano, se desbloquea solo). La fecha ahora va **bajo el badge de estado**: si
+  PAGADA → paidAt; si no → availableAt (desbloqueo). colSpans recalculados 11→8.
+- **Filtro por desbloqueo:** nuevo tipo de fecha `available` (availableAt) en el
+  filtro avanzado (backend `listAdminCommissions` + frontend selector). Así "del
+  15 al 31 de ago" muestra las desbloqueadas en ese rango.
+- **Orden por fecha:** el detalle por persona (Corte actual) ahora ordena las
+  comisiones por fecha de compra ascendente (venían por createdAt, desordenadas).
+- **"Corte N" (1..24/año):** helper `cutoffLabel` en backend `cutoff-calendar.ts`
+  y espejo `cutoffLabelFromCode` en frontend. Aplicado al modal de cierre y al
+  historial (el `code` interno "CORTE-2026-08-15" NO cambia, solo la etiqueta).
+
+### Qué toqué de PRODUCCIÓN
+- **Nada.** Aditivo, sin migración. No desplegado.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] FALTA (grande): flujo de pago POR PERSONA en el cierre de corte — marcar
+      recibido/pagado por persona con comprobante (reusar `CommissionPayout` +
+      `/media/upload` + `payouts.service.adminMarkPayoutPaid`), cierre bloqueado
+      hasta pagar a todos, SMS interno a +12125550752 por evento (reusar
+      `prereg-alerts.sendTeamAlert`) + SMS de prueba.
+- [ ] BUG detectado (CHANFLE): comisión NO generada porque la atribución al
+      afiliado se creó 15h DESPUÉS del pago Hotmart (la generación corre en el
+      pago). Patrón "atribución tardía → sin comisión". Falta: (a) generar la de
+      CHANFLE, (b) fix sistémico (al asignar afiliado a un negocio ya pagado,
+      generar la comisión del periodo).
+
 ## 2026-08-31 — Comisiones: fix del desbloqueo (availableAt) mal calculado (SIN DESPLEGAR)
 
 **Máquina/quién:** máquina de Jhon (Claude)
