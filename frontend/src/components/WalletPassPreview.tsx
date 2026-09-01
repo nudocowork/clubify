@@ -58,6 +58,8 @@ export type WalletPassPreviewProps = {
   /** Chip/fondo detrás del logo del header. null = sin chip (bg blanco 15%
    *  histórico). Un color da contraste a logos blancos/transparentes. */
   logoBgColor?: string | null;
+  /** Forma del logo. Ausente = 'ROUNDED', como se ha pintado siempre. */
+  logoShape?: LogoShape | null;
   // Wallet V3 — modo de fondo del área de sellos.
   stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   stampBgImageUrl?: string | null;
@@ -82,6 +84,38 @@ export type WalletPassPreviewProps = {
   bare?: boolean;
 };
 
+/**
+ * Forma del logo en la cabecera de la tarjeta.
+ *
+ * `RECTANGLE` es más ancho que alto: hay logos que son una palabra y en un
+ * cuadrado de 28 px se leen como una mancha.
+ *
+ * Ausente = 'ROUNDED', que es como se ha pintado siempre — ninguna tarjeta ya
+ * publicada cambia de aspecto.
+ */
+export type LogoShape = 'SQUARE' | 'ROUNDED' | 'CIRCLE' | 'RECTANGLE';
+
+export const LOGO_SHAPES: Array<{ id: LogoShape; label: string }> = [
+  { id: 'SQUARE', label: 'Cuadrado' },
+  { id: 'ROUNDED', label: 'Cuadrado redondeado' },
+  { id: 'CIRCLE', label: 'Circular' },
+  { id: 'RECTANGLE', label: 'Rectangular' },
+];
+
+export function logoShapeClass(shape?: LogoShape | null): string {
+  switch (shape) {
+    case 'SQUARE':
+      return 'w-7 h-7 rounded-none';
+    case 'CIRCLE':
+      return 'w-7 h-7 rounded-full';
+    case 'RECTANGLE':
+      return 'w-11 h-7 rounded-[3px]';
+    case 'ROUNDED':
+    default:
+      return 'w-7 h-7 rounded-md';
+  }
+}
+
 export function WalletPassPreview(props: WalletPassPreviewProps) {
   const {
     brandName,
@@ -105,6 +139,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     stampContourColor,
     centerBgColor,
     logoBgColor,
+    logoShape,
     stampBgType = 'GRADIENT',
     stampBgImageUrl,
     stampIconImageUrl,
@@ -225,7 +260,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
       <div className="flex items-start justify-between gap-2.5 px-4 pt-3.5 pb-2 relative">
         <div className="flex items-center gap-2 min-w-0">
           <div
-            className={`w-7 h-7 rounded-md flex items-center justify-center font-bold text-[12px] shrink-0 overflow-hidden ${
+            className={`${logoShapeClass(logoShape)} flex items-center justify-center font-bold text-[12px] shrink-0 overflow-hidden ${
               logoBgColor ? '' : 'bg-white/15 backdrop-blur'
             }`}
             style={logoBgColor ? { background: logoBgColor } : undefined}

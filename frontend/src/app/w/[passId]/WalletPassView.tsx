@@ -103,11 +103,15 @@ export function WalletPassView({
 
   const tarjeta = (
     <WalletPassPreview
-      // Tras registrarse la tarjeta va en pequeño: es una confirmación de que
-      // se creó, no el protagonista. En grande empujaba los botones de
-      // instalación fuera de pantalla en un iPhone SE, y como la tarjeta ya se
-      // veía, el cliente creía que había terminado y cerraba sin instalarla.
+      // Tras registrarse la tarjeta va en pequeño y SIN el marco de iPhone.
+      //
+      // El marco era el problema de fondo: al ver un móvil con la tarjeta
+      // dentro, el cliente entendía que ya la tenía instalada y cerraba. Y
+      // ocupaba tanto alto que empujaba los botones fuera de pantalla en un
+      // iPhone SE. Aquí la tarjeta es la confirmación de que se creó, no el
+      // protagonista.
       size={welcome ? 'sm' : 'md'}
+      bare={welcome}
       brandName={data.tenant.brandName}
       brandLogoUrl={
         data.tenant.walletLogoUrl ??
@@ -138,6 +142,7 @@ export function WalletPassView({
       stampContourColor={data.card.stampContourColor}
       centerBgColor={data.card.centerBgColor}
       logoBgColor={data.card.logoBgColor}
+      logoShape={data.card.logoShape}
       rewardText={data.card.rewardText}
       customerName={(data.customer?.fullName ?? '').toUpperCase() || '—'}
       barcodeValue={data.serialNumber ?? data.qrToken}
@@ -153,48 +158,50 @@ export function WalletPassView({
       >
         {welcome ? (
           /* ── Acaba de registrarse ──────────────────────────────────────
-             El aviso y los botones van ARRIBA, y la tarjeta debajo. El orden
-             importa: en una pantalla de 568 px (iPhone SE) solo entra lo
-             primero, y lo primero tiene que ser la acción que falta. */
+             Orden: marca → «aún no has terminado» → tarjeta pequeña y sin
+             marco → «instala tu tarjeta» + flecha → botones.
+
+             En 568 px (iPhone SE) solo entra lo primero, así que todo lo de
+             arriba tiene que caber y acabar en los botones. La tarjeta va en
+             medio a propósito: es lo que el cliente reconoce como «ya está»,
+             y justo debajo es donde hay que decirle que falta un paso. */
           <>
-            <div
-              className="rounded-2xl p-4 text-center border-2"
-              style={{ borderColor: primary, background: `${primary}0F` }}
-            >
-              {data.tenant.walletLogoUrl || data.tenant.logoUrl ? (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={data.tenant.walletLogoUrl ?? data.tenant.logoUrl}
-                  alt={data.tenant.brandName}
-                  className="h-9 w-9 rounded-lg object-cover mx-auto mb-2"
-                />
-              ) : null}
-              <h1
-                className="text-[17px] leading-tight font-extrabold tracking-tight"
-                style={{ color: primary }}
-              >
-                {tt('wallet.not_done_title')}
+            <div className="text-center">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-mute font-semibold">
+                {tt('wallet.show_at_counter')}
+              </div>
+              <h1 className="text-[15px] font-bold mt-0.5">
+                {data.tenant.brandName}
               </h1>
-              <p className="text-[13px] text-ink mt-1.5 leading-snug">
-                {tt('wallet.not_done_sub')}
-              </p>
+              <div className="text-[12px] text-mute">{data.card.name}</div>
             </div>
 
-            {/* Indicador que lleva la vista del aviso a los botones. */}
-            <div
-              className="text-center text-[11px] uppercase tracking-[0.16em] font-semibold mt-3 mb-1.5"
+            <h2
+              className="text-[19px] leading-[1.15] font-extrabold tracking-tight text-center mt-3"
               style={{ color: primary }}
             >
-              {tt('wallet.install_below')}
-              <div className="text-base leading-none mt-0.5 animate-bounce">↓</div>
+              {tt('wallet.not_done_title')}
+            </h2>
+
+            <div className="flex justify-center mt-3">{tarjeta}</div>
+
+            {/* El texto y las flechas van ENTRE la tarjeta y los botones, no
+                antes: es el punto exacto donde el cliente cree que terminó.
+                Ahí es donde hay que decirle que le falta un paso. */}
+            <div className="text-center mt-3">
+              <div className="text-[13px] leading-snug text-ink">
+                {tt('wallet.not_done_sub')}
+              </div>
+              <div
+                className="text-xl leading-none mt-1 animate-bounce"
+                style={{ color: primary }}
+                aria-hidden="true"
+              >
+                ⌄
+              </div>
             </div>
 
-            {botones}
-
-            <div className="flex justify-center mt-6">{tarjeta}</div>
-            <div className="text-center text-[11px] text-mute mt-2">
-              {data.tenant.brandName} · {data.card.name}
-            </div>
+            <div className="mt-2">{botones}</div>
           </>
         ) : (
           /* ── Vuelve a abrir su tarjeta ────────────────────────────────

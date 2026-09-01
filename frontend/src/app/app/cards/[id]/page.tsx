@@ -10,7 +10,11 @@ import { toast } from '@/components/Toast';
 import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
 import { ImageUploader } from '@/components/ImageUploader';
-import { WalletPassPreview } from '@/components/WalletPassPreview';
+import {
+  WalletPassPreview,
+  LOGO_SHAPES,
+  type LogoShape,
+} from '@/components/WalletPassPreview';
 import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 
@@ -43,6 +47,7 @@ type Card = {
   stampContourColor?: string | null;
   centerBgColor?: string | null;
   logoBgColor?: string | null;
+  logoShape?: LogoShape | null;
   stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   stampBgImageUrl?: string | null;
   stampIconImageUrl?: string | null;
@@ -401,6 +406,7 @@ export default function CardDetail() {
               stampContourColor={card.stampContourColor}
               centerBgColor={card.centerBgColor}
               logoBgColor={card.logoBgColor}
+              logoShape={card.logoShape}
               stampBgType={card.stampBgType}
               stampBgImageUrl={card.stampBgImageUrl}
               stampIconImageUrl={card.stampIconImageUrl}
@@ -937,6 +943,7 @@ function EditCardModal({
     stampContourColor: card.stampContourColor ?? (null as string | null),
     centerBgColor: card.centerBgColor ?? (null as string | null),
     logoBgColor: card.logoBgColor ?? (null as string | null),
+    logoShape: (card.logoShape ?? 'ROUNDED') as LogoShape,
     stampBgType: (card.stampBgType ?? 'GRADIENT') as 'GRADIENT' | 'SOLID' | 'IMAGE',
     stampBgImageUrl: card.stampBgImageUrl ?? (null as string | null),
     stampIconImageUrl: card.stampIconImageUrl ?? (null as string | null),
@@ -1036,6 +1043,7 @@ function EditCardModal({
         stampContourColor: form.stampContourColor,
         centerBgColor: form.centerBgColor,
         logoBgColor: form.logoBgColor,
+        logoShape: form.logoShape,
         stampBgType: form.stampBgType,
         stampBgImageUrl: form.stampBgType === 'IMAGE' ? form.stampBgImageUrl : null,
         freeRewards: form.freeRewards,
@@ -1468,6 +1476,49 @@ function EditCardModal({
                 </button>
               </div>
             )}
+
+            {/* Forma del logo. Los logos que son una palabra se leen como una
+                mancha en un cuadrado de 28 px — para esos está RECTANGULAR. */}
+            <div className="mt-3">
+              <div className="text-sm font-medium">Forma del logo</div>
+              <div className="grid grid-cols-4 gap-1.5 mt-1.5">
+                {LOGO_SHAPES.map((f) => {
+                  const activa = (form.logoShape ?? 'ROUNDED') === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setForm({ ...form, logoShape: f.id })}
+                      title={f.label}
+                      className={`flex flex-col items-center gap-1 py-2 rounded-input border-2 transition ${
+                        activa
+                          ? 'border-brand bg-brand-soft'
+                          : 'border-line hover:border-brand/40'
+                      }`}
+                    >
+                      <span
+                        className={`bg-ink/70 ${
+                          f.id === 'SQUARE'
+                            ? 'w-5 h-5 rounded-none'
+                            : f.id === 'CIRCLE'
+                              ? 'w-5 h-5 rounded-full'
+                              : f.id === 'RECTANGLE'
+                                ? 'w-8 h-5 rounded-[2px]'
+                                : 'w-5 h-5 rounded-md'
+                        }`}
+                      />
+                      <span className="text-[10px] leading-tight text-center px-0.5">
+                        {f.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="text-[11px] text-mute mt-1 leading-snug">
+                Solo cambia la tarjeta que ve el cliente en la web. El pase de
+                Apple y Google lo dibuja cada plataforma a su manera.
+              </div>
+            </div>
           </div>
 
           <button

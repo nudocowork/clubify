@@ -1506,6 +1506,14 @@ model Card {
   // Espejo de Storefront.logoBgColor. Off por defecto (aditivo, no cambia
   // tarjetas existentes). Ver feedback_wallet_apple_logo_chromakey_white.
   logoBgColor         String?
+  /// Forma del logo en la tarjeta: SQUARE | ROUNDED | CIRCLE | RECTANGLE.
+  /// null = ROUNDED, que es como se ha pintado siempre — así ninguna tarjeta
+  /// ya publicada cambia de aspecto.
+  ///
+  /// Solo afecta a NUESTRO render (la tarjeta web y la vista previa del
+  /// panel). El pase real de Apple y Google lo dibuja cada plataforma con su
+  /// propia forma, y eso no se puede controlar desde aquí.
+  logoShape           String?
   heroImageUrl        String?
   iconUrl             String?
   stampsRequired      Int?
