@@ -48,6 +48,40 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-09-01 — Sellea: fugas de marca en links de afiliado + comisión fija + botón sin feedback (SIN DESPLEGAR aún)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié (4 bugs de Sellea reportados con capturas)
+- **Fuga link para compartir** (`soyclubify.com/ref/...` en vez de Sellea): en
+  `referrals.service.ts` había `appUrl = process.env.APP_URL ?? 'soyclubify.com'`
+  hardcodeado en 4 sitios (createCode, listMine, createEmbajadorDirect,
+  createInfluencer). Ahora nuevo helper `brandShareBaseUrl(whiteLabelId)` que usa
+  `brandBaseUrl` (dominio de la marca dueña del código → `www.selleala.com`).
+- **Fuga link de login en credenciales** (`soyclubify.com/login`): reset de
+  contraseña en `auth.service.ts` `setAffiliatePasswordByCode` armaba
+  `${APP_URL}/login`. Ahora lee `whiteLabelId` del código y usa `brandBaseUrl`.
+- **Comisión fija en auto-registro de afiliado** (bug encontrado de paso):
+  `selfRegisterAffiliate` guardaba solo `commissionPercent` → un afiliado de
+  Sellea (modo FIXED_ONCE) nacía en % en vez de $80/$40 pago único. Ahora setea
+  `fixedCommissionUsd` igual que el admin y `/refer`.
+- **Botón "Registrarme" "no hace nada"**: en `registro-afiliado/page.tsx` el
+  botón se deshabilita si el formulario está incompleto (típico: contraseña < 8
+  caracteres) SIN ningún aviso. Agregado texto que explica qué falta.
+
+### Qué toqué de PRODUCCIÓN
+- Nada aún — SIN DESPLEGAR. Pendiente deploy backend + frontend.
+- DB: solo lectura (verifiqué dominios de Sellea: domain=www.selleala.com,
+  appDomain=app.selleala.com).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Desplegar backend + frontend.
+- [ ] Verificar en Sellea que los links ya no dicen soyclubify.
+
+### Riesgos y avisos
+- El helper prefiere `WhiteLabel.domain` (marketing). Clubify queda igual
+  (domain=soyclubify.com). Solo cambia para marcas con dominio propio.
+
 ## 2026-09-01 — Dashboard de cobros: colores intuitivos + rango "Todos" en No procesados
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`

@@ -184,6 +184,23 @@ function RegistroAfiliadoInner() {
   const commBadge = isFixed ? `Comisión $${fixedAmt} · pago único` : `Comisión ${pct}%`;
   const commBtn = isFixed ? `$${fixedAmt} pago único` : `${pct}% comisión`;
 
+  // El botón se deshabilita cuando el formulario está incompleto/ inválido. Antes
+  // no había NINGÚN aviso → el usuario creía que "no funciona" (típico: puso una
+  // contraseña de menos de 8 caracteres). Ahora explicamos qué falta.
+  const disabledReason = !role
+    ? null
+    : !firstName.trim() || !lastName.trim()
+      ? 'Completa tu nombre y apellido.'
+      : !email
+        ? 'Ingresa tu correo.'
+        : !phone
+          ? 'Ingresa tu número de WhatsApp.'
+          : password.length < 8
+            ? 'La contraseña debe tener al menos 8 caracteres.'
+            : password !== confirmPassword
+              ? 'Las contraseñas no coinciden.'
+              : null;
+
   return (
     <main className="min-h-screen bg-bg flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md card card-pad">
@@ -354,6 +371,11 @@ function RegistroAfiliadoInner() {
           >
             {submitting ? 'Creando cuenta…' : `Registrarme · ${commBtn}`}
           </button>
+          {disabledReason && !submitting && (
+            <p className="text-xs text-mute text-center -mt-1">
+              {disabledReason}
+            </p>
+          )}
         </form>
 
         <p className="text-[11px] text-mute mt-4 text-center">

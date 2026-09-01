@@ -18,6 +18,7 @@ import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 import { recalcBatchTotal } from './payout-batch.util';
 import { bogotaYmd, daysBetweenYmd } from './cutoff-calendar';
 import { cambiarSlugConAlias } from './slug-alias';
+import { brandBaseUrl, BRAND_DOMAIN_SELECT } from '../email/brand-email-creds.util';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -648,6 +649,26 @@ export class ReferralsService {
     return clubify?.id ?? null;
   }
 
+  /**
+   * URL base para los links del afiliado (share `/ref/...`, login) SEGÚN LA MARCA
+   * dueña del código — nunca Clubify por defecto. Antes estos links usaban
+   * `process.env.APP_URL` hardcodeado (soyclubify.com) para todas las marcas, así
+   * que Sellea entregaba a sus afiliados enlaces `soyclubify.com/ref/...` y
+   * `soyclubify.com/login`, delatando la plataforma (fuga de marca blanca).
+   * Usa el dominio propio de la marca (`WhiteLabel.domain`) vía `brandBaseUrl`.
+   */
+  private async brandShareBaseUrl(
+    whiteLabelId: string | null | undefined,
+  ): Promise<string> {
+    const fallback = process.env.APP_URL ?? 'https://soyclubify.com';
+    if (!whiteLabelId) return fallback;
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: BRAND_DOMAIN_SELECT,
+    });
+    return brandBaseUrl(wl, fallback);
+  }
+
   async createCode(dto: CreateReferralDto, host?: string | null) {
     if (!dto.fullName || !dto.email || !dto.whatsapp) {
       throw new BadRequestException('fullName, email and whatsapp required');
@@ -712,7 +733,9 @@ export class ReferralsService {
       createdAccount = !!inviteResult?.password;
     }
 
-    const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
+    // Brand-aware: el link nace bajo el dominio de la marca dueña del código
+    // (Sellea → selleala.com), nunca soyclubify.com. Ver brandShareBaseUrl.
+    const appUrl = await this.brandShareBaseUrl(referral.whiteLabelId);
     return {
       ...referral,
       shareLink: `${appUrl}/ref/${slug}`,
@@ -779,7 +802,22 @@ export class ReferralsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    // Brand-aware: cada código puede pertenecer a una marca distinta; su link de
+    // compartir usa el dominio de SU marca (Sellea → selleala.com), nunca Clubify.
+    const fallbackUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const wlIds = [
+      ...new Set(codes.map((c) => c.whiteLabelId).filter((x): x is string => !!x)),
+    ];
+    const baseByWl = new Map<string, string>();
+    if (wlIds.length) {
+      const wls = await this.prisma.whiteLabel.findMany({
+        where: { id: { in: wlIds } },
+        select: { id: true, ...BRAND_DOMAIN_SELECT },
+      });
+      for (const w of wls) baseByWl.set(w.id, brandBaseUrl(w, fallbackUrl));
+    }
+    const baseFor = (wlId: string | null) =>
+      (wlId && baseByWl.get(wlId)) || fallbackUrl;
 
     let signedUp = 0;
     let converted = 0;
@@ -811,7 +849,7 @@ export class ReferralsService {
         commissionPercent: Number(c.commissionPercent),
         isActive: c.isActive,
         createdAt: c.createdAt,
-        shareLink: `${appUrl}/?ref=${c.code}`,
+        shareLink: `${baseFor(c.whiteLabelId)}/?ref=${c.code}`,
         usesCount: uses.length,
         convertedCount: uses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE').length,
         uses: uses.map((u) => ({
@@ -1631,7 +1669,7 @@ export class ReferralsService {
         return null;
       });
 
-    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const appUrl = await this.brandShareBaseUrl(created.whiteLabelId);
     const credentials = invite?.password
       ? { email, password: invite.password, loginUrl: '/login' }
       : null;
@@ -1741,7 +1779,7 @@ export class ReferralsService {
           );
     }
 
-    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const appUrl = await this.brandShareBaseUrl(created.whiteLabelId);
     // Si el admin fijó password, devolvemos las credenciales para que las
     // copie/comparta una sola vez (no se guardan en plain text).
     const credentials = invite?.password
@@ -3848,7 +3886,20 @@ export class ReferralsService {
       dto.role === 'INFLUENCER'
         ? config.influencerCommissionPct
         : config.ambassadorCommissionPct;
-    if (commissionPercent <= 0) {
+    // COMISIÓN FIJA (Sellea): el afiliado que se auto-registra cobra el monto
+    // fijo de pago único de su rol ($80 influencer / $40 embajador), NO el %.
+    // Antes se guardaba solo commissionPercent → un afiliado de Sellea nacía en
+    // modo porcentaje, incoherente con el resto de la marca. Mismo criterio que
+    // el admin (createInfluencer) y el auto-registro de negocio (/refer).
+    const fixedCommissionUsd =
+      (await this.getBrandCommissionMode(brand?.slug)) === 'FIXED_ONCE'
+        ? await this.getBrandFixedAmount(
+            brand?.slug,
+            dto.role === 'INFLUENCER' ? 'influencer' : 'embajador',
+          )
+        : null;
+    // El % solo es obligatorio cuando la marca NO es de monto fijo.
+    if (!fixedCommissionUsd && commissionPercent <= 0) {
       throw new BadRequestException('Comisión no configurada para este rol.');
     }
 
@@ -3868,6 +3919,7 @@ export class ReferralsService {
         country: dto.country?.trim() || null,
         role: dto.role,
         commissionPercent,
+        fixedCommissionUsd,
         // El afiliado nace BAJO la marca del host (Sellea en su dominio), no Clubify.
         whiteLabelId: await this.resolveAffiliateWhiteLabelId({
           parentWhiteLabelId: brand?.id ?? null,

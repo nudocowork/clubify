@@ -22,6 +22,7 @@ import {
   inviteAffiliateTemplate,
 } from '../email/templates/templates';
 import { resolveBrandEmail } from '../email/brand-email';
+import { brandBaseUrl } from '../email/brand-email-creds.util';
 import { BrandEmailService } from '../email/brand-email.service';
 import {
   isValidCategorySlug,
@@ -774,11 +775,22 @@ export class AuthService {
         ownerName: true,
         ownerWhatsapp: true,
         role: true,
+        whiteLabelId: true,
       },
     });
     if (!code) throw new NotFoundException('Código de afiliado no encontrado');
 
-    const loginUrl = `${this.appConfig.APP_URL}/login`;
+    // Brand-aware: el link de acceso que el admin comparte debe apuntar al
+    // dominio de la marca dueña del código (Sellea → selleala.com), NUNCA a
+    // soyclubify.com. Antes usaba APP_URL fijo → un afiliado de Sellea recibía
+    // credenciales con `soyclubify.com/login`, delatando la plataforma.
+    const wl = code.whiteLabelId
+      ? await this.prisma.whiteLabel.findUnique({
+          where: { id: code.whiteLabelId },
+          select: { domain: true, appDomain: true },
+        })
+      : null;
+    const loginUrl = `${brandBaseUrl(wl, this.appConfig.APP_URL)}/login`;
 
     // Caso 1: ya tiene cuenta de login → actualizamos su password.
     if (code.ownerUserId) {
