@@ -1420,6 +1420,10 @@ type PayLink = {
   sortOrder: number;
   stripePriceId: string | null;
   stripeProductId: string | null;
+  // Producto especial freemium: INFOLINK_PRO (sube FREE→PRO) / FULL (negocio
+  // completo). null = suscripción normal. El webhook lo usa para saber qué
+  // otorga el pago (matchea por stripePriceId → aplica el entitlement).
+  productKey: string | null;
 };
 
 const GATEWAYS = [
@@ -2153,6 +2157,7 @@ function PaymentGatewayConfig({
           active: l.active,
           stripePriceId: l.stripePriceId,
           stripeProductId: l.stripeProductId,
+          productKey: l.productKey ?? null,
         }),
       });
       onSaved('Link guardado');
@@ -2401,6 +2406,20 @@ function PaymentGatewayConfig({
                     />
                   </div>
                 )}
+                <div className="mt-2">
+                  <label className="block text-[11px] font-semibold mb-1" style={{ color: '#4b5563' }}>
+                    Producto especial (freemium)
+                  </label>
+                  <select
+                    value={l.productKey ?? ''}
+                    onChange={(e) => patchLink(l.id, { productKey: e.target.value || null })}
+                    style={{ ...payInput, marginTop: 0 }}
+                  >
+                    <option value="">Ninguno (suscripción normal)</option>
+                    <option value="INFOLINK_PRO">InfoLink PRO (sube FREE→PRO al pagar)</option>
+                    <option value="FULL">Sellea Completo (activa negocio completo)</option>
+                  </select>
+                </div>
                 <div className="flex items-center justify-between mt-2">
                   <label className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: '#4b5563' }}>
                     <input
