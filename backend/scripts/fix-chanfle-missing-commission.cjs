@@ -49,13 +49,11 @@ const d = (x) => (x ? new Date(x).toISOString().slice(0, 19).replace('T', ' ') :
   const businessDate = t?.lastChargeAt ?? new Date('2026-08-25T00:23:30.000Z');
   const availableAt = new Date(new Date(businessDate).getTime() + 15 * DAY);
 
-  // distributionMode: copiar el de una comisión existente de Nicolás (mismo enum).
-  const ref = await p.commission.findFirst({ where: { recipientCodeId: code.id }, select: { distributionMode: true } });
-  const mode = ref?.distributionMode ?? 'DISCOUNT';
-
+  // distributionMode: opcional (null). Solo aplica cuando hay vendedor que toma
+  // una tajada; para un influencer directo va null (como las otras de Nicolás).
   console.log('Creando comisión de CHANFLE:');
   console.log(`  afiliado=${code.ownerName} (${CODE})  monto=$${AMOUNT.toFixed(2)}  base=$${BASE}×${PERCENT}%`);
-  console.log(`  businessDate=${d(businessDate)}  availableAt=${d(availableAt)} (hold 15d)  mode=${mode}`);
+  console.log(`  businessDate=${d(businessDate)}  availableAt=${d(availableAt)} (hold 15d)`);
 
   const c = await p.commission.create({
     data: {
@@ -70,7 +68,6 @@ const d = (x) => (x ? new Date(x).toISOString().slice(0, 19).replace('T', ' ') :
       periodKey: PERIOD_KEY,
       availableAt,
       businessDate,
-      distributionMode: mode,
       baseAmountUsd: BASE,
       appliedPercent: PERCENT,
       notes: '[2026-08-31] Comisión generada a mano: el pago fue antes de asignar al afiliado (atribución 15h tarde).',
