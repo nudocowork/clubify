@@ -521,15 +521,34 @@ export class ReferralsService {
       const periodStart =
         byLastCharge < byPeriodEnd ? byLastCharge : byPeriodEnd;
 
+      // FIX 2026-09-01 (Motilart 3er cobro sin comisión): la fecha de negocio del
+      // ciclo = fecha del cobro real (lastChargeAt). Es la que identifica a QUÉ
+      // ciclo pertenece la comisión y de la que sale el periodKey (mes de
+      // devengamiento). Antes se usaba `monthKey()` = mes en que CORRE el código:
+      // una comisión insertada tarde (backfill/reconciliación) para un ciclo viejo
+      // se estampaba con el mes de HOY, y eso (a) chocaba en la UNIQUE con el ciclo
+      // actual y (b) su createdAt reciente hacía creer que el ciclo actual ya
+      // estaba cubierto → el cobro nuevo se saltaba. Caso real: la comisión de
+      // julio de Motilart se insertó el 30-ago con periodKey '2026-08' → el cobro
+      // del 22-ago no generó comisión por ambas razones.
+      const cycleBusinessDate = use.tenant?.lastChargeAt ?? null;
+      const cyclePeriodKey = monthKey(cycleBusinessDate ?? undefined);
+
       // Helper: crea una comisión para `recipientCodeId` en este ciclo si no
-      // existe ya (dedup por ciclo de facturación + UNIQUE constraint).
+      // existe ya. Dedup por el CICLO al que pertenece la comisión
+      // (businessDate ≥ inicio de ciclo), NO por createdAt (que es cuándo se
+      // insertó la fila y puede ser mucho posterior). Filas legacy sin
+      // businessDate caen al criterio viejo (createdAt) para no re-duplicarlas.
       const ensureCommission = async (recipientCodeId: string, amount: number) => {
         if (amount <= 0) return;
         const existing = await this.prisma.commission.findFirst({
           where: {
             referralUseId: use.id,
             recipientCodeId,
-            createdAt: { gte: periodStart },
+            OR: [
+              { businessDate: { gte: periodStart } },
+              { businessDate: null, createdAt: { gte: periodStart } },
+            ],
           },
           select: { id: true },
         });
@@ -541,18 +560,21 @@ export class ReferralsService {
               amount,
               status: 'PENDING',
               recipientCodeId,
-              periodKey: monthKey(),
+              periodKey: cyclePeriodKey,
               // P3 2026-07-02: desbloqueo 15d después del pago real en Hotmart.
               // GUARD B6/R4: clamp si lastChargeAt está viejo (este cron dead
               // usaba la fecha del 1er cobro → availableAt fantasma).
               availableAt: holdReleaseFrom(use.tenant?.lastChargeAt),
+              // businessDate CONGELA la fecha del cobro (igual que el webhook), para
+              // que el panel y el dedup por ciclo lean la misma verdad durable.
+              businessDate: cycleBusinessDate ?? undefined,
             },
           });
           created += 1;
         } catch (e: any) {
           if (e?.code === 'P2002') {
             this.logger.warn(
-              `reconcileRecurringCommissions: skip dup (useId=${use.id}, recipientCodeId=${recipientCodeId}, periodKey=${monthKey()})`,
+              `reconcileRecurringCommissions: skip dup (useId=${use.id}, recipientCodeId=${recipientCodeId}, periodKey=${cyclePeriodKey})`,
             );
             return;
           }
@@ -4790,7 +4812,18 @@ export class ReferralsService {
     // dedupeaba las creadas y creaba las faltantes — pero la chain
     // pudo haber cambiado entre invocaciones (% diferentes) → state
     // inconsistente con plata mal calculada. Atómico = todo o nada.
-    const periodKey = monthKey();
+    // FIX 2026-09-01: periodKey (mes de devengamiento) sale del businessDate = la
+    // fecha del cobro real, NO del mes en que corre el webhook. Así cada cobro cae
+    // en su propio mes y dos cobros de meses distintos nunca colisionan en la
+    // UNIQUE(referralUseId, recipientCodeId, periodKey).
+    const periodKey = monthKey(businessDate);
+    // Ventana del CICLO de este cobro (mes de businessDate) para dedup por ciclo.
+    const cycleStart = new Date(
+      Date.UTC(businessDate.getUTCFullYear(), businessDate.getUTCMonth(), 1),
+    );
+    const cycleEnd = new Date(
+      Date.UTC(businessDate.getUTCFullYear(), businessDate.getUTCMonth() + 1, 1),
+    );
     try {
       const counts = await this.prisma.$transaction(async (tx) => {
         let g = 0;
@@ -4808,6 +4841,22 @@ export class ReferralsService {
               s++;
               continue;
             }
+          }
+          // Dedup por CICLO: si ya hay una comisión para (use, recipient) cuyo
+          // businessDate cae en el MISMO mes de cobro, es el mismo ciclo → skip.
+          // Cubre filas creadas por reconcileRecurringCommissions (tx=null) que el
+          // check por tx no ve, evitando duplicar el mismo cobro por dos caminos.
+          const sameCycle = await tx.commission.findFirst({
+            where: {
+              referralUseId: use.id,
+              recipientCodeId: row.recipientCodeId,
+              businessDate: { gte: cycleStart, lt: cycleEnd },
+            },
+            select: { id: true },
+          });
+          if (sameCycle) {
+            s++;
+            continue;
           }
           try {
             await tx.commission.create({

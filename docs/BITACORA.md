@@ -48,6 +48,52 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-09-01 — Fix comisión faltante del 3er cobro (Motilart) + arreglo sistémico de dedup por ciclo
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+- **Diagnóstico (Motilart):** paga mensual; cobros reales jun/jul/ago (tx
+  `HP0274589164`, $49.52, `lastChargeAt=2026-08-22`, ciclo→22-sep). El 3er cobro
+  SÍ estaba registrado pero **no generó comisión**. Causa raíz doble, mismo
+  origen (deducir el ciclo por `createdAt`/`new Date()` en vez de `businessDate`):
+  1. `periodKey = monthKey()` = mes en que corre el código. Las comisiones de
+     **julio** se insertaron tarde (30-ago) → quedaron con período `2026-08` →
+     chocaban en la UNIQUE con el cobro de agosto.
+  2. `reconcileRecurringCommissions` deduplicaba por `createdAt ≥ inicioCiclo`;
+     esas filas (creadas 30-ago) caían en la ventana del ciclo de agosto → el
+     cron creía agosto cubierto y lo saltaba.
+- **Arreglo sistémico** (`backend/src/referrals/referrals.service.ts`):
+  - `reconcileRecurringCommissions`: dedup por **`businessDate`** (con fallback a
+    `createdAt` solo para filas legacy sin businessDate), `periodKey` derivado del
+    cobro (`monthKey(lastChargeAt)`), y ahora **escribe `businessDate`** al crear.
+  - `generateCommissionsForPayment` (webhook): `periodKey = monthKey(businessDate)`
+    + dedup por ciclo (mes de businessDate) — cubre filas de reconcile con `tx=null`.
+  - Test `backend/test/commission-cycle-dedup.test.ts` (5, verdes). Suite
+    comisiones/cortes/dunning: 69/69. `tsc` limpio.
+- **Arreglo puntual (dato):** `backend/scripts/fix-motilart-august-commission.cjs`
+  (idempotente): re-estampó julio a `2026-07` y creó las 2 de agosto ($12.50
+  Santiago + $2.50 Juan), PENDING, disponibles 06-sep.
+
+### Qué toqué de PRODUCCIÓN
+- **DB:** corrí el script puntual de Motilart (re-estampa 2 filas de julio +
+  crea 2 de agosto). Verificado: 6 comisiones, 3 meses completos.
+- **Deploy backend:** rama `feat/commissions-auto-cutoffs` con el arreglo
+  sistémico (ver commit de esta entrada).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Las 2 comisiones de agosto de Motilart pasan a APPROVED solas el **06-sep**
+      (cron promotePendingToApproved). Verificar que entren al corte correcto.
+- [ ] El arreglo sistémico beneficia a TODOS los negocios con cobros cuya
+      comisión se insertó tarde: vigilar que no reaparezca "renovación sin
+      comisión" en próximos cortes.
+
+### Riesgos y avisos
+- El cambio de `periodKey` (de mes-de-ejecución a mes-de-cobro) es hacia
+  adelante; las filas legacy conservan su período viejo. El dedup por
+  `businessDate` las respeta (fallback a `createdAt` si no tienen businessDate),
+  así que no duplica.
+
 ## 2026-08-31 — Contabilidad F5 (Cierres) + F6 (Reportes) (SIN DESPLEGAR)
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
