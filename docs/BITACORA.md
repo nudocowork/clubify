@@ -48,6 +48,49 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-31 — Cortes: flujo de pago POR PERSONA + comprobantes + SMS · CHANFLE (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude)
+**Rama:** `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+**Flujo de pago por persona en el cierre de corte** (los giros no son
+instantáneos): recibir el dinero → pagar a cada persona con su comprobante →
+recién ahí se habilita cerrar. Cada evento manda SMS interno a **+12125550752**.
+- Esquema: `PayoutBatch.receivedAt/receivedProofUrl/…` + tabla nueva
+  `BatchPersonPayment` (pago por persona con comprobante). Migración
+  `apply-batch-person-payment-migration.cjs` (aditiva, idempotente).
+- Backend `cutoff.service`: `markBatchReceived`, `markPersonPaid` (pone sus
+  comisiones PAID + registra el pago), `batchPayoutStatus` (checklist), SMS al
+  cerrar, `testPayoutSms`. Endpoints en `referrals.controller`
+  (mark-received, pay-person, payout-status, payout-alerts/test).
+- SMS interno: `PreregAlertsService.sendInternalAlert(phone, body)` (reusa la
+  subcuenta GB del equipo, sin anti-dup). **Botón "🧪 Probar SMS"** en el modal.
+- Comprobantes: reusa `<FileUploader>` → `/media/upload` → proofUrl.
+- Frontend: `CloseBatchModal` rehecho (recibido + checklist por persona con
+  subida de comprobante + cierre bloqueado hasta pagar a todas). 40 tests cortes OK.
+
+**CHANFLE** (comisión no generada por atribución tardía): script
+`fix-chanfle-missing-commission.cjs` — genera $6.80 (base canónica $68×10%,
+subPrice null), businessDate=fecha del pago, hold hasta 2026-09-09, PENDING.
+
+### Qué toqué de PRODUCCIÓN
+- **Nada aún.** No corrí la migración ni los scripts, no desplegué.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Correr `apply-batch-person-payment-migration.cjs` ANTES del deploy (el
+      código consulta las columnas/tabla nuevas).
+- [ ] Correr `fix-chanfle-missing-commission.cjs`.
+- [ ] Desplegar backend + frontend (todo lo del día: Fase 2, fix availableAt, UI
+      de cortes, flujo de pagos).
+- [ ] Probar el SMS con el botón "🧪 Probar SMS" del modal (a +12125550752).
+- [ ] PENDIENTE: fix sistémico "atribución tardía → sin comisión" (generar la
+      comisión al asignar un afiliado a un negocio ya pagado).
+
+### Riesgos y avisos
+- `closeBatch` sigue siendo compatible (paga lo que reste + cierra); el bloqueo
+  hasta pagar a todos lo hace el frontend. El SMS al cerrar es best-effort.
+
 ## 2026-08-31 — Comisiones UI: columnas, orden, filtro por desbloqueo, "Corte N" (SIN DESPLEGAR)
 
 **Máquina/quién:** máquina de Jhon (Claude)

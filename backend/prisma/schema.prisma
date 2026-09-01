@@ -4885,11 +4885,42 @@ model PayoutBatch {
   closedBy     User?             @relation("PayoutBatchClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull)
   // true = lo abrió el cron de calendario · false = alta manual / histórico.
   generatedAuto Boolean          @default(false)
+  // Flujo de pago por persona (2026-08-31): cuándo se marcó RECIBIDO el dinero
+  // del corte + su comprobante. El cierre exige: recibido + todas las personas
+  // pagadas. Ver BatchPersonPayment.
+  receivedAt            DateTime?
+  receivedProofUrl      String?
+  receivedProofMimeType String?
+  receivedByUserId      String?
   createdAt     DateTime         @default(now())
   commissions   Commission[]
+  personPayments BatchPersonPayment[]
 
   @@index([paymentDate])
   @@index([status])
+}
+
+/// Pago a UNA persona dentro de un corte (2026-08-31). Como los giros no son
+/// instantáneos, el dueño marca "pagado" persona por persona con su comprobante;
+/// el corte solo se cierra cuando todas están pagadas. recipientCodeId es la
+/// ReferralCode que cobra (sin relación Prisma para no tocar ese modelo).
+model BatchPersonPayment {
+  id              String      @id @default(uuid())
+  batchId         String
+  batch           PayoutBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  recipientCodeId String
+  amountUsd       Decimal     @db.Decimal(10, 2)
+  proofUrl        String?
+  proofMimeType   String?
+  reference       String?
+  notes           String?     @db.Text
+  paidAt          DateTime    @default(now())
+  paidByUserId    String?
+  createdAt       DateTime    @default(now())
+
+  @@unique([batchId, recipientCodeId])
+  @@index([batchId])
+  @@index([recipientCodeId])
 }
 
 // ============================================================

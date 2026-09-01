@@ -25,11 +25,14 @@ import {
   bogotaYmd,
   cutoffCode,
   cutoffDaysInRange,
+  cutoffLabel,
   cutoffPeriod,
   daysBetweenYmd,
   isCutoffDay,
   nextCutoffYmd,
+  ymdFromCutoffCode,
 } from './cutoff-calendar';
+import { PreregAlertsService } from '../auth/prereg-alerts.service';
 
 // Mismo hold que referrals.service (COMMISSION_HOLD_DAYS). Solo se usa para el
 // fallback legacy de comisiones sin `availableAt`.
@@ -135,7 +138,17 @@ export class CutoffService {
     private prisma: PrismaService,
     private audit: AuditService,
     private referrals: ReferralsService,
+    private prereg: PreregAlertsService,
   ) {}
+
+  /** Número interno que recibe los avisos del flujo de pago de cortes. */
+  private static readonly PAYOUT_ALERT_PHONE = '+12125550752';
+
+  /** Etiqueta "Corte N" del lote, para los SMS. */
+  private cutoffLabelFor(code: string): string {
+    const ymd = ymdFromCutoffCode(code);
+    return ymd ? cutoffLabel(ymd).label : code;
+  }
 
   // ── CRON ──────────────────────────────────────────────────────────────────
 
@@ -709,7 +722,265 @@ export class CutoffService {
       },
     });
 
+    await this.prereg
+      .sendInternalAlert(
+        CutoffService.PAYOUT_ALERT_PHONE,
+        `🔒 ${this.cutoffLabelFor(batch.code)} CERRADO · transferencia ${ymd} · $${result.totalUsd.toFixed(2)}.`,
+      )
+      .catch(() => null);
+
     return { ok: true as const, code: batch.code, ...result };
+  }
+
+  // ── Flujo de pago por persona (2026-08-31) ─────────────────────────────────
+
+  /**
+   * Marca el dinero del corte como RECIBIDO, con comprobante opcional, y avisa
+   * por SMS interno. Es el 1er paso del flujo: recibir → pagar a cada persona →
+   * cerrar. El comprobante llega como URL de `/media/upload`.
+   */
+  async markBatchReceived(
+    user: AuthUser,
+    batchId: string,
+    body: { proofUrl?: string; proofMimeType?: string; reference?: string },
+  ) {
+    this.assertAdmin(user);
+    const batch = await this.prisma.payoutBatch.findUnique({
+      where: { id: batchId },
+    });
+    if (!batch) throw new NotFoundException('Corte no encontrado');
+    if (batch.status === 'CLOSED')
+      throw new ConflictException(`El corte ${batch.code} ya está cerrado.`);
+
+    await this.prisma.payoutBatch.update({
+      where: { id: batchId },
+      data: {
+        receivedAt: new Date(),
+        receivedProofUrl: body.proofUrl ?? null,
+        receivedProofMimeType: body.proofMimeType ?? null,
+        receivedByUserId: user.id ?? null,
+      },
+    });
+    await this.prereg
+      .sendInternalAlert(
+        CutoffService.PAYOUT_ALERT_PHONE,
+        `💰 ${this.cutoffLabelFor(batch.code)}: dinero RECIBIDO · $${Number(batch.totalUsd).toFixed(2)}${body.reference ? ` · ref ${body.reference}` : ''}.`,
+      )
+      .catch(() => null);
+    return { ok: true as const };
+  }
+
+  /**
+   * Marca a UNA persona como pagada (con comprobante): pone sus comisiones del
+   * corte en PAID, registra el BatchPersonPayment y avisa por SMS. Como los
+   * giros no son instantáneos, se llama una vez por persona; el corte se cierra
+   * (frontend) recién cuando todas están pagadas.
+   */
+  async markPersonPaid(
+    user: AuthUser,
+    batchId: string,
+    recipientCodeId: string,
+    body: {
+      proofUrl?: string;
+      proofMimeType?: string;
+      reference?: string;
+      notes?: string;
+      paymentDate?: string;
+    },
+  ) {
+    this.assertAdmin(user);
+    const batch = await this.prisma.payoutBatch.findUnique({
+      where: { id: batchId },
+    });
+    if (!batch) throw new NotFoundException('Corte no encontrado');
+    if (batch.status === 'CLOSED')
+      throw new ConflictException(`El corte ${batch.code} ya está cerrado.`);
+
+    const comms = await this.prisma.commission.findMany({
+      where: { ...PAYABLE_BASE, payoutBatchId: batchId, recipientCodeId },
+      select: { id: true, amount: true, amountPaid: true, notes: true },
+    });
+    if (!comms.length)
+      throw new BadRequestException(
+        'Esta persona no tiene comisiones pendientes en el corte.',
+      );
+
+    const paidAt =
+      body.paymentDate && /^\d{4}-\d{2}-\d{2}$/.test(body.paymentDate)
+        ? bogotaNoonUtc(body.paymentDate)
+        : new Date();
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: recipientCodeId },
+      select: { ownerName: true },
+    });
+    const stamp = bogotaYmd();
+    const note = `[${stamp}] Pagado (persona) en ${batch.code}${body.reference ? ` · ref ${body.reference}` : ''}`;
+
+    const amount = await this.prisma.$transaction(async (tx) => {
+      let paid = 0;
+      for (const c of comms) {
+        const a = Number(c.amount);
+        const out = Math.max(0, a - Number(c.amountPaid));
+        if (out <= 0) continue;
+        paid += out;
+        await tx.commission.update({
+          where: { id: c.id },
+          data: {
+            amountPaid: a,
+            paymentStatus: 'PAID',
+            status: CommissionStatus.PAID,
+            paidAt,
+            notes: c.notes ? `${c.notes}\n${note}` : note,
+          },
+        });
+      }
+      await tx.batchPersonPayment.upsert({
+        where: { batchId_recipientCodeId: { batchId, recipientCodeId } },
+        update: {
+          amountUsd: round2(paid),
+          proofUrl: body.proofUrl ?? null,
+          proofMimeType: body.proofMimeType ?? null,
+          reference: body.reference ?? null,
+          notes: body.notes ?? null,
+          paidAt,
+          paidByUserId: user.id ?? null,
+        },
+        create: {
+          batchId,
+          recipientCodeId,
+          amountUsd: round2(paid),
+          proofUrl: body.proofUrl ?? null,
+          proofMimeType: body.proofMimeType ?? null,
+          reference: body.reference ?? null,
+          notes: body.notes ?? null,
+          paidAt,
+          paidByUserId: user.id ?? null,
+        },
+      });
+      await this.recalcBatchTotal(tx, batchId);
+      return round2(paid);
+    });
+
+    await this.prereg
+      .sendInternalAlert(
+        CutoffService.PAYOUT_ALERT_PHONE,
+        `✅ ${this.cutoffLabelFor(batch.code)}: pagado a ${code?.ownerName ?? 'afiliado'} · $${amount.toFixed(2)}.`,
+      )
+      .catch(() => null);
+    return { ok: true as const, amountUsd: amount, count: comms.length };
+  }
+
+  /** Envío de PRUEBA del SMS interno de pagos (antes de activar el flujo). */
+  async testPayoutSms(user: AuthUser) {
+    this.assertAdmin(user);
+    const r = await this.prereg.sendInternalAlert(
+      CutoffService.PAYOUT_ALERT_PHONE,
+      '🧪 Prueba · alertas del flujo de pago de cortes activas. (Clubify)',
+    );
+    return { ok: r.ok, toPhone: CutoffService.PAYOUT_ALERT_PHONE };
+  }
+
+  /**
+   * Estado del flujo de pago de un corte para el modal de cierre: si el dinero
+   * está RECIBIDO, y la lista de PERSONAS (todas, pagadas y pendientes) con su
+   * monto y comprobante. `canClose` = recibido + todas pagadas.
+   */
+  async batchPayoutStatus(user: AuthUser, batchId: string) {
+    this.assertAdmin(user);
+    const batch = await this.prisma.payoutBatch.findUnique({
+      where: { id: batchId },
+      select: {
+        id: true,
+        code: true,
+        status: true,
+        totalUsd: true,
+        receivedAt: true,
+        receivedProofUrl: true,
+      },
+    });
+    if (!batch) throw new NotFoundException('Corte no encontrado');
+
+    // TODAS las comisiones del corte con dueño (pagadas o no), agrupadas por
+    // persona. Una persona "pagada" es la que ya no tiene saldo pendiente.
+    const comms = await this.prisma.commission.findMany({
+      where: {
+        payoutBatchId: batchId,
+        status: { in: [CommissionStatus.APPROVED, CommissionStatus.PAID] },
+        recipientCodeId: { not: null },
+      },
+      select: {
+        recipientCodeId: true,
+        amount: true,
+        amountPaid: true,
+        recipientCode: { select: { code: true, ownerName: true } },
+      },
+    });
+    const payments = await this.prisma.batchPersonPayment.findMany({
+      where: { batchId },
+      select: {
+        recipientCodeId: true,
+        amountUsd: true,
+        proofUrl: true,
+        reference: true,
+        paidAt: true,
+      },
+    });
+    const payByCode = new Map(payments.map((p) => [p.recipientCodeId, p]));
+
+    const byPerson = new Map<
+      string,
+      { codeId: string; code: string; ownerName: string; totalUsd: number; outstanding: number }
+    >();
+    for (const c of comms) {
+      const id = c.recipientCodeId as string;
+      const cur =
+        byPerson.get(id) ??
+        {
+          codeId: id,
+          code: c.recipientCode?.code ?? '',
+          ownerName: c.recipientCode?.ownerName ?? '—',
+          totalUsd: 0,
+          outstanding: 0,
+        };
+      cur.totalUsd = round2(cur.totalUsd + Number(c.amount));
+      cur.outstanding = round2(
+        cur.outstanding + Math.max(0, Number(c.amount) - Number(c.amountPaid)),
+      );
+      byPerson.set(id, cur);
+    }
+
+    const people = [...byPerson.values()]
+      .map((p) => {
+        const pay = payByCode.get(p.codeId);
+        const paid = p.outstanding <= 0.001;
+        return {
+          codeId: p.codeId,
+          code: p.code,
+          ownerName: p.ownerName,
+          amountUsd: p.totalUsd,
+          paid,
+          paidAt: pay?.paidAt ?? null,
+          proofUrl: pay?.proofUrl ?? null,
+          reference: pay?.reference ?? null,
+        };
+      })
+      .sort((a, b) => Number(a.paid) - Number(b.paid) || b.amountUsd - a.amountUsd);
+
+    const allPaid = people.length > 0 && people.every((p) => p.paid);
+    return {
+      batch: {
+        id: batch.id,
+        code: batch.code,
+        label: this.cutoffLabelFor(batch.code),
+        status: batch.status,
+        totalUsd: Number(batch.totalUsd),
+        receivedAt: batch.receivedAt,
+        receivedProofUrl: batch.receivedProofUrl,
+      },
+      people,
+      allPaid,
+      canClose: !!batch.receivedAt && allPaid,
+    };
   }
 
   /**

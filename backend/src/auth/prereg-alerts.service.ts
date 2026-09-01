@@ -221,6 +221,40 @@ export class PreregAlertsService {
   }
 
   /**
+   * SMS interno a UN número específico (ej. las alertas del flujo de pago de
+   * cortes al +12125550752) usando la MISMA subcuenta GB que las alertas del
+   * equipo. Sin anti-dup: cada evento de pago es distinto y debe avisar.
+   * Fire-and-forget: captura sus errores.
+   */
+  async sendInternalAlert(
+    phone: string,
+    body: string,
+  ): Promise<{ ok: boolean }> {
+    try {
+      const account = await this.resolveAccount();
+      if (!account) {
+        this.logger.warn('sendInternalAlert: sin GrowBusinessAccount');
+        return { ok: false };
+      }
+      const r = await this.growBusiness
+        .sendSmsWithCreds(
+          {
+            locationId: account.locationId,
+            apiKey: account.apiKey,
+            switchNumber: account.switchNumber,
+          },
+          phone,
+          body,
+        )
+        .catch((e) => ({ ok: false, message: (e as Error).message }));
+      return { ok: !!r.ok };
+    } catch (e) {
+      this.logger.warn(`sendInternalAlert falló: ${(e as Error).message}`);
+      return { ok: false };
+    }
+  }
+
+  /**
    * Envía SMS + WhatsApp al COMPRADOR (no al equipo) con el link de
    * activación post-pago Hotmart (2026-06-11). Idempotente desde el
    * caller — éste se llama dentro de `notifyPendingRecovery` que

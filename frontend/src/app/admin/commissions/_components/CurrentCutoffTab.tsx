@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { FileUploader } from '@/components/FileUploader';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PESTAÑA "CORTE ACTUAL"
@@ -803,10 +804,36 @@ function BulkPayModal({
   );
 }
 
+type PayoutPerson = {
+  codeId: string;
+  code: string;
+  ownerName: string;
+  amountUsd: number;
+  paid: boolean;
+  paidAt: string | null;
+  proofUrl: string | null;
+  reference: string | null;
+};
+type PayoutStatus = {
+  batch: {
+    id: string;
+    code: string;
+    label: string;
+    status: string;
+    totalUsd: number;
+    receivedAt: string | null;
+    receivedProofUrl: string | null;
+  };
+  people: PayoutPerson[];
+  allPaid: boolean;
+  canClose: boolean;
+};
+
+// Flujo de pago por persona (2026-08-31): recibir el dinero → pagar a cada
+// persona con su comprobante → recién ahí se habilita cerrar el corte.
 export function CloseBatchModal({
   batch,
   total,
-  count,
   people,
   onClose,
   onSaved,
@@ -819,12 +846,91 @@ export function CloseBatchModal({
   onSaved: () => void;
 }) {
   const t = useTranslations('admin_commissions');
+  const [st, setSt] = useState<PayoutStatus | null>(null);
+  const [loading, setLoading] = useState(true);
   const [paymentDate, setPaymentDate] = useState(todayInput());
   const [reference, setReference] = useState('');
-  const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [recvProof, setRecvProof] = useState<string | null>(null);
+  const [busyRecv, setBusyRecv] = useState(false);
+  const [payingCode, setPayingCode] = useState<string | null>(null);
+  const [personProof, setPersonProof] = useState<string | null>(null);
+  const [busyPay, setBusyPay] = useState(false);
+  const [busyTest, setBusyTest] = useState(false);
 
-  async function submit() {
+  async function testSms() {
+    setBusyTest(true);
+    try {
+      const r = await api<{ ok: boolean; toPhone: string }>(
+        '/admin/commissions/payout-alerts/test',
+        { method: 'POST' },
+      );
+      toast(
+        r.ok ? `SMS de prueba enviado a ${r.toPhone}` : 'No se pudo enviar el SMS',
+        r.ok ? 'success' : 'error',
+      );
+    } catch (e: any) {
+      toast(e?.message ?? 'Error', 'error');
+    } finally {
+      setBusyTest(false);
+    }
+  }
+
+  const reload = useCallback(async () => {
+    try {
+      const s = await api<PayoutStatus>(
+        `/admin/commissions/payout-batches/${batch.id}/payout-status`,
+      );
+      setSt(s);
+    } catch (e: any) {
+      toast(e?.message ?? 'No se pudo cargar el estado del corte', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [batch.id]);
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  async function markReceived() {
+    setBusyRecv(true);
+    try {
+      await api(`/admin/commissions/payout-batches/${batch.id}/mark-received`, {
+        method: 'POST',
+        body: JSON.stringify({ proofUrl: recvProof ?? undefined }),
+      });
+      toast('Dinero marcado como recibido', 'success');
+      setRecvProof(null);
+      await reload();
+    } catch (e: any) {
+      toast(e?.message ?? 'Error', 'error');
+    } finally {
+      setBusyRecv(false);
+    }
+  }
+
+  async function payPerson(codeId: string) {
+    setBusyPay(true);
+    try {
+      await api(`/admin/commissions/payout-batches/${batch.id}/pay-person`, {
+        method: 'POST',
+        body: JSON.stringify({
+          recipientCodeId: codeId,
+          proofUrl: personProof ?? undefined,
+        }),
+      });
+      toast('Pago registrado', 'success');
+      setPayingCode(null);
+      setPersonProof(null);
+      await reload();
+    } catch (e: any) {
+      toast(e?.message ?? 'Error', 'error');
+    } finally {
+      setBusyPay(false);
+    }
+  }
+
+  async function submitClose() {
     if (!paymentDate) {
       toast(t('errorPaymentDateRequired'), 'error');
       return;
@@ -836,7 +942,6 @@ export function CloseBatchModal({
         body: JSON.stringify({
           paymentDate,
           reference: reference.trim() || undefined,
-          notes: notes.trim() || undefined,
         }),
       });
       toast(t('toastBatchClosed', { code: batch.code }), 'success');
@@ -848,36 +953,168 @@ export function CloseBatchModal({
     }
   }
 
+  const received = !!st?.batch.receivedAt;
+  const canClose = st?.canClose ?? false;
+  const ppl = st?.people ?? [];
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="bg-surface rounded-xl max-w-md w-full p-6 shadow-xl"
+        className="bg-surface rounded-xl max-w-lg w-full p-6 shadow-xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-lg font-bold mb-0.5">
           Cerrar {cutoffLabelFromCode(batch.code)}
         </h2>
         <div className="text-[11px] text-mute font-mono mb-1">{batch.code}</div>
-        <p className="text-xs text-mute mb-4">{t('closeBatchSubtitle')}</p>
+        <p className="text-xs text-mute mb-4">
+          Recibí el dinero → pagá a cada persona → cerrá el corte.
+        </p>
 
         <div className="bg-bg2 rounded-lg p-3 mb-4 text-sm">
           <div className="flex justify-between mb-1">
             <span className="text-mute">{t('bulkPayTotal')}</span>
-            <span className="font-bold text-lg text-brand">{fmtUsd(total)}</span>
-          </div>
-          <div className="flex justify-between mb-1">
-            <span className="text-mute">{t('bulkPayCount')}</span>
-            <span className="font-medium">{count}</span>
+            <span className="font-bold text-lg text-brand">
+              {fmtUsd(st?.batch.totalUsd ?? total)}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-mute">{t('bulkPayPeople')}</span>
-            <span className="font-medium">{people}</span>
+            <span className="font-medium">{ppl.length || people}</span>
           </div>
         </div>
 
+        {/* Paso 1 — dinero recibido */}
+        <div className="mb-4 rounded-lg border border-line2 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-semibold text-sm">1 · Dinero recibido</span>
+            {received ? (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
+                ✓ Recibido
+              </span>
+            ) : (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">
+                Pendiente
+              </span>
+            )}
+          </div>
+          {!received ? (
+            <div className="space-y-2">
+              <FileUploader
+                value={recvProof}
+                onChange={(u) => setRecvProof(u)}
+                folder="payout-proofs"
+                label="Comprobante del dinero recibido (opcional)"
+              />
+              <button
+                onClick={markReceived}
+                disabled={busyRecv}
+                className="text-sm px-3 py-1.5 rounded-md bg-brand text-white font-semibold hover:opacity-90 disabled:opacity-50"
+              >
+                {busyRecv ? 'Guardando…' : 'Marcar recibido'}
+              </button>
+            </div>
+          ) : (
+            st?.batch.receivedProofUrl && (
+              <a
+                href={st.batch.receivedProofUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-brand underline"
+              >
+                Ver comprobante
+              </a>
+            )
+          )}
+        </div>
+
+        {/* Paso 2 — pagar por persona */}
+        <div className="mb-4 rounded-lg border border-line2 p-3">
+          <div className="font-semibold text-sm mb-2">
+            2 · Pagar a cada persona
+          </div>
+          {loading ? (
+            <div className="text-xs text-mute">Cargando…</div>
+          ) : (
+            <div className="space-y-2">
+              {ppl.map((p) => (
+                <div key={p.codeId} className="rounded-md bg-bg2 p-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium">{p.ownerName}</div>
+                      <div className="text-[10px] text-mute font-mono">
+                        {p.code}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-semibold">
+                        {fmtUsd(p.amountUsd)}
+                      </div>
+                      {p.paid ? (
+                        <span className="text-[10px] text-emerald-600 font-semibold">
+                          ✓ Pagado
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setPayingCode(p.codeId);
+                            setPersonProof(null);
+                          }}
+                          className="text-[11px] text-brand font-semibold"
+                        >
+                          Marcar pagado
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {p.paid && p.proofUrl && (
+                    <a
+                      href={p.proofUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] text-brand underline"
+                    >
+                      Ver comprobante
+                    </a>
+                  )}
+                  {!p.paid && payingCode === p.codeId && (
+                    <div className="mt-2 space-y-2 border-t border-line2 pt-2">
+                      <FileUploader
+                        value={personProof}
+                        onChange={(u) => setPersonProof(u)}
+                        folder="payout-proofs"
+                        label="Comprobante del pago (opcional)"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => payPerson(p.codeId)}
+                          disabled={busyPay}
+                          className="text-xs px-3 py-1 rounded-md bg-brand text-white font-semibold disabled:opacity-50"
+                        >
+                          {busyPay ? 'Guardando…' : 'Confirmar pago'}
+                        </button>
+                        <button
+                          onClick={() => setPayingCode(null)}
+                          className="text-xs px-3 py-1 rounded-md bg-bg3"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {ppl.length === 0 && (
+                <div className="text-xs text-mute">Sin personas por pagar.</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Paso 3 — cerrar */}
         <div className="mb-3">
           <label className="label">{t('realTransferDate')}</label>
           <input
@@ -885,11 +1122,8 @@ export function CloseBatchModal({
             className="input w-full"
             value={paymentDate}
             onChange={(e) => setPaymentDate(e.target.value)}
-            autoFocus
           />
-          <div className="text-[11px] text-mute mt-1">{t('realTransferDateHint')}</div>
         </div>
-
         <div className="mb-3">
           <label className="label">{t('batchReference')}</label>
           <input
@@ -900,32 +1134,37 @@ export function CloseBatchModal({
             onChange={(e) => setReference(e.target.value)}
           />
         </div>
-
-        <div className="mb-4">
-          <label className="label">{t('batchNotes')}</label>
-          <input
-            type="text"
-            className="input w-full"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </div>
-
-        <div className="flex gap-2 justify-end">
+        {!canClose && (
+          <div className="text-[11px] text-amber-700 mb-2">
+            El cierre se habilita cuando el dinero esté recibido y todas las
+            personas estén pagadas.
+          </div>
+        )}
+        <div className="flex gap-2 justify-between items-center">
           <button
-            onClick={onClose}
-            disabled={saving}
-            className="text-sm px-4 py-2 rounded-md bg-bg2 hover:bg-bg3 transition"
+            onClick={testSms}
+            disabled={busyTest}
+            className="text-[11px] text-mute hover:text-ink underline disabled:opacity-50"
+            title="Envía un SMS de prueba al número interno de alertas de pagos"
           >
-            {t('btnCancel')}
+            {busyTest ? 'Enviando…' : '🧪 Probar SMS'}
           </button>
-          <button
-            onClick={submit}
-            disabled={saving}
-            className="text-sm px-4 py-2 rounded-md bg-brand text-white font-semibold hover:opacity-90 transition disabled:opacity-50"
-          >
-            {saving ? t('saving') : t('confirmCloseBatch')}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              disabled={saving}
+              className="text-sm px-4 py-2 rounded-md bg-bg2 hover:bg-bg3 transition"
+            >
+              {t('btnCancel')}
+            </button>
+            <button
+              onClick={submitClose}
+              disabled={saving || !canClose}
+              className="text-sm px-4 py-2 rounded-md bg-brand text-white font-semibold hover:opacity-90 transition disabled:opacity-50"
+            >
+              {saving ? t('saving') : t('confirmCloseBatch')}
+            </button>
+          </div>
         </div>
       </div>
     </div>
