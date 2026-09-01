@@ -1230,6 +1230,7 @@ export class HotmartService {
         // El derivado PAST_DUE lo calcula billing.service.getStatus()
         // basándose en failedPaymentCount > 0.
         const now = new Date();
+        const wasFirstFailure = !tenant.firstFailedAt;
         await this.prisma.tenant.update({
           where: { id: tenant.id },
           data: {
@@ -1247,6 +1248,13 @@ export class HotmartService {
         await this.billing
           .auditLifecycle('subscription.payment_failed', tenant.id, { gateway: 'HOTMART', event })
           .catch(() => null);
+        // Fase 3: alerta interna al equipo SOLO en el 1er fallo (no en cada
+        // reintento de Hotmart) para no spamear.
+        if (wasFirstFailure) {
+          await this.billing
+            .notifyBillingTeam('renovacion_fallida', tenant.brandName)
+            .catch(() => null);
+        }
         // SMS aviso de falla (best-effort). Si es PROTEST y la marca activó
         // "Pago en disputa" (admin_protest), se envía ese texto en su lugar.
         const sentProtest =

@@ -48,6 +48,33 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-08-31 — Renovaciones Fases 3 (SMS alertas) + 4 (comisiones en Pagos por fuera) (SIN DESPLEGAR)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### Qué cambié
+**Fase 3 — SMS de alerta de cobro** a los 3 números (+573135618300 /
++573181666999 / +573248088401) por la **subcuenta del equipo**
+(`prereg.sendInternalAlert`, la misma probada con el SMS de pagos — NO desde
++573167689240 porque ese número no está en el sistema; cambiar el remitente ahí
+cuando exista). `BillingService.notifyBillingTeam('renovacion_fallida'|
+'suspendido', brandName)`. Disparadores: 1er cobro fallido (hotmart DELAYED/
+PROTEST + stripe onPaymentFailed, SOLO cuando firstFailedAt era null → no spamea
+reintentos) y auto-suspensión (processOverdueAccounts). Test: `POST
+/billing/billing-alerts/test`.
+
+**Fase 4 — columna de comisiones** en Pagos por fuera (`listManualPaymentReview`
++ `pagos-manuales/page.tsx`): 🟢 asignadas (afiliado + comisión generada) /
+🟡 parcial (afiliado SIN comisión → revisar, caso CHANFLE) / 🔴 sin asignación.
+Usa `referrals.getAttributionChain` (ya inyectado en TenantsService).
+
+### Qué toqué de PRODUCCIÓN
+- Nada. Falta desplegar backend + frontend.
+
+### Qué falta / validar
+- [ ] Desplegar. Probar el SMS con `POST /billing/billing-alerts/test`.
+- [ ] Con esto el proyecto de renovaciones/cobros queda COMPLETO (Fases 1-5).
+
 ## 2026-08-31 — Dashboard de cobros (Fase 5) instalado: 3 tarjetas 🔴🟢🟡 (SIN DESPLEGAR)
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`

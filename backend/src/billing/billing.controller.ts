@@ -58,4 +58,11 @@ export class BillingController {
   async setGrace(@Body() dto: GraceDto) {
     return { graceDays: await this.svc.setGraceDays(dto.graceDays) };
   }
+
+  /** Fase 3 — envío de PRUEBA de las alertas de cobro a los 3 números. */
+  @Roles('SUPER_ADMIN', 'PLATFORM_OWNER')
+  @Post('billing-alerts/test')
+  async testBillingAlerts() {
+    return this.svc.testBillingTeamAlert();
+  }
 }

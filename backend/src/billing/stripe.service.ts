@@ -514,6 +514,7 @@ export class StripeService {
     const ctx = await this.extractCtx(brand, event);
     const tenant = await this.findTenant(brand.whiteLabelId, ctx);
     if (!tenant) return { ok: true, action: 'tenant_not_found' };
+    const wasFirstFailure = !tenant.firstFailedAt;
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
@@ -524,6 +525,12 @@ export class StripeService {
       },
     });
     await this.billing.auditLifecycle('subscription.payment_failed', tenant.id, { gateway: 'STRIPE' });
+    // Fase 3: alerta interna al equipo solo en el 1er fallo.
+    if (wasFirstFailure) {
+      await this.billing
+        .notifyBillingTeam('renovacion_fallida', tenant.brandName)
+        .catch(() => null);
+    }
     this.smsTemplates
       .render('payment_failed', { brandName: tenant.brandName }, tenant.id)
       .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))

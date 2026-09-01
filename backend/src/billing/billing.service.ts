@@ -10,12 +10,23 @@ import { fmtEmailDate } from '../email/brand-email-templates';
 import { addPlanPeriod } from '../common/plan-period';
 import { cycleCreditCostForTenant } from '../common/business-types';
 import { AuditService } from '../audit/audit.service';
+import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import {
   decideDunning,
   pauseDateFor,
   deriveRenewalState,
   type RenewalStateResult,
 } from './dunning';
+
+// Fase 3 (2026-08-31): alertas internas de cobro al equipo. Se envían por la
+// subcuenta GB del equipo (sendInternalAlert) — la misma probada con el SMS de
+// pagos. La spec pedía enviar DESDE +573167689240, pero ese número no está en el
+// sistema; cuando su subcuenta exista, se cambia solo el remitente ahí.
+const BILLING_ALERT_PHONES = [
+  '+573135618300',
+  '+573181666999',
+  '+573248088401',
+];
 
 // Secuencia de mora (PDF 2026-07-01, P4). Día 0 = 1er cobro fallido o fecha
 // de cobro vencida (lo que ocurra). El cron diario cuenta días calendario:
@@ -68,7 +79,50 @@ export class BillingService {
     private smsTemplates: SmsTemplatesService,
     private brandEmail: BrandEmailService,
     private audit: AuditService,
+    private prereg: PreregAlertsService,
   ) {}
+
+  /**
+   * Fase 3 — alerta interna de cobro al equipo (los 3 números). `kind`:
+   * 'renovacion_fallida' (1er cobro fallido) o 'suspendido' (auto-suspensión).
+   * Best-effort, no bloquea. Enviado por la subcuenta del equipo.
+   */
+  async notifyBillingTeam(
+    kind: 'renovacion_fallida' | 'suspendido',
+    brandName: string,
+  ): Promise<void> {
+    const body =
+      kind === 'renovacion_fallida'
+        ? `⚠️ Cobro FALLIDO: ${brandName}. Entró en gracia (5 días). Revisar en Clubify.`
+        : `🔴 SUSPENDIDO por falta de pago: ${brandName}. Revisar en Clubify.`;
+    await Promise.all(
+      BILLING_ALERT_PHONES.map((phone) =>
+        this.prereg
+          .sendInternalAlert(phone, body)
+          .catch((e) =>
+            this.logger.warn(
+              `notifyBillingTeam a ${phone} falló: ${(e as Error).message}`,
+            ),
+          ),
+      ),
+    );
+  }
+
+  /** Fase 3 — envío de PRUEBA de la alerta de cobro a los 3 números. */
+  async testBillingTeamAlert(): Promise<{ ok: boolean; phones: string[] }> {
+    const results = await Promise.all(
+      BILLING_ALERT_PHONES.map((phone) =>
+        this.prereg
+          .sendInternalAlert(
+            phone,
+            '🧪 Prueba · alertas internas de cobro (cobro fallido / suspensión) activas. (Clubify)',
+          )
+          .then((r) => r.ok)
+          .catch(() => false),
+      ),
+    );
+    return { ok: results.some(Boolean), phones: BILLING_ALERT_PHONES };
+  }
 
   // ── PDF 1256 §2/§8: gracia configurable, liberación de crédito, auditoría ──
 
@@ -1139,6 +1193,8 @@ export class BillingService {
           data: { status: 'SUSPENDED', suspendedAt: now },
         });
         suspended++;
+        // Fase 3: alerta interna al equipo (los 3 números).
+        await this.notifyBillingTeam('suspendido', t.brandName).catch(() => null);
         // §8 auditoría + §2 liberar crédito a la marca (no-op para Clubify).
         await this.auditLifecycle('subscription.suspended', t.id, {
           reason: byFailure ? 'payment_failed' : 'overdue',
