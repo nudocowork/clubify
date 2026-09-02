@@ -26,22 +26,10 @@ import {
 import { ConveniosService } from './convenios.service';
 import { ConveniosCanjeService } from './convenios-canje.service';
 
-class ConvenioBody {
-  @IsOptional() @IsString() @MaxLength(120) name?: string;
-  @IsOptional() @IsString() @MaxLength(500) logoUrl?: string | null;
-  @IsOptional() @IsString() @MaxLength(1000) description?: string;
-  @IsOptional() @IsString() @MaxLength(120) contactName?: string | null;
-  @IsOptional() @IsString() @MaxLength(160) contactEmail?: string | null;
-  @IsOptional() @IsString() @MaxLength(40) contactPhone?: string | null;
-  @IsOptional() @IsIn(['ABIERTO', 'CODIGO', 'LISTA'])
-  verificacion?: 'ABIERTO' | 'CODIGO' | 'LISTA';
-  @IsOptional() @IsString() @MaxLength(40) codigo?: string | null;
-  @IsOptional() @IsIn(['ACTIVE', 'PAUSED', 'FINISHED'])
-  status?: 'ACTIVE' | 'PAUSED' | 'FINISHED';
-  @IsOptional() @IsString() endsAt?: string | null;
-  @IsOptional() @IsArray() @IsString({ each: true }) sedeIds?: string[];
-}
-
+// CuponBody va ANTES que ConvenioBody a propósito: `ConvenioBody.beneficio` lo
+// referencia y, con `emitDecoratorMetadata`, el decorador emite un
+// `design:type` que evalúa la clase en cuanto se define. Declararla después
+// reventaría al arrancar con un ReferenceError, no al compilar.
 class CuponBody {
   @IsOptional() @IsString() @MaxLength(120) name?: string;
   @IsOptional() @IsIn(['PERCENT_OFF', 'AMOUNT_OFF', 'FREEBIE', 'TWO_FOR_ONE', 'OTHER'])
@@ -55,7 +43,32 @@ class CuponBody {
   @IsOptional() @IsInt() @Min(1) maxTotal?: number | null;
   @IsOptional() @IsInt() @Min(0) compraMinima?: number | null;
   @IsOptional() @IsInt() @Min(0) topeDescuento?: number | null;
+  /** null o ausente = sin fecha de fin. */
   @IsOptional() @IsString() endsAt?: string | null;
+}
+
+class ConvenioBody {
+  @IsOptional() @IsString() @MaxLength(120) name?: string;
+  @IsOptional() @IsString() @MaxLength(500) logoUrl?: string | null;
+  @IsOptional() @IsString() @MaxLength(1000) description?: string;
+  @IsOptional() @IsString() @MaxLength(120) contactName?: string | null;
+  @IsOptional() @IsString() @MaxLength(160) contactEmail?: string | null;
+  @IsOptional() @IsString() @MaxLength(40) contactPhone?: string | null;
+  @IsOptional() @IsIn(['ABIERTO', 'CODIGO', 'LISTA'])
+  verificacion?: 'ABIERTO' | 'CODIGO' | 'LISTA';
+  @IsOptional() @IsString() @MaxLength(40) codigo?: string | null;
+  @IsOptional() @IsIn(['ACTIVE', 'PAUSED', 'FINISHED'])
+  status?: 'ACTIVE' | 'PAUSED' | 'FINISHED';
+  /** null o ausente = vigencia ILIMITADA. Ver `parsearVigencia`. */
+  @IsOptional() @IsString() endsAt?: string | null;
+  @IsOptional() @IsArray() @IsString({ each: true }) sedeIds?: string[];
+  /**
+   * Primer beneficio, para crear la alianza entera de una vez desde el
+   * asistente. Sin validación anidada a propósito: el servicio llama a
+   * `validarCupon`, que es donde vive la regla de verdad (la misma que usa
+   * `crearCupon`), y así no hay dos sitios que puedan discrepar.
+   */
+  @IsOptional() beneficio?: CuponBody | null;
 }
 
 class BloqueoBody {

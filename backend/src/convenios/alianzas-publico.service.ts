@@ -484,7 +484,12 @@ export class AlianzasPublicoService {
     if (existente) return existente;
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { brandName: true, primaryColor: true, logoUrl: true },
+      select: {
+        brandName: true,
+        primaryColor: true,
+        secondaryColor: true,
+        logoUrl: true,
+      },
     });
     return this.prisma.card.create({
       data: {
@@ -492,6 +497,13 @@ export class AlianzasPublicoService {
         convenioId: convenio.id,
         name: `Convenio ${convenio.name}`,
         type: 'STAMPS',
+        // Los colores DEL NEGOCIO, explícitos. `Card.primaryColor` trae por
+        // defecto el verde de Clubify (#22C55E), así que no escribirlos dejaría
+        // la tarjeta de una marca blanca pintada con el color de la plataforma
+        // — y esta `Card` se crea una sola vez y se queda, así que el primer
+        // empleado que active la fija para siempre.
+        primaryColor: tenant?.primaryColor ?? undefined,
+        secondaryColor: tenant?.secondaryColor ?? undefined,
         // La tarjeta de alianza no cuenta nada: es un vale permanente. Se pone
         // 1 porque la columna es opcional pero el render de sellos cae al
         // default 10 si va en null, y «0 / 10» encima de un descuento del 15%

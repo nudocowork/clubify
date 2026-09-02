@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { StampIconPicker } from '@/components/StampIconPicker';
@@ -509,6 +510,47 @@ function Step1Templates({
 // Step 2: Tipo de tarjeta
 // ═══════════════════════════════════════════════════════════
 
+/**
+ * La tarjeta de ALIANZA en el selector de tipo.
+ *
+ * No es un `CardType` y no se selecciona: LLEVA a `/app/alianzas`. Dos motivos,
+ * los dos aprendidos aquí:
+ *
+ *  · Meter tipos nuevos en este asistente ya salió mal (ver el comentario de
+ *    arriba: un `DISCOUNT` que se pintaba como sellos y al canjear no hacía
+ *    nada). Una alianza no tiene sellos, ni premio, ni recompensa que
+ *    configurar en los pasos 3 a 5 — su plantilla de pase se crea sola.
+ *  · El alta de alianzas ya existe y funciona, con su cupo, sus tres modos de
+ *    verificación y sus avisos. Duplicarla aquí garantizaba que los dos
+ *    formularios acabaran diciendo cosas distintas.
+ *
+ * Se muestra SIEMPRE, tenga o no el módulo encendido: es el escaparate, y la
+ * página de destino ya explica cómo pedirlo si el negocio no lo tiene.
+ */
+function TarjetaAlianza() {
+  return (
+    <Link
+      href="/app/alianzas?nueva=1"
+      className="text-left p-4 rounded-2xl border-2 border-line hover:border-ink/40 bg-white transition block"
+    >
+      <div className="flex items-center gap-3">
+        <span className="text-2xl shrink-0">🤝</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-sm">Alianza con una empresa</div>
+        </div>
+        <span className="text-[10px] font-semibold uppercase tracking-wide rounded-full bg-violet-100 text-violet-700 px-2 py-0.5 shrink-0">
+          Nuevo
+        </span>
+      </div>
+      <p className="text-xs leading-snug mt-2 text-mute">
+        Acuerdo con una empresa para que sus empleados tengan un beneficio
+        permanente en tu local. Ella recibe su propio enlace para repartir.
+      </p>
+      <p className="text-xs mt-2 font-medium text-ink">Te llevamos a Alianzas →</p>
+    </Link>
+  );
+}
+
 function Step2Type({
   selected,
   onSelect,
@@ -527,6 +569,7 @@ function Step2Type({
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
+        <TarjetaAlianza />
         {ALL_TYPES.map((t) => {
           const active = selected === t;
           return (

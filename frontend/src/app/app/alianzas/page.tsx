@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -39,12 +40,30 @@ type Respuesta = {
  */
 export default function AlianzasPage() {
   const [data, setData] = useState<Respuesta | null>(null);
-  const [creando, setCreando] = useState(false);
+  // `?nueva=1` abre el formulario de una: es por donde entra quien viene del
+  // asistente de tarjetas («Nueva tarjeta → Alianza»), y llegar a una lista sin
+  // nada abierto haría pensar que el botón no hizo nada.
+  const abrirDeEntrada = useSearchParams().get('nueva') === '1';
+  const [creando, setCreando] = useState(abrirDeEntrada);
   const [form, setForm] = useState({
     name: '',
     verificacion: 'CODIGO' as Fila['verificacion'],
     contactName: '',
     contactEmail: '',
+    // Vigencia. ILIMITADA por defecto porque es lo que ya pasaba de hecho —
+    // hasta ahora el alta ni preguntaba la fecha— y porque una fecha inventada
+    // por defecto apagaría el descuento en la cara de un empleado sin que nadie
+    // la hubiera elegido.
+    vigencia: 'ILIMITADA' as 'ILIMITADA' | 'FECHA',
+    endsAt: '',
+    // Primer beneficio. Va en el mismo alta a propósito: una alianza sin
+    // ningún beneficio no deja activar a nadie, así que crearla sola dejaría
+    // un enlace que no funciona.
+    bNombre: '',
+    bTipo: 'PERCENT_OFF' as 'PERCENT_OFF' | 'AMOUNT_OFF' | 'FREEBIE' | 'TWO_FOR_ONE' | 'OTHER',
+    bValor: '15',
+    bMax: '',
+    bPeriodo: 'SIEMPRE' as 'SIEMPRE' | 'DIA' | 'SEMANA' | 'MES' | 'ANIO',
   });
 
   async function cargar() {
@@ -60,14 +79,37 @@ export default function AlianzasPage() {
 
   async function crear(e: React.FormEvent) {
     e.preventDefault();
+    // Una fecha ya pasada apagaría la alianza en el mismo momento de crearla.
+    // Es casi siempre un dedazo, así que se pregunta antes de dejarlo pasar.
+    if (form.vigencia === 'FECHA' && form.endsAt && new Date(form.endsAt) < new Date()) {
+      if (!confirm('Esa fecha ya pasó: la alianza nacería vencida y nadie podría activarla. ¿Seguro?')) {
+        return;
+      }
+    }
     try {
       const nuevo = await api<Fila>('/convenios', {
         method: 'POST',
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          name: form.name,
+          verificacion: form.verificacion,
+          contactName: form.contactName || undefined,
+          contactEmail: form.contactEmail || undefined,
+          // null explícito, no omitido: en el backend `undefined` significa «no
+          // tocar» y `null` significa «sin fecha de fin».
+          endsAt: form.vigencia === 'FECHA' && form.endsAt ? form.endsAt : null,
+          beneficio: form.bNombre.trim()
+            ? {
+                name: form.bNombre.trim(),
+                tipo: form.bTipo,
+                valor: Number(form.bValor) || 0,
+                maxPorPersona: form.bMax ? Number(form.bMax) : undefined,
+                periodo: form.bMax ? form.bPeriodo : 'SIEMPRE',
+              }
+            : undefined,
+        }),
       });
       toast('Alianza creada', 'success');
       setCreando(false);
-      setForm({ name: '', verificacion: 'CODIGO', contactName: '', contactEmail: '' });
       await cargar();
       window.location.href = `/app/alianzas/${nuevo.id}`;
     } catch (e: any) {
@@ -153,6 +195,113 @@ export default function AlianzasPage() {
               </p>
             )}
           </div>
+          <hr className="border-line" />
+
+          <div>
+            <label className="label">El beneficio</label>
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+              <input
+                className="input"
+                value={form.bNombre}
+                onChange={(e) => setForm({ ...form, bNombre: e.target.value })}
+                placeholder="Almuerzo ejecutivo, Bebida…"
+              />
+              <select
+                className="input"
+                value={form.bTipo}
+                onChange={(e) =>
+                  setForm({ ...form, bTipo: e.target.value as typeof form.bTipo })
+                }
+              >
+                <option value="PERCENT_OFF">% de descuento</option>
+                <option value="AMOUNT_OFF">Descuento en dinero</option>
+                <option value="FREEBIE">Gratis</option>
+                <option value="TWO_FOR_ONE">2x1</option>
+                <option value="OTHER">Otro</option>
+              </select>
+              {(form.bTipo === 'PERCENT_OFF' || form.bTipo === 'AMOUNT_OFF') && (
+                <input
+                  className="input sm:w-28"
+                  type="number"
+                  min={1}
+                  value={form.bValor}
+                  onChange={(e) => setForm({ ...form, bValor: e.target.value })}
+                />
+              )}
+            </div>
+            <p className="mt-1 text-[11px] leading-snug text-mute">
+              Puedes añadir más beneficios después. Sin ninguno, el enlace no
+              deja activar a nadie.
+            </p>
+          </div>
+
+          <div>
+            <label className="label">¿Cuántas veces puede usarlo cada persona?</label>
+            <div className="flex gap-2">
+              <input
+                className="input"
+                type="number"
+                min={1}
+                placeholder="Sin tope"
+                value={form.bMax}
+                onChange={(e) => setForm({ ...form, bMax: e.target.value })}
+              />
+              <select
+                className="input"
+                disabled={!form.bMax}
+                value={form.bPeriodo}
+                onChange={(e) =>
+                  setForm({ ...form, bPeriodo: e.target.value as typeof form.bPeriodo })
+                }
+              >
+                <option value="SIEMPRE">en total</option>
+                <option value="DIA">al día</option>
+                <option value="SEMANA">a la semana</option>
+                <option value="MES">al mes</option>
+                <option value="ANIO">al año</option>
+              </select>
+            </div>
+          </div>
+
+          <hr className="border-line" />
+
+          <div>
+            <label className="label">Hasta cuándo dura</label>
+            <div className="flex gap-2">
+              {(
+                [
+                  ['ILIMITADA', 'Ilimitada'],
+                  ['FECHA', 'Hasta una fecha'],
+                ] as const
+              ).map(([v, t]) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setForm({ ...form, vigencia: v })}
+                  className={`rounded-input px-3 py-2 text-sm transition ${
+                    form.vigencia === v
+                      ? 'bg-fg font-semibold text-bg1'
+                      : 'border border-line text-mute'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            {form.vigencia === 'FECHA' ? (
+              <input
+                className="input mt-2"
+                type="date"
+                value={form.endsAt}
+                onChange={(e) => setForm({ ...form, endsAt: e.target.value })}
+              />
+            ) : (
+              <p className="mt-2 text-[11px] leading-snug text-mute">
+                No caduca: seguirá activa hasta que la pauses o la finalices.
+              </p>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Contacto en la empresa (opcional)</label>
@@ -201,12 +350,21 @@ export default function AlianzasPage() {
               )}
               <div className="min-w-0 flex-1">
                 <p className="font-medium truncate">{c.name}</p>
-                <p className="text-xs text-mute mt-0.5">
-                  {c.tarjetas} {c.tarjetas === 1 ? 'empleado' : 'empleados'} ·{' '}
-                  {c.cuponesEncendidos} de {c.cupones}{' '}
-                  {c.cupones === 1 ? 'beneficio activo' : 'beneficios activos'} ·{' '}
-                  {c.canjesDelMes} este mes
-                </p>
+                {c.cupones === 0 ? (
+                  // Una alianza sin beneficios está viva pero es inerte: su
+                  // enlace responde «aún no está disponible». Sin decirlo aquí
+                  // se queda olvidada creyéndose activa.
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    Sin beneficios aún — nadie puede activarla
+                  </p>
+                ) : (
+                  <p className="text-xs text-mute mt-0.5">
+                    {c.tarjetas} {c.tarjetas === 1 ? 'empleado' : 'empleados'} ·{' '}
+                    {c.cuponesEncendidos} de {c.cupones}{' '}
+                    {c.cupones === 1 ? 'beneficio activo' : 'beneficios activos'} ·{' '}
+                    {c.canjesDelMes} este mes
+                  </p>
+                )}
               </div>
               <EtiquetaEstado status={c.status} endsAt={c.endsAt} />
             </Link>

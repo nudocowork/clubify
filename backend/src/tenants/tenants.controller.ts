@@ -157,6 +157,18 @@ class UpdateTenantBody {
   @IsOptional() @IsBoolean() reservationsEnabled?: boolean;
   // Reservas de SERVICIOS (citas) gate — PDF245 P7.
   @IsOptional() @IsBoolean() serviceReservationsEnabled?: boolean;
+  /**
+   * ALIANZAS con empresas (convenios). Se habilita negocio por negocio, igual
+   * que las cartas por sede: la mayoría no monta ninguna y no tiene por qué ver
+   * la complejidad.
+   *
+   * Hasta ahora esta columna solo se LEÍA: no había ni un panel que la
+   * escribiera, así que el módulo únicamente se podía encender por SQL directo
+   * contra producción.
+   */
+  @IsOptional() @IsBoolean() conveniosEnabled?: boolean;
+  /** Cuántas alianzas puede tener a la vez. Por defecto 3. */
+  @IsOptional() @IsInt() @Min(1) @Max(50) maxConvenios?: number;
   // Notas internas del negocio (SOLO Clubify: este controller es
   // @Roles('SUPER_ADMIN','MARKETING'), el dueño del negocio no lo ve).
   // Observaciones operativas: "pagó por Nequi", etc. null = limpiar.

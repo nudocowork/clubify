@@ -37,8 +37,25 @@ export type ConvenioDto = {
   verificacion?: 'ABIERTO' | 'CODIGO' | 'LISTA';
   codigo?: string | null;
   status?: 'ACTIVE' | 'PAUSED' | 'FINISHED';
+  /**
+   * Hasta cuándo dura. `null` = ILIMITADA, que es una opción de primera y no
+   * un descuido: hay convenios marco que no se renuevan cada año.
+   *
+   * No hace falta columna nueva —`null` ya significaba eso— pero sí que el
+   * panel lo diga: hasta ahora la opción existía y nadie sabía que estaba ahí,
+   * así que el dueño se inventaba una fecha lejana.
+   */
   endsAt?: string | null;
   sedeIds?: string[] | null;
+  /**
+   * Primer beneficio, opcional, para crear la alianza de una sola vez.
+   *
+   * Existe porque una alianza sin ningún beneficio NO deja activar a nadie: su
+   * enlace responde «este convenio aún no está disponible». Crear las dos cosas
+   * en dos llamadas deja esa ventana abierta si la segunda falla o si el dueño
+   * cierra el navegador entre medias.
+   */
+  beneficio?: CuponDto | null;
 };
 
 export type CuponDto = {
@@ -114,6 +131,34 @@ export class ConveniosService {
           `Cierra uno o pídenos ampliar el límite.`,
       );
     }
+  }
+
+  /**
+   * Interpreta «hasta cuándo dura».
+   *
+   *   null / '' / undefined → ILIMITADA. Es una opción de primera, no un
+   *   descuido: hay convenios marco que no se renuevan cada año, y hasta ahora
+   *   el panel no ofrecía la opción, así que el dueño se inventaba una fecha
+   *   lejana —2099— que luego nadie entendía.
+   *
+   * La fecha se toma al FINAL del día elegido. Si el dueño escribe «31 de
+   * diciembre» espera que ese día todavía valga; guardarla a las 00:00 apagaría
+   * el convenio un día antes de lo que él cree, y eso se descubre con un
+   * cliente delante.
+   */
+  private parsearVigencia(valor?: string | null): Date | null {
+    if (!valor) return null;
+    const d = new Date(valor);
+    if (Number.isNaN(d.getTime())) {
+      throw new BadRequestException('La fecha de fin no es válida.');
+    }
+    // Solo se estira al final del día cuando viene en formato de fecha suelta
+    // (YYYY-MM-DD), que es lo que manda un <input type="date">. Si llega un
+    // instante completo, se respeta tal cual.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(valor.trim())) {
+      d.setHours(23, 59, 59, 999);
+    }
+    return d;
   }
 
   private slugify(s: string) {
@@ -241,30 +286,65 @@ export class ConveniosService {
     if (n > 0) slug = `${slug}-${n}`;
 
     const verificacion = dto.verificacion ?? 'CODIGO';
-    return this.prisma.convenio.create({
-      data: {
-        tenantId,
-        name,
-        slug,
-        logoUrl: dto.logoUrl ?? null,
-        description: dto.description ?? '',
-        contactName: dto.contactName ?? null,
-        contactEmail: dto.contactEmail ?? null,
-        contactPhone: dto.contactPhone ?? null,
-        verificacion,
-        // Con verificación por código hace falta uno desde el minuto cero: si
-        // se creara vacío, el enlace quedaría abierto de par en par sin que
-        // nadie se diera cuenta.
-        codigo:
-          verificacion === 'CODIGO'
-            ? (dto.codigo?.trim().toUpperCase() || generarCodigo())
-            : null,
-        endsAt: dto.endsAt ? new Date(dto.endsAt) : null,
-        reportToken: nanoid(24),
-        ...(dto.sedeIds?.length
-          ? { sedes: { create: dto.sedeIds.map((locationId) => ({ locationId })) } }
-          : {}),
-      },
+    // Se valida ANTES de abrir la transacción: si el beneficio viene mal, que
+    // no llegue a crearse ni el convenio. Da igual el orden de las escrituras
+    // si el dueño acaba con una alianza a medias que no sabe que tiene.
+    if (dto.beneficio) this.validarCupon(dto.beneficio);
+    const finVigencia = this.parsearVigencia(dto.endsAt);
+
+    return this.prisma.$transaction(async (tx) => {
+      const convenio = await tx.convenio.create({
+        data: {
+          tenantId,
+          name,
+          slug,
+          logoUrl: dto.logoUrl ?? null,
+          description: dto.description ?? '',
+          contactName: dto.contactName ?? null,
+          contactEmail: dto.contactEmail ?? null,
+          contactPhone: dto.contactPhone ?? null,
+          verificacion,
+          // Con verificación por código hace falta uno desde el minuto cero: si
+          // se creara vacío, el enlace quedaría abierto de par en par sin que
+          // nadie se diera cuenta.
+          codigo:
+            verificacion === 'CODIGO'
+              ? (dto.codigo?.trim().toUpperCase() || generarCodigo())
+              : null,
+          endsAt: finVigencia,
+          reportToken: nanoid(24),
+          // El token del portal del aliado se genera aquí y no perezosamente:
+          // una alianza creada desde el asistente enseña sus dos enlaces en la
+          // pantalla siguiente, y pedirlos por separado era una llamada más
+          // que podía fallar justo cuando el dueño va a copiar el enlace.
+          aliadoToken: nanoid(24),
+          ...(dto.sedeIds?.length
+            ? { sedes: { create: dto.sedeIds.map((locationId) => ({ locationId })) } }
+            : {}),
+        },
+      });
+
+      if (dto.beneficio) {
+        await tx.convenioCupon.create({
+          data: {
+            convenioId: convenio.id,
+            name: (dto.beneficio.name ?? '').trim() || name,
+            tipo: dto.beneficio.tipo ?? 'PERCENT_OFF',
+            valor: dto.beneficio.valor ?? 0,
+            description: dto.beneficio.description ?? '',
+            terms: dto.beneficio.terms ?? '',
+            isActive: dto.beneficio.isActive ?? true,
+            maxPorPersona: dto.beneficio.maxPorPersona ?? null,
+            periodo: dto.beneficio.periodo ?? 'SIEMPRE',
+            maxTotal: dto.beneficio.maxTotal ?? null,
+            compraMinima: dto.beneficio.compraMinima ?? null,
+            topeDescuento: dto.beneficio.topeDescuento ?? null,
+            endsAt: this.parsearVigencia(dto.beneficio.endsAt),
+            position: 1,
+          },
+        });
+      }
+      return convenio;
     });
   }
 
@@ -276,7 +356,13 @@ export class ConveniosService {
     await this.assertHabilitado(tenantId);
     const actual = await this.prisma.convenio.findFirst({
       where: { id, tenantId },
-      select: { id: true, verificacion: true, codigo: true, status: true },
+      select: {
+        id: true,
+        verificacion: true,
+        codigo: true,
+        status: true,
+        endsAt: true,
+      },
     });
     if (!actual) throw new NotFoundException('Convenio no encontrado');
 
@@ -299,8 +385,11 @@ export class ConveniosService {
       ...(dto.contactEmail !== undefined ? { contactEmail: dto.contactEmail } : {}),
       ...(dto.contactPhone !== undefined ? { contactPhone: dto.contactPhone } : {}),
       ...(dto.status !== undefined ? { status: dto.status } : {}),
+      // `endsAt: null` es ILIMITADA, no «sin tocar»: por eso se mira
+      // `!== undefined`. Pasar de una fecha vencida a ilimitada revive el
+      // convenio, que es justo la diferencia con FINISHED.
       ...(dto.endsAt !== undefined
-        ? { endsAt: dto.endsAt ? new Date(dto.endsAt) : null }
+        ? { endsAt: this.parsearVigencia(dto.endsAt) }
         : {}),
     };
     if (dto.verificacion !== undefined) {
@@ -347,6 +436,17 @@ export class ConveniosService {
         data: { isActive: false },
       });
       await this.avisarPases(id);
+    } else if (dto.endsAt !== undefined) {
+      // Cambiar la vigencia también cambia lo que ve el empleado, y hay que
+      // empujarlo: `endsAt` se evalúa perezosamente en el servidor, pero el
+      // pase instalado no evalúa nada — si no se le avisa, seguiría prometiendo
+      // el descuento el día después del fin, o seguiría diciendo «finalizado»
+      // después de que el negocio renovara. Solo cuando el estado cambia de
+      // verdad; cambiar una fecha futura por otra futura no mueve nada.
+      const ahora = new Date();
+      const vivoAntes = !actual.endsAt || actual.endsAt > ahora;
+      const vivoAhora = !actualizado.endsAt || actualizado.endsAt > ahora;
+      if (vivoAntes !== vivoAhora) await this.avisarPases(id);
     }
     return actualizado;
   }
@@ -400,7 +500,7 @@ export class ConveniosService {
         maxTotal: dto.maxTotal ?? null,
         compraMinima: dto.compraMinima ?? null,
         topeDescuento: dto.topeDescuento ?? null,
-        endsAt: dto.endsAt ? new Date(dto.endsAt) : null,
+        endsAt: this.parsearVigencia(dto.endsAt),
         position: (ultimo?.position ?? 0) + 1,
       },
     });
@@ -465,7 +565,7 @@ export class ConveniosService {
       if (dto[k] !== undefined) data[k] = dto[k];
     }
     if (dto.endsAt !== undefined) {
-      data.endsAt = dto.endsAt ? new Date(dto.endsAt) : null;
+      data.endsAt = this.parsearVigencia(dto.endsAt);
     }
 
     const actualizado = await this.prisma.convenioCupon.update({

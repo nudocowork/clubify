@@ -1727,6 +1727,15 @@ function AcademyTogglesCard({
   const [maxCartas, setMaxCartas] = useState<number>(
     tenant.maxExtraMenus ?? 1,
   );
+  // Alianzas con empresas. Se habilita negocio por negocio, igual que las
+  // cartas por sede. Hasta ahora solo se podia encender por SQL directo contra
+  // produccion, porque no habia ningun panel que escribiera la columna.
+  const [convenios, setConvenios] = useState<boolean>(
+    tenant.conveniosEnabled ?? false,
+  );
+  const [maxConvenios, setMaxConvenios] = useState<number>(
+    tenant.maxConvenios ?? 3,
+  );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -1744,6 +1753,8 @@ function AcademyTogglesCard({
           businessType,
           multiMenuEnabled: multiMenu,
           maxExtraMenus: maxCartas,
+          conveniosEnabled: convenios,
+          maxConvenios,
         }),
       });
       setMsg({ ok: true, text: t('changesSaved') });
@@ -1824,6 +1835,45 @@ function AcademyTogglesCard({
             <div className="text-xs text-mute leading-snug">
               {t('showAcademyHelp')}
             </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={convenios}
+            onChange={(e) => setConvenios(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">Alianzas con empresas</div>
+            <div className="text-xs text-mute leading-snug">
+              El negocio pacta con una empresa y sus empleados reciben un
+              beneficio permanente en el local. Cada empresa recibe su propio
+              enlace para repartir entre su gente.{' '}
+              <b>Apagarlo no borra nada</b>: bloquea el canje y las activaciones
+              nuevas, y al reencenderlo vuelve todo tal cual estaba.
+            </div>
+            {convenios && (
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <label className="text-xs text-mute">
+                  Alianzas a la vez:
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={maxConvenios}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) =>
+                    setMaxConvenios(
+                      Math.max(1, Math.min(50, Number(e.target.value) || 1)),
+                    )
+                  }
+                  className="input w-20 py-1 text-xs"
+                />
+              </div>
+            )}
           </div>
         </label>
 

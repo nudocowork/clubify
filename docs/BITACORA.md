@@ -8,6 +8,50 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-02 (madrugada) — Alianzas: entrada por el asistente y vigencia ilimitada
+
+Segunda vuelta sobre lo de abajo. **Nada de esto toca `backend/src/club/**` ni
+`customers.service.ts`** — Javier está trabajando en la Tarjeta de Club en
+paralelo.
+
+- **Se entra por Tarjetas → Nueva tarjeta → «Alianza con una empresa»**, que es
+  como lo pidió Javier. La tarjeta del paso 2 **no es un `CardType`**: es un
+  enlace que lleva a `/app/alianzas?nueva=1`. Así se respeta el aviso de la
+  línea 23 del asistente (meter tipos ahí ya generó inconsistencias) y no se
+  duplica el alta, que ya existía y funcionaba.
+- **Vigencia ILIMITADA**, que era la petición concreta. No hace falta columna:
+  `endsAt = null` ya significaba eso en los siete lectores. Lo que faltaba era
+  *decirlo* — hasta ahora la opción existía y nadie sabía que estaba ahí, así
+  que el dueño se inventaba una fecha lejana. Es el valor por defecto.
+- La fecha se guarda al **final** del día elegido. Guardarla a las 00:00 apaga
+  el convenio un día antes de lo que el dueño cree, y eso se descubre con un
+  cliente delante.
+- **Interruptor de `conveniosEnabled` en el panel de admin.** Era el bloqueante
+  nº1 para probar: la columna solo se LEÍA, no había ni un panel que la
+  escribiera, así que el módulo únicamente se podía encender por SQL directo
+  contra producción.
+- El alta crea la alianza **y su primer beneficio en una sola transacción**: una
+  alianza sin beneficios está viva pero es inerte (su enlace responde «aún no
+  está disponible»). En la lista, esas salen marcadas «Sin beneficios aún».
+- Cambiar `endsAt` ahora **empuja el pase** si cambia lo que el empleado ve.
+  Antes solo se empujaba al pausar o finalizar: revivir un convenio vencido
+  dejaba las tarjetas diciendo «finalizado» hasta que otro cambio cualquiera
+  empujara.
+
+### Un fallo mío que encontró la revisión
+
+`plantilla()` en `alianzas-publico.service.ts` consultaba `tenant.primaryColor`
+y **nunca lo escribía**: la `Card` nacía con el default del esquema —el verde de
+Clubify— así que la tarjeta de una marca blanca se habría pintado con el color
+de la plataforma. Y esa `Card` se crea **una sola vez y se queda**: el primer
+empleado que activara la habría fijado así para siempre.
+
+### Estado
+
+98 tests en verde (38 nuevos que ejercitan los servicios REALES contra un doble
+de Prisma en memoria). `tsc` en 0 tanto en backend como en frontend. Sigue sin
+desplegar y sigue faltando correr `scripts/apply-alianzas-migration.cjs`.
+
 ## 2026-09-02 — Alianzas: la tarjeta de convenio, de punta a punta (SIN DESPLEGAR)
 
 Un negocio pacta con una **empresa** y los empleados de esa empresa reciben un
