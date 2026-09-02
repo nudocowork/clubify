@@ -197,24 +197,43 @@ export class AlianzasPublicoService {
     }
     const email = normalizarEmail(dto.email);
 
-    // ── Cliente: match-or-create por teléfono, igual que el alta normal ──
-    const customer = await this.buscarOCrearCliente(
-      tenant.id,
-      nombre,
-      phoneNorm,
-      email,
-    );
+    // ── Cliente: SOLO buscar, todavía no crear ──
+    // Crear aquí escribía datos personales en el CRM de un negocio ajeno desde
+    // un endpoint sin sesión, con la verificación todavía por delante: bastaba
+    // enviar el formulario con un código equivocado para dejar el rastro.
+    const existente = await this.buscarCliente(tenant.id, phoneNorm);
 
-    // ── Idempotencia ANTES de verificar ──
-    // Quien ya demostró una vez que pertenece a la empresa no tiene que volver
-    // a hacerlo: pudo perder el código, o borrar el pase del móvil y volver al
+    // ── Idempotencia ──
+    // Quien ya activó no tiene que volver a demostrar que pertenece a la
+    // empresa: pudo perder el código, o borrar el pase del móvil y volver al
     // enlace. Devolverle SU tarjeta con su historial intacto es lo correcto.
-    const previa = await this.prisma.convenioTarjeta.findUnique({
-      where: {
-        convenioId_customerId: { convenioId: convenio.id, customerId: customer.id },
-      },
-    });
+    //
+    // Pero el teléfono NO basta como identidad. Antes este atajo iba delante de
+    // `verificar()`, así que cualquiera que supiera el teléfono de un compañero
+    // recibía su `passId` sin código y sin estar en la lista — y el `.pkpass`
+    // se descarga con solo ese id. Ahora hay que traer también el MISMO
+    // documento: quien vuelve a su tarjeta escribe su cédula; quien suplanta,
+    // no la tiene.
+    const previa = existente
+      ? await this.prisma.convenioTarjeta.findUnique({
+          where: {
+            convenioId_customerId: {
+              convenioId: convenio.id,
+              customerId: existente.id,
+            },
+          },
+        })
+      : null;
+
     if (previa) {
+      if (previa.documento && previa.documento !== documento) {
+        // Mensaje deliberadamente igual al de «documento ya usado»: distinguir
+        // los dos convertiría esto en un oráculo de qué teléfonos tienen
+        // tarjeta en el convenio.
+        throw new ForbiddenException(
+          'Los datos no coinciden con los de esta tarjeta. Si es tuya, escribe el mismo documento con el que la activaste.',
+        );
+      }
       if (previa.status === 'BLOCKED') {
         // Nunca se desbloquea sola por volver a activar: sería la puerta de
         // atrás que anula el bloqueo del negocio.
@@ -227,18 +246,27 @@ export class AlianzasPublicoService {
         // clientes pudo dejarlo en null). Se le emite uno nuevo en vez de
         // devolverle una tarjeta que no se puede escanear.
         const card = await this.plantilla(tenant.id, convenio);
-        const pass = await this.emitirPase(tenant.id, card.id, customer.id);
+        const pass = await this.emitirPase(tenant.id, card.id, existente!.id);
         await this.prisma.convenioTarjeta.update({
           where: { id: previa.id },
           data: { passId: pass.id },
         });
-        return { passId: pass.id, customerId: customer.id, isNew: false };
+        return { passId: pass.id, customerId: existente!.id, isNew: false };
       }
-      return { passId: previa.passId, customerId: customer.id, isNew: false };
+      return { passId: previa.passId, customerId: existente!.id, isNew: false };
     }
 
-    // ── Verificación ──
+    // ── Verificación, ANTES de escribir nada ──
     await this.verificar(convenio, dto, documento, email, phoneNorm);
+
+    // Ya verificado: ahora sí se puede tocar el CRM del negocio.
+    const customer = await this.crearOActualizarCliente(
+      tenant.id,
+      existente,
+      nombre,
+      phoneNorm,
+      email,
+    );
 
     // ── Documento único dentro del convenio ──
     // Se comprueba aquí para dar un mensaje humano, pero quien MANDA es el
@@ -422,29 +450,37 @@ export class AlianzasPublicoService {
    * hay que duplicarla. Si ya es cliente del negocio con tarjeta de sellos, es
    * el MISMO `Customer` — lo que va aparte son la `Card` y el `Pass`.
    */
-  private async buscarOCrearCliente(
+  private async buscarCliente(tenantId: string, phone: string) {
+    const last10 = phone.replace(/\D/g, '').slice(-10);
+    const exacto = await this.prisma.customer
+      .findUnique({ where: { tenantId_phone: { tenantId, phone } } })
+      .catch(() => null);
+    if (exacto) return exacto;
+    if (last10.length < 8) return null;
+    return this.prisma.customer
+      .findFirst({ where: { tenantId, phone: { endsWith: last10 } } })
+      .catch(() => null);
+  }
+
+  /** Crea el cliente, o completa el que ya había. Solo tras verificar. */
+  private async crearOActualizarCliente(
     tenantId: string,
+    existente: { id: string; email: string | null } | null,
     fullName: string,
     phone: string,
     email: string | null,
   ) {
-    const last10 = phone.replace(/\D/g, '').slice(-10);
-    let customer = await this.prisma.customer
-      .findUnique({ where: { tenantId_phone: { tenantId, phone } } })
-      .catch(() => null);
-    if (!customer && last10.length >= 8) {
-      customer = await this.prisma.customer
-        .findFirst({ where: { tenantId, phone: { endsWith: last10 } } })
-        .catch(() => null);
-    }
-    if (customer) {
-      if (email && !customer.email) {
-        customer = await this.prisma.customer.update({
-          where: { id: customer.id },
+    if (existente) {
+      // Solo se RELLENA lo que falta, nunca se pisa: el correo que el negocio
+      // ya tenía de ese cliente vale más que el que alguien escriba en un
+      // formulario público.
+      if (email && !existente.email) {
+        return this.prisma.customer.update({
+          where: { id: existente.id },
           data: { email },
         });
       }
-      return customer;
+      return existente;
     }
     try {
       return await this.prisma.customer.create({

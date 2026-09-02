@@ -63,6 +63,10 @@ export default function AlianzaDetalle() {
     null,
   );
   const [tarjetas, setTarjetas] = useState<Tarjeta[]>([]);
+  const [lista, setLista] = useState<
+    { id: string; documento: string | null; email: string | null; usedAt: string | null }[]
+  >([]);
+  const [pegado, setPegado] = useState('');
   const [nuevo, setNuevo] = useState<null | {
     name: string;
     tipo: Cupon['tipo'];
@@ -81,6 +85,9 @@ export default function AlianzaDetalle() {
       setC(conv);
       setEnlaces(en);
       setTarjetas(await api<Tarjeta[]>(`/convenios/${id}/tarjetas`));
+      if (conv.verificacion === 'LISTA') {
+        setLista(await api(`/convenios/${id}/lista`));
+      }
     } catch (e: any) {
       toast(e.message || 'No pudimos cargar la alianza', 'error');
     }
@@ -148,6 +155,9 @@ export default function AlianzaDetalle() {
   if (!c) return <div className="card card-pad animate-shimmer h-40" />;
 
   const finalizada = c.status === 'FINISHED';
+  // Vencida por fecha es DISTINTO de finalizada: se arregla extendiendo la
+  // fecha o poniéndola en ilimitada. Finalizada no tiene vuelta atrás.
+  const vencida = !!c.endsAt && new Date(c.endsAt) <= new Date();
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -275,6 +285,113 @@ export default function AlianzaDetalle() {
             la empresa.
           </p>
         )}
+
+        {/* La lista. Sin esto, elegir «solo quien esté en la lista» dejaba la
+            alianza inservible: no había forma de cargarla y a todos los
+            empleados les salía «no encontramos tu documento». */}
+        {c.verificacion === 'LISTA' && (
+          <div className="mt-4 rounded-input bg-bg2 p-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 className="text-sm font-medium">Quién puede activar</h3>
+              <span className="text-xs text-mute">
+                {lista.length} en la lista ·{' '}
+                {lista.filter((x) => x.usedAt).length} ya activaron
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] leading-snug text-mute">
+              Pega los documentos o los correos que te pase la empresa, uno por
+              línea. Se añaden a los que ya están, no los reemplazan.
+            </p>
+            <textarea
+              className="input mt-2 h-28 font-mono text-xs"
+              value={pegado}
+              onChange={(e) => setPegado(e.target.value)}
+              placeholder={'1020304050\n1098765432\nana@empresa.com'}
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                className="btn btn-sm"
+                disabled={!pegado.trim() || finalizada}
+                onClick={async () => {
+                  try {
+                    const r = await api<{ agregadas: number; yaEstaban: number }>(
+                      `/convenios/${id}/lista`,
+                      { method: 'POST', body: JSON.stringify({ texto: pegado }) },
+                    );
+                    toast(
+                      `${r.agregadas} añadidos${r.yaEstaban ? `, ${r.yaEstaban} ya estaban` : ''}`,
+                      'success',
+                    );
+                    setPegado('');
+                    await cargar();
+                  } catch (e: any) {
+                    toast(e.message || 'No se pudo cargar', 'error');
+                  }
+                }}
+              >
+                Añadir a la lista
+              </button>
+            </div>
+            {lista.length > 0 && (
+              <ul className="mt-3 max-h-56 divide-y divide-line overflow-y-auto">
+                {lista.map((f) => (
+                  <li key={f.id} className="flex items-center justify-between gap-2 py-1.5">
+                    <span className="truncate font-mono text-xs">
+                      {f.documento || f.email}
+                      {f.usedAt && (
+                        <span className="ml-2 font-sans text-[11px] text-mute">
+                          ya activó
+                        </span>
+                      )}
+                    </span>
+                    <button
+                      className="shrink-0 text-xs text-mute hover:underline"
+                      disabled={finalizada}
+                      onClick={async () => {
+                        await api(`/convenios/lista/${f.id}`, { method: 'DELETE' });
+                        await cargar();
+                      }}
+                    >
+                      Quitar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ── Vigencia ── */}
+      <section className="card card-pad mt-4">
+        <h2 className="font-medium">Hasta cuándo dura</h2>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            className={`rounded-input px-3 py-2 text-sm transition ${
+              !c.endsAt ? 'bg-fg font-semibold text-bg1' : 'border border-line text-mute'
+            }`}
+            disabled={finalizada}
+            onClick={() => patchConvenio({ endsAt: null })}
+          >
+            Ilimitada
+          </button>
+          <input
+            className="input w-44"
+            type="date"
+            disabled={finalizada}
+            value={c.endsAt ? String(c.endsAt).slice(0, 10) : ''}
+            onChange={(e) =>
+              patchConvenio({ endsAt: e.target.value || null })
+            }
+          />
+        </div>
+        <p className="mt-2 text-[11px] leading-snug text-mute">
+          {c.endsAt
+            ? vencida
+              ? 'Venció: no se canjea ni puede activar nadie. Extiende la fecha o ponla en ilimitada si renovaron.'
+              : 'Al llegar ese día se apaga sola. Puedes extenderla cuando renueven.'
+            : 'No caduca: sigue activa hasta que la pauses o la finalices.'}
+        </p>
       </section>
 
       {/* ── Beneficios ── */}

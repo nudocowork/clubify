@@ -44,6 +44,7 @@ export default function ActivarAlianza() {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passId, setPassId] = useState<string | null>(null);
+  const [abriendoGoogle, setAbriendoGoogle] = useState(false);
 
   useEffect(() => {
     fetch(`${API}/api/public/alianzas/${tenantSlug}/${convenioSlug}`)
@@ -114,6 +115,15 @@ export default function ActivarAlianza() {
         <p className="mt-2 text-center text-sm text-neutral-600">
           Guarda tu tarjeta en el móvil y enséñala en la caja.
         </p>
+        {/* El rescate, dicho antes de que haga falta: si cierra esta pantalla
+            no hay forma de reenviarle los botones —no se manda ningún correo—,
+            pero volver al mismo enlace con su mismo teléfono le devuelve SU
+            tarjeta, no una nueva. Sin esta línea, quien la cierre cree que la
+            perdió. */}
+        <p className="mt-3 rounded-lg bg-neutral-50 px-3 py-2 text-center text-xs text-neutral-500">
+          ¿Cierras sin guardarla? Vuelve a este mismo enlace con tu teléfono y
+          te devolvemos tu tarjeta.
+        </p>
         <div className="mt-5 grid gap-2">
           <a
             className="rounded-xl px-4 py-3 text-center text-sm font-medium text-white"
@@ -122,12 +132,36 @@ export default function ActivarAlianza() {
           >
             Añadir a Apple Wallet
           </a>
-          <a
-            className="rounded-xl border border-neutral-300 px-4 py-3 text-center text-sm font-medium"
-            href={`${API}/api/passes/${passId}/google`}
+          {/* Google Wallet NO se enlaza directo: `/passes/:id/google` devuelve
+              `{ saveUrl }` en JSON, así que un <a> normal le enseña el JSON en
+              pantalla al empleado en vez de abrir la billetera. Hay que pedirlo
+              y luego navegar, como hace el resto del producto. */}
+          <button
+            type="button"
+            className="rounded-xl border border-neutral-300 px-4 py-3 text-center text-sm font-medium disabled:opacity-60"
+            disabled={abriendoGoogle}
+            onClick={async () => {
+              setAbriendoGoogle(true);
+              try {
+                const r = await fetch(`${API}/api/passes/${passId}/google`);
+                const d = await r.json();
+                if (d?.saveUrl) window.location.href = d.saveUrl;
+                else throw new Error();
+              } catch {
+                setError(
+                  'No pudimos abrir Google Wallet. Inténtalo de nuevo en un momento.',
+                );
+                setAbriendoGoogle(false);
+              }
+            }}
           >
-            Añadir a Google Wallet
-          </a>
+            {abriendoGoogle ? 'Abriendo…' : 'Añadir a Google Wallet'}
+          </button>
+          {error && (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+              {error}
+            </p>
+          )}
         </div>
       </Marco>
     );

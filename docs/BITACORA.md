@@ -8,6 +8,54 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-02 (madrugada, 3ª vuelta) — Alianzas: lo que encontró la auditoría
+
+Tres agentes revisaron el módulo. Lo que salió, y ya está corregido:
+
+### El grave: se podía robar la tarjeta de un compañero
+
+`alianzas-publico.service.ts` resolvía la identidad **solo por teléfono**, y el
+atajo de idempotencia devolvía el `passId` **antes** de llamar a `verificar()`.
+Con el teléfono de un compañero y sin saber el código, cualquiera recibía su
+`passId` — y `GET /passes/:id/apple.pkpass` es `@Public()`, así que ese id es la
+credencial completa. Se instalaba el pase ajeno y se canjeaba con su código de
+barras.
+
+Ahora la tarjeta previa solo se devuelve si el **documento coincide**, y el
+mensaje de fallo es el mismo que el de «documento ya usado» para no convertir el
+endpoint en un oráculo de qué teléfonos tienen tarjeta.
+
+De paso: el `Customer` se creaba ANTES de verificar, así que un código
+equivocado ya dejaba datos personales escritos en el CRM de un negocio ajeno
+desde un endpoint sin sesión. Ahora se verifica primero y se escribe después.
+
+### Dos huecos que hacían el módulo decorativo
+
+1. **No había botón de canje en el escáner.** El cajero veía qué aplicar y no
+   podía registrarlo: `canjesCount` no subía nunca, los topes («1 al día») no
+   mordían jamás, el informe del aliado decía 0 usos para siempre y el candado
+   `pg_advisory_xact_lock` era código muerto. Ya está, con su anulación.
+2. **El modo LISTA era un callejón sin salida.** No existía ninguna ruta que
+   escribiera en `ConvenioListaBlanca`, así que elegir «solo quien esté en la
+   lista» hacía que a TODOS los empleados les saliera «no encontramos tu
+   documento en la lista de tu empresa» — un fallo del producto redactado como
+   culpa del usuario. Ahora se pega la lista desde el panel.
+
+### Y dos más
+
+- **«Añadir a Google Wallet» enseñaba JSON crudo**: el enlace apuntaba directo a
+  `/passes/:id/google`, que devuelve `{saveUrl}`, no un redirect.
+- **La vigencia no se podía tocar desde el panel.** El backend le dedicaba tres
+  comentarios largos y no había ni un campo: un convenio vencido solo se podía
+  finalizar (irreversible) y crear otro.
+
+### Sigue pendiente (no bloquea instalar la tarjeta)
+
+`AuthUser` no lleva `locationId`, así que el filtro por sede del convenio **nunca
+se aplica**: una alianza limitada a una sede vale en todas. No prometérselo a un
+negocio con varias sedes hasta arreglarlo. Y `canjear` toma la sede del body, no
+de la sesión.
+
 ## 2026-09-02 (madrugada) — Alianzas: entrada por el asistente y vigencia ilimitada
 
 Segunda vuelta sobre lo de abajo. **Nada de esto toca `backend/src/club/**` ni

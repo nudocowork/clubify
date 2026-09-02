@@ -20,7 +20,13 @@ import {
   ZONA_POR_DEFECTO,
   type ConvenioPeriodo,
 } from './periodos';
-import { cambiaLoQueSeVe, estaAgotado, quienApago } from './alianzas-estado';
+import {
+  cambiaLoQueSeVe,
+  estaAgotado,
+  normalizarDocumento,
+  normalizarEmail,
+  quienApago,
+} from './alianzas-estado';
 import { avisarPasesDeAlianza, avisarUnPase } from './alianzas-pase.util';
 
 /** Sin vocales ni caracteres que se confunden al dictarlo por teléfono. */
@@ -599,6 +605,107 @@ export class ConveniosService {
       );
     }
     await this.prisma.convenioCupon.delete({ where: { id: cuponId } });
+    return { ok: true };
+  }
+
+  // ──────────────────────────── Lista blanca ────────────────────────────
+
+  /**
+   * Carga la lista de quién puede activar (modo LISTA).
+   *
+   * Sin esto, elegir «solo quien esté en la lista» dejaba la alianza inservible:
+   * no había NINGUNA ruta que escribiera en `ConvenioListaBlanca`, así que todos
+   * los empleados recibían «no encontramos tu documento en la lista de tu
+   * empresa» — un fallo del producto redactado como culpa del usuario.
+   *
+   * Se AÑADE, no se reemplaza: sustituir la lista entera borraría el `usedAt`
+   * de quien ya activó y le dejaría el cupo libre a otro.
+   */
+  async cargarLista(user: AuthUser, id: string, texto: string, override?: string) {
+    const tenantId = this.tid(user, override);
+    await this.assertHabilitado(tenantId);
+    const convenio = await this.prisma.convenio.findFirst({
+      where: { id, tenantId },
+      select: { id: true },
+    });
+    if (!convenio) throw new NotFoundException('Convenio no encontrado');
+
+    // Una entrada por línea. Se acepta pegar desde Excel o desde un correo, así
+    // que también se parte por comas y puntos y coma.
+    const crudas = (texto ?? '')
+      .split(/[\n,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 5000);
+    if (crudas.length === 0) {
+      throw new BadRequestException('Pega al menos un documento o un correo.');
+    }
+
+    // Lo que lleva arroba es correo; lo demás, documento. Se normalizan igual
+    // que al activar, o no casarían nunca.
+    const filas = crudas
+      .map((s) =>
+        s.includes('@')
+          ? { email: normalizarEmail(s), documento: null }
+          : { documento: normalizarDocumento(s), email: null },
+      )
+      .filter((f) => f.documento || f.email);
+
+    const antes = await this.prisma.convenioListaBlanca.count({
+      where: { convenioId: id },
+    });
+    // `skipDuplicates` no basta —no hay índice único aquí— así que se filtra
+    // contra lo que ya está antes de insertar.
+    const existentes = await this.prisma.convenioListaBlanca.findMany({
+      where: { convenioId: id },
+      select: { documento: true, email: true },
+    });
+    const yaHay = new Set(
+      existentes.map((e) => `${e.documento ?? ''}|${e.email ?? ''}`),
+    );
+    const nuevas = filas.filter(
+      (f) => !yaHay.has(`${f.documento ?? ''}|${f.email ?? ''}`),
+    );
+    if (nuevas.length > 0) {
+      await this.prisma.convenioListaBlanca.createMany({
+        data: nuevas.map((f) => ({ convenioId: id, ...f })),
+      });
+    }
+    return {
+      agregadas: nuevas.length,
+      yaEstaban: filas.length - nuevas.length,
+      total: antes + nuevas.length,
+    };
+  }
+
+  /** Quién está en la lista y quién ya la usó. Solo para el panel del negocio. */
+  async verLista(user: AuthUser, id: string, override?: string) {
+    const tenantId = this.tid(user, override);
+    const convenio = await this.prisma.convenio.findFirst({
+      where: { id, tenantId },
+      select: { id: true },
+    });
+    if (!convenio) throw new NotFoundException('Convenio no encontrado');
+    return this.prisma.convenioListaBlanca.findMany({
+      where: { convenioId: id },
+      orderBy: [{ usedAt: 'asc' }, { createdAt: 'asc' }],
+      take: 1000,
+      select: { id: true, documento: true, email: true, usedAt: true },
+    });
+  }
+
+  /** Quita a alguien de la lista. No toca su tarjeta si ya la activó. */
+  async quitarDeLista(user: AuthUser, filaId: string, override?: string) {
+    const tenantId = this.tid(user, override);
+    await this.assertHabilitado(tenantId);
+    const fila = await this.prisma.convenioListaBlanca.findFirst({
+      where: { id: filaId, convenio: { tenantId } },
+      select: { id: true },
+    });
+    if (!fila) throw new NotFoundException('No encontrado');
+    await this.prisma.convenioListaBlanca.delete({ where: { id: filaId } });
+    // Quitar de la lista NO bloquea a quien ya activó: la lista solo se mira al
+    // activar. Para retirarle el beneficio hay que bloquear su tarjeta.
     return { ok: true };
   }
 

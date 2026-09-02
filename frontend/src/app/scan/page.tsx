@@ -89,6 +89,10 @@ export default function ScanPage() {
   const router = useRouter();
   const scannerRef = useRef<any>(null);
   const [data, setData] = useState<any>(null);
+  /** Canje de convenio recién registrado: qué aplicar y hasta cuándo se anula. */
+  const [canjeHecho, setCanjeHecho] = useState<any>(null);
+  /** Total del tiquete, solo si el cupón pide compra mínima o es un %. */
+  const [montoTiquete, setMontoTiquete] = useState('');
   const [err, setErr] = useState<string | null>(null);
   // Cuando el tope diario bloquea un sello y quien escanea es SUPER_ADMIN,
   // guardamos los argumentos del intento para poder reintentarlo forzado.
@@ -467,6 +471,10 @@ export default function ScanPage() {
   async function scanAnother() {
     setData(null);
     setErr(null);
+    // Limpiar el canje de convenio: si se quedara, el siguiente cliente vería
+    // el beneficio del anterior en pantalla.
+    setCanjeHecho(null);
+    setMontoTiquete('');
     setTimeout(() => startScanner(), 50);
   }
 
@@ -678,6 +686,56 @@ export default function ScanPage() {
         // estado no cambió y poder seguir depende solo del saldo restante.
         puedeConsumir: res.saldo > 0,
       });
+      playScanSuccess();
+    } catch (e: any) {
+      setErr(e.message);
+      playScanError();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Registra el canje de un beneficio de convenio.
+   *
+   * Sin esto el módulo entero era decorativo: el cajero veía qué aplicar pero
+   * no quedaba rastro, así que `canjesCount` no subía nunca, los topes («1 al
+   * día») no mordían jamás y el informe del aliado decía 0 usos para siempre.
+   *
+   * La autorización REAL la da el backend dentro de su candado: dos cajas
+   * pueden escanear la misma tarjeta a la vez y lo que se ve aquí nunca
+   * autoriza nada.
+   */
+  async function canjearConvenio(cuponId: string, compraMonto?: number | null) {
+    if (!data?.tarjetaId) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      const res = await api('/convenios/caja/canjear', {
+        method: 'POST',
+        body: JSON.stringify({
+          tarjetaId: data.tarjetaId,
+          cuponId,
+          compraMonto: compraMonto ?? null,
+        }),
+      });
+      setCanjeHecho(res);
+      playScanSuccess();
+    } catch (e: any) {
+      setErr(e.message);
+      playScanError();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Anula el canje recién registrado. Ventana corta, del lado del servidor. */
+  async function anularConvenio(canjeId: string) {
+    setErr(null);
+    setBusy(true);
+    try {
+      await api(`/convenios/caja/anular/${canjeId}`, { method: 'POST' });
+      setCanjeHecho(null);
       playScanSuccess();
     } catch (e: any) {
       setErr(e.message);
@@ -1340,7 +1398,9 @@ export default function ScanPage() {
         {/* ── CONVENIO: beneficios de empresa aliada. Se pinta el estado que
             calculó el backend (todos los cupones, también los agotados, con
             su motivo — esconderlos hacía creer que el escáner fallaba). ── */}
-        {data && kind === 'convenio' && (
+        {/* Con el canje ya hecho se esconde la lista: dejarla debajo invitaba a
+            pulsar «Canjear» otra vez sobre el mismo cliente. */}
+        {data && kind === 'convenio' && !canjeHecho && (
           <div className="card card-pad mt-3">
             <div className="flex items-center gap-3">
               <div
@@ -1414,6 +1474,41 @@ export default function ScanPage() {
                   {!c.disponible && c.motivo && c.motivo !== data.motivoGlobal && (
                     <div className="text-xs text-bad-ink mt-1">{c.motivo}</div>
                   )}
+
+                  {c.disponible && (
+                    <>
+                      {/* El monto solo se pide cuando de verdad hace falta: con
+                          compra mínima el backend lo exige, y con un % es lo
+                          único que permite decirle al aliado cuánto ahorró su
+                          gente. Pedirlo siempre alargaría cada cobro. */}
+                      {(c.compraMinima != null || c.tipo === 'PERCENT_OFF') && (
+                        <input
+                          className="input mt-2 text-sm"
+                          type="number"
+                          inputMode="numeric"
+                          placeholder={
+                            c.compraMinima != null
+                              ? `Total del tiquete (mínimo $${Number(c.compraMinima).toLocaleString('es-CO')})`
+                              : 'Total del tiquete (opcional)'
+                          }
+                          value={montoTiquete}
+                          onChange={(e) => setMontoTiquete(e.target.value)}
+                        />
+                      )}
+                      <button
+                        className="btn btn-primary w-full justify-center mt-2"
+                        disabled={busy}
+                        onClick={() =>
+                          canjearConvenio(
+                            c.id,
+                            montoTiquete ? Number(montoTiquete) : null,
+                          )
+                        }
+                      >
+                        {busy ? 'Registrando…' : 'Canjear'}
+                      </button>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
@@ -1424,6 +1519,41 @@ export default function ScanPage() {
             >
               📷 Escanear otro
             </button>
+          </div>
+        )}
+
+        {/* Confirmación del canje. Va aparte y en grande porque es lo que el
+            cajero mira con el cliente delante: qué aplicar, y el botón de
+            deshacer por si se equivocó de beneficio. */}
+        {data && kind === 'convenio' && canjeHecho && (
+          <div className="card card-pad mt-3 border-emerald-200 bg-emerald-50">
+            <div className="text-center">
+              <div className="text-3xl">✓</div>
+              <div className="text-lg font-bold text-emerald-900 mt-1">
+                {canjeHecho.aplicar}
+              </div>
+              <div className="text-xs text-mute mt-1">
+                Registrado para {canjeHecho.titular}
+                {canjeHecho.descuentoMonto != null
+                  ? ` · descuento $${Number(canjeHecho.descuentoMonto).toLocaleString('es-CO')}`
+                  : ''}
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button
+                className="btn flex-1 justify-center"
+                disabled={busy}
+                onClick={() => anularConvenio(canjeHecho.canjeId)}
+              >
+                Anular
+              </button>
+              <button
+                className="btn btn-primary flex-1 justify-center"
+                onClick={scanAnother}
+              >
+                📷 Escanear otro
+              </button>
+            </div>
           </div>
         )}
 

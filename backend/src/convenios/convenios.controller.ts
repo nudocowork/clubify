@@ -75,6 +75,11 @@ class BloqueoBody {
   @IsBoolean() bloquear!: boolean;
 }
 
+class ListaBody {
+  /** Documentos o correos, uno por línea (o separados por comas). */
+  @IsString() @MaxLength(200_000) texto!: string;
+}
+
 class CanjeBody {
   @IsString() tarjetaId!: string;
   @IsString() cuponId!: string;
@@ -161,6 +166,36 @@ export class ConveniosController {
     @Query('tenantId') tenantId?: string,
   ) {
     return this.svc.borrarCupon(user, cuponId, tenantId);
+  }
+
+  // ─────────────────────── Lista de quién puede activar ───────────────────────
+
+  @Get(':id/lista')
+  verLista(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.verLista(user, id, tenantId);
+  }
+
+  @Post(':id/lista')
+  cargarLista(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: ListaBody,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.cargarLista(user, id, body.texto, tenantId);
+  }
+
+  @Delete('lista/:filaId')
+  quitarDeLista(
+    @CurrentUser() user: AuthUser,
+    @Param('filaId') filaId: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.quitarDeLista(user, filaId, tenantId);
   }
 
   // ───────────────────────────── Enlaces ─────────────────────────────

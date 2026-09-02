@@ -53,6 +53,10 @@ describe('los tres modos de verificación', () => {
     // alguien que no pertenece a la empresa sería una tarjeta regalada.
     expect(db.tabla('convenioTarjeta')).toHaveLength(0);
     expect(db.tabla('pass')).toHaveLength(0);
+    // Ni rastro en el CRM del negocio: crear el cliente antes de verificar
+    // escribía datos personales en la ficha de un negocio ajeno desde un
+    // endpoint sin sesión, con solo mandar el formulario con el código malo.
+    expect(db.tabla('customer')).toHaveLength(0);
   });
 
   it('CODIGO acepta el correcto ignorando mayúsculas y espacios', async () => {
@@ -162,9 +166,11 @@ describe('los tres modos de verificación', () => {
   });
 
   it('si la emisión falla, el cupo de la lista NO se gasta', async () => {
-    // La marca de `usedAt` va DENTRO de la transacción a propósito: si se
-    // marcara fuera y la tarjeta no llegara a crearse, esa persona se quedaría
-    // sin cupo y sin tarjeta — lo peor de los dos mundos.
+    // La marca de `usedAt` va DENTRO de la transacción y DESPUÉS de crear la
+    // tarjeta. Este test es el guardián de ese orden: si alguien marcara la
+    // lista antes de emitir —o fuera de la transacción—, una emisión que
+    // fracasa dejaría a esa persona sin cupo y sin tarjeta, lo peor de los dos
+    // mundos, y sin forma de volver a entrar.
     const { svc, db } = montar({ verificacion: 'LISTA' });
     db.sembrar('convenioListaBlanca', {
       convenioId: 'convenio-confe',
@@ -233,6 +239,31 @@ describe('idempotencia — volver al enlace no vuelve a preguntar', () => {
 
     expect(segunda.passId).toBe(primera.passId);
     expect(db.tabla('customer')).toHaveLength(1);
+  });
+
+  it('el teléfono solo NO basta: con otro documento no se entrega la tarjeta ajena', async () => {
+    // El atajo de idempotencia va delante de la verificación a propósito, y por
+    // eso tiene que pedir el MISMO documento: si no, cualquiera que supiera el
+    // teléfono de un compañero recibiría su `passId` sin código y sin estar en
+    // la lista — y el `.pkpass` se descarga con solo ese id.
+    const { svc, db } = montar({ verificacion: 'CODIGO', codigo: 'CONFE2026' });
+    const suya = await svc.activar(
+      'cafe-luna',
+      'confenalco',
+      formulario({ documento: '10203045', codigo: 'CONFE2026' }),
+    );
+
+    await expect(
+      svc.activar(
+        'cafe-luna',
+        'confenalco',
+        // Mismo teléfono, documento inventado y sin código.
+        formulario({ documento: '99999999', codigo: null }),
+      ),
+    ).rejects.toThrow(/Los datos no coinciden/);
+
+    expect(db.tabla('convenioTarjeta')).toHaveLength(1);
+    expect(db.tabla('convenioTarjeta')[0].passId).toBe(suya.passId);
   });
 
   it('una tarjeta BLOQUEADA no se reactiva volviendo al enlace', async () => {
