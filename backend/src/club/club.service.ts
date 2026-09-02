@@ -241,7 +241,18 @@ export class ClubService {
     // baja: el índice único impide crear otra, así que un cancelado no podía
     // volver a entrar nunca. Si vuelve, se reactiva con el cupo que le toque
     // por el día de hoy.
-    if (existente && existente.status !== 'CANCELADA') return existente;
+    if (existente && existente.status !== 'CANCELADA') {
+      // Misma forma que el alta nueva, siempre. Devolver aquí la fila pelada
+      // y allá una con `saldo` obligaba a quien llama a distinguir dos casos
+      // que para él son el mismo: «este cliente ya está dentro, con esto».
+      const suPase = existente.passId
+        ? await this.prisma.pass.findUnique({
+            where: { id: existente.passId },
+            select: { stampsCount: true },
+          })
+        : null;
+      return { ...existente, saldo: suPase?.stampsCount ?? 0 };
+    }
 
     const ahora = new Date();
     const cupo = cupoDeAlta(diaDelMes(ahora), plan.beneficiosPorMes, plan.tramos);
@@ -488,6 +499,20 @@ export class ClubService {
         );
       }
 
+      // Segunda comprobación del estado, ya con el cupo descontado y dentro de
+      // la transacción: si la membresía se pausó entre el reclamo de arriba y
+      // esto, lanzar aquí deshace el descuento entero. Barato, y cierra la
+      // única rendija que quedaba.
+      const sigueViva = await tx.clubMembresia.findUnique({
+        where: { id: membresiaId },
+        select: { status: true },
+      });
+      if (sigueViva?.status !== 'ACTIVA') {
+        throw new ConflictException(
+          'La membresía dejó de estar activa mientras se cobraba.',
+        );
+      }
+
       const tras = await tx.pass.findUniqueOrThrow({
         where: { id: passId },
         select: { stampsCount: true },
@@ -615,19 +640,35 @@ export class ClubService {
       if (!tocaReiniciar(m, periodo)) continue;
       // Condicionado al período viejo: si otra pasada del cron ya la reinició,
       // esta no cuenta y no vuelve a asignar.
-      const r = await this.prisma.clubMembresia.updateMany({
-        where: { id: m.id, periodo: m.periodo },
-        data: { cupoDelPeriodo: m.plan.beneficiosPorMes, periodo },
-      });
-      if (r.count === 0) continue;
+      // Las dos escrituras van en UNA transacción: sueltas, entre marcar el
+      // período nuevo y reponer el pase cabe un consumo del cliente, y el
+      // reinicio se lo comería. Y `updateMany` en vez de `update` porque si la
+      // membresía apunta a un pase que ya no existe, `update` lanza y se lleva
+      // por delante el reinicio del MES ENTERO para todos los demás.
+      const hecho = await this.prisma.$transaction(async (tx) => {
+        const r = await tx.clubMembresia.updateMany({
+          where: { id: m.id, periodo: m.periodo },
+          data: { cupoDelPeriodo: m.plan.beneficiosPorMes, periodo },
+        });
+        if (r.count === 0) return false;
 
-      await this.prisma.pass.update({
-        where: { id: m.passId! },
-        data: {
-          stampsCount: m.plan.beneficiosPorMes,
-          lastActivityAt: new Date(),
-        },
+        const puesto = await tx.pass.updateMany({
+          where: { id: m.passId! },
+          data: {
+            stampsCount: m.plan.beneficiosPorMes,
+            lastActivityAt: new Date(),
+          },
+        });
+        if (puesto.count === 0) {
+          this.logger.warn(
+            `Club: membresía ${m.id} apunta a un pase inexistente (${m.passId}) — se salta.`,
+          );
+          return false;
+        }
+        return true;
       });
+      if (!hecho) continue;
+
       this.empujarPase(m.passId!, 'club.reinicio');
       reiniciadas += 1;
     }

@@ -6,12 +6,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { PrismaService } from '../common/prisma/prisma.service';
+import type { WalletService } from '../wallet/wallet.service';
+import type { QueueService } from '../jobs/queue.service';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { ClubService } from './club.service';
 import { cupoDeAlta, errorDeTramos, type TramoAlta } from './club-periodo';
 import {
   bdVacia,
   crearPrismaFalso,
+  crearBilletera,
   type BaseDeDatos,
   type Ganchos,
 } from './club-prisma-falso';
@@ -56,7 +59,12 @@ function montar() {
   );
   const falso = crearPrismaFalso(bd);
   ganchos = falso.ganchos;
-  svc = new ClubService(falso.prisma as unknown as PrismaService);
+  const billetera = crearBilletera();
+  svc = new ClubService(
+    falso.prisma as unknown as PrismaService,
+    billetera.wallet as unknown as WalletService,
+    billetera.jobs as unknown as QueueService,
+  );
 }
 
 /** Un plan ya guardado, saltándose el servicio, con los tramos que se pidan. */
@@ -87,7 +95,9 @@ beforeEach(() => {
   enFecha('2026-09-05T17:00:00Z'); // 5 de septiembre, mediodía en Bogotá
   montar();
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('cuánto recibe quien se da de alta a mitad de mes', () => {
   const TRAMOS: TramoAlta[] = [
@@ -129,10 +139,11 @@ describe('cuánto recibe quien se da de alta a mitad de mes', () => {
     const m = await svc.darDeAlta(DUENO, 'p1', 'cli1');
     expect(m).toMatchObject({ saldo: 0, cupoDelPeriodo: 0 });
 
-    // El pase se le asigna cuando lo instala en la billetera; se simula aquí
-    // para poder mirar lo que vería el cajero al escanearlo.
-    bd.membresias[0].passId = 'pass-nuevo';
-    const vista = await svc.resolverParaCaja(DUENO, 'pass-nuevo');
+    // El alta ya le crea el pase con el cupo dentro (antes no lo creaba nadie
+    // y había que simularlo aquí). Se usa el suyo, que es el que mira el
+    // reinicio del mes siguiente.
+    const suPase = bd.membresias[0].passId!;
+    const vista = await svc.resolverParaCaja(DUENO, suPase);
     expect(vista.puedeConsumir).toBe(false);
     expect(vista.saldo).toBe(0);
     await expect(svc.consumir(DUENO, m.id, 1)).rejects.toThrow(
@@ -141,7 +152,7 @@ describe('cuánto recibe quien se da de alta a mitad de mes', () => {
 
     enFecha('2026-10-02T17:00:00Z');
     await svc.reiniciarCupos();
-    expect(bd.membresias[0].saldo).toBe(10);
+    expect(bd.pases.find((x) => x.id === suPase)!.stampsCount).toBe(10);
   });
 
   it('sin tramos configurados todo el mundo recibe el cupo entero', async () => {
@@ -227,7 +238,7 @@ describe('editar los tramos con gente ya dentro', () => {
     await svc.actualizarPlan(DUENO, 'p1', {
       tramos: [{ desdeDia: 1, hastaDia: 15, beneficios: 2 }],
     });
-    expect(bd.membresias[0].saldo).toBe(10); // intacto
+    expect(bd.pases[0].stampsCount).toBe(10); // intacto
 
     // Pero el siguiente que entre hoy ya recibe lo nuevo.
     const otro = await svc.darDeAlta(DUENO, 'p1', 'cli2');
@@ -286,7 +297,7 @@ describe('dar de alta a un cliente', () => {
     const b = await svc.darDeAlta(DUENO, 'p1', 'cli1');
     expect(b.id).toBe(a.id);
     expect(bd.membresias).toHaveLength(1);
-    expect(bd.membresias[0].saldo).toBe(10); // no 20
+    expect(bd.pases[0].stampsCount).toBe(10); // no 20
   });
 
   it('dos altas simultáneas: la que pierde el índice único devuelve la otra', async () => {
@@ -306,7 +317,7 @@ describe('dar de alta a un cliente', () => {
     const [a, b] = await Promise.all([uno, dos]);
     expect(a.id).toBe(b.id);
     expect(bd.membresias).toHaveLength(1);
-    expect(bd.membresias[0].saldo).toBe(10);
+    expect(bd.pases[0].stampsCount).toBe(10);
   });
 
   it('el saldo del alta ya descuenta lo consumido si vuelve a pulsar', async () => {
@@ -364,8 +375,14 @@ describe('crear planes', () => {
   });
 
   it('un nombre que no deja letras no se queda sin slug', async () => {
+    // Antes se usaba `plan-${Date.now()}`. Se cambió a un slug estable con
+    // sufijo sólo si choca: un timestamp hace que dos entornos con los mismos
+    // datos den URLs distintas, y la del negocio cambiaba según la hora del
+    // alta. El primero se lleva «plan» a secas.
     const p = await svc.crearPlan(DUENO, { name: '☕☕☕', beneficiosPorMes: 3 });
-    expect(p.slug).toMatch(/^plan-\d+$/);
+    expect(p.slug).toBe('plan');
+    const q = await svc.crearPlan(DUENO, { name: '🍰🍰', beneficiosPorMes: 3 });
+    expect(q.slug).toBe('plan-2');
   });
 
   it('el slug no pasa de 40 caracteres', async () => {
@@ -464,14 +481,20 @@ describe('FALLO — un cliente cancelado no puede volver nunca al club', () => {
   });
 });
 
-describe('FALLO — dos planes con el mismo nombre revientan con un 500', () => {
-  it('el segundo debería dar un error entendible, no el P2002 de Prisma', async () => {
-    // El slug sale del nombre y `[tenantId, slug]` es único. Un doble clic en
-    // «Crear plan» —o dos planes llamados igual— sube el P2002 crudo hasta el
-    // filtro de Nest: 500 y a Sentry. Nada le dice al negocio qué hacer.
-    await svc.crearPlan(DUENO, { name: 'Café', beneficiosPorMes: 10 });
-    await expect(
-      svc.crearPlan(DUENO, { name: 'Café', beneficiosPorMes: 10 }),
-    ).rejects.toThrow(BadRequestException);
+describe('dos planes con el mismo nombre no revientan', () => {
+  it('el segundo entra con sufijo, no con un 500', async () => {
+    // El slug sale del nombre y `[tenantId, slug]` es único, así que un doble
+    // clic en «Crear plan» subía el P2002 crudo hasta el filtro de Nest: 500 y
+    // a Sentry, sin decirle al negocio qué hacer.
+    //
+    // Se resolvió con sufijo en vez de con un error. Un negocio puede querer
+    // dos planes «Café» de verdad (uno de 10 y otro de 30), y hacerle inventar
+    // un nombre distinto sólo para que la URL no choque es pedirle que cargue
+    // con un detalle nuestro.
+    const a = await svc.crearPlan(DUENO, { name: 'Café', beneficiosPorMes: 10 });
+    const b = await svc.crearPlan(DUENO, { name: 'Café', beneficiosPorMes: 30 });
+    expect(a.slug).toBe('cafe');
+    expect(b.slug).toBe('cafe-2');
+    expect(b.name).toBe('Café');
   });
 });

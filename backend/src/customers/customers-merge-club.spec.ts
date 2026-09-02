@@ -72,14 +72,24 @@ function cliente(id: string, fullName: string): Cliente {
 function crearPrismaFalso() {
   const nada = async () => ({ count: 0 });
 
+  // El saldo vivo no está en la membresía: vive en `Pass.stampsCount`. En este
+  // doble, el campo `saldo` de la fila ES ese contador, así que se proyecta
+  // como el `include: { pass: ... }` que pide la fusión para decidir cuál
+  // sobrevive. Sin esto, ambas membresías parecían tener saldo 0 y ganaba
+  // siempre la más antigua.
+  const conPase = (m: any) =>
+    m && { ...m, pass: { stampsCount: m.saldo } };
+
   const clubMembresia = {
     findMany: async ({ where }: any) =>
-      membresias.filter((m) => m.customerId === where.customerId),
+      membresias.filter((m) => m.customerId === where.customerId).map(conPase),
     findUnique: async ({ where }: any) => {
       const k = where.planId_customerId;
       return (
-        membresias.find(
-          (m) => m.planId === k.planId && m.customerId === k.customerId,
+        conPase(
+          membresias.find(
+            (m) => m.planId === k.planId && m.customerId === k.customerId,
+          ),
         ) ?? null
       );
     },
@@ -168,6 +178,16 @@ function crearPrismaFalso() {
     eventAttendee: { updateMany: nada },
     notification: { updateMany: nada },
     clubMembresia,
+    // Estas pruebas van de membresías de club, no de tarjetas de alianza. El
+    // doble devuelve vacío para que el bloque de alianzas del merge —añadido
+    // después de escribir este fichero— no reviente al no encontrar el modelo.
+    convenioTarjeta: {
+      findMany: async () => [],
+      findUnique: async () => null,
+      update: nada,
+      delete: nada,
+    },
+    convenioCanje: { updateMany: nada },
     clubConsumo: {
       updateMany: async ({ where, data }: any) => {
         let count = 0;

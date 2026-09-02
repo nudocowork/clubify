@@ -546,12 +546,19 @@ export class CustomersService {
         // pases ya resolvió qué pase de billetera sobrevive.
         const srcMembresias = await tx.clubMembresia.findMany({
           where: { customerId: src.id },
+          // El saldo vivo NO está en la membresía: vive en `Pass.stampsCount`,
+          // el mismo contador que usan todas las tarjetas. Hay que traerlo
+          // para poder decidir cuál sobrevive.
+          include: { pass: { select: { stampsCount: true } } },
         });
+        const saldoDe = (x: { pass?: { stampsCount: number } | null }) =>
+          x.pass?.stampsCount ?? 0;
         for (const sm of srcMembresias) {
           const dupM = await tx.clubMembresia.findUnique({
             where: {
               planId_customerId: { planId: sm.planId, customerId: keepId },
             },
+            include: { pass: { select: { stampsCount: true } } },
           });
           if (!dupM) {
             await tx.clubMembresia.update({
@@ -573,8 +580,8 @@ export class CustomersService {
           // borrarla. El empate lo gana la más antigua porque su createdAt es
           // el alta real del socio (manda en el prorrateo del primer período).
           const srcGana =
-            sm.saldo > dupM.saldo ||
-            (sm.saldo === dupM.saldo && sm.createdAt < dupM.createdAt);
+            saldoDe(sm) > saldoDe(dupM) ||
+            (saldoDe(sm) === saldoDe(dupM) && sm.createdAt < dupM.createdAt);
           const ganadora = srcGana ? sm : dupM;
           const perdedora = srcGana ? dupM : sm;
           await tx.clubConsumo.updateMany({

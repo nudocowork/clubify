@@ -1,10 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { PrismaService } from '../common/prisma/prisma.service';
+import type { WalletService } from '../wallet/wallet.service';
+import type { QueueService } from '../jobs/queue.service';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { ClubService } from './club.service';
 import {
   bdVacia,
   crearPrismaFalso,
+  type FilaMembresia,
+  crearBilletera,
   type BaseDeDatos,
   type EstadoMembresia,
   type Ganchos,
@@ -48,7 +52,12 @@ function montar(beneficiosPorMes = 10) {
   bd.clientes.push({ id: 'cli1', tenantId: 't1', fullName: 'Ana Ruiz' });
   const falso = crearPrismaFalso(bd);
   ganchos = falso.ganchos;
-  svc = new ClubService(falso.prisma as unknown as PrismaService);
+  const billetera = crearBilletera();
+  svc = new ClubService(
+    falso.prisma as unknown as PrismaService,
+    billetera.wallet as unknown as WalletService,
+    billetera.jobs as unknown as QueueService,
+  );
 }
 
 function conMembresia(
@@ -58,20 +67,53 @@ function conMembresia(
   status: EstadoMembresia = 'ACTIVA',
   planId = 'p1',
 ) {
+  // El saldo vivo NO está en la membresía: vive en `Pass.stampsCount`, el mismo
+  // contador que usan todas las tarjetas. Por eso el helper crea las DOS filas.
+  bd.pases.push({
+    id: `pass-${id}`,
+    tenantId: 't1',
+    cardId: 'card1',
+    customerId: `cli-${id}`,
+    serialNumber: `CLB-${id.toUpperCase()}`,
+    qrToken: `qr-${id}`,
+    authToken: `auth-${id}`,
+    stampsCount: saldo,
+    status: 'ACTIVE',
+    lastActivityAt: null,
+    createdAt: new Date('2026-01-05'),
+    updatedAt: new Date('2026-01-05'),
+  });
   bd.membresias.push({
     id,
     planId,
     customerId: `cli-${id}`,
     passId: `pass-${id}`,
     status,
-    saldo,
     periodo,
     cupoDelPeriodo: 10,
     createdAt: new Date('2026-01-05'),
     pausedAt: status === 'PAUSADA' ? new Date('2026-06-10') : null,
     updatedAt: new Date('2026-01-05'),
   });
-  return bd.membresias[bd.membresias.length - 1];
+  // Se devuelve la fila VIVA, no una copia: las pruebas comprueban que el
+  // servicio le cambió el período y el cupo, y sobre una copia esos cambios
+  // no se verían nunca.
+  const fila = bd.membresias[bd.membresias.length - 1];
+  // `saldo` derivado, para que las pruebas se lean igual que antes: siempre
+  // devuelve lo que hay AHORA en el pase.
+  Object.defineProperty(fila, 'saldo', {
+    get: () => bd.pases.find((x) => x.id === `pass-${id}`)?.stampsCount ?? 0,
+    // Con setter: sin él, cualquier escritura sobre la fila que mencione
+    // `saldo` revienta con «only a getter» y el fallo no dice nada útil.
+    // Escribirlo va al pase, que es donde vive de verdad.
+    set: (v: number) => {
+      const pase = bd.pases.find((x) => x.id === `pass-${id}`);
+      if (pase) pase.stampsCount = v;
+    },
+    enumerable: false,
+    configurable: true,
+  });
+  return fila as FilaMembresia & { saldo: number };
 }
 
 /** Congela el reloj en un instante de Bogotá dado en UTC. */
@@ -84,7 +126,9 @@ beforeEach(() => {
   enFecha('2026-09-15T17:00:00Z'); // 15 de septiembre, mediodía en Bogotá
   montar();
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('el cupo se asigna cada mes, nunca se suma', () => {
   it('quien gastó 3 de 10 empieza el mes nuevo con 10, no con 17', async () => {
@@ -218,7 +262,10 @@ describe('el cron corriendo dos veces a la vez', () => {
     // El `updateMany` va condicionado al período VIEJO. Sin esa condición, la
     // pasada lenta pisaría lo que el cliente ya gastó del mes nuevo.
     const m = conMembresia('m1', 0, '2026-08');
-    ganchos.antesDeDescontar = () => {
+    // `antesDeAvanzarPeriodo` y no `antesDeDescontar`: la carrera de verdad
+    // ocurre ANTES de marcar el período nuevo. Enganchada después, la otra
+    // pasada ya no puede colarse — las dos escrituras van en una transacción.
+    ganchos.antesDeAvanzarPeriodo = () => {
       // La otra pasada reinició a 10 y el cliente ya se tomó dos cafés.
       m.periodo = '2026-09';
       m.saldo = 8;

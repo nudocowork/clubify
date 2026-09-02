@@ -508,18 +508,25 @@ describe('FALLO — el cambio de mes deja una ventana de hasta una hora', () => 
     // que todavía no ha reiniciado nada.
     vi.setSystemTime(new Date('2026-10-01T05:30:00Z'));
   });
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+  vi.useRealTimers();
+});
 
   it('el sobrante de septiembre no se puede gastar el 1 de octubre', async () => {
-    // La membresía sigue marcada en '2026-09' con 7 cafés sin gastar. Cuando
-    // el cron pase le pondrá 10. Si mientras tanto se puede gastar el sobrante,
-    // el cliente se lleva 17 en un mes con un plan de 10 — que es exactamente
-    // lo que el producto dice que NO pasa.
+    // La membresía sigue marcada en '2026-09' con 7 cafés sin gastar porque el
+    // cron es horario y aún no ha pasado. Si se pudiera gastar ese sobrante, el
+    // cliente se llevaría 17 en un mes con un plan de 10 — justo lo que el
+    // producto dice que NO pasa.
+    //
+    // Se resolvió reiniciando AHÍ MISMO en vez de rechazando el consumo:
+    // decirle «no» a alguien que pagó, por un cron que aún no ha corrido, es un
+    // problema nuestro cobrado al cliente. El sobrante se pierde igual —que es
+    // la regla— pero el café sale del cupo de octubre.
     montar(7, '2026-09');
-    await expect(svc.consumir(CAJERO, 'm1', 1)).rejects.toThrow(
-      ConflictException,
-    );
-    expect(saldo()).toBe(7);
+    const r = await svc.consumir(CAJERO, 'm1', 1);
+    expect(r.cupoDelPeriodo).toBe(10); // ya es el cupo de octubre
+    expect(saldo()).toBe(9); // 10 de octubre menos este, no 6 de septiembre
+    expect(membresia().periodo).toBe('2026-10');
   });
 
   it('un consumo del 1 de octubre se apunta a octubre, no a septiembre', async () => {

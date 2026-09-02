@@ -256,7 +256,12 @@ export class CutoffService {
         where: {
           ...ATTACHABLE_BASE,
           payoutBatchId: null,
-          ...this.dayWindowWhere(bogotaYmd(b.cutoffDate)),
+          // Un corte cuya fecha YA PASÓ no acumula: está esperando que lo
+          // cierren. Solo el vigente absorbe lo adelantado.
+          ...this.dayWindowWhere(
+            bogotaYmd(b.cutoffDate),
+            bogotaYmd(b.cutoffDate) >= bogotaYmd(new Date()),
+          ),
         },
         data: { payoutBatchId: b.id },
       });
@@ -355,7 +360,9 @@ export class CutoffService {
       where: {
         ...ATTACHABLE_BASE,
         payoutBatchId: null,
-        ...this.dayWindowWhere(ymd),
+        // Generación explícita de ESTE corte: se lleva también lo habilitado
+        // a mano, que es justo para lo que se habilitó.
+        ...this.dayWindowWhere(ymd, true),
       },
       data: { payoutBatchId: batch.id },
     });
@@ -1400,9 +1407,21 @@ export class CutoffService {
    * Un corte cuya fecha YA PASÓ no acumula: está esperando que lo cierren.
    * Solo el vigente —fecha de hoy o posterior— absorbe lo adelantado.
    */
-  private dayWindowWhere(ymd: string): Prisma.CommissionWhereInput {
+  private dayWindowWhere(
+    ymd: string,
+    /**
+     * Si este corte absorbe lo HABILITADO A MANO con fecha futura.
+     *
+     * `topUpOpenBatches` pasa `false` cuando la fecha del corte ya pasó — ese
+     * es el bug de Hydor, Quipao y Monet. Pero al GENERAR un corte concreto se
+     * pasa `true` siempre: quien lo llama está liquidando ese corte a
+     * propósito, y lo adelantado le pertenece. Gatearlo también ahí dejaba
+     * fuera comisiones que el admin había habilitado justo para ese pago.
+     */
+    absorbeAdelantadas: boolean,
+  ): Prisma.CommissionWhereInput {
     const dayEnd = bogotaDayEndUtc(ymd);
-    const esCorteVigente = ymd >= bogotaYmd(new Date());
+    const esCorteVigente = absorbeAdelantadas;
     return {
       OR: [
         { availableAt: { lt: dayEnd } },
