@@ -8,10 +8,11 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { QueueService } from '../jobs/queue.service';
 import {
   cambiaLoQueSeVe,
-  describirBeneficio,
+  describirBeneficioCorto,
   estaAgotado,
   motivoDelConvenio,
   normalizarDocumento,
+  normalizarEmail,
   quienApago,
 } from './alianzas-estado';
 import { avisarPasesDeAlianza, avisarUnPase } from './alianzas-pase.util';
@@ -114,7 +115,9 @@ export class AlianzasPortalService {
         return {
           id: c.id,
           nombre: c.name,
-          resumen: describirBeneficio(c.tipo, c.valor, c.name),
+          // En corto: el aliado no es el cajero. «Entregar gratis: Bebida» es
+          // una instrucción de caja, no lo que él le da a su gente.
+          resumen: describirBeneficioCorto(c.tipo, c.valor, c.name),
           descripcion: c.description,
           /** SU interruptor. El de la otra parte solo se informa. */
           miInterruptor: c.activoAliado,
@@ -210,7 +213,14 @@ export class AlianzasPortalService {
 
     const tarjeta = await this.prisma.convenioTarjeta.findFirst({
       where: { convenioId: convenio.id, documento },
-      select: { id: true, passId: true, status: true },
+      // El correo del cliente hace falta para poder limpiar también su fila de
+      // la lista blanca cargada por correo — ver abajo.
+      select: {
+        id: true,
+        passId: true,
+        status: true,
+        customer: { select: { email: true } },
+      },
     });
     if (tarjeta && tarjeta.status !== 'BLOCKED') {
       await this.prisma.convenioTarjeta.update({
@@ -230,8 +240,18 @@ export class AlianzasPortalService {
 
     // Quitarlo también de la lista blanca, si estaba: si no, en modo LISTA
     // podría volver a activar mañana y el bloqueo no habría servido de nada.
+    //
+    // Por documento Y por correo. La lista admite las dos formas —quien la
+    // carga pega lo que le dio RRHH—, así que borrar solo por documento dejaba
+    // viva la fila de correo de esa misma persona: bastaba con volver a entrar
+    // dando ese correo, y la baja no habría servido de nada. Es justo lo que
+    // esta función promete evitar.
+    const correo = normalizarEmail(tarjeta?.customer?.email);
     await this.prisma.convenioListaBlanca.deleteMany({
-      where: { convenioId: convenio.id, documento },
+      where: {
+        convenioId: convenio.id,
+        OR: [{ documento }, ...(correo ? [{ email: correo }] : [])],
+      },
     });
 
     this.logger.log(

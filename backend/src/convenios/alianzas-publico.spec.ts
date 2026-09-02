@@ -146,6 +146,54 @@ describe('los tres modos de verificación', () => {
     expect(db.tabla('convenioListaBlanca')[0].usedAt).toBeInstanceOf(Date);
   });
 
+  it('dos filas de la misma persona son UN cupo, no dos', async () => {
+    // RRHH pegó la cédula y el correo de Ana por separado: dos filas para una
+    // sola persona. Si al activar solo se quemara la que casó, la otra quedaría
+    // como un cupo suelto y un tercero entraría con un documento inventado.
+    const { svc, db } = montar({ verificacion: 'LISTA' });
+    db.sembrar('convenioListaBlanca', {
+      convenioId: 'convenio-confe',
+      documento: '1020304',
+    });
+    db.sembrar('convenioListaBlanca', {
+      convenioId: 'convenio-confe',
+      email: 'ana@confenalco.co',
+    });
+
+    await svc.activar(
+      'cafe-luna',
+      'confenalco',
+      formulario({ email: 'ana@confenalco.co' }),
+    );
+
+    const filas = db.tabla('convenioListaBlanca');
+    expect(filas).toHaveLength(2);
+    expect(filas.every((f: any) => f.usedAt instanceof Date)).toBe(true);
+  });
+
+  it('con una fila gastada y otra libre, entra por la libre', async () => {
+    // Sin preferir la fila SIN USAR, quien tuviera dos filas podía toparse con
+    // la ya gastada y recibir «ese cupo ya fue utilizado» teniendo cupo.
+    const { svc, db } = montar({ verificacion: 'LISTA' });
+    db.sembrar('convenioListaBlanca', {
+      convenioId: 'convenio-confe',
+      email: 'ana@confenalco.co',
+      usedAt: new Date('2026-01-01'),
+    });
+    db.sembrar('convenioListaBlanca', {
+      convenioId: 'convenio-confe',
+      documento: '1020304',
+    });
+
+    const r = await svc.activar(
+      'cafe-luna',
+      'confenalco',
+      formulario({ email: 'ana@confenalco.co' }),
+    );
+
+    expect(r.isNew).toBe(true);
+  });
+
   it('en LISTA, el cupo usado no sirve dos veces', async () => {
     const { svc, db } = montar({ verificacion: 'LISTA' });
     db.sembrar('convenioListaBlanca', {
@@ -260,10 +308,38 @@ describe('idempotencia — volver al enlace no vuelve a preguntar', () => {
         // Mismo teléfono, documento inventado y sin código.
         formulario({ documento: '99999999', codigo: null }),
       ),
-    ).rejects.toThrow(/Los datos no coinciden/);
+    ).rejects.toThrow(/Ya hay una tarjeta activada con esos datos/);
 
     expect(db.tabla('convenioTarjeta')).toHaveLength(1);
     expect(db.tabla('convenioTarjeta')[0].passId).toBe(suya.passId);
+  });
+
+  it('un teléfono CON tarjeta y un documento YA USADO responden IGUAL', async () => {
+    // La propiedad de verdad, no el texto: si las dos respuestas se pudieran
+    // distinguir, probar teléfonos contra el enlace público diría cuáles tienen
+    // tarjeta, y eso es la plantilla de la empresa aliada.
+    const { svc } = montar({ verificacion: 'CODIGO', codigo: 'CONFE2026' });
+    await svc.activar(
+      'cafe-luna',
+      'confenalco',
+      formulario({ documento: '10203045', codigo: 'CONFE2026' }),
+    );
+
+    // (a) teléfono conocido, documento distinto.
+    const porTelefono = await svc
+      .activar('cafe-luna', 'confenalco', formulario({ documento: '99999999', codigo: 'CONFE2026' }))
+      .catch((e) => e);
+    // (b) teléfono nuevo, documento ya usado.
+    const porDocumento = await svc
+      .activar(
+        'cafe-luna',
+        'confenalco',
+        formulario({ phone: '+573009998877', documento: '10203045', codigo: 'CONFE2026' }),
+      )
+      .catch((e) => e);
+
+    expect(porTelefono.message).toBe(porDocumento.message);
+    expect(porTelefono.getStatus()).toBe(porDocumento.getStatus());
   });
 
   it('una tarjeta BLOQUEADA no se reactiva volviendo al enlace', async () => {
@@ -324,7 +400,7 @@ describe('el documento manda: uno por convenio', () => {
         'confenalco',
         formulario({ phone: '+573009998877', fullName: 'Luis Gómez' }),
       ),
-    ).rejects.toThrow(/Ya existe una tarjeta de este convenio con ese documento/);
+    ).rejects.toThrow(/Ya hay una tarjeta activada con esos datos/);
     expect(db.tabla('convenioTarjeta')).toHaveLength(1);
   });
 
@@ -599,7 +675,10 @@ describe('la página del enlace (info)', () => {
 
     expect(info.cerrado).toBeNull();
     expect(info.beneficios).toHaveLength(1);
-    expect(info.beneficios[0].resumen).toBe('Aplicar 10% de descuento');
+    // En corto, no en imperativo: esto lo lee el EMPLEADO en su móvil, no el
+    // cajero. «Aplicar 10% de descuento» le suena a instrucción ajena.
+    expect(info.beneficios[0].resumen).toBe('10% de descuento');
+    expect(info.beneficios[0].resumen).not.toMatch(/^Aplicar|^Entregar/);
   });
 
   it('un convenio en pausa se dice en castellano y sin culpar a nadie', async () => {

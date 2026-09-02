@@ -12,7 +12,7 @@ import {
   admiteActivaciones,
   motivoDelConvenio,
   motivoDelCupon,
-  describirBeneficio,
+  describirBeneficioCorto,
   normalizarCodigo,
   normalizarDocumento,
   normalizarEmail,
@@ -32,6 +32,19 @@ export type ActivacionDto = {
 /** Intentos fallidos de código antes de cerrar la puerta un rato. */
 const MAX_INTENTOS = 5;
 const VENTANA_INTENTOS_MS = 15 * 60_000;
+
+/**
+ * Un solo mensaje para los dos choques de identidad: «este teléfono ya tiene
+ * tarjeta con otro documento» y «este documento ya tiene tarjeta».
+ *
+ * Compartir el texto Y el tipo de excepción es el punto: si respondieran
+ * distinto, probar teléfonos ajenos contra el enlace público diría cuáles
+ * tienen tarjeta, y eso es la plantilla de la empresa aliada. También hace de
+ * red para el caso feo de que alguien active con el teléfono de un compañero
+ * antes que él: al compañero le sale esto, y sabe a quién acudir.
+ */
+const MISMOS_DATOS =
+  'Ya hay una tarjeta activada con esos datos. Si es tuya, escribe el mismo documento con el que la activaste; si no, pídele ayuda al negocio.';
 
 /**
  * La puerta de entrada del empleado: el enlace único que la empresa aliada
@@ -120,12 +133,15 @@ export class AlianzasPublicoService {
       politicaDatosUrl: tenant.dataPolicyUrl || '/legal/tratamiento-datos',
       cerrado,
       /** Los beneficios, para que la persona sepa qué gana antes de dar sus datos. */
+      // `describirBeneficioCorto`, no `describirBeneficio`: el segundo habla en
+      // imperativo AL CAJERO («Entregar gratis: Bebida»), y un empleado leyendo
+      // eso en su móvil no sabe si es él quien tiene que entregar algo.
       beneficios: convenio.cupones
         .filter((c) => motivoDelCupon(c, ahora, motivoGlobal) === null)
         .map((c) => ({
           nombre: c.name,
           descripcion: c.description,
-          resumen: describirBeneficio(c.tipo, c.valor, c.name),
+          resumen: describirBeneficioCorto(c.tipo, c.valor, c.name),
         })),
     };
   }
@@ -227,12 +243,12 @@ export class AlianzasPublicoService {
 
     if (previa) {
       if (previa.documento && previa.documento !== documento) {
-        // Mensaje deliberadamente igual al de «documento ya usado»: distinguir
-        // los dos convertiría esto en un oráculo de qué teléfonos tienen
-        // tarjeta en el convenio.
-        throw new ForbiddenException(
-          'Los datos no coinciden con los de esta tarjeta. Si es tuya, escribe el mismo documento con el que la activaste.',
-        );
+        // MISMA excepción y MISMO texto que el de «ese documento ya está
+        // usado», abajo. No basta con que se parezcan: un 403 distinto de un
+        // 400 le dice a quien prueba teléfonos ajenos «este sí tiene tarjeta»,
+        // y el endpoint se convierte en un listado de quién trabaja en la
+        // empresa aliada. Si cambias uno, cambia el otro.
+        throw new BadRequestException(MISMOS_DATOS);
       }
       if (previa.status === 'BLOCKED') {
         // Nunca se desbloquea sola por volver a activar: sería la puerta de
@@ -257,7 +273,15 @@ export class AlianzasPublicoService {
     }
 
     // ── Verificación, ANTES de escribir nada ──
-    await this.verificar(convenio, dto, documento, email, phoneNorm);
+    // Devuelve QUÉ fila de la lista blanca autorizó, para poder quemar esa y no
+    // adivinarla después con un filtro que puede no casar con ninguna.
+    const filaListaId = await this.verificar(
+      convenio,
+      dto,
+      documento,
+      email,
+      phoneNorm,
+    );
 
     // Ya verificado: ahora sí se puede tocar el CRM del negocio.
     const customer = await this.crearOActualizarCliente(
@@ -277,9 +301,7 @@ export class AlianzasPublicoService {
       select: { id: true },
     });
     if (conEseDocumento) {
-      throw new BadRequestException(
-        'Ya existe una tarjeta de este convenio con ese documento. Si es tuya y cambiaste de teléfono, escríbele al negocio.',
-      );
+      throw new BadRequestException(MISMOS_DATOS);
     }
 
     // ── Emisión ──
@@ -306,15 +328,23 @@ export class AlianzasPublicoService {
             dataPolicyUrl: tenant.dataPolicyUrl || '/legal/tratamiento-datos',
           },
         });
-        // Marcar la fila de la lista blanca DENTRO de la misma transacción: si
-        // se marcara fuera y la creación fallara, el cupo quedaría gastado sin
-        // tarjeta y esa persona no podría volver a entrar.
-        if (convenio.verificacion === 'LISTA') {
+        // Marcar la lista blanca DENTRO de la misma transacción: si se marcara
+        // fuera y la creación fallara, el cupo quedaría gastado sin tarjeta y
+        // esa persona no podría volver a entrar.
+        //
+        // Se quema la fila que autorizó (por id, no por un `OR` amplio que
+        // podía no casar con ninguna) Y TAMBIÉN cualquier otra fila libre de
+        // esta misma persona. Si RRHH cargó su cédula y su correo por separado,
+        // son dos filas para una sola persona: dejar la segunda viva la
+        // convertiría en un cupo suelto que un tercero podría gastar con un
+        // documento inventado.
+        if (convenio.verificacion === 'LISTA' && filaListaId) {
           await tx.convenioListaBlanca.updateMany({
             where: {
               convenioId: convenio.id,
               usedAt: null,
               OR: [
+                { id: filaListaId },
                 ...(documento ? [{ documento }] : []),
                 ...(email ? [{ email }] : []),
               ],
@@ -360,6 +390,9 @@ export class AlianzasPublicoService {
    * Hasta ahora no se comprobaba nada: `Convenio.codigo` se guardaba y se
    * editaba pero no se leía jamás, y `ConvenioListaBlanca` no tenía ni una
    * referencia en el código. Los tres modos existían solo en el enum.
+   *
+   * Devuelve el id de la fila de la lista blanca que autorizó (modo LISTA), o
+   * null en los otros dos modos. Quien llama tiene que quemar ESA fila.
    */
   private async verificar(
     convenio: { id: string; verificacion: string; codigo: string | null },
@@ -367,8 +400,8 @@ export class AlianzasPublicoService {
     documento: string,
     email: string | null,
     phone: string,
-  ) {
-    if (convenio.verificacion === 'ABIERTO') return;
+  ): Promise<string | null> {
+    if (convenio.verificacion === 'ABIERTO') return null;
 
     if (convenio.verificacion === 'CODIGO') {
       const esperado = normalizarCodigo(convenio.codigo);
@@ -391,30 +424,42 @@ export class AlianzasPublicoService {
         );
       }
       this.intentos.delete(clave);
-      return;
+      return null;
     }
 
-    // LISTA: el aliado cargó documentos o correos. Se busca por documento y, si
-    // no casa, por correo.
-    const fila = await this.prisma.convenioListaBlanca.findFirst({
+    // LISTA: el aliado cargó documentos o correos.
+    //
+    // El orden importa por dos motivos:
+    //  · El DOCUMENTO manda sobre el correo. Es el dato que se pide siempre, el
+    //    que lleva índice único y el que el cajero coteja contra la cédula.
+    //  · Entre varias filas que casan, gana la que está SIN USAR. Sin este
+    //    orden, alguien con dos filas —RRHH cargó su cédula y su correo— podía
+    //    toparse con la ya gastada y recibir «ese cupo ya fue utilizado»
+    //    teniendo cupo de sobra.
+    const candidatas = await this.prisma.convenioListaBlanca.findMany({
       where: {
         convenioId: convenio.id,
         OR: [{ documento }, ...(email ? [{ email }] : [])],
       },
+      orderBy: { createdAt: 'asc' },
     });
-    if (!fila) {
+    if (candidatas.length === 0) {
       // Mensaje neutro: no se revela si el documento está o no en la lista.
       throw new ForbiddenException(
         'No encontramos tu documento en la lista de tu empresa. Si crees que es un error, habla con recursos humanos.',
       );
     }
-    if (fila.usedAt) {
+    const libre =
+      candidatas.find((f) => !f.usedAt && f.documento === documento) ??
+      candidatas.find((f) => !f.usedAt);
+    if (!libre) {
       // Aquí SÍ se revela, a propósito: si alguien usó tu cupo, quieres
       // enterarte. Es una alerta de suplantación, no una fuga.
       throw new ForbiddenException(
         'Ese cupo ya fue utilizado. Si tú no activaste esta tarjeta, avisa a tu empresa.',
       );
     }
+    return libre.id;
   }
 
   private assertPuedeIntentar(clave: string) {

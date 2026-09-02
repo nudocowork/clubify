@@ -91,8 +91,17 @@ export default function ScanPage() {
   const [data, setData] = useState<any>(null);
   /** Canje de convenio recién registrado: qué aplicar y hasta cuándo se anula. */
   const [canjeHecho, setCanjeHecho] = useState<any>(null);
-  /** Total del tiquete, solo si el cupón pide compra mínima o es un %. */
-  const [montoTiquete, setMontoTiquete] = useState('');
+  // El último consumo de club hecho en esta pantalla, para poder deshacerlo.
+  // Se borra al escanear otra tarjeta: deshacer el consumo de un cliente
+  // estando ya con el siguiente delante sería peor que no poder deshacerlo.
+  const [ultimoConsumo, setUltimoConsumo] = useState<string | null>(null);
+
+  /**
+   * Total del tiquete por beneficio. Un solo estado compartido hacía que, con
+   * dos beneficios que piden monto, lo tecleado en uno viajara con el canje del
+   * otro.
+   */
+  const [montoTiquete, setMontoTiquete] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   // Cuando el tope diario bloquea un sello y quien escanea es SUPER_ADMIN,
   // guardamos los argumentos del intento para poder reintentarlo forzado.
@@ -474,7 +483,10 @@ export default function ScanPage() {
     // Limpiar el canje de convenio: si se quedara, el siguiente cliente vería
     // el beneficio del anterior en pantalla.
     setCanjeHecho(null);
-    setMontoTiquete('');
+    // Igual con el consumo de club: «Deshacer el último» con el siguiente
+    // cliente ya en pantalla le devolvería el café al que no era.
+    setUltimoConsumo(null);
+    setMontoTiquete({});
     setTimeout(() => startScanner(), 50);
   }
 
@@ -686,7 +698,43 @@ export default function ScanPage() {
         // estado no cambió y poder seguir depende solo del saldo restante.
         puedeConsumir: res.saldo > 0,
       });
+      // Se guarda el consumo para poder deshacerlo. Un doble toque del cajero
+      // le costaba un café al cliente sin forma de devolvérselo: el backend
+      // tenía la anulación hecha —con su idempotencia y su push— y aquí se
+      // tiraba el identificador que hacía falta para llamarla.
+      setUltimoConsumo(res.consumoId ?? null);
       playScanSuccess();
+    } catch (e: any) {
+      setErr(e.message);
+      playScanError();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Deshace el último consumo del club.
+   *
+   * Solo el último y solo mientras la tarjeta siga en pantalla: es para el
+   * resbalón del momento, no un panel de correcciones. Lo que se puede o no
+   * devolver lo decide el backend —un consumo de un período anterior no
+   * devuelve nada, para no regalar cupo del mes nuevo— y aquí se refleja su
+   * respuesta tal cual.
+   */
+  async function deshacerConsumoClub() {
+    if (!ultimoConsumo) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      const res = await api(`/club/caja/anular/${ultimoConsumo}`, {
+        method: 'POST',
+      });
+      if (res.devuelto > 0 && data) {
+        setData({ ...data, saldo: res.saldo, puedeConsumir: res.saldo > 0 });
+      } else {
+        setErr('Ese consumo ya no se puede deshacer.');
+      }
+      setUltimoConsumo(null);
     } catch (e: any) {
       setErr(e.message);
       playScanError();
@@ -1386,6 +1434,16 @@ export default function ScanPage() {
               </div>
             )}
 
+            {ultimoConsumo && (
+              <button
+                className="btn-ghost mt-3 w-full justify-center"
+                disabled={busy}
+                onClick={deshacerConsumoClub}
+              >
+                Deshacer el último
+              </button>
+            )}
+
             <button
               className="btn-link mt-4 w-full justify-center text-sm"
               onClick={scanAnother}
@@ -1491,8 +1549,18 @@ export default function ScanPage() {
                               ? `Total del tiquete (mínimo $${Number(c.compraMinima).toLocaleString('es-CO')})`
                               : 'Total del tiquete (opcional)'
                           }
-                          value={montoTiquete}
-                          onChange={(e) => setMontoTiquete(e.target.value)}
+                          value={montoTiquete[c.id] ?? ''}
+                          // Solo dígitos. En Colombia el total se escribe
+                          // «12.500», y `Number('12.500')` es 12,5: el backend
+                          // lo rechazaba por no ser entero y le pintaba al
+                          // cajero el error de class-validator EN INGLÉS, con
+                          // el cliente delante.
+                          onChange={(e) =>
+                            setMontoTiquete({
+                              ...montoTiquete,
+                              [c.id]: e.target.value.replace(/\D/g, ''),
+                            })
+                          }
                         />
                       )}
                       <button
@@ -1501,17 +1569,30 @@ export default function ScanPage() {
                         onClick={() =>
                           canjearConvenio(
                             c.id,
-                            montoTiquete ? Number(montoTiquete) : null,
+                            montoTiquete[c.id] ? Number(montoTiquete[c.id]) : null,
                           )
                         }
                       >
-                        {busy ? 'Registrando…' : 'Canjear'}
+                        {/* Dice las DOS cosas que tiene que hacer: el descuento
+                            lo mete él en la caja, esto solo lo registra. */}
+                        {busy ? 'Registrando…' : 'Aplicar y registrar'}
                       </button>
                     </>
                   )}
                 </div>
               ))}
             </div>
+
+            {/* El error, AQUÍ. El bloque general de errores se pinta cientos de
+                líneas más arriba, o sea fuera de la pantalla del móvil: el
+                cajero pulsaba «Aplicar y registrar», el servidor lo rechazaba
+                —compra mínima sin monto, cupón apagado entre el escaneo y el
+                clic— y a él le parecía que el botón no hacía nada. */}
+            {err && (
+              <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
+                {err}
+              </div>
+            )}
 
             <button
               className="btn-link mt-4 w-full justify-center text-sm"

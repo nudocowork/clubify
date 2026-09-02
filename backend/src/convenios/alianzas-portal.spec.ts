@@ -41,6 +41,7 @@ function conEmpleado(
     tenantId: 'tenant-cafe',
     fullName: p.fullName ?? 'Ana Pérez',
     phone: p.phone ?? `+57300111223${n}`,
+    email: p.email ?? null,
   });
   const card = db.tabla('card')[0] ??
     db.sembrar('card', { tenantId: 'tenant-cafe', convenioId: 'convenio-confe' });
@@ -242,6 +243,29 @@ describe('la baja por documento', () => {
 
     expect(db.tabla('convenioListaBlanca').map((f) => f.documento)).toEqual([
       '7654321',
+    ]);
+  });
+
+  it('saca también su fila de CORREO, no solo la del documento', async () => {
+    // La lista admite documentos y correos —quien la carga pega lo que le dio
+    // RRHH—, así que borrar solo por documento dejaba viva la fila de correo de
+    // esa misma persona: bastaba volver a entrar dando ese correo y la baja no
+    // habría servido de nada.
+    const { svc, db } = montar({ verificacion: 'LISTA' });
+    conEmpleado(db, { documento: '1020304', email: 'ana@confenalco.co' });
+    db.sembrar('convenioListaBlanca', {
+      convenioId: 'convenio-confe',
+      email: 'ana@confenalco.co',
+    });
+    db.sembrar('convenioListaBlanca', {
+      convenioId: 'convenio-confe',
+      email: 'otro@confenalco.co',
+    });
+
+    await svc.baja('portal-confe', '1020304');
+
+    expect(db.tabla('convenioListaBlanca').map((f) => f.email)).toEqual([
+      'otro@confenalco.co',
     ]);
   });
 

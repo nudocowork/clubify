@@ -16,7 +16,7 @@ import {
 import {
   inicioDelPeriodo,
   describirTope,
-
+  finDelDia,
   ZONA_POR_DEFECTO,
   type ConvenioPeriodo,
 } from './periodos';
@@ -152,17 +152,29 @@ export class ConveniosService {
    * el convenio un día antes de lo que él cree, y eso se descubre con un
    * cliente delante.
    */
-  private parsearVigencia(valor?: string | null): Date | null {
+  private parsearVigencia(valor: string | null | undefined, zona: string): Date | null {
     if (!valor) return null;
-    const d = new Date(valor);
+    const limpio = valor.trim();
+    const d = new Date(limpio);
     if (Number.isNaN(d.getTime())) {
       throw new BadRequestException('La fecha de fin no es válida.');
     }
     // Solo se estira al final del día cuando viene en formato de fecha suelta
     // (YYYY-MM-DD), que es lo que manda un <input type="date">. Si llega un
     // instante completo, se respeta tal cual.
-    if (/^\d{4}-\d{2}-\d{2}$/.test(valor.trim())) {
-      d.setHours(23, 59, 59, 999);
+    //
+    // El fin del día se calcula en la zona DEL NEGOCIO. Con `setHours` se usaba
+    // la del proceso —UTC en Railway—, así que «hasta el 31 de diciembre» se
+    // apagaba a las 18:59 hora de Bogotá: en plena noche de servicio y con un
+    // cliente delante, que es justo lo que estirar la fecha quería evitar.
+    const soloFecha = /^(\d{4})-(\d{2})-(\d{2})$/.exec(limpio);
+    if (soloFecha) {
+      return finDelDia(
+        Number(soloFecha[1]),
+        Number(soloFecha[2]),
+        Number(soloFecha[3]),
+        zona,
+      );
     }
     return d;
   }
@@ -296,7 +308,11 @@ export class ConveniosService {
     // no llegue a crearse ni el convenio. Da igual el orden de las escrituras
     // si el dueño acaba con una alianza a medias que no sabe que tiene.
     if (dto.beneficio) this.validarCupon(dto.beneficio);
-    const finVigencia = this.parsearVigencia(dto.endsAt);
+    // La zona se resuelve una vez y se usa para las dos fechas: la del convenio
+    // y la del beneficio. Dentro de la transacción no se puede consultar otra
+    // vez sin alargarla sin motivo.
+    const zonaNegocio = await this.zona(tenantId);
+    const finVigencia = this.parsearVigencia(dto.endsAt, zonaNegocio);
 
     return this.prisma.$transaction(async (tx) => {
       const convenio = await tx.convenio.create({
@@ -345,7 +361,7 @@ export class ConveniosService {
             maxTotal: dto.beneficio.maxTotal ?? null,
             compraMinima: dto.beneficio.compraMinima ?? null,
             topeDescuento: dto.beneficio.topeDescuento ?? null,
-            endsAt: this.parsearVigencia(dto.beneficio.endsAt),
+            endsAt: this.parsearVigencia(dto.beneficio.endsAt, zonaNegocio),
             position: 1,
           },
         });
@@ -395,7 +411,7 @@ export class ConveniosService {
       // `!== undefined`. Pasar de una fecha vencida a ilimitada revive el
       // convenio, que es justo la diferencia con FINISHED.
       ...(dto.endsAt !== undefined
-        ? { endsAt: this.parsearVigencia(dto.endsAt) }
+        ? { endsAt: this.parsearVigencia(dto.endsAt, await this.zona(tenantId)) }
         : {}),
     };
     if (dto.verificacion !== undefined) {
@@ -506,7 +522,7 @@ export class ConveniosService {
         maxTotal: dto.maxTotal ?? null,
         compraMinima: dto.compraMinima ?? null,
         topeDescuento: dto.topeDescuento ?? null,
-        endsAt: this.parsearVigencia(dto.endsAt),
+        endsAt: this.parsearVigencia(dto.endsAt, await this.zona(tenantId)),
         position: (ultimo?.position ?? 0) + 1,
       },
     });
@@ -571,7 +587,7 @@ export class ConveniosService {
       if (dto[k] !== undefined) data[k] = dto[k];
     }
     if (dto.endsAt !== undefined) {
-      data.endsAt = this.parsearVigencia(dto.endsAt);
+      data.endsAt = this.parsearVigencia(dto.endsAt, await this.zona(tenantId));
     }
 
     const actualizado = await this.prisma.convenioCupon.update({
@@ -630,26 +646,52 @@ export class ConveniosService {
     });
     if (!convenio) throw new NotFoundException('Convenio no encontrado');
 
-    // Una entrada por línea. Se acepta pegar desde Excel o desde un correo, así
-    // que también se parte por comas y puntos y coma.
+    // Una entrada por línea. También se parte por comas, puntos y coma y
+    // TABULADOR: pegar dos columnas de Excel («Ana Pérez⇥1020304050») sin el
+    // tabulador producía una sola fila «ANAPÉREZ1020304050» que no casaría
+    // jamás, y el dueño vería «120 en la lista» mientras a sus 120 empleados
+    // les sale «no encontramos tu documento».
     const crudas = (texto ?? '')
-      .split(/[\n,;]+/)
+      .split(/[\n\r,;\t]+/)
       .map((s) => s.trim())
-      .filter(Boolean)
-      .slice(0, 5000);
+      .filter(Boolean);
     if (crudas.length === 0) {
       throw new BadRequestException('Pega al menos un documento o un correo.');
     }
+    const TOPE = 5000;
+    const recortadas = crudas.slice(0, TOPE);
 
-    // Lo que lleva arroba es correo; lo demás, documento. Se normalizan igual
-    // que al activar, o no casarían nunca.
-    const filas = crudas
-      .map((s) =>
-        s.includes('@')
-          ? { email: normalizarEmail(s), documento: null }
-          : { documento: normalizarDocumento(s), email: null },
-      )
-      .filter((f) => f.documento || f.email);
+    // Cada entrada se VALIDA, no solo se normaliza.
+    //
+    // Sin esto, pegar el Excel con su cabecera («Documento», «Correo»,
+    // «Nombre») metía esas palabras como documentos válidos, y entonces
+    // cualquiera escribía «documento» en el formulario público y se llevaba el
+    // beneficio del aliado sin trabajar allí. Una lista blanca cuya credencial
+    // se adivina no es una lista blanca.
+    const filas: { documento: string | null; email: string | null }[] = [];
+    const descartadas: string[] = [];
+    for (const cruda of recortadas) {
+      if (cruda.includes('@')) {
+        const email = normalizarEmail(cruda);
+        // Forma mínima de correo: algo, arroba, algo, punto, algo.
+        if (email && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+          filas.push({ email, documento: null });
+        } else {
+          descartadas.push(cruda);
+        }
+        continue;
+      }
+      const documento = normalizarDocumento(cruda);
+      // Un documento tiene al menos 4 dígitos y nada de espacios internos. Eso
+      // deja fuera las cabeceras, los nombres y las notas sueltas, y admite los
+      // formatos con letra (pasaportes, NIE) que sí son documentos.
+      const digitos = (documento ?? '').replace(/\D/g, '').length;
+      if (documento && documento.length >= 4 && digitos >= 4) {
+        filas.push({ documento, email: null });
+      } else {
+        descartadas.push(cruda);
+      }
+    }
 
     const antes = await this.prisma.convenioListaBlanca.count({
       where: { convenioId: id },
@@ -663,9 +705,14 @@ export class ConveniosService {
     const yaHay = new Set(
       existentes.map((e) => `${e.documento ?? ''}|${e.email ?? ''}`),
     );
-    const nuevas = filas.filter(
-      (f) => !yaHay.has(`${f.documento ?? ''}|${f.email ?? ''}`),
-    );
+    // El Set se va alimentando dentro del filtro: si no, dos líneas iguales
+    // DENTRO del mismo pegado se insertaban las dos y el contador mentía.
+    const nuevas = filas.filter((f) => {
+      const clave = `${f.documento ?? ''}|${f.email ?? ''}`;
+      if (yaHay.has(clave)) return false;
+      yaHay.add(clave);
+      return true;
+    });
     if (nuevas.length > 0) {
       await this.prisma.convenioListaBlanca.createMany({
         data: nuevas.map((f) => ({ convenioId: id, ...f })),
@@ -674,6 +721,11 @@ export class ConveniosService {
     return {
       agregadas: nuevas.length,
       yaEstaban: filas.length - nuevas.length,
+      // Lo descartado se DEVUELVE, no se traga en silencio: si el dueño pega
+      // 6.000 empleados y solo entran 5.000, tiene que enterarse ahora y no
+      // cuando los otros 1.000 empiecen a reclamar.
+      descartadas,
+      recortadas: crudas.length > TOPE ? crudas.length - TOPE : 0,
       total: antes + nuevas.length,
     };
   }
@@ -681,14 +733,20 @@ export class ConveniosService {
   /** Quién está en la lista y quién ya la usó. Solo para el panel del negocio. */
   async verLista(user: AuthUser, id: string, override?: string) {
     const tenantId = this.tid(user, override);
+    // La lista son datos personales de los empleados del aliado: con el módulo
+    // apagado no se leen. Faltaba aquí y sí estaba en los otros dos métodos.
+    await this.assertHabilitado(tenantId);
     const convenio = await this.prisma.convenio.findFirst({
       where: { id, tenantId },
       select: { id: true },
     });
     if (!convenio) throw new NotFoundException('Convenio no encontrado');
+    // Los PENDIENTES primero. `usedAt: 'asc'` ponía los NULL al final en
+    // Postgres, así que el panel enseñaba primero a quien ya activó —lo que ya
+    // no hay que hacer— y dejaba al fondo justo a los que faltan.
     return this.prisma.convenioListaBlanca.findMany({
       where: { convenioId: id },
-      orderBy: [{ usedAt: 'asc' }, { createdAt: 'asc' }],
+      orderBy: [{ usedAt: 'desc' }, { createdAt: 'asc' }],
       take: 1000,
       select: { id: true, documento: true, email: true, usedAt: true },
     });

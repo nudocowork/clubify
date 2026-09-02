@@ -302,6 +302,14 @@ export default function AlianzaDetalle() {
               Pega los documentos o los correos que te pase la empresa, uno por
               línea. Se añaden a los que ya están, no los reemplazan.
             </p>
+            {/* El correo no se puede comprobar: no le mandamos nada a esa
+                dirección. Quien lo conozca puede activar con cualquier
+                documento. El documento sí lo coteja el cajero contra la cédula,
+                así que es lo que conviene pedirle a la empresa. */}
+            <p className="mt-1 text-[11px] leading-snug text-amber-700">
+              Mejor documentos: el correo no lo verificamos, así que quien lo
+              conozca puede activar aunque no trabaje ahí.
+            </p>
             <textarea
               className="input mt-2 h-28 font-mono text-xs"
               value={pegado}
@@ -348,8 +356,15 @@ export default function AlianzaDetalle() {
                       className="shrink-0 text-xs text-mute hover:underline"
                       disabled={finalizada}
                       onClick={async () => {
-                        await api(`/convenios/lista/${f.id}`, { method: 'DELETE' });
-                        await cargar();
+                        // Con try/catch: sin él, un 403 —módulo apagado— o un
+                        // fallo de red no pintaban NADA y el dueño creía que el
+                        // botón estaba roto.
+                        try {
+                          await api(`/convenios/lista/${f.id}`, { method: 'DELETE' });
+                          await cargar();
+                        } catch (e: any) {
+                          toast(e.message || 'No se pudo quitar', 'error');
+                        }
                       }}
                     >
                       Quitar
