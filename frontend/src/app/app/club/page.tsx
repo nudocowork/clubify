@@ -428,8 +428,10 @@ function FormularioPlan({
             Plan activo
             <span className="text-mute">
               {' '}
-              — apagado no se puede dar de alta a nadie nuevo; los socios que ya
-              tiene siguen consumiendo.
+              — apagado solo cierra las altas nuevas. Los socios que ya tienes
+              siguen consumiendo y se les sigue repartiendo su cupo cada mes,
+              que es lo correcto mientras te paguen. Para cerrar el club de
+              verdad, dales de baja desde la pantalla del plan.
             </span>
           </span>
         </label>

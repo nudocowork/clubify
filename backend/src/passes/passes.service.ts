@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { clubDelPase } from '../club/club-pase.util';
 import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AutomationsService } from '../automations/automations.service';
@@ -140,8 +141,16 @@ export class PassesService {
     // Marca blanca del negocio (atribución/web/inicial). Nunca Clubify por
     // defecto: legacy sin marca cae al row real `clubify`.
     const b = await this.brand.resolveByWhiteLabelId(pass.tenant.whiteLabelId);
+    // Tarjeta de CLUB. Sin esto, la página que el negocio le manda al socio
+    // para instalarla la pintaba como un cartón de sellos: «SELLOS 7/10», con
+    // el número contando lo contrario de lo que significa. Solo se consulta
+    // cuando la tarjeta es de un plan; el resto no paga nada.
+    const club = pass.card.clubPlanId
+      ? await clubDelPase(this.prisma, pass.card.clubPlanId, pass.id)
+      : null;
     return {
       ...pass,
+      club,
       brand: {
         name: b.name,
         slug: b.slug,

@@ -165,15 +165,18 @@ export class ClubService {
     // el índice único y Prisma devolvía un P2002 crudo: el negocio veía un 500
     // sin saber qué había hecho mal. Se le añade sufijo hasta que entre.
     const base = slug || 'plan';
+    // Una consulta y el hueco se busca en memoria. Antes eran hasta cincuenta
+    // `findFirst` seguidos, uno por intento.
+    const ocupados = new Set(
+      (
+        await this.prisma.clubPlan.findMany({
+          where: { tenantId, slug: { startsWith: base } },
+          select: { slug: true },
+        })
+      ).map((p) => p.slug),
+    );
     let libre = base;
-    for (let i = 2; i <= 50; i++) {
-      const choca = await this.prisma.clubPlan.findFirst({
-        where: { tenantId, slug: libre },
-        select: { id: true },
-      });
-      if (!choca) break;
-      libre = `${base}-${i}`;
-    }
+    for (let i = 2; ocupados.has(libre) && i <= 50; i++) libre = `${base}-${i}`;
 
     return this.prisma.clubPlan.create({
       data: {
@@ -206,7 +209,7 @@ export class ClubService {
     override?: string,
   ) {
     const tenantId = this.tid(user, override);
-    await this.planDelNegocio(planId, tenantId);
+    const previo = await this.planDelNegocio(planId, tenantId);
 
     if (dto.beneficiosPorMes != null) {
       if (!Number.isInteger(dto.beneficiosPorMes) || dto.beneficiosPorMes < 1) {
@@ -261,9 +264,20 @@ export class ClubService {
       return actualizado;
     });
 
+    // Solo se reenvían los pases si cambió algo que SE VE en ellos. El pase
+    // imprime el nombre, el cupo y la unidad; nada más. Sin este filtro,
+    // corregir una errata de la descripción o togglear el interruptor mandaba
+    // un push a cada socio: con 3000, tres mil trabajos y tres mil llamadas a
+    // Apple y Google por un cambio que nadie iba a notar.
+    //
     // Fuera de la transacción a propósito: encolar pushes dentro alargaría el
     // bloqueo de las filas por algo que no tiene que ser atómico.
-    await this.empujarPasesDelPlan(planId);
+    const cambioVisible =
+      (dto.name != null && dto.name.trim() !== previo.name) ||
+      (dto.beneficiosPorMes != null &&
+        dto.beneficiosPorMes !== previo.beneficiosPorMes) ||
+      (!!dto.unidad?.trim() && dto.unidad.trim() !== previo.unidad);
+    if (cambioVisible) await this.empujarPasesDelPlan(planId);
     return plan;
   }
 
@@ -280,6 +294,11 @@ export class ClubService {
       select: { passId: true },
       take: 5000,
     });
+    if (filas.length === 5000) {
+      this.logger.warn(
+        `Club: el plan ${planId} tiene 5000 socios o más — los que pasen de ahí se quedan con el pase viejo hasta su próximo consumo.`,
+      );
+    }
     for (const f of filas) this.empujarPase(f.passId!, 'club.plan.editado');
     return filas.length;
   }
@@ -381,7 +400,20 @@ export class ClubService {
     }
 
     const ahora = new Date();
-    const cupo = cupoDeAlta(diaDelMes(ahora), plan.beneficiosPorMes, plan.tramos);
+    const periodoActual = periodoDe(ahora);
+    // `cupoDeAlta` es el precio del socio NUEVO: lo que le toca por el día en
+    // que entra. Aplicárselo también al que VUELVE dentro del mismo mes abría
+    // una recarga infinita —cancelar y readmitir devolvía el cupo entero, las
+    // veces que hiciera falta, con una sola cuota pagada— y, al revés, a quien
+    // se canceló por error el día 20 le recortaba a 3 los 8 que le quedaban.
+    //
+    // Volver dentro del mismo período conserva lo que tenía. En un mes
+    // posterior sí entra como nuevo, que es lo que es.
+    const vuelveEsteMes =
+      !!existente && existente.periodo === periodoActual && !!existente.passId;
+    const cupo = vuelveEsteMes
+      ? existente!.cupoDelPeriodo
+      : cupoDeAlta(diaDelMes(ahora), plan.beneficiosPorMes, plan.tramos);
 
     // La tarjeta del plan. Una por plan, compartida por todos sus socios: es
     // la PLANTILLA del pase (colores, logo, nombre), no la tarjeta de nadie.
@@ -390,12 +422,20 @@ export class ClubService {
     // geolocalización. Lo que la distingue es `clubPlanId`, y por eso los
     // resolutores de "primera tarjeta de sellos del negocio" la excluyen.
     const card =
-      (await this.prisma.card.findFirst({ where: { tenantId, clubPlanId: planId } })) ??
+      // `select` acotado: sin él traía la fila entera —los JSON de la billetera,
+      // los premios— para quedarse solo con el id.
+      (await this.prisma.card.findFirst({
+        where: { tenantId, clubPlanId: planId },
+        select: { id: true },
+      })) ??
       (await this.crearTarjetaDelPlan(tenantId, plan));
 
     return this.prisma.$transaction(async (tx) => {
       // El pase nace CON el cupo dentro. Es lo contrario de una tarjeta de
       // sellos, que nace en cero: aquí el cliente ya pagó.
+      // Si vuelve este mes, el saldo del pase NO se toca: es lo que le quedaba.
+      // Es además el único camino que escribía un saldo sin dejar
+      // `ClubConsumo`, así que en el histórico no se veía.
       let pass;
       try {
         pass = await tx.pass.create({
@@ -415,7 +455,11 @@ export class ClubService {
         if (e?.code !== 'P2002') throw e;
         pass = await tx.pass.update({
           where: { cardId_customerId: { cardId: card.id, customerId } },
-          data: { stampsCount: cupo, status: 'ACTIVE', lastActivityAt: new Date() },
+          data: {
+            ...(vuelveEsteMes ? {} : { stampsCount: cupo }),
+            status: 'ACTIVE',
+            lastActivityAt: new Date(),
+          },
         });
       }
 
@@ -423,7 +467,7 @@ export class ClubService {
         passId: pass.id,
         status: 'ACTIVA' as const,
         cupoDelPeriodo: cupo,
-        periodo: periodoDe(ahora),
+        periodo: periodoActual,
         pausedAt: null,
       };
       // Dos altas simultáneas: la segunda choca con el índice único. Se
@@ -442,7 +486,11 @@ export class ClubService {
           });
         }
       }
-      return { ...m, passId: pass.id, saldo: cupo };
+      return {
+        ...m,
+        passId: pass.id,
+        saldo: vuelveEsteMes ? pass.stampsCount : cupo,
+      };
     });
   }
 
@@ -518,6 +566,13 @@ export class ClubService {
       ...(q
         ? {
             customer: {
+              // `tenantId` no es decorativo: sin él, Prisma compila el filtro a
+              // un subselect sobre `Customer` sin acotar y Postgres recorre la
+              // tabla de los 168 negocios con tres ILIKE por fila — dos veces
+              // (el `count` y el `findMany` van en paralelo), en cada tecla que
+              // el negocio pulsa en el buscador. Con esto entra por
+              // `@@index([tenantId])`.
+              tenantId,
               OR: [
                 { fullName: { contains: q, mode: 'insensitive' as const } },
                 { email: { contains: q, mode: 'insensitive' as const } },
@@ -536,7 +591,17 @@ export class ClubService {
           customer: {
             select: { id: true, fullName: true, email: true, phone: true },
           },
-          pass: { select: { stampsCount: true, serialNumber: true } },
+          pass: {
+            select: {
+              stampsCount: true,
+              serialNumber: true,
+              // El dato ya se guardaba en cada descarga del pase y no lo leía
+              // nadie: el negocio veía a sus 40 socios idénticos sin saber
+              // cuáles cobraron y nunca llegaron a instalar la tarjeta.
+              walletInstalledAt: true,
+              walletPlatform: true,
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip: (pagina - 1) * porPagina,
@@ -560,12 +625,129 @@ export class ClubService {
         // tarjeta.
         passId: m.passId,
         serial: m.pass?.serialNumber ?? null,
+        instaladaEn: m.pass?.walletInstalledAt ?? null,
+        plataforma: m.pass?.walletPlatform ?? null,
         altaEn: m.createdAt,
         cliente: {
           id: m.customer?.id ?? '',
           nombre: m.customer?.fullName ?? '—',
           email: m.customer?.email ?? null,
           telefono: m.customer?.phone ?? null,
+        },
+      })),
+    };
+  }
+
+  /**
+   * Da de baja a TODOS los socios de un plan. Es la salida para cerrar el club.
+   *
+   * Hacía falta porque apagar el plan no cierra nada: solo impide altas nuevas,
+   * y a los que quedan dentro se les sigue repartiendo el cupo cada mes —lo que
+   * es correcto mientras paguen, y un regalo perpetuo cuando el negocio ya
+   * cerró—. Sin esto, la única salida era entrar socio por socio.
+   *
+   * No se borra nada: quedan en CANCELADA, con su historial, y se les puede
+   * readmitir. Y se les repinta el pase para que no sigan viendo un saldo que
+   * la caja ya no les va a aceptar.
+   */
+  async darDeBajaATodos(user: AuthUser, planId: string, override?: string) {
+    const tenantId = this.tid(user, override);
+    await this.planDelNegocio(planId, tenantId);
+
+    const afectadas = await this.prisma.clubMembresia.findMany({
+      where: { planId, status: { in: ['ACTIVA', 'PAUSADA'] } },
+      select: { id: true, passId: true },
+      take: 5000,
+    });
+    if (!afectadas.length) return { dadasDeBaja: 0 };
+
+    await this.prisma.clubMembresia.updateMany({
+      where: { id: { in: afectadas.map((m) => m.id) } },
+      data: { status: 'CANCELADA', pausedAt: null },
+    });
+
+    for (const m of afectadas) {
+      if (m.passId) this.empujarPase(m.passId, 'club.baja.masiva');
+    }
+    this.logger.log(
+      `Club: ${afectadas.length} socios dados de baja en el plan ${planId}.`,
+    );
+    return { dadasDeBaja: afectadas.length };
+  }
+
+  // ── Historial ───────────────────────────────────────────────────────────
+
+  /**
+   * Los consumos de un plan, con el total del período.
+   *
+   * `ClubConsumo` se escribía desde el primer día y no lo leía nadie: el
+   * negocio no podía ver qué se llevó cada socio, ni cruzar lo que cobra contra
+   * lo que entrega —que es LA pregunta de este producto—, ni auditar a sus
+   * cajeros pese a que `actorId` y `locationId` se guardan en cada línea.
+   */
+  async consumosDelPlan(
+    user: AuthUser,
+    planId: string,
+    opciones: { periodo?: string; membresiaId?: string; pagina?: number } = {},
+    override?: string,
+  ) {
+    const tenantId = this.tid(user, override);
+    const plan = await this.planDelNegocio(planId, tenantId);
+
+    const porPagina = 100;
+    const pagina = Math.max(1, opciones.pagina ?? 1);
+    // Por defecto el mes en curso: es lo que el negocio quiere saber al abrir.
+    const periodo = opciones.periodo?.trim() || periodoDe(new Date());
+
+    const where: Prisma.ClubConsumoWhereInput = {
+      membresia: { planId },
+      periodo,
+      ...(opciones.membresiaId ? { membresiaId: opciones.membresiaId } : {}),
+    };
+
+    const [total, unidades, filas] = await Promise.all([
+      this.prisma.clubConsumo.count({ where }),
+      // Las unidades, no las líneas: un consumo puede llevarse más de una.
+      this.prisma.clubConsumo.aggregate({ where, _sum: { cantidad: true } }),
+      this.prisma.clubConsumo.findMany({
+        where,
+        include: {
+          membresia: {
+            select: {
+              id: true,
+              customer: { select: { id: true, fullName: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (pagina - 1) * porPagina,
+        take: porPagina,
+      }),
+    ]);
+
+    const entregadas = unidades._sum.cantidad ?? 0;
+    return {
+      periodo,
+      total,
+      pagina,
+      porPagina,
+      entregadas,
+      unidad: plan.unidad,
+      // Lo que el negocio cobra al mes por socio, para que pueda comparar. No
+      // se calcula aquí la rentabilidad: el coste de un café lo sabe él, no
+      // nosotros, e inventarlo sería peor que no decir nada.
+      precioCents: plan.precioCents,
+      currency: plan.currency,
+      consumos: filas.map((c) => ({
+        id: c.id,
+        cantidad: c.cantidad,
+        saldoResultante: c.saldoResultante,
+        cuando: c.createdAt,
+        anuladoEn: c.revertedAt,
+        membresiaId: c.membresiaId,
+        cliente: {
+          id: c.membresia?.customer?.id ?? '',
+          nombre: c.membresia?.customer?.fullName ?? '\u2014',
         },
       })),
     };
@@ -578,7 +760,14 @@ export class ClubService {
     const m = await this.prisma.clubMembresia.findFirst({
       where: { passId },
       include: {
-        plan: { select: { tenantId: true, name: true, unidad: true } },
+        plan: {
+          select: {
+            tenantId: true,
+            name: true,
+            unidad: true,
+            beneficiosPorMes: true,
+          },
+        },
         customer: { select: { fullName: true } },
         pass: { select: { stampsCount: true } },
       },
@@ -597,7 +786,23 @@ export class ClubService {
     if (user.role !== 'SUPER_ADMIN' && m.plan.tenantId !== user.tenantId) {
       throw new ForbiddenException();
     }
-    const saldo = m.pass?.stampsCount ?? 0;
+    // El mismo reinicio perezoso que hace `consumir`, pero SIN escribir: esto
+    // es la pantalla de lectura del cajero. Sin él, el socio que terminó
+    // septiembre en cero y llega el 1 de octubre antes de que pase el cron
+    // —hasta una hora, más si el tope de 5000 muerde— veía «sin cupo» y el
+    // botón de consumir NI SE PINTABA. `consumir` habría funcionado: el que
+    // sabía reiniciar era el backend, y la pantalla que decidía no.
+    //
+    // El sesgo era feo además: al que le sobraba cupo del mes viejo sí le
+    // dejaba pasar, y al que había llegado a cero no. El caso que favorece al
+    // negocio funcionaba y el que favorece al cliente, no.
+    const periodoActual = periodoDe(new Date());
+    const tocaReinicio = m.periodo !== periodoActual;
+    const saldo = tocaReinicio
+      ? m.plan.beneficiosPorMes
+      : (m.pass?.stampsCount ?? 0);
+    const cupo = tocaReinicio ? m.plan.beneficiosPorMes : m.cupoDelPeriodo;
+
     return {
       membresiaId: m.id,
       titular: m.customer?.fullName ?? '—',
@@ -605,8 +810,8 @@ export class ClubService {
       unidad: m.plan.unidad,
       status: m.status,
       saldo,
-      cupoDelPeriodo: m.cupoDelPeriodo,
-      periodo: m.periodo,
+      cupoDelPeriodo: cupo,
+      periodo: periodoActual,
       puedeConsumir: m.status === 'ACTIVA' && saldo > 0,
     };
   }
@@ -789,25 +994,25 @@ export class ClubService {
     }
 
     const r = await this.prisma.$transaction(async (tx) => {
-      const marcado = await tx.clubConsumo.updateMany({
-        where: { id: consumoId, revertedAt: null },
-        data: { revertedAt: new Date(), revertedBy: user.id ?? null },
-      });
-      if (marcado.count === 0) {
-        throw new ConflictException('Este consumo ya estaba anulado.');
-      }
-      // Solo se devuelve el cupo si sigue siendo del mismo período: anular en
-      // octubre un consumo de septiembre regalaría saldo del mes nuevo.
-      //
-      // El período se relee DENTRO de la transacción: leerlo de la foto de
-      // arriba dejaba que el cron reiniciara en medio y se devolviera cupo
-      // del mes nuevo por un consumo del viejo.
+      // El período se comprueba ANTES de marcar. Al revés, un consumo de un
+      // mes anterior quedaba marcado como anulado sin haberle devuelto nada al
+      // cliente: contaba como anulado en cualquier informe, no se podía
+      // reintentar nunca —«ya estaba anulado»— y al cajero se le decía después
+      // que no se podía deshacer.
       const viva = await tx.clubMembresia.findUnique({
         where: { id: c.membresiaId },
         select: { periodo: true, passId: true },
       });
       if (!viva?.passId || viva.periodo !== c.periodo) {
         return { devuelto: 0, motivo: 'consumo de un período anterior' as const };
+      }
+
+      const marcado = await tx.clubConsumo.updateMany({
+        where: { id: consumoId, revertedAt: null },
+        data: { revertedAt: new Date(), revertedBy: user.id ?? null },
+      });
+      if (marcado.count === 0) {
+        throw new ConflictException('Este consumo ya estaba anulado.');
       }
       const tras = await tx.pass.update({
         where: { id: viva.passId },
@@ -817,6 +1022,23 @@ export class ClubService {
         },
         select: { stampsCount: true },
       });
+
+      // Y se vuelve a mirar el período DESPUÉS de tomar el candado del pase.
+      // La lectura de arriba no bloquea nada: el reinicio del mes podía estar a
+      // medias, sin haber comiteado, y entonces se devolvía un beneficio del
+      // mes viejo encima del cupo recién repuesto. Al llegar aquí ese reinicio
+      // ya terminó —el `update` esperó a su candado—, así que si el período
+      // cambió, lanzar deshace la transacción entera.
+      const despues = await tx.clubMembresia.findUnique({
+        where: { id: c.membresiaId },
+        select: { periodo: true },
+      });
+      if (despues?.periodo !== c.periodo) {
+        throw new ConflictException(
+          'Empezó un mes nuevo mientras se deshacía. Vuelve a intentarlo.',
+        );
+      }
+
       return { devuelto: c.cantidad, saldo: tras.stampsCount };
     });
 
@@ -842,7 +1064,25 @@ export class ClubService {
   async reiniciarCupos() {
     const periodo = periodoDe(new Date());
     const pendientes = await this.prisma.clubMembresia.findMany({
-      where: { status: 'ACTIVA', periodo: { not: periodo }, passId: { not: null } },
+      where: {
+        status: 'ACTIVA',
+        // `lt` y no `not`: los períodos son «YYYY-MM» y ordenan como texto, así
+        // que «atrasado» es literalmente «menor». Con `not` no hay rango que
+        // recorrer y el índice no sirve: 23 de las 24 pasadas diarias leían
+        // todas las membresías activas del sistema para devolver cero filas.
+        // Y de paso es más seguro: una fila con un período FUTURO —reloj
+        // desajustado— ya no se «reinicia» hacia atrás.
+        periodo: { lt: periodo },
+        passId: { not: null },
+        // NO se filtra por `plan.isActive` a propósito, y cuesta creerlo:
+        // apagar el plan solo cierra las altas nuevas, así que a los socios que
+        // siguen pagando se les sigue repartiendo. Cortarles el cupo aquí les
+        // quitaría en silencio lo que compraron, y el negocio no se enteraría
+        // hasta que se quejaran.
+        //
+        // Para cerrar un club de verdad está «Dar de baja a todos los socios»,
+        // que es explícito y avisa de a cuántos afecta.
+      },
       select: {
         id: true,
         status: true,
@@ -872,7 +1112,13 @@ export class ClubService {
       // reinicio se lo comería. Y `updateMany` en vez de `update` porque si la
       // membresía apunta a un pase que ya no existe, `update` lanza y se lleva
       // por delante el reinicio del MES ENTERO para todos los demás.
-      const hecho = await this.prisma.$transaction(async (tx) => {
+      // Envuelto: sin esto, un solo fallo —un timeout del pool a las 00:00, un
+      // interbloqueo contra un consumo simultáneo— salía del bucle y dejaba
+      // SIN REINICIAR a todos los que faltaban. Con 5000 intentos, que uno
+      // falle no es una rareza. El que falla se recupera a la hora siguiente.
+      let hecho = false;
+      try {
+        hecho = await this.prisma.$transaction(async (tx) => {
         const r = await tx.clubMembresia.updateMany({
           where: { id: m.id, periodo: m.periodo },
           data: { cupoDelPeriodo: m.plan.beneficiosPorMes, periodo },
@@ -887,13 +1133,24 @@ export class ClubService {
           },
         });
         if (puesto.count === 0) {
-          this.logger.warn(
-            `Club: membresía ${m.id} apunta a un pase inexistente (${m.passId}) — se salta.`,
+          // `throw` y no `return false`: al retornar, Prisma COMITEA. El
+          // `updateMany` de arriba ya había avanzado el período y el cupo, así
+          // que la membresía quedaba marcada como reiniciada con el pase sin
+          // tocar — y ni el cron ni el reinicio perezoso volvían a mirarla
+          // jamás, porque los dos comparan el período. Lanzar la deshace
+          // entera y el `catch` de fuera la salta de verdad.
+          throw new Error(
+            `membresía ${m.id} apunta a un pase inexistente (${m.passId})`,
           );
-          return false;
         }
-        return true;
-      });
+          return true;
+        });
+      } catch (e) {
+        this.logger.error(
+          `Club: falló el reinicio de la membresía ${m.id}, sigue el resto: ${e}`,
+        );
+        continue;
+      }
       if (!hecho) continue;
 
       this.empujarPase(m.passId!, 'club.reinicio');

@@ -8,6 +8,97 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-02 (tarde) — Tarjeta de Club: repaso de lógica, rendimiento y recorrido
+
+Tres revisiones sobre el módulo ya desplegado. Lo que salió, corregido.
+
+### Caminos por los que se escapaba dinero
+
+1. **Cancelar y readmitir era una recarga.** Gastar los 10 cafés, cancelar,
+   volver a dar de alta → otros 10. Repetible dentro del mismo mes con una sola
+   cuota pagada. Y al revés: al cancelado por error el día 20 se le aplicaba el
+   tramo de alta y perdía lo que ya había pagado. Era además el único camino que
+   escribía un saldo **sin dejar `ClubConsumo`**, así que en el histórico no se
+   veía. Ahora volver dentro del mismo mes conserva el saldo; en un mes
+   posterior entra como nuevo.
+2. **El día 1, la caja rechazaba al socio que había llegado a cero.**
+   `resolverParaCaja` no miraba el período, así que entre las 00:00 y la primera
+   pasada del cron —hasta una hora— el botón de consumir ni se pintaba, aunque
+   `consumir` habría funcionado. El sesgo era feo: al que le SOBRABA cupo del
+   mes viejo sí le dejaba pasar. Ahora la pantalla anticipa el reinicio sin
+   escribir nada; quien escribe sigue siendo el consumo.
+3. **Una automatización con `cardId` explícito le sumaba cupo a un socio.** El
+   filtro `clubPlanId: null` estaba solo en el fallback, y esa rama ni miraba el
+   tenant.
+4. **Fusionar dos fichas del mismo socio** sumaba los dos contadores: 20 de un
+   cupo de 10. Ahora se acota al cupo en las tarjetas de club.
+5. **`anularConsumo` marcaba el consumo aunque no devolviera nada.** La
+   comprobación de período iba DESPUÉS de marcar, así que un consumo de un mes
+   anterior quedaba «anulado» sin devolverle un beneficio al cliente: contaba
+   como anulado en los informes, no se podía reintentar nunca y al cajero se le
+   decía después que no se podía deshacer. Y se cerró la carrera residual con
+   una segunda comprobación **después** de tomar el candado del pase.
+6. **El cron comiteaba a medias.** Si el pase de una membresía había
+   desaparecido, `return false` dejaba el período avanzado con el pase sin
+   tocar, y ni el cron ni el reinicio perezoso volvían a mirarla jamás. Ahora
+   lanza, la transacción se deshace y el `catch` nuevo la salta de verdad.
+
+### Lo que se cambió y luego se revirtió
+
+Cambié `reiniciarCupos` para que un plan apagado dejara de repartir cupo. **Lo
+revertí**, y el test que lo impedía tenía razón: si el negocio solo quería
+cerrar las altas, cortarle el reparto a quien sigue pagando le quita en silencio
+lo que compró — y eso es peor que seguir repartiendo, porque lo segundo tiene un
+cajero delante que lo ve. Lo que faltaba de verdad era **la salida**.
+
+### Lo nuevo
+
+- **«Dar de baja a todos los socios»** en la pantalla del plan. Es la forma de
+  cerrar un club. No borra nada: quedan en CANCELADA con su histórico.
+- **Pantalla de Consumos.** `ClubConsumo` se escribía desde el primer día y no
+  lo leía nadie: qué se llevó cada socio, cuántas unidades entregaste este mes,
+  el promedio por persona, lo que cobras — y el botón de deshacer, que hasta
+  ahora solo existía mientras la tarjeta seguía en pantalla del escáner.
+- **Columna «Aún no la ha instalado»**. `walletInstalledAt` se guardaba en cada
+  descarga del pase y no lo leía nadie: el negocio veía a todos sus socios
+  iguales sin saber quién cobró y nunca instaló.
+- **`?welcome=1`** en el enlace que se le manda al socio. Un parámetro decidía
+  si la página empuja a instalar o si se comporta como «ya la tienes».
+- En la billetera: un socio **de baja** ya no ve «EN PAUSA» sino «FINALIZADA»,
+  el aviso ya no dice «Te quedan: EN PAUSA», y en Android el club **siempre**
+  notifica (el corte genérico de «solo si hay saldo» ocultaba justo el momento
+  de quedarse sin cupo).
+
+### Rendimiento
+
+- **El buscador de socios escaneaba la tabla `Customer` entera**, la de los 168
+  negocios, con tres `ILIKE` por fila y dos veces por tecla. Faltaba el
+  `tenantId` en el subselect.
+- **El cron leía todas las membresías activas de la plataforma** 23 de las 24
+  pasadas diarias para devolver cero filas: `periodo: { not }` no es un rango.
+  Ahora `lt` + índice `[periodo, status]`.
+- **Editar el plan reenviaba el pase a todos los socios** aunque solo cambiaras
+  la descripción. Ahora solo si cambió algo que se ve en el pase.
+- Índices nuevos: `[planId, status, createdAt desc]` para el listado, y
+  **`@@unique([tenantId, clubPlanId])` en `Card`** — dos primeros socios a la
+  vez creaban DOS tarjetas-plantilla y una dejaba huérfano el pase instalado.
+- Menores: `select` acotado al buscar la tarjeta del plan, y el slug libre en
+  una consulta en vez de hasta cincuenta.
+
+**Correr la migración otra vez** (`apply-club-migration.cjs`): trae los tres
+índices nuevos y es idempotente.
+
+### Pendiente que NO toqué
+
+`reiniciarCupos` abre **una transacción por fila** con tope de 5000. Con
+volumen real son ~20.000 viajes a la base en serie y 5.000 pushes de golpe. Hoy
+no duele —hay 0 socios— pero con miles hay que pasarlo a lotes con una sola
+sentencia (CTE modificante) y repartir los pushes en el tiempo. No lo hice
+ahora porque reescribirlo en SQL crudo se lleva por delante los 19 tests del
+reinicio, y prefiero no tocarlo el mismo día que sale.
+
+---
+
 ## 2026-09-02 — El backend lleva desde ayer sin desplegarse y nadie se enteró
 
 **Los 3 últimos despliegues del backend FALLARON.** Lo que corre en producción

@@ -60,6 +60,12 @@ type Labels = {
   club_unit: string;
   club_change: string;
   club_paused: string;
+  club_ended: string;
+  /**
+   * Aviso cuando la membresía se detiene. Con `club_change` («Te quedan: %@»)
+   * el banner del móvil decía literalmente «Te quedan: EN PAUSA».
+   */
+  club_stopped_change: string;
   club_hero: string;
   club_left: string;
   club_left_count: (n: number, unidad: string) => string;
@@ -97,6 +103,7 @@ const DICT: Record<PassLocale, Labels> = {
     alliance_change: 'Beneficio: %@',
     alliance_ask: (e) => `Consulta con ${e}`,
     club_unit: 'BENEFICIOS', club_change: 'Te quedan: %@', club_paused: 'EN PAUSA',
+    club_ended: 'FINALIZADA', club_stopped_change: 'Tu suscripción: %@',
     club_hero: 'Tu cupo del mes', club_left: 'Te quedan',
     club_left_count: (n, u) => `${n} ${u}`,
     reward: 'RECOMPENSA', customer: 'CLIENTE', last_message: 'Último mensaje',
@@ -118,6 +125,7 @@ const DICT: Record<PassLocale, Labels> = {
     alliance_change: 'Benefit: %@',
     alliance_ask: (e) => `Check with ${e}`,
     club_unit: 'BENEFITS', club_change: 'Left: %@', club_paused: 'ON HOLD',
+    club_ended: 'ENDED', club_stopped_change: 'Your subscription: %@',
     club_hero: 'Your monthly allowance', club_left: 'Left',
     club_left_count: (n, u) => `${n} ${u}`,
     reward: 'REWARD', customer: 'MEMBER', last_message: 'Latest message',
@@ -139,6 +147,7 @@ const DICT: Record<PassLocale, Labels> = {
     alliance_change: 'Benefício: %@',
     alliance_ask: (e) => `Consulte com ${e}`,
     club_unit: 'BENEFÍCIOS', club_change: 'Restam: %@', club_paused: 'EM PAUSA',
+    club_ended: 'FINALIZADA', club_stopped_change: 'Sua assinatura: %@',
     club_hero: 'Sua cota do mês', club_left: 'Restam',
     club_left_count: (n, u) => `${n} ${u}`,
     reward: 'RECOMPENSA', customer: 'CLIENTE', last_message: 'Última mensagem',
@@ -160,6 +169,7 @@ const DICT: Record<PassLocale, Labels> = {
     alliance_change: 'Vantaggio: %@',
     alliance_ask: (e) => `Rivolgiti a ${e}`,
     club_unit: 'VANTAGGI', club_change: 'Restano: %@', club_paused: 'IN PAUSA',
+    club_ended: 'TERMINATA', club_stopped_change: 'Il tuo abbonamento: %@',
     club_hero: 'Il tuo credito del mese', club_left: 'Restano',
     club_left_count: (n, u) => `${n} ${u}`,
     reward: 'PREMIO', customer: 'CLIENTE', last_message: 'Ultimo messaggio',

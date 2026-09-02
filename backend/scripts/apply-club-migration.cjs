@@ -76,6 +76,19 @@ const PASOS = [
   ],
   ['índice ClubMembresia (única por plan)', `CREATE UNIQUE INDEX IF NOT EXISTS "ClubMembresia_planId_customerId_key" ON "ClubMembresia"("planId","customerId")`],
   ['índice ClubMembresia (pase)', `CREATE UNIQUE INDEX IF NOT EXISTS "ClubMembresia_passId_key" ON "ClubMembresia"("passId")`],
+  // Índices añadidos el 2026-09-02 tras medir las consultas reales.
+  [
+    'índice ClubMembresia (listado por fecha)',
+    `CREATE INDEX IF NOT EXISTS "ClubMembresia_planId_status_createdAt_idx" ON "ClubMembresia"("planId","status","createdAt" DESC)`,
+  ],
+  [
+    'índice ClubMembresia (cron por período)',
+    `CREATE INDEX IF NOT EXISTS "ClubMembresia_periodo_status_idx" ON "ClubMembresia"("periodo","status")`,
+  ],
+  [
+    'única Card (una plantilla por plan)',
+    `CREATE UNIQUE INDEX IF NOT EXISTS "Card_tenantId_clubPlanId_key" ON "Card"("tenantId","clubPlanId")`,
+  ],
   ['índice ClubMembresia (estado)', `CREATE INDEX IF NOT EXISTS "ClubMembresia_planId_status_idx" ON "ClubMembresia"("planId","status")`],
   ['índice ClubMembresia (período)', `CREATE INDEX IF NOT EXISTS "ClubMembresia_status_periodo_idx" ON "ClubMembresia"("status","periodo")`],
   [

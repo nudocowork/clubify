@@ -529,9 +529,21 @@ export class AutomationsService {
         // cardId explícito le sumaría "sellos" al saldo de la membresía de club
         // o a la tarjeta de la empresa aliada, donde el contador no significa
         // nada y el cliente vería subir un número que no le sirve.
+        // El filtro estaba SOLO en el fallback de abajo. Con `cardId` explícito
+        // se cargaba la tarjeta a pelo —sin mirar el tenant siquiera— y si esa
+        // tarjeta era la plantilla de un plan de club, la automatización le
+        // SUMABA cupo al socio: sin `ClubConsumo`, sin tope y sin rastro. Media
+        // puerta cerrada es una puerta abierta.
         const card =
           (action.cardId &&
-            (await this.prisma.card.findUnique({ where: { id: action.cardId } }))) ||
+            (await this.prisma.card.findFirst({
+              where: {
+                id: action.cardId,
+                tenantId,
+                clubPlanId: null,
+                convenioId: null,
+              },
+            }))) ||
           (await this.prisma.card.findFirst({
             where: {
               tenantId,

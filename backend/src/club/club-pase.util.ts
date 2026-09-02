@@ -7,6 +7,11 @@ export type ClubEnPase = {
   cupo: number;
   /** Pausada o de baja: el socio no puede consumir aunque le queden. */
   detenida: boolean;
+  /**
+   * De baja, que NO es lo mismo que en pausa. Colapsarlos dejaba al que se dio
+   * de baja con «EN PAUSA» en el móvil, sugiriéndole que va a volver.
+   */
+  dadaDeBaja: boolean;
 };
 
 /**
@@ -44,6 +49,7 @@ export async function clubDelPase(
     // le prometería cinco que la caja no le va a dar.
     cupo: m.cupoDelPeriodo || m.plan.beneficiosPorMes,
     detenida: m.status !== 'ACTIVA',
+    dadaDeBaja: m.status === 'CANCELADA',
   };
 }
 

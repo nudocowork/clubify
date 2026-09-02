@@ -1652,6 +1652,13 @@ model Card {
   popupForBookSections    MenuBookSection[]       @relation("MenuBookSectionPopupCard")
   popupForBookPages       MenuBookPage[]          @relation("MenuBookPagePopupCard")
 
+  /// Una sola tarjeta-plantilla por plan de club. El alta hace
+  /// «buscar o crear» FUERA de la transacción, así que dos primeros socios a la
+  /// vez creaban DOS plantillas: la segunda dejaba huérfano el pase que el
+  /// cliente ya tenía instalado, y al escanearlo respondía que la tarjeta no
+  /// tiene socio. Los `null` no chocan entre sí en Postgres, así que las
+  /// tarjetas normales no se ven afectadas.
+  @@unique([tenantId, clubPlanId])
   @@index([tenantId])
   @@index([locationId])
 }
@@ -6814,8 +6821,14 @@ model ClubMembresia {
 
   /// Un cliente, una membresía por plan.
   @@unique([planId, customerId])
-  @@index([planId, status])
-  @@index([status, periodo])
+  /// El listado de socios ordena por fecha de alta. Sin la fecha EN el índice,
+  /// Postgres traía las miles de filas del plan y las ordenaba en memoria en
+  /// cada página, incluida la primera.
+  @@index([planId, status, createdAt(sort: Desc)])
+  /// El cron busca «período menor que el actual». Con el período delante es un
+  /// rango; al revés recorría todas las membresías activas de la plataforma
+  /// para devolver cero filas, 23 de las 24 pasadas diarias.
+  @@index([periodo, status])
 }
 
 /// Cada beneficio consumido. Es el histórico: nunca se borra ni se edita.

@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { plural } from '@/lib/plural';
+import { Consumos } from './Consumos';
 
 type Plan = {
   id: string;
@@ -17,6 +18,8 @@ type Plan = {
   currency: string;
   isActive: boolean;
   tramos: Array<{ desdeDia: number; hastaDia: number; beneficios: number }>;
+  miembrosActivos: number;
+  miembrosPausados: number;
 };
 
 type Estado = 'ACTIVA' | 'PAUSADA' | 'CANCELADA';
@@ -29,6 +32,8 @@ type Miembro = {
   saldo: number;
   passId: string | null;
   serial: string | null;
+  instaladaEn: string | null;
+  plataforma: string | null;
   altaEn: string;
   cliente: {
     id: string;
@@ -64,6 +69,9 @@ export default function SociosDelPlanPage() {
   const [estado, setEstado] = useState<'TODAS' | Estado>('TODAS');
   const [cargando, setCargando] = useState(true);
   const [dandoDeAlta, setDandoDeAlta] = useState(false);
+  const [cerrando, setCerrando] = useState(false);
+  const [sociosAlDia, setSociosAlDia] = useState(0);
+  const [sociosEnPausa, setSociosEnPausa] = useState(0);
 
   // Número de petición monotónico para descartar respuestas viejas. El
   // debounce solo cancela el temporizador: una petición YA EN VUELO no se
@@ -90,12 +98,22 @@ export default function SociosDelPlanPage() {
     }
   }, [planId, pagina, busqueda, estado]);
 
-  useEffect(() => {
-    // No hay endpoint de un plan suelto: la lista es corta y trae los tramos.
+  // No hay endpoint de un plan suelto: la lista es corta y trae los tramos y
+  // los contadores de socios ya calculados.
+  const recargarPlan = useCallback(() => {
     api('/club/planes')
-      .then((ps: Plan[]) => setPlan(ps.find((p) => p.id === planId) ?? null))
+      .then((ps: Plan[]) => {
+        const p = ps.find((x) => x.id === planId) ?? null;
+        setPlan(p);
+        setSociosAlDia(p?.miembrosActivos ?? 0);
+        setSociosEnPausa(p?.miembrosPausados ?? 0);
+      })
       .catch(() => setPlan(null));
   }, [planId]);
+
+  useEffect(() => {
+    recargarPlan();
+  }, [recargarPlan]);
 
   useEffect(() => {
     const t = setTimeout(cargarMiembros, 300);
@@ -138,7 +156,11 @@ export default function SociosDelPlanPage() {
    */
   async function copiarEnlace(m: Miembro) {
     if (!m.passId) return;
-    const url = `${window.location.origin}/w/${m.passId}`;
+    // `?welcome=1` no es decorativo: es lo que hace que la página pinte
+    // «aún no has terminado, instala tu tarjeta». Sin él, el socio que abre el
+    // enlace POR PRIMERA VEZ ve la variante de quien vuelve a mirar la suya,
+    // pensada a propósito para NO empujar la instalación.
+    const url = `${window.location.origin}/w/${m.passId}?welcome=1`;
     try {
       await navigator.clipboard.writeText(url);
       toast('Enlace copiado. Envíaselo por WhatsApp.', 'success');
@@ -161,6 +183,37 @@ export default function SociosDelPlanPage() {
   }
 
   const paginas = Math.max(1, Math.ceil(total / 50));
+
+  /**
+   * Da de baja a todos de una vez. Es la salida para cerrar el club: sin esto,
+   * la única forma era entrar socio por socio.
+   */
+  async function cerrarElClub() {
+    const cuantos = sociosAlDia + sociosEnPausa;
+    if (
+      !confirm(
+        `Se va a dar de baja a ${cuantos} ${cuantos === 1 ? 'socio' : 'socios'}. Dejarán de consumir y su tarjeta lo dirá. ¿Seguimos?`,
+      )
+    ) {
+      return;
+    }
+    setCerrando(true);
+    try {
+      const r = await api(`/club/planes/${planId}/dar-de-baja-a-todos`, {
+        method: 'POST',
+      });
+      toast(
+        `${r.dadasDeBaja} ${r.dadasDeBaja === 1 ? 'socio dado' : 'socios dados'} de baja.`,
+        'success',
+      );
+      cargarMiembros();
+      recargarPlan();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo cerrar el club.', 'error');
+    } finally {
+      setCerrando(false);
+    }
+  }
 
   return (
     <div>
@@ -280,11 +333,18 @@ export default function SociosDelPlanPage() {
                     <div className="text-xs text-mute">
                       {m.cliente.email || m.cliente.telefono || '—'}
                     </div>
-                    {!m.passId && (
+                    {!m.passId ? (
                       <div className="text-xs text-warn-ink mt-0.5">
                         Sin tarjeta emitida
                       </div>
-                    )}
+                    ) : !m.instaladaEn ? (
+                      // El dato se guardaba en cada descarga del pase y no lo
+                      // leía nadie: el negocio veía a todos sus socios iguales
+                      // sin saber cuáles cobraron y nunca llegaron a instalar.
+                      <div className="text-xs text-warn-ink mt-0.5">
+                        Aún no la ha instalado
+                      </div>
+                    ) : null}
                   </td>
                   <td className="p-3 tabular-nums whitespace-nowrap">
                     <strong>{m.saldo}</strong>
@@ -361,6 +421,30 @@ export default function SociosDelPlanPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {plan && <Consumos planId={planId} socios={sociosAlDia} />}
+
+      {plan && (
+        <div className="card card-pad mt-4">
+          <h2 className="text-base font-semibold m-0">Cerrar el club</h2>
+          <p className="text-xs text-mute mt-1 max-w-2xl">
+            Apagar el plan solo cierra las altas nuevas: a los socios que ya
+            están dentro se les sigue repartiendo su cupo cada mes, que es lo
+            correcto mientras te paguen. Si vas a cerrar el club de verdad,
+            dales de baja aquí. No se borra nada: conservan su historial y
+            puedes readmitirlos cuando quieras.
+          </p>
+          <button
+            className="btn-ghost mt-3"
+            disabled={sociosAlDia + sociosEnPausa === 0 || cerrando}
+            onClick={cerrarElClub}
+          >
+            {cerrando
+              ? 'Dando de baja…'
+              : `Dar de baja a los ${sociosAlDia + sociosEnPausa} socios`}
+          </button>
         </div>
       )}
 

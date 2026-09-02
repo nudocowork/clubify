@@ -679,7 +679,15 @@ export class GoogleWalletService {
       const hasCustomMsg = !!opts.message?.body;
       const ct = pass.card.type;
       const genericWorthNotifying =
-        ct === 'STAMPS' || ct === 'HYBRID' || ct === 'DISCOUNT' || ct === 'GIFT' || ct === 'MULTI'
+        // El CLUB avisa siempre, aunque el saldo sea 0. Es una suscripción
+        // pagada: quedarse sin cupo, que le reinicien y que le pausen son las
+        // tres cosas que el socio necesita saber, y con el corte genérico de
+        // «solo si hay saldo» justo esas tres se le ocultaban.
+        // `as any`: aquí el pase viene tipado por Prisma y `club` se le cuelga a
+        // mano en `adjuntarClub`, como ya se hace con `alianza`.
+        (pass as any).club
+          ? true
+          : ct === 'STAMPS' || ct === 'HYBRID' || ct === 'DISCOUNT' || ct === 'GIFT' || ct === 'MULTI'
           ? (pass.stampsCount ?? 0) > 0
           : ct === 'VISITS'
           ? (pass.visitsCount ?? 0) > 0

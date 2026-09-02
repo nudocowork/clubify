@@ -138,6 +138,40 @@ export class ClubController {
     return this.svc.darDeAlta(user, planId, customerId, t);
   }
 
+  /**
+   * Da de baja a TODOS los socios. Es la salida para cerrar el club: apagar el
+   * plan solo cierra las altas nuevas, así que sin esto la única forma de
+   * cerrarlo era entrar socio por socio.
+   */
+  @Post('planes/:id/dar-de-baja-a-todos')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  darDeBajaATodos(
+    @CurrentUser() user: AuthUser,
+    @Param('id') planId: string,
+    @Query('tenantId') t?: string,
+  ) {
+    return this.svc.darDeBajaATodos(user, planId, t);
+  }
+
+  /** El historial de consumos del plan. Por defecto, el mes en curso. */
+  @Get('planes/:id/consumos')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  consumos(
+    @CurrentUser() user: AuthUser,
+    @Param('id') planId: string,
+    @Query('periodo') periodo?: string,
+    @Query('membresiaId') membresiaId?: string,
+    @Query('pagina') pagina?: string,
+    @Query('tenantId') t?: string,
+  ) {
+    return this.svc.consumosDelPlan(
+      user,
+      planId,
+      { periodo, membresiaId, pagina: Number(pagina) || 1 },
+      t,
+    );
+  }
+
   /** El interruptor manual: si no pagó, se pausa. */
   @Patch('membresias/:id/estado')
   @Roles('TENANT_OWNER', 'SUPER_ADMIN')

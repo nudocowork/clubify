@@ -124,6 +124,10 @@ export function WalletPassView({
       secondaryColor={data.card.secondaryColor}
       cardName={data.card.name}
       cardType={data.card.type}
+      // Tarjeta de club: lo manda el backend cuando la tarjeta es de un plan.
+      // Sin esto, la página que el negocio le manda al socio para instalarla
+      // le enseñaba «SELLOS 7/10» — el número al revés.
+      club={data.club ?? null}
       stampsRequired={data.card.stampsRequired}
       stampsCount={data.stampsCount ?? 0}
       visitsRequired={data.card.visitsRequired}

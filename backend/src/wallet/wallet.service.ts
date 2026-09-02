@@ -508,19 +508,25 @@ export class WalletService {
    */
   private headerClub(
     pass: { stampsCount: number },
-    club: { unidad: string; cupo: number; detenida: boolean },
+    club: {
+      unidad: string;
+      cupo: number;
+      detenida: boolean;
+      dadaDeBaja: boolean;
+    },
     L: ReturnType<typeof passLabels>,
   ) {
     const etiqueta = club.unidad.trim()
       ? pluralUnidad(club.unidad, 2).toUpperCase()
       : L.club_unit;
+    // El aviso cambia con el valor. Con «Te quedan: %@» siempre, al pausar el
+    // banner del móvil decía literalmente «Te quedan: EN PAUSA».
+    const detenido = club.dadaDeBaja ? L.club_ended : L.club_paused;
     return {
       key: 'club',
       label: etiqueta,
-      value: club.detenida
-        ? L.club_paused
-        : `${pass.stampsCount} / ${club.cupo}`,
-      changeMessage: L.club_change,
+      value: club.detenida ? detenido : `${pass.stampsCount} / ${club.cupo}`,
+      changeMessage: club.detenida ? L.club_stopped_change : L.club_change,
     };
   }
 

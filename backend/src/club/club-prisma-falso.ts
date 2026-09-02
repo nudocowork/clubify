@@ -192,6 +192,16 @@ function cumple(valor: unknown, cond: any): boolean {
     if ('lte' in cond) return (valor as number) <= cond.lte;
     if ('lt' in cond) return (valor as number) < cond.lt;
     if ('equals' in cond) return cumple(valor, cond.equals);
+    // Lo usa `crearPlan` para traerse de una sola consulta todos los slugs que
+    // empiezan por el mismo texto, en vez de probar uno por uno.
+    if ('startsWith' in cond) return String(valor ?? '').startsWith(cond.startsWith);
+    if ('contains' in cond) {
+      const v = String(valor ?? '');
+      const q = String(cond.contains);
+      return cond.mode === 'insensitive'
+        ? v.toLowerCase().includes(q.toLowerCase())
+        : v.includes(q);
+    }
   }
   return valor === cond;
 }
@@ -573,8 +583,31 @@ export function crearPrismaFalso(bd: BaseDeDatos) {
       const c = bd.consumos.find((x) => x.id === where.id);
       return c ? proyectar(c, { include, select }, relConsumo) : null;
     },
-    findMany: async ({ where }: any) =>
-      bd.consumos.filter((x) => filtra(x, where, relConsumo)).map((c) => ({ ...c })),
+    findMany: async ({ where, include, select, orderBy, skip, take }: any) => {
+      let filas = bd.consumos.filter((x) => filtra(x, where, relConsumo));
+      // El historial ordena por fecha descendente y pagina.
+      if (orderBy?.createdAt) {
+        const dir = orderBy.createdAt === 'desc' ? -1 : 1;
+        filas = [...filas].sort(
+          (a, b) => dir * (a.createdAt.getTime() - b.createdAt.getTime()),
+        );
+      }
+      if (skip) filas = filas.slice(skip);
+      if (take) filas = filas.slice(0, take);
+      return filas.map((c) =>
+        include || select ? proyectar(c, { include, select }, relConsumo) : { ...c },
+      );
+    },
+    count: async ({ where }: any) =>
+      bd.consumos.filter((x) => filtra(x, where, relConsumo)).length,
+    /** Solo `_sum.cantidad`, que es lo único que usa el historial. */
+    aggregate: async ({ where }: any) => ({
+      _sum: {
+        cantidad: bd.consumos
+          .filter((x) => filtra(x, where, relConsumo))
+          .reduce((t, c) => t + c.cantidad, 0),
+      },
+    }),
     create: async ({ data }: any) => {
       const fn = ganchos.antesDeCrearConsumo;
       if (fn) {

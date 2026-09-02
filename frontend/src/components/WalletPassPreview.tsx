@@ -23,6 +23,7 @@
  *   - Pager dots estilo iOS
  */
 import { Barcode } from '@/components/Barcode';
+import { plural } from '@/lib/plural';
 
 export type WalletPassPreviewProps = {
   brandName: string;
@@ -41,6 +42,13 @@ export type WalletPassPreviewProps = {
     | 'CASHBACK'
     | 'VISITS'
     | 'HYBRID';
+  /**
+   * Tarjeta de CLUB. Por dentro es `STAMPS` —el saldo vive en el mismo
+   * contador— así que sin esto se pinta como un cartón: «SELLOS 7/10», con el
+   * número contando lo contrario de lo que significa. Aquí arranca llena y
+   * baja: son los beneficios que le QUEDAN de los que pagó.
+   */
+  club?: { unidad: string; cupo: number } | null;
   stampsRequired?: number | null;
   stampsCount?: number;
   visitsRequired?: number | null;
@@ -124,6 +132,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     secondaryColor,
     cardName,
     cardType,
+    club = null,
     stampsRequired = 10,
     stampsCount = 0,
     visitsRequired = 10,
@@ -154,10 +163,17 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
 
   const isProgressType =
     cardType === 'STAMPS' || cardType === 'HYBRID' || cardType === 'VISITS';
-  const required =
-    cardType === 'VISITS' ? visitsRequired ?? 10 : stampsRequired ?? 10;
+  const required = club
+    ? club.cupo
+    : cardType === 'VISITS'
+      ? visitsRequired ?? 10
+      : stampsRequired ?? 10;
   const current = cardType === 'VISITS' ? visitsCount : stampsCount;
   const previewStamps = Math.max(1, Math.min(required, 12));
+  // Con cupos grandes el cartón deja de significar nada: doce círculos para un
+  // plan de treinta clases es una foto que contradice al número de arriba. Es
+  // el mismo corte que hace el pase de verdad.
+  const dibujarCarton = !club || club.cupo <= 20;
 
   // Wallet V3 — Premios Free por posición (1-based) + "Próximo Premio".
   const activePrizes = (freeRewards || []).filter(
@@ -225,6 +241,12 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
         // que no caiga al default y muestre "SELLOS x/y".
         return { lbl: 'REGALO', val: 'DISPONIBLE' };
       default:
+        if (club) {
+          return {
+            lbl: (plural(club.unidad, 2) || 'BENEFICIOS').toUpperCase(),
+            val: `${stampsCount}/${required}`,
+          };
+        }
         return { lbl: 'SELLOS', val: `${stampsCount}/${required}` };
     }
   })();
@@ -295,7 +317,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
 
       {/* Strip / display central según tipo */}
       <div className="px-4 pb-3 relative">
-        {isProgressType && (
+        {isProgressType && dibujarCarton && (
           <div
             className="rounded-2xl px-3 py-3 relative overflow-hidden"
             style={

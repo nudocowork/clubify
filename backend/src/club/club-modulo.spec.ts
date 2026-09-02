@@ -149,10 +149,23 @@ describe('lo que el pase le enseña al cliente', () => {
     const m = await svc.darDeAlta(DUENO, 'p1', 'cli1');
 
     const enPase = await clubDelPase(prisma, 'p1', m.passId!);
-    expect(enPase).toEqual({ unidad: 'café', cupo: 10, detenida: false });
+    expect(enPase).toEqual({
+      unidad: 'café',
+      cupo: 10,
+      detenida: false,
+      dadaDeBaja: false,
+    });
 
     await svc.cambiarEstado(DUENO, m.id, 'PAUSADA');
-    expect((await clubDelPase(prisma, 'p1', m.passId!))?.detenida).toBe(true);
+    const pausada = await clubDelPase(prisma, 'p1', m.passId!);
+    expect(pausada?.detenida).toBe(true);
+    // En pausa NO es de baja: el pase de un pausado dice «EN PAUSA» y el de
+    // uno dado de baja «FINALIZADA». Colapsarlos dejaba al que se fue con una
+    // tarjeta que le sugería que iba a volver.
+    expect(pausada?.dadaDeBaja).toBe(false);
+
+    await svc.cambiarEstado(DUENO, m.id, 'CANCELADA');
+    expect((await clubDelPase(prisma, 'p1', m.passId!))?.dadaDeBaja).toBe(true);
   });
 
   it('el cupo sale del PERÍODO, no del plan', async () => {

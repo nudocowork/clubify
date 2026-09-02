@@ -322,8 +322,13 @@ describe('anular un consumo mal registrado', () => {
     const r = await svc.anularConsumo(CAJERO, 'c-viejo');
     expect(r).toMatchObject({ ok: true, devuelto: 0 });
     expect(saldo()).toBe(10);
-    // Y aun así queda marcado: el histórico no se reescribe.
-    expect(bd.consumos[0].revertedAt).not.toBeNull();
+    // Y NO queda marcado. Antes sí, «porque el histórico no se reescribe» —
+    // pero `revertedAt` significa «se deshizo y se le devolvió el cupo», y
+    // ponerlo sin devolver nada hace que el campo mienta: el consumo salía
+    // como anulado en cualquier informe, no se podía reintentar jamás («ya
+    // estaba anulado») y al cajero se le decía DESPUÉS que no se podía
+    // deshacer. Si no se devuelve nada, el consumo sigue en pie.
+    expect(bd.consumos[0].revertedAt).toBeNull();
     // Y no se molesta a la billetera si no ha cambiado nada.
     await respirar();
     expect(empujados).toHaveLength(0);
@@ -490,12 +495,16 @@ describe('FALLO — el descuento perdió el candado del estado', () => {
   });
 });
 
-describe('FALLO — la anulación decide con una foto vieja de la membresía', () => {
-  it('si el cron reinicia en medio, no debería devolver cupo del mes nuevo', async () => {
-    // `anularConsumo` compara `c.membresia.periodo` con `c.periodo`, y esa
-    // membresía se leyó ANTES de abrir la transacción. Si el reinicio mensual
-    // entra por medio, la comparación se hace con el período viejo y el cupo
-    // se devuelve encima del cupo nuevo: el cliente acaba con 11 de 10.
+describe('el cron reinicia justo mientras se deshace un consumo', () => {
+  it('no se devuelve cupo del mes nuevo, y no queda nada marcado', async () => {
+    // La comprobación del período no basta con hacerla al entrar: esa lectura
+    // no bloquea nada, así que el reinicio mensual puede estar a medias y sin
+    // comitear. Por eso se vuelve a mirar DESPUÉS de tomar el candado del
+    // pase, cuando ese reinicio ya terminó por fuerza — y si el mes cambió, se
+    // lanza y la transacción entera se deshace.
+    //
+    // Sin eso el cliente acababa con 11 de 10: un beneficio del mes viejo
+    // sumado encima del cupo recién repuesto.
     const c = await svc.consumir(CAJERO, 'm1', 1);
     expect(saldo()).toBe(9);
 
@@ -504,9 +513,11 @@ describe('FALLO — la anulación decide con una foto vieja de la membresía', (
       membresia().periodo = '2026-10';
       bd.pases[0].stampsCount = 10;
     };
-    const r = await svc.anularConsumo(CAJERO, c.consumoId);
-    expect(r.devuelto).toBe(0);
+    await expect(svc.anularConsumo(CAJERO, c.consumoId)).rejects.toThrow(
+      ConflictException,
+    );
     expect(saldo()).toBe(10);
+    expect(bd.consumos[0].revertedAt).toBeNull();
   });
 });
 

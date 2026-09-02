@@ -450,6 +450,9 @@ export class CustomersService {
             where: {
               cardId_customerId: { cardId: sp.cardId, customerId: keepId },
             },
+            // La tarjeta hace falta para saber si es de club: ahí el contador
+            // es un cupo mensual pagado y no se pueden sumar los dos.
+            include: { card: { select: { clubPlanId: true, stampsRequired: true } } },
           });
           if (dup) {
             // Sumar stamps y puntos al pass del keeper, mover stamps históricos, borrar el pass src.
@@ -465,10 +468,19 @@ export class CustomersService {
                 sp.qrToken,
               ]),
             ).filter((t) => t && t !== dup.qrToken);
+            // Sumar los dos contadores es lo correcto en una tarjeta de
+            // sellos —el cliente ganó los de las dos— pero NO en una de club:
+            // ahí el contador es un cupo mensual pagado, y el mismo socio
+            // duplicado en el mismo plan acababa con 20 de un cupo de 10. Se
+            // acota al cupo, que es lo máximo que puede tener.
+            const esDeClub = Boolean((dup as any).card?.clubPlanId);
+            const sumados = dup.stampsCount + sp.stampsCount;
+            const tope = (dup as any).card?.stampsRequired ?? null;
             await tx.pass.update({
               where: { id: dup.id },
               data: {
-                stampsCount: dup.stampsCount + sp.stampsCount,
+                stampsCount:
+                  esDeClub && tope != null ? Math.min(sumados, tope) : sumados,
                 pointsBalance: Number(dup.pointsBalance) + Number(sp.pointsBalance),
                 legacyQrTokens: preservedTokens,
               },
