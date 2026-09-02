@@ -101,6 +101,11 @@ export type HotmartWebhookPayload = {
       // OJO: Hotmart manda la moneda como `currency_value` (ej. "PAB", "COP",
       // "USD"), y a veces `currency_code`. Revisamos ambos.
       price?: { value?: number; currency_code?: string; currency_value?: string };
+      // Precio de la oferta. Cuando el comprador paga en moneda local (PAB/COP…),
+      // `price` viene en esa moneda pero Hotmart suele mandar el USD acá. Lo usamos
+      // como fallback en USD para CONTABILIDAD/SMS (no para la comisión, que va por
+      // el canónico). Confirmado en payloads reales (Hydor: original_offer_price en USD).
+      original_offer_price?: { value?: number; currency_code?: string; currency_value?: string };
       // Oferta específica del checkout. Varias ofertas pueden compartir el mismo
       // productId (ej. packs de 1/10/20 créditos) → el offer.code distingue cuál.
       offer?: { code?: string; description?: string };
@@ -1499,9 +1504,28 @@ export class HotmartService {
       'activatePurchase',
       canonicalUsd,
     );
-    // CONTABILIDAD (Fase 1): registrar el ingreso real de Hotmart con su
-    // desglose (bruto/fee/impuesto/neto, histórico). Solo si vino el monto
-    // real (>0); el servicio deduplica por transactionId. Best-effort, aditivo.
+    // Monto en USD para CONTABILIDAD y el SMS interno. `realPriceUsd` es null
+    // cuando el comprador pagó en moneda LOCAL (PAB de Panamá, COP, etc.):
+    // resolvePaidUsd lo descarta a propósito para no inflar la comisión (que va
+    // por el canónico). Pero el INGRESO sí hay que registrarlo — antes se perdía
+    // (grossUsd null → record() lo saltaba). Caemos a `original_offer_price` si
+    // vino en USD (Hotmart lo manda en USD aunque `price` esté en local), y si no,
+    // al canónico del plan. Bug real: TODOS los pagos LATAM en moneda local desde
+    // el backfill del 31-ago no entraban a Contabilidad (caso Hydor, HP4204708280).
+    const offer = payload.data?.purchase?.original_offer_price;
+    const offerUsd =
+      offer &&
+      String(offer.currency_value || offer.currency_code || '').toUpperCase() === 'USD' &&
+      typeof offer.value === 'number' &&
+      offer.value > 0
+        ? offer.value
+        : null;
+    const incomeGrossUsd =
+      realPriceUsd ?? offerUsd ?? (canonicalUsd > 0 ? canonicalUsd : null);
+
+    // CONTABILIDAD (Fase 1): registrar el ingreso de Hotmart con su desglose
+    // (bruto/fee/impuesto/neto). El servicio deduplica por transactionId y salta
+    // si el monto es <= 0. Best-effort, aditivo.
     void this.incomeRecord.record({
       gateway: 'HOTMART',
       externalTxId: transactionId ?? tenant.hotmartTransactionId,
@@ -1510,7 +1534,7 @@ export class HotmartService {
       brandName: tenant.brandName,
       planPeriodicity: periodFromHotmart ?? null,
       currency: 'USD',
-      grossUsd: realPriceUsd,
+      grossUsd: incomeGrossUsd,
       isFirstPayment: !tenant.currentPeriodEnd,
       saleDate: lastChargeAt ?? new Date(),
     });
@@ -1649,7 +1673,9 @@ export class HotmartService {
     if (!alreadyConfirmedTx) {
       void this.billing
         .notifyBillingTeam('pago_procesado', tenant.brandName, {
-          amountUsd: realPriceUsd ?? null,
+          // Mismo monto USD que Contabilidad: si pagó en moneda local, realPriceUsd
+          // es null y el SMS salía sin monto. incomeGrossUsd cae a la oferta/canónico.
+          amountUsd: incomeGrossUsd,
           renewal: !isFirstHotmartPurchase,
         })
         .catch((e) =>
