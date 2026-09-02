@@ -8,40 +8,58 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
-## 2026-09-02 — ⚠️ `desplegar.cjs backend` ya no funciona: sube desde la raíz
+## 2026-09-02 — El backend lleva desde ayer sin desplegarse y nadie se enteró
 
-**Si despliegas el backend y la ruta nueva sigue dando 404, es esto.**
+**Los 3 últimos despliegues del backend FALLARON.** Lo que corre en producción
+es de `2026-09-01 22:05`. Los tres fallos, por orden:
 
-El script sube **la raíz del repo** y confía en que el servicio de Railway tenga
-`Root Directory = backend` (así está documentado en `DEPLOY.md`). Ese ajuste
-**ya no está puesto**, así que Railway mira el `package.json` de la raíz —el que
-existe solo para que Vercel detecte Next— que no tiene `start`, y el build muere
-con:
+| Despliegue | Hora | Por qué |
+|---|---|---|
+| `6526154d` | 01-sep 23:34 | **52 errores de TypeScript** — el club a medias (`ClubMembresia.saldo`) |
+| `d0998242` | 02-sep 02:18 | **La app no arranca**: `ClubModule` no importaba `WalletModule` |
+| `e17dcbe3` | 02-sep 07:49 | Mío, subiendo desde `backend/` — ver abajo |
 
-```
-✖ No start command detected
-railpack prepare exited with an error
-```
+### Lo que lo hace peligroso
 
-El build falla, **producción se queda con la imagen vieja y no se entera nadie**:
-`/api/health` sigue en 200 y las rutas viejas en 401. Lo único que lo delata es
-que la ruta NUEVA da 404.
+Un despliegue fallido **no se nota**. `/api/health` sigue en 200 y las rutas
+viejas en 401, porque producción se queda tan tranquila con la imagen anterior.
+Lo único que lo delata es que **una ruta NUEVA da 404**. Si no la pruebas,
+das por desplegado algo que no lo está.
 
-Mientras el ajuste no vuelva, hay que subir **desde `backend/`**, que es donde
-viven `Dockerfile` y `railway.json`:
+**Después de desplegar, comprueba siempre una ruta que solo exista en tu
+commit.** Y si no la hay, mira `uptimeSec` en `/api/health`: si son horas, tu
+despliegue no entró.
 
 ```bash
-git clone --no-hardlinks . /tmp/deploy && cd /tmp/deploy && git checkout <sha>
-cd backend
-railway link --project ba90d94d-7e6d-4056-85ad-0e3f24e8d43a --environment production --service backend
-railway up --service backend --detach
+railway logs --build <deployment-id>       # por qué falló el build
+railway logs --deployment <deployment-id>  # por qué no arrancó el contenedor
 ```
 
-Arreglo de raíz: volver a poner `Root Directory = backend` en el servicio, o
-cambiar el script para que suba `COPIA/backend`. No lo cambio yo porque no sé
-si el ajuste se quitó a propósito.
+### El fallo de arranque, que los tests no ven
 
----
+```
+Nest can't resolve dependencies of the ClubService (PrismaService, ?, QueueService).
+```
+
+`ClubService` inyecta `WalletService` para empujar el pase, y `ClubModule` no
+importaba `WalletModule`. **Los tests unitarios no lo cogen**: construyen el
+servicio a mano con sus tres dependencias. El grafo de módulos solo se arma al
+arrancar, así que esto solo lo ve un arranque real. (`QueueService` sí resolvía:
+`JobsModule` es `@Global()`.)
+
+### Y NO: el `Root Directory` está bien
+
+Me equivoqué al leer el primer fallo y escribí aquí que el servicio había
+perdido `Root Directory = backend`. **Es falso.** El log de `d0998242` carga
+`backend/Dockerfile` sin problema: subir desde la raíz del repo, como hace
+`desplegar.cjs`, es lo correcto.
+
+Lo que sí es verdad es lo contrario: **subir desde `backend/` NO funciona**,
+porque entonces Railway busca `backend/backend`:
+
+```
+lstat .../snapshot-target-unpack/backend: no such file or directory
+```
 
 ## 2026-09-02 (madrugada, 4ª vuelta) — Tarjeta de Club: panel, billetera y 9 defectos
 
