@@ -37,6 +37,31 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+## 2026-09-02 — Sellea InfoLinks: 6 arreglos del freemium (registro, panel, precios, logo, sidebar)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `37bdb9f9`
+
+### Qué cambié (DESPLEGADO backend + frontend)
+1. **signup InfoLink**: el teléfono se guardaba solo en el tenant → ahora TAMBIÉN en
+   `User.phone` (la pantalla "Datos personales" lee user.phone; salía vacío).
+2. **signup InfoLink**: envía **correo de bienvenida con branding de la marca**
+   (`welcomeOwnerTemplate` + `brandEmail.sendRaw`, subcuenta Grow Business). Antes no mandaba ninguno.
+3. **pricing landing**: el link `INFOLINK_PRO` ya NO aparece en el selector de planes
+   (filtro por `productKey` en `fetchBrandPlansByHost`; el endpoint ahora expone productKey).
+4. **panel suscripción** (`app/billing`): para negocios INFOLINK muestra un panel propio
+   (Gratis · sin vencimiento / PRO $14.99), no la suscripción completa de $80.
+5. **tarjeta de captación** pública (`/i/<slug>/<link>`): usa el logo REAL de la marca, no el monograma "S".
+6. **sidebar admin**: sección **"InfoLink" exclusiva de Sellea** (flag `selleaOnly` en AppShell)
+   bajo "Negocios" → `/admin/infolinks` (ya listaba Gratis/PRO por plan, sin vencimiento).
+
+### Qué toqué de PRODUCCIÓN
+- **Railway backend**: deployment `38938880` swapped (Online, 200).
+- **Vercel frontend**: READY (selleala.com + /infolink 200).
+
+### Aviso a Javi
+- Mi deploy salió del HEAD que incluía tu **`761efdc9` (ocultar compras en iOS, guideline 3.1.1)**.
+  Si no estaba desplegado, quedó vivo con esta tanda. Web sin cambios (solo afecta la app nativa).
+
 ## 2026-09-01 — Ranking de pedidos (menús de domicilios) + deploy que subió el /hub de Javi
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `ad220937`
