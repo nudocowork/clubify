@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { AutomationsService } from '../automations/automations.service';
 import { genQrToken } from '../passes/passes.service';
 import {
   admiteActivaciones,
@@ -77,7 +78,10 @@ export class AlianzasPublicoService {
    */
   private intentos = new Map<string, { n: number; hasta: number }>();
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private automations: AutomationsService,
+  ) {}
 
   // ─────────────────────────── La página pública ───────────────────────────
 
@@ -380,6 +384,32 @@ export class AlianzasPublicoService {
       }
       throw e;
     }
+
+    // El mismo evento que emite el alta normal (`enrollPublic`). Sin esto, un
+    // empleado que activa su tarjeta de alianza NO recibía el mensaje de
+    // bienvenida ni disparaba ninguna regla del negocio: para las
+    // automatizaciones era como si no existiera. Es el mismo bug que ya costó
+    // que la bienvenida del storefront marcara 0 ejecuciones (BUG PDF734).
+    //
+    // Solo en pase NUEVO: las reactivaciones vuelven por el atajo de
+    // idempotencia de arriba y no deben volver a saludar.
+    //
+    // Best-effort a propósito: si el motor de automatizaciones falla, la
+    // tarjeta ya está emitida y el empleado no puede quedarse sin ella por un
+    // mensaje de bienvenida.
+    this.automations
+      .emit('PASS_CREATED', {
+        tenantId: tenant.id,
+        customerId: customer.id,
+        cardId: card.id,
+        passId: pass.id,
+        // `nombre` y no `customer.fullName`: cuando la persona ya era cliente
+        // del negocio, `crearOActualizarCliente` devuelve la fila existente sin
+        // el nombre, y aquí queremos el que acaba de escribir.
+        customerName: nombre,
+        cardName: card.name,
+      })
+      .catch(() => null);
 
     this.logger.log(
       `Alianza ${convenio.slug} · tarjeta nueva para customer ${customer.id} (origen ${dto.via ?? 'directo'})`,

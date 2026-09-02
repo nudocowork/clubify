@@ -8,6 +8,7 @@ import {
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { clubDelPase } from '../club/club-pase.util';
+import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AutomationsService } from '../automations/automations.service';
@@ -148,9 +149,16 @@ export class PassesService {
     const club = pass.card.clubPlanId
       ? await clubDelPase(this.prisma, pass.card.clubPlanId, pass.id)
       : null;
+    // Lo mismo para la ALIANZA, y por el mismo motivo: sin esto la tarjeta web
+    // caía al render de sellos y le enseñaba «SELLOS 0 / 1» al empleado — y es
+    // justo la página que el negocio le manda para instalarla.
+    const alianza = pass.card.convenioId
+      ? await alianzaDelPase(this.prisma, pass.card.convenioId, pass.id)
+      : null;
     return {
       ...pass,
       club,
+      alianza,
       brand: {
         name: b.name,
         slug: b.slug,
@@ -259,6 +267,16 @@ export class PassesService {
     // pase SIN membresía, y al escanearlo el club respondía «esta tarjeta no
     // es de un club» — el cajero leía que el escáner estaba roto.
     if (card.clubPlanId) {
+      throw new NotFoundException('Tarjeta no disponible');
+    }
+
+    // Ni la de una ALIANZA, y aquí es peor que una molestia: esta puerta se
+    // salta el documento, el código de la empresa y la lista blanca. Cualquiera
+    // con el enlace `/c/<cardId>` se emitía la tarjeta del convenio sin
+    // pertenecer a la empresa. Y encima nacía sin `ConvenioTarjeta`, así que en
+    // caja respondía «esta tarjeta no es de un convenio» y el cajero leía que
+    // el escáner estaba roto. Su alta es `/alianza/<negocio>/<empresa>`.
+    if (card.convenioId) {
       throw new NotFoundException('Tarjeta no disponible');
     }
 

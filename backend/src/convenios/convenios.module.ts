@@ -9,6 +9,7 @@ import {
   AlianzasPortalController,
 } from './alianzas-publico.controller';
 import { JobsModule } from '../jobs/jobs.module';
+import { AutomationsModule } from '../automations/automations.module';
 
 /**
  * Convenios: un negocio le da un beneficio permanente a los empleados de una
@@ -23,7 +24,10 @@ import { JobsModule } from '../jobs/jobs.module';
  * Convenios, que además es como lo dicen los negocios.
  */
 @Module({
-  imports: [JobsModule],
+  // `AutomationsModule` para poder emitir `PASS_CREATED` al activar una
+  // alianza: sin él, el empleado no recibe el mensaje de bienvenida y ninguna
+  // regla del negocio se entera de que existe.
+  imports: [JobsModule, AutomationsModule],
   providers: [
     ConveniosService,
     ConveniosCanjeService,

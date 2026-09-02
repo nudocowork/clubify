@@ -87,11 +87,20 @@ export class StampsService {
     // se lo vaciaba entero de un clic — las dos cosas sin dejar `ClubConsumo`,
     // o sea sin rastro y sin poder anularlas. Su camino es el escáner de club.
     //
-    // (Las tarjetas de convenio tienen exactamente el mismo agujero abierto;
-    // no se cierra aquí porque ese módulo lo lleva otra ventana.)
     if (pass.card.clubPlanId) {
       throw new ForbiddenException(
         'Esta es una tarjeta de club: se cobra desde el escáner, no con sellos.',
+      );
+    }
+
+    // Lo mismo para las ALIANZAS, que tenían el agujero abierto. Su plantilla
+    // nace con `stampsRequired: 1`, así que UN SOLO SELLO la daba por completa
+    // y le disparaba al empleado del aliado el «ya completaste tu tarjeta,
+    // reclama tu premio» de un programa de fidelización en el que no está.
+    // El beneficio se aplica desde el escáner, que deja su `ConvenioCanje`.
+    if (pass.card.convenioId) {
+      throw new ForbiddenException(
+        'Esta es la tarjeta de una alianza: el beneficio se aplica desde el escáner, no con sellos.',
       );
     }
 

@@ -263,14 +263,8 @@ export class WalletService {
       // estas locations. El `relevantText` es el texto que aparece — el
       // dueño lo edita en /app/locations. maxDistance va a nivel pass, no
       // por location, así que tomamos el mayor radius configurado.
-      locations: pass.tenant.locations.map((l) => ({
-        latitude: Number(l.latitude),
-        longitude: Number(l.longitude),
-        relevantText: l.walletRelevantText?.trim() || L.near_place(brandName),
-      })),
-      maxDistance: pass.tenant.locations.reduce(
-        (max, l) => Math.max(max, l.radiusMeters || 300),
-        300,
+      ...this.geocercoDeApple(pass.tenant.locations, () =>
+        L.near_place(brandName),
       ),
       storeCard: {
         // Header field principal — varía por tipo de tarjeta. Apple Wallet
@@ -650,6 +644,11 @@ export class WalletService {
     const L = passLabels(pass.customer?.locale);
     const t = pass.card.type;
     if (t !== 'STAMPS' && t !== 'HYBRID' && t !== 'VISITS') return null;
+    // Una ALIANZA no lleva hero. Es lo más grande del pase en Android y aquí
+    // mentía entero: «Acumula sellos y obtén beneficios», «Sellos faltantes: 1»
+    // y «Recompensas: 0 premios» encima de un descuento permanente que no
+    // acumula nada. Devolver null hace que Google se salte el módulo.
+    if (pass.card.convenioId) return null;
     // Una tarjeta de CLUB es `STAMPS` por dentro y caía aquí con los textos de
     // un cartón: «Acumula sellos y obtén beneficios», y de «Sellos faltantes»
     // el número de los que YA SE GASTÓ. Justo al revés de lo que significa.
@@ -801,6 +800,10 @@ export class WalletService {
     if (!pass) return null;
     const t = pass.card.type;
     if (t !== 'STAMPS' && t !== 'HYBRID' && t !== 'VISITS') return null;
+    // Tampoco la tira de sellos. Con `stampsRequired: 1` dibujaba UN disco
+    // translúcido enorme en el centro —el 70% del alto— que se lee como «te
+    // falta algo por llenar», justo encima de un beneficio que ya tiene.
+    if (pass.card.convenioId) return null;
     const c: any = pass.card;
     const required =
       t === 'VISITS'
@@ -1760,6 +1763,57 @@ export class WalletService {
     return { sent, skipped, google };
   }
 
+  /**
+   * Las sedes tal como las quiere Apple, y a qué distancia se dispara.
+   *
+   * Tres cosas que estaban mal y afectaban a TODAS las tarjetas:
+   *
+   *  · **Las coordenadas no se validaban.** Una sede sin coordenadas o en
+   *    `0,0` le metía a Apple un geocerco en medio del Golfo de Guinea, y un
+   *    `NaN` puede hacer que rechace el pase entero. Google ya filtraba; Apple
+   *    no. Ahora los dos igual.
+   *  · **Apple admite 10 ubicaciones por pase.** No había tope, así que un
+   *    negocio con más se las mandaba todas y decidía Apple cuáles.
+   *  · **El radio solo podía SUBIR de 300.** El acumulador del `reduce`
+   *    arrancaba en 300, así que una sede configurada a 100 m se disparaba
+   *    igualmente a 300. El campo del panel no hacía nada por debajo de ese
+   *    número.
+   *
+   * Se queda el máximo de los radios, no el mínimo: Apple solo admite UN
+   * número por pase, y quedarse corto es peor que pasarse. Si una sede pide
+   * 300 y otra 100, con el mínimo la de 300 dejaría de avisar a la distancia
+   * que su dueño configuró — un cliente que pasa por delante y no ve nada. Con
+   * el máximo, la de 100 avisa algo antes de tiempo, que no le cuesta nada a
+   * nadie.
+   */
+  private geocercoDeApple(
+    sedes: Array<{
+      latitude: unknown;
+      longitude: unknown;
+      radiusMeters?: number | null;
+      walletRelevantText?: string | null;
+    }>,
+    textoPorDefecto: (l: { walletRelevantText?: string | null }) => string,
+  ) {
+    const validas = sedes.filter((l) => {
+      const lat = Number(l.latitude);
+      const lng = Number(l.longitude);
+      return (
+        Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)
+      );
+    });
+
+    const radios = validas.map((l) => l.radiusMeters || 300);
+    return {
+      locations: validas.slice(0, 10).map((l) => ({
+        latitude: Number(l.latitude),
+        longitude: Number(l.longitude),
+        relevantText: l.walletRelevantText?.trim() || textoPorDefecto(l),
+      })),
+      maxDistance: radios.length ? Math.max(...radios) : 300,
+    };
+  }
+
   private hexToRgb(hex: string): string {
     const m = hex.replace('#', '').match(/.{2}/g);
     if (!m) return 'rgb(15,61,46)';
@@ -1849,15 +1903,9 @@ export class WalletService {
       ],
       // Apple Wallet lockscreen relevance: cuando el iPhone está cerca de
       // alguna location del tenant, muestra el pase en lockscreen.
-      locations: r.tenant.locations.map((l) => ({
-        latitude: Number(l.latitude),
-        longitude: Number(l.longitude),
-        relevantText:
-          l.walletRelevantText?.trim() || `Tu reserva en ${brandName}`,
-      })),
-      maxDistance: r.tenant.locations.reduce(
-        (max, l) => Math.max(max, l.radiusMeters || 300),
-        300,
+      ...this.geocercoDeApple(
+        r.tenant.locations,
+        () => `Tu reserva en ${brandName}`,
       ),
       // `relevantDate` activa el pase en lockscreen unas horas antes del
       // momento real. Usamos el instante UTC computed con timezone tenant.

@@ -411,6 +411,17 @@ export class CardsService {
       );
     }
 
+    // Y tampoco la plantilla de una ALIANZA, donde el daño es todavía peor:
+    // `ConvenioTarjeta.passId` NO tiene clave foránea, así que la cascada se
+    // lleva los pases y deja las filas apuntando a pases muertos. El canje
+    // busca por `passId`, así que ninguno de esos empleados vuelve a
+    // encontrarse — y no hay forma de reemitirlos.
+    if (card.convenioId) {
+      throw new ForbiddenException(
+        'Esta tarjeta es la de una alianza. Finalízala desde Alianzas; borrarla dejaría a sus empleados sin tarjeta y sin forma de recuperarla.',
+      );
+    }
+
     await this.prisma.card.delete({ where: { id } });
     return { ok: true };
   }

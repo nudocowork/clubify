@@ -128,6 +128,9 @@ export function WalletPassView({
       // Sin esto, la página que el negocio le manda al socio para instalarla
       // le enseñaba «SELLOS 7/10» — el número al revés.
       club={data.club ?? null}
+      // Tarjeta de alianza: por lo mismo que el club. Sin esto le enseñaba
+      // «SELLOS 0 / 1» al empleado en la página de instalación.
+      alianza={data.alianza ?? null}
       stampsRequired={data.card.stampsRequired}
       stampsCount={data.stampsCount ?? 0}
       visitsRequired={data.card.visitsRequired}
@@ -147,7 +150,14 @@ export function WalletPassView({
       centerBgColor={data.card.centerBgColor}
       logoBgColor={data.card.logoBgColor}
       logoShape={data.card.logoShape}
-      rewardText={data.card.rewardText}
+      // En una alianza, los beneficios vivos: «10% de descuento · Bebida
+      // gratis». `card.rewardText` es el relleno «Beneficios de <empresa>» que
+      // pone la plantilla, que no le dice a la persona QUÉ le dan.
+      rewardText={
+        data.alianza
+          ? data.alianza.vivos.join(' · ') || `Consulta con ${data.alianza.empresa}`
+          : data.card.rewardText
+      }
       customerName={(data.customer?.fullName ?? '').toUpperCase() || '—'}
       barcodeValue={data.serialNumber ?? data.qrToken}
     />

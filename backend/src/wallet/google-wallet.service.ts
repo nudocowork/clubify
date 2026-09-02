@@ -229,7 +229,20 @@ export class GoogleWalletService {
             current: card.type === 'VISITS' ? pass.visitsCount : pass.stampsCount,
           })
         : null;
-    if (nextReward) {
+    // En una ALIANZA, este campo es lo ÚNICO que le dice al empleado QUÉ le
+    // dan. Sin esta rama caía en `card.rewardText`, que es el relleno
+    // «Beneficios de <empresa>» que pone la plantilla: en Android se leía «ACTIVO»
+    // y «Beneficios de Confenalco», sin manera de saber si era un 10%, una
+    // bebida o un 2x1.
+    if (pass.alianza) {
+      const a = pass.alianza as { estado: string; empresa: string; vivos: string[] };
+      textModules.push({
+        id: 'reward',
+        header: L.alliance,
+        body: a.vivos.length > 0 ? a.vivos.join(' · ') : L.alliance_ask(a.empresa),
+      });
+      textModules.push({ id: 'aliado', header: L.business, body: a.empresa });
+    } else if (nextReward) {
       textModules.push({ id: 'reward', header: L.next_reward, body: nextReward.label });
     } else if (card.rewardText) {
       textModules.push({ id: 'reward', header: L.reward, body: card.rewardText });
@@ -375,7 +388,10 @@ export class GoogleWalletService {
           Number.isFinite(p.latitude) &&
           Number.isFinite(p.longitude) &&
           (p.latitude !== 0 || p.longitude !== 0),
-      );
+      )
+      // Mismo tope que en Apple, por simetría: que las dos billeteras avisen
+      // en los mismos sitios y no en unos u otros según el teléfono.
+      .slice(0, 10);
 
     return {
       id: objectId,
@@ -397,7 +413,11 @@ export class GoogleWalletService {
       imageModulesData: imageModules.length > 0 ? imageModules : undefined,
       linksModuleData:
         linksList.length > 0 ? { uris: linksList } : undefined,
-      locations: locations.length > 0 ? locations : undefined,
+      // `[]` y no `undefined`: esto se usa también como cuerpo de un PATCH, y
+      // ahí `undefined` no borra el campo — se queda el geocerco viejo en el
+      // objeto de Google. Un negocio que cierra su única sede seguiría
+      // avisando a sus clientes al pasar por una dirección donde ya no está.
+      locations,
     };
   }
 
@@ -586,6 +606,24 @@ export class GoogleWalletService {
           : fill(L.club_change, `${pass.stampsCount ?? 0}/${c.cupo}`),
       };
     }
+    // ALIANZA: sin esta rama caía al genérico de abajo y le decía al empleado
+    // «Sellos: 0/1» encima de un descuento del 15%. Se le dice lo que cambió:
+    // qué beneficios tiene ahora, o por qué se quedó sin ellos.
+    if (pass.alianza) {
+      const a = pass.alianza as { estado: string; empresa: string; vivos: string[] };
+      if (a.estado === 'ACTIVO' && a.vivos.length > 0) {
+        return { header: brand, body: a.vivos.join(' · ') };
+      }
+      return {
+        header: brand,
+        body:
+          a.estado === 'FINALIZADO'
+            ? L.alliance_ended
+            : a.estado === 'BLOQUEADA'
+              ? L.alliance_blocked
+              : `${L.alliance_paused} · ${L.alliance_ask(a.empresa)}`,
+      };
+    }
     return {
       header: brand,
       body: fill(L.stamps_change, `${pass.stampsCount ?? 0}/${pass.card.stampsRequired ?? 10}`),
@@ -687,6 +725,14 @@ export class GoogleWalletService {
         // mano en `adjuntarClub`, como ya se hace con `alianza`.
         (pass as any).club
           ? true
+          : // La ALIANZA, por lo mismo. Su `stampsCount` es CERO PARA SIEMPRE
+            // —el escáner la desvía antes de sellar—, así que el corte de «solo
+            // si hay progreso» la silenciaba siempre: en Android no llegaba
+            // ninguna notificación al pausar el beneficio, al bloquear la
+            // tarjeta ni al terminar el convenio. Es la misma excepción que ya
+            // se le puso al club, que no se extendió aquí.
+            (pass as any).alianza
+            ? true
           : ct === 'STAMPS' || ct === 'HYBRID' || ct === 'DISCOUNT' || ct === 'GIFT' || ct === 'MULTI'
           ? (pass.stampsCount ?? 0) > 0
           : ct === 'VISITS'

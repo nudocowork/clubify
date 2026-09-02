@@ -26,10 +26,52 @@ beforeAll(() => {
   Logger.overrideLogger([]);
 });
 
+/**
+ * Doble del motor de automatizaciones. Guarda lo emitido para poder afirmar
+ * que el alta dispara `PASS_CREATED` — sin ese evento, el empleado no recibe
+ * el mensaje de bienvenida y ninguna regla del negocio se entera de que
+ * existe.
+ */
+class AutomatizacionesFalsas {
+  emitidos: { evento: string; datos: any }[] = [];
+  async emit(evento: string, datos: any) {
+    this.emitidos.push({ evento, datos });
+  }
+}
+
 function montar(op: Parameters<typeof escenario>[0] = {}) {
   const e = escenario(op);
-  return { ...e, svc: new AlianzasPublicoService(e.prisma) };
+  const automatizaciones = new AutomatizacionesFalsas();
+  return {
+    ...e,
+    automatizaciones,
+    svc: new AlianzasPublicoService(e.prisma, automatizaciones as any),
+  };
 }
+
+describe('el alta avisa a las automatizaciones', () => {
+  it('activar emite PASS_CREATED — sin eso no hay mensaje de bienvenida', async () => {
+    const { svc, automatizaciones } = montar({ verificacion: 'ABIERTO' });
+
+    const r = await svc.activar('cafe-luna', 'confenalco', formulario());
+
+    const evento = automatizaciones.emitidos.find((e) => e.evento === 'PASS_CREATED');
+    expect(evento).toBeDefined();
+    expect(evento!.datos.passId).toBe(r.passId);
+    expect(evento!.datos.customerName).toBe('Ana Pérez');
+  });
+
+  it('volver al enlace NO vuelve a saludar', async () => {
+    // La reactivación sale por el atajo de idempotencia: saludar otra vez le
+    // mandaría la bienvenida a alguien que lleva meses con la tarjeta.
+    const { svc, automatizaciones } = montar({ verificacion: 'ABIERTO' });
+    await svc.activar('cafe-luna', 'confenalco', formulario());
+    await svc.activar('cafe-luna', 'confenalco', formulario());
+
+    const saludos = automatizaciones.emitidos.filter((e) => e.evento === 'PASS_CREATED');
+    expect(saludos).toHaveLength(1);
+  });
+});
 
 describe('los tres modos de verificación', () => {
   it('ABIERTO deja pasar sin pedir nada más', async () => {

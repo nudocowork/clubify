@@ -49,6 +49,17 @@ export type WalletPassPreviewProps = {
    * baja: son los beneficios que le QUEDAN de los que pagó.
    */
   club?: { unidad: string; cupo: number } | null;
+  /**
+   * Tarjeta de ALIANZA (convenio con una empresa). También es `STAMPS` por
+   * dentro, y sin esto se pintaba «SELLOS 0 / 1» — un contador congelado en
+   * cero encima de un descuento permanente, en la misma página que el negocio
+   * le manda al empleado para instalar la tarjeta.
+   */
+  alianza?: {
+    estado: 'ACTIVO' | 'PAUSA' | 'FINALIZADO' | 'BLOQUEADA';
+    empresa: string;
+    vivos: string[];
+  } | null;
   stampsRequired?: number | null;
   stampsCount?: number;
   visitsRequired?: number | null;
@@ -133,6 +144,7 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
     cardName,
     cardType,
     club = null,
+    alianza = null,
     stampsRequired = 10,
     stampsCount = 0,
     visitsRequired = 10,
@@ -173,7 +185,10 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
   // Con cupos grandes el cartón deja de significar nada: doce círculos para un
   // plan de treinta clases es una foto que contradice al número de arriba. Es
   // el mismo corte que hace el pase de verdad.
-  const dibujarCarton = !club || club.cupo <= 20;
+  // La alianza NO lleva cartón: no acumula nada. Con `stampsRequired: 1`
+  // dibujaba un círculo vacío suelto pegado a la izquierda, que se lee como
+  // «te falta algo» encima de un beneficio que la persona ya tiene.
+  const dibujarCarton = !alianza && (!club || club.cupo <= 20);
 
   // Wallet V3 — Premios Free por posición (1-based) + "Próximo Premio".
   const activePrizes = (freeRewards || []).filter(
@@ -241,6 +256,19 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
         // que no caiga al default y muestre "SELLOS x/y".
         return { lbl: 'REGALO', val: 'DISPONIBLE' };
       default:
+        if (alianza) {
+          return {
+            lbl: 'BENEFICIO',
+            val:
+              alianza.estado === 'ACTIVO'
+                ? 'ACTIVO'
+                : alianza.estado === 'FINALIZADO'
+                  ? 'FINALIZADO'
+                  : alianza.estado === 'BLOQUEADA'
+                    ? 'DESACTIVADA'
+                    : 'EN PAUSA',
+          };
+        }
         if (club) {
           return {
             lbl: (plural(club.unidad, 2) || 'BENEFICIOS').toUpperCase(),
