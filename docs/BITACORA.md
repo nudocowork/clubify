@@ -37,6 +37,21 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+## 2026-09-02 — Revisión de bugs (ayer+hoy) → 1 arreglo (billing colgado)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `f612d1d2`
+
+Revisión adversarial (manual + subagente) de todo lo mío de 2026-09-01/02. Resultado:
+un único bug de corrección → arreglado y desplegado (frontend READY):
+- **`app/billing`**: el guard `if (!tenant) return loading` (que agregué en la tanda de
+  los 6 arreglos) colgaba la página para SIEMPRE si `/tenants/me` fallaba (el `.catch`
+  deja `tenant` null). Fix: flag `tenantLoaded` que se marca aunque falle → si falla,
+  cae al panel full (null-safe) en vez de quedarse en "Cargando…".
+- El resto (correo bienvenida, teléfono al User, filtro InfoLink PRO, logo tarjeta,
+  sidebar Sellea, ranking pases/pedidos, FOUC, form) quedó verificado sin bugs.
+- Heads-up (no bug): el filtro de visibilidad oculta TRIAL/SUSPENDIDOS también en el
+  Ranking de PEDIDOS. Si se quiere ver ahí a un negocio de domicilios en TRIAL, avisar.
+
 ## 2026-09-02 — Sellea InfoLinks: 6 arreglos del freemium (registro, panel, precios, logo, sidebar)
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `37bdb9f9`
