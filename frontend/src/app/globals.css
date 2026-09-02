@@ -573,9 +573,10 @@
  * (NativeAppChrome): en el navegador estas reglas ni se evalúan.
  */
 html[data-native] {
-  /* Expuesta como variable para los sitios con estilos en línea, que ganan
-     por especificidad y no pueden arreglarse desde una clase. */
+  /* Expuestas como variables para los sitios con estilos en línea o con
+     posición calculada en JS, que no pueden arreglarse desde una clase. */
   --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
 }
 
 html[data-native] body {
