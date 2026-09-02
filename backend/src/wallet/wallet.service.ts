@@ -272,12 +272,16 @@ export class WalletService {
         // Para COUPON: array vacío. El estado DISPONIBLE/REDIMIDO va
         // pintado dentro del strip image como badge — así no hay overlap
         // visual con el logoText (brand name) que ocupa el mismo row.
-        headerFields: alianza
-          ? [this.headerAlianza(alianza, L)]
-          : club
-            ? [this.headerClub(pass, club, L)]
-            : pass.card.type === 'COUPON'
-              ? []
+        // La ALIANZA tampoco lleva cabecera, por el mismo motivo que el cupón:
+        // Apple pinta el `logoText` a la izquierda y la cabecera a la derecha
+        // en la MISMA fila, y con un nombre de negocio normal se solapan — se
+        // leía «DEMO CLU‌ACTIVO». El estado va en la franja, que es donde mira
+        // la persona cuando la enseña en la caja.
+        headerFields:
+          alianza || pass.card.type === 'COUPON'
+            ? []
+            : club
+              ? [this.headerClub(pass, club, L)]
               : [this.buildHeaderField(pass, L)],
         // primaryFields vacío → el strip image actúa de hero principal sin
         // texto encima.
@@ -342,7 +346,22 @@ export class WalletService {
     // Por eso el club manda su propio cupo, y por encima de 20 se queda sin
     // cartón: el número de la cabecera es entonces la única versión.
     const cupoDibujable = club ? club.cupo : (pass.card.stampsRequired ?? 10);
-    if (pass.card.type === 'STAMPS' && (!club || cupoDibujable <= 20)) {
+    // La ALIANZA tiene su propia franja: el logo de la empresa en el centro y
+    // el beneficio debajo. Antes caía en el cartón de sellos y, con
+    // `stampsRequired: 1`, dibujaba UN disco vacío enorme en mitad del pase —
+    // que se lee como «te falta algo por llenar» justo encima de un descuento
+    // que la persona ya tiene.
+    if (alianza) {
+      dynamicStrips = await this.generateAllianceStrip({
+        primary: pass.card.primaryColor,
+        secondary: pass.card.secondaryColor,
+        logoUrl: pass.card.logoUrl,
+        empresa: alianza.empresa,
+        beneficio:
+          alianza.vivos[0] ??
+          (alianza.estado === 'ACTIVO' ? '' : L.alliance_ask(alianza.empresa)),
+      });
+    } else if (pass.card.type === 'STAMPS' && (!club || cupoDibujable <= 20)) {
       const c: any = pass.card;
       dynamicStrips = await this.generateStampsStrip({
         primary: pass.card.primaryColor,
@@ -800,10 +819,21 @@ export class WalletService {
     if (!pass) return null;
     const t = pass.card.type;
     if (t !== 'STAMPS' && t !== 'HYBRID' && t !== 'VISITS') return null;
-    // Tampoco la tira de sellos. Con `stampsRequired: 1` dibujaba UN disco
-    // translúcido enorme en el centro —el 70% del alto— que se lee como «te
-    // falta algo por llenar», justo encima de un beneficio que ya tiene.
-    if (pass.card.convenioId) return null;
+    // La ALIANZA sirve su propia franja —el logo de la empresa en el centro—
+    // en vez del cartón de sellos, que con `stampsRequired: 1` dibujaba un
+    // disco vacío enorme en mitad del pase.
+    if (pass.card.convenioId) {
+      const a = await alianzaDelPase(this.prisma, pass.card.convenioId, pass.id);
+      if (!a) return null;
+      const tiras = await this.generateAllianceStrip({
+        primary: pass.card.primaryColor,
+        secondary: pass.card.secondaryColor,
+        logoUrl: pass.card.logoUrl,
+        empresa: a.empresa,
+        beneficio: a.vivos[0] ?? '',
+      });
+      return tiras['strip@2x.png'] ?? tiras['strip.png'] ?? null;
+    }
     const c: any = pass.card;
     const required =
       t === 'VISITS'
@@ -900,6 +930,111 @@ export class WalletService {
       half: toDataUri(halfR),
       full: toDataUri(fullR),
     };
+  }
+
+  /**
+   * La franja del pase de una ALIANZA: el logo de la empresa en grande y
+   * centrado, con el beneficio debajo.
+   *
+   * Se dibuja aparte del cartón de sellos porque no cuenta nada. Aquí el
+   * protagonista es de QUIÉN es el convenio —la persona lo enseña en la caja y
+   * lo primero que tiene que leerse es «Ecopetrol»— y qué le dan.
+   *
+   * El logo va sobre un disco BLANCO: los logos corporativos suelen venir con
+   * fondo transparente y en negro, y sobre el color del negocio desaparecen.
+   * Si no hay logo, se pintan las iniciales de la empresa, que es mejor que un
+   * hueco.
+   */
+  private async generateAllianceStrip(opts: {
+    primary: string;
+    secondary: string;
+    logoUrl?: string | null;
+    empresa: string;
+    beneficio: string;
+  }): Promise<Record<string, Buffer>> {
+    const sharp = (await import('sharp')).default;
+    const W = 640;
+    const H = 246;
+
+    const escapar = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // Iniciales de la empresa para cuando no hay logo: «Ecopetrol» → «E»,
+    // «Grupo Aval» → «GA». Máximo dos, que es lo que cabe legible.
+    const iniciales = opts.empresa
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase() ?? '')
+      .join('');
+
+    // El logo se descarga y se mete en el disco. Si falla —URL caída, formato
+    // raro— se cae a las iniciales en vez de dejar el pase a medio pintar.
+    const R = 62;
+    const CX = W / 2;
+    const CY = 96;
+    let logoPng: Buffer | null = null;
+    if (opts.logoUrl) {
+      try {
+        const r = await fetch(opts.logoUrl);
+        if (r.ok) {
+          const bruto = Buffer.from(await r.arrayBuffer());
+          logoPng = await sharp(bruto)
+            .resize(R * 2 - 24, R * 2 - 24, { fit: 'inside', withoutEnlargement: false })
+            .png()
+            .toBuffer();
+        }
+      } catch {
+        logoPng = null;
+      }
+    }
+
+    const beneficio = escapar(opts.beneficio.slice(0, 42));
+    const empresa = escapar(opts.empresa.slice(0, 30));
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${opts.primary}"/>
+          <stop offset="100%" stop-color="${opts.secondary || opts.primary}"/>
+        </linearGradient>
+      </defs>
+      <rect width="${W}" height="${H}" fill="url(#g)"/>
+      <circle cx="${CX}" cy="${CY}" r="${R}" fill="#FFFFFF"/>
+      ${
+        logoPng
+          ? ''
+          : `<text x="${CX}" y="${CY + 20}" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="54" font-weight="700" fill="${opts.primary}">${escapar(iniciales)}</text>`
+      }
+      <text x="${CX}" y="${CY + R + 40}" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="30" font-weight="700" fill="#FFFFFF">${beneficio}</text>
+      <text x="${CX}" y="${CY + R + 68}" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="19" font-weight="500" fill="rgba(255,255,255,.8)">${empresa}</text>
+    </svg>`;
+
+    let base = sharp(Buffer.from(svg));
+    if (logoPng) {
+      const meta = await sharp(logoPng).metadata();
+      base = sharp(
+        await base
+          .composite([
+            {
+              input: logoPng,
+              left: Math.round(CX - (meta.width ?? 0) / 2),
+              top: Math.round(CY - (meta.height ?? 0) / 2),
+            },
+          ])
+          .png()
+          .toBuffer(),
+      );
+    }
+    const png1 = await base.png().toBuffer();
+
+    // Apple pide las tres resoluciones. Se escala desde la de 1x en vez de
+    // redibujar: el SVG es plano y no gana nada rehaciéndolo.
+    const [png2, png3] = await Promise.all([
+      sharp(png1).resize(W * 2, H * 2).png().toBuffer(),
+      sharp(png1).resize(W * 3, H * 3).png().toBuffer(),
+    ]);
+    return { 'strip.png': png1, 'strip@2x.png': png2, 'strip@3x.png': png3 };
   }
 
   private async generateStampsStrip(opts: {
