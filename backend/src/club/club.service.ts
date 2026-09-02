@@ -335,6 +335,11 @@ export class ClubService {
         stampIconImageUrl: true,
         stampBgType: true,
         stampBgImageUrl: true,
+        // El nombre que sale ARRIBA en el pase. La vista previa del panel lo
+        // necesita o pinta otra cosa en su lugar: enseñaba el nombre del plan
+        // donde el socio ve el del negocio, así que el negocio estaba
+        // decidiendo colores mirando una tarjeta que no es la suya.
+        businessName: true,
       },
     });
   }

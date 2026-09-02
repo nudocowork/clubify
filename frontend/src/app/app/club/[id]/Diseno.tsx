@@ -15,6 +15,8 @@ type DisenoCard = {
   stampIconImageUrl: string | null;
   stampBgType: 'GRADIENT' | 'SOLID' | 'IMAGE';
   stampBgImageUrl: string | null;
+  /** El nombre que el socio ve ARRIBA en su tarjeta: el del negocio. */
+  businessName: string;
 };
 
 /**
@@ -32,13 +34,11 @@ export function Diseno({
   plan,
   unidad,
   cupo,
-  marca,
 }: {
   planId: string;
   plan: string;
   unidad: string;
   cupo: number;
-  marca: string;
 }) {
   const [d, setD] = useState<DisenoCard | null>(null);
   const [guardando, setGuardando] = useState(false);
@@ -100,7 +100,7 @@ export function Diseno({
         <div className="shrink-0">
           <WalletPassPreview
             size="md"
-            brandName={marca}
+            brandName={d.businessName || plan}
             brandLogoUrl={d.logoUrl}
             primaryColor={d.primaryColor}
             secondaryColor={d.secondaryColor}

@@ -433,7 +433,6 @@ export default function SociosDelPlanPage() {
           plan={plan.name}
           unidad={plan.unidad}
           cupo={plan.beneficiosPorMes}
-          marca={plan.name}
         />
       )}
 
