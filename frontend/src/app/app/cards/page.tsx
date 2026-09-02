@@ -24,6 +24,10 @@ type Card = {
   id: string;
   name: string;
   type: CardType;
+  // Puesto = es la plantilla de un plan de Tarjeta de Club, no un cartón de
+  // sellos. Por dentro es `STAMPS` porque el saldo vive en el mismo contador,
+  // así que sin este campo se ve aquí como una tarjeta cualquiera.
+  clubPlanId?: string | null;
   rewardText: string;
   primaryColor: string;
   secondaryColor: string;
@@ -386,6 +390,11 @@ function CardPreview({
   deleting: boolean;
   onDelete: (e: React.MouseEvent) => void;
 }) {
+  // La tarjeta de un plan de club no se borra desde aquí. Borrarla arrastraba
+  // en cascada TODOS los pases del plan y dejaba a sus socios sin tarjeta y sin
+  // forma de reemitirla. El backend ya lo rechaza; aquí ni se ofrece, porque
+  // un botón que solo sirve para dar error es peor que no tenerlo.
+  const esDeClub = Boolean(card.clubPlanId);
   const t = useTranslations('app_cards');
   const fallback = TYPE_COLORS[card.type] ?? TYPE_COLORS.STAMPS;
   const primary = card.primaryColor || fallback.primary;
@@ -436,20 +445,26 @@ function CardPreview({
             </span>
           )}
 
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={deleting}
-            title={t('deleteCard')}
-            aria-label={t('deleteCardAria', { name: card.name })}
-            className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-black/30 hover:bg-red-500 backdrop-blur text-white flex items-center justify-center transition disabled:opacity-50"
-          >
-            {deleting ? (
-              <span className="block w-3 h-3 border-2 border-white/80 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <Icon name="trash" />
-            )}
-          </button>
+          {esDeClub ? (
+            <span className="absolute top-2 right-2 z-10 bg-white/95 text-ink text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+              Club
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={deleting}
+              title={t('deleteCard')}
+              aria-label={t('deleteCardAria', { name: card.name })}
+              className="absolute top-2 right-2 z-10 w-7 h-7 rounded-full bg-black/30 hover:bg-red-500 backdrop-blur text-white flex items-center justify-center transition disabled:opacity-50"
+            >
+              {deleting ? (
+                <span className="block w-3 h-3 border-2 border-white/80 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Icon name="trash" />
+              )}
+            </button>
+          )}
 
           {/* Header del pass: brand + valor según tipo */}
           <div className="flex items-start justify-between gap-2 mb-3">

@@ -475,6 +475,11 @@ model Tenant {
   /// panel de admin, igual que las cartas por sede: la mayoría no lo necesita
   /// y no debe ver la complejidad. Ver modelo `Convenio`.
   conveniosEnabled            Boolean                    @default(false)
+
+  /// Tarjeta de Club: la suscripción con cupo mensual. Se enciende negocio por
+  /// negocio, como las alianzas y las cartas por sede. Apagado por defecto
+  /// porque cambia el menú del panel de los ~168 negocios que hay.
+  clubEnabled                 Boolean                    @default(false)
   /// Cuántos convenios ACTIVOS puede tener a la vez.
   maxConvenios                Int                        @default(3)
   convenios                   Convenio[]

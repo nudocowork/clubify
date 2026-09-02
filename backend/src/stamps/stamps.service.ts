@@ -82,6 +82,19 @@ export class StampsService {
     }
     if (pass.status === 'REVOKED') throw new BadRequestException('Pass is revoked');
 
+    // Un pase de club NO pasa por aquí. El saldo vive en el mismo
+    // `stampsCount` que los sellos, así que sellar le REGALABA cupo y canjear
+    // se lo vaciaba entero de un clic — las dos cosas sin dejar `ClubConsumo`,
+    // o sea sin rastro y sin poder anularlas. Su camino es el escáner de club.
+    //
+    // (Las tarjetas de convenio tienen exactamente el mismo agujero abierto;
+    // no se cierra aquí porque ese módulo lo lleva otra ventana.)
+    if (pass.card.clubPlanId) {
+      throw new ForbiddenException(
+        'Esta es una tarjeta de club: se cobra desde el escáner, no con sellos.',
+      );
+    }
+
     // Wallet V3 — gate de marca: restar sellos (-1) solo si la marca lo permite
     // ("Wallet Avanzado" → removeStamps). Aislado por el whiteLabel del tenant.
     if (dto.action === 'STAMP_REMOVE') {

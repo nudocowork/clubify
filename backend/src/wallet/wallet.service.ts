@@ -11,6 +11,7 @@ import { resolveWalletAdvanced, WalletAdvancedFlags } from '../common/white-labe
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { passLabels, type PassLocale, normalizePassLocale } from './pass-labels';
 import { alianzaDelPase } from '../convenios/alianzas-pase.util';
+import { clubDelPase, pluralUnidad } from '../club/club-pase.util';
 
 /**
  * Genera pases para Apple Wallet (.pkpass) y Google Wallet (save link).
@@ -140,6 +141,13 @@ export class WalletService {
     const alianza = pass.card.convenioId
       ? await alianzaDelPase(this.prisma, pass.card.convenioId, pass.id)
       : null;
+    // Tarjeta de CLUB: cuenta al revés que un cartón —empieza llena y se
+    // vacía—, así que necesita sus propios textos. Como con la alianza, solo
+    // se consulta cuando `clubPlanId` está puesto: los pases normales no pagan
+    // ni una consulta extra.
+    const club = pass.card.clubPlanId
+      ? await clubDelPase(this.prisma, pass.card.clubPlanId, pass.id)
+      : null;
     const passBrandHref = passBrand.websiteUrl;
     const passBrandDomain = passBrand.websiteUrl.replace(/^https?:\/\//, '');
     // Idioma del cliente (persistido al enrolarse). Localiza TODOS los labels
@@ -211,6 +219,15 @@ export class WalletService {
         ? alianza.vivos.join(' · ').slice(0, 120)
         : L.alliance_ask(alianza.empresa);
     }
+    // En el club, «RECOMPENSA» no aplica: no hay nada que acumular hacia un
+    // premio. Lo que le importa al socio es cuánto le queda de lo que ya pagó.
+    if (club) {
+      rewardFieldLabel = L.club_left;
+      rewardFieldValue = L.club_left_count(
+        pass.stampsCount,
+        pluralUnidad(club.unidad, pass.stampsCount),
+      );
+    }
 
     const passJson = {
       formatVersion: 1,
@@ -263,9 +280,11 @@ export class WalletService {
         // visual con el logoText (brand name) que ocupa el mismo row.
         headerFields: alianza
           ? [this.headerAlianza(alianza, L)]
-          : pass.card.type === 'COUPON'
-            ? []
-            : [this.buildHeaderField(pass, L)],
+          : club
+            ? [this.headerClub(pass, club, L)]
+            : pass.card.type === 'COUPON'
+              ? []
+              : [this.buildHeaderField(pass, L)],
         // primaryFields vacío → el strip image actúa de hero principal sin
         // texto encima.
         primaryFields: [],
@@ -460,6 +479,35 @@ export class WalletService {
 
     const pkpass = new PKPass(buffers, certOpts);
     return pkpass.getAsBuffer();
+  }
+
+  /**
+   * El header de una tarjeta de CLUB.
+   *
+   * La etiqueta es la unidad del negocio en plural —CAFÉS, LAVADAS, CLASES—
+   * porque es su palabra y es la que el cliente reconoce. El aviso de cambio
+   * dice «Te quedan: 7 / 10» y no «Sellos: 7»: con el texto de sellos, el
+   * cliente leía que llevaba 7 acumulados cuando le quedaban 7 por gastar.
+   *
+   * Pausada enseña EN PAUSA en vez del número, para que el socio no se plante
+   * en el mostrador con un saldo que la caja le va a rechazar.
+   */
+  private headerClub(
+    pass: { stampsCount: number },
+    club: { unidad: string; cupo: number; detenida: boolean },
+    L: ReturnType<typeof passLabels>,
+  ) {
+    const etiqueta = club.unidad.trim()
+      ? pluralUnidad(club.unidad, 2).toUpperCase()
+      : L.club_unit;
+    return {
+      key: 'club',
+      label: etiqueta,
+      value: club.detenida
+        ? L.club_paused
+        : `${pass.stampsCount} / ${club.cupo}`,
+      changeMessage: L.club_change,
+    };
   }
 
   private headerAlianza(

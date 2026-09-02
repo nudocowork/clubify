@@ -59,7 +59,6 @@ const PASOS = [
        "customerId"     TEXT NOT NULL REFERENCES "Customer"("id") ON DELETE CASCADE,
        "passId"         TEXT REFERENCES "Pass"("id") ON DELETE SET NULL,
        "status"         "ClubMembresiaStatus" NOT NULL DEFAULT 'ACTIVA',
-       "saldo"          INTEGER NOT NULL DEFAULT 0,
        "periodo"        TEXT NOT NULL,
        "cupoDelPeriodo" INTEGER NOT NULL DEFAULT 0,
        "createdAt"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -69,6 +68,12 @@ const PASOS = [
   ],
   // Un cliente, una membresía por plan. Es la red que impide que un doble clic
   // en el alta cree dos y le duplique el cupo.
+  // El interruptor del módulo. Arranca apagado para TODOS: encenderlo cambia
+  // el menú del panel, y eso se decide negocio por negocio.
+  [
+    'columna Tenant.clubEnabled',
+    `ALTER TABLE "Tenant" ADD COLUMN IF NOT EXISTS "clubEnabled" BOOLEAN NOT NULL DEFAULT false`,
+  ],
   ['índice ClubMembresia (única por plan)', `CREATE UNIQUE INDEX IF NOT EXISTS "ClubMembresia_planId_customerId_key" ON "ClubMembresia"("planId","customerId")`],
   ['índice ClubMembresia (pase)', `CREATE UNIQUE INDEX IF NOT EXISTS "ClubMembresia_passId_key" ON "ClubMembresia"("passId")`],
   ['índice ClubMembresia (estado)', `CREATE INDEX IF NOT EXISTS "ClubMembresia_planId_status_idx" ON "ClubMembresia"("planId","status")`],
@@ -123,9 +128,14 @@ const PASOS = [
       WHERE table_name='Card' AND column_name='clubPlanId'`,
   );
   if (col[0].n !== 1) throw new Error('falta Card.clubPlanId');
+  const flag = await p.$queryRawUnsafe(
+    `SELECT COUNT(*)::int AS n FROM information_schema.columns
+      WHERE table_name='Tenant' AND column_name='clubEnabled'`,
+  );
+  if (flag[0].n !== 1) throw new Error('falta Tenant.clubEnabled');
 
   console.log(
-    `\nlisto · 4 tablas + Card.clubPlanId · planes existentes: ${await p.clubPlan.count()}`,
+    `\nlisto · 4 tablas + Card.clubPlanId + Tenant.clubEnabled · planes existentes: ${await p.clubPlan.count()}`,
   );
   await p.$disconnect();
 })().catch((e) => {

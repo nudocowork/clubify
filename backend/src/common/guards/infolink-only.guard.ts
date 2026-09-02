@@ -46,6 +46,9 @@ const BLOCKED_PREFIXES = [
   '/api/crm',
   '/api/wallet',
   '/api/cards',
+  // El club emite tarjetas y las cobra en caja: un negocio de solo InfoLink no
+  // tiene nada que hacer aquí. Faltaba, y por la URL directa sí entraba.
+  '/api/club',
   '/api/passes',
   '/api/stamps',
   '/api/scanner',

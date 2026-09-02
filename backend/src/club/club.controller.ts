@@ -73,6 +73,12 @@ class ConsumirDto {
 export class ClubController {
   constructor(private svc: ClubService) {}
 
+  @Get('estado')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  estado(@CurrentUser() user: AuthUser, @Query('tenantId') t?: string) {
+    return this.svc.estadoDelModulo(user, t);
+  }
+
   @Get('planes')
   @Roles('TENANT_OWNER', 'SUPER_ADMIN')
   listarPlanes(@CurrentUser() user: AuthUser, @Query('tenantId') t?: string) {
@@ -98,6 +104,27 @@ export class ClubController {
     @Query('tenantId') t?: string,
   ) {
     return this.svc.actualizarPlan(user, id, body, t);
+  }
+
+  @Get('planes/:id/miembros')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  listarMiembros(
+    @CurrentUser() user: AuthUser,
+    @Param('id') planId: string,
+    @Query('q') q?: string,
+    // Sin acotar, `?estado=FOO` llegaba tal cual al `where` de Prisma y
+    // reventaba con un 500. No se alcanza desde el panel, pero la ruta es
+    // pública para cualquiera con sesión de dueño.
+    @Query('estado') estado?: 'TODAS' | 'ACTIVA' | 'PAUSADA' | 'CANCELADA',
+    @Query('pagina') pagina?: string,
+    @Query('tenantId') t?: string,
+  ) {
+    return this.svc.listarMiembros(
+      user,
+      planId,
+      { q, estado, pagina: Number(pagina) || 1 },
+      t,
+    );
   }
 
   @Post('planes/:id/miembros/:customerId')

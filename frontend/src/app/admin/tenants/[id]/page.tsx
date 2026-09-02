@@ -1736,6 +1736,9 @@ function AcademyTogglesCard({
   const [maxConvenios, setMaxConvenios] = useState<number>(
     tenant.maxConvenios ?? 3,
   );
+  // Tarjeta de Club: la suscripcion con cupo mensual. Mismo criterio que
+  // alianzas: apagado por defecto, se enciende negocio por negocio.
+  const [club, setClub] = useState<boolean>(tenant.clubEnabled ?? false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -1755,6 +1758,7 @@ function AcademyTogglesCard({
           maxExtraMenus: maxCartas,
           conveniosEnabled: convenios,
           maxConvenios,
+          clubEnabled: club,
         }),
       });
       setMsg({ ok: true, text: t('changesSaved') });
@@ -1874,6 +1878,27 @@ function AcademyTogglesCard({
                 />
               </div>
             )}
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={club}
+            onChange={(e) => setClub(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">Tarjeta de Club</div>
+            <div className="text-xs text-mute leading-snug">
+              Una suscripcion que el cliente le paga al negocio: cada mes recibe
+              un cupo de beneficios (diez cafes, cuatro lavadas) que gasta en el
+              local y que vuelve a llenarse el dia 1, los haya usado o no. El
+              cobro lo lleva el negocio por fuera y activa o pausa a mano.{' '}
+              <b>Apagarlo no borra nada</b>: impide crear planes y dar de alta a
+              nadie nuevo, pero los socios que ya pagaron siguen consumiendo lo
+              suyo.
+            </div>
           </div>
         </label>
 

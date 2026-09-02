@@ -8,6 +8,7 @@ import { passLabels } from './pass-labels';
 import { nextRewardLabel } from './free-rewards.util';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { alianzaDelPase } from '../convenios/alianzas-pase.util';
+import { clubDelPase, pluralUnidad } from '../club/club-pase.util';
 
 /**
  * Google Wallet integration end-to-end.
@@ -76,6 +77,17 @@ export class GoogleWalletService {
     );
   }
 
+  /**
+   * Lo mismo para la tarjeta de CLUB, y por el mismo motivo.
+   *
+   * Sin esto el pase de Google decía «Sellos: 7/10» al consumir un café: el
+   * número contando lo contrario de lo que el cliente lee.
+   */
+  private async adjuntarClub(pass: any) {
+    if (!pass.card?.clubPlanId) return;
+    pass.club = await clubDelPase(this.prisma, pass.card.clubPlanId, pass.id);
+  }
+
   /** Header field equivalente al de Apple — varía por tipo de tarjeta. */
   private buildBalance(pass: any): { balance: { string?: string; int?: number }; label: string } {
     const t = pass.card.type;
@@ -137,6 +149,20 @@ export class GoogleWalletService {
                   : L.alliance_paused,
         },
         label: L.alliance,
+      };
+    }
+    // Tarjeta de CLUB. Como la alianza, llega precalculada en `pass.club`.
+    if (pass.club) {
+      const c = pass.club as { unidad: string; cupo: number; detenida: boolean };
+      return {
+        balance: {
+          string: c.detenida
+            ? L.club_paused
+            : `${pass.stampsCount ?? 0}/${c.cupo}`,
+        },
+        label: c.unidad.trim()
+          ? pluralUnidad(c.unidad, 2).toUpperCase()
+          : L.club_unit,
       };
     }
     return {
@@ -441,6 +467,7 @@ export class GoogleWalletService {
     });
     if (!pass) throw new NotFoundException('Pass');
     await this.adjuntarAlianza(pass);
+    await this.adjuntarClub(pass);
 
     const sa = this.loadServiceAccount();
     const ids = this.buildIds(pass);
@@ -550,6 +577,15 @@ export class GoogleWalletService {
         body: `${L.coupon}: ${redeemed ? L.coupon_redeemed : L.coupon_available}`,
       };
     }
+    if (pass.club) {
+      const c = pass.club as { cupo: number; detenida: boolean };
+      return {
+        header: brand,
+        body: c.detenida
+          ? L.club_paused
+          : fill(L.club_change, `${pass.stampsCount ?? 0}/${c.cupo}`),
+      };
+    }
     return {
       header: brand,
       body: fill(L.stamps_change, `${pass.stampsCount ?? 0}/${pass.card.stampsRequired ?? 10}`),
@@ -577,6 +613,7 @@ export class GoogleWalletService {
     if (!pass.googleObjectId)
       return { ok: false, status: 'not_saved_to_google_wallet' };
     await this.adjuntarAlianza(pass);
+    await this.adjuntarClub(pass);
 
     const sa = this.loadServiceAccount();
     const ids = this.buildIds(pass);

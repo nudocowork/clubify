@@ -4,6 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { plural } from '@/lib/plural';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
@@ -16,7 +17,16 @@ type Pass = {
   pointsBalance: number;
   status: string;
   createdAt: string;
-  card: { name: string; type: string; stampsRequired: number | null };
+  card: {
+    name: string;
+    type: string;
+    stampsRequired: number | null;
+    // Por dentro son tarjetas `STAMPS` —el saldo vive en el mismo contador—
+    // pero no son cartones de sellos. Sin distinguirlas, esta ficha pintaba una
+    // tarjeta de club con botones de «Sellar» y «Canjear»: sellar le REGALABA
+    // cupo y canjear se lo vaciaba entero de un clic.
+    clubPlanId?: string | null;
+  };
 };
 
 type Stamp = {
@@ -151,6 +161,85 @@ function fmtBirthday(s: string | null) {
 
 const COUPON_TYPES = ['COUPON', 'DISCOUNT', 'GIFT'];
 const isCouponLike = (type?: string) => COUPON_TYPES.includes(type ?? '');
+
+/**
+ * La tarjeta de CLUB en la ficha del cliente.
+ *
+ * Solo informa: el cupo se consume desde el escáner, que es donde queda el
+ * registro y donde se puede anular. Aquí no hay botones de sellar ni canjear a
+ * propósito — son justo las dos acciones que rompían la tarjeta.
+ *
+ * El detalle se pide a la ruta de caja, que ya devuelve saldo, cupo, período y
+ * estado juntos. Una llamada más por tarjeta de club, y son raras.
+ */
+function FilaClub({ pass: p }: { pass: Pass }) {
+  const [d, setD] = useState<{
+    plan: string;
+    unidad: string;
+    status: string;
+    saldo: number;
+    cupoDelPeriodo: number;
+    periodo: string;
+  } | null>(null);
+
+  useEffect(() => {
+    api(`/club/caja/pase/${p.id}`)
+      .then(setD)
+      .catch(() => setD(null));
+  }, [p.id]);
+
+  const etiqueta =
+    d?.status === 'ACTIVA'
+      ? 'Al día'
+      : d?.status === 'PAUSADA'
+        ? 'En pausa'
+        : d?.status === 'CANCELADA'
+          ? 'De baja'
+          : null;
+
+  return (
+    <div className="border border-line rounded-xl p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="font-medium text-sm truncate">
+            {d?.plan || p.card.name}
+          </div>
+          <div className="text-xs text-mute">Tarjeta de club</div>
+        </div>
+        {etiqueta && (
+          <span
+            className={`badge shrink-0 ${
+              d?.status === 'ACTIVA'
+                ? 'badge-ok'
+                : d?.status === 'PAUSADA'
+                  ? 'badge-warn'
+                  : 'badge-mute'
+            }`}
+          >
+            {etiqueta}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-2 flex items-baseline gap-1.5">
+        <strong className="text-xl tabular-nums">
+          {d ? d.saldo : p.stampsCount}
+        </strong>
+        <span className="text-sm text-mute">
+          de {d ? d.cupoDelPeriodo : (p.card.stampsRequired ?? 0)}
+          {/* La unidad llega en SINGULAR porque así se lee en la caja («le
+              queda 1 café»); aquí acompaña a un número que casi nunca es 1. */}
+          {d?.unidad ? ` ${plural(d.unidad, d.cupoDelPeriodo)}` : ''} este mes
+        </span>
+      </div>
+
+      <p className="text-xs text-mute mt-1.5">
+        Se consume desde el escáner. Vuelve a llenarse el día 1
+        {d?.periodo ? ` · período ${d.periodo}` : ''}.
+      </p>
+    </div>
+  );
+}
 
 function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
   const t = useTranslations('app_customers_id');
@@ -1188,9 +1277,13 @@ export default function CustomerDetail() {
                 {t('loyaltyCards', { count: c.passes.length })}
               </h3>
               <div className="grid gap-3">
-                {c.passes.map((p) => (
-                  <PassRow key={p.id} pass={p} onChange={load} />
-                ))}
+                {c.passes.map((p) =>
+                  p.card.clubPlanId ? (
+                    <FilaClub key={p.id} pass={p} />
+                  ) : (
+                    <PassRow key={p.id} pass={p} onChange={load} />
+                  ),
+                )}
               </div>
             </div>
           )}

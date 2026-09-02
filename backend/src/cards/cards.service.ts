@@ -397,7 +397,20 @@ export class CardsService {
   }
 
   async remove(user: AuthUser, id: string) {
-    await this.get(user, id);
+    const card = await this.get(user, id);
+
+    // La tarjeta-plantilla de un plan de club no se borra desde aquí. Borrarla
+    // arrastraba en cascada TODOS los pases del plan (`Pass.cardId` es
+    // `onDelete: Cascade`) y dejaba a los socios con `passId` en null y sin
+    // forma de reemitir: cada consumo respondía «esta membresía todavía no
+    // tiene tarjeta», para siempre. Y en el listado se ve como una tarjeta de
+    // sellos cualquiera, así que es un clic fácil de dar por error.
+    if (card.clubPlanId) {
+      throw new ForbiddenException(
+        'Esta tarjeta es la de un plan de club. Apaga el plan desde Tarjeta de Club; borrarla dejaría a sus socios sin tarjeta.',
+      );
+    }
+
     await this.prisma.card.delete({ where: { id } });
     return { ok: true };
   }

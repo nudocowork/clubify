@@ -349,8 +349,22 @@ async function apiWithRefresh<T>(
       }
     }
 
+    // El `ValidationPipe` de Nest devuelve `message` como ARRAY de frases. Con
+    // `JSON.stringify` el negocio veía en el toast un literal con corchetes y
+    // comillas —`["desdeDia must not be less than 1"]`— en vez de una frase.
+    // Unirlas no las traduce, pero al menos se leen; y el `JSON.stringify`
+    // queda solo para lo que no sea ni texto ni lista de textos.
+    //
+    // El `unknown` es necesario: `msg` se inicializa con el texto de la
+    // respuesta, así que TypeScript lo da por `string` y descarta las otras
+    // ramas — pero en tiempo de ejecución `body.message` llega como venga.
+    const crudo: unknown = msg;
     const err: any = new Error(
-      typeof msg === 'string' ? msg : JSON.stringify(msg),
+      typeof crudo === 'string'
+        ? crudo
+        : Array.isArray(crudo) && crudo.every((x) => typeof x === 'string')
+          ? crudo.join('. ')
+          : JSON.stringify(crudo),
     );
     err.status = res.status;
     err.code = body?.code;

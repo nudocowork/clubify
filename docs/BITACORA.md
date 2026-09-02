@@ -8,6 +8,87 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-02 (madrugada, 4ª vuelta) — Tarjeta de Club: panel, billetera y 9 defectos
+
+El motor del club ya estaba hecho pero **solo respondía por API**: no había
+dónde crear un plan. Ahora tiene panel, y una auditoría de paso encontró nueve
+agujeros que se cierran en el mismo bloque.
+
+### Lo nuevo
+
+- **`/app/club`** — planes: crear, editar, precio, unidad, cupo del mes y los
+  **tramos de alta** (cuántos recibe quien entra a mitad de mes; es solo para su
+  primer mes y la pantalla lo dice, porque el negocio lo lee como el cupo
+  permanente).
+- **`/app/club/[id]`** — socios: alta buscando entre los clientes, pausar,
+  reactivar, dar de baja y readmitir. Con buscador, filtro y paginación.
+- **Entrada en el asistente de tarjetas**, como Alianzas: no es un `CardType`,
+  lleva a `/app/club?nuevo=1`.
+- **`Tenant.clubEnabled`**, apagado por defecto. Se enciende desde Módulos del
+  tenant. Sin él no hay ítem de menú y crear plan o dar de alta da 403 — pero
+  **consumir sigue funcionando**: apagar un módulo no puede quedarse con lo que
+  un cliente ya pagó.
+- **Endpoint nuevo** `GET /club/planes/:id/miembros` y `GET /club/estado`.
+- **Deshacer en la caja**: el escáner tiraba el `consumoId`, así que la
+  anulación —que estaba escrita, con su idempotencia y su push— no se podía
+  llamar. Un doble toque del cajero se comía un café sin vuelta atrás.
+
+### Los defectos que había (todos míos, del bloque anterior)
+
+1. **En la billetera, una tarjeta de club se veía como sellos — e invertida.**
+   Header `SELLOS 7 / 10` y aviso `Sellos: 7`: el cliente leía «llevo 7», y
+   significa «me quedan 7». Ahora el header es la unidad del negocio en plural
+   (`CAFÉS 7 / 10`) con «Te quedan: %@», en Apple y en Google, en los 4 idiomas.
+2. **`/stamps` sellaba y canjeaba pases de club sin barrera.** Sellar le
+   REGALABA cupo; canjear se lo vaciaba entero de un clic. Sin `ClubConsumo`, o
+   sea sin rastro y sin poder anularlo. *(Las tarjetas de convenio tienen el
+   mismo agujero abierto — no lo toqué porque ese módulo lo lleva la otra
+   ventana. **Jhon: mirar `stamps.service.record()`.**)*
+3. **Borrar la tarjeta del plan desde `/app/cards` mataba el club sin retorno**:
+   cascada sobre TODOS los pases, socios con `passId` null y cada escaneo
+   respondiendo «esta membresía todavía no tiene tarjeta», para siempre.
+   Bloqueado en el backend, y en el listado ya ni se ofrece el botón.
+4. **La tarjeta del plan nacía con el verde de Clubify.** La fuga de marca de
+   siempre: se crea una sola vez y el primer socio la fija para todos.
+5. **El enrolamiento público emitía pases de club.** `/c/{cardId}` daba un pase
+   sin membresía; al escanearlo el cajero leía «esta tarjeta no es de un club» y
+   entendía que el escáner estaba roto.
+6. **Editar el plan no repintaba nada.** Subir el cupo de 10 a 15 dejaba la
+   billetera diciendo `15 / 10`.
+7. **Pausar no repintaba el pase.** El socio pausado llegaba al mostrador con su
+   saldo intacto en el móvil. La caja lo frena bien, así que no era dinero: era
+   la discusión en el mostrador.
+8. **`funnelLoyalty` contaba a los socios del club** como cartones completos que
+   nunca se canjean. Era el único resolutor sin el filtro `clubPlanId: null`.
+9. **La ficha del cliente pintaba la tarjeta de club con botones de sellar y
+   canjear** — las dos acciones del punto 2.
+
+Y dos menores: el reinicio mensual se cortaba en 5000 en silencio (ahora avisa),
+y `/api/club` faltaba en el bloqueo de los negocios «solo InfoLink».
+
+### ⚠️ `frontend/src/app/scan/page.tsx` queda SIN COMMITEAR — hay que decidir
+
+El botón «Deshacer el último» del club está **en disco pero no en ningún
+commit**, porque ese fichero tiene también un cambio de la otra ventana (el
+`montoTiquete` pasa a ser uno por beneficio, para que con dos beneficios que
+piden monto lo tecleado en uno no viaje con el canje del otro). Los dos cambios
+comparten el primer hunk y no se separan limpio.
+
+No lo commiteo yo para no meter trabajo ajeno a medias bajo mi mensaje — es lo
+que pasó el 2026-08-26 con el editor de correos. **Pero ojo: `desplegar.cjs` se
+niega a desplegar con cambios sin commitear**, así que alguien tiene que
+commitearlo antes del próximo despliegue del frontend. Lo mío ahí son cinco
+hunks aditivos (`ultimoConsumo`, `deshacerConsumoClub` y su botón); no chocan
+con lo del monto.
+
+### Pendiente
+
+- **Correr la migración**: `railway run node scripts/apply-club-migration.cjs`.
+  Aditiva e idempotente. Ahora incluye `Tenant.clubEnabled` y ya no crea la
+  columna `saldo`, que era un residuo del diseño viejo.
+- Encender `clubEnabled` al negocio que lo estrene.
+- Probar en móvil de verdad: el pase en iPhone y en Android.
+
 ## 2026-09-02 (madrugada, 3ª vuelta) — Alianzas: lo que encontró la auditoría
 
 Tres agentes revisaron el módulo. Lo que salió, y ya está corregido:

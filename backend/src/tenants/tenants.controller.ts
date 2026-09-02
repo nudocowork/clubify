@@ -167,6 +167,7 @@ class UpdateTenantBody {
    * contra producción.
    */
   @IsOptional() @IsBoolean() conveniosEnabled?: boolean;
+  @IsOptional() @IsBoolean() clubEnabled?: boolean;
   /** Cuántas alianzas puede tener a la vez. Por defecto 3. */
   @IsOptional() @IsInt() @Min(1) @Max(50) maxConvenios?: number;
   // Notas internas del negocio (SOLO Clubify: este controller es

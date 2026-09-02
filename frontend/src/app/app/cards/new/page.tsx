@@ -551,6 +551,39 @@ function TarjetaAlianza() {
   );
 }
 
+/**
+ * La tarjeta de CLUB en el selector de tipo.
+ *
+ * Igual que la de alianza: no es un `CardType`, LLEVA a `/app/club`. Sus pasos
+ * son otros —cupo del mes, unidad, tramos de alta— y ninguno de los 3 a 5 de
+ * este asistente le sirve: no tiene sellos que configurar ni premio al final.
+ * Su plantilla de pase se crea sola al dar de alta al primer socio.
+ */
+function TarjetaClub() {
+  return (
+    <Link
+      href="/app/club?nuevo=1"
+      className="text-left p-4 rounded-2xl border-2 border-line hover:border-ink/40 bg-white transition block"
+    >
+      <div className="flex items-center gap-3">
+        <span className="text-2xl shrink-0">🎟️</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-sm">Tarjeta de club</div>
+        </div>
+        <span className="text-[10px] font-semibold uppercase tracking-wide rounded-full bg-violet-100 text-violet-700 px-2 py-0.5 shrink-0">
+          Nuevo
+        </span>
+      </div>
+      <p className="text-xs leading-snug mt-2 text-mute">
+        Una suscripción que tu cliente te paga a ti: cada mes recibe un cupo de
+        beneficios —diez cafés, cuatro lavadas— que gasta en el local y que
+        vuelve a llenarse el día 1.
+      </p>
+      <p className="text-xs mt-2 font-medium text-ink">Te llevamos a Tarjeta de Club →</p>
+    </Link>
+  );
+}
+
 function Step2Type({
   selected,
   onSelect,
@@ -570,6 +603,7 @@ function Step2Type({
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
         <TarjetaAlianza />
+        <TarjetaClub />
         {ALL_TYPES.map((t) => {
           const active = selected === t;
           return (

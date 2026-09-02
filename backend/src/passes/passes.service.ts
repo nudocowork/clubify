@@ -245,6 +245,14 @@ export class PassesService {
     if (card.tenant.status === 'SUSPENDED')
       throw new NotFoundException('Negocio no disponible');
 
+    // La tarjeta de un plan de club no se reparte por QR público: el club se
+    // paga y el negocio da de alta a mano. Quien se enrolaba aquí recibía un
+    // pase SIN membresía, y al escanearlo el club respondía «esta tarjeta no
+    // es de un club» — el cajero leía que el escáner estaba roto.
+    if (card.clubPlanId) {
+      throw new NotFoundException('Tarjeta no disponible');
+    }
+
     // Sellea: correo y cumpleaños son OBLIGATORIOS en el registro de la tarjeta
     // (decisión del dueño, 2026-08-30). Defensa en profundidad: el formulario
     // ya lo valida, pero acá lo exigimos para que un POST directo no lo evada.

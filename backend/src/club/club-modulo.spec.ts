@@ -1,0 +1,202 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { ForbiddenException } from '@nestjs/common';
+import type { PrismaService } from '../common/prisma/prisma.service';
+import type { WalletService } from '../wallet/wallet.service';
+import type { QueueService } from '../jobs/queue.service';
+import type { AuthUser } from '../common/decorators/current-user.decorator';
+import { ClubService } from './club.service';
+import { clubDelPase, pluralUnidad } from './club-pase.util';
+import {
+  bdVacia,
+  crearPrismaFalso,
+  crearBilletera,
+  type BaseDeDatos,
+} from './club-prisma-falso';
+
+/**
+ * El interruptor del módulo y los textos que acaban en la billetera.
+ *
+ * Contra el servicio real. Las dos cosas son nuevas y las dos se ven: el
+ * interruptor decide si un negocio puede empezar, y el plural es literalmente
+ * lo que el cliente lee en su móvil.
+ */
+
+const DUENO: AuthUser = {
+  id: 'u-dueno',
+  email: 'dueno@negocio.com',
+  role: 'TENANT_OWNER' as AuthUser['role'],
+  tenantId: 't1',
+};
+
+let bd: BaseDeDatos;
+let svc: ClubService;
+let prisma: PrismaService;
+
+function montar() {
+  bd = bdVacia();
+  bd.clientes.push({ id: 'cli1', tenantId: 't1', fullName: 'Ana Ruiz' });
+  const falso = crearPrismaFalso(bd);
+  prisma = falso.prisma as unknown as PrismaService;
+  const billetera = crearBilletera();
+  svc = new ClubService(
+    prisma,
+    billetera.wallet as unknown as WalletService,
+    billetera.jobs as unknown as QueueService,
+  );
+}
+
+function plan(unidad = 'café', beneficiosPorMes = 10) {
+  bd.planes.push({
+    id: 'p1',
+    tenantId: 't1',
+    name: 'Café Diario',
+    slug: 'cafe-diario',
+    description: '',
+    beneficiosPorMes,
+    unidad,
+    precioCents: 60000,
+    currency: 'COP',
+    isActive: true,
+    createdAt: new Date('2026-01-01'),
+    updatedAt: new Date('2026-01-01'),
+  });
+}
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-09-05T17:00:00Z'));
+  montar();
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe('el interruptor del módulo', () => {
+  it('apagado, no se puede crear un plan', async () => {
+    bd.clubEnabled = false;
+    await expect(
+      svc.crearPlan(DUENO, { name: 'Café Diario', beneficiosPorMes: 10 }),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('apagado, no se puede dar de alta a nadie', async () => {
+    plan();
+    bd.clubEnabled = false;
+    await expect(svc.darDeAlta(DUENO, 'p1', 'cli1')).rejects.toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('apagado, quien YA es socio sigue consumiendo lo que pagó', async () => {
+    // Ésta es la decisión que separa al club de convenios: allá el beneficio es
+    // gratis y apagar el módulo bloquea el canje. Aquí el cliente puso dinero,
+    // así que apagar el módulo impide empezar cosas nuevas pero no se queda con
+    // lo suyo. Si esto se rompe, un negocio que pause el módulo a mitad de mes
+    // deja tirados a todos sus socios.
+    plan();
+    const m = await svc.darDeAlta(DUENO, 'p1', 'cli1');
+    bd.clubEnabled = false;
+
+    const r = await svc.consumir(DUENO, m.id, 1);
+    expect(r.saldo).toBe(9);
+  });
+
+  it('el panel puede preguntar si está encendido', async () => {
+    expect(await svc.estadoDelModulo(DUENO)).toEqual({ habilitado: true });
+    bd.clubEnabled = false;
+    expect(await svc.estadoDelModulo(DUENO)).toEqual({ habilitado: false });
+  });
+});
+
+describe('la tarjeta del plan no nace con los colores de la plataforma', () => {
+  it('copia los del negocio, explícitos', async () => {
+    // `Card.primaryColor` trae por defecto el verde de Clubify. Esta fila se
+    // crea UNA vez y se queda, así que el primer socio de una marca blanca
+    // fijaría el color de la plataforma para todos los demás.
+    plan();
+    await svc.darDeAlta(DUENO, 'p1', 'cli1');
+
+    const card = bd.tarjetas.find((c) => c.clubPlanId === 'p1');
+    expect(card).toBeDefined();
+    expect((card as any).primaryColor).toBe('#111111');
+    expect((card as any).secondaryColor).toBe('#222222');
+    expect((card as any).businessName).toBe('Negocio de prueba');
+  });
+});
+
+describe('editar el plan lleva los cambios a la tarjeta', () => {
+  it('el cupo nuevo es el denominador del pase', async () => {
+    // Sin esto, subir el cupo de 10 a 15 dejaba `stampsRequired` en 10 y la
+    // billetera enseñaba «15 / 10» en cuanto llegaba el reinicio del mes.
+    plan();
+    await svc.darDeAlta(DUENO, 'p1', 'cli1');
+
+    await svc.actualizarPlan(DUENO, 'p1', {
+      beneficiosPorMes: 15,
+      name: 'Café Diario Plus',
+    });
+
+    const card = bd.tarjetas.find((c) => c.clubPlanId === 'p1') as any;
+    expect(card.stampsRequired).toBe(15);
+    expect(card.name).toBe('Café Diario Plus');
+    expect(card.rewardText).toBe('15 café al mes');
+  });
+});
+
+describe('lo que el pase le enseña al cliente', () => {
+  it('trae la unidad, el cupo del período y si está detenida', async () => {
+    plan();
+    const m = await svc.darDeAlta(DUENO, 'p1', 'cli1');
+
+    const enPase = await clubDelPase(prisma, 'p1', m.passId!);
+    expect(enPase).toEqual({ unidad: 'café', cupo: 10, detenida: false });
+
+    await svc.cambiarEstado(DUENO, m.id, 'PAUSADA');
+    expect((await clubDelPase(prisma, 'p1', m.passId!))?.detenida).toBe(true);
+  });
+
+  it('el cupo sale del PERÍODO, no del plan', async () => {
+    // Si el negocio sube el plan a mitad de mes, este socio sigue teniendo el
+    // cupo con el que entró hasta el día 1. Pintar el del plan le prometería
+    // beneficios que la caja no le va a dar.
+    plan();
+    const m = await svc.darDeAlta(DUENO, 'p1', 'cli1');
+    await svc.actualizarPlan(DUENO, 'p1', { beneficiosPorMes: 30 });
+
+    expect((await clubDelPase(prisma, 'p1', m.passId!))?.cupo).toBe(10);
+  });
+
+  it('un pase que no es de este plan no devuelve nada', async () => {
+    plan();
+    const m = await svc.darDeAlta(DUENO, 'p1', 'cli1');
+    expect(await clubDelPase(prisma, 'otro-plan', m.passId!)).toBeNull();
+  });
+});
+
+describe('el plural de la unidad', () => {
+  // Es lo que se lee en la caja y en la billetera. La tilde se comía: «café»
+  // salía «cafes», y el propio comentario de la función decía «cafés».
+  it.each([
+    ['café', 'cafés'],
+    ['menú', 'menús'],
+    ['clase', 'clases'],
+    ['lavada', 'lavadas'],
+    ['flan', 'flanes'],
+    ['lápiz', 'lápices'],
+    ['masaje', 'masajes'],
+  ])('%s → %s', (singular, esperado) => {
+    expect(pluralUnidad(singular, 3)).toBe(esperado);
+  });
+
+  it('en uno se queda en singular', () => {
+    expect(pluralUnidad('café', 1)).toBe('café');
+  });
+
+  it('en cero va en plural: «0 cafés»', () => {
+    expect(pluralUnidad('café', 0)).toBe('cafés');
+  });
+
+  it('sin unidad no inventa nada', () => {
+    expect(pluralUnidad('   ', 3)).toBe('');
+  });
+});

@@ -124,6 +124,8 @@ export type BaseDeDatos = {
   planes: FilaPlan[];
   tramos: FilaTramo[];
   tarjetas: FilaTarjeta[];
+  /** El interruptor del módulo. Encendido salvo que un test lo apague. */
+  clubEnabled: boolean;
   pases: FilaPase[];
   membresias: FilaMembresia[];
   consumos: FilaConsumo[];
@@ -436,6 +438,13 @@ export function crearPrismaFalso(bd: BaseDeDatos) {
       };
       return { ...insertar(bd.tarjetas, fila) };
     },
+    // La usa `actualizarPlan` para llevar el nombre y el cupo nuevos a la
+    // tarjeta-plantilla: sin sincronizarla, la billetera decía «15 / 10».
+    updateMany: async ({ where, data }: any) => {
+      const filas = bd.tarjetas.filter((x) => filtra(x, where, {}));
+      for (const f of filas) Object.assign(f, data);
+      return { count: filas.length };
+    },
   };
 
   const pass = {
@@ -599,7 +608,30 @@ export function crearPrismaFalso(bd: BaseDeDatos) {
     },
   };
 
+  /**
+   * El negocio. Solo hacen falta dos cosas de él y las dos son nuevas:
+   *
+   *  · `clubEnabled` — el interruptor del módulo. Por defecto ENCENDIDO en los
+   *    tests: lo que se prueba aquí es el motor, no el interruptor, y tenerlo
+   *    apagado obligaría a encenderlo en cada caso.
+   *  · Los colores y el logo — la tarjeta del plan los copia explícitamente
+   *    para no nacer con el verde de la plataforma en una marca blanca.
+   */
+  const tenant = {
+    findUnique: async ({ select }: any) => {
+      const fila = {
+        clubEnabled: bd.clubEnabled,
+        primaryColor: '#111111',
+        secondaryColor: '#222222',
+        logoUrl: null,
+        brandName: 'Negocio de prueba',
+      };
+      return proyectar(fila, { select }, {});
+    },
+  };
+
   const prisma: any = {
+    tenant,
     clubPlan,
     clubTramoAlta,
     clubMembresia,
@@ -631,6 +663,7 @@ export function bdVacia(): BaseDeDatos {
     planes: [],
     tramos: [],
     tarjetas: [],
+    clubEnabled: true,
     pases: [],
     membresias: [],
     consumos: [],

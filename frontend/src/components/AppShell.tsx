@@ -203,6 +203,7 @@ export default function AppShell({
     // Alianzas con empresas (convenios). Activado per-tenant: la mayoría de
     // negocios no monta ninguna y no tiene por qué ver la complejidad.
     conveniosEnabled?: boolean;
+    clubEnabled?: boolean;
     // Tipo de negocio: 'INFOLINK' = panel reducido (solo InfoLink). null/'FULL'
     // = Negocio Completo (todos los módulos).
     businessType?: string | null;
@@ -515,6 +516,7 @@ export default function AppShell({
           reservationsEnabled: t?.reservationsEnabled ?? false,
           serviceReservationsEnabled: t?.serviceReservationsEnabled ?? false,
           conveniosEnabled: t?.conveniosEnabled ?? false,
+          clubEnabled: t?.clubEnabled ?? false,
           businessType: t?.businessType ?? 'FULL',
           whiteLabelCreditsUnlimited: t?.whiteLabelCreditsUnlimited ?? false,
           reviewsEnabled: t?.reviewsEnabled ?? true,
@@ -834,6 +836,18 @@ export default function AppShell({
                         href: '/app/alianzas',
                         label: 'Alianzas',
                         icon: 'users' as const,
+                      },
+                    ]
+                  : []),
+                // Tarjeta de Club: otro estilo de tarjeta propio, no un tipo
+                // dentro del asistente. Como Alianzas, solo si el módulo está
+                // encendido para este negocio.
+                ...(tenantInfo?.clubEnabled
+                  ? [
+                      {
+                        href: '/app/club',
+                        label: 'Tarjeta de Club',
+                        icon: 'card' as const,
                       },
                     ]
                   : []),

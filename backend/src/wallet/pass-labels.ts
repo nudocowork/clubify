@@ -50,6 +50,19 @@ type Labels = {
   alliance_blocked: string;
   alliance_change: string;
   alliance_ask: (empresa: string) => string;
+  // Tarjeta de CLUB (suscripción con cupo mensual). Cuenta al revés que un
+  // cartón de sellos: empieza llena y se vacía. Por eso no puede reusar
+  // `stamps_change` —«Sellos: 7» se lee «llevo 7», y significa «me quedan 7».
+  //
+  // `club_unit` es el respaldo para cuando el negocio no puso unidad: la unidad
+  // de verdad («café», «lavada») la escribe él en español y no se traduce, que
+  // es justo lo que la hace útil en la caja.
+  club_unit: string;
+  club_change: string;
+  club_paused: string;
+  club_hero: string;
+  club_left: string;
+  club_left_count: (n: number, unidad: string) => string;
   // Fields
   reward: string;
   customer: string;
@@ -83,6 +96,9 @@ const DICT: Record<PassLocale, Labels> = {
     alliance_ended: 'FINALIZADO', alliance_blocked: 'DESACTIVADA',
     alliance_change: 'Beneficio: %@',
     alliance_ask: (e) => `Consulta con ${e}`,
+    club_unit: 'BENEFICIOS', club_change: 'Te quedan: %@', club_paused: 'EN PAUSA',
+    club_hero: 'Tu cupo del mes', club_left: 'Te quedan',
+    club_left_count: (n, u) => `${n} ${u}`,
     reward: 'RECOMPENSA', customer: 'CLIENTE', last_message: 'Último mensaje',
     no_messages: 'Aún no hay mensajes', card_number: 'Número de tarjeta', terms: 'Condiciones', contact: 'Contacto',
     created_by: (b) => `Creado por ${b}`, near_place: (b) => `Estás cerca de ${b}`,
@@ -101,6 +117,9 @@ const DICT: Record<PassLocale, Labels> = {
     alliance_ended: 'ENDED', alliance_blocked: 'DEACTIVATED',
     alliance_change: 'Benefit: %@',
     alliance_ask: (e) => `Check with ${e}`,
+    club_unit: 'BENEFITS', club_change: 'Left: %@', club_paused: 'ON HOLD',
+    club_hero: 'Your monthly allowance', club_left: 'Left',
+    club_left_count: (n, u) => `${n} ${u}`,
     reward: 'REWARD', customer: 'MEMBER', last_message: 'Latest message',
     no_messages: 'No messages yet', card_number: 'Card number', terms: 'Terms', contact: 'Contact',
     created_by: (b) => `Made with ${b}`, near_place: (b) => `You're near ${b}`,
@@ -119,6 +138,9 @@ const DICT: Record<PassLocale, Labels> = {
     alliance_ended: 'FINALIZADO', alliance_blocked: 'DESATIVADO',
     alliance_change: 'Benefício: %@',
     alliance_ask: (e) => `Consulte com ${e}`,
+    club_unit: 'BENEFÍCIOS', club_change: 'Restam: %@', club_paused: 'EM PAUSA',
+    club_hero: 'Sua cota do mês', club_left: 'Restam',
+    club_left_count: (n, u) => `${n} ${u}`,
     reward: 'RECOMPENSA', customer: 'CLIENTE', last_message: 'Última mensagem',
     no_messages: 'Ainda sem mensagens', card_number: 'Número do cartão', terms: 'Condições', contact: 'Contato',
     created_by: (b) => `Feito com ${b}`, near_place: (b) => `Você está perto de ${b}`,
@@ -137,6 +159,9 @@ const DICT: Record<PassLocale, Labels> = {
     alliance_ended: 'TERMINATO', alliance_blocked: 'DISATTIVATA',
     alliance_change: 'Vantaggio: %@',
     alliance_ask: (e) => `Rivolgiti a ${e}`,
+    club_unit: 'VANTAGGI', club_change: 'Restano: %@', club_paused: 'IN PAUSA',
+    club_hero: 'Il tuo credito del mese', club_left: 'Restano',
+    club_left_count: (n, u) => `${n} ${u}`,
     reward: 'PREMIO', customer: 'CLIENTE', last_message: 'Ultimo messaggio',
     no_messages: 'Ancora nessun messaggio', card_number: 'Numero tessera', terms: 'Condizioni', contact: 'Contatto',
     created_by: (b) => `Creato con ${b}`, near_place: (b) => `Sei vicino a ${b}`,
