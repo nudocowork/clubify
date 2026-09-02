@@ -52,6 +52,8 @@ export default function PortalAliado() {
   const [documento, setDocumento] = useState('');
   const [mensajeBaja, setMensajeBaja] = useState<string | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
+  /** Qué beneficio falló al cambiar, y por qué. Se pinta junto a él. */
+  const [fallo, setFallo] = useState<{ cuponId: string; texto: string } | null>(null);
 
   const cargar = useCallback(() => {
     fetch(`${API}/api/public/alianzas/portal/${token}`)
@@ -64,13 +66,32 @@ export default function PortalAliado() {
 
   async function alternar(cuponId: string, activo: boolean) {
     setOcupado(cuponId);
+    setFallo(null);
     try {
-      await fetch(`${API}/api/public/alianzas/portal/${token}/cupones/${cuponId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activo }),
-      });
+      const r = await fetch(
+        `${API}/api/public/alianzas/portal/${token}/cupones/${cuponId}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ activo }),
+        },
+      );
+      // Sin esto, un fallo —acuerdo finalizado, enlace rotado, red— recargaba y
+      // el interruptor «volvía solo» a su sitio sin decir nada: la empresa se
+      // quedaba creyendo que apagó un beneficio que sigue encendido.
+      if (!r.ok) {
+        const d = await r.json().catch(() => null);
+        setFallo({
+          cuponId,
+          texto: d?.message || 'No pudimos cambiarlo. Inténtalo de nuevo.',
+        });
+      }
       cargar();
+    } catch {
+      setFallo({
+        cuponId,
+        texto: 'No pudimos cambiarlo. Revisa tu conexión e inténtalo otra vez.',
+      });
     } finally {
       setOcupado(null);
     }
@@ -136,7 +157,11 @@ export default function PortalAliado() {
 
       {p.motivoGlobal && (
         <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          {p.motivoGlobal} Mientras siga así, tus interruptores no tienen efecto.
+          {/* «Mientras siga así» promete que puede cambiar, y con el acuerdo
+              finalizado no puede: es definitivo. */}
+          {p.soloLectura
+            ? 'Este acuerdo terminó. Tus interruptores ya no tienen efecto y no se puede reabrir.'
+            : `${p.motivoGlobal} Mientras siga así, tus interruptores no tienen efecto.`}
         </p>
       )}
 
@@ -180,6 +205,11 @@ export default function PortalAliado() {
                     {c.canjes} {c.canjes === 1 ? 'uso' : 'usos'}
                   </span>
                 </p>
+                {fallo?.cuponId === c.id && (
+                  <p className="mt-1 text-xs font-medium text-red-700">
+                    {fallo.texto}
+                  </p>
+                )}
               </div>
               <button
                 type="button"

@@ -97,10 +97,14 @@ export default function AlianzaDetalle() {
     cargar();
   }, [cargar]);
 
-  async function patchConvenio(body: Record<string, unknown>) {
+  async function patchConvenio(body: Record<string, unknown>, aviso = 'Guardado') {
     try {
       await api(`/convenios/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
       await cargar();
+      // Confirmar SIEMPRE. El código se guarda al salir del campo y la vigencia
+      // al elegir la fecha: sin un aviso, el dueño no tiene forma de saber si
+      // quedó, y acaba tocándolo dos veces por si acaso.
+      toast(aviso, 'success');
     } catch (e: any) {
       toast(e.message || 'No se pudo guardar', 'error');
     }
@@ -179,7 +183,17 @@ export default function AlianzaDetalle() {
             <button
               className="btn"
               onClick={() =>
-                patchConvenio({ status: c.status === 'PAUSED' ? 'ACTIVE' : 'PAUSED' })
+                patchConvenio(
+                  { status: c.status === 'PAUSED' ? 'ACTIVE' : 'PAUSED' },
+                  // Pausar apaga TODOS los beneficios y reanudar no los vuelve
+                  // a encender: es deliberado —no queremos que revivan solos—
+                  // pero sin decirlo el dueño reanuda, ve desaparecer el aviso
+                  // ámbar y se queda con los siete beneficios apagados sin
+                  // ninguna pista de que falta un paso.
+                  c.status === 'PAUSED'
+                    ? 'Alianza reanudada. Enciende los beneficios que quieras volver a dar.'
+                    : 'Alianza en pausa. Se apagaron todos los beneficios.',
+                )
               }
             >
               {c.status === 'PAUSED' ? 'Reanudar' : 'Pausar'}
@@ -597,6 +611,16 @@ export default function AlianzaDetalle() {
                       t.bloqueadaPor === 'aliado' &&
                       !confirm(
                         'La bloqueó la empresa aliada, probablemente porque esa persona ya no trabaja ahí. ¿Reactivarla de todas formas?',
+                      )
+                    ) {
+                      return;
+                    }
+                    // Bloquear le apaga el pase a una persona real: no puede
+                    // estar a un solo clic de distancia.
+                    if (
+                      t.status !== 'BLOCKED' &&
+                      !confirm(
+                        `Se le apagará el beneficio a ${t.nombre}. Podrás reactivarlo después. ¿Bloquear?`,
                       )
                     ) {
                       return;
