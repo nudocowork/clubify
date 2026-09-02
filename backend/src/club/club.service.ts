@@ -1026,7 +1026,7 @@ export class ClubService {
     // PAUSADA no se reinicia —`tocaReiniciar` las ignora—, así que pintarle el
     // cupo entero le enseñaba al cajero «10 / 10» de un socio que no tiene
     // nada: el número decía una cosa y el botón, que no aparece, otra.
-    const tocaReinicio = m.periodo !== periodoActual && m.status === 'ACTIVA';
+    const tocaReinicio = m.periodo < periodoActual && m.status === 'ACTIVA';
     const saldo = tocaReinicio
       ? m.plan.beneficiosPorMes
       : (m.pass?.stampsCount ?? 0);
@@ -1107,7 +1107,11 @@ export class ClubService {
     // en el mes viejo. Sin esto, un cliente con 7 sobrantes de septiembre se
     // los gastaba el 1 de octubre y ese mes se llevaba 17 con un plan de 10.
     // Se reinicia AQUÍ mismo; el cron queda como red de seguridad.
-    const tocaReinicio = m.periodo !== periodoActual;
+    // `<` y no `!==`, el mismo criterio que el cron. Con `!==`, un período
+        // FUTURO —el reloj del servidor adelantado, y luego corregido— contaba
+        // como «atrasado» y disparaba un reinicio hacia atrás: el socio recibía
+        // el cupo de noviembre y otra vez el de septiembre.
+    const tocaReinicio = m.periodo < periodoActual;
     const cupoVigente = tocaReinicio
       ? m.plan.beneficiosPorMes
       : m.cupoDelPeriodo;
@@ -1349,6 +1353,20 @@ export class ClubService {
       },
       take: 5000,
     });
+    // Los que se quedan fuera del reinicio por no tener pase. La consulta de
+        // arriba los excluye —no hay nada que reponer— pero eso los deja SIN
+        // CUPO para siempre y sin que nadie se entere: siguen ACTIVA, el
+        // negocio los ve normales en su lista y el socio no recibe nada mes
+        // tras mes. Se avisa para que se les pueda reemitir la tarjeta.
+    const sinPase = await this.prisma.clubMembresia.count({
+      where: { status: 'ACTIVA', periodo: { lt: periodo }, passId: null },
+    });
+    if (sinPase > 0) {
+      this.logger.warn(
+        `Club: ${sinPase} socios ACTIVOS sin tarjeta se quedan sin el cupo de ${periodo} — hay que volver a darlos de alta.`,
+      );
+    }
+
     if (!pendientes.length) return { periodo, reiniciadas: 0 };
     // El cron es horario, así que un tope alcanzado se recupera en las horas
     // siguientes. Pero si nadie lo dice, un negocio grande empieza el mes a

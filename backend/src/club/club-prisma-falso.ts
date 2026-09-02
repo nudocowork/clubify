@@ -530,6 +530,11 @@ export function crearPrismaFalso(bd: BaseDeDatos) {
   };
 
   const clubMembresia = {
+    // La usa `listarMiembros`, la tabla de socios del panel. Sin ella esa ruta
+    // no se podía ejercitar contra el falso, así que era la única del servicio
+    // sin un solo test.
+    count: async ({ where }: any) =>
+      bd.membresias.filter((m) => filtra(m, where, relMembresia)).length,
     findUnique: async ({ where, include, select }: any) => {
       const m = buscarMembresia(where);
       return m ? proyectar(m, { include, select }, relMembresia) : null;

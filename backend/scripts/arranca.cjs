@@ -35,7 +35,10 @@ if (compilar) {
   execSync('npx nest build --tsc', {
     cwd: RAIZ,
     stdio: 'inherit',
-    env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' },
+    // 7168 y no 4096: con 4 GB el compilador se queda sin memoria en esta
+    // máquina —«Ineffective mark-compacts near heap limit»— y el script se
+    // vuelve inservible justo cuando más falta hace, antes de desplegar.
+    env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=7168' },
   });
 }
 

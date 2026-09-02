@@ -980,16 +980,19 @@ describe('cuadre del año', () => {
     expect(vista.puedeConsumir).toBe(false);
   });
 
-  it('DESVIACIÓN: con el reloj adelantado, el cron y el consumo dejan de estar de acuerdo', async () => {
-    // El cron busca `periodo: { lt: actual }` —a propósito: una fila con período
-    // FUTURO por un reloj desajustado no debe «reiniciarse» hacia atrás—. Pero
-    // `consumir` compara con `!==`, así que para él un período futuro SÍ toca
-    // reiniciar. Los dos guardias no dicen lo mismo.
+  it('con el reloj adelantado y corregido, el cron y el consumo van de acuerdo', async () => {
+    // El cron busca `periodo: { lt: actual }` a propósito: una fila con período
+    // FUTURO, por un reloj desajustado, no debe «reiniciarse» hacia atrás.
+    // `consumir` comparaba con `!==`, así que para él un período futuro SÍ
+    // tocaba reiniciar, y los dos guardias no decían lo mismo.
     //
-    // Resultado: un servidor adelantado reparte el cupo de noviembre y, al
-    // corregirse la hora, el primer café de septiembre vuelve a rellenar el
-    // pase. Tres cupos donde iba uno, con una sola cuota pagada. Basta un
-    // contenedor con la hora mal un rato, y no se recupera solo.
+    // Resultado: un servidor adelantado repartía el cupo de noviembre y, al
+    // corregirse la hora, el primer café de septiembre volvía a rellenar el
+    // pase. Tres cupos donde iba uno, con una sola cuota pagada — y bastaba un
+    // contenedor con la hora mal un rato, sin recuperarse solo.
+    //
+    // Ahora los dos usan `<`: el período futuro se respeta hasta que el
+    // calendario lo alcance.
     const plan = await crearPlanDeCafe(10);
     enBogota('2026-09-02');
     const alta = await altaDe(plan.id, 'ana', 'Ana');
@@ -1010,12 +1013,14 @@ describe('cuadre del año', () => {
       reiniciadas: 0,
     });
 
-    // …pero el primer consumo la devuelve a septiembre Y le repone el cupo.
+    // …y el consumo tampoco: la fila se queda en noviembre y se descuenta de
+    // lo que hay, sin reponer nada. El socio no recibe un tercer cupo.
     const r = await svc.consumir(DUENO, alta.id, 1);
-    expect(filaDe(alta.id).periodo).toBe('2026-09');
-    expect(r.saldo).toBe(9); // repuesto a 10 y descontado 1
+    expect(filaDe(alta.id).periodo).toBe('2026-11');
+    expect(r.saldo).toBe(9); // 10 del reparto de noviembre, menos este
     expect(filaDe(alta.id).cupoDelPeriodo).toBe(10);
-    // Total asignado en un septiembre que solo debía dar 10: 30.
+    // El café se apunta al mes REAL, aunque la fila lleve el período futuro:
+    // el período del consumo sale de la fecha, no de la membresía.
     expect(bd.consumos.filter((c) => c.periodo === '2026-09')).toHaveLength(2);
   });
 });
