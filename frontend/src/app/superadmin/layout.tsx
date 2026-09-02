@@ -122,7 +122,9 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
           background: `linear-gradient(176deg, color-mix(in srgb, ${pc} 78%, #0a0a0f) 0%, color-mix(in srgb, ${pc} 32%, #0a0a0f) 55%, #0a0a0f 100%)`,
           color: 'white',
           position: 'sticky',
-          top: 0,
+          // Dentro de la app la barra se pegaría bajo la isla dinámica al
+          // hacer scroll. --safe-top solo existe ahí; en el navegador es 0.
+          top: 'var(--safe-top, 0px)',
           maxHeight: '100vh',
         }}
       >

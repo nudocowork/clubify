@@ -1386,12 +1386,12 @@ export default function AppShell({
             className="absolute inset-0 bg-black/60"
             onClick={() => setNavOpen(false)}
           />
-          <div className="relative shadow-2xl">{sidebar}</div>
+          <div className="cajon-lateral relative shadow-2xl">{sidebar}</div>
         </div>
       )}
 
       {/* Topbar mobile (con botón hamburger) */}
-      <header className="lg:hidden sticky top-0 z-30 bg-sidebar-bg text-white px-4 py-3 flex items-center gap-3 border-b border-[#172534]">
+      <header className="barra-superior lg:hidden sticky top-0 z-30 bg-sidebar-bg text-white px-4 py-3 flex items-center gap-3 border-b border-[#172534]">
         <button
           onClick={() => setNavOpen(true)}
           className="w-9 h-9 rounded-lg flex items-center justify-center hover:bg-sidebar-hover transition"

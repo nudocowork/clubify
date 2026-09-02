@@ -7,7 +7,7 @@ import { PWARegister } from '@/components/PWARegister';
 import { ToastProvider } from '@/components/Toast';
 import { DynamicFavicon } from '@/components/DynamicFavicon';
 import { ChunkReloadGuard } from '@/components/ChunkReloadGuard';
-import { NativeSplashGate } from '@/components/NativeSplashGate';
+import { NativeAppChrome } from '@/components/NativeAppChrome';
 import { googleFontsUrl } from '@/lib/marketing/qr-poster-config';
 import { AuthBrandProvider } from '@/components/AuthBrand';
 import { resolveAuthBrandFromHeaders } from '@/lib/server-brand';
@@ -427,7 +427,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         />
       </head>
       <body>
-        <NativeSplashGate />
+        <NativeAppChrome />
         <ChunkReloadGuard />
         <DynamicFavicon />
         <NextIntlClientProvider locale={locale} messages={messages}>
