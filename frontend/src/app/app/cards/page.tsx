@@ -473,12 +473,18 @@ function CardPreview({
                 {brand}
               </div>
               <div className="text-[10px] opacity-75 mt-0.5">
-                {TYPE_EMOJI[card.type]} {t(TYPE_LABEL_KEY[card.type])}
+                {/* La plantilla de un plan de club es `STAMPS` por dentro, así
+                    que sin esto se anunciaba como una tarjeta de sellos. */}
+                {esDeClub
+                  ? '🎟️ Tarjeta de club'
+                  : `${TYPE_EMOJI[card.type]} ${t(TYPE_LABEL_KEY[card.type])}`}
               </div>
             </div>
             <div className="text-right shrink-0 mr-7">
               <div className="text-[8px] uppercase tracking-wider opacity-75 font-bold">
-                {card.type === 'STAMPS' || card.type === 'HYBRID'
+                {esDeClub
+                  ? 'BENEFICIOS'
+                  : card.type === 'STAMPS' || card.type === 'HYBRID'
                   ? t('headerStamps')
                   : card.type === 'VISITS'
                   ? t('headerVisits')

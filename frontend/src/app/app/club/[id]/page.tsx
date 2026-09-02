@@ -7,6 +7,10 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { plural } from '@/lib/plural';
 import { Consumos } from './Consumos';
+import {
+  EntregarTarjeta,
+  type SocioParaEntregar,
+} from './EntregarTarjeta';
 
 type Plan = {
   id: string;
@@ -70,6 +74,9 @@ export default function SociosDelPlanPage() {
   const [cargando, setCargando] = useState(true);
   const [dandoDeAlta, setDandoDeAlta] = useState(false);
   const [cerrando, setCerrando] = useState(false);
+  // A quién hay que entregarle la tarjeta ahora mismo. Se abre solo al dar
+  // de alta, y también desde el botón «Enlace» de cualquier socio.
+  const [entregando, setEntregando] = useState<SocioParaEntregar | null>(null);
   const [sociosAlDia, setSociosAlDia] = useState(0);
   const [sociosEnPausa, setSociosEnPausa] = useState(0);
 
@@ -144,30 +151,6 @@ export default function SociosDelPlanPage() {
       cargarMiembros();
     } catch (e: any) {
       toast(e.message || 'No se pudo cambiar el estado.', 'error');
-    }
-  }
-
-  /**
-   * Copia el enlace con el que el socio instala su tarjeta.
-   *
-   * El pase se emite en el alta, pero hasta que el cliente lo instala no lo
-   * tiene en el móvil. Sin esto, el negocio daba de alta a alguien y se
-   * quedaba sin forma de entregársela.
-   */
-  async function copiarEnlace(m: Miembro) {
-    if (!m.passId) return;
-    // `?welcome=1` no es decorativo: es lo que hace que la página pinte
-    // «aún no has terminado, instala tu tarjeta». Sin él, el socio que abre el
-    // enlace POR PRIMERA VEZ ve la variante de quien vuelve a mirar la suya,
-    // pensada a propósito para NO empujar la instalación.
-    const url = `${window.location.origin}/w/${m.passId}?welcome=1`;
-    try {
-      await navigator.clipboard.writeText(url);
-      toast('Enlace copiado. Envíaselo por WhatsApp.', 'success');
-    } catch {
-      // Sin permiso de portapapeles (Safari en http, sobre todo): se abre y
-      // que copie de la barra. Peor sería no dar ninguna salida.
-      window.open(url, '_blank');
     }
   }
 
@@ -263,13 +246,26 @@ export default function SociosDelPlanPage() {
         </div>
       )}
 
+      {entregando && (
+        <EntregarTarjeta
+          socio={entregando}
+          plan={plan?.name ?? 'tu club'}
+          onCerrar={() => setEntregando(null)}
+        />
+      )}
+
       {dandoDeAlta && plan && (
         <BuscadorDeCliente
           planId={planId}
           onCerrar={() => setDandoDeAlta(false)}
-          onAlta={() => {
+          onAlta={(socio) => {
             setDandoDeAlta(false);
+            // Lo primero que ve el negocio tras el alta es CÓMO entregarla:
+            // el pase existe, pero hasta que el cliente abre su enlace no lo
+            // tiene en el móvil. Antes esto se quedaba en un aviso que se iba.
+            setEntregando(socio);
             cargarMiembros();
+            recargarPlan();
           }}
         />
       )}
@@ -410,10 +406,16 @@ export default function SociosDelPlanPage() {
                     {m.passId && m.status !== 'CANCELADA' && (
                       <button
                         className="btn-ghost"
-                        title="Copiar el enlace para que instale su tarjeta"
-                        onClick={() => copiarEnlace(m)}
+                        title="Ver el QR y el enlace de su tarjeta"
+                        onClick={() =>
+                          setEntregando({
+                            passId: m.passId!,
+                            nombre: m.cliente.nombre,
+                            telefono: m.cliente.telefono,
+                          })
+                        }
                       >
-                        Enlace
+                        Su tarjeta
                       </button>
                     )}
                   </td>
@@ -483,7 +485,21 @@ function Dato({ valor, etiqueta }: { valor: string; etiqueta: string }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-
+/**
+ * Dar de alta a un socio.
+ *
+ * Busca entre los clientes que ya tiene el negocio y, si no está —que es lo
+ * normal: el socio acaba de pagar en el mostrador y no existe en el sistema—,
+ * lo CREA aquí mismo con nombre y teléfono.
+ *
+ * Obligar a crearlo antes en Clientes y volver aquí a buscarlo por su nombre no
+ * tenía sentido: son dos pantallas para un cliente que está delante esperando.
+ *
+ * Y no hay un enlace público del plan a propósito. El club se PAGA: un enlace
+ * que cualquiera pudiera abrir y quedarse dentro convertiría la suscripción en
+ * un regalo. El alta la hace el negocio, que es quien sabe que le pagaron, y
+ * de ahí sale el QR que el socio escanea.
+ */
 function BuscadorDeCliente({
   planId,
   onCerrar,
@@ -491,17 +507,23 @@ function BuscadorDeCliente({
 }: {
   planId: string;
   onCerrar: () => void;
-  onAlta: () => void;
+  onAlta: (socio: SocioParaEntregar) => void;
 }) {
   const [q, setQ] = useState('');
   const [resultados, setResultados] = useState<ClienteLite[]>([]);
+  const [buscando, setBuscando] = useState(false);
   const [dando, setDando] = useState<string | null>(null);
+  const [nuevo, setNuevo] = useState<{ telefono: string; email: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (q.trim().length < 2) {
       setResultados([]);
+      setBuscando(false);
       return;
     }
+    setBuscando(true);
     const t = setTimeout(async () => {
       try {
         const r: ClienteLite[] = await api(
@@ -510,6 +532,8 @@ function BuscadorDeCliente({
         setResultados(r.slice(0, 8));
       } catch {
         setResultados([]);
+      } finally {
+        setBuscando(false);
       }
     }, 250);
     return () => clearTimeout(t);
@@ -518,18 +542,21 @@ function BuscadorDeCliente({
   async function alta(c: ClienteLite) {
     setDando(c.id);
     try {
-      const r = await api(`/club/planes/${planId}/miembros/${c.id}`, { method: 'POST' });
+      const r = await api(`/club/planes/${planId}/miembros/${c.id}`, {
+        method: 'POST',
+      });
       // El backend devuelve la membresía existente si ya estaba dentro, sin
       // tocar nada. Decirle «entra con 7» al negocio en ese caso le hacía creer
       // que acababa de dar de alta a alguien que ya llevaba meses.
       const yaEstaba = new Date(r.createdAt).getTime() < Date.now() - 10_000;
-      toast(
-        yaEstaba
-          ? `${c.fullName} ya era socio: le quedan ${r.saldo} este mes.`
-          : `${c.fullName} entra con ${r.saldo} este mes.`,
-        'success',
-      );
-      onAlta();
+      if (yaEstaba) {
+        toast(`${c.fullName} ya era socio: le quedan ${r.saldo} este mes.`, 'success');
+      }
+      onAlta({
+        passId: r.passId,
+        nombre: c.fullName,
+        telefono: c.phone ?? null,
+      });
     } catch (e: any) {
       toast(e.message || 'No se pudo dar de alta.', 'error');
     } finally {
@@ -537,14 +564,41 @@ function BuscadorDeCliente({
     }
   }
 
+  /** Crea el cliente y lo da de alta en el mismo gesto. */
+  async function crearYDarDeAlta() {
+    const nombre = q.trim();
+    if (nombre.length < 2) {
+      toast('Escribe el nombre del socio.', 'error');
+      return;
+    }
+    setDando('nuevo');
+    try {
+      const c: ClienteLite = await api('/customers', {
+        method: 'POST',
+        body: JSON.stringify({
+          fullName: nombre,
+          phone: nuevo?.telefono?.trim() || undefined,
+          email: nuevo?.email?.trim() || undefined,
+        }),
+      });
+      await alta({ ...c, phone: nuevo?.telefono?.trim() || c.phone });
+    } catch (e: any) {
+      toast(e.message || 'No se pudo crear el cliente.', 'error');
+      setDando(null);
+    }
+  }
+
+  const sinResultados = q.trim().length >= 2 && !buscando && resultados.length === 0;
+
   return (
     <div className="card card-pad mb-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold m-0">Dar de alta a un socio</h2>
-          <p className="text-xs text-mute mt-1">
-            Búscalo entre tus clientes. Si entra a mitad de mes recibe lo que
-            digan tus tramos; del mes siguiente en adelante, el cupo completo.
+          <p className="text-xs text-mute mt-1 max-w-xl">
+            Escribe su nombre. Si ya es cliente tuyo aparecerá en la lista; si
+            no, lo creas aquí mismo. Si entra a mitad de mes recibe lo que digan
+            tus tramos; del mes siguiente en adelante, el cupo completo.
           </p>
         </div>
         <button className="btn-ghost shrink-0" onClick={onCerrar}>
@@ -555,20 +609,13 @@ function BuscadorDeCliente({
       <input
         className="input mt-3"
         autoFocus
-        placeholder="Nombre, correo o teléfono del cliente…"
+        placeholder="Nombre del socio…"
         value={q}
-        onChange={(e) => setQ(e.target.value)}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setNuevo(null);
+        }}
       />
-
-      {q.trim().length >= 2 && resultados.length === 0 && (
-        <p className="text-sm text-mute mt-3">
-          Ningún cliente con ese dato.{' '}
-          <Link href="/app/customers" className="text-brand">
-            Créalo primero en Clientes
-          </Link>
-          .
-        </p>
-      )}
 
       {resultados.length > 0 && (
         <div className="mt-3 divide-y divide-line">
@@ -577,7 +624,7 @@ function BuscadorDeCliente({
               <div className="min-w-0">
                 <div className="font-medium text-sm truncate">{c.fullName}</div>
                 <div className="text-xs text-mute truncate">
-                  {c.email || c.phone || '—'}
+                  {c.email || c.phone || 'Sin correo ni teléfono'}
                 </div>
               </div>
               <button
@@ -589,6 +636,47 @@ function BuscadorDeCliente({
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Nadie con ese nombre: se ofrece crearlo, que es el caso corriente
+          cuando alguien acaba de pagar en el mostrador. */}
+      {sinResultados && (
+        <div className="mt-3 rounded-xl border border-line p-3">
+          <div className="text-sm font-medium">
+            No tienes ningún cliente que se llame «{q.trim()}»
+          </div>
+          <p className="text-xs text-mute mt-0.5">
+            Créalo y dale de alta de una vez. El teléfono no es obligatorio,
+            pero con él puedes mandarle su tarjeta por WhatsApp.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+            <input
+              className="input"
+              placeholder="Teléfono (opcional)"
+              value={nuevo?.telefono ?? ''}
+              onChange={(e) =>
+                setNuevo((n) => ({ email: n?.email ?? '', telefono: e.target.value }))
+              }
+            />
+            <input
+              className="input"
+              placeholder="Correo (opcional)"
+              value={nuevo?.email ?? ''}
+              onChange={(e) =>
+                setNuevo((n) => ({ telefono: n?.telefono ?? '', email: e.target.value }))
+              }
+            />
+          </div>
+          <button
+            className="btn-primary mt-3"
+            onClick={crearYDarDeAlta}
+            disabled={dando === 'nuevo'}
+          >
+            {dando === 'nuevo'
+              ? 'Creando…'
+              : `Crear a ${q.trim()} y darle de alta`}
+          </button>
         </div>
       )}
     </div>
