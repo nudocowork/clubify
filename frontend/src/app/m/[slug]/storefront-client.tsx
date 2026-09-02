@@ -2467,6 +2467,13 @@ type LookedUpPass = {
     primaryColor: string | null;
   };
   customer: { id: string; fullName: string };
+  /**
+   * Tarjeta de CLUB. Es `STAMPS` por dentro —el saldo vive en el mismo
+   * contador— así que sin esto se pintaba «SELLOS 7/10» con los círculos de un
+   * cartón. Y significa lo contrario: son los beneficios que le QUEDAN de los
+   * que pagó, no los que lleva acumulados.
+   */
+  club: { unidad: string; cupo: number; detenida: boolean } | null;
 };
 
 function CardLookup({ slug, primary }: { slug: string; primary: string }) {
@@ -2602,8 +2609,12 @@ function PassCard({
 }) {
   const tt = useT();
   const color = pass.card.primaryColor || fallbackPrimary;
-  const required = pass.card.stampsRequired ?? 10;
-  const dots = Array.from({ length: required });
+  const club = pass.club;
+  const required = club ? club.cupo : (pass.card.stampsRequired ?? 10);
+  // Con cupos grandes el cartón deja de significar nada: treinta círculos para
+  // un plan de treinta clases es una foto que no se lee. Mismo corte que en el
+  // pase de verdad.
+  const dots = Array.from({ length: club && club.cupo > 20 ? 0 : required });
   return (
     <div className="rounded-2xl shadow-card overflow-hidden bg-white">
       <div
@@ -2616,15 +2627,26 @@ function PassCard({
           </div>
           <div className="font-semibold text-sm">{pass.card.name}</div>
         </div>
-        {pass.card.type === 'STAMPS' && (
+        {club ? (
           <div className="text-right">
             <div className="text-[11px] uppercase tracking-wider opacity-80">
-              {tt('storefront.pass_stamps')}
+              {club.detenida ? 'EN PAUSA' : `TE QUEDAN`}
             </div>
             <div className="font-bold text-lg">
-              {pass.stampsCount}/{required}
+              {club.detenida ? '—' : `${pass.stampsCount}/${required}`}
             </div>
           </div>
+        ) : (
+          pass.card.type === 'STAMPS' && (
+            <div className="text-right">
+              <div className="text-[11px] uppercase tracking-wider opacity-80">
+                {tt('storefront.pass_stamps')}
+              </div>
+              <div className="font-bold text-lg">
+                {pass.stampsCount}/{required}
+              </div>
+            </div>
+          )
         )}
         {pass.card.type === 'POINTS' && (
           <div className="text-right">

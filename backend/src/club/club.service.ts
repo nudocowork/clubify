@@ -916,10 +916,24 @@ export class ClubService {
       ...(opciones.membresiaId ? { membresiaId: opciones.membresiaId } : {}),
     };
 
+    // Las unidades entregadas NO cuentan las líneas anuladas. Es LA pregunta
+    // del producto —cuántos cafés entregué por los 60.000 que cobro— y sumarlo
+    // todo inflaba el número dos veces por cada corrección del cajero: la línea
+    // mala y la buena. Cuanto más cuidadoso era corrigiendo, peor le salía la
+    // cuenta. Las líneas anuladas sí se siguen LISTANDO, marcadas: el histórico
+    // no se esconde, solo deja de sumar.
+    const whereEntregadas: Prisma.ClubConsumoWhereInput = {
+      ...where,
+      revertedAt: null,
+    };
+
     const [total, unidades, filas] = await Promise.all([
       this.prisma.clubConsumo.count({ where }),
       // Las unidades, no las líneas: un consumo puede llevarse más de una.
-      this.prisma.clubConsumo.aggregate({ where, _sum: { cantidad: true } }),
+      this.prisma.clubConsumo.aggregate({
+        where: whereEntregadas,
+        _sum: { cantidad: true },
+      }),
       this.prisma.clubConsumo.findMany({
         where,
         include: {
@@ -1008,7 +1022,11 @@ export class ClubService {
     // dejaba pasar, y al que había llegado a cero no. El caso que favorece al
     // negocio funcionaba y el que favorece al cliente, no.
     const periodoActual = periodoDe(new Date());
-    const tocaReinicio = m.periodo !== periodoActual;
+    // Solo se anticipa el reinicio a quien lo va a recibir. Una membresía
+    // PAUSADA no se reinicia —`tocaReiniciar` las ignora—, así que pintarle el
+    // cupo entero le enseñaba al cajero «10 / 10» de un socio que no tiene
+    // nada: el número decía una cosa y el botón, que no aparece, otra.
+    const tocaReinicio = m.periodo !== periodoActual && m.status === 'ACTIVA';
     const saldo = tocaReinicio
       ? m.plan.beneficiosPorMes
       : (m.pass?.stampsCount ?? 0);
@@ -1074,6 +1092,16 @@ export class ClubService {
 
     const passId = m.passId;
     const periodoActual = periodoDe(new Date());
+
+    // NO hay ventana de idempotencia por tiempo, y se probó: descartar un
+    // consumo «igual al anterior» dentro de unos segundos se traga el caso
+    // normal del mostrador —dos cafés pedidos seguidos, escaneados uno detrás
+    // de otro— que es indistinguible del doble toque salvo por la intención.
+    //
+    // El doble toque se ataja donde no hay ambigüedad: el botón de la caja se
+    // desactiva mientras la petición está en vuelo, y si aun así se cuela,
+    // «Deshacer el último» está ahí mismo.
+
     // El cron de reinicio es HORARIO, así que entre las 00:00 del día 1 y su
     // primera pasada hay hasta una hora en la que la membresía sigue marcada
     // en el mes viejo. Sin esto, un cliente con 7 sobrantes de septiembre se

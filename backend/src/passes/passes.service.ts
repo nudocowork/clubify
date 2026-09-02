@@ -206,11 +206,53 @@ export class PassesService {
         status: 'ACTIVE',
       },
       include: {
-        card: { select: { id: true, name: true, type: true, stampsRequired: true, primaryColor: true } },
+        card: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            stampsRequired: true,
+            primaryColor: true,
+            // Sin esto la tienda no sabe que es de club y la pinta como un
+            // cartón: «SELLOS 7/10», con el número contando lo contrario de lo
+            // que significa. Es el mismo fallo que ya se corrigió en el pase de
+            // Apple, en el de Google y en la página de instalación — este era
+            // el cuarto sitio, y el que ve el cliente final.
+            clubPlanId: true,
+          },
+        },
         customer: { select: { id: true, fullName: true } },
       },
       orderBy: { issuedAt: 'desc' },
     });
+
+    // Los datos de club de TODOS los pases de club en una sola consulta. Uno
+    // por pase sería un N+1 en una ruta pública que un cliente abre con varias
+    // tarjetas; y son pocos, casi siempre cero.
+    const idsDeClub = passes
+      .filter((p) => p.card.clubPlanId)
+      .map((p) => p.id);
+    const membresias = idsDeClub.length
+      ? await this.prisma.clubMembresia.findMany({
+          where: { passId: { in: idsDeClub } },
+          select: {
+            passId: true,
+            status: true,
+            cupoDelPeriodo: true,
+            plan: { select: { unidad: true, beneficiosPorMes: true } },
+          },
+        })
+      : [];
+    const clubPorPase = new Map(
+      membresias.map((m) => [
+        m.passId!,
+        {
+          unidad: m.plan.unidad,
+          cupo: m.cupoDelPeriodo || m.plan.beneficiosPorMes,
+          detenida: m.status !== 'ACTIVA',
+        },
+      ]),
+    );
 
     return {
       passes: passes.map((p) => ({
@@ -220,6 +262,7 @@ export class PassesService {
         pointsBalance: Number(p.pointsBalance ?? 0),
         card: p.card,
         customer: p.customer,
+        club: clubPorPase.get(p.id) ?? null,
       })),
     };
   }
