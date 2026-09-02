@@ -8,6 +8,65 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-02 — ALIANZAS **DESPLEGADO EN PRODUCCIÓN** ✅
+
+Migraciones aplicadas y código arriba. El módulo existe en producción por
+primera vez.
+
+### Lo que se corrió, en este orden
+
+1. `railway run node scripts/apply-convenios-migration.cjs` → 6 tablas, 3
+   columnas (`Tenant.conveniosEnabled`, `Tenant.maxConvenios`,
+   `Card.convenioId`), 15 índices, 12 claves foráneas.
+2. `railway run node scripts/apply-alianzas-migration.cjs` → `activoAliado`,
+   `aliadoToken` y el índice único parcial `(convenioId, documento)`.
+   Resultado: `convenios: 0 · tarjetas: 0`.
+3. `node scripts/desplegar.cjs backend` — commit `37605259`.
+4. `node scripts/desplegar.cjs frontend`.
+
+### Cómo se verificó que subió de verdad
+
+Un 404 NO sirve de prueba: lo dan igual una ruta viva sin resultados y una que
+no existe. Lo que distingue es el **cuerpo**:
+
+| Ruta | Respuesta | Qué demuestra |
+|---|---|---|
+| `/api/public/alianzas/x/y` | «Este enlace no está disponible.» | el handler está vivo |
+| `/api/public/aliado/tokenfalso` | «Enlace no válido.» | el portal arreglado está arriba (esa ruta solo existe en el último commit) |
+| `/api/public/noexiste/x/y` | `Cannot GET …` | el 404 genérico de Nest — la comparación vale |
+
+Frontend: `/alianza/<negocio>/<empresa>` y `/aliado/<token>` responden 200; una
+ruta inventada, 404.
+
+### QUÉ FALTA PARA USARLO
+
+**Nada está encendido todavía.** `conveniosEnabled` está en `false` para todos
+los negocios, que es lo correcto: nadie ve el módulo hasta que se le active.
+
+Para la primera prueba real: panel de admin del negocio → **Alianzas con
+empresas** → crear desde `Tarjetas → Nueva tarjeta → Alianza con una empresa`.
+Usar verificación **por código** (LISTA es el modo más frágil) y vigencia
+ilimitada.
+
+### Dos defectos conocidos que NO se arreglaron
+
+- **El filtro por sede no se aplica nunca.** `AuthUser` no lleva `locationId` y
+  en `scanner.service.ts` va con un `as any`, que es lo que impide que
+  TypeScript avise. Una alianza limitada a una sede vale en todas, y
+  `ConvenioCanje.locationId` se guarda siempre null: el informe por sede sale
+  vacío. **No vender alianzas por sede.**
+- **Un empleado puede quedar bloqueado por otro.** Si alguien activa con el
+  teléfono de un compañero antes que él (en modo CÓDIGO el código lo sabe toda
+  la empresa), al compañero le sale el mensaje de datos que no coinciden. Lo
+  desatasca el negocio desde el panel. De raíz pide verificar el teléfono, y no
+  hay transporte de SMS por marca.
+
+### Nota de entorno
+
+`npm run arranca` **no funciona en Windows**: el script de build usa `rm -rf`,
+que no existe en cmd. Para comprobar el arranque en esta máquina hay que borrar
+`dist` a mano y correr `npx nest build --tsc`.
+
 ## 2026-09-02 (tarde) — Tarjeta de Club: repaso de lógica, rendimiento y recorrido
 
 Tres revisiones sobre el módulo ya desplegado. Lo que salió, corregido.
