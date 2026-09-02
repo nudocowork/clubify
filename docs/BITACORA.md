@@ -91,7 +91,9 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
   SMS de mora a la clienta → esperando OK del dueño.
 
 ### Qué falta / qué hay que validar del otro lado
-- [ ] Aplicar la corrección de VIIDA (o dejarla si Hotmart recupera el cargo solo).
+- [x] VIIDA corregida (2026-09-01, con OK del dueño): lastChargeAt=29-jul, ciclo=29-ago,
+      firstFailedAt=29-ago, fallos=1 → 🟡 EN GRACIA día 4, suspende ~03-sep si no paga.
+      Dispara SMS de mora a la clienta. Si Hotmart recupera el cargo, activatePurchase la reactiva.
 - [ ] El CTA "Empieza gratis y mejora" de `/infolink` va a `/i-registro/sellea` (signup),
       no al link de Stripe. El upgrade a PRO desde el panel del negocio queda por cablear.
 
