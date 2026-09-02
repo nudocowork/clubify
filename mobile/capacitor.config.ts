@@ -51,7 +51,12 @@ const config: CapacitorConfig = {
   },
   plugins: {
     SplashScreen: {
-      launchAutoHide: false, // la oculta la app cuando el panel terminó de cargar
+      // La oculta la web al terminar de pintar (NativeSplashGate), pero con
+      // TOPE: si esa llamada no llega —sin red, error de carga— el splash se
+      // quedaría pegado para siempre. Pasó en la primera prueba con
+      // launchAutoHide:false y nadie llamando a hide().
+      launchAutoHide: true,
+      launchShowDuration: 3000,
       backgroundColor: '#0B1F14',
       androidSplashResourceName: 'splash',
       showSpinner: false,

@@ -169,6 +169,50 @@ un único bug de corrección → arreglado y desplegado (frontend READY):
   frontend lo **subió a producción**: `/hub` ahora responde **200**. Si esa fase 1 no estaba
   lista para estar viva, avísame — quedó live junto con mi ranking, tu cuponera y el botón PRO.
 
+## 2026-09-02 — ⚠️ JAVI: tus deploys están BORRANDO `/hub` de producción (van 3)
+
+**Máquina/quién:** la de Jhon (sesión Claude) · Rama `feat/commissions-auto-cutoffs`
+
+### El problema, con los tiempos
+
+```
+09-01 21:51  commit 7f0e7a41 — se crea /hub
+09-01 ~22:00  deploy tuyo    → /hub queda en 200  ✅
+09-01 ~23:14  deploy tuyo
+09-02 ~02:14  deploy tuyo    → /hub en 404  ❌
+09-02  hoy    deploy mío     → /hub en 200  ✅  (verificado)
+09-02  +15m   deploy tuyo    → /hub en 404  ❌  otra vez
+```
+
+Cada despliegue tuyo deja la ruta en 404. Eso significa que **el commit que
+estás desplegando no tiene `/hub`**: o la copia va por detrás de origin, o
+sale de otra rama.
+
+`desplegar.cjs` bloquea si estás por detrás **de tu propia rama**. Si
+despliegas desde otra rama que nunca recibió estos commits, el script pasa
+tranquilo y aun así borra las rutas que no existen ahí.
+
+### Qué necesito de ti
+
+Antes de cada `desplegar.cjs frontend`:
+
+```bash
+git fetch origin && git log --oneline -1 origin/feat/commissions-auto-cutoffs
+git status -sb          # que no diga "behind"
+```
+
+Y confirmar que despliegas **desde `feat/commissions-auto-cutoffs`**, que es
+la rama que corre en producción.
+
+### Por qué importa más que antes
+
+`/hub` dejó de ser una ruta suelta: **es donde arranca la app de iOS**
+(`server.url` en `mobile/capacitor.config.ts`). Lo comprobé hoy en el
+simulador — con `/hub` caído, la app abre en la página de 404 de Clubify en
+vez del panel. Cuando esté publicada en la App Store, un deploy tuyo sin estos
+commits deja la app inservible para todos los que la tengan instalada, y no se
+arregla hasta el siguiente deploy correcto.
+
 ## 2026-09-02 — DESPLEGADO: `/hub` + gates de iOS. Toolchain de Xcode lista
 **Máquina/quién:** la de Jhon (sesión Claude)
 **Rama / PR:** feat/commissions-auto-cutoffs — commit `a3f15d74`

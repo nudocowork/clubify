@@ -1,6 +1,9 @@
 require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
 
-platform :ios, '13.0'
+# 15.5 es el mínimo que pide GoogleMLKit (el escáner) y además iOS 26 ya no
+# instala apps con un target tan bajo como el 13.0 que traía Capacitor:
+# el simulador las rechaza con "el desarrollador debe actualizar esta app".
+platform :ios, '15.5'
 use_frameworks!
 
 # workaround to avoid Xcode caching of Pods that requires

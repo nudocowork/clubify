@@ -22,6 +22,10 @@ type BarcodeScannerPlugin = {
   installGoogleBarcodeScannerModule?: () => Promise<void>;
 };
 
+type SplashScreenPlugin = {
+  hide: (opts?: { fadeOutDuration?: number }) => Promise<void>;
+};
+
 type HapticsPlugin = {
   impact: (opts: { style: 'HEAVY' | 'MEDIUM' | 'LIGHT' }) => Promise<void>;
   notification: (opts: { type: 'SUCCESS' | 'WARNING' | 'ERROR' }) => Promise<void>;
@@ -90,5 +94,17 @@ export async function vibrar(tipo: 'ok' | 'error'): Promise<void> {
     });
   } catch {
     /* la vibración nunca debe romper un escaneo */
+  }
+}
+
+/**
+ * Oculta el splash nativo. Se llama cuando el panel ya está pintado — ver
+ * NativeSplashGate. Silenciosa fuera de la app.
+ */
+export async function ocultarSplashNativo(): Promise<void> {
+  try {
+    await plugin<SplashScreenPlugin>('SplashScreen')?.hide({ fadeOutDuration: 200 });
+  } catch {
+    /* si el plugin no responde, el tope de launchShowDuration lo cubre */
   }
 }
