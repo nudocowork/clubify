@@ -107,6 +107,18 @@ export default function NewCardWizard() {
   const [confirmActivate, setConfirmActivate] = useState(false);
   // Wallet V3 — permisos de la marca (para gatear la opción de imagen).
   const [walletAdv, setWalletAdv] = useState<Record<string, boolean> | null>(null);
+  /**
+   * Qué módulos tiene ENCENDIDOS este negocio.
+   *
+   * Gatea las dos tarjetas nuevas del paso 2. Se enseñaban a todo el mundo «de
+   * escaparate», y eso significa que un negocio de Sellea —o de cualquier otra
+   * marca blanca— veía Alianzas y Tarjeta de Club antes de que su marca las
+   * tuviera. Adelantar funciones a otra marca no es nuestro para adelantarlo.
+   *
+   * Arranca en `false`: mientras `/tenants/me` no conteste, no se pinta nada
+   * que el negocio no tenga. Es el mismo criterio del menú lateral.
+   */
+  const [modulos, setModulos] = useState({ convenios: false, club: false });
 
   const [locations, setLocations] = useState<LocationLite[]>([]);
   // Cargar categoría del tenant + sedes
@@ -115,6 +127,10 @@ export default function NewCardWizard() {
       .then((me) => {
         if (me?.businessCategorySlug) setTenantCategorySlug(me.businessCategorySlug);
         if (me?.walletAdvanced) setWalletAdv(me.walletAdvanced);
+        setModulos({
+          convenios: me?.conveniosEnabled === true,
+          club: me?.clubEnabled === true,
+        });
       })
       .catch(() => {});
     api<any[]>('/locations')
@@ -247,6 +263,7 @@ export default function NewCardWizard() {
             set('type', t);
           }}
           onContinue={() => setStep(3)}
+          modulos={modulos}
         />
       )}
 
@@ -524,8 +541,11 @@ function Step1Templates({
  *    verificación y sus avisos. Duplicarla aquí garantizaba que los dos
  *    formularios acabaran diciendo cosas distintas.
  *
- * Se muestra SIEMPRE, tenga o no el módulo encendido: es el escaparate, y la
- * página de destino ya explica cómo pedirlo si el negocio no lo tiene.
+ * Solo se muestra si el negocio TIENE el módulo encendido. Antes se enseñaba
+ * siempre, «de escaparate», y eso se lo estaba enseñando también a los negocios
+ * de las otras marcas blancas: un cliente de Sellea veía Alianzas antes de que
+ * su marca la tuviera. Lo que aún no se ha lanzado en una marca no se le
+ * adelanta a sus negocios.
  */
 function TarjetaAlianza() {
   return (
@@ -588,10 +608,13 @@ function Step2Type({
   selected,
   onSelect,
   onContinue,
+  modulos,
 }: {
   selected: CardType;
   onSelect: (t: CardType) => void;
   onContinue: () => void;
+  /** Módulos encendidos para ESTE negocio. Gatean las dos tarjetas nuevas. */
+  modulos: { convenios: boolean; club: boolean };
 }) {
   const t = useTranslations('app_cards_new');
   return (
@@ -602,8 +625,8 @@ function Step2Type({
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
-        <TarjetaAlianza />
-        <TarjetaClub />
+        {modulos.convenios && <TarjetaAlianza />}
+        {modulos.club && <TarjetaClub />}
         {ALL_TYPES.map((t) => {
           const active = selected === t;
           return (
