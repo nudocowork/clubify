@@ -178,6 +178,30 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-09-01 — Botón upgrade a PRO en editor InfoLinks (+ coordinación deploy con cuponera de Javi)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `a19639b5`
+
+### Qué cambié (frontend, DESPLEGADO)
+- Editor `info-links/[id]`: cableado el upgrade FREE→PRO al Payment Link `INFOLINK_PRO`
+  (el que registré ayer). Banner "Mejora tu InfoLink a PRO · $14.99/mes" (solo INFOLINK+FREE)
+  → abre el checkout; enlace "Mejorar →" junto a `N/5 · plan Gratis`; los candados
+  `ProLock` (fondo/colores) ahora abren el checkout en vez de solo alertar. Sin cambios de
+  backend (los datos salen de `getMine` → `/tenants/me`, que ya trae `paymentLinks.productKey/url/amountUsd`).
+
+### Coordinación (IMPORTANTE)
+- Al pushear, mi commit quedó **encima de `342dec08` de Javi** (*"Cuponera Card"*, front+back),
+  que llegó por OneDrive. El backend vivo era el mío (`21027f3d`) SIN su backend de cuponera.
+- **Javi desplegó su backend en paralelo** (build/deploy detectado; swap a deployment
+  `9c431124`, Online 200). Esperé a que su backend quedara vivo ANTES de soltar el frontend,
+  para no dejar su frontend de cuponera adelantado a su backend.
+- Mi deploy de frontend (`a19639b5`) subió **su frontend de cuponera + mi botón PRO**, ya
+  consistente con su backend. Vercel READY.
+
+### Riesgos y avisos
+- La rama sigue con commits de Javi y míos apilados por OneDrive; seguir verificando sync
+  (`git rev-list --left-right`) antes de cada deploy. En este no me quedé por detrás (0/0).
+
 ## 2026-09-01 — Ranking pases (oculta TRIAL/SUSPENDIDOS) + total a cobrar en Próximos cobros
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `21027f3d`
