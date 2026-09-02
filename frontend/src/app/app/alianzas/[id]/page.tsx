@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { QRCodeSVG } from 'qrcode.react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -235,11 +236,13 @@ export default function AlianzaDetalle() {
           titulo="Para los empleados"
           nota="Es el que la empresa reparte entre su gente. Se puede reenviar sin problema: quién puede activar lo decide la verificación, no el enlace."
           url={enlaces?.activacion}
+          archivo={`alianza-${c.slug}-empleados`}
         />
         <Enlace
           titulo="Para la empresa aliada"
           nota="Con este enciende y apaga SUS beneficios y da de baja a quien se va. No lo repartas: pásaselo solo a quien lo maneja."
           url={enlaces?.portal}
+          archivo={`alianza-${c.slug}-portal-aliado`}
           accion={
             <button
               className="text-xs text-mute hover:underline"
@@ -678,12 +681,39 @@ function Enlace({
   nota,
   url,
   accion,
+  archivo,
 }: {
   titulo: string;
   nota: string;
   url?: string;
   accion?: React.ReactNode;
+  /** Nombre del PNG al descargar el QR. */
+  archivo: string;
 }) {
+  const [verQr, setVerQr] = useState(false);
+
+  /**
+   * Descarga el QR en PNG grande.
+   *
+   * 1024 px y corrección de errores alta: estos códigos acaban impresos en una
+   * cartelera de la empresa o pegados en la pared del comedor, y un QR pequeño
+   * o con poca redundancia deja de leerse en cuanto se raya o se imprime mal.
+   */
+  async function descargar() {
+    if (!url) return;
+    const QR = (await import('qrcode')).default;
+    const png = await QR.toDataURL(url, {
+      width: 1024,
+      margin: 2,
+      errorCorrectionLevel: 'H',
+    });
+    const a = document.createElement('a');
+    a.href = png;
+    a.download = `${archivo}.png`;
+    a.click();
+    toast('QR descargado', 'success');
+  }
+
   return (
     <div className="mt-3">
       <div className="flex items-baseline justify-between gap-3">
@@ -691,10 +721,15 @@ function Enlace({
         {accion}
       </div>
       <p className="mt-0.5 text-xs text-mute leading-snug">{nota}</p>
-      <div className="mt-1.5 flex gap-2">
-        <input className="input font-mono text-xs" readOnly value={url ?? ''} />
+      <div className="mt-1.5 flex flex-wrap gap-2">
+        <input
+          className="input font-mono text-xs min-w-0 flex-1"
+          readOnly
+          value={url ?? ''}
+        />
         <button
           className="btn btn-sm shrink-0"
+          disabled={!url}
           onClick={() => {
             if (!url) return;
             navigator.clipboard.writeText(url);
@@ -703,7 +738,33 @@ function Enlace({
         >
           Copiar
         </button>
+        <button
+          className="btn btn-sm shrink-0"
+          disabled={!url}
+          onClick={() => setVerQr((v) => !v)}
+        >
+          {verQr ? 'Ocultar QR' : 'Ver QR'}
+        </button>
       </div>
+
+      {verQr && url && (
+        <div className="mt-3 flex flex-wrap items-center gap-4 rounded-input bg-bg2 p-4">
+          {/* Fondo blanco siempre: sobre el gris del panel un QR pierde
+              contraste y hay lectores que dejan de cogerlo. */}
+          <div className="rounded-input bg-white p-3">
+            <QRCodeSVG value={url} size={148} level="H" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs text-mute leading-snug">
+              Imprímelo o pásalo por WhatsApp. Lleva al mismo sitio que el
+              enlace.
+            </p>
+            <button className="btn btn-sm mt-2" onClick={descargar}>
+              Descargar PNG
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
