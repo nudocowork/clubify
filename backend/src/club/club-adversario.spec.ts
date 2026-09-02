@@ -71,7 +71,9 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-09-05T17:00:00Z')); // 5 de sept, Bogotá
   montar();
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('cancelar y volver a dar de alta no es una recarga', () => {
   it('vuelve el mismo mes: conserva lo que le quedaba', async () => {

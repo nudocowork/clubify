@@ -323,6 +323,41 @@ export class ClubService {
    * una sola vez y se queda, así que el primer socio que se dé de alta fija el
    * aspecto para siempre. Es la fuga de marca de siempre; Convenios ya la pagó.
    */
+  /**
+   * La tarjeta-plantilla del plan: la de siempre, o una nueva si es el primer
+   * socio.
+   *
+   * El «buscar o crear» pasa FUERA de la transacción del alta, así que dos
+   * primeros socios a la vez encontraban las dos que no había y creaban DOS
+   * plantillas. La segunda dejaba huérfano el pase que el cliente ya tenía
+   * instalado: al escanearlo respondía que la tarjeta no tiene socio.
+   *
+   * Lo arregla el índice único `[tenantId, clubPlanId]`, y aquí se recoge su
+   * P2002 para devolver la que ganó en vez de un 500.
+   */
+  private async tarjetaDelPlan(
+    tenantId: string,
+    plan: { id: string; name: string; beneficiosPorMes: number; unidad: string },
+  ): Promise<{ id: string }> {
+    // `select` acotado: sin él traía la fila entera —los JSON de la billetera,
+    // los premios— para quedarse solo con el id.
+    const suya = await this.prisma.card.findFirst({
+      where: { tenantId, clubPlanId: plan.id },
+      select: { id: true },
+    });
+    if (suya) return suya;
+
+    try {
+      return await this.crearTarjetaDelPlan(tenantId, plan);
+    } catch (e: any) {
+      if (e?.code !== 'P2002') throw e;
+      return this.prisma.card.findFirstOrThrow({
+        where: { tenantId, clubPlanId: plan.id },
+        select: { id: true },
+      });
+    }
+  }
+
   private async crearTarjetaDelPlan(
     tenantId: string,
     plan: { id: string; name: string; beneficiosPorMes: number; unidad: string },
@@ -421,14 +456,7 @@ export class ClubService {
     // como en el resto — así hereda gratis el pintado, el push y la
     // geolocalización. Lo que la distingue es `clubPlanId`, y por eso los
     // resolutores de "primera tarjeta de sellos del negocio" la excluyen.
-    const card =
-      // `select` acotado: sin él traía la fila entera —los JSON de la billetera,
-      // los premios— para quedarse solo con el id.
-      (await this.prisma.card.findFirst({
-        where: { tenantId, clubPlanId: planId },
-        select: { id: true },
-      })) ??
-      (await this.crearTarjetaDelPlan(tenantId, plan));
+    const card = await this.tarjetaDelPlan(tenantId, plan);
 
     return this.prisma.$transaction(async (tx) => {
       // El pase nace CON el cupo dentro. Es lo contrario de una tarjeta de

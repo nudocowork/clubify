@@ -26,7 +26,13 @@ const compilar = !process.argv.includes('--sin-compilar');
 
 if (compilar) {
   console.log('  Compilando…');
-  execSync('npm run build', {
+  // Se limpia con Node y se llama al compilador directamente, en vez de
+  // `npm run build`: ese script empieza por `rm -rf`, que no existe en el shell
+  // que usa npm en Windows. En el Dockerfile funciona porque allí es Linux.
+  const fs = require('fs');
+  fs.rmSync(path.join(RAIZ, 'dist'), { recursive: true, force: true });
+  fs.rmSync(path.join(RAIZ, 'tsconfig.tsbuildinfo'), { force: true });
+  execSync('npx nest build --tsc', {
     cwd: RAIZ,
     stdio: 'inherit',
     env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=4096' },

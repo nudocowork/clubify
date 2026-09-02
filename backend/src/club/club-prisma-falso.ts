@@ -435,8 +435,22 @@ export function crearPrismaFalso(bd: BaseDeDatos) {
       const c = bd.tarjetas.find((x) => filtra(x, where, {}));
       return c ? proyectar(c, { select, include }, {}) : null;
     },
+    findFirstOrThrow: async ({ where, select, include }: any) => {
+      const c = bd.tarjetas.find((x) => filtra(x, where, {}));
+      if (!c) throw new ErrorP2025();
+      return proyectar(c, { select, include }, {});
+    },
     create: async ({ data }: any) => {
       await disparar('antesDeCrearTarjeta');
+      // El índice único `[tenantId, clubPlanId]`: una sola plantilla por plan.
+      if (
+        data.clubPlanId &&
+        bd.tarjetas.some(
+          (c) => c.tenantId === data.tenantId && c.clubPlanId === data.clubPlanId,
+        )
+      ) {
+        throw new ErrorP2002(['tenantId', 'clubPlanId']);
+      }
       const fila: FilaTarjeta = {
         id: nuevoId('card'),
         clubPlanId: null,
