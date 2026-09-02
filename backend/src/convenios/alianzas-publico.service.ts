@@ -115,6 +115,7 @@ export class AlianzasPublicoService {
         nombre: tenant.brandName,
         logoUrl: tenant.logoUrl,
         color: tenant.primaryColor,
+        pais: tenant.country,
       },
       aliado: {
         nombre: convenio.name,
@@ -157,6 +158,10 @@ export class AlianzasPublicoService {
         status: true,
         conveniosEnabled: true,
         dataPolicyUrl: true,
+        // El país del negocio decide la bandera con la que arranca el campo del
+        // teléfono. Sin esto, un empleado en México tendría que buscar su país
+        // en una lista cada vez.
+        country: true,
       },
     });
     // Módulo apagado o negocio suspendido: se responde como si el enlace no

@@ -1,11 +1,18 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
+import { PhoneInput } from '@/components/PhoneInput';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 type Info = {
-  negocio: { nombre: string; logoUrl: string | null; color: string | null };
+  negocio: {
+    nombre: string;
+    logoUrl: string | null;
+    color: string | null;
+    /** ISO alpha-2. Decide la bandera con la que arranca el teléfono. */
+    pais: string | null;
+  };
   aliado: { nombre: string; logoUrl: string | null; descripcion: string };
   verificacion: 'ABIERTO' | 'CODIGO' | 'LISTA';
   pide: { codigo: boolean; documento: boolean; politicaDatos: boolean };
@@ -200,13 +207,23 @@ export default function ActivarAlianza() {
               onChange={(v) => setForm({ ...form, fullName: v })}
               required
             />
-            <Campo
-              label="Teléfono con indicativo"
-              value={form.phone}
-              onChange={(v) => setForm({ ...form, phone: v })}
-              placeholder="+57 300 000 0000"
-              required
-            />
+            {/* El mismo selector de país con banderas que el resto del
+                producto. Escribir el indicativo a mano es el campo que más
+                gente escribe mal —«300…» sin país, o «0057»— y el teléfono es
+                la llave con la que se recupera la tarjeta después. */}
+            <label className="block">
+              <span className="text-xs font-medium text-neutral-600">
+                Teléfono
+              </span>
+              <div className="mt-1">
+                <PhoneInput
+                  value={form.phone}
+                  onChange={(v) => setForm({ ...form, phone: v })}
+                  defaultCountry={info.negocio.pais ?? undefined}
+                  placeholder="300 000 0000"
+                />
+              </div>
+            </label>
             <Campo
               label="Documento de identidad"
               value={form.documento}
