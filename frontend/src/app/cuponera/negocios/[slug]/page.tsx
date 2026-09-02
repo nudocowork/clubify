@@ -132,7 +132,7 @@ export default function AllyDetail() {
         <Horarios horas={ally.hours} />
 
         <div style={{ marginTop: 24, padding: 16, background: '#eff6ff', borderRadius: 12, fontSize: 13.5, color: '#1e40af' }}>
-          🎟️ Presenta tu <b>Living Card</b> en este negocio para acceder a los beneficios.
+          🎟️ Presenta tu <b>Cuponera Card</b> en este negocio para acceder a los beneficios.
         </div>
       </div>
     </div>

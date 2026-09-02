@@ -1,11 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import {
-  IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, ValidateIf, ValidateNested,
+  IsArray, IsBoolean, IsEnum, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString,
+  MaxLength, Min, ValidateIf, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { CuponeraService } from './cuponera.service';
+import { MercadoPagoService } from './mercadopago.service';
+import { CardDto } from '../cards/cards.service';
+import { CardType } from '@prisma/client';
 
 /**
  * PANEL DE LA CUPONERA (spec §4). Lo usa el administrador de UNA cuponera
@@ -106,6 +110,15 @@ class PanelPlanPatchBody {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(0) benefitsAllowance?: number | null;
   @IsOptional() @IsString() @MaxLength(280) description?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  // ── Mapeo a las pasarelas (§24) ───────────────────────────────────────────
+  // Tienen que estar declarados acá o el whitelist del ValidationPipe los tira
+  // ANTES de llegar al servicio: el mapeo se "guardaría" sin error y sin
+  // guardar nada. Se acepta null explícito para DESmapear sin borrar el plan.
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(40) hotmartProductId?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(60) hotmartOfferCode?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(80) stripePriceId?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(500) hotmartCheckoutUrl?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(500) stripeCheckoutUrl?: string | null;
 }
 
 /** Ajustes propios de la cuponera. `status` NO está: publicar o pausar es
@@ -157,10 +170,41 @@ class PanelApprovalBody {
   @IsIn(['PENDING', 'APPROVED', 'REJECTED']) approval!: 'PENDING' | 'APPROVED' | 'REJECTED';
 }
 
+/** Diseño de la tarjeta Wallet. Mismo juego de campos que usaba el Master
+ *  Admin: acá se repite en vez de importarse para no acoplar los dos
+ *  controladores, que tienen roles distintos. */
+class PanelCardBody {
+  @IsOptional() @IsEnum(CardType) type?: CardType;
+  @IsOptional() @IsString() @MaxLength(80) name?: string;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() walletBrandName?: string | null;
+  @IsOptional() @IsHexColor() primaryColor?: string;
+  @IsOptional() @IsHexColor() secondaryColor?: string;
+  @IsOptional() @IsString() logoUrl?: string;
+  @IsOptional() @IsString() heroImageUrl?: string;
+  @IsOptional() @IsString() iconUrl?: string;
+  @IsOptional() @IsString() @MaxLength(160) rewardText?: string;
+  @IsOptional() @IsString() @MaxLength(280) howToEarnText?: string;
+  @IsOptional() @IsString() @MaxLength(80) businessName?: string;
+  @IsOptional() @IsString() terms?: string;
+  @IsOptional() @IsBoolean() termsEnabled?: boolean;
+  @IsOptional() @IsString() @MaxLength(8) stampIcon?: string;
+  @IsOptional() @IsArray() activeLinks?: Array<{ type: string; url: string; label: string }>;
+  @IsOptional() @IsArray() tiers?: Array<{ name: string; threshold: number }>;
+}
+
+class PanelMpBody {
+  @IsOptional() @IsString() @MaxLength(400) accessToken?: string;
+  @IsOptional() @IsString() @MaxLength(200) publicKey?: string;
+  @IsOptional() @IsString() @MaxLength(200) webhookSecret?: string;
+}
+
 @Controller('cuponera/panel')
 @Roles('CUPONERA_ADMIN', 'PLATFORM_OWNER', 'SUPER_ADMIN')
 export class CuponeraPanelController {
-  constructor(private svc: CuponeraService) {}
+  constructor(
+    private svc: CuponeraService,
+    private mp: MercadoPagoService,
+  ) {}
 
   /** Pantalla inicial: los números de §4. */
   @Get('overview')
@@ -427,5 +471,50 @@ export class CuponeraPanelController {
     @Query('campaignId') campaignId?: string,
   ) {
     return this.svc.panelSetBenefitApproval(user, id, body.approval, campaignId);
+  }
+
+  // ── Tarjeta Wallet y cobro ────────────────────────────────────────────────
+  // Estaban solo en /superadmin/living-card, sobre endpoints clavados a la
+  // PRIMERA cuponera. Sin esto, unificar las dos pantallas del Master Admin
+  // habría dejado a las demás cuponeras sin diseñar su tarjeta ni cobrar.
+
+  @Get('card')
+  card(@CurrentUser() user: AuthUser, @Query('campaignId') campaignId?: string) {
+    return this.svc.panelCard(user, campaignId);
+  }
+
+  @Put('card')
+  designCard(
+    @CurrentUser() user: AuthUser,
+    @Body() body: PanelCardBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    const dto = { ...body, type: body.type ?? 'MEMBERSHIP' } as CardDto;
+    return this.svc.panelDesignCard(user, dto, campaignId);
+  }
+
+  /** Hotmart y Stripe: qué URL pegar en cada proveedor y cuántos planes hay
+   *  mapeados. Solo lectura — el mapeo se hace plan por plan. */
+  @Get('gateways')
+  gateways(@CurrentUser() user: AuthUser, @Query('campaignId') campaignId?: string) {
+    return this.svc.panelGateways(user, campaignId);
+  }
+
+  /** MercadoPago es POR CUPONERA: sus credenciales viven en la config de la
+   *  campaña, no en la marca. Por eso se resuelve la campaña antes de tocarlo. */
+  @Get('mercadopago')
+  async mercadopago(@CurrentUser() user: AuthUser, @Query('campaignId') campaignId?: string) {
+    const campaign = await this.svc.resolveAdminCampaign(user, campaignId);
+    return this.mp.status(campaign);
+  }
+
+  @Patch('mercadopago')
+  async setMercadopago(
+    @CurrentUser() user: AuthUser,
+    @Body() body: PanelMpBody,
+    @Query('campaignId') campaignId?: string,
+  ) {
+    const campaign = await this.svc.resolveAdminCampaign(user, campaignId);
+    return this.mp.setConfig(body, campaign);
   }
 }

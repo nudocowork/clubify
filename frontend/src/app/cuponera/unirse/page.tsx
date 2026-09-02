@@ -123,12 +123,12 @@ export default function UnirsePage() {
   return (
     <div style={{ maxWidth: 560, margin: '0 auto', padding: '0 20px 80px' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '22px 0' }}>
-        <Link href="/cuponera" style={{ fontWeight: 900, fontSize: 20, color: PC, textDecoration: 'none' }}>🎟️ Living Card</Link>
+        <Link href="/cuponera" style={{ fontWeight: 900, fontSize: 20, color: PC, textDecoration: 'none' }}>🎟️ Cuponera Card</Link>
         <Link href="/cuponera/mi-tarjeta" style={{ fontSize: 13.5, fontWeight: 700, color: PC, textDecoration: 'none' }}>Ya soy miembro</Link>
       </header>
 
       <div style={{ background: '#fff', borderRadius: 20, padding: '30px 26px', boxShadow: '0 8px 30px rgba(0,0,0,.07)', marginTop: 20 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 900, margin: '0 0 6px' }}>Unirme a Living Card</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 900, margin: '0 0 6px' }}>Unirme a Cuponera Card</h1>
         <p style={{ color: '#64748b', fontSize: 14, marginBottom: 22 }}>Elige tu plan y completa tu membresía.</p>
 
         {loading ? (

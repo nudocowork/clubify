@@ -75,7 +75,7 @@ const RESERVED_SUBS = new Set([
   'mail',
   'cdn',
   'assets',
-  // Cuponera / Living Card (marketplace de beneficios). Nunca es slug de tenant.
+  // Cuponera / Cuponera Card (marketplace de beneficios). Nunca es slug de tenant.
   'cuponera',
 ]);
 
@@ -312,8 +312,8 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(dest, 307);
   }
 
-  // ────────── Subdominio de la Cuponera / Living Card ──────────
-  // cuponera.soyclubify.com sirve el marketplace de beneficios Living Card:
+  // ────────── Subdominio de la Cuponera / Cuponera Card ──────────
+  // cuponera.soyclubify.com sirve el marketplace de beneficios Cuponera Card:
   //  - raíz '/'     → /cuponera (landing + planes)
   //  - /cuponera/*  → pasa directo (early-exit de abajo lo deja seguir)
   //  - assets/api   → normal

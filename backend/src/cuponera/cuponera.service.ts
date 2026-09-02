@@ -27,7 +27,14 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { WalletService } from '../wallet/wallet.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 
-/** Slug de la campaña (usado en el marketplace público /cuponera). */
+/** Slug de la campaña (usado en el marketplace público /cuponera).
+ *
+ *  Se llama `living-card` aunque el producto pasó a llamarse "Cuponera Card"
+ *  el 2026-09-01: es la LLAVE con la que `ensureLivingCampaign()` encuentra la
+ *  campaña que ya existe en producción. Cambiarla no la renombra — hace que no
+ *  la encuentre y cree una segunda vacía, dejando huérfanos aliados, miembros y
+ *  canjes. El slug no sale en ninguna URL pública, así que renombrarlo no le
+ *  cambia nada a nadie. Lo mismo vale para `LivingMembership` y `Living*`. */
 const LIVING_CAMPAIGN_SLUG = 'living-card';
 /** Slug del Tenant "de sistema" que respalda la campaña. Distinto del de la
  *  campaña para NO colisionar jamás con un negocio real. */
@@ -652,6 +659,47 @@ export class CuponeraService {
     return this.panelSettings(user, campaignId);
   }
 
+  // ---------------------------------------------------------------------------
+  // Tarjeta Wallet y pasarelas, desde el panel.
+  //
+  // Vivían SOLO en el Master Admin de la primera cuponera (/superadmin/
+  // living-card), sobre métodos que llaman `ensureLivingCampaign()` por dentro.
+  // Eso significaba que las cuponeras siguientes no tenían forma de diseñar su
+  // tarjeta ni de ver cómo conectar el cobro: el editor viejo, aunque se abriera
+  // desde otra cuponera, habría editado siempre la primera.
+  //
+  // Acá salen scopeadas por `resolveAdminCampaign`, igual que todo el panel.
+  // ---------------------------------------------------------------------------
+
+  /** Plantilla Wallet de la cuponera. La crea mínima si aún no se diseñó, para
+   *  que la pantalla nunca abra vacía. */
+  async panelCard(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.ensureLivingCard(campaign);
+  }
+
+  /** Diseña (crea o actualiza) la tarjeta. `CardsService.update` encola el
+   *  wallet.push, así que un cambio de color llega a los pases ya emitidos. */
+  async panelDesignCard(user: AuthUser, dto: CardDto, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    if (campaign.cardId) {
+      const existing = await this.prisma.card.findUnique({ where: { id: campaign.cardId } });
+      if (existing) return this.cards.update(this.sysUser(), campaign.cardId, dto);
+    }
+    const card = await this.cards.create(this.sysUser(), dto, campaign.tenantId);
+    await this.prisma.benefitCampaign.update({
+      where: { id: campaign.id },
+      data: { cardId: card.id },
+    });
+    return card;
+  }
+
+  /** Estado de Hotmart y Stripe (§24-25) de ESTA cuponera. */
+  async panelGateways(user: AuthUser, campaignId?: string) {
+    const campaign = await this.resolveAdminCampaign(user, campaignId);
+    return this.gatewaysStatus(campaign.id);
+  }
+
   // --- Alcance al beneficiario: push y geopush (§20, §9) ---
 
   /** A cuánta gente llega un envío ANTES de mandarlo. Sin este número, el aviso
@@ -979,16 +1027,16 @@ export class CuponeraService {
     });
     if (existing) return existing;
 
-    const tenant = await this.ensureSystemTenant('Living Card');
+    const tenant = await this.ensureSystemTenant('Cuponera Card');
     const wlId = await this.clubifyWlId();
     return this.prisma.benefitCampaign.create({
       data: {
         whiteLabelId: wlId,
         tenantId: tenant.id,
-        name: 'Living Card',
+        name: 'Cuponera Card',
         slug: LIVING_CAMPAIGN_SLUG,
         status: 'DRAFT',
-        welcomeText: 'Bienvenido a Living Card',
+        welcomeText: 'Bienvenido a Cuponera Card',
       },
     });
   }

@@ -73,7 +73,7 @@ export default function Cartelera() {
             <div>
               <div style={label()}>Cuponera</div>
               <h1 style={{ margin: '6px 0 0', fontSize: 32, fontWeight: 800, letterSpacing: '-.02em', lineHeight: 1 }}>
-                Living Card
+                Cuponera Card
               </h1>
               <p style={{ margin: '8px 0 0', color: C.muted, fontSize: 14.5, maxWidth: '44ch', lineHeight: 1.5 }}>
                 Los beneficios de la comunidad. Se usan mostrando tu tarjeta en el local.
@@ -258,7 +258,7 @@ function Ficha({ b, onClose }: { b: Benefit; onClose: () => void }) {
         }}>
           <div style={label(C.mutedOnPaper)}>Para usarlo</div>
           <div style={{ fontSize: 14.5, fontWeight: 800, marginTop: 4 }}>
-            Mostrá tu Living Card en el local
+            Mostrá tu Cuponera Card en el local
           </div>
           <div style={{ fontSize: 12, color: C.mutedOnPaper, marginTop: 3 }}>
             El negocio la escanea y descuenta el uso.

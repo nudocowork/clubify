@@ -76,7 +76,7 @@ export default function CuponeraLanding() {
         </p>
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
           <a href="#planes" style={{ background: PC, color: '#fff', padding: '13px 26px', borderRadius: 999, fontWeight: 800, textDecoration: 'none', fontSize: 15 }}>
-            Quiero mi Living Card
+            Quiero mi Cuponera Card
           </a>
           <Link href="/cuponera/mi-tarjeta" style={{ background: '#fff', color: '#0f172a', padding: '13px 26px', borderRadius: 999, fontWeight: 700, textDecoration: 'none', fontSize: 15, border: '1.5px solid #e2e8f0' }}>
             Añadir a Wallet
@@ -148,7 +148,7 @@ export default function CuponeraLanding() {
       </section>
 
       <footer style={{ textAlign: 'center', marginTop: 60, color: '#94a3b8', fontSize: 12.5 }}>
-        Hecho con Clubify · Living Card
+        Hecho con Clubify · Cuponera Card
       </footer>
     </div>
   );

@@ -146,7 +146,7 @@ export default function CuponerasPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
             <div>
               <label style={labelStyle}>Nombre</label>
-              <input style={inputStyle} value={form.name} placeholder="Living Card"
+              <input style={inputStyle} value={form.name} placeholder="Cuponera Card"
                 onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
             <div>
@@ -183,7 +183,7 @@ export default function CuponerasPage() {
           </div>
           <div style={{ marginTop: 12 }}>
             <label style={labelStyle}>Descripción</label>
-            <input style={inputStyle} value={form.description} placeholder="Bienvenido a Living Card"
+            <input style={inputStyle} value={form.description} placeholder="Bienvenido a Cuponera Card"
               onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </div>
           <div style={{ marginTop: 14 }}>

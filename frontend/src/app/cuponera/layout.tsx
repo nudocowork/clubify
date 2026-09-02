@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Living Card — Cuponera Clubify',
+  title: 'Cuponera Card — Clubify',
   description: 'Tu tarjeta de comunidad: beneficios, descuentos y experiencias en los negocios aliados.',
 };
 

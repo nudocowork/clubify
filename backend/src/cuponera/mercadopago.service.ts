@@ -62,9 +62,17 @@ export class MercadoPagoService {
     return { accessToken, publicKey: mp.publicKey ?? null, webhookSecret };
   }
 
-  /** Guarda (cifra) las credenciales MP en la config de la campaña. */
-  async setConfig(dto: { accessToken?: string; publicKey?: string; webhookSecret?: string }) {
-    const campaign = await this.cuponera.ensureLivingCampaign();
+  /** Guarda (cifra) las credenciales MP en la config de la campaña.
+   *
+   *  `target` llega cuando la llamada viene del panel, que ya resolvió QUÉ
+   *  cuponera puede tocar este usuario. Sin él cae en la primera, que es lo que
+   *  hacía siempre para el Master Admin. Las credenciales viven en la config de
+   *  cada campaña, así que sin esto una cuponera nueva no podía cobrar. */
+  async setConfig(
+    dto: { accessToken?: string; publicKey?: string; webhookSecret?: string },
+    target?: BenefitCampaign,
+  ) {
+    const campaign = target ?? (await this.cuponera.ensureLivingCampaign());
     const cfg = ((campaign.config as any) || {}) as Record<string, any>;
     cfg.mp = cfg.mp || {};
     if (dto.accessToken !== undefined)
@@ -79,8 +87,10 @@ export class MercadoPagoService {
     return { ok: true, configured: !!cfg.mp.accessToken };
   }
 
-  async status() {
-    const campaign = await this.cuponera.ensureLivingCampaign();
+  /** Estado de MP. `target` viene del panel, ya resuelto por permisos; sin él,
+   *  la primera cuponera (el comportamiento del Master Admin de siempre). */
+  async status(target?: BenefitCampaign) {
+    const campaign = target ?? (await this.cuponera.ensureLivingCampaign());
     const mp = await this.getMpConfig(campaign);
     return {
       configured: !!mp,

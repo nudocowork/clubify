@@ -61,7 +61,7 @@ type PanelBenefit = {
   ally: { id: string; name: string } | null;
 };
 
-const TABS = ['Dashboard', 'Aliados', 'Beneficiarios', 'Beneficios', 'Comunidad', 'Redenciones', 'Configuración'] as const;
+const TABS = ['Dashboard', 'Aliados', 'Beneficiarios', 'Beneficios', 'Comunidad', 'Redenciones', 'Tarjeta', 'Configuración'] as const;
 type Tab = (typeof TABS)[number];
 
 const inp: React.CSSProperties = { width: '100%', padding: '9px 11px', border: '1px solid #d7dbe0', borderRadius: 9, fontSize: 13.5, outline: 'none', boxSizing: 'border-box' };
@@ -399,7 +399,7 @@ function TabConfig({
         ))}
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
           <input style={{ ...inp, flex: 1, minWidth: 150 }} value={nuevoPlan.name}
-            onChange={(e) => setNuevoPlan({ ...nuevoPlan, name: e.target.value })} placeholder="Living Card Mensual" />
+            onChange={(e) => setNuevoPlan({ ...nuevoPlan, name: e.target.value })} placeholder="Cuponera Card Mensual" />
           <input type="number" style={{ ...inp, width: 130 }} value={nuevoPlan.priceCents}
             onChange={(e) => setNuevoPlan({ ...nuevoPlan, priceCents: Number(e.target.value) })} placeholder="50000" />
           <select style={{ ...inp, width: 120 }} value={nuevoPlan.interval}
@@ -447,6 +447,8 @@ function TabConfig({
           </div>
         </div>
       )}
+
+      <BloqueCobro qs={qs} flash={flash} />
     </>
   );
 }
@@ -660,6 +662,315 @@ function TabComunidad({
         </div>
       </div>
     </>
+  );
+}
+
+
+// ───────────────────────────────────────────────────────────────────────────
+// Tarjeta y cobro.
+//
+// Vivían solo en /superadmin/living-card, que editaba SIEMPRE la primera
+// cuponera. Acá van con `qs` (?campaignId=), así que cada cuponera diseña su
+// tarjeta y conecta su cobro. Al unificar las dos pantallas del Master Admin,
+// esto es lo que había que traer para no perder capacidad.
+// ───────────────────────────────────────────────────────────────────────────
+
+type CardWallet = {
+  id: string; name: string;
+  primaryColor?: string | null; secondaryColor?: string | null;
+  logoUrl?: string | null; heroImageUrl?: string | null;
+  rewardText?: string | null; howToEarnText?: string | null; terms?: string | null;
+};
+
+function TabTarjeta({ qs, flash }: { qs: string; flash: (m: string) => void }) {
+  const [tarjeta, setTarjeta] = useState<CardWallet | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [f, setF] = useState({
+    name: '', primaryColor: '#0a90bd', secondaryColor: '#075e7d',
+    logoUrl: '', heroImageUrl: '', rewardText: '', howToEarnText: '', terms: '',
+  });
+  const [guardando, setGuardando] = useState(false);
+  const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
+
+  useEffect(() => {
+    setCargando(true);
+    api<CardWallet>(`/cuponera/panel/card${qs}`)
+      .then((c) => {
+        setTarjeta(c);
+        setF({
+          name: c?.name || '', primaryColor: c?.primaryColor || '#0a90bd',
+          secondaryColor: c?.secondaryColor || '#075e7d', logoUrl: c?.logoUrl || '',
+          heroImageUrl: c?.heroImageUrl || '', rewardText: c?.rewardText || '',
+          howToEarnText: c?.howToEarnText || '', terms: c?.terms || '',
+        });
+      })
+      .catch(() => setTarjeta(null))
+      .finally(() => setCargando(false));
+  }, [qs]);
+
+  async function guardar() {
+    setGuardando(true);
+    try {
+      const c = await api<CardWallet>(`/cuponera/panel/card${qs}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: f.name, primaryColor: f.primaryColor, secondaryColor: f.secondaryColor,
+          logoUrl: f.logoUrl || undefined, heroImageUrl: f.heroImageUrl || undefined,
+          rewardText: f.rewardText, howToEarnText: f.howToEarnText, terms: f.terms,
+        }),
+      });
+      setTarjeta(c);
+      flash('Tarjeta actualizada — el cambio llega a los pases ya emitidos');
+    } finally { setGuardando(false); }
+  }
+
+  if (cargando) return <div style={card}>Cargando la tarjeta…</div>;
+
+  return (
+    <div style={card}>
+      <div style={{ fontWeight: 800, fontSize: 15 }}>Diseño de la tarjeta (Wallet)</div>
+      <div style={{ fontSize: 12.5, color: '#64748b', margin: '2px 0 16px' }}>
+        Es la tarjeta que el beneficiario guarda en Apple o Google Wallet. Guardar
+        cambia también las que ya están en el bolsillo de la gente.
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(220px,1fr)', gap: 20 }}>
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <Campo label="Nombre en la tarjeta">
+              <input style={inp} value={f.name} onChange={(e) => set('name', e.target.value)} />
+            </Campo>
+            <Campo label="Beneficio principal">
+              <input style={inp} value={f.rewardText} onChange={(e) => set('rewardText', e.target.value)}
+                placeholder="Beneficios exclusivos para miembros" />
+            </Campo>
+            <Campo label="Color de fondo">
+              <input type="color" style={{ ...inp, height: 40, padding: 4 }} value={f.primaryColor}
+                onChange={(e) => set('primaryColor', e.target.value)} />
+            </Campo>
+            <Campo label="Color secundario">
+              <input type="color" style={{ ...inp, height: 40, padding: 4 }} value={f.secondaryColor}
+                onChange={(e) => set('secondaryColor', e.target.value)} />
+            </Campo>
+            <Campo label="Logo (URL)">
+              <input style={inp} placeholder="https://…/logo.png" value={f.logoUrl}
+                onChange={(e) => set('logoUrl', e.target.value)} />
+            </Campo>
+            <Campo label="Imagen principal (URL)">
+              <input style={inp} placeholder="https://…/hero.png" value={f.heroImageUrl}
+                onChange={(e) => set('heroImageUrl', e.target.value)} />
+            </Campo>
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <Campo label="Cómo funciona">
+              <input style={inp} value={f.howToEarnText} onChange={(e) => set('howToEarnText', e.target.value)} />
+            </Campo>
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <Campo label="Términos y condiciones">
+              <textarea style={{ ...inp, minHeight: 60 }} value={f.terms}
+                onChange={(e) => set('terms', e.target.value)} />
+            </Campo>
+          </div>
+          <button style={{ ...btn(), marginTop: 16 }} disabled={guardando} onClick={guardar}>
+            {guardando ? 'Guardando…' : tarjeta ? 'Actualizar tarjeta' : 'Crear tarjeta'}
+          </button>
+        </div>
+
+        <div>
+          <label style={lbl}>Vista previa</label>
+          <div style={{
+            borderRadius: 16, padding: 18, minHeight: 180, color: '#fff',
+            background: `linear-gradient(135deg, ${f.primaryColor}, ${f.secondaryColor})`,
+            boxShadow: '0 10px 24px rgba(0,0,0,.18)', display: 'flex',
+            flexDirection: 'column', justifyContent: 'space-between',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {f.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={f.logoUrl} alt="logo" style={{ width: 38, height: 38, borderRadius: 8, objectFit: 'contain', background: '#fff' }} />
+              ) : (
+                <div style={{ width: 38, height: 38, borderRadius: 8, background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
+                  {f.name[0]?.toUpperCase() || '·'}
+                </div>
+              )}
+              <div style={{ fontWeight: 800, fontSize: 15 }}>{f.name || 'Sin nombre'}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12.5, opacity: 0.9 }}>{f.rewardText}</div>
+              <div style={{ marginTop: 10, background: '#fff', width: 90, height: 90, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#111', fontSize: 10 }}>QR</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type GwPlan = {
+  id: string; name: string; priceCents: number; currency: string; interval: string; isActive: boolean;
+  hotmartProductId: string | null; hotmartOfferCode: string | null; stripePriceId: string | null;
+  hotmartCheckoutUrl: string | null; stripeCheckoutUrl: string | null;
+};
+type GwStatus = {
+  hotmart: { webhookUrl: string; planesMapeados: number; listo: boolean };
+  stripe: { webhookUrl: string; planesMapeados: number; listo: boolean };
+  mercadopago: { webhookUrl: string; configurado: boolean };
+  planes: GwPlan[];
+};
+type MpStatus = { configured: boolean; webhookUrl: string };
+
+/** Cobro: MercadoPago (propio de la cuponera) + el mapeo a Hotmart y Stripe. */
+function BloqueCobro({ qs, flash }: { qs: string; flash: (m: string) => void }) {
+  const [gw, setGw] = useState<GwStatus | null>(null);
+  const [mp, setMp] = useState<MpStatus | null>(null);
+  const [cred, setCred] = useState({ accessToken: '', publicKey: '', webhookSecret: '' });
+  const [edit, setEdit] = useState<Record<string, Partial<GwPlan>>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const cargar = () => {
+    api<GwStatus>(`/cuponera/panel/gateways${qs}`).then(setGw).catch(() => setGw(null));
+    api<MpStatus>(`/cuponera/panel/mercadopago${qs}`).then(setMp).catch(() => setMp(null));
+  };
+  useEffect(cargar, [qs]);
+
+  const campo = (p: GwPlan, k: keyof GwPlan) =>
+    (edit[p.id]?.[k] as string | undefined) ?? ((p[k] as string | null) ?? '');
+  const set = (id: string, k: keyof GwPlan, v: string) =>
+    setEdit((e) => ({ ...e, [id]: { ...e[id], [k]: v } }));
+
+  async function guardarPlan(p: GwPlan) {
+    const cambios = edit[p.id];
+    if (!cambios) return;
+    setBusy(p.id);
+    try {
+      // null (no '') para DESmapear: con '' el webhook buscaría por cadena
+      // vacía y no matchearía nunca.
+      const body = Object.fromEntries(
+        Object.entries(cambios).map(([k, v]) => [k, (v as string)?.trim() ? (v as string).trim() : null]),
+      );
+      await api(`/cuponera/panel/plans/${p.id}${qs}`, { method: 'PATCH', body: JSON.stringify(body) });
+      setEdit((e) => { const n = { ...e }; delete n[p.id]; return n; });
+      cargar();
+      flash(`Pasarelas de "${p.name}" guardadas`);
+    } finally { setBusy(null); }
+  }
+
+  async function guardarMp() {
+    setBusy('mp');
+    try {
+      const body: Record<string, string> = {};
+      if (cred.accessToken) body.accessToken = cred.accessToken;
+      if (cred.publicKey) body.publicKey = cred.publicKey;
+      if (cred.webhookSecret) body.webhookSecret = cred.webhookSecret;
+      await api(`/cuponera/panel/mercadopago${qs}`, { method: 'PATCH', body: JSON.stringify(body) });
+      setCred({ accessToken: '', publicKey: '', webhookSecret: '' });
+      cargar();
+      flash('Credenciales de MercadoPago guardadas');
+    } finally { setBusy(null); }
+  }
+
+  const chip = (ok: boolean, texto: string) => (
+    <span style={{ fontSize: 12, fontWeight: 700, color: ok ? '#16a34a' : '#9ca3af' }}>
+      {ok ? '✓' : '○'} {texto}
+    </span>
+  );
+
+  return (
+    <div style={card}>
+      <div style={{ fontWeight: 800, fontSize: 15 }}>Cobro</div>
+      <div style={{ fontSize: 12.5, color: '#64748b', margin: '2px 0 14px' }}>
+        Sin esto, los planes pagos no se pueden vender: el pago llegaría y el
+        sistema no sabría a quién dar de alta.
+      </div>
+
+      {gw && (
+        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginBottom: 14 }}>
+          {chip(gw.hotmart.listo, `Hotmart · ${gw.hotmart.planesMapeados} ${gw.hotmart.planesMapeados === 1 ? 'plan' : 'planes'}`)}
+          {chip(gw.stripe.listo, `Stripe · ${gw.stripe.planesMapeados} ${gw.stripe.planesMapeados === 1 ? 'plan' : 'planes'}`)}
+          {chip(!!mp?.configured, 'MercadoPago')}
+        </div>
+      )}
+
+      {gw && (
+        <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 18, lineHeight: 1.7 }}>
+          <b>Webhooks.</b> Hotmart y Stripe cobran en la cuenta de la marca dueña de
+          la cuponera, así que usan la ruta de esa marca — no hay que crear una nueva:
+          <div style={{ marginTop: 6, wordBreak: 'break-all' }}>
+            <code>{gw.hotmart.webhookUrl}</code><br />
+            <code>{gw.stripe.webhookUrl}</code>
+          </div>
+          <div style={{ marginTop: 6, wordBreak: 'break-all' }}>
+            MercadoPago sí es propio de esta cuponera: <code>{gw.mercadopago.webhookUrl}</code>
+          </div>
+        </div>
+      )}
+
+      {/* Mapeo plan ↔ producto de la pasarela */}
+      {gw && gw.planes.length === 0 && (
+        <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 18 }}>
+          Todavía no hay planes que mapear. Creá uno arriba.
+        </div>
+      )}
+      {gw?.planes.map((p) => (
+        <div key={p.id} style={{ borderTop: '1px solid #f1f5f9', padding: '13px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 9 }}>
+            <b style={{ fontSize: 13.5 }}>{p.name}</b>
+            <span style={{ fontSize: 12, color: '#6b7280' }}>
+              {p.currency === 'COP' ? `$ ${p.priceCents.toLocaleString('es-CO')}` : `${p.currency} ${(p.priceCents / 100).toFixed(2)}`}
+              {' · '}{p.interval === 'ANNUAL' ? 'anual' : 'mensual'}
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 10 }}>
+            <Campo label="Hotmart — producto">
+              <input style={inp} value={campo(p, 'hotmartProductId')} onChange={(e) => set(p.id, 'hotmartProductId', e.target.value)} />
+            </Campo>
+            <Campo label="Hotmart — oferta">
+              <input style={inp} value={campo(p, 'hotmartOfferCode')} onChange={(e) => set(p.id, 'hotmartOfferCode', e.target.value)} />
+            </Campo>
+            <Campo label="Hotmart — link de compra">
+              <input style={inp} value={campo(p, 'hotmartCheckoutUrl')} onChange={(e) => set(p.id, 'hotmartCheckoutUrl', e.target.value)} />
+            </Campo>
+            <Campo label="Stripe — price ID">
+              <input style={inp} value={campo(p, 'stripePriceId')} onChange={(e) => set(p.id, 'stripePriceId', e.target.value)} />
+            </Campo>
+            <Campo label="Stripe — link de compra">
+              <input style={inp} value={campo(p, 'stripeCheckoutUrl')} onChange={(e) => set(p.id, 'stripeCheckoutUrl', e.target.value)} />
+            </Campo>
+          </div>
+          {edit[p.id] && (
+            <button style={{ ...btn(), marginTop: 11 }} disabled={busy === p.id} onClick={() => guardarPlan(p)}>
+              {busy === p.id ? 'Guardando…' : 'Guardar'}
+            </button>
+          )}
+        </div>
+      ))}
+
+      {/* MercadoPago */}
+      <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 18, paddingTop: 16 }}>
+        <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 3 }}>MercadoPago (suscripción recurrente)</div>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+          Se guardan cifradas. Dejar un campo vacío lo deja como estaba.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 12 }}>
+          <Campo label="Access Token">
+            <input style={inp} type="password" placeholder="APP_USR-…" value={cred.accessToken}
+              onChange={(e) => setCred({ ...cred, accessToken: e.target.value })} />
+          </Campo>
+          <Campo label="Public Key">
+            <input style={inp} placeholder="APP_USR-…" value={cred.publicKey}
+              onChange={(e) => setCred({ ...cred, publicKey: e.target.value })} />
+          </Campo>
+          <Campo label="Webhook Secret">
+            <input style={inp} type="password" placeholder="clave de firma" value={cred.webhookSecret}
+              onChange={(e) => setCred({ ...cred, webhookSecret: e.target.value })} />
+          </Campo>
+        </div>
+        <button style={{ ...btn(), marginTop: 14 }} disabled={busy === 'mp'} onClick={guardarMp}>
+          {busy === 'mp' ? 'Guardando…' : 'Guardar credenciales'}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -983,6 +1294,8 @@ export default function CuponeraAdminPage() {
       {tab === 'Comunidad' && (
         <TabComunidad qs={qs} plans={plans} allies={allies} cats={cats} flash={flash} />
       )}
+
+      {tab === 'Tarjeta' && <TabTarjeta qs={qs} flash={flash} />}
 
       {tab === 'Configuración' && (
         <TabConfig qs={qs} cats={cats} plans={plans} flash={flash} onCambio={recargarConfig} />

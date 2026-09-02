@@ -847,7 +847,7 @@ function AvisosTab({ flash }: { flash: (m: string) => void }) {
         </div>
         <div>
           <label style={lbl}>Mensaje</label>
-          <input style={inp} maxLength={180} value={f.body} placeholder="Vení con tu Living Card"
+          <input style={inp} maxLength={180} value={f.body} placeholder="Vení con tu Cuponera Card"
             onChange={(e) => setF({ ...f, body: e.target.value })} disabled={sinCupo || apagado} />
           <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>
             Se ve en la pantalla bloqueada del celular. Corto y concreto funciona mejor.

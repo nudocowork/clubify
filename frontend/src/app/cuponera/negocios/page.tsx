@@ -27,12 +27,12 @@ export default function NegociosDirectory() {
   return (
     <div style={{ maxWidth: 1040, margin: '0 auto', padding: '0 20px 80px' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '22px 0' }}>
-        <Link href="/cuponera" style={{ fontWeight: 900, fontSize: 20, color: PC, textDecoration: 'none' }}>🎟️ Living Card</Link>
+        <Link href="/cuponera" style={{ fontWeight: 900, fontSize: 20, color: PC, textDecoration: 'none' }}>🎟️ Cuponera Card</Link>
         <Link href="/cuponera/mi-tarjeta" style={{ fontSize: 13.5, fontWeight: 700, color: PC, textDecoration: 'none' }}>Mi tarjeta</Link>
       </header>
 
       <h1 style={{ fontSize: 30, fontWeight: 900, margin: '20px 0 6px' }}>Negocios aliados</h1>
-      <p style={{ color: '#64748b', marginBottom: 26 }}>Descubre dónde usar tu Living Card.</p>
+      <p style={{ color: '#64748b', marginBottom: 26 }}>Descubre dónde usar tu Cuponera Card.</p>
 
       {allies === null ? (
         <div style={{ color: '#94a3b8' }}>Cargando…</div>

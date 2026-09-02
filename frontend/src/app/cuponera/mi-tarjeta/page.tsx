@@ -54,14 +54,14 @@ export default function MiTarjetaPage() {
   return (
     <div style={{ maxWidth: 560, margin: '0 auto', padding: '0 20px 80px' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '22px 0' }}>
-        <Link href="/cuponera" style={{ fontWeight: 900, fontSize: 20, color: PC, textDecoration: 'none' }}>🎟️ Living Card</Link>
+        <Link href="/cuponera" style={{ fontWeight: 900, fontSize: 20, color: PC, textDecoration: 'none' }}>🎟️ Cuponera Card</Link>
       </header>
 
       <div style={{ background: '#fff', borderRadius: 20, padding: '30px 26px', boxShadow: '0 8px 30px rgba(0,0,0,.07)', marginTop: 20 }}>
         <h1 style={{ fontSize: 24, fontWeight: 900, margin: '0 0 6px' }}>Mi tarjeta</h1>
         <p style={{ color: '#64748b', fontSize: 14, marginBottom: 20 }}>
           Ingresá tu teléfono o el correo con el que compraste para recuperar tu
-          Living Card y añadirla a Apple o Google Wallet.
+          Cuponera Card y añadirla a Apple o Google Wallet.
         </p>
 
         <div style={{ display: 'flex', gap: 10 }}>

@@ -73,7 +73,7 @@ export default function BenefitDetail() {
         {b.terms && <div style={{ fontSize: 12.5, color: '#94a3b8', marginTop: 8 }}>{b.terms}</div>}
 
         <div style={{ marginTop: 22, padding: 16, background: '#eff6ff', borderRadius: 12, fontSize: 14, color: '#1e40af' }}>
-          🎟️ <b>Cómo usarlo:</b> abre tu Living Card en Wallet y presenta el QR en {b.ally?.name || 'el negocio'}. El local lo escanea y listo.
+          🎟️ <b>Cómo usarlo:</b> abre tu Cuponera Card en Wallet y presenta el QR en {b.ally?.name || 'el negocio'}. El local lo escanea y listo.
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>

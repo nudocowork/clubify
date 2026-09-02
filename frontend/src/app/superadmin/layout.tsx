@@ -39,10 +39,12 @@ function buildNavGroups(badges: Badges): NavGroup[] {
         { href: '/superadmin/creditos', label: 'Centro de Créditos', icon: '💳' },
         { href: '/superadmin/cobros', label: 'Centro de Cobros', icon: '🧾', badge: badges.billing },
         { href: '/superadmin/empresas-domicilio', label: 'Empresas de Domicilios', icon: '🛵' },
+        // Una sola entrada (2026-09-01). Antes había dos: esta y 'Living Card',
+        // que era el editor de UNA cuponera —la primera— porque sus endpoints
+        // llaman `ensureLivingCampaign()` por dentro y no sabían de otras. Se
+        // unificó: acá se listan todas y cada una abre su panel, ya scopeado
+        // por campaña. /superadmin/living-card redirige acá.
         { href: '/superadmin/cuponeras', label: 'Cuponeras', icon: '🎟️' },
-        // Panel de la campaña Living Card (la primera cuponera). Sigue vivo:
-        // 'Cuponeras' administra TODAS; este edita el detalle de esa.
-        { href: '/superadmin/living-card', label: 'Living Card', icon: '🪪' },
         { href: '/superadmin/modulos', label: 'Módulos', icon: '⊞' },
       ],
     },
