@@ -48,6 +48,26 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-09-01 — Ranking pases (oculta TRIAL/SUSPENDIDOS) + total a cobrar en Próximos cobros
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `21027f3d`
+
+### Qué cambié (DESPLEGADO backend + frontend)
+- **Ranking por pases emitidos** (`tenants.service.rankingByPasses`): oculta SUSPENDIDOS
+  y TRIAL, con **excepción "Nudo Cowork"** (TRIAL visible). Filtro antes de contar pases
+  → el total del ranking también queda acotado a lo visible.
+- **Próximos cobros** (drilldown, `PremiumDashboard.CobrosDrilldown`): barra arriba
+  **"Total a cobrar · <rango>"** = suma de USD de las filas del rango seleccionado (chips
+  Hoy/7d/15d/30d).
+
+### Qué toqué de PRODUCCIÓN
+- **Railway backend**: `desplegar.cjs backend`, deployment `24a7ce3e` swapped (Online, API 200).
+- **Vercel frontend**: `desplegar.cjs frontend`, READY.
+
+### Riesgos y avisos
+- La excepción del ranking matchea por `brandName.toLowerCase().includes('nudo cowork')`.
+  Si algún día el negocio se renombra, deja de exceptuarse (habría que ajustar el string).
+
 ## 2026-09-01 — Sellea InfoLinks (precio PRO, nav, form, fix FOUC) + VIIDA renovación fantasma
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `94a32396`
