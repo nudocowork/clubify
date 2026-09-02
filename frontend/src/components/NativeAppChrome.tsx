@@ -9,21 +9,36 @@ import { ocultarSplashNativo } from '@/lib/native-bridge';
  *  1. Marca <html data-native="ios|android">. El CSS cuelga de ahí las
  *     márgenes seguras (isla dinámica, notch, barra de inicio). Se hace por
  *     atributo y no por media query porque en el NAVEGADOR no hay que tocar
- *     nada: Safari ya reserva ese espacio con su propia interfaz, y meterle
- *     el padding también le abriría un hueco en blanco arriba.
+ *     nada: Safari ya reserva ese espacio con su propia interfaz.
  *
- *  2. Oculta el splash cuando el panel ya pintó. Con contenido remoto hay que
- *     esperar a que la página esté lista; ocultarlo por tiempo fijo enseñaría
- *     un rectángulo en blanco mientras carga.
+ *  2. Oculta el splash cuando el panel ya pintó.
  *
- * Fuera de la app no hace absolutamente nada.
+ * Por qué reintenta: Capacitor inyecta window.Capacitor de forma ASÍNCRONA.
+ * Leerlo una sola vez al montar es una carrera que se pierde a veces — y
+ * cuando se perdía, la app quedaba sin márgenes seguras y el header se metía
+ * bajo la isla. Se comprobó en dos arranques seguidos: uno bien, otro mal.
+ * Reintentar unos instantes cuesta nada y quita el no-determinismo.
  */
 export function NativeAppChrome() {
   useEffect(() => {
-    const plataforma = nativePlatform();
-    if (!plataforma) return;
-    document.documentElement.setAttribute('data-native', plataforma);
-    ocultarSplashNativo();
+    let intentos = 0;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const aplicar = () => {
+      const plataforma = nativePlatform();
+      if (plataforma) {
+        document.documentElement.setAttribute('data-native', plataforma);
+        ocultarSplashNativo();
+        return;
+      }
+      // ~3s de margen (30 × 100ms). Si al final no hay puente es que
+      // corremos en un navegador de verdad y no hay nada que hacer.
+      if (++intentos < 30) timer = setTimeout(aplicar, 100);
+    };
+
+    aplicar();
+    return () => clearTimeout(timer);
   }, []);
+
   return null;
 }

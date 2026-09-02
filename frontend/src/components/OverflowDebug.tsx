@@ -12,7 +12,9 @@ export function OverflowDebug() {
   const [lineas, setLineas] = useState<string[]>([]);
 
   useEffect(() => {
-    if (!isNativeApp()) return;
+    const forzado =
+      typeof window !== 'undefined' && window.location.search.includes('dbg=1');
+    if (!forzado && !isNativeApp()) return;
     const t = setTimeout(() => {
       const ancho = document.documentElement.clientWidth;
       const fuera: Array<{ el: Element; prof: number; r: number; w: number }> = [];
@@ -27,7 +29,9 @@ export function OverflowDebug() {
       // Los más profundos primero: ahí está la causa real.
       fuera.sort((a, b) => b.prof - a.prof);
       setLineas([
-        `viewport=${ancho} doc=${document.documentElement.scrollWidth} body=${document.body.scrollWidth}`,
+        `viewport=${ancho} doc=${document.documentElement.scrollWidth} body=${document.body.scrollWidth} inner=${window.innerWidth}`,
+        `UA: ${navigator.userAgent.slice(-70)}`,
+        `bridge=${!!(window as any).Capacitor} native=${isNativeApp()}`,
         ...fuera.slice(0, 6).map((f) => {
           const cls = (f.el.getAttribute('class') || '').slice(0, 70);
           return `${f.el.tagName.toLowerCase()} w=${f.w} r=${f.r} · ${cls}`;
