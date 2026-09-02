@@ -397,6 +397,13 @@ export default function InfoLinkEditor() {
   const isInfolinkBiz = tenant?.businessType === 'INFOLINK';
   const completoUrl =
     tenant?.whiteLabel?.paymentLinks?.find((l: any) => l.productKey === 'FULL')?.url ?? null;
+  // Upgrade FREE→PRO: Payment Link de la marca con productKey=INFOLINK_PRO (el que
+  // el webhook de Stripe mapea a infolinkTier=PRO). Solo se ofrece a negocios
+  // INFOLINK en plan FREE y solo si la marca lo tiene configurado (sino, dormido).
+  const isFreeInfolink = isInfolinkBiz && tenant?.infolinkTier === 'FREE';
+  const proLink =
+    tenant?.whiteLabel?.paymentLinks?.find((l: any) => l.productKey === 'INFOLINK_PRO') ?? null;
+  const proUrl: string | null = proLink?.url ?? null;
   const hasOwnDomain = !!tenant?.customDomain;
   const publicBase = hasOwnDomain
     ? `https://${shareHost}`
@@ -457,6 +464,31 @@ export default function InfoLinkEditor() {
         <div className="rounded-lg bg-ok-soft text-ok-ink px-3 py-2 mb-4 text-sm">
           {t('savedAt', { time: savedAt.toLocaleTimeString('es-CO') })}
         </div>
+      )}
+
+      {isFreeInfolink && proUrl && (
+        <a
+          href={proUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="no-underline"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18,
+            background: 'linear-gradient(120deg,#FF4D3D,#E63521)',
+            color: '#fff', borderRadius: 16, padding: '14px 18px',
+          }}
+        >
+          <span style={{ fontSize: 24 }}>⚡</span>
+          <span style={{ flex: 1 }}>
+            <b style={{ fontSize: 15 }}>Mejora tu InfoLink a PRO</b>
+            <span style={{ display: 'block', fontSize: 12.5, color: 'rgba(255,255,255,.85)', marginTop: 2 }}>
+              Botones ilimitados, sin publicidad de Sellea, todas las plantillas, colores y analítica avanzada.
+            </span>
+          </span>
+          <span style={{ background: '#fff', color: '#E63521', fontWeight: 800, fontSize: 13, padding: '9px 16px', borderRadius: 999, whiteSpace: 'nowrap', flex: 'none' }}>
+            Mejorar a PRO{proLink?.amountUsd ? ` · $${proLink.amountUsd}/mes` : ''} →
+          </span>
+        </a>
       )}
 
       {isInfolinkBiz && completoUrl && (
@@ -621,6 +653,7 @@ export default function InfoLinkEditor() {
             tenantLogoUrl={tenant?.logoUrl ?? null}
             heroImageUrl={link.heroImageUrl}
             lockPro={!caps.customBackground}
+            upgradeUrl={proUrl}
             onChange={(patch) => update('theme', { ...link.theme, ...patch })}
           />
 
@@ -707,6 +740,16 @@ export default function InfoLinkEditor() {
                 {caps.maxButtons != null && (
                   <span className="text-xs font-normal text-mute ml-2">
                     {link.buttons.length}/{caps.maxButtons} · plan Gratis
+                    {proUrl && (
+                      <a
+                        href={proUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ml-1.5 text-brand font-semibold no-underline hover:underline"
+                      >
+                        Mejorar →
+                      </a>
+                    )}
                   </span>
                 )}
               </h3>
@@ -1722,7 +1765,7 @@ function PublicLinkPreview({
 /** Candado PRO: en plan FREE muestra el panel atenuado + overlay "Disponible
  *  con PRO". Solo se activa para negocios INFOLINK+FREE (freemium Sellea); el
  *  resto ve el panel normal. El upgrade real (Stripe) llega en 2D. */
-function ProLock({ active, feature, children }: { active: boolean; feature: string; children: ReactNode }) {
+function ProLock({ active, feature, upgradeUrl, children }: { active: boolean; feature: string; upgradeUrl?: string | null; children: ReactNode }) {
   if (!active) return <>{children}</>;
   return (
     <div className="relative">
@@ -1731,14 +1774,17 @@ function ProLock({ active, feature, children }: { active: boolean; feature: stri
       </div>
       <button
         type="button"
-        onClick={() =>
-          alert(`${feature} está disponible con PRO. Mejora tu plan para desbloquearlo.`)
-        }
+        onClick={() => {
+          // Con el Payment Link configurado (INFOLINK_PRO) llevamos directo al
+          // checkout; sin él, solo avisamos (marca sin cobro PRO configurado).
+          if (upgradeUrl) window.open(upgradeUrl, '_blank', 'noopener,noreferrer');
+          else alert(`${feature} está disponible con PRO. Mejora tu plan para desbloquearlo.`);
+        }}
         className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-xl"
         style={{ background: 'rgba(255,251,247,.62)', backdropFilter: 'blur(1px)' }}
       >
         <span className="text-sm font-bold text-ink">🔒 Disponible con PRO</span>
-        <span className="text-xs text-mute">Toca para mejorar tu plan</span>
+        <span className="text-xs text-mute">{upgradeUrl ? 'Toca para mejorar a PRO' : 'Toca para mejorar tu plan'}</span>
       </button>
     </div>
   );
@@ -1761,6 +1807,7 @@ function VisualSection({
   tenantLogoUrl,
   heroImageUrl,
   lockPro,
+  upgradeUrl,
   onChange,
 }: {
   theme: {
@@ -1778,6 +1825,9 @@ function VisualSection({
   heroImageUrl: string | null;
   /** Plan FREE: bloquea fondos/colores personalizados (candado "PRO"). */
   lockPro?: boolean;
+  /** URL de pago del upgrade a PRO (Payment Link INFOLINK_PRO). Si existe, el
+   *  candado lleva al checkout en vez de solo avisar. */
+  upgradeUrl?: string | null;
   onChange: (patch: {
     logoContainer?: LogoContainerConfig | null;
     bannerConfig?: BannerConfig | null;
@@ -1906,7 +1956,7 @@ function VisualSection({
 
       {/* Fondo personalizable (Bloque 1 2026-06-12) — PRO */}
       <div className="border-t border-line pt-5">
-        <ProLock active={!!lockPro} feature="El fondo personalizado">
+        <ProLock active={!!lockPro} feature="El fondo personalizado" upgradeUrl={upgradeUrl}>
           <BackgroundPanel
             value={theme.background ?? null}
             onChange={(next) => onChange({ background: next })}
@@ -1916,7 +1966,7 @@ function VisualSection({
 
       {/* Colores de texto por elemento (2026-08-19) — PRO. Aditivo. */}
       <div className="border-t border-line pt-5">
-        <ProLock active={!!lockPro} feature="Los colores de texto personalizados">
+        <ProLock active={!!lockPro} feature="Los colores de texto personalizados" upgradeUrl={upgradeUrl}>
           <TextColorsPanel
             value={theme.text ?? null}
             template={resolveTemplate(theme)}
