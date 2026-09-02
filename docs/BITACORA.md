@@ -35,6 +35,21 @@ railway logs --build <deployment-id>       # por qué falló el build
 railway logs --deployment <deployment-id>  # por qué no arrancó el contenedor
 ```
 
+### RESUELTO — y ahora hay una comprobación para esto
+
+```bash
+cd backend && npm run arranca
+```
+
+Compila y levanta la app contra una base de datos **que no existe**. Suena raro
+y es a propósito: Nest resuelve TODO el grafo de módulos antes de que Prisma
+intente conectarse, así que un error de inyección sale primero y el fallo de
+base de datos es la señal de que se llegó hasta el final. Tarda lo que tarde el
+build; con `-- --sin-compilar` son segundos.
+
+Hazlo **antes de desplegar el backend**. Es lo único que coge esta clase de
+fallo: los tests unitarios construyen los servicios a mano.
+
 ### El fallo de arranque, que los tests no ven
 
 ```
