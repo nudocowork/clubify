@@ -178,6 +178,47 @@ con lo del monto.
   `npx tsc --noEmit` muere con `heap out of memory` si hay otro proceso pesado a
   la vez. Con `NODE_OPTIONS="--max-old-space-size=4096"` pasa sin problema.
 
+## 2026-09-02 — Alianzas: probado de punta a punta en local (y el portal no cargaba)
+
+Antes de tocar producción monté el recorrido entero en local —Docker, Postgres,
+la API con SWC— y lo pasé como lo hará un empleado real. **44 comprobaciones,
+todas en verde**, pero el camino hasta ahí destapó un fallo que ningún test de
+servicio podía ver.
+
+### El portal del aliado respondía 404 SIEMPRE
+
+`GET /public/alianzas/portal/:token` lo capturaba
+`@Get(':tenantSlug/:convenioSlug')`, que se declara antes en el mismo
+controlador y también son dos segmentos: Nest resolvía `portal` como el slug del
+negocio y el token como el del convenio. El PATCH y el POST del portal sí
+funcionaban —no compiten con nada—, así que el fallo era justo el de entrar.
+
+Reordenar los métodos lo arreglaba, pero dejaba la trampa puesta: un negocio
+llamado «Portal» volvería a romperlo. Ahora el portal tiene **prefijo propio**
+(`public/aliado/:token`), que además casa con la ruta del frontend.
+
+Es exactamente el mismo error que ya había evitado en el frontend y que se me
+coló en la API.
+
+### Las migraciones, probadas de verdad
+
+Contra una base local a la que le borré las 6 tablas, los 5 enums y las 3
+columnas —el peor caso: una producción que nunca corrió convenios—:
+
+- Las dos, en orden, levantan todo desde cero. ✅
+- Correrlas **dos veces** no hace nada la segunda. ✅
+- La segunda **sola** falla en seco (`relation "ConvenioTarjeta" does not
+  exist`, exit 1) sin aplicar nada a medias. ✅
+- `apply-convenios-migration.cjs` **sí crea `Tenant.conveniosEnabled`** con
+  `IF NOT EXISTS`. Era lo que más me preocupaba: sin esa columna, el backend
+  nuevo rompería `/tenants/me`, que es de donde cuelga el panel de TODOS los
+  negocios.
+
+### El script queda en el repo
+
+`backend/scripts/probar-alianzas-e2e.cjs`. Los 164 tests unitarios corren contra
+un doble de Prisma: prueban la lógica, no el cableado. Este prueba el cableado.
+
 ## 2026-09-02 (madrugada, 4ª vuelta) — Alianzas: la lista blanca era adivinable
 
 Otra ronda de agentes. **Nada de esto toca `backend/src/club/**`,

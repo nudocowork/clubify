@@ -4,7 +4,10 @@ import { ConveniosCanjeService } from './convenios-canje.service';
 import { ConveniosController } from './convenios.controller';
 import { AlianzasPublicoService } from './alianzas-publico.service';
 import { AlianzasPortalService } from './alianzas-portal.service';
-import { AlianzasPublicoController } from './alianzas-publico.controller';
+import {
+  AlianzasPublicoController,
+  AlianzasPortalController,
+} from './alianzas-publico.controller';
 import { JobsModule } from '../jobs/jobs.module';
 
 /**
@@ -32,7 +35,11 @@ import { JobsModule } from '../jobs/jobs.module';
   // en el público no hay `AuthUser` del que sacar el `tenantId` y cada ruta
   // tiene que resolverlo y comprobarlo por su cuenta; mezclarlos es como se
   // acaban colando rutas públicas sin guarda entre las que sí la tienen.
-  controllers: [ConveniosController, AlianzasPublicoController],
+  controllers: [
+    ConveniosController,
+    AlianzasPublicoController,
+    AlianzasPortalController,
+  ],
   exports: [ConveniosService, ConveniosCanjeService],
 })
 export class ConveniosModule {}

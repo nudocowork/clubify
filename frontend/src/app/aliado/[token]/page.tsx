@@ -56,7 +56,7 @@ export default function PortalAliado() {
   const [fallo, setFallo] = useState<{ cuponId: string; texto: string } | null>(null);
 
   const cargar = useCallback(() => {
-    fetch(`${API}/api/public/alianzas/portal/${token}`)
+    fetch(`${API}/api/public/aliado/${token}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then(setP)
       .catch(() => setNoExiste(true));
@@ -69,7 +69,7 @@ export default function PortalAliado() {
     setFallo(null);
     try {
       const r = await fetch(
-        `${API}/api/public/alianzas/portal/${token}/cupones/${cuponId}`,
+        `${API}/api/public/aliado/${token}/cupones/${cuponId}`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -102,7 +102,7 @@ export default function PortalAliado() {
     setOcupado('baja');
     setMensajeBaja(null);
     try {
-      const r = await fetch(`${API}/api/public/alianzas/portal/${token}/baja`, {
+      const r = await fetch(`${API}/api/public/aliado/${token}/baja`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ documento }),

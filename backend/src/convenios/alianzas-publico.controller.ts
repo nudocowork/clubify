@@ -41,10 +41,7 @@ class BajaBody {
  */
 @Controller('public/alianzas')
 export class AlianzasPublicoController {
-  constructor(
-    private publico: AlianzasPublicoService,
-    private portal: AlianzasPortalService,
-  ) {}
+  constructor(private publico: AlianzasPublicoService) {}
 
   // ─────────────────── El enlace único que reparte el aliado ───────────────────
 
@@ -72,17 +69,37 @@ export class AlianzasPublicoController {
     });
   }
 
-  // ───────────────────────── El portal del aliado ─────────────────────────
+}
+
+/**
+ * El portal de la empresa aliada, en su PROPIO prefijo.
+ *
+ * No cuelga de `public/alianzas` a propósito. Ahí vive
+ * `@Get(':tenantSlug/:convenioSlug')`, que es un comodín de dos segmentos y se
+ * traga cualquier ruta de dos segmentos declarada después: con el portal en
+ * `public/alianzas/portal/:token`, Nest resolvía `portal` como el slug del
+ * negocio y el token como el del convenio, y el portal respondía 404 SIEMPRE.
+ *
+ * Reordenar los métodos también lo arreglaba, pero dejaba la trampa puesta: un
+ * negocio que se llamara «Portal» volvería a romperlo, y eso aparecería un año
+ * después sin que nadie supiera de dónde salió. Con prefijo propio no hay
+ * colisión posible.
+ *
+ * La ruta casa además con la del frontend (`/aliado/<token>`).
+ */
+@Controller('public/aliado')
+export class AlianzasPortalController {
+  constructor(private portal: AlianzasPortalService) {}
 
   @Public()
-  @Get('portal/:token')
-  verPortal(@Param('token') token: string) {
+  @Get(':token')
+  ver(@Param('token') token: string) {
     return this.portal.ver(token);
   }
 
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 30 } })
-  @Patch('portal/:token/cupones/:cuponId')
+  @Patch(':token/cupones/:cuponId')
   interruptor(
     @Param('token') token: string,
     @Param('cuponId') cuponId: string,
@@ -94,7 +111,7 @@ export class AlianzasPublicoController {
   /** Baja a ciegas: el aliado escribe un documento y no ve nada más. */
   @Public()
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
-  @Post('portal/:token/baja')
+  @Post(':token/baja')
   baja(@Param('token') token: string, @Body() body: BajaBody) {
     return this.portal.baja(token, body.documento);
   }
