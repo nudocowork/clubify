@@ -97,7 +97,7 @@ export class BillingService {
         ? `⚠️ Cobro FALLIDO: ${brandName}. Entró en gracia (5 días). Revisar en Clubify.`
         : kind === 'suspendido'
           ? `🔴 SUSPENDIDO por falta de pago: ${brandName}. Revisar en Clubify.`
-          : `✅ Pago procesado${opts?.renewal ? ' (renovación)' : ''}: ${brandName}${opts?.amountUsd ? ` · $${opts.amountUsd}` : ''}. (Clubify)`;
+          : `✅ Pago procesado${opts?.renewal ? ' (renovación)' : ''}: ${brandName}. (Clubify)`;
     await Promise.all(
       BILLING_ALERT_PHONES.map((phone) =>
         this.prereg
