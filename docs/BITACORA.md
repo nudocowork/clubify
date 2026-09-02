@@ -48,6 +48,57 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 > — de la plantilla a la lectura de conjunto, con cómo se comprobó cada cosa y
 > qué quedó **sin** comprobar.
 
+## 2026-09-01 — Sellea InfoLinks (precio PRO, nav, form, fix FOUC) + VIIDA renovación fantasma
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `94a32396`
+
+### Qué cambié (frontend, DESPLEGADO a Vercel)
+- **Fix FOUC en `/i-registro/[brand]`**: el `fetch` del server component pegaba a
+  `${API}/auth/infolink-brand/…` **sin el prefijo `/api`** (el backend usa
+  `setGlobalPrefix('api')`) → 404 → `initialBrand` null → el form caía SIEMPRE al
+  fetch cliente = flash de marca eterno. Ahora `/api` + `revalidate:300` +
+  `AbortSignal.timeout(2000)`. Se quitó el emoji 🔗 y el "Cargando…" (eran parte
+  del flash) → skeleton neutro. Verificado por curl: el HTML crudo de prod ya trae
+  logo+tagline+colores de Sellea en el primer frame.
+- **Form de registro** (`i-registro/[brand]/SignupForm.tsx`): todos los campos
+  **obligatorios** (incluido WhatsApp); WhatsApp usa `PhoneInput` con bandera +
+  selector de país (se fue el "+57" hardcodeado).
+- **`/infolink`**: precio PRO "Por definir" → **$14.99 USD/mes**.
+- **Landing Sellea** (`app/sellea/page.tsx`): enlace **"Infolinks"** en el nav → `/infolink`.
+
+### Qué toqué de PRODUCCIÓN
+- **Vercel**: desplegado frontend (`node scripts/desplegar.cjs frontend`), deploy
+  `dpl_4ueRcphC2yDyixoun25zKVgHdtGA` READY, aliased fideliso.com/selleala.com.
+- **BD (prod)**: creado `WhiteLabelPaymentLink` **InfoLink PRO** para la marca
+  Sellea (`stripePriceId=price_1U7zPTKAK6ubdwt6YGNM8WOT`, `productKey=INFOLINK_PRO`,
+  $14.99, url `https://buy.stripe.com/14AfZib574HE3Qj43n9R604`). Era la pieza que
+  faltaba del freemium: ahora el webhook de Stripe sube el negocio a tier PRO al
+  pagar ese price. Fila `363420f0-e4f0-49cd-8737-4dba8bd72212`.
+- **VIIDA Cocina Caribe (RLSCWWX6)**: diagnóstico — NO se corrigió aún (falta OK).
+
+### VIIDA — renovación fantasma (causa raíz encontrada)
+- El 29-ago falló el cobro real de Hotmart (Retraso), pero el **cron de créditos
+  `RenewalsService` (2 AM)** la renovó igual el 30-ago 02:00: como su marca es la
+  propia **Clubify (`creditsUnlimited`)**, cayó en la rama "marca ilimitada →
+  siempre renueva" → avanzó `currentPeriodEnd`→29-sep + `lastChargeAt`=30-ago **sin
+  dinero real**; el cron de billing (3 AM) limpió el contador de fallos. Quedó "al día".
+- **El bug sistémico YA está corregido y vivo**: el guard `if (wl.slug==='clubify')
+  skip` entró en `dc56ebcd` (31-ago) — VIIDA fue víctima del run ANTERIOR al fix.
+  Verificado: 0 tenants Hotmart bajo marca ilimitada ≠ clubify → VIIDA es el único caso.
+- **Corrección puntual pendiente** (script listo en scratchpad, idempotente): devolver
+  VIIDA a la realidad (lastChargeAt=29-jul, currentPeriodEnd=29-ago, firstFailedAt=29-ago,
+  failedPaymentCount=1) para que entre a gracia/suspensión normal. NO aplicado: dispara
+  SMS de mora a la clienta → esperando OK del dueño.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Aplicar la corrección de VIIDA (o dejarla si Hotmart recupera el cargo solo).
+- [ ] El CTA "Empieza gratis y mejora" de `/infolink` va a `/i-registro/sellea` (signup),
+      no al link de Stripe. El upgrade a PRO desde el panel del negocio queda por cablear.
+
+### Riesgos y avisos
+- El SMS `pago_procesado` (entrada de abajo) sigue disparando para **todas** las marcas,
+  no solo Clubify. Revisar si hace ruido.
+
 ## 2026-09-01 — SMS al equipo también cuando un cobro Hotmart SÍ se procesa
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
