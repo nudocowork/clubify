@@ -37,6 +37,31 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+## 2026-09-02 — Reconciliación CSV Hotmart (71 subs) → Quipao fantasma corregido + SMS sin monto
+
+**Máquina/quién:** máquina de Jhon (Claude) · datos (no código nuevo salvo el SMS sin monto, ya en `0513c740`)
+
+### Reconciliación (CSV autoritativo de Hotmart vs Clubify)
+71 suscriptores. **66 consistentes** (4 de los 5 en Retraso correctamente en gracia/susp:
+Delizzibo, VIIDA, &N Coffee, AutoTech). Hallazgos:
+- **🔴 Quipao (BCSSGMIK) fantasma → CORREGIDO** (con OK del dueño): Hotmart Retraso pero
+  Clubify al día (ciclo 09-sep, fallos 0) porque el cargo del 01-sep falló y la limpieza
+  anti-mora-fantasma lo destrabó (ciclo en el futuro). Devuelto: lastChargeAt=01-ago,
+  ciclo=01-sep, firstFailedAt=01-sep, fallos=1 → EN GRACIA día 2, suspende ~06-sep. Dispara SMS al cliente.
+- **⚪ 3 clientes que PAGAN pero nunca activaron** (PendingHotmartPayment sin consumir):
+  TPJNY5FO (David Moreno, dmoreno758, Trim $150, desde 17-jul), VX2HL0IX (Kimberlyn,
+  kimmyramirezsh, desde 08-jul), SHX60ZIC (Joel olivares, gastrolivaresccp — tiene cuenta
+  "Dinorolls" con código placeholder wl-, sin ligar). Acción del dueño: contactarlos para activar.
+- YKUPT9FQ = add-on "Automatización de WhatsApp" de Humberto (SUPER_ADMIN) → normal.
+
+### SMS interno "pago procesado" (LIVE, deployment 35236072)
+Quitado el monto por pedido del dueño → `✅ Pago procesado (renovación): <marca>. (Clubify)`.
+Enviado manualmente el de Hydor (HP4204708280) a los 3 números (no había salido).
+
+### PENDIENTE (decisión del dueño)
+Backfill de los 70 ingresos Hotmart faltantes en Contabilidad (~$8.772). El CSV da plan/monto
+autoritativo. Opciones A (70) / B (13 con tenant) / C (ninguno). Sin correr.
+
 ## 2026-09-02 — CONTABILIDAD: pagos Hotmart en moneda local no se capturaban (fix LIVE)
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `9f6bbc7f`
