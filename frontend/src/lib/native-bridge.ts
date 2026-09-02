@@ -14,8 +14,16 @@ import { isNativeApp, nativePlatform } from './native';
 
 type PermissionState = 'granted' | 'denied' | 'prompt' | 'prompt-with-rationale' | 'limited';
 
+type OyenteEscaneo = { remove: () => Promise<void> };
+
 type BarcodeScannerPlugin = {
   scan: (opts?: { formats?: string[] }) => Promise<{ barcodes?: Array<{ rawValue?: string }> }>;
+  startScan: (opts?: { formats?: string[] }) => Promise<void>;
+  stopScan: () => Promise<void>;
+  addListener: (
+    evento: 'barcodeScanned',
+    cb: (r: { barcode?: { rawValue?: string } }) => void,
+  ) => Promise<OyenteEscaneo>;
   checkPermissions: () => Promise<{ camera: PermissionState }>;
   requestPermissions: () => Promise<{ camera: PermissionState }>;
   isGoogleBarcodeScannerModuleAvailable?: () => Promise<{ available: boolean }>;
@@ -51,15 +59,7 @@ export class ErrorEscaner extends Error {}
 // wallet y conviene que gane cuando hay varios códigos en cámara.
 const FORMATOS = ['Pdf417', 'QrCode', 'Code128', 'Ean13', 'Code39', 'Aztec', 'DataMatrix'];
 
-/**
- * Abre el escáner NATIVO (MLKit) y devuelve el contenido del código.
- * Devuelve null si el usuario cerró el escáner sin leer nada — eso no es un
- * error y no debe pintar una alerta.
- */
-export async function escanearNativo(): Promise<string | null> {
-  const scanner = plugin<BarcodeScannerPlugin>('BarcodeScanner');
-  if (!scanner) throw new ErrorEscaner('El escáner nativo no está disponible.');
-
+async function asegurarPermisoCamara(scanner: BarcodeScannerPlugin): Promise<void> {
   let permiso = (await scanner.checkPermissions()).camera;
   if (permiso === 'prompt' || permiso === 'prompt-with-rationale') {
     permiso = (await scanner.requestPermissions()).camera;
@@ -69,6 +69,18 @@ export async function escanearNativo(): Promise<string | null> {
       'Sin permiso de cámara. Actívalo en los ajustes del teléfono para poder escanear.',
     );
   }
+}
+
+/**
+ * Abre el escáner NATIVO (MLKit) y devuelve el contenido del código.
+ * Devuelve null si el usuario cerró el escáner sin leer nada — eso no es un
+ * error y no debe pintar una alerta.
+ */
+export async function escanearNativo(): Promise<string | null> {
+  const scanner = plugin<BarcodeScannerPlugin>('BarcodeScanner');
+  if (!scanner) throw new ErrorEscaner('El escáner nativo no está disponible.');
+
+  await asegurarPermisoCamara(scanner);
 
   // Android baja el módulo de escaneo desde Google Play la primera vez. Sin
   // esto, el primer escaneo del día de instalación falla con un error opaco.
@@ -107,4 +119,67 @@ export async function ocultarSplashNativo(): Promise<void> {
   } catch {
     /* si el plugin no responde, el tope de launchShowDuration lo cubre */
   }
+}
+
+/**
+ * Escaneo nativo CON MIRA PROPIA.
+ *
+ * scan() abre la pantalla del sistema, que trae un recuadro cuadrado y no se
+ * puede cambiar. Los pases de wallet llevan un código de barras ANCHO
+ * (PDF417), así que apuntar con un cuadrado es incómodo y confunde: la gente
+ * cree que tiene que encajar la tarjeta entera dentro.
+ *
+ * startScan() en cambio pone la cámara DETRÁS del WebView y deja que la mira
+ * la dibujemos nosotros en HTML, con la proporción real del código. A cambio
+ * hay que poner la página transparente mientras dura (clase en el <body>) y
+ * acordarse de limpiar SIEMPRE: si esto se queda a medias, el usuario queda
+ * con un panel invisible y la cámara encendida.
+ */
+export const CLASE_ESCANEO = 'escaner-nativo-activo';
+
+let detenerActual: (() => Promise<void>) | null = null;
+
+export async function iniciarEscaneoNativo(
+  alLeer: (texto: string) => void,
+): Promise<void> {
+  const scanner = plugin<BarcodeScannerPlugin>('BarcodeScanner');
+  if (!scanner?.startScan) throw new ErrorEscaner('El escáner nativo no está disponible.');
+
+  await asegurarPermisoCamara(scanner);
+
+  const oyente = await scanner.addListener('barcodeScanned', (r) => {
+    const valor = r?.barcode?.rawValue;
+    if (typeof valor === 'string' && valor.length > 0) alLeer(valor);
+  });
+
+  document.body.classList.add(CLASE_ESCANEO);
+
+  detenerActual = async () => {
+    detenerActual = null;
+    document.body.classList.remove(CLASE_ESCANEO);
+    try {
+      await oyente.remove();
+    } catch {
+      /* ya removido */
+    }
+    try {
+      await scanner.stopScan();
+    } catch {
+      /* ya detenido */
+    }
+  };
+
+  try {
+    await scanner.startScan({ formats: FORMATOS });
+  } catch (e) {
+    // Si startScan falla hay que deshacer la transparencia igual, o la
+    // pantalla queda en blanco sin cámara detrás.
+    await detenerEscaneoNativo();
+    throw e;
+  }
+}
+
+/** Cierra el escaneo en curso. Seguro de llamar aunque no haya ninguno. */
+export async function detenerEscaneoNativo(): Promise<void> {
+  await detenerActual?.();
 }

@@ -1,7 +1,13 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { api, getUser, setSession, clearSession } from '@/lib/api';
-import { hayEscanerNativo, escanearNativo, vibrar, ErrorEscaner } from '@/lib/native-bridge';
+import {
+  hayEscanerNativo,
+  iniciarEscaneoNativo,
+  detenerEscaneoNativo,
+  vibrar,
+  ErrorEscaner,
+} from '@/lib/native-bridge';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { InstallPWAButton } from '@/components/InstallPWAButton';
@@ -94,6 +100,7 @@ export default function ScanPage() {
   // ¿Corremos dentro de la app con escáner nativo? Se resuelve tras montar
   // porque leer window durante el render rompe la hidratación.
   const [esNativo, setEsNativo] = useState(false);
+  const [miraNativa, setMiraNativa] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   // Loop del detector nativo + guard para que los dos motores (nativo y JS)
@@ -275,16 +282,20 @@ export default function ScanPage() {
     // cámara web de más abajo ni se enciende.
     if (hayEscanerNativo()) {
       setScanning(true);
+      setMiraNativa(true);
       try {
-        const texto = await escanearNativo();
-        // null = el usuario cerró el escáner sin leer nada. No es un error.
-        if (texto) {
+        await iniciarEscaneoNativo(async (texto) => {
+          // El lector sigue disparando mientras el código esté a la vista:
+          // handledRef corta las lecturas repetidas del MISMO escaneo.
+          if (handledRef.current) return;
+          await detenerEscaneoNativo();
+          setMiraNativa(false);
           await vibrar('ok');
           await handleResult(texto);
-        } else {
-          setScanning(false);
-        }
+        });
       } catch (e: any) {
+        await detenerEscaneoNativo();
+        setMiraNativa(false);
         await vibrar('error');
         setErr(
           e instanceof ErrorEscaner
@@ -487,6 +498,12 @@ export default function ScanPage() {
     setErr(null);
     setTimeout(() => startScanner(), 50);
   }
+
+  useEffect(() => {
+    return () => {
+      detenerEscaneoNativo();
+    };
+  }, []);
 
   useEffect(() => {
     setEsNativo(hayEscanerNativo());
@@ -733,6 +750,44 @@ export default function ScanPage() {
 
   return (
     <div className="min-h-screen bg-bg">
+      {/* Mira del escáner NATIVO. La cámara la pinta el sistema por detrás del
+          WebView (body.escaner-nativo-activo lo deja transparente), así que
+          esto es lo ÚNICO visible mientras dura el escaneo. La proporción
+          2.3:1 es la del código de barras de un pase de wallet: con el
+          cuadrado que trae la pantalla del sistema la gente intentaba encajar
+          la tarjeta entera y no leía. */}
+      {miraNativa && (
+        <div className="escaner-mira fixed inset-0 z-[100] flex flex-col">
+          <div className="flex-1 flex items-center justify-center px-6">
+            <div
+              className="relative w-full"
+              style={{ maxWidth: 440, aspectRatio: '2.3 / 1' }}
+            >
+              <div className="absolute inset-0 rounded-2xl border-[3px] border-white/90 shadow-[0_0_0_100vmax_rgba(0,0,0,.45)]" />
+              <div className="absolute -top-9 left-0 right-0 text-center text-white text-sm font-medium drop-shadow">
+                Apunta al código del cliente
+              </div>
+            </div>
+          </div>
+          <div
+            className="p-6 flex justify-center"
+            style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
+          >
+            <button
+              type="button"
+              onClick={async () => {
+                await detenerEscaneoNativo();
+                setMiraNativa(false);
+                setScanning(false);
+              }}
+              className="bg-white text-ink font-semibold rounded-pill px-7 py-3 shadow-lg"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-lg mx-auto p-3 sm:p-5">
         {/* Header — compacto en mobile */}
         <div className="flex items-center justify-between mb-2 sm:mb-3">

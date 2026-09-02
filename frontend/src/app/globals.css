@@ -597,3 +597,19 @@ html[data-native] .cajon-lateral {
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+/* ── Escáner nativo con mira propia ────────────────────────────────────────
+ *
+ * El plugin pone la cámara DETRÁS del WebView, así que mientras dura el
+ * escaneo la página tiene que ser transparente. Se oculta todo y se deja ver
+ * únicamente la mira: `visibility` (y no `display`) porque el WebView tiene
+ * que seguir teniendo layout para dibujarla encima del vídeo.
+ */
+body.escaner-nativo-activo {
+  visibility: hidden;
+  background: transparent !important;
+}
+body.escaner-nativo-activo .escaner-mira,
+body.escaner-nativo-activo .escaner-mira * {
+  visibility: visible;
+}
