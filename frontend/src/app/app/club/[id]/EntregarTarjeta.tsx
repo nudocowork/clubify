@@ -40,7 +40,12 @@ export function EntregarTarjeta({
       ? ''
       : `${window.location.origin}/w/${socio.passId}?welcome=1`;
 
-  const mensaje = `Hola ${socio.nombre}, ya tienes tu tarjeta de ${plan}. Ábrela aquí y añádela a tu móvil: ${url}`;
+  // Cuando el alta se hizo solo con el teléfono, el «nombre» del socio ES el
+  // número — la base exige uno. Saludar con él («Hola 3001234567») es peor que
+  // no saludar por su nombre, así que en ese caso se omite.
+  const pareceNombre = /\p{L}/u.test(socio.nombre);
+  const saludo = pareceNombre ? `Hola ${socio.nombre}, ya` : '¡Ya';
+  const mensaje = `${saludo} tienes tu tarjeta de ${plan}. Ábrela aquí y añádela a tu móvil: ${url}`;
   // Solo dígitos: wa.me rechaza espacios, guiones y el «+».
   const telefono = (socio.telefono ?? '').replace(/\D/g, '');
   const whatsapp = telefono
@@ -64,7 +69,7 @@ export function EntregarTarjeta({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold m-0">
-            {socio.nombre} ya es socio
+            {pareceNombre ? `${socio.nombre} ya es socio` : 'Ya es socio'}
           </h2>
           <p className="text-xs text-mute mt-1 max-w-xl">
             Falta que instale su tarjeta en el móvil. Si está delante, que
