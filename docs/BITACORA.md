@@ -37,6 +37,27 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+## 2026-09-01 — Ranking de pedidos (menús de domicilios) + deploy que subió el /hub de Javi
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `ad220937`
+
+### Qué cambié (DESPLEGADO backend + frontend)
+- **Ranking de pedidos**: el modal de ranking (`/admin/tenants`) ahora tiene toggle superior
+  **"Ranking de pases | Ranking de pedidos"**. Pedidos = `Order` de los menús de domicilios,
+  misma lógica de período/antigüedad/visibilidad (oculta TRIAL/SUSPENDIDOS salvo Nudo Cowork).
+- `/tenants/ranking` acepta `metric=pases|pedidos`; en `pedidos` cuenta `Order` (createdAt)
+  en vez de `Pass` (issuedAt). Backend compatible (default `pases`).
+
+### Qué toqué de PRODUCCIÓN
+- **Railway backend**: `desplegar.cjs backend`, deployment `e2c9ff13` swapped (Online, 200).
+- **Vercel frontend**: `desplegar.cjs frontend`, READY.
+
+### ⚠️ Aviso a Javi (IMPORTANTE)
+- Con OneDrive, mi HEAD incluía tu **`7f0e7a41` (launcher `/hub` + Capacitor)**, que estaba
+  committeado pero **NO desplegado** (prod daba 404). Con OK explícito del dueño, mi deploy de
+  frontend lo **subió a producción**: `/hub` ahora responde **200**. Si esa fase 1 no estaba
+  lista para estar viva, avísame — quedó live junto con mi ranking, tu cuponera y el botón PRO.
+
 ## 2026-09-01 — Apps iOS/Android (fase 1): lanzador por rol `/hub` + shell Capacitor
 **Máquina/quién:** la de Jhon (sesión Claude)
 **Rama / PR:** feat/commissions-auto-cutoffs
