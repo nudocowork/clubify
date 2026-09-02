@@ -269,8 +269,11 @@ function ActivarInner() {
           if (cancelled) return;
           const link = d?.links?.find(
             (l: any) =>
+              // Excluimos upgrades por entitlement (INFOLINK_PRO/FULL): un plan
+              // MENSUAL no debe tomar el precio del InfoLink PRO ($14.99).
+              !l.productKey &&
               String(l.periodicity || '').toUpperCase() ===
-              planPeriod.toUpperCase(),
+                planPeriod.toUpperCase(),
           );
           if (link && Number(link.amountUsd) > 0) {
             setPrice(Number(link.amountUsd));

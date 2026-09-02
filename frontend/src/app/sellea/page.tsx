@@ -154,6 +154,10 @@ async function fetchPaymentPlans(host: string): Promise<LandingPlan[] | null> {
     if (!d || !Array.isArray(d.links) || !d.links.length) return null;
     const plans: LandingPlan[] = [];
     for (const l of d.links) {
+      // Los links con productKey (INFOLINK_PRO / FULL) son upgrades por
+      // entitlement, NO planes de suscripción: no van en el selector "Elige tu
+      // plan". El de InfoLink PRO se ofrece dentro del panel del negocio.
+      if (l.productKey === 'INFOLINK_PRO' || l.productKey === 'FULL') continue;
       const m = PERIOD_TO_PLAN[l.periodicity as string];
       if (!m) continue; // CUSTOM u otros no se representan en el selector
       plans.push({
