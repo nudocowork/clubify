@@ -4,7 +4,36 @@
 > producción**. Lo que está en este repo no es necesariamente lo que corre.
 > Actualízalo cada vez que descubras una divergencia.
 
-Última revisión: **2026-08-19**
+Última revisión: **2026-09-02**
+
+---
+
+## 🚨 LO PRIMERO: cómo se despliega (o vas a tumbar el trabajo del otro)
+
+**Desplegar SIEMPRE con:**
+
+```bash
+node scripts/desplegar.cjs frontend
+node scripts/desplegar.cjs backend
+```
+
+**NUNCA `vercel --prod` ni `railway up` directos.**
+
+Por qué: esos comandos suben **tu carpeta local**, no lo que está en git. Como el
+repo vive en **OneDrive** (sincroniza el directorio entre las dos máquinas), tu
+copia puede estar **vieja o con cambios a medias** → desplegar desde ahí
+**REVIERTE en producción lo que el otro ya había subido**. `desplegar.cjs` clona
+el commit limpio y **se niega a desplegar si estás por detrás de origin o tienes
+commits sin empujar** — por eso es el único camino seguro.
+
+**Antes de cualquier deploy:** `git fetch` y estar al día con origin.
+
+> **Pasó el 2026-09-02 (dos veces el mismo día):** deploys directos desde una copia
+> vieja **revirtieron** los arreglos de Sellea (frontend) y el *income capture* de
+> Contabilidad + `productKey` (backend). Señal típica de que te pasó: un
+> campo/ruta que ya existía **deja de existir** (el API dejó de devolver
+> `productKey`; una ruta 401 pasa a 404). Cada minuto revertido, los pagos Hotmart
+> en moneda local vuelven a NO entrar a Contabilidad.
 
 ---
 
