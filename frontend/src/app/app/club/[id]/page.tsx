@@ -7,6 +7,7 @@ import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { plural } from '@/lib/plural';
 import { Consumos } from './Consumos';
+import { Diseno } from './Diseno';
 import {
   EntregarTarjeta,
   type SocioParaEntregar,
@@ -426,6 +427,16 @@ export default function SociosDelPlanPage() {
         </div>
       )}
 
+      {plan && (
+        <Diseno
+          planId={planId}
+          plan={plan.name}
+          unidad={plan.unidad}
+          cupo={plan.beneficiosPorMes}
+          marca={plan.name}
+        />
+      )}
+
       {plan && <Consumos planId={planId} socios={sociosAlDia} />}
 
       {plan && (
@@ -515,7 +526,7 @@ function BuscadorDeCliente({
   const [dando, setDando] = useState(false);
   const [ambiguos, setAmbiguos] = useState<ClienteLite[] | null>(null);
 
-  async function darDeAlta(customerId?: string) {
+  async function darDeAlta(customerId?: string, forzarNuevo = false) {
     const texto = dato.trim();
     if (!customerId && texto.length < 2) {
       toast('Escribe el teléfono o el nombre del socio.', 'error');
@@ -529,7 +540,7 @@ function BuscadorDeCliente({
           })
         : await api(`/club/planes/${planId}/alta-rapida`, {
             method: 'POST',
-            body: JSON.stringify({ identificador: texto }),
+            body: JSON.stringify({ identificador: texto, forzarNuevo }),
           });
 
       // Varios clientes encajan con lo escrito: que elija el negocio.
@@ -618,6 +629,18 @@ function BuscadorDeCliente({
               </div>
             ))}
           </div>
+          {/* Sin esto la pantalla se quedaba SIN SALIDA: dos clientes que se
+              llaman Javier y un tercer Javier al que no había forma de dar de
+              alta. Se crea uno nuevo con lo escrito. */}
+          <button
+            className="btn-primary mt-3"
+            disabled={dando}
+            onClick={() => darDeAlta(undefined, true)}
+          >
+            {dando
+              ? 'Creando…'
+              : `No es ninguno — crear a «${dato.trim()}» y darle de alta`}
+          </button>
         </div>
       )}
     </div>

@@ -178,7 +178,7 @@ export class ClubService {
     let libre = base;
     for (let i = 2; ocupados.has(libre) && i <= 50; i++) libre = `${base}-${i}`;
 
-    return this.prisma.clubPlan.create({
+    const plan = await this.prisma.clubPlan.create({
       data: {
         tenantId,
         name: dto.name.trim(),
@@ -192,6 +192,14 @@ export class ClubService {
       },
       include: { tramos: true },
     });
+
+    // La tarjeta se crea AQUÍ y no al dar de alta al primer socio. Antes nacía
+    // con el primer alta, así que un plan recién creado no tenía nada que
+    // diseñar: el negocio no podía ver ni tocar los colores, el logo o el icono
+    // hasta que alguien se hiciera socio — y entonces ya era tarde, porque ese
+    // primero se llevaba la tarjeta con el aspecto por defecto.
+    await this.tarjetaDelPlan(tenantId, plan);
+    return plan;
   }
 
   async actualizarPlan(
@@ -301,6 +309,72 @@ export class ClubService {
     }
     for (const f of filas) this.empujarPase(f.passId!, 'club.plan.editado');
     return filas.length;
+  }
+
+  /**
+   * El aspecto de la tarjeta del plan: lo que el socio ve en el móvil.
+   *
+   * Es un endpoint acotado a propósito, en vez de mandar al negocio al editor
+   * general de tarjetas. Ahí saldrían campos que en un club no significan nada
+   * —cuántos sellos, el premio, la conversión a otra tarjeta— y uno que además
+   * ROMPE: `stampsRequired` es el cupo del mes y lo reescribe el plan, así que
+   * tocarlo a mano se pierde en el siguiente guardado.
+   */
+  async disenoDelPlan(user: AuthUser, planId: string, override?: string) {
+    const tenantId = this.tid(user, override);
+    const plan = await this.planDelNegocio(planId, tenantId);
+    const card = await this.tarjetaDelPlan(tenantId, plan);
+    return this.prisma.card.findUniqueOrThrow({
+      where: { id: card.id },
+      select: {
+        id: true,
+        primaryColor: true,
+        secondaryColor: true,
+        logoUrl: true,
+        stampIcon: true,
+        stampIconImageUrl: true,
+        stampBgType: true,
+        stampBgImageUrl: true,
+      },
+    });
+  }
+
+  async guardarDiseno(
+    user: AuthUser,
+    planId: string,
+    dto: {
+      primaryColor?: string;
+      secondaryColor?: string;
+      logoUrl?: string | null;
+      stampIcon?: string;
+      stampIconImageUrl?: string | null;
+      stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
+      stampBgImageUrl?: string | null;
+    },
+    override?: string,
+  ) {
+    const tenantId = this.tid(user, override);
+    const plan = await this.planDelNegocio(planId, tenantId);
+    const card = await this.tarjetaDelPlan(tenantId, plan);
+
+    await this.prisma.card.update({
+      where: { id: card.id },
+      data: {
+        primaryColor: dto.primaryColor,
+        secondaryColor: dto.secondaryColor,
+        logoUrl: dto.logoUrl,
+        stampIcon: dto.stampIcon,
+        stampIconImageUrl: dto.stampIconImageUrl,
+        stampBgType: dto.stampBgType,
+        stampBgImageUrl: dto.stampBgImageUrl,
+      },
+    });
+
+    // Los pases ya instalados llevan el diseño DENTRO: sin empujarlos, los
+    // socios que ya tienen la tarjeta seguirían viendo los colores viejos para
+    // siempre y solo los nuevos verían el cambio.
+    await this.empujarPasesDelPlan(planId);
+    return this.disenoDelPlan(user, planId, override);
   }
 
   // ── Membresías ──────────────────────────────────────────────────────────
@@ -695,6 +769,12 @@ export class ClubService {
     user: AuthUser,
     planId: string,
     identificador: string,
+    /**
+     * `true` cuando el negocio ya vio la lista de parecidos y dijo que no es
+     * ninguno. Sin esto la pantalla se quedaba sin salida: dos clientes que se
+     * llaman Javier y un tercer Javier al que no se podía dar de alta.
+     */
+    forzarNuevo = false,
     override?: string,
   ) {
     const tenantId = this.tid(user, override);
@@ -707,16 +787,18 @@ export class ClubService {
     const digitos = texto.replace(/\D/g, '');
     const esTelefono = !/\p{L}/u.test(texto) && digitos.length >= 7;
 
-    const candidatos = await this.prisma.customer.findMany({
-      where: {
-        tenantId,
-        ...(esTelefono
-          ? { phone: { contains: digitos.slice(-10) } }
-          : { fullName: { contains: texto, mode: 'insensitive' as const } }),
-      },
-      select: { id: true, fullName: true, phone: true, email: true },
-      take: 6,
-    });
+    const candidatos = forzarNuevo
+      ? []
+      : await this.prisma.customer.findMany({
+          where: {
+            tenantId,
+            ...(esTelefono
+              ? { phone: { contains: digitos.slice(-10) } }
+              : { fullName: { contains: texto, mode: 'insensitive' as const } }),
+          },
+          select: { id: true, fullName: true, phone: true, email: true },
+          take: 6,
+        });
 
     if (candidatos.length > 1) {
       return { ambiguos: candidatos };

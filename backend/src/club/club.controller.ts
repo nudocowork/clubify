@@ -52,8 +52,21 @@ class ActualizarPlanDto {
   tramos?: TramoDto[];
 }
 
+class DisenoDto {
+  @IsOptional() @IsString() @MaxLength(9) primaryColor?: string;
+  @IsOptional() @IsString() @MaxLength(9) secondaryColor?: string;
+  @IsOptional() @IsString() @MaxLength(500) logoUrl?: string | null;
+  @IsOptional() @IsString() @MaxLength(16) stampIcon?: string;
+  @IsOptional() @IsString() @MaxLength(500) stampIconImageUrl?: string | null;
+  @IsOptional() @IsIn(['GRADIENT', 'SOLID', 'IMAGE'])
+  stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
+  @IsOptional() @IsString() @MaxLength(500) stampBgImageUrl?: string | null;
+}
+
 class AltaRapidaDto {
   @IsString() @MaxLength(120) identificador!: string;
+  /** El negocio ya vio la lista de parecidos y dijo que no es ninguno. */
+  @IsOptional() @IsBoolean() forzarNuevo?: boolean;
 }
 
 class EstadoDto {
@@ -131,6 +144,27 @@ export class ClubController {
     );
   }
 
+  @Get('planes/:id/diseno')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  diseno(
+    @CurrentUser() user: AuthUser,
+    @Param('id') planId: string,
+    @Query('tenantId') t?: string,
+  ) {
+    return this.svc.disenoDelPlan(user, planId, t);
+  }
+
+  @Patch('planes/:id/diseno')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  guardarDiseno(
+    @CurrentUser() user: AuthUser,
+    @Param('id') planId: string,
+    @Body() body: DisenoDto,
+    @Query('tenantId') t?: string,
+  ) {
+    return this.svc.guardarDiseno(user, planId, body, t);
+  }
+
   /** Alta con un solo dato: el teléfono o el nombre. */
   @Post('planes/:id/alta-rapida')
   @Roles('TENANT_OWNER', 'SUPER_ADMIN')
@@ -140,7 +174,13 @@ export class ClubController {
     @Body() body: AltaRapidaDto,
     @Query('tenantId') t?: string,
   ) {
-    return this.svc.altaRapida(user, planId, body.identificador, t);
+    return this.svc.altaRapida(
+      user,
+      planId,
+      body.identificador,
+      body.forzarNuevo ?? false,
+      t,
+    );
   }
 
   @Post('planes/:id/miembros/:customerId')
