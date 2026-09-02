@@ -169,6 +169,45 @@ un único bug de corrección → arreglado y desplegado (frontend READY):
   frontend lo **subió a producción**: `/hub` ahora responde **200**. Si esa fase 1 no estaba
   lista para estar viva, avísame — quedó live junto con mi ranking, tu cuponera y el botón PRO.
 
+## 2026-09-02 — La app iOS ya CORRE. Hallazgos de la primera ejecución
+
+**Máquina/quién:** la de Jhon (sesión Claude) · commit `54b1ce55`
+
+Primera vez que la app arranca en el simulador y carga el panel de producción.
+Lo que salió al probarla:
+
+### 1. Login con Google NO funciona dentro de la app (pendiente real)
+Se queda en «Cargando Google…» para siempre. Google bloquea su OAuth en
+webviews embebidos, así que el botón GSI de la web no sirve dentro de
+Capacitor. **El login por correo y contraseña sí funciona**, así que la app es
+usable, pero para arreglarlo hay que meter el SDK nativo de Google
+(plugin de Capacitor + client ID de iOS) y cablearlo al mismo
+`/auth/google` del backend. No lo toqué todavía.
+
+### 2. El splash se quedaba pegado (arreglado)
+`launchAutoHide:false` y nadie llamando a `hide()`. Ahora lo oculta la web
+cuando termina de pintar (`NativeSplashGate`), con tope de 3s.
+
+### 3. iOS 26 no instalaba la app (arreglado)
+Deployment target 13.0 → 15.5.
+
+### 4. El escáner no se puede probar en simulador (no es un bug)
+`@capacitor-mlkit/barcode-scanning` 6.2 fija GoogleMLKit 5.0.0, que declara
+`EXCLUDED_ARCHS[sdk=iphonesimulator*] = arm64`: en un Mac Apple Silicon solo
+compila x86_64 para simulador y iOS 26 lo rechaza. **No afecta a iPhones
+reales ni a la App Store.** Y de todos modos un simulador no tiene cámara: el
+escáner se prueba en un teléfono.
+
+### 5. Los gates de compra funcionan
+En la app ya NO aparece «¿No tienes cuenta? Adquiérelo aquí» del login.
+Verificado en pantalla.
+
+### Qué falta
+- [ ] Probar en un iPhone real (hace falta el Team ID de Apple para firmar).
+- [ ] Google Sign-In nativo.
+- [ ] Push APNs/FCM, biometría, enlaces universales.
+- [ ] Icono y splash de Clubify (hoy sale el de Capacitor).
+
 ## 2026-09-02 — ⚠️ JAVI: tus deploys están BORRANDO `/hub` de producción (van 3)
 
 **Máquina/quién:** la de Jhon (sesión Claude) · Rama `feat/commissions-auto-cutoffs`
