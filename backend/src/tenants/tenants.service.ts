@@ -559,10 +559,24 @@ export class TenantsService {
       },
     });
 
+    // Ranking (pedido del dueño 2026-09): ocultar del ranking de pases a los
+    // SUSPENDIDOS y a los TRIAL — son ruido (no son clientes que cuenten para
+    // medir emisión real). Excepción explícita: "Nudo Cowork" SÍ se muestra
+    // aunque esté en TRIAL (interesa verlo). El filtro va ANTES de contar pases
+    // para que el total del ranking también quede acotado a lo visible.
+    const NUDO_EXC = 'nudo cowork';
+    const visibles = tenants.filter((t) => {
+      if (t.status === 'SUSPENDED') return false;
+      if (t.status === 'TRIAL') {
+        return (t.brandName || t.name || '').toLowerCase().includes(NUDO_EXC);
+      }
+      return true;
+    });
+
     // Los pases del período, y aparte SIEMPRE el total histórico: cuando se
     // filtra por fecha hay que poder comparar "40 este mes, de 1.200 en total".
     // Sin el total al lado, el número del período no dice nada.
-    const ids = tenants.map((t) => t.id);
+    const ids = visibles.map((t) => t.id);
     const [delPeriodo, historico] = await Promise.all([
       this.prisma.pass.groupBy({
         by: ['tenantId'],
@@ -586,7 +600,7 @@ export class TenantsService {
       ? new Map(historico.map((g) => [g.tenantId, g._count._all]))
       : mapaPeriodo;
 
-    const rows = tenants.map((t) => ({
+    const rows = visibles.map((t) => ({
       id: t.id,
       brandName: t.brandName || t.name,
       status: t.status,

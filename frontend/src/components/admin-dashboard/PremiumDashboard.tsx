@@ -865,6 +865,12 @@ function CobrosDrilldown({
         })
       : '—';
 
+  // Total a cobrar del rango seleccionado: como el backend YA devuelve las filas
+  // filtradas por `range`, sumar su `montoUsd` da exactamente el total del rango
+  // (cambia solo con los chips). Pedido del dueño 2026-09.
+  const totalMonto = rows.reduce((s, r) => s + (r.montoUsd ?? 0), 0);
+  const rangeLabel = chips.find(([v]) => v === range)?.[1] ?? '';
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto"
@@ -898,6 +904,18 @@ function CobrosDrilldown({
             </button>
           ))}
         </div>
+        {/* Total a cobrar del rango (pedido del dueño): suma de todos los USD de
+            las filas visibles, que ya vienen acotadas por el chip seleccionado. */}
+        {bucket === 'proximos' && !loading && rows.length > 0 && (
+          <div className="mb-3 flex items-center justify-between rounded-lg bg-brand/10 border border-brand/30 px-4 py-2.5">
+            <span className="text-sm font-medium text-ink">
+              Total a cobrar · {rangeLabel}
+            </span>
+            <span className="text-lg font-bold text-brand tabular-nums">
+              {money(totalMonto)}
+            </span>
+          </div>
+        )}
         <div className="overflow-x-auto border border-line2 rounded-lg">
           {loading ? (
             <div className="p-8 text-center text-mute text-sm">Cargando…</div>
