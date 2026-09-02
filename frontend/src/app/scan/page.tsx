@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { api, getUser, setSession, clearSession } from '@/lib/api';
+import { hayEscanerNativo, escanearNativo, vibrar, ErrorEscaner } from '@/lib/native-bridge';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { InstallPWAButton } from '@/components/InstallPWAButton';
@@ -90,6 +91,9 @@ export default function ScanPage() {
   // Linterna (torch) + su disponibilidad. El botón solo se muestra si el
   // equipo la soporta. Ayuda al autofocus por contraste en locales con poca
   // luz, donde muchas cámaras Android no enfocan bien.
+  // ¿Corremos dentro de la app con escáner nativo? Se resuelve tras montar
+  // porque leer window durante el render rompe la hidratación.
+  const [esNativo, setEsNativo] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   // Loop del detector nativo + guard para que los dos motores (nativo y JS)
@@ -264,6 +268,34 @@ export default function ScanPage() {
   async function startScanner() {
     setErr(null);
     handledRef.current = false;
+
+    // Dentro de la app: escáner NATIVO (MLKit). Lee bastante mejor que el
+    // decodificador JS con poca luz y a distancia, que es como se escanea en
+    // un mostrador. Abre su propia pantalla a pantalla completa, así que la
+    // cámara web de más abajo ni se enciende.
+    if (hayEscanerNativo()) {
+      setScanning(true);
+      try {
+        const texto = await escanearNativo();
+        // null = el usuario cerró el escáner sin leer nada. No es un error.
+        if (texto) {
+          await vibrar('ok');
+          await handleResult(texto);
+        } else {
+          setScanning(false);
+        }
+      } catch (e: any) {
+        await vibrar('error');
+        setErr(
+          e instanceof ErrorEscaner
+            ? e.message
+            : 'No se pudo abrir el escáner. Pega el código manualmente abajo.',
+        );
+        setScanning(false);
+      }
+      return;
+    }
+
     try {
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import(
         'html5-qrcode',
@@ -457,6 +489,7 @@ export default function ScanPage() {
   }
 
   useEffect(() => {
+    setEsNativo(hayEscanerNativo());
     const u = getUser();
     setUser(u);
     if (!u) return; // muestra login inline en vez de redirect
@@ -734,7 +767,28 @@ export default function ScanPage() {
             sobre relleno negro. El wrapper 'relative' aloja los controles
             sobrepuestos (linterna, hint) sin que html5-qrcode los borre al
             inyectar el <video>. */}
-        <div className="relative w-full" style={{ display: data ? 'none' : 'block' }}>
+        {esNativo && !data && (
+          <div className="rounded-card border border-line bg-surface p-6 text-center">
+            <div className="text-4xl mb-3">📷</div>
+            <p className="text-sm text-mute leading-relaxed mb-4">
+              {scanning
+                ? 'Apunta la cámara al código del cliente.'
+                : 'Toca para abrir la cámara y leer el código del cliente.'}
+            </p>
+            <button
+              type="button"
+              onClick={startScanner}
+              className="btn-primary w-full justify-center py-3.5 text-base font-semibold"
+            >
+              Escanear código
+            </button>
+          </div>
+        )}
+
+        <div
+          className="relative w-full"
+          style={{ display: data || esNativo ? 'none' : 'block' }}
+        >
           <div
             id="qr-reader"
             onClick={tapToFocus}
@@ -810,7 +864,7 @@ export default function ScanPage() {
             que en varios modelos tiene FOCO FIJO y nunca enfoca un código de
             cerca — ahí no hay enfoque ni linterna que sirva, hay que cambiar
             de lente. La elección queda guardada en el equipo. */}
-        {!data && scanning && (
+        {!data && scanning && !esNativo && (
           <div className="mt-2 space-y-2">
             {cameras.length > 1 && (
               <select

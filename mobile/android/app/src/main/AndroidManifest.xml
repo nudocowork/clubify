@@ -38,4 +38,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Escáner de códigos (MLKit). La librería la declara por su cuenta,
+         pero dejarla explícita evita sorpresas si el merge del manifest
+         cambia entre versiones del plugin. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

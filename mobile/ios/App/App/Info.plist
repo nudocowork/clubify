@@ -45,5 +45,14 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!-- Texto que iOS muestra al pedir la cámara. Sin esta clave la app NO
+	     pregunta: se cierra en el acto la primera vez que se abre el escáner.
+	     Apple además lo lee en la revisión, así que tiene que decir para qué
+	     se usa de verdad, no una frase genérica. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Usamos la cámara para escanear el código de la tarjeta de tus clientes y registrar sellos, visitas y compras.</string>
+	<!-- Guardar en Fotos el QR o el pase que el negocio comparte con su cliente. -->
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Para guardar en tus fotos los códigos QR y las imágenes que generas desde el panel.</string>
 </dict>
 </plist>
