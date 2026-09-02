@@ -149,6 +149,48 @@ un único bug de corrección → arreglado y desplegado (frontend READY):
   frontend lo **subió a producción**: `/hub` ahora responde **200**. Si esa fase 1 no estaba
   lista para estar viva, avísame — quedó live junto con mi ranking, tu cuponera y el botón PRO.
 
+## 2026-09-02 — DESPLEGADO: `/hub` + gates de iOS. Toolchain de Xcode lista
+**Máquina/quién:** la de Jhon (sesión Claude)
+**Rama / PR:** feat/commissions-auto-cutoffs — commit `a3f15d74`
+
+### Qué toqué de PRODUCCIÓN
+- **Vercel frontend desplegado** con `node scripts/desplegar.cjs frontend`
+  (deployment `dpl_6i4jyJ2KKSnTm5jxA9tcmZ5cMarw`, READY). Sube el lanzador
+  `/hub` y los gates de compra de iOS.
+- Verificado después del deploy: `/hub` **200** en los dos dominios; `/login`,
+  `/scan`, `/app` y la landing siguen en 200.
+- Backend sin tocar. Sin migraciones, sin variables.
+
+### ⚠️ Aviso: `/hub` se había BORRADO de producción
+La entrada del 09-01 decía que el deploy de las 22:00 dejó `/hub` en 200.
+Hoy amaneció en **404**. Entre medias hubo dos deploys más de frontend (23:14 y
+02:14): uno salió de una copia sin el commit `7f0e7a41` y **borró la ruta**.
+
+Es el patrón que avisa el CLAUDE.md: el deploy sube el directorio, no git. El
+`desplegar.cjs` lo evita (clona el commit), así que **usarlo siempre** — el
+riesgo no es teórico, ya pasó dos veces con esto.
+
+### Qué cambié (local, no producción)
+- **Toolchain iOS lista**: Xcode 26.6, CocoaPods 1.17 vía **Homebrew**. El Ruby
+  2.6 del sistema quedó descartado: las gemas actuales piden Ruby ≥ 3.1
+  (`ffi` → `securerandom`), no hay combinación que funcione. Si la otra máquina
+  monta iOS, que vaya directo por Homebrew y no pierda la hora que perdí yo.
+- `npx cap sync` completo: los 8 plugins enlazados en iOS y Android.
+  `Podfile.lock` y el workspace quedaron commiteados.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Xcode 26 **no trae la plataforma iOS**: `xcodebuild` daba "no
+      destinations" aunque `-showsdks` listara el SDK. Se arregla con
+      `xcodebuild -downloadPlatform iOS` (8,52 GB) — descargando ahora.
+- [ ] Compilar y correr en el simulador.
+- [ ] Fase 3 nativa: escáner MLKit, push APNs/FCM, biometría, enlaces
+      universales. Sin eso Apple rechaza por 4.2.
+
+### Riesgos y avisos
+- `/hub` ya es una ruta viva de producción. Si un deploy futuro vuelve a
+  dejarla en 404, la app de iOS abre en la pantalla de error: su `server.url`
+  apunta ahí (`mobile/capacitor.config.ts`).
+
 ## 2026-09-01 — iOS: compras ocultas (guideline 3.1.1) + la app entra por /hub
 **Máquina/quién:** la de Jhon (sesión Claude)
 **Rama / PR:** feat/commissions-auto-cutoffs
