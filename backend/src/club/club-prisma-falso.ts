@@ -653,6 +653,16 @@ export function crearPrismaFalso(bd: BaseDeDatos) {
       const c = bd.clientes.find((x) => filtra(x, where, {}));
       return c ? proyectar(c, { select }, {}) : null;
     },
+    // Las usa el alta con un solo dato: busca candidatos y, si no hay, crea.
+    findMany: async ({ where, select, take }: any) => {
+      let filas = bd.clientes.filter((x) => filtra(x, where, {}));
+      if (take) filas = filas.slice(0, take);
+      return filas.map((c) => proyectar(c, { select }, {}));
+    },
+    create: async ({ data, select }: any) => {
+      const fila: FilaCliente = { id: nuevoId('cli'), ...data };
+      return proyectar(insertar(bd.clientes, fila), { select }, {});
+    },
   };
 
   /**

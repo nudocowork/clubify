@@ -485,20 +485,22 @@ function Dato({ valor, etiqueta }: { valor: string; etiqueta: string }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+
 /**
- * Dar de alta a un socio.
+ * Dar de alta a un socio: un dato y ya.
  *
- * Busca entre los clientes que ya tiene el negocio y, si no está —que es lo
- * normal: el socio acaba de pagar en el mostrador y no existe en el sistema—,
- * lo CREA aquí mismo con nombre y teléfono.
+ * Antes había que buscarlo entre los clientes existentes y, si no estaba,
+ * rellenar un formulario aparte. Eso invertía el caso normal: alguien acaba de
+ * pagar en el mostrador y todavía no existe en el sistema. Ahora se escribe lo
+ * que se tenga —el teléfono, o el nombre— y el backend resuelve el resto:
+ * reutiliza al cliente si ya lo tienes, lo crea si no, y devuelve el pase.
  *
- * Obligar a crearlo antes en Clientes y volver aquí a buscarlo por su nombre no
- * tenía sentido: son dos pantallas para un cliente que está delante esperando.
+ * Solo pregunta cuando hay varios que encajan, porque dar de alta al que no era
+ * es peor que un clic de más.
  *
- * Y no hay un enlace público del plan a propósito. El club se PAGA: un enlace
- * que cualquiera pudiera abrir y quedarse dentro convertiría la suscripción en
- * un regalo. El alta la hace el negocio, que es quien sabe que le pagaron, y
- * de ahí sale el QR que el socio escanea.
+ * No existe un enlace público del plan a propósito: el club se PAGA, y un
+ * enlace que cualquiera pudiera abrir lo convertiría en un regalo. El alta la
+ * hace quien sabe que le pagaron, y de ahí sale el QR de ese socio.
  */
 function BuscadorDeCliente({
   planId,
@@ -509,86 +511,46 @@ function BuscadorDeCliente({
   onCerrar: () => void;
   onAlta: (socio: SocioParaEntregar) => void;
 }) {
-  const [q, setQ] = useState('');
-  const [resultados, setResultados] = useState<ClienteLite[]>([]);
-  const [buscando, setBuscando] = useState(false);
-  const [dando, setDando] = useState<string | null>(null);
-  const [nuevo, setNuevo] = useState<{ telefono: string; email: string } | null>(
-    null,
-  );
+  const [dato, setDato] = useState('');
+  const [dando, setDando] = useState(false);
+  const [ambiguos, setAmbiguos] = useState<ClienteLite[] | null>(null);
 
-  useEffect(() => {
-    if (q.trim().length < 2) {
-      setResultados([]);
-      setBuscando(false);
+  async function darDeAlta(customerId?: string) {
+    const texto = dato.trim();
+    if (!customerId && texto.length < 2) {
+      toast('Escribe el teléfono o el nombre del socio.', 'error');
       return;
     }
-    setBuscando(true);
-    const t = setTimeout(async () => {
-      try {
-        const r: ClienteLite[] = await api(
-          `/customers?search=${encodeURIComponent(q.trim())}`,
-        );
-        setResultados(r.slice(0, 8));
-      } catch {
-        setResultados([]);
-      } finally {
-        setBuscando(false);
-      }
-    }, 250);
-    return () => clearTimeout(t);
-  }, [q]);
-
-  async function alta(c: ClienteLite) {
-    setDando(c.id);
+    setDando(true);
     try {
-      const r = await api(`/club/planes/${planId}/miembros/${c.id}`, {
-        method: 'POST',
-      });
-      // El backend devuelve la membresía existente si ya estaba dentro, sin
-      // tocar nada. Decirle «entra con 7» al negocio en ese caso le hacía creer
-      // que acababa de dar de alta a alguien que ya llevaba meses.
-      const yaEstaba = new Date(r.createdAt).getTime() < Date.now() - 10_000;
-      if (yaEstaba) {
-        toast(`${c.fullName} ya era socio: le quedan ${r.saldo} este mes.`, 'success');
+      const r = customerId
+        ? await api(`/club/planes/${planId}/miembros/${customerId}`, {
+            method: 'POST',
+          })
+        : await api(`/club/planes/${planId}/alta-rapida`, {
+            method: 'POST',
+            body: JSON.stringify({ identificador: texto }),
+          });
+
+      // Varios clientes encajan con lo escrito: que elija el negocio.
+      if (r.ambiguos) {
+        setAmbiguos(r.ambiguos);
+        return;
       }
+
+      const cliente =
+        r.cliente ?? ambiguos?.find((c) => c.id === customerId) ?? null;
       onAlta({
         passId: r.passId,
-        nombre: c.fullName,
-        telefono: c.phone ?? null,
+        nombre: cliente?.fullName ?? texto,
+        telefono: cliente?.phone ?? null,
       });
     } catch (e: any) {
       toast(e.message || 'No se pudo dar de alta.', 'error');
     } finally {
-      setDando(null);
+      setDando(false);
     }
   }
-
-  /** Crea el cliente y lo da de alta en el mismo gesto. */
-  async function crearYDarDeAlta() {
-    const nombre = q.trim();
-    if (nombre.length < 2) {
-      toast('Escribe el nombre del socio.', 'error');
-      return;
-    }
-    setDando('nuevo');
-    try {
-      const c: ClienteLite = await api('/customers', {
-        method: 'POST',
-        body: JSON.stringify({
-          fullName: nombre,
-          phone: nuevo?.telefono?.trim() || undefined,
-          email: nuevo?.email?.trim() || undefined,
-        }),
-      });
-      await alta({ ...c, phone: nuevo?.telefono?.trim() || c.phone });
-    } catch (e: any) {
-      toast(e.message || 'No se pudo crear el cliente.', 'error');
-      setDando(null);
-    }
-  }
-
-  const sinResultados = q.trim().length >= 2 && !buscando && resultados.length === 0;
 
   return (
     <div className="card card-pad mb-4">
@@ -596,9 +558,9 @@ function BuscadorDeCliente({
         <div>
           <h2 className="text-base font-semibold m-0">Dar de alta a un socio</h2>
           <p className="text-xs text-mute mt-1 max-w-xl">
-            Escribe su nombre. Si ya es cliente tuyo aparecerá en la lista; si
-            no, lo creas aquí mismo. Si entra a mitad de mes recibe lo que digan
-            tus tramos; del mes siguiente en adelante, el cupo completo.
+            Escribe su teléfono, o su nombre si no lo tienes. Si ya es cliente
+            tuyo lo reutilizamos; si no, lo creamos. Al terminar te damos el QR
+            para que instale su tarjeta.
           </p>
         </div>
         <button className="btn-ghost shrink-0" onClick={onCerrar}>
@@ -606,77 +568,56 @@ function BuscadorDeCliente({
         </button>
       </div>
 
-      <input
-        className="input mt-3"
-        autoFocus
-        placeholder="Nombre del socio…"
-        value={q}
-        onChange={(e) => {
-          setQ(e.target.value);
-          setNuevo(null);
-        }}
-      />
+      <div className="flex flex-wrap gap-2 mt-3">
+        <input
+          className="input flex-1 min-w-[220px]"
+          autoFocus
+          placeholder="Teléfono o nombre del socio…"
+          value={dato}
+          onChange={(e) => {
+            setDato(e.target.value);
+            setAmbiguos(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !dando) void darDeAlta();
+          }}
+        />
+        <button
+          className="btn-primary shrink-0"
+          onClick={() => darDeAlta()}
+          disabled={dando}
+        >
+          {dando ? 'Dando de alta…' : 'Dar de alta y generar QR'}
+        </button>
+      </div>
 
-      {resultados.length > 0 && (
-        <div className="mt-3 divide-y divide-line">
-          {resultados.map((c) => (
-            <div key={c.id} className="flex items-center justify-between gap-3 py-2">
-              <div className="min-w-0">
-                <div className="font-medium text-sm truncate">{c.fullName}</div>
-                <div className="text-xs text-mute truncate">
-                  {c.email || c.phone || 'Sin correo ni teléfono'}
-                </div>
-              </div>
-              <button
-                className="btn-primary shrink-0"
-                onClick={() => alta(c)}
-                disabled={dando === c.id}
-              >
-                {dando === c.id ? 'Dando de alta…' : 'Dar de alta'}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Nadie con ese nombre: se ofrece crearlo, que es el caso corriente
-          cuando alguien acaba de pagar en el mostrador. */}
-      {sinResultados && (
-        <div className="mt-3 rounded-xl border border-line p-3">
+      {ambiguos && ambiguos.length > 0 && (
+        <div className="mt-3">
           <div className="text-sm font-medium">
-            No tienes ningún cliente que se llame «{q.trim()}»
+            Tienes varios clientes que encajan. ¿Cuál es?
           </div>
-          <p className="text-xs text-mute mt-0.5">
-            Créalo y dale de alta de una vez. El teléfono no es obligatorio,
-            pero con él puedes mandarle su tarjeta por WhatsApp.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
-            <input
-              className="input"
-              placeholder="Teléfono (opcional)"
-              value={nuevo?.telefono ?? ''}
-              onChange={(e) =>
-                setNuevo((n) => ({ email: n?.email ?? '', telefono: e.target.value }))
-              }
-            />
-            <input
-              className="input"
-              placeholder="Correo (opcional)"
-              value={nuevo?.email ?? ''}
-              onChange={(e) =>
-                setNuevo((n) => ({ telefono: n?.telefono ?? '', email: e.target.value }))
-              }
-            />
+          <div className="mt-2 divide-y divide-line">
+            {ambiguos.map((c) => (
+              <div
+                key={c.id}
+                className="flex items-center justify-between gap-3 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="font-medium text-sm truncate">{c.fullName}</div>
+                  <div className="text-xs text-mute truncate">
+                    {c.email || c.phone || 'Sin correo ni teléfono'}
+                  </div>
+                </div>
+                <button
+                  className="btn-ghost shrink-0"
+                  disabled={dando}
+                  onClick={() => darDeAlta(c.id)}
+                >
+                  Es este
+                </button>
+              </div>
+            ))}
           </div>
-          <button
-            className="btn-primary mt-3"
-            onClick={crearYDarDeAlta}
-            disabled={dando === 'nuevo'}
-          >
-            {dando === 'nuevo'
-              ? 'Creando…'
-              : `Crear a ${q.trim()} y darle de alta`}
-          </button>
         </div>
       )}
     </div>

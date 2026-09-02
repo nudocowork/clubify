@@ -195,6 +195,67 @@ describe('cerrar el club', () => {
   });
 });
 
+describe('alta con un solo dato', () => {
+  it('un teléfono que no existe crea al cliente y lo mete', async () => {
+    // El caso corriente: alguien acaba de pagar en el mostrador y no está en
+    // el sistema. Antes había que ir a Clientes, crearlo y volver a buscarlo.
+    const r: any = await svc.altaRapida(DUENO, 'p1', '3001234567');
+
+    expect(r.ambiguos).toBeUndefined();
+    expect(r.saldo).toBe(10);
+    expect(r.passId).toBeTruthy();
+    const creado = bd.clientes.find((c) => c.id === r.cliente.id)!;
+    // `fullName` es obligatorio en la base: sin nombre se usa el número, que
+    // al menos identifica a quien es. Inventar «Cliente nuevo» dejaría veinte
+    // filas idénticas.
+    expect(creado.fullName).toBe('3001234567');
+  });
+
+  it('reutiliza al cliente que ya tienes, no lo duplica', async () => {
+    bd.clientes.push({
+      id: 'cli9',
+      tenantId: 't1',
+      fullName: 'Carla Díaz',
+      // Así se guardan los que entran por el registro de una tarjeta: con
+      // indicativo y sin separadores.
+      phone: '+573001112233',
+    } as any);
+    const cuantos = bd.clientes.length;
+
+    // Se escribe como lo diría cualquiera, sin indicativo.
+    const r: any = await svc.altaRapida(DUENO, 'p1', '300 111 2233');
+
+    expect(r.cliente.id).toBe('cli9');
+    expect(bd.clientes).toHaveLength(cuantos);
+  });
+
+  it('con letras busca por nombre', async () => {
+    const r: any = await svc.altaRapida(DUENO, 'p1', 'Ana Ruiz');
+    expect(r.cliente.id).toBe('cli1');
+  });
+
+  it('si encajan varios, pregunta en vez de elegir', async () => {
+    // Dar de alta al que no era es peor que un clic de más: el socio
+    // equivocado se lleva el cupo que pagó otro.
+    bd.clientes.push({
+      id: 'cli9',
+      tenantId: 't1',
+      fullName: 'Ana Ruiz Gómez',
+    } as any);
+
+    const r: any = await svc.altaRapida(DUENO, 'p1', 'Ana Ruiz');
+
+    expect(r.ambiguos).toHaveLength(2);
+    expect(r.passId).toBeUndefined();
+    expect(bd.membresias).toHaveLength(0);
+  });
+
+  it('un dato de una letra no crea nada', async () => {
+    await expect(svc.altaRapida(DUENO, 'p1', 'a')).rejects.toThrow();
+    expect(bd.membresias).toHaveLength(0);
+  });
+});
+
 describe('el historial de consumos', () => {
   it('suma las unidades entregadas, no las líneas', async () => {
     // Un consumo puede llevarse más de uno: contar líneas diría 2 donde el

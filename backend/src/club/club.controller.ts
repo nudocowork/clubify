@@ -52,6 +52,10 @@ class ActualizarPlanDto {
   tramos?: TramoDto[];
 }
 
+class AltaRapidaDto {
+  @IsString() @MaxLength(120) identificador!: string;
+}
+
 class EstadoDto {
   @IsIn(['ACTIVA', 'PAUSADA', 'CANCELADA']) status!:
     | 'ACTIVA'
@@ -125,6 +129,18 @@ export class ClubController {
       { q, estado, pagina: Number(pagina) || 1 },
       t,
     );
+  }
+
+  /** Alta con un solo dato: el teléfono o el nombre. */
+  @Post('planes/:id/alta-rapida')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  altaRapida(
+    @CurrentUser() user: AuthUser,
+    @Param('id') planId: string,
+    @Body() body: AltaRapidaDto,
+    @Query('tenantId') t?: string,
+  ) {
+    return this.svc.altaRapida(user, planId, body.identificador, t);
   }
 
   @Post('planes/:id/miembros/:customerId')

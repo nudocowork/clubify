@@ -667,6 +667,77 @@ export class ClubService {
   }
 
   /**
+   * Da de alta con UN SOLO dato: el teléfono o el nombre.
+   *
+   * El alta anterior exigía buscar al socio entre los clientes que el negocio
+   * ya tenía, y eso invertía el caso normal: alguien acaba de pagar en el
+   * mostrador y **no existe todavía**. Obligaba a ir a Clientes, crearlo,
+   * volver aquí y buscarlo por su nombre, con el cliente esperando delante.
+   *
+   * Aquí se escribe lo que se tenga y el resto se resuelve solo:
+   *
+   *  · Si lo que llega son dígitos, es un teléfono. Se busca por los últimos
+   *    diez, que es como se compara en el resto del producto: da igual que se
+   *    escriba con indicativo o sin él, con espacios o sin ellos. Lo que NO
+   *    tolera —y le pasa igual al resto del producto— es que sea el GUARDADO el
+   *    que lleve separadores: un teléfono tecleado a mano en Clientes como
+   *    «300 111 2233» no encaja, y el alta acabaría creando un repetido.
+   *  · Si lleva letras, es un nombre.
+   *  · Si no hay nadie así, se crea. Si hay varios, se devuelven para que el
+   *    negocio elija: dar de alta al que no era es peor que un clic más.
+   *
+   * `fullName` es obligatorio en la base, así que cuando solo hay teléfono se
+   * usa el propio número como nombre. Se ve en el pase hasta que alguien lo
+   * cambie, y es preferible a inventarse un «Cliente nuevo» que luego nadie
+   * distingue de los otros veinte.
+   */
+  async altaRapida(
+    user: AuthUser,
+    planId: string,
+    identificador: string,
+    override?: string,
+  ) {
+    const tenantId = this.tid(user, override);
+    await this.assertHabilitado(tenantId);
+    const texto = (identificador ?? '').trim();
+    if (texto.length < 2) {
+      throw new BadRequestException('Escribe el teléfono o el nombre del socio.');
+    }
+
+    const digitos = texto.replace(/\D/g, '');
+    const esTelefono = !/\p{L}/u.test(texto) && digitos.length >= 7;
+
+    const candidatos = await this.prisma.customer.findMany({
+      where: {
+        tenantId,
+        ...(esTelefono
+          ? { phone: { contains: digitos.slice(-10) } }
+          : { fullName: { contains: texto, mode: 'insensitive' as const } }),
+      },
+      select: { id: true, fullName: true, phone: true, email: true },
+      take: 6,
+    });
+
+    if (candidatos.length > 1) {
+      return { ambiguos: candidatos };
+    }
+
+    const cliente =
+      candidatos[0] ??
+      (await this.prisma.customer.create({
+        data: {
+          tenantId,
+          fullName: texto,
+          ...(esTelefono ? { phone: texto } : {}),
+        },
+        select: { id: true, fullName: true, phone: true, email: true },
+      }));
+
+    const membresia = await this.darDeAlta(user, planId, cliente.id, override);
+    return { ...membresia, cliente };
+  }
+
+  /**
    * Da de baja a TODOS los socios de un plan. Es la salida para cerrar el club.
    *
    * Hacía falta porque apagar el plan no cierra nada: solo impide altas nuevas,
