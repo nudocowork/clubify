@@ -8,6 +8,71 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-02 — Tarjeta de Club sobre `Pass.stampsCount` (DESPLEGADO, con tests en rojo)
+
+**El cliente le paga una suscripción AL NEGOCIO** y recibe N beneficios al mes
+que va gastando. Al revés que los sellos: arranca lleno y baja. El cupo se
+**reinicia** cada mes — consumir 3 de 10 deja 10, no 17.
+
+### El error que costó una reescritura
+
+Javier lo dijo en su primer mensaje: «la tiene el cliente con **10 sellos** y
+cada vez que va se le **resta el sello**». Monté el saldo en una tabla aparte
+(`ClubMembresia.saldo`) y de ahí salieron todos los problemas: sin push, sin
+pintado en el pase, sin geolocalización. **La infraestructura ya funcionaba
+para cualquier pase; yo escondí el saldo donde el pase no mira.**
+
+Ahora vive en `Pass.stampsCount`, el mismo contador de siempre, y hereda todo
+gratis. Lo que sigue separado es el SIGNIFICADO: `ClubConsumo` es su propia
+tabla, así que consumir nunca se confunde con `STAMP_REMOVE` (deshacer un error
+del cajero). Se comparte el número, no el significado.
+
+### Cinco defectos que encontró el agente de pruebas
+
+| Qué | Por qué importaba |
+|---|---|
+| El candado del estado se perdió | Una membresía pausada a medio escaneo se llevaba igual el beneficio |
+| Ventana de 1 h en el cambio de mes | A las 00:30 del día 1 el cliente gastaba el sobrante: **17 cafés con plan de 10** |
+| `consumo.periodo` salía de la membresía | Un café del 1 de octubre quedaba contado en septiembre |
+| La anulación leía una foto vieja | Si el cron reiniciaba en medio, devolvía cupo del mes nuevo |
+| Un CANCELADO no podía volver nunca | El índice único se lo impedía para siempre |
+
+El cron horario pasa a ser red de seguridad: el reinicio ocurre **en el momento
+del consumo** si el mes cambió.
+
+### Proteger la tarjeta — 15 filtros `clubPlanId: null`
+
+Al usar `type: STAMPS`, **siete** resolutores de «la primera tarjeta de sellos
+del negocio» se la llevarían por delante. El peor: `cleanupOrphanStampsPass`
+podía **BORRAR el pase del socio** (se dispara con 0 sellos y 0 devices, justo
+el estado de un pase recién instalado). El séptimo (`onboarding-sync`) lo
+encontró el agente, no estaba en mi lista.
+
+**Fusionar clientes** ya no borra la membresía ni su historial.
+
+### El escáner ahora dice qué encontró
+
+Las cuatro ramas devuelven `kind`: `sellos | cupon | club | convenio |
+cuponera`. Antes solo la cuponera se identificaba y el frontend hacía
+`data.pass.customer.fullName` a ciegas. **Esto ya estaba roto para convenios**
+sin que nadie lo notara, porque nadie los usa todavía.
+
+### ⚠️ 26 TESTS EN ROJO
+
+`tsc` 0 errores en ambos lados. Tests: **105 pasan, 26 fallan**. Los rojos son
+specs que un agente dejó a medio migrar —comprueban `saldo` en la fila de la
+membresía, campo que ya no existe—. **No indican código roto: indican una
+migración de tests sin terminar.** Hay que acabarla.
+
+Los tres agentes murieron por límite de sesión a mitad del trabajo.
+
+### Sigue faltando
+
+**Todo el frontend del club.** No se puede crear un plan desde el panel; el
+módulo solo responde por API. Y falta decidir con Javier **dónde vive** en el
+panel: sección propia (mi apuesta) o una tercera opción en el asistente de
+tarjetas.
+
 ## 2026-08-31 — Las 6 mejoras pedidas por clientes (DESPLEGADAS)
 
 Un commit por tarea, en el orden del documento. **Ninguna necesitó migración**:
