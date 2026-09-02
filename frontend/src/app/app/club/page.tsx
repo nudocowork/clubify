@@ -58,6 +58,8 @@ export default function ClubPage() {
   const [planes, setPlanes] = useState<Plan[]>([]);
   const [cargando, setCargando] = useState(true);
   const [habilitado, setHabilitado] = useState<boolean | null>(null);
+  // Distinto de «apagado»: es «no pudimos preguntarlo». Ver el early-return.
+  const [falloAlPreguntar, setFalloAlPreguntar] = useState(false);
   const [borrador, setBorrador] = useState<Borrador | null>(null);
 
   async function cargar() {
@@ -74,9 +76,16 @@ export default function ClubPage() {
     // Se pregunta ANTES de pintar el formulario. Sin esto, el negocio que llega
     // por el asistente rellenaba el plan entero y solo al pulsar «Crear» se
     // enteraba, con un 403, de que el módulo no está encendido para él.
+    // Un fallo al preguntar NO es un «no». Antes se caía a `false` y al negocio
+    // se le decía que su módulo no está activo cuando lo que pasaba era que el
+    // backend no respondía —con el módulo encendido y todo—. Mandarle a
+    // escribirnos por un error nuestro es hacerle perder el tiempo a él.
     api('/club/estado')
-      .then((r) => setHabilitado(Boolean(r?.habilitado)))
-      .catch(() => setHabilitado(false));
+      .then((r) => {
+        setHabilitado(Boolean(r?.habilitado));
+        setFalloAlPreguntar(false);
+      })
+      .catch(() => setFalloAlPreguntar(true));
     cargar();
     // El asistente de tarjetas llega aquí con `?nuevo=1` y espera encontrar el
     // formulario ya abierto: quien acaba de elegir «Tarjeta de club» no debería
@@ -87,6 +96,31 @@ export default function ClubPage() {
       if (p.get('nuevo')) setBorrador({ ...NUEVO });
     }
   }, []);
+
+  // No se pudo preguntar. Se dice eso y se ofrece reintentar, en vez de
+  // afirmar algo que no sabemos.
+  if (falloAlPreguntar) {
+    return (
+      <div>
+        <div className="page-head">
+          <h1 className="page-title">Tarjeta de Club</h1>
+        </div>
+        <div className="card card-pad text-center py-12">
+          <div className="font-semibold">No pudimos cargar esta sección</div>
+          <p className="text-sm text-mute mt-1.5 max-w-md mx-auto">
+            Puede ser algo momentáneo de nuestro lado. Vuelve a intentarlo en un
+            minuto; si sigue igual, escríbenos.
+          </p>
+          <button
+            className="btn-primary mt-4 inline-flex"
+            onClick={() => window.location.reload()}
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // El módulo no está encendido para este negocio. No se le enseña ningún
   // formulario: se le dice qué es y a quién pedírselo. Nada de rutas internas

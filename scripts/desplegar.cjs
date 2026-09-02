@@ -171,7 +171,21 @@ if (OBJETIVO === 'backend') {
     shell: true,
     cwd: COPIA,
   });
-  process.exit(r.status ?? 0);
+  if (r.status) process.exit(r.status);
+
+  // ── 6. Comprobar que el despliegue ENTRÓ ────────────────────────
+  //
+  // `railway up --detach` vuelve en cuanto sube el paquete: el build puede
+  // fallar después y nadie se entera. Un despliegue fallido es INVISIBLE desde
+  // fuera —`/api/health` sigue en 200 y las rutas viejas en 401, porque
+  // producción se queda con la imagen anterior—, y el 2026-09-02 se dieron por
+  // desplegados tres seguidos que no lo estaban.
+  //
+  // La señal fiable es `uptimeSec`: un contenedor nuevo lo tiene pequeño.
+  esperarQueEntre().catch((e) => {
+    console.error('\n  ⚠ ' + e.message);
+    process.exit(1);
+  });
 } else {
   // `frontend/.vercel/` está en .gitignore, así que la copia limpia NO lo
   // trae — y sin ese fichero, `vercel deploy --yes` no encuentra a qué
@@ -229,4 +243,47 @@ if (OBJETIVO === 'backend') {
     { stdio: 'inherit', shell: true, cwd: path.join(COPIA, 'frontend') },
   );
   process.exit(r.status ?? 0);
+}
+
+
+/**
+ * Espera a que el backend se reinicie de verdad.
+ *
+ * Se mira `uptimeSec` y no el estado del build porque es lo ÚNICO que dice si
+ * lo que corre es lo que acabas de subir. Y aun así no basta: si otra máquina
+ * despliega desde una copia atrasada, el contenedor también es nuevo y tu
+ * código no está. Por eso el mensaje pide comprobar una ruta a mano.
+ */
+async function esperarQueEntre() {
+  const SALUD = 'https://api.soyclubify.com/api/health';
+  const LIMITE = 12 * 60 * 1000;
+  const arranque = Date.now();
+  process.stdout.write('\n  Esperando a que entre en producción');
+
+  while (Date.now() - arranque < LIMITE) {
+    await new Promise((r) => setTimeout(r, 15000));
+    process.stdout.write('.');
+    try {
+      const res = await fetch(SALUD);
+      const j = await res.json();
+      // Menos de 5 minutos de vida = contenedor nuevo. El build tarda ~3.
+      if (typeof j.uptimeSec === 'number' && j.uptimeSec < 300) {
+        console.log('\n\n  ✓ Entró. El backend lleva ' + j.uptimeSec + 's en pie.');
+        console.log(
+          '    Comprueba una ruta que solo exista en tu commit: si da 404\n' +
+            '    mientras otra da 401, tu código NO está arriba.\n',
+        );
+        return;
+      }
+    } catch {
+      /* reiniciando: se reintenta */
+    }
+  }
+
+  throw new Error(
+    'El backend NO se reinició en 12 minutos: el build falló.\n' +
+      '    railway logs --build <id>       → por qué falló el build\n' +
+      '    railway logs --deployment <id>  → por qué no arrancó\n' +
+      '    Producción sigue con la imagen anterior.',
+  );
 }

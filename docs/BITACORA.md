@@ -67,6 +67,47 @@ ilimitada.
 que no existe en cmd. Para comprobar el arranque en esta máquina hay que borrar
 `dist` a mano y correr `npx nest build --tsc`.
 
+## 2026-09-02 15:00 — ⚠️ Un despliegue borró el módulo de club de producción
+
+**Pasó lo que avisa `CLAUDE.md`, y así se ve.** A las 14:21 desplegué el backend
+con el club. A las 14:48 entró otro despliegue **que no es mío** y producción se
+quedó sin `/api/club/*`:
+
+```
+/api/club/planes  404   ← desaparecido
+/api/cards        401   ← sigue ahí
+/api/health       uptimeSec: 229
+```
+
+`railway up` sube **la carpeta local**, no lo que hay en git. Si OneDrive
+todavía no ha sincronizado los ficheros del otro, desplegar desde ahí **borra de
+producción lo que el otro subió**. Los commits estaban intactos en git; lo que
+faltaba era en el servidor.
+
+Restaurado desplegando desde el clon limpio de `HEAD` —que lleva el club Y las
+alianzas—, con `node scripts/desplegar.cjs backend`. **Usad el script**: clona el
+commit a una carpeta aparte y sube eso, así no puede pasar.
+
+### Dos cosas para que no vuelva a colarse
+
+1. **`desplegar.cjs backend` ahora espera y comprueba** que el contenedor se
+   reinicia de verdad (`uptimeSec` pequeño), y si en 12 minutos no pasa, avisa
+   de que el build falló y deja los comandos para mirarlo. Antes volvía en
+   cuanto subía el paquete.
+2. **Comprueba siempre una ruta que solo exista en tu commit.** Si da 404
+   mientras otra da 401, tu código no está arriba — pase lo que pase con
+   `/api/health`.
+
+### Y un bug mío que salió de esto
+
+El panel del club decía **«La Tarjeta de Club todavía no está activa en tu
+cuenta»** cuando el módulo SÍ estaba encendido: el `catch` de `/club/estado`
+caía a `false`, así que un fallo del servidor se le presentaba al negocio como
+una decisión comercial y se le mandaba a escribirnos. Ahora se distingue «dijo
+que no» de «no pudimos preguntar», y lo segundo ofrece reintentar.
+
+---
+
 ## 2026-09-02 (tarde) — Tarjeta de Club: repaso de lógica, rendimiento y recorrido
 
 Tres revisiones sobre el módulo ya desplegado. Lo que salió, corregido.
