@@ -524,11 +524,22 @@ export class AutomationsService {
       case 'ADD_STAMPS': {
         // Añade sellos al pase del customer (de la tarjeta indicada o la primera del tenant)
         if (!customerId) break;
+        // clubPlanId/convenioId: null en el fallback — las tarjetas de CLUB y de
+        // ALIANZA también son type STAMPS; sin el filtro, una automatización sin
+        // cardId explícito le sumaría "sellos" al saldo de la membresía de club
+        // o a la tarjeta de la empresa aliada, donde el contador no significa
+        // nada y el cliente vería subir un número que no le sirve.
         const card =
           (action.cardId &&
             (await this.prisma.card.findUnique({ where: { id: action.cardId } }))) ||
           (await this.prisma.card.findFirst({
-            where: { tenantId, type: 'STAMPS', isActive: true },
+            where: {
+              tenantId,
+              type: 'STAMPS',
+              isActive: true,
+              clubPlanId: null,
+              convenioId: null,
+            },
           }));
         if (!card) break;
         const pass = await this.prisma.pass.findUnique({

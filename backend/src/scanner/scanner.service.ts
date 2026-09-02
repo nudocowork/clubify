@@ -11,6 +11,14 @@ import { ClubService } from '../club/club.service';
 
 const QR_RESERVATION_PROTOCOL = 'clubify-reservation:';
 
+/**
+ * Qué familia de tarjeta resolvió el escaneo. Viaja como `kind` en la
+ * respuesta de /scanner/verify para que el frontend despache la pantalla de
+ * caja sin adivinar por la forma del payload: adivinar terminaba en pantalla
+ * en blanco cuando llegaba un convenio o un club, que no traen `pass`.
+ */
+export type ScanKind = 'sellos' | 'cupon' | 'club' | 'convenio' | 'cuponera';
+
 @Injectable()
 export class ScannerService {
   constructor(
@@ -94,11 +102,14 @@ export class ScannerService {
     // El desvío se decide leyendo `card.convenioId`, que ya viene incluido en
     // el pase: ni una consulta extra para los millones de escaneos normales.
     if ((pass.card as any).convenioId) {
-      return this.convenios.resolverParaCaja(
+      // `kind` va por fuera y el payload queda intacto: lo que ya lea
+      // `tipo`/`cupones` de esta respuesta no se entera del cambio.
+      const convenio = await this.convenios.resolverParaCaja(
         user,
         pass.id,
         (user as any).locationId ?? null,
       );
+      return { kind: 'convenio' as const, ...convenio };
     }
 
     // RAMA CLUB — el cliente paga una suscripción al negocio y gasta de un
@@ -108,7 +119,8 @@ export class ScannerService {
     // Va DESPUÉS de convenio y ANTES de los sellos: una tarjeta de club no
     // acumula nada, descuenta.
     if ((pass.card as any).clubPlanId) {
-      return this.club.resolverParaCaja(user, pass.id);
+      const club = await this.club.resolverParaCaja(user, pass.id);
+      return { kind: 'club' as const, ...club };
     }
 
     const recent = await this.prisma.stamp.findMany({
@@ -122,7 +134,12 @@ export class ScannerService {
       (pass as any).tenant?.whiteLabel?.walletAdvanced,
     );
 
-    return { pass, recent, walletAdvanced };
+    // El camino clásico comparte pantalla en el frontend: `kind` solo separa
+    // el cupón single-use oficial ('cupon') del resto ('sellos'); el detalle
+    // fino (visitas, cashback, cupones legacy DISCOUNT/GIFT…) se sigue
+    // decidiendo por card.type dentro de esa pantalla, como siempre.
+    const kind: ScanKind = pass.card.type === 'COUPON' ? 'cupon' : 'sellos';
+    return { kind, pass, recent, walletAdvanced };
   }
 
   private passInclude = {

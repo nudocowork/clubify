@@ -7,8 +7,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { nanoid } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { WalletService } from '../wallet/wallet.service';
+import { QueueService } from '../jobs/queue.service';
+import { genQrToken } from '../passes/passes.service';
 import {
   cupoDeAlta,
   diaDelMes,
@@ -29,7 +33,28 @@ import {
 export class ClubService {
   private logger = new Logger(ClubService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private wallet: WalletService,
+    private jobs: QueueService,
+  ) {}
+
+  /**
+   * Empuja el pase actualizado a la billetera del cliente.
+   *
+   * Copiado tal cual de `stamps.service`: si BullMQ tiene Redis, el worker lo
+   * consume; si no, se cae al push directo. Llamar a los dos siempre mandaba
+   * el pase dos veces al iPhone.
+   *
+   * Sin esto el cliente consume un café y su tarjeta sigue diciendo lo mismo.
+   */
+  private empujarPase(passId: string, motivo: string) {
+    this.jobs
+      .enqueue('wallet.push', { passId, reason: motivo })
+      .catch(() => {
+        this.wallet.pushPassUpdate(passId).catch(() => null);
+      });
+  }
 
   private tid(user: AuthUser, override?: string): string {
     const id = user.role === 'SUPER_ADMIN' && override ? override : user.tenantId;
@@ -100,11 +125,25 @@ export class ClubService {
       .replace(/^-|-$/g, '')
       .slice(0, 40);
 
+    // El slug sale del nombre, así que dos planes llamados igual chocaban con
+    // el índice único y Prisma devolvía un P2002 crudo: el negocio veía un 500
+    // sin saber qué había hecho mal. Se le añade sufijo hasta que entre.
+    const base = slug || 'plan';
+    let libre = base;
+    for (let i = 2; i <= 50; i++) {
+      const choca = await this.prisma.clubPlan.findFirst({
+        where: { tenantId, slug: libre },
+        select: { id: true },
+      });
+      if (!choca) break;
+      libre = `${base}-${i}`;
+    }
+
     return this.prisma.clubPlan.create({
       data: {
         tenantId,
         name: dto.name.trim(),
-        slug: slug || `plan-${Date.now()}`,
+        slug: libre,
         description: dto.description?.trim() ?? '',
         beneficiosPorMes: dto.beneficiosPorMes,
         unidad: dto.unidad?.trim() || 'beneficio',
@@ -198,35 +237,86 @@ export class ClubService {
     const existente = await this.prisma.clubMembresia.findUnique({
       where: { planId_customerId: { planId, customerId } },
     });
-    if (existente) return existente;
+    // Devolver la suya tal cual dejaba FUERA PARA SIEMPRE a quien se dio de
+    // baja: el índice único impide crear otra, así que un cancelado no podía
+    // volver a entrar nunca. Si vuelve, se reactiva con el cupo que le toque
+    // por el día de hoy.
+    if (existente && existente.status !== 'CANCELADA') return existente;
 
     const ahora = new Date();
-    const cupo = cupoDeAlta(
-      diaDelMes(ahora),
-      plan.beneficiosPorMes,
-      plan.tramos,
-    );
+    const cupo = cupoDeAlta(diaDelMes(ahora), plan.beneficiosPorMes, plan.tramos);
 
-    try {
-      return await this.prisma.clubMembresia.create({
+    // La tarjeta del plan. Una por plan, compartida por todos sus socios: es
+    // la PLANTILLA del pase (colores, logo, nombre), no la tarjeta de nadie.
+    // Se crea con `type: STAMPS` porque el saldo vive en `Pass.stampsCount`
+    // como en el resto — así hereda gratis el pintado, el push y la
+    // geolocalización. Lo que la distingue es `clubPlanId`, y por eso los
+    // resolutores de "primera tarjeta de sellos del negocio" la excluyen.
+    const card =
+      (await this.prisma.card.findFirst({ where: { tenantId, clubPlanId: planId } })) ??
+      (await this.prisma.card.create({
         data: {
-          planId,
-          customerId,
-          saldo: cupo,
-          cupoDelPeriodo: cupo,
-          periodo: periodoDe(ahora),
+          tenantId,
+          clubPlanId: planId,
+          name: plan.name,
+          type: 'STAMPS',
+          stampsRequired: plan.beneficiosPorMes,
+          rewardText: `${plan.beneficiosPorMes} ${plan.unidad} al mes`,
+          isActive: true,
         },
-      });
-    } catch (e: any) {
-      // Dos altas simultáneas: la segunda choca con el índice único. Se
-      // devuelve la que ganó en vez de un error que nadie sabría interpretar.
-      if (e?.code === 'P2002') {
-        return this.prisma.clubMembresia.findUniqueOrThrow({
-          where: { planId_customerId: { planId, customerId } },
+      }));
+
+    return this.prisma.$transaction(async (tx) => {
+      // El pase nace CON el cupo dentro. Es lo contrario de una tarjeta de
+      // sellos, que nace en cero: aquí el cliente ya pagó.
+      let pass;
+      try {
+        pass = await tx.pass.create({
+          data: {
+            tenantId,
+            cardId: card.id,
+            customerId,
+            serialNumber: `CLB-${nanoid(10).toUpperCase()}`,
+            qrToken: genQrToken(),
+            authToken: nanoid(32),
+            stampsCount: cupo,
+          },
+        });
+      } catch (e: any) {
+        // Ya tenía pase de esta tarjeta (se dio de baja y vuelve). Se reutiliza
+        // y se le repone el cupo: el cliente conserva el pase instalado.
+        if (e?.code !== 'P2002') throw e;
+        pass = await tx.pass.update({
+          where: { cardId_customerId: { cardId: card.id, customerId } },
+          data: { stampsCount: cupo, status: 'ACTIVE', lastActivityAt: new Date() },
         });
       }
-      throw e;
-    }
+
+      const datos = {
+        passId: pass.id,
+        status: 'ACTIVA' as const,
+        cupoDelPeriodo: cupo,
+        periodo: periodoDe(ahora),
+        pausedAt: null,
+      };
+      // Dos altas simultáneas: la segunda choca con el índice único. Se
+      // devuelve la que ganó en vez de un P2002 crudo que el negocio vería
+      // como un 500 sin explicación.
+      let m;
+      if (existente) {
+        m = await tx.clubMembresia.update({ where: { id: existente.id }, data: datos });
+      } else {
+        try {
+          m = await tx.clubMembresia.create({ data: { planId, customerId, ...datos } });
+        } catch (e: any) {
+          if (e?.code !== 'P2002') throw e;
+          m = await tx.clubMembresia.findUniqueOrThrow({
+            where: { planId_customerId: { planId, customerId } },
+          });
+        }
+      }
+      return { ...m, passId: pass.id, saldo: cupo };
+    });
   }
 
   /**
@@ -263,40 +353,46 @@ export class ClubService {
 
   // ── Caja ────────────────────────────────────────────────────────────────
 
-  /** Lo que ve el cajero al escanear. */
+  /** Lo que ve el cajero al escanear. El saldo sale del PASE. */
   async resolverParaCaja(user: AuthUser, passId: string) {
     const m = await this.prisma.clubMembresia.findFirst({
       where: { passId },
       include: {
-        plan: { select: { id: true, tenantId: true, name: true, unidad: true } },
+        plan: { select: { tenantId: true, name: true, unidad: true } },
         customer: { select: { fullName: true } },
+        pass: { select: { stampsCount: true } },
       },
     });
     if (!m) throw new NotFoundException('Esta tarjeta no es de un club.');
     if (user.role !== 'SUPER_ADMIN' && m.plan.tenantId !== user.tenantId) {
       throw new ForbiddenException();
     }
+    const saldo = m.pass?.stampsCount ?? 0;
     return {
       membresiaId: m.id,
       titular: m.customer?.fullName ?? '—',
       plan: m.plan.name,
       unidad: m.plan.unidad,
       status: m.status,
-      saldo: m.saldo,
+      saldo,
       cupoDelPeriodo: m.cupoDelPeriodo,
       periodo: m.periodo,
-      puedeConsumir: m.status === 'ACTIVA' && m.saldo > 0,
+      puedeConsumir: m.status === 'ACTIVA' && saldo > 0,
     };
   }
 
   /**
-   * Descuenta del cupo.
+   * Descuenta del cupo, que vive en `Pass.stampsCount` — el mismo contador que
+   * usan todas las tarjetas.
+   *
+   * Vive ahí y no en una tabla aparte porque así el pase se pinta, se empuja y
+   * recibe la geolocalización sin código nuevo: toda esa maquinaria opera
+   * sobre `Pass` y no mira de qué tipo es la tarjeta.
    *
    * El descuento es un UPDATE CONDICIONAL: solo toca la fila si el saldo
-   * alcanza, y se mira cuántas filas cambió. Sin eso, dos cajeros escaneando a
-   * la vez leerían saldo 1 los dos, los dos pasarían el `if`, y el cliente se
-   * llevaría dos cafés con uno solo de cupo. Es el bug más repetido de este
-   * repo y aquí no puede ocurrir: Postgres serializa el UPDATE sobre la fila.
+   * alcanza, y se mira cuántas cambió. Sin eso, dos cajeros escaneando a la
+   * vez leerían saldo 1 los dos, pasarían los dos el `if`, y el cliente se
+   * llevaría dos cafés con uno de cupo.
    */
   async consumir(
     user: AuthUser,
@@ -309,7 +405,11 @@ export class ClubService {
     }
     const m = await this.prisma.clubMembresia.findUnique({
       where: { id: membresiaId },
-      include: { plan: { select: { tenantId: true, unidad: true } } },
+      include: {
+        plan: {
+          select: { tenantId: true, unidad: true, beneficiosPorMes: true },
+        },
+      },
     });
     if (!m) throw new NotFoundException('Membresía no encontrada.');
     if (user.role !== 'SUPER_ADMIN' && m.plan.tenantId !== user.tenantId) {
@@ -322,66 +422,118 @@ export class ClubService {
           : 'Esta membresía está cancelada.',
       );
     }
+    if (!m.passId) {
+      throw new BadRequestException('Esta membresía todavía no tiene tarjeta.');
+    }
 
-    return this.prisma.$transaction(async (tx) => {
-      const bajada = await tx.clubMembresia.updateMany({
-        where: { id: membresiaId, status: 'ACTIVA', saldo: { gte: cantidad } },
-        data: { saldo: { decrement: cantidad } },
+    const passId = m.passId;
+    const periodoActual = periodoDe(new Date());
+    // El cron de reinicio es HORARIO, así que entre las 00:00 del día 1 y su
+    // primera pasada hay hasta una hora en la que la membresía sigue marcada
+    // en el mes viejo. Sin esto, un cliente con 7 sobrantes de septiembre se
+    // los gastaba el 1 de octubre y ese mes se llevaba 17 con un plan de 10.
+    // Se reinicia AQUÍ mismo; el cron queda como red de seguridad.
+    const tocaReinicio = m.periodo !== periodoActual;
+    const cupoVigente = tocaReinicio
+      ? m.plan.beneficiosPorMes
+      : m.cupoDelPeriodo;
+
+    const resultado = await this.prisma.$transaction(async (tx) => {
+      // Reclamo CONDICIONAL de la membresía: si alguien la pausó entre la
+      // lectura de arriba y esto, `count` es 0 y no se descuenta nada. Sin
+      // este candado el `if` de arriba decidía con una foto vieja y una
+      // membresía pausada a medio escaneo se llevaba igual el beneficio.
+      const reclamo = await tx.clubMembresia.updateMany({
+        where: {
+          id: membresiaId,
+          status: 'ACTIVA',
+          ...(tocaReinicio ? { periodo: m.periodo } : {}),
+        },
+        data: tocaReinicio
+          ? { periodo: periodoActual, cupoDelPeriodo: cupoVigente }
+          : { updatedAt: new Date() },
       });
-      if (bajada.count === 0) {
-        // O se quedó sin cupo entre la lectura y el descuento, o alguien la
-        // pausó. Se relee para decir cuál de las dos.
-        const ahora = await tx.clubMembresia.findUnique({
-          where: { id: membresiaId },
-          select: { saldo: true, status: true },
-        });
-        if (ahora?.status !== 'ACTIVA') {
-          throw new ConflictException('La membresía dejó de estar activa.');
-        }
+      if (reclamo.count === 0) {
         throw new ConflictException(
-          `Sin cupo: le ${ahora.saldo === 1 ? 'queda 1' : `quedan ${ahora.saldo}`} de ${m.cupoDelPeriodo}.`,
+          'La membresía cambió de estado mientras se cobraba. Volvé a escanear.',
         );
       }
 
-      const tras = await tx.clubMembresia.findUniqueOrThrow({
-        where: { id: membresiaId },
-        select: { saldo: true, periodo: true },
+      // Con reinicio, el pase vuelve al cupo del mes ANTES de descontar.
+      if (tocaReinicio) {
+        await tx.pass.update({
+          where: { id: passId },
+          data: { stampsCount: cupoVigente, lastActivityAt: new Date() },
+        });
+      }
+
+      // `lastActivityAt` en el mismo UPDATE: sin bumpearlo, el webservice de
+      // Apple compara `If-Modified-Since` y responde 304, así que el push
+      // llegaría pero el pase no se refrescaría.
+      const bajada = await tx.pass.updateMany({
+        where: { id: passId, stampsCount: { gte: cantidad } },
+        data: {
+          stampsCount: { decrement: cantidad },
+          lastActivityAt: new Date(),
+        },
+      });
+      if (bajada.count === 0) {
+        const ahora = await tx.pass.findUnique({
+          where: { id: passId },
+          select: { stampsCount: true },
+        });
+        const q = ahora?.stampsCount ?? 0;
+        throw new ConflictException(
+          `Sin cupo: le ${q === 1 ? 'queda 1' : `quedan ${q}`} de ${cupoVigente}.`,
+        );
+      }
+
+      const tras = await tx.pass.findUniqueOrThrow({
+        where: { id: passId },
+        select: { stampsCount: true },
       });
 
       const consumo = await tx.clubConsumo.create({
         data: {
           membresiaId,
           cantidad,
-          saldoResultante: tras.saldo,
-          periodo: tras.periodo,
+          saldoResultante: tras.stampsCount,
+          // El período del consumo sale de la FECHA REAL, no de la membresía:
+          // con la membresía sin reiniciar, un café del 1 de octubre quedaba
+          // contado en septiembre y los informes por mes salían mal.
+          periodo: periodoActual,
           actorId: user.id ?? null,
           locationId: locationId ?? null,
         },
       });
 
-      return {
-        ok: true,
-        consumoId: consumo.id,
-        saldo: tras.saldo,
-        cupoDelPeriodo: m.cupoDelPeriodo,
-        unidad: m.plan.unidad,
-      };
+      return { consumoId: consumo.id, saldo: tras.stampsCount };
     });
+
+    this.empujarPase(passId, 'club.consumo');
+
+    return {
+      ok: true,
+      ...resultado,
+      cupoDelPeriodo: cupoVigente,
+      unidad: m.plan.unidad,
+    };
   }
 
   /**
    * Deshace un consumo mal registrado.
    *
-   * Se marca, no se borra: el histórico no se reescribe. Y la marca se pone
-   * con un UPDATE condicional sobre `revertedAt: null`, así el doble clic del
-   * cajero no devuelve el cupo dos veces — que es exactamente el fallo que
-   * tiene hoy el módulo de Convenios.
+   * Se marca, no se borra: el histórico no se reescribe. Y la marca va con un
+   * UPDATE condicional sobre `revertedAt: null`, así el doble clic del cajero
+   * no devuelve el cupo dos veces.
    */
   async anularConsumo(user: AuthUser, consumoId: string) {
     const c = await this.prisma.clubConsumo.findUnique({
       where: { id: consumoId },
       include: {
-        membresia: { include: { plan: { select: { tenantId: true } } } },
+        membresia: {
+          include: { plan: { select: { tenantId: true } } },
+        },
       },
     });
     if (!c) throw new NotFoundException('Consumo no encontrado.');
@@ -392,7 +544,7 @@ export class ClubService {
       throw new ForbiddenException();
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const r = await this.prisma.$transaction(async (tx) => {
       const marcado = await tx.clubConsumo.updateMany({
         where: { id: consumoId, revertedAt: null },
         data: { revertedAt: new Date(), revertedBy: user.id ?? null },
@@ -401,21 +553,33 @@ export class ClubService {
         throw new ConflictException('Este consumo ya estaba anulado.');
       }
       // Solo se devuelve el cupo si sigue siendo del mismo período: anular en
-      // octubre un consumo de septiembre no puede regalar saldo del mes nuevo.
-      const m = await tx.clubMembresia.findUniqueOrThrow({
+      // octubre un consumo de septiembre regalaría saldo del mes nuevo.
+      //
+      // El período se relee DENTRO de la transacción: leerlo de la foto de
+      // arriba dejaba que el cron reiniciara en medio y se devolviera cupo
+      // del mes nuevo por un consumo del viejo.
+      const viva = await tx.clubMembresia.findUnique({
         where: { id: c.membresiaId },
-        select: { periodo: true, cupoDelPeriodo: true },
+        select: { periodo: true, passId: true },
       });
-      if (m.periodo !== c.periodo) {
-        return { ok: true, devuelto: 0, motivo: 'consumo de un período anterior' };
+      if (!viva?.passId || viva.periodo !== c.periodo) {
+        return { devuelto: 0, motivo: 'consumo de un período anterior' as const };
       }
-      const tras = await tx.clubMembresia.update({
-        where: { id: c.membresiaId },
-        data: { saldo: { increment: c.cantidad } },
-        select: { saldo: true },
+      const tras = await tx.pass.update({
+        where: { id: viva.passId },
+        data: {
+          stampsCount: { increment: c.cantidad },
+          lastActivityAt: new Date(),
+        },
+        select: { stampsCount: true },
       });
-      return { ok: true, devuelto: c.cantidad, saldo: tras.saldo };
+      return { devuelto: c.cantidad, saldo: tras.stampsCount };
     });
+
+    if (r.devuelto > 0 && c.membresia.passId) {
+      this.empujarPase(c.membresia.passId, 'club.anulacion');
+    }
+    return { ok: true, ...r };
   }
 
   // ── Reinicio mensual ────────────────────────────────────────────────────
@@ -424,7 +588,7 @@ export class ClubService {
    * Devuelve el cupo del mes a todas las membresías activas.
    *
    * ASIGNA, no suma: quien consumió 3 de 10 empieza con 10, no con 17. Y solo
-   * actúa si el período guardado es distinto del actual, así que correrlo cien
+   * actúa si el período guardado difiere del actual, así que correrlo cien
    * veces el mismo mes no regala nada.
    *
    * Cada hora y no una vez al día: si el proceso se cae a medianoche, a la
@@ -434,8 +598,14 @@ export class ClubService {
   async reiniciarCupos() {
     const periodo = periodoDe(new Date());
     const pendientes = await this.prisma.clubMembresia.findMany({
-      where: { status: 'ACTIVA', periodo: { not: periodo } },
-      select: { id: true, status: true, periodo: true, plan: { select: { beneficiosPorMes: true } } },
+      where: { status: 'ACTIVA', periodo: { not: periodo }, passId: { not: null } },
+      select: {
+        id: true,
+        status: true,
+        periodo: true,
+        passId: true,
+        plan: { select: { beneficiosPorMes: true } },
+      },
       take: 5000,
     });
     if (!pendientes.length) return { periodo, reiniciadas: 0 };
@@ -447,13 +617,19 @@ export class ClubService {
       // esta no cuenta y no vuelve a asignar.
       const r = await this.prisma.clubMembresia.updateMany({
         where: { id: m.id, periodo: m.periodo },
+        data: { cupoDelPeriodo: m.plan.beneficiosPorMes, periodo },
+      });
+      if (r.count === 0) continue;
+
+      await this.prisma.pass.update({
+        where: { id: m.passId! },
         data: {
-          saldo: m.plan.beneficiosPorMes,
-          cupoDelPeriodo: m.plan.beneficiosPorMes,
-          periodo,
+          stampsCount: m.plan.beneficiosPorMes,
+          lastActivityAt: new Date(),
         },
       });
-      reiniciadas += r.count;
+      this.empujarPase(m.passId!, 'club.reinicio');
+      reiniciadas += 1;
     }
     if (reiniciadas > 0) {
       this.logger.log(`Club: ${reiniciadas} membresías reiniciadas para ${periodo}.`);

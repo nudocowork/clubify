@@ -17,6 +17,20 @@ function isCouponLike(type: string | null | undefined): boolean {
   return type === 'COUPON' || type === 'DISCOUNT' || type === 'GIFT';
 }
 
+// Discriminador que manda el backend en /scanner/verify (ScanKind en
+// backend/src/scanner/scanner.service.ts — espejo a mano porque el frontend
+// no importa código del backend). Antes esta pantalla asumía que TODO traía
+// `data.pass` y un convenio o un club, que no lo traen, la dejaba en blanco.
+type ScanKind = 'sellos' | 'cupon' | 'club' | 'convenio' | 'cuponera';
+
+// `unidad` viene en SINGULAR del plan del club («café», «clase», «lavada»).
+// Pluralización mínima vocal→+s / consonante→+es: alcanza para las unidades
+// reales de los planes sin traer una librería para un solo texto de caja.
+function pluralUnidad(unidad: string, n: number) {
+  if (n === 1) return unidad;
+  return /[aeiouáéíóú]$/i.test(unidad) ? `${unidad}s` : `${unidad}es`;
+}
+
 // Cámara elegida a mano por el negocio. Se persiste por dispositivo: en
 // varios Samsung la cámara que entrega facingMode:'environment' es la ultra
 // gran angular, que tiene FOCO FIJO y nunca enfoca un código de cerca.
@@ -644,6 +658,35 @@ export default function ScanPage() {
     await act('STAMP_REMOVE', 1);
   }
 
+  // Consumir 1 del cupo del club. La autorización REAL la da el backend con
+  // su UPDATE condicional (dos cajas pueden escanear la misma tarjeta a la
+  // vez): lo que se ve en pantalla nunca autoriza nada, acá solo se refleja
+  // lo que él respondió.
+  async function consumirClub() {
+    if (!data?.membresiaId) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      const res = await api(`/club/caja/consumir/${data.membresiaId}`, {
+        method: 'POST',
+        body: JSON.stringify({ cantidad: 1 }),
+      });
+      setData({
+        ...data,
+        saldo: res.saldo,
+        // El backend solo consume membresías ACTIVA: si respondió ok, el
+        // estado no cambió y poder seguir depende solo del saldo restante.
+        puedeConsumir: res.saldo > 0,
+      });
+      playScanSuccess();
+    } catch (e: any) {
+      setErr(e.message);
+      playScanError();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // ─── Login inline cuando no hay sesión ───
   if (!user) {
     return (
@@ -697,6 +740,20 @@ export default function ScanPage() {
       </div>
     );
   }
+
+  // ── Despacho por familia de tarjeta ──
+  // Las respuestas SIN `kind` pero CON `pass` se pintan con la pantalla de
+  // siempre: así siguen funcionando los pases de reserva (su servicio no pasa
+  // por verify()) y un backend desplegado antes que este frontend.
+  const kind: ScanKind | undefined = data?.kind;
+  const esPantallaDePase =
+    !!data && (kind === 'sellos' || kind === 'cupon' || (kind == null && !!data.pass));
+  const esKindDesconocido =
+    !!data &&
+    !esPantallaDePase &&
+    kind !== 'club' &&
+    kind !== 'convenio' &&
+    kind !== 'cuponera';
 
   return (
     <div className="min-h-screen bg-bg">
@@ -930,7 +987,9 @@ export default function ScanPage() {
           </div>
         )}
 
-        {data && (
+        {/* Sellos, visitas, cashback, puntos, membresía y cupones: la
+            pantalla clásica sobre `data.pass`, sin cambios. */}
+        {esPantallaDePase && (
           <div className="card card-pad mt-3">
             <div className="flex items-center gap-3">
               <div
@@ -1211,6 +1270,282 @@ export default function ScanPage() {
               </button>
             )}
 
+            <button
+              className="btn-link mt-4 w-full justify-center text-sm"
+              onClick={scanAnother}
+            >
+              📷 Escanear otro
+            </button>
+          </div>
+        )}
+
+        {/* ── CLUB: suscripción con cupo por período. No acumula, descuenta:
+            se muestra cuánto queda y se consume de a 1. ── */}
+        {data && kind === 'club' && (
+          <div className="card card-pad mt-3">
+            <div className="flex items-center gap-3">
+              <div
+                className={`avatar w-12 h-12 text-base ${avatarClass(data.titular ?? '')}`}
+              >
+                {initials(data.titular ?? '')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate">{data.titular}</div>
+                <div className="text-xs text-mute truncate">{data.plan}</div>
+              </div>
+              <span className="badge badge-info shrink-0">✓</span>
+            </div>
+
+            <div className="mt-4 p-4 rounded-xl bg-bg2/50 text-center">
+              <div className="text-4xl font-bold">
+                {data.saldo}
+                <span className="text-mute text-base"> / {data.cupoDelPeriodo}</span>
+              </div>
+              <div className="text-sm mt-1">
+                {data.saldo === 1 ? 'Te queda' : 'Te quedan'} {data.saldo} de{' '}
+                {data.cupoDelPeriodo}{' '}
+                {pluralUnidad(data.unidad || 'beneficio', data.saldo)}
+              </div>
+            </div>
+
+            {data.puedeConsumir ? (
+              <button
+                className="btn-primary w-full justify-center py-5 text-lg mt-5"
+                disabled={busy}
+                onClick={consumirClub}
+              >
+                <Icon name="check" /> Consumir
+              </button>
+            ) : (
+              // Sin botón cuando no se puede: ofrecerlo y que falle se lee
+              // como "el escáner está roto". Se dice el porqué y listo.
+              <div className="mt-5 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink text-center">
+                {data.status === 'PAUSADA'
+                  ? 'La membresía está pausada: no se puede consumir.'
+                  : data.status === 'CANCELADA'
+                    ? 'La membresía está cancelada.'
+                    : 'Sin cupo disponible en este período.'}
+              </div>
+            )}
+
+            <button
+              className="btn-link mt-4 w-full justify-center text-sm"
+              onClick={scanAnother}
+            >
+              📷 Escanear otro
+            </button>
+          </div>
+        )}
+
+        {/* ── CONVENIO: beneficios de empresa aliada. Se pinta el estado que
+            calculó el backend (todos los cupones, también los agotados, con
+            su motivo — esconderlos hacía creer que el escáner fallaba). ── */}
+        {data && kind === 'convenio' && (
+          <div className="card card-pad mt-3">
+            <div className="flex items-center gap-3">
+              <div
+                className={`avatar w-12 h-12 text-base ${avatarClass(
+                  data.titular?.nombre ?? '',
+                )}`}
+              >
+                {initials(data.titular?.nombre ?? '')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate">{data.titular?.nombre}</div>
+                <div className="text-xs text-mute truncate">
+                  {data.convenio?.name}
+                  {data.titular?.documento4
+                    ? ` · documento ${data.titular.documento4}`
+                    : ''}
+                </div>
+              </div>
+              <span className="badge badge-info shrink-0">✓</span>
+            </div>
+
+            {data.motivoGlobal && (
+              <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink text-center">
+                {data.motivoGlobal}
+              </div>
+            )}
+
+            <div className="mt-4 space-y-2">
+              {(data.cupones ?? []).length === 0 && (
+                <div className="text-sm text-mute text-center">
+                  Este convenio no tiene beneficios configurados.
+                </div>
+              )}
+              {(data.cupones ?? []).map((c: any) => (
+                <div
+                  key={c.id}
+                  className={`p-3 rounded-xl border ${
+                    c.disponible
+                      ? 'border-emerald-200 bg-emerald-50'
+                      : 'border-line bg-bg2/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold text-sm truncate">{c.name}</div>
+                    <span
+                      className={`text-xs font-semibold shrink-0 ${
+                        c.disponible ? 'text-emerald-700' : 'text-mute'
+                      }`}
+                    >
+                      {c.disponible ? '● Disponible' : 'No disponible'}
+                    </span>
+                  </div>
+                  <div
+                    className={`text-base font-bold mt-1 ${
+                      c.disponible ? 'text-emerald-900' : 'text-mute'
+                    }`}
+                  >
+                    {c.aplicar}
+                  </div>
+                  {c.description ? (
+                    <div className="text-xs text-mute mt-0.5">{c.description}</div>
+                  ) : null}
+                  <div className="text-[11px] text-mute mt-1">
+                    {c.topeTexto}
+                    {c.compraMinima != null
+                      ? ` · Compra mínima $${Number(c.compraMinima).toLocaleString('es-CO')}`
+                      : ''}
+                  </div>
+                  {/* El motivo global ya se mostró arriba: repetirlo en cada
+                      cupón era puro ruido para el cajero. */}
+                  {!c.disponible && c.motivo && c.motivo !== data.motivoGlobal && (
+                    <div className="text-xs text-bad-ink mt-1">{c.motivo}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <button
+              className="btn-link mt-4 w-full justify-center text-sm"
+              onClick={scanAnother}
+            >
+              📷 Escanear otro
+            </button>
+          </div>
+        )}
+
+        {/* ── CUPONERA (aliado tipo A): se escaneó la tarjeta de un miembro de
+            la cuponera de la que este negocio es aliado. Acá solo se INFORMA:
+            los endpoints de canje del aliado exigen sesión del portal de
+            aliados (allyBusinessId), que la sesión de staff del escáner no
+            tiene — un botón de canje aquí devolvería 403. ── */}
+        {data && kind === 'cuponera' && (
+          <div className="card card-pad mt-3">
+            <div className="flex items-center gap-3">
+              <div
+                className={`avatar w-12 h-12 text-base ${avatarClass(
+                  data.memberName ?? '',
+                )}`}
+              >
+                {initials(data.memberName ?? '')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate">{data.memberName}</div>
+                <div
+                  className={`text-xs truncate font-semibold ${
+                    data.membershipActive ? 'text-emerald-700' : 'text-bad-ink'
+                  }`}
+                >
+                  {data.membershipActive
+                    ? `Miembro activo${data.planName ? ` · ${data.planName}` : ''}`
+                    : 'Membresía inactiva'}
+                </div>
+              </div>
+              <span className="badge badge-info shrink-0">✓</span>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {(data.benefits ?? []).length === 0 && (
+                <div className="text-sm text-mute text-center">
+                  No tienes promociones activas para esta cuponera.
+                </div>
+              )}
+              {(data.benefits ?? []).map((b: any) => (
+                <div
+                  key={b.id}
+                  className={`p-3 rounded-xl border ${
+                    b.canRedeem
+                      ? 'border-emerald-200 bg-emerald-50'
+                      : 'border-line bg-bg2/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold text-sm truncate">{b.title}</div>
+                    <span
+                      className={`text-xs font-semibold shrink-0 ${
+                        b.canRedeem ? 'text-emerald-700' : 'text-mute'
+                      }`}
+                    >
+                      {b.canRedeem ? '● Disponible' : 'No disponible'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-mute mt-1">
+                    {b.perMemberLeft == null
+                      ? 'Sin límite por miembro'
+                      : `${b.perMemberLeft} usos restantes`}
+                    {b.totalLeft != null ? ` · ${b.totalLeft} en total` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {(data.stampPrograms ?? []).length > 0 && (
+              <div className="mt-4">
+                <div className="text-[11px] font-semibold text-mute mb-2">
+                  SELLOS DE LA CUPONERA
+                </div>
+                <div className="space-y-2">
+                  {(data.stampPrograms ?? []).map((p: any) => (
+                    <div key={p.id} className="p-3 rounded-xl border border-line">
+                      <div className="font-semibold text-sm">
+                        {p.name}{' '}
+                        <span className="text-mute text-xs">
+                          · {p.stampsCount}/{p.stampsRequired}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-mute mt-0.5">
+                        {p.rewardReady
+                          ? `🎁 Premio listo: ${p.rewardText}`
+                          : p.rewardText}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="text-[11px] text-mute text-center mt-3">
+              Los canjes y sellos de la cuponera se registran desde tu panel de
+              aliado.
+            </div>
+
+            <button
+              className="btn-link mt-4 w-full justify-center text-sm"
+              onClick={scanAnother}
+            >
+              📷 Escanear otro
+            </button>
+          </div>
+        )}
+
+        {/* Red de seguridad: un `kind` que este frontend no conoce (backend
+            más nuevo) o una respuesta sin pase (reserva confirmada sin tarjeta
+            de sellos) muestra un aviso legible en vez de dejar la pantalla en
+            blanco por un TypeError. */}
+        {esKindDesconocido && (
+          <div className="card card-pad mt-3 text-center">
+            <div className="text-3xl mb-2">🤔</div>
+            <div className="font-semibold">
+              Código leído, pero no se pudo mostrar la tarjeta
+            </div>
+            <div className="text-sm text-mute mt-1 leading-relaxed">
+              {typeof data?.message === 'string' && data.message
+                ? data.message
+                : 'El código es válido, pero esta versión del escáner no sabe mostrar este tipo de tarjeta. Recargá la página; si sigue pasando, avisá a soporte.'}
+            </div>
             <button
               className="btn-link mt-4 w-full justify-center text-sm"
               onClick={scanAnother}

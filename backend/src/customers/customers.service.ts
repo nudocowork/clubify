@@ -406,9 +406,9 @@ export class CustomersService {
 
   /**
    * Fusiona N clientes en uno (`keepId`). Reasigna passes/stamps/orders/carts/
-   * messages/eventos/redenciones, suma stamps cuando hay pase del mismo card en
-   * ambos lados, libera los uniques (email/phone) del que se va antes de borrar,
-   * y recalcula los totales del que se conserva.
+   * messages/eventos/redenciones/membresías de club, suma stamps cuando hay
+   * pase del mismo card en ambos lados, libera los uniques (email/phone) del
+   * que se va antes de borrar, y recalcula los totales del que se conserva.
    */
   async merge(user: AuthUser, keepId: string, mergeIds: string[]) {
     if (!mergeIds?.length) {
@@ -435,6 +435,10 @@ export class CustomersService {
       let movedStamps = 0;
       let mergedPasses = 0;
       let movedPasses = 0;
+      let movedMembresias = 0;
+      let mergedMembresias = 0;
+      let movedTarjetasAlianza = 0;
+      let mergedTarjetasAlianza = 0;
 
       for (const src of merging) {
         // 1) Pases — manejar conflicto unique (cardId, customerId)
@@ -535,9 +539,120 @@ export class CustomersService {
           src.id,
         );
 
+        // 3b) Membresías de club — su FK a Customer es onDelete: Cascade: si
+        // no se mueven, borrar el src se lleva la membresía con su saldo y
+        // todos sus ClubConsumo. Es pérdida de datos silenciosa (el cliente
+        // pagó ese saldo). Van DESPUÉS del paso 1 a propósito: la fusión de
+        // pases ya resolvió qué pase de billetera sobrevive.
+        const srcMembresias = await tx.clubMembresia.findMany({
+          where: { customerId: src.id },
+        });
+        for (const sm of srcMembresias) {
+          const dupM = await tx.clubMembresia.findUnique({
+            where: {
+              planId_customerId: { planId: sm.planId, customerId: keepId },
+            },
+          });
+          if (!dupM) {
+            await tx.clubMembresia.update({
+              where: { id: sm.id },
+              data: { customerId: keepId },
+            });
+            movedMembresias += 1;
+            continue;
+          }
+          // Colisión con @@unique([planId, customerId]): los dos clientes
+          // tienen membresía del MISMO plan, mover a ciegas revienta el
+          // índice. Sobrevive la de MAYOR SALDO (empate → la más antigua).
+          //
+          // Por qué el saldo manda: es lo único que no se puede reconstruir —
+          // borrar la de más saldo le quita al cliente beneficios que ya pagó,
+          // y el negocio no puede devolvérselos sin regalarle cupo del
+          // período. El histórico no se pierde con ninguna elección: los
+          // consumos de la perdedora se mueven a la superviviente antes de
+          // borrarla. El empate lo gana la más antigua porque su createdAt es
+          // el alta real del socio (manda en el prorrateo del primer período).
+          const srcGana =
+            sm.saldo > dupM.saldo ||
+            (sm.saldo === dupM.saldo && sm.createdAt < dupM.createdAt);
+          const ganadora = srcGana ? sm : dupM;
+          const perdedora = srcGana ? dupM : sm;
+          await tx.clubConsumo.updateMany({
+            where: { membresiaId: perdedora.id },
+            data: { membresiaId: ganadora.id },
+          });
+          // Si la ganadora quedó sin pase (el suyo se borró en la fusión de
+          // pases del paso 1 → SetNull), hereda el de la perdedora para que
+          // el push de billetera siga llegando. Borrar la perdedora ANTES
+          // libera tanto el unique (planId, customerId) como el de passId.
+          const passIdFinal = ganadora.passId ?? perdedora.passId;
+          await tx.clubMembresia.delete({ where: { id: perdedora.id } });
+          await tx.clubMembresia.update({
+            where: { id: ganadora.id },
+            data: { customerId: keepId, passId: passIdFinal },
+          });
+          mergedMembresias += 1;
+        }
+
+        // 3c) Tarjetas de ALIANZA — mismo problema que las membresías de club:
+        // su FK a Customer es onDelete: Cascade, así que borrar el src se
+        // llevaría la tarjeta del empleado y TODO su historial de canjes. El
+        // negocio no puede reconstruirlo, y el aliado lo tiene en su informe.
+        const srcTarjetas = await tx.convenioTarjeta.findMany({
+          where: { customerId: src.id },
+        });
+        for (const st of srcTarjetas) {
+          const dupT = await tx.convenioTarjeta.findUnique({
+            where: {
+              convenioId_customerId: { convenioId: st.convenioId, customerId: keepId },
+            },
+          });
+          if (!dupT) {
+            await tx.convenioTarjeta.update({
+              where: { id: st.id },
+              data: { customerId: keepId },
+            });
+            movedTarjetasAlianza += 1;
+            continue;
+          }
+          // Colisión con @@unique([convenioId, customerId]): la misma persona
+          // activó el convenio dos veces con contactos distintos.
+          //
+          // Gana la BLOQUEADA sobre la activa. Es la única regla segura: si el
+          // negocio bloqueó a alguien, una fusión de clientes no puede
+          // devolverle el beneficio por la puerta de atrás. A igualdad de
+          // estado gana la más antigua, que es la activación real (su `origen`
+          // dice por qué canal del aliado entró).
+          const srcGana =
+            (st.status === 'BLOCKED' && dupT.status !== 'BLOCKED') ||
+            (st.status === dupT.status && st.createdAt < dupT.createdAt);
+          const ganadora = srcGana ? st : dupT;
+          const perdedora = srcGana ? dupT : st;
+          await tx.convenioCanje.updateMany({
+            where: { tarjetaId: perdedora.id },
+            data: { tarjetaId: ganadora.id },
+          });
+          // Igual que en club: si la ganadora se quedó sin pase en la fusión
+          // del paso 1, hereda el de la perdedora para que el push siga
+          // llegando. Borrar la perdedora antes libera los dos uniques.
+          const passIdFinal = ganadora.passId ?? perdedora.passId;
+          const documentoFinal = ganadora.documento ?? perdedora.documento;
+          await tx.convenioTarjeta.delete({ where: { id: perdedora.id } });
+          await tx.convenioTarjeta.update({
+            where: { id: ganadora.id },
+            data: {
+              customerId: keepId,
+              passId: passIdFinal,
+              documento: documentoFinal,
+            },
+          });
+          mergedTarjetasAlianza += 1;
+        }
+
         // 4) Limpiar contacto del src para liberar uniques antes del delete
-        // (delete cascadea solo donde el FK tiene onDelete: Cascade — passes/stamps —
-        //  pero ya los movimos, así que el delete debe ser limpio)
+        // (delete cascadea solo donde el FK tiene onDelete: Cascade —
+        //  passes/stamps/membresías de club/tarjetas de alianza — pero ya los
+        //  movimos, así que el delete debe ser limpio)
         await tx.customer.update({
           where: { id: src.id },
           data: { email: null, phone: null },
@@ -607,6 +722,10 @@ export class CustomersService {
         movedStamps,
         movedPasses,
         mergedPasses,
+        movedMembresias,
+        mergedMembresias,
+        movedTarjetasAlianza,
+        mergedTarjetasAlianza,
         keeper: updated,
       };
         },

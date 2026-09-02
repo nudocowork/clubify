@@ -1728,6 +1728,11 @@ export class OrdersService {
         isActive: true,
         autoStampOnOrder: true,
         type: { in: ['STAMPS', 'POINTS'] },
+        // Las tarjetas de CLUB y de ALIANZA también son type STAMPS: un pedido
+        // no debe sumarle "sellos" al saldo de una membresía de club ni a la
+        // tarjeta de los empleados de una empresa aliada.
+        clubPlanId: null,
+        convenioId: null,
       },
     });
     if (cards.length === 0) return;
@@ -1802,6 +1807,10 @@ export class OrdersService {
         isActive: true,
         autoStampOnOrder: true,
         type: { in: ['STAMPS', 'POINTS'] },
+        // Mismo filtro que en autoStampOnDelivered: el sello manual del
+        // negocio tampoco debe caer en una tarjeta de club ni de alianza.
+        clubPlanId: null,
+        convenioId: null,
       },
     });
     if (!cards.length) {

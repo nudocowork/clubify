@@ -6753,8 +6753,10 @@ model ClubMembresia {
 
   status ClubMembresiaStatus @default(ACTIVA)
 
-  /// Lo que le queda AHORA. Baja al consumir, se reinicia cada mes.
-  saldo Int @default(0)
+  /// OJO: el saldo vivo NO está aquí, está en `Pass.stampsCount` — el mismo
+  /// contador que usan todas las tarjetas. Vive ahí para que el pase se pinte,
+  /// se empuje a la billetera y reciba la geolocalización sin código nuevo:
+  /// toda esa maquinaria opera sobre `Pass` y no mira el tipo de tarjeta.
 
   /// Período al que corresponde el saldo, en hora de Bogotá: "2026-09".
   ///

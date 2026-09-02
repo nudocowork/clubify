@@ -796,6 +796,14 @@ export class StampsService {
           tenantId,
           type: 'STAMPS',
           isActive: true,
+          // Las tarjetas de CLUB y de ALIANZA también son type STAMPS (reusan
+          // el contador para pintar el pase y heredar push/geo). Un cupón NUNCA
+          // debe transformarse en una de ellas: al club le inyectaría "sellos" a
+          // un contador que ahí significa saldo de beneficios pagados, y a la
+          // alianza la convertiría en la tarjeta de sellos del negocio —
+          // perdiendo el beneficio que la empresa aliada pactó para su gente.
+          clubPlanId: null,
+          convenioId: null,
         },
         select: { id: true },
       });
@@ -808,9 +816,18 @@ export class StampsService {
     }
 
     // Prioridad 2: usar la primera STAMPS card activa del tenant
-    // (comportamiento histórico).
+    // (comportamiento histórico). `clubPlanId`/`convenioId` en null porque las
+    // tarjetas de CLUB y de ALIANZA también son type STAMPS: cualquiera de las
+    // dos creada antes que la de sellos sería "la primera" y se llevaría sellos
+    // que no le corresponden.
     const existing = await this.prisma.card.findFirst({
-      where: { tenantId, type: 'STAMPS', isActive: true },
+      where: {
+        tenantId,
+        type: 'STAMPS',
+        isActive: true,
+        clubPlanId: null,
+        convenioId: null,
+      },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
@@ -862,9 +879,39 @@ export class StampsService {
   ): Promise<void> {
     const existingStampsPass = await this.prisma.pass.findUnique({
       where: { cardId_customerId: { cardId: stampsCardId, customerId } },
-      select: { id: true, stampsCount: true },
+      select: {
+        id: true,
+        stampsCount: true,
+        card: { select: { clubPlanId: true, convenioId: true } },
+      },
     });
     if (!existingStampsPass) return;
+
+    // Blindaje CLUB: un pase de Tarjeta de Club recién instalado se ve EXACTO
+    // como un huérfano (0 sellos, 0 devices) — pero borrarlo deja la membresía
+    // inescaneable para siempre. Los resolutores ya filtran clubPlanId: null,
+    // esto es la última línea de defensa por si un caller futuro se lo salta.
+    if (existingStampsPass.card.clubPlanId) {
+      this.logger.warn(
+        `Pass ${existingStampsPass.id} pertenece a una tarjeta de CLUB (plan ${existingStampsPass.card.clubPlanId}) — abort transform, nunca se borra`,
+      );
+      throw new BadRequestException(
+        'El cliente tiene una membresía de club en esa tarjeta. No se puede transformar el cupón sobre ella.',
+      );
+    }
+
+    // Mismo blindaje para ALIANZAS: la tarjeta del empleado de una empresa
+    // aliada nace con 0 sellos y 0 devices, igual que un huérfano. Borrarla
+    // deja la `ConvenioTarjeta` sin pase y el empleado pierde el beneficio que
+    // su empresa pactó, sin forma de recuperarlo salvo volver a activarlo.
+    if (existingStampsPass.card.convenioId) {
+      this.logger.warn(
+        `Pass ${existingStampsPass.id} pertenece a una tarjeta de ALIANZA (convenio ${existingStampsPass.card.convenioId}) — abort transform, nunca se borra`,
+      );
+      throw new BadRequestException(
+        'El cliente tiene la tarjeta de una alianza en esa tarjeta. No se puede transformar el cupón sobre ella.',
+      );
+    }
 
     if (existingStampsPass.stampsCount > 0) {
       this.logger.warn(
