@@ -66,6 +66,11 @@ export default function BillingPage() {
   const sinCompras = useHidesPurchases();
   const [s, setS] = useState<Status | null>(null);
   const [tenant, setTenant] = useState<any>(null);
+  // Marca que el fetch de /tenants/me YA terminó (con éxito o error). Sin esto,
+  // gatear el render con `!tenant` colgaría la página para siempre si el endpoint
+  // falla (el .catch deja tenant en null). Con el flag: si falla, renderizamos
+  // igual (el panel full es null-safe con tenant?.).
+  const [tenantLoaded, setTenantLoaded] = useState(false);
   const [hotmartConfigured, setHotmartConfigured] = useState(false);
   const [activating, setActivating] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -77,7 +82,10 @@ export default function BillingPage() {
 
   useEffect(() => {
     api<Status>('/billing/status').then(setS).catch(() => null);
-    api<any>('/tenants/me').then(setTenant).catch(() => null);
+    api<any>('/tenants/me')
+      .then(setTenant)
+      .catch(() => null)
+      .finally(() => setTenantLoaded(true));
     api<{ configured: boolean }>('/billing/hotmart/config')
       .then((r) => setHotmartConfigured(!!r?.configured))
       .catch(() => setHotmartConfigured(false));
@@ -131,14 +139,16 @@ export default function BillingPage() {
   }
 
   if (!s) return <div className="text-mute">{t('loading')}</div>;
-  // Esperamos también al tenant: sin él no sabemos si es "Solo InfoLink", y
-  // pintar el panel de suscripción full por un instante mostraría info errada.
-  if (!tenant) return <div className="text-mute">{t('loading')}</div>;
+  // Esperamos a que /tenants/me TERMINE (éxito o error): sin saber el tipo de
+  // negocio, pintar el panel full por un instante mostraría info errada al
+  // InfoLink. Si el fetch falló (tenant null pero cargado), cae al panel full
+  // null-safe en vez de colgarse.
+  if (!tenantLoaded) return <div className="text-mute">{t('loading')}</div>;
 
   // Negocios "Solo InfoLink" (freemium Sellea): su panel es Gratis/PRO, NO el de
   // la suscripción COMPLETA ($80, Pedidos ilimitados, Wallet…). Mostrarles ese
   // panel era información errada (reporte del dueño 2026-09-02). Panel propio:
-  if (tenant.businessType === 'INFOLINK') {
+  if (tenant?.businessType === 'INFOLINK') {
     return (
       <InfolinkSubscriptionPanel
         tenant={tenant}
