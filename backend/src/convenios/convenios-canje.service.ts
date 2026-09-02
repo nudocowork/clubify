@@ -14,6 +14,11 @@ import {
   ZONA_POR_DEFECTO,
   type ConvenioPeriodo,
 } from './periodos';
+import {
+  describirBeneficio,
+  motivoDelConvenio,
+  motivoDelCupon,
+} from './alianzas-estado';
 
 /** Ventana para anular un canje mal registrado en la caja. */
 const MINUTOS_PARA_ANULAR = 10;
@@ -88,20 +93,25 @@ export class ConveniosCanjeService {
     const zona = await this.zona(convenio.tenantId);
 
     // Motivos que tumban el convenio ENTERO. Se comprueban una vez y el
-    // mensaje es el mismo para todos los cupones.
-    let motivoGlobal: string | null = null;
-    if (convenio.status === 'FINISHED') motivoGlobal = 'Convenio finalizado.';
-    else if (convenio.status === 'PAUSED') motivoGlobal = 'Convenio en pausa.';
-    else if (convenio.endsAt && convenio.endsAt <= ahora) {
-      motivoGlobal = 'El convenio llegó a su fecha de fin.';
-    } else if (tarjeta.status === 'BLOCKED') {
-      motivoGlobal = 'Esta persona tiene el beneficio bloqueado.';
-    } else if (
-      convenio.sedes.length > 0 &&
-      locationId &&
-      !convenio.sedes.some((s) => s.locationId === locationId)
-    ) {
-      motivoGlobal = 'Este convenio no aplica en esta sede.';
+    // mensaje es el mismo para todos los cupones: repetir «Convenio en pausa»
+    // una vez por beneficio hace pensar al cajero que cada uno falló aparte.
+    //
+    // El interruptor del MÓDULO va el primero. Antes solo se comprobaba al
+    // crear un convenio, así que apagarlo desde el panel de admin no impedía
+    // seguir canjeando: el negocio creía haberlo apagado y no lo había hecho.
+    let motivoGlobal: string | null = (await this.moduloApagado(convenio.tenantId))
+      ? 'Los convenios de este negocio están desactivados.'
+      : motivoDelConvenio(convenio, ahora);
+    if (!motivoGlobal) {
+      if (tarjeta.status === 'BLOCKED') {
+        motivoGlobal = 'Esta persona tiene el beneficio bloqueado.';
+      } else if (
+        convenio.sedes.length > 0 &&
+        locationId &&
+        !convenio.sedes.some((s) => s.locationId === locationId)
+      ) {
+        motivoGlobal = 'Este convenio no aplica en esta sede.';
+      }
     }
 
     const cupones: EstadoCupon[] = [];
@@ -140,20 +150,19 @@ export class ConveniosCanjeService {
     return t?.timezone || ZONA_POR_DEFECTO;
   }
 
-  /** Texto de lo que hay que aplicar en la caja. */
-  private describirBeneficio(tipo: string, valor: number, nombre: string) {
-    switch (tipo) {
-      case 'PERCENT_OFF':
-        return `Aplicar ${valor}% de descuento`;
-      case 'AMOUNT_OFF':
-        return `Aplicar $${valor.toLocaleString('es-CO')} de descuento`;
-      case 'FREEBIE':
-        return `Entregar gratis: ${nombre}`;
-      case 'TWO_FOR_ONE':
-        return `2x1 en: ${nombre}`;
-      default:
-        return nombre;
-    }
+  /**
+   * ¿El negocio tiene los convenios apagados desde el panel de admin?
+   *
+   * Apagar un módulo tiene que apagarlo de verdad: bloquear el canje, la
+   * edición y las activaciones nuevas. Sin tocar un solo dato, para que
+   * volver a encenderlo lo devuelva todo tal cual estaba.
+   */
+  private async moduloApagado(tenantId: string): Promise<boolean> {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { conveniosEnabled: true },
+    });
+    return !t?.conveniosEnabled;
   }
 
   private async estadoDelCupon(
@@ -169,23 +178,17 @@ export class ConveniosCanjeService {
       tipo: c.tipo,
       valor: c.valor,
       description: c.description,
-      aplicar: this.describirBeneficio(c.tipo, c.valor, c.name),
+      aplicar: describirBeneficio(c.tipo, c.valor, c.name),
       topeTexto: describirTope(c.maxPorPersona, c.periodo as ConvenioPeriodo),
       compraMinima: c.compraMinima ?? null,
     };
 
-    if (motivoGlobal) {
-      return { ...base, disponible: false, motivo: motivoGlobal };
-    }
-    if (!c.isActive) {
-      return { ...base, disponible: false, motivo: 'Beneficio no disponible.' };
-    }
-    if (c.endsAt && c.endsAt <= ahora) {
-      return { ...base, disponible: false, motivo: 'Este cupón ya venció.' };
-    }
-    if (c.maxTotal != null && c.canjesCount >= c.maxTotal) {
-      return { ...base, disponible: false, motivo: 'Se agotaron los canjes de este cupón.' };
-    }
+    // Todo lo que se puede decidir sin contar en la base —los dos
+    // interruptores, la fecha, el tope global— sale del motor puro, el mismo
+    // que usan la página de activación y el portal del aliado.
+    const motivo = motivoDelCupon(c, ahora, motivoGlobal);
+    if (motivo) return { ...base, disponible: false, motivo };
+
     if (c.maxPorPersona != null) {
       const desde = inicioDelPeriodo(c.periodo as ConvenioPeriodo, ahora, zona);
       const usados = await this.prisma.convenioCanje.count({
@@ -240,14 +243,13 @@ export class ConveniosCanjeService {
     const ahora = new Date();
     const zona = await this.zona(convenio.tenantId);
 
-    if (convenio.status !== 'ACTIVE') {
+    if (await this.moduloApagado(convenio.tenantId)) {
       throw new BadRequestException(
-        convenio.status === 'FINISHED' ? 'Convenio finalizado.' : 'Convenio en pausa.',
+        'Los convenios de este negocio están desactivados.',
       );
     }
-    if (convenio.endsAt && convenio.endsAt <= ahora) {
-      throw new BadRequestException('El convenio llegó a su fecha de fin.');
-    }
+    const motivoConvenio = motivoDelConvenio(convenio, ahora);
+    if (motivoConvenio) throw new BadRequestException(motivoConvenio);
     if (tarjeta.status === 'BLOCKED') {
       throw new BadRequestException('Esta persona tiene el beneficio bloqueado.');
     }
@@ -263,10 +265,11 @@ export class ConveniosCanjeService {
       where: { id: dto.cuponId, convenioId: convenio.id },
     });
     if (!cupon) throw new NotFoundException('Cupón no encontrado');
-    if (!cupon.isActive) throw new BadRequestException('Beneficio no disponible.');
-    if (cupon.endsAt && cupon.endsAt <= ahora) {
-      throw new BadRequestException('Este cupón ya venció.');
-    }
+    // Los dos interruptores, la fecha y el tope global, por el mismo motor que
+    // pintó la pantalla. Se repite aquí a propósito: entre que el cajero mira y
+    // pulsa, el dueño o el aliado pudieron apagar el cupón.
+    const motivoCupon = motivoDelCupon(cupon, ahora, null);
+    if (motivoCupon) throw new BadRequestException(motivoCupon);
     if (cupon.compraMinima != null) {
       if (dto.compraMonto == null) {
         throw new BadRequestException(
@@ -333,19 +336,17 @@ export class ConveniosCanjeService {
       return creado;
     });
 
-    // Tope global alcanzado: el cupón se apaga solo. Así el siguiente cliente
-    // recibe "no disponible" en vez de que el cajero lo intente y falle.
-    if (cupon.maxTotal != null && cupon.canjesCount + 1 >= cupon.maxTotal) {
-      await this.prisma.convenioCupon
-        .update({ where: { id: cupon.id }, data: { isActive: false } })
-        .catch(() => null);
-    }
+    // NO se apaga el cupón al llegar al tope. Antes se escribía
+    // `isActive = false` aquí y salía caro por partida doble: el cajero leía
+    // «apagado por el negocio» —que es falso, se agotó— y subir el tope no
+    // reabría el cupón, sin que nadie entendiera por qué. «Agotado» es un
+    // estado CALCULADO (`estaAgotado`), no una bandera guardada.
 
     return {
       ok: true,
       canjeId: canje.id,
       titular: tarjeta.customer.fullName,
-      aplicar: this.describirBeneficio(cupon.tipo, cupon.valor, cupon.name),
+      aplicar: describirBeneficio(cupon.tipo, cupon.valor, cupon.name),
       descuentoMonto: descuento,
       anulableHasta: new Date(canje.createdAt.getTime() + MINUTOS_PARA_ANULAR * 60_000),
     };
@@ -399,16 +400,29 @@ export class ConveniosCanjeService {
       );
     }
 
-    await this.prisma.$transaction([
-      this.prisma.convenioCanje.update({
-        where: { id: canjeId },
+    // La comprobación de arriba NO basta: leer-decidir-escribir es la clase de
+    // bug más repetida de este producto. Un doble clic del cajero pasaba dos
+    // veces por el `if (canje.revertedAt)` antes de que ninguna escribiera, y
+    // el contador del cupón se descontaba DOS veces por una sola anulación —
+    // regalando un canje del tope global.
+    //
+    // El arreglo es el de siempre: UPDATE condicional y mirar el `count`. Solo
+    // quien de verdad cambió la fila toca el contador.
+    const ganada = await this.prisma.$transaction(async (tx) => {
+      const r = await tx.convenioCanje.updateMany({
+        where: { id: canjeId, revertedAt: null },
         data: { revertedAt: new Date(), revertedBy: user.id },
-      }),
-      this.prisma.convenioCupon.update({
+      });
+      if (r.count === 0) return false;
+      await tx.convenioCupon.update({
         where: { id: canje.cuponId },
         data: { canjesCount: { decrement: 1 } },
-      }),
-    ]);
+      });
+      return true;
+    });
+    if (!ganada) {
+      throw new BadRequestException('Este canje ya estaba anulado.');
+    }
     return { ok: true };
   }
 }

@@ -6476,6 +6476,15 @@ model Convenio {
   /// Token del informe de solo lectura que el negocio le pasa al aliado.
   /// Solo agregados, nunca datos personales de los empleados.
   reportToken  String               @unique
+  /// Token del PORTAL del aliado, donde además del informe puede apagar y
+  /// encender sus propios beneficios y dar de baja a quien salió de la empresa.
+  ///
+  /// Va aparte de `reportToken` a propósito: el informe se reenvía por correo
+  /// sin pensarlo y acaba en cualquier bandeja; el interruptor no. Separarlos
+  /// permite pasar el informe a medio mundo y el mando solo a quien lo maneja,
+  /// y regenerar uno sin invalidar el otro. Null en los convenios creados antes
+  /// del portal: se rellena solo la primera vez que el negocio lo abre.
+  aliadoToken  String?              @unique
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
 
@@ -6538,9 +6547,22 @@ model ConvenioCupon {
   description   String            @default("")
   /// Texto libre, visible en el reverso del pase.
   terms         String            @default("")
-  /// EL INTERRUPTOR. Apagarlo bloquea el canje al instante y pone la tarjeta
-  /// en gris; volver a encenderlo la reactiva SIN reemitir nada.
+  /// EL INTERRUPTOR DEL NEGOCIO. Apagarlo bloquea el canje al instante y pone
+  /// la tarjeta en gris; volver a encenderlo la reactiva SIN reemitir nada.
   isActive      Boolean           @default(true)
+  /// EL INTERRUPTOR DE LA EMPRESA ALIADA. El canje exige los dos encendidos.
+  ///
+  /// Son dos banderas y no una con "quién la apagó" porque así cada parte es
+  /// dueña de la suya POR CONSTRUCCIÓN: el aliado no puede encender lo que
+  /// apagó el negocio ni al revés, sin ninguna regla que validar y sin carreras
+  /// —cada bandera tiene un único escritor—. Con una sola bandera compartida
+  /// habría que arbitrar quién puede reencender, y dos clics simultáneos
+  /// dejarían el interruptor donde llegara el último.
+  ///
+  /// Pausar o finalizar el convenio apaga `isActive` de todos los cupones pero
+  /// NO toca este: la decisión del aliado sobrevive al ciclo de pausa del
+  /// negocio, que es lo que él espera.
+  activoAliado  Boolean           @default(true)
   /// Cuántas veces puede usarlo UNA persona por período. null = sin tope.
   maxPorPersona Int?
   periodo       ConvenioPeriodo   @default(SIEMPRE)
@@ -6597,6 +6619,13 @@ model ConvenioTarjeta {
 
   @@unique([convenioId, customerId])
   @@index([convenioId, status])
+  /// OJO: hay además un índice ÚNICO PARCIAL `(convenioId, documento)` donde
+  /// `documento IS NOT NULL` que Prisma no sabe expresar y por eso vive solo en
+  /// SQL (`scripts/apply-alianzas-migration.cjs`). Es lo que impide que la misma
+  /// cédula active el convenio dos veces con dos teléfonos distintos. Sin él la
+  /// comprobación sería leer-decidir-escribir y dos activaciones simultáneas
+  /// pasarían las dos.
+  @@index([convenioId, documento])
 }
 
 model ConvenioCanje {

@@ -10,12 +10,18 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { QueueService } from '../jobs/queue.service';
 import {
+  BRAND_DOMAIN_SELECT,
+  brandBaseUrl,
+} from '../email/brand-email-creds.util';
+import {
   inicioDelPeriodo,
   describirTope,
 
   ZONA_POR_DEFECTO,
   type ConvenioPeriodo,
 } from './periodos';
+import { cambiaLoQueSeVe, estaAgotado, quienApago } from './alianzas-estado';
+import { avisarPasesDeAlianza, avisarUnPase } from './alianzas-pase.util';
 
 /** Sin vocales ni caracteres que se confunden al dictarlo por teléfono. */
 const generarCodigo = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
@@ -201,6 +207,13 @@ export class ConveniosService {
       cupones: c.cupones.map((x) => ({
         ...x,
         topeTexto: describirTope(x.maxPorPersona, x.periodo as ConvenioPeriodo),
+        // «Agotado» se CALCULA, no se guarda: antes se escribía isActive=false
+        // al llegar al tope y el panel decía «apagado por el negocio», que era
+        // mentira, y subir el tope no lo reabría.
+        agotado: estaAgotado(x),
+        // Quién lo tiene apagado, para que el panel no diga «apagado» a secas
+        // cuando fue la empresa aliada y el dueño no puede hacer nada.
+        apagadoPor: quienApago(x),
       })),
     };
   }
@@ -257,11 +270,25 @@ export class ConveniosService {
 
   async update(user: AuthUser, id: string, dto: ConvenioDto, override?: string) {
     const tenantId = this.tid(user, override);
+    // Antes esto solo se comprobaba al CREAR: con el módulo apagado desde el
+    // panel de admin se podía seguir editando y canjeando. Apagar algo tiene
+    // que apagarlo.
+    await this.assertHabilitado(tenantId);
     const actual = await this.prisma.convenio.findFirst({
       where: { id, tenantId },
-      select: { id: true, verificacion: true, codigo: true },
+      select: { id: true, verificacion: true, codigo: true, status: true },
     });
     if (!actual) throw new NotFoundException('Convenio no encontrado');
+
+    // FINISHED es terminal. Un convenio no «revive»: renace con términos
+    // renegociados, y mezclar las dos épocas en el mismo historial rompe el
+    // informe que el negocio le entrega al aliado. Para el cierre reversible
+    // están la pausa y `endsAt`.
+    if (actual.status === 'FINISHED' && dto.status && dto.status !== 'FINISHED') {
+      throw new BadRequestException(
+        'Este convenio está finalizado y no se puede reabrir. Crea uno nuevo con las condiciones que acordaron.',
+      );
+    }
 
     const verificacion = dto.verificacion ?? actual.verificacion;
     const data: any = {
@@ -285,7 +312,16 @@ export class ConveniosService {
       }
     }
     if (dto.codigo !== undefined && dto.codigo !== null) {
-      data.codigo = dto.codigo.trim().toUpperCase() || null;
+      const limpio = dto.codigo.trim().toUpperCase();
+      // Guardar vacío dejaba un convenio en modo CODIGO SIN código: la puerta
+      // abierta de par en par sin que nadie se diera cuenta, porque el modo
+      // seguía diciendo «por código». Si quiere quitarlo, que cambie el modo.
+      if (!limpio && verificacion === 'CODIGO') {
+        throw new BadRequestException(
+          'Un convenio que se activa por código no puede quedarse sin código. Escribe uno o cambia la forma de verificación.',
+        );
+      }
+      data.codigo = limpio || null;
     }
 
     if (dto.sedeIds !== undefined) {
@@ -315,40 +351,30 @@ export class ConveniosService {
     return actualizado;
   }
 
-  /**
-   * Refresca los pases de billetera del convenio.
-   *
-   * Una tarjeta ya instalada no se puede borrar a distancia, así que tiene que
-   * COMUNICAR su estado: cuando el cupón se apaga, el pase se actualiza y se
-   * ve inactivo. Es best-effort — el bloqueo de verdad es el del servidor, que
-   * es inmediato; esto es lo que ve el cliente.
-   */
-  private async avisarPases(convenioId: string) {
-    const tarjetas = await this.prisma.convenioTarjeta.findMany({
-      where: { convenioId, passId: { not: null } },
-      select: { passId: true },
-      take: 5000,
-    });
-    for (const t of tarjetas) {
-      if (!t.passId) continue;
-      await this.queue
-        .enqueue('wallet.push', {
-          passId: t.passId,
-          reason: 'convenio_estado',
-        } as any)
-        .catch(() => null);
-    }
+  private avisarPases(convenioId: string) {
+    return avisarPasesDeAlianza(
+      this.prisma,
+      this.queue,
+      convenioId,
+      'convenio_estado',
+    );
   }
 
   // ─────────────────────────────── Cupones ───────────────────────────────
 
   async crearCupon(user: AuthUser, convenioId: string, dto: CuponDto, override?: string) {
     const tenantId = this.tid(user, override);
+    await this.assertHabilitado(tenantId);
     const convenio = await this.prisma.convenio.findFirst({
       where: { id: convenioId, tenantId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!convenio) throw new NotFoundException('Convenio no encontrado');
+    if (convenio.status === 'FINISHED') {
+      throw new BadRequestException(
+        'Este convenio está finalizado. No se le pueden añadir beneficios.',
+      );
+    }
     if (!(dto.name ?? '').trim()) {
       throw new BadRequestException('Ponle un nombre al cupón.');
     }
@@ -409,13 +435,28 @@ export class ConveniosService {
     override?: string,
   ) {
     const tenantId = this.tid(user, override);
+    await this.assertHabilitado(tenantId);
     const cupon = await this.prisma.convenioCupon.findFirst({
       where: { id: cuponId, convenio: { tenantId } },
-      select: { id: true, convenioId: true, isActive: true },
+      // Todo lo que `cambiaLoQueSeVe` necesita para comparar el ANTES con el
+      // DESPUÉS: los dos interruptores, la fecha y el tope global.
+      select: {
+        id: true,
+        convenioId: true,
+        isActive: true,
+        activoAliado: true,
+        endsAt: true,
+        maxTotal: true,
+        canjesCount: true,
+      },
     });
     if (!cupon) throw new NotFoundException('Cupón no encontrado');
     this.validarCupon(dto as CuponDto);
 
+    // Lista blanca de campos, y `activoAliado` NO está en ella a propósito:
+    // ese interruptor es de la empresa aliada y solo se toca desde su portal.
+    // Es lo que hace que las dos partes puedan encender y apagar sin pisarse —
+    // cada bandera tiene un único escritor, así que no hay nada que arbitrar.
     const data: any = {};
     for (const k of [
       'name', 'tipo', 'valor', 'description', 'terms', 'isActive',
@@ -432,9 +473,11 @@ export class ConveniosService {
       data,
     });
 
-    // El interruptor cambió: hay que refrescar lo que ve el cliente en su
-    // billetera. Encender vuelve a activar la MISMA tarjeta — no se reemite.
-    if (dto.isActive !== undefined && dto.isActive !== cupon.isActive) {
+    // Refrescar la billetera solo si cambió lo que el empleado VE. Encender mi
+    // llave con la del aliado apagada no cambia nada en su tarjeta, y empujar
+    // por eso gasta cuota de Apple y Google y le hace vibrar el móvil para
+    // nada. Encender de verdad reactiva la MISMA tarjeta — no se reemite.
+    if (cambiaLoQueSeVe(cupon as any, actualizado, new Date())) {
       await this.avisarPases(cupon.convenioId);
     }
     return actualizado;
@@ -442,6 +485,7 @@ export class ConveniosService {
 
   async borrarCupon(user: AuthUser, cuponId: string, override?: string) {
     const tenantId = this.tid(user, override);
+    await this.assertHabilitado(tenantId);
     const cupon = await this.prisma.convenioCupon.findFirst({
       where: { id: cuponId, convenio: { tenantId } },
       select: { id: true, convenioId: true, canjesCount: true },
@@ -456,5 +500,162 @@ export class ConveniosService {
     }
     await this.prisma.convenioCupon.delete({ where: { id: cuponId } });
     return { ok: true };
+  }
+
+  // ─────────────────────────────── Enlaces ───────────────────────────────
+
+  /**
+   * Los dos enlaces del convenio.
+   *
+   *  · El **de activación** es el que la empresa aliada reparte entre sus
+   *    empleados. Es público y se puede reenviar sin miedo: quién puede activar
+   *    lo decide la verificación, no el secreto del enlace.
+   *  · El **del portal** lleva el mando del aliado (sus interruptores y la baja
+   *    de quien se fue). Ese no se reenvía: se le pasa a quien lo maneja.
+   *
+   * Los dos salen del dominio DE LA MARCA del negocio, nunca de
+   * `soyclubify.com`: un enlace de la plataforma dentro del correo de una marca
+   * blanca la delata. Es la fuga de marca que más veces se ha repetido aquí.
+   *
+   * El `aliadoToken` se crea PEREZOSAMENTE, la primera vez que alguien pide los
+   * enlaces. Generarlo para todos de golpe dejaría por ahí enlaces con mando
+   * que nadie pidió, y bastaría una fuga del volcado para tenerlos todos.
+   */
+  async enlaces(user: AuthUser, id: string, override?: string) {
+    const tenantId = this.tid(user, override);
+    const convenio = await this.prisma.convenio.findFirst({
+      where: { id, tenantId },
+      select: { id: true, slug: true, aliadoToken: true, reportToken: true },
+    });
+    if (!convenio) throw new NotFoundException('Convenio no encontrado');
+
+    let aliadoToken = convenio.aliadoToken;
+    if (!aliadoToken) {
+      aliadoToken = nanoid(24);
+      await this.prisma.convenio.update({
+        where: { id },
+        data: { aliadoToken },
+      });
+    }
+
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { slug: true, whiteLabelId: true },
+    });
+    const wl = tenant?.whiteLabelId
+      ? await this.prisma.whiteLabel.findUnique({
+          where: { id: tenant.whiteLabelId },
+          select: BRAND_DOMAIN_SELECT,
+        })
+      : null;
+    const base = brandBaseUrl(wl, process.env.APP_URL ?? 'https://soyclubify.com');
+
+    return {
+      /** Para los empleados. Se reparte por WhatsApp, correo o un QR impreso. */
+      activacion: `${base}/alianza/${tenant?.slug}/${convenio.slug}`,
+      /**
+       * Para la empresa aliada. Lleva el mando: no se reparte.
+       *
+       * Cuelga de `/aliado/` y no de `/alianza/portal/` para que no compita con
+       * la ruta del empleado: un negocio cuyo slug fuera «portal» haría que las
+       * dos se solaparan, y ese fallo aparecería un año después sin que nadie
+       * supiera de dónde salió.
+       */
+      portal: `${base}/aliado/${aliadoToken}`,
+    };
+  }
+
+  /**
+   * Rota el token del portal del aliado.
+   *
+   * Es la respuesta correcta a un enlace filtrado: cierra la puerta sin tocar
+   * las tarjetas ya emitidas ni el historial. El aliado necesitará el enlace
+   * nuevo.
+   */
+  async rotarTokenAliado(user: AuthUser, id: string, override?: string) {
+    const tenantId = this.tid(user, override);
+    await this.assertHabilitado(tenantId);
+    const convenio = await this.prisma.convenio.findFirst({
+      where: { id, tenantId },
+      select: { id: true },
+    });
+    if (!convenio) throw new NotFoundException('Convenio no encontrado');
+    await this.prisma.convenio.update({
+      where: { id },
+      data: { aliadoToken: nanoid(24) },
+    });
+    return this.enlaces(user, id, override);
+  }
+
+  // ───────────────────────── Tarjetas de los empleados ─────────────────────────
+
+  /**
+   * Las tarjetas emitidas del convenio, para el panel del negocio.
+   *
+   * El negocio SÍ ve los datos de las personas —es quien responde por el
+   * documento que guardó y quien atiende cuando alguien reclama—. El aliado no:
+   * en su portal solo hay agregados. La diferencia es deliberada.
+   */
+  async tarjetas(user: AuthUser, id: string, override?: string) {
+    const tenantId = this.tid(user, override);
+    const convenio = await this.prisma.convenio.findFirst({
+      where: { id, tenantId },
+      select: { id: true },
+    });
+    if (!convenio) throw new NotFoundException('Convenio no encontrado');
+    const filas = await this.prisma.convenioTarjeta.findMany({
+      where: { convenioId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+      include: {
+        customer: { select: { fullName: true, phone: true } },
+        _count: { select: { canjes: true } },
+      },
+    });
+    return filas.map((t) => ({
+      id: t.id,
+      nombre: t.customer.fullName,
+      telefono: t.customer.phone,
+      documento: t.documento,
+      status: t.status,
+      // Quién bloqueó, para que el negocio no levante un bloqueo del aliado sin
+      // preguntarle antes: el aliado es quien sabe si esa persona sigue ahí.
+      bloqueadaPor: t.blockedBy === 'aliado' ? 'aliado' : t.blockedBy ? 'negocio' : null,
+      bloqueadaEl: t.blockedAt,
+      origen: t.origen,
+      canjes: t._count.canjes,
+      createdAt: t.createdAt,
+    }));
+  }
+
+  /** Bloquea o desbloquea a UNA persona sin apagarle el cupón a todos. */
+  async bloquearTarjeta(
+    user: AuthUser,
+    tarjetaId: string,
+    bloquear: boolean,
+    override?: string,
+  ) {
+    const tenantId = this.tid(user, override);
+    await this.assertHabilitado(tenantId);
+    const tarjeta = await this.prisma.convenioTarjeta.findFirst({
+      where: { id: tarjetaId, convenio: { tenantId } },
+      select: { id: true, passId: true, status: true },
+    });
+    if (!tarjeta) throw new NotFoundException('Tarjeta no encontrada');
+    const nuevo = bloquear ? 'BLOCKED' : 'ACTIVE';
+    if (tarjeta.status === nuevo) return { ok: true, cambio: false };
+
+    await this.prisma.convenioTarjeta.update({
+      where: { id: tarjetaId },
+      data: {
+        status: nuevo,
+        blockedAt: bloquear ? new Date() : null,
+        blockedBy: bloquear ? `negocio:${user.id}` : null,
+      },
+    });
+    if (tarjeta.passId) {
+      await avisarUnPase(this.prisma, this.queue, tarjeta.passId, 'convenio_tarjeta');
+    }
+    return { ok: true, cambio: true };
   }
 }

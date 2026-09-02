@@ -10,6 +10,7 @@ import { nextRewardLabel } from './free-rewards.util';
 import { resolveWalletAdvanced, WalletAdvancedFlags } from '../common/white-label/wallet-advanced.util';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { passLabels, type PassLocale, normalizePassLocale } from './pass-labels';
+import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 
 /**
  * Genera pases para Apple Wallet (.pkpass) y Google Wallet (save link).
@@ -133,6 +134,12 @@ export class WalletService {
     // al dominio público de la marca (no hardcode Clubify). resolveTenant cae
     // al row real `clubify` cuando el negocio no tiene whiteLabelId (legacy).
     const passBrand = await this.brand.resolveTenant(pass.tenantId);
+    // Tarjeta de ALIANZA: no cuenta sellos, dice si el beneficio está en pie.
+    // Solo se consulta cuando `convenioId` está puesto, así que los millones de
+    // pases normales no pagan ni una consulta extra por generarse.
+    const alianza = pass.card.convenioId
+      ? await alianzaDelPase(this.prisma, pass.card.convenioId, pass.id)
+      : null;
     const passBrandHref = passBrand.websiteUrl;
     const passBrandDomain = passBrand.websiteUrl.replace(/^https?:\/\//, '');
     // Idioma del cliente (persistido al enrolarse). Localiza TODOS los labels
@@ -194,6 +201,16 @@ export class WalletService {
         rewardFieldValue = next.label;
       }
     }
+    // En una tarjeta de alianza el campo de recompensa lo ocupan los beneficios
+    // vivos («10% de descuento · Bebida gratis»), que es lo que la persona
+    // enseña en la caja. «Próximo premio» ahí no significa nada: no se acumula
+    // nada hacia ningún sitio.
+    if (alianza) {
+      rewardFieldLabel = L.alliance;
+      rewardFieldValue = alianza.vivos.length
+        ? alianza.vivos.join(' · ').slice(0, 120)
+        : L.alliance_ask(alianza.empresa);
+    }
 
     const passJson = {
       formatVersion: 1,
@@ -244,8 +261,11 @@ export class WalletService {
         // Para COUPON: array vacío. El estado DISPONIBLE/REDIMIDO va
         // pintado dentro del strip image como badge — así no hay overlap
         // visual con el logoText (brand name) que ocupa el mismo row.
-        headerFields:
-          pass.card.type === 'COUPON' ? [] : [this.buildHeaderField(pass, L)],
+        headerFields: alianza
+          ? [this.headerAlianza(alianza, L)]
+          : pass.card.type === 'COUPON'
+            ? []
+            : [this.buildHeaderField(pass, L)],
         // primaryFields vacío → el strip image actúa de hero principal sin
         // texto encima.
         primaryFields: [],
@@ -440,6 +460,26 @@ export class WalletService {
 
     const pkpass = new PKPass(buffers, certOpts);
     return pkpass.getAsBuffer();
+  }
+
+  private headerAlianza(
+    a: { estado: string; empresa: string },
+    L: ReturnType<typeof passLabels>,
+  ) {
+    const valor =
+      a.estado === 'ACTIVO'
+        ? L.alliance_active
+        : a.estado === 'FINALIZADO'
+          ? L.alliance_ended
+          : a.estado === 'BLOQUEADA'
+            ? L.alliance_blocked
+            : L.alliance_paused;
+    return {
+      key: 'alliance',
+      label: L.alliance,
+      value: valor,
+      changeMessage: L.alliance_change,
+    };
   }
 
   /**

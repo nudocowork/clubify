@@ -58,6 +58,10 @@ class CuponBody {
   @IsOptional() @IsString() endsAt?: string | null;
 }
 
+class BloqueoBody {
+  @IsBoolean() bloquear!: boolean;
+}
+
 class CanjeBody {
   @IsString() tarjetaId!: string;
   @IsString() cuponId!: string;
@@ -68,9 +72,15 @@ class CanjeBody {
 /**
  * Panel del negocio. `tenantId` por query solo lo usa un SUPER_ADMIN que entra
  * al negocio desde el panel de admin; para todos los demás sale del token.
+ *
+ * PERMISOS: por defecto SOLO EL DUEÑO. Antes toda la clase admitía también
+ * `TENANT_STAFF`, y eso significaba que un cajero podía borrar convenios y
+ * editar cupones — subirse a sí mismo el descuento del 10% al 90% —. Las rutas
+ * de caja vuelven a abrirle la puerta una a una, que es lo único que necesita:
+ * escanear, canjear y anular.
  */
 @Controller('convenios')
-@Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+@Roles('TENANT_OWNER', 'SUPER_ADMIN')
 export class ConveniosController {
   constructor(
     private svc: ConveniosService,
@@ -140,9 +150,56 @@ export class ConveniosController {
     return this.svc.borrarCupon(user, cuponId, tenantId);
   }
 
+  // ───────────────────────────── Enlaces ─────────────────────────────
+
+  /** Los dos enlaces: el que reparte el aliado y el de su portal. */
+  @Get(':id/enlaces')
+  enlaces(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.enlaces(user, id, tenantId);
+  }
+
+  /** Si el enlace del portal se filtró: cierra esa puerta sin tocar nada más. */
+  @Post(':id/enlaces/rotar')
+  rotarToken(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.rotarTokenAliado(user, id, tenantId);
+  }
+
+  // ──────────────────── Tarjetas emitidas a los empleados ────────────────────
+
+  @Get(':id/tarjetas')
+  tarjetas(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.tarjetas(user, id, tenantId);
+  }
+
+  @Patch('tarjetas/:tarjetaId/bloqueo')
+  bloquear(
+    @CurrentUser() user: AuthUser,
+    @Param('tarjetaId') tarjetaId: string,
+    @Body() body: BloqueoBody,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.bloquearTarjeta(user, tarjetaId, body.bloquear, tenantId);
+  }
+
   // ─────────────────────────── Caja / escáner ───────────────────────────
+  //
+  // Las tres rutas que SÍ necesita el cajero, y solo esas. El resto de la clase
+  // es del dueño.
 
   /** Qué mostrarle al cajero tras escanear una tarjeta de convenio. */
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
   @Get('caja/pase/:passId')
   resolverCaja(
     @CurrentUser() user: AuthUser,
@@ -152,11 +209,13 @@ export class ConveniosController {
     return this.canje.resolverParaCaja(user, passId, locationId ?? null);
   }
 
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
   @Post('caja/canjear')
   canjear(@CurrentUser() user: AuthUser, @Body() body: CanjeBody) {
     return this.canje.canjear(user, body);
   }
 
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
   @Post('caja/anular/:canjeId')
   anular(@CurrentUser() user: AuthUser, @Param('canjeId') canjeId: string) {
     return this.canje.anular(user, canjeId);

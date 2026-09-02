@@ -8,6 +8,78 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-02 — Alianzas: la tarjeta de convenio, de punta a punta (SIN DESPLEGAR)
+
+Un negocio pacta con una **empresa** y los empleados de esa empresa reciben un
+beneficio permanente en el local (10%, bebida gratis con el almuerzo, 2x1).
+**Es un estilo de tarjeta propio**, como el club o los sellos — no un tipo más
+dentro del asistente de tarjetas, y nada que ver con la cuponera.
+
+### Lo que había: una casa sin puerta
+
+El módulo de convenios estaba construido desde hace tiempo y **no se podía usar
+en absoluto**. `ConvenioTarjeta` no se creaba en ningún sitio del repo,
+`Card.convenioId` no se escribía nunca, `Convenio.codigo` se guardaba y se
+editaba pero **no se leía jamás**, y `ConvenioListaBlanca` tenía cero
+referencias. El enlace único que el negocio le iba a dar a la empresa no
+llevaba a ninguna parte.
+
+### El doble interruptor — dos banderas, no una
+
+Javier quería que **las dos partes** pudieran encender y apagar. Está resuelto
+con dos columnas independientes: `ConvenioCupon.isActive` es del negocio y
+`activoAliado` de la empresa aliada; el canje exige las dos. Así **ninguno
+puede encender lo que apagó el otro por construcción**, sin reglas que validar
+y sin carreras — cada bandera tiene un único escritor. La lista blanca de
+campos de `actualizarCupon` no incluye `activoAliado`, y esa omisión es la que
+lo sostiene: no la quites.
+
+### Lo nuevo
+
+- `alianzas-estado.ts` — motor de reglas **puro**, con 29 tests que importan el
+  módulo REAL. (Los 31 tests viejos de convenios reimplementaban la lógica
+  dentro del propio fichero de test: verdes sin proteger nada.)
+- `alianzas-publico.service.ts` — el enlace del empleado. Verifica de verdad
+  los tres modos (ABIERTO / CODIGO / LISTA), crea `Customer` + `Card` +
+  `Pass` + `ConvenioTarjeta`, y es idempotente.
+- `alianzas-portal.service.ts` — portal del aliado por token: su interruptor,
+  informe **solo agregado** (ni un nombre ni un teléfono de sus empleados) y
+  **baja a ciegas por documento** para quien deja la empresa.
+- Frontend: `/app/alianzas` (+ detalle), `/alianza/<negocio>/<empresa>` para el
+  empleado y `/aliado/<token>` para la empresa.
+- El pase ya no dice «SELLOS 0 / 1»: dice BENEFICIO · ACTIVO / EN PAUSA, en
+  Apple y en Google, y los cuatro idiomas.
+
+### Seis defectos corregidos de paso
+
+| Qué | Por qué importaba |
+|---|---|
+| Anular era leer-decidir-escribir | Doble clic del cajero **descontaba dos veces** del tope global |
+| `TENANT_STAFF` podía todo | Un cajero podía **subirse el descuento del 10% al 90%** o borrar el convenio |
+| `assertHabilitado` solo al crear | Apagar el módulo desde admin **no impedía editar ni canjear** |
+| Auto-apagado al llegar a `maxTotal` | El cajero leía «apagado por el negocio» (falso) y **subir el tope no lo reabría**. Ahora «Agotado» se calcula |
+| Código vacío en modo CODIGO | Dejaba la puerta abierta de par en par sin que nadie lo notara |
+| FINISHED se podía deshacer | Mezclaba dos épocas del convenio en el mismo historial y rompía el informe del aliado |
+
+Además, los resolutores de «primera tarjeta de sellos» filtraban `clubPlanId:
+null` pero **no** `convenioId`: una tarjeta de alianza se colaba como la
+tarjeta de fidelización del negocio. Añadido `convenioId: null` en los 8 sitios
+(+ el blindaje de `cleanupOrphanStampsPass`), y `merge` de clientes ya mueve
+las `ConvenioTarjeta` — antes fusionar dos clientes **borraba la tarjeta del
+empleado y todo su historial**.
+
+### Pendiente antes de desplegar
+
+1. **Correr la migración**: `railway run node scripts/apply-alianzas-migration.cjs`
+   (2 columnas + el índice único **parcial** `(convenioId, documento)`, que
+   Prisma no sabe expresar). Es aditiva e idempotente, y aborta avisando si
+   encuentra documentos repetidos.
+2. Encender `conveniosEnabled` al negocio que lo vaya a usar.
+3. **No lo he desplegado**: el árbol no compila por el club a medias (ver la
+   entrada de abajo, `ClubMembresia.saldo`). Nada de alianzas está en rojo —
+   los 52 errores son de `src/club/*.spec.ts` y del bloque de club en
+   `customers.service.ts` —, pero prefiero no desplegar encima de eso.
+
 ## 2026-09-02 — Tarjeta de Club sobre `Pass.stampsCount` (DESPLEGADO, con tests en rojo)
 
 **El cliente le paga una suscripción AL NEGOCIO** y recibe N beneficios al mes

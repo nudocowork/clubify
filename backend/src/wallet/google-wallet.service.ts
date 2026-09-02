@@ -7,6 +7,7 @@ import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { passLabels } from './pass-labels';
 import { nextRewardLabel } from './free-rewards.util';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
+import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 
 /**
  * Google Wallet integration end-to-end.
@@ -58,6 +59,23 @@ export class GoogleWalletService {
     return null;
   }
 
+  /**
+   * Resuelve el estado de la alianza y lo cuelga del pase.
+   *
+   * Se hace aquí, en los dos sitios que arman el LoyaltyObject, porque
+   * `buildBalance` y `buildObject` son síncronos y esto necesita base de datos.
+   * Solo consulta cuando la tarjeta es de un convenio: los pases normales no
+   * pagan nada.
+   */
+  private async adjuntarAlianza(pass: any) {
+    if (!pass.card?.convenioId) return;
+    pass.alianza = await alianzaDelPase(
+      this.prisma,
+      pass.card.convenioId,
+      pass.id,
+    );
+  }
+
   /** Header field equivalente al de Apple — varía por tipo de tarjeta. */
   private buildBalance(pass: any): { balance: { string?: string; int?: number }; label: string } {
     const t = pass.card.type;
@@ -100,6 +118,25 @@ export class GoogleWalletService {
       return {
         balance: { string: redeemed ? L.coupon_redeemed : L.coupon_available },
         label: L.coupon,
+      };
+    }
+    // Tarjeta de ALIANZA: no cuenta nada, dice si el beneficio está en pie.
+    // Llega precalculada en `pass.alianza` porque esto es síncrono y resolverla
+    // necesita base de datos; se rellena en los dos sitios que arman el objeto.
+    if (pass.alianza) {
+      const a = pass.alianza as { estado: string };
+      return {
+        balance: {
+          string:
+            a.estado === 'ACTIVO'
+              ? L.alliance_active
+              : a.estado === 'FINALIZADO'
+                ? L.alliance_ended
+                : a.estado === 'BLOQUEADA'
+                  ? L.alliance_blocked
+                  : L.alliance_paused,
+        },
+        label: L.alliance,
       };
     }
     return {
@@ -403,6 +440,7 @@ export class GoogleWalletService {
       },
     });
     if (!pass) throw new NotFoundException('Pass');
+    await this.adjuntarAlianza(pass);
 
     const sa = this.loadServiceAccount();
     const ids = this.buildIds(pass);
@@ -538,6 +576,7 @@ export class GoogleWalletService {
     if (!pass) return { ok: false, status: 'pass_not_found' };
     if (!pass.googleObjectId)
       return { ok: false, status: 'not_saved_to_google_wallet' };
+    await this.adjuntarAlianza(pass);
 
     const sa = this.loadServiceAccount();
     const ids = this.buildIds(pass);
