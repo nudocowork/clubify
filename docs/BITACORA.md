@@ -66,6 +66,18 @@ agujeros que se cierran en el mismo bloque.
 Y dos menores: el reinicio mensual se cortaba en 5000 en silencio (ahora avisa),
 y `/api/club` faltaba en el bloqueo de los negocios «solo InfoLink».
 
+### Dos cosas para la ventana de Alianzas
+
+1. **`stamps.service.record()` no filtra las tarjetas de convenio.** Es el mismo
+   agujero que se acaba de cerrar para el club: sellar o canjear un pase de
+   convenio desde la ficha del cliente entra sin ninguna barrera. Solo cerré la
+   rama del club para no tocar ese módulo.
+2. **`scanner.service.ts:110` lee `(user as any).locationId`, y `AuthUser` no
+   tiene ese campo** — verificado: no aparece en el decorador y nada en
+   `src/auth` lo pone. Siempre llega `null`, y en `convenios-canje.service.ts`
+   la comprobación de sede está guardada tras `locationId &&`. Resultado: **un
+   convenio limitado a la sede A se canjea igual en la sede B.**
+
 ### ⚠️ `frontend/src/app/scan/page.tsx` queda SIN COMMITEAR — hay que decidir
 
 El botón «Deshacer el último» del club está **en disco pero no en ningún
@@ -88,6 +100,80 @@ con lo del monto.
   columna `saldo`, que era un residuo del diseño viejo.
 - Encender `clubEnabled` al negocio que lo estrene.
 - Probar en móvil de verdad: el pase en iPhone y en Android.
+
+### De paso, dos cosas que NO son del club
+
+- **`brand-message-templates.spec.ts` está en rojo desde `ebf6551c`** (el ciclo
+  de prueba de 7 días de Sellea): `trial_started` no tiene gemelo por correo. O
+  sea, ese aviso le llega al negocio por SMS pero no por correo.
+- **El backend ya no compila con el heap por defecto de Node en esta máquina.**
+  `npx tsc --noEmit` muere con `heap out of memory` si hay otro proceso pesado a
+  la vez. Con `NODE_OPTIONS="--max-old-space-size=4096"` pasa sin problema.
+
+## 2026-09-02 (madrugada, 4ª vuelta) — Alianzas: la lista blanca era adivinable
+
+Otra ronda de agentes. **Nada de esto toca `backend/src/club/**`,
+`stamps.service.ts` ni `frontend/src/app/app/club/**`** — Javier trabaja ahí en
+paralelo.
+
+### El grave: pegar la cabecera del Excel abría el convenio
+
+`cargarLista` no validaba la FORMA de cada entrada, solo normalizaba. Quien
+pegaba el rango de Excel con su cabecera («Documento», «Correo», «Nombre»)
+metía esas palabras como documentos válidos de la lista blanca. A partir de
+ahí, cualquiera escribía `documento` en el formulario público y se llevaba el
+beneficio del aliado sin trabajar allí. **Una lista blanca cuya credencial se
+adivina no es una lista blanca.**
+
+Del mismo sitio: el TABULADOR no era separador, así que pegar dos columnas de
+Excel («Ana Pérez⇥1020304050») producía una sola fila `ANAPÉREZ1020304050` que
+no casaría jamás — el panel decía «120 en la lista» y a las 120 personas les
+salía «no encontramos tu documento».
+
+### El oráculo que decía estar cerrado y no lo estaba
+
+Los dos choques de identidad respondían distinto: 403 «los datos no coinciden»
+para un teléfono con tarjeta, 400 «ese documento ya existe» para lo otro.
+Probar teléfonos ajenos contra el enlace público decía cuáles tienen tarjeta —
+o sea, la plantilla de la empresa aliada. Ahora es **la misma excepción y el
+mismo texto**, y hay un test que compara mensaje y código de estado en vez de
+comprobar una cadena.
+
+### La vigencia moría cinco horas antes
+
+`parsearVigencia` estiraba la fecha al final del día con `setHours`, que usa la
+hora **del proceso** — UTC en Railway. «Hasta el 31 de diciembre» se apagaba a
+las 18:59 de Bogotá, en plena noche de servicio. Ahora se calcula en la zona
+del negocio (`finDelDia` en `periodos.ts`).
+
+### Y una tanda de arreglos menores
+
+Dar de baja a alguien no le quitaba su fila de la lista cargada **por correo**,
+así que volvía a entrar dando ese correo · dos filas de la misma persona
+contaban como dos cupos · con una fila gastada y otra libre se rechazaba a
+quien sí tenía cupo · `verLista` no comprobaba el módulo y ordenaba los ya
+activados primero · el total del tiquete escrito «12.500» llegaba como 12,5 y
+el cajero veía un error de validación **en inglés** · el monto era un solo
+estado compartido por todos los beneficios · el error del canje se pintaba
+cientos de líneas más arriba, fuera de la pantalla del móvil · el empleado y el
+aliado leían los textos escritos para el cajero («Entregar gratis: Bebida»).
+
+### Estado
+
+164 tests en verde, `tsc` en 0 en backend y frontend, lint limpio.
+
+### Lo que sigue mal y no bloquea (no prometérselo a un cliente)
+
+**El filtro por sede no se aplica nunca.** `AuthUser` no lleva `locationId` y en
+`scanner.service.ts` va con un `as any`, que es lo que impide que TypeScript
+avise. Una alianza limitada a una sede vale en todas, y `ConvenioCanje.locationId`
+se guarda siempre null, así que el informe por sede sale vacío.
+
+**Un empleado puede quedar bloqueado por otro.** Si alguien activa con el
+teléfono de un compañero antes que él (en modo CÓDIGO el código lo sabe toda la
+empresa), al compañero le sale el mensaje de datos que no coinciden y no puede
+activar por autoservicio. El negocio lo resuelve desde el panel. Arreglarlo de
+raíz pide verificar el teléfono, y no hay transporte de SMS por marca.
 
 ## 2026-09-02 (madrugada, 3ª vuelta) — Alianzas: lo que encontró la auditoría
 

@@ -419,10 +419,19 @@ describe('lo que ve el cajero al escanear', () => {
     );
   });
 
-  it('un pase que no es de club da un mensaje entendible', async () => {
+  it('un pase sin socio dice eso, y dice qué hacer', async () => {
+    // Antes decía «esta tarjeta no es de un club» — y sí lo es: aquí solo se
+    // llega desviado por `card.clubPlanId`. Lo que falta es el socio, y al
+    // cajero el mensaje viejo le sonaba a que el escáner estaba roto.
+    //
+    // Se llega solo: `ClubMembresia.pass` es `onDelete: SetNull`, así que
+    // rehacerle el pase a alguien deja su membresía sin `passId`.
     await expect(
       svc.resolverParaCaja(CAJERO, 'pase-desconocido'),
-    ).rejects.toThrow('Esta tarjeta no es de un club.');
+    ).rejects.toThrow(/socio/i);
+    await expect(
+      svc.resolverParaCaja(CAJERO, 'pase-desconocido'),
+    ).rejects.toThrow(/dar(lo)? de alta/i);
   });
 });
 

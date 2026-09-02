@@ -583,7 +583,17 @@ export class ClubService {
         pass: { select: { stampsCount: true } },
       },
     });
-    if (!m) throw new NotFoundException('Esta tarjeta no es de un club.');
+    if (!m) {
+      // Aquí solo se llega desviado por `card.clubPlanId`, así que la tarjeta
+      // SÍ es de un club: lo que falta es la membresía. Decirle al cajero «esta
+      // tarjeta no es de un club» le hace pensar que el escáner está roto, y en
+      // realidad el socio perdió su vínculo —`ClubMembresia.pass` es
+      // `onDelete: SetNull`, así que rehacerle el pase deja la membresía sin
+      // `passId`. La salida es volver a darlo de alta, y eso es lo que se dice.
+      throw new NotFoundException(
+        'Esta tarjeta de club no tiene socio asignado. Vuelve a darlo de alta desde Tarjeta de Club.',
+      );
+    }
     if (user.role !== 'SUPER_ADMIN' && m.plan.tenantId !== user.tenantId) {
       throw new ForbiddenException();
     }
