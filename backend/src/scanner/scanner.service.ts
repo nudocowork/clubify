@@ -7,6 +7,7 @@ import { CuponeraService } from '../cuponera/cuponera.service';
 import { ReservationsService } from '../reservations/reservations.service';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { ConveniosCanjeService } from '../convenios/convenios-canje.service';
+import { ClubService } from '../club/club.service';
 
 const QR_RESERVATION_PROTOCOL = 'clubify-reservation:';
 
@@ -18,6 +19,7 @@ export class ScannerService {
     private appConfig: AppConfigService,
     private reservations: ReservationsService,
     private convenios: ConveniosCanjeService,
+    private club: ClubService,
   ) {}
 
   async verifyQr(user: AuthUser, qrToken: string) {
@@ -97,6 +99,16 @@ export class ScannerService {
         pass.id,
         (user as any).locationId ?? null,
       );
+    }
+
+    // RAMA CLUB — el cliente paga una suscripción al negocio y gasta de un
+    // cupo mensual. Se decide igual que la de convenio, leyendo un campo que
+    // ya viene en el pase: ni una consulta extra para los escaneos normales.
+    //
+    // Va DESPUÉS de convenio y ANTES de los sellos: una tarjeta de club no
+    // acumula nada, descuenta.
+    if ((pass.card as any).clubPlanId) {
+      return this.club.resolverParaCaja(user, pass.id);
     }
 
     const recent = await this.prisma.stamp.findMany({
