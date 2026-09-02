@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { PrismaService } from '../common/prisma/prisma.service';
 import type { WalletService } from '../wallet/wallet.service';
 import type { QueueService } from '../jobs/queue.service';
+import type { AutomationsService } from '../automations/automations.service';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { ClubService } from './club.service';
 import {
@@ -9,6 +10,7 @@ import {
   crearPrismaFalso,
   type FilaMembresia,
   crearBilletera,
+  crearAutomatizaciones,
   type BaseDeDatos,
   type EstadoMembresia,
   type Ganchos,
@@ -57,6 +59,7 @@ function montar(beneficiosPorMes = 10) {
     falso.prisma as unknown as PrismaService,
     billetera.wallet as unknown as WalletService,
     billetera.jobs as unknown as QueueService,
+    crearAutomatizaciones().automations as unknown as AutomationsService,
   );
 }
 

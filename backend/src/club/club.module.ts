@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ClubService } from './club.service';
 import { ClubController } from './club.controller';
 import { WalletModule } from '../wallet/wallet.module';
+import { AutomationsModule } from '../automations/automations.module';
 
 /**
  * Tarjeta de Club — suscripción del cliente al negocio con cupo mensual.
@@ -19,7 +20,7 @@ import { WalletModule } from '../wallet/wallet.module';
  * `QueueService` no hace falta declararlo: `JobsModule` es `@Global()`.
  */
 @Module({
-  imports: [WalletModule],
+  imports: [WalletModule, AutomationsModule],
   providers: [ClubService],
   controllers: [ClubController],
   exports: [ClubService],

@@ -3,6 +3,7 @@ import { ForbiddenException } from '@nestjs/common';
 import type { PrismaService } from '../common/prisma/prisma.service';
 import type { WalletService } from '../wallet/wallet.service';
 import type { QueueService } from '../jobs/queue.service';
+import type { AutomationsService } from '../automations/automations.service';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { ClubService } from './club.service';
 import { clubDelPase, pluralUnidad } from './club-pase.util';
@@ -10,6 +11,7 @@ import {
   bdVacia,
   crearPrismaFalso,
   crearBilletera,
+  crearAutomatizaciones,
   type BaseDeDatos,
 } from './club-prisma-falso';
 
@@ -31,6 +33,7 @@ const DUENO: AuthUser = {
 let bd: BaseDeDatos;
 let svc: ClubService;
 let prisma: PrismaService;
+let emitidos: Array<{ evento: string; datos: any }>;
 
 function montar() {
   bd = bdVacia();
@@ -38,10 +41,13 @@ function montar() {
   const falso = crearPrismaFalso(bd);
   prisma = falso.prisma as unknown as PrismaService;
   const billetera = crearBilletera();
+  const autos = crearAutomatizaciones();
+  emitidos = autos.emitidos;
   svc = new ClubService(
     prisma,
     billetera.wallet as unknown as WalletService,
     billetera.jobs as unknown as QueueService,
+    autos.automations as unknown as AutomationsService,
   );
 }
 
@@ -105,6 +111,53 @@ describe('el interruptor del módulo', () => {
     expect(await svc.estadoDelModulo(DUENO)).toEqual({ habilitado: true });
     bd.clubEnabled = false;
     expect(await svc.estadoDelModulo(DUENO)).toEqual({ habilitado: false });
+  });
+});
+
+describe('la bienvenida al socio', () => {
+  it('el alta dispara PASS_CREATED, como cualquier otra tarjeta', async () => {
+    // Era el hueco más grande de todos: el club no llamaba a las
+    // automatizaciones en ningún sitio, así que el socio que acaba de PAGAR
+    // era el único cliente del negocio que no recibía nada al recibir su
+    // tarjeta. La regla de bienvenida que el negocio configura pensando
+    // «cuando alguien recibe mi tarjeta» no se disparaba jamás para él.
+    plan();
+    const m = await svc.darDeAlta(DUENO, 'p1', 'cli1');
+
+    const bienvenida = emitidos.filter((e) => e.evento === 'PASS_CREATED');
+    expect(bienvenida).toHaveLength(1);
+    expect(bienvenida[0].datos).toMatchObject({
+      tenantId: 't1',
+      customerId: 'cli1',
+      passId: m.passId,
+    });
+  });
+
+  it('a quien ya estaba dentro NO se le da la bienvenida otra vez', async () => {
+    // Si no, le llegaría cada vez que lo readmiten.
+    plan();
+    await svc.darDeAlta(DUENO, 'p1', 'cli1');
+    await svc.darDeAlta(DUENO, 'p1', 'cli1');
+
+    expect(emitidos.filter((e) => e.evento === 'PASS_CREATED')).toHaveLength(1);
+  });
+});
+
+describe('consumir cuenta como visita', () => {
+  it('marca el día en el cliente, para la automatización de inactividad', async () => {
+    // `lastVisitDay` solo lo escribía el escaneo de sellos. Un socio del club
+    // quedaba en uno de dos estados, los dos malos: sin cartón previo no
+    // recibía el «te extrañamos» jamás; con un cartón viejo lo recibía
+    // estando yendo a diario.
+    plan();
+    const m = await svc.darDeAlta(DUENO, 'p1', 'cli1');
+    expect(bd.clientes[0].lastVisitDay).toBeUndefined();
+
+    await svc.consumir(DUENO, m.id, 1);
+
+    // Texto «YYYY-MM-DD», el mismo formato con el que compara la
+    // automatización — una fecha ahí no encajaría nunca.
+    expect(bd.clientes[0].lastVisitDay).toBe('2026-09-05');
   });
 });
 

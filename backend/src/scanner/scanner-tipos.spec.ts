@@ -5,6 +5,7 @@ import type { PrismaService } from '../common/prisma/prisma.service';
 import type { AppConfigService } from '../common/config/app-config.service';
 import type { WalletService } from '../wallet/wallet.service';
 import type { QueueService } from '../jobs/queue.service';
+import type { AutomationsService } from '../automations/automations.service';
 import type { CuponeraService } from '../cuponera/cuponera.service';
 import type { ReservationsService } from '../reservations/reservations.service';
 import type { ConveniosCanjeService } from '../convenios/convenios-canje.service';
@@ -14,6 +15,7 @@ import { ClubService } from '../club/club.service';
 import {
   bdVacia,
   crearBilletera,
+  crearAutomatizaciones,
   crearPrismaFalso,
   type BaseDeDatos,
   type FilaTarjeta,
@@ -305,6 +307,7 @@ function montar() {
     prisma as unknown as PrismaService,
     billetera.wallet as unknown as WalletService,
     billetera.jobs as unknown as QueueService,
+    crearAutomatizaciones().automations as unknown as AutomationsService,
   );
   espiaClub = espiarClub(club);
   dobles = crearDobles();

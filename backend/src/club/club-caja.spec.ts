@@ -8,11 +8,13 @@ import {
 import type { PrismaService } from '../common/prisma/prisma.service';
 import type { WalletService } from '../wallet/wallet.service';
 import type { QueueService } from '../jobs/queue.service';
+import type { AutomationsService } from '../automations/automations.service';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { ClubService } from './club.service';
 import {
   bdVacia,
   crearBilletera,
+  crearAutomatizaciones,
   crearPrismaFalso,
   respirar,
   type BaseDeDatos,
@@ -117,6 +119,7 @@ function montar(saldo = 10, periodo = '2026-09') {
     falso.prisma as unknown as PrismaService,
     billetera.wallet as unknown as WalletService,
     billetera.jobs as unknown as QueueService,
+    crearAutomatizaciones().automations as unknown as AutomationsService,
   );
 }
 

@@ -8,6 +8,7 @@ import {
 import type { PrismaService } from '../common/prisma/prisma.service';
 import type { WalletService } from '../wallet/wallet.service';
 import type { QueueService } from '../jobs/queue.service';
+import type { AutomationsService } from '../automations/automations.service';
 import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { ClubService } from './club.service';
 import { cupoDeAlta, errorDeTramos, type TramoAlta } from './club-periodo';
@@ -15,6 +16,7 @@ import {
   bdVacia,
   crearPrismaFalso,
   crearBilletera,
+  crearAutomatizaciones,
   type BaseDeDatos,
   type Ganchos,
 } from './club-prisma-falso';
@@ -64,6 +66,7 @@ function montar() {
     falso.prisma as unknown as PrismaService,
     billetera.wallet as unknown as WalletService,
     billetera.jobs as unknown as QueueService,
+    crearAutomatizaciones().automations as unknown as AutomationsService,
   );
 }
 

@@ -306,7 +306,12 @@ export class NotificationsService {
     let targeted = 0;
     let delivered = 0;
     for (const p of passes) {
-      targeted += p.walletDevices.length;
+      // Apple + Google. Contar solo los dispositivos de Apple decía «0
+      // destinatarios» en un envío que sí salía: el 70% de los pases están en
+      // Google, donde no hay «dispositivos» sino un objeto. El arreglo se hizo
+      // en el envío inmediato y se quedó sin aplicar en esta ruta.
+      const tieneGoogle = !!p.googleObjectId;
+      targeted += p.walletDevices.length + (tieneGoogle ? 1 : 0);
       try {
         await this.prisma.pass.update({
           where: { id: p.id },
@@ -315,7 +320,9 @@ export class NotificationsService {
         const r = await this.wallet.pushPassUpdate(p.id, {
           message: { header: n.title, body: n.body },
         });
-        delivered += r?.sent ?? 0;
+        // `sent` son los de Apple; Google va aparte y solo cuenta si de
+        // verdad salió (`ok`), no si simplemente se intentó.
+        delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
       } catch (e) {
         this.logger.warn(
           `Push pass ${p.id} (scheduled ${n.id}) falló: ${(e as Error).message}`,

@@ -13,6 +13,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { WalletService } from '../wallet/wallet.service';
 import { QueueService } from '../jobs/queue.service';
+import { AutomationsService } from '../automations/automations.service';
 import { genQrToken } from '../passes/passes.service';
 import {
   cupoDeAlta,
@@ -38,6 +39,7 @@ export class ClubService {
     private prisma: PrismaService,
     private wallet: WalletService,
     private jobs: QueueService,
+    private automations: AutomationsService,
   ) {}
 
   /**
@@ -537,7 +539,7 @@ export class ClubService {
     // resolutores de "primera tarjeta de sellos del negocio" la excluyen.
     const card = await this.tarjetaDelPlan(tenantId, plan);
 
-    return this.prisma.$transaction(async (tx) => {
+    const alta = await this.prisma.$transaction(async (tx) => {
       // El pase nace CON el cupo dentro. Es lo contrario de una tarjeta de
       // sellos, que nace en cero: aquí el cliente ya pagó.
       // Si vuelve este mes, el saldo del pase NO se toca: es lo que le quedaba.
@@ -597,8 +599,31 @@ export class ClubService {
         ...m,
         passId: pass.id,
         saldo: vuelveEsteMes ? pass.stampsCount : cupo,
+        // Para saber fuera si esto fue un alta DE VERDAD o alguien que ya
+        // estaba: el mensaje de bienvenida solo se manda la primera vez.
+        esNuevo: !vuelveEsteMes,
       };
     });
+
+    // El mismo aviso de bienvenida que dispara cualquier otra tarjeta al
+    // emitirse. Sin esto, el socio que acaba de PAGAR era el único cliente del
+    // negocio que no recibía nada: el club no llamaba a las automatizaciones
+    // en ningún sitio.
+    //
+    // Solo en el alta real. A quien vuelve dentro del mismo mes no se le da la
+    // bienvenida otra vez, o le llegaría cada vez que lo readmiten.
+    if (alta.esNuevo) {
+      this.automations
+        .emit('PASS_CREATED', {
+          tenantId,
+          customerId,
+          cardId: card.id,
+          passId: alta.passId,
+        })
+        .catch(() => null);
+    }
+
+    return alta;
   }
 
   /**
@@ -1146,6 +1171,24 @@ export class ClubService {
     });
 
     this.empujarPase(passId, 'club.consumo');
+
+    // Venir a por su café ES una visita. `lastVisitDay` solo lo escribía el
+    // escaneo de sellos, así que un socio del club quedaba en dos estados, los
+    // dos malos: si nunca tuvo tarjeta de sellos, la automatización de
+    // inactividad no le llegaba JAMÁS; y si la tuvo una vez, le llegaba «te
+    // extrañamos, hace tiempo no te vemos» estando yendo a diario.
+    //
+    // Fuera de la transacción y sin esperar: que falle esto no puede tumbar un
+    // consumo que ya está cobrado.
+    this.prisma.customer
+      .update({
+        where: { id: m.customerId },
+        // Es TEXTO «YYYY-MM-DD», no una fecha, y así lo escribe el escaneo de
+        // sellos en `gamification.service`. La automatización compara ese día
+        // con igualdad exacta, así que el formato tiene que ser el mismo.
+        data: { lastVisitDay: new Date().toISOString().slice(0, 10) },
+      })
+      .catch(() => null);
 
     return {
       ok: true,

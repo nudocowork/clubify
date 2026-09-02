@@ -508,7 +508,9 @@ export class AutomationsService {
             const r = await this.wallet.pushPassUpdate(p.id, {
               message: { header: title, body },
             });
-            delivered += r?.sent ?? 0;
+            // Apple + Google, igual que en el envío inmediato: `sent` son
+            // los de Apple y Google solo cuenta si de verdad salió.
+            delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
           } catch (e) {
             this.logger.warn(
               `SEND_PUSH pass ${p.id} (rule ${ruleId}) falló: ${(e as Error).message}`,

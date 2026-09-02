@@ -118,7 +118,16 @@ export type FilaConsumo = {
   createdAt: Date;
 };
 
-export type FilaCliente = { id: string; tenantId: string; fullName: string };
+export type FilaCliente = {
+  id: string;
+  tenantId: string;
+  fullName: string;
+  phone?: string | null;
+  email?: string | null;
+  /** Texto «YYYY-MM-DD». Lo marca el consumo para la automatización de
+   *  inactividad, igual que hace el escaneo de sellos. */
+  lastVisitDay?: string | null;
+};
 
 export type BaseDeDatos = {
   planes: FilaPlan[];
@@ -663,6 +672,15 @@ export function crearPrismaFalso(bd: BaseDeDatos) {
       const fila: FilaCliente = { id: nuevoId('cli'), ...data };
       return proyectar(insertar(bd.clientes, fila), { select }, {});
     },
+    // La usa el consumo para marcar la última visita: sin eso, la
+    // automatización de inactividad le escribe «te extrañamos» a un socio que
+    // viene a diario.
+    update: async ({ where, data }: any) => {
+      const c = bd.clientes.find((x) => x.id === where.id);
+      if (!c) throw new ErrorP2025();
+      escribir(c, data);
+      return { ...c };
+    },
   };
 
   /**
@@ -748,6 +766,23 @@ export function crearBilletera() {
     },
   };
   return { jobs, wallet, empujados };
+}
+
+/**
+ * Las automatizaciones falsas: solo apuntan qué eventos se emitieron.
+ *
+ * Lo que se prueba con esto es que el alta de un socio dispare `PASS_CREATED`
+ * —el aviso de bienvenida que reciben todas las demás tarjetas y que el club
+ * no mandaba— y que NO lo dispare cuando alguien que ya estaba dentro vuelve.
+ */
+export function crearAutomatizaciones() {
+  const emitidos: Array<{ evento: string; datos: any }> = [];
+  const automations = {
+    emit: async (evento: string, datos: any) => {
+      emitidos.push({ evento, datos });
+    },
+  };
+  return { automations, emitidos };
 }
 
 /** Deja correr las microtareas pendientes: los `await` de la llamada rival. */
