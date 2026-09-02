@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, clearSession } from '@/lib/api';
 import { nombrePasarela } from '@/lib/pasarela';
+import { useHidesPurchases } from '@/lib/native';
 
 /**
  * Lockscreen que se muestra cuando un tenant aún no tiene `hotmartSubscriberCode`.
@@ -26,6 +27,9 @@ export function CardVerificationLockscreen({
   brandGateway?: string | null;
 }) {
   const pasarela = nombrePasarela(brandGateway);
+  // Ver TrialExpiredLockscreen: en iOS no se ofrece el checkout porque
+  // Apple exige su compra in-app para las suscripciones (guideline 3.1.1).
+  const sinCompras = useHidesPurchases();
   const router = useRouter();
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -85,7 +89,12 @@ export function CardVerificationLockscreen({
             cualquier momento desde tu panel.
           </p>
 
-          {checkoutUrl ? (
+          {sinCompras ? (
+            <div className="mt-7 rounded-lg bg-bg2 px-4 py-3 text-sm text-mute leading-relaxed">
+              El pago se completa desde el panel web. Apenas quede confirmado,
+              vuelve aquí y toca «verificar ahora».
+            </div>
+          ) : checkoutUrl ? (
             <a
               href={checkoutUrl}
               className="btn-primary w-full justify-center text-base py-3 mt-7"

@@ -1,5 +1,6 @@
 'use client';
 import { useState, type ReactNode } from 'react';
+import { useHidesPurchases } from '@/lib/native';
 
 /**
  * Selector de planes tipo checkout en la landing pública (Preview 5).
@@ -65,7 +66,20 @@ export function LandingPricingCheckout({
    *  original tachado + "PRECIO PROMOCIONAL" y este es el cobrado. */
   installationPromoUsd?: number | null;
 }) {
+  // iOS: la app es solo para cuentas que ya existen. Mostrar planes y precios
+  // con checkout externo es exactamente lo que Apple rechaza por 3.1.1, y esto
+  // se alcanza desde /signup, a dos toques del login. El hook va antes del
+  // return para no romper el orden de hooks entre renders.
+  const sinCompras = useHidesPurchases();
   const [selected, setSelected] = useState<PlanId>(initialPlan);
+  if (sinCompras) {
+    return (
+      <div className="rounded-2xl bg-bg2 px-5 py-6 text-center text-sm text-mute leading-relaxed">
+        Los planes se contratan desde el panel web. Si ya tienes cuenta, inicia
+        sesión para entrar.
+      </div>
+    );
+  }
   const plan = plans.find((p) => p.id === selected) ?? plans[0];
   if (!plan) return null;
   const mensualPlan = plans.find((p) => p.id === 'mensual');

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api, clearSession } from '@/lib/api';
+import { useHidesPurchases } from '@/lib/native';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { ConstructionBadge } from '@/components/UnderConstruction';
@@ -59,6 +60,10 @@ const STATUS_LABELS: Record<Status['status'], { text: string; bg: string; ring: 
 export default function BillingPage() {
   const t = useTranslations('app_billing');
   const router = useRouter();
+  // iOS: sin CTA de compra. Apple exige su compra in-app para vender la
+  // suscripción dentro de la app (guideline 3.1.1) — el plan se activa
+  // desde el navegador. Cancelar y ver el estado sí se quedan.
+  const sinCompras = useHidesPurchases();
   const [s, setS] = useState<Status | null>(null);
   const [tenant, setTenant] = useState<any>(null);
   const [hotmartConfigured, setHotmartConfigured] = useState(false);
@@ -275,7 +280,19 @@ export default function BillingPage() {
 
       {/* CTA principal — NO en prueba paga: la tarjeta ya está anclada y el
           cobro es automático, así que no se le pide "activar/pagar". */}
-      {((s.status === 'TRIAL' && !s.paidTrial) || s.status === 'EXPIRED' || s.status === 'PAST_DUE') && (
+      {sinCompras && ((s.status === 'TRIAL' && !s.paidTrial) || s.status === 'EXPIRED' || s.status === 'PAST_DUE') && (
+        <div className="card card-pad mt-4">
+          <div className="font-bold text-lg">
+            {s.status === 'TRIAL' ? 'Activa tu suscripción' : 'Activa tu cuenta'}
+          </div>
+          <p className="text-sm text-mute mt-1.5 leading-relaxed">
+            La activación del plan se hace desde el panel web. Aquí puedes
+            seguir viendo el estado de tu cuenta y tus cobros.
+          </p>
+        </div>
+      )}
+
+      {!sinCompras && ((s.status === 'TRIAL' && !s.paidTrial) || s.status === 'EXPIRED' || s.status === 'PAST_DUE') && (
         <div className="card card-pad mt-4 bg-gradient-to-br from-brand-400 to-brand-700 text-white">
           <div className="flex items-start gap-4 flex-wrap">
             <div className="flex-1 min-w-0">

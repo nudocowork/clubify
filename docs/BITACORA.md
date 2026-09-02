@@ -58,6 +58,53 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
   frontend lo **subió a producción**: `/hub` ahora responde **200**. Si esa fase 1 no estaba
   lista para estar viva, avísame — quedó live junto con mi ranking, tu cuponera y el botón PRO.
 
+## 2026-09-01 — iOS: compras ocultas (guideline 3.1.1) + la app entra por /hub
+**Máquina/quién:** la de Jhon (sesión Claude)
+**Rama / PR:** feat/commissions-auto-cutoffs
+
+### Qué cambié
+Cierra el pendiente de la entrada anterior. `useHidesPurchases()` ya está
+aplicado: **dentro de la app de iOS no queda ningún punto de compra**. Apple
+exige su compra in-app (30%) para cualquier suscripción que se venda dentro de
+la app, o rechaza por 3.1.1. Eran cinco:
+
+- **`TrialExpiredLockscreen`** — el CTA "💳 Activar ahora" al checkout de la
+  pasarela. Se queda «Ya pagué — verificar acceso», que no es una compra.
+- **`CardVerificationLockscreen`** — "Ir al pago seguro en {pasarela}".
+- **`app/billing`** — el botón "Activar suscripción". Cancelar y ver el estado
+  del plan **siguen**: no son compras.
+- **`app/info-links/[id]`** — el banner "Mejora tu InfoLink a PRO · $14.99/mes"
+  (Stripe), el cross-sell a "Sellea Completo" y el candado PRO. Un solo corte:
+  `proUrl`/`completoUrl` en null apaga los tres, porque el candado recibe
+  `upgradeUrl={proUrl}` y cae solo al aviso sin enlace.
+- **`LandingPricingCheckout`** — los 4 planes con checkout. Este era el
+  peligroso: se alcanza desde el login por "¿No tienes cuenta? Adquiérelo
+  aquí" → `/signup`. **A dos toques.** Ese enlace también se oculta en iOS.
+
+**La app entra por `/hub`, no por la raíz** (`mobile/capacitor.config.ts`): la
+raíz es la landing de marketing con planes y precios.
+
+### Qué toqué de PRODUCCIÓN
+- **Nada.** Sin migraciones, sin variables, sin despliegue.
+- **En el navegador no cambia absolutamente nada**: `useHidesPurchases()`
+  devuelve `false` fuera de la app de iOS, así que todos los flujos de compra
+  siguen exactamente igual para los clientes de hoy.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Desplegar frontend (`/hub` + estos gates).
+- [ ] Fase 3 nativa: escáner MLKit, push APNs/FCM, biometría, enlaces
+      universales. Sin eso Apple rechaza por 4.2 ("es solo un sitio web").
+- [ ] Xcode: se liberó disco (8 GB → 44 GB libres) y quedó descargando. Falta
+      `sudo xcode-select --switch`, Homebrew + CocoaPods y `npx cap sync`.
+
+### Riesgos y avisos
+- **No tocar los pagos de PEDIDOS del cliente final.** Apple solo exige su
+  cobro para bienes digitales; comida, reservas y servicios reales van por
+  fuera sin problema. Los gates solo cubren la venta del PLAN.
+- Android no lleva ninguna de estas restricciones — Google sí permite pago
+  externo para herramientas de negocio. El gate es `nativePlatform() === 'ios'`
+  a propósito, no `isNativeApp()`.
+
 ## 2026-09-01 — Apps iOS/Android (fase 1): lanzador por rol `/hub` + shell Capacitor
 **Máquina/quién:** la de Jhon (sesión Claude)
 **Rama / PR:** feat/commissions-auto-cutoffs

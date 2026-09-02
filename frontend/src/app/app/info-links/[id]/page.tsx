@@ -6,6 +6,7 @@ import { useTenantCountry } from '@/lib/useTenantCountry';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useHidesPurchases } from '@/lib/native';
 import { publicHostForTenant } from '@/lib/public-domain';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -193,6 +194,10 @@ const BUTTON_TYPE_LABEL: Record<string, string> = {
 export default function InfoLinkEditor() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  // iOS: el upgrade a PRO se cobra por Stripe, que Apple no acepta dentro de
+  // la app para un producto digital (guideline 3.1.1). Va arriba del early
+  // return de más abajo porque los hooks no pueden ir después de un return.
+  const sinCompras = useHidesPurchases();
   const [link, setLink] = useState<InfoLink | null>(null);
   const [tenant, setTenant] = useState<any>(null);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
@@ -395,15 +400,16 @@ export default function InfoLinkEditor() {
   // Cross-sell a "Sellea Completo": solo para negocios Solo-InfoLink y solo si la
   // marca tiene configurado un Payment Link con productKey=FULL (sino, dormido).
   const isInfolinkBiz = tenant?.businessType === 'INFOLINK';
-  const completoUrl =
-    tenant?.whiteLabel?.paymentLinks?.find((l: any) => l.productKey === 'FULL')?.url ?? null;
+  const completoUrl = sinCompras
+    ? null
+    : (tenant?.whiteLabel?.paymentLinks?.find((l: any) => l.productKey === 'FULL')?.url ?? null);
   // Upgrade FREE→PRO: Payment Link de la marca con productKey=INFOLINK_PRO (el que
   // el webhook de Stripe mapea a infolinkTier=PRO). Solo se ofrece a negocios
   // INFOLINK en plan FREE y solo si la marca lo tiene configurado (sino, dormido).
   const isFreeInfolink = isInfolinkBiz && tenant?.infolinkTier === 'FREE';
   const proLink =
     tenant?.whiteLabel?.paymentLinks?.find((l: any) => l.productKey === 'INFOLINK_PRO') ?? null;
-  const proUrl: string | null = proLink?.url ?? null;
+  const proUrl: string | null = sinCompras ? null : (proLink?.url ?? null);
   const hasOwnDomain = !!tenant?.customDomain;
   const publicBase = hasOwnDomain
     ? `https://${shareHost}`

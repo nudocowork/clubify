@@ -9,7 +9,10 @@ import type { CapacitorConfig } from '@capacitor/cli';
 // Lo que justifica que sea una app y no un marcador —y lo que Apple exige por
 // la guideline 4.2— es la capa nativa: escáner MLKit, notificaciones push,
 // biometría y enlaces universales.
-const APP_URL = process.env.CLUBIFY_APP_URL ?? 'https://app.soyclubify.com';
+// Se entra por /hub, no por la raíz: la raíz es la landing de marketing con
+// planes y precios, justo lo que Apple rechaza dentro de la app (3.1.1).
+// /hub manda al login si no hay sesión y al módulo que toque si la hay.
+const APP_URL = process.env.CLUBIFY_APP_URL ?? 'https://app.soyclubify.com/hub';
 
 // Marcador que la web lee en frontend/src/lib/native.ts para saber que corre
 // dentro de la app. Mantener sincronizado con NATIVE_UA_MARKER.

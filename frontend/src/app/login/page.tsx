@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, setSession, clearSession } from '@/lib/api';
 import { primaryHrefForUser } from '@/lib/modules';
-import { isNativeApp } from '@/lib/native';
+import { isNativeApp, useHidesPurchases } from '@/lib/native';
 import { useAuthBrand, BrandMark, BrandAuthTheme } from '@/components/AuthBrand';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
@@ -20,6 +20,7 @@ function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
   const { brand } = useAuthBrand();
+  const sinCompras = useHidesPurchases();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -154,12 +155,17 @@ function LoginInner() {
 
         <GoogleSignInButton onCredential={loginWithGoogle} disabled={loading} />
 
-        <div className="mt-4 text-center text-xs text-mute">
-          ¿No tienes cuenta?{' '}
-          <Link href="/signup" className="text-brand hover:underline font-medium">
-            Adquiérelo aquí
-          </Link>
-        </div>
+        {/* "Adquiérelo aquí" lleva a /signup, que es el checkout de los planes.
+            En iOS eso es una compra externa a dos toques del login: motivo de
+            rechazo por la guideline 3.1.1. La app es para cuentas existentes. */}
+        {!sinCompras && (
+          <div className="mt-4 text-center text-xs text-mute">
+            ¿No tienes cuenta?{' '}
+            <Link href="/signup" className="text-brand hover:underline font-medium">
+              Adquiérelo aquí
+            </Link>
+          </div>
+        )}
       </form>
     </div>
   );

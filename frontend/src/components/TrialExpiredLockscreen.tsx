@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api, clearSession } from '@/lib/api';
 import { nombrePasarela } from '@/lib/pasarela';
+import { useHidesPurchases } from '@/lib/native';
 
 /**
  * Lockscreen específico para tenants que terminaron sus 5 días de prueba
@@ -23,6 +24,10 @@ export function TrialExpiredLockscreen({
   brandGateway?: string | null;
 }) {
   const pasarela = nombrePasarela(brandGateway);
+  // En la app de iOS no se puede ofrecer el pago: Apple exige su compra
+  // in-app (30%) para cualquier suscripción que se venda dentro de la app,
+  // o rechaza por la guideline 3.1.1. El negocio activa desde el navegador.
+  const sinCompras = useHidesPurchases();
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
 
@@ -89,16 +94,23 @@ export function TrialExpiredLockscreen({
           </p>
 
           <div className="mt-6 space-y-2">
-            <a
-              href={checkoutUrl ?? '#'}
-              target={checkoutUrl ? '_blank' : undefined}
-              rel="noopener noreferrer"
-              className={`btn-primary w-full justify-center py-3.5 text-base font-semibold ${
-                checkoutUrl ? '' : 'opacity-50 pointer-events-none'
-              }`}
-            >
-              💳 Activar ahora →
-            </a>
+            {sinCompras ? (
+              <div className="rounded-lg bg-bg2 px-4 py-3 text-sm text-mute leading-relaxed">
+                La activación de la cuenta se hace desde el panel web. Cuando
+                esté lista, vuelve aquí y toca «Ya pagué».
+              </div>
+            ) : (
+              <a
+                href={checkoutUrl ?? '#'}
+                target={checkoutUrl ? '_blank' : undefined}
+                rel="noopener noreferrer"
+                className={`btn-primary w-full justify-center py-3.5 text-base font-semibold ${
+                  checkoutUrl ? '' : 'opacity-50 pointer-events-none'
+                }`}
+              >
+                💳 Activar ahora →
+              </a>
+            )}
             <button
               type="button"
               onClick={checkNow}
@@ -109,12 +121,14 @@ export function TrialExpiredLockscreen({
             </button>
           </div>
 
-          <div className="mt-6 pt-5 border-t border-line2 text-xs text-mute leading-relaxed">
-            <p>
-              Pago seguro vía {pasarela}. Apenas se apruebe entras al panel con
-              todo desbloqueado. Cancelas cuando quieras.
-            </p>
-          </div>
+          {!sinCompras && (
+            <div className="mt-6 pt-5 border-t border-line2 text-xs text-mute leading-relaxed">
+              <p>
+                Pago seguro vía {pasarela}. Apenas se apruebe entras al panel
+                con todo desbloqueado. Cancelas cuando quieras.
+              </p>
+            </div>
+          )}
 
           <button
             type="button"
