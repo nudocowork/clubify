@@ -37,6 +37,26 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+## 2026-09-02 — ⚠️ Deploys de Javi revirtieron mi trabajo + InfoLink PRO fuera del selector Sellea
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commits `18cf6d89`, `1db6f8bb`
+
+### ⚠️ COORDINACIÓN (importante para Javi)
+El dueño no veía sus cambios de Sellea porque **Javi desplegó frontend ~9 veces y backend en
+3h**, y algunos deploys salieron de un HEAD (OneDrive) SIN mis commits → **revirtieron en prod**
+mis 6 fixes de Sellea (frontend) Y el income capture / productKey / SMS-sin-monto / teléfono
+(backend). Prueba: el API dejó de devolver `productKey`. **Redeployé backend (2439f7dd) y
+frontend desde HEAD** y quedó restaurado. **Regla: desplegar SIEMPRE con `desplegar.cjs` (se
+niega si estás por detrás de origin); `railway up`/`vercel --prod` directos tumban lo del otro.**
+
+### InfoLink PRO seguía en el selector "Elige tu plan" de Sellea
+- `sellea/page.tsx` (y fideliso) arman los planes con su PROPIO fetch de payment-links (duplicado
+  de `fetchBrandPlansByHost`), sin el filtro de productKey → InfoLink PRO colaba. Filtro agregado
+  en sellea/fideliso/landing-plans + en `/activar` (que no tome el precio del PRO para MENSUAL).
+- Aun así seguía por **caché de datos de Vercel** con la respuesta vieja SIN productKey. Fix
+  robusto: **dedup por id de plan** (InfoLink PRO es MENSUAL, colisiona con "Mensual" → se quita
+  sin depender de productKey). Verificado: selleala.com muestra solo Mensual+Anual, consistente.
+
 ## 2026-09-02 — Reconciliación CSV Hotmart (71 subs) → Quipao fantasma corregido + SMS sin monto
 
 **Máquina/quién:** máquina de Jhon (Claude) · datos (no código nuevo salvo el SMS sin monto, ya en `0513c740`)
