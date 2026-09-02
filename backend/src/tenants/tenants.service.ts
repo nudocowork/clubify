@@ -543,6 +543,10 @@ export class TenantsService {
     user?: AuthUser,
     criterio: 'pases' | 'antiguedad' = 'pases',
     desde?: Date | null,
+    // Qué se rankea: 'pases' (Pass emitidos) o 'pedidos' (Order de los menús de
+    // domicilios). Misma lógica de período/antigüedad/visibilidad; solo cambia
+    // la tabla que se cuenta y el campo de fecha (Pass.issuedAt / Order.createdAt).
+    metric: 'pases' | 'pedidos' = 'pases',
   ) {
     // Aislamiento por MARCA BLANCA: cada marca ve SOLO el ranking de SUS
     // negocios (mismo scoping que list()). Sin marca en sesión → default
@@ -573,26 +577,27 @@ export class TenantsService {
       return true;
     });
 
-    // Los pases del período, y aparte SIEMPRE el total histórico: cuando se
-    // filtra por fecha hay que poder comparar "40 este mes, de 1.200 en total".
-    // Sin el total al lado, el número del período no dice nada.
+    // Conteo del período + SIEMPRE el total histórico: cuando se filtra por
+    // fecha hay que poder comparar "40 este mes, de 1.200 en total". Sin el total
+    // al lado, el número del período no dice nada. La métrica decide la tabla:
+    //   pases   → Pass  (campo de fecha issuedAt)
+    //   pedidos → Order (campo de fecha createdAt) — pedidos de los menús.
     const ids = visibles.map((t) => t.id);
+    const countByTenant = (soloPeriodo: boolean) => {
+      const dateFilter =
+        soloPeriodo && desde
+          ? metric === 'pedidos'
+            ? { createdAt: { gte: desde } }
+            : { issuedAt: { gte: desde } }
+          : {};
+      const where = { tenantId: { in: ids }, ...dateFilter };
+      return metric === 'pedidos'
+        ? this.prisma.order.groupBy({ by: ['tenantId'], where, _count: { _all: true } })
+        : this.prisma.pass.groupBy({ by: ['tenantId'], where, _count: { _all: true } });
+    };
     const [delPeriodo, historico] = await Promise.all([
-      this.prisma.pass.groupBy({
-        by: ['tenantId'],
-        where: {
-          tenantId: { in: ids },
-          ...(desde ? { issuedAt: { gte: desde } } : {}),
-        },
-        _count: { _all: true },
-      }),
-      desde
-        ? this.prisma.pass.groupBy({
-            by: ['tenantId'],
-            where: { tenantId: { in: ids } },
-            _count: { _all: true },
-          })
-        : Promise.resolve(null),
+      countByTenant(true),
+      desde ? countByTenant(false) : Promise.resolve(null),
     ]);
 
     const mapaPeriodo = new Map(delPeriodo.map((g) => [g.tenantId, g._count._all]));

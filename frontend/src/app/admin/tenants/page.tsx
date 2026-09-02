@@ -639,6 +639,9 @@ function antiguedadTexto(desde: string): string {
 
 function PassesRankingModal({ onClose }: { onClose: () => void }) {
   const t = useTranslations('admin_tenants');
+  // Métrica del ranking: 'pases' (Pass emitidos) o 'pedidos' (Order de los menús
+  // de domicilios). Misma lógica de período/antigüedad para ambas.
+  const [metrica, setMetrica] = useState<'pases' | 'pedidos'>('pases');
   const [order, setOrder] = useState<'desc' | 'asc'>('desc');
   const [criterio, setCriterio] = useState<'pases' | 'antiguedad'>('pases');
   const [dias, setDias] = useState<number | null>(null);
@@ -648,13 +651,19 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     setLoading(true);
     api<RankingRow[]>(
-      `/tenants/ranking?order=${order}&criterio=${criterio}` +
+      `/tenants/ranking?order=${order}&criterio=${criterio}&metric=${metrica}` +
         (dias ? `&dias=${dias}` : ''),
     )
       .then((r) => setRows(r ?? []))
       .catch(() => setRows([]))
       .finally(() => setLoading(false));
-  }, [order, criterio, dias]);
+  }, [order, criterio, dias, metrica]);
+
+  // Etiquetas según la métrica (el producto está en español; textos dinámicos
+  // para no duplicar claves i18n por métrica).
+  const unidad = metrica === 'pases' ? 'pases' : 'pedidos';
+  const unidadCap = metrica === 'pases' ? 'Pases' : 'Pedidos';
+  const unidadVerbo = metrica === 'pases' ? 'emitidos' : 'realizados';
 
   // El total de pases emitidos, que es el dato que faltaba: sin él, el
   // ranking dice quién va primero pero no de cuánto estamos hablando.
@@ -671,7 +680,7 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-4 border-b border-line">
-          <h3 className="text-lg font-bold">🏆 {t('rankingTitle')}</h3>
+          <h3 className="text-lg font-bold">🏆 Ranking de {unidad}</h3>
           <button
             onClick={onClose}
             className="text-mute hover:text-ink text-xl leading-none"
@@ -680,16 +689,36 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <div className="px-4 py-2.5 border-b border-line space-y-2">
+          {/* Selector de ranking: pases emitidos vs pedidos de los menús de
+              domicilios. Dos vistas con la misma lógica de período/antigüedad. */}
+          <div className="flex rounded-lg bg-bg2 p-0.5">
+            {(
+              [
+                ['pases', '🎫 Ranking de pases'],
+                ['pedidos', '🛵 Ranking de pedidos'],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                onClick={() => setMetrica(k)}
+                className={`flex-1 px-3 py-1.5 text-xs rounded-md font-semibold ${
+                  metrica === k ? 'bg-white shadow-sm text-ink' : 'text-mute'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {/* Por qué se ordena. «Antigüedad» responde una pregunta distinta a
-              «pases»: quién lleva más tiempo con nosotros no suele ser quien
-              más emite. */}
+              la métrica: quién lleva más tiempo con nosotros no suele ser quien
+              más emite/pide. */}
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex rounded-lg bg-bg2 p-0.5">
               {(
                 [
-                  ['pases', 'Por pases'],
+                  ['pases', `Por ${unidad}`],
                   ['antiguedad', 'Por antigüedad'],
-                ] as const
+                ] as ['pases' | 'antiguedad', string][]
               ).map(([k, label]) => (
                 <button
                   key={k}
@@ -714,7 +743,7 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
               no depende de él, así que ahí no se ofrece y no confunde. */}
           {criterio === 'pases' && (
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] text-mute">Pases emitidos en:</span>
+              <span className="text-[11px] text-mute">{unidadCap} {unidadVerbo} en:</span>
               {PERIODOS.map((p) => (
                 <button
                   key={p.label}
@@ -734,7 +763,7 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
           <div className="text-xs text-mute">
             {t('rankingCount', { count: rows.length })} ·{' '}
             <b className="text-ink">{totalPases.toLocaleString('es-CO')}</b>{' '}
-            pases emitidos en total
+            {unidad} {unidadVerbo} en total
             {dias != null && criterio === 'pases' && (
               <>
                 {' '}
@@ -779,7 +808,7 @@ function PassesRankingModal({ onClose }: { onClose: () => void }) {
                   </div>
                   <div className="text-right whitespace-nowrap">
                     <div className="font-bold text-brand">
-                      {t('passesCount', { count: r.passCount })}
+                      {r.passCount.toLocaleString('es-CO')} {unidad}
                     </div>
                     {/* Con período activo, el total al lado: "40" no se puede
                         leer sin saber si viene de 50 o de 5.000. */}

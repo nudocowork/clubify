@@ -205,8 +205,9 @@ export class TenantsController {
     @CurrentUser() user?: AuthUser,
     @Query('criterio') criterio?: string,
     @Query('dias') dias?: string,
+    @Query('metric') metric?: string,
   ) {
-    // `dias` acota los pases al período; sin él, el histórico completo.
+    // `dias` acota el conteo al período; sin él, el histórico completo.
     const n = Number(dias);
     const desde =
       Number.isFinite(n) && n > 0
@@ -217,6 +218,7 @@ export class TenantsController {
       user,
       criterio === 'antiguedad' ? 'antiguedad' : 'pases',
       desde,
+      metric === 'pedidos' ? 'pedidos' : 'pases',
     );
   }
 
