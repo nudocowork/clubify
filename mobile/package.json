@@ -1,0 +1,32 @@
+{
+  "name": "clubify-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shell nativo (iOS/Android) de Clubify. Carga el panel de producción y le agrega escáner nativo, notificaciones push y biometría. No se construye en Vercel: vive fuera del build del frontend a propósito.",
+  "scripts": {
+    "sync": "cap sync",
+    "ios": "cap open ios",
+    "android": "cap open android",
+    "add:ios": "cap add ios",
+    "add:android": "cap add android",
+    "assets": "capacitor-assets generate --iconBackgroundColor '#0B1F14' --splashBackgroundColor '#0B1F14'"
+  },
+  "dependencies": {
+    "@capacitor-mlkit/barcode-scanning": "^6.2.0",
+    "@capacitor/android": "^6.2.1",
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/browser": "^6.0.5",
+    "@capacitor/core": "^6.2.1",
+    "@capacitor/haptics": "^6.0.2",
+    "@capacitor/ios": "^6.2.1",
+    "@capacitor/preferences": "^6.0.3",
+    "@capacitor/push-notifications": "^6.0.4",
+    "@capacitor/splash-screen": "^6.0.3",
+    "@capacitor/status-bar": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^6.2.1",
+    "typescript": "^5.9.3"
+  }
+}

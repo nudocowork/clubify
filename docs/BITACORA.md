@@ -37,6 +37,136 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+## 2026-09-01 — Apps iOS/Android (fase 1): lanzador por rol `/hub` + shell Capacitor
+**Máquina/quién:** la de Jhon (sesión Claude)
+**Rama / PR:** feat/commissions-auto-cutoffs
+
+### Qué cambié
+- **`/hub` — lanzador por rol.** Según el correo con el que se inicia sesión,
+  muestra los módulos a los que esa cuenta entra de verdad: Master Admin,
+  Administración, Mi negocio, Pedidos, Escáner, Cuponera, Domicilios,
+  Afiliados. Con **un solo módulo entra directo**, sin clic de más.
+- **`frontend/src/lib/modules.ts` — fuente única de "qué ve cada rol".** El
+  mapa estaba duplicado dos veces dentro de `login/page.tsx` (contraseña y
+  Google). Ahora las dos llaman `primaryHrefForUser()`. Los destinos están
+  verificados contra los guards reales (`AppShell`, `superadmin/layout.tsx`,
+  `domicilios/layout.tsx` y los `@Roles` de `scanner.controller.ts`): ofrecer
+  una tarjeta que el guard rebota no da 403, da un **ping-pong** entre /app y
+  /admin.
+- **`frontend/src/lib/native.ts` — detección del contenedor nativo** (bridge de
+  Capacitor + marcador `ClubifyApp` en el User-Agent). Trae
+  `useHidesPurchases()` para la guideline 3.1.1 de Apple. **El helper existe
+  pero todavía no está aplicado en ningún sitio** (ver "qué falta").
+- **`middleware.ts`:** `/hub` agregado a la lista de rutas que NO se reescriben
+  por dominio. Sin eso, en el dominio de una marca blanca `/hub` caía al sitio
+  del tenant.
+- **`mobile/` — proyecto Capacitor nuevo**, fuera de `frontend/` a propósito
+  (sus dependencias no entran al build de Vercel). Carga
+  `https://app.soyclubify.com` en un WebView; el panel es Next.js con SSR y
+  middleware, así que empaquetarlo estático no es opción. Efecto útil: **un
+  deploy del frontend actualiza las dos apps** sin pasar por revisión.
+
+### Qué toqué de PRODUCCIÓN
+- **Nada.** Sin migraciones, sin variables, sin despliegue. Todo lo de este
+  bloque está solo en la rama.
+- El comportamiento del login en el navegador **es el mismo de siempre**
+  (destino directo por rol). `/hub` solo se vuelve la entrada dentro de la app
+  instalada, que todavía no existe.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Desplegar frontend para que `/hub` exista en producción.
+- [ ] **Ocultar compras en iOS** con `useHidesPurchases()`: `/pagar`, checkout
+      Hotmart, "Mejorar plan", "Comprar créditos" y el Stripe de Sellea
+      Infolinks. Sin esto, Apple rechaza por 3.1.1 (o exige su 30%).
+- [ ] **Fase 3 (nativo real):** escáner MLKit, push APNs/FCM (falta tabla de
+      tokens de dispositivo + endpoints), biometría, enlaces universales. Sin
+      eso no conviene enviar a Apple: rechazan por 4.2 lo que es "solo un sitio".
+- [ ] Completar el proyecto iOS: se generó pero **quedó sin `pod install`**
+      porque en esta máquina no hay Xcode ni CocoaPods. Con Xcode instalado se
+      arregla con `cd mobile && npx cap sync`.
+- [ ] Icono 1024×1024 y splash 2732×2732 en `mobile/resources/`.
+
+### Riesgos y avisos
+- **Bundle id `com.soyclubify.app` es permanente** una vez publicado. Si se
+  quiere otro, cambiarlo AHORA en `mobile/capacitor.config.ts`.
+- **Las marcas blancas NO van a las tiendas en esta fase.** Publicarlas como
+  apps separadas desde la cuenta de Clubify las hace clones (Apple 4.3) y
+  meterlas en la app "Clubify" delataría la plataforma. Siguen con la PWA, que
+  ya sirve manifest e iconos por marca.
+- `mobile/android` y `mobile/ios` se versionan (llevan permisos y firma); lo
+  que regenera cada build está en `mobile/.gitignore`.
+- Detalle operativo completo en [`mobile/README.md`](../mobile/README.md).
+
+## 2026-09-01 — Cuponera: renombre a "Cuponera Card" + unificación del Master Admin
+**Máquina/quién:** la de Jhon (sesión Claude)
+**Rama / PR:** feat/commissions-auto-cutoffs — commit `342dec08`
+
+### Qué cambié
+- **Renombre del producto a "Cuponera Card"** (antes Living Card). Solo el texto
+  que ve la gente: 26 lugares entre portada, unirse, negocios, beneficios, mi
+  tarjeta, panel del aliado y Master Admin.
+- **NO se tocaron las llaves internas**: el slug `living-card`, el
+  `sys-living-card` del tenant, el modelo `LivingMembership` ni los
+  `ensureLiving*`. Cambiar el slug NO renombra la campaña: hace que
+  `ensureLivingCampaign()` no la encuentre y **cree una segunda vacía**, dejando
+  huérfanos aliados, miembros y canjes. No sale en ninguna URL pública. Queda
+  explicado en el propio `LIVING_CAMPAIGN_SLUG` para que nadie lo "arregle".
+- **Rutas**: `/livingcard` y `/livingcard/cartelera` **siguen vivas** (están en
+  material impreso desde agosto). Se agregó `/cuponeracard/*` al lado.
+- **Menú del Master Admin: de dos entradas a una.** Había 'Cuponeras' (el
+  índice) y 'Living Card' (el editor). El editor NO era un duplicado: era el
+  editor de UNA cuponera —la primera— porque sus endpoints `/cuponera/admin/*`
+  llaman `ensureLivingCampaign()` por dentro. Quedó solo **Cuponeras**, que ya
+  tenía «Entrar al panel» → `/cuponera/admin?campaignId=<id>`, scopeado de
+  verdad. `/superadmin/living-card` **redirige** ahí (no da 404).
+- **Tres cosas que vivían SOLO en la pantalla vieja se portaron al panel**, para
+  no perder capacidad al quitarla: diseño de la tarjeta Wallet (pestaña nueva
+  *Tarjeta*), credenciales de MercadoPago y mapeo a Hotmart/Stripe
+  (*Configuración › Cobro*). Las tres pasan por `resolveAdminCampaign`, así que
+  ahora **cada cuponera** diseña su tarjeta y conecta su cobro — antes solo la
+  primera podía.
+- 5 endpoints nuevos en `cuponera/panel`: `GET/PUT card`, `GET gateways`,
+  `GET/PATCH mercadopago`. `MercadoPagoService.status/setConfig` aceptan una
+  campaña opcional (sin ella siguen cayendo en la primera, como siempre).
+- **Bug atrapado antes de salir:** `PanelPlanPatchBody` no declaraba los campos
+  de pasarela, así que el whitelist del ValidationPipe los descartaba antes del
+  servicio: el mapeo se habría "guardado" sin error y sin guardar nada.
+- Test nuevo: `test/cuponera-panel-tarjeta-cobro.test.ts` (5 casos).
+  Suite completa de cuponera: 123 en verde.
+
+### Qué toqué de PRODUCCIÓN
+- **Backend desplegado** con `node scripts/desplegar.cjs backend`. Swap
+  verificado por reseteo de uptime (835s → 11s). Endpoints nuevos comprobados:
+  `card`, `gateways`, `mercadopago` dan 401; una ruta inventada da 404 (control).
+  Lo público sigue en 200.
+- **Frontend desplegado** con `node scripts/desplegar.cjs frontend`.
+- El deploy arrastró `a19639b5` de la otra máquina (botón de upgrade a PRO en el
+  editor de InfoLinks). Solo toca un archivo de frontend; verificado que compila.
+- **Renombre en la base**: `backend/scripts/apply-rename-cuponera-card.cjs`
+  (simulacro por defecto, `APPLY=1` para escribir). Renombra 9 campos: nombre y
+  texto de bienvenida de la campaña, nombre y brandName del tenant de sistema,
+  los 3 planes y el nombre + walletBrandName de la tarjeta Wallet.
+  Hacía falta un script aparte porque `ensureLivingCampaign()` es idempotente y
+  **no pisa** los campos de una campaña que ya existe: cambiar el literal en el
+  código no renombra nada de lo que ya está.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] La cuponera sigue con **0 aliados y 0 beneficios**. Es el bloqueo real:
+      sin un negocio cargado no hay nada que ofrecer ni forma de probar el ciclo.
+- [ ] **Nadie tiene rol `CUPONERA_ADMIN`.** Se entra por el Master Admin.
+- [ ] **Sin pasarela conectada** → los planes Mensual y Anual siguen inactivos;
+      público solo se ve el Gratis.
+- [ ] La pestaña *Tarjeta* y el bloque *Cobro* del panel nunca se ejercitaron
+      con datos reales (no hay miembros).
+
+### Riesgos y avisos
+- **No renombrar el slug `living-card`.** Es la llave, no el nombre. Ver arriba.
+- El editor viejo quedó como redirección; su contenido está en git en
+  `3701e712` si hiciera falta mirarlo.
+- `/livingcard/*` no se puede borrar: está impreso en material repartido.
+
+---
+
 > **Arqueo del ecosistema entero (2026-08-20):**
 > [`docs/ARQUEO-ECOSISTEMA.md`](ARQUEO-ECOSISTEMA.md) — 7 auditorías en paralelo
 > sobre Clubify PRO, TeamClubify y las marcas blancas. 22 hallazgos ordenados por

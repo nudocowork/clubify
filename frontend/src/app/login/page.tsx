@@ -3,6 +3,8 @@ import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, setSession, clearSession } from '@/lib/api';
+import { primaryHrefForUser } from '@/lib/modules';
+import { isNativeApp } from '@/lib/native';
 import { useAuthBrand, BrandMark, BrandAuthTheme } from '@/components/AuthBrand';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
@@ -44,23 +46,11 @@ function LoginInner() {
       // de AppShell te tiraba a /app (una subcuenta) tras loguear.
       clearSession();
       setSession(data.accessToken, data.user, { refreshToken: data.refreshToken });
-      router.push(
-        data.user.role === 'PLATFORM_OWNER'
-          ? '/superadmin'
-          : data.user.role === 'SUPER_ADMIN' || data.user.role === 'MARKETING'
-          ? '/admin'
-          : data.user.role === 'DELIVERY_COMPANY'
-          ? '/domicilios'
-          // Cuponeras: ninguno de los dos tiene tenantId, así que el default
-          // '/app' (panel del negocio) les quedaba roto.
-          : data.user.role === 'CUPONERA_ADMIN'
-          ? '/cuponera/admin'
-          : data.user.role === 'ALLY_BUSINESS'
-          ? '/cuponera/panel'
-          : data.user.role?.startsWith('AFFILIATE_')
-          ? '/affiliate'
-          : '/app',
-      );
+      // A dónde entra según el rol: el mapa vive en lib/modules.ts (lo comparte
+      // el lanzador /hub). En la app instalada la entrada es SIEMPRE el
+      // lanzador, que a su vez entra directo si la cuenta tiene un solo
+      // módulo; en el navegador se mantiene el destino directo de siempre.
+      router.push(isNativeApp() ? '/hub' : primaryHrefForUser(data.user));
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -82,23 +72,11 @@ function LoginInner() {
       // de AppShell te tiraba a /app (una subcuenta) tras loguear.
       clearSession();
       setSession(data.accessToken, data.user, { refreshToken: data.refreshToken });
-      router.push(
-        data.user.role === 'PLATFORM_OWNER'
-          ? '/superadmin'
-          : data.user.role === 'SUPER_ADMIN' || data.user.role === 'MARKETING'
-          ? '/admin'
-          : data.user.role === 'DELIVERY_COMPANY'
-          ? '/domicilios'
-          // Cuponeras: ninguno de los dos tiene tenantId, así que el default
-          // '/app' (panel del negocio) les quedaba roto.
-          : data.user.role === 'CUPONERA_ADMIN'
-          ? '/cuponera/admin'
-          : data.user.role === 'ALLY_BUSINESS'
-          ? '/cuponera/panel'
-          : data.user.role?.startsWith('AFFILIATE_')
-          ? '/affiliate'
-          : '/app',
-      );
+      // A dónde entra según el rol: el mapa vive en lib/modules.ts (lo comparte
+      // el lanzador /hub). En la app instalada la entrada es SIEMPRE el
+      // lanzador, que a su vez entra directo si la cuenta tiene un solo
+      // módulo; en el navegador se mantiene el destino directo de siempre.
+      router.push(isNativeApp() ? '/hub' : primaryHrefForUser(data.user));
     } catch (e: any) {
       setErr(e.message);
     } finally {

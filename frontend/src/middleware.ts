@@ -395,6 +395,10 @@ export async function middleware(req: NextRequest) {
     url.pathname.startsWith('/forgot') ||
     url.pathname.startsWith('/reset') ||
     url.pathname.startsWith('/scan') ||
+    // Lanzador por rol: es pantalla privada de panel, no la página
+    // pública de un negocio. Sin esta línea, en el dominio de una marca
+    // blanca /hub se reescribiría al sitio del tenant.
+    url.pathname.startsWith('/hub') ||
     url.pathname.startsWith('/onboarding') ||
     url.pathname === '/maintenance' ||
     url.pathname.startsWith('/m/') ||
