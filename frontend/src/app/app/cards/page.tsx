@@ -28,6 +28,8 @@ type Card = {
   // sellos. Por dentro es `STAMPS` porque el saldo vive en el mismo contador,
   // así que sin este campo se ve aquí como una tarjeta cualquiera.
   clubPlanId?: string | null;
+  /** Puesto = plantilla de una ALIANZA. También es `STAMPS` por dentro. */
+  convenioId?: string | null;
   rewardText: string;
   primaryColor: string;
   secondaryColor: string;
@@ -395,6 +397,10 @@ function CardPreview({
   // forma de reemitirla. El backend ya lo rechaza; aquí ni se ofrece, porque
   // un botón que solo sirve para dar error es peor que no tenerlo.
   const esDeClub = Boolean(card.clubPlanId);
+  // Lo mismo para la plantilla de una ALIANZA, donde borrarla es peor todavía:
+  // `ConvenioTarjeta.passId` no tiene clave foránea, así que la cascada deja
+  // las filas apuntando a pases muertos y esos empleados no se pueden reemitir.
+  const esDeAlianza = Boolean(card.convenioId);
   const t = useTranslations('app_cards');
   const fallback = TYPE_COLORS[card.type] ?? TYPE_COLORS.STAMPS;
   const primary = card.primaryColor || fallback.primary;
@@ -445,9 +451,9 @@ function CardPreview({
             </span>
           )}
 
-          {esDeClub ? (
+          {esDeClub || esDeAlianza ? (
             <span className="absolute top-2 right-2 z-10 bg-white/95 text-ink text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-              Club
+              {esDeClub ? 'Club' : 'Alianza'}
             </span>
           ) : (
             <button
@@ -477,13 +483,17 @@ function CardPreview({
                     que sin esto se anunciaba como una tarjeta de sellos. */}
                 {esDeClub
                   ? '🎟️ Tarjeta de club'
-                  : `${TYPE_EMOJI[card.type]} ${t(TYPE_LABEL_KEY[card.type])}`}
+                  : esDeAlianza
+                    ? '🤝 Tarjeta de alianza'
+                    : `${TYPE_EMOJI[card.type]} ${t(TYPE_LABEL_KEY[card.type])}`}
               </div>
             </div>
             <div className="text-right shrink-0 mr-7">
               <div className="text-[8px] uppercase tracking-wider opacity-75 font-bold">
                 {esDeClub
                   ? 'BENEFICIOS'
+                  : esDeAlianza
+                  ? 'BENEFICIO'
                   : card.type === 'STAMPS' || card.type === 'HYBRID'
                   ? t('headerStamps')
                   : card.type === 'VISITS'

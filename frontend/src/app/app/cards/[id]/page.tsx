@@ -81,6 +81,13 @@ type Card = {
     useCount: number;
   }>;
   isActive: boolean;
+  /**
+   * Puesto = es la plantilla de una ALIANZA. Por dentro es `STAMPS` porque
+   * hereda toda la maquinaria de billetera, así que sin este campo se ve aquí
+   * como una tarjeta de sellos cualquiera — con su enlace de alta público, que
+   * es justo el que NO debe repartirse.
+   */
+  convenioId?: string | null;
   _count?: { passes: number };
 };
 
@@ -373,7 +380,27 @@ export default function CardDetail() {
         <Kpi label={t('kpiTotalStamps')} value={stats.stampsTotal} accent="amber" />
       </div>
 
-      <EnrollLinkCard cardId={String(id)} cardName={card.name} />
+      {/* La plantilla de una ALIANZA no se reparte por este enlace: el alta de
+          `/c/<id>` es el «Únete al programa» de una tarjeta de sellos y NO pide
+          el código de la empresa, ni el documento, ni mira la lista. Cualquiera
+          con el enlace se llevaba el beneficio del aliado. Su puerta es la de
+          la ficha de la alianza. El backend ya lo rechaza; aquí ni se ofrece. */}
+      {card.convenioId ? (
+        <div className="card card-pad">
+          <div className="font-medium">Enlace de esta tarjeta</div>
+          <p className="mt-1 text-sm text-mute">
+            Esta es la tarjeta de una alianza con una empresa, y no se reparte
+            desde aquí: quien la activa tiene que escribir el código que su
+            empresa le dio. El enlace bueno está en{' '}
+            <Link href="/app/alianzas" className="underline">
+              Alianzas
+            </Link>
+            .
+          </p>
+        </div>
+      ) : (
+        <EnrollLinkCard cardId={String(id)} cardName={card.name} />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Preview grande — mismo componente que el wizard y el wallet del cliente */}
