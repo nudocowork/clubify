@@ -37,6 +37,32 @@ Antes de desplegar o migrar, lee también [ESTADO-PRODUCCION.md](./ESTADO-PRODUC
 
 ---
 
+## 2026-09-02 — CONTABILIDAD: pagos Hotmart en moneda local no se capturaban (fix LIVE)
+
+**Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `9f6bbc7f`
+
+### Bug (sistémico, pre-existente)
+`resolvePaidUsd` (hotmart.service) devuelve `null` cuando el comprador paga en moneda
+LOCAL (PAB/COP/MXN/PEN/CLP/GTQ) — correcto para la comisión (usa el canónico). Pero ese
+null hacía que el income capture recibiera `grossUsd=null` y **saltara el IncomeRecord**.
+⇒ **70 pagos Hotmart reales (jun→sep) nunca entraron a Contabilidad** (~$8.772 USD). El
+monto USD sí venía en `original_offer_price`. Caso reportado: Hydor Coffee House (HP4204708280,
+$53.48 PAB). El webhook procesó bien (billing avanzó, comisión generada) — solo faltó el ingreso.
+
+### Fix (DESPLEGADO — deployment 11db979b, Online 200)
+Para Contabilidad y el SMS interno `pago_procesado` se resuelve el USD con fallback:
+`realPriceUsd ?? original_offer_price(USD) ?? canónico`. Comisión y `lastPaymentAmountUsd`
+(auditoría) sin cambios. Pagos futuros en moneda local ya se capturan.
+
+### PENDIENTE (decisión del dueño)
+Backfill de los 70 pagos perdidos (dedup por txId, seguro — los 23 del backfill del 31-ago
+usan txId real). Opciones: (A) los 70 (~$8.772, 57 sin tenant=primer pago), (B) solo los 13
+con negocio resuelto (~$850), (C) ninguno. Sin correr aún.
+
+### Nota
+Test pre-existente en rojo (NO de este cambio): `integrations/brand-message-templates.spec`
+"automatizaciones sin correo gemelo" (trial_started…). Área de plantillas/automatizaciones.
+
 ## 2026-09-02 — Revisión de bugs (ayer+hoy) → 1 arreglo (billing colgado)
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs` · commit `f612d1d2`
