@@ -171,7 +171,7 @@ export default function AlianzasPage() {
               className="input"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Confenalco, Altieri…"
+              placeholder="Nombre de la empresa aliada"
               required
             />
           </div>
