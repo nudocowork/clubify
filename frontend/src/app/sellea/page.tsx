@@ -240,6 +240,8 @@ export default async function SelleaLandingPage() {
           <nav className="hidden lg:flex items-center gap-8 text-[14px] text-mute">
             <a href="#clientes" className="hover:text-ink">Clientes</a>
             <a href="#precios" className="hover:text-ink">Precios</a>
+            {/* Puerta a la landing freemium de InfoLinks (selleala.com/infolink). */}
+            <Link href="/infolink" className="hover:text-ink">Infolinks</Link>
           </nav>
           <div className="flex gap-2 items-center">
             <Link className="inline-flex text-sm text-mute hover:text-ink" href="/login">Iniciar sesión</Link>

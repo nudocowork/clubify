@@ -29,14 +29,20 @@ export default async function InfoLinkSignupPage({
 
   let initialBrand: Brand | null = null;
   try {
+    // OJO: el backend monta TODO bajo el prefijo global `/api`
+    // (main.ts → setGlobalPrefix('api')). Sin ese `/api` este fetch daba 404,
+    // `initialBrand` quedaba null y el form caía SIEMPRE al fetch cliente →
+    // por eso el flash de marca (logo/colores/tagline) nunca se fue. Este es el
+    // fix raíz del FOUC: con la URL correcta el primer render del server ya trae
+    // la marca. Timeout corto para que un branding lento no bloquee el TTFB.
     const res = await fetch(
-      `${API}/auth/infolink-brand/${encodeURIComponent(brandSlug)}`,
-      { next: { revalidate: 60 } },
+      `${API}/api/auth/infolink-brand/${encodeURIComponent(brandSlug)}`,
+      { next: { revalidate: 300 }, signal: AbortSignal.timeout(2000) },
     );
     if (res.ok) initialBrand = (await res.json()) as Brand;
   } catch {
-    // Si el server no la pudo traer (red/caché), el form la resuelve en cliente
-    // como fallback (con un mínimo parpadeo, pero es el caso raro).
+    // Si el server no la pudo traer (red/timeout), el form la resuelve en
+    // cliente como fallback (caso raro).
   }
 
   return (

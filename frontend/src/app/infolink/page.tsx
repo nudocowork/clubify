@@ -122,7 +122,7 @@ export default async function SelleaInfolinkLanding() {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 20, maxWidth: 820, margin: '0 auto' }}>
           <PriceCard tier="GRATIS" amount="$0" note="para siempre" features={FREE_FEATURES} cta="Crear mi Infolink gratis" href={SIGNUP} pro={false} />
-          <PriceCard tier="PRO" amount="Por definir" note="facturación mensual" features={PRO_FEATURES} cta="Empieza gratis y mejora" href={SIGNUP} pro />
+          <PriceCard tier="PRO" amount="$14.99" note="USD · al mes" features={PRO_FEATURES} cta="Empieza gratis y mejora" href={SIGNUP} pro />
         </div>
       </section>
 

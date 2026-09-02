@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, setSession } from '@/lib/api';
+import { PhoneInput } from '@/components/PhoneInput';
 
 export type Brand = {
   slug: string;
@@ -64,7 +65,15 @@ export function SignupForm({
     e.preventDefault();
     if (busy) return;
     setErr(null);
-    if (!form.brandName.trim() || !form.fullName.trim() || !form.email.trim() || form.password.length < 6) {
+    // Todos los campos son obligatorios (incluido WhatsApp). PhoneInput emite ''
+    // cuando el número está vacío, así que este trim también valida el teléfono.
+    if (
+      !form.brandName.trim() ||
+      !form.fullName.trim() ||
+      !form.email.trim() ||
+      !form.phone.trim() ||
+      form.password.length < 6
+    ) {
       setErr('Completa todos los campos (contraseña mínimo 6 caracteres).');
       return;
     }
@@ -83,7 +92,7 @@ export function SignupForm({
           fullName: form.fullName.trim(),
           email: form.email.trim(),
           password: form.password,
-          phone: form.phone.trim() || undefined,
+          phone: form.phone.trim(),
           tier,
         }),
       });
@@ -119,17 +128,22 @@ export function SignupForm({
             // eslint-disable-next-line @next/next/no-img-element
             <img src={brand.logoUrl} alt={brand.name} style={{ height: 44, objectFit: 'contain', margin: '0 auto 10px' }} />
           ) : (
-            <div style={{ fontSize: 34, marginBottom: 6 }}>🔗</div>
+            // Sin logo (caso raro: el server no resolvió la marca): skeleton
+            // neutro de las MISMAS dimensiones del logo — nunca el emoji 🔗 ni un
+            // salto de layout (CLS). Con el fix del fetch server esto casi no se ve.
+            <div style={{ height: 44, width: 120, margin: '0 auto 10px', borderRadius: 8, background: '#eef2f0' }} />
           )}
           <h1 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>
             {isFree ? 'Crea tu InfoLink gratis' : 'Crea tu InfoLink'}
           </h1>
-          <p style={{ color: '#6b7785', fontSize: 13.5, marginTop: 6 }}>
+          <p style={{ color: '#6b7785', fontSize: 13.5, marginTop: 6, minHeight: 19 }}>
+            {/* Sin marca aún → espacio en blanco (mantiene la altura), nunca
+                "Cargando…": ese texto era parte del flash visible. */}
             {brand
               ? isFree
                 ? `Tu mini-página con ${brand.name}. Gratis y lista en minutos.`
                 : `Tu mini-página con ${brand.name}. Lista en minutos.`
-              : 'Cargando…'}
+              : ' '}
           </p>
         </div>
 
@@ -158,8 +172,6 @@ export function SignupForm({
               { k: 'brandName', label: 'Nombre de tu negocio', type: 'text', ph: 'Ej: Café del Centro' },
               { k: 'fullName', label: 'Tu nombre', type: 'text', ph: 'Nombre y apellido' },
               { k: 'email', label: 'Email', type: 'email', ph: 'tucorreo@ejemplo.com' },
-              { k: 'phone', label: 'WhatsApp (opcional)', type: 'tel', ph: '+57…' },
-              { k: 'password', label: 'Contraseña', type: 'password', ph: 'Mínimo 6 caracteres' },
             ].map((f) => (
               <label key={f.k} style={{ display: 'block', marginBottom: 12 }}>
                 <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#374151', marginBottom: 5 }}>{f.label}</span>
@@ -168,12 +180,37 @@ export function SignupForm({
                   value={(form as any)[f.k]}
                   onChange={(e) => set(f.k as keyof typeof form, e.target.value)}
                   placeholder={f.ph}
-                  required={f.k !== 'phone'}
-                  autoComplete={f.k === 'password' ? 'new-password' : 'off'}
+                  required
+                  autoComplete="off"
                   style={{ width: '100%', padding: '11px 12px', borderRadius: 10, border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none' }}
                 />
               </label>
             ))}
+
+            {/* WhatsApp OBLIGATORIO, con selector de país (bandera + prefijo). Ya
+                no hay "+57" hardcodeado ni "(opcional)": el prefijo lo elige el
+                usuario en el selector. */}
+            <label style={{ display: 'block', marginBottom: 12 }}>
+              <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#374151', marginBottom: 5 }}>WhatsApp</span>
+              <PhoneInput
+                value={form.phone}
+                onChange={(v) => set('phone', v)}
+                placeholder="Número de WhatsApp"
+              />
+            </label>
+
+            <label style={{ display: 'block', marginBottom: 12 }}>
+              <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#374151', marginBottom: 5 }}>Contraseña</span>
+              <input
+                type="password"
+                value={form.password}
+                onChange={(e) => set('password', e.target.value)}
+                placeholder="Mínimo 6 caracteres"
+                required
+                autoComplete="new-password"
+                style={{ width: '100%', padding: '11px 12px', borderRadius: 10, border: '1.5px solid #e5e7eb', fontSize: 14, outline: 'none' }}
+              />
+            </label>
 
             {err && (
               <div style={{ marginBottom: 12, fontSize: 13, color: '#b91c1c', background: '#fee2e2', borderRadius: 10, padding: '8px 10px' }}>{err}</div>
