@@ -334,12 +334,26 @@ export class WalletService {
     // sellos con el icono elegido por el tenant. Reemplaza la strip default
     // que solo era gradient verde sólido.
     let dynamicStrips: Record<string, Buffer> = {};
-    if (pass.card.type === 'STAMPS') {
+    // Una tarjeta de CLUB es `STAMPS` por dentro, así que caía aquí y se
+    // dibujaba su cartón. Para un cupo pequeño se lee bien —cuatro círculos
+    // llenos son «te quedan cuatro lavadas»—, pero tiene dos problemas:
+    //
+    //  · El grid se corta en 20 círculos por diseño. Un plan de 30 clases
+    //    pintaba 20 mientras la cabecera decía «7 / 30»: la foto y el número
+    //    contando cosas distintas.
+    //  · El denominador salía de `card.stampsRequired`, que es el cupo del
+    //    PLAN, y la cabecera usa el del PERÍODO. Si el negocio sube el plan a
+    //    mitad de mes, el socio veía «7 / 10» encima de 15 círculos.
+    //
+    // Por eso el club manda su propio cupo, y por encima de 20 se queda sin
+    // cartón: el número de la cabecera es entonces la única versión.
+    const cupoDibujable = club ? club.cupo : (pass.card.stampsRequired ?? 10);
+    if (pass.card.type === 'STAMPS' && (!club || cupoDibujable <= 20)) {
       const c: any = pass.card;
       dynamicStrips = await this.generateStampsStrip({
         primary: pass.card.primaryColor,
         secondary: pass.card.secondaryColor,
-        required: pass.card.stampsRequired ?? 10,
+        required: cupoDibujable,
         stamped: pass.stampsCount,
         icon: c.stampIcon || '☕',
       stampIconImageUrl: c.stampIconImageUrl ?? null,
@@ -630,8 +644,15 @@ export class WalletService {
     const L = passLabels(pass.customer?.locale);
     const t = pass.card.type;
     if (t !== 'STAMPS' && t !== 'HYBRID' && t !== 'VISITS') return null;
-    const required =
-      t === 'VISITS'
+    // Una tarjeta de CLUB es `STAMPS` por dentro y caía aquí con los textos de
+    // un cartón: «Acumula sellos y obtén beneficios», y de «Sellos faltantes»
+    // el número de los que YA SE GASTÓ. Justo al revés de lo que significa.
+    const club = pass.card.clubPlanId
+      ? await clubDelPase(this.prisma, pass.card.clubPlanId, pass.id)
+      : null;
+    const required = club
+      ? club.cupo
+      : t === 'VISITS'
         ? pass.card.visitsRequired ?? 10
         : pass.card.stampsRequired ?? 10;
     const current = t === 'VISITS' ? pass.visitsCount : pass.stampsCount;
@@ -642,27 +663,45 @@ export class WalletService {
 
     const W = 1032;
     const H = 336;
-    const title = L.accumulate;
+    const title = club ? L.club_hero : L.accumulate;
 
-    // Tres columnas equidistantes ocupando 60% del ancho centrado.
+    // Columnas equidistantes ocupando el 78% del ancho, centradas. El número
+    // sale de cuántas haya: el club usa DOS y con la rejilla fija de tres se
+    // quedaban pegadas a la izquierda con un hueco a la derecha.
     const colsAreaY = 200;
     const colsW = W * 0.78;
     const colsStart = (W - colsW) / 2;
-    const colW = colsW / 3;
-    const colCx = [
-      colsStart + colW * 0.5,
-      colsStart + colW * 1.5,
-      colsStart + colW * 2.5,
-    ];
+    const centroDeColumna = (i: number, total: number) =>
+      colsStart + (colsW / total) * (i + 0.5);
 
-    const stats = [
+    const iconoCarton =
+      '<path d="M-18 -20 h36 v40 h-36 z M-18 -12 h36 M-12 -16 h6 M-2 -16 h6 M10 -16 h6 M-12 -8 h6 M-2 -8 h6 M10 -8 h6 M-12 0 h6 M-2 0 h6 M10 0 h6 M-12 8 h6 M-2 8 h6 M10 8 h6" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/>';
+    const iconoRegalo =
+      '<path d="M-18 -4 h36 v20 h-36 z M-18 -4 h36 v-6 h-36 z M0 -10 v26 M-12 -10 a6 6 0 1 1 12 0 a6 6 0 1 1 12 0" stroke="white" stroke-width="2.5" fill="none" stroke-linejoin="round"/>';
+
+    const stats = club
+      ? [
+          // Lo que le queda, con la palabra del negocio. Es el único número
+          // que le importa al socio delante del mostrador.
+          {
+            icon: iconoCarton,
+            label: L.club_left,
+            value: L.club_left_count(current, pluralUnidad(club.unidad, current)),
+          },
+          {
+            icon: iconoRegalo,
+            label: L.club_hero,
+            value: L.club_left_count(club.cupo, pluralUnidad(club.unidad, club.cupo)),
+          },
+        ]
+      : [
       {
-        icon: '<path d="M-18 -20 h36 v40 h-36 z M-18 -12 h36 M-12 -16 h6 M-2 -16 h6 M10 -16 h6 M-12 -8 h6 M-2 -8 h6 M10 -8 h6 M-12 0 h6 M-2 0 h6 M10 0 h6 M-12 8 h6 M-2 8 h6 M10 8 h6" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/>',
+        icon: iconoCarton,
         label: L.missing_stamps,
         value: L.stamps_left(remaining),
       },
       {
-        icon: '<path d="M-18 -4 h36 v20 h-36 z M-18 -4 h36 v-6 h-36 z M0 -10 v26 M-12 -10 a6 6 0 1 1 12 0 a6 6 0 1 1 12 0" stroke="white" stroke-width="2.5" fill="none" stroke-linejoin="round"/>',
+        icon: iconoRegalo,
         label: L.rewards,
         value: L.rewards_count(0),
       },
@@ -671,11 +710,11 @@ export class WalletService {
         label: L.next_reward,
         value: rewardText.length > 22 ? rewardText.slice(0, 20) + '…' : rewardText,
       },
-    ];
+        ];
 
     const colSvg = stats
       .map((s, i) => {
-        const cx = colCx[i];
+        const cx = centroDeColumna(i, stats.length);
         return `
         <g transform="translate(${cx} ${colsAreaY})">
           ${s.icon}
