@@ -2166,6 +2166,10 @@ export class SuperAdminService {
         amountUsd: Number(l.amountUsd),
         url: l.url,
         stripePriceId: l.stripePriceId,
+        // productKey distingue los planes de suscripción (null) de los upgrades
+        // por ENTITLEMENT (INFOLINK_PRO/FULL): estos NO son planes del selector
+        // de la landing, se ofrecen dentro del panel del negocio.
+        productKey: l.productKey,
       })),
     };
   }

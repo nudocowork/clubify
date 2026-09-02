@@ -70,6 +70,9 @@ type NavItem = {
   /** Solo visible para Clubify / plataforma (config global tipo Branding).
    *  Se oculta cuando la marca activa es una marca blanca distinta. */
   clubifyOnly?: boolean;
+  /** Solo visible cuando la marca activa es Sellea (features exclusivos de esa
+   *  marca, ej. la sección InfoLink del freemium). Oculto para el resto. */
+  selleaOnly?: boolean;
   /** Si está seteado, el item (sidebar admin) solo se muestra si la MARCA activa
    *  tiene ese módulo habilitado (ej. 'GROW_BUSINESS_SMS' para Automatizaciones).
    *  Con brandModules sin resolver (Clubify/global) se muestra. */
@@ -612,6 +615,9 @@ export default function AppShell({
               items: [
                 { href: '/admin', label: 'Dashboard', icon: 'grid' },
                 { href: '/admin/tenants', label: 'Negocios', icon: 'store' },
+                // Exclusivo Sellea: lista SOLO los negocios "Solo InfoLink"
+                // (Gratis y PRO), definidos por su plan. Freemium Sellea.
+                { href: '/admin/infolinks', label: 'InfoLink', icon: 'spark', selleaOnly: true },
                 { href: '/admin/pending-payments', label: 'Pagos sin activar', icon: 'bell', hideForMarketing: true, clubifyOnly: true },
                 // Cobranza manual (Nequi/efectivo/transferencia): vencidos que
                 // hay que perseguir o desconectar a mano. Vale para TODAS las
@@ -737,6 +743,8 @@ export default function AppShell({
           const isOtherBrand = !!brandSlug && brandSlug !== 'clubify';
           const visibleItem = (it: NavItem) =>
             (!isOtherBrand || !it.clubifyOnly) &&
+            // Exclusivo de Sellea: la sección InfoLink solo aparece en su panel.
+            (!it.selleaOnly || brandSlug === 'sellea') &&
             (!isMarketing || !it.hideForMarketing) &&
             // Gate por módulo de la marca (ej. Automatizaciones ↔ GROW_BUSINESS_SMS).
             // brandModules null (Clubify/global sin resolver) → se muestra.

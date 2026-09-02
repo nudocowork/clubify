@@ -89,6 +89,10 @@ export async function fetchBrandPlansByHost(
     if (!d || !Array.isArray(d.links) || !d.links.length) return null;
     const plans: LandingPlan[] = [];
     for (const l of d.links) {
+      // Los links con productKey (INFOLINK_PRO / FULL) son upgrades por
+      // entitlement, NO planes de suscripción: no van en el selector de la
+      // landing (el de InfoLink PRO se ofrece dentro del panel del negocio).
+      if (l.productKey === 'INFOLINK_PRO' || l.productKey === 'FULL') continue;
       const m = PERIOD_TO_PLAN[l.periodicity as string];
       if (!m) continue; // CUSTOM u otros no se muestran en el selector
       plans.push({

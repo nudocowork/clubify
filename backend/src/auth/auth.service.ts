@@ -1697,6 +1697,10 @@ export class AuthService {
             email,
             passwordHash,
             fullName: dto.fullName.trim(),
+            // El teléfono capturado en el registro va TAMBIÉN al User: la pantalla
+            // "Datos personales" (Mi cuenta) lee user.phone, no tenant.phone. Sin
+            // esto el número quedaba en blanco pese a haberlo pedido en el alta.
+            phone: dto.phone?.trim() || null,
             role: 'TENANT_OWNER',
             tenantId: t.id,
           },
@@ -1754,6 +1758,31 @@ export class AuthService {
       action: 'auth.infolink_signup',
       resource: `tenant:${tenant.id}`,
       ip,
+    });
+
+    // Correo de bienvenida con el branding de la marca (sale por SU subcuenta de
+    // Grow Business, igual que el signup normal). Antes el alta InfoLink no
+    // mandaba ninguno. trialEndsAt=null: el InfoLink FREE no vence. yaPago según
+    // si quedó activo (FREE/ilimitada) o bloqueado sin cupo. Fire-and-forget: no
+    // rompe el registro si la marca no tiene subcuenta.
+    const brandEmailInfo = await resolveBrandEmail(
+      this.prisma,
+      brand.id,
+      this.appConfig.APP_URL,
+    ).catch(() => null);
+    void this.brandEmail.sendRaw({
+      whiteLabelId: brand.id,
+      tenantId: tenant.id,
+      to: email,
+      ...welcomeOwnerTemplate({
+        tenant,
+        fullName: dto.fullName.trim(),
+        trialEndsAt: null,
+        appUrl: this.appConfig.APP_URL,
+        brand: { name: brand.name },
+        loginUrl: brandEmailInfo?.hasBrandSender ? brandEmailInfo.loginUrl : undefined,
+        yaPago: !blocked,
+      }),
     });
 
     const payload = {

@@ -575,11 +575,23 @@ export default function PublicInfoLink() {
             color: '#FFF6F0',
           }}
         >
-          <span
-            style={{ width: 32, height: 32, borderRadius: 9, background: '#FF4D3D', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, flex: 'none' }}
-          >
-            {(data.brand?.name?.[0] ?? 'S').toUpperCase()}
-          </span>
+          {data.brand?.iconUrl || data.brand?.logoUrl ? (
+            // Logo REAL de la marca (mismo mark que usa el BrandBadge). Antes se
+            // pintaba siempre el monograma "S", no el logo de Sellea. Chip blanco
+            // para que el logo lea sobre el fondo oscuro de la tarjeta.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={(data.brand.iconUrl || data.brand.logoUrl) as string}
+              alt={data.brand?.name ?? 'Sellea'}
+              style={{ width: 32, height: 32, borderRadius: 9, objectFit: 'contain', background: '#fff', padding: 2, flex: 'none' }}
+            />
+          ) : (
+            <span
+              style={{ width: 32, height: 32, borderRadius: 9, background: '#FF4D3D', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800, flex: 'none' }}
+            >
+              {(data.brand?.name?.[0] ?? 'S').toUpperCase()}
+            </span>
+          )}
           <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, lineHeight: 1.3 }}>
             Crea tu Infolink gratis
             <small style={{ display: 'block', opacity: 0.7, fontWeight: 600, fontSize: 11 }}>
