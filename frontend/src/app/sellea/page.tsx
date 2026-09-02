@@ -170,7 +170,13 @@ async function fetchPaymentPlans(host: string): Promise<LandingPlan[] | null> {
         description: '',
       });
     }
-    return plans.length ? plans : null;
+    // Dedup por id: si dos links mapean al mismo id de plan (ej. InfoLink PRO es
+    // MENSUAL y colisiona con "Mensual"), conservamos el PRIMERO por sortOrder (el
+    // plan de suscripción real). Red de seguridad: quita el upgrade aunque la
+    // respuesta cacheada no traiga productKey (pasó con caché vieja de Vercel).
+    const seen = new Set<string>();
+    const deduped = plans.filter((pl) => (seen.has(pl.id) ? false : (seen.add(pl.id), true)));
+    return deduped.length ? deduped : null;
   } catch {
     return null;
   }

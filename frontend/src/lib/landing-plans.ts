@@ -105,7 +105,11 @@ export async function fetchBrandPlansByHost(
         description: '',
       });
     }
-    return plans.length ? plans : null;
+    // Dedup por id (ver sellea/page.tsx): quita el upgrade que colisiona con un
+    // plan real aunque la respuesta cacheada no traiga productKey.
+    const seen = new Set<string>();
+    const deduped = plans.filter((pl) => (seen.has(pl.id) ? false : (seen.add(pl.id), true)));
+    return deduped.length ? deduped : null;
   } catch {
     return null;
   }
