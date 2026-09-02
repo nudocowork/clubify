@@ -405,6 +405,13 @@ export async function middleware(req: NextRequest) {
     url.pathname.startsWith('/q/') ||
     url.pathname.startsWith('/ref/') ||
     url.pathname.startsWith('/refer') ||
+    // Alianzas: la página del empleado y el portal de la empresa aliada. Son
+    // públicas y se sirven tal cual, como /m/, /i/ o /w/. Sin esto caían al
+    // resolutor de dominios de abajo, que hace DOS consultas por carga para
+    // decidir un reescrito que a estas rutas no les toca — y el empleado se
+    // quedaba mirando una página que no terminaba de cargar.
+    url.pathname.startsWith('/alianza/') ||
+    url.pathname.startsWith('/aliado/') ||
     url.pathname.startsWith('/affiliate') ||
     url.pathname.startsWith('/domicilios') ||
     url.pathname.startsWith('/cuponera') ||
