@@ -49,6 +49,14 @@
 	     pregunta: se cierra en el acto la primera vez que se abre el escáner.
 	     Apple además lo lee en la revisión, así que tiene que decir para qué
 	     se usa de verdad, no una frase genérica. -->
+	<!-- Cumplimiento de exportación: Clubify solo usa HTTPS, que es la
+	     encriptación del propio sistema operativo. No implementa algoritmos
+	     propios ni sustituye los de Apple, así que está exenta.
+	     Declararlo aquí evita que App Store Connect lo pregunte en CADA build:
+	     sin esta clave, cada subida se queda bloqueada esperando la respuesta
+	     manual antes de poder distribuirse por TestFlight. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>Usamos la cámara para escanear el código de la tarjeta de tus clientes y registrar sellos, visitas y compras.</string>
 	<!-- Guardar en Fotos el QR o el pase que el negocio comparte con su cliente. -->
