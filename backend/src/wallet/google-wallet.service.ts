@@ -234,8 +234,13 @@ export class GoogleWalletService {
     // «Beneficios de <empresa>» que pone la plantilla: en Android se leía «ACTIVO»
     // y «Beneficios de Confenalco», sin manera de saber si era un 10%, una
     // bebida o un 2x1.
-    if (pass.alianza) {
-      const a = pass.alianza as { estado: string; empresa: string; vivos: string[] };
+    // Se saca del `if` porque la letra pequeña de más abajo también la necesita.
+    const alianzaTexto = pass.alianza as
+      | { estado: string; empresa: string; vivos: string[]; condiciones?: string[] }
+      | null
+      | undefined;
+    if (alianzaTexto) {
+      const a = alianzaTexto;
       textModules.push({
         id: 'reward',
         header: L.alliance,
@@ -275,7 +280,17 @@ export class GoogleWalletService {
         body: card.businessName,
       });
     }
-    if (card.terms && card.termsEnabled !== false) {
+    // La letra pequeña. En una ALIANZA es la de los BENEFICIOS y no la de la
+    // plantilla —que está vacía—, así que sin esta rama el reverso salía sin
+    // condiciones en una tarjeta que sí las tiene. Simétrico con Apple.
+    const condicionesAlianza = alianzaTexto?.condiciones ?? [];
+    if (condicionesAlianza.length) {
+      textModules.push({
+        id: 'terms',
+        header: L.terms,
+        body: condicionesAlianza.join('\n'),
+      });
+    } else if (!pass.alianza && card.terms && card.termsEnabled !== false) {
       textModules.push({
         id: 'terms',
         header: L.terms,
