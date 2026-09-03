@@ -1450,7 +1450,7 @@ export class HotmartService {
     // (bug #1) y para validar el monto USD (bug #10).
     const planForBase = await this.prisma.tenant.findUnique({
       where: { id: tenant.id },
-      select: { planPeriodicity: true, purchasedAt: true },
+      select: { planPeriodicity: true, purchasedAt: true, subscriptionPriceUsd: true },
     });
     // FIX 2026-08-18 (caso El Arrayán express): la periodicidad la escribía SOLO
     // el form de /activar (dto.planPeriodicity). Si el comprador no entraba por
@@ -1504,24 +1504,22 @@ export class HotmartService {
       'activatePurchase',
       canonicalUsd,
     );
-    // Monto en USD para CONTABILIDAD y el SMS interno. `realPriceUsd` es null
-    // cuando el comprador pagó en moneda LOCAL (PAB de Panamá, COP, etc.):
-    // resolvePaidUsd lo descarta a propósito para no inflar la comisión (que va
-    // por el canónico). Pero el INGRESO sí hay que registrarlo — antes se perdía
-    // (grossUsd null → record() lo saltaba). Caemos a `original_offer_price` si
-    // vino en USD (Hotmart lo manda en USD aunque `price` esté en local), y si no,
-    // al canónico del plan. Bug real: TODOS los pagos LATAM en moneda local desde
-    // el backfill del 31-ago no entraban a Contabilidad (caso Hydor, HP4204708280).
-    const offer = payload.data?.purchase?.original_offer_price;
-    const offerUsd =
-      offer &&
-      String(offer.currency_value || offer.currency_code || '').toUpperCase() === 'USD' &&
-      typeof offer.value === 'number' &&
-      offer.value > 0
-        ? offer.value
-        : null;
+    // Monto en USD para CONTABILIDAD = PRECIO DE PLAN, NO lo que pagó el cliente.
+    // El dueño lo confirmó (2026-09-03): la contabilidad refleja el PLAN que
+    // adquirió el negocio, no el monto pagado — que varía por FX (moneda local:
+    // COP/CLP/MXN/PEN/PAB) y desalinea el reporte (ej. un trimestral de $150 se
+    // veía como $156-164). Precio de plan = override `subscriptionPriceUsd` (los
+    // planes "Plus"/legacy: Mensual Plus $50, Trimestral Plus $135, Semestral
+    // Plus $250) → si no hay override, el canónico por periodicidad (Mensual $68,
+    // Trimestral $150, Semestral $278, Anual $500). Es la MISMA base que la
+    // comisión. `realPriceUsd` (lo realmente pagado) YA NO alimenta el ingreso;
+    // sigue yendo SOLO a auditoría en `lastPaymentAmountUsd` (más abajo).
     const incomeGrossUsd =
-      realPriceUsd ?? offerUsd ?? (canonicalUsd > 0 ? canonicalUsd : null);
+      planForBase?.subscriptionPriceUsd != null
+        ? Number(planForBase.subscriptionPriceUsd)
+        : canonicalUsd > 0
+          ? canonicalUsd
+          : null;
 
     // CONTABILIDAD (Fase 1): registrar el ingreso de Hotmart con su desglose
     // (bruto/fee/impuesto/neto). El servicio deduplica por transactionId y salta
