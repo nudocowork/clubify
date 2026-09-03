@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { IsEnum, IsOptional, IsString, IsUUID } from 'class-validator';
+import { Body, Controller, Get, Headers, Ip, Param, Post, Query } from '@nestjs/common';
+import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 import { StampAction } from '@prisma/client';
 import { StampsService } from './stamps.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -18,6 +18,14 @@ class StampBody {
   // Required en STAMP/VISIT para cards STAMPS/VISITS/HYBRID (validado en svc).
   // Solo informativo — no afecta la cantidad de sellos otorgados.
   @IsOptional() purchaseAmount?: number;
+  // Saltarse el tope de sellos del dia a proposito. Solo lo honra el service
+  // para SUPER_ADMIN; para el resto se ignora y el tope se aplica igual.
+  @IsOptional() @IsBoolean() override?: boolean;
+  // Sello regalado: sin compra detras. Sin este campo el ValidationPipe
+  // (forbidNonWhitelisted) rechaza el request entero.
+  @IsOptional() @IsIn(['COURTESY', 'SPECIAL_DATE']) giftReason?:
+    | 'COURTESY'
+    | 'SPECIAL_DATE';
 }
 
 @Controller('stamps')
@@ -26,13 +34,38 @@ export class StampsController {
   constructor(private svc: StampsService) {}
 
   @Post()
-  record(@CurrentUser() user: AuthUser, @Body() body: StampBody) {
-    return this.svc.record(user, body);
+  record(
+    @CurrentUser() user: AuthUser,
+    @Body() body: StampBody,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+    @Headers('x-forwarded-for') xff?: string,
+  ) {
+    // ip real detrás del proxy (Railway) = primer valor de x-forwarded-for.
+    const realIp = (xff?.split(',')[0]?.trim() || ip || '').slice(0, 60) || null;
+    return this.svc.record(user, body, {
+      ip: realIp,
+      device: (userAgent ?? '').slice(0, 200) || null,
+    });
   }
 
   @Get('history/:passId')
   history(@CurrentUser() user: AuthUser, @Param('passId') passId: string) {
     return this.svc.history(user, passId);
+  }
+
+  /** Wallet V3 — Historial/Auditoría de ajustes de sellos. Negocio ve el suyo;
+   *  Master Admin (SUPER_ADMIN) puede pasar ?tenantId. */
+  @Get('audit')
+  audit(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.svc.auditLog(user, {
+      tenantId,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   // Backfill admin: para coupon passes COMPLETED pre-fix del 2026-05-15

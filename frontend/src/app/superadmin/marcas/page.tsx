@@ -23,9 +23,12 @@ type WhiteLabel = {
   notifyPhone: string | null;
   mapsApiKey: string | null;
   shareImageUrl: string | null;
+  whatsappQrUrl: string | null;
   subscriptionFeatureKeys?: string[];
   installationFeeUsd?: number | string | null;
   installationPromoUsd?: number | string | null;
+  // Wallet V3 — permisos "Wallet Avanzado" (6 flags). null = heredado (todo activo).
+  walletAdvanced?: Record<string, boolean> | null;
   initial: string | null;
   adminEmail: string | null;
   status: 'ACTIVE' | 'SUSPENDED';
@@ -95,7 +98,9 @@ export default function MarcasBlancasPage() {
   const [items, setItems] = useState<WhiteLabel[]>([]);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'todas' | 'activas' | 'suspendidas'>('todas');
-  const [drawerId, setDrawerId] = useState<string | null>(null);
+  // El detalle de una marca es una PÁGINA COMPLETA, no un drawer: la marca
+  // seleccionada vive en la URL (?brand=<id>) → addressable + botón atrás.
+  const brandId = params.get('brand');
   const [createOpen, setCreateOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -154,6 +159,19 @@ export default function MarcasBlancasPage() {
     } catch (e: any) {
       flashToast(e.message ?? 'Error');
     }
+  }
+
+  // Página completa de administración de una marca (reemplaza la lista).
+  if (brandId) {
+    return (
+      <BrandDetailFull
+        id={brandId}
+        onBack={() => {
+          load();
+          router.push('/superadmin/marcas');
+        }}
+      />
+    );
   }
 
   return (
@@ -264,7 +282,7 @@ export default function MarcasBlancasPage() {
               {filtered.map((w) => (
                 <tr
                   key={w.id}
-                  onClick={() => setDrawerId(w.id)}
+                  onClick={() => router.push('/superadmin/marcas?brand=' + w.id)}
                   className="cursor-pointer transition"
                   style={{ borderBottom: '1px solid #eef0f2' }}
                   onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = '#f7fbf8')}
@@ -323,7 +341,7 @@ export default function MarcasBlancasPage() {
                   <td style={{ padding: '14px 16px' }}>
                     <BrandRowActions
                       status={w.status}
-                      onEnter={() => setDrawerId(w.id)}
+                      onEnter={() => router.push('/superadmin/marcas?brand=' + w.id)}
                       onToggle={() => toggleStatus(w)}
                     />
                   </td>
@@ -341,17 +359,6 @@ export default function MarcasBlancasPage() {
         </div>
       </div>
 
-      {drawerId && (
-        <Drawer
-          id={drawerId}
-          onClose={() => setDrawerId(null)}
-          onChanged={(msg) => {
-            flashToast(msg);
-            load();
-          }}
-        />
-      )}
-
       {createOpen && (
         <CreateModal
           onClose={() => {
@@ -363,7 +370,7 @@ export default function MarcasBlancasPage() {
             router.replace('/superadmin/marcas');
             flashToast(`${w.name} creada`);
             load();
-            setDrawerId(w.id);
+            router.push('/superadmin/marcas?brand=' + w.id);
           }}
         />
       )}
@@ -403,20 +410,30 @@ function StatusBadge({ status }: { status: 'ACTIVE' | 'SUSPENDED' }) {
   );
 }
 
-function Drawer({
+function BrandDetailFull({
   id,
-  onClose,
-  onChanged,
+  onBack,
 }: {
   id: string;
-  onClose: () => void;
-  onChanged: (msg: string) => void;
+  onBack: () => void;
 }) {
   const router = useRouter();
   const [w, setW] = useState<WhiteLabelDetail | null>(null);
   const [invites, setInvites] = useState<AdminInvite[]>([]);
   const [entering, setEntering] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  // Página completa (no drawer): gestiona su propio toast y refresca sus datos
+  // al cambiar. `onClose` = volver a la lista de marcas.
+  const flash = (m: string) => {
+    setToast(m);
+    setTimeout(() => setToast(null), 2400);
+  };
+  const onClose = onBack;
+  const onChanged = (msg: string) => {
+    flash(msg);
+    reloadAdmins();
+  };
 
   async function reloadAdmins() {
     try {
@@ -509,62 +526,99 @@ function Drawer({
   }
 
   return (
-    <>
-      <div
-        onClick={onClose}
-        className="fixed inset-0 z-40"
-        style={{ background: 'rgba(0,0,0,.32)' }}
-      />
-      <div
-        className="fixed right-0 top-0 bottom-0 z-50 overflow-y-auto"
-        style={{
-          width: 440,
-          background: 'white',
-          boxShadow: '-12px 0 40px rgba(0,0,0,.14)',
-        }}
-      >
-        {!w ? (
-          <div className="p-6 text-sm" style={{ color: '#9aa4af' }}>
-            Cargando…
-          </div>
-        ) : (
-          <>
-            <div
-              className="px-5 py-4 flex items-center gap-3 border-b"
-              style={{ borderColor: '#eef0f2' }}
+    <div className="max-w-6xl mx-auto pb-12">
+      {/* Barra superior: volver + acciones principales */}
+      <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+        <button
+          onClick={onClose}
+          className="inline-flex items-center gap-1.5 text-sm font-semibold"
+          style={{
+            color: '#16241c',
+            padding: '8px 13px',
+            borderRadius: 9,
+            background: 'white',
+            border: '1px solid #d7dbe0',
+          }}
+        >
+          ← Volver a marcas
+        </button>
+        {w && (
+          <div className="flex gap-2">
+            <button
+              onClick={enterAs}
+              disabled={entering || w.status === 'SUSPENDED'}
+              className="py-2.5 px-4 rounded-[10px] text-sm font-bold text-white disabled:opacity-50"
+              style={{
+                background: 'linear-gradient(180deg, #28c95f, #16a34a)',
+                boxShadow: '0 2px 6px rgba(22,163,74,.35)',
+              }}
+              title={
+                w.status === 'SUSPENDED'
+                  ? 'Reactiva la marca primero'
+                  : 'Iniciar sesión como super admin de esta marca'
+              }
             >
-              <div
-                className="w-12 h-12 rounded-[13px] flex items-center justify-center text-white font-bold shrink-0"
-                style={{ background: w.primaryColor }}
-              >
-                {w.initial ?? w.name[0]?.toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-bold text-[17px]" style={{ color: '#16241c' }}>
-                  {w.name}
-                </div>
-                <div className="text-xs" style={{ color: '#6b7785' }}>
-                  {w.domain ?? '—'}
-                </div>
-              </div>
-              <button onClick={onClose} className="text-xl leading-none" style={{ color: '#9aa4af' }}>
-                ×
-              </button>
+              {entering ? 'Entrando…' : 'Entrar como empresa'}
+            </button>
+            <button
+              onClick={toggleStatus}
+              className="text-sm font-semibold px-4 py-2.5 rounded-[10px]"
+              style={{
+                background: 'white',
+                color: w.status === 'ACTIVE' ? '#b91c1c' : '#15803d',
+                border: `1px solid ${w.status === 'ACTIVE' ? '#fecaca' : '#bbf7d0'}`,
+              }}
+            >
+              {w.status === 'ACTIVE' ? 'Suspender' : 'Activar'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {!w ? (
+        <div className="p-6 text-sm" style={{ color: '#9aa4af' }}>
+          Cargando…
+        </div>
+      ) : (
+        <>
+          {/* Cabecera de la marca */}
+          <div
+            className="flex items-center gap-3 p-5 rounded-[14px] mb-5 flex-wrap"
+            style={{
+              background: 'white',
+              border: '1px solid #e7e9ec',
+              boxShadow: '0 1px 2px rgba(16,24,40,.04)',
+            }}
+          >
+            <div
+              className="w-14 h-14 rounded-[14px] flex items-center justify-center text-white font-bold shrink-0 text-lg"
+              style={{ background: w.primaryColor }}
+            >
+              {w.initial ?? w.name[0]?.toUpperCase()}
             </div>
-
-            <div className="p-5 space-y-5">
-              <div className="flex items-center gap-3 flex-wrap">
-                <StatusBadge status={w.status} />
-                <span className="text-xs" style={{ color: '#6b7785' }}>
-                  Creada el{' '}
-                  {new Date(w.createdAt).toLocaleDateString('es-MX', {
-                    day: '2-digit',
-                    month: 'long',
-                    year: 'numeric',
-                  })}
-                </span>
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-[20px]" style={{ color: '#16241c' }}>
+                {w.name}
               </div>
+              <div className="text-sm" style={{ color: '#6b7785' }}>
+                {w.domain ?? '—'}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <StatusBadge status={w.status} />
+              <span className="text-xs" style={{ color: '#6b7785' }}>
+                Creada el{' '}
+                {new Date(w.createdAt).toLocaleDateString('es-MX', {
+                  day: '2-digit',
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </span>
+            </div>
+          </div>
 
+          {/* Secciones en grid amplio (2 columnas en pantallas grandes) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
               <div>
                 <SectionTitle>Créditos</SectionTitle>
                 {w.creditsUnlimited ? (
@@ -625,6 +679,7 @@ function Drawer({
                 </button>
               </div>
 
+              <div className="lg:col-span-2">
               <BrandingConfig
                 whiteLabelId={w.id}
                 initial={{
@@ -651,6 +706,7 @@ function Drawer({
                   onChanged(msg);
                 }}
               />
+              </div>
 
               <DomainConfig
                 whiteLabelId={w.id}
@@ -663,15 +719,30 @@ function Drawer({
                 }}
               />
 
-              <PaymentGatewayConfig whiteLabelId={w.id} onSaved={onChanged} />
+              <PaymentGatewayConfig whiteLabelId={w.id} brandSlug={w.slug} onSaved={onChanged} />
 
               <BrandSmsAccountConfig whiteLabelId={w.id} onSaved={onChanged} />
+
+              <WhatsAppQrConfig
+                whiteLabelId={w.id}
+                initial={w.whatsappQrUrl ?? ''}
+                onSaved={(msg) => {
+                  reloadAdmins();
+                  onChanged(msg);
+                }}
+              />
 
               <HotmartCreditConfig whiteLabelId={w.id} onSaved={onChanged} />
 
               <PlanPeriodicitiesConfig
                 whiteLabelId={w.id}
                 initial={w.planPeriodicities ?? []}
+                onSaved={onChanged}
+              />
+
+              <WalletAdvancedConfig
+                whiteLabelId={w.id}
+                initial={w.walletAdvanced ?? null}
                 onSaved={onChanged}
               />
 
@@ -699,7 +770,7 @@ function Drawer({
                 </div>
               </div>
 
-              <div>
+              <div className="lg:col-span-2">
                 <div className="flex items-center justify-between mb-2">
                   <SectionTitle>Administradores ({w.admins.length})</SectionTitle>
                   <button
@@ -830,34 +901,6 @@ function Drawer({
               </div>
             </div>
 
-            <div
-              className="sticky bottom-0 px-5 py-4 border-t flex gap-2"
-              style={{ background: 'white', borderColor: '#eef0f2' }}
-            >
-              <button
-                onClick={enterAs}
-                disabled={entering || w.status === 'SUSPENDED'}
-                className="flex-1 py-2.5 rounded-[10px] text-sm font-bold text-white disabled:opacity-50"
-                style={{
-                  background: 'linear-gradient(180deg, #28c95f, #16a34a)',
-                  boxShadow: '0 2px 6px rgba(22,163,74,.35)',
-                }}
-                title={w.status === 'SUSPENDED' ? 'Reactiva la marca primero' : 'Iniciar sesión como super admin de esta marca'}
-              >
-                {entering ? 'Entrando…' : 'Entrar como empresa'}
-              </button>
-              <button
-                onClick={toggleStatus}
-                className="text-sm font-semibold px-4 py-2.5 rounded-[10px]"
-                style={{
-                  background: 'white',
-                  color: w.status === 'ACTIVE' ? '#b91c1c' : '#15803d',
-                  border: `1px solid ${w.status === 'ACTIVE' ? '#fecaca' : '#bbf7d0'}`,
-                }}
-              >
-                {w.status === 'ACTIVE' ? 'Suspender' : 'Activar'}
-              </button>
-            </div>
             {inviteOpen && (
               <InviteWhiteLabelAdminModal
                 whiteLabelId={w.id}
@@ -873,8 +916,19 @@ function Drawer({
             )}
           </>
         )}
-      </div>
-    </>
+        {toast && (
+          <div
+            className="fixed left-1/2 bottom-7 -translate-x-1/2 px-4 py-2.5 rounded-[10px] text-sm font-semibold shadow-lg z-50"
+            style={{
+              background: '#0f172a',
+              color: 'white',
+              boxShadow: '0 12px 30px rgba(0,0,0,.25)',
+            }}
+          >
+            {toast}
+          </div>
+        )}
+    </div>
   );
 }
 
@@ -1366,11 +1420,16 @@ type PayLink = {
   sortOrder: number;
   stripePriceId: string | null;
   stripeProductId: string | null;
+  // Producto especial freemium: INFOLINK_PRO (sube FREE→PRO) / FULL (negocio
+  // completo). null = suscripción normal. El webhook lo usa para saber qué
+  // otorga el pago (matchea por stripePriceId → aplica el entitlement).
+  productKey: string | null;
 };
 
 const GATEWAYS = [
   { key: 'HOTMART', label: 'Hotmart' },
   { key: 'STRIPE', label: 'Stripe' },
+  { key: 'CROSS', label: 'Cross' },
   { key: 'MANUAL', label: 'Manual' },
 ];
 // Campos secretos (deben coincidir con PAYMENT_SECRET_FIELDS del backend): se
@@ -1402,6 +1461,19 @@ const GATEWAY_FIELDS: Record<string, { secret: { key: string; label: string }[];
       { key: 'publishableKey', label: 'Publishable Key (pk_live…)' },
       { key: 'customerPortalUrl', label: 'Customer Portal URL' },
       { key: 'webhookUrl', label: 'URL Webhook', placeholder: 'https://api…/webhooks/stripe/<slug>' },
+    ],
+  },
+  CROSS: {
+    secret: [
+      { key: 'apiKey', label: 'API Key' },
+      { key: 'webhookSecret', label: 'Webhook Secret (firma HMAC)' },
+    ],
+    plain: [
+      { key: 'companyId', label: 'Company ID (X-Company-Id)' },
+      { key: 'companyName', label: 'Company Name (cliente registrado en Cross)', placeholder: 'Nombre exacto de tu empresa en Cross' },
+      { key: 'paymentMethod', label: 'Método de pago', placeholder: 'card · pse' },
+      { key: 'environment', label: 'Ambiente', placeholder: 'sandbox · production · dev' },
+      { key: 'webhookUrl', label: 'URL Webhook', placeholder: 'https://api…/webhooks/cross/<slug>' },
     ],
   },
   MANUAL: { secret: [], plain: [] },
@@ -1510,6 +1582,105 @@ function PlanPeriodicitiesConfig({
   );
 }
 
+// Wallet V3 — permisos "Wallet Avanzado" por marca. null / clave ausente =
+// heredado (activo). La marca desactiva poniendo la clave en false.
+const WALLET_ADVANCED_OPTS: { key: string; label: string; hint: string }[] = [
+  { key: 'customBackgrounds', label: 'Permitir fondos personalizados', hint: 'Imagen de fondo del área de sellos' },
+  { key: 'freeRewards', label: 'Permitir Premios Free', hint: 'Premios intermedios dentro de los sellos' },
+  { key: 'removeStamps', label: 'Permitir Restar Sellos', hint: 'Botón −1 en el escáner' },
+  { key: 'showNextReward', label: 'Mostrar Próximo Premio', hint: 'Mensaje dinámico del siguiente premio' },
+  { key: 'showHistory', label: 'Mostrar Historial', hint: 'Historial de ajustes de sellos' },
+  { key: 'showAudit', label: 'Mostrar Auditoría', hint: 'IP/dispositivo de cada ajuste' },
+];
+
+function WalletAdvancedConfig({
+  whiteLabelId,
+  initial,
+  onSaved,
+}: {
+  whiteLabelId: string;
+  initial: Record<string, boolean> | null;
+  onSaved: (msg: string) => void;
+}) {
+  // Herencia: clave ausente/null = true (activo). La marca apaga poniendo false.
+  const [flags, setFlags] = useState<Record<string, boolean>>(() => {
+    const f: Record<string, boolean> = {};
+    for (const o of WALLET_ADVANCED_OPTS) f[o.key] = initial?.[o.key] === false ? false : true;
+    return f;
+  });
+  const [busy, setBusy] = useState(false);
+
+  function toggle(k: string) {
+    setFlags((s) => ({ ...s, [k]: !s[k] }));
+  }
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ walletAdvanced: flags }),
+      });
+      onSaved('Wallet Avanzado actualizado');
+    } catch (e: any) {
+      onSaved(e?.message ?? 'Error al guardar Wallet Avanzado');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <SectionTitle>Wallet Avanzado</SectionTitle>
+      <div className="text-[11px] mt-1 mb-2" style={{ color: '#9aa4af' }}>
+        Funciones nuevas de Wallet que esta marca permite a sus negocios. Apagar
+        una oculta la función para todos sus negocios.
+      </div>
+      <div className="space-y-1.5">
+        {WALLET_ADVANCED_OPTS.map((o) => {
+          const on = flags[o.key];
+          return (
+            <button
+              key={o.key}
+              type="button"
+              onClick={() => toggle(o.key)}
+              className="w-full rounded-[8px] px-3 py-2 text-left transition flex items-center justify-between gap-2"
+              style={{
+                border: `2px solid ${on ? '#16a34a' : '#d6dcd9'}`,
+                background: on ? '#dcfce7' : 'white',
+              }}
+            >
+              <span>
+                <span className="block text-sm font-semibold" style={{ color: on ? '#15803d' : '#6b7785' }}>
+                  {o.label}
+                </span>
+                <span className="block text-[11px]" style={{ color: '#9aa4af' }}>{o.hint}</span>
+              </span>
+              <span
+                className="text-[11px] font-bold px-2 py-0.5 rounded-[7px] shrink-0"
+                style={{
+                  background: on ? '#16a34a' : '#f3f4f6',
+                  color: on ? 'white' : '#9aa4af',
+                }}
+              >
+                {on ? 'Activo' : 'Apagado'}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <button
+        onClick={save}
+        disabled={busy}
+        className="mt-2.5 rounded-[8px] px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50"
+        style={{ background: '#16a34a' }}
+      >
+        {busy ? 'Guardando…' : 'Guardar Wallet Avanzado'}
+      </button>
+    </div>
+  );
+}
+
 /**
  * Configuración de Créditos por MARCA BLANCA. La acreditación automática de
  * créditos identifica la marca por (Product ID + Offer ID) → este link →
@@ -1535,6 +1706,9 @@ function HotmartCreditConfig({
   );
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Ofertas COMPARTIDAS con url (típicamente las de Clubify): la marca compra por
+  // esos links + su token ?src=wl_<id> (Modelo B). Se muestran abajo para copiar.
+  const [sharedLinks, setSharedLinks] = useState<any[]>([]);
 
   async function load() {
     setLoading(true);
@@ -1551,6 +1725,11 @@ function HotmartCreditConfig({
             offerCode: l?.hotmartOfferCode ?? '',
           };
         }),
+      );
+      // Links compartidos (con url) para generar los de esta marca con token.
+      const all = (await api(`/superadmin/hotmart-links`)) ?? [];
+      setSharedLinks(
+        (all as any[]).filter((x) => x?.isActive && x?.url && x?.hotmartProductId),
       );
     } catch {
       /* noop */
@@ -1651,6 +1830,58 @@ function HotmartCreditConfig({
           >
             {busy ? 'Guardando…' : 'Guardar créditos'}
           </button>
+        </div>
+      )}
+
+      {sharedLinks.length > 0 && (
+        <div className="mt-3 pt-3" style={{ borderTop: '1px solid #e5e9e7' }}>
+          <div className="text-[12px] font-bold mb-1" style={{ color: '#2b3a30' }}>
+            Links de compra de esta marca (con token)
+          </div>
+          <div className="text-[11px] mb-2" style={{ color: '#9aa4af' }}>
+            Comparte estos links con el dueño de la marca. El token{' '}
+            <code>?src=wl_…</code> hace que los créditos se acrediten a ESTA marca
+            sin importar con qué correo pague.
+          </div>
+          <div className="space-y-1.5">
+            {sharedLinks.map((l) => {
+              const base = String(l.url);
+              const link =
+                base + (base.includes('?') ? '&' : '?') + 'src=wl_' + whiteLabelId;
+              return (
+                <div
+                  key={l.id}
+                  className="flex items-center gap-2 rounded-[8px] p-2"
+                  style={{ background: '#f8faf9', border: '1px solid #e5e9e7' }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-bold" style={{ color: '#2b3a30' }}>
+                      {l.credits} crédito{l.credits === 1 ? '' : 's'}
+                      {l.price ? ` · ${l.price} ${l.currency || ''}` : ''}
+                    </div>
+                    <div className="text-[10px] truncate" style={{ color: '#6b7280' }}>
+                      {link}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigator.clipboard
+                        ?.writeText(link)
+                        .then(
+                          () => onSaved('Link copiado'),
+                          () => onSaved('No se pudo copiar'),
+                        )
+                    }
+                    className="rounded-[7px] px-2 py-1 text-[11px] font-bold text-white shrink-0"
+                    style={{ background: '#2b3a30' }}
+                  >
+                    Copiar
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -1788,9 +2019,11 @@ function BrandSmsAccountConfig({
 
 function PaymentGatewayConfig({
   whiteLabelId,
+  brandSlug,
   onSaved,
 }: {
   whiteLabelId: string;
+  brandSlug?: string;
   onSaved: (msg: string) => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -1801,6 +2034,10 @@ function PaymentGatewayConfig({
   const [secretNew, setSecretNew] = useState<Record<string, string>>({});
   const [links, setLinks] = useState<PayLink[]>([]);
   const [busy, setBusy] = useState(false);
+  // Enlace de PRUEBA de la marca (página dedicada /prueba). Guardado en Settings
+  // por-marca; el cliente entra, ancla tarjeta y a los N días se le cobra.
+  const [trialUrl, setTrialUrl] = useState('');
+  const [trialDays, setTrialDays] = useState(7);
 
   async function load() {
     setLoading(true);
@@ -1827,6 +2064,11 @@ function PaymentGatewayConfig({
         setSecretNew({});
         setLinks((d.links ?? []) as PayLink[]);
       }
+      const tc = await api(`/superadmin/white-labels/${whiteLabelId}/trial-config`).catch(() => null);
+      if (tc) {
+        setTrialUrl((tc as any).trialCheckoutUrl ?? '');
+        setTrialDays((tc as any).trialDays ?? 7);
+      }
     } catch {
       /* noop */
     } finally {
@@ -1852,6 +2094,25 @@ function PaymentGatewayConfig({
       if (d) await load();
     } catch (e: any) {
       onSaved(e.message ?? 'Error al guardar pasarela');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveTrial() {
+    setBusy(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}/trial-config`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          trialCheckoutUrl: trialUrl.trim() || null,
+          trialDays: Math.max(1, Math.min(90, Number(trialDays) || 7)),
+        }),
+      });
+      onSaved('Enlace de prueba guardado');
+      await load();
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error al guardar la prueba');
     } finally {
       setBusy(false);
     }
@@ -1896,6 +2157,7 @@ function PaymentGatewayConfig({
           active: l.active,
           stripePriceId: l.stripePriceId,
           stripeProductId: l.stripeProductId,
+          productKey: l.productKey ?? null,
         }),
       });
       onSaved('Link guardado');
@@ -2018,6 +2280,58 @@ function PaymentGatewayConfig({
           </button>
         )}
 
+        {gateway === 'CROSS' && (
+          <div
+            className="rounded-lg p-3 text-xs space-y-1"
+            style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}
+          >
+            <div>
+              Registrá este webhook en Cross:{' '}
+              <code style={{ wordBreak: 'break-all' }}>
+                https://api.soyclubify.com/webhooks/cross/{brandSlug ?? '<slug>'}
+              </code>
+            </div>
+            <div style={{ opacity: 0.85 }}>
+              Campos: <b>companyName</b> (cliente en Cross, ej. VIRTUALPRO S.A.S.),
+              <b> paymentMethod</b> = card, <b>environment</b> = production. El cobro
+              se prueba desde el checkout con una tarjeta real.
+            </div>
+          </div>
+        )}
+
+        {/* Enlace de PRUEBA (página dedicada /prueba). Pegar la URL de Stripe con
+            prueba de N días; el cliente ancla tarjeta y a los N días se le cobra
+            (ahí se descuenta 1 crédito). Vacío = la marca no ofrece prueba. */}
+        <div className="pt-1">
+          <SectionTitle>Enlace de prueba ({trialDays} días)</SectionTitle>
+          <p className="text-xs text-mute mb-2 mt-1 leading-relaxed">
+            URL de Stripe con período de prueba. El cliente entra por{' '}
+            <code className="bg-bg2 px-1 rounded">/prueba</code>, ancla la tarjeta,
+            y a los {trialDays} días se le cobra (ahí se descuenta 1 crédito de la
+            marca). Vacío = no ofrece prueba.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-2 mb-4">
+            <input
+              className="input flex-1 min-w-0"
+              placeholder="https://buy.stripe.com/…"
+              value={trialUrl}
+              onChange={(e) => setTrialUrl(e.target.value)}
+            />
+            <input
+              className="input w-full sm:w-20 flex-none"
+              type="number"
+              min={1}
+              max={90}
+              value={trialDays}
+              onChange={(e) => setTrialDays(Number(e.target.value))}
+              title="Días de prueba"
+            />
+            <button onClick={saveTrial} disabled={busy} className="btn-primary text-sm flex-none">
+              {busy ? 'Guardando…' : 'Guardar'}
+            </button>
+          </div>
+        </div>
+
         {/* Links de pago */}
         <div className="pt-1">
           <div className="flex items-center justify-between mb-2">
@@ -2092,6 +2406,20 @@ function PaymentGatewayConfig({
                     />
                   </div>
                 )}
+                <div className="mt-2">
+                  <label className="block text-[11px] font-semibold mb-1" style={{ color: '#4b5563' }}>
+                    Producto especial (freemium)
+                  </label>
+                  <select
+                    value={l.productKey ?? ''}
+                    onChange={(e) => patchLink(l.id, { productKey: e.target.value || null })}
+                    style={{ ...payInput, marginTop: 0 }}
+                  >
+                    <option value="">Ninguno (suscripción normal)</option>
+                    <option value="INFOLINK_PRO">InfoLink PRO (sube FREE→PRO al pagar)</option>
+                    <option value="FULL">Sellea Completo (activa negocio completo)</option>
+                  </select>
+                </div>
                 <div className="flex items-center justify-between mt-2">
                   <label className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: '#4b5563' }}>
                     <input
@@ -2259,6 +2587,97 @@ function DomainConfig({
           }}
         >
           {busy ? 'Guardando…' : 'Guardar dominio'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Enlace de conexión de WhatsApp de la marca (proveedor tipo wazzap.mx). Se
+ *  guarda por marca y el panel /admin (Automatizaciones → QR WhatsApp) lo pinta
+ *  como QR para que el dueño lo escanee. El enlace NO se muestra al cliente,
+ *  solo el QR. PATCH a /superadmin/white-labels/:id. */
+function WhatsAppQrConfig({
+  whiteLabelId,
+  initial,
+  onSaved,
+}: {
+  whiteLabelId: string;
+  initial: string;
+  onSaved: (msg: string) => void;
+}) {
+  const [url, setUrl] = useState(initial ?? '');
+  const [busy, setBusy] = useState(false);
+  const trimmed = url.trim();
+  const valid = /^https?:\/\//i.test(trimmed);
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api(`/superadmin/white-labels/${whiteLabelId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ whatsappQrUrl: trimmed || null }),
+      });
+      onSaved(trimmed ? 'Enlace de QR WhatsApp guardado' : 'Enlace de QR WhatsApp eliminado');
+    } catch (e: any) {
+      onSaved(e.message ?? 'Error al guardar el enlace');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <SectionTitle>QR WhatsApp</SectionTitle>
+      <div className="mt-2 space-y-3">
+        <p className="text-xs" style={{ color: '#6b7785' }}>
+          Pegá la URL de la <b>página embebida</b> (Embedded Page) de conexión de
+          WhatsApp de esta marca (ej. wazzap.mx, tipo <b>/g/…</b>). El panel de la
+          marca la muestra embebida en <b>Automatizaciones → QR WhatsApp</b>, para que
+          el dueño escanee el código con WhatsApp. El enlace no se muestra como texto.
+        </p>
+        <div>
+          <label className="text-xs font-semibold" style={{ color: '#6b7785' }}>
+            URL de la página embebida
+          </label>
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://app.wazzap.mx/g/…"
+            className="w-full mt-1 text-sm font-mono"
+            style={{
+              padding: '9px 12px',
+              borderRadius: 8,
+              border: '1px solid #d7dbe0',
+              background: 'white',
+              color: '#16241c',
+            }}
+          />
+        </div>
+
+        {valid && (
+          <a
+            href={trimmed}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block text-xs font-semibold"
+            style={{ color: '#15803d' }}
+          >
+            Abrir para verificar el código ↗
+          </a>
+        )}
+
+        <button
+          onClick={save}
+          disabled={busy || (!!trimmed && !valid)}
+          className="w-full text-sm font-bold text-white rounded-[10px] disabled:opacity-50"
+          style={{
+            padding: '10px',
+            background: busy ? '#9ca3af' : 'linear-gradient(180deg, #28c95f, #16a34a)',
+            cursor: busy ? 'default' : 'pointer',
+          }}
+        >
+          {busy ? 'Guardando…' : 'Guardar enlace'}
         </button>
       </div>
     </div>

@@ -38,7 +38,7 @@ export default function DeliveryPortalLayout({
   return (
     <div style={{ minHeight: '100vh', background: '#f4f5f7', fontFamily: '"Figtree", system-ui, sans-serif' }}>
       <header
-        className="flex items-center justify-between px-5 py-3 sticky top-0 z-20"
+        className="barra-superior flex items-center justify-between px-5 py-3 sticky top-0 z-20"
         style={{ background: '#0ea5e9', color: 'white', boxShadow: '0 2px 8px rgba(0,0,0,.12)' }}
       >
         <div className="flex items-center gap-3 min-w-0">

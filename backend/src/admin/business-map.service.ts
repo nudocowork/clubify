@@ -21,11 +21,32 @@ import {
 export class BusinessMapService {
   constructor(private prisma: PrismaService) {}
 
-  async list() {
+  /**
+   * @param whiteLabelIdUsuario marca del usuario. Si la tiene, MANDA: un admin
+   *        de marca no puede ver los negocios de otra pidiendo otro `slug`.
+   * @param slugPedido marca que el panel maestro está viendo por URL.
+   *        Solo se honra cuando el usuario NO está acotado a una marca.
+   */
+  async list(
+    whiteLabelIdUsuario?: string | null,
+    slugPedido?: string | null,
+  ) {
+    let whiteLabelId = whiteLabelIdUsuario ?? null;
+    if (!whiteLabelId && slugPedido) {
+      const wl = await this.prisma.whiteLabel.findFirst({
+        where: { slug: slugPedido.toLowerCase() },
+        select: { id: true },
+      });
+      whiteLabelId = wl?.id ?? null;
+    }
+
     const tenants = await this.prisma.tenant.findMany({
       where: {
         // Solo tenants con al menos una Location activa.
         locations: { some: { isActive: true } },
+        // Sin marca resuelta se muestran todos: es el mapa global del dueño
+        // de la plataforma, que SÍ debe verlos todos.
+        ...(whiteLabelId ? { whiteLabelId } : {}),
       },
       select: {
         id: true,

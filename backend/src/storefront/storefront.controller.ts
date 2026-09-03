@@ -14,6 +14,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { MenuLayout } from '@prisma/client';
+import { CUSTOMER_PAYMENT_METHODS } from '../common/customer-payment';
 import { StorefrontService } from './storefront.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -27,6 +28,18 @@ class StorefrontBody {
   @IsOptional() @IsBoolean() isPublished?: boolean;
   @IsOptional() @IsBoolean() ordersEnabled?: boolean;
   @IsOptional() @IsBoolean() ordersDeliveryEnabled?: boolean;
+  // PDF1145: fulfillment por negocio (pickup / dine-in). Se guardan en
+  // theme.fulfillment; domicilio sigue en ordersDeliveryEnabled.
+  @IsOptional() @IsBoolean() fulfillmentPickupEnabled?: boolean;
+  @IsOptional() @IsBoolean() fulfillmentDineInEnabled?: boolean;
+  // Métodos de pago que el negocio acepta en el checkout (EFECTIVO/TARJETA/
+  // TRANSFERENCIA/OTRO). Se guardan en theme.paymentMethods (JSON, sin
+  // migración — mismo patrón que theme.fulfillment). Lista vacía = reset a
+  // «todos»: un checkout sin métodos sería una caída de ventas silenciosa.
+  @IsOptional()
+  @IsArray()
+  @IsIn(CUSTOMER_PAYMENT_METHODS, { each: true })
+  acceptedPaymentMethods?: string[];
   @IsOptional() @IsBoolean() popupEnabled?: boolean;
   @IsOptional() @IsString() popupImageUrl?: string | null;
   @IsOptional() @IsString() popupCardId?: string | null;

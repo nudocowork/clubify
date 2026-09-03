@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
+import { planDisplayName, type PlanPeriodicity } from '@/lib/plan-format';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -358,7 +359,12 @@ export default function AmbassadorsReportPage() {
                         {detail.tenants.map((tn) => (
                           <tr key={tn.referralUseId} className="border-t border-line">
                             <td className="p-2">{tn.brandName}</td>
-                            <td className="p-2">{tn.planName ?? '—'}</td>
+                            <td className="p-2">
+                              {planDisplayName(
+                                tn.planName,
+                                (tn.planPeriodicity as PlanPeriodicity | null) ?? null,
+                              )}
+                            </td>
                             <td className="p-2">{tn.planPeriodicity ?? '—'}</td>
                             <td className="p-2">{fmtDate(tn.currentPeriodEnd)}</td>
                             <td className="p-2">{tn.tenantStatus}</td>

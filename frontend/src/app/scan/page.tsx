@@ -1,6 +1,13 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { api, getUser, setSession, clearSession } from '@/lib/api';
+import {
+  hayEscanerNativo,
+  iniciarEscaneoNativo,
+  detenerEscaneoNativo,
+  vibrar,
+  ErrorEscaner,
+} from '@/lib/native-bridge';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { InstallPWAButton } from '@/components/InstallPWAButton';
@@ -17,6 +24,52 @@ function isCouponLike(type: string | null | undefined): boolean {
   return type === 'COUPON' || type === 'DISCOUNT' || type === 'GIFT';
 }
 
+// Cámara elegida a mano por el negocio. Se persiste por dispositivo: en
+// varios Samsung la cámara que entrega facingMode:'environment' es la ultra
+// gran angular, que tiene FOCO FIJO y nunca enfoca un código de cerca.
+const CAMERA_KEY = 'clubify.scan.cameraId';
+
+// Formatos para el BarcodeDetector nativo. PDF417 va primero porque es el
+// que usan los pases de Clubify en Apple y en Google Wallet.
+const NATIVE_FORMATS = [
+  'pdf417',
+  'qr_code',
+  'code_128',
+  'ean_13',
+  'code_39',
+  'aztec',
+  'data_matrix',
+];
+
+function isPermissionError(e: any) {
+  return e?.name === 'NotAllowedError' || /permission|denied/i.test(e?.message ?? '');
+}
+
+// Elige la cámara TRASERA por etiqueta. Acá antes iba cams[0], que en móvil
+// suele ser la frontal → el escáner quedaba apuntando al lado equivocado.
+function pickBackCamera(cams: Array<{ id: string; label: string }>) {
+  return (
+    cams.find((c) => /back|rear|trasera|traseira|environment/i.test(c.label ?? '')) ??
+    cams[0]
+  );
+}
+
+// BarcodeDetector nativo del sistema, si existe (Android Chrome con Google
+// Play Services, macOS). Devuelve null en iOS/Safari y en navegadores sin
+// Shape Detection API — ahí seguimos con el decodificador JS de html5-qrcode.
+async function makeNativeDetector(): Promise<any | null> {
+  const BD = (globalThis as any).BarcodeDetector;
+  if (!BD) return null;
+  try {
+    const supported: string[] = await BD.getSupportedFormats();
+    const formats = NATIVE_FORMATS.filter((f) => supported.includes(f));
+    if (!formats.length) return null;
+    return new BD({ formats });
+  } catch {
+    return null;
+  }
+}
+
 function avatarClass(seed: string) {
   const sum = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
   return `avatar-${(sum % 7) + 1}`;
@@ -30,9 +83,39 @@ export default function ScanPage() {
   const scannerRef = useRef<any>(null);
   const [data, setData] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Cuando el tope diario bloquea un sello y quien escanea es SUPER_ADMIN,
+  // guardamos los argumentos del intento para poder reintentarlo forzado.
+  const [topeBloqueado, setTopeBloqueado] = useState<{
+    action: string;
+    amount: number;
+    pin?: string;
+    purchaseAmount?: number;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [manual, setManual] = useState('');
   const [scanning, setScanning] = useState(false);
+  // Linterna (torch) + su disponibilidad. El botón solo se muestra si el
+  // equipo la soporta. Ayuda al autofocus por contraste en locales con poca
+  // luz, donde muchas cámaras Android no enfocan bien.
+  // ¿Corremos dentro de la app con escáner nativo? Se resuelve tras montar
+  // porque leer window durante el render rompe la hidratación.
+  const [esNativo, setEsNativo] = useState(false);
+  const [miraNativa, setMiraNativa] = useState(false);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  // Loop del detector nativo + guard para que los dos motores (nativo y JS)
+  // no procesen el mismo código y disparen dos /scanner/verify.
+  const nativeLoopRef = useRef<any>(null);
+  const handledRef = useRef(false);
+  // Zoom óptico/digital del track, si el equipo lo expone.
+  const [zoom, setZoom] = useState<
+    { min: number; max: number; step: number; value: number } | null
+  >(null);
+  // Selector de cámara + línea de diagnóstico (qué cámara, qué motor y a qué
+  // resolución está corriendo) para poder depurar por screenshot.
+  const [cameras, setCameras] = useState<Array<{ id: string; label: string }>>([]);
+  const [activeCamId, setActiveCamId] = useState<string | null>(null);
+  const [diag, setDiag] = useState<string>('');
   // Sesión: si no hay user, mostrar login inline (no redirect a /login,
   // así el staff con dispositivo del local no sale del scan)
   const [user, setUser] = useState<any>(null);
@@ -50,9 +133,180 @@ export default function ScanPage() {
   const [purchaseAmount, setPurchaseAmount] = useState<string>('');
   const [purchaseErr, setPurchaseErr] = useState<string | null>(null);
 
+  function stopNativeLoop() {
+    if (nativeLoopRef.current) {
+      clearTimeout(nativeLoopRef.current);
+      nativeLoopRef.current = null;
+    }
+  }
+
+  // Punto ÚNICO de entrada para un código leído, venga del detector nativo o
+  // del decodificador JS de html5-qrcode.
+  async function handleResult(text: string) {
+    if (handledRef.current) return;
+    handledRef.current = true;
+    stopNativeLoop();
+    // Detener primero para evitar callbacks duplicados
+    try {
+      await scannerRef.current?.stop();
+    } catch {}
+    setScanning(false);
+    await verify(text);
+  }
+
+  // Loop del detector NATIVO — lee el <video> a resolución completa.
+  //
+  // Por qué existe: html5-qrcode NO decodifica el video, decodifica un canvas
+  // que dimensiona en píxeles CSS del qrbox (`foreverScan`: drawImage del
+  // recorte del video hacia un canvas de qrRegion.width × qrRegion.height).
+  // En un celular eso son ~310×160 px. Un PDF417 corto tiene ~136 módulos de
+  // ancho: si el código ocupa medio cuadro quedan ~1.1 px por módulo →
+  // imposible de decodificar. Y como `scanContext` le pasa ESE canvas al
+  // BarcodeDetector, activarlo dentro de la librería tampoco resolvía nada.
+  // Leyendo el <video> directo trabajamos con los 1920×1080 reales.
+  //
+  // Efecto lateral bueno: este loop es independiente de `foreverScan`, así que
+  // sigue escaneando aunque el setupUi de la librería falle (su validación de
+  // qrbox corre dentro del listener 'playing', DESPUÉS de que start() ya
+  // resolvió — si tira, la cámara se ve encendida pero nunca decodifica).
+  function startNativeLoop(detector: any) {
+    const tick = async () => {
+      nativeLoopRef.current = null;
+      if (handledRef.current || !detector) return;
+      const video = document.querySelector<HTMLVideoElement>('#qr-reader video');
+      if (video && video.readyState >= 2 && video.videoWidth > 0) {
+        try {
+          const codes = await detector.detect(video);
+          const raw = codes?.[0]?.rawValue;
+          if (raw) {
+            await handleResult(raw);
+            return;
+          }
+        } catch {
+          // Frame no legible o detector ocupado: se reintenta al próximo tick.
+        }
+      }
+      if (!handledRef.current) nativeLoopRef.current = setTimeout(tick, 120);
+    };
+    stopNativeLoop();
+    nativeLoopRef.current = setTimeout(tick, 300);
+  }
+
+  // Post-arranque, todo best-effort: nada de acá puede tumbar una cámara que
+  // ya está funcionando.
+  async function afterStart(detector: any) {
+    const inst = scannerRef.current as any;
+    // Resolución alta SOLO si hay detector nativo, porque solo él lee el video
+    // completo. Con el decodificador JS es CONTRAPRODUCENTE: su canvas mide lo
+    // mismo (~310 px) pidas la resolución que pidas, así que 1920 px de origen
+    // implican un submuestreo de 5.7× que se come las barras finas del PDF417.
+    // Sin detector nativo dejamos la que elija el driver (~640×480, ~1.9×).
+    if (detector) {
+      try {
+        await inst?.applyVideoConstraints({
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        });
+      } catch (e) {
+        console.warn('[scan] resolución ideal no aplicada:', e);
+      }
+    }
+    // Enfoque continuo: soporte parcial en Android, se ignora solo si no está.
+    try {
+      await inst?.applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    } catch (e) {
+      console.warn('[scan] focusMode continuous no soportado:', e);
+    }
+
+    let caps: any = null;
+    try {
+      caps = inst?.getRunningTrackCameraCapabilities?.();
+    } catch {}
+    try {
+      setTorchSupported(!!caps?.torchFeature?.().isSupported?.());
+    } catch {
+      setTorchSupported(false);
+    }
+    setTorchOn(false);
+    // Zoom: acercar hace que el código ocupe más cuadro = más píxeles reales
+    // por módulo del barcode. Es el mejor remedio cuando al equipo le tocó una
+    // cámara gran angular.
+    try {
+      const z = caps?.zoomFeature?.();
+      if (z?.isSupported?.()) {
+        const min = z.min() ?? 1;
+        const max = Math.min(z.max() ?? 1, 5);
+        const step = z.step() || 0.1;
+        setZoom(max > min ? { min, max, step, value: z.value() ?? min } : null);
+      } else {
+        setZoom(null);
+      }
+    } catch {
+      setZoom(null);
+    }
+
+    let settings: any = {};
+    try {
+      settings = inst?.getRunningTrackSettings?.() ?? {};
+    } catch {}
+    setActiveCamId(settings.deviceId ?? null);
+    setDiag(
+      `${detector ? 'nativo' : 'JS'} · ${settings.width ?? '?'}×${settings.height ?? '?'}`,
+    );
+    // enumerateDevices y NO Html5Qrcode.getCameras(): este último abre un
+    // getUserMedia temporal para forzar el permiso, y pedir un segundo stream
+    // con la cámara ya andando la puede robar en varios Android. Como el
+    // permiso ya está dado, enumerateDevices trae las etiquetas igual.
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      setCameras(
+        devs
+          .filter((d) => d.kind === 'videoinput')
+          .map((d, i) => ({ id: d.deviceId, label: d.label || `Cámara ${i + 1}` })),
+      );
+    } catch {
+      setCameras([]);
+    }
+
+    if (detector) startNativeLoop(detector);
+  }
+
   // Inicia (o re-inicia) el scanner. Idempotente.
   async function startScanner() {
     setErr(null);
+    handledRef.current = false;
+
+    // Dentro de la app: escáner NATIVO (MLKit). Lee bastante mejor que el
+    // decodificador JS con poca luz y a distancia, que es como se escanea en
+    // un mostrador. Abre su propia pantalla a pantalla completa, así que la
+    // cámara web de más abajo ni se enciende.
+    if (hayEscanerNativo()) {
+      setScanning(true);
+      setMiraNativa(true);
+      try {
+        await iniciarEscaneoNativo(async (texto) => {
+          // El lector sigue disparando mientras el código esté a la vista:
+          // handledRef corta las lecturas repetidas del MISMO escaneo.
+          if (handledRef.current) return;
+          await detenerEscaneoNativo();
+          setMiraNativa(false);
+          await vibrar('ok');
+          await handleResult(texto);
+        });
+      } catch (e: any) {
+        await detenerEscaneoNativo();
+        setMiraNativa(false);
+        await vibrar('error');
+        setErr(
+          e instanceof ErrorEscaner
+            ? e.message
+            : 'No se pudo abrir el escáner. Pega el código manualmente abajo.',
+        );
+        setScanning(false);
+      }
+      return;
+    }
+
     try {
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import(
         'html5-qrcode',
@@ -70,49 +324,84 @@ export default function ScanPage() {
             Html5QrcodeSupportedFormats.AZTEC,
             Html5QrcodeSupportedFormats.DATA_MATRIX,
           ],
+          // Ojo: esto ya viene en true por default y sirve de poco — la
+          // librería le pasa al BarcodeDetector su canvas reducido, no el
+          // video. El detector nativo que sí mueve la aguja es el loop propio
+          // de startNativeLoop(). Se deja explícito para que no se lea como
+          // "falta activarlo".
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
           verbose: false,
         });
       }
+      // Se resuelve ANTES de arrancar porque decide dos cosas del arranque:
+      // los fps del decodificador JS (que pasa a ser respaldo) y si conviene
+      // pedirle resolución alta a la cámara.
+      const detector = await makeNativeDetector();
       const scanConfig = {
-        fps: 10,
+        // Con detector nativo, html5-qrcode queda de red de seguridad: bajamos
+        // sus fps y le sacamos el reintento espejado para no comernos la CPU
+        // decodificando 1080p dos veces por frame en paralelo al loop nativo.
+        fps: detector ? 4 : 10,
+        disableFlip: !!detector,
         qrbox: (vw: number, vh: number) => {
-          const minSide = Math.min(vw, vh);
-          const width = Math.min(vw - 30, Math.round(minSide * 1.1));
-          const height = Math.round(width * 0.4);
+          // Región de ESCANEO generosa (casi todo el cuadro). El "recuadro de
+          // mira" VISIBLE ya NO lo dibuja html5-qrcode (su #qr-shaded-region se
+          // oculta por CSS) — lo pintamos nosotros en el render.
+          // El clamp a 50 no es cosmético: validateQrboxSize LANZA por debajo
+          // de MIN_QR_BOX_SIZE, y ese throw ocurre dentro del listener
+          // 'playing', o sea DESPUÉS de que start() resolvió → quedaría la
+          // cámara encendida sin decodificar nunca, sin error visible.
+          const width = Math.min(vw, Math.max(50, Math.round(vw * 0.92)));
+          const height = Math.min(vh, Math.max(50, Math.round(vh * 0.85)));
           return { width, height };
         },
         aspectRatio: 1.5,
       };
-      const onScan = async (text: string) => {
-        // Detener primero para evitar callbacks duplicados
-        try {
-          await scannerRef.current?.stop();
-        } catch {}
-        setScanning(false);
-        await verify(text);
-      };
+      // OJO: html5-qrcode 2.3.8 NO acepta constraints extra en start() — su
+      // createVideoConstraints exige un objeto de EXACTAMENTE 1 clave
+      // (facingMode|deviceId) o un string deviceId; pasar width/height/advanced
+      // lanzaba y caía al fallback = primera cámara (FRONTAL en móvil) →
+      // escáner inservible. El resto se aplica post-start en afterStart().
+      const tryStart = (source: any) =>
+        scannerRef.current.start(source, scanConfig, handleResult, () => {});
+
+      let saved: string | null = null;
       try {
-        // Preferimos la cámara TRASERA (caso normal: celular del local).
-        await scannerRef.current.start(
-          { facingMode: 'environment' },
-          scanConfig,
-          onScan,
-          () => {},
-        );
-        setScanning(true);
-      } catch (envErr: any) {
-        // Fallback (#scan 2026-06-19): en laptops/desktops sin cámara trasera,
-        // facingMode:'environment' falla y la cámara queda NEGRA. Probamos
-        // cualquier cámara disponible (getCameras → primer deviceId) antes de
-        // rendirnos, así el scanner también funciona en compu.
-        if (envErr?.name === 'NotAllowedError' || /permission/i.test(envErr?.message ?? '')) {
-          throw envErr; // permiso denegado: no insistir, mostrar el mensaje claro
+        saved = localStorage.getItem(CAMERA_KEY);
+      } catch {}
+
+      let started = false;
+      let lastErr: any = null;
+      // 1) Cámara que el negocio eligió a mano (si la guardó).
+      if (saved) {
+        try {
+          await tryStart(saved);
+          started = true;
+        } catch (e: any) {
+          lastErr = e;
+          if (isPermissionError(e)) throw e;
         }
-        const cams = await Html5Qrcode.getCameras();
-        if (!cams || cams.length === 0) throw envErr;
-        await scannerRef.current.start(cams[0].id, scanConfig, onScan, () => {});
-        setScanning(true);
       }
+      // 2) Trasera por facingMode — el caso normal (celular del local).
+      if (!started) {
+        try {
+          await tryStart({ facingMode: 'environment' });
+          started = true;
+        } catch (e: any) {
+          lastErr = e;
+          if (isPermissionError(e)) throw e; // no insistir, mostrar el mensaje claro
+        }
+      }
+      // 3) Fallback (#scan 2026-06-19): en laptops/desktops sin cámara trasera
+      // facingMode:'environment' falla y la cámara queda NEGRA. Elegimos por
+      // etiqueta en vez de cams[0], que en móvil es la frontal.
+      if (!started) {
+        const cams = await Html5Qrcode.getCameras();
+        if (!cams || cams.length === 0) throw lastErr ?? new Error('Sin cámaras');
+        await tryStart(pickBackCamera(cams).id);
+      }
+      setScanning(true);
+      afterStart(detector);
     } catch (e: any) {
       const msg = e?.message ?? '';
       setErr(
@@ -125,11 +414,82 @@ export default function ScanPage() {
   }
 
   async function stopScanner() {
+    stopNativeLoop();
     if (!scannerRef.current) return;
     try {
       await scannerRef.current.stop();
     } catch {}
     setScanning(false);
+    setTorchSupported(false);
+    setTorchOn(false);
+    setZoom(null);
+  }
+
+  async function applyZoom(v: number) {
+    try {
+      const z = (scannerRef.current as any)
+        ?.getRunningTrackCameraCapabilities?.()
+        ?.zoomFeature?.();
+      if (!z?.isSupported?.()) return;
+      await z.apply(v);
+      setZoom((prev) => (prev ? { ...prev, value: v } : prev));
+    } catch (e) {
+      console.warn('[scan] zoom no aplicado:', e);
+    }
+  }
+
+  // Cambiar de cámara. Se persiste para que el negocio no tenga que elegirla
+  // en cada turno: en Samsung la cámara "trasera" por defecto puede ser la
+  // ultra gran angular (foco fijo), y ninguna cantidad de enfoque la arregla.
+  async function switchCamera(id: string) {
+    try {
+      localStorage.setItem(CAMERA_KEY, id);
+    } catch {}
+    setActiveCamId(id);
+    await stopScanner();
+    setTimeout(() => startScanner(), 50);
+  }
+
+  // Linterna: la enciende/apaga sobre el track ya activo. Solo se llama desde
+  // el botón, que a su vez solo se muestra si torchSupported === true.
+  async function toggleTorch() {
+    try {
+      const caps = (scannerRef.current as any)?.getRunningTrackCameraCapabilities?.();
+      const torch = caps?.torchFeature?.();
+      if (!torch?.isSupported?.()) {
+        setTorchSupported(false);
+        return;
+      }
+      const next = !torchOn;
+      await torch.apply(next);
+      setTorchOn(next);
+    } catch (e) {
+      console.warn('[scan] no se pudo alternar la linterna:', e);
+    }
+  }
+
+  // Tap-para-enfocar: si el enfoque continuo no dispara (común en gama media
+  // Android), tocar la imagen fuerza un re-enfoque puntual (single-shot) y
+  // luego vuelve a continuo. single-shot tiene soporte parcial → try/catch.
+  async function tapToFocus() {
+    if (!scanning) return;
+    try {
+      await (scannerRef.current as any)?.applyVideoConstraints({
+        advanced: [{ focusMode: 'single-shot' }],
+      });
+      setTimeout(() => {
+        // applyVideoConstraints LANZA sincrónicamente (getRenderedCameraOrFail)
+        // si el scanner ya se detuvo — un .catch() encadenado no lo agarra y
+        // quedaba como excepción suelta al escanear dentro de estos 1.2s.
+        try {
+          (scannerRef.current as any)
+            ?.applyVideoConstraints({ advanced: [{ focusMode: 'continuous' }] })
+            ?.catch(() => {});
+        } catch {}
+      }, 1200);
+    } catch (e) {
+      console.warn('[scan] tap-para-enfocar no soportado:', e);
+    }
   }
 
   // "Escanear otro" — re-arranca la cámara sobre el mismo div
@@ -140,6 +500,13 @@ export default function ScanPage() {
   }
 
   useEffect(() => {
+    return () => {
+      detenerEscaneoNativo();
+    };
+  }, []);
+
+  useEffect(() => {
+    setEsNativo(hayEscanerNativo());
     const u = getUser();
     setUser(u);
     if (!u) return; // muestra login inline en vez de redirect
@@ -229,6 +596,16 @@ export default function ScanPage() {
     amount = 1,
     pin?: string,
     purchaseAmount?: number,
+    // Sello REGALADO: sin compra detras. El backend no exige monto cuando
+    // viene esto, y guarda `purchaseAmount` en null — un regalo no puede
+    // contar como venta del negocio.
+    giftReason?: 'COURTESY' | 'SPECIAL_DATE',
+    // Solo lo manda el boton "Sellar de todos modos", que aparece unicamente
+    // a un SUPER_ADMIN despues de que el tope del dia haya bloqueado el sello.
+    // Antes el admin se saltaba el tope sin enterarse: sellaba de mas creyendo
+    // que el limite estaba puesto, y no habia forma de probar el limite desde
+    // una cuenta de admin.
+    override?: boolean,
   ) {
     if (!data?.pass) return;
     setBusy(true);
@@ -240,7 +617,13 @@ export default function ScanPage() {
           action,
           amount,
           ...(pin ? { pin } : {}),
-          ...(purchaseAmount !== undefined ? { purchaseAmount } : {}),
+          // Un regalo no manda monto: son excluyentes.
+          ...(giftReason
+            ? { giftReason }
+            : purchaseAmount !== undefined
+              ? { purchaseAmount }
+              : {}),
+          ...(override ? { override: true } : {}),
         }),
       });
       // El backend devuelve `pass` sin includes (solo campos del Pass).
@@ -276,13 +659,39 @@ export default function ScanPage() {
           },
         });
       }
+      setTopeBloqueado(null);
       playScanSuccess();
     } catch (e: any) {
       setErr(e.message);
+      // Si lo que bloqueo fue el tope del dia y quien escanea es admin,
+      // guardamos con que argumentos reintentar para ofrecer el forzado.
+      const esTope = /sello/i.test(e?.message ?? '') && /(ya recibió|máximo)/i.test(e?.message ?? '');
+      setTopeBloqueado(
+        esTope && user?.role === 'SUPER_ADMIN'
+          ? { action, amount, pin, purchaseAmount }
+          : null,
+      );
       playScanError();
     } finally {
       setBusy(false);
     }
+  }
+
+  // Wallet V3 — restar un sello (-1) con confirmación. Piso 0 (el backend
+  // también lo garantiza). Gateado por la marca (walletAdvanced.removeStamps).
+  async function removeStamp() {
+    if (!data?.pass) return;
+    const isVisits = data.pass.card?.type === 'VISITS';
+    const current = isVisits ? data.pass.visitsCount ?? 0 : data.pass.stampsCount ?? 0;
+    if (current <= 0) {
+      setErr(isVisits ? 'El cliente no tiene visitas que restar.' : 'El cliente no tiene sellos que restar.');
+      playScanError();
+      return;
+    }
+    if (!confirm(isVisits ? '¿Seguro que deseas eliminar una visita?' : '¿Seguro que deseas eliminar un sello?')) {
+      return;
+    }
+    await act('STAMP_REMOVE', 1);
   }
 
   // ─── Login inline cuando no hay sesión ───
@@ -341,6 +750,44 @@ export default function ScanPage() {
 
   return (
     <div className="min-h-screen bg-bg">
+      {/* Mira del escáner NATIVO. La cámara la pinta el sistema por detrás del
+          WebView (body.escaner-nativo-activo lo deja transparente), así que
+          esto es lo ÚNICO visible mientras dura el escaneo. La proporción
+          2.3:1 es la del código de barras de un pase de wallet: con el
+          cuadrado que trae la pantalla del sistema la gente intentaba encajar
+          la tarjeta entera y no leía. */}
+      {miraNativa && (
+        <div className="escaner-mira fixed inset-0 z-[100] flex flex-col">
+          <div className="flex-1 flex items-center justify-center px-6">
+            <div
+              className="relative w-full"
+              style={{ maxWidth: 440, aspectRatio: '2.3 / 1' }}
+            >
+              <div className="absolute inset-0 rounded-2xl border-[3px] border-white/90 shadow-[0_0_0_100vmax_rgba(0,0,0,.45)]" />
+              <div className="absolute -top-9 left-0 right-0 text-center text-white text-sm font-medium drop-shadow">
+                Apunta al código del cliente
+              </div>
+            </div>
+          </div>
+          <div
+            className="p-6 flex justify-center"
+            style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
+          >
+            <button
+              type="button"
+              onClick={async () => {
+                await detenerEscaneoNativo();
+                setMiraNativa(false);
+                setScanning(false);
+              }}
+              className="bg-white text-ink font-semibold rounded-pill px-7 py-3 shadow-lg"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-lg mx-auto p-3 sm:p-5">
         {/* Header — compacto en mobile */}
         <div className="flex items-center justify-between mb-2 sm:mb-3">
@@ -370,18 +817,149 @@ export default function ScanPage() {
           </div>
         )}
 
-        {/* Camera viewport — ocupa el espacio disponible. En mobile usa
-            casi toda la pantalla; en desktop se mantiene en proporción. */}
+        {/* Camera viewport — se ajusta EXACTO al video (ver el style de
+            abajo), así el recuadro de mira queda centrado sobre la imagen y no
+            sobre relleno negro. El wrapper 'relative' aloja los controles
+            sobrepuestos (linterna, hint) sin que html5-qrcode los borre al
+            inyectar el <video>. */}
+        {esNativo && !data && (
+          <div className="rounded-card border border-line bg-surface p-6 text-center">
+            <div className="text-4xl mb-3">📷</div>
+            <p className="text-sm text-mute leading-relaxed mb-4">
+              {scanning
+                ? 'Apunta la cámara al código del cliente.'
+                : 'Toca para abrir la cámara y leer el código del cliente.'}
+            </p>
+            <button
+              type="button"
+              onClick={startScanner}
+              className="btn-primary w-full justify-center py-3.5 text-base font-semibold"
+            >
+              Escanear código
+            </button>
+          </div>
+        )}
+
         <div
-          id="qr-reader"
-          className="rounded-card overflow-hidden bg-ink relative w-full"
-          style={{
-            display: data ? 'none' : 'block',
-            // mobile portrait: hasta 65vh; cap a 560px en pantallas grandes
-            height: data ? 0 : 'min(65vh, 560px)',
-            minHeight: data ? 0 : 280,
-          }}
-        />
+          className="relative w-full"
+          style={{ display: data || esNativo ? 'none' : 'block' }}
+        >
+          <div
+            id="qr-reader"
+            onClick={tapToFocus}
+            className="rounded-card overflow-hidden bg-ink relative w-full"
+            style={{
+              // Altura AUTOMÁTICA: la define el <video> que inyecta
+              // html5-qrcode (ancho = el del contenedor, alto intrínseco del
+              // stream). Antes era min(65vh,560px) fija y el video —siempre
+              // apaisado— llenaba solo el tercio superior: el recuadro de mira,
+              // centrado en el contenedor, caía ENTERO sobre la zona negra de
+              // abajo y la persona terminaba apuntando el código a la nada.
+              // El minHeight es solo el placeholder previo a que abra la cámara.
+              minHeight: scanning ? undefined : 240,
+              cursor: scanning ? 'pointer' : 'default',
+            }}
+          />
+          {/* Ocultamos el recuadro que dibuja html5-qrcode (#qr-shaded-region):
+              se veía como una "línea finita" por el desajuste de coordenadas.
+              En su lugar pintamos el nuestro (abajo), grueso y parejo en iOS y
+              Android. */}
+          <style>{`#qr-shaded-region{display:none!important}`}</style>
+          {/* Recuadro de mira PROPIO — grueso, tamaño de código de barras de
+              tarjeta. La región de escaneo real es más grande que esta guía,
+              así que si el código cae dentro, siempre se detecta. */}
+          {scanning && (
+            <div className="pointer-events-none absolute inset-0 z-[5] rounded-card overflow-hidden">
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div
+                  className="relative"
+                  style={{ width: '86%', maxWidth: 440, aspectRatio: '2.3 / 1' }}
+                >
+                  {/* Oscurece alrededor del recuadro y deja la guía más clara */}
+                  <div
+                    className="absolute inset-0 rounded-lg"
+                    style={{ boxShadow: '0 0 0 9999px rgba(0,0,0,0.34)' }}
+                  />
+                  {/* 4 esquinas tipo mira */}
+                  <span className="absolute -top-px -left-px w-9 h-9 border-t-[5px] border-l-[5px] border-white rounded-tl-lg" />
+                  <span className="absolute -top-px -right-px w-9 h-9 border-t-[5px] border-r-[5px] border-white rounded-tr-lg" />
+                  <span className="absolute -bottom-px -left-px w-9 h-9 border-b-[5px] border-l-[5px] border-white rounded-bl-lg" />
+                  <span className="absolute -bottom-px -right-px w-9 h-9 border-b-[5px] border-r-[5px] border-white rounded-br-lg" />
+                </div>
+              </div>
+            </div>
+          )}
+          {scanning && (
+            <div className="absolute bottom-3 left-3 z-10 text-[10px] text-white/80 bg-black/50 rounded-full px-2.5 py-1 pointer-events-none select-none">
+              Toca para enfocar
+            </div>
+          )}
+          {scanning && torchSupported && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleTorch();
+              }}
+              className="absolute bottom-3 right-3 z-10 w-11 h-11 rounded-full flex items-center justify-center shadow-lg text-lg"
+              style={{
+                background: torchOn ? '#fbbf24' : 'rgba(0,0,0,0.55)',
+                color: torchOn ? '#000' : '#fff',
+              }}
+              title={torchOn ? 'Apagar linterna' : 'Encender linterna'}
+              aria-label={torchOn ? 'Apagar linterna' : 'Encender linterna'}
+            >
+              💡
+            </button>
+          )}
+        </div>
+
+        {/* Controles de cámara. El selector es clave en Samsung: la cámara que
+            entrega facingMode:'environment' puede ser la ultra gran angular,
+            que en varios modelos tiene FOCO FIJO y nunca enfoca un código de
+            cerca — ahí no hay enfoque ni linterna que sirva, hay que cambiar
+            de lente. La elección queda guardada en el equipo. */}
+        {!data && scanning && !esNativo && (
+          <div className="mt-2 space-y-2">
+            {cameras.length > 1 && (
+              <select
+                className="input text-xs py-2"
+                value={activeCamId ?? ''}
+                onChange={(e) => switchCamera(e.target.value)}
+                aria-label="Cámara"
+              >
+                {cameras.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            {zoom && (
+              <label className="flex items-center gap-2 text-[11px] text-mute">
+                🔍
+                <input
+                  type="range"
+                  className="flex-1"
+                  min={zoom.min}
+                  max={zoom.max}
+                  step={zoom.step}
+                  value={zoom.value}
+                  onChange={(e) => applyZoom(Number(e.target.value))}
+                  aria-label="Zoom"
+                />
+                <span className="w-9 text-right tabular-nums">
+                  {zoom.value.toFixed(1)}x
+                </span>
+              </label>
+            )}
+            {diag && (
+              <div className="text-[10px] text-mute text-center">
+                detector {diag}
+              </div>
+            )}
+          </div>
+        )}
 
         {!data && err && !scanning && (
           <button
@@ -400,11 +978,15 @@ export default function ScanPage() {
               e.preventDefault();
               // Guard: no mandar el verify si está vacío (evita el 400
               // "Código vacío" confuso cuando el campo quedó en blanco).
-              const v = manual.trim();
+              let v = manual.trim();
               if (!v) {
                 setErr('Escaneá un código o pegá el código del pase (CLB-…).');
                 return;
               }
+              // El serial siempre es mayúscula; el qrToken (QR-<nanoid>) NO
+              // — por eso se normaliza solo el CLB- en vez de forzar
+              // autoCapitalize sobre todo el campo, que rompía los QR-.
+              if (/^clb-/i.test(v)) v = v.toUpperCase();
               verify(v);
             }}
           >
@@ -415,7 +997,9 @@ export default function ScanPage() {
               onChange={(e) => setManual(e.target.value)}
               inputMode="text"
               autoComplete="off"
-              autoCapitalize="characters"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
             />
             <button className="btn-primary px-4">Verificar</button>
           </form>
@@ -424,6 +1008,34 @@ export default function ScanPage() {
         {err && (
           <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
             {err}
+            {/* Forzar el sello por encima del tope: solo para admin y solo
+                despues de que el tope haya bloqueado. Queda anotado en el
+                historial del sello para poder distinguirlo despues. */}
+            {topeBloqueado && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  const t = topeBloqueado;
+                  setTopeBloqueado(null);
+                  setErr(null);
+                  // `undefined` = sin motivo de regalo; el `true` final es
+                  // el override del tope. Sin este hueco, el true caia en
+                  // giftReason y el forzado dejaba de funcionar.
+                  void act(
+                    t.action,
+                    t.amount,
+                    t.pin,
+                    t.purchaseAmount,
+                    undefined,
+                    true,
+                  );
+                }}
+                className="mt-2 block w-full text-center text-xs font-semibold px-3 py-2 rounded-md bg-white/70 border border-bad-ink/20 hover:bg-white disabled:opacity-50"
+              >
+                Sellar de todos modos (queda registrado)
+              </button>
+            )}
           </div>
         )}
 
@@ -471,7 +1083,11 @@ export default function ScanPage() {
                   <div className="text-lg font-bold text-amber-900 mt-1 leading-tight">
                     {data.pass.card.rewardText || 'Beneficio especial'}
                   </div>
-                  {data.pass.card.discountPercent ? (
+                  {/* El "% OFF" solo se muestra si NO hay premio custom: cuando el
+                      negocio define un premio (ej. "Reclama Gratis 1 Americano"),
+                      ese es el beneficio y el % sería incongruente. */}
+                  {data.pass.card.discountPercent &&
+                  !data.pass.card.rewardText?.trim() ? (
                     <div className="text-2xl font-extrabold text-amber-700 mt-1">
                       {data.pass.card.discountPercent}% OFF
                     </div>
@@ -626,6 +1242,17 @@ export default function ScanPage() {
                     🔐 Más sellos
                   </button>
                 </div>
+                {/* Wallet V3 — restar sello (-1). Solo si la marca lo permite. */}
+                {data.walletAdvanced?.removeStamps !== false && (
+                  <button
+                    className="btn-ghost w-full justify-center py-3 text-sm mt-2"
+                    style={{ color: '#dc2626' }}
+                    disabled={busy || (data.pass.stampsCount ?? 0) <= 0}
+                    onClick={removeStamp}
+                  >
+                    − Restar sello
+                  </button>
+                )}
               </>
             )}
 
@@ -649,6 +1276,17 @@ export default function ScanPage() {
                 >
                   <Icon name="gift" /> Canjear recompensa
                 </button>
+                {/* Wallet V3 — restar visita (-1). Solo si la marca lo permite. */}
+                {data.walletAdvanced?.removeStamps !== false && (
+                  <button
+                    className="btn-ghost w-full justify-center py-3 text-sm mt-2"
+                    style={{ color: '#dc2626' }}
+                    disabled={busy || (data.pass.visitsCount ?? 0) <= 0}
+                    onClick={removeStamp}
+                  >
+                    − Restar visita
+                  </button>
+                )}
               </>
             )}
 
@@ -847,6 +1485,52 @@ export default function ScanPage() {
                   <div className="text-[11px] text-mute mt-1.5 leading-snug">
                     El monto es <b>solo informativo</b> (alimenta los KPIs de
                     facturación). No cambia cuántos sellos se otorgan: 1 compra = 1 sello.
+                  </div>
+                </div>
+
+                {/* Regalo: sin compra detrás. Antes había que inventarse un
+                    monto para poder sellar una cortesía, y esa cifra entraba a
+                    la facturación del negocio como si alguien hubiera pagado. */}
+                <div className="rounded-lg border border-line p-3">
+                  <div className="text-[11px] font-semibold text-mute mb-2">
+                    ¿No hubo compra? Regálalo
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={async () => {
+                        setPurchaseErr(null);
+                        await act(showPurchase, 1, undefined, undefined, 'COURTESY');
+                        setShowPurchase(null);
+                        setPurchaseAmount('');
+                      }}
+                      className="btn-ghost text-xs justify-center py-2.5 disabled:opacity-50"
+                    >
+                      ☕ Cortesía
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={async () => {
+                        setPurchaseErr(null);
+                        await act(
+                          showPurchase,
+                          1,
+                          undefined,
+                          undefined,
+                          'SPECIAL_DATE',
+                        );
+                        setShowPurchase(null);
+                        setPurchaseAmount('');
+                      }}
+                      className="btn-ghost text-xs justify-center py-2.5 disabled:opacity-50"
+                    >
+                      🎂 Fecha especial
+                    </button>
+                  </div>
+                  <div className="text-[10px] text-mute mt-1.5 leading-snug">
+                    Queda registrado como regalo y <b>no suma a tus ventas</b>.
                   </div>
                 </div>
                 {purchaseErr && (

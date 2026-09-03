@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { resolveMainSectionLabel } from '@/lib/business-categories';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -59,8 +60,17 @@ type Product = {
   priceMax?: number | null;
   /** DELTA: variantes suman al base. ABSOLUTE: cada variante su precio propio. */
   variantPriceMode?: 'DELTA' | 'ABSOLUTE';
+  /** Cuantas variantes puede marcar el cliente. null/1 = una sola. */
+  maxVariantsTotal?: number | null;
+  /** Tope de extras EN TOTAL. null/undefined = sin tope. */
+  maxExtrasTotal?: number | null;
   imageUrl: string | null;
   tags: string[];
+  /** De qué producto salió, si esta carta se creó duplicando otra. */
+  sourceProductId?: string | null;
+  sourceProduct?: { id: string; name: string } | null;
+  /** Sigue al original: precio, nombre y foto se propagan desde allá. */
+  syncWithSource?: boolean;
   isAvailable: boolean;
   availableForMesa?: boolean;
   availableForDelivery?: boolean;
@@ -70,6 +80,22 @@ type Product = {
   stockAlert: number | null;
   variants: Variant[];
   extras: Extra[];
+};
+
+// Métodos de pago que puede declarar el cliente en el checkout público.
+// Orden canónico = el orden en que se pintan allá; la lista guardada en
+// theme.paymentMethods siempre se normaliza a este orden.
+const PAY_METHOD_ORDER = [
+  'EFECTIVO',
+  'TARJETA',
+  'TRANSFERENCIA',
+  'OTRO',
+] as const;
+const PAY_METHOD_LABEL_KEY: Record<string, string> = {
+  EFECTIVO: 'payMethodCash',
+  TARJETA: 'payMethodCard',
+  TRANSFERENCIA: 'payMethodTransfer',
+  OTRO: 'payMethodOther',
 };
 
 // Fix 2026-06-10: el formato monetario ahora usa el helper centralizado
@@ -86,7 +112,30 @@ function fmt(n: number, currency = 'COP', symbolOverride?: string | null) {
   return formatPrice(n, currency, { symbolOverride });
 }
 
+type MenuResumen = {
+  id: string | null;
+  name: string;
+  locationId: string | null;
+  locationName: string | null;
+  esPrincipal: boolean;
+  categorias: number;
+  productos: number;
+};
+type MenusResp = {
+  habilitado: boolean;
+  /** Cartas extra permitidas por el admin, y cuántas quedan libres. */
+  topeExtras?: number;
+  cupoLibre?: number;
+  menus: MenuResumen[];
+};
+
 export default function MenuEditor() {
+  // Carta que se esta editando. null = menu principal.
+  const [menuActivo, setMenuActivo] = useState<string | null>(null);
+  const [menus, setMenus] = useState<MenusResp | null>(null);
+  // Sedes del negocio, para asignarle una a cada carta.
+  const [sedes, setSedes] = useState<{ id: string; name: string }[]>([]);
+  const [creandoCarta, setCreandoCarta] = useState(false);
   const t = useTranslations('app_menu');
   const [cats, setCats] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -103,6 +152,17 @@ export default function MenuEditor() {
   const [coverRecommendedOpen, setCoverRecommendedOpen] = useState(false);
   const [ordersDeliveryEnabled, setOrdersDeliveryEnabled] = useState<boolean | null>(null);
   const [togglingOrders, setTogglingOrders] = useState(false);
+  // PDF1145: fulfillment por negocio (pickup / mesa). Domicilio = ordersDelivery.
+  const [pickupEnabled, setPickupEnabled] = useState<boolean | null>(null);
+  const [dineInEnabled, setDineInEnabled] = useState<boolean | null>(null);
+  const [togglingPickup, setTogglingPickup] = useState(false);
+  const [togglingDineIn, setTogglingDineIn] = useState(false);
+  // Métodos de pago aceptados en el checkout (theme.paymentMethods).
+  // null = /storefront aún no respondió → el botón no se muestra (no
+  // dejamos tocar la config sin saber la actual: se pisaría a ciegas).
+  const [payMethods, setPayMethods] = useState<string[] | null>(null);
+  const [payMenuOpen, setPayMenuOpen] = useState(false);
+  const [savingPayMethods, setSavingPayMethods] = useState(false);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   // Fix 2026-06-10: moneda del tenant para mostrar precios correctos.
   // Default COP para fallback histórico mientras /tenants/me carga.
@@ -139,12 +199,32 @@ export default function MenuEditor() {
     return () => mq.removeEventListener('change', update);
   }, []);
 
-  async function load(preserveActive = true) {
-    const c = await api<Category[]>('/catalog/categories');
+  /**
+   * Carga el catalogo de la CARTA activa.
+   *
+   * `menuActivo = null` es el menu principal, que es donde vive todo lo de
+   * siempre. Sin el filtro, un negocio con dos cartas veria los productos de
+   * ambas mezclados.
+   */
+  async function load(preserveActive = true, menuId = menuActivo) {
+    const q = menuId ? `?menuId=${encodeURIComponent(menuId)}` : '';
+    const c = await api<Category[]>(`/catalog/categories${q}`);
     setCats(c);
     if ((!preserveActive || !activeCat) && c.length) setActiveCat(c[0].id);
-    const p = await api<Product[]>('/catalog/products');
+    const p = await api<Product[]>(`/catalog/products${q}`);
     setProducts(p);
+  }
+
+  /** Las cartas del negocio. Vacio / no habilitado = solo el principal. */
+  async function loadMenus() {
+    try {
+      const r = await api<MenusResp>('/catalog/menus');
+      setMenus(r);
+    } catch {
+      // Negocio sin la funcion habilitada o backend viejo: se sigue como
+      // siempre, con una sola carta y sin selector.
+      setMenus(null);
+    }
   }
   async function loadAdicionales() {
     try {
@@ -154,6 +234,20 @@ export default function MenuEditor() {
       // tabla puede no existir todavía en deploys viejos — silencioso
     }
   }
+  useEffect(() => {
+    void loadMenus();
+    void api<{ id: string; name: string }[]>('/locations')
+      .then((r) => setSedes(r ?? []))
+      .catch(() => setSedes([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cambiar de carta recarga el catalogo entero: son productos distintos.
+  useEffect(() => {
+    if (menus) void load(false, menuActivo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuActivo]);
+
   useEffect(() => {
     load(false);
     loadAdicionales();
@@ -184,14 +278,31 @@ export default function MenuEditor() {
       const sf = await api<{
         ordersEnabled: boolean;
         ordersDeliveryEnabled?: boolean;
+        theme?: {
+          fulfillment?: { pickup?: boolean; dineIn?: boolean };
+          paymentMethods?: string[];
+        };
       }>('/storefront');
       // Backend devuelve ordersDeliveryEnabled gateado por ordersEnabled.
       // Fallback al master para storefronts viejos sin la columna nueva.
       setOrdersDeliveryEnabled(
         sf.ordersDeliveryEnabled ?? sf.ordersEnabled ?? true,
       );
+      // PDF1145: pickup/dineIn viven en theme.fulfillment (default false).
+      setPickupEnabled(!!sf.theme?.fulfillment?.pickup);
+      setDineInEnabled(!!sf.theme?.fulfillment?.dineIn);
+      // Métodos de pago del checkout: sin configurar = todos activos.
+      const rawPay = sf.theme?.paymentMethods;
+      const validPay = Array.isArray(rawPay)
+        ? PAY_METHOD_ORDER.filter((m) => rawPay.includes(m))
+        : [];
+      setPayMethods(validPay.length > 0 ? validPay : [...PAY_METHOD_ORDER]);
     } catch {
       setOrdersDeliveryEnabled(true);
+      setPickupEnabled(false);
+      setDineInEnabled(false);
+      // payMethods queda en null a propósito: sin leer la config real no
+      // mostramos el editor (guardar a ciegas pisaría lo configurado).
     }
   }
 
@@ -230,13 +341,94 @@ export default function MenuEditor() {
     }
   }
 
+  // PDF1145: toggles de Pick Up y Pedido en mesa. Persisten en
+  // theme.fulfillment vía PATCH /storefront (sin migración).
+  async function togglePickup() {
+    if (pickupEnabled === null) return;
+    const next = !pickupEnabled;
+    setTogglingPickup(true);
+    setPickupEnabled(next);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ fulfillmentPickupEnabled: next }),
+      });
+      toast(next ? t('pickupOnToast') : t('pickupOffToast'), 'success');
+    } catch (e: any) {
+      toast(e.message || t('error'), 'error');
+      setPickupEnabled(!next);
+    } finally {
+      setTogglingPickup(false);
+    }
+  }
+
+  async function toggleDineIn() {
+    if (dineInEnabled === null) return;
+    const next = !dineInEnabled;
+    setTogglingDineIn(true);
+    setDineInEnabled(next);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ fulfillmentDineInEnabled: next }),
+      });
+      toast(next ? t('dineinOnToast') : t('dineinOffToast'), 'success');
+    } catch (e: any) {
+      toast(e.message || t('error'), 'error');
+      setDineInEnabled(!next);
+    } finally {
+      setTogglingDineIn(false);
+    }
+  }
+
+  // Prende/apaga un método de pago del checkout. Guarda la lista completa
+  // vía PATCH /storefront (theme.paymentMethods) con update optimista +
+  // revert si falla, igual que los toggles de fulfillment.
+  async function togglePayMethod(method: string) {
+    if (payMethods === null || savingPayMethods) return;
+    const active = payMethods.includes(method);
+    // Nunca dejar la lista en cero: un checkout sin métodos de pago sería
+    // una caída de ventas silenciosa para el negocio.
+    if (active && payMethods.length === 1) {
+      toast(t('payMethodsAtLeastOne'), 'error');
+      return;
+    }
+    const next = active
+      ? payMethods.filter((m) => m !== method)
+      : PAY_METHOD_ORDER.filter(
+          (m) => payMethods.includes(m) || m === method,
+        );
+    const prev = payMethods;
+    setSavingPayMethods(true);
+    setPayMethods(next);
+    try {
+      await api('/storefront', {
+        method: 'PATCH',
+        body: JSON.stringify({ acceptedPaymentMethods: next }),
+      });
+      const label = t(PAY_METHOD_LABEL_KEY[method] ?? 'payMethodOther');
+      toast(
+        active
+          ? t('payMethodOffToast', { method: label })
+          : t('payMethodOnToast', { method: label }),
+        'success',
+      );
+    } catch (e: any) {
+      toast(e.message || t('error'), 'error');
+      setPayMethods(prev);
+    } finally {
+      setSavingPayMethods(false);
+    }
+  }
+
   async function createCategory(e: React.FormEvent) {
     e.preventDefault();
     if (!newCatName.trim()) return;
     try {
       await api('/catalog/categories', {
         method: 'POST',
-        body: JSON.stringify({ name: newCatName }),
+        // Nace en la carta que se esta editando.
+        body: JSON.stringify({ name: newCatName, menuId: menuActivo }),
       });
       setNewCatName('');
       setShowCatForm(false);
@@ -372,6 +564,8 @@ export default function MenuEditor() {
     // `createdAt`, `timesOrdered`, relación `category`, etc., que el
     // PATCH rechaza con 400.
     const payload = {
+      // Nace en la carta que se esta editando.
+      menuId: menuActivo,
       // null explícito → producto sin categoría (Bloque 2 2026-06-12).
       // undefined → no tocar en update (backend respeta).
       categoryId: p.categoryId ?? null,
@@ -384,6 +578,8 @@ export default function MenuEditor() {
           ? Number(p.priceMax)
           : null,
       variantPriceMode: p.variantPriceMode ?? 'DELTA',
+      maxVariantsTotal: p.maxVariantsTotal ?? null,
+      maxExtrasTotal: p.maxExtrasTotal ?? null,
       imageUrl: p.imageUrl || undefined,
       tags: p.tags ?? [],
       isAvailable: p.isAvailable ?? true,
@@ -437,8 +633,125 @@ export default function MenuEditor() {
       ? products.filter((p) => p.categoryId === null)
       : products.filter((p) => p.categoryId === activeCat);
 
+  const cartaActual = menus?.menus.find((m) => m.id === menuActivo) ?? null;
+
   return (
     <div>
+      {/* Selector de cartas. Solo aparece si el negocio tiene la funcion
+          habilitada — la inmensa mayoria tiene un menu y no ve nada de esto.
+
+          Aqui habia un aviso ambar que le explicaba al admin como habilitar la
+          funcion. Fuera (2026-08-26, decision de Javier): el panel del negocio
+          no es sitio para instrucciones de navegacion internas, y el negocio
+          no tiene por que enterarse de que existe una funcion que no tiene.
+          Cuando haya algo que ofrecer aqui, sera una invitacion, no un aviso. */}
+      {menus?.habilitado && (
+        <div className="card card-pad mb-4">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+                Cartas
+              </div>
+              <div className="text-[11px] text-mute mt-0.5 leading-snug max-w-md">
+                Cada sede puede tener la suya, con su propio QR. Los productos
+                duplicados <b>siguen al menú principal</b> hasta que los
+                desenganches: cambias un precio una vez y cambia en todas.
+              </div>
+            </div>
+            {/* Sin cupo no se ofrece el boton: mejor que no aparezca a que
+                el negocio lo pulse y el backend le diga que no.
+
+                El mensaje del limite es el MISMO para todos. Antes, si quien
+                miraba era de casa, se le indicaba la ruta interna para ampliar
+                el cupo; esas instrucciones no van en el panel del negocio. */}
+            {(menus.cupoLibre ?? 1) > 0 ? (
+              <button
+                type="button"
+                onClick={() => setCreandoCarta(true)}
+                className="btn-ghost text-xs"
+              >
+                + Nueva carta
+              </button>
+            ) : (
+              <span className="text-[11px] text-mute text-right leading-snug max-w-[200px]">
+                Llegaste al límite de {menus.topeExtras} carta
+                {menus.topeExtras === 1 ? '' : 's'}. Pídenos ampliarlo.
+              </span>
+            )}
+          </div>
+
+          <div className="flex gap-2 flex-wrap mt-3">
+            {menus.menus.map((m) => (
+              <button
+                key={m.id ?? 'principal'}
+                type="button"
+                onClick={() => setMenuActivo(m.id)}
+                className={`px-3 py-2 rounded-lg border text-left transition ${
+                  menuActivo === m.id
+                    ? 'border-brand bg-brand/5'
+                    : 'border-line hover:bg-bg2'
+                }`}
+              >
+                <div className="text-sm font-semibold">{m.name}</div>
+                <div className="text-[11px] text-mute">
+                  {m.productos} producto{m.productos === 1 ? '' : 's'}
+                  {m.locationName ? ` · ${m.locationName}` : ''}
+                  {!m.esPrincipal && !m.locationName ? ' · sin sede' : ''}
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {cartaActual && !cartaActual.esPrincipal && (
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] text-mute">Sede que usa esta carta:</span>
+              <select
+                className="input text-xs py-1.5 w-auto"
+                value={cartaActual.locationId ?? ''}
+                onChange={async (e) => {
+                  try {
+                    await api(`/catalog/menus/${cartaActual.id}`, {
+                      method: 'PATCH',
+                      body: JSON.stringify({
+                        locationId: e.target.value || null,
+                      }),
+                    });
+                    await loadMenus();
+                    toast('Sede asignada', 'success');
+                  } catch (err: any) {
+                    toast(err?.message || 'No se pudo asignar', 'error');
+                  }
+                }}
+              >
+                <option value="">Sin asignar</option>
+                {sedes.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              {!cartaActual.locationId && (
+                <span className="text-[11px] text-amber-700">
+                  ⚠️ Sin sede, ningún QR abre esta carta.
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {creandoCarta && (
+        <NuevaCartaModal
+          menus={menus?.menus ?? []}
+          onClose={() => setCreandoCarta(false)}
+          onCreada={async (id) => {
+            setCreandoCarta(false);
+            await loadMenus();
+            setMenuActivo(id);
+          }}
+        />
+      )}
+
       <div className="page-head">
         <h1 className="page-title">
           {mainLabel}{' '}
@@ -464,6 +777,82 @@ export default function MenuEditor() {
                 : t('deliveryOffBtn')}
             </button>
           )}
+          {/* PDF1145: canales de entrega configurables por negocio. */}
+          {pickupEnabled !== null && (
+            <button
+              type="button"
+              onClick={togglePickup}
+              disabled={togglingPickup}
+              className={`btn-ghost ${pickupEnabled ? 'text-ok' : 'text-mute'}`}
+              title={t('pickupTitle')}
+            >
+              {pickupEnabled ? t('pickupOnBtn') : t('pickupOffBtn')}
+            </button>
+          )}
+          {dineInEnabled !== null && (
+            <button
+              type="button"
+              onClick={toggleDineIn}
+              disabled={togglingDineIn}
+              className={`btn-ghost ${dineInEnabled ? 'text-ok' : 'text-mute'}`}
+              title={t('dineinTitle')}
+            >
+              {dineInEnabled ? t('dineinOnBtn') : t('dineinOffBtn')}
+            </button>
+          )}
+          {/* Métodos de pago que acepta el negocio en el checkout público.
+              Solo aparece cuando /storefront ya respondió (payMethods !==
+              null): editar sin conocer la config real la pisaría a ciegas. */}
+          {payMethods !== null && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setPayMenuOpen((o) => !o)}
+                className="btn-ghost"
+                title={t('payMethodsTitle')}
+              >
+                💳{' '}
+                {t('payMethodsBtn', {
+                  count: payMethods.length,
+                  total: PAY_METHOD_ORDER.length,
+                })}
+              </button>
+              {payMenuOpen && (
+                <>
+                  {/* Backdrop invisible: clic fuera cierra el dropdown. */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setPayMenuOpen(false)}
+                  />
+                  <div className="card absolute left-0 z-20 mt-1 w-64 p-3 space-y-1">
+                    <div className="text-xs text-mute pb-1">
+                      {t('payMethodsHint')}
+                    </div>
+                    {PAY_METHOD_ORDER.map((m) => {
+                      const active = payMethods.includes(m);
+                      return (
+                        <label
+                          key={m}
+                          className="flex items-center gap-2 py-1.5 px-1 rounded-md hover:bg-bg2 cursor-pointer text-sm"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={active}
+                            disabled={savingPayMethods}
+                            onChange={() => togglePayMethod(m)}
+                          />
+                          <span className={active ? '' : 'text-mute'}>
+                            {t(PAY_METHOD_LABEL_KEY[m])}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          <AcademyButton moduleKey="menu" />
           <button className="btn-ghost" onClick={() => setShowCatForm(!showCatForm)}>
             <Icon name="plus" /> {t('category')}
           </button>
@@ -529,7 +918,13 @@ export default function MenuEditor() {
       {/* M1.2: identificación clara entre Menú Mesa (informativo) y Menú
           Delivery (con carrito + WhatsApp). Misma data de productos pero
           rutas distintas — cada una con su propósito. */}
-      {tenantSlug && <PublicMenuLinks slug={tenantSlug} mainLabel={mainLabel} />}
+      {tenantSlug && (
+        <PublicMenuLinks
+          slug={tenantSlug}
+          mainLabel={mainLabel}
+          carta={cartaActual}
+        />
+      )}
 
       {showCatForm && (
         <form onSubmit={createCategory} className="card card-pad mb-4 flex gap-2">
@@ -1048,6 +1443,7 @@ export default function MenuEditor() {
       {editing && (
         <ProductDrawer
           value={editing}
+          onSyncChanged={() => void load()}
           categories={cats}
           adicionales={adicionales}
           mainLabel={mainLabel}
@@ -1848,8 +2244,11 @@ function ProductDrawer({
   tenantCurrencySymbol,
   onCancel,
   onSave,
+  onSyncChanged,
 }: {
   value: Partial<Product>;
+  /** Se llama tras enganchar/desenganchar, para recargar el catalogo. */
+  onSyncChanged?: () => void;
   categories: Category[];
   adicionales: Adicional[];
   mainLabel: string;
@@ -1861,8 +2260,40 @@ function ProductDrawer({
   const t = useTranslations('app_menu');
   const [form, setForm] = useState<Partial<Product>>(value);
 
+  const [sincronizando, setSincronizando] = useState(false);
+
   function update<K extends keyof Product>(k: K, v: any) {
     setForm({ ...form, [k]: v });
+  }
+
+  /**
+   * Engancha o desengancha del original.
+   *
+   * Se guarda al instante, no al pulsar «Guardar»: al enganchar el backend
+   * trae los datos del original, y el formulario tiene que reflejarlos ya —
+   * si no, guardar despues volveria a pisarlos con lo que habia en pantalla.
+   */
+  async function cambiarSync(sync: boolean) {
+    if (!form.id) return;
+    setSincronizando(true);
+    try {
+      const r = await api<Product>(`/catalog/products/${form.id}/sync`, {
+        method: 'PATCH',
+        body: JSON.stringify({ sync }),
+      });
+      setForm(r);
+      toast(
+        sync
+          ? 'Sincronizado: ahora sigue al menú principal'
+          : 'Desenganchado: este producto va por libre',
+        'success',
+      );
+      onSyncChanged?.();
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo cambiar', 'error');
+    } finally {
+      setSincronizando(false);
+    }
   }
 
   return (
@@ -1879,6 +2310,55 @@ function ProductDrawer({
         </div>
 
         <div className="space-y-3">
+          {/* Sincronia con el menu original.
+              Solo aparece en productos que salieron de duplicar otra carta.
+              Va ARRIBA porque cambia el significado de todo lo de abajo: si
+              esta sincronizado, editar el precio aqui lo pisa el original en
+              el proximo cambio. */}
+          {form.sourceProductId && (
+            <div
+              className={`rounded-lg border p-3 ${
+                form.syncWithSource
+                  ? 'border-brand/40 bg-brand/5'
+                  : 'border-line bg-bg2'
+              }`}
+            >
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!form.syncWithSource}
+                  disabled={sincronizando}
+                  onChange={(e) => void cambiarSync(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold">
+                    Sigue al menú principal
+                  </div>
+                  <div className="text-[11px] text-mute leading-snug mt-0.5">
+                    {form.syncWithSource ? (
+                      <>
+                        El <b>nombre, precio, foto, variantes y extras</b> se
+                        copian solos desde «{form.sourceProduct?.name ?? 'el original'}».
+                        Lo que cambies aquí de eso se perderá en el próximo
+                        cambio de allá.
+                        <div className="mt-1">
+                          Lo que <b>sí</b> es de esta carta: si está visible,
+                          mesa/domicilio, destacado, orden y stock.
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        Este producto va por libre. Los cambios del menú
+                        principal ya no le llegan.
+                      </>
+                    )}
+                  </div>
+                </div>
+              </label>
+            </div>
+          )}
+
           <div>
             <label className="label">{t('name')}</label>
             <input
@@ -2274,6 +2754,46 @@ function ProductDrawer({
             >
               {t('addVariant')}
             </button>
+
+            {/* Cuantas variantes puede marcar el cliente.
+                Por defecto elige UNA (tamano: pequeno / mediano / grande).
+                Subiendolo, las variantes pasan a ser casillas: "elige 2 salsas
+                de estas 5". Solo tiene sentido cuando las opciones SUMAN al
+                precio base: si cada una define su precio final, sumar dos no
+                significa nada, y por eso ahi no se ofrece. */}
+            {(form.variantPriceMode ?? 'DELTA') === 'DELTA' ? (
+              <div className="mt-3 pt-3 border-t border-line">
+                <label className="text-[11px] font-semibold text-mute block mb-1">
+                  {t('maxVariantsLabel')}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    className="input w-24"
+                    placeholder="1"
+                    value={form.maxVariantsTotal ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      // Vacio o 1 = "elige una", que es el comportamiento por
+                      // defecto. Se manda null para que el backend lo limpie.
+                      const n = Math.max(1, Math.floor(Number(v) || 1));
+                      update('maxVariantsTotal', v === '' || n <= 1 ? null : n);
+                    }}
+                  />
+                  <span className="text-[11px] text-mute">
+                    {form.maxVariantsTotal && form.maxVariantsTotal > 1
+                      ? t('maxVariantsMulti', { n: form.maxVariantsTotal })
+                      : t('maxVariantsSingle')}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 pt-3 border-t border-line text-[11px] text-mute leading-snug">
+                {t('maxVariantsAbsoluteHint')}
+              </p>
+            )}
           </fieldset>
 
           <fieldset className="border border-line rounded-lg p-3">
@@ -2366,6 +2886,49 @@ function ProductDrawer({
             >
               {t('addExtra')}
             </button>
+
+            {/* Tope de extras. Un producto puede ofrecer 20 ingredientes y
+                permitir solo 5: sin este limite el cliente elige 10 y al
+                negocio le toca explicarle por telefono por que no.
+                SIEMPRE visible, aunque el producto no tenga extras todavia:
+                si solo aparecia con extras ya cargados, el negocio no lo
+                encontraba al montar el producto — que es justo cuando
+                quiere fijar el tope.
+                Cubre extras Y adicionales: un adicional de la biblioteca del
+                negocio se convierte en un extra del producto al marcarlo, o
+                sea que son la misma lista. Las variantes no entran porque se
+                elige UNA (radio), no varias. */}
+            {(
+              <div className="mt-3 pt-3 border-t border-line">
+                <label className="text-[11px] font-semibold text-mute block mb-1">
+                  {t('maxExtrasLabel')}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    className="input w-24"
+                    placeholder={t('maxExtrasNoLimit')}
+                    value={form.maxExtrasTotal ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value.trim();
+                      // Vacio = sin tope. Se manda null explicito para que el
+                      // backend lo borre; undefined dejaria el valor anterior.
+                      update(
+                        'maxExtrasTotal',
+                        v === '' ? null : Math.max(1, Math.floor(Number(v) || 1)),
+                      );
+                    }}
+                  />
+                  <span className="text-[11px] text-mute">
+                    {form.maxExtrasTotal
+                      ? t('maxExtrasSet', { n: form.maxExtrasTotal })
+                      : t('maxExtrasNoLimitHint')}
+                  </span>
+                </div>
+              </div>
+            )}
           </fieldset>
         </div>
 
@@ -2388,14 +2951,28 @@ function ProductDrawer({
  * sin query). Misma data de productos, distinto propósito. Cada uno con
  * botón para copiar el link y abrir en pestaña nueva.
  */
-function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string }) {
+function PublicMenuLinks({
+  slug,
+  mainLabel,
+  carta,
+}: {
+  slug: string;
+  mainLabel: string;
+  /** Carta activa. El menú principal no lleva parámetro. */
+  carta?: { id: string | null; name: string; locationId: string | null } | null;
+}) {
   const t = useTranslations('app_menu');
   const [origin, setOrigin] = useState<string>('');
   useEffect(() => {
     if (typeof window !== 'undefined') setOrigin(window.location.origin);
   }, []);
-  const mesaUrl = `${origin}/m/${slug}`;
-  const deliveryUrl = `${origin}/d/${slug}`;
+  // Cada carta tiene su propio enlace y su propio QR: el de la sede lleva
+  // `?sede=`, y el backend resuelve que carta servir. El menú principal va sin
+  // parámetro, así que los QR ya impresos siguen funcionando igual.
+  const sedeQ =
+    carta && carta.id ? `?sede=${encodeURIComponent(carta.locationId ?? carta.id)}` : '';
+  const mesaUrl = `${origin}/m/${slug}${sedeQ}`;
+  const deliveryUrl = `${origin}/d/${slug}${sedeQ}`;
   const labelLower = mainLabel.toLowerCase();
 
   async function copy(url: string, label: string) {
@@ -2481,6 +3058,140 @@ function PublicMenuLinks({ slug, mainLabel }: { slug: string; mainLabel: string 
               ↗ {t('open')}
             </Link>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Alta de una carta nueva.
+ *
+ * Lo importante es el duplicado: montar 545 productos a mano otra vez no es
+ * una opcion. Al duplicar, cada producto queda SIGUIENDO al original — cambiar
+ * un precio en el menu principal lo cambia aqui tambien — hasta que el negocio
+ * lo desenganche para esa sede.
+ */
+function NuevaCartaModal({
+  menus,
+  onClose,
+  onCreada,
+}: {
+  menus: MenuResumen[];
+  onClose: () => void;
+  onCreada: (id: string) => void;
+}) {
+  const [nombre, setNombre] = useState('');
+  const [duplicar, setDuplicar] = useState(true);
+  const [origen, setOrigen] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const elegido = menus.find((m) => m.id === origen) ?? menus[0] ?? null;
+
+  async function crear() {
+    if (nombre.trim().length < 2) {
+      toast('Ponle un nombre a la carta.', 'error');
+      return;
+    }
+    setGuardando(true);
+    try {
+      const r = await api<{ id: string }>('/catalog/menus', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: nombre.trim(),
+          duplicar,
+          // null = duplicar el menu principal, que no es una fila sino todo lo
+          // que no tiene carta asignada.
+          duplicarDe: origen,
+        }),
+      });
+      toast('Carta creada', 'success');
+      onCreada(r.id);
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo crear la carta', 'error');
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.5)' }}
+      onClick={() => !guardando && onClose()}
+    >
+      <div
+        className="bg-bg rounded-2xl p-4 w-full max-w-sm shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="font-semibold text-sm mb-3">Nueva carta</div>
+
+        <label className="block text-xs text-mute mb-1">Nombre</label>
+        <input
+          className="input w-full mb-3"
+          placeholder="Carta sede Norte"
+          value={nombre}
+          onChange={(e) => setNombre(e.target.value)}
+          autoFocus
+        />
+
+        <label className="flex items-start gap-2 cursor-pointer mb-2">
+          <input
+            type="checkbox"
+            checked={duplicar}
+            onChange={(e) => setDuplicar(e.target.checked)}
+            className="mt-0.5"
+          />
+          <div>
+            <div className="text-sm font-semibold">Copiar un menú que ya tengo</div>
+            <div className="text-[11px] text-mute leading-snug">
+              Trae categorías, productos, variantes y extras. Después ocultas o
+              cambias lo que no aplique en esa sede.
+            </div>
+          </div>
+        </label>
+
+        {duplicar && menus.length > 1 && (
+          <select
+            className="input w-full mb-2"
+            value={origen ?? ''}
+            onChange={(e) => setOrigen(e.target.value || null)}
+          >
+            {menus.map((m) => (
+              <option key={m.id ?? 'principal'} value={m.id ?? ''}>
+                Copiar de: {m.name} ({m.productos} productos)
+              </option>
+            ))}
+          </select>
+        )}
+
+        {duplicar && elegido && (
+          <div className="text-[11px] text-mute mb-3 leading-snug">
+            Se copiarán <b>{elegido.productos} productos</b>. Quedarán
+            sincronizados con «{elegido.name}»: los cambios de precio, nombre y
+            foto se propagan solos. Lo que ocultes aquí no afecta allá.
+            {/* El stock no viaja: es fisico de cada sede. */}
+            <div className="mt-1">
+              El <b>stock no se copia</b>: el inventario es de cada sede.
+            </div>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            className="btn-ghost flex-1 text-sm justify-center"
+            onClick={onClose}
+            disabled={guardando}
+          >
+            Cancelar
+          </button>
+          <button
+            className="btn flex-1 text-sm justify-center"
+            onClick={crear}
+            disabled={guardando}
+          >
+            {guardando ? 'Creando…' : 'Crear carta'}
+          </button>
         </div>
       </div>
     </div>

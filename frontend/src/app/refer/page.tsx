@@ -1,10 +1,11 @@
 'use client';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { PhoneInput } from '@/components/PhoneInput';
+import { useAuthBrand, BrandMark } from '@/components/AuthBrand';
 
 // useSearchParams requiere Suspense boundary en Next 14 para que el build
 // estático no falle (CSR bailout). Wrap del export default.
@@ -22,6 +23,17 @@ function ReferInner() {
   const [form, setForm] = useState({ fullName: '', email: '', whatsapp: '', password: '' });
   const [result, setResult] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Marca blanca por host (Sellea, Fideliso…): null en Clubify → branding default.
+  const { brand } = useAuthBrand();
+  // Términos de comisión de la marca (EXCLUSIVO Sellea = monto fijo pago único).
+  // fixedOnce=false → % clásico. Resuelto por Origin/Referer en el backend.
+  const [terms, setTerms] = useState<{ fixedOnce: boolean; negocioAmount?: number } | null>(null);
+
+  useEffect(() => {
+    api('/referrals/public-terms')
+      .then((t: any) => setTerms(t))
+      .catch(() => setTerms(null));
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,10 +53,7 @@ function ReferInner() {
     <div className="min-h-screen bg-bg">
       <div className="max-w-lg mx-auto px-6 py-8">
         <Link href="/" className="flex items-center gap-2.5 mb-6">
-          <div className="w-8 h-8 rounded-lg bg-brand text-white flex items-center justify-center font-bold">
-            C
-          </div>
-          <div className="font-bold text-lg">Clubify</div>
+          <BrandMark brand={brand} size={28} />
         </Link>
 
         {result ? (
@@ -78,9 +87,19 @@ function ReferInner() {
                 </button>
               </div>
               <div className="text-sm text-mute mt-4">
-                Comisión:{' '}
-                <strong>{Number(result.commissionPercent)}%</strong> por cada negocio
-                que se vuelva cliente pago.
+                {result.fixedCommissionUsd != null ? (
+                  <>
+                    Comisión:{' '}
+                    <strong>${Number(result.fixedCommissionUsd)} por negocio</strong>{' '}
+                    (pago único) que se vuelva cliente.
+                  </>
+                ) : (
+                  <>
+                    Comisión:{' '}
+                    <strong>{Number(result.commissionPercent)}%</strong> por cada
+                    negocio que se vuelva cliente pago.
+                  </>
+                )}
               </div>
               {result.accountReady && (
                 <div className="mt-5 rounded-lg bg-brand-soft p-4">
@@ -103,8 +122,15 @@ function ReferInner() {
               <h1 className="page-title">Programa de referidos</h1>
             </div>
             <p className="text-mute mb-5 leading-relaxed">
-              Recomienda Clubify y gana <strong className="text-brand">25% de comisión</strong> por
-              cada negocio que se vuelva cliente pago.
+              Recomienda {brand?.name ?? 'Clubify'} y gana{' '}
+              {terms?.fixedOnce && terms.negocioAmount != null ? (
+                <strong className="text-brand">
+                  ${terms.negocioAmount} por negocio (pago único)
+                </strong>
+              ) : (
+                <strong className="text-brand">25% de comisión</strong>
+              )}{' '}
+              por cada negocio que se vuelva cliente pago.
             </p>
             <form onSubmit={submit} className="card card-pad space-y-3">
               <div>

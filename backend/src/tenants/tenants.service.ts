@@ -3,19 +3,26 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  UnauthorizedException,
   Inject,
   forwardRef,
 } from '@nestjs/common';
 import { TenantStatus } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
+import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
+import { invalidateBusinessTypeCache } from '../common/guards/infolink-only.guard';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
+import { IncomeRecordService } from '../finance/income-record.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
-import { addPlanPeriod } from '../common/plan-period';
+import { addPlanPeriod, normalizePlanPeriod } from '../common/plan-period';
+import { getCanonicalBundlePrice } from '../common/plan-pricing';
+import { resolveManualPaymentPeriod } from '../common/manual-payment-period';
+import { cycleCreditCostForTenant, normalizeBusinessType, BusinessType } from '../common/business-types';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { QueueService } from '../jobs/queue.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
@@ -39,6 +46,9 @@ export type CreateTenantDto = {
   referredByCode?: string;
   /** Slug de la categoría del rubro (restaurant, barbershop, …). */
   businessCategorySlug?: string;
+  /** Tipo de negocio / línea de producto (FULL=Negocio Completo, INFOLINK=Solo
+   *  InfoLink). Default FULL. Determina el consumo de créditos y los módulos. */
+  businessType?: BusinessType;
   /**
    * Si true, crea cuenta gratuita (cortesía) — saltea Hotmart, queda ACTIVE
    * indefinidamente y el lockscreen no se dispara. Útil para internos,
@@ -81,6 +91,9 @@ export type UpdateTenantDto = Partial<{
   status: TenantStatus;
   planId: string;
   planPeriodicity: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null;
+  // Tipo de negocio (Completo / Solo InfoLink). Cambiarlo altera el consumo de
+  // créditos futuro y los módulos visibles (guard InfoLinkOnly + sidebar).
+  businessType: BusinessType;
   // Modo de reparto de comisión del vendedor (Fase 3 overhaul comisiones).
   commissionDistributionMode:
     | 'DISCOUNT_FROM_INFLUENCER'
@@ -102,10 +115,15 @@ export type UpdateTenantDto = Partial<{
   whatsappDeliveryPhone: string;
   tutorialsEnabled: boolean;
   academyEnabled: boolean;
+  /** Varias cartas, una por sede. Ver modelo `Menu`. */
+  multiMenuEnabled: boolean;
+  /** Cuantas cartas EXTRA permite el admin. */
+  maxExtraMenus: number;
 }>;
 
 export type UpdateMyTenantDto = Partial<{
   brandName: string;
+  dataPolicyUrl: string | null;
   locale: string;
   phone: string;
   whatsappPhone: string;
@@ -151,6 +169,8 @@ export class TenantsService {
     private growBusiness: GrowBusinessService,
     private recalc: CommissionRecalcService,
     private onboardingWebhook: OnboardingWebhookService,
+    // CONTABILIDAD Fase 1: histórico de ingreso real (pagos manuales). Best-effort.
+    private incomeRecord: IncomeRecordService,
   ) {}
 
   /**
@@ -288,12 +308,31 @@ export class TenantsService {
    * M5 (2026-06-04): MARKETING también puede impersonar — el rol se usa
    * para implementadores que configuran cuentas de clientes.
    */
-  async impersonate(tenantId: string, superAdminId: string) {
+  async impersonate(tenantId: string, superAdminId: string | null) {
     // Seguridad: findFirst (NO findUnique) → el middleware lo acota a la marca
     // del admin. Un admin de otra marca NO puede impersonar este negocio.
     const tenant = await this.prisma.tenant.findFirst({
       where: { id: tenantId },
-      select: { id: true, brandName: true, slug: true, status: true },
+      select: {
+        id: true,
+        brandName: true,
+        slug: true,
+        status: true,
+        // Branding de la marca blanca del negocio → el frontend lo guarda en el
+        // backup de impersonation (sessionStorage) para sembrar el panel /app
+        // con logo/color/nombre reales en el PRIMER paint (anti-flash FODT).
+        // Sin esto, /app pinta el verde Clubify + logo genérico + "Mi Negocio"
+        // hasta que responde el fetch async de /tenants/me.
+        whiteLabel: {
+          select: {
+            slug: true,
+            name: true,
+            primaryColor: true,
+            logoUrl: true,
+            iconUrl: true,
+          },
+        },
+      },
     });
     if (!tenant) throw new NotFoundException('Negocio no encontrado');
 
@@ -312,7 +351,7 @@ export class TenantsService {
       email: owner.email,
       role: owner.role,
       tenantId: owner.tenantId,
-      impersonatedBy: superAdminId,
+      impersonatedBy: superAdminId ?? 'team-enter',
     };
     const accessToken = this.jwt.sign(payload);
 
@@ -323,11 +362,17 @@ export class TenantsService {
     // creció. Ahora cada inicio de impersonación queda registrado con
     // actor=adminId, tenant=target, action=tenant.impersonate.
     this.audit.log({
-      actorId: superAdminId,
+      // actorId es FK a User; el contador de TeamClubify no es un User de
+      // Clubify → null cuando la entrada viene del magic-link (A4).
+      actorId: superAdminId ?? undefined,
       tenantId: tenant.id,
       action: 'tenant.impersonate',
       resource: `tenant:${tenant.id}`,
-      metadata: { ownerImpersonated: owner.id, tenantSlug: tenant.slug },
+      metadata: {
+        ownerImpersonated: owner.id,
+        tenantSlug: tenant.slug,
+        via: superAdminId ? 'admin' : 'team-enter-link',
+      },
     });
 
     return {
@@ -339,7 +384,139 @@ export class TenantsService {
         role: owner.role,
         tenantId: owner.tenantId,
       },
-      tenant,
+      tenant: {
+        id: tenant.id,
+        brandName: tenant.brandName,
+        slug: tenant.slug,
+        status: tenant.status,
+        // Seed anti-flash para el panel /app (ver comentario del select).
+        // primaryColor = color de la MARCA BLANCA (no del negocio), que es la
+        // identidad que hereda el panel /app.
+        whiteLabelSlug: tenant.whiteLabel?.slug ?? null,
+        whiteLabelName: tenant.whiteLabel?.name ?? null,
+        primaryColor: tenant.whiteLabel?.primaryColor ?? null,
+        logoUrl: tenant.whiteLabel?.logoUrl ?? null,
+        iconUrl: tenant.whiteLabel?.iconUrl ?? null,
+      },
+    };
+  }
+
+  /**
+   * PDF Soft(9) A4: genera un magic-link de VIDA CORTA (15 min) para que el
+   * contador entre a un negocio desde TeamClubify. El token del URL NO es la
+   * sesión final: /entrar lo intercambia (enterExchange) por una sesión normal,
+   * así el link caduca en 15 min aunque la sesión siga viva. Firmado con el
+   * secreto JWT del backend (no falsificable) + marca kind:'enter'.
+   */
+  async mintEnterLink(tenantId: string): Promise<{ url: string }> {
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      select: { id: true },
+    });
+    if (!owner) {
+      throw new BadRequestException('El negocio no tiene un dueño activo.');
+    }
+    const token = this.jwt.sign(
+      { tenantId, kind: 'enter', by: 'team-accountant' },
+      { expiresIn: '15m' },
+    );
+    const base = process.env.CLUBIFY_APP_URL || 'https://soyclubify.com';
+    return { url: `${base}/entrar?t=${encodeURIComponent(token)}` };
+  }
+
+  /**
+   * PDF Soft(9) A4: intercambia el token corto del magic-link por una sesión de
+   * impersonación normal (mismo payload que /impersonate). Público: el token
+   * firmado ES la autorización. Rechaza si venció o no es un token 'enter'.
+   */
+  async enterExchange(token: string) {
+    let decoded: any;
+    try {
+      decoded = this.jwt.verify(token);
+    } catch {
+      throw new UnauthorizedException('El enlace es inválido o venció.');
+    }
+    if (!decoded || decoded.kind !== 'enter' || !decoded.tenantId) {
+      throw new UnauthorizedException('Enlace inválido.');
+    }
+    // Reutiliza impersonate (token de sesión normal + branding + auditoría).
+    // actor=null → queda auditado como via 'team-enter-link'.
+    return this.impersonate(decoded.tenantId, null);
+  }
+
+  /**
+   * Cambia la contraseña del DUEÑO (TENANT_OWNER) de un negocio SIN pedir la
+   * actual. Pensado para soporte: cuando el negocio olvidó su contraseña, el
+   * admin puede setearle una nueva desde el panel. Queda auditado y se
+   * invalidan los tokens viejos del dueño (passwordChangedAt). Brand-scoped
+   * vía findFirst (un admin de otra marca no puede tocar este negocio).
+   */
+  async changeOwnerPasswordAdmin(
+    tenantId: string,
+    newPassword: string,
+    actorId: string,
+  ) {
+    const pwd = (newPassword ?? '').trim();
+    if (pwd.length < 8) {
+      throw new BadRequestException(
+        'La nueva contraseña debe tener al menos 8 caracteres.',
+      );
+    }
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { id: tenantId },
+      select: { id: true, brandName: true, slug: true },
+    });
+    if (!tenant) throw new NotFoundException('Negocio no encontrado');
+
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, email: true },
+    });
+    if (!owner) {
+      throw new BadRequestException(
+        'Este negocio no tiene un TENANT_OWNER activo.',
+      );
+    }
+
+    const passwordHash = await this.auth.hashPassword(pwd);
+    await this.prisma.user.update({
+      where: { id: owner.id },
+      // passwordChangedAt invalida los JWT emitidos antes del cambio.
+      data: { passwordHash, passwordChangedAt: new Date() },
+    });
+
+    this.audit.log({
+      actorId,
+      tenantId: tenant.id,
+      action: 'tenant.owner.password_change',
+      resource: `user:${owner.id}`,
+      metadata: { tenantSlug: tenant.slug, ownerId: owner.id },
+    });
+
+    return { ok: true, ownerEmail: owner.email };
+  }
+
+  /**
+   * El dueño activo del negocio: el mismo que elegiría `setOwnerPassword`
+   * (TENANT_OWNER activo, el más antiguo). Se expone para que el panel de
+   * soporte muestre A QUÉ correo le va a cambiar la contraseña ANTES de
+   * escribirla, no después.
+   */
+  async ownerOfTenant(tenantId: string) {
+    const owner = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, email: true, fullName: true, lastLoginAt: true },
+    });
+    if (!owner) return { owner: null };
+    return {
+      owner: {
+        id: owner.id,
+        email: owner.email,
+        fullName: owner.fullName,
+        lastLoginAt: owner.lastLoginAt,
+      },
     };
   }
 
@@ -348,25 +525,111 @@ export class TenantsService {
    * Mayor a menor por default; `order='asc'` invierte. Incluye negocios con
    * 0 pases. Excluye borrados.
    */
-  async rankingByPasses(order: 'asc' | 'desc' = 'desc') {
+  /**
+   * Ranking de negocios.
+   *
+   * `criterio`:
+   *   - `pases`      → por cuántos pases han emitido (el de siempre).
+   *   - `antiguedad` → por cuándo entraron. Sirve para lo contrario: ver quién
+   *                    lleva más tiempo, que no siempre es quien más emite.
+   *
+   * `desde` acota los pases a los emitidos a partir de esa fecha, para poder
+   * preguntar "quién movió más ESTE mes" en vez de arrastrar el histórico —
+   * si no, los negocios veteranos copan la lista para siempre y no se ve quién
+   * está creciendo ahora.
+   */
+  async rankingByPasses(
+    order: 'asc' | 'desc' = 'desc',
+    user?: AuthUser,
+    criterio: 'pases' | 'antiguedad' = 'pases',
+    desde?: Date | null,
+    // Qué se rankea: 'pases' (Pass emitidos) o 'pedidos' (Order de los menús de
+    // domicilios). Misma lógica de período/antigüedad/visibilidad; solo cambia
+    // la tabla que se cuenta y el campo de fecha (Pass.issuedAt / Order.createdAt).
+    metric: 'pases' | 'pedidos' = 'pases',
+  ) {
+    // Aislamiento por MARCA BLANCA: cada marca ve SOLO el ranking de SUS
+    // negocios (mismo scoping que list()). Sin marca en sesión → default
+    // Clubify (+ legacy null). El cross-brand global vive en /superadmin.
+    const brandWhere = await this.brandTenantWhere(user?.whiteLabelId ?? null);
     const tenants = await this.prisma.tenant.findMany({
-      where: { deletedAt: null },
-      select: { id: true, brandName: true, name: true, status: true },
+      where: { deletedAt: null, isCampaignHost: false, ...brandWhere },
+      select: {
+        id: true,
+        brandName: true,
+        name: true,
+        status: true,
+        createdAt: true,
+      },
     });
-    const grouped = await this.prisma.pass.groupBy({
-      by: ['tenantId'],
-      _count: { _all: true },
+
+    // Ranking (pedido del dueño 2026-09): ocultar del ranking de pases a los
+    // SUSPENDIDOS y a los TRIAL — son ruido (no son clientes que cuenten para
+    // medir emisión real). Excepción explícita: "Nudo Cowork" SÍ se muestra
+    // aunque esté en TRIAL (interesa verlo). El filtro va ANTES de contar pases
+    // para que el total del ranking también quede acotado a lo visible.
+    const NUDO_EXC = 'nudo cowork';
+    const visibles = tenants.filter((t) => {
+      if (t.status === 'SUSPENDED') return false;
+      if (t.status === 'TRIAL') {
+        return (t.brandName || t.name || '').toLowerCase().includes(NUDO_EXC);
+      }
+      return true;
     });
-    const countMap = new Map(grouped.map((g) => [g.tenantId, g._count._all]));
-    const rows = tenants.map((t) => ({
+
+    // Conteo del período + SIEMPRE el total histórico: cuando se filtra por
+    // fecha hay que poder comparar "40 este mes, de 1.200 en total". Sin el total
+    // al lado, el número del período no dice nada. La métrica decide la tabla:
+    //   pases   → Pass  (campo de fecha issuedAt)
+    //   pedidos → Order (campo de fecha createdAt) — pedidos de los menús.
+    const ids = visibles.map((t) => t.id);
+    const countByTenant = (soloPeriodo: boolean) => {
+      const dateFilter =
+        soloPeriodo && desde
+          ? metric === 'pedidos'
+            ? { createdAt: { gte: desde } }
+            : { issuedAt: { gte: desde } }
+          : {};
+      const where = { tenantId: { in: ids }, ...dateFilter };
+      return metric === 'pedidos'
+        ? this.prisma.order.groupBy({ by: ['tenantId'], where, _count: { _all: true } })
+        : this.prisma.pass.groupBy({ by: ['tenantId'], where, _count: { _all: true } });
+    };
+    const [delPeriodo, historico] = await Promise.all([
+      countByTenant(true),
+      desde ? countByTenant(false) : Promise.resolve(null),
+    ]);
+
+    const mapaPeriodo = new Map(delPeriodo.map((g) => [g.tenantId, g._count._all]));
+    const mapaTotal = historico
+      ? new Map(historico.map((g) => [g.tenantId, g._count._all]))
+      : mapaPeriodo;
+
+    const rows = visibles.map((t) => ({
       id: t.id,
       brandName: t.brandName || t.name,
       status: t.status,
-      passCount: countMap.get(t.id) ?? 0,
+      /** Pases del período consultado (o el total, si no se filtró). */
+      passCount: mapaPeriodo.get(t.id) ?? 0,
+      /** Total histórico, siempre. Es la referencia para leer el anterior. */
+      passTotal: mapaTotal.get(t.id) ?? 0,
+      createdAt: t.createdAt,
     }));
-    rows.sort((a, b) =>
-      order === 'asc' ? a.passCount - b.passCount : b.passCount - a.passCount,
-    );
+
+    if (criterio === 'antiguedad') {
+      // `desc` = los más antiguos primero, que es lo que se busca al ordenar
+      // por antigüedad. Ordenar por fecha descendente daría los más nuevos y
+      // sería justo lo contrario de lo que dice el botón.
+      rows.sort((a, b) =>
+        order === 'desc'
+          ? a.createdAt.getTime() - b.createdAt.getTime()
+          : b.createdAt.getTime() - a.createdAt.getTime(),
+      );
+    } else {
+      rows.sort((a, b) =>
+        order === 'asc' ? a.passCount - b.passCount : b.passCount - a.passCount,
+      );
+    }
     return rows;
   }
 
@@ -414,20 +677,41 @@ export class TenantsService {
         plan: true,
         businessGroup: { select: { id: true, name: true, status: true } },
         _count: { select: { users: true, cards: true, customers: true } },
+        // slug de la marca → el panel /admin puede mostrar columnas propias por
+        // marca (ej. Sellea: vencimiento del servicio en vez de pedidos/revenue).
+        whiteLabel: { select: { slug: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
     if (tenants.length === 0) return [];
 
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const orderStats = await this.prisma.order.groupBy({
-      by: ['tenantId'],
-      where: { createdAt: { gte: since }, status: { not: 'CANCELLED' } },
-      _count: { _all: true },
-      _sum: { total: true },
-    });
+    // Conteo y plata van en bases distintas (regla 2026-08-20): orders30 mide
+    // actividad (todo menos cancelados) pero revenue30 solo suma pedidos que
+    // llegaron a CONFIRMED+ — un PENDING eterno no es facturación del negocio.
+    const [orderStats, revenueStats] = await Promise.all([
+      this.prisma.order.groupBy({
+        by: ['tenantId'],
+        where: { createdAt: { gte: since }, status: { not: 'CANCELLED' } },
+        _count: { _all: true },
+      }),
+      this.prisma.order.groupBy({
+        by: ['tenantId'],
+        where: {
+          createdAt: { gte: since },
+          status: { in: ['CONFIRMED', 'READY', 'DELIVERED'] },
+        },
+        _sum: { total: true },
+      }),
+    ]);
+    const revByTenant = new Map(
+      revenueStats.map((s) => [s.tenantId, Number(s._sum.total ?? 0)]),
+    );
     const byTenant = new Map(
-      orderStats.map((s) => [s.tenantId, { count: s._count._all, total: Number(s._sum.total ?? 0) }]),
+      orderStats.map((s) => [
+        s.tenantId,
+        { count: s._count._all, total: revByTenant.get(s.tenantId) ?? 0 },
+      ]),
     );
 
     const now = Date.now();
@@ -438,6 +722,7 @@ export class TenantsService {
         : null;
       return {
         ...t,
+        whiteLabelSlug: t.whiteLabel?.slug ?? null,
         orders30: stat.count,
         revenue30: stat.total,
         daysLeftInTrial,
@@ -462,6 +747,12 @@ export class TenantsService {
           select: {
             slug: true,
             name: true,
+            // Visibilidad de la tarjeta "Grow Business · SMS" por marca (solo UI).
+            showGrowBusinessCard: true,
+            // Pasarela de pago de la marca → el detalle muestra dinámicamente
+            // "Pasarela: Stripe/Hotmart/…" + el identificador correcto (PDF 1256
+            // §1). Reutilizable para cualquier marca sin tocar código.
+            paymentGateway: true,
             // Créditos de la marca → el detalle gatea trial/activación (PDF 752
             // #5): marca blanca sin créditos NO puede activar; y nunca da trial.
             creditsAvailable: true,
@@ -473,7 +764,7 @@ export class TenantsService {
             paymentLinks: {
               where: { active: true },
               orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-              select: { periodicity: true, amountUsd: true, url: true },
+              select: { periodicity: true, amountUsd: true, url: true, gateway: true },
             },
           },
         },
@@ -484,12 +775,18 @@ export class TenantsService {
     const enabledModules = tenant.whiteLabel?.modules?.map((m) => m.module) ?? null;
     // Planes de la marca para el modal de cambio de periodicidad. Vacío para
     // Clubify / marca sin links → el frontend cae a su set de planes Clubify.
+    // FILTRO por pasarela ACTIVA de la marca: un link de otra pasarela (ej. un
+    // link de prueba de Cross en Clubify, que cobra por Hotmart) NO debe
+    // aparecer como "plan de la marca" ni tapar los planes reales del landing.
+    const brandGateway = tenant.whiteLabel?.paymentGateway ?? null;
     const brandPlans =
-      tenant.whiteLabel?.paymentLinks?.map((l) => ({
-        periodicity: l.periodicity,
-        amountUsd: l.amountUsd != null ? Number(l.amountUsd) : null,
-        url: l.url ?? null,
-      })) ?? [];
+      tenant.whiteLabel?.paymentLinks
+        ?.filter((l) => !brandGateway || l.gateway === brandGateway)
+        .map((l) => ({
+          periodicity: l.periodicity,
+          amountUsd: l.amountUsd != null ? Number(l.amountUsd) : null,
+          url: l.url ?? null,
+        })) ?? [];
     // Estado de créditos de la marca para gatear la UI (PDF 752 #5). Un negocio
     // de MARCA BLANCA (no-Clubify) no recibe trial y solo se activa con créditos:
     //  - isWhiteLabel: el negocio pertenece a una marca blanca (no Clubify).
@@ -497,12 +794,16 @@ export class TenantsService {
     // Para Clubify / sin marca → no hay restricción (canActivate true, sin gate).
     const wl = tenant.whiteLabel;
     const isWhiteLabel = !!wl && wl.slug !== 'clubify';
+    // Costo del ciclo según tipo de negocio × periodicidad (InfoLink = 0.25/mes).
+    const activationCost = cycleCreditCostForTenant(tenant.businessType, tenant.infolinkTier, tenant.planPeriodicity);
     const brandCredits = {
       isWhiteLabel,
       unlimited: isWhiteLabel ? !!wl?.creditsUnlimited : true,
       available: isWhiteLabel ? wl?.creditsAvailable ?? 0 : 0,
+      // Créditos que costará activar este negocio (según su tipo/periodicidad).
+      cost: activationCost,
       canActivate: isWhiteLabel
-        ? !!wl?.creditsUnlimited || (wl?.creditsAvailable ?? 0) >= 1
+        ? !!wl?.creditsUnlimited || (wl?.creditsAvailable ?? 0) >= activationCost
         : true,
     };
     // PDF 925 #2: el "Modo de reparto de comisión" solo aplica si el negocio
@@ -516,7 +817,37 @@ export class TenantsService {
           referralCode: { role: 'VENDOR' },
         },
       })) > 0;
-    return { ...tenant, enabledModules, brandPlans, brandCredits, hasVendor };
+    // PDF 1256 §1: pasarela + identificador de suscripción dinámicos por marca.
+    // Clubify / sin marca → HOTMART por default. El identificador se toma del
+    // campo correcto según la pasarela (reutilizable para cualquier marca).
+    const gateway = wl?.paymentGateway ?? 'HOTMART';
+    const subscriptionIdentifier =
+      gateway === 'STRIPE'
+        ? tenant.stripeSubscriptionId ?? null
+        : gateway === 'HOTMART' || gateway === 'MANUAL'
+          ? tenant.hotmartSubscriberCode ?? null
+          : tenant.stripeSubscriptionId ?? tenant.hotmartSubscriberCode ?? null;
+    const subscription = {
+      gateway,
+      identifier: subscriptionIdentifier,
+      // true si el identificador es un placeholder auto-generado (wl-…/manual-…)
+      // y no un id real de la pasarela.
+      isPlaceholder:
+        !!subscriptionIdentifier &&
+        /^(wl-|manual-|comp-|trial-|sim-)/i.test(subscriptionIdentifier),
+    };
+    // La PASARELA de la marca viaja al frontend para que los textos no digan
+    // "Hotmart" a alguien que paga con Stripe. Es null para Clubify/sin marca,
+    // y el frontend cae a un genérico ("la pasarela de pagos").
+    return {
+      ...tenant,
+      enabledModules,
+      brandPlans,
+      brandCredits,
+      brandGateway,
+      hasVendor,
+      subscription,
+    };
   }
 
   /** #9: asegura un Plan "Sin plan" (precio 0) reutilizable para crear
@@ -560,6 +891,25 @@ export class TenantsService {
   }
 
   async create(dto: CreateTenantDto, user?: AuthUser) {
+    // El email del dueño se convierte en un User con email ÚNICO GLOBAL. Si el
+    // correo ya está registrado (ej. el admin usó su propio email, o el dueño ya
+    // tiene otro negocio), el create anidado del User lanzaba P2002 sin capturar
+    // → 500 "Internal server error" opaco. Pre-chequeamos para devolver un 400
+    // claro y accionable en vez de un 500.
+    if (dto.email) {
+      // Mismo valor que se insertará como User.email (case-sensitive, sin
+      // normalizar) para reflejar exactamente el constraint @unique.
+      const existingUser = await this.prisma.user.findUnique({
+        where: { email: dto.email },
+        select: { id: true },
+      });
+      if (existingUser) {
+        throw new BadRequestException(
+          'Ya existe un usuario con ese email. Usá otro correo para el dueño del negocio.',
+        );
+      }
+    }
+
     // #3: el MISMO nombre puede existir en marcas blancas distintas (Clubify y
     // Sellea pueden tener cada uno "Mi Restaurante"). El slug se mantiene
     // ÚNICO GLOBAL, así que si choca le agregamos un sufijo.
@@ -583,6 +933,12 @@ export class TenantsService {
     let currentPeriodEnd: Date | null = null;
     let trialEndsAt: Date | null = new Date();
     const trialStartedAt = new Date();
+    // Bug 2 (auditoría facturación 2026-08-17): fecha de cobro real. Se setea SOLO
+    // en activaciones que representan un cobro (manual con fecha, código Hotmart
+    // verificado, o crédito de marca ilimitada). NO en cortesía (freeAccount) ni
+    // trial. Antes las altas por crédito de marca (`wl-`) nacían ACTIVE sin
+    // lastChargeAt → invisibles en el panel de facturación (contadas como ~est).
+    let lastChargeAt: Date | null = null;
 
     if (dto.freeAccount) {
       status = 'ACTIVE';
@@ -603,9 +959,11 @@ export class TenantsService {
         throw new BadRequestException('nextChargeDate inválido');
       }
       currentPeriodEnd = parsed;
+      lastChargeAt = new Date(); // cobro manual con fecha → activación real
     } else if (dto.hotmartSubscriberCode) {
       status = 'ACTIVE';
       hotmartCode = dto.hotmartSubscriberCode.trim();
+      lastChargeAt = new Date(); // pago ya verificado por el admin → activación real
     }
 
     // Marca blanca: la activación de sus negocios se hace con CRÉDITOS, no con
@@ -625,13 +983,16 @@ export class TenantsService {
       if (brandUnlimited) {
         status = 'ACTIVE';
         hotmartCode = `wl-${nanoid(10)}`;
-        currentPeriodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        // Extiende por la periodicidad elegida (Anual = +12 meses), no +30 fijos.
+        currentPeriodEnd = addPlanPeriod(new Date(), dto.planPeriodicity);
         trialEndsAt = null;
+        lastChargeAt = new Date(); // Bug 2: alta por crédito de marca = cobro real
       } else {
         status = 'SUSPENDED';
         hotmartCode = `wl-${nanoid(10)}`;
         currentPeriodEnd = null;
         trialEndsAt = null;
+        lastChargeAt = null; // nace bloqueado; el crédito lo activa después (setea allí)
       }
     }
 
@@ -650,6 +1011,9 @@ export class TenantsService {
         primaryColor: dto.primaryColor ?? '#0F3D2E',
         secondaryColor: dto.secondaryColor ?? '#2E7D5B',
         businessCategorySlug: categorySlug,
+        // Tipo de negocio (Completo por defecto). Solo InfoLink consume 0.25/mes
+        // y ve un panel reducido; el guard backend bloquea el resto de módulos.
+        businessType: normalizeBusinessType(dto.businessType),
         planId,
         // #2/#6: el negocio hereda la MARCA BLANCA del admin que lo crea, así
         // aparece solo en esa marca y nunca en otra (Sellea→sellea, Clubify→clubify).
@@ -664,6 +1028,7 @@ export class TenantsService {
         trialStartedAt,
         trialEndsAt,
         currentPeriodEnd,
+        lastChargeAt, // Bug 2: fecha de cobro real (null en trial/cortesía)
         hotmartSubscriberCode: hotmartCode,
         users: {
           create: {
@@ -684,6 +1049,13 @@ export class TenantsService {
           data: { referralCodeId: code.id, tenantId: tenant.id, status: 'SIGNED_UP' },
         });
       }
+    }
+
+    // Fase D: si el negocio NACE ACTIVE (freeAccount / nextChargeDate / hotmart /
+    // marca ilimitada) avisamos al onboarding para que dispare su bienvenida.
+    // Best-effort, fire-and-forget (nunca rompe la creación).
+    if (tenant.status === 'ACTIVE') {
+      void this.onboardingWebhook.emitBusinessActivated(tenant.id);
     }
 
     return {
@@ -779,6 +1151,14 @@ export class TenantsService {
     if (walletVisualChanged) {
       this.enqueueWalletPushForTenant(id).catch(() => {});
     }
+    // Si cambió el tipo de negocio (Completo ↔ Solo InfoLink), invalidamos el
+    // cache del guard para que el bloqueo/desbloqueo de módulos propague ya.
+    if (
+      dto.businessType !== undefined &&
+      dto.businessType !== (before as any).businessType
+    ) {
+      invalidateBusinessTypeCache(id);
+    }
     return updated;
   }
 
@@ -798,6 +1178,10 @@ export class TenantsService {
       hotmartSubscriberCode?: string;
     },
     actorId: string,
+    // whiteLabelId del que ejecuta. Si viene seteado = admin de MARCA BLANCA:
+    // NO puede fijar una fecha de cobro arbitraria (se ancla a la activación).
+    // null/undefined = plataforma (Clubify), que sí conserva el override manual.
+    actorWhiteLabelId?: string | null,
   ) {
     const previous = await this.getById(id);
     const now = new Date();
@@ -848,7 +1232,13 @@ export class TenantsService {
           // Activación manual = fecha de cobro real → monto facturado por rango.
           lastChargeAt: now,
         };
-        if (dto.nextChargeDate) {
+        if (actorWhiteLabelId) {
+          // Marca blanca: la fecha NO es editable. Se ancla a la activación
+          // (hoy + periodo del plan), igual que la activación por crédito.
+          // Regla del dueño 2026-08-29 — "las fechas = cuando se activan los
+          // créditos, y la marca blanca no las puede modificar".
+          data.currentPeriodEnd = addPlanPeriod(now, previous.planPeriodicity);
+        } else if (dto.nextChargeDate) {
           const parsed = new Date(dto.nextChargeDate);
           if (Number.isNaN(parsed.getTime())) {
             throw new BadRequestException('nextChargeDate inválido');
@@ -877,6 +1267,8 @@ export class TenantsService {
     // al pasar a ACTIVE (no si ya estaba activo, para no recobrar en ediciones)
     // y solo marcas no-Clubify no-ilimitadas. Clubify (Hotmart) no usa créditos.
     let consumedBrandCredit = false;
+    // Costo del ciclo según tipo de negocio × periodicidad (InfoLink mensual=0.25).
+    const activationCost = cycleCreditCostForTenant(previous.businessType, previous.infolinkTier, previous.planPeriodicity);
     const activatesNow =
       (dto.mode === 'free' || dto.mode === 'paid') && previous.status !== 'ACTIVE';
     if (activatesNow && previous.whiteLabelId) {
@@ -886,8 +1278,8 @@ export class TenantsService {
       });
       if (wl && wl.slug !== 'clubify' && !wl.creditsUnlimited) {
         const debit = await this.prisma.whiteLabel.updateMany({
-          where: { id: wl.id, creditsAvailable: { gte: 1 } },
-          data: { creditsAvailable: { decrement: 1 }, creditsUsed: { increment: 1 } },
+          where: { id: wl.id, creditsAvailable: { gte: activationCost } },
+          data: { creditsAvailable: { decrement: activationCost }, creditsUsed: { increment: activationCost } },
         });
         if (debit.count === 0) {
           throw new ForbiddenException(
@@ -907,7 +1299,7 @@ export class TenantsService {
         await this.prisma.whiteLabel
           .update({
             where: { id: previous.whiteLabelId },
-            data: { creditsAvailable: { increment: 1 }, creditsUsed: { decrement: 1 } },
+            data: { creditsAvailable: { increment: activationCost }, creditsUsed: { decrement: activationCost } },
           })
           .catch(() => undefined);
       }
@@ -919,9 +1311,9 @@ export class TenantsService {
           data: {
             whiteLabelId: previous.whiteLabelId,
             type: 'CONSUME',
-            amount: -1,
+            amount: -activationCost,
             tenantId: id,
-            note: `Activación (simulador ${dto.mode}) · ${previous.brandName}`,
+            note: `Activación (simulador ${dto.mode}) · ${previous.brandName} · ${activationCost} créd`,
           },
         })
         .catch(() => undefined);
@@ -1045,6 +1437,9 @@ export class TenantsService {
         brandName: true,
         suspendedAt: true,
         whiteLabelId: true,
+        businessType: true,
+        infolinkTier: true,
+        planPeriodicity: true,
       },
     });
     if (!previous) throw new NotFoundException('Tenant');
@@ -1069,6 +1464,10 @@ export class TenantsService {
     }
     await credit.commit();
     invalidateTenantStatusCache(id);
+    // Fase D: transición REAL a ACTIVE (no-op si ya estaba activo) → webhook.
+    if (status === 'ACTIVE' && previous.status !== 'ACTIVE') {
+      void this.onboardingWebhook.emitBusinessActivated(id);
+    }
     // Audit 2026-06-08: cambio de status manual del super admin.
     this.audit.log({
       actorId,
@@ -1109,6 +1508,9 @@ export class TenantsService {
       whiteLabelId: string | null;
       status: TenantStatus;
       brandName: string;
+      businessType?: string | null;
+      infolinkTier?: string | null;
+      planPeriodicity?: string | null;
     },
     source: string,
   ): Promise<{ rollback: () => Promise<void>; commit: () => Promise<void> }> {
@@ -1120,9 +1522,11 @@ export class TenantsService {
       select: { id: true, slug: true, creditsUnlimited: true },
     });
     if (!wl || wl.slug === 'clubify' || wl.creditsUnlimited) return noop;
+    // Costo según tipo de negocio × periodicidad (InfoLink mensual = 0.25).
+    const cost = cycleCreditCostForTenant(previous.businessType, previous.infolinkTier, previous.planPeriodicity);
     const debit = await this.prisma.whiteLabel.updateMany({
-      where: { id: wl.id, creditsAvailable: { gte: 1 } },
-      data: { creditsAvailable: { decrement: 1 }, creditsUsed: { increment: 1 } },
+      where: { id: wl.id, creditsAvailable: { gte: cost } },
+      data: { creditsAvailable: { decrement: cost }, creditsUsed: { increment: cost } },
     });
     if (debit.count === 0) {
       throw new ForbiddenException(
@@ -1134,7 +1538,7 @@ export class TenantsService {
         await this.prisma.whiteLabel
           .update({
             where: { id: wl.id },
-            data: { creditsAvailable: { increment: 1 }, creditsUsed: { decrement: 1 } },
+            data: { creditsAvailable: { increment: cost }, creditsUsed: { decrement: cost } },
           })
           .catch(() => undefined);
       },
@@ -1144,9 +1548,9 @@ export class TenantsService {
             data: {
               whiteLabelId: wl.id,
               type: 'CONSUME',
-              amount: -1,
+              amount: -cost,
               tenantId: previous.id,
-              note: `Activación (${source}) · ${previous.brandName}`,
+              note: `Activación (${source}) · ${previous.brandName} · ${cost} créd`,
             },
           })
           .catch(() => undefined);
@@ -1154,17 +1558,15 @@ export class TenantsService {
     };
   }
 
-  async convertToPaying(id: string, actorId: string, periodDays?: number) {
+  async convertToPaying(id: string, actorId: string) {
     const t = await this.prisma.tenant.findFirst({ where: { id } }); // aislado por marca (middleware)
     if (!t) throw new NotFoundException('Tenant');
     const now = new Date();
-    // Bug #1: por default el periodo se extiende según la periodicidad real
-    // del plan (Trimestral = +3 meses). Solo se usa `periodDays` si el caller
-    // lo pasa explícito (override puntual).
-    const newPeriodEnd =
-      periodDays != null
-        ? new Date(now.getTime() + periodDays * 24 * 60 * 60 * 1000)
-        : addPlanPeriod(now, t.planPeriodicity);
+    // FIX 2026-08-20: se ELIMINÓ el override `periodDays`. El frontend lo
+    // mandaba SIEMPRE en 30, así que "marcar pagado" a un plan trimestral o
+    // anual daba 30 días en vez del ciclo real. Ningún caller lo usaba con
+    // intención legítima; la periodicidad del plan manda (1/3/6/12 meses).
+    const newPeriodEnd = addPlanPeriod(now, t.planPeriodicity);
     // Marca blanca: "marcar pagado" ACTIVA → consume 1 crédito (bloquea si no hay).
     const credit = await this.chargeBrandCreditForActivation(t, 'marcar pagado');
     let updated;
@@ -1189,6 +1591,10 @@ export class TenantsService {
     }
     await credit.commit();
     invalidateTenantStatusCache(id);
+    // Fase D: transición a ACTIVE (marcar pagado) → webhook business.activated.
+    if (t.status !== 'ACTIVE') {
+      void this.onboardingWebhook.emitBusinessActivated(id);
+    }
 
     // Audit 2026-06-08: dispara backfill de comisión al afiliado. Sin
     // este log un super admin podría convertir tenants para inflar
@@ -1203,7 +1609,6 @@ export class TenantsService {
         previousStatus: t.status,
         previousPeriodEnd: t.currentPeriodEnd?.toISOString() ?? null,
         newPeriodEnd: newPeriodEnd.toISOString(),
-        periodDays,
       },
     });
 
@@ -1215,6 +1620,415 @@ export class TenantsService {
       .catch(() => null);
 
     return updated;
+  }
+
+  // ──────────── Pagos manuales (Nequi / efectivo / transferencia) ────────────
+
+  /**
+   * Registra un cobro hecho POR FUERA de las pasarelas y deja el negocio al
+   * día. Como ninguna pasarela va a confirmar este pago, este registro es la
+   * única verdad de que el ciclo quedó cubierto:
+   *   - crea la fila ManualPayment con el ciclo cubierto (ver
+   *     resolveManualPaymentPeriod: encadena desde currentPeriodEnd si el
+   *     ciclo vigente no venció; si venció, arranca hoy),
+   *   - activa el negocio, avanza currentPeriodEnd y limpia la mora,
+   *   - limpia los flags de dedup de recordatorios para que la serie del
+   *     ciclo NUEVO vuelva a salir,
+   *   - consume el crédito de marca solo si esto ACTIVA el negocio
+   *     (chargeBrandCreditForActivation, misma regla que "marcar pagado" —
+   *     ya respeta la periodicidad),
+   *   - audita quién registró, cuánto y qué ciclo cubre.
+   */
+  async registerManualPayment(
+    id: string,
+    dto: {
+      method: 'NEQUI' | 'EFECTIVO' | 'TRANSFERENCIA' | 'OTRO';
+      amount?: number;
+      currency?: string;
+      reference?: string;
+      note?: string;
+      paidAt?: string;
+    },
+    actorId: string,
+  ) {
+    const t = await this.prisma.tenant.findFirst({ where: { id } }); // aislado por marca (middleware)
+    if (!t) throw new NotFoundException('Tenant');
+    const now = new Date();
+    const paidAt = dto.paidAt ? new Date(dto.paidAt) : now;
+    if (Number.isNaN(paidAt.getTime())) {
+      throw new BadRequestException('Fecha de pago inválida');
+    }
+    // Margen de 1 día por zonas horarias; más allá es un error de captura
+    // (un pago "futuro" no existe todavía y correría mal el historial).
+    if (paidAt.getTime() > now.getTime() + 24 * 60 * 60 * 1000) {
+      throw new BadRequestException('La fecha de pago no puede ser futura');
+    }
+    // La FECHA DE PAGO manda: trimestral pagado el 4-jul queda cubierto hasta
+    // el 4-oct. Antes se pasaba `now` y la fecha escrita por el usuario no se
+    // usaba para nada — se guardaba en el historial y el ciclo salía de otro
+    // lado. Ver `manual-payment-period.ts`.
+    const period = resolveManualPaymentPeriod(
+      paidAt,
+      t.currentPeriodEnd,
+      t.planPeriodicity,
+    );
+    // Marca blanca: si esto ACTIVA el negocio consume el crédito del ciclo
+    // (no-op si ya estaba ACTIVE, o si la marca es Clubify/ilimitada).
+    const credit = await this.chargeBrandCreditForActivation(t, 'pago manual');
+    let payment;
+    let updated;
+    try {
+      [payment, updated] = await this.prisma.$transaction([
+        this.prisma.manualPayment.create({
+          data: {
+            tenantId: t.id,
+            whiteLabelId: t.whiteLabelId,
+            method: dto.method,
+            amount: dto.amount ?? null,
+            currency: dto.currency ? dto.currency.toUpperCase() : null,
+            reference: dto.reference ?? null,
+            note: dto.note ?? null,
+            paidAt,
+            periodStart: period.periodStart,
+            periodEnd: period.periodEnd,
+            periodicity: period.periodicity,
+            actorId,
+          },
+        }),
+        this.prisma.tenant.update({
+          where: { id },
+          data: {
+            status: 'ACTIVE',
+            suspendedAt: null,
+            trialEndsAt: null,
+            currentPeriodEnd: period.periodEnd,
+            // Fecha del cobro REAL (no la de registro) → "monto facturado" por rango.
+            lastChargeAt: paidAt,
+            failedPaymentCount: 0,
+            // Dedup por ciclo: los crons comparan estos campos contra
+            // currentPeriodEnd (o el día del envío). Si no se limpian, el
+            // negocio NO recibe ningún aviso del ciclo nuevo — el fallo
+            // silencioso más probable de este flujo. Mismo reset que hace
+            // hotmart.service al procesar una renovación real.
+            preReminder7dSentFor: null,
+            preReminder3dSentFor: null,
+            preReminderTodaySentFor: null,
+            paymentReminderSentFor: null,
+            paymentFailureNoticeSentAt: null,
+            pausePendingNoticeSentAt: null,
+            // Permite volver a liberar el crédito de marca si el negocio se
+            // suspende en un ciclo futuro (espejo de clearCreditRelease).
+            creditReleasedAt: null,
+          },
+        }),
+      ]);
+    } catch (e) {
+      await credit.rollback();
+      throw e;
+    }
+    await credit.commit();
+    // CONTABILIDAD (Fase 1): ingreso real del pago manual (si trae monto). Solo
+    // USD por ahora — un pago en moneda local (COP) mezclaría monedas en el
+    // libro USD; el soporte multi-moneda es de una fase posterior. Best-effort.
+    if (!dto.currency || dto.currency.toUpperCase() === 'USD') {
+      void this.incomeRecord.record({
+        gateway: 'MANUAL',
+        externalTxId: payment.id,
+        tenantId: t.id,
+        whiteLabelId: t.whiteLabelId,
+        brandName: t.brandName,
+        planPeriodicity: t.planPeriodicity,
+        currency: 'USD',
+        grossUsd: dto.amount ?? null,
+        isFirstPayment: !t.currentPeriodEnd,
+        saleDate: paidAt,
+      });
+    }
+    invalidateTenantStatusCache(id);
+    // Transición real a ACTIVE (primer pago o reactivación) → webhook.
+    if (t.status !== 'ACTIVE') {
+      void this.onboardingWebhook.emitBusinessActivated(id);
+    }
+    this.audit.log({
+      actorId,
+      tenantId: id,
+      action: 'tenant.manual_payment_registered',
+      resource: `manual_payment:${payment.id}`,
+      metadata: {
+        brandName: t.brandName,
+        method: dto.method,
+        amount: dto.amount ?? null,
+        currency: dto.currency ?? null,
+        reference: dto.reference ?? null,
+        paidAt: paidAt.toISOString(),
+        periodStart: period.periodStart.toISOString(),
+        periodEnd: period.periodEnd.toISOString(),
+        periodicity: period.periodicity,
+        // Queda en auditoría: si el pago acorta la cobertura anterior, se ve
+        // quien lo hizo y desde qué fecha.
+        acortaCoberturaPrevia: period.acorta,
+        previousStatus: t.status,
+        previousPeriodEnd: t.currentPeriodEnd?.toISOString() ?? null,
+      },
+    });
+
+    // Comisión del afiliado, igual que en «marcar pagado» (`convertToPaying`).
+    // Un cobro por Nequi o efectivo es el MISMO hecho económico que uno por
+    // pasarela: quien refirió al negocio cobra igual. No hacerlo aquí dejaba
+    // sin pagar a los afiliados de todo negocio que cobra por fuera — y en
+    // silencio, porque nada lo reporta.
+    //
+    // Fire-and-forget a propósito: si el cálculo falla no se cae el registro
+    // del pago (que ya ocurrió y no se puede deshacer); el admin tiene
+    // «Generar comisión ahora» para reintentarlo a mano.
+    this.referrals
+      .backfillCommissionForCurrentAssignment(id, false)
+      .catch(() => null);
+
+    return {
+      payment,
+      tenant: {
+        id: updated.id,
+        status: updated.status,
+        currentPeriodEnd: updated.currentPeriodEnd,
+        lastChargeAt: updated.lastChargeAt,
+        suspendedAt: updated.suspendedAt,
+        manualPayment: updated.manualPayment,
+      },
+    };
+  }
+
+  /** Marca / desmarca el negocio como "paga por fuera" (Tenant.manualPayment).
+   *  Con el flag activo el cron de mora NO lo suspende solo (nadie puede
+   *  confirmar sus pagos), sigue recibiendo los recordatorios, y entra a la
+   *  lista de revisión cuando su ciclo vence sin pago manual que lo cubra. */
+  async setManualPaymentMode(id: string, enabled: boolean, actorId: string) {
+    const t = await this.prisma.tenant.findFirst({
+      where: { id }, // aislado por marca (middleware)
+      select: { id: true, brandName: true, manualPayment: true },
+    });
+    if (!t) throw new NotFoundException('Tenant');
+    // Idempotente: sin cambio real no ensuciamos la auditoría.
+    if (t.manualPayment === enabled) {
+      return { id: t.id, manualPayment: t.manualPayment };
+    }
+    const updated = await this.prisma.tenant.update({
+      where: { id },
+      data: { manualPayment: enabled },
+      select: { id: true, manualPayment: true },
+    });
+    this.audit.log({
+      actorId,
+      tenantId: id,
+      action: 'tenant.manual_payment_mode_changed',
+      resource: `tenant:${id}`,
+      metadata: { brandName: t.brandName, from: t.manualPayment, to: enabled },
+    });
+    return updated;
+  }
+
+  /** Historial de pagos manuales del negocio + contexto para el modal de
+   *  registro: importe sugerido = precio canónico según la periodicidad del
+   *  plan, con override por Setting (la misma verdad que usa Hotmart para
+   *  comisiones — ver common/plan-pricing). */
+  async listManualPayments(id: string) {
+    const t = await this.prisma.tenant.findFirst({
+      where: { id }, // aislado por marca (middleware)
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        manualPayment: true,
+        planPeriodicity: true,
+        currentPeriodEnd: true,
+      },
+    });
+    if (!t) throw new NotFoundException('Tenant');
+    const payments = await this.prisma.manualPayment.findMany({
+      where: { tenantId: id },
+      orderBy: { paidAt: 'desc' },
+    });
+    const suggestedAmount = await getCanonicalBundlePrice(
+      this.prisma,
+      t.planPeriodicity,
+    );
+    return {
+      tenantId: t.id,
+      brandName: t.brandName,
+      status: t.status,
+      manualPayment: t.manualPayment,
+      planPeriodicity: normalizePlanPeriod(t.planPeriodicity),
+      currentPeriodEnd: t.currentPeriodEnd,
+      suggestedAmount,
+      suggestedCurrency: 'USD',
+      payments,
+    };
+  }
+
+  /**
+   * Lista de revisión de cobranza manual: negocios que pagan POR FUERA
+   * (manualPayment=true) cuyo ciclo ya venció y no tienen un ManualPayment
+   * que cubra el ciclo vigente. Es la pantalla de "a estos hay que
+   * perseguirlos o desconectarlos": el cron de mora NO los suspende solo.
+   *
+   * Incluye también los que nunca arrancaron ciclo (TRIAL vencido sin
+   * currentPeriodEnd): el gate de suspensión también los salta, y si no
+   * aparecieran acá quedarían invisibles para siempre.
+   *
+   * Aislamiento por marca: el middleware Prisma acota el findMany de Tenant
+   * por `id IN (negocios de la marca)` en sesión de marca, y el de
+   * ManualPayment por su tenantId — no hace falta filtro manual.
+   */
+  async listManualPaymentReview() {
+    const now = new Date();
+    const dayMs = 24 * 60 * 60 * 1000;
+    // TODOS los marcados como "paga por fuera", no solo los vencidos.
+    // Antes solo devolvía los vencidos y la pantalla salía vacía incluso con
+    // negocios recién marcados: quien la abre espera ver a quién gestiona, no
+    // una lista que casi siempre está en blanco. Los vencidos van primero.
+    const tenants = await this.prisma.tenant.findMany({
+      where: { manualPayment: true },
+      select: {
+        id: true,
+        brandName: true,
+        email: true,
+        phone: true,
+        status: true,
+        planPeriodicity: true,
+        currentPeriodEnd: true,
+        trialEndsAt: true,
+        whiteLabelId: true,
+      },
+    });
+    if (tenants.length === 0) {
+      return { count: 0, pendientes: 0, items: [] };
+    }
+
+    const pagos = await this.prisma.manualPayment.findMany({
+      where: { tenantId: { in: tenants.map((t) => t.id) } },
+      orderBy: { paidAt: 'desc' },
+      select: {
+        id: true,
+        tenantId: true,
+        method: true,
+        amount: true,
+        currency: true,
+        paidAt: true,
+        periodStart: true,
+        periodEnd: true,
+      },
+    });
+    const lastByTenant = new Map<string, (typeof pagos)[number]>();
+    // Hasta cuándo lo deja cubierto el pago manual más lejano. Se usa incluso
+    // si `currentPeriodEnd` quedó desincronizado: el pago registrado es el
+    // hecho, la metadata puede estar vieja.
+    const coveredUntil = new Map<string, Date>();
+    for (const p of pagos) {
+      if (!lastByTenant.has(p.tenantId)) lastByTenant.set(p.tenantId, p);
+      const prev = coveredUntil.get(p.tenantId);
+      if (!prev || p.periodEnd.getTime() > prev.getTime()) {
+        coveredUntil.set(p.tenantId, p.periodEnd);
+      }
+    }
+
+    // Fase 4 (2026-08-31): estado de comisiones por negocio —
+    //   🟢 asignadas = tiene afiliado Y ya se generó comisión
+    //   🟡 parcial   = tiene afiliado PERO sin comisión (revisar, caso CHANFLE)
+    //   🔴 sin       = sin afiliado atribuido
+    const ids = tenants.map((t) => t.id);
+    const chains = await Promise.all(
+      tenants.map((t) => this.referrals.getAttributionChain(t.id).catch(() => null)),
+    );
+    const sourceIds = chains
+      .map((c) => c?.sourceCodeId)
+      .filter((x): x is string => !!x);
+    const codeNames = sourceIds.length
+      ? await this.prisma.referralCode.findMany({
+          where: { id: { in: sourceIds } },
+          select: { id: true, ownerName: true },
+        })
+      : [];
+    const nameById = new Map(codeNames.map((c) => [c.id, c.ownerName]));
+    const commRows = await this.prisma.commission.findMany({
+      where: { referralUse: { tenantId: { in: ids } } },
+      select: { referralUse: { select: { tenantId: true } } },
+    });
+    const hasComm = new Set(
+      commRows.map((c) => c.referralUse?.tenantId).filter(Boolean),
+    );
+    const comisionesByTenant = new Map<
+      string,
+      { status: 'asignadas' | 'parcial' | 'sin'; afiliado: string | null }
+    >();
+    tenants.forEach((t, i) => {
+      const src = chains[i]?.sourceCodeId ?? null;
+      const status = !src ? 'sin' : hasComm.has(t.id) ? 'asignadas' : 'parcial';
+      comisionesByTenant.set(t.id, {
+        status,
+        afiliado: src ? nameById.get(src) ?? null : null,
+      });
+    });
+
+    const items = tenants.map((t) => {
+      const cubierto = coveredUntil.get(t.id) ?? null;
+      const hasta = cubierto ?? t.currentPeriodEnd ?? t.trialEndsAt ?? null;
+      const vencido = !!hasta && hasta.getTime() < now.getTime();
+      const estado = (
+        t.status === 'SUSPENDED'
+          ? 'DESCONECTADO'
+          : vencido
+            ? 'VENCIDO'
+            : 'AL_DIA'
+      ) as 'DESCONECTADO' | 'VENCIDO' | 'AL_DIA';
+      const last = lastByTenant.get(t.id) ?? null;
+      return {
+        tenantId: t.id,
+        brandName: t.brandName,
+        email: t.email,
+        phone: t.phone,
+        status: t.status,
+        whiteLabelId: t.whiteLabelId,
+        planPeriodicity: normalizePlanPeriod(t.planPeriodicity),
+        estado,
+        /** Hasta cuándo está cubierto. Null = nunca arrancó ciclo. */
+        coveredUntil: hasta,
+        dueSince: vencido ? hasta : null,
+        daysOverdue:
+          vencido && hasta
+            ? Math.max(0, Math.floor((now.getTime() - hasta.getTime()) / dayMs))
+            : 0,
+        reason: t.currentPeriodEnd
+          ? ('CICLO_VENCIDO' as const)
+          : ('TRIAL_VENCIDO' as const),
+        lastManualPayment: last && {
+          id: last.id,
+          method: last.method,
+          amount: last.amount,
+          currency: last.currency,
+          paidAt: last.paidAt,
+          periodStart: last.periodStart,
+          periodEnd: last.periodEnd,
+        },
+        // Fase 4: estado de comisiones (🟢 asignadas / 🟡 parcial / 🔴 sin).
+        comisiones: comisionesByTenant.get(t.id) ?? {
+          status: 'sin' as const,
+          afiliado: null,
+        },
+      };
+    });
+    // Vencidos primero (más días arriba), luego los que están al día por
+    // cobertura más próxima: así la pantalla ordena el trabajo por sí sola.
+    const orden = { VENCIDO: 0, AL_DIA: 1, DESCONECTADO: 2 };
+    items.sort((a, b) => {
+      if (orden[a.estado] !== orden[b.estado]) return orden[a.estado] - orden[b.estado];
+      if (a.estado === 'VENCIDO') return b.daysOverdue - a.daysOverdue;
+      return (a.coveredUntil?.getTime() ?? Infinity) - (b.coveredUntil?.getTime() ?? Infinity);
+    });
+    return {
+      count: items.length,
+      pendientes: items.filter((i) => i.estado === 'VENCIDO').length,
+      items,
+    };
   }
 
   /**
@@ -1522,12 +2336,34 @@ export class TenantsService {
             demoButtonWhatsApp: true,
             // Features que la marca incluye → lista "Tu suscripción incluye".
             subscriptionFeatureKeys: true,
+            // Wallet V3 — permisos "Wallet Avanzado" de la marca (gating de las
+            // funciones nuevas en la config de tarjetas y el escáner).
+            walletAdvanced: true,
+            // Planes de pago de la marca → el panel de suscripción del negocio
+            // muestra el precio REAL de su marca (Sellea 80/799), no el de
+            // Clubify. Host-independiente (funciona aunque el negocio esté en un
+            // subdominio soyclubify.com).
+            paymentGateway: true,
+            paymentLinks: {
+              where: { active: true },
+              select: { periodicity: true, amountUsd: true, gateway: true, productKey: true, url: true },
+            },
+            // Academia — videos-tutorial ACTIVOS de la marca. El panel del
+            // negocio los usa para mostrar el botón "▶ Ver tutorial" por módulo.
+            academyVideos: {
+              where: { active: true },
+              select: { moduleKey: true, youtubeUrl: true, title: true, description: true },
+            },
             modules: {
               where: { module: { in: ['REVIEWS', 'COMMUNITY', 'REFERRALS'] } },
               select: { module: true, enabled: true },
             },
           },
         },
+        // Dominio personalizado del negocio (ej. birrialeon.com) → tiene
+        // prioridad sobre el dominio de la marca para TODOS los links públicos
+        // que el negocio comparte (infolink, QR, reservas). PDF 2026-07-25.
+        storefront: { select: { customDomain: true } },
         _count: { select: { cards: true, customers: true, products: true, locations: true } },
       },
     });
@@ -1556,6 +2392,37 @@ export class TenantsService {
       communityEnabled: t.whiteLabel
         ? (communityModule?.enabled ?? false)
         : true,
+      // Wallet V3 — permisos "Wallet Avanzado" resueltos a 6 booleanos. null /
+      // clave ausente / sin marca = true (heredado): las mejoras se activan para
+      // todas las marcas salvo que una las apague explícitamente. El frontend
+      // gatea la config de tarjetas y el escáner con estos flags.
+      walletAdvanced: resolveWalletAdvanced(t.whiteLabel?.walletAdvanced),
+      // Planes de la marca del negocio (precio real por periodicidad). Vacío
+      // para Clubify / marca sin links → el panel cae al precio genérico.
+      brandPlans:
+        t.whiteLabel?.paymentLinks
+          ?.filter(
+            (l) => !t.whiteLabel?.paymentGateway || l.gateway === t.whiteLabel.paymentGateway,
+          )
+          .map((l) => ({
+            periodicity: l.periodicity,
+            amountUsd: l.amountUsd != null ? Number(l.amountUsd) : null,
+          })) ?? [],
+      // Academia — mapa { moduleKey: {youtubeUrl,title,description} } de videos
+      // activos de la marca. El botón se muestra solo si el módulo está aquí.
+      academyVideos: (t.whiteLabel?.academyVideos ?? []).reduce(
+        (acc, v) => {
+          if (v.youtubeUrl && v.youtubeUrl.trim()) {
+            acc[v.moduleKey] = {
+              youtubeUrl: v.youtubeUrl.trim(),
+              title: v.title || '',
+              description: v.description || '',
+            };
+          }
+          return acc;
+        },
+        {} as Record<string, { youtubeUrl: string; title: string; description: string }>,
+      ),
       // Slug de la marca del negocio. null (marcas viejas / sin marca) se trata
       // como 'clubify' en el frontend. Se usa para gatear secciones exclusivas
       // (Comunidad/Lab) por marca, sin filtrar branding de otra.
@@ -1584,6 +2451,11 @@ export class TenantsService {
       // Dominio del panel/app de la marca (ej. app.selleala.com) → URL vanity
       // de InfoLinks. Cae a domain, y en última instancia a soyclubify.com.
       brandAppDomain: t.whiteLabel?.appDomain ?? null,
+      // Dominio PROPIO del negocio (Storefront.customDomain, ej. birrialeon.com).
+      // Máxima prioridad para los links públicos que comparte el negocio
+      // (infolink/QR/reservas) y para el título de pestaña. null = sin dominio
+      // propio → cae a la marca / soyclubify.com. Ver publicBaseForTenant().
+      customDomain: t.storefront?.customDomain ?? null,
       // Features que la marca incluye en su suscripción (keys i18n). Vacío =
       // lista completa por defecto. Solo aplica a marcas blancas (no Clubify).
       brandSubscriptionFeatureKeys: t.whiteLabel?.subscriptionFeatureKeys ?? [],
@@ -1599,6 +2471,13 @@ export class TenantsService {
         typeof raw === 'string' && raw.trim().length > 0
           ? raw.trim().slice(0, 24)
           : null;
+    }
+    if ('dataPolicyUrl' in data) {
+      // PDF Software(8): "" o null → limpia el documento (cae al default
+      // /legal/privacy). URL/PDF válido se trimea.
+      const raw = data.dataPolicyUrl;
+      data.dataPolicyUrl =
+        typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
     }
     const updated = await this.prisma.tenant.update({
       where: { id: tenantId },

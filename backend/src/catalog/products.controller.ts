@@ -8,7 +8,18 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, ValidateIf } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateIf,
+} from 'class-validator';
 import { ProductsService } from './products.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -33,6 +44,26 @@ class ProductBody {
   // Faltaba aquí → el ValidationPipe (forbidNonWhitelisted) rechazaba el
   // create/update con "property variantPriceMode should not exist".
   @IsOptional() @IsIn(['DELTA', 'ABSOLUTE']) variantPriceMode?: 'DELTA' | 'ABSOLUTE';
+  // Cuantas variantes puede marcar el cliente. null o 1 = se elige una sola
+  // (radio, comportamiento historico). >= 2 = casillas multiples.
+  @ValidateIf((_, v) => v !== null)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxVariantsTotal?: number | null;
+  // Tope de extras que el cliente puede elegir EN TOTAL. null = sin tope.
+  // Se acepta null explicito para poder quitarlo desde el panel.
+  @ValidateIf((_, v) => v !== null)
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxExtrasTotal?: number | null;
+  // Carta a la que pertenece el producto. Sin declararlo, el ValidationPipe
+  // (forbidNonWhitelisted) rechaza el create entero.
+  @ValidateIf((_, v) => v !== null)
+  @IsOptional()
+  @IsUUID()
+  menuId?: string | null;
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsArray() tags?: string[];
   @IsOptional() @IsBoolean() isAvailable?: boolean;
@@ -47,7 +78,7 @@ class ProductBody {
 }
 
 @Controller('catalog/products')
-@Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+@Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'SUPER_ADMIN')
 export class ProductsController {
   constructor(private svc: ProductsService) {}
 
@@ -56,8 +87,26 @@ export class ProductsController {
     @CurrentUser() user: AuthUser,
     @Query('tenantId') tenantId?: string,
     @Query('categoryId') categoryId?: string,
+    // Carta que se esta editando. Ausente = menu principal.
+    @Query('menuId') menuId?: string,
   ) {
-    return this.svc.list(user, tenantId, categoryId);
+    return this.svc.list(user, tenantId, categoryId, menuId);
+  }
+
+  /**
+   * Engancha o desengancha este producto del original del que se duplico.
+   *
+   * Sincronizado: nombre, descripcion, precio, foto, variantes y extras
+   * siguen al menu principal. Lo que se muestra en ESTA carta (visible, mesa,
+   * domicilio, posicion, stock) es local siempre.
+   */
+  @Patch(':id/sync')
+  setSync(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: { sync: boolean },
+  ) {
+    return this.svc.setSync(user, id, body?.sync === true);
   }
 
   @Get(':id')

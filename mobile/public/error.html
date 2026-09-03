@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Sin conexión</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0; min-height: 100dvh; display: grid; place-items: center;
+        background: #0B1F14; color: #E5E7EB; text-align: center;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        padding: 32px;
+      }
+      h1 { font-size: 19px; margin: 0 0 8px; }
+      p { font-size: 14px; color: #9CA3AF; margin: 0 0 24px; line-height: 1.5; }
+      button {
+        background: #22C55E; color: #05130B; border: 0; border-radius: 12px;
+        padding: 13px 26px; font-size: 15px; font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <h1>No pudimos conectarnos</h1>
+      <p>Revisa tu conexión a internet e inténtalo de nuevo.</p>
+      <button onclick="location.replace('https://app.soyclubify.com')">Reintentar</button>
+    </div>
+  </body>
+</html>

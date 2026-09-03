@@ -1,6 +1,8 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { PhoneInput } from '@/components/PhoneInput';
+import { useTenantCountry } from '@/lib/useTenantCountry';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -50,6 +52,7 @@ const empty = {
 
 export default function RemindersPage() {
   const t = useTranslations('app_admin_reminders');
+  const country = useTenantCountry();
   const [list, setList] = useState<Reminder[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
@@ -345,11 +348,10 @@ export default function RemindersPage() {
                 />
               </Field>
               <Field label={t('fieldWhatsappSms')}>
-                <input
-                  className="input"
-                  placeholder="+57 300 000 0000"
+                <PhoneInput
                   value={form.employeePhone}
-                  onChange={(e) => setForm({ ...form, employeePhone: e.target.value })}
+                  onChange={(v) => setForm({ ...form, employeePhone: v })}
+                  defaultCountry={country}
                 />
               </Field>
             </div>
@@ -426,11 +428,10 @@ export default function RemindersPage() {
         <Modal title={t('sendMessage')} onClose={() => setShowSend(false)}>
           <form onSubmit={sendOne} className="space-y-4">
             <Field label={t('fieldPhoneWhatsapp')}>
-              <input
-                className="input"
-                placeholder="+57 300 000 0000"
+              <PhoneInput
                 value={sendForm.phone}
-                onChange={(e) => setSendForm({ ...sendForm, phone: e.target.value })}
+                onChange={(v) => setSendForm({ ...sendForm, phone: v })}
+                defaultCountry={country}
               />
             </Field>
             <Field label={t('fieldMessage')}>

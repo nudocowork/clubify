@@ -22,6 +22,10 @@ export type RefreshPayload = {
   // Empresa de domicilios (role=DELIVERY_COMPANY). Mismo motivo: DEBE viajar en
   // el refresh para que al rotar el portal siga scopeado a su empresa. (Fase 2)
   deliveryCompanyId?: string | null;
+  // Negocio aliado (role=ALLY_BUSINESS). Mismo motivo: DEBE viajar en el refresh
+  // para que el portal /cuponera/negocio siga scopeado a su ficha. (Cuponera F2)
+  allyBusinessId?: string | null;
+  campaignId?: string | null;
 };
 
 export type IssueOpts = {
@@ -146,6 +150,8 @@ export class RefreshTokenService {
         // las sesiones viejas sin marca se auto-sanan al refrescar.
         whiteLabelId: true,
         deliveryCompanyId: true,
+        allyBusinessId: true,
+        campaignId: true,
         isActive: true,
         passwordChangedAt: true,
       },
@@ -174,6 +180,8 @@ export class RefreshTokenService {
       tenantId: user.tenantId,
       whiteLabelId: user.whiteLabelId ?? null,
       deliveryCompanyId: user.deliveryCompanyId ?? null,
+      allyBusinessId: user.allyBusinessId ?? null,
+      campaignId: user.campaignId ?? null,
     };
     const newToken = await this.issue({
       userId: user.id,

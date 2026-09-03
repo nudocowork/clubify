@@ -13,9 +13,22 @@ import {
   brandMsgEnabledKey,
   globalMsgEnabledKey,
   SYSTEM_FOLDERS,
+  EMAIL_TWIN,
 } from '../integrations/brand-message-templates';
+import {
+  findEmailTemplate,
+  parseEmailTplValue,
+  serializeEmailTplValue,
+} from '../email/brand-email-templates';
+import { BrandEmailService } from '../email/brand-email.service';
+import {
+  BRAND_EMAIL_SELECT,
+  brandBaseUrl,
+} from '../email/brand-email-creds.util';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
+import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
+import { cycleCreditCost } from '../common/business-types';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash } from 'crypto';
 
@@ -56,6 +69,7 @@ export type PaymentLinkDto = {
   sortOrder?: number;
   stripePriceId?: string | null;
   stripeProductId?: string | null;
+  productKey?: string | null;
 };
 
 export type WhiteLabelDto = {
@@ -79,9 +93,11 @@ export type WhiteLabelDto = {
   mapsApiKey?: string;
   planPeriodicities?: string[];
   shareImageUrl?: string;
+  whatsappQrUrl?: string;
   subscriptionFeatureKeys?: string[];
   installationFeeUsd?: number | null;
   installationPromoUsd?: number | null;
+  walletAdvanced?: Record<string, boolean> | null;
 };
 
 /** Periodicidades de plan válidas, en orden canónico. */
@@ -131,6 +147,7 @@ export class SuperAdminService {
     private email: EmailService,
     private wlNotifications: WhiteLabelNotificationsService,
     private grow: GrowBusinessService,
+    private brandEmail: BrandEmailService,
   ) {}
 
   /** PLATFORM_OWNER entra al panel de una marca blanca como su SUPER_ADMIN.
@@ -822,11 +839,19 @@ export class SuperAdminService {
           ? undefined
           : normalizePeriodicities(patch.planPeriodicities),
         shareImageUrl: patch.shareImageUrl === undefined ? undefined : patch.shareImageUrl?.trim() || null,
+        whatsappQrUrl: patch.whatsappQrUrl === undefined ? undefined : patch.whatsappQrUrl?.trim() || null,
         subscriptionFeatureKeys: patch.subscriptionFeatureKeys === undefined
           ? undefined
           : patch.subscriptionFeatureKeys,
         installationFeeUsd: patch.installationFeeUsd === undefined ? undefined : (patch.installationFeeUsd ?? null),
         installationPromoUsd: patch.installationPromoUsd === undefined ? undefined : (patch.installationPromoUsd ?? null),
+        // Wallet V3 — guardamos el objeto completo de 6 flags (saneado). null =
+        // volver al default heredado (todo activo).
+        walletAdvanced: patch.walletAdvanced === undefined
+          ? undefined
+          : patch.walletAdvanced === null
+            ? Prisma.DbNull
+            : (resolveWalletAdvanced(patch.walletAdvanced) as any),
       },
     });
     await this.logAction(actorId, 'superadmin.white_label.update', `whiteLabel:${id}`, {
@@ -852,6 +877,7 @@ export class SuperAdminService {
     sortOrder: number;
     stripePriceId: string | null;
     stripeProductId: string | null;
+    productKey?: string | null;
   }) {
     return { ...l, amountUsd: Number(l.amountUsd) };
   }
@@ -1051,6 +1077,9 @@ export class SuperAdminService {
   private customFoldersKey(wlId: string) {
     return `autom.folders.${wlId}`;
   }
+  private testEmailKey(wlId: string) {
+    return `autom.testemail.${wlId}`;
+  }
   private testPhoneKey(wlId: string) {
     return `autom.testphone.${wlId}`;
   }
@@ -1070,10 +1099,11 @@ export class SuperAdminService {
     const wl = await this.prisma.whiteLabel.findUnique({
       where: { id },
       select: {
+        ...BRAND_GROW_SELECT,
+        ...BRAND_EMAIL_SELECT,
         id: true,
         name: true,
         modules: { select: { module: true, enabled: true } },
-        ...BRAND_GROW_SELECT,
       },
     });
     if (!wl) throw new NotFoundException();
@@ -1112,42 +1142,209 @@ export class SuperAdminService {
     const smsEnabled = wl.modules.some(
       (m) => m.module === 'GROW_BUSINESS_SMS' && m.enabled,
     );
-    const templates = catalog.map((t) => {
-      const brand = byKey.get(brandMsgTplKey(id, t.id))?.trim() || null;
-      const global = byKey.get(globalMsgTplKey(t.id))?.trim() || null;
-      // Carpeta: asignación de la marca si existe y sigue siendo válida; si no,
-      // la de sistema del catálogo.
-      const assigned = assign[t.id];
-      const folderId = assigned && folderIds.has(assigned) ? assigned : t.folder;
-      // Envío activado: las 'active' siempre; las 'pending' (admin_*) solo si la
-      // marca (o global) las activó explícitamente.
+    // Correo de una plantilla EMAIL: asunto y cuerpo se heredan por separado
+    // (marca > global > default), así una marca puede tocar solo el asunto.
+    const emailCard = (emailId: string) => {
+      const def = findEmailTemplate(emailId);
+      if (!def) return null;
+      const brandParts = parseEmailTplValue(byKey.get(brandMsgTplKey(id, emailId)));
+      const globalParts = parseEmailTplValue(byKey.get(globalMsgTplKey(emailId)));
+      const own = byKey.get(brandMsgEnabledKey(id, emailId))?.trim();
+      const glob = byKey.get(globalMsgEnabledKey(emailId))?.trim();
+      // Los correos vienen ON; el apagado de la marca gana sobre el global.
       const enabled =
-        t.status !== 'pending'
-          ? true
-          : byKey.get(brandMsgEnabledKey(id, t.id))?.trim() === 'true' ||
-            byKey.get(globalMsgEnabledKey(t.id))?.trim() === 'true';
+        own === 'false' ? false : own === 'true' ? true : glob !== 'false';
       return {
-        id: t.id,
-        label: t.folderLabel || t.label,
-        description: t.description,
-        vars: t.vars,
-        folderId,
-        status: t.status,
+        id: emailId,
+        subject: brandParts.subject ?? globalParts.subject ?? def.subject,
+        subjectDefault: def.subject,
+        body: brandParts.body ?? globalParts.body ?? def.default,
+        bodyDefault: def.default,
+        vars: def.vars,
         enabled,
-        channel: t.channel,
-        audience: t.audience,
-        default: t.default,
-        text: brand || global || t.default,
-        isBrandCustom: !!brand,
-        source: brand ? 'brand' : global ? 'global' : 'default',
+        isBrandCustom: !!(brandParts.subject || brandParts.body),
       };
-    });
+    };
+
+    // Una automatización = una tarjeta. Los correos con gemelo viajan DENTRO de
+    // su automatización, no como tarjeta suelta en otra carpeta.
+    const twinIds = new Set(Object.values(EMAIL_TWIN));
+    const templates = catalog
+      .filter((t) => !(t.channel === 'EMAIL' && twinIds.has(t.id)))
+      .map((t) => {
+        const isEmail = t.channel === 'EMAIL';
+        const own = isEmail ? emailCard(t.id) : null;
+        const brand = isEmail
+          ? (own?.isBrandCustom ? own.body : null)
+          : byKey.get(brandMsgTplKey(id, t.id))?.trim() || null;
+        const global = isEmail
+          ? null
+          : byKey.get(globalMsgTplKey(t.id))?.trim() || null;
+        // Carpeta: asignación de la marca si existe y sigue siendo válida; si
+        // no, la de sistema del catálogo.
+        const assigned = assign[t.id];
+        const folderId =
+          assigned && folderIds.has(assigned) ? assigned : t.folder;
+        // Envío activado: las 'active' siempre; las 'pending' (admin_*) solo si
+        // la marca (o global) las activó explícitamente.
+        const enabled = isEmail
+          ? (own?.enabled ?? true)
+          : t.status !== 'pending'
+            ? true
+            : byKey.get(brandMsgEnabledKey(id, t.id))?.trim() === 'true' ||
+              byKey.get(globalMsgEnabledKey(t.id))?.trim() === 'true';
+        const twinId = isEmail ? null : (EMAIL_TWIN[t.id] ?? null);
+        return {
+          id: t.id,
+          label: t.folderLabel || t.label,
+          description: t.description,
+          vars: t.vars,
+          folderId,
+          status: t.status,
+          enabled,
+          channel: t.channel,
+          audience: t.audience,
+          default: isEmail ? (own?.bodyDefault ?? t.default) : t.default,
+          text: isEmail ? (own?.body ?? t.default) : brand || global || t.default,
+          ...(isEmail
+            ? {
+                subject: own?.subject ?? t.subject ?? '',
+                subjectDefault: own?.subjectDefault ?? t.subject ?? '',
+              }
+            : {}),
+          // El correo que acompaña a esta automatización (null si no tiene).
+          email: twinId ? emailCard(twinId) : null,
+          isBrandCustom: isEmail ? !!own?.isBrandCustom : !!brand,
+          source: isEmail
+            ? own?.isBrandCustom
+              ? 'brand'
+              : 'default'
+            : brand
+              ? 'brand'
+              : global
+                ? 'global'
+                : 'default',
+        };
+      });
     const testPhone =
       (await this.prisma.setting
         .findUnique({ where: { key: this.testPhoneKey(id) } })
         .catch(() => null))?.value ?? '';
+    const testEmail =
+      (await this.prisma.setting
+        .findUnique({ where: { key: this.testEmailKey(id) } })
+        .catch(() => null))?.value ?? '';
     const growConnected = !!brandGrowCreds(wl);
-    return { smsEnabled, growConnected, testPhone, folders, templates };
+    // ¿Sale algún correo de esta marca? (cuenta propia o remitente propio)
+    // El correo sale por la MISMA subcuenta de Grow Business que el SMS, asi
+    // que "conectado" significa exactamente eso: la marca tiene su subcuenta.
+    const emailConnected = growConnected;
+    return {
+      smsEnabled,
+      growConnected,
+      emailConnected,
+      testPhone,
+      testEmail,
+      folders,
+      templates,
+    };
+  }
+
+  /** Guarda el correo de prueba de la marca (botón "Probar" del correo). */
+  async setBrandTestEmail(id: string, email: string, actorId: string) {
+    const key = this.testEmailKey(id);
+    const value = (email ?? '').trim();
+    if (!value) {
+      await this.prisma.setting.deleteMany({ where: { key } });
+    } else {
+      await this.prisma.setting.upsert({
+        where: { key },
+        update: { value },
+        create: { key, value },
+      });
+    }
+    await this.logAction(actorId, 'superadmin.white_label.automation.test_email', id, {
+      set: !!value,
+    });
+    // Misma forma que `setBrandTestPhone` (`{ ok, phone }`). Devolvía solo
+    // `{ testEmail }` y el panel leía `r.email`: como no existía, borraba el
+    // campo justo después de decir «guardado». Se mandan las dos llaves para
+    // no romper a un frontend viejo.
+    return { ok: true, email: value, testEmail: value };
+  }
+
+  /**
+   * Manda el correo de una automatización al correo de prueba de la marca, con
+   * valores de ejemplo. Acepta el texto SIN GUARDAR para que se pueda ver cómo
+   * queda antes de guardarlo.
+   */
+  async testBrandEmailTemplate(
+    id: string,
+    templateId: string,
+    draft: { subject?: string | null; body?: string | null },
+  ) {
+    const def = findEmailTemplate(templateId);
+    if (!def) throw new NotFoundException('Correo no encontrado');
+    const to =
+      (await this.prisma.setting
+        .findUnique({ where: { key: this.testEmailKey(id) } })
+        .catch(() => null))?.value ?? '';
+    if (!to.trim()) {
+      throw new BadRequestException('Guarda un correo de prueba primero.');
+    }
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      // domain/appDomain: para armar un {activateUrl} de ejemplo que apunte al
+      // dominio de la marca, como el que recibiría un comprador real.
+      select: { name: true, slug: true, domain: true, appDomain: true },
+    });
+    // Renderizamos con un NEGOCIO real de la marca. El marco del correo (logo,
+    // color, pie) sale del negocio, no de la marca: sin uno, la prueba llegaría
+    // en gris y sin logo — o sea, sin parecerse a lo que recibe el cliente, que
+    // es exactamente lo que se quiere comprobar. El destinatario sigue siendo
+    // el correo de prueba, no el del negocio.
+    const muestra = await this.prisma.tenant
+      .findFirst({
+        where: { whiteLabelId: id, deletedAt: null },
+        select: { id: true, brandName: true },
+        orderBy: { createdAt: 'asc' },
+      })
+      .catch(() => null);
+    const brandName = muestra?.brandName || wl?.name || 'Clubify';
+    const res = await this.brandEmail.sendTemplate({
+      templateId,
+      whiteLabelId: id,
+      tenantId: muestra?.id ?? null,
+      to: to.trim(),
+      overrides: draft,
+      // Valores de ejemplo para los tokens que dependen del ciclo de cobro:
+      // en una prueba no hay una fecha real que mostrar.
+      vars: {
+        brandName,
+        ownerName: 'Prueba',
+        chargeDate: '15 de septiembre de 2026',
+        nextChargeDate: '15 de septiembre de 2026',
+        pauseDate: '18 de septiembre de 2026',
+        loginEmail: to.trim(),
+        // Aviso de compra sin cuenta: sin estos dos, la prueba llegaría con el
+        // saludo vacío y sin el botón de activación.
+        buyerName: 'Prueba',
+        activateUrl: `${brandBaseUrl(
+          wl,
+          (process.env.APP_URL ?? 'https://soyclubify.com').replace(/\/$/, ''),
+        )}/activar`,
+      },
+    });
+    if (!res.sent) {
+      const motivo =
+        res.reason === 'no_connection'
+          ? 'La marca no tiene subcuenta de Grow Business conectada.'
+          : res.reason === 'template_disabled'
+            ? 'Ese correo está apagado para esta marca.'
+            : 'No se pudo enviar el correo de prueba.';
+      throw new BadRequestException(motivo);
+    }
+    return { ok: true, to: to.trim() };
   }
 
   /** Guarda el número de prueba de la marca (para el botón "Probar"). */
@@ -1225,11 +1422,24 @@ export class SuperAdminService {
   ) {
     const def = brandMsgCatalog().find((t) => t.id === templateId);
     if (!def) throw new NotFoundException('Plantilla no encontrada');
-    if (def.status !== 'pending') {
+    const esCorreo = def.channel === 'EMAIL';
+    // Los SMS ‘active’ no se apagan: envían siempre. Los correos SÍ, porque
+    // vienen encendidos por defecto y la marca elige cuáles no quiere.
+    if (!esCorreo && def.status !== 'pending') {
       throw new BadRequestException('Esta plantilla ya está activa');
     }
     const key = brandMsgEnabledKey(id, templateId);
-    if (enabled) {
+    if (esCorreo) {
+      // Un correo se apaga guardando 'false' EXPLÍCITO: borrar la clave lo
+      // devolvería a su default, que es encendido — o sea, lo contrario de lo
+      // que pidió la marca. Al encender guardamos 'true', que además gana
+      // sobre un apagado global.
+      await this.prisma.setting.upsert({
+        where: { key },
+        update: { value: enabled ? 'true' : 'false' },
+        create: { key, value: enabled ? 'true' : 'false' },
+      });
+    } else if (enabled) {
       await this.prisma.setting.upsert({
         where: { key },
         update: { value: 'true' },
@@ -1372,6 +1582,7 @@ export class SuperAdminService {
     templateId: string,
     text: string | null | undefined,
     actorId: string,
+    subject?: string | null,
   ) {
     const wl = await this.prisma.whiteLabel.findUnique({
       where: { id },
@@ -1382,16 +1593,21 @@ export class SuperAdminService {
     if (!def) throw new NotFoundException('Plantilla no encontrada');
 
     const key = brandMsgTplKey(id, templateId);
-    const trimmed = (text ?? '').trim();
-    if (!trimmed) {
+    // Un correo guarda asunto + cuerpo juntos como JSON; un SMS, texto suelto.
+    // Vacío en ambos = volver al default (se borra el override).
+    const value = findEmailTemplate(templateId)
+      ? serializeEmailTplValue({ subject, body: text })
+      : (text ?? '').trim() || null;
+    if (!value) {
       await this.prisma.setting.deleteMany({ where: { key } });
     } else {
       await this.prisma.setting.upsert({
         where: { key },
-        update: { value: trimmed },
-        create: { key, value: trimmed },
+        update: { value },
+        create: { key, value },
       });
     }
+    const trimmed = value;
     await this.logAction(
       actorId,
       'superadmin.white_label.message_template',
@@ -1440,6 +1656,7 @@ export class SuperAdminService {
         sortOrder: dto.sortOrder ?? 0,
         stripePriceId: dto.stripePriceId?.trim() || null,
         stripeProductId: dto.stripeProductId?.trim() || null,
+        productKey: dto.productKey?.trim() || null,
       },
     });
     await this.logAction(actorId, 'superadmin.white_label.payment_link.create', `whiteLabel:${whiteLabelId}`, {
@@ -1466,6 +1683,7 @@ export class SuperAdminService {
         sortOrder: dto.sortOrder === undefined ? undefined : dto.sortOrder,
         stripePriceId: dto.stripePriceId === undefined ? undefined : dto.stripePriceId?.trim() || null,
         stripeProductId: dto.stripeProductId === undefined ? undefined : dto.stripeProductId?.trim() || null,
+        productKey: dto.productKey === undefined ? undefined : dto.productKey?.trim() || null,
       },
     });
     await this.logAction(actorId, 'superadmin.white_label.payment_link.update', `whiteLabel:${whiteLabelId}`, {
@@ -1792,6 +2010,10 @@ export class SuperAdminService {
       select: {
         slug: true,
         name: true,
+        // Dominios de la marca → el frontend arma links públicos con SU dominio
+        // (ej. el link de login en el WhatsApp de "crear negocio"), no soyclubify.
+        domain: true,
+        appDomain: true,
         primaryColor: true,
         logoUrl: true,
         iconUrl: true,
@@ -1818,9 +2040,27 @@ export class SuperAdminService {
       },
     });
     if (!wl) return null;
+    // Enlace de PRUEBA por marca (página dedicada /prueba). Se guarda en Settings
+    // por-marca (sin columna nueva): `landing.trial.checkoutUrl.<slug>` = URL de
+    // Stripe del trial de N días; `landing.trial.days.<slug>` = días (default 7).
+    // Vacío/ausente → la marca no ofrece prueba (la página lo dice). Ver
+    // setBrandTrialConfig.
+    const trialRows = await this.prisma.setting.findMany({
+      where: { key: { in: [`landing.trial.checkoutUrl.${s}`, `landing.trial.days.${s}`] } },
+      select: { key: true, value: true },
+    });
+    const trialMap = new Map(trialRows.map((r) => [r.key, r.value]));
+    const trialUrlRaw = (trialMap.get(`landing.trial.checkoutUrl.${s}`) ?? '').trim();
+    const trialDaysNum = Number(trialMap.get(`landing.trial.days.${s}`));
     return {
       slug: wl.slug,
       name: wl.name,
+      trialCheckoutUrl: trialUrlRaw || null,
+      trialDays: Number.isFinite(trialDaysNum) && trialDaysNum > 0 ? Math.floor(trialDaysNum) : 7,
+      // Dominio público (ej. selleala.com) y de panel (app.selleala.com). null =
+      // la marca aún no tiene dominio propio → el frontend cae a soyclubify.com.
+      domain: wl.domain ?? null,
+      appDomain: wl.appDomain ?? null,
       primaryColor: wl.primaryColor,
       logoUrl: wl.logoUrl,
       iconUrl: wl.iconUrl,
@@ -1846,6 +2086,50 @@ export class SuperAdminService {
       brandingVersion: wl.updatedAt ? wl.updatedAt.getTime() : 0,
       modules: wl.modules.map((m) => m.module),
     };
+  }
+
+  /** Config del enlace de PRUEBA de una marca (página dedicada /prueba). Lee los
+   *  Settings por-marca. Para el form del super admin. */
+  async getBrandTrialConfig(whiteLabelId: string) {
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: { slug: true },
+    });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+    const rows = await this.prisma.setting.findMany({
+      where: { key: { in: [`landing.trial.checkoutUrl.${wl.slug}`, `landing.trial.days.${wl.slug}`] } },
+      select: { key: true, value: true },
+    });
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+    const days = Number(map.get(`landing.trial.days.${wl.slug}`));
+    return {
+      trialCheckoutUrl: (map.get(`landing.trial.checkoutUrl.${wl.slug}`) ?? '').trim() || null,
+      trialDays: Number.isFinite(days) && days > 0 ? Math.floor(days) : 7,
+    };
+  }
+
+  /** Setea (o limpia) el enlace de PRUEBA de una marca. url vacío → se borra el
+   *  Setting (la marca deja de ofrecer prueba). days default 7. */
+  async setBrandTrialConfig(
+    whiteLabelId: string,
+    dto: { trialCheckoutUrl?: string | null; trialDays?: number | null },
+  ) {
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: { slug: true },
+    });
+    if (!wl) throw new NotFoundException('Marca no encontrada');
+    const urlKey = `landing.trial.checkoutUrl.${wl.slug}`;
+    const daysKey = `landing.trial.days.${wl.slug}`;
+    const url = (dto.trialCheckoutUrl ?? '').trim();
+    if (url) {
+      await this.prisma.setting.upsert({ where: { key: urlKey }, create: { key: urlKey, value: url }, update: { value: url } });
+    } else {
+      await this.prisma.setting.deleteMany({ where: { key: urlKey } });
+    }
+    const days = Math.max(1, Math.min(90, Math.floor(Number(dto.trialDays) || 7)));
+    await this.prisma.setting.upsert({ where: { key: daysKey }, create: { key: daysKey, value: String(days) }, update: { value: String(days) } });
+    return this.getBrandTrialConfig(whiteLabelId);
   }
 
   /** Links de pago ACTIVOS de una marca por HOST (dominio propio). Lo usa la
@@ -1882,6 +2166,10 @@ export class SuperAdminService {
         amountUsd: Number(l.amountUsd),
         url: l.url,
         stripePriceId: l.stripePriceId,
+        // productKey distingue los planes de suscripción (null) de los upgrades
+        // por ENTITLEMENT (INFOLINK_PRO/FULL): estos NO son planes del selector
+        // de la landing, se ofrecen dentro del panel del negocio.
+        productKey: l.productKey,
       })),
     };
   }
@@ -2052,6 +2340,8 @@ export class SuperAdminService {
         slug: true,
         status: true,
         currentPeriodEnd: true,
+        businessType: true,
+        planPeriodicity: true,
         whiteLabel: {
           select: { id: true, name: true, primaryColor: true, initial: true },
         },
@@ -2073,7 +2363,8 @@ export class SuperAdminService {
           ? { id: t.whiteLabel.id, name: t.whiteLabel.name, primaryColor: t.whiteLabel.primaryColor, initial: t.whiteLabel.initial }
           : null,
         currentPeriodEnd: t.currentPeriodEnd,
-        creditsRequired: 1,
+        // Créditos que costará su próxima renovación (tipo × periodicidad).
+        creditsRequired: cycleCreditCost(t.businessType, t.planPeriodicity),
         state,
       };
     });

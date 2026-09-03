@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, downloadFile } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { Icon } from '@/components/Icon';
 import { DirectChatList, type ChatPeer } from '@/components/DirectChatList';
 import { getOrdersSocket } from '@/lib/socket';
@@ -35,6 +36,12 @@ type Order = {
     | 'FAILED'
     | 'REFUNDED';
   paymentMethod?: string;
+};
+
+type Location = {
+  id: string;
+  name: string;
+  isActive: boolean;
 };
 
 const COLS = [
@@ -86,6 +93,9 @@ export default function OrdersBoard() {
   const [flashId, setFlashId] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState('');
   const [scopeDays, setScopeDays] = useState<1 | 7 | 30>(1);
+  // Filtro por sede (solo tenants multi-sede). '' = todas las sedes.
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [locationId, setLocationId] = useState('');
   const [newOrderOpen, setNewOrderOpen] = useState(false);
   const router = useRouter();
   const soundRef = useRef(soundOn);
@@ -96,7 +106,10 @@ export default function OrdersBoard() {
 
   async function load() {
     try {
-      const data = await api<typeof board>(`/orders/board?days=${scopeDays}`);
+      const q = `/orders/board?days=${scopeDays}${
+        locationId ? `&locationId=${encodeURIComponent(locationId)}` : ''
+      }`;
+      const data = await api<typeof board>(q);
       // Hidratamos el set de IDs vistos en la primera carga sin alertar.
       const allIds = new Set<string>();
       for (const k of Object.keys(data)) {
@@ -178,20 +191,56 @@ export default function OrdersBoard() {
     };
   }, []);
 
-  // Recarga cuando cambia el scope de fechas (no incluido en el efecto de socket).
+  // Sedes activas del tenant para el filtro (solo se muestra si hay ≥2).
+  useEffect(() => {
+    api<Location[]>('/locations')
+      .then((ls) => setLocations((ls ?? []).filter((l) => l.isActive)))
+      .catch(() => setLocations([]));
+  }, []);
+
+  // Recarga cuando cambia el scope de fechas o la sede (no incluido en el
+  // efecto de socket).
   useEffect(() => {
     seenRef.current = new Set(); // re-hidratar IDs en el siguiente load
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeDays]);
+  }, [scopeDays, locationId]);
+
+  /**
+   * Al entregar un DOMICILIO, pregunta si se suma el sello.
+   *
+   * En domicilio no hay sello automático: «entregado» lo marca quien reparte y
+   * eso no siempre significa que el cliente lo recibió conforme. Pero dejarlo
+   * al olvido hacía que el sello se perdiera, así que el sistema pregunta y el
+   * negocio decide en el momento.
+   *
+   * Best-effort: si algo falla acá, el pedido YA quedó entregado. Un problema
+   * al sellar no puede deshacer el cambio de estado.
+   */
+  async function preguntarSello(o: Order | undefined, nuevo: Order['status']) {
+    if (!o || nuevo !== 'DELIVERED' || o.fulfillment !== 'DELIVERY') return;
+    if (!window.confirm(`¿Sumas el sello de fidelidad a este pedido?
+
+Pedido #${o.code ?? o.id.slice(0, 6)}`))
+      return;
+    try {
+      const r: any = await api(`/orders/${o.id}/stamp`, { method: 'POST' });
+      if (r?.stamped) toast('Sello sumado', 'success');
+      else toast(r?.reason ?? 'No se pudo sumar el sello', 'error');
+    } catch (e: any) {
+      toast(e.message || 'No se pudo sumar el sello', 'error');
+    }
+  }
 
   async function setStatus(id: string, status: Order['status']) {
     setBusy(id);
     try {
+      const antes = Object.values(board).flat().find((o) => o.id === id);
       await api(`/orders/${id}/status`, {
         method: 'PATCH',
         body: JSON.stringify({ status }),
       });
+      await preguntarSello(antes, status);
       await load();
     } catch (e: any) {
       toast(e.message || t('errorChangeStatus'), 'error');
@@ -242,6 +291,10 @@ export default function OrdersBoard() {
     };
     if (from === target) return;
 
+    // Se captura ANTES del movimiento optimista: dentro del setBoard el pedido
+    // solo existe en el callback, y después del await ya cambió de columna.
+    const movido = (board[from] ?? []).find((o) => o.id === id);
+
     // Optimistic move
     setBoard((prev) => {
       const fromList = (prev[from] ?? []).filter((o) => o.id !== id);
@@ -261,6 +314,7 @@ export default function OrdersBoard() {
         body: JSON.stringify({ status: target }),
       });
       toast(t('toastOrderMoved'), 'success');
+      await preguntarSello(movido, target as Order['status']);
     } catch (err: any) {
       toast(err.message || t('errorCouldNotMove'), 'error');
       load();
@@ -390,6 +444,22 @@ export default function OrdersBoard() {
               </button>
             )}
           </div>
+          {locations.length >= 2 && (
+            <select
+              className="text-sm border border-line rounded-pill px-3 py-1.5 bg-white text-ink"
+              value={locationId}
+              onChange={(e) => setLocationId(e.target.value)}
+              title="Filtrar pedidos por sede"
+            >
+              <option value="">Todas las sedes</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}
+                </option>
+              ))}
+            </select>
+          )}
+          <AcademyButton moduleKey="pedidos" />
           <div className="flex gap-0.5 bg-bg2 rounded-pill p-0.5 text-xs">
             {([1, 7, 30] as const).map((d) => (
               <button
@@ -462,7 +532,9 @@ export default function OrdersBoard() {
             title={t('downloadCsvTooltip')}
             onClick={() =>
               downloadFile(
-                '/orders/export.csv',
+                `/orders/export.csv${
+                  locationId ? `?locationId=${encodeURIComponent(locationId)}` : ''
+                }`,
                 `pedidos-${new Date().toISOString().slice(0, 10)}.csv`,
               )
             }

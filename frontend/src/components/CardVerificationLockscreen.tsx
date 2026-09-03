@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, clearSession } from '@/lib/api';
+import { nombrePasarela } from '@/lib/pasarela';
+import { useHidesPurchases } from '@/lib/native';
 
 /**
  * Lockscreen que se muestra cuando un tenant aún no tiene `hotmartSubscriberCode`.
@@ -16,10 +18,18 @@ import { api, clearSession } from '@/lib/api';
 export function CardVerificationLockscreen({
   brandName,
   planName,
+  brandGateway,
 }: {
   brandName?: string;
   planName: 'Elite' | 'Pro' | string;
+  /** Pasarela de la marca. Sin ella el texto dice "la pasarela de pagos", que
+   *  es correcto siempre; decir "Hotmart" a quien cobra por Stripe, no. */
+  brandGateway?: string | null;
 }) {
+  const pasarela = nombrePasarela(brandGateway);
+  // Ver TrialExpiredLockscreen: en iOS no se ofrece el checkout porque
+  // Apple exige su compra in-app para las suscripciones (guideline 3.1.1).
+  const sinCompras = useHidesPurchases();
   const router = useRouter();
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -73,18 +83,23 @@ export function CardVerificationLockscreen({
           </h1>
           <p className="text-mute mt-2 leading-relaxed">
             Para activar tu plan {planName} de{' '}
-            {brandName ?? 'tu cuenta'}, completa el pago seguro en Hotmart.
+            {brandName ?? 'tu cuenta'}, completa el pago seguro en {pasarela}.
             Apenas se apruebe el cobro entras al panel con todas las
             funciones desbloqueadas. Puedes cancelar la suscripción en
             cualquier momento desde tu panel.
           </p>
 
-          {checkoutUrl ? (
+          {sinCompras ? (
+            <div className="mt-7 rounded-lg bg-bg2 px-4 py-3 text-sm text-mute leading-relaxed">
+              El pago se completa desde el panel web. Apenas quede confirmado,
+              vuelve aquí y toca «verificar ahora».
+            </div>
+          ) : checkoutUrl ? (
             <a
               href={checkoutUrl}
               className="btn-primary w-full justify-center text-base py-3 mt-7"
             >
-              Ir al pago seguro en Hotmart →
+              Ir al pago seguro en {pasarela} →
             </a>
           ) : (
             <div className="mt-7 rounded-lg bg-bg2 px-4 py-3 text-sm text-mute">
@@ -100,12 +115,12 @@ export function CardVerificationLockscreen({
           >
             {verifying
               ? 'Verificando…'
-              : 'Ya completé Hotmart — verificar ahora'}
+              : `Ya completé el pago en ${pasarela} — verificar ahora`}
           </button>
 
           <div className="mt-6 pt-5 border-t border-line2 text-xs text-mute space-y-2">
             <div>
-              <strong>¿Qué pasa después?</strong> Apenas Hotmart confirme tu
+              <strong>¿Qué pasa después?</strong> Apenas {pasarela} confirme tu
               tarjeta, esta página desaparece sola y entras al panel.
               Detectamos la confirmación automáticamente cada pocos segundos.
             </div>

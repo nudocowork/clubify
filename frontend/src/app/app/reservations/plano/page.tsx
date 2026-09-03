@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { toast } from '@/components/Toast';
 import {
   Location,
@@ -110,6 +111,19 @@ export default function PlanoPage() {
   useEffect(() => {
     loadAll();
   }, [activeLocationId]);
+
+  // R1 (2026-08-01): default inteligente por sede. Si el negocio es multi-sede y
+  // TODAS las zonas ya están asignadas a una sede, arrancamos en la primera sede
+  // (plano independiente). Si hay zonas sin sede, nos quedamos en "Todas" para
+  // que el negocio las asigne primero (evita ver un plano vacío). Una sola vez.
+  const didAutoSede = useRef(false);
+  useEffect(() => {
+    if (didAutoSede.current) return;
+    if (locations.length <= 1 || activeLocationId || zones.length === 0) return;
+    if (zones.some((z) => !z.locationId)) return; // hay zonas sin sede → quedate en Todas
+    didAutoSede.current = true;
+    setActiveLocationId(locations[0].id);
+  }, [locations, zones, activeLocationId]);
 
   const now = Date.now();
 
@@ -235,6 +249,12 @@ export default function PlanoPage() {
     setTables((prev) => prev.map((tbl) => (tbl.id === id ? { ...tbl, ...patch } : tbl)));
     try {
       await api(`/reservations/tables/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      // Si se movió de sede, recargamos: la mesa sale de la vista actual
+      // (filtrada por sede) y se refrescan las zonas de la sede.
+      if ('locationId' in patch) {
+        setSelectedTableId(null);
+        loadAll();
+      }
     } catch (e: any) {
       toast(e.message || t('errorUpdate'), 'error');
       loadAll();
@@ -429,6 +449,7 @@ export default function PlanoPage() {
               ))}
             </select>
           )}
+          <AcademyButton moduleKey="plano" />
         </div>
       </div>
 
@@ -531,12 +552,14 @@ export default function PlanoPage() {
               <EditorSidebar
                 table={selectedTable}
                 zones={zones}
+                locations={locations}
                 onPatch={(patch) => selectedTable && patchTable(selectedTable.id, patch)}
                 onToggleBlock={() => selectedTable && toggleBlock(selectedTable)}
                 onDelete={() => selectedTable && deleteTable(selectedTable)}
               />
               <ZoneManagerCard
                 zones={zones}
+                locations={locations}
                 locationId={activeLocationId}
                 onChanged={loadAll}
               />
@@ -1218,12 +1241,14 @@ function EditorView({
 function EditorSidebar({
   table,
   zones,
+  locations,
   onPatch,
   onToggleBlock,
   onDelete,
 }: {
   table: Table | null;
   zones: Zone[];
+  locations: Location[];
   onPatch: (patch: Partial<Table>) => void;
   onToggleBlock: () => void;
   onDelete: () => void;
@@ -1274,6 +1299,24 @@ function EditorSidebar({
             <option value="BAR">{t('shapeBar')}</option>
           </select>
         </div>
+        {locations.length > 1 && (
+          <div>
+            <label className="label">{t('fieldLocation')}</label>
+            <select
+              className="input"
+              value={table.locationId ?? ''}
+              // Al cambiar de sede, limpiamos la zona (las zonas son por sede).
+              onChange={(e) =>
+                onPatch({ locationId: e.target.value || null, zoneId: null })
+              }
+            >
+              <option value="">{t('allLocations')}</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>{l.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className="label">{t('fieldZone')}</label>
           <select
@@ -1282,9 +1325,11 @@ function EditorSidebar({
             onChange={(e) => onPatch({ zoneId: e.target.value || null })}
           >
             <option value="">{t('noZone')}</option>
-            {zones.map((z) => (
-              <option key={z.id} value={z.id}>{z.name}</option>
-            ))}
+            {zones
+              .filter((z) => !table.locationId || !z.locationId || z.locationId === table.locationId)
+              .map((z) => (
+                <option key={z.id} value={z.id}>{z.name}</option>
+              ))}
           </select>
         </div>
         <button
@@ -1365,10 +1410,12 @@ const ZONE_TYPES = [
 
 function ZoneManagerCard({
   zones,
+  locations,
   locationId,
   onChanged,
 }: {
   zones: Zone[];
+  locations: Location[];
   locationId: string | null;
   onChanged: () => void;
 }) {
@@ -1376,6 +1423,31 @@ function ZoneManagerCard({
   const [name, setName] = useState('');
   const [type, setType] = useState<'INDOOR' | 'OUTDOOR' | 'BAR' | 'PRIVATE'>('INDOOR');
   const [busy, setBusy] = useState(false);
+  const multiSede = locations.length > 1;
+  // R1: sede destino de la zona nueva. En multi-sede default a la sede activa o
+  // la primera → no se crean zonas SIN sede.
+  const [zoneLoc, setZoneLoc] = useState<string>(
+    locationId || (multiSede ? locations[0]?.id ?? '' : ''),
+  );
+  useEffect(() => {
+    if (locationId) setZoneLoc(locationId);
+  }, [locationId]);
+
+  // R1 (2026-08-01): reasignar una zona a otra sede. El backend cascadea las
+  // mesas de la zona a la misma sede. Esto hace los planos independientes por
+  // sede (antes todas las zonas quedaban sin sede = mezcladas).
+  async function patchZoneLocation(zoneId: string, locId: string | null) {
+    try {
+      await api(`/reservations/zones/${zoneId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ locationId: locId }),
+      });
+      onChanged();
+      toast(t('toastZoneMoved'), 'success');
+    } catch (e: any) {
+      toast(e.message || t('errorUpdate'), 'error');
+    }
+  }
 
   async function createZone(e: React.FormEvent) {
     e.preventDefault();
@@ -1387,7 +1459,7 @@ function ZoneManagerCard({
         body: JSON.stringify({
           name: name.trim(),
           type,
-          locationId: locationId || null,
+          locationId: (multiSede ? zoneLoc : locationId) || null,
         }),
       });
       setName('');
@@ -1417,6 +1489,11 @@ function ZoneManagerCard({
       <p className="text-[11px] text-mute mt-0.5 mb-2 leading-snug">
         {t('zonesHint')}
       </p>
+      {multiSede && zones.some((z) => !z.locationId) && (
+        <div className="text-[11px] rounded-lg px-2 py-1.5 mb-2 leading-snug bg-bad-soft text-bad-ink">
+          {t('assignZonesHint')}
+        </div>
+      )}
 
       {zones.length === 0 ? (
         <p className="text-xs text-mute italic mb-2">{t('noZonesYet')}</p>
@@ -1441,21 +1518,43 @@ function ZoneManagerCard({
                     })()}
                   </span>
                   <span className="font-semibold truncate">{z.name}</span>
+                  {multiSede && !z.locationId && (
+                    <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-bad-soft text-bad-ink shrink-0">
+                      {t('zoneSedeNone')}
+                    </span>
+                  )}
                 </span>
-                <button
-                  onClick={() => removeZone(z.id)}
-                  className="text-mute hover:text-bad text-base leading-none px-1"
-                  title={t('deleteZone')}
-                >
-                  ×
-                </button>
+                <span className="flex items-center gap-1 shrink-0">
+                  {multiSede && (
+                    <select
+                      className="text-[10px] rounded border border-line bg-white px-1 py-0.5 max-w-[110px]"
+                      value={z.locationId ?? ''}
+                      onChange={(e) => patchZoneLocation(z.id, e.target.value || null)}
+                      title={t('zoneSedeTitle')}
+                    >
+                      <option value="">{t('zoneSedeNone')}</option>
+                      {locations.map((loc) => (
+                        <option key={loc.id} value={loc.id}>
+                          {loc.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button
+                    onClick={() => removeZone(z.id)}
+                    className="text-mute hover:text-bad text-base leading-none px-1"
+                    title={t('deleteZone')}
+                  >
+                    ×
+                  </button>
+                </span>
               </li>
             );
           })}
         </ul>
       )}
 
-      <form onSubmit={createZone} className="flex gap-1">
+      <form onSubmit={createZone} className="flex gap-1 flex-wrap">
         <input
           className="input text-xs flex-1"
           placeholder={t('newZonePlaceholder')}
@@ -1474,6 +1573,21 @@ function ZoneManagerCard({
             </option>
           ))}
         </select>
+        {multiSede && (
+          <select
+            className="input text-xs"
+            value={zoneLoc}
+            onChange={(e) => setZoneLoc(e.target.value)}
+            style={{ width: 120 }}
+            title={t('zoneSedeTitle')}
+          >
+            {locations.map((loc) => (
+              <option key={loc.id} value={loc.id}>
+                {loc.name}
+              </option>
+            ))}
+          </select>
+        )}
         <button className="btn-primary text-xs px-3" disabled={busy || !name.trim()}>
           +
         </button>

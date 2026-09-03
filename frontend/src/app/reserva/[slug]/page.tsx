@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { safeBrandColor, autoTextColor } from '@/lib/contrast';
 import { useParams } from 'next/navigation';
 import { PhoneInput } from '@/components/PhoneInput';
 
@@ -7,8 +8,18 @@ type Info = {
   brandName: string;
   logoUrl?: string | null;
   primaryColor?: string | null;
-  zones: { id: string; name: string; slug: string; type: string }[];
+  zones: { id: string; name: string; slug: string; type: string; locationId?: string | null }[];
+  // F2: sedes del negocio. Si hay >1, el cliente elige a cuál reservar primero.
+  locations?: { id: string; name: string; address?: string | null }[];
+  // F3: cantidad máxima que entra en la mesa más grande. Un grupo mayor se
+  // deriva a WhatsApp para atención personalizada.
+  maxPartyOnline?: number;
+  whatsapp?: string | null;
   defaultSlots: string[];
+  // Días de la semana habilitados (0=Dom..6=Sáb). Vacío/undefined = todos.
+  reservationDays?: number[];
+  // Observaciones/términos que el negocio muestra antes de reservar.
+  reservationTerms?: string | null;
 };
 
 function formatDate(d: Date) {
@@ -24,12 +35,17 @@ function to12h(time: string): string {
   return `${h12}:${String(m).padStart(2, '0')} ${period}`;
 }
 
-function nextDates(n = 7) {
+/** Próximas `count` fechas reservables. Si el negocio configuró días
+ *  habilitados (0=Dom..6=Sáb), salta los días cerrados mirando hasta
+ *  `lookAhead` días adelante para juntar igual `count` opciones. */
+function nextDates(allowedDays?: number[], count = 7, lookAhead = 30) {
   const out: { iso: string; dow: string; day: string }[] = [];
   const dows = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
-  for (let i = 0; i < n; i++) {
+  const hasFilter = Array.isArray(allowedDays) && allowedDays.length > 0;
+  for (let i = 0; i < lookAhead && out.length < count; i++) {
     const d = new Date();
     d.setDate(d.getDate() + i);
+    if (hasFilter && !allowedDays!.includes(d.getDay())) continue;
     out.push({ iso: formatDate(d), dow: dows[d.getDay()], day: String(d.getDate()) });
   }
   return out;
@@ -148,6 +164,11 @@ export default function PublicReservation() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [party, setParty] = useState(2);
+  // F3: modo de cantidad — botones fijos o "Otro" (input libre).
+  const [partyMode, setPartyMode] = useState<'preset' | 'otro'>('preset');
+  const [customParty, setCustomParty] = useState('');
+  // F2: sede elegida (null = negocio de 1 sede o sin elegir todavía).
+  const [locationId, setLocationId] = useState<string | null>(null);
   const [date, setDate] = useState(formatDate(new Date()));
   const [time, setTime] = useState<string | null>(null);
   const [zoneSlug, setZoneSlug] = useState<string | null>(null);
@@ -174,6 +195,21 @@ export default function PublicReservation() {
       .catch(() => setError('Este negocio aún no tiene reservas online activadas.'));
   }, [slug]);
 
+  // Si el negocio restringe días y la fecha por default (hoy) cae en un día
+  // cerrado, saltar a la primera fecha reservable para no arrancar en inválido.
+  useEffect(() => {
+    if (!info) return;
+    const allowed = info.reservationDays;
+    if (!Array.isArray(allowed) || allowed.length === 0) return;
+    const [y, m, d] = date.split('-').map(Number);
+    const dow = new Date(y, m - 1, d).getDay();
+    if (!allowed.includes(dow)) {
+      const first = nextDates(allowed, 1)[0];
+      if (first) setDate(first.iso);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info]);
+
   /** Refetch availability cuando cambian (party, date). Si el slot
    *  actualmente elegido queda no-disponible se deselecciona. */
   useEffect(() => {
@@ -182,7 +218,7 @@ export default function PublicReservation() {
     setLoadingSlots(true);
     const url = `${API}/api/public/reservations/${slug}/availability?date=${date}&party=${party}${
       zoneSlug ? `&zoneSlug=${zoneSlug}` : ''
-    }`;
+    }${locationId ? `&locationId=${locationId}` : ''}`;
     fetch(url)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
@@ -195,7 +231,7 @@ export default function PublicReservation() {
       })
       .catch(() => setAvailability(null))
       .finally(() => setLoadingSlots(false));
-  }, [info, slug, date, party, zoneSlug]);
+  }, [info, slug, date, party, zoneSlug, locationId]);
 
   /** Mesas de la zona elegida (PDF Software 2026-06-29). Solo cuando hay una
    *  zona específica seleccionada (no en "asignación automática"). Recalcula al
@@ -210,7 +246,7 @@ export default function PublicReservation() {
     setLoadingTables(true);
     const url = `${API}/api/public/reservations/${slug}/tables?zoneSlug=${zoneSlug}&date=${date}${
       time ? `&time=${time}` : ''
-    }`;
+    }${locationId ? `&locationId=${locationId}` : ''}`;
     fetch(url)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => setTables(d?.tables ?? []))
@@ -237,8 +273,39 @@ export default function PublicReservation() {
     );
   }
 
-  const dates = nextDates(7);
-  const primary = info.primaryColor || '#22C55E';
+  const dates = nextDates(info.reservationDays, 7);
+  // Validado, no solo «no vacío»: un negocio tenía el NOMBRE escrito en el
+  // campo del color, el navegador ignoraba el `background` y el botón
+  // seleccionado quedaba blanco sobre blanco — invisible. Se veía como si la
+  // pantalla no reaccionara al clic.
+  const primary = safeBrandColor(info.primaryColor);
+  // El texto de lo seleccionado NO puede ser blanco fijo: hay marcas con color
+  // claro (una con #ffffff) donde quedaría igual de ilegible.
+  const onPrimary = autoTextColor(primary);
+
+  // F2: negocio con >1 sede → primero elige sede, luego zonas de esa sede.
+  const multiSede = (info.locations?.length ?? 0) > 1;
+  const visibleZones = locationId
+    ? info.zones.filter((z) => z.locationId === locationId)
+    : info.zones;
+
+  // F3: cantidad. presets 1..min(8, maxSeat); "Otro" abre input libre; si supera
+  // la mesa más grande (maxSeat), se deriva a WhatsApp.
+  const maxSeat = info.maxPartyOnline && info.maxPartyOnline > 0 ? info.maxPartyOnline : 20;
+  const presetMax = Math.min(8, maxSeat);
+  const presets = Array.from({ length: presetMax }, (_, i) => i + 1);
+  const otroNum = parseInt(customParty, 10);
+  const overflow =
+    partyMode === 'otro' && Number.isFinite(otroNum) && otroNum > maxSeat;
+  const otroValid =
+    partyMode !== 'otro' ||
+    (Number.isFinite(otroNum) && otroNum >= 1 && !overflow);
+  const waDigits = (info.whatsapp || '').replace(/\D/g, '');
+  const waOverflowHref = waDigits
+    ? `https://wa.me/${waDigits}?text=${encodeURIComponent(
+        `Hola, quiero reservar para ${customParty || party} personas el ${date}. ¿Me ayudan a coordinar una mesa?`,
+      )}`
+    : null;
 
   async function submit() {
     if (!name.trim() || !phone.trim() || !time) return;
@@ -257,6 +324,7 @@ export default function PublicReservation() {
           notes: notes.trim() || undefined,
           zoneSlug: zoneSlug || undefined,
           tableId: tableId || undefined,
+          locationId: locationId || undefined,
         }),
       });
       if (!r.ok) {
@@ -303,23 +371,101 @@ export default function PublicReservation() {
         <div className="p-5">
           {step === 1 && (
             <>
+              {info.reservationTerms?.trim() && (
+                <div
+                  className="mb-4 rounded-xl p-3.5 flex items-start gap-2.5 text-left"
+                  style={{ background: `${primary}0f`, border: `1px solid ${primary}44` }}
+                >
+                  <span className="text-base shrink-0">📋</span>
+                  <div className="text-xs leading-relaxed whitespace-pre-line text-ink/90 min-w-0">
+                    {info.reservationTerms}
+                  </div>
+                </div>
+              )}
               <h2 className="text-sm font-semibold mb-2">¿Cuántas personas?</h2>
-              <div className="grid grid-cols-4 gap-2 mb-4">
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((p) => (
+              <div className="grid grid-cols-4 gap-2 mb-3">
+                {presets.map((p) => (
                   <button
                     key={p}
-                    onClick={() => setParty(p)}
+                    onClick={() => {
+                      setPartyMode('preset');
+                      setParty(p);
+                    }}
                     className={`py-3 rounded-lg font-bold text-sm ${
-                      party === p
+                      partyMode === 'preset' && party === p
                         ? 'text-white'
                         : 'bg-white border border-line text-ink'
                     }`}
-                    style={party === p ? { background: primary } : {}}
+                    style={
+                      partyMode === 'preset' && party === p
+                        ? { background: primary, color: onPrimary }
+                        : {}
+                    }
                   >
                     {p}
                   </button>
                 ))}
+                <button
+                  onClick={() => setPartyMode('otro')}
+                  className={`py-3 rounded-lg font-bold text-sm ${
+                    partyMode === 'otro'
+                      ? 'text-white'
+                      : 'bg-white border border-line text-ink'
+                  }`}
+                  style={
+                    partyMode === 'otro'
+                      ? { background: primary, color: onPrimary }
+                      : {}
+                  }
+                >
+                  Otro
+                </button>
               </div>
+              {partyMode === 'otro' && (
+                <div className="mb-4">
+                  <input
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    value={customParty}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setCustomParty(v);
+                      const n = parseInt(v, 10);
+                      if (Number.isFinite(n) && n >= 1 && n <= maxSeat) setParty(n);
+                    }}
+                    placeholder="Escribe la cantidad de personas"
+                    className="w-full py-3 px-3 rounded-lg border border-line text-sm mb-2"
+                  />
+                  {overflow && (
+                    <div
+                      className="p-3 rounded-lg"
+                      style={{ background: `${primary}0f`, border: `1px solid ${primary}44` }}
+                    >
+                      <div className="font-semibold text-sm mb-1">Grupo grande 🎉</div>
+                      <div className="text-xs text-mute mb-2">
+                        Para {otroNum} personas coordinamos la mesa de forma
+                        personalizada. Escríbenos y te acomodamos.
+                      </div>
+                      {waOverflowHref ? (
+                        <a
+                          href={waOverflowHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg font-bold text-white text-sm"
+                          style={{ background: '#25D366' }}
+                        >
+                          💬 Coordinar por WhatsApp
+                        </a>
+                      ) : (
+                        <div className="text-xs text-mute">
+                          Contacta al negocio para coordinar tu reserva.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <h2 className="text-sm font-semibold mb-2">Fecha</h2>
               <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
@@ -360,7 +506,9 @@ export default function PublicReservation() {
                           ? 'bg-bg2 border border-line text-mute cursor-not-allowed line-through opacity-60'
                           : 'bg-white border border-line text-ink'
                       }`}
-                      style={time === s ? { background: primary } : {}}
+                      style={
+                        time === s ? { background: primary, color: onPrimary } : {}
+                      }
                       title={isFull ? 'Sin lugares disponibles' : ''}
                     >
                       {to12h(s)}
@@ -376,8 +524,52 @@ export default function PublicReservation() {
             </>
           )}
 
-          {step === 2 && (
+          {step === 2 && multiSede && !locationId && (
             <>
+              <h2 className="text-sm font-semibold mb-3">Elige tu sede</h2>
+              <p className="text-xs text-mute mb-3">
+                ¿En cuál de nuestras sedes querés reservar?
+              </p>
+              {(info.locations ?? []).map((loc) => (
+                <button
+                  key={loc.id}
+                  onClick={() => {
+                    setLocationId(loc.id);
+                    setZoneSlug(null);
+                    setTableId(null);
+                  }}
+                  className="w-full text-left p-3 rounded-2xl mb-2 border-2 transition flex items-center gap-3"
+                  style={{ borderColor: '#e2e8f0', background: 'white' }}
+                >
+                  <div className="w-10 h-10 rounded-xl bg-bg2 flex items-center justify-center text-base shrink-0">
+                    📍
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm">{loc.name}</div>
+                    {loc.address && (
+                      <div className="text-xs text-mute truncate">{loc.address}</div>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </>
+          )}
+
+          {step === 2 && (!multiSede || !!locationId) && (
+            <>
+              {multiSede && (
+                <button
+                  onClick={() => {
+                    setLocationId(null);
+                    setZoneSlug(null);
+                    setTableId(null);
+                  }}
+                  className="text-xs font-semibold mb-2"
+                  style={{ color: primary }}
+                >
+                  ← Cambiar sede
+                </button>
+              )}
               <h2 className="text-sm font-semibold mb-3">Elige tu lugar</h2>
               <button
                 onClick={() => setZoneSlug(null)}
@@ -392,7 +584,7 @@ export default function PublicReservation() {
               >
                 <div
                   className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-base shrink-0"
-                  style={{ background: primary }}
+                  style={{ background: primary, color: onPrimary }}
                 >
                   ✨
                 </div>
@@ -403,19 +595,19 @@ export default function PublicReservation() {
                 {zoneSlug === null && (
                   <div
                     className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs shrink-0"
-                    style={{ background: primary }}
+                    style={{ background: primary, color: onPrimary }}
                   >
                     ✓
                   </div>
                 )}
               </button>
 
-              {info.zones.length > 0 && (
+              {visibleZones.length > 0 && (
                 <>
                   <div className="text-[10px] uppercase tracking-wider text-mute font-bold mb-2 mt-4">
                     O elige zona
                   </div>
-                  {info.zones.map((z) => {
+                  {visibleZones.map((z) => {
                     const zoneIcons: Record<string, string> = {
                       OUTDOOR: '☀️',
                       INDOOR: '🏠',
@@ -495,7 +687,7 @@ export default function PublicReservation() {
                             }`}
                             style={
                               sel
-                                ? { background: primary, color: '#fff', borderColor: primary }
+                                ? { background: primary, color: onPrimary, borderColor: primary }
                                 : { borderColor: '#e2e8f0', background: 'white' }
                             }
                             title={
@@ -556,7 +748,7 @@ export default function PublicReservation() {
             <div className="text-center">
               <div
                 className="w-16 h-16 mx-auto rounded-full flex items-center justify-center text-white text-3xl mb-3"
-                style={{ background: primary }}
+                style={{ background: primary, color: onPrimary }}
               >
                 ✓
               </div>
@@ -656,11 +848,12 @@ export default function PublicReservation() {
               }}
               disabled={
                 submitting ||
-                (step === 1 && !time) ||
+                (step === 1 && (!time || !otroValid)) ||
+                (step === 2 && multiSede && !locationId) ||
                 (step === 3 && (!name.trim() || !phone.trim()))
               }
               className="w-full mt-4 py-3 rounded-lg font-bold text-white disabled:opacity-50"
-              style={{ background: primary }}
+              style={{ background: primary, color: onPrimary }}
             >
               {submitting ? 'Enviando…' : step === 3 ? 'Confirmar reserva' : 'Continuar'}
             </button>
@@ -676,6 +869,10 @@ export default function PublicReservation() {
                 setTime(null);
                 setZoneSlug(null);
                 setTableId(null);
+                setLocationId(null);
+                setPartyMode('preset');
+                setCustomParty('');
+                setParty(2);
                 setShowPlan(false);
                 setConfirmation(null);
               }}

@@ -1,19 +1,26 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { IEmailAdapter, EmailMessage } from '../email.interface';
+import {
+  IEmailAdapter,
+  EmailMessage,
+  EmailSenderOverride,
+} from '../email.interface';
 
 /**
  * Adapter Resend (https://resend.com).
  *
  * Sin dependencia npm — usa fetch directo a la API REST.
  * Activar con RESEND_API_KEY en .env. Resend tiene plan free 3,000 emails/mes.
+ *
+ * `sender.apiKey` permite enviar con la cuenta de una MARCA blanca en vez de la
+ * de la plataforma (cada marca tiene su propia cuenta y dominio verificado).
  */
 @Injectable()
 export class ResendAdapter implements IEmailAdapter {
   readonly id = 'resend';
   private logger = new Logger('Email');
 
-  async send(msg: EmailMessage) {
-    const apiKey = process.env.RESEND_API_KEY;
+  async send(msg: EmailMessage, sender?: EmailSenderOverride) {
+    const apiKey = sender?.apiKey?.trim() || process.env.RESEND_API_KEY;
     if (!apiKey) throw new Error('RESEND_API_KEY no configurado');
 
     const from =

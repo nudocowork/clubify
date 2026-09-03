@@ -1,8 +1,11 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { PhoneInput } from '@/components/PhoneInput';
+import { useTenantCountry } from '@/lib/useTenantCountry';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 
@@ -156,6 +159,7 @@ export default function ReviewsPage() {
         <Link href="/app/reviews/locations" className="btn-ghost text-sm">
           {t('manageLocations')}
         </Link>
+        <AcademyButton moduleKey="reviews" />
       </div>
 
       {/* Fase F: selector de sede que cambia link + QR mostrados abajo. */}
@@ -511,7 +515,7 @@ const DEFAULT_TEMPLATE =
   'Teléfono: {customerPhone}\n' +
   'Calificación: {rating}/5\n\n' +
   'Comentario:\n{feedback}\n\n' +
-  'Revisar en Clubify:\n{feedbackUrl}';
+  'Revisar aquí:\n{feedbackUrl}';
 
 const TOKENS = [
   '{businessName}',
@@ -817,6 +821,7 @@ function WhatsappFeedbackCard({
 }) {
   const t = useTranslations('app_reviews');
   const tc = useTranslations('common');
+  const country = useTenantCountry();
   const [enabled, setEnabled] = useState<boolean>(false);
   const [phone, setPhone] = useState<string>('');
   const [message, setMessage] = useState<string>('');
@@ -926,13 +931,10 @@ function WhatsappFeedbackCard({
 
           <div>
             <label className="label">{t('whatsappNumber')}</label>
-            <input
-              type="tel"
-              className="input"
-              placeholder="+57 300 000 0000"
+            <PhoneInput
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              maxLength={40}
+              onChange={(v) => setPhone(v)}
+              defaultCountry={country}
             />
             <div className="text-[10px] text-mute mt-1">
               {t('whatsappNumberHint')}

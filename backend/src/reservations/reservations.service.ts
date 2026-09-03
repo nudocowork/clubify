@@ -11,6 +11,7 @@ import { ReservationStatus, ReservationChannel } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { resolveBrandTemplate } from '../integrations/brand-message-templates';
 import { WalletService } from '../wallet/wallet.service';
 import { PassesService } from '../passes/passes.service';
@@ -165,19 +166,34 @@ export class ReservationsService {
 
   async updateZone(user: AuthUser, id: string, patch: Partial<ZoneDto>) {
     await this.requireOwnedZone(user, id);
-    return this.prisma.reservationZone.update({
-      where: { id },
-      data: {
-        name: patch.name?.trim(),
-        type: patch.type,
-        position: patch.position,
-        // Geometría: undefined = no tocar; null = volver a auto; number = fijar.
-        posX: patch.posX === undefined ? undefined : patch.posX,
-        posY: patch.posY === undefined ? undefined : patch.posY,
-        width: patch.width === undefined ? undefined : patch.width,
-        height: patch.height === undefined ? undefined : patch.height,
-        isActive: patch.isActive,
-      },
+    // R1 (2026-08-01): asignar una zona a una sede. locationId undefined = no
+    // tocar; null = desasignar; string = asignar. Al cambiarlo, CASCADEA a las
+    // mesas de la zona (locationId denormalizado) para que el plano quede
+    // consistente por sede. Atómico.
+    const changingLocation = patch.locationId !== undefined;
+    return this.prisma.$transaction(async (tx) => {
+      const zone = await tx.reservationZone.update({
+        where: { id },
+        data: {
+          name: patch.name?.trim(),
+          type: patch.type,
+          position: patch.position,
+          // Geometría: undefined = no tocar; null = volver a auto; number = fijar.
+          posX: patch.posX === undefined ? undefined : patch.posX,
+          posY: patch.posY === undefined ? undefined : patch.posY,
+          width: patch.width === undefined ? undefined : patch.width,
+          height: patch.height === undefined ? undefined : patch.height,
+          isActive: patch.isActive,
+          locationId: changingLocation ? patch.locationId : undefined,
+        },
+      });
+      if (changingLocation) {
+        await tx.reservationTable.updateMany({
+          where: { zoneId: id },
+          data: { locationId: patch.locationId },
+        });
+      }
+      return zone;
     });
   }
 
@@ -242,10 +258,14 @@ export class ReservationsService {
 
   async updateTable(user: AuthUser, id: string, patch: Partial<TableDto>) {
     await this.requireOwnedTable(user, id);
+    // Mover la mesa de sede (2026-07-31): si viene locationId lo persistimos.
+    // null = desasignar (todas las sedes). Si además cambia la zona a una de
+    // otra sede, el frontend limpia zoneId; acá respetamos lo que llega.
     return this.prisma.reservationTable.update({
       where: { id },
       data: {
         zoneId: patch.zoneId === null ? null : patch.zoneId,
+        locationId: patch.locationId === null ? null : patch.locationId,
         number: patch.number?.trim(),
         seats: patch.seats,
         shape: patch.shape,
@@ -414,6 +434,17 @@ export class ReservationsService {
     const [y, m, d] = dto.date.split('-').map(Number);
     // Mediodía UTC para evitar problemas de zona horaria al filtrar por día.
     const dateAtNoonUtc = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+
+    // Reservas online (canal WEB): respetar los días habilitados del negocio.
+    // El admin/staff (otros canales) puede reservar cualquier día (override).
+    if (channel === 'WEB') {
+      const days = await this.getReservationDays(tenantId);
+      if (!ReservationsService.isDayAllowed(days, dto.date)) {
+        throw new BadRequestException(
+          'Ese día no aceptamos reservas. Elegí otra fecha.',
+        );
+      }
+    }
 
     // Multi-sede: si vino locationId, usarlo; sino, heredarlo de zone/table.
     let locationId = dto.locationId ?? null;
@@ -667,6 +698,50 @@ export class ReservationsService {
     });
   }
 
+  /** Días de la semana (0=Dom..6=Sáb, JS getDay()) en que el tenant acepta
+   *  reservas online. Vacío = todos los días abiertos. */
+  async getReservationDays(tenantId: string): Promise<number[]> {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { reservationDays: true },
+    });
+    return t?.reservationDays ?? [];
+  }
+
+  /** true si la fecha YYYY-MM-DD cae en un día habilitado. Si no hay
+   *  restricción configurada (array vacío) siempre devuelve true. Usa UTC
+   *  para que el weekday no derive por zona horaria (la fecha es un día
+   *  calendario, no un instante). */
+  static isDayAllowed(days: number[], dateStr: string): boolean {
+    if (!days || days.length === 0) return true;
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    return days.includes(dow);
+  }
+
+  /** Reglas de reserva editables desde /app/reservations/online: días
+   *  habilitados + observaciones que ve el cliente antes de reservar. */
+  async getBookingRules(
+    tenantId: string,
+  ): Promise<{ days: number[]; terms: string | null }> {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { reservationDays: true, reservationTerms: true },
+    });
+    return { days: t?.reservationDays ?? [], terms: t?.reservationTerms ?? null };
+  }
+
+  /** Persiste días y/o observaciones (patch parcial). */
+  async setBookingRules(
+    tenantId: string,
+    data: { days?: number[]; terms?: string | null },
+  ): Promise<void> {
+    const patch: { reservationDays?: number[]; reservationTerms?: string | null } = {};
+    if (Array.isArray(data.days)) patch.reservationDays = data.days;
+    if (data.terms !== undefined) patch.reservationTerms = data.terms;
+    await this.prisma.tenant.update({ where: { id: tenantId }, data: patch });
+  }
+
   /** Resuelve el locationId de una zona, si la zona tiene una asignada.
    *  Usado por slot validation para scopear capacity/occupancy a sede. */
   private async resolveZoneLocation(zoneId: string | null): Promise<string | null> {
@@ -794,6 +869,12 @@ export class ReservationsService {
   ): Promise<{ time: string; available: boolean; remaining: number }[]> {
     const effectiveLocation = locationId ?? (await this.resolveZoneLocation(zoneId));
     const slots = await this.getTenantSlots(tenantId);
+    // Día no habilitado para reservas → todos los slots no disponibles (el
+    // frontend público igual oculta esos días, esto es defensa en profundidad).
+    const days = await this.getReservationDays(tenantId);
+    if (!ReservationsService.isDayAllowed(days, date)) {
+      return slots.map((time) => ({ time, available: false, remaining: 0 }));
+    }
     const capacity = await this.getCapacity(tenantId, zoneId, effectiveLocation);
     if (capacity === 0) {
       return slots.map((time) => ({
@@ -836,6 +917,7 @@ export class ReservationsService {
         growBusinessLocationId: true,
         growBusinessApiKey: true,
         whiteLabelId: true,
+        whiteLabel: { select: BRAND_GROW_SELECT },
       },
     });
     // PDF Software 2026-06-29: el aviso de reserva va al "Número receptor de
@@ -937,18 +1019,35 @@ export class ReservationsService {
   /**
    * Resuelve las credenciales de Grow Business para el aviso de reserva:
    * credenciales propias del negocio si está conectado, si no la cuenta GLOBAL
-   * de la plataforma (GENERAL). Siempre switch 2 (el aviso de reserva enruta
-   * por el número de soporte/operativo).
+   * de la plataforma (GENERAL). 2026-08-01: switch 1 (ventas) — el aviso de
+   * reserva enruta por el número de ventas; se movió desde 2 (soporte) porque
+   * ese WhatsApp presentó problemas de entrega.
    */
   private async resolveReservationSmsCreds(tenant: {
     growBusinessLocationId?: string | null;
     growBusinessApiKey?: string | null;
+    whiteLabel?: {
+      growBusinessLocationId?: string | null;
+      growBusinessApiKey?: string | null;
+      growBusinessSwitchNumber?: number | null;
+    } | null;
   } | null): Promise<{ locationId: string; apiKey: string; switchNumber: number } | null> {
     if (tenant?.growBusinessLocationId && tenant?.growBusinessApiKey) {
       return {
         locationId: tenant.growBusinessLocationId,
         apiKey: tenant.growBusinessApiKey,
-        switchNumber: 2,
+        switchNumber: 1,
+      };
+    }
+    // Fallback marca blanca: si el negocio no tiene creds propias, usa la
+    // subcuenta de SU marca (aislamiento white-label, mismo criterio que
+    // billing y las reservas de servicios). Nunca la de Clubify.
+    const brand = brandGrowCreds(tenant?.whiteLabel);
+    if (brand) {
+      return {
+        locationId: brand.locationId,
+        apiKey: brand.apiKey,
+        switchNumber: brand.switchNumber ?? 1,
       };
     }
     const acc =
@@ -963,7 +1062,7 @@ export class ReservationsService {
         select: { locationId: true, apiKey: true },
       }));
     if (acc) {
-      return { locationId: acc.locationId, apiKey: acc.apiKey, switchNumber: 2 };
+      return { locationId: acc.locationId, apiKey: acc.apiKey, switchNumber: 1 };
     }
     return null;
   }
@@ -985,6 +1084,7 @@ export class ReservationsService {
         phone: true,
         growBusinessLocationId: true,
         growBusinessApiKey: true,
+        whiteLabel: { select: BRAND_GROW_SELECT },
       },
     });
     const dest =

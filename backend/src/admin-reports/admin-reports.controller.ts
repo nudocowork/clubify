@@ -4,6 +4,36 @@ import { Type } from 'class-transformer';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { AdminReportsService } from './admin-reports.service';
+import { CobrosService, type CobrosBucket } from './cobros.service';
+
+/** Mapea el chip de rango del dashboard de cobros a una ventana en días. */
+function rangeToDays(range: string | undefined, bucket: CobrosBucket): number {
+  switch (range) {
+    case 'hoy':
+    case 'today':
+      return 1;
+    case '7d':
+      return 7;
+    case '15d':
+      return 15;
+    case '30d':
+      return 30;
+    case 'este-mes':
+    case 'this-month':
+      return 30;
+    case 'proximo-mes':
+    case 'next-month':
+      return 60;
+    case 'todos':
+    case 'all':
+      // Sin recorte: ~100 años atrás. Para que la LISTA de "no procesados"
+      // muestre también las suspensiones viejas y cuadre con el CONTEO de la
+      // tarjeta (que nunca filtra por fecha). En próximos/procesados no se usa.
+      return 36500;
+    default:
+      return bucket === 'no-procesados' ? 30 : 7;
+  }
+}
 
 // IMPORTANT: DTOs ANTES del @Controller — sino @Body() las referencia en
 // temporal dead zone y rompe el boot.
@@ -37,7 +67,10 @@ class RankingsQuery {
 @Controller('admin')
 @Roles('SUPER_ADMIN')
 export class AdminReportsController {
-  constructor(private svc: AdminReportsService) {}
+  constructor(
+    private svc: AdminReportsService,
+    private cobros: CobrosService,
+  ) {}
 
   // ─────────── Reportes por embajador ───────────
   @Get('reports/ambassadors')
@@ -95,6 +128,23 @@ export class AdminReportsController {
     return this.svc.dashboardMetricsV2(user, { range, from, to });
   }
 
+  /**
+   * Fase 5 — detalle de una tarjeta de cobros (🔴 proximos / 🟢 procesados /
+   * 🟡 no-procesados). `range` mapea a una ventana de días. Mismo aislamiento
+   * por marca que metrics-v2 (wlId de la sesión).
+   */
+  @Get('dashboard/cobros/:bucket')
+  cobrosDetail(
+    @CurrentUser() user: AuthUser,
+    @Param('bucket') bucket: string,
+    @Query('range') range?: string,
+  ) {
+    const valid: CobrosBucket[] = ['proximos', 'procesados', 'no-procesados'];
+    const b = (valid.includes(bucket as CobrosBucket) ? bucket : 'proximos') as CobrosBucket;
+    const days = rangeToDays(range, b);
+    return this.cobros.detail(user.whiteLabelId ?? null, b, new Date(), { days });
+  }
+
   /** P2 (PDF 2026-07-02): lista de empresas (y grupos) que componen el "Monto
    *  facturado" del rango — para auditar exactamente qué se contabiliza. */
   @Get('dashboard/billed-companies')
@@ -128,5 +178,15 @@ export class AdminReportsController {
     @Param('tenantId') tenantId: string,
   ) {
     return this.svc.activateTenant(user, tenantId);
+  }
+
+  /** Reembolsa un consumo de crédito (ventana 5 días): devuelve el crédito al
+   *  pool y suspende el negocio. */
+  @Post('credits/refund/:transactionId')
+  refundCredit(
+    @CurrentUser() user: AuthUser,
+    @Param('transactionId') transactionId: string,
+  ) {
+    return this.svc.refundCredit(user, transactionId);
   }
 }

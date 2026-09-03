@@ -1,9 +1,41 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { SettingsService } from '../settings/settings.service';
-import { normalizePlanPeriod } from '../common/plan-period';
+import { normalizePlanPeriod, addPlanPeriod, bundleMonths } from '../common/plan-period';
+import { cycleCreditCostForTenant } from '../common/business-types';
+import {
+  bogotaYmd,
+  bogotaDayStartUtc,
+  addDaysYmd,
+  parseYmd,
+  fmtYmd,
+} from '../referrals/cutoff-calendar';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
+import { CobrosService } from './cobros.service';
+
+/**
+ * Agrega el token de ruteo `src=wl_<whiteLabelId>` a un link de compra Hotmart.
+ * El checkout Hotmart lo propaga como `tracking.source` en el webhook, y
+ * hotmart.service lo usa como 1ª prioridad para acreditar los créditos a la
+ * marca correcta (sin depender del correo del comprador). Reemplaza un `src`
+ * previo si existiera. Devuelve la URL igual si está vacía o es inválida.
+ */
+function withWlToken(rawUrl: string | null | undefined, wlId: string): string {
+  const url = (rawUrl ?? '').trim();
+  if (!url) return url;
+  try {
+    const u = new URL(url);
+    u.searchParams.set('src', `wl_${wlId}`);
+    return u.toString();
+  } catch {
+    // URL relativa/no parseable → fallback manual conservando query previa.
+    const base = url.replace(/([?&])src=[^&]*/i, '$1').replace(/[?&]$/, '');
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}src=wl_${wlId}`;
+  }
+}
 
 /**
  * Servicio de reportes/rankings/dashboard para SUPER_ADMIN.
@@ -29,12 +61,17 @@ import { WhiteLabelNotificationsService } from '../white-label-notifications/whi
  *  - Comisión pagada = sum(commission.amountPaid) (PAID + PARTIAL).
  *  - Comisión pendiente = sum(amount - amountPaid).
  */
+/** Ventana (días) para reembolsar manualmente un crédito CONSUME. */
+const REFUND_WINDOW_DAYS = 5;
+
 @Injectable()
 export class AdminReportsService {
+  private readonly logger = new Logger(AdminReportsService.name);
   constructor(
     private prisma: PrismaService,
     private settings: SettingsService,
     private wlNotifications: WhiteLabelNotificationsService,
+    private cobros: CobrosService,
   ) {}
 
   // P (PDF 2026-07-01): caché corta del dashboard por (marca, rango). Al
@@ -271,6 +308,12 @@ export class AdminReportsService {
     if (!amb || amb.role !== 'AMBASSADOR') {
       throw new NotFoundException('Embajador no encontrado');
     }
+    // IDOR / aislamiento: un admin de marca blanca no abre el detalle de un
+    // embajador de otra marca aunque conozca/adivine el id (mismo scope estricto
+    // que listAmbassadors).
+    if (user.whiteLabelId && amb.whiteLabelId !== user.whiteLabelId) {
+      throw new NotFoundException('Embajador no encontrado');
+    }
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -477,6 +520,12 @@ export class AdminReportsService {
       },
     });
     if (!v || v.role !== 'VENDOR') {
+      throw new NotFoundException('Vendedor no encontrado');
+    }
+    // IDOR / aislamiento: un admin de marca blanca no abre el detalle de un
+    // vendedor de otra marca aunque conozca/adivine el id (mismo scope estricto
+    // que listVendors).
+    if (user.whiteLabelId && v.whiteLabelId !== user.whiteLabelId) {
       throw new NotFoundException('Vendedor no encontrado');
     }
 
@@ -883,7 +932,9 @@ export class AdminReportsService {
     const nowMs = Date.now();
     if (cached && nowMs - cached.at < this.DASH_TTL_MS) return cached.payload;
 
-    const tenantWhere = wlId ? { whiteLabelId: wlId } : {};
+    // isCampaignHost: excluye SIEMPRE el/los tenant(s) "de sistema" de Cuponera/
+    // Living Card — no son negocios reales, no deben contar en el panel azul.
+    const tenantWhere = { isCampaignHost: false, ...(wlId ? { whiteLabelId: wlId } : {}) };
     const commWhere = wlId
       ? { referralUse: { tenant: { whiteLabelId: wlId } } }
       : {};
@@ -899,10 +950,16 @@ export class AdminReportsService {
     const now = new Date();
     const { from, to } = resolveDateRange(opts.range, opts.from, opts.to, now);
     // Mes actual y anterior para la comparación de clientes nuevos
-    // (independiente del range — esa métrica siempre es mes-a-mes).
-    const startThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const endLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+    // (independiente del range — esa métrica siempre es mes-a-mes CALENDARIO).
+    // Bug 6: anclado a meses de Bogotá, no a la hora local del server (UTC).
+    const nowYmd = bogotaYmd(now);
+    const { y: curY, m: curM } = parseYmd(nowYmd);
+    const prevY = curM === 1 ? curY - 1 : curY;
+    const prevM = curM === 1 ? 12 : curM - 1;
+    const startThisMonth = bogotaDayStartUtc(fmtYmd(curY, curM, 1));
+    const startLastMonth = bogotaDayStartUtc(fmtYmd(prevY, prevM, 1));
+    // Último instante del mes anterior (se usa con `lte`) = inicio del actual − 1ms.
+    const endLastMonth = new Date(startThisMonth.getTime() - 1);
 
     // FIX 2026-06-07: precios canónicos del bundle (lo que el cliente
     // realmente paga en Hotmart) — Mensual 68 / Trimestral 150 /
@@ -1178,13 +1235,24 @@ export class AdminReportsService {
     // con `=== key` crudo (dropeaba planPeriodicity=null), así que el total
     // (date-filtered) no cuadraba con la suma de los buckets. Ahora el
     // total es, por construcción, la suma exacta de los 4 buckets.
-    const billedAcc: Record<string, { count: number; amount: number }> = {
-      MENSUAL: { count: 0, amount: 0 },
-      TRIMESTRAL: { count: 0, amount: 0 },
-      SEMESTRAL: { count: 0, amount: 0 },
-      ANUAL: { count: 0, amount: 0 },
-    };
+    // Bug 1 (auditoría facturación 2026-08-17): se separa el COBRADO REAL
+    // (negocios/grupos con lastChargeAt en el rango) del PROYECTADO (negocios
+    // ACTIVE sin lastChargeAt cuyo cobro se ESTIMA). Antes ambos se sumaban bajo
+    // "MONTO FACTURADO / Cobrado", mezclando caja real con proyección. `groups`
+    // cuenta cuántas unidades del bucket son Grupos Empresariales (Bug 5).
+    const mkAcc = (): Record<
+      string,
+      { count: number; amount: number; groups: number }
+    > => ({
+      MENSUAL: { count: 0, amount: 0, groups: 0 },
+      TRIMESTRAL: { count: 0, amount: 0, groups: 0 },
+      SEMESTRAL: { count: 0, amount: 0, groups: 0 },
+      ANUAL: { count: 0, amount: 0, groups: 0 },
+    });
+    const billedAcc = mkAcc(); // COBRADO real
+    const estimatedAcc = mkAcc(); // PROYECTADO (sin cobro registrado)
     let billedUsd = 0;
+    let estimatedUsd = 0;
     // PDF 752 #6 (2026-06-26): el "monto facturado" del rango ahora se basa en
     // la FECHA DE COBRO REAL (lastChargeAt, sincronizada con Hotmart) en vez de
     // una estimación currentPeriodEnd−meses. Cada negocio que cobró en [from,to]
@@ -1198,11 +1266,10 @@ export class AdminReportsService {
       billedAcc[key].count += 1;
       billedAcc[key].amount += amount;
     }
-    // FALLBACK legacy: negocios ACTIVE SIN lastChargeAt (creados antes de que
-    // se cableara la fecha de cobro). Mantienen la estimación histórica
-    // (currentPeriodEnd−meses, o createdAt) para no desaparecer del facturado
-    // hasta que un cobro/activación real les setee lastChargeAt. Un script de
-    // backfill puede poblar lastChargeAt y volver esta rama inerte.
+    // PROYECTADO (antes "FALLBACK legacy"): negocios ACTIVE SIN lastChargeAt.
+    // Su fecha de cobro se ESTIMA (currentPeriodEnd−meses, o createdAt). NO es
+    // caja real → va a estimatedAcc/estimatedUsd, nunca al "Cobrado" (Bug 1).
+    // Un cobro/activación real que setee lastChargeAt vuelve esta rama inerte.
     for (const t of activeTenantsForPricing) {
       if (t.lastChargeAt) continue; // ya contado por paidInRangeTenants si cae en rango
       const key = normalizePeriod(t.planPeriodicity);
@@ -1223,9 +1290,9 @@ export class AdminReportsService {
         lastPaymentApprox.getTime() <= to.getTime()
       ) {
         const amount = billedAmountFor(t);
-        billedUsd += amount;
-        billedAcc[key].count += 1;
-        billedAcc[key].amount += amount;
+        estimatedUsd += amount;
+        estimatedAcc[key].count += 1;
+        estimatedAcc[key].amount += amount;
       }
     }
     // P3: cada Grupo Empresarial cobrado en el rango suma como 1 negocio en la
@@ -1238,15 +1305,31 @@ export class AdminReportsService {
       billedUsd += amount;
       billedAcc[key].count += 1;
       billedAcc[key].amount += amount;
+      billedAcc[key].groups += 1; // Bug 5: 1 unidad = 1 grupo (no negocio individual)
     }
     billedUsd = round2(billedUsd);
+    estimatedUsd = round2(estimatedUsd);
 
     const billedByPlan = Object.entries(PERIODS).map(([key, meta]) => ({
       periodicity: key,
       label: meta.label,
-      count: billedAcc[key].count,
-      billingUsd: round2(billedAcc[key].amount),
+      count: billedAcc[key].count, // negocios + grupos con COBRO REAL en el rango
+      businessCount: billedAcc[key].count - billedAcc[key].groups, // Bug 5
+      groupCount: billedAcc[key].groups, // Bug 5
+      billingUsd: round2(billedAcc[key].amount), // COBRADO real (caja)
+      estimatedCount: estimatedAcc[key].count, // Bug 1: proyectado, sin cobro real
+      estimatedUsd: round2(estimatedAcc[key].amount),
     }));
+    const estimatedCount =
+      estimatedAcc.MENSUAL.count +
+      estimatedAcc.TRIMESTRAL.count +
+      estimatedAcc.SEMESTRAL.count +
+      estimatedAcc.ANUAL.count;
+    const billedGroups =
+      billedAcc.MENSUAL.groups +
+      billedAcc.TRIMESTRAL.groups +
+      billedAcc.SEMESTRAL.groups +
+      billedAcc.ANUAL.groups;
 
     // ============================================================
     // SERIE MENSUAL REAL (#13/#19, 2026-06-16) — reemplaza los charts
@@ -1450,14 +1533,21 @@ export class AdminReportsService {
     events.sort((a, b) => b.when.getTime() - a.when.getTime());
     const recentIncome = events.slice(0, 15);
 
+    // Fase 5: las 3 tarjetas de cobros (🔴🟢🟡) — mismo aislamiento por marca.
+    const cobros = await this.cobros.summary(wlId, now);
+
     const payload = {
       range: {
         kind: opts.range ?? 'last-30',
         from,
         to,
       },
+      cobros,
       banner: {
-        billedUsd,
+        billedUsd, // COBRADO real (solo negocios/grupos con lastChargeAt en rango)
+        estimatedUsd, // Bug 1: PROYECTADO (estimado, sin cobro registrado) — aparte
+        estimatedCount,
+        billedGroups, // Bug 5: cuántas unidades del facturado son Grupos
         billedByPlan,
         newCustomers: {
           currentMonth: newCustCurrent,
@@ -1513,7 +1603,8 @@ export class AdminReportsService {
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const wlId = user.whiteLabelId ?? null;
-    const tenantWhere = wlId ? { whiteLabelId: wlId } : {};
+    // isCampaignHost: excluye el tenant de sistema de Cuponera del facturado.
+    const tenantWhere = { isCampaignHost: false, ...(wlId ? { whiteLabelId: wlId } : {}) };
     const groupWhere = wlId ? { whiteLabelId: wlId } : {};
     const now = new Date();
     const { from, to } = resolveDateRange(opts.range, opts.from, opts.to, now);
@@ -1600,10 +1691,21 @@ export class AdminReportsService {
     }
     rows.sort((a, b) => (b.paidAt?.getTime() ?? 0) - (a.paidAt?.getTime() ?? 0));
     const total = round2(rows.reduce((s, r) => s + r.amountUsd, 0));
+    // Bug 1 (auditoría 2026-08-17): desglose para el pie del modal — el "Cobrado"
+    // real (filas con fecha de pago) NO se mezcla con lo estimado (sin cobro).
+    const realRows = rows.filter((r) => !r.estimated);
+    const estimatedRows = rows.filter((r) => r.estimated);
+    const realTotal = round2(realRows.reduce((s, r) => s + r.amountUsd, 0));
+    const estimatedTotal = round2(estimatedRows.reduce((s, r) => s + r.amountUsd, 0));
     return {
       range: { kind: opts.range ?? 'last-30', from, to },
       total,
       count: rows.length,
+      // Desglose Cobrado vs Estimado (Bug 1).
+      realTotal,
+      realCount: realRows.length,
+      estimatedTotal,
+      estimatedCount: estimatedRows.length,
       companies: rows,
     };
   }
@@ -1653,6 +1755,11 @@ export class AdminReportsService {
         id: true,
         name: true,
         slug: true,
+        // Dominios de la marca → el link de login que se comparte por WhatsApp/
+        // email al crear un negocio usa el dominio del PANEL de la marca
+        // (app.selleala.com), no soyclubify.com.
+        appDomain: true,
+        domain: true,
         creditsAvailable: true,
         creditsCommitted: true,
         creditsUsed: true,
@@ -1674,6 +1781,7 @@ export class AdminReportsService {
           note: true,
           tenantId: true,
           createdAt: true,
+          refundedAt: true,
         },
       }),
       // Links de compra públicos (los mismos que el PLATFORM_OWNER
@@ -1694,7 +1802,14 @@ export class AdminReportsService {
     ]);
 
     return {
-      whiteLabel: { id: wl.id, name: wl.name, slug: wl.slug },
+      whiteLabel: {
+        id: wl.id,
+        name: wl.name,
+        slug: wl.slug,
+        // Panel (app.selleala.com) preferido; público (selleala.com) de respaldo.
+        appDomain: wl.appDomain ?? null,
+        domain: wl.domain ?? null,
+      },
       unlimited: wl.creditsUnlimited,
       // Periodicidades que ofrece la marca (form "Nuevo negocio" las usa).
       planPeriodicities: wl.planPeriodicities ?? [],
@@ -1702,8 +1817,14 @@ export class AdminReportsService {
       committed: wl.creditsCommitted,
       used: wl.creditsUsed,
       pendingTenants: pendingCount,
+      // PDF 1256 · créditos: inyectamos el token `src=wl_<marca>` en cada link de
+      // compra. Así, cuando ESTA marca compra desde su panel, el webhook Hotmart
+      // trae tracking.source=wl_<id> y acredita a la marca correcta sin depender
+      // del correo del comprador (evita que caiga como UNASSIGNED). Ver
+      // hotmart.service tryHandleCreditPurchase (resolución por token = 1ª prioridad).
       buyLinks: buyLinks.map((l) => ({
         ...l,
+        url: withWlToken(l.url, wlId),
         price: l.price == null ? null : Number(l.price),
       })),
       history,
@@ -1795,6 +1916,9 @@ export class AdminReportsService {
         whiteLabelId: true,
         status: true,
         currentPeriodEnd: true,
+        businessType: true,
+        infolinkTier: true,
+        planPeriodicity: true,
       },
     });
     if (!tenant) throw new NotFoundException('Negocio no encontrado');
@@ -1819,13 +1943,16 @@ export class AdminReportsService {
     }
 
     const now = new Date();
-    const base =
-      tenant.currentPeriodEnd && tenant.currentPeriodEnd > now
-        ? tenant.currentPeriodEnd
-        : now;
-    const newPeriodEnd = new Date(
-      base.getTime() + AdminReportsService.CYCLE_DAYS * 24 * 60 * 60 * 1000,
-    );
+    // El próximo cobro se ancla a la ACTIVACIÓN (cuándo se activa el crédito),
+    // NO al currentPeriodEnd previo. Antes se extendía "desde el fin de periodo
+    // si aún es futuro", pero ese futuro solía ser tiempo de PRUEBA / ventana
+    // ilimitada (no pagado) y se apilaba sobre el mes pagado: Vizage (activada
+    // 14-ago, prueba hasta 28-ago) quedaba en 28-sep en vez de 14-sep. Regla del
+    // dueño 2026-08-29: la fecha = activación + periodo, siempre. Extiende por la
+    // periodicidad del plan (Anual = +12 meses), no +30 fijos.
+    const newPeriodEnd = addPlanPeriod(now, tenant.planPeriodicity);
+    const cost = cycleCreditCostForTenant(tenant.businessType, tenant.infolinkTier, tenant.planPeriodicity);
+    const months = bundleMonths(tenant.planPeriodicity);
 
     // Marca ilimitada: activa sin consumir crédito ni crear transacción.
     if (wl.creditsUnlimited) {
@@ -1841,12 +1968,12 @@ export class AdminReportsService {
       };
     }
 
-    // Débito race-safe: sólo decrementa si hay >= 1 crédito.
+    // Débito race-safe: sólo decrementa si hay >= cost créditos.
     const debit = await this.prisma.whiteLabel.updateMany({
-      where: { id: wlId, creditsAvailable: { gte: 1 } },
+      where: { id: wlId, creditsAvailable: { gte: cost } },
       data: {
-        creditsAvailable: { decrement: 1 },
-        creditsUsed: { increment: 1 },
+        creditsAvailable: { decrement: cost },
+        creditsUsed: { increment: cost },
       },
     });
     if (debit.count === 0) {
@@ -1864,9 +1991,9 @@ export class AdminReportsService {
         data: {
           whiteLabelId: wlId,
           type: 'CONSUME',
-          amount: -1,
+          amount: -cost,
           tenantId: tenant.id,
-          note: `Activación manual · ${tenant.brandName} · +30d`,
+          note: `Activación manual · ${tenant.brandName} · +${months}m · ${cost} créd`,
         },
       });
     } catch (e) {
@@ -1874,8 +2001,8 @@ export class AdminReportsService {
       await this.prisma.whiteLabel.update({
         where: { id: wlId },
         data: {
-          creditsAvailable: { increment: 1 },
-          creditsUsed: { decrement: 1 },
+          creditsAvailable: { increment: cost },
+          creditsUsed: { decrement: cost },
         },
       });
       throw e;
@@ -1885,7 +2012,7 @@ export class AdminReportsService {
       where: { id: wlId },
       select: { creditsAvailable: true },
     });
-    const available = after?.creditsAvailable ?? wl.creditsAvailable - 1;
+    const available = after?.creditsAvailable ?? wl.creditsAvailable - cost;
     // Notificaciones a la marca (best-effort): saldo bajo + recálculo de
     // pendientes (este activación pudo haber vaciado la bandeja).
     await this.wlNotifications.onCreditsConsumed(wlId, available).catch(() => null);
@@ -1893,10 +2020,153 @@ export class AdminReportsService {
     await this.wlNotifications.onPendingClients(wlId, pendingNow).catch(() => null);
     return {
       ok: true,
-      consumed: 1,
+      consumed: cost,
       creditsAvailable: available,
       currentPeriodEnd: newPeriodEnd,
     };
+  }
+
+  /**
+   * Reembolso MANUAL de un movimiento CONSUME dentro de la ventana de 5 días:
+   * devuelve el crédito al pool de la marca y SUSPENDE el negocio (le sacás el
+   * crédito que le pagaba el servicio → deja de estar activo). Race-safe +
+   * idempotente; pasados los 5 días rechaza. Aislado a la marca del admin.
+   */
+  async refundCredit(user: AuthUser, transactionId: string) {
+    const wlId = this.requireWhiteLabelId(user);
+    const tx = await this.prisma.creditTransaction.findUnique({
+      where: { id: transactionId },
+      select: {
+        id: true,
+        whiteLabelId: true,
+        type: true,
+        amount: true,
+        tenantId: true,
+        createdAt: true,
+        refundedAt: true,
+      },
+    });
+    if (!tx || tx.whiteLabelId !== wlId) {
+      throw new NotFoundException('Movimiento no encontrado');
+    }
+    if (tx.type !== 'CONSUME') {
+      throw new ForbiddenException('Solo se pueden reembolsar consumos de crédito.');
+    }
+    if (tx.refundedAt) {
+      throw new ForbiddenException('Este crédito ya fue reembolsado.');
+    }
+    const windowMs = REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    const now = new Date();
+    if (now.getTime() > tx.createdAt.getTime() + windowMs) {
+      throw new ForbiddenException('La ventana de reembolso (5 días) ya venció.');
+    }
+
+    const cost = Math.abs(tx.amount);
+    const fiveDaysAgo = new Date(now.getTime() - windowMs);
+
+    // TODO atómico en UNA transacción interactiva: claim (marca refundedAt) +
+    // devolución del crédito + suspensión. Si algo falla, se revierte también el
+    // claim → nunca queda "reembolsado" sin haber devuelto el crédito. El claim
+    // guardado (updateMany con la condición de elegibilidad) sigue siendo la
+    // barrera anti doble-reembolso / carrera (row-lock serializa transacciones).
+    const refunded = await this.prisma.$transaction(async (db) => {
+      const claim = await db.creditTransaction.updateMany({
+        where: {
+          id: tx.id,
+          whiteLabelId: wlId,
+          type: 'CONSUME',
+          refundedAt: null,
+          createdAt: { gte: fiveDaysAgo },
+        },
+        data: { refundedAt: now },
+      });
+      if (claim.count === 0) {
+        throw new ForbiddenException('El reembolso ya no está disponible.');
+      }
+      // ¿El crédito de este negocio ya se devolvió (liberación automática por
+      // suspensión)? Si sí, NO lo devolvemos de nuevo (evita doble crédito).
+      const tenant = tx.tenantId
+        ? await db.tenant.findUnique({
+            where: { id: tx.tenantId },
+            select: { brandName: true, creditReleasedAt: true },
+          })
+        : null;
+      const alreadyReleased = !!tenant?.creditReleasedAt;
+      if (!alreadyReleased) {
+        await db.whiteLabel.update({
+          where: { id: wlId },
+          data: { creditsAvailable: { increment: cost }, creditsUsed: { decrement: cost } },
+        });
+        await db.creditTransaction.create({
+          data: {
+            whiteLabelId: wlId,
+            tenantId: tx.tenantId,
+            type: 'REFUND',
+            amount: cost,
+            note: `Reembolso manual · ${tenant?.brandName ?? 'negocio'} · devuelto al pool`,
+          },
+        });
+      }
+      if (tx.tenantId) {
+        // Suspende el negocio + marca creditReleasedAt (para que la liberación
+        // automática por suspensión no vuelva a devolver el mismo crédito).
+        await db.tenant.update({
+          where: { id: tx.tenantId },
+          data: { status: 'SUSPENDED', suspendedAt: now, creditReleasedAt: now },
+        });
+      }
+      return alreadyReleased ? 0 : cost;
+    });
+
+    const after = await this.prisma.whiteLabel.findUnique({
+      where: { id: wlId },
+      select: { creditsAvailable: true },
+    });
+    return {
+      ok: true,
+      refunded,
+      creditsAvailable: after?.creditsAvailable ?? 0,
+    };
+  }
+
+  /**
+   * Aviso SMS al dueño de la marca cuando una ventana de reembolso está por
+   * vencer (queda ≈1 día). Diario, idempotente por `refundWindowNotifiedAt`.
+   * El contador visible en el panel es la señal principal; esto es el recordatorio.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_9AM)
+  async remindRefundWindowClosing() {
+    const now = Date.now();
+    const windowMs = REFUND_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+    // CONSUME reembolsables cuya ventana vence dentro de las próximas 24h:
+    // createdAt ∈ (now-5d, now-4d].
+    const from = new Date(now - windowMs);
+    const until = new Date(now - windowMs + 24 * 60 * 60 * 1000);
+    const rows = await this.prisma.creditTransaction.findMany({
+      where: {
+        type: 'CONSUME',
+        refundedAt: null,
+        refundWindowNotifiedAt: null,
+        createdAt: { gt: from, lte: until },
+      },
+      select: { id: true, whiteLabelId: true },
+    });
+    if (!rows.length) return;
+    const byWl = new Map<string, string[]>();
+    for (const r of rows) {
+      const arr = byWl.get(r.whiteLabelId) ?? [];
+      arr.push(r.id);
+      byWl.set(r.whiteLabelId, arr);
+    }
+    for (const [wlId, ids] of byWl) {
+      await this.wlNotifications
+        .onRefundWindowClosing(wlId, ids.length)
+        .catch((e) => this.logger.warn(`onRefundWindowClosing ${wlId}: ${e?.message}`));
+      await this.prisma.creditTransaction.updateMany({
+        where: { id: { in: ids } },
+        data: { refundWindowNotifiedAt: new Date() },
+      });
+    }
   }
 }
 
@@ -1905,7 +2175,7 @@ export class AdminReportsService {
  * `this-week`, etc.) o un `from`/`to` ISO si `range=custom`.
  * Default = `this-month`.
  */
-function resolveDateRange(
+export function resolveDateRange(
   range: string | undefined,
   fromIso: string | undefined,
   toIso: string | undefined,
@@ -1913,44 +2183,54 @@ function resolveDateRange(
 ): { from: Date; to: Date } {
   const r = (range ?? 'this-month').toLowerCase();
   const to = new Date(now);
+  // Bug 6 (auditoría facturación 2026-08-17): TODOS los límites de calendario se
+  // anclan a la MEDIANOCHE DE BOGOTÁ (America/Bogota, UTC-5). El server corre en
+  // UTC → sin esto, `today`/`this-week`/`this-year` arrancaban a la medianoche
+  // UTC = 7pm Bogotá del día anterior, y un pago de las 20:00 Bogotá caía en el
+  // día equivocado. Mismo timezone canónico que el módulo de cortes. `to` queda
+  // como el instante actual (fin de rango = ahora).
+  const todayYmd = bogotaYmd(now);
+  const { y, m, d } = parseYmd(todayYmd);
   let from: Date;
   switch (r) {
     case 'today':
-      from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      from = bogotaDayStartUtc(todayYmd);
       break;
     case 'this-week': {
-      const day = now.getDay();
-      const monday = new Date(now);
-      monday.setDate(now.getDate() - ((day + 6) % 7));
-      monday.setHours(0, 0, 0, 0);
-      from = monday;
+      // Semana arranca el LUNES (Bogotá). getUTCDay del inicio-de-día Bogotá
+      // (05:00Z) sigue cayendo en el mismo día calendario → weekday correcto.
+      const dow = bogotaDayStartUtc(todayYmd).getUTCDay(); // 0=dom … 6=sáb
+      const mondayYmd = addDaysYmd(todayYmd, -((dow + 6) % 7));
+      from = bogotaDayStartUtc(mondayYmd);
       break;
     }
     case 'last-30':
-      from = new Date(now.getTime() - 30 * 86400_000);
+      from = bogotaDayStartUtc(addDaysYmd(todayYmd, -30));
       break;
     case 'this-quarter': {
-      // PDF 2026-07-02 (P1): "Este trimestre" = ÚLTIMOS 3 MESES (rolling), no el
-      // trimestre calendario. Antes arrancaba el 1° del trimestre en curso.
-      from = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+      // "Este trimestre" = ÚLTIMOS 3 MESES (rolling), no el trimestre calendario.
+      const q = new Date(Date.UTC(y, m - 1 - 3, d));
+      from = bogotaDayStartUtc(
+        fmtYmd(q.getUTCFullYear(), q.getUTCMonth() + 1, q.getUTCDate()),
+      );
       break;
     }
     case 'this-year':
-      from = new Date(now.getFullYear(), 0, 1);
+      from = bogotaDayStartUtc(fmtYmd(y, 1, 1));
       break;
     case 'custom': {
       from = fromIso ? new Date(fromIso) : new Date(0);
-      const t = toIso ? new Date(toIso) : now;
+      const t = toIso ? new Date(toIso) : new Date(now);
       return { from, to: t };
     }
     // 'this-month' se quitó del panel (redundante con 'last-30'). Se mantiene el
     // caso por compatibilidad, pero el default ahora es 'last-30'.
     case 'this-month':
-      from = new Date(now.getFullYear(), now.getMonth(), 1);
+      from = bogotaDayStartUtc(fmtYmd(y, m, 1));
       break;
     case 'last-30-default':
     default:
-      from = new Date(now.getTime() - 30 * 86400_000);
+      from = bogotaDayStartUtc(addDaysYmd(todayYmd, -30));
       break;
   }
   return { from, to };

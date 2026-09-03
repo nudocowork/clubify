@@ -28,21 +28,28 @@ const CLUBIFY_ROOTS = ['soyclubify.com', 'clubify.app'];
 // reescribe. Cualquier otro primer segmento se trata como slug de marca
 // blanca: /admin/sellea sirve el mismo panel con la URL por marca.
 const RESERVED_ADMIN_ROUTES = new Set([
+  'academia',
   'accounting',
   'affiliate-registration',
   'ai-knowledge',
   'audit',
+  'automatizaciones',
   'branding',
   'business-categories',
   'business-groups',
   'commissions',
+  'contabilidad',
   'creditos',
   'industries',
+  'infolinks',
   'integrations',
   'lab',
   'maintenance',
   'map',
+  'mensajes',
+  'pagos-manuales',
   'payouts',
+  'pending-payments',
   'rankings',
   'referrals',
   'reports',
@@ -68,6 +75,8 @@ const RESERVED_SUBS = new Set([
   'mail',
   'cdn',
   'assets',
+  // Cuponera / Cuponera Card (marketplace de beneficios). Nunca es slug de tenant.
+  'cuponera',
 ]);
 
 /**
@@ -147,6 +156,13 @@ function decodeJwtRole(token: string | undefined): string | null {
   }
 }
 
+// Última resolución POSITIVA por host (sin expiración). Regla dura: si el
+// backend falla, un host que YA resolvió a un tenant/marca sigue sirviéndolo →
+// NUNCA se degrada a la landing de Clubify por un bache del backend/DB.
+// (Bug 2026-08-14: durante la caída de la DB el fetch daba 500, se cacheaba
+// null y los dominios de marca blanca servían la landing de Clubify — y seguían
+// haciéndolo aún después de recuperarse, hasta que expiraba el TTL del null.)
+const lastKnownStorefront = new Map<string, string>();
 async function resolveHost(host: string): Promise<string | null> {
   const now = Date.now();
   const hit = cache.get(host);
@@ -157,20 +173,25 @@ async function resolveHost(host: string): Promise<string | null> {
       { cache: 'no-store' },
     );
     if (!r.ok) {
-      cache.set(host, { slug: null, until: now + TTL_MS });
-      return null;
+      // Fallo del backend: NO envenenar la caché con null; usar la última
+      // resolución conocida (si la hay) para no caer a Clubify.
+      return lastKnownStorefront.get(host) ?? null;
     }
     const j = (await r.json()) as { slug?: string | null };
     const slug = j?.slug ?? null;
     cache.set(host, { slug, until: now + TTL_MS });
+    if (slug) lastKnownStorefront.set(host, slug);
     return slug;
   } catch {
-    return null;
+    return lastKnownStorefront.get(host) ?? null;
   }
 }
 
 // Cache del host → marca blanca (dominio propio del panel, ej. app.marca.com).
 const brandCache = new Map<string, { slug: string | null; until: number }>();
+// Última marca conocida por host (sin expiración) — misma regla dura que arriba:
+// el dominio de una marca blanca NUNCA cae a Clubify por un fallo del backend.
+const lastKnownBrand = new Map<string, string>();
 async function resolveBrandHost(host: string): Promise<string | null> {
   const now = Date.now();
   const hit = brandCache.get(host);
@@ -181,15 +202,16 @@ async function resolveBrandHost(host: string): Promise<string | null> {
       { cache: 'no-store' },
     );
     if (!r.ok) {
-      brandCache.set(host, { slug: null, until: now + TTL_MS });
-      return null;
+      // Fallo del backend: última marca conocida, NO null (que serviría Clubify).
+      return lastKnownBrand.get(host) ?? null;
     }
     const j = (await r.json()) as { slug?: string | null };
     const slug = j?.slug ?? null;
     brandCache.set(host, { slug, until: now + TTL_MS });
+    if (slug) lastKnownBrand.set(host, slug);
     return slug;
   } catch {
-    return null;
+    return lastKnownBrand.get(host) ?? null;
   }
 }
 
@@ -198,6 +220,7 @@ async function resolveBrandHost(host: string): Promise<string | null> {
 // como el estático /public/favicon.ico es el de Clubify e igual en todos los
 // dominios, en el dominio de una marca redirigimos /favicon.ico a SU favicon.
 const faviconCache = new Map<string, { url: string | null; until: number }>();
+const lastKnownFavicon = new Map<string, string>();
 async function resolveBrandFavicon(host: string): Promise<string | null> {
   const now = Date.now();
   const hit = faviconCache.get(host);
@@ -208,8 +231,8 @@ async function resolveBrandFavicon(host: string): Promise<string | null> {
       { cache: 'no-store' },
     );
     if (!r.ok) {
-      faviconCache.set(host, { url: null, until: now + TTL_MS });
-      return null;
+      // Fallo del backend: último favicon conocido, NO el de Clubify.
+      return lastKnownFavicon.get(host) ?? null;
     }
     const d = (await r.json()) as {
       slug?: string | null;
@@ -226,9 +249,10 @@ async function resolveBrandFavicon(host: string): Promise<string | null> {
         ? `${API}/api/superadmin-public/white-labels/icon?slug=${encodeURIComponent(d.slug)}&size=48&purpose=any&v=${Number(d.brandingVersion) || 0}`
         : null;
     faviconCache.set(host, { url, until: now + TTL_MS });
+    if (url) lastKnownFavicon.set(host, url);
     return url;
   } catch {
-    return null;
+    return lastKnownFavicon.get(host) ?? null;
   }
 }
 
@@ -247,7 +271,7 @@ export async function middleware(req: NextRequest) {
 
   // ────────── Dominio dedicado del Super Admin: soyfidelity.com ──────────
   // El master admin (rol PLATFORM_OWNER) vive SOLO en soyfidelity.com:
-  //  - soyfidelity.com/            → página "en construcción" (landing pendiente).
+  //  - soyfidelity.com/            → landing de venta de marcas blancas (/fidelity).
   //  - soyfidelity.com/login       → login del master admin (→ /superadmin).
   //  - resto de rutas del dominio  → se sirven normal (/superadmin, assets…).
   //  - En CUALQUIER otro dominio, /superadmin se BLOQUEA y redirige aquí, para
@@ -260,7 +284,7 @@ export async function middleware(req: NextRequest) {
   if (isSuperadminHost) {
     if (url.pathname === '/' || url.pathname === '') {
       const rewrite = url.clone();
-      rewrite.pathname = '/en-construccion';
+      rewrite.pathname = '/fidelity';
       return NextResponse.rewrite(rewrite);
     }
     // "Entrar como empresa" navega a soyfidelity.com/admin/<slug>; sin este
@@ -286,6 +310,24 @@ export async function middleware(req: NextRequest) {
   ) {
     const dest = new URL(url.pathname + url.search, 'https://soyfidelity.com');
     return NextResponse.redirect(dest, 307);
+  }
+
+  // ────────── Subdominio de la Cuponera / Cuponera Card ──────────
+  // cuponera.soyclubify.com sirve el marketplace de beneficios Cuponera Card:
+  //  - raíz '/'     → /cuponera (landing + planes)
+  //  - /cuponera/*  → pasa directo (early-exit de abajo lo deja seguir)
+  //  - assets/api   → normal
+  // Los links internos usan rutas absolutas /cuponera/* → funcionan igual en el
+  // subdominio y en localhost (path-based) sin lógica dependiente del host.
+  const isCuponeraHost =
+    host === 'cuponera.soyclubify.com' || host === 'cuponera.clubify.app';
+  if (isCuponeraHost) {
+    if (url.pathname === '/' || url.pathname === '') {
+      const rewrite = url.clone();
+      rewrite.pathname = '/cuponera';
+      return NextResponse.rewrite(rewrite);
+    }
+    return NextResponse.next();
   }
 
   // ────────── Panel de marca blanca por path: /admin/<slug> ──────────
@@ -349,9 +391,14 @@ export async function middleware(req: NextRequest) {
     url.pathname.startsWith('/login') ||
     url.pathname.startsWith('/signup') ||
     url.pathname.startsWith('/activar') ||
+    url.pathname.startsWith('/entrar') ||
     url.pathname.startsWith('/forgot') ||
     url.pathname.startsWith('/reset') ||
     url.pathname.startsWith('/scan') ||
+    // Lanzador por rol: es pantalla privada de panel, no la página
+    // pública de un negocio. Sin esta línea, en el dominio de una marca
+    // blanca /hub se reescribiría al sitio del tenant.
+    url.pathname.startsWith('/hub') ||
     url.pathname.startsWith('/onboarding') ||
     url.pathname === '/maintenance' ||
     url.pathname.startsWith('/m/') ||
@@ -364,6 +411,7 @@ export async function middleware(req: NextRequest) {
     url.pathname.startsWith('/refer') ||
     url.pathname.startsWith('/affiliate') ||
     url.pathname.startsWith('/domicilios') ||
+    url.pathname.startsWith('/cuponera') ||
     url.pathname.startsWith('/preview/') ||
     url.pathname.startsWith('/manifest') ||
     url.pathname.startsWith('/icons/') ||

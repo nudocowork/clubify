@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -6,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export type CustomerDto = {
   fullName: string;
@@ -19,7 +21,31 @@ export type CustomerDto = {
 
 @Injectable()
 export class CustomersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
+
+  /** Push individual a un cliente: manda la notificación SOLO a los pases de
+   *  ese cliente (reusa NotificationsService con customerId). Disponible para
+   *  OWNER/STAFF desde la ficha del cliente (al lado de WhatsApp). */
+  async pushToCustomer(
+    user: AuthUser,
+    id: string,
+    dto: { title?: string; body: string },
+    override?: string,
+  ) {
+    // Verifica que el cliente exista y pertenezca al tenant (aísla por marca).
+    await this.get(user, id);
+    const title = (dto.title ?? '').trim();
+    const body = (dto.body ?? '').trim();
+    if (!body) throw new BadRequestException('El mensaje no puede estar vacío');
+    return this.notifications.send(
+      user,
+      { customerId: id, title: title || 'Mensaje', body },
+      override,
+    );
+  }
 
   private tenantId(user: AuthUser, override?: string) {
     if (user.role === 'SUPER_ADMIN') {
@@ -389,7 +415,10 @@ export class CustomersService {
       throw new NotFoundException('Algún cliente no existe en este tenant');
     }
 
-    const result = await this.prisma.$transaction(async (tx) => {
+    let result;
+    try {
+      result = await this.prisma.$transaction(
+        async (tx) => {
       let movedOrders = 0;
       let movedStamps = 0;
       let mergedPasses = 0;
@@ -464,6 +493,23 @@ export class CustomersService {
           where: { customerId: src.id },
           data: { customerId: keepId },
         });
+        // Reservas + asistentes a eventos + notificaciones: hoy su FK es
+        // onDelete: SetNull, así que al borrar el src quedaban HUÉRFANOS (y una
+        // notificación individual con customerId=null se convierte en BROADCAST
+        // → el saludo de cumpleaños del cliente fusionado se mostraría a todos).
+        // Los reasignamos al keeper para no perder historial ni filtrar mensajes.
+        await tx.reservation.updateMany({
+          where: { customerId: src.id },
+          data: { customerId: keepId },
+        });
+        await tx.eventAttendee.updateMany({
+          where: { customerId: src.id },
+          data: { customerId: keepId },
+        });
+        await tx.notification.updateMany({
+          where: { customerId: src.id },
+          data: { customerId: keepId },
+        });
         // PromotionRedemption + Event tienen customerId como columna pero sin
         // relación Prisma — actualizamos por SQL directo.
         await tx.$executeRawUnsafe(
@@ -508,13 +554,22 @@ export class CustomersService {
         }
       }
 
-      // 6) Recalcular totales reales del keeper desde sus orders
+      // 6) Recalcular totales reales del keeper desde sus orders.
+      // El conteo/fechas miran todo el historial, pero la PLATA solo suma
+      // pedidos que llegaron a CONFIRMED+ (regla 2026-08-20): un pedido
+      // pendiente o cancelado no es gasto real del cliente.
       const ordersAgg = await tx.order.aggregate({
         where: { customerId: keepId },
         _count: { _all: true },
-        _sum: { total: true },
         _min: { createdAt: true },
         _max: { createdAt: true },
+      });
+      const spentAgg = await tx.order.aggregate({
+        where: {
+          customerId: keepId,
+          status: { in: ['CONFIRMED', 'READY', 'DELIVERED'] },
+        },
+        _sum: { total: true },
       });
 
       const updated = await tx.customer.update({
@@ -526,7 +581,7 @@ export class CustomersService {
           tags: Array.from(allTags),
           notes: noteParts.length ? noteParts.join('\n\n') : keeper.notes,
           totalOrdersCount: ordersAgg._count._all,
-          totalOrdersAmount: ordersAgg._sum.total ?? 0,
+          totalOrdersAmount: spentAgg._sum.total ?? 0,
           firstOrderAt: ordersAgg._min.createdAt ?? keeper.firstOrderAt ?? null,
           lastOrderAt: ordersAgg._max.createdAt ?? keeper.lastOrderAt ?? null,
         },
@@ -542,7 +597,31 @@ export class CustomersService {
         mergedPasses,
         keeper: updated,
       };
-    });
+        },
+        // La transacción encadena muchas queries (loop de pases + updateMany +
+        // SQL crudo + aggregate) y cada una pasa por el middleware de tenant;
+        // con clientes de mucho historial superaba el default de 5s de Prisma y
+        // se cancelaba (P2028) → "da error y no lo hace". Subimos el margen.
+        { maxWait: 15000, timeout: 60000 },
+      );
+    } catch (e: any) {
+      // La transacción es atómica: si algo falla NO se modificó ningún dato.
+      // Re-lanzamos nuestras validaciones tal cual; para errores de Prisma
+      // exponemos el código (P2002/P2003/P2022/P2028…) para diagnóstico rápido.
+      if (
+        e instanceof ForbiddenException ||
+        e instanceof NotFoundException ||
+        e instanceof BadRequestException
+      ) {
+        throw e;
+      }
+      const code = e?.code ? ` [${e.code}]` : '';
+      throw new BadRequestException(
+        `No se pudieron fusionar los clientes${code}: ${
+          e?.message ?? 'error desconocido'
+        }. No se modificó ningún dato (la operación es atómica).`,
+      );
+    }
 
     return result;
   }

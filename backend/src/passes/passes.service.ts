@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -221,17 +222,47 @@ export class PassesService {
       birthday?: string;
       utmSlug?: string;
       locale?: string;
+      // PDF Software(8): el cliente marcó la casilla de políticas de datos.
+      dataPolicyAccepted?: boolean;
     },
   ) {
     const localeNorm = normalizePassLocale(dto.locale);
     const card = await this.prisma.card.findUnique({
       where: { id: cardId },
-      include: { tenant: { select: { id: true, status: true } } },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            status: true,
+            dataPolicyUrl: true,
+            whiteLabelId: true,
+          },
+        },
+      },
     });
     if (!card || !card.isActive)
       throw new NotFoundException('Tarjeta no disponible');
     if (card.tenant.status === 'SUSPENDED')
       throw new NotFoundException('Negocio no disponible');
+
+    // Sellea: correo y cumpleaños son OBLIGATORIOS en el registro de la tarjeta
+    // (decisión del dueño, 2026-08-30). Defensa en profundidad: el formulario
+    // ya lo valida, pero acá lo exigimos para que un POST directo no lo evada.
+    // SOLO Sellea — el resto de marcas mantiene ambos campos opcionales.
+    const brand = await this.brand.resolveByWhiteLabelId(
+      card.tenant.whiteLabelId,
+    );
+    const requireContactFields =
+      brand.slug === 'sellea' || brand.slug === 'selleala';
+    if (requireContactFields) {
+      if (!dto.email?.trim()) {
+        throw new BadRequestException('El correo electrónico es obligatorio');
+      }
+      const bday = dto.birthday ? new Date(dto.birthday) : null;
+      if (!bday || Number.isNaN(bday.getTime())) {
+        throw new BadRequestException('La fecha de cumpleaños es obligatoria');
+      }
+    }
 
     const phoneNorm = (dto.phone || '').replace(/\s/g, '').trim();
     if (phoneNorm.length < 8) {
@@ -350,6 +381,16 @@ export class PassesService {
     // 2do tira P2002 — devolvemos el pass que creó el primero.
     const serial = `CLB-${nanoid(10).toUpperCase()}`;
     const authToken = nanoid(32);
+    // PDF Software(8): evidencia de aceptación de la política de tratamiento de
+    // datos. Solo si la tarjeta tiene la casilla activa y el cliente la marcó.
+    // Guardamos la URL exacta del documento que se le mostró (doc del negocio
+    // o el default brand-aware /legal/privacy) + el timestamp.
+    const dataPolicyAccepted =
+      card.dataPolicyEnabled && dto.dataPolicyAccepted === true;
+    const dataPolicyAcceptedAt = dataPolicyAccepted ? new Date() : null;
+    const dataPolicyUrlShown = dataPolicyAccepted
+      ? card.tenant.dataPolicyUrl || '/legal/tratamiento-datos'
+      : null;
     let tmp;
     try {
       tmp = await this.prisma.pass.create({
@@ -362,6 +403,8 @@ export class PassesService {
           authToken,
           stampsCount: bonusStamps,
           pointsBalance: bonusPoints,
+          dataPolicyAcceptedAt,
+          dataPolicyUrl: dataPolicyUrlShown,
         },
       });
     } catch (e: any) {

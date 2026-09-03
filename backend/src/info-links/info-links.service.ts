@@ -14,6 +14,7 @@ import {
   normalizeLocale,
 } from '../catalog/translation.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
+import { infolinkCapabilities, type InfolinkCapabilities } from '../common/infolink-tier';
 
 function slugify(s: string) {
   return (
@@ -162,6 +163,11 @@ export class InfoLinksService {
       const next: any = { ...b };
       if (typeof next.url === 'string') {
         next.url = safeUrlOrNull(next.url) ?? '';
+      }
+      // Icono personalizado (v2): se sube a R2 (https) y se pinta como
+      // <img src>. Filtramos schemes exóticos por defensa en profundidad.
+      if (typeof next.customIconUrl === 'string') {
+        next.customIconUrl = safeUrlOrNull(next.customIconUrl) ?? null;
       }
       if (next.popup && typeof next.popup === 'object') {
         const popup: any = { ...next.popup };
@@ -333,7 +339,101 @@ export class InfoLinksService {
     };
   }
 
+  /**
+   * Resumen agregado de TODAS las InfoLinks del negocio (últimos 30 días).
+   * Alimenta el Dashboard/Estadísticas de un negocio "Solo InfoLink":
+   * visitas, clics, escaneos QR, WhatsApp abiertos y botón más usado. Solo
+   * usa datos que ya se registran (view / click_button / qr_scan).
+   */
+  async tenantOverview(user: AuthUser) {
+    const tid = this.tid(user);
+    const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const links = await this.prisma.infoLink.findMany({
+      where: { tenantId: tid },
+      select: { id: true, title: true, slug: true, isActive: true, views: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const linkIds = links.map((l) => l.id);
+    const events = linkIds.length
+      ? await this.prisma.infoLinkEvent.findMany({
+          where: { infoLinkId: { in: linkIds }, createdAt: { gte: since30 } },
+          select: { type: true, metadata: true },
+        })
+      : [];
+
+    const counts = { view: 0, click_button: 0, qr_scan: 0 } as Record<string, number>;
+    const buttonClicks = new Map<string, number>();
+    let whatsappClicks = 0;
+    for (const e of events) {
+      counts[e.type] = (counts[e.type] ?? 0) + 1;
+      if (e.type === 'click_button') {
+        const meta = (e.metadata as any) ?? {};
+        const label = meta.label ?? 'Sin etiqueta';
+        buttonClicks.set(label, (buttonClicks.get(label) ?? 0) + 1);
+        // WhatsApp: preferimos el tipo del botón (eventos nuevos); como respaldo
+        // (eventos viejos sin buttonType) detectamos por la etiqueta.
+        const bt = String(meta.buttonType ?? '').toUpperCase();
+        if (bt === 'WHATSAPP' || (!meta.buttonType && /whatsapp|wa\.me/i.test(String(label)))) {
+          whatsappClicks++;
+        }
+      }
+    }
+    const topButtons = [...buttonClicks.entries()]
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+
+    return {
+      range: '30d',
+      links: links.length,
+      activeLinks: links.filter((l) => l.isActive).length,
+      views: counts.view,
+      clicks: counts.click_button,
+      qrScans: counts.qr_scan,
+      whatsappClicks,
+      topButton: topButtons[0] ?? null,
+      topButtons,
+      // Vistas históricas totales por link (contador acumulado del modelo).
+      totalViewsAllTime: links.reduce((a, l) => a + (l.views ?? 0), 0),
+      perLink: links.map((l) => ({
+        id: l.id,
+        title: l.title,
+        slug: l.slug,
+        isActive: l.isActive,
+        views: l.views ?? 0,
+      })),
+    };
+  }
+
   // ============ Público ============
+
+  /**
+   * Gating freemium para el RENDER público: un tier FREE publica máx.
+   * `maxButtons` botones ACTIVOS y SIN fondo/colores de texto custom (apariencia
+   * PRO). NO muta la DB — solo lo que se devuelve al público (no bypaseable por
+   * API). PRO/FULL (maxButtons null + customBackground) pasan sin cambios.
+   * Downgrade-safe: la config PRO queda en DB y se recupera al volver a PRO.
+   */
+  private gateInfolinkForTier<T extends { buttons?: any; theme?: any }>(
+    link: T,
+    caps: InfolinkCapabilities,
+  ): T {
+    if (caps.maxButtons == null && caps.customBackground) return link;
+    const gated: any = { ...link };
+    if (caps.maxButtons != null && Array.isArray(gated.buttons)) {
+      let active = 0;
+      gated.buttons = gated.buttons.filter((btn: any) => {
+        if (btn?.isActive === false) return true; // inactivo: no cuenta ni renderiza
+        active += 1;
+        return active <= (caps.maxButtons as number);
+      });
+    }
+    if (!caps.customBackground && gated.theme && typeof gated.theme === 'object') {
+      const { background, text, ...rest } = gated.theme as Record<string, any>;
+      gated.theme = rest;
+    }
+    return gated as T;
+  }
 
   async getPublic(tenantSlug: string, linkSlug: string, localeRaw?: string) {
     const locale = normalizeLocale(localeRaw);
@@ -350,6 +450,10 @@ export class InfoLinksService {
         mapsUrl: true,
         slug: true,
         status: true,
+        // Tipo/nivel del negocio → el render público decide si muestra la
+        // publicidad de Sellea (solo InfoLink FREE). PRO/FULL no la muestran.
+        businessType: true,
+        infolinkTier: true,
         // Marca blanca del negocio: el infolink muestra "Hecho con {marca}".
         whiteLabelId: true,
         locations: {
@@ -374,6 +478,14 @@ export class InfoLinksService {
     });
     if (!link || !link.isActive) throw new NotFoundException('Link no disponible');
 
+    // Enforcement freemium (server-side, no bypaseable): un InfoLink FREE
+    // publica máx. 5 botones y SIN fondo/colores custom, aunque se hayan
+    // guardado por API. No borra nada en DB → al volver a PRO se recupera.
+    const gatedLink = this.gateInfolinkForTier(
+      link,
+      infolinkCapabilities((tenant as any).businessType, (tenant as any).infolinkTier),
+    );
+
     // Incrementa views (best-effort, no bloquea respuesta)
     this.prisma.infoLink
       .update({ where: { id: link.id }, data: { views: { increment: 1 } } })
@@ -397,7 +509,7 @@ export class InfoLinksService {
       attribution: b.attribution,
     };
 
-    if (locale === 'es') return { tenant, link, brand };
+    if (locale === 'es') return { tenant, link: gatedLink, brand };
 
     // Fase 5: traducción del title + subtitle del InfoLink. El JSON
     // de sections/buttons queda en ES por ahora (estructuras complejas
@@ -419,7 +531,7 @@ export class InfoLinksService {
         text: link.subtitle,
       });
     }
-    if (items.length === 0) return { tenant, link, brand };
+    if (items.length === 0) return { tenant, link: gatedLink, brand };
     const tr = await this.translator.translateMenuBatch(
       tenant.id,
       items,
@@ -428,7 +540,7 @@ export class InfoLinksService {
     return {
       tenant,
       link: {
-        ...link,
+        ...gatedLink,
         title: tr.get(`infolink:${link.id}:title`) ?? link.title,
         subtitle:
           link.subtitle == null
@@ -459,17 +571,46 @@ export class InfoLinksService {
     const link = await this.prisma.infoLink.findUnique({
       where: { rootSlug: clean },
     });
-    if (!link || !link.isActive) {
-      throw new NotFoundException('No disponible');
+    if (link?.isActive) {
+      // Reutilizamos getPublic para no duplicar la lógica de tenant lookup +
+      // tracking + traducción. Como ya tenemos el link, solo necesitamos el
+      // tenantSlug + linkSlug que getPublic acepta.
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: link.tenantId },
+        select: { slug: true },
+      });
+      if (tenant) return this.getPublic(tenant.slug, link.slug, localeRaw);
     }
-    // Reutilizamos getPublic para no duplicar la lógica de tenant lookup +
-    // tracking + traducción. Como ya tenemos el link, solo necesitamos el
-    // tenantSlug + linkSlug que getPublic acepta.
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: link.tenantId },
-      select: { slug: true },
+
+    // No es un rootSlug: puede ser el SLUG DEL NEGOCIO.
+    //
+    // Fix 2026-08-26 (caso Amor Espresso café): el generador de carteles
+    // produce `/i/<slugDelNegocio>` para los QR de tipo INFOLINK — sin el
+    // segundo tramo del enlace. Esa URL no resuelve, y hay 72 carteles ya
+    // generados así, varios impresos y entregados a clientes.
+    //
+    // Cambiar la URL no es opción: el QR está en la pared. Así que la
+    // resolvemos: el slug del negocio lleva a su infolink principal.
+    const porNegocio = await this.prisma.tenant.findUnique({
+      where: { slug: clean },
+      select: {
+        slug: true,
+        infoLinks: {
+          where: { isActive: true },
+          // El MÁS ANTIGUO: es el que existía cuando se imprimió el cartel.
+          // Con varios enlaces (Amor Espresso tiene dos), mandar al recién
+          // creado cambiaría a dónde apunta un QR ya impreso.
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+          select: { slug: true },
+        },
+      },
     });
-    if (!tenant) throw new NotFoundException('No disponible');
-    return this.getPublic(tenant.slug, link.slug, localeRaw);
+    const principal = porNegocio?.infoLinks?.[0];
+    if (porNegocio && principal) {
+      return this.getPublic(porNegocio.slug, principal.slug, localeRaw);
+    }
+
+    throw new NotFoundException('No disponible');
   }
 }

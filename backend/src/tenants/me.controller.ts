@@ -34,6 +34,10 @@ import { PrismaService } from '../common/prisma/prisma.service';
 
 class UpdateMyBody {
   @IsOptional() @IsString() brandName?: string;
+  // PDF Software(8): URL del documento de políticas de tratamiento de datos que
+  // el negocio sube (PDF vía media/upload) o su propia URL. null/"" → limpia y
+  // cae al default /legal/privacy. @IsOptional deja pasar null (lo salta).
+  @IsOptional() @IsString() dataPolicyUrl?: string | null;
   // Idioma del negocio (panel + default storefront). PDF 1254.
   @IsOptional() @IsString() locale?: string;
   @IsOptional() @IsString() phone?: string;
@@ -71,6 +75,11 @@ class UpdateMyBody {
   @IsOptional() deliveryAlertsPhones?: string[] | null;
   // Array de eventos suscritos: 'created' | 'confirmed' | 'ready' | 'delivered'.
   @IsOptional() deliveryAlertsEvents?: string[] | null;
+  // PDF 1256 F3: notificaciones de pedido al CLIENTE por SMS. Opt-in, OFF por
+  // defecto (cada SMS cuesta). Eventos: 'created'|'confirmed'|'ready'|
+  // 'on_the_way'|'delivered'.
+  @IsOptional() @IsBoolean() customerOrderAlertsEnabled?: boolean;
+  @IsOptional() customerOrderAlertsEvents?: string[] | null;
   // WhatsApp opcional al cierre del feedback negativo (/r/:slug).
   @IsOptional() @IsBoolean() whatsappFeedbackEnabled?: boolean;
   @IsOptional() @IsString() whatsappFeedbackNumber?: string | null;
@@ -399,7 +408,7 @@ export class TenantMeController {
    * trata null como "sin tenant context" y cae al default.
    */
   @Get()
-  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN', 'MARKETING')
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'SUPER_ADMIN', 'MARKETING')
   get(@CurrentUser() user: AuthUser) {
     if (!user.tenantId) return null;
     return this.svc.getMine(user.tenantId);

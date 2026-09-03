@@ -3,6 +3,8 @@ import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, setSession, clearSession } from '@/lib/api';
+import { primaryHrefForUser } from '@/lib/modules';
+import { isNativeApp, useHidesPurchases } from '@/lib/native';
 import { useAuthBrand, BrandMark, BrandAuthTheme } from '@/components/AuthBrand';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
@@ -18,6 +20,7 @@ function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
   const { brand } = useAuthBrand();
+  const sinCompras = useHidesPurchases();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
@@ -44,17 +47,11 @@ function LoginInner() {
       // de AppShell te tiraba a /app (una subcuenta) tras loguear.
       clearSession();
       setSession(data.accessToken, data.user, { refreshToken: data.refreshToken });
-      router.push(
-        data.user.role === 'PLATFORM_OWNER'
-          ? '/superadmin'
-          : data.user.role === 'SUPER_ADMIN' || data.user.role === 'MARKETING'
-          ? '/admin'
-          : data.user.role === 'DELIVERY_COMPANY'
-          ? '/domicilios'
-          : data.user.role?.startsWith('AFFILIATE_')
-          ? '/affiliate'
-          : '/app',
-      );
+      // A dónde entra según el rol: el mapa vive en lib/modules.ts (lo comparte
+      // el lanzador /hub). En la app instalada la entrada es SIEMPRE el
+      // lanzador, que a su vez entra directo si la cuenta tiene un solo
+      // módulo; en el navegador se mantiene el destino directo de siempre.
+      router.push(isNativeApp() ? '/hub' : primaryHrefForUser(data.user));
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -76,17 +73,11 @@ function LoginInner() {
       // de AppShell te tiraba a /app (una subcuenta) tras loguear.
       clearSession();
       setSession(data.accessToken, data.user, { refreshToken: data.refreshToken });
-      router.push(
-        data.user.role === 'PLATFORM_OWNER'
-          ? '/superadmin'
-          : data.user.role === 'SUPER_ADMIN' || data.user.role === 'MARKETING'
-          ? '/admin'
-          : data.user.role === 'DELIVERY_COMPANY'
-          ? '/domicilios'
-          : data.user.role?.startsWith('AFFILIATE_')
-          ? '/affiliate'
-          : '/app',
-      );
+      // A dónde entra según el rol: el mapa vive en lib/modules.ts (lo comparte
+      // el lanzador /hub). En la app instalada la entrada es SIEMPRE el
+      // lanzador, que a su vez entra directo si la cuenta tiene un solo
+      // módulo; en el navegador se mantiene el destino directo de siempre.
+      router.push(isNativeApp() ? '/hub' : primaryHrefForUser(data.user));
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -164,12 +155,17 @@ function LoginInner() {
 
         <GoogleSignInButton onCredential={loginWithGoogle} disabled={loading} />
 
-        <div className="mt-4 text-center text-xs text-mute">
-          ¿No tienes cuenta?{' '}
-          <Link href="/signup" className="text-brand hover:underline font-medium">
-            Adquiérelo aquí
-          </Link>
-        </div>
+        {/* "Adquiérelo aquí" lleva a /signup, que es el checkout de los planes.
+            En iOS eso es una compra externa a dos toques del login: motivo de
+            rechazo por la guideline 3.1.1. La app es para cuentas existentes. */}
+        {!sinCompras && (
+          <div className="mt-4 text-center text-xs text-mute">
+            ¿No tienes cuenta?{' '}
+            <Link href="/signup" className="text-brand hover:underline font-medium">
+              Adquiérelo aquí
+            </Link>
+          </div>
+        )}
       </form>
     </div>
   );

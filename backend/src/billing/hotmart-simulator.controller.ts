@@ -6,7 +6,7 @@ import {
   NotFoundException,
   Post,
 } from '@nestjs/common';
-import { IsIn, IsUUID } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID } from 'class-validator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { addPlanPeriod } from '../common/plan-period';
@@ -40,6 +40,16 @@ class SimulateGroupWebhookDto {
 
   @IsIn(SIMULATABLE_EVENTS as unknown as string[])
   event!: (typeof SIMULATABLE_EVENTS)[number];
+}
+
+// Simulación de COMPRA DE CRÉDITOS (Modelo B). Verifica el ruteo por token
+// (src=wl_<id>) sin tocar Hotmart. dryRun=true (default) NO escribe créditos.
+class SimulateCreditWebhookDto {
+  @IsOptional() @IsUUID() whiteLabelId?: string;
+  @IsOptional() @IsString() slug?: string;
+  @IsInt() credits!: number; // 1 | 10 | 20 → busca el link de ese pack
+  @IsOptional() @IsBoolean() withToken?: boolean; // default true
+  @IsOptional() @IsBoolean() dryRun?: boolean; // default true (no escribe)
 }
 
 /**
@@ -126,6 +136,81 @@ export class HotmartSimulatorController {
       buyerEmail: owner.email,
       payload,
       handlerResult: result,
+    };
+  }
+
+  /**
+   * Simula una COMPRA DE CRÉDITOS (Modelo B). Arma un payload con el producto y
+   * la oferta reales del pack pedido + el token src=wl_<id> de la marca, y lo
+   * pasa por el MISMO tryHandleCreditPurchase/handleEvent que el webhook real.
+   * dryRun=true (default): solo resuelve marca+cantidad, NO escribe créditos.
+   */
+  @Roles('SUPER_ADMIN', 'PLATFORM_OWNER')
+  @Post('simulate-credit-webhook')
+  async simulateCredit(@Body() dto: SimulateCreditWebhookDto) {
+    const wl = await this.prisma.whiteLabel.findFirst({
+      where: dto.whiteLabelId
+        ? { id: dto.whiteLabelId }
+        : { slug: (dto.slug ?? '').toLowerCase() },
+      select: { id: true, name: true, slug: true },
+    });
+    if (!wl) throw new NotFoundException('Marca no encontrada (whiteLabelId o slug)');
+
+    // Link de crédito ACTIVO del pack pedido (cantidad de créditos). En Modelo B
+    // las ofertas son compartidas (de Clubify) → tomamos una de esa cantidad
+    // para obtener productId + offerCode REALES.
+    const link = await this.prisma.hotmartCreditLink.findFirst({
+      where: {
+        credits: dto.credits,
+        isActive: true,
+        hotmartProductId: { not: null },
+      },
+      orderBy: { position: 'asc' },
+    });
+    if (!link || !link.hotmartProductId) {
+      throw new BadRequestException(
+        `No hay HotmartCreditLink activo para ${dto.credits} créditos con productId. Configura las ofertas primero.`,
+      );
+    }
+
+    const withToken = dto.withToken !== false; // default true
+    const dryRun = dto.dryRun !== false; // default true (seguro, no escribe)
+    const transactionId = `SIMCR-${Date.now().toString(36).toUpperCase()}`;
+    const payload: HotmartWebhookPayload = {
+      id: `sim-cr-${Date.now()}`,
+      event: 'PURCHASE_APPROVED',
+      data: {
+        buyer: { email: `sim-${wl.slug}@example.com` },
+        purchase: {
+          transaction: transactionId,
+          status: 'APPROVED',
+          approved_date: Date.now(),
+          offer: link.hotmartOfferCode
+            ? { code: link.hotmartOfferCode }
+            : undefined,
+          tracking: withToken ? { source: `wl_${wl.id}` } : undefined,
+        },
+        product: { id: Number(link.hotmartProductId) },
+      },
+    };
+
+    const handlerResult = dryRun
+      ? await this.hotmart.tryHandleCreditPurchase(payload, true)
+      : await this.hotmart.handleEvent(payload);
+
+    return {
+      ok: true,
+      mode: dryRun ? 'DRYRUN (no escribió nada)' : 'REAL (acreditó de verdad)',
+      targetBrand: { id: wl.id, name: wl.name, slug: wl.slug },
+      pack: {
+        credits: dto.credits,
+        productId: link.hotmartProductId,
+        offerCode: link.hotmartOfferCode,
+      },
+      withToken,
+      token: withToken ? `wl_${wl.id}` : null,
+      transactionId,
+      handlerResult,
     };
   }
 

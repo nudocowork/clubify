@@ -6,6 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import {
+  brandAppUrl,
+  BRAND_DOMAIN_SELECT,
+} from '../email/brand-email-creds.util';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
@@ -575,6 +579,9 @@ export class ServiceReservationsService {
         timezone: true,
         logoUrl: true,
         primaryColor: true,
+        // Marca blanca del negocio: el footer "Reservas con X" debe usar la
+        // marca real, nunca "Clubify" hardcodeado (delataría la plataforma).
+        whiteLabel: { select: { name: true } },
       },
     });
     if (!t || t.status === 'SUSPENDED' || !t.serviceReservationsEnabled) {
@@ -600,6 +607,9 @@ export class ServiceReservationsService {
     ]);
     return {
       businessName: t.brandName,
+      // Marca de la plataforma para el footer ("Reservas con X"). Marca blanca
+      // → su nombre; Clubify puro (sin whiteLabel) → "Clubify".
+      platformName: t.whiteLabel?.name ?? 'Clubify',
       logoUrl: t.logoUrl,
       primaryColor: t.primaryColor,
       timezone: t.timezone,
@@ -970,7 +980,9 @@ export class ServiceReservationsService {
             growBusinessLocationId: true,
             growBusinessApiKey: true,
             growBusinessSwitchNumber: true,
-            whiteLabel: { select: BRAND_GROW_SELECT },
+            whiteLabel: {
+              select: { ...BRAND_GROW_SELECT, ...BRAND_DOMAIN_SELECT },
+            },
           },
         }),
         this.prisma.service.findUnique({
@@ -985,7 +997,13 @@ export class ServiceReservationsService {
       const { fecha, hora } = this.fmtWhen(appt.startAt, tz);
       const svc = service?.name ?? 'tu servicio';
       const firstName = (appt.customerName || '').trim().split(/\s+/)[0] || '';
-      const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+      // Va al CLIENTE FINAL: el enlace debe ser del dominio de SU marca. Con
+      // el APP_URL global, quien reservaba en un negocio Sellea reagendaba en
+      // soyclubify.com, con la vista previa de Clubify en WhatsApp.
+      const appUrl = brandAppUrl(
+        tenant.whiteLabel,
+        process.env.APP_URL ?? 'https://soyclubify.com',
+      );
       const manageLine = appt.manageToken
         ? ` Gestiona/reagenda: ${appUrl}/cita/gestion/${appt.manageToken}`
         : '';

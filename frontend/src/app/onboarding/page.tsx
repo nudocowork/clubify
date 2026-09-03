@@ -3,8 +3,10 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, getUser } from '@/lib/api';
+import { formatPrice, parsePriceInput } from '@/lib/money';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
+import { WalletStripRealPreview } from '@/components/WalletStripRealPreview';
 
 const STEPS = ['Marca', 'WhatsApp', 'Categoría', 'Producto', 'Tarjeta', 'Listo'] as const;
 
@@ -34,6 +36,17 @@ export default function Onboarding() {
     basePrice: 0,
     imageUrl: null as string | null,
   });
+  // Subdivisiones del primer producto: mismo producto en varios tamaños /
+  // presentaciones, cada una con su precio propio (el caso «Bandeja Paisa»:
+  // Torre pequeña $34.900 · Torre personal $44.900). Se guardan como
+  // ProductVariant con variantPriceMode='ABSOLUTE'. El precio se conserva
+  // como texto crudo mientras se escribe: parsearlo en cada tecla rompe
+  // montos a medio digitar («34.900»).
+  const [subsOn, setSubsOn] = useState(false);
+  const [subGroup, setSubGroup] = useState('Tamaño');
+  const [subRows, setSubRows] = useState<{ name: string; price: string }[]>(
+    [],
+  );
   const [card, setCard] = useState({
     name: '',
     rewardText: '',
@@ -44,17 +57,15 @@ export default function Onboarding() {
     walletUrl: string;
   } | null>(null);
 
-  useEffect(() => {
-    const u = getUser();
-    if (!u) {
-      router.push('/login');
-      return;
-    }
-    if (u.role === 'SUPER_ADMIN' || u.role === 'MARKETING') {
-      router.push('/admin');
-      return;
-    }
-    api('/tenants/me').then((t: any) => {
+  // Error de la carga inicial, separado del `err` de guardado: antes un
+  // fallo aquí (red móvil caída, sesión vencida) dejaba un «Cargando…»
+  // eterno sin salida.
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+
+  async function loadTenant() {
+    setLoadErr(null);
+    try {
+      const t = await api<any>('/tenants/me');
       setTenant(t);
       setBrand({
         brandName: t.brandName || '',
@@ -81,7 +92,23 @@ export default function Onboarding() {
           if (Number.isFinite(n) && n > 0 && n <= 5) setStep(n);
         }
       } catch {}
-    });
+    } catch (e: any) {
+      setLoadErr(e?.message || 'No se pudo conectar con el servidor.');
+    }
+  }
+
+  useEffect(() => {
+    const u = getUser();
+    if (!u) {
+      router.push('/login');
+      return;
+    }
+    if (u.role === 'SUPER_ADMIN' || u.role === 'MARKETING') {
+      router.push('/admin');
+      return;
+    }
+    loadTenant();
+    // loadTenant solo usa setters estables — no hace falta en las deps.
   }, [router]);
 
   // Persistir paso actual cuando cambia
@@ -91,6 +118,59 @@ export default function Onboarding() {
       localStorage.setItem(`clubify_onb_${tenant.id}`, String(step));
     } catch {}
   }, [step, tenant]);
+
+  // Filas con nombre y precio válidos — lo que realmente se guardaría.
+  const validSubs = subRows
+    .map((r) => ({ name: r.name.trim(), price: parsePriceInput(r.price) }))
+    .filter(
+      (r): r is { name: string; price: number } =>
+        r.name !== '' && r.price != null && r.price > 0,
+    );
+  const fmtMoney = (n: number) =>
+    formatPrice(n, tenant?.currency ?? 'COP', {
+      symbolOverride: tenant?.currencySymbol ?? null,
+    });
+  // Mismo criterio que la tarjeta del menú público (fmtProductPrice del
+  // storefront): un solo precio si todas las subdivisiones valen igual,
+  // «mín — máx» si difieren. Así lo que se promete aquí es lo que se ve.
+  const subPreview = (() => {
+    if (!validSubs.length) return null;
+    const prices = validSubs.map((r) => r.price);
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    return min === max ? fmtMoney(min) : `${fmtMoney(min)} — ${fmtMoney(max)}`;
+  })();
+
+  function toggleSubs() {
+    // Desactivar NO borra lo escrito: el onboarding se hace desde el
+    // teléfono y un toque accidental no debe costar filas ya digitadas.
+    // Las filas solo se envían cuando la casilla está activa.
+    if (subsOn) {
+      setSubsOn(false);
+      return;
+    }
+    setSubsOn(true);
+    if (subRows.length === 0) {
+      setSubRows([
+        { name: '', price: '' },
+        { name: '', price: '' },
+      ]);
+    }
+  }
+
+  function removeSubRow(i: number) {
+    const r = subRows[i];
+    // Confirmar solo si la fila ya tiene algo escrito — borrar una fila
+    // vacía no pierde nada.
+    const hasData = r.name.trim() !== '' || r.price.trim() !== '';
+    if (
+      hasData &&
+      !confirm(`¿Eliminar «${r.name.trim() || 'esta subdivisión'}»?`)
+    ) {
+      return;
+    }
+    setSubRows(subRows.filter((_, idx) => idx !== i));
+  }
 
   async function next() {
     setErr(null);
@@ -118,15 +198,59 @@ export default function Onboarding() {
             setTenant({ ...tenant, firstCategoryId: c.id });
           }
           break;
-        case 3: // Producto
+        case 3: {
+          // Producto
+          if (!product.name.trim()) {
+            throw new Error('Ponle un nombre a tu producto para continuar.');
+          }
+          const body: Record<string, unknown> = {
+            ...product,
+            name: product.name.trim(),
+            categoryId: tenant.firstCategoryId,
+          };
+          if (subsOn) {
+            // Filas totalmente vacías se ignoran; a medias se piden
+            // completar: descartarlas en silencio guardaría el producto sin
+            // un precio que el negocio cree haber puesto.
+            const touched = subRows.filter(
+              (r) => r.name.trim() !== '' || r.price.trim() !== '',
+            );
+            if (!validSubs.length) {
+              throw new Error(
+                'Agrega al menos una subdivisión con nombre y precio, o desmarca la casilla de subdivisiones.',
+              );
+            }
+            if (validSubs.length < touched.length) {
+              throw new Error(
+                'Hay subdivisiones sin nombre o sin precio válido. Complétalas o elimínalas.',
+              );
+            }
+            const prices = validSubs.map((r) => r.price);
+            const min = Math.min(...prices);
+            const max = Math.max(...prices);
+            // Cada subdivisión trae su precio propio → ABSOLUTE (en ese
+            // modo, `priceDelta` guarda el precio final). El precio del
+            // producto pasa a derivarse de ellas: basePrice = mínimo y, si
+            // difieren, RANGE con el máximo — así las vistas que no conocen
+            // variantes muestran el mismo rango que el menú público.
+            body.basePrice = min;
+            body.priceMode = min === max ? 'FIXED' : 'RANGE';
+            body.priceMax = min === max ? null : max;
+            body.variantPriceMode = 'ABSOLUTE';
+            body.variants = validSubs.map((r, i) => ({
+              groupName: subGroup.trim() || 'Tamaño',
+              name: r.name,
+              priceDelta: r.price,
+              isDefault: i === 0,
+              position: i,
+            }));
+          }
           await api('/catalog/products', {
             method: 'POST',
-            body: JSON.stringify({
-              ...product,
-              categoryId: tenant.firstCategoryId,
-            }),
+            body: JSON.stringify(body),
           });
           break;
+        }
         case 4: // Tarjeta + emitir pase demo del dueño
           const created = await api<any>('/cards', {
             method: 'POST',
@@ -183,7 +307,27 @@ export default function Onboarding() {
     }
   }
 
-  if (!tenant) return <div className="p-8 text-mute">Cargando…</div>;
+  if (!tenant) {
+    if (loadErr) {
+      return (
+        <div className="min-h-screen bg-bg grid place-items-center p-6">
+          <div className="card card-pad max-w-sm w-full text-center">
+            <div className="font-semibold mb-1">
+              No pudimos cargar tu negocio
+            </div>
+            <div className="text-sm text-mute mb-4">{loadErr}</div>
+            <button
+              className="btn-primary w-full justify-center"
+              onClick={loadTenant}
+            >
+              Reintentar
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return <div className="p-8 text-mute">Cargando…</div>;
+  }
 
   return (
     <div className="min-h-screen bg-bg flex flex-col">
@@ -361,7 +505,7 @@ export default function Onboarding() {
         {step === 3 && (
           <Step
             title="Agrega tu primer producto"
-            subtitle="Empieza con uno. Después puedes agregar variantes (tamaños) y extras."
+            subtitle="Empieza con uno. Si se vende en varios tamaños o presentaciones, agrégalos aquí mismo, cada uno con su precio."
           >
             <div>
               <label className="label">Nombre del producto</label>
@@ -377,14 +521,25 @@ export default function Onboarding() {
             <div className="grid grid-cols-2 gap-3 mt-4">
               <div>
                 <label className="label">Precio</label>
-                <input
-                  type="number"
-                  className="input"
-                  value={product.basePrice}
-                  onChange={(e) =>
-                    setProduct({ ...product, basePrice: Number(e.target.value) })
-                  }
-                />
+                {subsOn ? (
+                  // Con subdivisiones activas el precio deja de ser un campo:
+                  // lo definen ellas, y aquí se muestra lo que verá el cliente.
+                  <div
+                    className="input bg-bg2 text-mute flex items-center overflow-hidden whitespace-nowrap"
+                    title="El precio lo definen las subdivisiones"
+                  >
+                    {subPreview ?? 'Según subdivisión'}
+                  </div>
+                ) : (
+                  <input
+                    type="number"
+                    className="input"
+                    value={product.basePrice}
+                    onChange={(e) =>
+                      setProduct({ ...product, basePrice: Number(e.target.value) })
+                    }
+                  />
+                )}
               </div>
               <div>
                 <label className="label">Descripción</label>
@@ -398,6 +553,118 @@ export default function Onboarding() {
                 />
               </div>
             </div>
+
+            {/* Subdivisiones: mismo producto, varios tamaños/presentaciones
+                con precio propio. Van al backend como ProductVariant con
+                variantPriceMode='ABSOLUTE'. */}
+            <div className="mt-4 border border-line rounded-lg p-3">
+              <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={subsOn}
+                  onChange={toggleSubs}
+                />
+                <span>
+                  <span className="font-semibold text-sm block">
+                    Tiene subdivisiones con su propio precio
+                  </span>
+                  <span className="text-xs text-mute block mt-0.5">
+                    Tamaños, presentaciones o porciones. Ej.: Torre pequeña
+                    $34.900 · Torre personal $44.900.
+                  </span>
+                </span>
+              </label>
+
+              {subsOn && (
+                <div className="mt-3">
+                  <label className="label">Nombre del grupo</label>
+                  <input
+                    className="input"
+                    value={subGroup}
+                    onChange={(e) => setSubGroup(e.target.value)}
+                    placeholder="Tamaño"
+                  />
+                  <div className="text-xs text-mute mt-1">
+                    Es el título que verá tu cliente al elegir: «Tamaño»,
+                    «Presentación», «Porción»…
+                  </div>
+
+                  <div className="mt-3 space-y-2">
+                    {subRows.map((r, i) => (
+                      <div key={i} className="flex gap-2">
+                        <input
+                          className="input flex-1 min-w-0"
+                          placeholder={
+                            i === 0
+                              ? 'Ej: Pequeña'
+                              : i === 1
+                              ? 'Ej: Mediana'
+                              : 'Ej: Grande'
+                          }
+                          value={r.name}
+                          onChange={(e) => {
+                            const arr = [...subRows];
+                            arr[i] = { ...r, name: e.target.value };
+                            setSubRows(arr);
+                          }}
+                        />
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="input w-28 flex-none"
+                          placeholder="Precio"
+                          value={r.price}
+                          onChange={(e) => {
+                            const arr = [...subRows];
+                            arr[i] = { ...r, price: e.target.value };
+                            setSubRows(arr);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn-danger flex-none px-3"
+                          aria-label={`Eliminar subdivisión ${r.name || i + 1}`}
+                          onClick={() => removeSubRow(i)}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-ghost text-sm mt-2"
+                    onClick={() =>
+                      setSubRows([...subRows, { name: '', price: '' }])
+                    }
+                  >
+                    + Agregar subdivisión
+                  </button>
+
+                  {/* Qué va a ver el cliente — que el negocio no lo descubra
+                      después en su menú. */}
+                  <div className="mt-3 rounded-lg bg-brand-soft border border-brand/20 px-3 py-2.5 text-xs leading-relaxed">
+                    {subPreview ? (
+                      <>
+                        En tu menú,{' '}
+                        <b>{product.name.trim() || 'este producto'}</b> se
+                        mostrará con precio <b>{subPreview}</b>. Al pedirlo, tu
+                        cliente elegirá una opción de «
+                        {subGroup.trim() || 'Tamaño'}» y el pedido te llegará
+                        con esa opción y su precio exacto.
+                      </>
+                    ) : (
+                      <>
+                        Completa nombre y precio de cada subdivisión para ver
+                        aquí el precio que verá tu cliente.
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="mt-4">
               <label className="label">Foto del producto</label>
               <ImageUploader
@@ -534,6 +801,22 @@ export default function Onboarding() {
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Preview REAL — imagen PNG del generador de producción (Sharp),
+                  la MISMA que el cliente recibe en su Wallet, en 3 estados. Si
+                  el endpoint falla, el mock CSS de arriba queda como respaldo. */}
+              <div className="mt-5">
+                <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-2">
+                  Imagen real del cartón (lo que llega a su Wallet)
+                </div>
+                <WalletStripRealPreview
+                  config={{
+                    primaryColor: brand.primaryColor,
+                    secondaryColor: brand.secondaryColor,
+                    stampsRequired: card.stampsRequired,
+                  }}
+                />
               </div>
             </div>
           </Step>

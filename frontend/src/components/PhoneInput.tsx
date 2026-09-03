@@ -8,7 +8,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
  * Cobertura: países LATAM principales + España + USA. Suficiente para el
  * caso de uso actual de Clubify (negocios LATAM).
  */
-type Country = { code: string; flag: string; name: string; dial: string };
+// primary: cuando varios países comparten el mismo dial (NANP +1), este es el
+// que se elige por defecto al reparsear un número (no se puede distinguir US de
+// CA/DO por el número solo). Evita que "+1 …" reaparezca con otra bandera.
+type Country = { code: string; flag: string; name: string; dial: string; primary?: boolean };
 
 const COUNTRIES: Country[] = [
   { code: 'CO', flag: '🇨🇴', name: 'Colombia', dial: '+57' },
@@ -42,23 +45,26 @@ const COUNTRIES: Country[] = [
   { code: 'IT', flag: '🇮🇹', name: 'Italia', dial: '+39' },
   { code: 'DE', flag: '🇩🇪', name: 'Alemania', dial: '+49' },
   { code: 'GB', flag: '🇬🇧', name: 'Reino Unido', dial: '+44' },
-  { code: 'US', flag: '🇺🇸', name: 'Estados Unidos', dial: '+1' },
+  { code: 'US', flag: '🇺🇸', name: 'Estados Unidos', dial: '+1', primary: true },
   { code: 'CA', flag: '🇨🇦', name: 'Canadá', dial: '+1' },
   { code: 'BR', flag: '🇧🇷', name: 'Brasil', dial: '+55' },
 ];
 
-function parseValue(value: string): { country: Country; rest: string } {
+function parseValue(value: string, preferredCode?: string): { country: Country; rest: string } {
   const v = (value ?? '').trim();
   if (v) {
-    // Match el dial code más largo posible
-    const matched = [...COUNTRIES]
-      .sort((a, b) => b.dial.length - a.dial.length)
-      .find((c) => v.startsWith(c.dial));
-    if (matched) {
-      return {
-        country: matched,
-        rest: v.slice(matched.dial.length).trim(),
-      };
+    // Todos los países cuyo dial prefija el número; nos quedamos con el dial
+    // más largo (ej. +1 vs +591 para "+591…").
+    const matches = COUNTRIES.filter((c) => v.startsWith(c.dial));
+    if (matches.length) {
+      const maxLen = Math.max(...matches.map((c) => c.dial.length));
+      const sameDial = matches.filter((c) => c.dial.length === maxLen);
+      // Desempate cuando varios comparten dial (+1): (1) país del negocio si
+      // comparte ese dial, (2) el marcado primary (US), (3) el primero.
+      const preferred =
+        preferredCode && sameDial.find((c) => c.code === preferredCode.toUpperCase());
+      const chosen = preferred || sameDial.find((c) => c.primary) || sameDial[0];
+      return { country: chosen, rest: v.slice(chosen.dial.length).trim() };
     }
   }
   return { country: COUNTRIES[0], rest: v.replace(/^\+/, '') };
@@ -69,13 +75,29 @@ export function PhoneInput({
   onChange,
   placeholder = 'Número sin prefijo',
   disabled,
+  defaultCountry,
+  variant = 'light',
 }: {
   value: string;
   onChange: (combined: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** ISO alpha-2 del país del NEGOCIO (Tenant.country). Cuando el campo está
+   *  vacío, la bandera inicial es la de este país en vez del default Colombia.
+   *  Si el value ya trae un número con prefijo, se respeta el país de ese valor. */
+  defaultCountry?: string;
+  /** Tema visual. 'dark' = vidrio oscuro (para landings de tema oscuro, ej. sorteo
+   *  premium). Default 'light' = clase `input` del sistema (no cambia usos existentes). */
+  variant?: 'light' | 'dark';
 }) {
-  const initial = useMemo(() => parseValue(value), []);
+  const initial = useMemo(() => {
+    if (!(value ?? '').trim() && defaultCountry) {
+      const c = COUNTRIES.find((x) => x.code === defaultCountry.toUpperCase());
+      if (c) return { country: c, rest: '' };
+    }
+    return parseValue(value, defaultCountry);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const [country, setCountry] = useState<Country>(initial.country);
   const [number, setNumber] = useState<string>(initial.rest);
@@ -92,11 +114,21 @@ export function PhoneInput({
       ? `${country.dial} ${number.trim()}`
       : '';
     if (composedValue === value) return;
-    const parsed = parseValue(value);
+    const parsed = parseValue(value, defaultCountry);
     setCountry(parsed.country);
     setNumber(parsed.rest);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
+
+  // Si el país del negocio (defaultCountry) llega async DESPUÉS del mount y el
+  // campo sigue vacío, adoptamos esa bandera — sin pisar lo que el usuario tocó.
+  useEffect(() => {
+    if (!defaultCountry) return;
+    if ((value ?? '').trim() || number.trim()) return;
+    const c = COUNTRIES.find((x) => x.code === defaultCountry.toUpperCase());
+    if (c && c.code !== country.code) setCountry(c);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultCountry]);
 
   useEffect(() => {
     // Si el número está vacío, emitir string vacío — NO solo el dial.
@@ -146,6 +178,31 @@ export function PhoneInput({
     );
   }, [search]);
 
+  // Clases según tema. Default 'light' = clase `input` del sistema (sin cambios).
+  const dark = variant === 'dark';
+  const cx = {
+    trigger: dark
+      ? 'flex items-center gap-1.5 w-[120px] flex-none rounded-xl border border-white/15 bg-white/[.06] px-3 py-2.5 text-sm text-slate-100 hover:border-emerald-400/40 disabled:opacity-50 transition'
+      : 'input flex items-center gap-1.5 w-[120px] flex-none disabled:opacity-50 hover:border-brand/40 transition',
+    num: dark
+      ? 'flex-1 rounded-xl border border-white/15 bg-white/[.06] px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 outline-none transition focus:ring-2 focus:ring-emerald-500/30'
+      : 'input flex-1',
+    pop: dark
+      ? 'absolute z-30 left-0 right-0 mt-1 bg-slate-900 border border-white/10 rounded-xl shadow-2xl max-h-72 overflow-hidden flex flex-col'
+      : 'absolute z-30 left-0 right-0 mt-1 bg-white border border-line rounded-input shadow-lg max-h-72 overflow-hidden flex flex-col',
+    searchWrap: dark ? 'p-2 border-b border-white/10' : 'p-2 border-b border-line2',
+    search: dark
+      ? 'w-full rounded-lg border border-white/15 bg-white/[.06] px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none'
+      : 'input text-sm',
+    empty: dark ? 'px-3 py-4 text-sm text-slate-400 text-center' : 'px-3 py-4 text-sm text-mute text-center',
+    row: (active: boolean) =>
+      dark
+        ? `w-full text-left px-3 py-2 hover:bg-white/5 flex items-center gap-2.5 border-b border-white/5 last:border-b-0 text-slate-100 ${active ? 'bg-emerald-500/15' : ''}`
+        : `w-full text-left px-3 py-2 hover:bg-bg2/60 flex items-center gap-2.5 border-b border-line2 last:border-b-0 ${active ? 'bg-brand-soft/40' : ''}`,
+    dial: dark ? 'text-slate-400 text-xs font-mono' : 'text-mute text-xs font-mono',
+    chev: dark ? 'ml-auto text-xs text-slate-400' : 'ml-auto text-xs text-mute',
+  };
+
   return (
     <div ref={ref} className="relative">
       <div className="flex items-stretch gap-1.5">
@@ -153,14 +210,14 @@ export function PhoneInput({
           type="button"
           disabled={disabled}
           onClick={() => setOpen((v) => !v)}
-          className="input flex items-center gap-1.5 w-[120px] flex-none disabled:opacity-50 hover:border-brand/40 transition"
+          className={cx.trigger}
         >
           <span className="text-base leading-none">{country.flag}</span>
           <span className="font-medium text-sm">{country.dial}</span>
-          <span className="ml-auto text-xs text-mute">▾</span>
+          <span className={cx.chev}>▾</span>
         </button>
         <input
-          className="input flex-1"
+          className={cx.num}
           inputMode="tel"
           placeholder={placeholder}
           value={number}
@@ -171,20 +228,20 @@ export function PhoneInput({
       </div>
 
       {open && (
-        <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-line rounded-input shadow-lg max-h-72 overflow-hidden flex flex-col">
-          <div className="p-2 border-b border-line2">
+        <div className={cx.pop}>
+          <div className={cx.searchWrap}>
             <input
               autoFocus
               type="text"
               placeholder="Buscar país…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="input text-sm"
+              className={cx.search}
             />
           </div>
           <div className="overflow-y-auto">
             {filtered.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-mute text-center">
+              <div className={cx.empty}>
                 Sin resultados
               </div>
             ) : (
@@ -197,13 +254,11 @@ export function PhoneInput({
                     setOpen(false);
                     setSearch('');
                   }}
-                  className={`w-full text-left px-3 py-2 hover:bg-bg2/60 flex items-center gap-2.5 border-b border-line2 last:border-b-0 ${
-                    c.code === country.code ? 'bg-brand-soft/40' : ''
-                  }`}
+                  className={cx.row(c.code === country.code)}
                 >
                   <span className="text-lg leading-none">{c.flag}</span>
                   <span className="font-medium text-sm flex-1">{c.name}</span>
-                  <span className="text-mute text-xs font-mono">{c.dial}</span>
+                  <span className={cx.dial}>{c.dial}</span>
                 </button>
               ))
             )}

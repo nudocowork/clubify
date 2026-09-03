@@ -34,6 +34,8 @@ import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
 type Me = {
   user: { id: string; email: string; fullName: string; role: string } | null;
   role: 'AFFILIATE_INFLUENCER' | 'AFFILIATE_AMBASSADOR' | 'AFFILIATE_SOCIO';
+  // Marca del afiliado (de /affiliate/me): los textos dicen SU marca, no Clubify.
+  brand?: { name?: string; slug?: string } | null;
   myCode: {
     id: string;
     code: string;
@@ -246,6 +248,7 @@ export default function AffiliateTeamPage() {
                     : prev,
                 );
               }}
+              brandName={me.brand?.name ?? 'Clubify'}
             />
 
             <SummaryCard data={data} />
@@ -463,12 +466,14 @@ function SelfRegisterCard({
   defaultVendorCommissionPercent,
   maxCommissionPercent,
   onSaved,
+  brandName,
 }: {
   ambassadorCode: string;
   codeId: string;
   defaultVendorCommissionPercent: number | null;
   maxCommissionPercent: number;
   onSaved: (next: number | null) => void;
+  brandName: string;
 }) {
   // Fallback al landing público; si no está definido, deja como string
   // vacía y el browser concatena el path al origin actual (que es el
@@ -508,8 +513,8 @@ function SelfRegisterCard({
 
   async function share() {
     const shareData = {
-      title: 'Súmate a mi equipo en Clubify',
-      text: 'Regístrate como vendedor de mi equipo en Clubify:',
+      title: `Súmate a mi equipo en ${brandName}`,
+      text: `Regístrate como vendedor de mi equipo en ${brandName}:`,
       url,
     };
     if (typeof navigator !== 'undefined' && (navigator as any).share) {
@@ -999,7 +1004,7 @@ function VendorFormModal({
               onChange={(e) => setEmail(e.target.value)}
             />
             <div className="text-[11px] text-mute mt-1 leading-snug">
-              El correo tiene que ser único en todo Clubify. Si ya existe,
+              El correo tiene que ser único. Si ya existe,
               vas a ver un error al guardar.
             </div>
           </div>

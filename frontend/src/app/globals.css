@@ -561,3 +561,55 @@
 .no-scrollbar::-webkit-scrollbar {
   display: none;                  /* Chrome/Safari */
 }
+
+/* ── Márgenes seguras de la app instalada ──────────────────────────────────
+ *
+ * El layout raíz declara viewport-fit=cover, así que dentro de la app el
+ * contenido se dibuja DEBAJO de la barra de estado y de la barra de inicio.
+ * En el navegador eso no molesta —Safari pone su propia interfaz encima—,
+ * pero en la app el header quedaba tapado por la isla dinámica.
+ *
+ * Va colgado de html[data-native], que solo existe dentro de la app
+ * (NativeAppChrome): en el navegador estas reglas ni se evalúan.
+ */
+html[data-native] {
+  /* Expuestas como variables para los sitios con estilos en línea o con
+     posición calculada en JS, que no pueden arreglarse desde una clase. */
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+}
+
+html[data-native] body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Las barras pegajosas se posicionan contra el borde del área visible, no
+ * contra el body: sin este top volverían a meterse bajo la isla al hacer
+ * scroll, aunque el body ya tenga su padding. */
+html[data-native] .barra-superior {
+  top: env(safe-area-inset-top);
+}
+
+/* Los cajones a pantalla completa (menú lateral en móvil) sí cubren toda la
+ * pantalla, así que su contenido necesita bajar por su cuenta. */
+html[data-native] .cajon-lateral {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ── Escáner nativo con mira propia ────────────────────────────────────────
+ *
+ * El plugin pone la cámara DETRÁS del WebView, así que mientras dura el
+ * escaneo la página tiene que ser transparente. Se oculta todo y se deja ver
+ * únicamente la mira: `visibility` (y no `display`) porque el WebView tiene
+ * que seguir teniendo layout para dibujarla encima del vídeo.
+ */
+body.escaner-nativo-activo {
+  visibility: hidden;
+  background: transparent !important;
+}
+body.escaner-nativo-activo .escaner-mira,
+body.escaner-nativo-activo .escaner-mira * {
+  visibility: visible;
+}

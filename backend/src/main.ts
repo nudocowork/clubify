@@ -221,7 +221,14 @@ async function bootstrap() {
     }),
   );
   app.use(urlencoded({ limit: '15mb', extended: true }));
-  app.use(helmet());
+  // CORP en 'cross-origin': este backend es una API consumida por múltiples
+  // dominios de marca blanca (soyfidelity.com, selleala.com, dominios propios).
+  // El default de helmet (Cross-Origin-Resource-Policy: same-origin) bloqueaba
+  // la carga del favicon/icono de marca (/superadmin-public/white-labels/icon)
+  // como subrecurso cross-origin → ERR_BLOCKED_BY_RESPONSE.NotSameOrigin en la
+  // consola y favicon de marca caído. La protección de datos sensibles la dan
+  // JWT + CORS (isOriginAllowed), no CORP.
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   // Compat versioning + Swagger gating se conectan ANTES del global prefix
   // porque tocan la URL en bruto del request.
   app.use(v1AliasMiddleware);

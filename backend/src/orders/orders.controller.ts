@@ -1,4 +1,5 @@
 import {
+  ForbiddenException,
   Body,
   Controller,
   Get,
@@ -13,10 +14,12 @@ import {
   ArrayMinSize,
   IsArray,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -35,6 +38,10 @@ class StatusBody {
 class EditOrderItem {
   @IsString() productId!: string;
   @IsOptional() @IsString() variantId?: string;
+  // Multi-seleccion de variantes (productos con maxVariantsTotal >= 2). Sin
+  // este campo el ValidationPipe (forbidNonWhitelisted) rechaza el pedido
+  // entero con "property variantIds should not exist".
+  @IsOptional() @IsArray() @IsString({ each: true }) variantIds?: string[];
   @IsOptional() @IsArray() @IsString({ each: true }) extraIds?: string[];
   @IsInt() @Min(1) qty!: number;
   @IsOptional() @IsString() note?: string;
@@ -45,9 +52,21 @@ class EditOrderBody {
   items!: EditOrderItem[];
 }
 
+class PatchOrderPaymentBody {
+  // null = limpiar. @IsOptional deja pasar null/undefined sin validar el enum.
+  @IsOptional()
+  @IsIn(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA', 'OTRO'])
+  customerPaymentMethod?: string | null;
+  @IsOptional() @IsString() @MaxLength(80) customerPaymentOther?: string | null;
+}
+
 class ManualOrderItem {
   @IsString() productId!: string;
   @IsOptional() @IsString() variantId?: string;
+  // Multi-seleccion de variantes (productos con maxVariantsTotal >= 2). Sin
+  // este campo el ValidationPipe (forbidNonWhitelisted) rechaza el pedido
+  // entero con "property variantIds should not exist".
+  @IsOptional() @IsArray() @IsString({ each: true }) variantIds?: string[];
   @IsOptional() @IsArray() @IsString({ each: true }) extraIds?: string[];
   @IsInt() @Min(1) qty!: number;
   @IsOptional() @IsString() note?: string;
@@ -71,7 +90,7 @@ class ManualOrderBody {
 }
 
 @Controller('orders')
-@Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
+@Roles('TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS', 'SUPER_ADMIN')
 export class OrdersController {
   constructor(private svc: OrdersService) {}
 
@@ -83,8 +102,9 @@ export class OrdersController {
     @Query('search') search?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('locationId') locationId?: string,
   ) {
-    return this.svc.list(user, tenantId, { status, search, from, to });
+    return this.svc.list(user, tenantId, { status, search, from, to, locationId });
   }
 
   @Get('board')
@@ -92,8 +112,9 @@ export class OrdersController {
     @CurrentUser() user: AuthUser,
     @Query('tenantId') tenantId?: string,
     @Query('days') days?: string,
+    @Query('locationId') locationId?: string,
   ) {
-    return this.svc.board(user, tenantId, days ? Number(days) : 1);
+    return this.svc.board(user, tenantId, days ? Number(days) : 1, locationId);
   }
 
   @Get('export.csv')
@@ -105,8 +126,9 @@ export class OrdersController {
     @Query('search') search?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('locationId') locationId?: string,
   ) {
-    const orders = await this.svc.list(user, tenantId, { status, search, from, to });
+    const orders = await this.svc.list(user, tenantId, { status, search, from, to, locationId });
     const csv = toCSV(orders as any[], [
       { key: 'code', label: 'Código' },
       { key: 'createdAt', label: 'Fecha', format: (v) => new Date(v).toISOString() },
@@ -159,6 +181,16 @@ export class OrdersController {
     return this.svc.setStatus(user, id, body.status);
   }
 
+  /** El negocio registra/edita el método de pago que usó el cliente. */
+  @Patch(':id/payment')
+  setPayment(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: PatchOrderPaymentBody,
+  ) {
+    return this.svc.updateCustomerPayment(user, id, body);
+  }
+
   /** Editar los items de un pedido ya hecho (recalcula totales). */
   @Patch(':id')
   edit(
@@ -175,5 +207,17 @@ export class OrdersController {
     @Param('id') id: string,
   ) {
     return this.svc.acceptDeliveryPayment(user, id);
+  }
+
+  /**
+   * Sella este pedido a pedido del negocio — el «¿Sumas sello?» que sale al
+   * marcar entregado un domicilio. En domicilio no hay sello automático
+   * («entregado» lo marca quien reparte), pero dejarlo al olvido hacía que se
+   * perdiera. El sistema pregunta; el negocio decide.
+   */
+  @Post(':id/stamp')
+  stampOrder(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    if (!user.tenantId) throw new ForbiddenException();
+    return this.svc.stampOrderManually(user.tenantId, id);
   }
 }

@@ -23,15 +23,21 @@ export async function generateMetadata({
     });
     if (!res.ok) {
       return {
-        title: 'Mi tarjeta · Clubify',
+        title: 'Mi tarjeta',
         description: 'Tu tarjeta de fidelización digital.',
       };
     }
     const data = await res.json();
-    const brand = data?.tenant?.brandName ?? 'Clubify';
+    // El título y la vista previa los ve el CLIENTE FINAL, y es lo que pinta
+    // WhatsApp al compartir el enlace. Cae al nombre del NEGOCIO, nunca a
+    // Clubify: la tarjeta de un negocio Sellea no puede anunciarse con el
+    // nombre de otra plataforma.
+    const brand = data?.tenant?.brandName ?? '';
     const cardName = data?.card?.name ?? 'Tarjeta de fidelización';
-    const title = `${cardName} · ${brand}`;
-    const description = `Tu tarjeta wallet en ${brand}. Suma sellos y reclama tu premio.`;
+    const title = brand ? `${cardName} · ${brand}` : cardName;
+    const description = brand
+      ? `Tu tarjeta wallet en ${brand}. Suma sellos y reclama tu premio.`
+      : 'Tu tarjeta wallet. Suma sellos y reclama tu premio.';
     return {
       title,
       description,
@@ -58,7 +64,7 @@ export async function generateMetadata({
     };
   } catch {
     return {
-      title: 'Mi tarjeta · Clubify',
+      title: 'Mi tarjeta',
       description: 'Tu tarjeta de fidelización digital.',
       robots: { index: false, follow: false },
     };

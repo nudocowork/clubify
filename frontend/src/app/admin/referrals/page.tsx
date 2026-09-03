@@ -1,12 +1,36 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { api, startImpersonation } from '@/lib/api';
+import { useAuthBrand } from '@/components/AuthBrand';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { AffiliateCredentialsModal } from '@/components/AffiliateCredentialsModal';
 import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
+
+// =============================================================
+//        MODO DE COMISIÓN DE LA MARCA (FIXED_ONCE = Sellea)
+// =============================================================
+//
+// Sellea paga comisiones como MONTO FIJO en USD, pago único (no %). Todo el
+// panel de referidos está construido alrededor de porcentajes; para no ensuciar
+// a las demás marcas, la marca en modo FIXED_ONCE se resuelve UNA vez en el
+// componente raíz (por user.whiteLabelId, vía /referrals/config) y se propaga
+// por contexto. Los sub-componentes que muestran/piden % consultan este modo y,
+// si es fijo, muestran el monto en USD. Fallback = PERCENT_RECURRING → la UI de
+// % de siempre (Clubify y demás marcas quedan idénticas).
+type CommissionMode = {
+  mode: 'FIXED_ONCE' | 'PERCENT_RECURRING';
+  fixed: { negocio: number; influencer: number; embajador: number } | null;
+};
+const CommissionModeContext = createContext<CommissionMode>({
+  mode: 'PERCENT_RECURRING',
+  fixed: null,
+});
+function useCommissionMode(): CommissionMode {
+  return useContext(CommissionModeContext);
+}
 
 // =============================================================
 //                      SEARCH UTILITIES
@@ -230,6 +254,25 @@ export default function AdminReferrals() {
   const t = useTranslations('admin_referrals');
   const [tab, setTab] = useState<Tab>('summary');
 
+  // Modo de comisión de la marca (FIXED_ONCE en Sellea). Se resuelve una vez y
+  // se propaga por contexto. Si el fetch falla o no aplica → % de siempre.
+  const [commMode, setCommMode] = useState<CommissionMode>({
+    mode: 'PERCENT_RECURRING',
+    fixed: null,
+  });
+  useEffect(() => {
+    api<ConfigResp>('/referrals/config')
+      .then((c) =>
+        setCommMode({
+          mode: c.commissionMode === 'FIXED_ONCE' ? 'FIXED_ONCE' : 'PERCENT_RECURRING',
+          fixed: c.fixed ?? null,
+        }),
+      )
+      .catch(() => {
+        /* sin permiso / marca % → se queda en PERCENT_RECURRING */
+      });
+  }, []);
+
   // #10 (2026-06-16): la pestaña "Campañas" se eliminó del panel. El modelo
   // Campaign y su data se mantienen (las campañas viejas siguen funcionando
   // vía parentCodeId), pero ya no se gestionan desde acá: los influencers se
@@ -245,33 +288,35 @@ export default function AdminReferrals() {
   ];
 
   return (
-    <div>
-      <div className="page-head">
-        <h1 className="page-title">{t('pageTitle')}</h1>
-      </div>
+    <CommissionModeContext.Provider value={commMode}>
+      <div>
+        <div className="page-head">
+          <h1 className="page-title">{t('pageTitle')}</h1>
+        </div>
 
-      <div className="tabs mb-5 flex-wrap">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            className={`tab ${tab === t.id ? 'tab-active' : ''}`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+        <div className="tabs mb-5 flex-wrap">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              className={`tab ${tab === t.id ? 'tab-active' : ''}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-      {tab === 'summary' && <SummaryTab />}
-      {tab === 'influencers' && <InfluencersTab />}
-      {tab === 'ambassadors' && <AmbassadorsTab />}
-      {tab === 'clients' && <ClientsTab />}
-      {tab === 'commissions' && <CommissionsTab />}
-      {tab === 'payouts' && <PayoutsTab />}
-      {tab === 'config' && <ConfigTab />}
-      {tab === 'leaderboard' && <LeaderboardTab />}
-      {tab === 'codes' && <CodesTab />}
-    </div>
+        {tab === 'summary' && <SummaryTab />}
+        {tab === 'influencers' && <InfluencersTab />}
+        {tab === 'ambassadors' && <AmbassadorsTab />}
+        {tab === 'clients' && <ClientsTab />}
+        {tab === 'commissions' && <CommissionsTab />}
+        {tab === 'payouts' && <PayoutsTab />}
+        {tab === 'config' && <ConfigTab />}
+        {tab === 'leaderboard' && <LeaderboardTab />}
+        {tab === 'codes' && <CodesTab />}
+      </div>
+    </CommissionModeContext.Provider>
   );
 }
 
@@ -872,6 +917,8 @@ function CommissionNotesModal({
 
 function CodesTab() {
   const t = useTranslations('admin_referrals');
+  // Nombre de la marca (Sellea en su dominio) para textos que decían "Clubify".
+  const { brand } = useAuthBrand();
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [commissionFor, setCommissionFor] = useState<{
@@ -1159,6 +1206,7 @@ function CodesTab() {
             <h2 className="font-bold text-lg">{t('captureLinkTitle')}</h2>
             <p className="text-sm text-mute mt-1.5 leading-relaxed">
               {t.rich('captureLinkDesc', {
+                brandName: brand?.name ?? 'Clubify',
                 b: (chunks) => <b className="text-ink">{chunks}</b>,
               })}
             </p>
@@ -1197,7 +1245,10 @@ function CodesTab() {
               <div className="mt-2 flex flex-wrap gap-2">
                 <a
                   href={`https://wa.me/?text=${encodeURIComponent(
-                    t('whatsappInviteMessage', { link: captureLink }),
+                    t('whatsappInviteMessage', {
+                      link: captureLink,
+                      brandName: brand?.name ?? 'Clubify',
+                    }),
                   )}`}
                   target="_blank"
                   rel="noreferrer"
@@ -2033,6 +2084,7 @@ function SumRow({
 
 function InfluencersTab() {
   const t = useTranslations('admin_referrals');
+  const { mode, fixed } = useCommissionMode();
   const router = useRouter();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2103,7 +2155,7 @@ function InfluencersTab() {
         <table className="w-full text-sm min-w-[940px]">
           <thead className="bg-bg2">
             <tr>
-              {[t('colInfluencer'), t('colCode'), '%', t('colCampaign'), t('colAmbassadors'), t('colClients'), t('colPaid'), t('colPending'), ''].map(
+              {[t('colInfluencer'), t('colCode'), mode === 'FIXED_ONCE' ? t('colCommission') : '%', t('colCampaign'), t('colAmbassadors'), t('colClients'), t('colPaid'), t('colPending'), ''].map(
                 (h, i) => (
                   <th
                     key={h || `col-${i}`}
@@ -2138,7 +2190,11 @@ function InfluencersTab() {
                   <div className="text-xs text-mute">{r.ownerEmail}</div>
                 </td>
                 <td className="px-4 py-3 font-mono font-bold">{r.code}</td>
-                <td className="px-4 py-3">{r.commissionPercent}%</td>
+                <td className="px-4 py-3">
+                  {mode === 'FIXED_ONCE' && fixed
+                    ? `${fmtUsd(fixed.influencer)} ${t('fixedOnceLabel')}`
+                    : `${r.commissionPercent}%`}
+                </td>
                 <td className="px-4 py-3 text-xs">{r.campaignName ?? '—'}</td>
                 <td className="px-4 py-3 text-center">{r.ambassadorsCount}</td>
                 <td className="px-4 py-3 text-center">
@@ -2178,6 +2234,13 @@ function InfluencersTab() {
                     >
                       {enteringId === r.id ? t('entering') : `→ ${t('btnPanel')}`}
                     </button>
+                    <AffiliateLinkButton
+                      codeId={r.id}
+                      ownerName={r.ownerName}
+                      slug={r.slug ?? null}
+                      code={r.code}
+                      onSaved={reload}
+                    />
                     <AffiliatePasswordButton codeId={r.id} ownerName={r.ownerName} />
                     <button
                       onClick={() => setDeleteTarget(r)}
@@ -2284,6 +2347,7 @@ function InfluencersTab() {
 
 function AmbassadorsTab() {
   const t = useTranslations('admin_referrals');
+  const { mode, fixed } = useCommissionMode();
   const router = useRouter();
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2362,7 +2426,7 @@ function AmbassadorsTab() {
           <table className="w-full text-sm min-w-[1040px]">
             <thead className="bg-bg2">
               <tr>
-                {[t('colAmbassador'), t('colCode'), '%', t('colReportsTo'), t('colCampaign'), t('colActive'), t('colTotal'), t('colVendors'), t('colPaid'), t('colPending'), ''].map(
+                {[t('colAmbassador'), t('colCode'), mode === 'FIXED_ONCE' ? t('colCommission') : '%', t('colReportsTo'), t('colCampaign'), t('colActive'), t('colTotal'), t('colVendors'), t('colPaid'), t('colPending'), ''].map(
                   (h, i) => (
                     <th
                       key={h || `col-${i}`}
@@ -2407,7 +2471,11 @@ function AmbassadorsTab() {
                     <div className="text-xs text-mute">{r.ownerEmail}</div>
                   </td>
                   <td className="px-4 py-3 font-mono font-bold">{r.code}</td>
-                  <td className="px-4 py-3">{r.commissionPercent}%</td>
+                  <td className="px-4 py-3">
+                    {mode === 'FIXED_ONCE' && fixed
+                      ? `${fmtUsd(fixed.embajador)} ${t('fixedOnceLabel')}`
+                      : `${r.commissionPercent}%`}
+                  </td>
                   <td className="px-4 py-3 text-xs">
                     {r.isCompanyDirect ? (
                       <span className="text-violet-700 font-medium">{t('company')}</span>
@@ -2499,6 +2567,13 @@ function AmbassadorsTab() {
                       >
                         {enteringId === r.id ? t('entering') : `→ ${t('btnPanel')}`}
                       </button>
+                      <AffiliateLinkButton
+                        codeId={r.id}
+                        ownerName={r.ownerName}
+                        slug={r.slug ?? null}
+                        code={r.code}
+                        onSaved={reload}
+                      />
                       <AffiliatePasswordButton codeId={r.id} ownerName={r.ownerName} />
                       <button
                         onClick={() => setDeleteTarget(r)}
@@ -3093,6 +3168,181 @@ function AffiliatePasswordFields({
 // #12 (2026-06-16): botón reutilizable para CREAR/CAMBIAR la contraseña de un
 // afiliado existente (influencer / embajador / vendedor). Modal autocontenido;
 // se puede colocar en cualquier fila pasando codeId + ownerName.
+/**
+ * Editor del enlace corto de un afiliado: `/ref/<ruta>`.
+ *
+ * El slug se genera del nombre completo, y sale larguísimo:
+ * `/ref/briggit-stefany-labrador`. Esto deja ponerle la ruta que el admin
+ * quiera — `/ref/stefany` — apuntando a la MISMA página de referencia, con el
+ * mismo código y la misma atribución. No es un redirector aparte: es la ruta
+ * real del afiliado, así que no hay salto ni enlace intermedio que se pierda.
+ *
+ * El backend (`PATCH /referrals/codes/:id/slug`) normaliza y valida unicidad;
+ * acá replicamos la normalización solo para la vista previa, nunca como
+ * validación única.
+ */
+function AffiliateLinkButton({
+  codeId,
+  ownerName,
+  slug,
+  code,
+  onSaved,
+}: {
+  codeId: string;
+  ownerName: string;
+  slug: string | null;
+  code: string;
+  onSaved: () => void;
+}) {
+  const t = useTranslations('admin_referrals');
+  const [open, setOpen] = useState(false);
+  const [valor, setValor] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  // Misma normalización que `slugify` del backend: minúsculas, sin tildes,
+  // separadores a guión. Solo para la vista previa — quien decide es el server.
+  const limpio = valor
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+
+  const actual = slug || code.toLowerCase();
+  const base =
+    typeof window !== 'undefined' ? window.location.origin : '';
+  const previo = `${base}/ref/${limpio || actual}`;
+  const cambia = limpio !== '' && limpio !== actual;
+
+  async function guardar() {
+    if (!cambia) return;
+    setBusy(true);
+    try {
+      await api(`/referrals/codes/${codeId}/slug`, {
+        method: 'PATCH',
+        body: JSON.stringify({ slug: limpio }),
+      });
+      toast(t('linkSaved', { slug: limpio }), 'success');
+      setOpen(false);
+      onSaved();
+    } catch (e: unknown) {
+      toast((e as Error)?.message || t('linkError'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(`${base}/ref/${actual}`);
+      toast(t('linkCopied'), 'success');
+    } catch {
+      toast(t('linkCopyFailed'), 'error');
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setValor('');
+          setOpen(true);
+        }}
+        className="text-xs font-semibold px-2.5 py-1.5 rounded-md bg-teal-100 text-teal-700 hover:bg-teal-200 whitespace-nowrap"
+        title={t('linkButtonTooltip')}
+      >
+        🔗 {t('btnLink')}
+      </button>
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl w-full max-w-md p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold mb-1">
+              {t('linkOf', { name: ownerName })}
+            </h3>
+            <p className="text-xs text-mute mb-4">{t('linkHelp')}</p>
+
+            <div className="rounded-lg bg-bg2 border border-line p-3 mb-4">
+              <div className="text-[10px] uppercase tracking-wider text-mute font-semibold mb-1">
+                {t('linkCurrent')}
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="text-xs break-all flex-1">
+                  {base}/ref/{actual}
+                </code>
+                <button
+                  type="button"
+                  onClick={copiar}
+                  className="text-xs font-semibold px-2 py-1 rounded bg-white border border-line hover:bg-bg2 whitespace-nowrap"
+                >
+                  {t('linkCopy')}
+                </button>
+              </div>
+            </div>
+
+            <label className="text-xs font-semibold text-mute block mb-1">
+              {t('linkNew')}
+            </label>
+            <div className="flex items-stretch rounded-lg border border-line overflow-hidden">
+              <span className="px-2.5 flex items-center bg-bg2 text-xs text-mute whitespace-nowrap">
+                /ref/
+              </span>
+              <input
+                autoFocus
+                className="flex-1 px-2.5 py-2 text-sm outline-none"
+                placeholder={actual}
+                value={valor}
+                onChange={(e) => setValor(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && cambia && !busy) void guardar();
+                }}
+              />
+            </div>
+            {cambia && (
+              <>
+                <p className="text-[11px] text-mute mt-2 break-all">
+                  {t('linkPreview')} <b>{previo}</b>
+                </p>
+                {/* El slug es la ruta real, no un alias: al cambiarla, la
+                    anterior deja de resolver. Si el afiliado ya la compartió,
+                    hay que avisarle. */}
+                <p className="text-[11px] text-amber-700 mt-1.5 leading-snug">
+                  ⚠️ {t('linkWarnOld', { old: `${base}/ref/${actual}` })}
+                </p>
+              </>
+            )}
+
+            <div className="mt-5 flex gap-2 justify-end">
+              <button
+                type="button"
+                className="btn-ghost text-sm"
+                onClick={() => setOpen(false)}
+              >
+                {t('cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={!cambia || busy}
+                onClick={guardar}
+                className="btn text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {busy ? t('saving') : t('linkSave')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function AffiliatePasswordButton({
   codeId,
   ownerName,
@@ -3237,6 +3487,11 @@ function CreateInfluencerModal({
   onCreated: () => void;
 }) {
   const t = useTranslations('admin_referrals');
+  const { mode, fixed } = useCommissionMode();
+  // Marca de comisión FIJA (Sellea): el % no aplica (el motor usa el monto por
+  // rol). Ocultamos el input y mostramos el monto que se pagará por venta.
+  const isFixed = mode === 'FIXED_ONCE' && !!fixed;
+  const fixedAmount = fixed?.influencer ?? 0;
   const [form, setForm] = useState({
     fullName: '',
     email: '',
@@ -3363,18 +3618,29 @@ function CreateInfluencerModal({
 
         <div className="grid grid-cols-2 gap-3 mt-3">
           <div>
-            <label className="label">{t('fieldCommissionPercent')}</label>
-            <input
-              className="input"
-              type="number"
-              min={0}
-              max={100}
-              step={1}
-              value={form.commissionPercent}
-              onChange={(e) =>
-                setForm({ ...form, commissionPercent: Number(e.target.value) })
-              }
-            />
+            <label className="label">
+              {isFixed ? t('fieldCommissionFixed') : t('fieldCommissionPercent')}
+            </label>
+            {isFixed ? (
+              <div className="input flex items-center bg-bg2 font-semibold cursor-not-allowed">
+                {fmtUsd(fixedAmount)}
+                <span className="text-xs font-normal text-mute ml-1">
+                  {t('fixedOnceLabel')}
+                </span>
+              </div>
+            ) : (
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={form.commissionPercent}
+                onChange={(e) =>
+                  setForm({ ...form, commissionPercent: Number(e.target.value) })
+                }
+              />
+            )}
           </div>
           <div>
             <label className="label">{t('fieldCustomCodeOptional')}</label>
@@ -3427,6 +3693,13 @@ function CompanyDirectAmbassadorModal({
   onCreated: () => void;
 }) {
   const t = useTranslations('admin_referrals');
+  // Nombre de la marca (Sellea) para la descripción que decía "Clubify".
+  const { brand } = useAuthBrand();
+  // Marca de comisión FIJA (Sellea): mismo trato que en el modal de influencer,
+  // pero con el monto de embajador.
+  const { mode, fixed } = useCommissionMode();
+  const isFixed = mode === 'FIXED_ONCE' && !!fixed;
+  const fixedAmount = fixed?.embajador ?? 0;
   const [form, setForm] = useState({
     fullName: '',
     email: '',
@@ -3519,6 +3792,7 @@ function CompanyDirectAmbassadorModal({
         </div>
         <p className="text-xs text-mute leading-relaxed mb-4">
           {t.rich('companyDirectAmbassadorDesc', {
+            brandName: brand?.name ?? 'Clubify',
             code: (chunks) => <code>{chunks}</code>,
           })}
         </p>
@@ -3552,18 +3826,29 @@ function CompanyDirectAmbassadorModal({
 
         <div className="grid grid-cols-2 gap-3 mt-3">
           <div>
-            <label className="label">{t('fieldCommissionPercent')}</label>
-            <input
-              className="input"
-              type="number"
-              min={0}
-              max={100}
-              step={1}
-              value={form.commissionPercent}
-              onChange={(e) =>
-                setForm({ ...form, commissionPercent: Number(e.target.value) })
-              }
-            />
+            <label className="label">
+              {isFixed ? t('fieldCommissionFixed') : t('fieldCommissionPercent')}
+            </label>
+            {isFixed ? (
+              <div className="input flex items-center bg-bg2 font-semibold cursor-not-allowed">
+                {fmtUsd(fixedAmount)}
+                <span className="text-xs font-normal text-mute ml-1">
+                  {t('fixedOnceLabel')}
+                </span>
+              </div>
+            ) : (
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={form.commissionPercent}
+                onChange={(e) =>
+                  setForm({ ...form, commissionPercent: Number(e.target.value) })
+                }
+              />
+            )}
           </div>
           <div>
             <label className="label">{t('fieldCustomCodeOptional')}</label>
@@ -3939,6 +4224,10 @@ function CommissionsTab() {
 type ConfigResp = {
   socioCodeId: string;
   socio: { id: string; code: string; ownerName: string; commissionPercent: number; role: string } | null;
+  // FIXED_ONCE = comisión fija de pago único (Sellea). PERCENT_RECURRING (o
+  // ausente) = el modelo histórico de % recurrente (Clubify y demás marcas).
+  commissionMode?: 'FIXED_ONCE' | 'PERCENT_RECURRING';
+  fixed?: { negocio: number; influencer: number; embajador: number } | null;
   indirectPercent: number;
   defaultInfluencerPercent: number;
   defaultAmbassadorPercent: number;
@@ -3953,6 +4242,8 @@ type ConfigResp = {
 
 function ConfigTab() {
   const t = useTranslations('admin_referrals');
+  // Nombre de la marca (Sellea en su dominio) para el hint del socio que decía "Clubify".
+  const { brand } = useAuthBrand();
   const [cfg, setCfg] = useState<ConfigResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -4011,75 +4302,108 @@ function ConfigTab() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <div className="card card-pad space-y-4">
-        <div>
-          <h3 className="font-semibold m-0 mb-1">{t('defaultCommissions')}</h3>
-          <div className="text-xs text-mute mb-3">
-            {t('defaultCommissionsHint')}
+        {cfg.commissionMode === 'FIXED_ONCE' && cfg.fixed ? (
+          // Marca de comisión FIJA (Sellea): monto en USD por rol, pago único.
+          // No hay porcentajes ni indirecta que configurar.
+          <div>
+            <h3 className="font-semibold m-0 mb-1">{t('fixedModeTitle')}</h3>
+            <div className="text-xs text-mute mb-3">{t('fixedModeHint')}</div>
+            <div className="space-y-2">
+              {[
+                { label: t('fixedRoleBusiness'), amount: cfg.fixed.negocio },
+                { label: t('fixedRoleInfluencer'), amount: cfg.fixed.influencer },
+                { label: t('fixedRoleAmbassador'), amount: cfg.fixed.embajador },
+              ].map((row) => (
+                <div
+                  key={row.label}
+                  className="flex items-center justify-between bg-bg2 rounded-lg px-3 py-2.5"
+                >
+                  <span className="text-sm font-medium">{row.label}</span>
+                  <span className="font-bold tabular-nums">
+                    {fmtUsd(row.amount)}{' '}
+                    <span className="text-xs font-normal text-mute">
+                      {t('fixedOnceLabel')}
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">{t('influencerDirect')}</label>
+        ) : (
+          <div>
+            <h3 className="font-semibold m-0 mb-1">{t('defaultCommissions')}</h3>
+            <div className="text-xs text-mute mb-3">
+              {t('defaultCommissionsHint')}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">{t('influencerDirect')}</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  className="input"
+                  value={cfg.defaultInfluencerPercent}
+                  onChange={(e) =>
+                    setCfg({ ...cfg, defaultInfluencerPercent: Number(e.target.value) })
+                  }
+                />
+              </div>
+              <div>
+                <label className="label">{t('ambassador')}</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  className="input"
+                  value={cfg.defaultAmbassadorPercent}
+                  onChange={(e) =>
+                    setCfg({ ...cfg, defaultAmbassadorPercent: Number(e.target.value) })
+                  }
+                />
+              </div>
+            </div>
+            <div className="mt-3">
+              <label className="label">{t('influencerIndirect')}</label>
               <input
                 type="number"
                 min={0}
                 max={100}
                 className="input"
-                value={cfg.defaultInfluencerPercent}
-                onChange={(e) =>
-                  setCfg({ ...cfg, defaultInfluencerPercent: Number(e.target.value) })
-                }
-              />
-            </div>
-            <div>
-              <label className="label">{t('ambassador')}</label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                className="input"
-                value={cfg.defaultAmbassadorPercent}
-                onChange={(e) =>
-                  setCfg({ ...cfg, defaultAmbassadorPercent: Number(e.target.value) })
-                }
+                value={cfg.indirectPercent}
+                onChange={(e) => setCfg({ ...cfg, indirectPercent: Number(e.target.value) })}
               />
             </div>
           </div>
-          <div className="mt-3">
-            <label className="label">{t('influencerIndirect')}</label>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              className="input"
-              value={cfg.indirectPercent}
-              onChange={(e) => setCfg({ ...cfg, indirectPercent: Number(e.target.value) })}
-            />
-          </div>
-        </div>
+        )}
       </div>
 
       <div className="card card-pad space-y-4">
-        <div>
-          <h3 className="font-semibold m-0 mb-1">{t('globalPartner')}</h3>
-          <div className="text-xs text-mute mb-3">
-            {t('globalPartnerHint')}
+        {/* Socio global (10% recurrente): NO aplica en marcas de comisión fija
+            (Sellea lo tiene apagado a propósito) → se oculta. */}
+        {cfg.commissionMode !== 'FIXED_ONCE' && (
+          <div>
+            <h3 className="font-semibold m-0 mb-1">{t('globalPartner')}</h3>
+            <div className="text-xs text-mute mb-3">
+              {t('globalPartnerHint', { brandName: brand?.name ?? 'Clubify' })}
+            </div>
+            {socioOptions.length > 0 && (
+              <select
+                className="input mb-3"
+                value={cfg.socioCodeId}
+                onChange={(e) => setCfg({ ...cfg, socioCodeId: e.target.value })}
+              >
+                <option value="">{t('noPartnerConfigured')}</option>
+                {socioOptions.map((r: any) => (
+                  <option key={r.id} value={r.id}>
+                    {r.ownerName} ({r.code}) — {Number(r.commissionPercent)}%
+                  </option>
+                ))}
+              </select>
+            )}
+            <SocioInviteForm onCreated={load} />
           </div>
-          {socioOptions.length > 0 && (
-            <select
-              className="input mb-3"
-              value={cfg.socioCodeId}
-              onChange={(e) => setCfg({ ...cfg, socioCodeId: e.target.value })}
-            >
-              <option value="">{t('noPartnerConfigured')}</option>
-              {socioOptions.map((r: any) => (
-                <option key={r.id} value={r.id}>
-                  {r.ownerName} ({r.code}) — {Number(r.commissionPercent)}%
-                </option>
-              ))}
-            </select>
-          )}
-          <SocioInviteForm onCreated={load} />
-        </div>
+        )}
 
         <div>
           <h3 className="font-semibold m-0 mb-1">{t('payments')}</h3>

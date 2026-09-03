@@ -1,5 +1,6 @@
 'use client';
 import { useState, type ReactNode } from 'react';
+import { useHidesPurchases } from '@/lib/native';
 
 /**
  * Selector de planes tipo checkout en la landing pública (Preview 5).
@@ -65,7 +66,20 @@ export function LandingPricingCheckout({
    *  original tachado + "PRECIO PROMOCIONAL" y este es el cobrado. */
   installationPromoUsd?: number | null;
 }) {
+  // iOS: la app es solo para cuentas que ya existen. Mostrar planes y precios
+  // con checkout externo es exactamente lo que Apple rechaza por 3.1.1, y esto
+  // se alcanza desde /signup, a dos toques del login. El hook va antes del
+  // return para no romper el orden de hooks entre renders.
+  const sinCompras = useHidesPurchases();
   const [selected, setSelected] = useState<PlanId>(initialPlan);
+  if (sinCompras) {
+    return (
+      <div className="rounded-2xl bg-bg2 px-5 py-6 text-center text-sm text-mute leading-relaxed">
+        Los planes se contratan desde el panel web. Si ya tienes cuenta, inicia
+        sesión para entrar.
+      </div>
+    );
+  }
   const plan = plans.find((p) => p.id === selected) ?? plans[0];
   if (!plan) return null;
   const mensualPlan = plans.find((p) => p.id === 'mensual');
@@ -88,12 +102,45 @@ export function LandingPricingCheckout({
   // Pago → datos: persistimos el plan elegido para que /activar lo
   // recupere post-pago y abrimos el checkout de Hotmart directo. La
   // atribución del referido (ref/via/utm) ya está en localStorage (RefCapture).
+  //
+  // ATRIBUCIÓN ROBUSTA (2026-08-15): además del localStorage (que se pierde si
+  // paga otra persona / otro dispositivo / incógnito), inyectamos el código del
+  // afiliado como `?src=<code>` en la URL de Hotmart. Hotmart lo devuelve en el
+  // webhook como `purchase.tracking.source` y el backend
+  // (ensureAffiliateAttributionFromSrc) atribuye server-side aunque el
+  // localStorage no sobreviva el ida-y-vuelta del pago. Sin esto, una compra por
+  // el link del afiliado llegaba a Hotmart con tracking vacío → negocio sin
+  // afiliado (caso Monet, comprador ≠ dueño de la cuenta).
   function goToCheckout() {
     if (!plan.checkoutUrl) return;
     try {
       localStorage.setItem('clubify:plan-period', plan.id);
     } catch {}
-    window.location.href = plan.checkoutUrl;
+    let url = plan.checkoutUrl;
+    try {
+      const ref = localStorage.getItem('clubify:ref');
+      if (ref) {
+        const u = new URL(url, window.location.origin);
+        const existing = u.searchParams.get('src');
+        // FIX 2026-08-18: si el checkout ya trae el token de MARCA (src=wl_<uuid>,
+        // que inyecta el Master Admin para rutear créditos), COMBINAMOS en vez de
+        // descartar el afiliado: `<CODE>-wl_<uuid>` lleva afiliado Y marca. El
+        // backend parsea ambos por separado. Antes se perdía el afiliado en toda
+        // compra de marca blanca por link de referido (caso Taquería).
+        if (!existing) {
+          u.searchParams.set('src', ref);
+        } else if (
+          /wl[_-]/i.test(existing) &&
+          !existing.toUpperCase().includes(ref.toUpperCase())
+        ) {
+          u.searchParams.set('src', `${ref}-${existing}`);
+        }
+        url = u.toString();
+      }
+    } catch {
+      // URL inválida o sin acceso a storage → seguimos con la URL cruda.
+    }
+    window.location.href = url;
   }
 
   return (

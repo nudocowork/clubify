@@ -1,7 +1,7 @@
 {
-  "name": "Clubify · Escáner",
-  "short_name": "Clubify",
-  "description": "Escáner de tarjetas y pases Clubify para staff",
+  "name": "Escáner de fidelización",
+  "short_name": "Escáner",
+  "description": "Escáner de tarjetas y pases de fidelización para staff",
   "id": "/scan",
   "start_url": "/scan",
   "scope": "/",

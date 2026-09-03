@@ -53,6 +53,11 @@ class PublicOrderBody {
   // según la ruta (`/m/<slug>` vs `/m/<slug>/delivery`) y lo guardamos
   // para reportes y para futuras reglas de negocio per-canal.
   @IsOptional() @IsIn(['MESA', 'DELIVERY']) mode?: 'MESA' | 'DELIVERY';
+  // Método de pago declarado por el cliente (informativo). PDF 2026-07-25.
+  @IsOptional()
+  @IsIn(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA', 'OTRO'])
+  customerPaymentMethod?: string;
+  @IsOptional() @IsString() @MaxLength(80) customerPaymentOther?: string;
 }
 
 class PublicRateBody {

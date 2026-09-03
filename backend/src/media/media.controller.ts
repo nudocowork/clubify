@@ -29,8 +29,19 @@ import { Public } from '../common/decorators/public.decorator';
   'AFFILIATE_INFLUENCER',
   'AFFILIATE_AMBASSADOR',
   'AFFILIATE_SOCIO',
+  // Cuponera: el aliado sube su logo y sus fotos desde el portal, y el admin de
+  // la cuponera los suyos. Sin estos dos, "adjuntar logo" devolvía 403 y el
+  // único camino era pegar una URL.
+  'ALLY_BUSINESS',
+  'CUPONERA_ADMIN',
 )
 export class MediaController {
+  // Bucket público del Onboarding (Supabase). Las fotos que el onboarding sube
+  // y sincroniza a Clubify viven acá; se permiten en el proxy de media para que
+  // el menú/cropper puedan leerlas. Path restringido a /storage/v1/object/public.
+  private static readonly ONBOARDING_SUPABASE_HOST =
+    'ugbqfcogmqkuhhepecfq.supabase.co';
+
   constructor(private svc: MediaService) {}
 
   @Get('config')
@@ -86,7 +97,14 @@ export class MediaController {
     } catch {
       throw new BadRequestException('url inválida');
     }
-    if (parsed.protocol !== 'https:' || parsed.host !== baseHost) {
+    // Allowlist del bucket del Onboarding (Supabase): las fotos del menú/branding
+    // sincronizadas viven en su bucket público. Se acepta SOLO ese host + el path
+    // público de storage (mantiene la protección anti-SSRF: host exacto + prefijo).
+    const isOwnBucket = parsed.host === baseHost;
+    const isOnboardingBucket =
+      parsed.host === MediaController.ONBOARDING_SUPABASE_HOST &&
+      parsed.pathname.startsWith('/storage/v1/object/public/');
+    if (parsed.protocol !== 'https:' || (!isOwnBucket && !isOnboardingBucket)) {
       throw new BadRequestException('Solo URLs de nuestro bucket');
     }
     const r = await fetch(url, { signal: AbortSignal.timeout(15000) }).catch(() => {

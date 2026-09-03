@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
+import { planDisplayName, type PlanPeriodicity } from '@/lib/plan-format';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -296,9 +297,9 @@ export default function VendorsReportPage() {
                             <td className="p-2">{fmtDate(s.signedUpAt)}</td>
                             <td className="p-2">{s.brandName}</td>
                             <td className="p-2">
-                              {s.planName ?? '—'}
-                              {s.planPeriodicity && (
-                                <span className="text-mute"> · {s.planPeriodicity}</span>
+                              {planDisplayName(
+                                s.planName,
+                                (s.planPeriodicity as PlanPeriodicity | null) ?? null,
                               )}
                             </td>
                             <td className="p-2">{s.tenantStatus}</td>

@@ -18,7 +18,9 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { SuperAdminService } from './superadmin.service';
 
 class MessageTemplateBody {
-  @IsOptional() @IsString() @MaxLength(2000) text?: string | null;
+  @IsOptional() @IsString() @MaxLength(4000) text?: string | null;
+  /** Solo canal EMAIL: asunto del correo. */
+  @IsOptional() @IsString() @MaxLength(200) subject?: string | null;
 }
 class FolderBody {
   @IsString() @MaxLength(60) name!: string;
@@ -28,6 +30,19 @@ class MoveBody {
 }
 class EnabledBody {
   @IsBoolean() enabled!: boolean;
+}
+class TestPhoneBody {
+  @IsOptional() @IsString() @MaxLength(30) phone?: string;
+}
+class TestSendBody {
+  @IsOptional() @IsString() @MaxLength(2000) text?: string | null;
+}
+class TestEmailAddrBody {
+  @IsOptional() @IsString() @MaxLength(160) email?: string;
+}
+class TestEmailSendBody {
+  @IsOptional() @IsString() @MaxLength(200) subject?: string | null;
+  @IsOptional() @IsString() @MaxLength(4000) body?: string | null;
 }
 
 /**
@@ -61,6 +76,64 @@ export class AdminAutomationsController {
     return this.svc.getBrandMessageTemplates(await this.resolveBrandId(user));
   }
 
+  /**
+   * Enlace de conexión de WhatsApp de la marca (lo pega el super admin en
+   * /superadmin). El panel /admin lo convierte en un QR (Automatizaciones → QR
+   * WhatsApp) sin mostrar el texto. Devuelve solo al admin de la propia marca.
+   */
+  @Get('whatsapp-qr')
+  async whatsappQr(@CurrentUser() user: AuthUser) {
+    const brandId = await this.resolveBrandId(user);
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: brandId },
+      select: { whatsappQrUrl: true },
+    });
+    return { url: wl?.whatsappQrUrl?.trim() || null };
+  }
+
+  /** Guarda el número de prueba de la marca. */
+  @Patch('test-phone')
+  async setTestPhone(@Body() body: TestPhoneBody, @CurrentUser() user: AuthUser) {
+    return this.svc.setBrandTestPhone(await this.resolveBrandId(user), body.phone ?? '', user.id);
+  }
+
+  /** Guarda el correo de prueba de la marca. */
+  @Patch('test-email')
+  async setTestEmail(
+    @Body() body: TestEmailAddrBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.setBrandTestEmail(
+      await this.resolveBrandId(user),
+      body.email ?? '',
+      user.id,
+    );
+  }
+
+  /** Manda el correo de una automatización al correo de prueba guardado. */
+  @Post('message-templates/:templateId/test-email')
+  async testEmailTemplate(
+    @Param('templateId') templateId: string,
+    @Body() body: TestEmailSendBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.testBrandEmailTemplate(
+      await this.resolveBrandId(user),
+      templateId,
+      { subject: body.subject, body: body.body },
+    );
+  }
+
+  /** Envía un SMS de prueba de una plantilla al número guardado. */
+  @Post('message-templates/:templateId/test')
+  async test(
+    @Param('templateId') templateId: string,
+    @Body() body: TestSendBody,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.svc.testBrandMessage(await this.resolveBrandId(user), templateId, body.text ?? null);
+  }
+
   @Patch('message-templates/:templateId')
   async update(
     @Param('templateId') templateId: string,
@@ -72,6 +145,7 @@ export class AdminAutomationsController {
       templateId,
       body.text ?? null,
       user.id,
+      body.subject,
     );
   }
 

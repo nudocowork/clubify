@@ -3,7 +3,9 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
-// #14 (2026-06-17): config de alertas SMS de domicilio. Movida de la vista
+// #14 (2026-06-17): config de alertas de domicilio por WhatsApp (el envío usa el
+// canal SMS — wazzap.mx lo entrega como WhatsApp; en la UI decimos "WhatsApp").
+// Movida de la vista
 // del dueño (/app/settings) a super-admin (/admin/tenants/[id]). Componente
 // compartido y agnóstico del endpoint: `savePath` (PATCH) y `testPath` (POST)
 // se pasan por props para reusar contra /tenants/me o /tenants/:id.
@@ -89,7 +91,7 @@ export function DeliveryAlertsCard<T extends DeliveryAlertsData>({
       return;
     }
     if (enabled && events.length === 0) {
-      toast('Elige al menos un evento que dispare el SMS', 'error');
+      toast('Elige al menos un evento que dispare el WhatsApp', 'error');
       return;
     }
     setSaving(true);
@@ -124,8 +126,8 @@ export function DeliveryAlertsCard<T extends DeliveryAlertsData>({
       }>(testPath, { method: 'POST', body: JSON.stringify({ phones }) });
       if (res?.ok) {
         toast(
-          `SMS aceptado por el proveedor para ${res.okCount}/${res.total} número(s). ` +
-            'Si no llega en 1-2 min, verifica que la subcuenta pueda enviar SMS a ese país.',
+          `WhatsApp aceptado por el proveedor para ${res.okCount}/${res.total} número(s). ` +
+            'Si no llega en 1-2 min, verifica que la subcuenta pueda enviar a ese país.',
           'success',
         );
       } else {
@@ -133,7 +135,7 @@ export function DeliveryAlertsCard<T extends DeliveryAlertsData>({
         toast(
           firstErr
             ? `No se pudo enviar: ${firstErr}`
-            : 'Ningún SMS pudo enviarse — revisa credenciales y números',
+            : 'Ningún WhatsApp pudo enviarse — revisa credenciales y números',
           'error',
         );
       }
@@ -152,7 +154,7 @@ export function DeliveryAlertsCard<T extends DeliveryAlertsData>({
   return (
     <div className="card card-pad mb-4">
       <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-        🛵 Alertas SMS de domicilio
+        🛵 Alertas de domicilio por WhatsApp
         {enabled ? (
           <span className="text-[10px] font-bold uppercase tracking-wider bg-ok/15 text-ok px-2 py-0.5 rounded-full">
             Activas
@@ -164,8 +166,8 @@ export function DeliveryAlertsCard<T extends DeliveryAlertsData>({
         )}
       </h2>
       <p className="text-xs text-mute mt-1 leading-relaxed">
-        Manda un SMS automático a una o varias empresas/personas de domicilio
-        cuando un pedido delivery cambia de estado.
+        Manda un WhatsApp automático a una o varias empresas/personas de
+        domicilio cuando un pedido delivery cambia de estado.
       </p>
 
       <div className="mt-4 space-y-4">
@@ -177,10 +179,10 @@ export function DeliveryAlertsCard<T extends DeliveryAlertsData>({
             className="w-5 h-5 accent-brand"
           />
           <div>
-            <div className="font-semibold text-sm">Activar alertas SMS</div>
+            <div className="font-semibold text-sm">Activar alertas por WhatsApp</div>
             <div className="text-[11px] text-mute leading-snug">
-              Si está prendido, los SMS salen automáticamente en los eventos que
-              elijas abajo.
+              Si está prendido, los mensajes salen automáticamente en los eventos
+              que elijas abajo.
             </div>
           </div>
         </label>
@@ -233,7 +235,7 @@ export function DeliveryAlertsCard<T extends DeliveryAlertsData>({
         </div>
 
         <div>
-          <label className="label">Eventos que disparan el SMS</label>
+          <label className="label">Eventos que disparan el WhatsApp</label>
           <div className="space-y-1">
             {DELIVERY_EVENT_OPTIONS.map((opt) => (
               <label
@@ -264,10 +266,10 @@ export function DeliveryAlertsCard<T extends DeliveryAlertsData>({
             title={
               phones.length === 0
                 ? 'Agrega al menos un teléfono'
-                : 'Manda un SMS de prueba ya mismo'
+                : 'Manda un WhatsApp de prueba ya mismo'
             }
           >
-            {testing ? 'Enviando…' : '📤 Probar SMS'}
+            {testing ? 'Enviando…' : '📤 Probar WhatsApp'}
           </button>
           <button
             type="button"

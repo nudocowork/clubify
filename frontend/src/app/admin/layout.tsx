@@ -11,6 +11,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <AppShell
       variant="admin"
       serverBrandColor={brand?.primaryColor ?? null}
+      serverBrandBackground={brand?.backgroundColor ?? null}
       serverBrandLogo={brand?.logoUrl ?? null}
       serverBrandName={brand?.name ?? null}
     >

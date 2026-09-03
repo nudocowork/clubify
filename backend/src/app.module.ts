@@ -19,7 +19,10 @@ import { LocationsModule } from './locations/locations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ReferralsModule } from './referrals/referrals.module';
 import { AccountingModule } from './accounting/accounting.module';
+import { FinanceModule } from './finance/finance.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
+import { CuponeraModule } from './cuponera/cuponera.module';
+import { ConveniosModule } from './convenios/convenios.module';
 import { BadgesModule } from './badges/badges.module';
 import { AffiliateModule } from './affiliate/affiliate.module';
 import { PayoutsModule } from './payouts/payouts.module';
@@ -36,6 +39,7 @@ import { ChannelsModule } from './channels/channels.module';
 import { AutomationsModule } from './automations/automations.module';
 import { MediaModule } from './media/media.module';
 import { InfoLinksModule } from './info-links/info-links.module';
+import { InfoPagesModule } from './info-pages/info-pages.module';
 import { CrmModule } from './crm/crm.module';
 import { SequencesModule } from './sequences/sequences.module';
 import { SalesTeamsModule } from './sales-teams/sales-teams.module';
@@ -47,6 +51,7 @@ import { BillingModule } from './billing/billing.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { SettingsModule } from './settings/settings.module';
 import { SystemHealthModule } from './system-health/system-health.module';
+import { ServerStatusModule } from './server-status/server-status.module';
 import { SupportModule } from './support/support.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { QrPostersModule } from './qr-posters/qr-posters.module';
@@ -66,6 +71,8 @@ import { SuperAdminModule } from './superadmin/superadmin.module';
 import { DeliveryModule } from './delivery/delivery.module';
 import { ServiceReservationsModule } from './service-reservations/service-reservations.module';
 import { OnboardingSyncModule } from './onboarding-sync/onboarding-sync.module';
+import { AcademyModule } from './academy/academy.module';
+import { MarketingModule } from './marketing/marketing.module';
 
 @Module({
   imports: [
@@ -93,7 +100,14 @@ import { OnboardingSyncModule } from './onboarding-sync/onboarding-sync.module';
     NotificationsModule,
     ReferralsModule,
     AccountingModule,
+    FinanceModule,
     CampaignsModule,
+    // Cuponera / Living Card. NO confundir con CampaignsModule (afiliados/referidos):
+    // son módulos distintos que comparten la palabra 'campaña'. Se desregistró el
+    // 2026-07-17 en 149e58c porque backend/src/cuponera/ todavía no estaba en el
+    // repo (import colgante rompía el build); la carpeta ya está commiteada.
+    CuponeraModule,
+    ConveniosModule,
     BadgesModule,
     AffiliateModule,
     PayoutsModule,
@@ -110,6 +124,7 @@ import { OnboardingSyncModule } from './onboarding-sync/onboarding-sync.module';
     OrdersModule,
     MediaModule,
     InfoLinksModule,
+    InfoPagesModule,
     CrmModule,
     SequencesModule,
     SalesTeamsModule,
@@ -121,6 +136,7 @@ import { OnboardingSyncModule } from './onboarding-sync/onboarding-sync.module';
     IntegrationsModule,
     SettingsModule,
     SystemHealthModule,
+    ServerStatusModule,
     SupportModule,
     ReviewsModule,
     QrPostersModule,
@@ -140,6 +156,8 @@ import { OnboardingSyncModule } from './onboarding-sync/onboarding-sync.module';
     DeliveryModule,
     ServiceReservationsModule,
     OnboardingSyncModule,
+    AcademyModule,
+    MarketingModule,
   ],
   providers: [
     // Sin esto, `ThrottlerModule.forRoot()` y los `@Throttle({...})` por

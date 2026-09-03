@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestj
 import { IsArray, IsBoolean, IsEnum, IsHexColor, IsIn, IsInt, IsOptional, IsString, Min, ValidateIf } from 'class-validator';
 import { CardType } from '@prisma/client';
 import { CardsService } from './cards.service';
+import { WalletService } from '../wallet/wallet.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 
@@ -14,6 +15,8 @@ class CardBody {
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() terms?: string;
   @IsOptional() @IsBoolean() termsEnabled?: boolean;
+  // PDF Software(8): muestra la casilla de políticas de datos en el registro.
+  @IsOptional() @IsBoolean() dataPolicyEnabled?: boolean;
   @IsOptional() @IsHexColor() primaryColor?: string;
   @IsOptional() @IsHexColor() secondaryColor?: string;
   // Colores avanzados — null = limpiar y volver a default.
@@ -21,6 +24,12 @@ class CardBody {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() stampInactiveColor?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() stampContourColor?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() centerBgColor?: string | null;
+  // Chip/fondo detrás del logo (header del pase + preview). null = sin chip.
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsHexColor() logoBgColor?: string | null;
+  // Wallet V3 — fondo del área de sellos. GRADIENT (legacy) | SOLID (uniforme) | IMAGE.
+  @IsOptional() @IsIn(['GRADIENT', 'SOLID', 'IMAGE']) stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampBgImageUrl?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampIconImageUrl?: string | null;
   @IsOptional() @IsString() logoUrl?: string;
   @IsOptional() @IsString() heroImageUrl?: string;
   @IsOptional() @IsString() iconUrl?: string;
@@ -59,6 +68,17 @@ class CardBody {
   // multiRewards: [{at:5, reward:"5% off"}, {at:10, reward:"10% off"}]
   // activeLinks: [{type:"URL"|"PHONE"|"EMAIL"|"ADDRESS", url, label}]
   @IsOptional() multiRewards?: Array<{ at: number; reward: string }>;
+  // Wallet V3 — Premios Free: premios intermedios ilimitados dibujados dentro
+  // del círculo en su posición. El backend normaliza/sanea la forma en el service.
+  @IsOptional() @IsArray() freeRewards?: Array<{
+    id?: string;
+    pos: number;
+    text?: string;
+    emoji?: string;
+    circleColor?: string;
+    textColor?: string;
+    active?: boolean;
+  }>;
   @IsOptional() activeLinks?: Array<{ type: string; url: string; label: string }>;
   @IsOptional() socialLinks?: Record<string, string>;
   @IsOptional() @IsString() stampIcon?: string;
@@ -69,12 +89,57 @@ class CardBody {
   // tipos).
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString()
   transformIntoCardId?: string | null;
+  // false = el cupón se canjea y ahí termina, sin convertirse en nada.
+  // `transformIntoCardId: null` no servía para expresarlo: null ya significa
+  // "auto, la primera tarjeta de sellos activa".
+  @IsOptional() @IsBoolean() transformOnRedeem?: boolean;
+}
+
+// Preview REAL del strip de sellos (imagen PNG generada por Sharp, la misma que
+// recibe el cliente en su Wallet) para config aún NO guardada. Todos los campos
+// son opcionales — el generador aplica defaults. Debe declarar cada campo por el
+// ValidationPipe (whitelist + forbidNonWhitelisted): un campo no listado que
+// llegue en el body haría fallar la request.
+class PreviewStripsBody {
+  @IsOptional() @IsString() primaryColor?: string;
+  @IsOptional() @IsString() secondaryColor?: string;
+  @IsOptional() @IsInt() @Min(1) stampsRequired?: number;
+  @IsOptional() @IsString() stampIcon?: string;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampIconImageUrl?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampActiveColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampInactiveColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampContourColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() centerBgColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() logoBgColor?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() heroImageUrl?: string | null;
+  @IsOptional() @IsIn(['GRADIENT', 'SOLID', 'IMAGE']) stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampBgImageUrl?: string | null;
+  @IsOptional() @IsArray() freeRewards?: Array<{
+    pos: number;
+    text?: string;
+    emoji?: string;
+    circleColor?: string;
+    textColor?: string;
+    active?: boolean;
+  }>;
 }
 
 @Controller('cards')
 @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN')
 export class CardsController {
-  constructor(private svc: CardsService) {}
+  constructor(
+    private svc: CardsService,
+    private wallet: WalletService,
+  ) {}
+
+  // Preview REAL del cartón de sellos (imagen PNG del generador de producción)
+  // en 3 estados: vacío / mitad / completo. Devuelve data URLs base64 para
+  // pintarlas con <img> sin problemas de auth. La ruta '/preview-strips' es un
+  // POST distinto del '@Post()' de creación → no colisiona.
+  @Post('preview-strips')
+  previewStrips(@Body() body: PreviewStripsBody) {
+    return this.wallet.previewStampStrips(body);
+  }
 
   @Get()
   list(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {

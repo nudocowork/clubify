@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtService } from '@nestjs/jwt';
 import { customAlphabet } from 'nanoid';
@@ -15,6 +15,10 @@ import { CommissionRecalcService } from './commission-recalc.service';
 import { AuditService } from '../audit/audit.service';
 import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
+import { recalcBatchTotal } from './payout-batch.util';
+import { bogotaYmd, daysBetweenYmd } from './cutoff-calendar';
+import { cambiarSlugConAlias } from './slug-alias';
+import { brandBaseUrl, BRAND_DOMAIN_SELECT } from '../email/brand-email-creds.util';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -38,6 +42,24 @@ function effectiveAvailableAt(c: {
 }): Date {
   if (c.availableAt) return new Date(c.availableAt);
   return new Date(new Date(c.createdAt).getTime() + COMMISSION_HOLD_DAYS * 86400000);
+}
+
+// availableAt (desbloqueo del hold) = fecha del cobro + 15d, SIEMPRE anclado a
+// la fecha real del cobro (lastChargeAt), NO a "hoy".
+//
+// FIX 2026-08-31: antes había un clamp (GUARD B6/R4) que, si el cobro era >2
+// días viejo, re-anclaba el desbloqueo a HOY. Pero `businessDate` se guarda con
+// la fecha CRUDA del cobro (sin clamp) → cuando una renovación se creaba tarde
+// (webhook demorado o el cron de reintentos de Hotmart), availableAt saltaba a
+// hoy+15 mientras businessDate quedaba en la fecha real → DIVERGÍAN: el
+// desbloqueo caía ~40-50 días tarde y la comisión iba al corte equivocado
+// (casos Motilart 22-jul→14-sep y Quipao 15-jul→30-ago). El clamp protegía una
+// heurística de FECHA hoy OBSOLETA: `businessDate` ya es la fecha durable que
+// lee el panel, así que availableAt puede (y debe) nacer en el pasado para una
+// renovación vieja — significa que su hold de 15 días ya venció y está lista.
+function holdReleaseFrom(charge: Date | null | undefined): Date {
+  const c = charge ? new Date(charge).getTime() : Date.now();
+  return new Date(c + COMMISSION_HOLD_DAYS * 86400000);
 }
 
 // Días restantes hasta que una comisión se desbloquee (0 si ya está
@@ -115,13 +137,37 @@ export class ReferralsService {
       },
     });
     if (!code) throw new NotFoundException('Código no encontrado');
-    if (!code.ownerUserId) {
-      throw new BadRequestException(
-        'Este código no tiene un usuario afiliado vinculado todavía.',
-      );
+
+    // Auto-sanar: si el código no tiene usuario vinculado pero YA existe una
+    // cuenta afiliado con el email del owner (creada pero nunca linkeada por
+    // una invitación que falló), la vinculamos al vuelo. Si NO hay cuenta, el
+    // admin debe crearla con el botón "Contraseña" (🔑) primero.
+    let ownerUserId = code.ownerUserId;
+    if (!ownerUserId) {
+      const byEmail = code.ownerEmail
+        ? await this.prisma.user.findUnique({
+            where: { email: code.ownerEmail.toLowerCase().trim() },
+            select: { id: true, role: true },
+          })
+        : null;
+      if (byEmail && byEmail.role.startsWith('AFFILIATE_')) {
+        await this.prisma.referralCode.update({
+          where: { id: code.id },
+          data: { ownerUserId: byEmail.id },
+        });
+        ownerUserId = byEmail.id;
+        this.logger.log(
+          `Auto-vinculado ReferralCode ${code.code} → user ${byEmail.id} (${code.ownerEmail}) al impersonar.`,
+        );
+      } else {
+        throw new BadRequestException(
+          'Este afiliado todavía no tiene cuenta de acceso. Usá el botón "Contraseña" para crearle una y luego entrá al panel.',
+        );
+      }
     }
+
     const owner = await this.prisma.user.findUnique({
-      where: { id: code.ownerUserId },
+      where: { id: ownerUserId },
       select: { id: true, email: true, fullName: true, role: true, tenantId: true, isActive: true },
     });
     if (!owner || !owner.isActive) {
@@ -241,6 +287,22 @@ export class ReferralsService {
       });
     }
 
+    // 3) Ruta ANTERIOR del afiliado. El slug es la ruta real, no un
+    // redirector: al cambiarla, los enlaces ya repartidos morían con 404.
+    // Acá se recuperan — mismo código, misma atribución, misma visita.
+    if (!code) {
+      const alias = await this.prisma.referralSlugAlias.findUnique({
+        where: { slug: clean },
+        select: { referralCodeId: true },
+      });
+      if (alias) {
+        code = await this.prisma.referralCode.findUnique({
+          where: { id: alias.referralCodeId },
+          select,
+        });
+      }
+    }
+
     // Loguear visita siempre (incluso si slug no existe) — fire-and-forget.
     this.prisma.referralVisit
       .create({
@@ -273,22 +335,23 @@ export class ReferralsService {
     const target = await this.prisma.referralCode.findUnique({ where: { id } });
     if (!target) throw new NotFoundException('code not found');
 
-    const clean = (newSlug ?? '').toLowerCase().trim();
-    const finalSlug = clean
-      ? this.slugify(clean) || target.code.toLowerCase()
-      : target.code.toLowerCase();
+    // Vacío = volver a la ruta por defecto (el código en minúsculas).
+    const pedido = (newSlug ?? '').trim() || target.code.toLowerCase();
 
-    if (finalSlug === target.slug) return target;
-
-    const taken = await this.prisma.referralCode.findUnique({ where: { slug: finalSlug } });
-    if (taken && taken.id !== id) {
-      throw new BadRequestException(`slug "${finalSlug}" ya está en uso`);
-    }
-
-    return this.prisma.referralCode.update({
-      where: { id },
-      data: { slug: finalSlug },
+    // El admin SÍ puede usar una ruta reservada y bajar del mínimo de 3: a
+    // veces necesita dejar exactamente la que el afiliado ya repartió.
+    // La anterior queda como alias y los enlaces viejos siguen funcionando.
+    const finalSlug = await cambiarSlugConAlias(this.prisma, {
+      codeId: id,
+      slugActual: target.slug,
+      nuevo: pedido,
+      permitirReservados: true,
+      minimo: 1,
     });
+
+    return this.prisma.referralCode.findUnique({ where: { id } }).then(
+      (r) => r ?? { ...target, slug: finalSlug },
+    );
   }
 
   /**
@@ -345,7 +408,18 @@ export class ReferralsService {
     }
   }
 
-  @Cron(CronExpression.EVERY_DAY_AT_4AM)
+  // DESACTIVADO 2026-07-16 (comisiones fantasma / dinero): este cron creaba
+  // comisiones de RENOVACIÓN por CALENDARIO — solo miraba `currentPeriodEnd > now`
+  // + una ventana de meses, SIN verificar un pago real de Hotmart. Cuando
+  // `currentPeriodEnd` se empujaba al futuro sin cobro (healStaleCharge, acciones
+  // manuales de admin, drift de la fecha de próximo cobro de Hotmart), fabricaba
+  // comisiones de renovaciones que nunca se cobraron (Birria Leon, Buenos Diaz,
+  // Mykoz, &N Coffee, Cocoa...). El webhook de Hotmart YA genera la comisión de
+  // renovación en cada cobro VERIFICADO (activatePurchase → generateCommissions*,
+  // dedup por transacción), así que este reconciliador de calendario es redundante
+  // y solo introducía falsos positivos. Regla del negocio: comisión SOLO con pago
+  // validado por Hotmart. Se quita el @Cron (ya no se agenda). NO reactivar sin
+  // gating por transacción Hotmart real del ciclo.
   async reconcileRecurringCommissions() {
     const now = new Date();
 
@@ -377,6 +451,7 @@ export class ReferralsService {
             planPeriodicity: true,
             subscriptionPriceUsd: true,
             lastChargeAt: true,
+            whiteLabelId: true,
             plan: { select: { priceMonthly: true } },
           },
         },
@@ -389,11 +464,19 @@ export class ReferralsService {
     });
     const indirectPct = indirectRow?.value ? Number(indirectRow.value) : 5;
 
+    // FIXED_ONCE (Sellea): esas marcas pagan comisión ÚNICA en el primer cobro;
+    // el cron recurrente NO debe generarles NADA. Precomputamos sus whiteLabelIds
+    // una sola vez → skip O(1) por tenant, sin query por-candidato.
+    const fixedOnceWlIds = await this.fixedOnceWhiteLabelIds();
+
     let created = 0;
     for (const use of candidates) {
       const cpeDate = use.tenant?.currentPeriodEnd;
       if (!cpeDate) continue;
       if (!use.tenantId) continue;
+      // Marca de pago único → sin comisión recurrente. Ya cobró su monto fijo.
+      if (use.tenant?.whiteLabelId && fixedOnceWlIds.has(use.tenant.whiteLabelId))
+        continue;
       const months = bundleMonths(use.tenant?.planPeriodicity ?? null);
       // Base = precio REAL pagado en Hotmart (subscriptionPriceUsd) si lo
       // tenemos, sino el canónico del bundle (68/150/278/500). NUNCA
@@ -439,15 +522,34 @@ export class ReferralsService {
       const periodStart =
         byLastCharge < byPeriodEnd ? byLastCharge : byPeriodEnd;
 
+      // FIX 2026-09-01 (Motilart 3er cobro sin comisión): la fecha de negocio del
+      // ciclo = fecha del cobro real (lastChargeAt). Es la que identifica a QUÉ
+      // ciclo pertenece la comisión y de la que sale el periodKey (mes de
+      // devengamiento). Antes se usaba `monthKey()` = mes en que CORRE el código:
+      // una comisión insertada tarde (backfill/reconciliación) para un ciclo viejo
+      // se estampaba con el mes de HOY, y eso (a) chocaba en la UNIQUE con el ciclo
+      // actual y (b) su createdAt reciente hacía creer que el ciclo actual ya
+      // estaba cubierto → el cobro nuevo se saltaba. Caso real: la comisión de
+      // julio de Motilart se insertó el 30-ago con periodKey '2026-08' → el cobro
+      // del 22-ago no generó comisión por ambas razones.
+      const cycleBusinessDate = use.tenant?.lastChargeAt ?? null;
+      const cyclePeriodKey = monthKey(cycleBusinessDate ?? undefined);
+
       // Helper: crea una comisión para `recipientCodeId` en este ciclo si no
-      // existe ya (dedup por ciclo de facturación + UNIQUE constraint).
+      // existe ya. Dedup por el CICLO al que pertenece la comisión
+      // (businessDate ≥ inicio de ciclo), NO por createdAt (que es cuándo se
+      // insertó la fila y puede ser mucho posterior). Filas legacy sin
+      // businessDate caen al criterio viejo (createdAt) para no re-duplicarlas.
       const ensureCommission = async (recipientCodeId: string, amount: number) => {
         if (amount <= 0) return;
         const existing = await this.prisma.commission.findFirst({
           where: {
             referralUseId: use.id,
             recipientCodeId,
-            createdAt: { gte: periodStart },
+            OR: [
+              { businessDate: { gte: periodStart } },
+              { businessDate: null, createdAt: { gte: periodStart } },
+            ],
           },
           select: { id: true },
         });
@@ -459,19 +561,21 @@ export class ReferralsService {
               amount,
               status: 'PENDING',
               recipientCodeId,
-              periodKey: monthKey(),
+              periodKey: cyclePeriodKey,
               // P3 2026-07-02: desbloqueo 15d después del pago real en Hotmart.
-              availableAt: new Date(
-                (use.tenant?.lastChargeAt ?? new Date()).getTime() +
-                  COMMISSION_HOLD_DAYS * 86400000,
-              ),
+              // GUARD B6/R4: clamp si lastChargeAt está viejo (este cron dead
+              // usaba la fecha del 1er cobro → availableAt fantasma).
+              availableAt: holdReleaseFrom(use.tenant?.lastChargeAt),
+              // businessDate CONGELA la fecha del cobro (igual que el webhook), para
+              // que el panel y el dedup por ciclo lean la misma verdad durable.
+              businessDate: cycleBusinessDate ?? undefined,
             },
           });
           created += 1;
         } catch (e: any) {
           if (e?.code === 'P2002') {
             this.logger.warn(
-              `reconcileRecurringCommissions: skip dup (useId=${use.id}, recipientCodeId=${recipientCodeId}, periodKey=${monthKey()})`,
+              `reconcileRecurringCommissions: skip dup (useId=${use.id}, recipientCodeId=${recipientCodeId}, periodKey=${cyclePeriodKey})`,
             );
             return;
           }
@@ -545,7 +649,27 @@ export class ReferralsService {
     return clubify?.id ?? null;
   }
 
-  async createCode(dto: CreateReferralDto) {
+  /**
+   * URL base para los links del afiliado (share `/ref/...`, login) SEGÚN LA MARCA
+   * dueña del código — nunca Clubify por defecto. Antes estos links usaban
+   * `process.env.APP_URL` hardcodeado (soyclubify.com) para todas las marcas, así
+   * que Sellea entregaba a sus afiliados enlaces `soyclubify.com/ref/...` y
+   * `soyclubify.com/login`, delatando la plataforma (fuga de marca blanca).
+   * Usa el dominio propio de la marca (`WhiteLabel.domain`) vía `brandBaseUrl`.
+   */
+  private async brandShareBaseUrl(
+    whiteLabelId: string | null | undefined,
+  ): Promise<string> {
+    const fallback = process.env.APP_URL ?? 'https://soyclubify.com';
+    if (!whiteLabelId) return fallback;
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: BRAND_DOMAIN_SELECT,
+    });
+    return brandBaseUrl(wl, fallback);
+  }
+
+  async createCode(dto: CreateReferralDto, host?: string | null) {
     if (!dto.fullName || !dto.email || !dto.whatsapp) {
       throw new BadRequestException('fullName, email and whatsapp required');
     }
@@ -560,6 +684,23 @@ export class ReferralsService {
     }
     const cleanSource = dto.source?.trim().slice(0, 60) || null;
     const slug = await this.allocateSlug(dto.fullName, code);
+    // Marca por HOST (Origin/Referer): el código del negocio nace bajo la marca
+    // de SU dominio (Sellea en app.selleala.com), NO bajo Clubify. Antes este
+    // endpoint público (/refer) siempre caía a Clubify → un negocio de Sellea
+    // que refería generaba comisiones DE CLUBIFY (leak). Fix 2026-08-27.
+    const brand = await this.resolveSignupBrandByHost(host);
+    const whiteLabelId = await this.resolveAffiliateWhiteLabelId({
+      parentWhiteLabelId: brand?.id ?? null,
+    });
+    // COMISIÓN FIJA (Sellea): un negocio-cliente que se auto-registra en /refer
+    // cobra el monto fijo 'negocio' ($30) UNA sola vez. Se guarda en el código
+    // para distinguirlo de un influencer creado por el admin (que cae al monto
+    // por rol). Solo si su marca está en modo FIXED_ONCE; cualquier otra marca
+    // (incl. Clubify) → null → comportamiento normal (% recurrente).
+    const fixedCommissionUsd =
+      (await this.getBrandCommissionMode(brand?.slug)) === 'FIXED_ONCE'
+        ? await this.getBrandFixedAmount(brand?.slug, 'negocio')
+        : null;
     const referral = await this.prisma.referralCode.create({
       data: {
         code,
@@ -568,8 +709,9 @@ export class ReferralsService {
         ownerEmail: dto.email,
         ownerWhatsapp: dto.whatsapp,
         commissionPercent: dto.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct,
+        fixedCommissionUsd,
         source: cleanSource,
-        whiteLabelId: await this.resolveAffiliateWhiteLabelId({}),
+        whiteLabelId,
       },
     });
 
@@ -591,7 +733,9 @@ export class ReferralsService {
       createdAccount = !!inviteResult?.password;
     }
 
-    const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
+    // Brand-aware: el link nace bajo el dominio de la marca dueña del código
+    // (Sellea → selleala.com), nunca soyclubify.com. Ver brandShareBaseUrl.
+    const appUrl = await this.brandShareBaseUrl(referral.whiteLabelId);
     return {
       ...referral,
       shareLink: `${appUrl}/ref/${slug}`,
@@ -622,8 +766,27 @@ export class ReferralsService {
    * Devuelve los códigos del usuario autenticado (matcheando por email),
    * sus usos y comisiones, listos para el panel /app/referrals.
    */
-  async listMine(user: AuthUser) {
-    if (!user.email) return { codes: [], totals: { signedUp: 0, converted: 0, paidUsd: 0, pendingUsd: 0 } };
+  /** Términos de comisión de la marca del dominio (para pintar el dashboard del
+   *  negocio Y la página pública /refer). Resuelto por Origin/Referer, no por
+   *  user.whiteLabelId (el dueño del negocio no lo lleva en el token — va por su
+   *  tenant). fixedOnce=false = marca normal (% recurrente). */
+  async referralTermsForHost(host?: string | null) {
+    const brand = await this.resolveSignupBrandByHost(host);
+    const fixedOnce =
+      (await this.getBrandCommissionMode(brand?.slug)) === 'FIXED_ONCE';
+    if (!fixedOnce) return { fixedOnce: false as const };
+    return {
+      fixedOnce: true as const,
+      negocioAmount: await this.getBrandFixedAmount(brand?.slug, 'negocio'),
+      influencerAmount: await this.getBrandFixedAmount(brand?.slug, 'influencer'),
+      embajadorAmount: await this.getBrandFixedAmount(brand?.slug, 'embajador'),
+    };
+  }
+
+  async listMine(user: AuthUser, host?: string | null) {
+    const terms = await this.referralTermsForHost(host);
+    if (!user.email)
+      return { codes: [], totals: { signedUp: 0, converted: 0, paidUsd: 0, pendingUsd: 0 }, terms };
 
     const codes = await this.prisma.referralCode.findMany({
       where: { ownerEmail: user.email },
@@ -639,7 +802,22 @@ export class ReferralsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    // Brand-aware: cada código puede pertenecer a una marca distinta; su link de
+    // compartir usa el dominio de SU marca (Sellea → selleala.com), nunca Clubify.
+    const fallbackUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const wlIds = [
+      ...new Set(codes.map((c) => c.whiteLabelId).filter((x): x is string => !!x)),
+    ];
+    const baseByWl = new Map<string, string>();
+    if (wlIds.length) {
+      const wls = await this.prisma.whiteLabel.findMany({
+        where: { id: { in: wlIds } },
+        select: { id: true, ...BRAND_DOMAIN_SELECT },
+      });
+      for (const w of wls) baseByWl.set(w.id, brandBaseUrl(w, fallbackUrl));
+    }
+    const baseFor = (wlId: string | null) =>
+      (wlId && baseByWl.get(wlId)) || fallbackUrl;
 
     let signedUp = 0;
     let converted = 0;
@@ -671,7 +849,7 @@ export class ReferralsService {
         commissionPercent: Number(c.commissionPercent),
         isActive: c.isActive,
         createdAt: c.createdAt,
-        shareLink: `${appUrl}/?ref=${c.code}`,
+        shareLink: `${baseFor(c.whiteLabelId)}/?ref=${c.code}`,
         usesCount: uses.length,
         convertedCount: uses.filter((u) => u.status === 'PAYING' || u.status === 'ACTIVE').length,
         uses: uses.map((u) => ({
@@ -694,6 +872,7 @@ export class ReferralsService {
         paidUsd: Math.round(paidUsd * 100) / 100,
         pendingUsd: Math.round(pendingUsd * 100) / 100,
       },
+      terms,
     };
   }
 
@@ -796,6 +975,31 @@ export class ReferralsService {
           patch.markContacted === true ? new Date() : patch.markContacted === false ? null : undefined,
       },
     });
+  }
+
+  /** Edición MANUAL de la FECHA de negocio (columna FECHA del panel). La fuente
+   *  de verdad de la compra es EXTERNA (capturas del dueño); la fecha real no es
+   *  derivable de la DB (ver auditoría 2026-08-14), así que el super admin la
+   *  corrige acá. Acepta 'YYYY-MM-DD' (se guarda a las 12:00 America/Bogota =
+   *  17:00 UTC, para que el día calendario no se corra) o null (revierte a la
+   *  heurística). A diferencia del backfill, ESTE camino SÍ puede sobrescribir
+   *  (es corrección manual del dueño). */
+  async setCommissionBusinessDate(id: string, dateStr: string | null) {
+    let businessDate: Date | null = null;
+    if (dateStr) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr).trim());
+      if (!m) throw new BadRequestException('Fecha inválida (usa YYYY-MM-DD)');
+      businessDate = new Date(`${m[1]}-${m[2]}-${m[3]}T17:00:00.000Z`);
+      if (isNaN(businessDate.getTime())) {
+        throw new BadRequestException('Fecha inválida');
+      }
+    }
+    const row = await this.prisma.commission.update({
+      where: { id },
+      data: { businessDate },
+      select: { id: true, businessDate: true },
+    });
+    return { ok: true, id: row.id, businessDate: row.businessDate };
   }
 
   /**
@@ -1137,6 +1341,10 @@ export class ReferralsService {
       return {
         id: c.id,
         code: c.code,
+        // El panel deja editar la ruta corta `/ref/<slug>`; sin este campo el
+        // editor no sabria que enlace esta reemplazando. Los embajadores ya
+        // lo devolvian, los influencers no.
+        slug: c.slug ?? c.code.toLowerCase(),
         ownerName: c.ownerName,
         ownerEmail: c.ownerEmail,
         ownerWhatsapp: c.ownerWhatsapp,
@@ -1167,16 +1375,25 @@ export class ReferralsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const since = new Date(Date.now() - days * 86400_000);
 
+    // AISLAMIENTO POR MARCA: visitas/conversiones solo de los códigos de la
+    // marca del admin (ReferralVisit y ReferralUse cuelgan de referralCode, que
+    // tiene whiteLabelId). Default a Clubify (nunca "ver todo").
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    const brandWhere = brandWhiteLabelWhere(scope);
+    const brandCodeWhere = Object.keys(brandWhere).length
+      ? { referralCode: brandWhere }
+      : {};
+
     const [visits, uses] = await Promise.all([
       this.prisma.referralVisit.findMany({
-        where: { createdAt: { gte: since } },
+        where: { createdAt: { gte: since }, ...brandCodeWhere },
         include: {
           referralCode: { select: { code: true, ownerName: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.referralUse.findMany({
-        where: { createdAt: { gte: since }, viaSlug: { not: null } },
+        where: { createdAt: { gte: since }, viaSlug: { not: null }, ...brandCodeWhere },
         select: { viaSlug: true, status: true },
       }),
     ]);
@@ -1452,7 +1669,7 @@ export class ReferralsService {
         return null;
       });
 
-    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const appUrl = await this.brandShareBaseUrl(created.whiteLabelId);
     const credentials = invite?.password
       ? { email, password: invite.password, loginUrl: '/login' }
       : null;
@@ -1534,23 +1751,35 @@ export class ReferralsService {
       },
     });
 
-    const invite = await this.auth
-      .inviteAffiliate({
+    let invite: Awaited<ReturnType<typeof this.auth.inviteAffiliate>> | null = null;
+    try {
+      invite = await this.auth.inviteAffiliate({
         email,
         fullName: dto.fullName.trim(),
         role: 'AFFILIATE_INFLUENCER',
         referralCodeId: created.id,
         phone: dto.whatsapp.trim(),
         presetPassword,
-      })
-      .catch((err) => {
-        this.logger.warn(
-          `inviteAffiliate (influencer) falló para ${email}: ${(err as Error).message}`,
-        );
-        return null;
       });
+    } catch (err) {
+      // Si la invitación falla, NO dejamos un código huérfano sin acceso (bug
+      // histórico: el código quedaba creado pero sin usuario → "→ Panel"
+      // fallaba para siempre). Borramos el código recién creado y devolvemos
+      // el error real para que el admin lo corrija (ej. email en conflicto).
+      await this.prisma.referralCode
+        .delete({ where: { id: created.id } })
+        .catch(() => null);
+      this.logger.warn(
+        `inviteAffiliate (influencer) falló para ${email}: ${(err as Error).message} — código ${created.code} revertido.`,
+      );
+      throw err instanceof HttpException
+        ? err
+        : new BadRequestException(
+            `No se pudo crear el acceso del influencer: ${(err as Error).message}`,
+          );
+    }
 
-    const appUrl = process.env.APP_URL ?? 'https://soyclubify.com';
+    const appUrl = await this.brandShareBaseUrl(created.whiteLabelId);
     // Si el admin fijó password, devolvemos las credenciales para que las
     // copie/comparta una sola vez (no se guardan en plain text).
     const credentials = invite?.password
@@ -1639,9 +1868,27 @@ export class ReferralsService {
           select: { id: true, code: true, ownerName: true, commissionPercent: true, role: true },
         })
       : null;
+    // Modo de comisión de la MARCA del admin (por user.whiteLabelId, no por
+    // Origin: robusto tanto si entra por su dominio como si un platform-owner
+    // la administra). En FIXED_ONCE (Sellea) el panel debe mostrar montos
+    // fijos en USD, no porcentajes. Las demás marcas → null (siguen con %).
+    const commissionMode = await this.getBrandCommissionModeByWhiteLabelId(
+      user.whiteLabelId ?? null,
+    );
+    const brandSlug = await this.slugForWhiteLabelId(user.whiteLabelId ?? null);
+    const fixed =
+      commissionMode === 'FIXED_ONCE'
+        ? {
+            negocio: await this.getBrandFixedAmount(brandSlug, 'negocio'),
+            influencer: await this.getBrandFixedAmount(brandSlug, 'influencer'),
+            embajador: await this.getBrandFixedAmount(brandSlug, 'embajador'),
+          }
+        : null;
     return {
       socioCodeId: socioId,
       socio,
+      commissionMode,
+      fixed,
       indirectPercent: Number(
         map.get('referrals.indirectPercent') ?? COMMISSION_DEFAULTS.indirectPct,
       ),
@@ -2301,13 +2548,17 @@ export class ReferralsService {
    * AMBASSADOR. Los de role SOCIO son atribuciones globales internas,
    * no la asignación "del dueño del negocio".
    */
-  async getTenantAssignment(tenantId: string) {
+  async getTenantAssignment(user: AuthUser, tenantId: string) {
     const use = await this.prisma.referralUse.findFirst({
       where: {
         tenantId,
         // #3 (2026-06-16): VENDOR también es una asignación "del dueño del
         // negocio" (vendedor directo). SOCIO sigue excluido (atribución global).
         referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] } },
+        // IDOR / aislamiento: solo si el negocio es de la marca del admin.
+        ...(user.whiteLabelId
+          ? { tenant: { whiteLabelId: user.whiteLabelId } }
+          : {}),
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -2517,6 +2768,7 @@ export class ReferralsService {
         suspendedAt: true,
         planPeriodicity: true,
         subscriptionPriceUsd: true,
+        whiteLabelId: true,
         plan: { select: { priceMonthly: true } },
       },
     });
@@ -2557,6 +2809,45 @@ export class ReferralsService {
       last &&
       (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25;
     if (recent) return;
+
+    // FIXED_ONCE (EXCLUSIVO Sellea): el backfill de una reasignación/atribución
+    // manual también debe pagar MONTO FIJO, UNA sola vez — nunca % ni 3-way.
+    // Espeja generateReferralCommission. Va ANTES del branch VENDOR para que una
+    // marca fija jamás caiga al split de porcentaje. periodKey='ONCE' → la
+    // @@unique impide un 2º pago. Sellea no tiene indirecta (rangos planos).
+    const saleSlug = await this.slugForWhiteLabelId(tenant.whiteLabelId ?? null);
+    if ((await this.getBrandCommissionMode(saleSlug)) === 'FIXED_ONCE') {
+      const fixedAmt =
+        code.fixedCommissionUsd != null
+          ? Number(code.fixedCommissionUsd)
+          : await this.getBrandFixedAmount(
+              saleSlug,
+              code.role === 'AMBASSADOR' ? 'embajador' : 'influencer',
+            );
+      await this.prisma.commission
+        .create({
+          data: {
+            referralUseId: useId,
+            amount: fixedAmt,
+            status: 'PENDING',
+            recipientCodeId: code.id,
+            periodKey: 'ONCE',
+          },
+        })
+        .catch((e: any) => {
+          if (e?.code === 'P2002') {
+            this.logger.warn(
+              `backfillCommissionForAssignment: skip dup fijo ONCE (useId=${useId}, code=${code.id})`,
+            );
+            return null;
+          }
+          throw e;
+        });
+      this.logger.log(
+        `backfill FIJO/único: ${code.role} ${code.code} $${fixedAmt} (useId=${useId})`,
+      );
+      return;
+    }
 
     // #3 (2026-06-16): VENDEDOR asignado directo a una empresa. El split
     // 3-way (influencer / embajador − vendedor / vendedor) ya lo resuelve
@@ -2854,7 +3145,7 @@ export class ReferralsService {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
     const query = (q ?? '').trim();
     const where: any = {
-      role: { in: ['INFLUENCER', 'AMBASSADOR'] },
+      role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] },
       isActive: true,
       ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
     };
@@ -3370,29 +3661,146 @@ export class ReferralsService {
   //  - affiliate.publicRegistration.influencerCommissionPct
   //  - affiliate.publicRegistration.ambassadorCommissionPct
 
-  private static readonly PUBLIC_REG_SETTING_KEYS = [
-    'affiliate.publicRegistration.enabled',
-    'affiliate.publicRegistration.allowInfluencer',
-    'affiliate.publicRegistration.allowAmbassador',
-    'affiliate.publicRegistration.influencerCommissionPct',
-    'affiliate.publicRegistration.ambassadorCommissionPct',
-  ];
+  /** Marca blanca dueña de un HOST (dominio propio) para el registro público de
+   *  afiliados. null = Clubify / dominio desconocido → usa la config GLOBAL. */
+  async resolveSignupBrandByHost(
+    host?: string | null,
+  ): Promise<{ id: string; slug: string } | null> {
+    const norm = (s?: string | null) => {
+      let v = (s ?? '').trim().toLowerCase();
+      // El frontend llama a la API en api.soyclubify.com, así que el HOST no
+      // sirve; usamos Origin/Referer, que vienen como URL (https://app.selleala
+      // .com/...). Extraemos el hostname.
+      const m = v.match(/^https?:\/\/([^/:]+)/);
+      if (m) v = m[1];
+      return v.replace(/^www\./, '').split(':')[0].split('/')[0];
+    };
+    const h = norm(host);
+    if (!h) return null;
+    const wls = await this.prisma.whiteLabel.findMany({
+      select: { id: true, slug: true, domain: true, appDomain: true },
+    });
+    const match = wls.find(
+      (w) => norm(w.appDomain) === h || norm(w.domain) === h,
+    );
+    if (!match || match.slug === 'clubify') return null;
+    return { id: match.id, slug: match.slug };
+  }
 
-  async getPublicAffiliateRegistrationConfig() {
+  /** Clave de Setting por marca: `<base>.<slug>` para marca blanca; `<base>`
+   *  global (Clubify). Cada marca opt-in por separado: NO hereda el toggle de
+   *  Clubify → aislamiento (una marca no se activa porque Clubify esté activo). */
+  private regKey(base: string, brandSlug?: string | null): string {
+    return brandSlug && brandSlug !== 'clubify' ? `${base}.${brandSlug}` : base;
+  }
+
+  /** Slug de la marca de un whiteLabelId (para que el admin de una marca edite
+   *  SU propia config). null = Clubify (config global). */
+  async slugForWhiteLabelId(id?: string | null): Promise<string | null> {
+    if (!id) return null;
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      select: { slug: true },
+    });
+    return wl?.slug && wl.slug !== 'clubify' ? wl.slug : null;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────
+  // COMISIÓN FIJA POR MARCA (EXCLUSIVO Sellea — modo FIXED_ONCE)
+  // ───────────────────────────────────────────────────────────────────────
+  // Una marca puede pagar comisiones de referido como MONTO FIJO en USD, UNA
+  // sola vez (no porcentaje, no recurrente). Opt-in por marca vía Setting
+  // `referrals.commissionMode.<slug>` = 'FIXED_ONCE'. Montos por rol/origen en
+  // `referrals.fixed.{negocio,influencer,embajador}.<slug>`. Clubify y cualquier
+  // marca SIN el flag → 'PERCENT_RECURRING' (comportamiento histórico, intacto).
+
+  /** Modo de comisión de una marca por SLUG. Clubify / sin marca nunca es fijo
+   *  → devolvemos sin tocar la DB (evita un query por cobro en el hot path). */
+  async getBrandCommissionMode(
+    brandSlug?: string | null,
+  ): Promise<'FIXED_ONCE' | 'PERCENT_RECURRING'> {
+    if (!brandSlug || brandSlug === 'clubify') return 'PERCENT_RECURRING';
+    const row = await this.prisma.setting.findUnique({
+      where: { key: this.regKey('referrals.commissionMode', brandSlug) },
+    });
+    return row?.value === 'FIXED_ONCE' ? 'FIXED_ONCE' : 'PERCENT_RECURRING';
+  }
+
+  /** Igual pero resolviendo el slug desde el whiteLabelId (el motor tiene el id
+   *  del código/tenant, no el slug). */
+  async getBrandCommissionModeByWhiteLabelId(
+    id?: string | null,
+  ): Promise<'FIXED_ONCE' | 'PERCENT_RECURRING'> {
+    if (!id) return 'PERCENT_RECURRING';
+    return this.getBrandCommissionMode(await this.slugForWhiteLabelId(id));
+  }
+
+  /** Monto fijo (USD) por rol/origen para una marca FIXED_ONCE.
+   *  kind: 'negocio' (auto-registro de un cliente en /refer) | 'influencer' |
+   *  'embajador'. Defaults = los de Sellea; sobreescribibles por Setting. */
+  async getBrandFixedAmount(
+    brandSlug: string | null | undefined,
+    kind: 'negocio' | 'influencer' | 'embajador',
+  ): Promise<number> {
+    const defaults: Record<typeof kind, number> = {
+      negocio: 30,
+      influencer: 80,
+      embajador: 40,
+    };
+    const row = await this.prisma.setting.findUnique({
+      where: { key: this.regKey(`referrals.fixed.${kind}`, brandSlug) },
+    });
+    const n = Number(row?.value);
+    return Number.isFinite(n) && n > 0 ? n : defaults[kind];
+  }
+
+  /** whiteLabelIds de TODAS las marcas en modo FIXED_ONCE (2 queries). Lo usan
+   *  los crons/recalcs recurrentes para SALTAR esas marcas: su comisión es única
+   *  (se paga en el primer cobro), nunca recurrente. */
+  async fixedOnceWhiteLabelIds(): Promise<Set<string>> {
+    const base = 'referrals.commissionMode.';
+    const rows = await this.prisma.setting.findMany({
+      where: { key: { startsWith: base }, value: 'FIXED_ONCE' },
+      select: { key: true },
+    });
+    const slugs = rows.map((r) => r.key.slice(base.length)).filter(Boolean);
+    if (!slugs.length) return new Set();
+    const wls = await this.prisma.whiteLabel.findMany({
+      where: { slug: { in: slugs } },
+      select: { id: true },
+    });
+    return new Set(wls.map((w) => w.id));
+  }
+
+  /** Config del registro público resuelta por HOST (endpoint público). */
+  async getPublicAffiliateRegistrationConfigForHost(host?: string | null) {
+    const brand = await this.resolveSignupBrandByHost(host);
+    return this.getPublicAffiliateRegistrationConfig(brand?.slug);
+  }
+
+  async getPublicAffiliateRegistrationConfig(brandSlug?: string | null) {
+    const k = (base: string) => this.regKey(base, brandSlug);
+    const keys = [
+      k('affiliate.publicRegistration.enabled'),
+      k('affiliate.publicRegistration.allowInfluencer'),
+      k('affiliate.publicRegistration.allowAmbassador'),
+      k('affiliate.publicRegistration.influencerCommissionPct'),
+      k('affiliate.publicRegistration.ambassadorCommissionPct'),
+    ];
     const settings = await this.prisma.setting.findMany({
-      where: { key: { in: ReferralsService.PUBLIC_REG_SETTING_KEYS } },
+      where: { key: { in: keys } },
     });
     const map = new Map(settings.map((s) => [s.key, s.value]));
-    const enabled = map.get('affiliate.publicRegistration.enabled') === 'true';
+    const enabled = map.get(k('affiliate.publicRegistration.enabled')) === 'true';
     const allowInfluencer =
-      map.get('affiliate.publicRegistration.allowInfluencer') !== 'false';
+      map.get(k('affiliate.publicRegistration.allowInfluencer')) !== 'false';
     const allowAmbassador =
-      map.get('affiliate.publicRegistration.allowAmbassador') !== 'false';
+      map.get(k('affiliate.publicRegistration.allowAmbassador')) !== 'false';
     const influencerCommissionPct = Number(
-      map.get('affiliate.publicRegistration.influencerCommissionPct') ?? '10',
+      map.get(k('affiliate.publicRegistration.influencerCommissionPct')) ?? '10',
     );
     const ambassadorCommissionPct = Number(
-      map.get('affiliate.publicRegistration.ambassadorCommissionPct') ?? '15',
+      map.get(k('affiliate.publicRegistration.ambassadorCommissionPct')) ?? '15',
     );
     return {
       enabled,
@@ -3403,32 +3811,36 @@ export class ReferralsService {
     };
   }
 
-  async updatePublicAffiliateRegistrationConfig(patch: {
-    enabled?: boolean;
-    allowInfluencer?: boolean;
-    allowAmbassador?: boolean;
-    influencerCommissionPct?: number;
-    ambassadorCommissionPct?: number;
-  }) {
+  async updatePublicAffiliateRegistrationConfig(
+    patch: {
+      enabled?: boolean;
+      allowInfluencer?: boolean;
+      allowAmbassador?: boolean;
+      influencerCommissionPct?: number;
+      ambassadorCommissionPct?: number;
+    },
+    brandSlug?: string | null,
+  ) {
+    const k = (base: string) => this.regKey(base, brandSlug);
     const writes: Array<[string, string]> = [];
     if (patch.enabled !== undefined) {
-      writes.push(['affiliate.publicRegistration.enabled', String(patch.enabled)]);
+      writes.push([k('affiliate.publicRegistration.enabled'), String(patch.enabled)]);
     }
     if (patch.allowInfluencer !== undefined) {
-      writes.push(['affiliate.publicRegistration.allowInfluencer', String(patch.allowInfluencer)]);
+      writes.push([k('affiliate.publicRegistration.allowInfluencer'), String(patch.allowInfluencer)]);
     }
     if (patch.allowAmbassador !== undefined) {
-      writes.push(['affiliate.publicRegistration.allowAmbassador', String(patch.allowAmbassador)]);
+      writes.push([k('affiliate.publicRegistration.allowAmbassador'), String(patch.allowAmbassador)]);
     }
     if (patch.influencerCommissionPct !== undefined) {
       writes.push([
-        'affiliate.publicRegistration.influencerCommissionPct',
+        k('affiliate.publicRegistration.influencerCommissionPct'),
         String(Math.max(0, Math.min(100, patch.influencerCommissionPct))),
       ]);
     }
     if (patch.ambassadorCommissionPct !== undefined) {
       writes.push([
-        'affiliate.publicRegistration.ambassadorCommissionPct',
+        k('affiliate.publicRegistration.ambassadorCommissionPct'),
         String(Math.max(0, Math.min(100, patch.ambassadorCommissionPct))),
       ]);
     }
@@ -3439,7 +3851,7 @@ export class ReferralsService {
         update: { value },
       });
     }
-    return this.getPublicAffiliateRegistrationConfig();
+    return this.getPublicAffiliateRegistrationConfig(brandSlug);
   }
 
   async selfRegisterAffiliate(
@@ -3452,8 +3864,12 @@ export class ReferralsService {
       country?: string;
     },
     ip?: string,
+    host?: string | null,
   ) {
-    const config = await this.getPublicAffiliateRegistrationConfig();
+    // Marca por el HOST (dominio propio, ej. app.selleala.com): la config y el
+    // afiliado se AÍSLAN por marca. null = Clubify → config global.
+    const brand = await this.resolveSignupBrandByHost(host);
+    const config = await this.getPublicAffiliateRegistrationConfig(brand?.slug);
     if (!config.enabled) {
       throw new BadRequestException('El registro público de afiliados no está habilitado.');
     }
@@ -3470,7 +3886,20 @@ export class ReferralsService {
       dto.role === 'INFLUENCER'
         ? config.influencerCommissionPct
         : config.ambassadorCommissionPct;
-    if (commissionPercent <= 0) {
+    // COMISIÓN FIJA (Sellea): el afiliado que se auto-registra cobra el monto
+    // fijo de pago único de su rol ($80 influencer / $40 embajador), NO el %.
+    // Antes se guardaba solo commissionPercent → un afiliado de Sellea nacía en
+    // modo porcentaje, incoherente con el resto de la marca. Mismo criterio que
+    // el admin (createInfluencer) y el auto-registro de negocio (/refer).
+    const fixedCommissionUsd =
+      (await this.getBrandCommissionMode(brand?.slug)) === 'FIXED_ONCE'
+        ? await this.getBrandFixedAmount(
+            brand?.slug,
+            dto.role === 'INFLUENCER' ? 'influencer' : 'embajador',
+          )
+        : null;
+    // El % solo es obligatorio cuando la marca NO es de monto fijo.
+    if (!fixedCommissionUsd && commissionPercent <= 0) {
       throw new BadRequestException('Comisión no configurada para este rol.');
     }
 
@@ -3490,7 +3919,11 @@ export class ReferralsService {
         country: dto.country?.trim() || null,
         role: dto.role,
         commissionPercent,
-        whiteLabelId: await this.resolveAffiliateWhiteLabelId({}),
+        fixedCommissionUsd,
+        // El afiliado nace BAJO la marca del host (Sellea en su dominio), no Clubify.
+        whiteLabelId: await this.resolveAffiliateWhiteLabelId({
+          parentWhiteLabelId: brand?.id ?? null,
+        }),
         isActive: true,
       },
     });
@@ -4182,10 +4615,37 @@ export class ReferralsService {
     // upline. Se devuelve para congelarlo (snapshot) en cada comisión.
     const tRow = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { commissionDistributionMode: true },
+      select: { commissionDistributionMode: true, whiteLabelId: true },
     });
     const mode = tRow?.commissionDistributionMode ?? 'DISCOUNT_FROM_INFLUENCER';
     if (!chain.sourceCodeId) return { chain, rows, mode };
+
+    // FIXED_ONCE (Sellea): el ESPERADO es el MONTO FIJO del código que hizo la
+    // venta (el referidor), no un % del `amount`. Sin indirecta ni vendor (rangos
+    // planos, sin jerarquía). Que el auditor/recalc conozcan esto evita marcar
+    // como "mal" una comisión fija correcta y evita que recalcCommissionToExpected
+    // / applyAllAuditFindings la recalculen a porcentaje.
+    const saleSlug = await this.slugForWhiteLabelId(tRow?.whiteLabelId ?? null);
+    if ((await this.getBrandCommissionMode(saleSlug)) === 'FIXED_ONCE') {
+      const src = await this.prisma.referralCode.findUnique({
+        where: { id: chain.sourceCodeId },
+        select: { role: true, fixedCommissionUsd: true },
+      });
+      const fixedAmt =
+        src?.fixedCommissionUsd != null
+          ? Number(src.fixedCommissionUsd)
+          : await this.getBrandFixedAmount(
+              saleSlug,
+              src?.role === 'AMBASSADOR' ? 'embajador' : 'influencer',
+            );
+      rows.push({
+        recipientCodeId: chain.sourceCodeId,
+        vendorCodeId: null,
+        amount: fixedAmt,
+        appliedPercent: 0,
+      });
+      return { chain, rows, mode };
+    }
 
     // Cada nivel puede tener su propia excepción por tenant. Si no hay, cae al
     // % normal del ReferralCode (que vino en `chain`).
@@ -4352,9 +4812,21 @@ export class ReferralsService {
     paymentAmountUsd: number;
     hotmartTransactionId?: string | null;
   }): Promise<{ generated: number; skipped: number }> {
+    // 2026-07-31: la base de comisión es SIEMPRE el override manual del tenant
+    // (subscriptionPriceUsd, si está seteado >0) o el canónico del plan por
+    // periodicidad — NUNCA el monto crudo pagado (args.paymentAmountUsd se
+    // ignora para la base; se mantiene en la firma por compatibilidad).
+    const tBase = await this.prisma.tenant.findUnique({
+      where: { id: args.tenantId },
+      select: { subscriptionPriceUsd: true, planPeriodicity: true },
+    });
+    const base = await this.recalc.getCommissionBase(
+      tBase?.subscriptionPriceUsd ?? null,
+      tBase?.planPeriodicity ?? null,
+    );
     const { chain, rows, mode } = await this.computeExpectedCommissionRows(
       args.tenantId,
-      args.paymentAmountUsd,
+      base,
     );
     if (!chain.sourceCodeId) return { generated: 0, skipped: 0 };
 
@@ -4374,9 +4846,12 @@ export class ReferralsService {
       where: { id: args.tenantId },
       select: { lastChargeAt: true },
     });
-    const availableAt = new Date(
-      (tPay?.lastChargeAt ?? new Date()).getTime() + COMMISSION_HOLD_DAYS * 86400000,
-    );
+    const availableAt = holdReleaseFrom(tPay?.lastChargeAt);
+    // FECHA DURABLE (2026-08-14): fecha de negocio CONGELADA por comisión = la
+    // fecha del cobro real (lastChargeAt = approved_date de Hotmart). Para la 1ª
+    // comisión es la COMPRA; para recompras, la de esa renovación. Se persiste
+    // en Commission.businessDate y el panel la lee tal cual (sin heurística).
+    const businessDate = tPay?.lastChargeAt ?? new Date();
 
     const txId = args.hotmartTransactionId ?? null;
 
@@ -4389,7 +4864,18 @@ export class ReferralsService {
     // dedupeaba las creadas y creaba las faltantes — pero la chain
     // pudo haber cambiado entre invocaciones (% diferentes) → state
     // inconsistente con plata mal calculada. Atómico = todo o nada.
-    const periodKey = monthKey();
+    // FIX 2026-09-01: periodKey (mes de devengamiento) sale del businessDate = la
+    // fecha del cobro real, NO del mes en que corre el webhook. Así cada cobro cae
+    // en su propio mes y dos cobros de meses distintos nunca colisionan en la
+    // UNIQUE(referralUseId, recipientCodeId, periodKey).
+    const periodKey = monthKey(businessDate);
+    // Ventana del CICLO de este cobro (mes de businessDate) para dedup por ciclo.
+    const cycleStart = new Date(
+      Date.UTC(businessDate.getUTCFullYear(), businessDate.getUTCMonth(), 1),
+    );
+    const cycleEnd = new Date(
+      Date.UTC(businessDate.getUTCFullYear(), businessDate.getUTCMonth() + 1, 1),
+    );
     try {
       const counts = await this.prisma.$transaction(async (tx) => {
         let g = 0;
@@ -4408,6 +4894,22 @@ export class ReferralsService {
               continue;
             }
           }
+          // Dedup por CICLO: si ya hay una comisión para (use, recipient) cuyo
+          // businessDate cae en el MISMO mes de cobro, es el mismo ciclo → skip.
+          // Cubre filas creadas por reconcileRecurringCommissions (tx=null) que el
+          // check por tx no ve, evitando duplicar el mismo cobro por dos caminos.
+          const sameCycle = await tx.commission.findFirst({
+            where: {
+              referralUseId: use.id,
+              recipientCodeId: row.recipientCodeId,
+              businessDate: { gte: cycleStart, lt: cycleEnd },
+            },
+            select: { id: true },
+          });
+          if (sameCycle) {
+            s++;
+            continue;
+          }
           try {
             await tx.commission.create({
               data: {
@@ -4422,9 +4924,11 @@ export class ReferralsService {
                 externalTxId: txId,
                 periodKey,
                 availableAt,
-                // Snapshot contable congelado (Fase 4).
+                businessDate,
+                // Snapshot contable congelado (Fase 4). base = override manual
+                // del tenant o canónico del plan (nunca el monto crudo FX).
                 distributionMode: mode,
-                baseAmountUsd: args.paymentAmountUsd,
+                baseAmountUsd: base,
                 appliedPercent: row.appliedPercent,
               },
             });
@@ -4468,9 +4972,18 @@ export class ReferralsService {
     if (!group?.referralCodeId) return { generated: false, reason: 'grupo-sin-recipiente' };
     const code = await this.prisma.referralCode.findUnique({
       where: { id: group.referralCodeId },
-      select: { id: true, commissionPercent: true, isActive: true },
+      select: { id: true, commissionPercent: true, isActive: true, whiteLabelId: true },
     });
     if (!code || code.isActive === false) return { generated: false, reason: 'code-inactivo' };
+    // FIXED_ONCE (Sellea): las comisiones de GRUPO son porcentuales y recurrentes
+    // → no aplican al modelo de pago único. Se saltan para no pagarle % a una
+    // marca de monto fijo.
+    if (
+      (await this.getBrandCommissionModeByWhiteLabelId(code.whiteLabelId)) ===
+      'FIXED_ONCE'
+    ) {
+      return { generated: false, reason: 'marca-pago-unico' };
+    }
     // BRUTO = precio REAL del grupo (priceUsd, ej: 3×$50=$150) si está seteado;
     // sino cae al canónico de la periodicidad.
     const base =
@@ -4509,9 +5022,8 @@ export class ReferralsService {
         status: 'PENDING',
         periodKey,
         // P3 2026-07-02: desbloqueo 15d después del cobro del grupo en Hotmart.
-        availableAt: new Date(
-          (group.lastChargeAt ?? now).getTime() + COMMISSION_HOLD_DAYS * 86400000,
-        ),
+        // GUARD B6/R4: clamp si group.lastChargeAt está viejo.
+        availableAt: holdReleaseFrom(group.lastChargeAt),
         hotmartTransactionId: args.hotmartTransactionId ?? null,
       },
     });
@@ -5094,6 +5606,23 @@ export class ReferralsService {
       throw new BadRequestException('El valor de implementación debe ser > 0');
     }
 
+    // FIXED_ONCE (Sellea): no existe comisión de implementación aparte — el
+    // modelo es UN solo monto fijo por referido. La bloqueamos para no crear un
+    // pago porcentual extra sobre una marca de pago único.
+    const implTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { whiteLabelId: true },
+    });
+    if (
+      (await this.getBrandCommissionModeByWhiteLabelId(
+        implTenant?.whiteLabelId ?? null,
+      )) === 'FIXED_ONCE'
+    ) {
+      throw new BadRequestException(
+        'Las marcas de pago único no usan comisión de implementación: pagan un monto fijo por referido.',
+      );
+    }
+
     const chain = await this.getAttributionChain(tenantId);
     if (!chain.sourceCodeId) {
       throw new BadRequestException(
@@ -5280,11 +5809,215 @@ export class ReferralsService {
    * devuelve un row por persona/commission y el frontend decide cómo
    * presentar el 3-way split.
    */
+  /**
+   * PDF Soft(9) C5: lista COMPLETA de negocios que tienen al menos una comisión
+   * (no anulada), para el filtro "Negocio" del panel admin (typeahead con todos
+   * + "Todos"). Antes el dropdown se llenaba solo con las filas cargadas (cap
+   * 500) → al filtrar por uno, el resto desaparecía. Este endpoint devuelve
+   * todos, independiente de los filtros activos.
+   */
+  async listCommissionBusinesses(
+    user: AuthUser,
+  ): Promise<Array<{ id: string; brandName: string }>> {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    // Mismo aislamiento que el listado: este typeahead alimenta el filtro
+    // "Negocio" del panel de comisiones, así que sin acotarlo el admin de una
+    // marca leía los NOMBRES de los negocios de las demás en un desplegable.
+    const marca = await this.brandCommissionWhere(user.whiteLabelId ?? null);
+    const uses = await this.prisma.referralUse.findMany({
+      where: {
+        tenantId: { not: null },
+        commissions: { some: { status: { not: CommissionStatus.REJECTED } } },
+        ...(Object.keys(marca).length ? { referralCode: marca } : {}),
+      },
+      select: { tenant: { select: { id: true, brandName: true } } },
+    });
+    const map = new Map<string, string>();
+    for (const u of uses) {
+      if (u.tenant) map.set(u.tenant.id, u.tenant.brandName);
+    }
+    return Array.from(map.entries())
+      .map(([id, brandName]) => ({ id, brandName }))
+      .sort((a, b) => a.brandName.localeCompare(b.brandName));
+  }
+
+  /**
+   * PDF Soft(9): negocios que PAGAN Hotmart real (le pagan a Clubify) pero NO
+   * tienen afiliado atribuido → para asignación MANUAL del embajador/influencer
+   * (decisión del usuario para los sin-referido). Excluye marcas blancas
+   * (wl-), cortesía/manual/trial/campaña (no pagan a Clubify por Hotmart).
+   */
+  async listUnattributedBusinesses(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    // Esta lista es, por construcción, de negocios que le pagan a CLUBIFY por
+    // Hotmart: el filtro de abajo descarta los códigos `wl-` de marca blanca.
+    // Así que a un administrador de otra marca no le corresponde ninguno, y
+    // sin este corte estaba viendo la cartera de Clubify.
+    const marca = await this.brandCommissionWhere(user.whiteLabelId ?? null);
+    if (marca.whiteLabelId) return [];
+    const isReal = (c: string | null | undefined) =>
+      !!c && !/^(comp-|trial-|manual-|wl-|sim-|campaign-)/i.test(c);
+    // AISLAMIENTO POR MARCA: un admin de marca blanca no debe ver los negocios
+    // de Clubify (que pagan Hotmart). Scope directo por whiteLabelId del tenant.
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    const brandWhere = brandWhiteLabelWhere(scope);
+    const tenants = await this.prisma.tenant.findMany({
+      where: { status: 'ACTIVE', ...brandWhere },
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        createdAt: true,
+        hotmartSubscriberCode: true,
+        planPeriodicity: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const paying = tenants.filter((t) => isReal(t.hotmartSubscriberCode));
+    if (!paying.length) return [];
+    const attributed = await this.prisma.referralUse.findMany({
+      where: {
+        tenantId: { in: paying.map((t) => t.id) },
+        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] } },
+      },
+      select: { tenantId: true },
+    });
+    const attrSet = new Set(attributed.map((a) => a.tenantId));
+    return paying
+      .filter((t) => !attrSet.has(t.id))
+      .map((t) => ({
+        tenantId: t.id,
+        brandName: t.brandName,
+        status: t.status,
+        createdAt: t.createdAt,
+        planPeriodicity: t.planPeriodicity,
+      }));
+  }
+
+  /**
+   * PDF Soft(9): asigna MANUALMENTE un afiliado a un negocio (crea el
+   * ReferralUse). Para los negocios que quedaron sin atribución. Idempotente
+   * (findFirst antes de crear; no hay unique compuesto). Auditado. La comisión
+   * del ciclo actual/renovación la generará el webhook/cron normal.
+   */
+  async assignAffiliate(user: AuthUser, tenantId: string, codeId: string) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    const code = await this.prisma.referralCode.findUnique({
+      where: { id: codeId },
+      select: { id: true, code: true, ownerName: true, role: true },
+    });
+    if (!code) throw new NotFoundException('Código de afiliado no encontrado');
+    const existing = await this.prisma.referralUse.findFirst({
+      where: { referralCodeId: codeId, tenantId },
+      select: { id: true },
+    });
+    if (existing) return { ok: true, alreadyExisted: true };
+    await this.prisma.referralUse.create({
+      data: {
+        referralCodeId: codeId,
+        tenantId,
+        status: 'PAYING',
+        utmSource: 'manual-admin',
+      },
+    });
+    this.audit.log({
+      actorId: user.id,
+      tenantId,
+      action: 'commission.manual_attribution',
+      resource: `tenant:${tenantId}`,
+      metadata: { codeId, code: code.code, ownerName: code.ownerName, role: code.role },
+    });
+
+    // FIX sistémico "atribución tardía → sin comisión" (2026-08-31): si el
+    // negocio YA pagó (caso CHANFLE: el pago Hotmart entró y la atribución se
+    // creó 15h DESPUÉS, cuando la generación en el pago ya había corrido sin
+    // afiliado), generamos ahora la comisión del periodo vigente. Antes,
+    // asignar el afiliado a mano NO la creaba retroactivamente. Idempotente: la
+    // UNIQUE(referralUseId, recipientCodeId, periodKey) evita duplicar si ya
+    // existe. Gate: solo ACTIVE con pago real (lastChargeAt) y ciclo vigente
+    // (currentPeriodEnd futuro) — nunca para trials sin pago ni suspendidos.
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        status: true,
+        lastChargeAt: true,
+        currentPeriodEnd: true,
+        hotmartTransactionId: true,
+      },
+    });
+    let generatedCommission = false;
+    if (
+      t?.status === 'ACTIVE' &&
+      t.lastChargeAt &&
+      t.currentPeriodEnd &&
+      t.currentPeriodEnd.getTime() > Date.now()
+    ) {
+      const r = await this.generateCommissionsForPayment({
+        tenantId,
+        paymentAmountUsd: 0, // se ignora para la base (usa subscriptionPriceUsd/canónico)
+        hotmartTransactionId: t.hotmartTransactionId ?? null,
+      }).catch((e) => {
+        this.logger.warn(
+          `assignAffiliate: no se pudo generar la comisión retroactiva para tenant=${tenantId}: ${e?.message ?? e}`,
+        );
+        return { generated: 0, skipped: 0 };
+      });
+      generatedCommission = r.generated > 0;
+    }
+    return { ok: true, generatedCommission };
+  }
+
+  private _clubifyWlIdCache: string | null | undefined;
+
+  /**
+   * Filtro de marca para el panel de comisiones, aplicado sobre el CÓDIGO
+   * DESTINATARIO (`recipientCode`), que es quien cobra.
+   *
+   * Devuelve el sub-filtro, no el where entero, porque el llamador tiene que
+   * fusionarlo con el filtro de rol — los dos apuntan a `recipientCode`.
+   *
+   * Gemelo de `TenantsService.brandTenantWhere`, con el mismo criterio:
+   * Clubify ve lo suyo MÁS lo legacy sin marca (`whiteLabelId = null`), que en
+   * esta tabla son las comisiones anteriores a que existieran marcas blancas.
+   * Sin marca en sesión se hace default a Clubify, nunca a "ver todo".
+   *
+   * Nota: una comisión sin `recipientCode` quedaría fuera de cualquier panel.
+   * Hoy no hay ninguna en producción (las 101 lo tienen), y si algún día
+   * aparece es mejor que no se vea a que se vea en la marca equivocada.
+   */
+  private async brandCommissionWhere(
+    sessionWlId: string | null,
+  ): Promise<Record<string, any>> {
+    if (this._clubifyWlIdCache === undefined) {
+      const wl = await this.prisma.whiteLabel
+        .findFirst({ where: { slug: 'clubify' }, select: { id: true } })
+        .catch(() => null);
+      this._clubifyWlIdCache = wl?.id ?? null;
+    }
+    const clubifyId = this._clubifyWlIdCache;
+    const wlId = sessionWlId ?? clubifyId;
+    // Sin marca clubify configurada (entorno de desarrollo): sin filtro, para
+    // no dejar el panel vacío en local.
+    if (!wlId) return {};
+    if (wlId === clubifyId) {
+      return { OR: [{ whiteLabelId: clubifyId }, { whiteLabelId: null }] };
+    }
+    return { whiteLabelId: wlId };
+  }
+
   async listAdminCommissions(
     user: AuthUser,
     opts: {
       dateFrom?: string;
       dateTo?: string;
+      // TIPO de fecha sobre la que operan el filtro Y la columna FECHA (brief
+      // PASO 5). 'purchase' = fecha de compra (businessDate, congelada) ·
+      // 'payment' = fecha de pago (paidAt) · 'available' = fecha de DESBLOQUEO
+      // (availableAt, cuando se puso disponible tras el hold de 15 días) ·
+      // 'batch' = lote de corte (payoutBatch.code). Default 'purchase'.
+      dateType?: 'purchase' | 'payment' | 'batch' | 'available';
+      // En dateType='batch': código del lote a filtrar (ej "CORTE-2026-06-30").
+      batchCode?: string;
       status?: 'PENDING' | 'PARTIAL' | 'PAID';
       // Bucket del CICLO DE VIDA de la comisión (≠ estado de pago):
       //  pending_approval = en hold (PENDING) · available = disponible para
@@ -5293,22 +6026,84 @@ export class ReferralsService {
       role?: 'INFLUENCER' | 'AMBASSADOR' | 'VENDOR' | 'SOCIO';
       tenantId?: string;
       codeId?: string;
+      /**
+       * Salta el aislamiento por marca y devuelve las comisiones de TODAS.
+       *
+       * Solo lo usan los dos endpoints `integration/*`, que van por
+       * `x-api-key` server-to-server para TeamClubify y necesitan la vista
+       * completa. Es explícito a propósito: se pide, no se hereda de tener
+       * rol de administrador.
+       */
+      todasLasMarcas?: boolean;
     },
   ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+
+    // AISLAMIENTO POR MARCA BLANCA (2026-08-26).
+    //
+    // El rol no separa nada: `SUPER_ADMIN` lo tienen también los
+    // administradores de cada marca blanca. Sin este filtro, el admin de
+    // Sellea abría su panel de comisiones y veía las de TODA la plataforma —
+    // los 71 afiliados de Clubify con sus importes y sus negocios.
+    //
+    // Se acota por la marca del CÓDIGO DESTINATARIO, que es quien cobra. No
+    // por la del negocio: en una venta cruzada el dinero es de quien lo
+    // recibe, y es su marca la que debe verlo.
+    //
+    // Mismo criterio que `TenantsService.brandTenantWhere`: sin marca en
+    // sesión se hace default a Clubify, NUNCA a "ver todo". La vista
+    // cross-brand se pide explícitamente con `todasLasMarcas`.
+    const marcaWhere = opts.todasLasMarcas
+      ? {}
+      : await this.brandCommissionWhere(user.whiteLabelId ?? null);
 
     // Filtros base (fecha / rol / negocio / código), SIN estado — se
     // reutilizan para el desglose por bucket (los KPIs muestran los 4
     // buckets sin importar cuál esté seleccionado en el filtro).
     const baseWhere: any = {};
-    if (opts.dateFrom || opts.dateTo) {
-      baseWhere.createdAt = {};
-      if (opts.dateFrom) baseWhere.createdAt.gte = new Date(opts.dateFrom);
-      if (opts.dateTo) baseWhere.createdAt.lte = new Date(opts.dateTo);
+    // Filtro por fecha/lote (brief PASO 2 + PASO 5). El filtro opera sobre el
+    // MISMO campo que muestra la columna FECHA según el tipo activo, para que
+    // filtro y columna nunca se contradigan:
+    //   purchase → businessDate (fecha de compra, congelada)
+    //   payment  → paidAt       (fecha real de la transferencia)
+    //   batch    → payoutBatch.code (lote de corte)
+    // BOUNDARY (PASO 2): "hasta" es INCLUSIVO del día completo y se ancla a
+    // America/Bogota (UTC-5, sin DST): fecha < (hasta + 1 día) en hora Bogotá.
+    // (Antes: lte new Date('YYYY-MM-DD') = medianoche UTC → excluía el día.)
+    const dateType = opts.dateType ?? 'purchase';
+    const bogotaDayStartUtc = (ymd: string) => new Date(`${ymd}T05:00:00.000Z`);
+    if (dateType === 'batch') {
+      if (opts.batchCode) baseWhere.payoutBatch = { code: opts.batchCode };
+    } else if (opts.dateFrom || opts.dateTo) {
+      const field =
+        dateType === 'payment'
+          ? 'paidAt'
+          : dateType === 'available'
+            ? 'availableAt'
+            : 'businessDate';
+      const range: any = {};
+      if (opts.dateFrom) range.gte = bogotaDayStartUtc(opts.dateFrom);
+      if (opts.dateTo)
+        range.lt = new Date(
+          bogotaDayStartUtc(opts.dateTo).getTime() + 86_400_000,
+        );
+      baseWhere[field] = range;
     }
     if (opts.codeId) baseWhere.recipientCodeId = opts.codeId;
     if (opts.tenantId) baseWhere.referralUse = { tenantId: opts.tenantId };
-    if (opts.role) baseWhere.recipientCode = { role: opts.role };
+
+    // Marca y rol viven los dos en `recipientCode`: se COMBINAN. Antes esto
+    // era `baseWhere.recipientCode = { role }` a secas, y asignar en vez de
+    // fusionar habría borrado el filtro de marca en cuanto alguien usara el
+    // desplegable de rol — o sea, la fuga volvería sola y solo a veces.
+    // Aislamiento por marca (marcaWhere, arriba) + filtro de rol, sobre el
+    // recipientCode (quien cobra). El feed integration/* pasa todasLasMarcas →
+    // marcaWhere = {} → sin filtro de marca.
+    const recipientFiltro: any = { ...marcaWhere };
+    if (opts.role) recipientFiltro.role = opts.role;
+    if (Object.keys(recipientFiltro).length) {
+      baseWhere.recipientCode = recipientFiltro;
+    }
 
     const BUCKET_STATUS: Record<string, CommissionStatus> = {
       pending_approval: CommissionStatus.PENDING,
@@ -5338,6 +6133,11 @@ export class ReferralsService {
               select: {
                 id: true,
                 brandName: true,
+                // PDF Soft(9) C3: fecha de la PRIMERA comisión = fecha "de negocio".
+                // PDF Soft 10: si hay fecha REAL de compra (purchasedAt) manda sobre
+                // createdAt (createdAt puede ser semanas después si activó tarde).
+                createdAt: true,
+                purchasedAt: true,
                 planPeriodicity: true,
                 currentPeriodEnd: true,
                 plan: { select: { name: true } },
@@ -5360,10 +6160,89 @@ export class ReferralsService {
         vendorCode: {
           select: { id: true, code: true, ownerName: true },
         },
+        payoutBatch: {
+          select: {
+            code: true,
+            paymentDate: true,
+            cutoffDate: true,
+            kind: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
       take: 500,
     });
+
+    // PDF Soft(9) C3: fecha "de negocio" de cada comisión. La PRIMERA comisión
+    // de cada empresa (la de su primer cobro) se fecha con el REGISTRO del
+    // negocio; las recompras siguientes con la fecha del cobro real
+    // (availableAt − hold). Calculamos el primer cobro (min availableAt efectivo)
+    // por tenant sobre TODO el historial (no solo la página) para que sea
+    // correcto aun con filtros/paginación.
+    const tenantIdsForDate = Array.from(
+      new Set(
+        rows
+          .map((r) => r.referralUse?.tenant?.id)
+          .filter((x): x is string => !!x),
+      ),
+    );
+    const firstChargeMsByTenant = new Map<string, number>();
+    if (tenantIdsForDate.length) {
+      const mins = await this.prisma.commission.findMany({
+        where: {
+          status: { not: CommissionStatus.REJECTED },
+          referralUse: { tenantId: { in: tenantIdsForDate } },
+        },
+        select: {
+          availableAt: true,
+          createdAt: true,
+          referralUse: { select: { tenantId: true } },
+        },
+      });
+      for (const m of mins) {
+        const tid = m.referralUse?.tenantId;
+        if (!tid) continue;
+        const ms = effectiveAvailableAt(m).getTime();
+        const cur = firstChargeMsByTenant.get(tid);
+        if (cur === undefined || ms < cur) firstChargeMsByTenant.set(tid, ms);
+      }
+    }
+    const commissionBusinessDate = (c: (typeof rows)[number]): Date => {
+      const tenant = c.referralUse?.tenant;
+      const chargeMs = effectiveAvailableAt(c).getTime();
+      const firstMs = tenant?.id
+        ? firstChargeMsByTenant.get(tenant.id)
+        : undefined;
+      // 1ª comisión (primer cobro del negocio) CON fecha de compra real
+      // conocida (Tenant.purchasedAt, PDF Soft 10) → esa. Es lo más preciso.
+      //   GUARD R1 (Fable 2026-08-14): solo si purchasedAt NO es muy posterior a
+      //   la 1ª comisión (<= createdAt+1d). Bug B (ya corregido) pudo estampar
+      //   una fecha de RENOVACIÓN en purchasedAt de negocios legacy; en ese caso
+      //   caemos a createdAt (la fecha del cobro real). Paridad con el backfill.
+      if (
+        tenant?.purchasedAt &&
+        firstMs !== undefined &&
+        chargeMs === firstMs &&
+        new Date(tenant.purchasedAt).getTime() <=
+          new Date(c.createdAt).getTime() + 86400000
+      ) {
+        return new Date(tenant.purchasedAt);
+      }
+      // Resto (recompras, y 1ª comisión SIN purchasedAt) → fecha del cobro real
+      // de ESTA comisión ≈ createdAt (webhook de Hotmart = pago).
+      //   FIX 2026-08-14 (R1/Fable): antes la 1ª comisión sin purchasedAt caía a
+      //   `tenant.createdAt` = fecha de REGISTRO de la cuenta, NO la de compra.
+      //   (a) Negocios que registraron en trial y pagaron después mostraban la
+      //       fecha equivocada (LICORES 26-jun en vez de 16-jul).
+      //   (b) Como "cuál es la 1ª" se recalcula por lectura, al anular una
+      //       comisión la fecha saltaba entre registro y webhook (Top Man
+      //       23↔27-jun). Usar SIEMPRE c.createdAt cuando no hay purchasedAt
+      //       elimina ambos: la fecha del cobro es estable por fila y ≈ compra.
+      //   Verificado en prod (dry-run 2026-08-14): los 48 negocios sin
+      //   purchasedAt NO matchean ningún PendingHotmartPayment → el backfill no
+      //   los recupera; su fecha de cobro real (createdAt) es la mejor fuente.
+      return new Date(c.createdAt);
+    };
 
     const items = rows.map((c) => {
       const amount = Number(c.amount);
@@ -5378,6 +6257,17 @@ export class ReferralsService {
         paymentStatus: c.paymentStatus,
         status: c.status,
         createdAt: c.createdAt,
+        // FECHA "de negocio" (columna FECHA del panel). FECHA DURABLE: si la
+        // fila tiene businessDate CONGELADO (filas nuevas + backfilleadas) se usa
+        // tal cual — estable entre renders. Filas viejas sin backfill → fallback
+        // a la heurística commissionBusinessDate().
+        commissionDate: c.businessDate
+          ? new Date(c.businessDate)
+          : commissionBusinessDate(c),
+        // Raw: si está seteada, la FECHA está CONGELADA (editada/curada); si es
+        // null, viene de la heurística. El panel lo usa para el indicador + el
+        // valor por defecto del editor de fecha.
+        businessDate: c.businessDate,
         // Fecha en que una comisión PENDING pasa a APPROVED (disponible para
         // pagar) = pago Hotmart + 15d (availableAt), fallback createdAt+15d.
         availableAt: effectiveAvailableAt(c),
@@ -5389,6 +6279,17 @@ export class ReferralsService {
           new Date(Math.max(Date.now(), effectiveAvailableAt(c).getTime())),
         ),
         paidAt: c.paidAt,
+        // Respaldo del paidAt anterior al corte (auditoría; ver PayoutBatch).
+        paidAtLegacy: c.paidAtLegacy,
+        // Lote de corte que liquidó esta comisión (brief PASO 5, filtro 'batch').
+        payoutBatch: c.payoutBatch
+          ? {
+              code: c.payoutBatch.code,
+              paymentDate: c.payoutBatch.paymentDate,
+              cutoffDate: c.payoutBatch.cutoffDate,
+              kind: c.payoutBatch.kind,
+            }
+          : null,
         notes: c.notes,
         hotmartTransactionId: c.hotmartTransactionId,
         tenant: c.referralUse?.tenant
@@ -5556,19 +6457,136 @@ export class ReferralsService {
    * % indirecto y % socio salen de Settings (referrals.indirectPercent=5,
    * referrals.socioPercent=10) para no hardcodear la regla de negocio.
    */
-  async companyAccountingReport(user: AuthUser) {
+  /**
+   * PDF Soft(9) A3: historial de PAGOS de suscripción de un negocio (recompras /
+   * cobros). Fuente: AuditLog de ciclo de vida (subscription.payment_succeeded /
+   * subscription.reactivated), que se escribe en cada cobro confirmado
+   * (Hotmart/Stripe/Cross). Para que el contador vea cuántos pagos hizo cada
+   * cliente y cuándo. Solo lectura.
+   */
+  async tenantPaymentHistory(tenantId: string) {
+    const [tenant, rows] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          brandName: true,
+          planPeriodicity: true,
+          status: true,
+          createdAt: true,
+          currentPeriodEnd: true,
+          lastChargeAt: true,
+        },
+      }),
+      this.prisma.auditLog.findMany({
+        where: {
+          tenantId,
+          action: {
+            in: ['subscription.payment_succeeded', 'subscription.reactivated'],
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true, action: true, metadata: true },
+        take: 300,
+      }),
+    ]);
+    return {
+      tenant: tenant
+        ? {
+            brandName: tenant.brandName,
+            planPeriodicity: tenant.planPeriodicity,
+            status: tenant.status,
+            registeredAt: tenant.createdAt,
+            currentPeriodEnd: tenant.currentPeriodEnd,
+            lastChargeAt: tenant.lastChargeAt,
+          }
+        : null,
+      count: rows.length,
+      payments: rows.map((r) => {
+        const meta = (r.metadata ?? {}) as Record<string, unknown>;
+        return {
+          date: r.createdAt,
+          gateway: (meta.gateway as string) ?? null,
+          // renewal=false → primera compra; true → recompra/renovación.
+          renewal: (meta.renewal as boolean) ?? null,
+          kind:
+            r.action === 'subscription.reactivated'
+              ? 'reactivación'
+              : 'pago',
+        };
+      }),
+    };
+  }
+
+  async companyAccountingReport(
+    user: AuthUser,
+    // PDF Soft(9) A2: filtros para el "Reporte por empresa" (TeamClubify):
+    // por periodicidad del plan (MENSUAL/TRIMESTRAL/SEMESTRAL/ANUAL), por rango
+    // de fechas de registro del negocio (from/to, ISO YYYY-MM-DD) y por estado
+    // del negocio (ACTIVE/TRIAL/SUSPENDED; vacío = todos).
+    opts: {
+      periodicity?: string;
+      from?: string;
+      to?: string;
+      status?: string;
+    } = {},
+  ) {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
-    const [indirectRow, socioRow] = await Promise.all([
+    const [indirectRow, socioRow, ownBrand, brands] = await Promise.all([
       this.prisma.setting.findUnique({
         where: { key: 'referrals.indirectPercent' },
       }),
       this.prisma.setting.findUnique({
         where: { key: 'referrals.socioPercent' },
       }),
+      // Marca propia: la del admin de marca, o Clubify para el owner de
+      // plataforma. Los negocios de OTRAS marcas blancas se listan pero no
+      // facturan a Clubify (le pagan a su marca).
+      user.whiteLabelId
+        ? this.prisma.whiteLabel.findUnique({
+            where: { id: user.whiteLabelId },
+            select: { id: true },
+          })
+        : this.prisma.whiteLabel.findFirst({
+            where: { slug: 'clubify' },
+            select: { id: true },
+          }),
+      this.prisma.whiteLabel.findMany({ select: { id: true, name: true } }),
     ]);
     const indirectPct = indirectRow?.value ? Number(indirectRow.value) : 5;
     const socioPct = socioRow?.value ? Number(socioRow.value) : COMMISSION_DEFAULTS.socioPct;
+    const ownBrandId = ownBrand?.id ?? null;
+    const brandName = new Map(brands.map((b) => [b.id, b.name]));
+
+    // FIX 2026-08-13: el reporte parte del universo de NEGOCIOS, no de las
+    // atribuciones. Antes solo se listaban los tenants con afiliado Y con
+    // código Hotmart "real", así que quedaban invisibles ~20 negocios activos
+    // (altas con créditos de marca `wl-`, altas manuales, trials y los que
+    // pagan sin referido) — incluso algunos con comisiones ya registradas.
+    const STATUSES = ['ACTIVE', 'TRIAL', 'SUSPENDED'];
+    const wantedStatus = (opts.status || '').toUpperCase();
+    const tenants = await this.prisma.tenant.findMany({
+      // Aislamiento por marca: un admin de marca blanca ve solo sus negocios;
+      // el owner de plataforma (sin whiteLabelId) ve todos.
+      where: {
+        ...(user.whiteLabelId ? { whiteLabelId: user.whiteLabelId } : {}),
+        ...(STATUSES.includes(wantedStatus)
+          ? { status: wantedStatus as any }
+          : {}),
+      },
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        createdAt: true,
+        planPeriodicity: true,
+        subscriptionPriceUsd: true,
+        currentPeriodEnd: true,
+        hotmartSubscriberCode: true,
+        whiteLabelId: true,
+        plan: { select: { name: true } },
+      },
+    });
 
     // Atribuciones DIRECTAS: un ReferralUse por tenant cuyo code es un
     // afiliado directo (embajador/influencer/vendor). Tras el fix 1:1 cada
@@ -5579,7 +6597,8 @@ export class ReferralsService {
         tenantId: { not: null },
         referralCode: { role: { in: ['AMBASSADOR', 'INFLUENCER', 'VENDOR'] } },
       },
-      include: {
+      select: {
+        tenantId: true,
         referralCode: {
           select: {
             id: true,
@@ -5593,84 +6612,112 @@ export class ReferralsService {
             },
           },
         },
-        tenant: {
-          select: {
-            id: true,
-            brandName: true,
-            status: true,
-            planPeriodicity: true,
-            subscriptionPriceUsd: true,
-            currentPeriodEnd: true,
-            hotmartSubscriberCode: true,
-            plan: { select: { name: true } },
-          },
-        },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    // El reporte por empresa muestra SOLO negocios con suscripción REAL de
-    // Hotmart (tienen identificador de suscripción). Excluimos los códigos
-    // manuales/cortesía/marca/simulación (comp-/trial-/manual-/wl-/sim-) que no
-    // representan un cobro real de Hotmart.
-    const isRealHotmartCode = (code: string | null | undefined) =>
-      !!code && !/^(comp-|trial-|manual-|wl-|sim-)/i.test(code);
-
-    // Dedup: una atribución (la más reciente) por tenant. Solo tenants con
-    // suscripción Hotmart real.
-    const byTenant = new Map<string, (typeof uses)[number]>();
+    // Dedup: una atribución (la más reciente) por tenant.
+    const codeByTenant = new Map<string, (typeof uses)[number]['referralCode']>();
     for (const u of uses) {
-      if (!u.tenantId || !u.tenant) continue;
-      if (!isRealHotmartCode(u.tenant.hotmartSubscriberCode)) continue;
-      if (!byTenant.has(u.tenantId)) byTenant.set(u.tenantId, u);
+      if (!u.tenantId || !u.referralCode) continue;
+      if (!codeByTenant.has(u.tenantId)) codeByTenant.set(u.tenantId, u.referralCode);
     }
-    const tenantIds = [...byTenant.keys()];
 
-    // Comisiones REGISTRADAS reales por tenant (lifetime, sin anuladas) para
-    // reconciliar esperado vs registrado. Una sola query, reduce en JS.
+    // Origen del cobro, deducido del identificador de suscripción. Solo
+    // Hotmart / alta con créditos de marca (`wl-`) / alta manual representan
+    // dinero que entra: trial, cortesía y tenants de sistema no facturan.
+    const cobroDe = (code: string | null | undefined) => {
+      const c = (code ?? '').trim();
+      if (!c) return 'SIN_COBRO';
+      if (/^trial-/i.test(c)) return 'TRIAL';
+      if (/^comp-/i.test(c)) return 'CORTESIA';
+      if (/^(campaign-|sim-)/i.test(c)) return 'SISTEMA';
+      if (/^manual-/i.test(c)) return 'MANUAL';
+      if (/^wl-/i.test(c)) return 'MARCA_BLANCA';
+      return 'HOTMART';
+    };
+    const COBRAN = new Set(['HOTMART', 'MARCA_BLANCA', 'MANUAL']);
+
+    const tenantIds = tenants.map((t) => t.id);
+
+    // Comisiones REGISTRADAS reales (lifetime, sin anuladas) para reconciliar
+    // esperado vs registrado. Brief PASO 6: se traen TODAS las no-rechazadas
+    // (LEFT JOIN, sin exigir `referralUse.tenantId`), no solo las atribuidas a un
+    // tenant. Antes el INNER JOIN `referralUse: { tenantId: { in } }` dejaba
+    // fuera la comisión de GRUPO EMPRESARIAL ($15, referralUseId=null) → el
+    // total registrado daba $1,176.65 en vez de $1,191.65. Ahora esas comisiones
+    // "sin empresa" se acumulan aparte y entran al total global.
+    const tenantIdSet = new Set(tenantIds);
     const recordedRows = await this.prisma.commission.findMany({
-      where: {
-        status: { not: CommissionStatus.REJECTED },
-        referralUse: { tenantId: { in: tenantIds } },
-      },
+      where: { status: { not: CommissionStatus.REJECTED } },
       select: {
         amount: true,
         referralUse: { select: { tenantId: true } },
       },
     });
     const recordedByTenant = new Map<string, { sum: number; count: number }>();
+    const recordedNoTenant = { sum: 0, count: 0 }; // grupo empresarial / sin tenant
     for (const r of recordedRows) {
       const tid = r.referralUse?.tenantId;
-      if (!tid) continue;
-      const cur = recordedByTenant.get(tid) ?? { sum: 0, count: 0 };
-      cur.sum += Number(r.amount);
-      cur.count += 1;
-      recordedByTenant.set(tid, cur);
+      if (tid && tenantIdSet.has(tid)) {
+        const cur = recordedByTenant.get(tid) ?? { sum: 0, count: 0 };
+        cur.sum += Number(r.amount);
+        cur.count += 1;
+        recordedByTenant.set(tid, cur);
+      } else if (!tid) {
+        recordedNoTenant.sum += Number(r.amount);
+        recordedNoTenant.count += 1;
+      }
     }
 
     const round = (n: number) => Math.round(n * 100) / 100;
     const rows = [];
-    for (const tid of tenantIds) {
-      const u = byTenant.get(tid)!;
-      const t = u.tenant!;
-      const code = u.referralCode;
-      // Base real (subscriptionPriceUsd) si la tenemos, sino canónica.
-      const base = await this.recalc.getCommissionBase(
-        t.subscriptionPriceUsd ?? null,
-        t.planPeriodicity ?? null,
-      );
+    // Boundary anclado a America/Bogota (UTC-5) e INCLUSIVO del día "to":
+    // regMs en [from 00:00 Bogotá, (to+1día) 00:00 Bogotá). (brief PASO 2)
+    const bogotaDayStartMs = (ymd: string) =>
+      new Date(`${ymd}T05:00:00.000Z`).getTime();
+    const fromMs = opts.from ? bogotaDayStartMs(opts.from) : null;
+    const toMs = opts.to ? bogotaDayStartMs(opts.to) + 86_400_000 : null;
+    for (const t of tenants) {
+      const tid = t.id;
+      const code = codeByTenant.get(tid) ?? null;
+      // PDF Soft(9) A2: filtros de periodicidad + rango de fecha de registro.
+      if (opts.periodicity && (t.planPeriodicity ?? null) !== opts.periodicity)
+        continue;
+      const regMs = t.createdAt ? new Date(t.createdAt).getTime() : null;
+      if (fromMs !== null && (regMs === null || regMs < fromMs)) continue;
+      if (toMs !== null && (regMs === null || regMs >= toMs)) continue;
+
+      const cobro = cobroDe(t.hotmartSubscriberCode);
+      // Negocio de OTRA marca blanca: le paga a su marca, no a nosotros.
+      const otraMarca =
+        !!t.whiteLabelId && !!ownBrandId && t.whiteLabelId !== ownBrandId;
+      const facturable = !otraMarca && COBRAN.has(cobro);
+
+      // Solo las empresas que facturan aportan base/comisiones/neto; el resto
+      // se lista en 0 (con su etiqueta de origen) para que el conteo de
+      // empresas sea real sin inflar la plata.
+      const base = facturable
+        ? await this.recalc.getCommissionBase(
+            t.subscriptionPriceUsd ?? null,
+            t.planPeriodicity ?? null,
+          )
+        : 0;
       const baseIsReal =
+        facturable &&
         Number.isFinite(Number(t.subscriptionPriceUsd)) &&
         Number(t.subscriptionPriceUsd) > 0;
 
-      const directPct = await this.resolveExceptionPercent(
-        tid,
-        code.id,
-        Number(code.commissionPercent ?? 0),
-      );
+      const directPct = code
+        ? await this.resolveExceptionPercent(
+            tid,
+            code.id,
+            Number(code.commissionPercent ?? 0),
+          )
+        : 0;
       const comisionDirecta = round((base * directPct) / 100);
 
-      const hasIndirect = code.role === 'AMBASSADOR' && !!code.parentCode;
+      const hasIndirect = !!code && code.role === 'AMBASSADOR' && !!code.parentCode;
       const comisionIndirecta = hasIndirect
         ? round((base * indirectPct) / 100)
         : 0;
@@ -5688,22 +6735,35 @@ export class ReferralsService {
         planName: t.plan?.name ?? null,
         planPeriodicity: t.planPeriodicity ?? null,
         currentPeriodEnd: t.currentPeriodEnd,
+        // Origen del cobro (HOTMART/MARCA_BLANCA/MANUAL/TRIAL/CORTESIA/
+        // SISTEMA/SIN_COBRO) y si aporta o no a los totales de facturación.
+        cobro,
+        facturable,
+        whiteLabelId: t.whiteLabelId ?? null,
+        whiteLabelName: t.whiteLabelId
+          ? brandName.get(t.whiteLabelId) ?? null
+          : null,
+        esOtraMarca: otraMarca,
         base,
         // true = base = precio REAL pagado en Hotmart; false = canónico
         // del bundle (estimado, marca "aprox" en la UI).
         baseIsReal,
-        afiliado: {
-          id: code.id,
-          code: code.code,
-          ownerName: code.ownerName,
-          role: code.role,
-          percent: directPct,
-        },
+        // null = negocio sin afiliado atribuido (se puede asignar a mano en
+        // /admin/commissions/unattributed).
+        afiliado: code
+          ? {
+              id: code.id,
+              code: code.code,
+              ownerName: code.ownerName,
+              role: code.role,
+              percent: directPct,
+            }
+          : null,
         influencer: hasIndirect
           ? {
-              id: code.parentCode!.id,
-              code: code.parentCode!.code,
-              ownerName: code.parentCode!.ownerName,
+              id: code!.parentCode!.id,
+              code: code!.parentCode!.code,
+              ownerName: code!.parentCode!.ownerName,
               percent: indirectPct,
             }
           : null,
@@ -5719,8 +6779,14 @@ export class ReferralsService {
       });
     }
 
-    // Orden: por base desc (las que más facturan arriba).
-    rows.sort((a, b) => b.base - a.base);
+    // Orden: primero las que facturan (por base desc), luego el resto por
+    // nombre — así el reporte económico se lee igual que antes.
+    rows.sort(
+      (a, b) =>
+        Number(b.facturable) - Number(a.facturable) ||
+        b.base - a.base ||
+        a.brandName.localeCompare(b.brandName),
+    );
 
     const totals = rows.reduce(
       (acc, r) => {
@@ -5742,17 +6808,33 @@ export class ReferralsService {
       },
     );
 
+    // Brief PASO 6: las comisiones "sin empresa" (grupo empresarial,
+    // referralUseId=null) entran al TOTAL registrado en la vista sin filtros
+    // (no cuelgan de un tenant ni de una periodicidad). Con filtro de
+    // periodicidad/fecha el reporte es por-empresa y no las incluye.
+    const includeNoTenant = !opts.periodicity && !opts.from && !opts.to;
+    const registradasTotal =
+      totals.registradas + (includeNoTenant ? recordedNoTenant.sum : 0);
+
     return {
       rows,
       totals: {
         companies: rows.length,
+        // Cuántas de esas aportan plata (el resto son trial/cortesía/sistema
+        // o negocios de otra marca blanca) y cuántas están sin afiliado.
+        companiesFacturables: rows.filter((r) => r.facturable).length,
+        companiesSinAfiliado: rows.filter((r) => !r.afiliado).length,
         base: round(totals.base),
         comisionDirecta: round(totals.comisionDirecta),
         comisionIndirecta: round(totals.comisionIndirecta),
         comisiones: round(totals.comisionDirecta + totals.comisionIndirecta),
         socio: round(totals.socio),
         neto: round(totals.neto),
-        registradas: round(totals.registradas),
+        registradas: round(registradasTotal),
+        // Comisiones registradas que no cuelgan de una empresa (grupo empresarial).
+        registradasSinEmpresa: includeNoTenant
+          ? round(recordedNoTenant.sum)
+          : 0,
       },
       indirectPercent: indirectPct,
       socioPercent: socioPct,
@@ -5893,7 +6975,15 @@ export class ReferralsService {
 
     const rows = await this.prisma.commission.findMany({
       where: {
-        paymentStatus: { in: ['PENDING', 'PARTIAL'] },
+        // Fase 1 (2026-08-14): excluir las CANCELADAS (status REJECTED) del
+        // universo. Antes el filtro era solo `paymentStatus IN
+        // (PENDING,PARTIAL)` → una comisión REJECTED cuyo paymentStatus seguía
+        // PENDING/PARTIAL entraba al total "a pagar" e inflaba la cifra
+        // ($927.55 en vez de $667.05). Ahora traemos TODAS las no-rechazadas
+        // para poder calcular también el HISTÓRICO PAGADO real (que incluye las
+        // PAID, antes excluidas → mostraba $0.00); el "outstanding" se acota por
+        // paymentStatus fila por fila más abajo.
+        status: { not: CommissionStatus.REJECTED },
         recipientCodeId: { not: null },
         ...(user.whiteLabelId
           ? { referralUse: { tenant: { whiteLabelId: user.whiteLabelId } } }
@@ -5937,18 +7027,16 @@ export class ReferralsService {
       const key = c.recipientCode.id;
       const amount = Number(c.amount);
       const paid = Number(c.amountPaid);
-      const outstanding = Math.max(0, amount - paid);
+      // "Outstanding" (a pagar) SOLO de las comisiones aún abiertas
+      // (PENDING/PARTIAL). Las PAID entran igual al universo pero solo suman al
+      // histórico pagado, no al outstanding.
+      const isOutstanding =
+        c.paymentStatus === 'PENDING' || c.paymentStatus === 'PARTIAL';
+      const outstanding = isOutstanding ? Math.max(0, amount - paid) : 0;
 
-      const cur = byRecipient.get(key);
-      if (cur) {
-        cur.commissionsCount += 1;
-        cur.totalOutstanding += outstanding;
-        cur.totalPaid += paid;
-        if (!cur.oldestPending || c.createdAt < cur.oldestPending) {
-          cur.oldestPending = c.createdAt;
-        }
-      } else {
-        byRecipient.set(key, {
+      let cur = byRecipient.get(key);
+      if (!cur) {
+        cur = {
           code: {
             id: c.recipientCode.id,
             code: c.recipientCode.code,
@@ -5957,16 +7045,38 @@ export class ReferralsService {
             ownerWhatsapp: c.recipientCode.ownerWhatsapp,
             role: c.recipientCode.role,
           },
-          commissionsCount: 1,
-          totalOutstanding: outstanding,
-          totalPaid: paid,
-          oldestPending: c.createdAt,
-        });
+          commissionsCount: 0,
+          totalOutstanding: 0,
+          totalPaid: 0,
+          oldestPending: null,
+        };
+        byRecipient.set(key, cur);
+      }
+      // Histórico pagado real: suma de amountPaid de TODAS las no-rechazadas
+      // (incluye las PAID) → antes daba $0.00 porque el query excluía las PAID.
+      cur.totalPaid += paid;
+      if (isOutstanding) {
+        cur.commissionsCount += 1;
+        cur.totalOutstanding += outstanding;
+        if (!cur.oldestPending || c.createdAt < cur.oldestPending) {
+          cur.oldestPending = c.createdAt;
+        }
       }
     }
 
     const round = (n: number) => Math.round(n * 100) / 100;
+    // Brief PASO 6: el HISTÓRICO PAGADO se calcula sobre TODOS los afiliados,
+    // no solo los que tienen pendientes. Antes el filtro `commissionsCount > 0`
+    // dejaba fuera a quienes ya tenían todo pagado (Santiago $75, Juan Camilo
+    // $15) → el total mostraba $419.60 en vez del real. Ahora incluimos a
+    // cualquiera con outstanding O con histórico pagado, y exponemos el total
+    // global aparte para el KPI.
+    const grandTotalPaid = Array.from(byRecipient.values()).reduce(
+      (acc, it) => acc + it.totalPaid,
+      0,
+    );
     const items = Array.from(byRecipient.values())
+      .filter((it) => it.commissionsCount > 0 || it.totalPaid > 0)
       .map((it) => ({
         codeId: it.code.id,
         code: it.code.code,
@@ -5982,12 +7092,18 @@ export class ReferralsService {
       .sort((a, b) => b.totalOutstanding - a.totalOutstanding);
 
     const grandTotal = items.reduce((acc, it) => acc + it.totalOutstanding, 0);
+    // Personas con algo pendiente (para el KPI "Personas pendientes", que no
+    // debe contar a quienes ya están 100% pagados y solo aparecen por histórico).
+    const pendingPeople = items.filter((it) => it.commissionsCount > 0).length;
 
     return {
       items,
       totals: {
         count: items.length,
+        pendingPeople,
         grandTotalOutstanding: round(grandTotal),
+        // Brief PASO 6: histórico pagado GLOBAL (todos los afiliados).
+        grandTotalPaid: round(grandTotalPaid),
       },
     };
   }
@@ -6005,14 +7121,49 @@ export class ReferralsService {
     user: AuthUser,
     codeId: string,
     note?: string,
-  ): Promise<{ ok: true; paidCount: number; totalPaid: number }> {
+    batchOpts?: { batchId?: string; cutoffDate?: string; paymentDate?: string },
+  ): Promise<{
+    ok: true;
+    paidCount: number;
+    totalPaid: number;
+    batchCode: string | null;
+  }> {
     if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
 
     const code = await this.prisma.referralCode.findUnique({
       where: { id: codeId },
-      select: { id: true, ownerName: true },
+      select: { id: true, ownerName: true, whiteLabelId: true },
     });
     if (!code) throw new NotFoundException('Código no encontrado');
+    // IDOR / dinero: un admin de marca blanca no puede pagar comisiones de un
+    // afiliado de otra marca aunque conozca el codeId.
+    if (user.whiteLabelId && code.whiteLabelId !== user.whiteLabelId) {
+      throw new NotFoundException('Código no encontrado');
+    }
+
+    // Brief PASO 6: pagar EXIGE un lote de corte, para que todo pago quede
+    // reproducible y con la fecha REAL de la transferencia (no "ahora"). Se
+    // acepta un lote existente (batchId) o los datos para crearlo. El lote se
+    // resuelve DESPUÉS de saber qué hay para pagar: con cortes automáticos, las
+    // comisiones ya vienen con lote propio y no hay que crear uno vacío.
+    const requestedBatch = batchOpts?.batchId
+      ? await this.prisma.payoutBatch.findUnique({
+          where: { id: batchOpts.batchId },
+        })
+      : null;
+    if (batchOpts?.batchId && !requestedBatch) {
+      throw new NotFoundException('Lote de corte no encontrado');
+    }
+    if (requestedBatch?.status === 'CLOSED') {
+      throw new BadRequestException(
+        `El corte ${requestedBatch.code} ya está cerrado. Reabrilo o elegí otro.`,
+      );
+    }
+    if (!requestedBatch && !(batchOpts?.cutoffDate && batchOpts?.paymentDate)) {
+      throw new BadRequestException(
+        'Se requiere un lote de corte: batchId, o cutoffDate + paymentDate.',
+      );
+    }
 
     const pending = await this.prisma.commission.findMany({
       where: {
@@ -6028,20 +7179,51 @@ export class ReferralsService {
         amount: true,
         amountPaid: true,
         notes: true,
+        payoutBatchId: true,
       },
     });
 
     if (pending.length === 0) {
-      return { ok: true, paidCount: 0, totalPaid: 0 };
+      return {
+        ok: true,
+        paidCount: 0,
+        totalPaid: 0,
+        batchCode: requestedBatch?.code ?? null,
+      };
     }
 
+    // Solo se crea/usa un lote nuevo si alguna comisión no tiene el suyo. Las
+    // que ya pertenecen a un corte NO se mueven: el corte es el registro de qué
+    // se liquidó junto, y moverlas vaciaría el corte abierto por la espalda.
+    const orphans = pending.filter((c) => !c.payoutBatchId);
+    const batch =
+      requestedBatch ??
+      (orphans.length
+        ? await this._createBatch({
+            cutoffDate: batchOpts!.cutoffDate!,
+            paymentDate: batchOpts!.paymentDate!,
+            // Alta manual con fecha real de transferencia = corte ya liquidado.
+            status: 'CLOSED',
+          })
+        : null);
+
     const stamp = new Date().toISOString().slice(0, 10);
+    const batchLabel = batch?.code ?? 'sin lote nuevo';
     const noteTxt = note?.trim()
-      ? `[${stamp}] Pago bulk: ${note.trim()}`
-      : `[${stamp}] Pago bulk a ${code.ownerName}`;
+      ? `[${stamp}] Pago (lote ${batchLabel}): ${note.trim()}`
+      : `[${stamp}] Pago a ${code.ownerName} · lote ${batchLabel}`;
 
     let totalPaid = 0;
-    const now = new Date();
+    // paidAt = fecha REAL de la transferencia. Prioridad: la fecha explícita
+    // del request → la del lote (cortes históricos ya cerrados) → hoy. Un corte
+    // ABIERTO tiene paymentDate null, así que nunca se estampa un paidAt vacío.
+    const paidAt = batchOpts?.paymentDate
+      ? new Date(`${batchOpts.paymentDate}T17:00:00.000Z`)
+      : batch?.paymentDate
+        ? new Date(batch.paymentDate)
+        : new Date();
+
+    const touchedBatches = new Set<string>();
 
     await this.prisma.$transaction(async (tx) => {
       for (const c of pending) {
@@ -6052,6 +7234,8 @@ export class ReferralsService {
         totalPaid += outstanding;
 
         const nextNotes = c.notes ? `${c.notes}\n${noteTxt}` : noteTxt;
+        const targetBatchId = c.payoutBatchId ?? batch?.id ?? null;
+        if (targetBatchId) touchedBatches.add(targetBatchId);
 
         await tx.commission.update({
           where: { id: c.id },
@@ -6059,18 +7243,159 @@ export class ReferralsService {
             amountPaid: amount,
             paymentStatus: 'PAID',
             status: 'PAID' as CommissionStatus,
-            paidAt: now,
+            paidAt,
+            payoutBatchId: targetBatchId,
             notes: nextNotes,
           },
         });
       }
+      // Total del lote = suma de lo que contiene (no un increment ciego).
+      for (const bid of touchedBatches) await recalcBatchTotal(tx, bid);
     });
 
     return {
       ok: true,
       paidCount: pending.length,
       totalPaid: Math.round(totalPaid * 100) / 100,
+      batchCode: batch?.code ?? null,
     };
+  }
+
+  // ── LOTES DE CORTE (PayoutBatch) — brief PASO 3/5/6 ─────────────────────────
+  // Fecha de un lote almacenada a las 12:00 de Bogotá (17:00 UTC) para que su
+  // día calendario nunca cambie por zona horaria.
+  private batchYmdToDate(ymd: string): Date {
+    return new Date(`${ymd}T17:00:00.000Z`);
+  }
+
+  private async _createBatch(data: {
+    cutoffDate: string;
+    paymentDate?: string;
+    code?: string;
+    kind?: string;
+    notes?: string;
+    status?: 'OPEN' | 'CLOSED';
+  }) {
+    const code = data.code?.trim() || `CORTE-${data.cutoffDate}`;
+    const kind = data.kind === 'ADJUSTMENT' ? 'ADJUSTMENT' : 'CORTE';
+    // Un alta manual CON fecha real de transferencia es un corte ya liquidado
+    // (así se registraron los 3 históricos) → nace CERRADO. Sin fecha de pago,
+    // es un corte por liquidar → ABIERTO, y lo cierra una persona.
+    const status = data.status ?? (data.paymentDate ? 'CLOSED' : 'OPEN');
+    // Upsert por código → idempotente (crear el mismo corte no duplica).
+    return this.prisma.payoutBatch.upsert({
+      where: { code },
+      update: {},
+      create: {
+        code,
+        cutoffDate: this.batchYmdToDate(data.cutoffDate),
+        paymentDate: data.paymentDate
+          ? this.batchYmdToDate(data.paymentDate)
+          : null,
+        kind: kind as any,
+        status: status as any,
+        closedAt:
+          status === 'CLOSED' && data.paymentDate
+            ? this.batchYmdToDate(data.paymentDate)
+            : null,
+        generatedAuto: false,
+        notes: data.notes ?? null,
+      },
+    });
+  }
+
+  async createPayoutBatch(
+    user: AuthUser,
+    body: {
+      cutoffDate: string;
+      paymentDate?: string;
+      code?: string;
+      kind?: string;
+      notes?: string;
+    },
+  ) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+    if (!body.cutoffDate) {
+      throw new BadRequestException('cutoffDate es obligatorio.');
+    }
+    return this._createBatch(body);
+  }
+
+  async listPayoutBatches(user: AuthUser) {
+    if (user.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+
+    // AISLAMIENTO POR MARCA: PayoutBatch es global (sin whiteLabelId). El conteo
+    // y el total de cada lote se RECALCULAN con solo las comisiones de la marca
+    // del admin, y se ocultan los lotes que no tienen ninguna suya. Default a
+    // Clubify (nunca "ver todo").
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    const brandCode = brandWhiteLabelWhere(scope);
+    const scoped = Object.keys(brandCode).length > 0;
+
+    const batches = await this.prisma.payoutBatch.findMany({
+      // Los abiertos primero (son los que hay que atender); dentro de cada
+      // grupo, el más reciente arriba. `paymentDate` es null en los abiertos,
+      // así que el orden real lo da cutoffDate.
+      orderBy: [{ status: 'asc' }, { cutoffDate: 'desc' }],
+      include: {
+        _count: { select: { commissions: true } },
+        closedBy: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+
+    // Conteo + suma por lote de SOLO las comisiones de la marca.
+    const scopedByBatch = new Map<string, { count: number; total: number }>();
+    if (scoped && batches.length) {
+      const grouped = await this.prisma.commission.groupBy({
+        by: ['payoutBatchId'],
+        where: {
+          payoutBatchId: { in: batches.map((b) => b.id) },
+          recipientCode: brandCode,
+        },
+        _count: { _all: true },
+        _sum: { amount: true },
+      });
+      for (const g of grouped) {
+        if (!g.payoutBatchId) continue;
+        scopedByBatch.set(g.payoutBatchId, {
+          count: g._count._all,
+          total: Math.round(Number(g._sum.amount ?? 0) * 100) / 100,
+        });
+      }
+    }
+
+    const today = bogotaYmd();
+    return batches
+      .filter((b) => !scoped || scopedByBatch.has(b.id))
+      .map((b) => {
+        const s = scopedByBatch.get(b.id);
+        const daysOpen =
+          b.status === 'OPEN' ? daysBetweenYmd(bogotaYmd(b.cutoffDate), today) : 0;
+        return {
+          id: b.id,
+          code: b.code,
+          cutoffDate: b.cutoffDate,
+          periodStart: b.periodStart,
+          periodEnd: b.periodEnd,
+          paymentDate: b.paymentDate,
+          kind: b.kind,
+          status: b.status,
+          totalUsd: scoped ? (s?.total ?? 0) : Number(b.totalUsd),
+          currency: b.currency,
+          notes: b.notes,
+          reference: b.reference,
+          generatedAuto: b.generatedAuto,
+          closedAt: b.closedAt,
+          closedBy: b.closedBy
+            ? { id: b.closedBy.id, name: b.closedBy.fullName, email: b.closedBy.email }
+            : null,
+          commissionsCount: scoped ? (s?.count ?? 0) : b._count.commissions,
+          daysOpen,
+          // Un corte abierto hace más de 5 días: o nadie transfirió, o alguien
+          // transfirió y no lo registró (el caso del 31/07).
+          isStale: b.status === 'OPEN' && daysOpen > 5,
+        };
+      });
   }
 }
 

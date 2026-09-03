@@ -318,3 +318,73 @@ export async function resolveStampIconRenderer(
     return `<image href="${dataUri}" x="${x}" y="${y}" width="${s}" height="${s}" />`;
   };
 }
+
+// Cache url → PNG data URI (o null si no se pudo cargar). Las versiones "llena"
+// y "atenuada" del mismo ícono reusan la misma descarga.
+const customIconCache = new Map<string, string | null>();
+
+async function fetchCustomIconDataUri(url: string): Promise<string | null> {
+  if (customIconCache.has(url)) return customIconCache.get(url) ?? null;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) {
+      customIconCache.set(url, null);
+      return null;
+    }
+    const raw = Buffer.from(await res.arrayBuffer());
+    // Detecta SVG (por content-type o por el propio contenido) para rasterizar
+    // con densidad alta; PNG/JPG entran directo.
+    const isSvg =
+      /svg/i.test(res.headers.get('content-type') || '') ||
+      raw.slice(0, 300).toString('utf8').trimStart().startsWith('<');
+    const sharp = (await import('sharp')).default;
+    const base = sharp(raw, isSvg ? { density: 384 } : undefined);
+    // Recorta el margen muerto del archivo (borde transparente o de color
+    // uniforme). Sin esto, un PNG con aire alrededor del dibujo se ve chico
+    // dentro del sello por más que lo dibujemos al 100% del círculo.
+    let src = base;
+    try {
+      src = sharp(await base.clone().trim().toBuffer());
+    } catch {
+      /* imagen uniforme o sin borde recortable → se usa tal cual */
+    }
+    const png = await src
+      .resize(256, 256, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toBuffer();
+    const uri = `data:image/png;base64,${png.toString('base64')}`;
+    customIconCache.set(url, uri);
+    return uri;
+  } catch {
+    customIconCache.set(url, null);
+    return null;
+  }
+}
+
+/**
+ * Renderer para un ícono de sello PERSONALIZADO (imagen PNG/SVG subida por el
+ * negocio). Descarga + rasteriza a PNG 256×256 (fondo transparente) y la embebe
+ * como <image> base64. `opacity` < 1 para el sello VACÍO (imagen atenuada).
+ * Devuelve null si la imagen no se pudo cargar → el caller cae al emoji.
+ *
+ * OJO con `size`: acá es el **DIÁMETRO del círculo** del sello (no el ~55% que
+ * usan los renderers de emoji). La imagen propia llena el círculo COMPLETO — se
+ * dibujaba al ~74% y dejaba un anillo blanco alrededor. Se recorta con
+ * clip-path circular para que una imagen cuadrada no se salga del sello.
+ */
+export async function resolveCustomImageRenderer(
+  url: string,
+  opts?: { opacity?: number },
+): Promise<IconRenderer | null> {
+  const dataUri = await fetchCustomIconDataUri(url);
+  if (!dataUri) return null;
+  const opacity = opts?.opacity ?? 1;
+  return (cx, cy, size, id) => {
+    const s = size;
+    const x = cx - s / 2;
+    const y = cy - s / 2;
+    const op = opacity < 1 ? ` opacity="${opacity}"` : '';
+    const clip = `stampImgClip_${id}_${opacity < 1 ? 'f' : 'c'}`;
+    return `<defs><clipPath id="${clip}"><circle cx="${cx}" cy="${cy}" r="${s / 2}"/></clipPath></defs><image href="${dataUri}" x="${x}" y="${y}" width="${s}" height="${s}" preserveAspectRatio="xMidYMid meet" clip-path="url(#${clip})"${op} />`;
+  };
+}

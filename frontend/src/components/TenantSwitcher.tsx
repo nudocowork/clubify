@@ -64,7 +64,7 @@ export function TenantSwitcher() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number | string; left: number } | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -85,7 +85,10 @@ export function TenantSwitcher() {
       const isMobile = window.innerWidth < 640;
       setPos(
         isMobile
-          ? { top: 8, left: 8 }
+          // Dentro de la app el 8px pelado dejaba el campo de búsqueda DEBAJO
+          // de la isla dinámica: no se veía lo que escribías. --safe-top solo
+          // existe en la app; en el navegador la calc da los 8px de siempre.
+          ? { top: 'calc(8px + var(--safe-top, 0px))', left: 8 }
           : { top: Math.max(8, r.top), left: r.right + 12 },
       );
     }
@@ -175,7 +178,17 @@ export function TenantSwitcher() {
       startImpersonation({
         accessToken: res.accessToken,
         user: res.user,
-        tenant: { id: res.tenant.id, brandName: res.tenant.brandName },
+        tenant: {
+          id: res.tenant.id,
+          brandName: res.tenant.brandName,
+          // Seed anti-flash del panel /app (branding de la marca blanca).
+          primaryColor: res.tenant.primaryColor ?? undefined,
+          slug: res.tenant.slug,
+          whiteLabelSlug: res.tenant.whiteLabelSlug ?? null,
+          whiteLabelName: res.tenant.whiteLabelName ?? null,
+          logoUrl: res.tenant.logoUrl ?? null,
+          iconUrl: res.tenant.iconUrl ?? null,
+        },
       });
       toast(`Entrando a ${res.tenant.brandName}…`, 'success');
       setOpen(false);
@@ -216,10 +229,14 @@ export function TenantSwitcher() {
     open && pos ? (
       <div
         ref={popupRef}
-        className="fixed bg-white text-ink rounded-2xl shadow-2xl border border-line max-h-[80vh] overflow-hidden flex flex-col"
+        className="fixed bg-white text-ink rounded-2xl shadow-2xl border border-line overflow-hidden flex flex-col"
         style={{
           top: pos.top,
           left: pos.left,
+          // Se descuentan las márgenes seguras: con 80vh a secas el pie de la
+          // lista quedaba por debajo de la barra de inicio del iPhone.
+          maxHeight:
+            'calc(100dvh - 16px - var(--safe-top, 0px) - var(--safe-bottom, 0px))',
           width:
             typeof window !== 'undefined' && window.innerWidth < 640
               ? 'calc(100vw - 16px)'

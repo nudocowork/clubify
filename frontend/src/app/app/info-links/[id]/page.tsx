@@ -1,9 +1,13 @@
 'use client';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
-import { useEffect, useState, type CSSProperties } from 'react';
+import { PhoneInput } from '@/components/PhoneInput';
+import { useTenantCountry } from '@/lib/useTenantCountry';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { useHidesPurchases } from '@/lib/native';
+import { publicHostForTenant } from '@/lib/public-domain';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
 import {
@@ -15,12 +19,20 @@ import { SectionCoverEditor } from '@/components/menu/SectionCoverEditor';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { uploadCoverImage } from '@/lib/menu/upload-cover-image';
 import {
+  backgroundCss,
   type InfoLinkBackground,
   type InfoLinkPopup,
   type PopupSchedule,
 } from '@/lib/info-link-extras';
 import type { SectionCoverConfig } from '@/lib/menu/section-cover-config';
 import { SortableList, DragHandle } from '@/components/Sortable';
+import { ButtonDesignPanel } from '@/components/info-link-button-design';
+import {
+  StyledButtonLink,
+  hasButtonStyleV2,
+  pickButtonStyle,
+  type InfoLinkButtonStyle,
+} from '@/components/info-link-button-style';
 import {
   DEFAULT_LOGO_CONTAINER,
   LOGO_CONTAINER_PRESETS,
@@ -39,6 +51,9 @@ import {
   type BannerPosition,
 } from '@/lib/info-link-banner';
 import { FULL_LOOKS, type FullLookId } from '@/lib/info-link-full-looks';
+import type { InfoLinkTextColors } from '@/components/info-link-shells';
+import { autoTextColor, contrastRatio } from '@/lib/contrast';
+import { infolinkCapabilities } from '@/lib/infolink-tier';
 import {
   DEFAULT_POPUP_CONFIG,
   POPUP_TEMPLATES,
@@ -75,7 +90,7 @@ type Section =
   | { type: 'embed_promotions' }
   | { type: 'embed_card' };
 
-type Button = {
+type Button = InfoLinkButtonStyle & {
   /** Id estable para drag&drop sortable. Se autogenera si falta. */
   _id?: string;
   label: string;
@@ -95,8 +110,17 @@ type Button = {
   // WHATSAPP: número + mensaje pre-rellenado, se construye wa.me link
   waPhone?: string;
   waMessage?: string;
-  // MAPS: locationId opcional — si null, usa el primer location del tenant
+  // MAPS: locationId opcional (legacy, 1 sola sede) — si null, usa la primera.
   locationId?: string | null;
+  // MAPS multi-sede (2026-07-25): modo de qué sedes mostrar al hacer click.
+  //   'default'  → 1 sola sede (la primera registrada, o locationId legacy)
+  //   'all'      → todas las sedes activas del negocio
+  //   'selected' → solo las sedes de locationIds
+  // Si ausente, se deriva: locationId presente → 'default' con esa sede;
+  // ausente → 'default' con la primera. Con >1 sede el público abre un
+  // popup con la lista de direcciones → Google Maps de cada una.
+  locationMode?: 'default' | 'all' | 'selected';
+  locationIds?: string[];
   style?: 'primary' | 'secondary';
   // Estilo de fondo del botón cuando renderAs = 'simple'. Default 'solid'
   // para botones nuevos; en botones viejos se deriva de `style`
@@ -146,6 +170,12 @@ type InfoLink = {
     /** Familia tipográfica aplicada al shell completo. Si null, usa el
      *  default del template. */
     fontFamily?: string | null;
+    /** Fondo personalizable (SOLID/GRADIENT/IMAGE). Ausente = default del
+     *  template. */
+    background?: InfoLinkBackground | null;
+    /** Colores de texto por elemento (título/descripción/botones/secundario).
+     *  Aditivo — cada campo ausente usa el color por defecto del template. */
+    text?: InfoLinkTextColors | null;
   };
   isActive: boolean;
   views: number;
@@ -164,6 +194,10 @@ const BUTTON_TYPE_LABEL: Record<string, string> = {
 export default function InfoLinkEditor() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  // iOS: el upgrade a PRO se cobra por Stripe, que Apple no acepta dentro de
+  // la app para un producto digital (guideline 3.1.1). Va arriba del early
+  // return de más abajo porque los hooks no pueden ir después de un return.
+  const sinCompras = useHidesPurchases();
   const [link, setLink] = useState<InfoLink | null>(null);
   const [tenant, setTenant] = useState<any>(null);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
@@ -177,6 +211,7 @@ export default function InfoLinkEditor() {
   // null = modal cerrado.
   const [coverEditingIdx, setCoverEditingIdx] = useState<number | null>(null);
   const t = useTranslations('app_info_links_id');
+  const country = useTenantCountry();
 
   async function load() {
     const l = await api<InfoLink>(`/info-links/${id}`);
@@ -274,6 +309,15 @@ export default function InfoLinkEditor() {
 
   function addButton() {
     if (!link) return;
+    // Tope de botones por nivel del InfoLink (FREE = 5). PRO/FULL = ilimitado.
+    const caps = infolinkCapabilities(tenant?.businessType, tenant?.infolinkTier);
+    if (caps.maxButtons != null && link.buttons.length >= caps.maxButtons) {
+      alert(
+        `Tu plan Gratis permite hasta ${caps.maxButtons} botones. ` +
+          `Mejora a PRO para botones ilimitados.`,
+      );
+      return;
+    }
     const fresh: Button = {
       label: t('newButton'),
       type: 'EXTERNAL',
@@ -319,6 +363,15 @@ export default function InfoLinkEditor() {
     update('buttons', next);
   }
 
+  /** "Aplicar estilo a todos": copia los campos de diseño v2 de un botón
+   *  al resto (spec #2). Solo toca los campos de estilo — conserva label,
+   *  type, url, orden, etc. de cada botón. */
+  function applyStyleToAll(style: InfoLinkButtonStyle) {
+    if (!link) return;
+    const arr = link.buttons.map((b) => ({ ...b, ...style }));
+    update('buttons', arr);
+  }
+
   function setButtonRenderAs(i: number, mode: 'simple' | 'cover') {
     if (!link) return;
     const b = link.buttons[i];
@@ -334,7 +387,44 @@ export default function InfoLinkEditor() {
 
   if (!link || !tenant) return <div className="text-mute">{t('loading')}</div>;
 
-  const publicUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/i/${tenant.slug}/${link.slug}`;
+  // Dominio público del negocio: customDomain (propio) > marca > soyclubify.com.
+  // El link CANÓNICO (/i/...) solo se fuerza al dominio propio cuando hay
+  // customDomain; para marcas blancas SIN dominio propio conservamos el origin
+  // del panel (comportamiento histórico, no regresiona el link canónico ni el
+  // testeo local). El vanity (rootSlug) sí usa shareHost, igual que antes.
+  const shareHost = publicHostForTenant(tenant);
+  // Capacidades por nivel del InfoLink (freemium). FREE limita botones; PRO/FULL
+  // ilimitado. Solo afecta a negocios INFOLINK+FREE — el resto no ve gating.
+  const caps = infolinkCapabilities(tenant?.businessType, tenant?.infolinkTier);
+  const atButtonCap = caps.maxButtons != null && link.buttons.length >= caps.maxButtons;
+  // Cross-sell a "Sellea Completo": solo para negocios Solo-InfoLink y solo si la
+  // marca tiene configurado un Payment Link con productKey=FULL (sino, dormido).
+  const isInfolinkBiz = tenant?.businessType === 'INFOLINK';
+  const completoUrl = sinCompras
+    ? null
+    : (tenant?.whiteLabel?.paymentLinks?.find((l: any) => l.productKey === 'FULL')?.url ?? null);
+  // Upgrade FREE→PRO: Payment Link de la marca con productKey=INFOLINK_PRO (el que
+  // el webhook de Stripe mapea a infolinkTier=PRO). Solo se ofrece a negocios
+  // INFOLINK en plan FREE y solo si la marca lo tiene configurado (sino, dormido).
+  const isFreeInfolink = isInfolinkBiz && tenant?.infolinkTier === 'FREE';
+  const proLink =
+    tenant?.whiteLabel?.paymentLinks?.find((l: any) => l.productKey === 'INFOLINK_PRO') ?? null;
+  const proUrl: string | null = sinCompras ? null : (proLink?.url ?? null);
+  const hasOwnDomain = !!tenant?.customDomain;
+  const publicBase = hasOwnDomain
+    ? `https://${shareHost}`
+    : typeof window !== 'undefined'
+      ? window.location.origin
+      : 'https://soyclubify.com';
+  const publicUrl = `${publicBase}/i/${tenant.slug}/${link.slug}`;
+  // URL personalizada (vanity): dominio del negocio + rootSlug. Se prefiere
+  // SOLO cuando el dueño la definió (link.rootSlug). Los links antiguos tienen
+  // rootSlug=null → displayUrl === publicUrl (/i/...), así sus QR ya impresos
+  // siguen apuntando a la ruta canónica (que además nunca deja de funcionar).
+  const vanityDomain = shareHost;
+  const displayUrl = link.rootSlug
+    ? `https://${vanityDomain}/${link.rootSlug}`
+    : publicUrl;
   const primary = link.theme?.primaryColor ?? tenant.primaryColor ?? '#22C55E';
 
   return (
@@ -363,7 +453,7 @@ export default function InfoLinkEditor() {
             {t('view5Styles')}
           </a>
           <a
-            href={publicUrl}
+            href={displayUrl}
             target="_blank"
             rel="noreferrer"
             className="btn-ghost"
@@ -380,6 +470,56 @@ export default function InfoLinkEditor() {
         <div className="rounded-lg bg-ok-soft text-ok-ink px-3 py-2 mb-4 text-sm">
           {t('savedAt', { time: savedAt.toLocaleTimeString('es-CO') })}
         </div>
+      )}
+
+      {isFreeInfolink && proUrl && (
+        <a
+          href={proUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="no-underline"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18,
+            background: 'linear-gradient(120deg,#FF4D3D,#E63521)',
+            color: '#fff', borderRadius: 16, padding: '14px 18px',
+          }}
+        >
+          <span style={{ fontSize: 24 }}>⚡</span>
+          <span style={{ flex: 1 }}>
+            <b style={{ fontSize: 15 }}>Mejora tu InfoLink a PRO</b>
+            <span style={{ display: 'block', fontSize: 12.5, color: 'rgba(255,255,255,.85)', marginTop: 2 }}>
+              Botones ilimitados, sin publicidad de Sellea, todas las plantillas, colores y analítica avanzada.
+            </span>
+          </span>
+          <span style={{ background: '#fff', color: '#E63521', fontWeight: 800, fontSize: 13, padding: '9px 16px', borderRadius: 999, whiteSpace: 'nowrap', flex: 'none' }}>
+            Mejorar a PRO{proLink?.amountUsd ? ` · $${proLink.amountUsd}/mes` : ''} →
+          </span>
+        </a>
+      )}
+
+      {isInfolinkBiz && completoUrl && (
+        <a
+          href={completoUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="no-underline"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18,
+            background: 'linear-gradient(120deg,#1A1033,#2f1f52 70%,#43285c)',
+            color: '#FFF6F0', borderRadius: 16, padding: '14px 18px',
+          }}
+        >
+          <span style={{ fontSize: 24 }}>🚀</span>
+          <span style={{ flex: 1 }}>
+            <b style={{ fontSize: 15 }}>Haz crecer tu negocio con Sellea</b>
+            <span style={{ display: 'block', fontSize: 12.5, color: 'rgba(255,246,240,.78)', marginTop: 2 }}>
+              Suma fidelización, Wallet, promociones y más — con la misma cuenta, sin perder tu InfoLink.
+            </span>
+          </span>
+          <span style={{ background: '#FF4D3D', color: '#fff', fontWeight: 800, fontSize: 13, padding: '9px 16px', borderRadius: 999, whiteSpace: 'nowrap', flex: 'none' }}>
+            Conocer Sellea Completo →
+          </span>
+        </a>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-5">
@@ -455,7 +595,7 @@ export default function InfoLinkEditor() {
               </label>
               <div className="flex items-center gap-2">
                 <span className="text-[13px] text-mute select-none whitespace-nowrap">
-                  {(tenant?.brandAppDomain || tenant?.brandPublicDomain || 'soyclubify.com')}/
+                  {shareHost}/
                 </span>
                 <input
                   className="input flex-1"
@@ -474,7 +614,7 @@ export default function InfoLinkEditor() {
               </div>
               <p className="text-[11px] text-mute mt-1 leading-snug">
                 {t('customUrlHelpBefore')} <code>/i/{tenant.slug}/{link.slug}</code>.
-                {' '}{t('customUrlHelpMiddle')} <code>{(tenant?.brandAppDomain || tenant?.brandPublicDomain || 'soyclubify.com')}/{link.rootSlug || t('yourSlug')}</code>.
+                {' '}{t('customUrlHelpMiddle')} <code>{shareHost}/{link.rootSlug || t('yourSlug')}</code>.
               </p>
             </div>
 
@@ -518,28 +658,37 @@ export default function InfoLinkEditor() {
             primary={primary}
             tenantLogoUrl={tenant?.logoUrl ?? null}
             heroImageUrl={link.heroImageUrl}
+            lockPro={!caps.customBackground}
+            upgradeUrl={proUrl}
             onChange={(patch) => update('theme', { ...link.theme, ...patch })}
           />
 
-          {/* URL */}
+          {/* URL — muestra la personalizada (vanity) cuando existe; si no, /i/... */}
           <div className="card card-pad">
             <h3 className="font-semibold m-0 mb-3">{t('publicUrl')}</h3>
             <div className="flex items-center gap-2 bg-bg2 rounded-lg p-3">
-              <code className="text-xs flex-1 break-all">{publicUrl}</code>
+              <code className="text-xs flex-1 break-all select-all">{displayUrl}</code>
               <button
                 className="btn-link text-xs"
-                onClick={() => navigator.clipboard.writeText(publicUrl)}
+                onClick={() => navigator.clipboard.writeText(displayUrl)}
               >
                 {t('copy')}
               </button>
               <a
-                href={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(publicUrl)}&download=1`}
+                href={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(displayUrl)}&download=1`}
                 download={`qr-${link.slug}.png`}
                 className="btn-link text-xs"
               >
                 {t('downloadQr')}
               </a>
             </div>
+            {link.rootSlug && (
+              // La ruta canónica /i/... nunca deja de funcionar (los QR antiguos
+              // la usan). Se muestra como referencia, no como link principal.
+              <p className="text-[11px] text-mute mt-2 leading-snug break-all">
+                {t('customUrlCanonicalNote')} <code className="select-all">{publicUrl}</code>
+              </p>
+            )}
           </div>
 
           {/* Bloques */}
@@ -592,8 +741,29 @@ export default function InfoLinkEditor() {
           {/* Botones */}
           <div className="card card-pad">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold m-0">{t('buttons')}</h3>
-              <button className="btn-ghost text-sm" onClick={addButton}>
+              <h3 className="font-semibold m-0">
+                {t('buttons')}
+                {caps.maxButtons != null && (
+                  <span className="text-xs font-normal text-mute ml-2">
+                    {link.buttons.length}/{caps.maxButtons} · plan Gratis
+                    {proUrl && (
+                      <a
+                        href={proUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ml-1.5 text-brand font-semibold no-underline hover:underline"
+                      >
+                        Mejorar →
+                      </a>
+                    )}
+                  </span>
+                )}
+              </h3>
+              <button
+                className={`btn-ghost text-sm ${atButtonCap ? 'opacity-60' : ''}`}
+                onClick={addButton}
+                title={atButtonCap ? 'Límite del plan Gratis — mejora a PRO' : undefined}
+              >
                 <Icon name="plus" /> {t('button')}
               </button>
             </div>
@@ -787,6 +957,18 @@ export default function InfoLinkEditor() {
                       </div>
                     </div>
                   )}
+                  {/* Diseño v2 por botón: forma, colores, efectos, icono y
+                      alineación. Aditivo — solo aplica cuando el usuario
+                      configura algo (hasButtonStyleV2). En cover el estilo lo
+                      decide el editor de portada. */}
+                  {!coverMode && (
+                    <ButtonDesignPanel
+                      b={b}
+                      primary={primary}
+                      onPatch={(patch) => updateButton(i, patch)}
+                      onApplyAll={applyStyleToAll}
+                    />
+                  )}
                   {b.type === 'EXTERNAL' && (
                     <input
                       className="input col-span-full"
@@ -876,19 +1058,34 @@ export default function InfoLinkEditor() {
                     </div>
                   )}
                   {b.type === 'WHATSAPP' && (
-                    <div className="col-span-full grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-2">
-                      <input
-                        className="input"
-                        placeholder="+57 300 000 0000"
-                        value={b.waPhone ?? ''}
-                        onChange={(e) => updateButton(i, { waPhone: e.target.value })}
-                      />
-                      <input
-                        className="input"
-                        placeholder={t('waMessagePlaceholder')}
-                        value={b.waMessage ?? ''}
-                        onChange={(e) => updateButton(i, { waMessage: e.target.value })}
-                      />
+                    // Cada campo en su propia fila y a ancho completo. Antes el
+                    // teléfono iba en una columna de 160px, pero el botón de
+                    // bandera+prefijo del PhoneInput ocupa 120px → al número le
+                    // quedaban ~34px (inusable) y la gente escribía el número en
+                    // el campo de mensaje. Resultado: waPhone="+58" sin número y
+                    // el botón de WhatsApp no funcionaba.
+                    <div className="col-span-full space-y-2">
+                      <div>
+                        <div className="text-[11px] font-semibold text-mute mb-1">
+                          {t('waNumberLabel')}
+                        </div>
+                        <PhoneInput
+                          value={b.waPhone ?? ''}
+                          onChange={(v) => updateButton(i, { waPhone: v })}
+                          defaultCountry={country}
+                        />
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-semibold text-mute mb-1">
+                          {t('waMessageLabel')}
+                        </div>
+                        <input
+                          className="input w-full"
+                          placeholder={t('waMessagePlaceholder')}
+                          value={b.waMessage ?? ''}
+                          onChange={(e) => updateButton(i, { waMessage: e.target.value })}
+                        />
+                      </div>
                     </div>
                   )}
                   {b.type === 'MAPS' && (
@@ -901,37 +1098,109 @@ export default function InfoLinkEditor() {
                           </a>
                         </div>
                       ) : (
-                        <>
-                          <select
-                            className="input"
-                            value={b.locationId ?? ''}
-                            onChange={(e) =>
-                              updateButton(i, {
-                                locationId: e.target.value || null,
-                              })
-                            }
-                          >
-                            <option value="">{t('firstLocationDefault')}</option>
-                            {locations.map((loc) => (
-                              <option key={loc.id} value={loc.id}>
-                                {loc.name}
-                                {loc.address ? ` · ${loc.address}` : ''}
-                              </option>
-                            ))}
-                          </select>
-                          {(() => {
-                            const sel = b.locationId
-                              ? locations.find((l) => l.id === b.locationId)
-                              : locations[0];
-                            if (!sel?.address) return null;
-                            return (
-                              <div className="text-[11px] text-mute mt-1.5 flex items-center gap-1">
-                                📍 {sel.name} · {sel.address}
+                        (() => {
+                          const mode = b.locationMode ?? 'default';
+                          const selectedIds = b.locationIds ?? [];
+                          return (
+                            <>
+                              {/* Modo: 1 sede por default / todas / elegir cuáles */}
+                              <div className="grid grid-cols-3 gap-1 bg-bg2 rounded-lg p-1">
+                                {([
+                                  { v: 'default' as const, label: t('locModeDefault') },
+                                  { v: 'all' as const, label: t('locModeAll') },
+                                  { v: 'selected' as const, label: t('locModeSelected') },
+                                ]).map((opt) => {
+                                  const active = mode === opt.v;
+                                  return (
+                                    <button
+                                      key={opt.v}
+                                      type="button"
+                                      onClick={() =>
+                                        updateButton(i, { locationMode: opt.v })
+                                      }
+                                      className={`text-[11px] font-semibold py-1.5 px-1 rounded-md transition ${
+                                        active
+                                          ? 'bg-white text-ink shadow-sm'
+                                          : 'text-mute hover:text-ink'
+                                      }`}
+                                    >
+                                      {opt.label}
+                                    </button>
+                                  );
+                                })}
                               </div>
-                            );
-                          })()}
-                        </>
 
+                              {mode === 'default' && (
+                                <div className="mt-2">
+                                  <select
+                                    className="input"
+                                    value={b.locationId ?? ''}
+                                    onChange={(e) =>
+                                      updateButton(i, {
+                                        locationId: e.target.value || null,
+                                      })
+                                    }
+                                  >
+                                    <option value="">
+                                      {t('firstLocationDefault')}
+                                    </option>
+                                    {locations.map((loc) => (
+                                      <option key={loc.id} value={loc.id}>
+                                        {loc.name}
+                                        {loc.address ? ` · ${loc.address}` : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+
+                              {mode === 'selected' && (
+                                <div className="mt-2 space-y-1.5 border border-line2 rounded-lg p-2 max-h-48 overflow-y-auto">
+                                  {locations.map((loc) => {
+                                    const checked = selectedIds.includes(loc.id);
+                                    return (
+                                      <label
+                                        key={loc.id}
+                                        className="flex items-start gap-2 text-[12px] cursor-pointer"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          className="mt-0.5"
+                                          checked={checked}
+                                          onChange={() =>
+                                            updateButton(i, {
+                                              locationIds: checked
+                                                ? selectedIds.filter(
+                                                    (id) => id !== loc.id,
+                                                  )
+                                                : [...selectedIds, loc.id],
+                                            })
+                                          }
+                                        />
+                                        <span>
+                                          <span className="font-medium">
+                                            {loc.name}
+                                          </span>
+                                          {loc.address ? (
+                                            <span className="text-mute">
+                                              {' '}· {loc.address}
+                                            </span>
+                                          ) : null}
+                                        </span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              <p className="text-[11px] text-mute mt-1.5">
+                                {mode === 'default'
+                                  ? t('locHintDefault')
+                                  : t('locHintMulti')}
+                              </p>
+                            </>
+                          );
+                        })()
                       )}
                     </div>
                   )}
@@ -1287,8 +1556,19 @@ function PublicLinkPreview({
 }) {
   const t = useTranslations('app_info_links_id');
   const initial = (tenant?.brandName?.[0] || 'C').toUpperCase();
+  // Fondo custom + colores de texto (theme.text). Sin fondo custom, blanco.
+  // Aplicamos el fondo real aquí para que la preview NO mienta cuando el
+  // usuario elige texto claro (ej. "Auto contraste" sobre fondo oscuro).
+  const customBg = backgroundCss(link.theme?.background ?? null);
+  const tc: InfoLinkTextColors = link.theme?.text ?? {};
   return (
-    <div className="text-ink bg-white" style={{ ['--primary' as any]: primary }}>
+    <div
+      className={`text-ink ${customBg ? '' : 'bg-white'}`}
+      style={{
+        ['--primary' as any]: primary,
+        ...(customBg ? { background: customBg } : {}),
+      }}
+    >
       {/* Hero: contenedor SEPARADO del logo. overflow-hidden recorta solo
           la foto al frame del banner, no afecta al logo (siblings). */}
       <div className="relative overflow-hidden" style={{ zIndex: 1 }}>
@@ -1334,9 +1614,19 @@ function PublicLinkPreview({
       </div>
 
       <div className="px-4 pt-3 pb-4 text-center">
-        <h1 className="text-base font-bold leading-tight">{link.title}</h1>
+        <h1
+          className="text-base font-bold leading-tight"
+          style={tc.title ? { color: tc.title } : undefined}
+        >
+          {link.title}
+        </h1>
         {link.subtitle && (
-          <p className="text-[11px] text-mute mt-1 leading-snug">{link.subtitle}</p>
+          <p
+            className="text-[11px] text-mute mt-1 leading-snug"
+            style={tc.description ? { color: tc.description } : undefined}
+          >
+            {link.subtitle}
+          </p>
         )}
 
         {/* Botones tipo Linktree (o cards estilo "sección" si renderAs=cover).
@@ -1359,6 +1649,16 @@ function PublicLinkPreview({
                     </div>
                   );
                 }
+                if (hasButtonStyleV2(b)) {
+                  return (
+                    <StyledButtonLink
+                      key={i}
+                      b={{ ...pickButtonStyle(b), label: b.label }}
+                      primary={primary}
+                      asDiv
+                    />
+                  );
+                }
                 const bgStyle =
                   b.bgStyle ?? (b.style === 'secondary' ? 'outline' : 'solid');
                 const style: CSSProperties = {};
@@ -1375,6 +1675,8 @@ function PublicLinkPreview({
                   style.background = 'transparent';
                   style.color = primary;
                 }
+                // Override del color de texto del botón (theme.text.button).
+                if (tc.button) style.color = tc.button;
                 return (
                   <div
                     key={i}
@@ -1466,6 +1768,34 @@ function PublicLinkPreview({
 }
 
 // =====================================================
+/** Candado PRO: en plan FREE muestra el panel atenuado + overlay "Disponible
+ *  con PRO". Solo se activa para negocios INFOLINK+FREE (freemium Sellea); el
+ *  resto ve el panel normal. El upgrade real (Stripe) llega en 2D. */
+function ProLock({ active, feature, upgradeUrl, children }: { active: boolean; feature: string; upgradeUrl?: string | null; children: ReactNode }) {
+  if (!active) return <>{children}</>;
+  return (
+    <div className="relative">
+      <div className="pointer-events-none opacity-50 select-none" aria-hidden="true">
+        {children}
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          // Con el Payment Link configurado (INFOLINK_PRO) llevamos directo al
+          // checkout; sin él, solo avisamos (marca sin cobro PRO configurado).
+          if (upgradeUrl) window.open(upgradeUrl, '_blank', 'noopener,noreferrer');
+          else alert(`${feature} está disponible con PRO. Mejora tu plan para desbloquearlo.`);
+        }}
+        className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-xl"
+        style={{ background: 'rgba(255,251,247,.62)', backdropFilter: 'blur(1px)' }}
+      >
+        <span className="text-sm font-bold text-ink">🔒 Disponible con PRO</span>
+        <span className="text-xs text-mute">{upgradeUrl ? 'Toca para mejorar a PRO' : 'Toca para mejorar tu plan'}</span>
+      </button>
+    </div>
+  );
+}
+
 // VisualSection — wrapper que agrupa logo + banner + tipografía + looks
 // =====================================================
 //
@@ -1482,24 +1812,34 @@ function VisualSection({
   primary,
   tenantLogoUrl,
   heroImageUrl,
+  lockPro,
+  upgradeUrl,
   onChange,
 }: {
   theme: {
+    template?: InfoLinkTemplate;
     logoContainer?: LogoContainerConfig | null;
     bannerConfig?: BannerConfig | null;
     fontFamily?: string | null;
     background?: InfoLinkBackground | null;
+    text?: InfoLinkTextColors | null;
     popup?: InfoLinkPopup | null;
     popups?: InfoLinkPopup[] | null;
   };
   primary: string;
   tenantLogoUrl: string | null;
   heroImageUrl: string | null;
+  /** Plan FREE: bloquea fondos/colores personalizados (candado "PRO"). */
+  lockPro?: boolean;
+  /** URL de pago del upgrade a PRO (Payment Link INFOLINK_PRO). Si existe, el
+   *  candado lleva al checkout en vez de solo avisar. */
+  upgradeUrl?: string | null;
   onChange: (patch: {
     logoContainer?: LogoContainerConfig | null;
     bannerConfig?: BannerConfig | null;
     fontFamily?: string | null;
     background?: InfoLinkBackground | null;
+    text?: InfoLinkTextColors | null;
     popup?: InfoLinkPopup | null;
     popups?: InfoLinkPopup[] | null;
   }) => void;
@@ -1620,12 +1960,27 @@ function VisualSection({
         />
       </div>
 
-      {/* Fondo personalizable (Bloque 1 2026-06-12) */}
+      {/* Fondo personalizable (Bloque 1 2026-06-12) — PRO */}
       <div className="border-t border-line pt-5">
-        <BackgroundPanel
-          value={theme.background ?? null}
-          onChange={(next) => onChange({ background: next })}
-        />
+        <ProLock active={!!lockPro} feature="El fondo personalizado" upgradeUrl={upgradeUrl}>
+          <BackgroundPanel
+            value={theme.background ?? null}
+            onChange={(next) => onChange({ background: next })}
+          />
+        </ProLock>
+      </div>
+
+      {/* Colores de texto por elemento (2026-08-19) — PRO. Aditivo. */}
+      <div className="border-t border-line pt-5">
+        <ProLock active={!!lockPro} feature="Los colores de texto personalizados" upgradeUrl={upgradeUrl}>
+          <TextColorsPanel
+            value={theme.text ?? null}
+            template={resolveTemplate(theme)}
+            primary={primary}
+            background={theme.background ?? null}
+            onChange={(next) => onChange({ text: next })}
+          />
+        </ProLock>
       </div>
 
       {/* Popup promocional global — principal */}
@@ -1644,6 +1999,186 @@ function VisualSection({
           primary={primary}
           onChange={(next) => onChange({ popups: next })}
         />
+      </div>
+    </div>
+  );
+}
+
+// =====================================================
+// TextColorsPanel — colores de texto por elemento (theme.text)
+// -----------------------------------------------------
+// Deja al negocio elegir el color de: título, descripción, texto de
+// botones, el nombre del negocio (texto secundario) y el pie de
+// atribución «Hecho con …» (solo el color — el texto es de la marca
+// blanca y no se toca). Aditivo: un campo
+// vacío usa el color por defecto del template. Pensado para que un fondo
+// custom no deje el texto ilegible. El botón "Auto contraste" elige
+// blanco/negro según el fondo efectivo (o el color de marca, para el botón).
+// =====================================================
+
+/** Templates con fondo oscuro por defecto (texto claro). Los demás son
+ *  claros. Sirve para el "Auto" cuando no hay fondo custom. */
+const DARK_TEMPLATES = new Set<InfoLinkTemplate>(['AURORA', 'NEON']);
+
+/** Color base del fondo efectivo, para calcular contraste. Con fondo
+ *  imagen asumimos oscuro (suele llevar overlay). Sin fondo custom, el
+ *  default del template. */
+function infoLinkBgBase(
+  bg: InfoLinkBackground | null,
+  template: InfoLinkTemplate,
+): string {
+  if (bg?.type === 'SOLID' && bg.color) return bg.color;
+  if (bg?.type === 'GRADIENT' && bg.from) return bg.from;
+  if (bg?.type === 'IMAGE') return '#101010';
+  return DARK_TEMPLATES.has(template) ? '#1a0e2e' : '#ffffff';
+}
+
+function TextColorsPanel({
+  value,
+  template,
+  primary,
+  background,
+  onChange,
+}: {
+  value: InfoLinkTextColors | null;
+  template: InfoLinkTemplate;
+  primary: string;
+  background: InfoLinkBackground | null;
+  onChange: (next: InfoLinkTextColors | null) => void;
+}) {
+  const v = value ?? {};
+  const bgBase = infoLinkBgBase(background, template);
+
+  const FIELDS: {
+    key: keyof InfoLinkTextColors;
+    label: string;
+    against: string; // color de fondo contra el que se mide el contraste
+    hint?: string;
+  }[] = [
+    { key: 'title', label: 'Título', against: bgBase },
+    { key: 'description', label: 'Descripción', against: bgBase },
+    {
+      key: 'button',
+      label: 'Texto de botones',
+      against: primary,
+      hint: 'No aplica a botones con estilo/color propio.',
+    },
+    { key: 'meta', label: 'Nombre del negocio', against: bgBase },
+    {
+      key: 'badge',
+      label: 'Pie «Hecho con…»',
+      against: bgBase,
+      // El pie es la atribución de la marca blanca: el negocio elige el
+      // color (p. ej. para que se lea sobre fondo negro), nunca el texto.
+      hint: 'Solo el color. El texto y la marca no cambian.',
+    },
+  ];
+
+  function setField(key: keyof InfoLinkTextColors, color: string | null) {
+    const next: InfoLinkTextColors = { ...v };
+    if (color) next[key] = color;
+    else delete next[key];
+    onChange(Object.keys(next).length === 0 ? null : next);
+  }
+
+  function applyAuto() {
+    // Título/descr/nombre contrastan con el fondo; el botón, con su relleno
+    // (color de marca). autoTextColor devuelve blanco o negro.
+    onChange({
+      title: autoTextColor(bgBase),
+      description: autoTextColor(bgBase),
+      meta: autoTextColor(bgBase),
+      button: autoTextColor(primary),
+      badge: autoTextColor(bgBase),
+    });
+  }
+
+  const anySet = Object.keys(v).length > 0;
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div>
+          <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
+            Colores de texto
+          </div>
+          <div className="text-xs text-mute mt-0.5 leading-snug">
+            Personaliza el color de cada texto. Útil cuando pones un fondo
+            propio. Vacío = usa el color del template.
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 mb-3">
+        <button
+          type="button"
+          onClick={applyAuto}
+          className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-line hover:border-ink/30 hover:shadow-sm transition"
+        >
+          ✨ Auto contraste
+        </button>
+        {anySet && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg text-mute hover:text-ink transition"
+          >
+            Restablecer todo
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-2.5">
+        {FIELDS.map((f) => {
+          const current = v[f.key] ?? null;
+          const swatch = current || autoTextColor(f.against);
+          const lowContrast =
+            !!current && contrastRatio(current, f.against) < 4.5;
+          return (
+            <div key={f.key} className="flex items-center gap-3">
+              <label className="relative flex-none">
+                <input
+                  type="color"
+                  value={swatch}
+                  onChange={(e) => setField(f.key, e.target.value)}
+                  className="w-9 h-9 rounded-lg border border-line cursor-pointer p-0.5 bg-white"
+                  aria-label={`Color de ${f.label}`}
+                />
+              </label>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-ink leading-tight">
+                  {f.label}
+                </div>
+                <div className="text-[11px] leading-tight mt-0.5">
+                  {current ? (
+                    <span className="text-mute font-mono">{current}</span>
+                  ) : (
+                    <span className="text-mute">Automático (template)</span>
+                  )}
+                  {lowContrast && (
+                    <span className="text-amber-600 ml-2">
+                      ⚠ Contraste bajo
+                    </span>
+                  )}
+                  {f.hint && (
+                    <span className="text-mute/70 block">{f.hint}</span>
+                  )}
+                </div>
+              </div>
+              {current && (
+                <button
+                  type="button"
+                  onClick={() => setField(f.key, null)}
+                  className="flex-none text-mute hover:text-ink text-lg leading-none px-1"
+                  aria-label={`Quitar color de ${f.label}`}
+                  title="Usar color por defecto"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

@@ -169,6 +169,52 @@ export class ReservationsController {
     return { slots: unique };
   }
 
+  /** Reglas de reserva del tenant: días habilitados (0=Dom..6=Sáb; vacío =
+   *  todos) + observaciones/términos que ve el cliente antes de reservar. */
+  @Get('config/booking')
+  async getBookingRules(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    const tid = user.role === 'SUPER_ADMIN' ? tenantId : user.tenantId;
+    if (!tid) throw new BadRequestException('tenantId requerido');
+    return this.svc.getBookingRules(tid);
+  }
+
+  /** Guarda días habilitados y/o observaciones. Patch parcial: solo se
+   *  actualizan los campos presentes en el body. */
+  @Patch('config/booking')
+  async setBookingRules(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { days?: number[]; terms?: string | null },
+    @Query('tenantId') tenantId?: string,
+  ) {
+    const tid = user.role === 'SUPER_ADMIN' ? tenantId : user.tenantId;
+    if (!tid) throw new BadRequestException('tenantId requerido');
+    const patch: { days?: number[]; terms?: string | null } = {};
+    if (body?.days !== undefined) {
+      if (
+        !Array.isArray(body.days) ||
+        body.days.some((n) => !Number.isInteger(n) || n < 0 || n > 6)
+      ) {
+        throw new BadRequestException('days[] debe ser enteros 0..6 (0=Dom..6=Sáb)');
+      }
+      patch.days = Array.from(new Set(body.days)).sort((a, b) => a - b);
+    }
+    if (body?.terms !== undefined) {
+      if (body.terms !== null && typeof body.terms !== 'string') {
+        throw new BadRequestException('terms debe ser texto o null');
+      }
+      const trimmed = typeof body.terms === 'string' ? body.terms.trim() : null;
+      if (trimmed && trimmed.length > 2000) {
+        throw new BadRequestException('terms máximo 2000 caracteres');
+      }
+      patch.terms = trimmed || null;
+    }
+    await this.svc.setBookingRules(tid, patch);
+    return this.svc.getBookingRules(tid);
+  }
+
   /** KPIs del día (Agenda header): reservas + comparación vs ayer,
    *  pax esperados, % ocupación + peak hour, no-show count + %. */
   @Get('daily-kpis')

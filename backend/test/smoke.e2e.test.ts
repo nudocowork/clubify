@@ -168,7 +168,21 @@ describe('smoke', () => {
     expect(res.body.cells[0]).toHaveLength(24);
   });
 
-  it('GET /api/public/payments/methods returns at least CASH + STUB', async () => {
+  /**
+   * OMITIDOS: prueban `/api/public/payments/*`, que YA NO EXISTE.
+   *
+   * La funcionalidad de pagos públicos (métodos, STUB, confirmación) venía del
+   * commit inicial y se eliminó en `bda90b32` ("v3.7: rebrand verde Clubify +
+   * Hotmart Elite"). No hay ningún controlador de pagos en `src/`. Estos tests
+   * quedaron huérfanos de esa limpieza y tuvieron el CI en rojo desde entonces
+   * — lo cual es peor que parecer: con el CI siempre rojo, nadie mira los
+   * checks y un fallo nuevo pasa desapercibido.
+   *
+   * Se dejan escritos, no borrados: si algún día vuelven los pagos públicos,
+   * describen el contrato que se esperaba. Para reactivarlos hay que quitar el
+   * `.skip` y volver a tener los endpoints.
+   */
+  it.skip('GET /api/public/payments/methods returns at least CASH + STUB', async () => {
     const res = await request(app.getHttpServer()).get(
       '/api/public/payments/methods',
     );
@@ -180,7 +194,8 @@ describe('smoke', () => {
     expect(cash.ready).toBe(true);
   });
 
-  it('payment flow: create order → start STUB pay → confirm → marks PAID', async () => {
+  // Omitido por lo mismo: ver la nota de arriba.
+  it.skip('payment flow: create order → start STUB pay → confirm → marks PAID', async () => {
     const menu = await request(app.getHttpServer()).get(
       '/api/public/m/cafe-del-dia/menu',
     );

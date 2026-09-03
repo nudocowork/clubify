@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Ip, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Ip, Param, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
   IsEmail,
@@ -10,6 +10,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { AuthService } from './auth.service';
+import { TrialOtpService } from './trial-otp.service';
 import { TwoFactorService } from './two-factor.service';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -24,6 +25,21 @@ class LoginDto {
 
 class GoogleLoginDto {
   @IsString() idToken!: string;
+}
+
+/** Auto-registro de un negocio "Solo InfoLink" desde el link de una marca
+ *  (/i-registro/<marca>). Descuenta 0.25 créditos de la marca. */
+class InfoLinkSignupDto {
+  @IsString() @MaxLength(80) brandSlug!: string;
+  @IsEmail() email!: string;
+  @IsString() @MinLength(6) @MaxLength(100) password!: string;
+  @IsString() @MaxLength(120) fullName!: string;
+  @IsString() @MaxLength(120) brandName!: string;
+  @IsOptional() @IsString() @MaxLength(40) phone?: string;
+  // Nivel del InfoLink. FREE = freemium público (0 créditos). PRO = pago
+  // (0.25). Default PRO (link compartible de marca existente). El freemium
+  // público de Sellea (selleala.com/infolink) manda FREE.
+  @IsOptional() @IsIn(['FREE', 'PRO']) tier?: 'FREE' | 'PRO';
 }
 
 class RefreshDto {
@@ -85,7 +101,14 @@ class SignupDto {
 
 /** Registro al modo prueba (5 días gratis). Endpoint público pero el link
  *  /prueba o /trial NO se publicita — solo embajadores/equipo comercial. */
+/** Pedido del PIN de la prueba gratuita. Solo el correo: pedir el código NO
+ *  crea nada ni revela si ese correo ya tiene cuenta. */
+export class TrialOtpDto {
+  @IsEmail() email!: string;
+}
+
 class TrialSignupDto {
+  @IsOptional() @IsString() @MaxLength(6) otp?: string;
   @IsEmail() email!: string;
   @IsString() @MinLength(8) password!: string;
   @IsString() @MinLength(1) @MaxLength(60) firstName!: string;
@@ -124,6 +147,7 @@ export class AuthController {
   constructor(
     private auth: AuthService,
     private twoFactor: TwoFactorService,
+    private trialOtpSvc: TrialOtpService,
   ) {}
 
   // Brute-force defense: 10 intentos por minuto por IP. Errores 401
@@ -210,6 +234,37 @@ export class AuthController {
   @Post('trial-signup')
   trialSignup(@Body() dto: TrialSignupDto, @Ip() ip: string) {
     return this.auth.trialSignup(dto, ip);
+  }
+
+  /** Manda el PIN al correo de la prueba gratuita. Tope bajo: el envío no puede
+   *  volverse un arma para bombardear el buzón de otra persona.
+   *
+   *  OJO al orden: este método va DESPUÉS de trial-signup a propósito. Metido
+   *  entre el comentario de trial-signup y su @Post, se quedaba con SUS
+   *  decoradores y trial-signup perdía @Public() — el registro público empezaba
+   *  a devolver 401. Pasó de verdad. */
+  @Public()
+  @Throttle({ default: { ttl: 3_600_000, limit: 6 } })
+  @Post('trial-otp')
+  trialOtp(@Body() dto: TrialOtpDto, @Ip() ip: string) {
+    return this.trialOtpSvc.solicitar(dto.email, ip);
+  }
+
+  /** Branding de la marca para tematizar la página de auto-registro InfoLink. */
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @Get('infolink-brand/:slug')
+  infolinkBrand(@Param('slug') slug: string) {
+    return this.auth.getBrandForInfoLinkSignup(slug);
+  }
+
+  /** Auto-registro InfoLink: crea el negocio bajo la marca y descuenta 0.25
+   *  créditos. Throttle estricto (link compartido públicamente). */
+  @Public()
+  @Throttle({ default: { ttl: 3_600_000, limit: 5 } })
+  @Post('infolink-signup')
+  infolinkSignup(@Body() dto: InfoLinkSignupDto, @Ip() ip: string) {
+    return this.auth.infolinkSignup(dto, ip);
   }
 
   // Forgot: 3 por hora por IP (defensa contra email-enumeration spam).

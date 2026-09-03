@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { PhoneInput } from '@/components/PhoneInput';
+import { useAuthBrand, BrandMark } from '@/components/AuthBrand';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -52,6 +53,8 @@ export default function ApplyAmbassadorPage() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<ApplyResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Marca blanca por host (Sellea, Fideliso…): null en Clubify → branding default.
+  const { brand } = useAuthBrand();
 
   useEffect(() => {
     setLoadError(null);
@@ -198,7 +201,7 @@ export default function ApplyAmbassadorPage() {
 
         <div className="card card-pad mb-4 bg-gradient-to-br from-brand-soft to-bg2/30">
           <div className="text-[10px] uppercase tracking-wider text-brand font-bold mb-1">
-            {info.campaignName ? 'Campaña Clubify' : 'Programa de embajadores'}
+            {info.campaignName ? `Campaña ${brand?.name ?? 'Clubify'}` : 'Programa de embajadores'}
           </div>
           <div className="font-bold text-2xl leading-tight">
             {info.campaignName ?? 'Equipo de ' + info.influencerName}
@@ -306,7 +309,7 @@ export default function ApplyAmbassadorPage() {
           </form>
 
           <div className="text-[11px] text-mute mt-3 leading-relaxed text-center">
-            Al enviarlo aceptas recibir comunicaciones de Clubify y del equipo
+            Al enviarlo aceptas recibir comunicaciones de {brand?.name ?? 'Clubify'} y del equipo
             de <strong>{info.influencerName}</strong>. Puedes darte de baja cuando
             quieras.
           </div>
@@ -317,12 +320,11 @@ export default function ApplyAmbassadorPage() {
 }
 
 function BrandHeader() {
+  // Logo de la marca del host (o Clubify por default cuando brand es null).
+  const { brand } = useAuthBrand();
   return (
     <Link href="/" className="flex items-center gap-2.5 mb-6">
-      <div className="w-8 h-8 rounded-lg bg-brand text-white flex items-center justify-center font-bold">
-        C
-      </div>
-      <div className="font-bold text-lg">Clubify</div>
+      <BrandMark brand={brand} size={28} />
     </Link>
   );
 }

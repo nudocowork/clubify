@@ -12,10 +12,13 @@ import { AuthModule } from '../auth/auth.module';
 import { AdminModule } from '../admin/admin.module';
 import { AuditService } from '../audit/audit.service';
 import { CommissionRecalcModule } from './commission-recalc.module';
+import { CutoffService } from './cutoff.service';
 
 @Module({
   imports: [AuthModule, AdminModule, CommissionRecalcModule],
-  providers: [ReferralsService, AuditService],
+  // CutoffService depende de ReferralsService (para el desbloqueo del hold),
+  // nunca al revés → sin ciclo, inyección directa.
+  providers: [ReferralsService, AuditService, CutoffService],
   controllers: [
     ReferralsController,
     AdminCommissionsController,
@@ -24,6 +27,6 @@ import { CommissionRecalcModule } from './commission-recalc.module';
     PublicAffiliateSignupController,
     AdminAffiliateRegistrationController,
   ],
-  exports: [ReferralsService, AuditService],
+  exports: [ReferralsService, AuditService, CutoffService],
 })
 export class ReferralsModule {}

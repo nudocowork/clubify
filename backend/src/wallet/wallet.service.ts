@@ -4,7 +4,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GoogleWalletService } from './google-wallet.service';
-import { resolveStampIconRenderer } from './stamp-icons';
+import { resolveStampIconRenderer, resolveCustomImageRenderer } from './stamp-icons';
+import { removeBorderConnectedWhite } from './logo-chroma';
+import { nextRewardLabel } from './free-rewards.util';
+import { resolveWalletAdvanced, WalletAdvancedFlags } from '../common/white-label/wallet-advanced.util';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { passLabels, type PassLocale, normalizePassLocale } from './pass-labels';
 
@@ -78,6 +81,33 @@ export class WalletService {
     return out;
   }
 
+  /** Wallet V3 — fondo del área de sellos EFECTIVO según los permisos de la
+   * marca. Si la marca apagó "fondos personalizados", una tarjeta con IMAGE cae
+   * a color uniforme (SOLID) y se ignora la imagen — AUNQUE ya estuviera guardada
+   * (revocación retroactiva) o venga de un clonado que saltó el gate de guardado. */
+  private effectiveStampBg(
+    card: { stampBgType?: string | null; stampBgImageUrl?: string | null },
+    wa: WalletAdvancedFlags,
+  ): { stampBgType: 'GRADIENT' | 'SOLID' | 'IMAGE'; stampBgImageUrl: string | null } {
+    let type = (card.stampBgType as any) || 'GRADIENT';
+    let img = card.stampBgImageUrl ?? null;
+    if (!wa.customBackgrounds) {
+      if (type === 'IMAGE') type = 'SOLID';
+      img = null;
+    }
+    return { stampBgType: type, stampBgImageUrl: img };
+  }
+
+  /** Wallet V3 — permisos "Wallet Avanzado" de la marca del negocio. Aislado:
+   * se resuelve por el whiteLabel del tenant. null/ausente = todo activo. */
+  private async getWalletAdvancedForTenant(tenantId: string): Promise<WalletAdvancedFlags> {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { whiteLabel: { select: { walletAdvanced: true } } },
+    });
+    return resolveWalletAdvanced(t?.whiteLabel?.walletAdvanced);
+  }
+
   async generateApplePass(passId: string): Promise<Buffer> {
     const pass = await this.prisma.pass.findUnique({
       where: { id: passId },
@@ -93,9 +123,12 @@ export class WalletService {
     // serialNumber están vacíos. Defensivo siempre con fallbacks.
     // #24 (2026-06-16): si la tarjeta tiene walletBrandName propio, ese gana
     // sobre el brandName del negocio (para el nombre mostrado en el pase).
+    // Fallback = nombre real del negocio, NUNCA 'Clubify' (delataría la
+    // plataforma en el pase de una marca blanca). brandName es el nombre a
+    // mostrar del negocio; si falta, su `name` de registro.
     const brandName =
-      (pass.card.walletBrandName?.trim() || pass.tenant.brandName || 'Clubify').trim() ||
-      'Clubify';
+      (pass.card.walletBrandName?.trim() || pass.tenant.brandName || pass.tenant.name).trim() ||
+      pass.tenant.name;
     // Marca blanca dueña del pass — el link "Creado por X" del reverso apunta
     // al dominio público de la marca (no hardcode Clubify). resolveTenant cae
     // al row real `clubify` cuando el negocio no tiene whiteLabelId (legacy).
@@ -130,6 +163,37 @@ export class WalletService {
     const lastMsgValue = latestNotif
       ? `${latestNotif.title}\n${latestNotif.body}`.trim().slice(0, 200)
       : L.no_messages;
+
+    // Wallet V3 — "Próximo Premio" dinámico (si la marca lo permite). Reemplaza
+    // la recompensa estática por el siguiente hito según los sellos actuales.
+    const wa = await this.getWalletAdvancedForTenant(pass.tenantId);
+    let rewardFieldLabel = L.reward;
+    let rewardFieldValue = pass.card.rewardText || '—';
+    // Solo activamos "Próximo Premio" si la tarjeta REALMENTE tiene Premios Free
+    // activos → las tarjetas sin premios intermedios conservan "RECOMPENSA" tal
+    // cual (no cambia el aspecto de las tarjetas existentes).
+    const hasActiveFree =
+      wa.freeRewards &&
+      Array.isArray((pass.card as any).freeRewards) &&
+      (pass.card as any).freeRewards.some((fr: any) => fr && fr.active !== false);
+    if (
+      wa.showNextReward &&
+      hasActiveFree &&
+      (pass.card.type === 'STAMPS' || pass.card.type === 'HYBRID' || pass.card.type === 'VISITS')
+    ) {
+      const cur = pass.card.type === 'VISITS' ? pass.visitsCount : pass.stampsCount;
+      const next = nextRewardLabel({
+        freeRewards: (pass.card as any).freeRewards,
+        rewardText: pass.card.rewardText,
+        stampsRequired:
+          pass.card.type === 'VISITS' ? pass.card.visitsRequired : pass.card.stampsRequired,
+        current: cur,
+      });
+      if (next) {
+        rewardFieldLabel = L.next_reward;
+        rewardFieldValue = next.label;
+      }
+    }
 
     const passJson = {
       formatVersion: 1,
@@ -186,7 +250,7 @@ export class WalletService {
         // texto encima.
         primaryFields: [],
         secondaryFields: [
-          { key: 'reward', label: L.reward, value: pass.card.rewardText || '—' },
+          { key: 'reward', label: rewardFieldLabel, value: rewardFieldValue },
         ],
         auxiliaryFields: [
           { key: 'member', label: L.customer, value: pass.customer.fullName },
@@ -239,12 +303,20 @@ export class WalletService {
         required: pass.card.stampsRequired ?? 10,
         stamped: pass.stampsCount,
         icon: c.stampIcon || '☕',
+      stampIconImageUrl: c.stampIconImageUrl ?? null,
         // Colores avanzados (opcionales). Si null, generateStampsStrip
         // usa defaults computados desde primary/secondary.
         stampActiveColor: c.stampActiveColor ?? null,
         stampInactiveColor: c.stampInactiveColor ?? null,
         stampContourColor: c.stampContourColor ?? null,
         centerBgColor: c.centerBgColor ?? null,
+        // Wallet V3 — fondo del área de sellos EFECTIVO (gate de render de
+        // customBackgrounds: si la marca lo apagó, IMAGE cae a uniforme aunque
+        // ya estuviera guardado o venga de un clonado).
+        ...this.effectiveStampBg(c, wa),
+        // Premios Free solo si la marca lo permite (gate de render, además del
+        // gate de guardado en cards.service).
+        freeRewards: wa.freeRewards ? ((c.freeRewards as any) ?? []) : [],
       });
     } else if (pass.card.type === 'COUPON') {
       dynamicStrips = await this.generateCouponStrip({
@@ -296,8 +368,9 @@ export class WalletService {
 
     let tenantLogos: Record<string, Buffer> = {};
     let usedLogoUrl: string | null = null;
+    const logoChip = (pass.card as any).logoBgColor as string | null | undefined;
     for (const url of candidates) {
-      const attempt = await this.generateTenantLogos(url);
+      const attempt = await this.generateTenantLogos(url, logoChip);
       const main = attempt['logo.png'];
       // Un PNG 160×50 totalmente transparente pesa ~130 bytes. Si lo que
       // generamos es <500 bytes, asumimos que el chroma-key vació la
@@ -601,12 +674,14 @@ export class WalletService {
         ? pass.card.visitsRequired ?? 10
         : pass.card.stampsRequired ?? 10;
     const stamped = t === 'VISITS' ? pass.visitsCount : pass.stampsCount;
+    const waStrip = await this.getWalletAdvancedForTenant(pass.tenantId);
     const result = await this.generateStampsStrip({
       primary: pass.card.primaryColor,
       secondary: pass.card.secondaryColor,
       required,
       stamped,
       icon: c.stampIcon || '☕',
+      stampIconImageUrl: c.stampIconImageUrl ?? null,
       stampActiveColor: c.stampActiveColor ?? null,
       stampInactiveColor: c.stampInactiveColor ?? null,
       stampContourColor: c.stampContourColor ?? null,
@@ -615,9 +690,80 @@ export class WalletService {
       // heroImageUrl, la usamos como base del strip con overlay oscuro
       // y los sellos en glass encima. Sino, fallback al gradient actual.
       heroImageUrl: c.heroImageUrl ?? null,
+      // Wallet V3 — fondo del área de sellos EFECTIVO (gate de render de
+      // customBackgrounds, ver effectiveStampBg).
+      ...this.effectiveStampBg(c, waStrip),
+      freeRewards: waStrip.freeRewards ? ((c.freeRewards as any) ?? []) : [],
     });
     // Usamos la versión @2x (640×246) que se ve bien en Android y desktop.
     return result['strip@2x.png'] ?? result['strip.png'] ?? null;
+  }
+
+  /**
+   * PREVIEW del strip de sellos para el panel (config aún NO guardada). Usa el
+   * MISMO generador que produce el strip real del pase (`generateStampsStrip`)
+   * — no reimplementa el dibujo — y devuelve las 3 imágenes PNG reales (data
+   * URLs base64) en los estados VACÍO (0), MITAD (floor(n/2)) y COMPLETO (n).
+   * No toca DB: recibe la config del cuerpo del request. Así el negocio ve la
+   * imagen EXACTA que recibirá el cliente en su Wallet, sin persistir nada.
+   */
+  async previewStampStrips(cfg: {
+    primaryColor?: string | null;
+    secondaryColor?: string | null;
+    stampsRequired?: number | null;
+    stampIcon?: string | null;
+    stampIconImageUrl?: string | null;
+    stampActiveColor?: string | null;
+    stampInactiveColor?: string | null;
+    stampContourColor?: string | null;
+    centerBgColor?: string | null;
+    heroImageUrl?: string | null;
+    stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE' | null;
+    stampBgImageUrl?: string | null;
+    freeRewards?: Array<{
+      pos: number;
+      text?: string | null;
+      emoji?: string | null;
+      circleColor?: string | null;
+      textColor?: string | null;
+      active?: boolean;
+    }>;
+  }): Promise<{ empty: string; half: string; full: string }> {
+    // Clamp defensivo: el grid soporta hasta 2 filas; > ~20 se ve mal.
+    const required = Math.min(
+      Math.max(Math.floor(cfg.stampsRequired ?? 10), 1),
+      20,
+    );
+    const base = {
+      primary: cfg.primaryColor || '#6366F1',
+      secondary: cfg.secondaryColor || '#A855F7',
+      required,
+      icon: cfg.stampIcon || '☕',
+      stampIconImageUrl: cfg.stampIconImageUrl ?? null,
+      stampActiveColor: cfg.stampActiveColor ?? null,
+      stampInactiveColor: cfg.stampInactiveColor ?? null,
+      stampContourColor: cfg.stampContourColor ?? null,
+      centerBgColor: cfg.centerBgColor ?? null,
+      heroImageUrl: cfg.heroImageUrl ?? null,
+      stampBgType: cfg.stampBgType ?? undefined,
+      stampBgImageUrl: cfg.stampBgImageUrl ?? null,
+      freeRewards: cfg.freeRewards ?? [],
+    };
+    const counts = [0, Math.floor(required / 2), required];
+    const [emptyR, halfR, fullR] = await Promise.all(
+      counts.map((stamped) =>
+        this.generateStampsStrip({ ...base, stamped }),
+      ),
+    );
+    const toDataUri = (r: Record<string, Buffer>): string => {
+      const buf = r['strip@2x.png'] ?? r['strip.png'];
+      return `data:image/png;base64,${buf.toString('base64')}`;
+    };
+    return {
+      empty: toDataUri(emptyR),
+      half: toDataUri(halfR),
+      full: toDataUri(fullR),
+    };
   }
 
   private async generateStampsStrip(opts: {
@@ -626,11 +772,28 @@ export class WalletService {
     required: number;
     stamped: number;
     icon: string;
+    /** Ícono de sello personalizado (imagen PNG/SVG). Si está, se usa en lugar
+     *  del emoji: lleno = a color, vacío = atenuado. */
+    stampIconImageUrl?: string | null;
     stampActiveColor?: string | null;
     stampInactiveColor?: string | null;
     stampContourColor?: string | null;
     centerBgColor?: string | null;
     heroImageUrl?: string | null;
+    // Wallet V3 — modo de fondo del área de sellos:
+    //   GRADIENT (legacy) | SOLID (uniforme = color de la tarjeta) | IMAGE.
+    stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
+    stampBgImageUrl?: string | null;
+    // Wallet V3 — Premios Free: se dibujan DENTRO del círculo en su posición
+    // (badge 🎁 en la esquina + texto). pos es 1-based.
+    freeRewards?: Array<{
+      pos: number;
+      text?: string | null;
+      emoji?: string | null;
+      circleColor?: string | null;
+      textColor?: string | null;
+      active?: boolean;
+    }>;
   }): Promise<Record<string, Buffer>> {
     const sharp = (await import('sharp')).default;
     const {
@@ -644,22 +807,67 @@ export class WalletService {
       stampContourColor,
       centerBgColor,
       heroImageUrl,
+      stampBgImageUrl,
     } = opts;
+    // Wallet V3 — Premios Free por posición (1-based). Solo los activos.
+    const prizeByPos = new Map<number, NonNullable<typeof opts.freeRewards>[number]>();
+    for (const fr of opts.freeRewards ?? []) {
+      if (fr && fr.active !== false && Number.isFinite(fr.pos)) prizeByPos.set(Math.floor(fr.pos), fr);
+    }
+    const hasPrizes = prizeByPos.size > 0;
+    // Sin stampBgType (llamadas viejas / tarjetas legacy) → GRADIENT, el
+    // comportamiento actual, para no cambiar el aspecto de tarjetas existentes.
+    const bgType = opts.stampBgType ?? 'GRADIENT';
+    // Imagen base detrás de los sellos:
+    //  - IMAGE: la imagen dedicada del área de sellos (Wallet V3).
+    //  - GRADIENT + heroImageUrl (modo "glass" legacy): se mantiene para no
+    //    romper tarjetas viejas que usaban la foto hero como fondo del strip.
+    //  - SOLID: sin imagen (fondo uniforme).
+    const bgImageUrl =
+      bgType === 'IMAGE'
+        ? stampBgImageUrl || null
+        : bgType === 'GRADIENT'
+          ? heroImageUrl || null
+          : null;
     // Defaults estilo Starbucks / Apple Wallet: filled = blanco sólido,
     // empty = relleno sutil glassmorphism sin borde marcado. El contorno
     // sólo se dibuja si el tenant lo configuró explícitamente.
     // Cuando hay heroImageUrl (modo glass): los vacíos se ven más sutiles
     // para no competir con la foto, y los llenos quedan blancos puros.
-    const usingHero = !!heroImageUrl;
+    const usingImage = !!bgImageUrl;
     const fillFull = stampActiveColor ?? '#FFFFFF';
     const fillEmpty =
-      stampInactiveColor ?? (usingHero ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.13)');
+      stampInactiveColor ?? (usingImage ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.13)');
     const customStroke = stampContourColor ?? null;
 
     // Resolvemos el renderer del ícono UNA vez (todos los sellos usan el
     // mismo). Emojis con dibujo curado → SVG gourmet; cualquier otro →
     // Twemoji color (antes caía a un check). Bug fix 2026-06-15.
     const iconRenderer = await resolveStampIconRenderer(icon);
+
+    // Ícono de sello PERSONALIZADO (imagen propia). Si carga bien, reemplaza al
+    // emoji: sello lleno = imagen a color; sello vacío = misma imagen atenuada
+    // (decisión "tu imagen atenuada"). Si la imagen falla → cae al emoji.
+    const customUrl = (opts.stampIconImageUrl || '').trim();
+    const customFull = customUrl
+      ? await resolveCustomImageRenderer(customUrl, { opacity: 1 })
+      : null;
+    const customFaded = customUrl
+      ? await resolveCustomImageRenderer(customUrl, { opacity: 0.34 })
+      : null;
+
+    // Wallet V3 — renderers de Premios Free: badge 🎁 (esquina) + emoji propio
+    // de cada premio. Emoji color va por Twemoji (no por <text>).
+    const giftBadgeRenderer = hasPrizes ? await resolveStampIconRenderer('🎁') : null;
+    const prizeEmojiRenderers = new Map<string, typeof iconRenderer>();
+    if (hasPrizes) {
+      for (const fr of prizeByPos.values()) {
+        const e = (fr.emoji || '').trim();
+        if (e && !prizeEmojiRenderers.has(e)) {
+          prizeEmojiRenderers.set(e, await resolveStampIconRenderer(e));
+        }
+      }
+    }
 
     const rows = required > 6 ? 2 : 1;
     const perRow = Math.ceil(required / rows);
@@ -676,6 +884,52 @@ export class WalletService {
     const cellH = (availH - gap * (rows - 1)) / rows;
     const radius = Math.min(cellW, cellH) / 2;
 
+    // Wallet V3 — dibuja un círculo de Premio Free: fondo (colorCírculo o el
+    // relleno normal), emoji + texto (≤2 líneas) dentro, y badge 🎁 en la
+    // esquina superior derecha para que se lea "hay un premio aquí".
+    const renderPrize = (
+      cx: number,
+      cy: number,
+      prize: NonNullable<typeof opts.freeRewards>[number],
+      filled: boolean,
+    ): string[] => {
+      const out: string[] = [];
+      const bg = prize.circleColor || (filled ? fillFull : fillEmpty);
+      const shadow = filled ? ' filter="url(#stampShadow)"' : '';
+      out.push(`<circle cx="${cx}" cy="${cy}" r="${radius}" fill="${bg}"${shadow}/>`);
+      const emoji = (prize.emoji || '').trim();
+      const text = (prize.text || '').trim();
+      const txtColor = prize.textColor || (filled ? '#111827' : '#FFFFFF');
+      const emojiR = emoji ? prizeEmojiRenderers.get(emoji) : null;
+      const uid = `p${Math.round(cx)}_${Math.round(cy)}`;
+      const textLines = (t: string, fs: number, baseY: number) => {
+        const lines = this.splitLines(t.toUpperCase(), 9, 2);
+        lines.forEach((ln, li) => {
+          out.push(
+            `<text x="${cx}" y="${baseY + li * fs * 1.05}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="${fs}" font-weight="800" fill="${txtColor}">${this.escapeXml(ln)}</text>`,
+          );
+        });
+      };
+      if (emojiR && text) {
+        out.push(emojiR(cx, cy - radius * 0.3, radius * 0.72, uid));
+        textLines(text, Math.max(9, radius * 0.34), cy + radius * 0.36);
+      } else if (emojiR) {
+        out.push(emojiR(cx, cy, radius * 1.05, uid));
+      } else if (text) {
+        const fs = Math.max(10, radius * 0.4);
+        const start = cy - (this.splitLines(text.toUpperCase(), 9, 2).length - 1) * fs * 0.52 + fs * 0.34;
+        textLines(text, fs, start);
+      }
+      if (giftBadgeRenderer) {
+        const bx = cx + radius * 0.6;
+        const by = cy - radius * 0.6;
+        const br = radius * 0.44;
+        out.push(`<circle cx="${bx}" cy="${by}" r="${br * 0.95}" fill="#FFFFFF" filter="url(#stampShadow)"/>`);
+        out.push(giftBadgeRenderer(bx, by, br * 1.45, `${uid}b`));
+      }
+      return out;
+    };
+
     const circles: string[] = [];
     for (let i = 0; i < required; i++) {
       const row = Math.floor(i / perRow);
@@ -683,6 +937,12 @@ export class WalletService {
       const cx = padX + col * (cellW + gap) + cellW / 2;
       const cy = padY + row * (cellH + gap) + cellH / 2;
       const filled = i < stamped;
+
+      const prize = prizeByPos.get(i + 1);
+      if (prize) {
+        circles.push(...renderPrize(cx, cy, prize, filled));
+        continue;
+      }
 
       if (filled) {
         // Sombra sutil + círculo blanco sólido. Stroke sólo si el tenant
@@ -696,9 +956,14 @@ export class WalletService {
         // Ícono inline SVG (librsvg no renderiza color emoji aunque la
         // fuente esté instalada — sale como silueta monocromática negra).
         // El renderer mapea emoji → SVG estilo "gourmet" con gradient.
-        // Tamaño ≈55% del diámetro del círculo (radius * 1.1 = 55% de 2r).
-        const iconSize = radius * 1.1;
-        circles.push(iconRenderer(cx, cy, iconSize, `${i}`));
+        // Emoji: tamaño ≈55% del diámetro (radius * 1.1 = 55% de 2r).
+        // Imagen propia: llena el círculo COMPLETO (diámetro = radius * 2) y va
+        // recortada en círculo; si no, queda un anillo blanco alrededor.
+        circles.push(
+          customFull
+            ? customFull(cx, cy, radius * 2, `${i}`)
+            : iconRenderer(cx, cy, radius * 1.1, `${i}`),
+        );
       } else {
         // Vacío: glassmorphism sutil sin borde. Borde sólo si el tenant
         // configuró stampContourColor.
@@ -708,18 +973,28 @@ export class WalletService {
         circles.push(
           `<circle cx="${cx}" cy="${cy}" r="${radius}" fill="${fillEmpty}"${strokeAttr}/>`,
         );
+        // Con ícono personalizado, el vacío también muestra la imagen atenuada.
+        if (customFaded) {
+          circles.push(customFaded(cx, cy, radius * 2, `${i}`));
+        }
       }
     }
 
-    // Background del strip:
-    //  - Modo glass (heroImageUrl): foto base + overlay oscuro gradient para
+    // Background del strip según el modo (Wallet V3):
+    //  - IMAGE / glass legacy (usingImage): foto base + overlay oscuro para
     //    legibilidad de los sellos. El SVG se compone ENCIMA de la foto.
-    //  - Modo gradient (sin hero): gradiente diagonal de la card + gloss
-    //    sutil. El SVG es self-contained con el background dentro.
-    const bgFill = centerBgColor ? centerBgColor : 'url(#bg)';
-    const bgRect = usingHero
+    //  - SOLID (uniforme): color plano = centerBgColor o el primaryColor de la
+    //    tarjeta, SIN degradado ni gloss → "área de sellos = color tarjeta".
+    //  - GRADIENT (legacy): gradiente diagonal de la card + gloss sutil.
+    const solidBg = centerBgColor ? centerBgColor : primary;
+    const legacyBgFill = centerBgColor ? centerBgColor : 'url(#bg)';
+    // IMAGE sin imagen cargada → uniforme (no caer al degradado legacy).
+    const solidMode = bgType === 'SOLID' || bgType === 'IMAGE';
+    const bgRect = usingImage
       ? `<rect width="100%" height="100%" fill="url(#heroOverlay)"/>`
-      : `<rect width="100%" height="100%" fill="${bgFill}"/>
+      : solidMode
+        ? `<rect width="100%" height="100%" fill="${solidBg}"/>`
+        : `<rect width="100%" height="100%" fill="${legacyBgFill}"/>
          <rect width="100%" height="100%" fill="url(#gloss)"/>`;
     const svg = `
 <svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">
@@ -757,9 +1032,9 @@ export class WalletService {
     // del overlay + sellos encima. Si falla la red, fallback al SVG-only
     // (gradient + sellos) para no romper el strip.
     let baseImage: Buffer | null = null;
-    if (usingHero && heroImageUrl) {
+    if (usingImage && bgImageUrl) {
       try {
-        const res = await fetch(heroImageUrl);
+        const res = await fetch(bgImageUrl);
         if (res.ok) {
           const buf = Buffer.from(await res.arrayBuffer());
           baseImage = await sharp(buf)
@@ -769,7 +1044,7 @@ export class WalletService {
         }
       } catch (e: any) {
         this.logger.warn(
-          `[STAMPS STRIP] heroImageUrl fetch falló: ${e?.message ?? e} — fallback gradient`,
+          `[STAMPS STRIP] fondo de sellos fetch falló: ${e?.message ?? e} — fallback color`,
         );
       }
     }
@@ -990,6 +1265,7 @@ export class WalletService {
    */
   private async generateTenantLogos(
     logoUrl: string | null,
+    logoBgColor?: string | null,
   ): Promise<Record<string, Buffer>> {
     const sharp = (await import('sharp')).default;
     const transparent = (w: number, h: number) =>
@@ -1028,22 +1304,28 @@ export class WalletService {
 
       // Si el PNG/JPG fuente NO tiene canal alpha (fondo blanco sólido),
       // hacemos chroma-key automático para que el logo se integre con el
-      // gradient del pase en vez de mostrar un cuadro blanco detrás.
-      // Umbral conservador: RGB todos >= 240 → píxel considerado "blanco
-      // de fondo" y se vuelve transparente. Píxeles más oscuros se
-      // mantienen como están. Logos con detalles blancos legítimos (texto
-      // blanco sobre forma oscura) NO se afectan porque están rodeados de
-      // píxeles oscuros que se preservan.
+      // fondo del pase en vez de mostrar un cuadro blanco detrás.
+      // OJO: solo el blanco CONECTADO al borde (flood-fill) — el fondo real.
+      // Las letras/detalles blancos dentro del logo se conservan; el
+      // chroma-key global anterior los borraba también y el logo quedaba
+      // ilegible (PDF de peticiones de clientes 2026-08).
       const prepared = await this.prepareLogoForWallet(src);
 
-      const make = (w: number, h: number) =>
-        sharp(prepared)
-          .resize(w, h, {
-            fit: 'contain',
-            background: { r: 0, g: 0, b: 0, alpha: 0 },
-          })
+      // Chip/fondo detrás del logo (opcional, por tarjeta). Si el negocio lo
+      // activó, aplanamos el logo (que puede haber quedado transparente tras
+      // el chroma-key, o traer contenido blanco) SOBRE ese color → el logo
+      // vuelve a ser visible. Sin chip, se mantiene el fondo transparente
+      // histórico (logo sobre el gradiente del pase).
+      const chip = this.parseChipColor(logoBgColor);
+      const make = (w: number, h: number) => {
+        const img = sharp(prepared).resize(w, h, {
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        });
+        return (chip ? img.flatten({ background: chip }) : img)
           .png()
           .toBuffer();
+      };
       const [l1, l2, l3] = await Promise.all([
         make(160, 50),
         make(320, 100),
@@ -1058,13 +1340,29 @@ export class WalletService {
 
   /**
    * Si el logo subido tiene fondo blanco SÓLIDO (todos los píxeles opacos),
-   * convierte los píxeles cercanos al blanco en transparentes para que se
-   * integre con el gradient del pase. Si la fuente ya tiene transparencia
-   * REAL (al menos un píxel con alpha != 255), se respeta el diseño
-   * original completo — porque ahí el diseñador ya decidió qué es fondo
-   * vs. qué es contenido, y un blanco intencional en el logo no debería
-   * borrarse.
+   * vuelve transparente SOLO el blanco conectado al borde de la imagen (el
+   * fondo real) para que se integre con el fondo del pase. Los blancos
+   * interiores — letras o detalles blancos dentro del logo — se conservan:
+   * quitarlos dejaba el logo ilegible (PDF de peticiones de clientes
+   * 2026-08). Si la fuente ya tiene transparencia REAL (al menos un píxel
+   * con alpha != 255), se respeta el diseño original completo — ahí el
+   * diseñador ya decidió qué es fondo vs. qué es contenido.
    */
+  /** Parsea el color del chip/fondo del logo (#rgb o #rrggbb) a {r,g,b}
+   *  para sharp. Devuelve null si viene vacío, 'transparent' o inválido
+   *  (= sin chip). */
+  private parseChipColor(
+    hex?: string | null,
+  ): { r: number; g: number; b: number } | null {
+    if (!hex) return null;
+    let h = hex.trim().replace(/^#/, '');
+    if (h.toLowerCase() === 'transparent') return null;
+    if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return null;
+    const n = parseInt(h, 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
+
   private async prepareLogoForWallet(src: Buffer): Promise<Buffer> {
     const sharp = (await import('sharp')).default;
     const { data, info } = await sharp(src)
@@ -1086,20 +1384,11 @@ export class WalletService {
       return src;
     }
 
-    // Fuente plana sin transparencia → asumimos blanco como fondo y lo
-    // recortamos. Logos con contenido blanco se verían afectados, pero un
-    // diseñador que necesita blanco-sobre-color subiría PNG con alpha.
-    const THRESHOLD = 240;
-    const out = Buffer.from(data);
-    for (let i = 0; i < out.length; i += 4) {
-      const r = out[i];
-      const g = out[i + 1];
-      const b = out[i + 2];
-      if (r >= THRESHOLD && g >= THRESHOLD && b >= THRESHOLD) {
-        out[i + 3] = 0;
-      }
-    }
-    return sharp(out, {
+    // Fuente plana sin transparencia → recortar el fondo blanco por
+    // flood-fill desde los bordes. Un logo SIN blanco en el borde (p. ej.
+    // letras blancas sobre fondo de color) sale intacto.
+    const out = removeBorderConnectedWhite(data, info.width, info.height);
+    return sharp(Buffer.from(out.buffer, out.byteOffset, out.byteLength), {
       raw: { width: info.width, height: info.height, channels: 4 },
     })
       .png()
@@ -1369,6 +1658,7 @@ export class WalletService {
         tenant: {
           select: {
             id: true,
+            name: true,
             brandName: true,
             primaryColor: true,
             logoUrl: true,
@@ -1392,7 +1682,8 @@ export class WalletService {
     });
     if (!r) throw new NotFoundException('Reservation');
 
-    const brandName = (r.tenant.brandName || 'Clubify').trim() || 'Clubify';
+    // Fallback = nombre del negocio, nunca 'Clubify' (fuga en pase marca blanca).
+    const brandName = (r.tenant.brandName || r.tenant.name).trim() || r.tenant.name;
     const resBrand = await this.brand.resolveTenant(r.tenant.id);
     const resBrandHref = resBrand.websiteUrl;
     const resBrandDomain = resBrand.websiteUrl.replace(/^https?:\/\//, '');

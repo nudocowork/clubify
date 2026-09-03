@@ -28,6 +28,9 @@ import { isDarkBackground } from '@/lib/contrast';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { DeliveryTrackWidget } from '@/components/DeliveryTrackWidget';
 import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
+
+/** Valor centinela: el cliente esta fuera de los departamentos del negocio. */
+const OTRA_REGION = '__OTRA_REGION__';
 import { regionsForCountry } from '@/lib/regions';
 import {
   type StorefrontPopupItem,
@@ -106,6 +109,14 @@ type Storefront = {
   bookMenuEnabled?: boolean;
   ordersEnabled?: boolean;
   ordersDeliveryEnabled?: boolean;
+  /** PDF1145: opciones de entrega habilitadas por el negocio. delivery =
+   *  domicilio (gateado); pickup = recoger en tienda; dineIn = pedido en mesa.
+   *  Ausente en payloads viejos → se cae a solo-domicilio. */
+  fulfillment?: { delivery: boolean; pickup: boolean; dineIn: boolean };
+  /** Métodos de pago que el negocio acepta en el checkout (EFECTIVO/TARJETA/
+   *  TRANSFERENCIA/OTRO). Ausente en payloads viejos/cacheados → se ofrecen
+   *  todos, igual que siempre — que nadie pierda opciones por caché. */
+  acceptedPaymentMethods?: string[];
   pageBackgroundColor?: string | null;
   pageBackgroundType?: string | null;
   pageBackgroundGradient?: string | null;
@@ -138,8 +149,15 @@ type Product = {
   variantPriceMode?: 'DELTA' | 'ABSOLUTE';
   imageUrl: string | null;
   tags: string[];
+  /** Destacado por el negocio: además de ir a la sección "Recomendados",
+   *  muestra el badge dentro de su categoría. */
+  isRecommended?: boolean;
   variants: Variant[];
   extras: Extra[];
+  /** Cuantas variantes puede marcar el cliente. null/1 = una sola. */
+  maxVariantsTotal?: number | null;
+  /** Tope de extras EN TOTAL. null = sin tope. */
+  maxExtrasTotal?: number | null;
 };
 type Category = {
   id: string;
@@ -371,6 +389,15 @@ function StorefrontPublicInner() {
   //   /m/<slug>/delivery  → 'delivery'  (compat con QRs viejos, se redirige)
   const pathname = usePathname() ?? '';
   const mode: StorefrontMode = modeFromPathname(pathname);
+  /**
+   * Sede del QR (`?sede=<id>`).
+   *
+   * El QR de cada sede lleva la suya, así que el cliente ve la carta de donde
+   * está sentado — y el pedido se ata a ESA sede, no a la que se deduzca de su
+   * dirección. Un QR sin sede (los de siempre) sigue mostrando el menú
+   * principal.
+   */
+  const sedeDelQr = (searchParams?.get('sede') ?? '').trim();
   const [s, setS] = useState<Storefront | null>(null);
   const [menu, setMenu] = useState<Category[]>([]);
   const [tab, setTab] = useState<'menu' | 'promos'>('menu');
@@ -455,7 +482,10 @@ function StorefrontPublicInner() {
         .catch((e: Error) => {
           if (!cancelled) setLoadError(e.message || 'No disponible');
         }),
-      fetch(`${API}/api/public/m/${slug}/menu?locale=${locale}&mode=${mode}`)
+      fetch(
+        `${API}/api/public/m/${slug}/menu?locale=${locale}&mode=${mode}` +
+          (sedeDelQr ? `&sede=${encodeURIComponent(sedeDelQr)}` : ''),
+      )
         .then(async (r) => (r.ok ? r.json() : []))
         .then((data) => {
           if (!cancelled) setMenu(data);
@@ -566,10 +596,14 @@ function StorefrontPublicInner() {
   // QRs viejos `?mesa=1` se resuelve porque la nueva ruta por defecto
   // ya es mesa (el QR sin /delivery cae al canal correcto).
   const isTableMode = mode === 'mesa';
+  // PDF1145: el carrito/checkout se habilita si el negocio ofrece CUALQUIER
+  // canal de pedido (domicilio, recoger o mesa) — no solo domicilio. Así un
+  // negocio "solo Pick Up" (sin delivery) igual puede recibir pedidos.
+  const deliveryOn =
+    s.ordersEnabled !== false && (s.ordersDeliveryEnabled ?? true);
   const ordersAllowed =
     !isTableMode &&
-    s.ordersEnabled !== false &&
-    (s.ordersDeliveryEnabled ?? true);
+    (deliveryOn || !!s.fulfillment?.pickup || !!s.fulfillment?.dineIn);
   // Mostrar el botón "pedir/contactar por WhatsApp" en el storefront
   // público. Regla de negocio (M1.3 2026-06-04):
   // - Mesa (?mesa=N): NUNCA muestra WA (incluido en ordersAllowed=false).
@@ -1077,11 +1111,14 @@ function StorefrontPublicInner() {
         <CheckoutSheet
           items={cart}
           slug={slug}
+          sedeDelQr={sedeDelQr}
           primary={primary}
           currency={s.currency}
           country={s.country ?? 'CO'}
           planName={s.planName ?? null}
           mode={mode}
+          fulfillment={s.fulfillment}
+          acceptedPaymentMethods={s.acceptedPaymentMethods}
           onClose={() => setShowCheckout(false)}
         />
       )}
@@ -1089,14 +1126,24 @@ function StorefrontPublicInner() {
       {/* Popup del menú: prioriza popups programados (#5), cae al legacy single. */}
       <StorefrontPopup menuPopups={s.menuPopups} legacy={s.popup} slug={slug} />
 
-      {/* Red de Domicilios (Fase 3A): seguimiento "mis pedidos" por teléfono.
-          Solo en el menú de domicilios para no recargar el de mesa. */}
-      {mode === 'delivery' && <DeliveryTrackWidget slug={slug} primary={primary} />}
+      {/* Acciones flotantes inferiores-IZQUIERDA agrupadas en UN contenedor
+          (flex-col + gap) para que NUNCA se superpongan (idioma vs seguimiento).
+          Respeta el safe-area de iOS. El idioma va arriba → su dropdown abre
+          hacia arriba sin tapar el botón de seguimiento (que queda en la esquina). */}
+      <div
+        className="fixed left-3 z-40 flex flex-col items-start gap-2"
+        style={{ bottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}
+      >
+        <LanguageSwitcher docked />
+        {/* Red de Domicilios (Fase 3A): seguimiento "mis pedidos" por teléfono.
+            Solo en el menú de domicilios para no recargar el de mesa. */}
+        {mode === 'delivery' && <DeliveryTrackWidget slug={slug} primary={primary} docked />}
+      </div>
 
       {/* Marca del negocio (per marca blanca). Hereda de s.brand (el backend
           lo resuelve por el whiteLabelId del tenant). Si no viene, NO mostramos
           "Hecho con Clubify" en un negocio de otra marca — ocultamos el badge
-          en vez de filtrar branding ajeno. */}
+          en vez de filtrar branding ajeno. Va inferior-DERECHA, no choca. */}
       {s.brand && (
         <BrandBadge
           brand={s.brand as BrandBadgeBrand}
@@ -1104,7 +1151,6 @@ function StorefrontPublicInner() {
           dark={pageIsDark}
         />
       )}
-      <LanguageSwitcher />
     </div>
   );
 }
@@ -1133,35 +1179,55 @@ function ProductModal({
 }) {
   const tt = useT();
   const defaultVar = product.variants.find((v) => v.isDefault) ?? product.variants[0];
-  const [variantId, setVariantId] = useState<string | undefined>(defaultVar?.id);
+  // Multi-seleccion de variantes: solo si el negocio subio el tope Y las
+  // opciones SUMAN al precio base. Con precio propio por opcion, sumar dos
+  // precios finales no significa nada — ahi se sigue eligiendo una.
+  const topeVariantes =
+    product.variantPriceMode !== 'ABSOLUTE' &&
+    (product.maxVariantsTotal ?? 1) > 1
+      ? (product.maxVariantsTotal as number)
+      : null;
+  const [variantIds, setVariantIds] = useState<string[]>(
+    // Con multi no se preselecciona nada: el cliente elige a proposito.
+    topeVariantes ? [] : defaultVar ? [defaultVar.id] : [],
+  );
   const [extras, setExtras] = useState<string[]>([]);
   const [qty, setQty] = useState(1);
   const [note, setNote] = useState('');
 
-  const variant = product.variants.find((v) => v.id === variantId);
+  const variantesElegidas = product.variants.filter((v) =>
+    variantIds.includes(v.id),
+  );
+  const variant = variantesElegidas[0];
   const extrasObj = product.extras.filter((e) => extras.includes(e.id));
   // ABSOLUTE: la variante define el precio propio (reemplaza al base).
-  // DELTA (default): suma su priceDelta al base. Extras suman en ambos.
-  const variantBase = variant
-    ? product.variantPriceMode === 'ABSOLUTE'
-      ? Number(variant.priceDelta)
-      : Number(product.basePrice) + Number(variant.priceDelta)
-    : Number(product.basePrice);
+  // DELTA (default): cada variante elegida suma su priceDelta al base.
+  // Extras suman en ambos.
+  const variantBase =
+    product.variantPriceMode === 'ABSOLUTE'
+      ? variant
+        ? Number(variant.priceDelta)
+        : Number(product.basePrice)
+      : Number(product.basePrice) +
+        variantesElegidas.reduce((s, v) => s + Number(v.priceDelta), 0);
   const unit =
     variantBase + extrasObj.reduce((s, e) => s + Number(e.price), 0);
   const total = unit * qty;
+  const nombreVariantes = variantesElegidas.map((v) => v.name).join(', ');
 
   function add() {
     addToCart(
       slug,
       {
         productId: product.id,
-        variantId,
-        variantName: variant?.name,
+        variantId: variantIds[0],
+        // Solo cuando hay mas de una: los pedidos de siempre no cambian.
+        ...(variantIds.length > 1 ? { variantIds } : {}),
+        variantName: nombreVariantes || undefined,
         extraIds: extras,
         extras: extrasObj,
         qty,
-        name: product.name + (variant ? ` (${variant.name})` : ''),
+        name: product.name + (nombreVariantes ? ` (${nombreVariantes})` : ''),
         unitPrice: unit,
         note: note || undefined,
       },
@@ -1221,21 +1287,62 @@ function ProductModal({
 
           {product.variants.length > 0 && (
             <div className="mt-5">
-              <div className="text-xs uppercase tracking-wider text-mute font-semibold">
-                {product.variants[0].groupName}
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+                  {product.variants[0].groupName}
+                </div>
+                {topeVariantes && (
+                  <span
+                    className={`text-[11px] font-semibold tabular-nums ${
+                      variantIds.length >= topeVariantes ? 'text-brand' : 'text-mute'
+                    }`}
+                  >
+                    {variantIds.length}/{topeVariantes}
+                  </span>
+                )}
               </div>
+              {topeVariantes && (
+                <p className="text-[11px] text-mute mt-1">
+                  {variantIds.length >= topeVariantes
+                    ? tt('product.extrasLimitReached')
+                    : tt('product.extrasLimit', { n: topeVariantes })}
+                </p>
+              )}
               <div className="space-y-1.5 mt-2">
-                {product.variants.map((v) => (
+                {product.variants.map((v) => {
+                  const elegida = variantIds.includes(v.id);
+                  const bloqueada =
+                    !!topeVariantes &&
+                    !elegida &&
+                    variantIds.length >= topeVariantes;
+                  return (
                   <label
                     key={v.id}
-                    className="flex items-center justify-between p-3 border border-line rounded-lg cursor-pointer"
+                    className={`flex items-center justify-between p-3 border border-line rounded-lg ${
+                      bloqueada ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer'
+                    }`}
                   >
                     <div className="flex items-center gap-2">
                       <input
-                        type="radio"
+                        type={topeVariantes ? 'checkbox' : 'radio'}
                         name="variant"
-                        checked={variantId === v.id}
-                        onChange={() => setVariantId(v.id)}
+                        checked={elegida}
+                        disabled={bloqueada}
+                        onChange={(ev) => {
+                          if (!topeVariantes) {
+                            setVariantIds([v.id]);
+                            return;
+                          }
+                          setVariantIds(
+                            ev.target.checked
+                              ? // Guarda dura: aunque la casilla llegue
+                                // habilitada, nunca se pasa del tope.
+                                variantIds.length >= topeVariantes
+                                ? variantIds
+                                : [...variantIds, v.id]
+                              : variantIds.filter((x) => x !== v.id),
+                          );
+                        }}
                       />
                       <span className="text-sm">{v.name}</span>
                     </div>
@@ -1249,30 +1356,69 @@ function ProductModal({
                         : ''}
                     </span>
                   </label>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
 
-          {product.extras.length > 0 && (
+          {product.extras.length > 0 && (() => {
+            // Tope de extras del producto. Se bloquea al llegar al limite en
+            // vez de dejar elegir 10 y que el negocio tenga que llamar
+            // despues a explicar que solo iban 5.
+            const tope =
+              product.maxExtrasTotal && product.maxExtrasTotal > 0
+                ? product.maxExtrasTotal
+                : null;
+            const enTope = tope != null && extras.length >= tope;
+            return (
             <div className="mt-5">
-              <div className="text-xs uppercase tracking-wider text-mute font-semibold">
-                {tt('product.extras')}
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+                  {tt('product.extras')}
+                </div>
+                {tope != null && (
+                  <span
+                    className={`text-[11px] font-semibold tabular-nums ${
+                      enTope ? 'text-brand' : 'text-mute'
+                    }`}
+                  >
+                    {extras.length}/{tope}
+                  </span>
+                )}
               </div>
+              {tope != null && (
+                <p className="text-[11px] text-mute mt-1">
+                  {enTope
+                    ? tt('product.extrasLimitReached')
+                    : tt('product.extrasLimit', { n: tope })}
+                </p>
+              )}
               <div className="space-y-1.5 mt-2">
-                {product.extras.map((e) => (
+                {product.extras.map((e) => {
+                  const elegido = extras.includes(e.id);
+                  const bloqueado = enTope && !elegido;
+                  return (
                   <label
                     key={e.id}
-                    className="flex items-center justify-between p-3 border border-line rounded-lg cursor-pointer"
+                    className={`flex items-center justify-between p-3 border border-line rounded-lg ${
+                      bloqueado ? 'opacity-45 cursor-not-allowed' : 'cursor-pointer'
+                    }`}
                   >
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
-                        checked={extras.includes(e.id)}
+                        checked={elegido}
+                        disabled={bloqueado}
                         onChange={(ev) =>
                           setExtras(
                             ev.target.checked
-                              ? [...extras, e.id]
+                              ? // Guarda dura: aunque el checkbox llegue
+                                // habilitado (teclado, DOM tocado), nunca se
+                                // pasa del tope.
+                                tope != null && extras.length >= tope
+                                ? extras
+                                : [...extras, e.id]
                               : extras.filter((x) => x !== e.id),
                           )
                         }
@@ -1283,10 +1429,12 @@ function ProductModal({
                       +{fmt(Number(e.price), currency, currencySymbol)}
                     </span>
                   </label>
-                ))}
+                  );
+                })}
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {ordersEnabled && (
             <div className="mt-5">
@@ -1644,15 +1792,26 @@ function CheckoutSheet({
   country,
   planName,
   mode,
+  fulfillment,
+  acceptedPaymentMethods,
+  sedeDelQr,
   onClose,
 }: {
   items: CartItem[];
   slug: string;
+  /**
+   * Sede del QR por el que entro el cliente. MANDA sobre la que se deduce de
+   * su direccion: el QR sabe donde esta, la direccion solo lo aproxima.
+   */
+  sedeDelQr?: string;
   primary: string;
   currency: string;
   country: string;
   planName: string | null;
   mode: StorefrontMode;
+  fulfillment?: { delivery: boolean; pickup: boolean; dineIn: boolean };
+  /** Métodos de pago que acepta el negocio. Ausente → se ofrecen todos. */
+  acceptedPaymentMethods?: string[];
   onClose: () => void;
 }) {
   const tt = useT();
@@ -1666,17 +1825,45 @@ function CheckoutSheet({
   const tableFromQr = mode === 'mesa' ? (searchParams.get('mesa') ?? '') : '';
   const lockedTable = mode === 'mesa' || tableFromQr.trim().length > 0;
 
-  const defaultFulfillment: 'DINE_IN' | 'DELIVERY' =
-    mode === 'mesa' ? 'DINE_IN' : 'DELIVERY';
+  // PDF1145: opciones de entrega habilitadas por el negocio, en orden de
+  // preferencia (domicilio → recoger → mesa). Fallback a solo-domicilio para
+  // payloads viejos sin `fulfillment`. En ruta mesa (?mesa) se fuerza DINE_IN.
+  const ff = fulfillment ?? { delivery: true, pickup: false, dineIn: false };
+  const fulfillmentChoices = [
+    ff.delivery && { v: 'DELIVERY' as const, l: tt('checkout.fulfillment_delivery') },
+    ff.pickup && { v: 'PICKUP' as const, l: tt('checkout.fulfillment_pickup') },
+    ff.dineIn && { v: 'DINE_IN' as const, l: tt('checkout.fulfillment_dinein') },
+  ].filter(Boolean) as { v: 'DELIVERY' | 'PICKUP' | 'DINE_IN'; l: string }[];
+  const defaultFulfillment: 'DINE_IN' | 'PICKUP' | 'DELIVERY' =
+    mode === 'mesa' ? 'DINE_IN' : fulfillmentChoices[0]?.v ?? 'DELIVERY';
+
+  // Métodos de pago a ofrecer: solo los que el negocio aceptó en su panel
+  // (ej.: sin datáfono → «Tarjeta» no aparece). Sin lista (payload viejo o
+  // cacheado) o lista que no matchea nada → los cuatro de siempre; un
+  // checkout sin opciones de pago sería una caída de ventas silenciosa.
+  const allPayChoices = [
+    { v: 'EFECTIVO', label: tt('checkout.pay_cash') },
+    { v: 'TARJETA', label: tt('checkout.pay_card') },
+    { v: 'TRANSFERENCIA', label: tt('checkout.pay_transfer') },
+    { v: 'OTRO', label: tt('checkout.pay_other') },
+  ] as const;
+  const filteredPayChoices = acceptedPaymentMethods?.length
+    ? allPayChoices.filter((c) => acceptedPaymentMethods.includes(c.v))
+    : allPayChoices;
+  const payChoices =
+    filteredPayChoices.length > 0 ? filteredPayChoices : allPayChoices;
 
   const [form, setForm] = useState({
     firstName: '',
     lastName: '',
     phone: '',
     email: '',
-    fulfillment: defaultFulfillment as 'DINE_IN' | 'DELIVERY',
+    fulfillment: defaultFulfillment as 'DINE_IN' | 'PICKUP' | 'DELIVERY',
     tableNumber: tableFromQr,
     customerNote: '',
+    // Método de pago que declara el cliente (informativo). '' = no eligió.
+    paymentMethod: '' as '' | 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA' | 'OTRO',
+    paymentOther: '',
     // Dirección de envío (solo se completa cuando fulfillment === 'DELIVERY')
     departamento: '',
     municipio: '',
@@ -1699,9 +1886,42 @@ function CheckoutSheet({
       .catch(() => {});
   }, [slug]);
 
+
   // Dataset de regiones según el país del tenant. Si el país no tiene
   // regiones curadas (cae al fallback genérico), se usa input libre.
   const regionsData = regionsForCountry(country);
+
+  // Departamentos donde el negocio TIENE sede. Un negocio local de
+  // Bucaramanga no tiene por que hacer al cliente buscar entre los 32
+  // departamentos del pais: le mostramos Santander y ya. Comparamos
+  // normalizado porque el campo fue texto libre durante mucho tiempo.
+  // El cliente pidio ver todos los departamentos (esta fuera de la zona del
+  // negocio pero quiere pedir igual).
+  const [mostrarTodosDeps, setMostrarTodosDeps] = useState(false);
+
+  const normDep = (x: string | null | undefined) =>
+    (x ?? '')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .trim()
+      .toLowerCase();
+  const depsDelNegocio = regionsData.regions.filter((r) =>
+    sedes.some((sede) => sede.state && normDep(sede.state) === normDep(r.name)),
+  );
+  // Sin sedes con departamento cargado caemos a la lista completa: es lo que
+  // pasa hoy en la mayoria de los negocios y no se puede romper su checkout.
+  const depsVisibles = depsDelNegocio.length ? depsDelNegocio : regionsData.regions;
+  // Un solo departamento = no hay nada que elegir. Se muestra fijo.
+  const depFijo = depsDelNegocio.length === 1 ? depsDelNegocio[0].name : null;
+  // Con una sola sede el departamento no se pregunta, pero el formulario
+  // igual tiene que ir relleno: es obligatorio al enviar.
+  useEffect(() => {
+    if (depFijo && !mostrarTodosDeps && !form.departamento) {
+      setForm((f) => ({ ...f, departamento: depFijo }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [depFijo, mostrarTodosDeps]);
+
   const munList =
     regionsData.regions.find((r) => r.name === form.departamento)?.cities ?? [];
   const municipioFinal =
@@ -1724,7 +1944,13 @@ function CheckoutSheet({
       : matchingSedes.length === 1
         ? matchingSedes[0]
         : null;
-  const effectiveSedeId = sedeId || autoSede?.id || '';
+  // La sede del QR MANDA sobre la que se deduce del departamento del cliente:
+  // el QR sabe donde esta el cliente, la direccion solo lo aproxima. Asi el
+  // pedido llega al WhatsApp de la sede correcta y el mensaje la nombra bien.
+  const sedeDelQrValida = sedeDelQr
+    ? sedes.find((x) => x.id === sedeDelQr)?.id
+    : undefined;
+  const effectiveSedeId = sedeDelQrValida || sedeId || autoSede?.id || '';
   const effectiveSede = sedes.find((s) => s.id === effectiveSedeId) ?? null;
   // Lista del selector: las sedes del estado del cliente; si no hay ninguna,
   // todas (fallback para que el cliente elija manualmente — nunca se bloquea).
@@ -1746,6 +1972,12 @@ function CheckoutSheet({
         setErr('Elegí la sede a la que enviar tu pedido.');
         return;
       }
+    } else if (sedes.length >= 2 && !effectiveSedeId) {
+      // MESA (DINE_IN) y PICKUP en negocios multi-sede: el cliente debe
+      // elegir la sede — así el pedido cae en la sede correcta y su filtro.
+      // Con 1 sola sede se auto-asigna (autoSede) y no se pide nada.
+      setErr('Elegí la sede para tu pedido.');
+      return;
     }
 
     setSubmitting(true);
@@ -1775,6 +2007,9 @@ function CheckoutSheet({
           items: items.map((i) => ({
             productId: i.productId,
             variantId: i.variantId,
+            ...(i.variantIds && i.variantIds.length > 1
+              ? { variantIds: i.variantIds }
+              : {}),
             extraIds: i.extraIds,
             qty: i.qty,
             note: i.note,
@@ -1783,6 +2018,12 @@ function CheckoutSheet({
           tableNumber: form.tableNumber || undefined,
           deliveryAddress,
           customerNote: form.customerNote || undefined,
+          // Método de pago declarado por el cliente (informativo).
+          customerPaymentMethod: form.paymentMethod || undefined,
+          customerPaymentOther:
+            form.paymentMethod === 'OTRO'
+              ? form.paymentOther.trim() || undefined
+              : undefined,
           // Sede destino (ruteo por estado). undefined = sin sede → número del
           // negocio (fallback). Para 1 sola sede igual se manda (rutea a ella).
           locationId: effectiveSedeId || undefined,
@@ -1856,55 +2097,29 @@ function CheckoutSheet({
                 onChange={(v) => setForm({ ...form, phone: v })}
               />
             </div>
-            {!lockedTable && (
+            {!lockedTable && fulfillmentChoices.length > 1 && (
               <div>
                 <label className="label">{tt('checkout.fulfillment_q')}</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {(
-                    [
-                      {
-                        v: 'DINE_IN' as const,
-                        l: tt('checkout.fulfillment_dinein'),
-                        disabled: !lockedTable,
-                        hint: tt('checkout.fulfillment_dinein_hint'),
-                      },
-                      {
-                        v: 'DELIVERY' as const,
-                        l: tt('checkout.fulfillment_delivery'),
-                        disabled: false,
-                        hint: '',
-                      },
-                    ]
-                  ).map((o) => {
+                <div
+                  className={`grid gap-2 ${
+                    fulfillmentChoices.length >= 3 ? 'grid-cols-3' : 'grid-cols-2'
+                  }`}
+                >
+                  {fulfillmentChoices.map((o) => {
                     const active = form.fulfillment === o.v;
                     return (
                       <button
                         type="button"
                         key={o.v}
-                        disabled={o.disabled}
-                        onClick={() =>
-                          !o.disabled && setForm({ ...form, fulfillment: o.v })
-                        }
-                        title={o.disabled ? o.hint : undefined}
-                        className={`py-2.5 rounded-lg text-sm border relative ${
-                          active && !o.disabled
+                        onClick={() => setForm({ ...form, fulfillment: o.v })}
+                        className={`py-2.5 rounded-lg text-sm border ${
+                          active
                             ? 'text-white border-transparent'
-                            : o.disabled
-                            ? 'border-line text-mute opacity-50 cursor-not-allowed bg-bg2/40'
                             : 'border-line text-ink'
                         }`}
-                        style={
-                          active && !o.disabled
-                            ? { background: primary }
-                            : undefined
-                        }
+                        style={active ? { background: primary } : undefined}
                       >
                         {o.l}
-                        {o.disabled && (
-                          <span className="block text-[10px] text-mute font-normal mt-0.5">
-                            {o.hint}
-                          </span>
-                        )}
                       </button>
                     );
                   })}
@@ -1932,41 +2147,92 @@ function CheckoutSheet({
                 <div className="rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1.5 text-[11px] text-amber-900 leading-snug">
                   {tt('checkout.delivery_note')}
                 </div>
-                <div>
-                  <label className="label">{regionsData.regionLabel} *</label>
-                  {regionsData.regions.length > 0 ? (
-                    <select
-                      className="input"
-                      value={form.departamento}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          departamento: e.target.value,
-                          municipio: '',
-                          municipioOtro: '',
-                        })
-                      }
-                      required
-                    >
-                      <option value="">{regionsData.regionLabel}</option>
-                      {regionsData.regions.map((r) => (
-                        <option key={r.name} value={r.name}>
-                          {r.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      className="input"
-                      value={form.departamento}
-                      onChange={(e) =>
-                        setForm({ ...form, departamento: e.target.value })
-                      }
-                      placeholder={regionsData.regionLabel}
-                      required
-                    />
-                  )}
-                </div>
+                {/* Departamento.
+                    Con UNA sola sede no se pregunta: se muestra fijo. Con
+                    varias, solo los departamentos donde el negocio tiene sede.
+                    Siempre queda la salida "otro" para el cliente que esta
+                    fuera y aun asi quiere pedir. */}
+                {depFijo && !mostrarTodosDeps ? (
+                  <div>
+                    <label className="label">{regionsData.regionLabel}</label>
+                    <div className="flex items-center gap-2">
+                      <div className="input flex-1 bg-bg2 text-mute flex items-center">
+                        {depFijo}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMostrarTodosDeps(true);
+                          setForm({
+                            ...form,
+                            departamento: '',
+                            municipio: '',
+                            municipioOtro: '',
+                          });
+                        }}
+                        className="text-[11px] text-brand font-semibold whitespace-nowrap hover:underline"
+                      >
+                        {tt('checkout.other_region')}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="label">{regionsData.regionLabel} *</label>
+                    {regionsData.regions.length > 0 ? (
+                      <select
+                        className="input"
+                        value={form.departamento}
+                        onChange={(e) => {
+                          // "Otra" no es un departamento: abre la lista
+                          // completa y deja el campo vacio para que elija.
+                          if (e.target.value === OTRA_REGION) {
+                            setMostrarTodosDeps(true);
+                            setForm({
+                              ...form,
+                              departamento: '',
+                              municipio: '',
+                              municipioOtro: '',
+                            });
+                            return;
+                          }
+                          setForm({
+                            ...form,
+                            departamento: e.target.value,
+                            municipio: '',
+                            municipioOtro: '',
+                          });
+                        }}
+                        required
+                      >
+                        <option value="">{regionsData.regionLabel}</option>
+                        {(mostrarTodosDeps ? regionsData.regions : depsVisibles).map(
+                          (r) => (
+                            <option key={r.name} value={r.name}>
+                              {r.name}
+                            </option>
+                          ),
+                        )}
+                        {!mostrarTodosDeps &&
+                          depsVisibles.length < regionsData.regions.length && (
+                            <option value={OTRA_REGION}>
+                              {tt('checkout.other_region')}
+                            </option>
+                          )}
+                      </select>
+                    ) : (
+                      <input
+                        className="input"
+                        value={form.departamento}
+                        onChange={(e) =>
+                          setForm({ ...form, departamento: e.target.value })
+                        }
+                        placeholder={regionsData.regionLabel}
+                        required
+                      />
+                    )}
+                  </div>
+                )}
                 <div>
                   <label className="label">{regionsData.cityLabel} *</label>
                   {regionsData.regions.length > 0 && munList.length > 0 ? (
@@ -2081,6 +2347,34 @@ function CheckoutSheet({
               </div>
             )}
 
+            {/* Sede para MESA / PICKUP en negocios multi-sede. En DELIVERY el
+                ruteo va por estado (bloque de arriba); acá el cliente elige la
+                sede donde consume/recoge. Con 1 sola sede se auto-asigna. */}
+            {form.fulfillment !== 'DELIVERY' && sedes.length >= 2 && (
+              <div className="rounded-lg border border-line bg-bg2/30 p-3 space-y-2">
+                <label className="label">
+                  {form.fulfillment === 'DINE_IN'
+                    ? '¿En qué sede estás?'
+                    : '¿En qué sede recogés?'}{' '}
+                  *
+                </label>
+                <select
+                  className="input"
+                  value={effectiveSedeId}
+                  onChange={(e) => setSedeId(e.target.value)}
+                  required
+                >
+                  <option value="">{tt('checkout.select_location')}</option>
+                  {sedes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {s.state ? ` — ${s.state}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div>
               <label className="label">{tt('checkout.notes')}</label>
               <textarea
@@ -2090,6 +2384,50 @@ function CheckoutSheet({
                   setForm({ ...form, customerNote: e.target.value })
                 }
               />
+            </div>
+
+            <div>
+              <label className="label">{tt('checkout.payment')}</label>
+              <div className="grid grid-cols-2 gap-2">
+                {payChoices.map((opt) => {
+                  const active = form.paymentMethod === opt.v;
+                  return (
+                    <button
+                      key={opt.v}
+                      type="button"
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          paymentMethod: active ? '' : opt.v,
+                        })
+                      }
+                      className="rounded-lg border border-black/10 py-2.5 px-3 text-sm font-medium transition"
+                      style={
+                        active
+                          ? {
+                              borderColor: primary,
+                              background: `${primary}14`,
+                              color: primary,
+                            }
+                          : undefined
+                      }
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {form.paymentMethod === 'OTRO' && (
+                <input
+                  className="input mt-2"
+                  placeholder={tt('checkout.pay_other_ph')}
+                  value={form.paymentOther}
+                  maxLength={80}
+                  onChange={(e) =>
+                    setForm({ ...form, paymentOther: e.target.value })
+                  }
+                />
+              )}
             </div>
 
             {err && (
@@ -2569,7 +2907,7 @@ function LayoutGrid({ menu, primary, currency, currencySymbol, onPick }: LP) {
                       🍽
                     </div>
                   )}
-                  <PrimaryProductBadge tags={p.tags} variant="overlay" />
+                  <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="overlay" />
                   <div
                     className="absolute bottom-2 right-2 w-9 h-9 rounded-full text-white shadow-lg text-xl flex items-center justify-center"
                     style={{ background: primary }}
@@ -2644,7 +2982,7 @@ function LayoutCarousels({ menu, primary, currency, currencySymbol, onPick }: LP
                           🍽
                         </div>
                       )}
-                      <PrimaryProductBadge tags={p.tags} variant="overlay" />
+                      <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="overlay" />
                     </div>
                     <div className="mt-1 px-0.5">
                       <div className="text-xs font-semibold leading-tight line-clamp-2 min-h-[2.4em]">
@@ -2711,9 +3049,12 @@ function LayoutClean({ menu, primary, currency, currencySymbol, onPick }: LP) {
                 {p.description && (
                   <div className="text-[12px] text-mute mt-1 italic">{p.description}</div>
                 )}
-                {p.tags[0] && (
+                {/* `|| p.isRecommended`: el guard miraba solo los tags libres,
+                    así que un producto marcado como recomendado y SIN etiquetas
+                    no mostraba nada — justo el caso normal. */}
+                {(p.tags[0] || p.isRecommended) && (
                   <div className="mt-1.5">
-                    <PrimaryProductBadge tags={p.tags} variant="inline" />
+                    <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="inline" />
                   </div>
                 )}
               </button>
@@ -2787,7 +3128,7 @@ function LayoutCompact({ menu, primary, currency, currencySymbol, onPick }: LP) 
                 <div className="flex items-baseline justify-between gap-2">
                   <div className="font-semibold text-sm flex items-center gap-1.5">
                     {p.name}
-                    <PrimaryProductBadge tags={p.tags} variant="inline" />
+                    <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="inline" />
                   </div>
                   <div className="font-bold text-sm whitespace-nowrap">
                     {fmtProductPrice(p, currency, currencySymbol)}
@@ -2855,7 +3196,7 @@ function LayoutCluvi({ menu, primary, currency, currencySymbol, onPick }: LP) {
                       🍽
                     </div>
                   )}
-                  <PrimaryProductBadge tags={p.tags} variant="overlay" />
+                  <PrimaryProductBadge tags={p.tags} recommended={p.isRecommended} variant="overlay" />
                 </div>
                 <div className="flex-1 p-3 sm:p-4 min-w-0 flex flex-col">
                   <div className="font-bold text-base leading-tight">
@@ -3285,6 +3626,18 @@ function SectionProductCard({
         <div className="font-semibold text-sm leading-tight line-clamp-2 min-h-[2.5rem]">
           {product.name}
         </div>
+        {/* Este estilo era el único que no mostraba la etiqueta: un producto
+            destacado solo se veía en la sección «Recomendados» y no dentro de
+            su categoría. */}
+        {(product.tags?.[0] || product.isRecommended) && (
+          <div className="mt-1">
+            <PrimaryProductBadge
+              tags={product.tags}
+              recommended={product.isRecommended}
+              variant="inline"
+            />
+          </div>
+        )}
         <div className="font-bold text-sm mt-1.5 text-ink">
           {fmtProductPrice(product, currency, currencySymbol)}
         </div>

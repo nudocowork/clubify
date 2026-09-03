@@ -2,7 +2,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Logo } from '@/components/Logo';
+import { useAuthBrand, BrandMark } from '@/components/AuthBrand';
 import { PhoneInput } from '@/components/PhoneInput';
 import { setSession } from '@/lib/api';
 
@@ -73,6 +73,9 @@ function RegistroAfiliadoInner() {
         ? 'AMBASSADOR'
         : null;
   const [config, setConfig] = useState<Config | null>(null);
+  // Comisión FIJA de pago único (Sellea): si la marca está en modo fijo,
+  // mostramos "$N pago único" en vez del porcentaje. Se resuelve por Origin.
+  const [fixed, setFixed] = useState<{ fixedOnce: boolean; influencerAmount: number; embajadorAmount: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<Role | null>(null);
   const [firstName, setFirstName] = useState('');
@@ -84,6 +87,8 @@ function RegistroAfiliadoInner() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Logo/nombre de la marca del host (Sellea en selleala.com) → nunca Clubify.
+  const { brand } = useAuthBrand();
 
   useEffect(() => {
     fetch(`${API}/api/public/affiliate-signup/config`)
@@ -103,6 +108,11 @@ function RegistroAfiliadoInner() {
       })
       .catch(() => setConfig({ enabled: false, allowInfluencer: false, allowAmbassador: false, influencerCommissionPct: 0, ambassadorCommissionPct: 0 }))
       .finally(() => setLoading(false));
+    // Términos de comisión por marca (fijo vs %). Falla suave → % de siempre.
+    fetch(`${API}/api/referrals/public-terms`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((t) => { if (t) setFixed({ fixedOnce: !!t.fixedOnce, influencerAmount: t.influencerAmount ?? 0, embajadorAmount: t.embajadorAmount ?? 0 }); })
+      .catch(() => {});
   }, []);
 
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
@@ -153,7 +163,7 @@ function RegistroAfiliadoInner() {
     return (
       <main className="min-h-screen bg-bg flex items-center justify-center px-4">
         <div className="w-full max-w-md card card-pad text-center">
-          <Logo size={32} />
+          <BrandMark brand={brand} size={32} />
           <h1 className="text-xl font-bold mt-4">Registro no disponible</h1>
           <p className="text-sm text-mute mt-2">
             El registro público de afiliados no está habilitado por ahora.
@@ -168,18 +178,40 @@ function RegistroAfiliadoInner() {
   }
 
   const pct = role === 'INFLUENCER' ? config.influencerCommissionPct : config.ambassadorCommissionPct;
+  // Comisión FIJA de pago único (Sellea) vs porcentaje (resto de marcas).
+  const isFixed = !!fixed?.fixedOnce;
+  const fixedAmt = role === 'INFLUENCER' ? (fixed?.influencerAmount ?? 0) : (fixed?.embajadorAmount ?? 0);
+  const commBadge = isFixed ? `Comisión $${fixedAmt} · pago único` : `Comisión ${pct}%`;
+  const commBtn = isFixed ? `$${fixedAmt} pago único` : `${pct}% comisión`;
+
+  // El botón se deshabilita cuando el formulario está incompleto/ inválido. Antes
+  // no había NINGÚN aviso → el usuario creía que "no funciona" (típico: puso una
+  // contraseña de menos de 8 caracteres). Ahora explicamos qué falta.
+  const disabledReason = !role
+    ? null
+    : !firstName.trim() || !lastName.trim()
+      ? 'Completa tu nombre y apellido.'
+      : !email
+        ? 'Ingresa tu correo.'
+        : !phone
+          ? 'Ingresa tu número de WhatsApp.'
+          : password.length < 8
+            ? 'La contraseña debe tener al menos 8 caracteres.'
+            : password !== confirmPassword
+              ? 'Las contraseñas no coinciden.'
+              : null;
 
   return (
     <main className="min-h-screen bg-bg flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md card card-pad">
         <Link href="/" className="flex items-center mb-4">
-          <Logo size={32} />
+          <BrandMark brand={brand} size={32} />
         </Link>
 
         <h1 className="text-xl font-bold">Únete como afiliado</h1>
         <p className="text-sm text-mute mt-1.5">
-          Genera ingresos refiriendo negocios a Clubify. Tu comisión se acredita
-          automáticamente con cada venta.
+          Genera ingresos refiriendo negocios a {brand?.name ?? 'Clubify'}. Tu
+          comisión se acredita automáticamente con cada venta.
         </p>
 
         {config.allowInfluencer &&
@@ -195,7 +227,7 @@ function RegistroAfiliadoInner() {
                 emoji="📣"
                 title="Influencer"
                 description="Refiere desde tus redes"
-                pct={config.influencerCommissionPct}
+                commission={isFixed ? `$${fixed?.influencerAmount ?? 0} pago único` : `${config.influencerCommissionPct}% comisión`}
               />
               <RoleCard
                 active={role === 'AMBASSADOR'}
@@ -203,7 +235,7 @@ function RegistroAfiliadoInner() {
                 emoji="🤝"
                 title="Embajador"
                 description="Coordina un equipo de vendedores"
-                pct={config.ambassadorCommissionPct}
+                commission={isFixed ? `$${fixed?.embajadorAmount ?? 0} pago único` : `${config.ambassadorCommissionPct}% comisión`}
               />
             </div>
           </div>
@@ -218,17 +250,17 @@ function RegistroAfiliadoInner() {
               <span className="font-semibold">
                 {role === 'INFLUENCER' ? '📣 Influencer' : '🤝 Embajador'}
               </span>{' '}
-              · Comisión {pct}%
+              · {commBadge}
             </div>
           )}
         {!config.allowInfluencer && config.allowAmbassador && (
           <div className="mt-4 p-3 rounded-lg bg-bg2/60 text-sm">
-            <span className="font-semibold">🤝 Embajador</span> · Comisión {pct}%
+            <span className="font-semibold">🤝 Embajador</span> · {commBadge}
           </div>
         )}
         {config.allowInfluencer && !config.allowAmbassador && (
           <div className="mt-4 p-3 rounded-lg bg-bg2/60 text-sm">
-            <span className="font-semibold">📣 Influencer</span> · Comisión {pct}%
+            <span className="font-semibold">📣 Influencer</span> · {commBadge}
           </div>
         )}
 
@@ -337,13 +369,18 @@ function RegistroAfiliadoInner() {
             }
             className="btn-primary w-full justify-center mt-2"
           >
-            {submitting ? 'Creando cuenta…' : `Registrarme · ${pct}% comisión`}
+            {submitting ? 'Creando cuenta…' : `Registrarme · ${commBtn}`}
           </button>
+          {disabledReason && !submitting && (
+            <p className="text-xs text-mute text-center -mt-1">
+              {disabledReason}
+            </p>
+          )}
         </form>
 
         <p className="text-[11px] text-mute mt-4 text-center">
           Al registrarte aceptas los{' '}
-          <a href="https://soyclubify.com/terminos" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">
+          <a href="/terminos" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">
             términos y condiciones
           </a>
           .
@@ -359,14 +396,14 @@ function RoleCard({
   emoji,
   title,
   description,
-  pct,
+  commission,
 }: {
   active: boolean;
   onClick: () => void;
   emoji: string;
   title: string;
   description: string;
-  pct: number;
+  commission: string;
 }) {
   return (
     <button
@@ -379,7 +416,7 @@ function RoleCard({
       <div className="text-2xl">{emoji}</div>
       <div className="font-semibold text-sm mt-1">{title}</div>
       <div className="text-[11px] text-mute mt-0.5 leading-tight">{description}</div>
-      <div className="text-[11px] font-bold text-brand mt-1">{pct}% comisión</div>
+      <div className="text-[11px] font-bold text-brand mt-1">{commission}</div>
     </button>
   );
 }

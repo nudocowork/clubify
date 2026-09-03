@@ -24,6 +24,7 @@ class BrandingDto {
   @IsOptional() @IsString() @MaxLength(40) landingStatWalletCustomers?: string | null;
   @IsOptional() @IsString() @MaxLength(40) landingStatOrders?: string | null;
   @IsOptional() @IsString() @MaxLength(40) landingStatRating?: string | null;
+  @IsOptional() @IsString() @MaxLength(600) trialCheckoutUrl?: string | null;
 }
 
 class PricingDto {
@@ -130,6 +131,14 @@ export class SettingsController {
   @Roles('SUPER_ADMIN', 'MARKETING')
   setLandingPlans(@Body() body: LandingPlansDto) {
     return this.svc.setLandingPlans(body);
+  }
+
+  /** Nombres de negocios ACTIVOS de Clubify — alimenta el marquee "Negocios
+   *  LATAM creciendo con Clubify" de la landing. Lectura pública. */
+  @Public()
+  @Get('landing-active-businesses')
+  getLandingActiveBusinesses() {
+    return this.svc.getLandingActiveBusinesses();
   }
 
   /** Cupón Hotmart global — se preponne al checkout URL como

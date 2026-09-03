@@ -9,6 +9,7 @@ import * as argon2 from 'argon2';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { CustomerOrderSmsService } from '../integrations/customer-order-sms.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 
 /**
@@ -34,6 +35,7 @@ export class DeliveryService {
     private prisma: PrismaService,
     private audit: AuditService,
     private growBusiness: GrowBusinessService,
+    private customerOrderSms: CustomerOrderSmsService,
   ) {}
 
   private async logAction(
@@ -1090,7 +1092,13 @@ export class DeliveryService {
     const companyId = this.assertCompanyUser(user);
     const d = await this.prisma.delivery.findFirst({
       where: { id: deliveryId, deliveryCompanyId: companyId },
-      select: { id: true, status: true, courierName: true },
+      select: {
+        id: true,
+        status: true,
+        courierName: true,
+        etaMinutes: true,
+        order: { select: { id: true, tenantId: true } },
+      },
     });
     if (!d) throw new NotFoundException('Domicilio no encontrado');
 
@@ -1124,6 +1132,15 @@ export class DeliveryService {
     });
     if (next === 'DELIVERED') {
       await this.ensureCommissionForDelivery(deliveryId).catch(() => null);
+    }
+    // PDF 1256 F3: SMS al CLIENTE "tu pedido va en camino" (opt-in por negocio).
+    // El servicio filtra por config + evento; best-effort.
+    if (next === 'ON_THE_WAY' && d.order?.tenantId && d.order?.id) {
+      this.customerOrderSms
+        .notify(d.order.tenantId, d.order.id, 'on_the_way', {
+          etaMinutes: d.etaMinutes,
+        })
+        .catch(() => null);
     }
     return this.getPortalDelivery(user, deliveryId);
   }

@@ -9,6 +9,7 @@ import { GamificationService } from '../badges/gamification.service';
 import { AutomationsService } from '../automations/automations.service';
 import { PassesService } from '../passes/passes.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
+import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 
 export type StampDto = {
   passId: string;
@@ -20,6 +21,29 @@ export type StampDto = {
   // Monto que el cliente pagó por la compra que motivó el scan.
   // Solo informativo — no cambia cuántos sellos se otorgan.
   purchaseAmount?: number;
+  /**
+   * El sello se REGALA: no hubo compra detrás.
+   *
+   * `COURTESY` = cortesía del negocio. `SPECIAL_DATE` = cumpleaños,
+   * aniversario, fecha especial.
+   *
+   * Cuando viene, no se exige `purchaseAmount` (no hay compra que exigir) ni
+   * se aplica el mínimo por sello de la tarjeta. Y `purchaseAmount` se guarda
+   * en null a propósito: un regalo NO puede contar como venta.
+   */
+  giftReason?: 'COURTESY' | 'SPECIAL_DATE';
+  /**
+   * Saltarse el tope de sellos del día A PROPÓSITO. Solo SUPER_ADMIN, y solo
+   * cuando lo pide explícitamente para corregir un error.
+   *
+   * Antes el bypass era automático por rol: un SUPER_ADMIN escaneando normal
+   * ponía sellos de más sin enterarse, y el tope resultaba imposible de
+   * probar desde una cuenta de admin (fue justo lo que pasó el 2026-08-22:
+   * las únicas dos violaciones en 90 días eran de una cuenta SUPER_ADMIN,
+   * ninguna de un dueño o staff). Ahora el admin recibe el mismo aviso que
+   * todos y decide.
+   */
+  override?: boolean;
 };
 
 // Anti-fraude: máximo 1 sello por cliente por día. El staff no puede
@@ -43,7 +67,11 @@ export class StampsService {
     private brand: WhitelabelBrandService,
   ) {}
 
-  async record(user: AuthUser, dto: StampDto) {
+  async record(
+    user: AuthUser,
+    dto: StampDto,
+    meta?: { ip?: string | null; device?: string | null },
+  ) {
     const pass = await this.prisma.pass.findUnique({
       where: { id: dto.passId },
       include: { card: true },
@@ -53,6 +81,19 @@ export class StampsService {
       throw new ForbiddenException();
     }
     if (pass.status === 'REVOKED') throw new BadRequestException('Pass is revoked');
+
+    // Wallet V3 — gate de marca: restar sellos (-1) solo si la marca lo permite
+    // ("Wallet Avanzado" → removeStamps). Aislado por el whiteLabel del tenant.
+    if (dto.action === 'STAMP_REMOVE') {
+      const brand = await this.prisma.tenant.findUnique({
+        where: { id: pass.tenantId },
+        select: { whiteLabel: { select: { walletAdvanced: true } } },
+      });
+      const wa = resolveWalletAdvanced(brand?.whiteLabel?.walletAdvanced);
+      if (!wa.removeStamps) {
+        throw new ForbiddenException('Restar sellos no está habilitado para esta marca.');
+      }
+    }
 
     // Enforcement de fecha de vencimiento de la tarjeta. Bloqueamos
     // STAMP/POINTS_ADD/POINTS_DEDUCT/REDEEM cuando el pass está vencido,
@@ -97,9 +138,12 @@ export class StampsService {
     // El admin puede subirlo a 2/3/etc para campañas promocionales sin
     // tocar código. Si null, mantiene el comportamiento histórico de
     // 1 sello / 24h.
+    // El bypass ya no es por rol sino por decisión explícita: SUPER_ADMIN
+    // puede saltarse el tope, pero mandando `override` — no por existir.
+    const saltaTope = user.role === 'SUPER_ADMIN' && dto.override === true;
     if (
       (dto.action === 'STAMP' || dto.action === 'VISIT') &&
-      user.role !== 'SUPER_ADMIN'
+      !saltaTope
     ) {
       const tenantConfig = await this.prisma.tenant.findUnique({
         where: { id: pass.tenantId },
@@ -138,10 +182,14 @@ export class StampsService {
               ),
             )
           : 24;
-        throw new BadRequestException(
+        const base =
           maxPerDay === 1
             ? `Este cliente ya recibió un sello hoy. Próximo sello disponible en ~${remainingHours}h.`
-            : `Este cliente ya recibió el máximo de ${maxPerDay} sellos del día. Próximo disponible en ~${remainingHours}h.`,
+            : `Este cliente ya recibió el máximo de ${maxPerDay} sellos del día. Próximo disponible en ~${remainingHours}h.`;
+        throw new BadRequestException(
+          user.role === 'SUPER_ADMIN'
+            ? `${base} Como administrador podés sellar igual para corregir un error.`
+            : base,
         );
       }
     }
@@ -149,7 +197,15 @@ export class StampsService {
     // Para STAMP/VISIT en cards de fidelización, el frontend exige
     // monto de compra (regla de negocio). Validamos que esté presente
     // y > 0 — pero solo para tipos de cards que lo requieren.
+    // Un sello REGALADO no tiene compra que pedir. El propio hecho de marcarlo
+    // como regalo es la justificacion, y queda registrado en `giftReason`.
+    const esRegalo =
+      dto.giftReason === 'COURTESY' || dto.giftReason === 'SPECIAL_DATE';
+    if (dto.giftReason && !esRegalo) {
+      throw new BadRequestException('Motivo de regalo invalido.');
+    }
     const requiresPurchase =
+      !esRegalo &&
       (dto.action === 'STAMP' || dto.action === 'VISIT') &&
       ['STAMPS', 'VISITS', 'HYBRID'].includes(pass.card.type);
     if (
@@ -186,9 +242,18 @@ export class StampsService {
     let newVisits = pass.visitsCount;
 
     switch (dto.action) {
-      case 'STAMP':
-        newStamps = pass.stampsCount + Number(amount);
+      case 'STAMP': {
+        // Wallet V3 — tope superior: no pasar del máximo configurado
+        // (stampsRequired). CRÍTICO: nunca decrementar. Un pase que ya está por
+        // ENCIMA del máximo (overflow legacy, o el dueño bajó stampsRequired)
+        // NO debe perder sellos al escanear → el piso es el conteo actual.
+        const cap = pass.card.stampsRequired ?? Number.MAX_SAFE_INTEGER;
+        newStamps = Math.max(
+          pass.stampsCount,
+          Math.min(cap, pass.stampsCount + Number(amount)),
+        );
         break;
+      }
       case 'POINTS_ADD':
         newPoints = new Prisma.Decimal(pass.pointsBalance).add(amount);
         break;
@@ -226,6 +291,16 @@ export class StampsService {
         }
         break;
       case 'REFUND':
+        if (pass.card.type === 'VISITS') {
+          newVisits = Math.max(0, pass.visitsCount - Number(amount));
+        } else {
+          newStamps = Math.max(0, pass.stampsCount - Number(amount));
+        }
+        break;
+      case 'STAMP_REMOVE':
+        // Wallet V3 — resta manual desde el escáner (-1). Piso 0. Para VISITS
+        // resta visitas; para el resto, sellos. (No requiere purchaseAmount ni
+        // pasa el rate-limit — esas guardas solo aplican a STAMP/VISIT.)
         if (pass.card.type === 'VISITS') {
           newVisits = Math.max(0, pass.visitsCount - Number(amount));
         } else {
@@ -300,13 +375,25 @@ export class StampsService {
     // Resolver stamps card target ANTES de la transacción si vamos a
     // transformar. La query es read-only (resolveOrCreateStampsCard puede
     // hacer un upsert pero ahora la metemos al tx por consistencia).
+    // El negocio puede pedir que el cupón NO se convierta en nada: se canjea,
+    // queda usado y ahí termina. Es un descuento suelto, no una puerta de
+    // entrada al programa de sellos. Sin este gate, resolveOrCreateStampsCard
+    // llegaría a CREARLE una tarjeta de sellos al negocio que no quiere tener
+    // una.
+    const noTransformar =
+      isCouponRedeem && (pass.card as any).transformOnRedeem === false;
+
     let stampsCardForTransform: { id: string } | null = null;
-    if (isCouponRedeem) {
+    if (isCouponRedeem && !noTransformar) {
       stampsCardForTransform = await this.resolveOrCreateStampsCard(
         pass.tenantId,
         pass.cardId,
       );
     }
+    // PDF1145: si el cliente ya tiene tarjeta de sellos, el cupón se redime SIN
+    // transformar (se decide dentro de la tx). Declarado en scope de método para
+    // que el post-tx (COUPON_REDEEMED emit + transformedToStamps) lo lea.
+    let skipCouponTransform = false;
 
     // FIX 2026-06-16 (review #11): escrituras RELATIVAS (increment por delta)
     // en vez de absolutas, para no perder sellos/puntos bajo escaneos
@@ -333,6 +420,13 @@ export class StampsService {
       passUpdateData.cardId = stampsCardForTransform.id;
       passUpdateData.stampsCount = 0;
       passUpdateData.status = 'ACTIVE';
+    } else if (noTransformar) {
+      // Sin transformación hay que CERRAR el pase a mano. `completed` excluye
+      // a propósito las redenciones de cupón (se asumía que siempre acababan
+      // transformadas y ACTIVE), así que sin esto el cupón se quedaría ACTIVE
+      // y el mismo QR se podría canjear una y otra vez. COMPLETED es además lo
+      // que mira el guard de re-redención de más arriba.
+      passUpdateData.status = 'COMPLETED';
     }
 
     // HOTFIX 2026-06-05 (bug C): cleanupOrphanStampsPass debe correr
@@ -354,7 +448,13 @@ export class StampsService {
       );
       const fresh = await tx.pass.findUnique({
         where: { id: pass.id },
-        select: { stampsCount: true, pointsBalance: true, cashbackBalance: true },
+        select: {
+          stampsCount: true,
+          pointsBalance: true,
+          cashbackBalance: true,
+          status: true,
+          cardId: true,
+        },
       });
       if (fresh) {
         const stampsConsumed = isCouponRedeem ? 0 : Math.max(0, -stampsDelta);
@@ -370,13 +470,31 @@ export class StampsService {
           );
         }
       }
+      // PDF1145 (review): revalidar DENTRO del lock que el cupón no fue ya
+      // redimido/transformado por un REDEEM concurrente (el guard de línea ~248
+      // leyó el status ANTES del lock). Cierra la doble-redención: si ya quedó
+      // COMPLETED (path sin transformar) o su cardId cambió (path transformado),
+      // este segundo REDEEM aborta.
+      if (
+        isCouponRedeem &&
+        fresh &&
+        (fresh.status === 'COMPLETED' || fresh.cardId !== pass.cardId)
+      ) {
+        throw new BadRequestException(
+          'Este cupón ya fue redimido. No se puede usar de nuevo.',
+        );
+      }
+      // 2026-08-01 (ABSORBER cupón→sellos): el cupón SIEMPRE se transforma en la
+      // tarjeta de sellos destino (pedido del negocio, reemplaza PDF1145). Si el
+      // cliente YA tiene un pase en esa card, lo ABSORBEMOS: preservamos su
+      // conteo de sellos, borramos ese pase (libera la unique key
+      // [cardId, customerId]) y el pase del cupón (pass.id) ocupa su lugar con el
+      // conteo preservado. Así el cliente queda con UN solo pase — el cupón
+      // transformado in-place (mismo serial/qrToken/wallet) — y no queda cupón
+      // "usado" colgando. El delete cascada borra Stamp/WalletDevice del pase
+      // absorbido (onDelete: Cascade); el conteo se conserva copiándolo abajo.
+      skipCouponTransform = noTransformar;
       if (isCouponRedeem && stampsCardForTransform && pass.customerId) {
-        // FIX 2026-06-16 (review): NO borrar a ciegas. El transform del cupón
-        // mueve este pase a la stamps card target; si el cliente YA tiene ahí
-        // un pase de sellos REAL (con progreso, historial o agregado al
-        // wallet) el deleteMany ciego lo destruía. Replicamos las guardas de
-        // cleanupOrphanStampsPass: solo borramos un pase HUÉRFANO (0 sellos,
-        // 0 historial, 0 devices); si no, abortamos el transform.
         const existing = await tx.pass.findUnique({
           where: {
             cardId_customerId: {
@@ -387,23 +505,21 @@ export class StampsService {
           select: { id: true, stampsCount: true },
         });
         if (existing && existing.id !== pass.id) {
-          if (existing.stampsCount > 0) {
-            throw new BadRequestException(
-              'El cliente ya tiene una tarjeta de sellos con progreso. No se puede transformar el cupón sin perderlo.',
-            );
-          }
-          const [devices, history] = await Promise.all([
-            tx.walletDevice.count({ where: { passId: existing.id } }),
-            tx.stamp.count({ where: { passId: existing.id } }),
-          ]);
-          if (devices > 0 || history > 0) {
-            throw new BadRequestException(
-              'El cliente ya tiene una tarjeta de sellos activa (con historial o en el wallet). No se puede transformar el cupón.',
-            );
-          }
+          // Preserva los sellos que el cliente ya tenía y absorbe el pase
+          // existente (su Stamp/WalletDevice caen por cascada). El pase del
+          // cupón toma su lugar como tarjeta de sellos con el conteo intacto.
+          passUpdateData.stampsCount = existing.stampsCount;
           await tx.pass.delete({ where: { id: existing.id } });
         }
       }
+      // Rastro auditable: un sello puesto por encima del tope tiene que poder
+      // distinguirse despues de uno normal.
+      const notaFinal = saltaTope
+        ? [dto.note?.trim(), '[admin: sello por encima del tope diario]']
+            .filter(Boolean)
+            .join(' ')
+            .slice(0, 500)
+        : dto.note;
       const newStampRow = await tx.stamp.create({
         data: {
           tenantId: pass.tenantId,
@@ -413,13 +529,23 @@ export class StampsService {
           operatorId: user.id,
           action: dto.action,
           amount,
-          purchaseAmount:
-            dto.purchaseAmount !== undefined && dto.purchaseAmount !== null
+          // Un regalo NUNCA lleva monto, aunque el cliente mande uno: si
+          // entrara, un sello de cortesia sumaria a las ventas del negocio.
+          purchaseAmount: esRegalo
+            ? null
+            : dto.purchaseAmount !== undefined && dto.purchaseAmount !== null
               ? new Prisma.Decimal(dto.purchaseAmount)
               : undefined,
+          giftReason: esRegalo ? dto.giftReason : null,
           note: isCouponRedeem
-            ? (dto.note ?? 'Cupón redimido — transformado a tarjeta de sellos')
-            : dto.note,
+            ? (dto.note ??
+              (skipCouponTransform
+                ? 'Cupón redimido — sin convertir a tarjeta de sellos'
+                : 'Cupón redimido — transformado a tarjeta de sellos'))
+            : notaFinal,
+          // Wallet V3 — auditoría de ajustes manuales (ip + navegador/dispositivo).
+          ip: meta?.ip ?? null,
+          device: meta?.device ?? null,
         },
       });
       const updated = await tx.pass.update({
@@ -510,14 +636,22 @@ export class StampsService {
 
     // Hook de gamificación: XP, level up, streak, badges automáticos.
     // Disparado fire-and-forget para no bloquear la respuesta del scanner.
-    this.gamification
-      .processStamp({
-        customerId: pass.customerId,
-        tenantId: pass.tenantId,
-        action: dto.action,
-        cardId: pass.cardId,
-      })
-      .catch(() => null);
+    // Wallet V3 — las acciones de RESTA (STAMP_REMOVE / REFUND / *_DEDUCT /
+    // *_REDEEM) NO deben otorgar badges/XP: la evaluación de badges (FIRST_VISIT,
+    // SCANS_TOTAL) corría igual y contaba el sello borrado como "scan".
+    const gamifiesAction = !['STAMP_REMOVE', 'REFUND', 'POINTS_DEDUCT', 'CASHBACK_REDEEM'].includes(
+      dto.action,
+    );
+    if (gamifiesAction) {
+      this.gamification
+        .processStamp({
+          customerId: pass.customerId,
+          tenantId: pass.tenantId,
+          action: dto.action,
+          cardId: pass.cardId,
+        })
+        .catch(() => null);
+    }
 
     // Hook automations:
     //   STAMP_ADDED — cualquier scan registrado (ofrece feedback / cross-sell)
@@ -607,17 +741,23 @@ export class StampsService {
           // usaban {{stampsPassUrl}} y {{stampsPassId}} siguen
           // funcionando: apuntan al MISMO pass, que ahora muestra
           // la tarjeta de sellos. backwards compat con automations.
-          stampsCardId: stampsCardForTransform?.id ?? null,
+          // PDF1145: si se conservó la tarjeta de sellos (skip), NO hubo
+          // transformación — el cupón solo quedó consumido.
+          stampsCardId: skipCouponTransform
+            ? null
+            : stampsCardForTransform?.id ?? null,
           stampsPassId: pass.id,
           stampsPassUrl: `${brand.websiteUrl}/w/${pass.id}`,
-          transformedInPlace: true,
+          transformedInPlace: !skipCouponTransform,
         })
         .catch(() => null);
     }
 
     // Si transformamos cupón → stamps card, devolvemos el pass con la
     // nueva card incluida para que el scanner re-renderice la UI de
-    // sellos al instante (sin necesidad de re-scanear el QR).
+    // sellos al instante (sin necesidad de re-scanear el QR). PDF1145: si se
+    // CONSERVÓ la tarjeta de sellos (skip), transformedToStamps=false para que
+    // el escáner NO muestre el banner "se convirtió en tarjeta de sellos".
     if (isCouponRedeem) {
       const fullPass = await this.prisma.pass.findUnique({
         where: { id: pass.id },
@@ -626,7 +766,7 @@ export class StampsService {
       return {
         stamp,
         pass: fullPass ?? updatedPass,
-        transformedToStamps: true,
+        transformedToStamps: !skipCouponTransform,
       };
     }
     return { stamp, pass: updatedPass, transformedToStamps: false };
@@ -867,5 +1007,62 @@ export class StampsService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
+  }
+
+  /**
+   * Wallet V3 — Historial/Auditoría de ajustes de sellos del negocio.
+   * Negocio (owner/staff): su propio tenant. Master Admin (SUPER_ADMIN): ?tenantId.
+   * Gate por marca: si `showHistory` está apagado, el negocio no lo ve (Master
+   * Admin siempre). `ip`/`device` solo se exponen si `showAudit` (o super admin).
+   */
+  async auditLog(user: AuthUser, opts: { tenantId?: string; limit?: number }) {
+    const isSuper = user.role === 'SUPER_ADMIN';
+    const tenantId = isSuper ? opts.tenantId || user.tenantId : user.tenantId;
+    if (!tenantId) throw new BadRequestException('tenantId requerido');
+
+    const brand = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { whiteLabel: { select: { walletAdvanced: true } } },
+    });
+    const wa = resolveWalletAdvanced(brand?.whiteLabel?.walletAdvanced);
+    if (!isSuper && !wa.showHistory) {
+      return { enabled: false, showAudit: false, rows: [] as any[] };
+    }
+    const canSeeAudit = isSuper || wa.showAudit;
+
+    const rows = await this.prisma.stamp.findMany({
+      where: {
+        tenantId,
+        action: { in: ['STAMP', 'STAMP_REMOVE', 'REFUND', 'REDEEM', 'VISIT'] },
+      },
+      include: {
+        operator: { select: { fullName: true, email: true } },
+        customer: { select: { fullName: true } },
+        location: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      // NaN-safe: ?limit=abc → Number('abc')=NaN; `?? 100` NO atrapa NaN.
+      take: Math.min(
+        Math.max(Number.isInteger(opts.limit as number) ? (opts.limit as number) : 100, 1),
+        300,
+      ),
+    });
+
+    return {
+      enabled: true,
+      showAudit: canSeeAudit,
+      rows: rows.map((s) => ({
+        id: s.id,
+        createdAt: s.createdAt,
+        action: s.action,
+        amount: Number(s.amount),
+        note: s.note ?? null,
+        operator: s.operator?.fullName || s.operator?.email || null,
+        customer: s.customer?.fullName ?? null,
+        location: s.location?.name ?? null,
+        ip: canSeeAudit ? s.ip ?? null : null,
+        device: canSeeAudit ? s.device ?? null : null,
+      })),
+    };
   }
 }

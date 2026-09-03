@@ -152,6 +152,8 @@ async function fetchPaymentPlans(host: string): Promise<LandingPlan[] | null> {
     if (!d || !Array.isArray(d.links) || !d.links.length) return null;
     const plans: LandingPlan[] = [];
     for (const l of d.links) {
+      // Upgrades por entitlement (INFOLINK_PRO/FULL) NO van en el selector de planes.
+      if (l.productKey === 'INFOLINK_PRO' || l.productKey === 'FULL') continue;
       const m = PERIOD_TO_PLAN[l.periodicity as string];
       if (!m) continue;
       plans.push({
@@ -164,7 +166,11 @@ async function fetchPaymentPlans(host: string): Promise<LandingPlan[] | null> {
         description: '',
       });
     }
-    return plans.length ? plans : null;
+    // Dedup por id (ver sellea/page.tsx): quita el upgrade que colisiona con un
+    // plan real aunque la respuesta cacheada no traiga productKey.
+    const seen = new Set<string>();
+    const deduped = plans.filter((pl) => (seen.has(pl.id) ? false : (seen.add(pl.id), true)));
+    return deduped.length ? deduped : null;
   } catch {
     return null;
   }

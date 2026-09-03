@@ -96,18 +96,23 @@ export default function AffiliatePayoutsPage() {
   const [history, setHistory] = useState<PayoutRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingProfile, setEditingProfile] = useState(false);
+  // Marca del afiliado (de /affiliate/me → resuelta por whiteLabelId). El header
+  // debe decir SU marca (Sellea), no "Clubify" a mano. null = Clubify.
+  const [brand, setBrand] = useState<{ name?: string; logoUrl?: string | null; slug?: string } | null>(null);
 
   async function load() {
     setLoading(true);
     try {
-      const [s, p, h] = await Promise.all([
+      const [s, p, h, me] = await Promise.all([
         api<Summary>('/affiliate/payouts/summary'),
         api<PaymentProfile | null>('/affiliate/payouts/profile'),
         api<PayoutRow[]>('/affiliate/payouts/history'),
+        api<any>('/affiliate/me').catch(() => null),
       ]);
       setSummary(s);
       setProfile(p);
       setHistory(h);
+      setBrand(me?.brand ?? null);
     } catch (e: any) {
       toast(e?.message ?? 'Error cargando', 'error');
     } finally {
@@ -124,8 +129,17 @@ export default function AffiliatePayoutsPage() {
       <header className="border-b border-line bg-white sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
           <Link href="/affiliate" className="flex items-center gap-2">
-            <Logo size={28} />
-            <span className="font-bold">Clubify</span>
+            {brand?.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={brand.logoUrl} alt={brand.name ?? ''} className="h-7 w-auto" />
+            ) : brand && brand.slug !== 'clubify' ? (
+              <span className="font-bold">{brand.name}</span>
+            ) : (
+              <>
+                <Logo size={28} />
+                <span className="font-bold">Clubify</span>
+              </>
+            )}
           </Link>
           <span className="text-mute text-sm">/ Pagos</span>
         </div>

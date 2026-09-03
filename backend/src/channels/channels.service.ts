@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { ChannelType, MessageDirection, Order, Tenant, Customer, Location } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { customerPaymentLabel } from '../common/customer-payment';
 
 /**
  * Adapter de canales. En MVP soporta:
@@ -98,6 +99,15 @@ export class ChannelsService {
       ? `🏢 Sede: ${location.name}${location.state ? ` — ${location.state}` : ''}`
       : '';
 
+    // Método de pago que el cliente declaró en el checkout. El dueño pedía
+    // verlo en ESTE mensaje (antes solo iba en el aviso al courier): sin la
+    // línea tenía que preguntarle al cliente cómo pensaba pagar. Si no lo
+    // indicó, la línea se omite entera — nada de «Pago:» vacío.
+    const payLabel = customerPaymentLabel(
+      order.customerPaymentMethod,
+      order.customerPaymentOther,
+    );
+
     const lines = [
       `🆕 *Pedido #${order.code}*`,
       sedeLine,
@@ -112,6 +122,7 @@ export class ChannelsService {
       `*Total: ${formatMoney(Number(order.total), tenant.currency, tenant.currencySymbol)}*`,
       '',
       fulfillment,
+      payLabel ? `💳 Pago: ${payLabel}` : '',
       ...addressBlock,
       order.customerNote ? `📝 ${order.customerNote}` : '',
       '',
@@ -152,6 +163,21 @@ export class ChannelsService {
         }
       | null;
 
+    // Método de pago declarado por el cliente (efectivo/transferencia/…) +
+    // si ya está pagado online (no cobrar) o hay que cobrar en la entrega.
+    // Humanizado: el courier lee «efectivo», no el enum «EFECTIVO»; si el
+    // cliente eligió OTRO, va el texto que escribió (Nequi, Daviplata…).
+    const method = customerPaymentLabel(
+      order.customerPaymentMethod,
+      order.customerPaymentOther,
+    );
+    const payLine =
+      order.paymentStatus === 'PAID'
+        ? `Pago: ✅ Pagado online${method ? ` (${method})` : ''} — no cobrar`
+        : method
+          ? `Pago: 💵 ${method} — cobrar al cliente`
+          : 'Pago: 💵 Cobrar al cliente';
+
     const lines = [
       `🛵 *Despacho domicilio · Pedido #${order.code}*`,
       `Cliente: ${customer.fullName} · ${customer.phone}`,
@@ -159,7 +185,7 @@ export class ChannelsService {
       items,
       '',
       `*Total: ${formatMoney(Number(order.total), tenant.currency, tenant.currencySymbol)}*`,
-      `Pago: ${order.paymentStatus === 'PAID' ? '✅ Cobrado' : '💵 Cobrar al cliente'}`,
+      payLine,
       '',
       '*📍 Dirección:*',
       addr
@@ -167,6 +193,7 @@ export class ChannelsService {
         : '',
       addr?.direccion ? addr.direccion : '',
       addr?.phone ? `📞 ${addr.phone}` : '',
+      order.customerNote ? `\n📝 Nota: ${order.customerNote}` : '',
       '',
       `Origen: ${tenant.brandName}`,
     ].filter(Boolean);

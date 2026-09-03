@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import {
+  brandGrowCreds,
+  BRAND_GROW_SELECT,
+} from '../integrations/brand-sms-creds.util';
 
 /**
  * Notificación SMS al equipo cuando un cliente se preregistra
@@ -76,6 +80,9 @@ export class PreregAlertsService {
     source: string; // "Landing principal" | "Afiliado XYZ123" | etc.
     referrerName?: string | null;
     campaignName?: string | null;
+    // Nombre de la marca del negocio (ej. "Sellea"). Si es de una marca blanca,
+    // el aviso debe decir su nombre, NO "Clubify" (fuga de marca). null=Clubify.
+    brandName?: string | null;
   }): Promise<void> {
     try {
       // GUARD anti-repetición: si este user YA fue alertado (o hubo una alerta
@@ -214,6 +221,40 @@ export class PreregAlertsService {
   }
 
   /**
+   * SMS interno a UN número específico (ej. las alertas del flujo de pago de
+   * cortes al +12125550752) usando la MISMA subcuenta GB que las alertas del
+   * equipo. Sin anti-dup: cada evento de pago es distinto y debe avisar.
+   * Fire-and-forget: captura sus errores.
+   */
+  async sendInternalAlert(
+    phone: string,
+    body: string,
+  ): Promise<{ ok: boolean }> {
+    try {
+      const account = await this.resolveAccount();
+      if (!account) {
+        this.logger.warn('sendInternalAlert: sin GrowBusinessAccount');
+        return { ok: false };
+      }
+      const r = await this.growBusiness
+        .sendSmsWithCreds(
+          {
+            locationId: account.locationId,
+            apiKey: account.apiKey,
+            switchNumber: account.switchNumber,
+          },
+          phone,
+          body,
+        )
+        .catch((e) => ({ ok: false, message: (e as Error).message }));
+      return { ok: !!r.ok };
+    } catch (e) {
+      this.logger.warn(`sendInternalAlert falló: ${(e as Error).message}`);
+      return { ok: false };
+    }
+  }
+
+  /**
    * Envía SMS + WhatsApp al COMPRADOR (no al equipo) con el link de
    * activación post-pago Hotmart (2026-06-11). Idempotente desde el
    * caller — éste se llama dentro de `notifyPendingRecovery` que
@@ -229,6 +270,11 @@ export class PreregAlertsService {
     name: string | null;
     phone: string | null;
     activateUrl: string;
+    /** Marca del comprador: el mensaje sale por SU subcuenta de Grow Business
+     *  (fallback: la global de siempre) y queda en MessageLog a su nombre. */
+    whiteLabelId?: string | null;
+    /** Nombre de la marca para el texto («Recibimos tu pago en Sellea»). */
+    platformName?: string | null;
   }): Promise<{ ok: boolean; channel: 'whatsapp' | 'sms' | 'none' }> {
     try {
       // Anti-repetición: no reenviar el link de activación al mismo comprador
@@ -247,33 +293,43 @@ export class PreregAlertsService {
         );
         return { ok: false, channel: 'none' };
       }
-      const account = await this.resolveAccount();
+      const account = await this.resolveBuyerAccount(opts.whiteLabelId);
       if (!account) {
         this.logger.warn('sendBuyerActivationLink: sin GrowBusinessAccount');
         return { ok: false, channel: 'none' };
       }
+      // Contexto para MessageLog: sin él, este envío al comprador no se puede
+      // rastrear desde el historial de la marca.
+      const ctx = {
+        whiteLabelId: opts.whiteLabelId ?? null,
+        feature: 'activacion-compra',
+      };
       const greeting = opts.name
         ? `Hola ${opts.name.split(' ')[0]} 👋`
         : 'Hola 👋';
+      // El nombre de la marca viene de la BD (nunca escrito a mano acá): un
+      // comprador de Sellea lee «tu pago en Sellea», no un mensaje anónimo.
+      const enMarca = opts.platformName?.trim()
+        ? ` en ${opts.platformName.trim()}`
+        : '';
       const body =
-        `${greeting} Recibimos tu pago 🎉.\n\n` +
+        `${greeting} Recibimos tu pago${enMarca} 🎉.\n\n` +
         `Para activar tu cuenta en 30 segundos, entra aquí:\n${opts.activateUrl}\n\n` +
         `Importante: usa el mismo correo del pago (${opts.email}) para que se active al instante.`;
 
-      // Try WhatsApp first (better engagement in LATAM).
-      const wa = await this.growBusiness
-        .sendWhatsAppWithCreds(
-          { locationId: account.locationId, apiKey: account.apiKey },
-          phone,
-          body,
-        )
-        .catch((e) => ({ ok: false as const, message: (e as Error).message }));
-      if (wa.ok) return { ok: true, channel: 'whatsapp' };
-      this.logger.log(
-        `sendBuyerActivationLink WhatsApp falló (${(wa as any).message ?? 'unknown'}), fallback SMS`,
-      );
-
-      // Fallback SMS.
+      // SMS, no WhatsApp.
+      //
+      // Se intentaba WhatsApp primero por engagement, pero LeadConnector
+      // ACEPTA `type: 'WhatsApp'` y devuelve un providerMessageId aunque la
+      // subcuenta no tenga proveedor de WhatsApp conectado: lo entrega por
+      // SMS sin avisar. Resultado: al comprador le llegaba un SMS y el
+      // historial de la marca lo registraba como WhatsApp (comprobado en los
+      // dos envios del 2026-08-22). Un historial que miente sobre el canal no
+      // sirve para lo que se construyo.
+      //
+      // Mientras GHL no informe el canal real, se manda por el que de verdad
+      // sale. Si una marca conecta WhatsApp de verdad, esto se reabre con un
+      // flag por subcuenta, no adivinando.
       const sms = await this.growBusiness
         .sendSmsWithCreds(
           {
@@ -283,6 +339,7 @@ export class PreregAlertsService {
           },
           phone,
           body,
+          ctx,
         )
         .catch((e) => ({ ok: false as const, message: (e as Error).message }));
       return {
@@ -295,6 +352,32 @@ export class PreregAlertsService {
       );
       return { ok: false, channel: 'none' };
     }
+  }
+
+  /**
+   * Credenciales para escribirle al COMPRADOR: la subcuenta de Grow Business
+   * de SU marca si la tiene vinculada — así el mensaje llega con la identidad
+   * correcta (un comprador de Sellea no debe recibir nada desde la subcuenta
+   * de Clubify). Si la marca no tiene subcuenta, caemos a la global de
+   * siempre: mejor avisar por el canal imperfecto que dejar al comprador sin
+   * su link de activación.
+   */
+  private async resolveBuyerAccount(whiteLabelId?: string | null): Promise<{
+    locationId: string;
+    apiKey: string;
+    switchNumber: number | null;
+  } | null> {
+    if (whiteLabelId) {
+      const wl = await this.prisma.whiteLabel
+        .findUnique({
+          where: { id: whiteLabelId },
+          select: BRAND_GROW_SELECT,
+        })
+        .catch(() => null);
+      const creds = brandGrowCreds(wl);
+      if (creds) return creds;
+    }
+    return this.resolveAccount();
   }
 
   /**
@@ -370,9 +453,12 @@ export class PreregAlertsService {
     source: string;
     referrerName?: string | null;
     campaignName?: string | null;
+    brandName?: string | null;
   }): string {
+    // Marca blanca (ej. Sellea) → su nombre; sin marca → Clubify.
+    const plataforma = opts.brandName?.trim() || 'Clubify';
     const lines = [
-      'Nuevo preregistro en Clubify.',
+      `Nuevo preregistro en ${plataforma}.`,
       '',
       `Nombre: ${opts.customerName}`,
       `Teléfono: ${opts.customerPhone ?? '—'}`,
@@ -391,7 +477,7 @@ export class PreregAlertsService {
         timeStyle: 'short',
       })}`,
     );
-    lines.push('', 'Revisar en Clubify.');
+    lines.push('', `Revisar en ${plataforma}.`);
     return lines.join('\n');
   }
 }

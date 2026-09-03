@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { setSession } from '@/lib/api';
-import { Logo } from '@/components/Logo';
+import { useAuthBrand, BrandMark } from '@/components/AuthBrand';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -51,6 +51,9 @@ export default function TrialSignupClient() {
 function TrialInner() {
   const router = useRouter();
   const params = useSearchParams();
+  // Marca del host (Sellea en selleala.com). Brand-aware: logo/nombre/color y —lo
+  // clave— SU enlace de prueba (brand.trialCheckoutUrl) y sus días.
+  const { brand, loading: brandLoading } = useAuthBrand();
 
   const [form, setForm] = useState({
     firstName: '',
@@ -66,6 +69,12 @@ function TrialInner() {
   const [submitting, setSubmitting] = useState(false);
   const [showPwd, setShowPwd] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // PIN por correo. `pidiendo` evita doble envío; `enviado` cambia el botón de
+  // "Enviar código" a "Crear cuenta" sin ocultar el formulario.
+  const [otp, setOtp] = useState('');
+  const [otpEnviado, setOtpEnviado] = useState(false);
+  const [pidiendoOtp, setPidiendoOtp] = useState(false);
+  const [otpAviso, setOtpAviso] = useState<string | null>(null);
 
   // Atribución: ?ref=<code> y ?source=<type> en el URL. Si el embajador
   // comparte /prueba?ref=JUAN123, el ref se manda al backend y atribuye
@@ -84,6 +93,101 @@ function TrialInner() {
     if (srcUrl && VALID_SOURCES.has(srcUrl)) setSource(srcUrl);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Modo checkout: si el super admin configuró la URL de checkout de Hotmart para
+  // la prueba con tarjeta (Setting landing.trial.checkoutUrl, en /admin/branding),
+  // /trial REDIRIGE ahí pasando ?src=<ref> en vez de crear la cuenta gratis directo.
+  // Si NO está configurada, se mantiene el flujo actual (prueba gratis sin tarjeta)
+  // → así el cambio no rompe nada y se activa solo cuando el fundador pega la URL.
+  const [trialCheckoutUrl, setTrialCheckoutUrl] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // Reintenta una vez: un fallo transitorio de /branding NO debe degradar el
+      // funnel de pago a alta gratis (saltarse el paywall del trial con tarjeta).
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const r = await fetch(`${API}/api/branding`);
+          if (r.ok) {
+            const b = await r.json();
+            if (!cancelled && b?.trialCheckoutUrl) setTrialCheckoutUrl(b.trialCheckoutUrl);
+            break;
+          }
+        } catch { /* reintenta */ }
+      }
+      if (!cancelled) setLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  // Modo explícito por link — los paneles de embajador/vendedor comparten DOS
+  // links: `?mode=card` fuerza la prueba CON tarjeta (checkout Hotmart; si la URL
+  // no está configurada aún, cae con gracia al form sin tarjeta para no dejar al
+  // prospecto sin salida) y `?mode=free` fuerza la prueba SIN tarjeta. Sin `?mode`
+  // se mantiene el comportamiento por Setting (compat con links ya compartidos).
+  const modeParam = (params.get('mode') || '').toLowerCase();
+  const forceFree = ['free', 'nocard', 'sin-tarjeta'].includes(modeParam);
+  // Marca blanca (Sellea) usa SU enlace de prueba; Clubify (brand null) el global.
+  const effectiveTrialUrl = brand ? (brand.trialCheckoutUrl ?? null) : trialCheckoutUrl;
+  const trialDays = brand?.trialDays ?? 5;
+  const brandName = brand?.name ?? 'Clubify';
+  // La prueba GRATIS sin tarjeta está bloqueada para marcas blancas → si la marca
+  // no configuró su enlace de prueba, mostramos "no disponible" (no el form free).
+  const whiteLabelNoTrial = !!brand && !effectiveTrialUrl;
+  // Marca blanca: solo modo checkout (nunca free). Clubify: comportamiento actual.
+  const checkoutMode = brand ? !!effectiveTrialUrl : forceFree ? false : !!effectiveTrialUrl;
+
+  function goToCheckout() {
+    if (!effectiveTrialUrl) return;
+    // El ref sobrevive el ida-y-vuelta a Hotmart en localStorage (mismo origen) →
+    // /activar lo lee tras el pago y atribuye la venta al referido. Además va como
+    // ?src=<ref> en la URL para el tracking propio de Hotmart.
+    try { if (refCode) localStorage.setItem('clubify:ref', refCode); } catch {}
+    let url = effectiveTrialUrl;
+    if (refCode) {
+      try {
+        // URL API: agrega src como query REAL (antes del fragmento #) sin duplicar.
+        const u = new URL(effectiveTrialUrl);
+        if (!u.searchParams.has('src')) u.searchParams.set('src', refCode);
+        url = u.toString();
+      } catch {
+        // URL relativa/inválida: fallback respetando el fragmento.
+        const [base, hash = ''] = effectiveTrialUrl.split('#');
+        const sep = base.includes('?') ? '&' : '?';
+        url = `${base}${sep}src=${encodeURIComponent(refCode)}${hash ? '#' + hash : ''}`;
+      }
+    }
+    window.location.href = url;
+  }
+
+  async function pedirCodigo() {
+    const email = form.email.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setErr('Escribe un correo válido para recibir el código.');
+      return;
+    }
+    setErr(null);
+    setPidiendoOtp(true);
+    try {
+      const res = await fetch(`${API}/api/auth/trial-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message || 'No pudimos enviar el código.');
+      setOtpEnviado(true);
+      setOtpAviso(
+        data?.enviado
+          ? `Te mandamos un código de 6 dígitos a ${email}. Vence en 10 minutos.`
+          : 'No pudimos enviar el correo. Escribinos y te activamos la prueba a mano.',
+      );
+    } catch (e: any) {
+      setErr(e?.message || 'No pudimos enviar el código.');
+    } finally {
+      setPidiendoOtp(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -118,6 +222,7 @@ function TrialInner() {
           city: form.city.trim() || undefined,
           referralCode: refCode ?? undefined,
           source: source ?? undefined,
+          otp: otp.replace(/\D/g, '') || undefined,
         }),
       });
       const data = await res.json();
@@ -139,23 +244,65 @@ function TrialInner() {
     <main className="min-h-screen bg-bg flex flex-col items-center px-4 sm:px-6 py-10">
       <div className="w-full max-w-md">
         <div className="flex justify-center mb-6">
-          <Logo />
+          <BrandMark brand={brand} size={44} />
         </div>
 
         <div className="card shadow-xl p-6 sm:p-8">
+          {!loaded || brandLoading ? (
+            <div className="py-12 text-center text-sm text-mute">Cargando…</div>
+          ) : whiteLabelNoTrial ? (
+            <div className="py-8 text-center">
+              <div className="text-3xl mb-2">🎁</div>
+              <h1 className="text-xl font-bold">Prueba no disponible</h1>
+              <p className="text-sm text-mute mt-2 leading-relaxed">
+                {brandName} todavía no tiene una prueba activa. Escríbenos y te
+                ayudamos a empezar.
+              </p>
+              <Link href="/login" className="btn-ghost w-full justify-center mt-5">
+                Inicia sesión
+              </Link>
+            </div>
+          ) : (
+          <>
           <div className="text-center">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-pill bg-brand-soft text-brand text-xs font-semibold uppercase tracking-wider">
-              🎁 Modo prueba · 5 días
+              🎁 Prueba · {trialDays} días
             </div>
             <h1 className="mt-3 text-2xl sm:text-3xl font-bold tracking-tight">
-              Prueba Clubify gratis
+              {checkoutMode ? 'Activa tu prueba' : `Prueba ${brandName} gratis`}
             </h1>
             <p className="mt-1.5 text-sm text-mute leading-relaxed">
-              Sin tarjeta. Sin compromiso. Activa tu cuenta al final de los 5 días
-              si te convence.
+              {checkoutMode
+                ? `Comienza hoy y prueba ${brandName} durante ${trialDays} días.`
+                : `Sin tarjeta. Sin compromiso. Activa tu cuenta al final de los ${trialDays} días si te convence.`}
             </p>
           </div>
 
+          {checkoutMode ? (
+            <div className="mt-6 space-y-4">
+              {refCode && (
+                <div className="rounded-lg bg-brand-soft/40 px-3 py-2 text-xs text-brand-ink text-center">
+                  Te referenció: <strong>{refCode}</strong>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={goToCheckout}
+                className="btn-primary w-full justify-center py-3.5 text-base font-semibold"
+              >
+                Activar mi prueba →
+              </button>
+              <p className="text-center text-xs text-mute">
+                Pago seguro · ancla tu tarjeta, {trialDays} días de prueba.
+              </p>
+              <p className="text-center text-xs text-mute">
+                ¿Ya tienes cuenta?{' '}
+                <Link href="/login" className="text-brand hover:underline">
+                  Inicia sesión
+                </Link>
+              </p>
+            </div>
+          ) : (
           <form onSubmit={submit} className="mt-6 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -305,7 +452,7 @@ function TrialInner() {
                 <Link href="/terminos" className="underline">
                   términos
                 </Link>{' '}
-                y entiendo que mi prueba dura 5 días.
+                y entiendo que mi prueba dura {trialDays} días.
               </span>
             </label>
 
@@ -321,10 +468,54 @@ function TrialInner() {
               </div>
             )}
 
+            {/* Verificación del correo. Se pide DESPUÉS de llenar los datos: si
+                el código llegara antes, el visitante se va al buzón y vuelve a
+                un formulario vacío. */}
+            {!otpEnviado ? (
+              <button
+                type="button"
+                onClick={pedirCodigo}
+                disabled={pidiendoOtp || !form.email}
+                className="btn-secondary w-full justify-center py-3 text-sm font-semibold disabled:opacity-50 mt-2"
+              >
+                {pidiendoOtp ? 'Enviando código…' : 'Enviarme el código al correo'}
+              </button>
+            ) : (
+              <div className="mt-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  Código de 6 dígitos
+                </label>
+                <input
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  className="input w-full text-center text-2xl font-bold tracking-[0.4em]"
+                />
+                <button
+                  type="button"
+                  onClick={pedirCodigo}
+                  disabled={pidiendoOtp}
+                  className="mt-2 text-xs text-slate-500 underline disabled:opacity-50"
+                >
+                  {pidiendoOtp ? 'Reenviando…' : 'No me llegó, reenviar'}
+                </button>
+              </div>
+            )}
+
+            {otpAviso && (
+              <div className="mt-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-xs text-sky-900">
+                {otpAviso}
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={
                 submitting ||
+                !otpEnviado ||
+                otp.length !== 6 ||
                 !form.firstName ||
                 !form.lastName ||
                 !form.email ||
@@ -344,11 +535,19 @@ function TrialInner() {
               </Link>
             </p>
           </form>
+          )}
+          </>
+          )}
         </div>
 
-        <p className="text-center text-[11px] text-mute mt-4">
-          Acceso privado · No compartas este enlace públicamente.
-        </p>
+        {/* En Clubify /prueba es un link INTERNO (embajadores/equipo comercial) →
+            se avisa que no se difunda. En una marca blanca (Sellea) es la página
+            PÚBLICA de la prueba que se comparte → sin el aviso. */}
+        {!brand && (
+          <p className="text-center text-[11px] text-mute mt-4">
+            Acceso privado · No compartas este enlace públicamente.
+          </p>
+        )}
       </div>
     </main>
   );

@@ -4,11 +4,13 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { api, getUser } from '@/lib/api';
+import { publicHostForTenant } from '@/lib/public-domain';
 import { Icon } from '@/components/Icon';
 
 type InfoLink = {
   id: string;
   slug: string;
+  rootSlug: string | null;
   title: string;
   subtitle: string | null;
   heroImageUrl: string | null;
@@ -78,6 +80,9 @@ export default function InfoLinksList() {
     router.push(`/app/info-links/${r.id}`);
   }
 
+  // Dominio público del negocio: customDomain (propio) > marca > soyclubify.com.
+  const vanityDomain = publicHostForTenant(tenant);
+
   return (
     <div>
       <div className="page-head">
@@ -142,8 +147,10 @@ export default function InfoLinksList() {
               </div>
               <div className="flex items-center justify-between text-xs text-mute mt-3">
                 <span>{t('views', { count: l.views })}</span>
-                <code className="text-[11px] truncate max-w-[180px]">
-                  /i/{tenant?.slug}/{l.slug}
+                <code className="text-[11px] truncate max-w-[180px] select-all">
+                  {l.rootSlug
+                    ? `${vanityDomain}/${l.rootSlug}`
+                    : `/i/${tenant?.slug}/${l.slug}`}
                 </code>
               </div>
               <div className="flex gap-2 mt-3">
@@ -164,7 +171,11 @@ export default function InfoLinksList() {
                   {t('duplicate')}
                 </button>
                 <a
-                  href={`/i/${tenant?.slug}/${l.slug}`}
+                  href={
+                    l.rootSlug
+                      ? `https://${vanityDomain}/${l.rootSlug}`
+                      : `/i/${tenant?.slug}/${l.slug}`
+                  }
                   target="_blank"
                   className="btn-link text-xs"
                 >

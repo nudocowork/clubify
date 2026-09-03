@@ -3,11 +3,14 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api, downloadFile, getUser, setSession, clearSession } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { useRouter } from 'next/navigation';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { LanguageSwitcherIntl } from '@/components/LanguageSwitcherIntl';
 import { PhoneInput } from '@/components/PhoneInput';
+import { FileUploader } from '@/components/FileUploader';
+import { useTenantCountry } from '@/lib/useTenantCountry';
 
 type Profile = {
   id: string;
@@ -20,6 +23,8 @@ type Profile = {
 type TenantMe = {
   id: string;
   brandName: string;
+  // PDF Software(8): documento de políticas de tratamiento de datos del negocio.
+  dataPolicyUrl?: string | null;
   whatsappPhone: string | null;
   whatsappOrdersPhone: string | null;
   whatsappDeliveryPhone: string | null;
@@ -156,6 +161,11 @@ export default function SettingsPage() {
   const [savingBrandName, setSavingBrandName] = useState(false);
   const [brandNameMsg, setBrandNameMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // PDF Software(8): documento de políticas de tratamiento de datos.
+  const [dataPolicyUrl, setDataPolicyUrl] = useState<string>('');
+  const [savingDataPolicy, setSavingDataPolicy] = useState(false);
+  const [dataPolicyMsg, setDataPolicyMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   // #1 (PDF Software 2026-06-29): número receptor de avisos de reservas.
   const [resvPhone, setResvPhone] = useState<string>('');
   const [savingResv, setSavingResv] = useState(false);
@@ -191,6 +201,7 @@ export default function SettingsPage() {
       .then((t) => {
         setTenant(t);
         setBrandNameDraft(t.brandName ?? '');
+        setDataPolicyUrl(t.dataPolicyUrl ?? '');
         setResvPhone(t.whatsappReservationsPhone ?? '');
         const { mode, custom } = detectMainMode(t.mainSectionLabelOverride);
         setSectionMode(mode);
@@ -415,6 +426,31 @@ export default function SettingsPage() {
     }
   }
 
+  // PDF Software(8): guarda (o limpia → default) el documento de políticas de
+  // datos del negocio. "" → null en backend = cae al default /legal/privacy.
+  async function saveDataPolicy(e: React.FormEvent) {
+    e.preventDefault();
+    setDataPolicyMsg(null);
+    const trimmed = dataPolicyUrl.trim();
+    setSavingDataPolicy(true);
+    try {
+      const updated = await api<TenantMe>('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ dataPolicyUrl: trimmed || null }),
+      });
+      setTenant(updated);
+      setDataPolicyUrl(updated.dataPolicyUrl ?? '');
+      setDataPolicyMsg({
+        ok: true,
+        text: trimmed ? t('dataPolicySaved') : t('dataPolicyRemoved'),
+      });
+    } catch (e: any) {
+      setDataPolicyMsg({ ok: false, text: e.message || t('couldNotUpdate') });
+    } finally {
+      setSavingDataPolicy(false);
+    }
+  }
+
   async function changePassword(e: React.FormEvent) {
     e.preventDefault();
     setPwdMsg(null);
@@ -455,6 +491,7 @@ export default function SettingsPage() {
     <div className="max-w-2xl mx-auto">
       <div className="page-head">
         <h1 className="page-title">{t('myAccount')}</h1>
+        <AcademyButton moduleKey="configuracion" />
       </div>
 
       {/* Perfil */}
@@ -541,6 +578,61 @@ export default function SettingsPage() {
         </div>
       </form>
 
+      {/* Documento de políticas de datos (PDF Software 8). Debajo del nombre
+          del negocio. Se muestra como enlace en la casilla de consentimiento
+          del registro público de tarjeta. Vacío → default /legal/privacy. */}
+      <form onSubmit={saveDataPolicy} className="card card-pad mb-4">
+        <h2 className="text-base font-semibold m-0">{t('dataPolicyTitle')}</h2>
+        <p className="text-xs text-mute mt-1">{t('dataPolicyDesc')}</p>
+
+        <div className="mt-4">
+          <FileUploader
+            value={dataPolicyUrl || null}
+            kind="document"
+            folder="data-policy"
+            onChange={(url) => setDataPolicyUrl(url ?? '')}
+          />
+        </div>
+
+        <div className="mt-4">
+          <label className="label">{t('dataPolicyUrlLabel')}</label>
+          <input
+            className="input"
+            type="url"
+            value={dataPolicyUrl}
+            onChange={(e) => setDataPolicyUrl(e.target.value)}
+            placeholder={t('dataPolicyUrlPlaceholder')}
+          />
+        </div>
+
+        <p className="text-xs text-mute mt-3">
+          {t('dataPolicyDefaultNote')}{' '}
+          <a
+            href="/legal/tratamiento-datos"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline"
+          >
+            {t('dataPolicyViewDefault')}
+          </a>
+        </p>
+
+        {dataPolicyMsg && (
+          <div
+            className={`mt-3 text-sm rounded-lg px-3 py-2 ${
+              dataPolicyMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+            }`}
+          >
+            {dataPolicyMsg.text}
+          </div>
+        )}
+        <div className="mt-4 flex justify-end">
+          <button type="submit" className="btn-primary" disabled={savingDataPolicy}>
+            {savingDataPolicy ? t('saving') : t('dataPolicySave')}
+          </button>
+        </div>
+      </form>
+
       {/* #1 (PDF Software 2026-06-29): número receptor de avisos de reservas.
           El botón "Configurar número receptor" del módulo de reservas ancla
           aquí (/app/settings#reservas). */}
@@ -553,12 +645,10 @@ export default function SettingsPage() {
         <p className="text-xs text-mute mt-1">{t('resvReceiverDesc')}</p>
         <div className="mt-4">
           <label className="label">{t('resvReceiverLabel')}</label>
-          <input
-            className="input"
+          <PhoneInput
             value={resvPhone}
-            onChange={(e) => setResvPhone(e.target.value)}
-            placeholder="+57 300 000 0000"
-            inputMode="tel"
+            onChange={(v) => setResvPhone(v)}
+            defaultCountry={country}
           />
           <p className="text-[11px] text-mute mt-1">{t('resvReceiverHint')}</p>
         </div>
@@ -667,9 +757,9 @@ export default function SettingsPage() {
         <BillingAlertsCard tenant={tenant} onSaved={(t) => setTenant(t)} />
       )}
 
-      {/* Conectar con Onboarding: tokens de integración POR NEGOCIO (Sync API
-          Fase B). Solo el dueño genera/revoca. */}
-      {me?.role === 'TENANT_OWNER' && <OnboardingConnectCard tenant={tenant} />}
+      {/* Conectar con Onboarding (Sync API Fase B): MOVIDO a super-admin
+          (2026-07-19, PDF1145). Los tokens de integración se gestionan ahora
+          desde /admin/tenants/[id] → Integraciones, no desde la vista del dueño. */}
 
       {/* #14 (2026-06-17): las alertas SMS de domicilio se configuran ahora
           desde super-admin (/admin/tenants/[id]), no desde la vista del dueño. */}
@@ -1014,219 +1104,11 @@ export default function SettingsPage() {
 /** Card que el owner ve en /app/settings para gestionar las alertas
  *  SMS de pago (recordatorios D-1, impago, suspensión). Toggle global
  *  + override del teléfono destino + botón probar. */
-type OnbToken = {
-  id: string;
-  label: string;
-  lastFour: string | null;
-  createdAt: string;
-  lastUsedAt: string | null;
-  revokedAt: string | null;
-};
-
-/** "Conectar con Onboarding" (Sync API Fase B): el dueño genera un token de
- *  integración con permiso ÚNICO sobre su negocio, ve su business_id y puede
- *  revocar tokens. El token en claro se muestra una sola vez. */
-function OnboardingConnectCard({ tenant }: { tenant: TenantMe | null }) {
-  const t = useTranslations('app_settings');
-  const [open, setOpen] = useState(false);
-  const [tokens, setTokens] = useState<OnbToken[]>([]);
-  const [businessId, setBusinessId] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [label, setLabel] = useState('');
-  const [generating, setGenerating] = useState(false);
-  const [newToken, setNewToken] = useState<string | null>(null);
-  const [revoking, setRevoking] = useState<string | null>(null);
-
-  async function load() {
-    setLoading(true);
-    try {
-      const r = await api<{ business_id: string; tokens: OnbToken[] }>(
-        '/tenants/me/onboarding/tokens',
-      );
-      setTokens(r.tokens);
-      setBusinessId(r.business_id);
-    } catch {
-      /* silencioso — la tarjeta puede quedar vacía */
-    } finally {
-      setLoading(false);
-    }
-  }
-  useEffect(() => {
-    if (open) load();
-  }, [open]);
-  useEffect(() => {
-    if (tenant?.id) setBusinessId(tenant.id);
-  }, [tenant]);
-
-  async function generate() {
-    setGenerating(true);
-    try {
-      const r = await api<{ token: string; business_id: string }>(
-        '/tenants/me/onboarding/token',
-        {
-          method: 'POST',
-          body: JSON.stringify({ label: label.trim() || undefined }),
-        },
-      );
-      setNewToken(r.token);
-      setBusinessId(r.business_id);
-      setLabel('');
-      load();
-    } catch (e: any) {
-      toast(e.message || t('couldNotSave'), 'error');
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  async function revoke(id: string) {
-    if (!confirm(t('onbRevokeConfirm'))) return;
-    setRevoking(id);
-    try {
-      await api(`/tenants/me/onboarding/token/${id}`, { method: 'DELETE' });
-      toast(t('onbRevoked'), 'success');
-      load();
-    } catch (e: any) {
-      toast(e.message || t('couldNotSave'), 'error');
-    } finally {
-      setRevoking(null);
-    }
-  }
-
-  function copy(text: string) {
-    if (!text) return;
-    navigator.clipboard.writeText(text).then(
-      () => toast(t('onbCopied'), 'success'),
-      () => toast(t('onbCopyFailed'), 'error'),
-    );
-  }
-
-  const activeTokens = tokens.filter((k) => !k.revokedAt);
-
-  return (
-    <div className="card card-pad mb-4">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between text-left"
-      >
-        <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-          🔌 {t('onbTitle')}
-        </h2>
-        <span className="text-mute text-sm">{open ? '▲' : '▼'}</span>
-      </button>
-      <p className="text-xs text-mute mt-1 leading-relaxed">{t('onbDesc')}</p>
-
-      {open && (
-        <div className="mt-4">
-          <label className="label">{t('onbBusinessId')}</label>
-          <div className="flex gap-2 items-center">
-            <code className="input flex-1 text-xs truncate">
-              {businessId || '—'}
-            </code>
-            <button
-              type="button"
-              className="btn-ghost text-xs whitespace-nowrap"
-              onClick={() => copy(businessId)}
-              disabled={!businessId}
-            >
-              {t('onbCopy')}
-            </button>
-          </div>
-
-          {newToken && (
-            <div
-              className="mt-4 rounded-xl p-3"
-              style={{ background: '#fffbeb', border: '1px solid #fde68a' }}
-            >
-              <div
-                className="text-xs font-semibold"
-                style={{ color: '#92400e' }}
-              >
-                {t('onbNewTokenTitle')}
-              </div>
-              <div className="text-[11px] mb-2" style={{ color: '#92400e' }}>
-                {t('onbNewTokenWarn')}
-              </div>
-              <div className="flex gap-2 items-center">
-                <code className="input flex-1 text-xs truncate">{newToken}</code>
-                <button
-                  type="button"
-                  className="btn-primary text-xs whitespace-nowrap"
-                  onClick={() => copy(newToken)}
-                >
-                  {t('onbCopy')}
-                </button>
-              </div>
-              <button
-                type="button"
-                className="text-[11px] underline mt-2"
-                style={{ color: '#92400e' }}
-                onClick={() => setNewToken(null)}
-              >
-                {t('onbHideToken')}
-              </button>
-            </div>
-          )}
-
-          <div className="mt-4">
-            <label className="label">{t('onbLabel')}</label>
-            <div className="flex gap-2">
-              <input
-                className="input flex-1"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="Onboarding"
-                maxLength={60}
-              />
-              <button
-                type="button"
-                className="btn-primary whitespace-nowrap"
-                onClick={generate}
-                disabled={generating}
-              >
-                {generating ? t('saving') : t('onbGenerate')}
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <div className="text-xs font-semibold text-mute mb-1">
-              {t('onbActiveTokens')}
-            </div>
-            {loading ? (
-              <div className="text-xs text-mute">…</div>
-            ) : activeTokens.length === 0 ? (
-              <div className="text-xs text-mute">{t('onbNoTokens')}</div>
-            ) : (
-              <ul className="space-y-1">
-                {activeTokens.map((k) => (
-                  <li
-                    key={k.id}
-                    className="flex items-center justify-between gap-2 text-xs border-b border-[#eee] py-1.5"
-                  >
-                    <span className="truncate">
-                      <span className="font-medium">{k.label}</span>
-                      <span className="text-mute"> ····{k.lastFour ?? ''}</span>
-                    </span>
-                    <button
-                      type="button"
-                      className="text-bad hover:underline whitespace-nowrap"
-                      onClick={() => revoke(k.id)}
-                      disabled={revoking === k.id}
-                    >
-                      {t('onbRevoke')}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+/* "Conectar con Onboarding" (Sync API Fase B) MOVIDO a super-admin
+ * (2026-07-19, PDF1145): el componente vive ahora en
+ * frontend/src/app/admin/tenants/[id]/page.tsx (OnboardingConnectAdminCard),
+ * dentro de la sección "Integraciones". El dueño del negocio ya no gestiona
+ * tokens de integración; lo hace el operador de Clubify. */
 
 function BillingAlertsCard({
   tenant,
@@ -1236,6 +1118,7 @@ function BillingAlertsCard({
   onSaved: (updatedTenant: TenantMe) => void;
 }) {
   const t = useTranslations('app_settings');
+  const country = useTenantCountry();
   const [enabled, setEnabled] = useState<boolean>(true);
   const [phone, setPhone] = useState<string>('');
   const [saving, setSaving] = useState(false);
@@ -1335,13 +1218,10 @@ function BillingAlertsCard({
               {t('destinationPhoneHint')}
             </span>
           </label>
-          <input
-            type="tel"
-            className="input"
-            placeholder="+57 300 000 0000"
+          <PhoneInput
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            maxLength={40}
+            onChange={(v) => setPhone(v)}
+            defaultCountry={country}
           />
         </div>
 

@@ -13,6 +13,11 @@ import {
   getBannerOverlayBackground,
   type BannerConfig,
 } from '@/lib/info-link-banner';
+import {
+  StyledButtonLink,
+  hasButtonStyleV2,
+  type InfoLinkButtonStyle,
+} from '@/components/info-link-button-style';
 
 // =============================================================
 //  Feedback de tap en móvil — fix iOS Safari
@@ -81,7 +86,7 @@ export type ShellLink = {
 
 export type ButtonBgStyle = 'solid' | 'transparent' | 'outline';
 
-export type ResolvedButton = {
+export type ResolvedButton = InfoLinkButtonStyle & {
   label: string;
   href: string;
   newTab: boolean;
@@ -220,18 +225,93 @@ export type ShellProps = {
    *  presente, reemplaza el fondo por defecto del template. */
   customBackground?: string;
   /** Marca blanca del negocio (per marca). El badge "Hecho con {marca}" la
-   *  usa. Puede faltar mientras el backend propaga el deploy → fallback Clubify. */
+   *  usa. Si falta, el badge NO se pinta (nunca se inventa una marca). */
   brand?: BrandBadgeBrand;
 };
 
-/** Fallback Clubify mientras el backend propaga `brand` a la respuesta. */
-const CLUBIFY_BADGE_FALLBACK: BrandBadgeBrand = {
-  name: 'Clubify',
-  websiteUrl: 'https://soyclubify.com',
-  initial: 'C',
-  primaryColor: '#22C55E',
-  attribution: { madeWith: 'Hecho con Clubify' },
+// Sin respaldo a Clubify: si el backend no manda la marca, no se pinta el
+// badge. Un negocio de Sellea mostrando «Hecho con Clubify» a sus clientes
+// delata la plataforma — y el respaldo, puesto «mientras el backend propaga el
+// deploy», se quedó para siempre. Un pie ausente no delata a nadie.
+
+// =============================================================
+//  Colores de texto por elemento (theme.text) — opcional
+// =============================================================
+
+/** Colores de texto personalizados por elemento. Viven en `theme.text`
+ *  (JSON, aditivo). Cada campo es un hex; si falta, el shell usa su color
+ *  por defecto. Pensado para que un fondo custom no deje el texto ilegible.
+ *  Nota: `button` solo aplica a botones "regulares"; los botones con estilo
+ *  v2 (StyledButtonLink) o con cover traen su propio color. */
+export type InfoLinkTextColors = {
+  /** Título principal (link.title). */
+  title?: string | null;
+  /** Descripción / subtítulo (link.subtitle). */
+  description?: string | null;
+  /** Texto de los botones regulares. */
+  button?: string | null;
+  /** Texto secundario: el nombre del negocio bajo el título. */
+  meta?: string | null;
+  /** Pie de atribución «Hecho con {marca}». SOLO el color — el texto y la
+   *  marca los resuelve el backend y no se tocan desde aquí (un negocio de
+   *  Sellea nunca debe mostrar otra marca). */
+  badge?: string | null;
 };
+
+/** Lee `theme.text` de forma segura (objeto o vacío). */
+function textColors(link: ShellLink): InfoLinkTextColors {
+  const t = link.theme?.text;
+  return t && typeof t === 'object' ? (t as InfoLinkTextColors) : {};
+}
+
+/** `{ color }` SOLO si `c` es un color no vacío; sino `undefined` para NO
+ *  pisar el color por defecto (className) del shell. */
+function colorStyle(c?: string | null): CSSProperties | undefined {
+  return c && String(c).trim() ? { color: c } : undefined;
+}
+
+/** Badge «Hecho con {marca}» con color de texto opcional (theme.text.badge).
+ *
+ *  BrandBadge no acepta color (y no se toca: su texto/marca son sagrados),
+ *  así que el tinte se aplica por CSS desde fuera. El color entra como
+ *  custom property INLINE (no interpolado en el <style>) para que un valor
+ *  raro guardado en el JSON del theme no pueda inyectar CSS.
+ *
+ *  Con color custom, la variante "pill" pierde su pastilla blanca a
+ *  propósito: el color elegido debe leerse contra el fondo de la página
+ *  (que es contra lo que el editor mide el contraste), no contra blanco —
+ *  si no, elegir blanco sobre fondo negro daría blanco-sobre-blanco.
+ *  El `span:not([style])` excluye el cuadrito de la inicial (tiene su
+ *  background inline con el color de la marca) para no tintarlo. */
+function ShellBrandBadge({
+  brand,
+  variant,
+  color,
+}: {
+  brand?: BrandBadgeBrand;
+  variant?: 'subtle' | 'pill';
+  color?: string | null;
+}) {
+  if (!brand) return null;
+  const c = color && String(color).trim() ? String(color).trim() : null;
+  if (!c) return <BrandBadge brand={brand} variant={variant ?? 'subtle'} />;
+  return (
+    <div
+      className="il-badge-tint"
+      style={{ ['--il-badge-c' as string]: c } as CSSProperties}
+    >
+      <style>{`
+        .il-badge-tint a,
+        .il-badge-tint a span:not([style]) {
+          color: var(--il-badge-c) !important;
+          background: transparent !important;
+          box-shadow: none !important;
+        }
+      `}</style>
+      <BrandBadge brand={brand} variant={variant ?? 'subtle'} />
+    </div>
+  );
+}
 
 // =============================================================
 //  AURORA · gradient mesh + glassmorphism
@@ -239,6 +319,7 @@ const CLUBIFY_BADGE_FALLBACK: BrandBadgeBrand = {
 
 export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
+  const tc = textColors(link);
   const defaultBg = `radial-gradient(circle at 15% 0%, ${primary}66 0%, transparent 40%), radial-gradient(circle at 85% 25%, ${tenant.secondaryColor || '#8B4513'}66 0%, transparent 40%), radial-gradient(circle at 50% 100%, #1a0e2e 0%, transparent 60%), linear-gradient(180deg, #2D1B4E 0%, #1A0E2E 100%)`;
   return (
     <div
@@ -273,12 +354,17 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
               )
             }
           />
-          <h1 className="text-2xl font-bold mt-4">{link.title}</h1>
-          <div className="text-[11px] text-white/60 mt-0.5">
+          <h1 className="text-2xl font-bold mt-4" style={colorStyle(tc.title)}>
+            {link.title}
+          </h1>
+          <div className="text-[11px] text-white/60 mt-0.5" style={colorStyle(tc.meta)}>
             {tenant.brandName}
           </div>
           {link.subtitle && (
-            <p className="text-sm text-white/85 mt-3 max-w-sm leading-relaxed">
+            <p
+              className="text-sm text-white/85 mt-3 max-w-sm leading-relaxed"
+              style={colorStyle(tc.description)}
+            >
               {link.subtitle}
             </p>
           )}
@@ -288,6 +374,18 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
           <div className="mt-7 space-y-2.5">
             {buttons.map((b, i) => {
               if (b.cover) return <CoverButtonLink key={i} b={b} />;
+              if (hasButtonStyleV2(b))
+                return (
+                  <StyledButtonLink
+                    key={i}
+                    b={b}
+                    primary={primary}
+                    dark
+                    href={b.href}
+                    newTab={b.newTab}
+                    onClick={b.onClick}
+                  />
+                );
               const sp = buttonStyleProps(b.bgStyle, primary, { dark: true });
               // En AURORA el "solid" del shell usa blanco (no primary) por
               // diseño histórico — preservamos eso cuando bgStyle es solid +
@@ -305,7 +403,11 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
                       ? 'bg-white text-[#1A0E2E] shadow-xl hover:shadow-2xl'
                       : sp.className
                   }`}
-                  style={auroraSolid ? undefined : sp.style}
+                  style={
+                    auroraSolid
+                      ? colorStyle(tc.button)
+                      : { ...sp.style, ...colorStyle(tc.button) }
+                  }
                 >
                   <ButtonLabel b={b} />
                 </a>
@@ -319,7 +421,7 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
         )}
 
         <div className="mt-10 text-center">
-          <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} variant="pill" />
+          <ShellBrandBadge brand={brand} variant="pill" color={tc.badge} />
         </div>
       </article>
     </div>
@@ -332,6 +434,7 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
 
 export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
+  const tc = textColors(link);
   const social: { emoji: string; href?: string }[] = [
     { emoji: '📷', href: tenant.instagramUrl ?? undefined },
     {
@@ -376,10 +479,17 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
               )
             }
           />
-          <h1 className="text-lg font-semibold mt-3 text-ink">{link.title}</h1>
-          <div className="text-[11px] text-mute">{tenant.brandName}</div>
+          <h1 className="text-lg font-semibold mt-3 text-ink" style={colorStyle(tc.title)}>
+            {link.title}
+          </h1>
+          <div className="text-[11px] text-mute" style={colorStyle(tc.meta)}>
+            {tenant.brandName}
+          </div>
           {link.subtitle && (
-            <p className="text-sm text-mute mt-2 leading-relaxed max-w-xs">
+            <p
+              className="text-sm text-mute mt-2 leading-relaxed max-w-xs"
+              style={colorStyle(tc.description)}
+            >
               {link.subtitle}
             </p>
           )}
@@ -405,6 +515,17 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
           <div className="mt-7 space-y-2">
             {buttons.map((b, i) => {
               if (b.cover) return <CoverButtonLink key={i} b={b} />;
+              if (hasButtonStyleV2(b))
+                return (
+                  <StyledButtonLink
+                    key={i}
+                    b={b}
+                    primary={primary}
+                    href={b.href}
+                    newTab={b.newTab}
+                    onClick={b.onClick}
+                  />
+                );
               const sp = buttonStyleProps(b.bgStyle, primary, { dark: false });
               return (
                 <a
@@ -414,7 +535,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
                   rel="noreferrer"
                   onClick={b.onClick}
                   className={`block w-full px-4 py-3 rounded-xl text-sm text-center font-medium ${TAP_FX} ${sp.className}`}
-                  style={sp.style}
+                  style={{ ...sp.style, ...colorStyle(tc.button) }}
                 >
                   <ButtonLabel b={b} />
                 </a>
@@ -425,7 +546,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
 
         {sectionsNode && <div className="mt-8 text-ink">{sectionsNode}</div>}
 
-        <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} />
+        <ShellBrandBadge brand={brand} color={tc.badge} />
       </article>
     </div>
   );
@@ -437,6 +558,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
 
 export function ShopShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
+  const tc = textColors(link);
   const heroBg =
     link.heroImageUrl ||
     `linear-gradient(135deg, ${primary}, ${tenant.secondaryColor || '#15803D'})`;
@@ -445,7 +567,10 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
   // El layout original (primaryBtn pill + secondaryBtns en grid 3) solo
   // aplica a los botones sin cover.
   const coverBtns = buttons.filter((b) => !!b.cover);
-  const regularBtns = buttons.filter((b) => !b.cover);
+  // Botones v2 (con forma/icono propios) van en su propia pila full-width;
+  // no entran al layout histórico primary/secondary del shop.
+  const styledBtns = buttons.filter((b) => !b.cover && hasButtonStyleV2(b));
+  const regularBtns = buttons.filter((b) => !b.cover && !hasButtonStyleV2(b));
   const primaryBtn = regularBtns.find((b) => b.isPrimary) ?? regularBtns[0];
   const secondaryBtns = regularBtns.filter((b) => b !== primaryBtn).slice(0, 3);
 
@@ -524,10 +649,17 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
             />
           </div>
           <div className="text-center mt-3">
-            <h1 className="text-xl font-bold text-ink">{link.title}</h1>
-            <div className="text-[11px] text-mute mt-0.5">{tenant.brandName}</div>
+            <h1 className="text-xl font-bold text-ink" style={colorStyle(tc.title)}>
+              {link.title}
+            </h1>
+            <div className="text-[11px] text-mute mt-0.5" style={colorStyle(tc.meta)}>
+              {tenant.brandName}
+            </div>
             {link.subtitle && (
-              <p className="text-sm text-mute mt-2 leading-relaxed">
+              <p
+                className="text-sm text-mute mt-2 leading-relaxed"
+                style={colorStyle(tc.description)}
+              >
                 {link.subtitle}
               </p>
             )}
@@ -552,6 +684,20 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
               ))}
             </div>
           )}
+          {styledBtns.length > 0 && (
+            <div className="mt-5 space-y-2.5">
+              {styledBtns.map((b, i) => (
+                <StyledButtonLink
+                  key={`st-${i}`}
+                  b={b}
+                  primary={primary}
+                  href={b.href}
+                  newTab={b.newTab}
+                  onClick={b.onClick}
+                />
+              ))}
+            </div>
+          )}
           {primaryBtn && (() => {
             const sp = buttonStyleProps(primaryBtn.bgStyle, primary, { dark: false });
             return (
@@ -563,7 +709,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
                 className={`block w-full mt-5 py-3 rounded-full text-center text-sm font-semibold ${TAP_FX} ${
                   primaryBtn.bgStyle === 'solid' ? 'shadow-md' : ''
                 } ${sp.className}`}
-                style={sp.style}
+                style={{ ...sp.style, ...colorStyle(tc.button) }}
               >
                 {primaryBtn.label}
               </a>
@@ -589,7 +735,11 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
                         ? 'border border-line bg-white text-ink hover:bg-bg2/40'
                         : sp.className
                     }`}
-                    style={usingDefault ? undefined : sp.style}
+                    style={
+                      usingDefault
+                        ? colorStyle(tc.button)
+                        : { ...sp.style, ...colorStyle(tc.button) }
+                    }
                   >
                     {b.label}
                   </a>
@@ -601,7 +751,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
           {sectionsNode && (
             <div className="mt-7 pb-2 text-ink">{sectionsNode}</div>
           )}
-          <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} />
+          <ShellBrandBadge brand={brand} color={tc.badge} />
         </div>
       </article>
     </div>
@@ -614,6 +764,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
 
 export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
+  const tc = textColors(link);
   const stories = (link.gallery ?? []).slice(0, 6);
 
   return (
@@ -652,14 +803,22 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
             />
 
             <div className="flex-1 min-w-0">
-              <div className="font-bold text-ink leading-tight">
+              <div
+                className="font-bold text-ink leading-tight"
+                style={colorStyle(tc.meta)}
+              >
                 {tenant.brandName}
               </div>
-              <div className="text-xs text-mute mt-0.5">{link.title}</div>
+              <div className="text-xs text-mute mt-0.5" style={colorStyle(tc.title)}>
+                {link.title}
+              </div>
             </div>
           </div>
           {link.subtitle && (
-            <p className="text-sm text-ink mt-3 leading-relaxed">
+            <p
+              className="text-sm text-ink mt-3 leading-relaxed"
+              style={colorStyle(tc.description)}
+            >
               {link.subtitle}
             </p>
           )}
@@ -673,6 +832,19 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
                     </div>
                   );
                 }
+                if (hasButtonStyleV2(b)) {
+                  return (
+                    <div key={i} className="basis-full">
+                      <StyledButtonLink
+                        b={b}
+                        primary={primary}
+                        href={b.href}
+                        newTab={b.newTab}
+                        onClick={b.onClick}
+                      />
+                    </div>
+                  );
+                }
                 const sp = buttonStyleProps(b.bgStyle, primary, { dark: false });
                 return (
                   <a
@@ -682,7 +854,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
                     rel="noreferrer"
                     onClick={b.onClick}
                     className={`text-[11px] font-semibold px-3 py-1.5 rounded-full ${TAP_FX} ${sp.className}`}
-                    style={sp.style}
+                    style={{ ...sp.style, ...colorStyle(tc.button) }}
                   >
                     {b.label}
                   </a>
@@ -719,7 +891,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
         {sectionsNode && (
           <div className="px-5 pt-5 text-ink">{sectionsNode}</div>
         )}
-        <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} />
+        <ShellBrandBadge brand={brand} color={tc.badge} />
       </article>
     </div>
   );
@@ -732,6 +904,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
 export function NeonShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const accent = primary;
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
+  const tc = textColors(link);
   return (
     <div
       className="min-h-screen text-white animate-in fade-in duration-500"
@@ -780,15 +953,22 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
             style={{
               color: accent,
               textShadow: `0 0 24px ${accent}80`,
+              ...colorStyle(tc.title),
             }}
           >
             {link.title.toUpperCase()}
           </h1>
-          <div className="text-[10px] uppercase tracking-[0.3em] text-white/50 mt-1">
+          <div
+            className="text-[10px] uppercase tracking-[0.3em] text-white/50 mt-1"
+            style={colorStyle(tc.meta)}
+          >
             {tenant.brandName}
           </div>
           {link.subtitle && (
-            <p className="text-sm text-white/70 mt-3 max-w-sm leading-relaxed">
+            <p
+              className="text-sm text-white/70 mt-3 max-w-sm leading-relaxed"
+              style={colorStyle(tc.description)}
+            >
               {link.subtitle}
             </p>
           )}
@@ -798,6 +978,18 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
           <div className="mt-7 space-y-2.5">
             {buttons.map((b, i) => {
               if (b.cover) return <CoverButtonLink key={i} b={b} />;
+              if (hasButtonStyleV2(b))
+                return (
+                  <StyledButtonLink
+                    key={i}
+                    b={b}
+                    primary={primary}
+                    dark
+                    href={b.href}
+                    newTab={b.newTab}
+                    onClick={b.onClick}
+                  />
+                );
               // NEON tiene clip-path estilo cyberpunk + colores de acento
               // propios. Mapeamos bgStyle a tres looks fieles al template:
               // solid = bloque sólido con acento + texto negro
@@ -832,7 +1024,7 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
                   rel="noreferrer"
                   onClick={b.onClick}
                   className={`block w-full px-4 py-3 text-sm text-center font-bold uppercase tracking-wider ${TAP_FX} ${cls}`}
-                  style={style}
+                  style={{ ...style, ...colorStyle(tc.button) }}
                 >
                   <ButtonLabel b={b} />
                 </a>
@@ -846,7 +1038,7 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
         )}
 
         <div className="mt-10 text-center">
-          <BrandBadge brand={brand ?? CLUBIFY_BADGE_FALLBACK} variant="pill" />
+          <ShellBrandBadge brand={brand} variant="pill" color={tc.badge} />
         </div>
       </article>
     </div>

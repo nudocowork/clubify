@@ -57,10 +57,14 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
             currentTier={data.currentTier}
             tiers={data.card.tiers ?? []}
             stampIcon={data.card.stampIcon || '☕'}
+            // Ícono propio (imagen): prima sobre el emoji, igual que en el pase
+            // real. Sin esto la tarjeta web del cliente mostraba el emoji.
+            stampIconImageUrl={data.card.stampIconImageUrl ?? null}
             stampActiveColor={data.card.stampActiveColor}
             stampInactiveColor={data.card.stampInactiveColor}
             stampContourColor={data.card.stampContourColor}
             centerBgColor={data.card.centerBgColor}
+            logoBgColor={data.card.logoBgColor}
             rewardText={data.card.rewardText}
             customerName={(data.customer?.fullName ?? '').toUpperCase() || '—'}
             barcodeValue={data.serialNumber ?? data.qrToken}
@@ -122,17 +126,12 @@ export function WalletPassView({ passId, data, googleSaveUrl }: Props) {
         )}
         {/* Marca del negocio (per marca blanca). Fallback Clubify mientras
             el backend propaga el deploy. */}
-        <BrandBadge
-          brand={
-            (data.brand as BrandBadgeBrand | undefined) ?? {
-              name: 'Clubify',
-              websiteUrl: 'https://soyclubify.com',
-              initial: 'C',
-              primaryColor: '#22C55E',
-              attribution: { madeWith: 'Hecho con Clubify' },
-            }
-          }
-        />
+        {/* Sin marca resuelta NO se pinta nada. Antes caía a Clubify por
+            defecto: el cliente de un negocio Sellea veía «Hecho con Clubify»
+            en su tarjeta. Un pie ausente no delata a nadie; uno inventado sí. */}
+        {data.brand ? (
+          <BrandBadge brand={data.brand as BrandBadgeBrand} />
+        ) : null}
         <LanguageSwitcher />
       </div>
     </div>

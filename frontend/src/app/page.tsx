@@ -3,38 +3,15 @@ import { getTranslations } from 'next-intl/server';
 import { Icon } from '@/components/Icon';
 import { RefCapture } from '@/components/RefCapture';
 import { FadeIn } from '@/components/FadeIn';
+import { TestimonialsCarousel } from '@/components/TestimonialsCarousel';
 import { HeroTrio } from '@/components/HeroTrio';
 import { HeroBanner } from '@/components/HeroBanner';
 import { FidelizacionBanner } from '@/components/FidelizacionBanner';
 import { InfoLinksBanner } from '@/components/InfoLinksBanner';
 import { Logo } from '@/components/Logo';
-import { LandingPricingCheckout } from '@/components/LandingPricingCheckout';
 import { LanguageSwitcherIntl } from '@/components/LanguageSwitcherIntl';
+import { LandingPricingCheckout } from '@/components/LandingPricingCheckout';
 import { fetchLandingPlans } from '@/lib/landing-plans';
-
-const TESTIMONIALS = [
-  {
-    quote:
-      'Antes manejaba pedidos por WhatsApp uno por uno. Hoy entran al kanban, suenan, los confirmo y la gente recibe estado en tiempo real. Vendí 30% más en 2 meses.',
-    name: 'Carolina M.',
-    role: 'Café del Día · Bogotá',
-    avatar: '☕',
-  },
-  {
-    quote:
-      'La tarjeta wallet cambió todo. Mis clientes vuelven más porque les llega el progreso al iPhone. Sin imprimir, sin tarjetas físicas perdidas.',
-    name: 'Andrés R.',
-    role: 'Burger Lab · CDMX',
-    avatar: '🍔',
-  },
-  {
-    quote:
-      'El soporte por WhatsApp y la activación inmediata me dieron confianza. Configuré todo en un fin de semana sin saber código.',
-    name: 'Sofía L.',
-    role: 'Bowls Saludables · Lima',
-    avatar: '🥗',
-  },
-];
 
 // Logos placeholder (texto, sin assets externos)
 const LOGOS = [
@@ -114,6 +91,23 @@ async function fetchNudoMenuItems(): Promise<
   }
 }
 
+async function fetchActiveBusinesses(): Promise<string[]> {
+  // Nombres de negocios ACTIVOS de Clubify para el marquee. Si falla o viene
+  // vacío, la landing cae al placeholder LOGOS.
+  const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+  try {
+    const r = await fetch(`${API}/api/landing-active-businesses`, {
+      next: { revalidate: 300 },
+    });
+    if (!r.ok) return [];
+    const d: any = await r.json();
+    const names = Array.isArray(d?.names) ? d.names : [];
+    return names.filter((n: any) => typeof n === 'string' && n.trim());
+  } catch {
+    return [];
+  }
+}
+
 async function fetchBranding(): Promise<BrandingPublic> {
   const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
   const empty: BrandingPublic = {
@@ -145,14 +139,17 @@ async function fetchBranding(): Promise<BrandingPublic> {
 }
 
 export default async function Landing() {
-  const [branding, nudoMenuItems, landingPlans, tHeader, tHero, tLogos] = await Promise.all([
+  const [branding, nudoMenuItems, activeBusinesses, plans, tHeader, tHero, tLogos] = await Promise.all([
     fetchBranding(),
     fetchNudoMenuItems(),
+    fetchActiveBusinesses(),
     fetchLandingPlans(),
     getTranslations('landing.header'),
     getTranslations('landing.hero'),
     getTranslations('landing.logos'),
   ]);
+  // Marquee: negocios reales activos si hay; si no, el placeholder.
+  const marqueeNames = activeBusinesses.length > 0 ? activeBusinesses : LOGOS;
   const { sales, stats, landingLogoUrl } = branding;
   const waLink = sales.whatsapp
     ? `https://wa.me/${sales.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent('Hola, quiero saber más de Clubify')}`
@@ -181,8 +178,8 @@ export default async function Landing() {
 
       {/* ─────────── Header ─────────── */}
       <header className="sticky top-0 z-30 backdrop-blur-md bg-white/85 border-b border-line/80">
-        <div className="mx-auto max-w-7xl px-6 flex items-center justify-between h-16">
-          <Link href="/" className="flex items-center" aria-label="Clubify">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 flex items-center justify-between h-16 gap-2">
+          <Link href="/" className="flex items-center min-w-0 shrink" aria-label="Clubify">
             {landingLogoUrl ? (
               // Logo custom subido desde /admin/branding. Ratio ~3.4:1 esperado.
               // Si la imagen tiene otra proporción, height fija + width auto
@@ -196,7 +193,11 @@ export default async function Landing() {
               <img
                 src={landingLogoUrl}
                 alt="Logo"
-                className="block h-12 w-auto max-w-[240px] object-contain"
+                // 2026-08-22: a 360px el logo pedia 187px de los 328
+                // disponibles y empujaba el header a 429px de ancho — la
+                // pagina entera quedaba con scroll horizontal. Medido con
+                // Chrome headless, no a ojo.
+                className="block h-8 sm:h-12 w-auto max-w-[130px] sm:max-w-[240px] object-contain"
               />
             ) : (
               <Logo size={40} priority />
@@ -208,13 +209,13 @@ export default async function Landing() {
             <a href="#precios" className="hover:text-ink">{tHeader('nav_pricing')}</a>
           </nav>
 
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-1.5 sm:gap-3 items-center shrink-0">
             <LanguageSwitcherIntl />
-            <Link className="inline-flex text-sm text-mute hover:text-ink" href="/login">
+            <Link className="inline-flex text-sm text-mute hover:text-ink whitespace-nowrap" href="/login">
               {tHeader('cta_login')}
             </Link>
             <Link
-              className="inline-flex items-center gap-1.5 bg-ink text-white text-sm font-semibold px-4 py-2 rounded-pill hover:bg-ink/90"
+              className="inline-flex items-center gap-1.5 bg-ink text-white text-[13px] sm:text-sm font-semibold px-3.5 sm:px-4 py-2 rounded-pill hover:bg-ink/90 whitespace-nowrap"
               href="#precios"
             >
               {tHeader('cta_start')} →
@@ -233,7 +234,7 @@ export default async function Landing() {
               'radial-gradient(ellipse 70% 60% at 30% 20%, rgba(91,94,238,0.16), transparent 60%), radial-gradient(ellipse 60% 50% at 80% 30%, rgba(192,38,211,0.10), transparent 60%)',
           }}
         />
-        <div className="mx-auto max-w-7xl px-6 pt-8 pb-20 lg:pt-12 lg:pb-28">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-8 pb-20 lg:pt-12 lg:pb-28">
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] gap-12 lg:gap-16 items-center">
             <div>
               <div className="inline-flex items-center gap-2 bg-white border border-line shadow-sm text-xs font-semibold px-3 py-1.5 rounded-full mb-6">
@@ -311,7 +312,7 @@ export default async function Landing() {
 
       {/* ─────────── Logos band (marquee) ─────────── */}
       <section className="border-y border-line/80 bg-bg2/40 py-8 overflow-hidden">
-        <div className="mx-auto max-w-7xl px-6">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
           <div className="text-center text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-5">
             {tLogos('title')}
           </div>
@@ -330,10 +331,10 @@ export default async function Landing() {
             }}
           />
           <div className="flex gap-12 animate-marquee whitespace-nowrap">
-            {[...LOGOS, ...LOGOS, ...LOGOS].map((l, i) => (
+            {[...marqueeNames, ...marqueeNames, ...marqueeNames].map((l, i) => (
               <span
                 key={`${l}-${i}`}
-                className="text-mute font-semibold opacity-70 hover:opacity-100 hover:text-ink transition text-sm flex-none"
+                className="text-mute font-semibold opacity-70 hover:opacity-100 hover:text-ink transition text-sm flex-none capitalize"
               >
                 {l}
               </span>
@@ -344,7 +345,7 @@ export default async function Landing() {
 
       {/* ─────────── Stats band ─────────── */}
       <section className="py-14">
-        <div className="mx-auto max-w-7xl px-6 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
           {STATS.map((s, i) => (
             <FadeIn key={s.label} delay={i * 90}>
               <div className="text-3xl md:text-4xl font-bold tracking-tight">
@@ -374,7 +375,7 @@ export default async function Landing() {
 
       {/* ─────────── Testimonios ─────────── */}
       <section id="clientes" className="bg-bg2/40 border-y border-line/80 py-24">
-        <div className="mx-auto max-w-7xl px-6">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
           <div className="text-center mb-12 max-w-2xl mx-auto">
             <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
               Lo que dicen
@@ -383,55 +384,38 @@ export default async function Landing() {
               Nuestros clientes
             </h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {TESTIMONIALS.map((t, i) => (
-              <FadeIn
-                key={t.name}
-                delay={i * 100}
-                className="bg-white rounded-2xl p-7 border border-line"
-              >
-                <div className="text-amber-500 text-sm mb-3">★★★★★</div>
-                <p className="text-ink leading-relaxed text-[15px]">
-                  “{t.quote}”
-                </p>
-                <div className="mt-5 flex items-center gap-3 pt-4 border-t border-line2">
-                  <div className="w-10 h-10 rounded-full bg-brand-soft flex items-center justify-center text-xl">
-                    {t.avatar}
-                  </div>
-                  <div>
-                    <div className="font-semibold text-sm">{t.name}</div>
-                    <div className="text-xs text-mute">{t.role}</div>
-                  </div>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
+          <TestimonialsCarousel
+            videos={[
+              { id: 'ZK5Q0QRXUeI', name: 'Nudo Cowork & Coffee' },
+              { id: 'BffWf9f8sHY', name: 'Konnys Pizza' },
+              { id: 'Ko4N8znkIIA', name: 'La Gloriosa' },
+            ]}
+          />
         </div>
       </section>
 
-      {/* ─────────── Pricing ─────────── */}
+      {/* ─────────── Precios (restaurado: tarjetas con links directos de Hotmart, sin ref) ─────────── */}
       <section id="precios" className="py-24">
-        <div className="mx-auto max-w-7xl px-6">
-          <div className="text-center mb-12 max-w-2xl mx-auto">
-            <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
-              Precios
-            </div>
-            <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
-              Precios claros · sin sorpresas
-            </h2>
-            <p className="text-mute mt-4 text-lg">
-              Elige la periodicidad que más te convenga. Mientras más
-              tiempo, más ahorras. Activa tu cuenta en minutos y empieza
-              a vender — cancela cuando quieras desde tu panel.
-            </p>
+        <div className="mx-auto max-w-3xl px-4 sm:px-6 text-center">
+          <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
+            Precios
           </div>
-          <LandingPricingCheckout plans={landingPlans} />
+          <h2 className="text-3xl md:text-5xl font-bold tracking-tight leading-[1.1]">
+            Precios claros · sin sorpresas
+          </h2>
+          <p className="text-mute mt-4 text-lg">
+            Elegí el plan que mejor se ajusta a tu negocio. Pago seguro y
+            activación inmediata.
+          </p>
+          <div className="mt-9 flex justify-center">
+            <LandingPricingCheckout plans={plans} />
+          </div>
         </div>
       </section>
 
       {/* ─────────── FAQ ─────────── */}
       <section className="border-t border-line bg-bg2/40 py-24">
-        <div className="mx-auto max-w-3xl px-6">
+        <div className="mx-auto max-w-3xl px-4 sm:px-6">
           <div className="text-center mb-10">
             <div className="text-xs uppercase tracking-[0.18em] text-brand font-semibold mb-3">
               Preguntas frecuentes
@@ -501,7 +485,7 @@ export default async function Landing() {
 
       {/* ─────────── Footer ─────────── */}
       <footer className="border-t border-line bg-white">
-        <div className="mx-auto max-w-7xl px-6 py-14">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-14">
           <div className="grid grid-cols-2 md:grid-cols-5 gap-8 text-sm">
             <div className="col-span-2">
               <div className="flex items-center mb-3">

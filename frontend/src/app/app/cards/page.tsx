@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { AcademyButton } from '@/components/AcademyButton';
 import { ImageUploader } from '@/components/ImageUploader';
 import { toast } from '@/components/Toast';
 
@@ -32,6 +33,11 @@ type Card = {
   discountPercent: number | null;
   pointsPerCurrency: number | null;
   stampIcon: string | null;
+  stampIconImageUrl?: string | null;
+  // Modo de fondo del área de sellos — la miniatura lo respeta para que la
+  // lista muestre lo mismo que el pase instalado (degradado solo si aplica).
+  stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE' | null;
+  centerBgColor?: string | null;
   isActive: boolean;
   tiers: Array<{ name: string; threshold: number }>;
   _count?: { passes: number };
@@ -201,6 +207,7 @@ export default function CardsList() {
             )}
             {t('configureLogo')}
           </button>
+          <AcademyButton moduleKey="wallet" />
           <Link className="btn-primary" href="/app/cards/new">
             <Icon name="plus" /> {t('createCard')}
           </Link>
@@ -415,10 +422,13 @@ function CardPreview({
           !card.isActive ? 'opacity-70' : ''
         }`}
       >
-        {/* Wallet pass preview real — header + strip + fields */}
+        {/* Wallet pass preview real — header + strip + fields.
+            Fondo sólido, como el pase instalado: Apple y Google Wallet no
+            admiten degradados en el cuerpo del pase; el degradado solo vive
+            en el área de sellos (strip). */}
         <div
           className="relative p-3.5 text-white"
-          style={{ background: `linear-gradient(135deg, ${primary}, ${accent})` }}
+          style={{ background: primary }}
         >
           {!card.isActive && (
             <span className="absolute top-2 left-2 bg-white/95 text-ink text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider z-10">
@@ -471,9 +481,23 @@ function CardPreview({
             </div>
           </div>
 
-          {/* Strip / preview central según tipo */}
+          {/* Strip / preview central según tipo — replica el modo de fondo
+              del strip real: degradado solo si la tarjeta es GRADIENT. */}
           {showStrip && (
-            <div className="bg-black/15 rounded-lg px-3 py-2 flex justify-center gap-1">
+            <div
+              className="rounded-lg px-3 py-2 flex justify-center gap-1"
+              style={
+                card.stampBgType === 'SOLID' || card.stampBgType === 'IMAGE'
+                  ? // Uniforme como el strip real: centerBgColor o el mismo
+                    // color de la tarjeta (la zona se funde con el fondo).
+                    { background: card.centerBgColor || primary }
+                  : {
+                      background: card.centerBgColor
+                        ? card.centerBgColor
+                        : `linear-gradient(135deg, ${primary}, ${accent})`,
+                    }
+              }
+            >
               {Array.from({ length: previewStamps }).map((_, i) => (
                 <span
                   key={i}
@@ -484,7 +508,16 @@ function CardPreview({
                     fontSize: i < 1 ? 12 : 10,
                   }}
                 >
-                  {i < 1 ? card.stampIcon || '✓' : ''}
+                  {i < 1 ? (
+                    card.stampIconImageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={card.stampIconImageUrl} alt="" className="w-4 h-4 object-contain" />
+                    ) : (
+                      card.stampIcon || '✓'
+                    )
+                  ) : (
+                    ''
+                  )}
                 </span>
               ))}
             </div>

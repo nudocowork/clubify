@@ -24,6 +24,12 @@ import { Roles } from '../common/decorators/roles.decorator';
 class CategoryBody {
   @IsString() name!: string;
   @IsOptional() @IsUUID() parentId?: string;
+  // Carta a la que pertenece. Sin declararlo, el ValidationPipe
+  // (forbidNonWhitelisted) rechaza el create entero.
+  @ValidateIf((_, v) => v !== null)
+  @IsOptional()
+  @IsUUID()
+  menuId?: string | null;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() imageUrl?: string;
   // tagline acepta string o null (null para limpiar). MaxLength 200
@@ -58,8 +64,13 @@ export class CategoriesController {
   constructor(private svc: CategoriesService) {}
 
   @Get()
-  list(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {
-    return this.svc.list(user, tenantId);
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+    // Carta que se esta editando. Ausente = menu principal.
+    @Query('menuId') menuId?: string,
+  ) {
+    return this.svc.list(user, tenantId, menuId);
   }
 
   @Post()

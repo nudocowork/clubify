@@ -44,6 +44,9 @@ type Order = {
   whatsappLink: string | null;
   paymentStatus: 'NOT_REQUIRED' | 'PENDING' | 'PAID' | 'FAILED' | 'REFUNDED';
   paymentMethod: string;
+  // Método de pago DECLARADO por el cliente (informativo). PDF 2026-07-25.
+  customerPaymentMethod: string | null;
+  customerPaymentOther: string | null;
   paymentProvider: string | null;
   paymentRef: string | null;
   paidAt: string | null;
@@ -88,6 +91,20 @@ const PAYMENT_STATUS_LABEL_KEY: Record<string, string> = {
   REFUNDED: 'payStatusRefunded',
 };
 
+// Método de pago declarado por el cliente (informativo). PDF 2026-07-25.
+const CUSTOMER_PAYMENT_LABEL_KEY: Record<string, string> = {
+  EFECTIVO: 'payMethodCash',
+  TARJETA: 'payMethodCard',
+  TRANSFERENCIA: 'payMethodTransfer',
+  OTRO: 'payMethodOther',
+};
+const CUSTOMER_PAYMENT_OPTIONS = [
+  'EFECTIVO',
+  'TARJETA',
+  'TRANSFERENCIA',
+  'OTRO',
+] as const;
+
 const COP = (n: number) =>
   new Intl.NumberFormat('es-CO', {
     style: 'currency',
@@ -110,6 +127,10 @@ export default function OrderDetail() {
   const [o, setO] = useState<Order | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
+  // Edición del método de pago declarado por el cliente.
+  const [editPay, setEditPay] = useState(false);
+  const [payMethod, setPayMethod] = useState<string>('');
+  const [payOther, setPayOther] = useState<string>('');
 
   async function load() {
     try {
@@ -131,6 +152,33 @@ export default function OrderDetail() {
       });
       await load();
       toast(t('toastStatusChanged', { status: t(STATUS_LABEL_KEY[next]) }), 'success');
+    } catch (e: any) {
+      toast(e.message || t('errorStatusChange'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function startEditPay() {
+    setPayMethod(o?.customerPaymentMethod ?? '');
+    setPayOther(o?.customerPaymentOther ?? '');
+    setEditPay(true);
+  }
+
+  async function savePayment() {
+    setBusy(true);
+    try {
+      await api(`/orders/${id}/payment`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          customerPaymentMethod: payMethod || null,
+          customerPaymentOther:
+            payMethod === 'OTRO' ? payOther.trim() || null : null,
+        }),
+      });
+      await load();
+      setEditPay(false);
+      toast(t('toastPaymentMethodSaved'), 'success');
     } catch (e: any) {
       toast(e.message || t('errorStatusChange'), 'error');
     } finally {
@@ -463,10 +511,79 @@ export default function OrderDetail() {
 
           <div className="card card-pad">
             <h3 className="font-semibold mb-3">{t('paymentTitle')}</h3>
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center justify-between text-sm gap-2">
               <span className="text-mute">{t('paymentMethod')}</span>
-              <span className="font-medium">{o.paymentMethod}</span>
+              {!editPay && (
+                <span className="flex items-center gap-2">
+                  <span className="font-medium">
+                    {o.customerPaymentMethod
+                      ? o.customerPaymentMethod === 'OTRO'
+                        ? o.customerPaymentOther || t('payMethodOther')
+                        : t(
+                            CUSTOMER_PAYMENT_LABEL_KEY[o.customerPaymentMethod] ??
+                              'payMethodUnset',
+                          )
+                      : t('payMethodUnset')}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs text-brand hover:underline"
+                    onClick={startEditPay}
+                  >
+                    {o.customerPaymentMethod ? t('edit') : t('addPaymentMethod')}
+                  </button>
+                </span>
+              )}
             </div>
+            {editPay && (
+              <div className="mt-2 space-y-2">
+                <div className="grid grid-cols-2 gap-1.5">
+                  {CUSTOMER_PAYMENT_OPTIONS.map((v) => {
+                    const active = payMethod === v;
+                    return (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setPayMethod(active ? '' : v)}
+                        className={`rounded-lg border py-1.5 px-2 text-xs font-medium transition ${
+                          active
+                            ? 'border-brand bg-brand/10 text-brand'
+                            : 'border-line text-ink hover:border-brand/40'
+                        }`}
+                      >
+                        {t(CUSTOMER_PAYMENT_LABEL_KEY[v])}
+                      </button>
+                    );
+                  })}
+                </div>
+                {payMethod === 'OTRO' && (
+                  <input
+                    className="input"
+                    maxLength={80}
+                    placeholder={t('payOtherPlaceholder')}
+                    value={payOther}
+                    onChange={(e) => setPayOther(e.target.value)}
+                  />
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="btn-primary text-xs"
+                    disabled={busy}
+                    onClick={savePayment}
+                  >
+                    {t('save')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs"
+                    onClick={() => setEditPay(false)}
+                  >
+                    {t('cancel')}
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="flex items-center justify-between text-sm mt-1.5">
               <span className="text-mute">{t('paymentStatusLabel')}</span>
               <span

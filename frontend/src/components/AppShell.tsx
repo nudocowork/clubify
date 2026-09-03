@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, clearSession, getUser, getImpersonationBackup, stopImpersonation } from '@/lib/api';
 import { Icon } from './Icon';
 import { NotificationBell } from './NotificationBell';
@@ -22,6 +22,12 @@ import {
   type BusinessModule,
 } from '@/lib/business-categories';
 
+// useLayoutEffect avisa en SSR (no corre en server). Alias isomórfico: en
+// cliente corre SÍNCRONO antes del primer paint (para sembrar el branding sin
+// flash); en server cae a useEffect (no-op visual, sin warning).
+const useIsomorphicLayoutEffect =
+  typeof window !== 'undefined' ? useLayoutEffect : useEffect;
+
 type IconName = Parameters<typeof Icon>[0]['name'];
 
 // mixHex + panelBrandCss viven en @/lib/panel-brand-theme (compartidos con los
@@ -30,10 +36,18 @@ type IconName = Parameters<typeof Icon>[0]['name'];
 // Subrutas reales de /admin (carpetas en app/admin). Si el primer segmento
 // tras /admin NO es una de estas, se trata como slug de marca blanca
 // (/admin/<slug>). Debe coincidir con RESERVED_ADMIN_ROUTES del middleware.
+// Primeros segmentos de rutas admin conocidas. Si un segmento NO está aquí, el
+// AppShell lo interpreta como SLUG DE MARCA BLANCA (isOtherBrand=true) y esconde
+// los items `clubifyOnly` + trata el panel como de otra marca. Por eso TODA ruta
+// real /admin/<seg> debe estar listada; si falta, esa página se ve "rota" (la
+// sección del panel desaparece). Falta = bug (pasó con `contabilidad`, que se
+// veía como marca). Mantener sincronizado con los directorios de src/app/admin/.
 const ADMIN_ROUTE_SEGMENTS = new Set([
-  'accounting', 'affiliate-registration', 'ai-knowledge', 'audit', 'branding',
-  'business-categories', 'business-groups', 'commissions', 'creditos', 'industries', 'integrations',
-  'lab', 'maintenance', 'map', 'payouts', 'rankings', 'referrals', 'reports',
+  'academia', 'accounting', 'affiliate-registration', 'ai-knowledge', 'audit',
+  'automatizaciones', 'branding', 'business-categories', 'business-groups',
+  'commissions', 'contabilidad', 'creditos', 'industries', 'infolinks',
+  'integrations', 'lab', 'maintenance', 'map', 'mensajes', 'pagos-manuales',
+  'payouts', 'pending-payments', 'rankings', 'referrals', 'reports',
   'sales-leaderboard', 'sales-teams', 'support-materials', 'tenants', 'trials',
   'users', 'ventas',
 ]);
@@ -56,6 +70,9 @@ type NavItem = {
   /** Solo visible para Clubify / plataforma (config global tipo Branding).
    *  Se oculta cuando la marca activa es una marca blanca distinta. */
   clubifyOnly?: boolean;
+  /** Solo visible cuando la marca activa es Sellea (features exclusivos de esa
+   *  marca, ej. la sección InfoLink del freemium). Oculto para el resto. */
+  selleaOnly?: boolean;
   /** Si está seteado, el item (sidebar admin) solo se muestra si la MARCA activa
    *  tiene ese módulo habilitado (ej. 'GROW_BUSINESS_SMS' para Automatizaciones).
    *  Con brandModules sin resolver (Clubify/global) se muestra. */
@@ -102,6 +119,7 @@ export default function AppShell({
   variant,
   children,
   serverBrandColor = null,
+  serverBrandBackground = null,
   serverBrandLogo = null,
   serverBrandName = null,
 }: {
@@ -111,6 +129,9 @@ export default function AppShell({
    *  Se usa como valor inicial del tema → el primer paint (SSR) ya sale con el
    *  color real, sin flash del verde Clubify (FODT). */
   serverBrandColor?: string | null;
+  /** Color propio del fondo del sidebar (backgroundColor de la marca), resuelto
+   *  en el SERVIDOR → primer paint del sidebar con su tono, sin flash. */
+  serverBrandBackground?: string | null;
   /** Logo de la marca resuelto en el SERVIDOR (host/slug). Se usa en el primer
    *  paint del sidebar/topbar mientras el cliente confirma la marca → evita el
    *  flash del logo Clubify (FODT del logo). null = Clubify (sin marca). */
@@ -127,12 +148,29 @@ export default function AppShell({
   const [user, setUser] = useState<any>(null);
   const [navOpen, setNavOpen] = useState(false);
   const [impersonation, setImpersonation] = useState<ReturnType<typeof getImpersonationBackup>>(null);
+  // Seed anti-flash (FODT) del panel /app. Al entrar por "Entrar al negocio"
+  // (impersonation) el backup en sessionStorage YA trae el branding de la marca
+  // blanca del negocio (color/logo/nombre). Lo leemos ANTES del primer paint
+  // (useLayoutEffect) → el panel sale con la identidad real desde el frame 1,
+  // sin esperar el fetch async de /tenants/me (que causaba el flash del verde
+  // Clubify + logo genérico + "Mi Negocio").
+  const [appSeed, setAppSeed] = useState<{
+    brandName: string | null;
+    whiteLabelSlug: string | null;
+    name: string | null;
+    color: string | null;
+    icon: string | null;
+    logo: string | null;
+  } | null>(null);
   const [planName, setPlanName] = useState<string | null>(null);
   // Branding de la marca activa resuelto por slug (para login directo a
   // /admin/<slug> donde no hay pila de impersonación con el branding).
   const [brandFetched, setBrandFetched] = useState<{
     name: string;
     color: string | null;
+    // Color propio del fondo del sidebar del panel (opcional). Si la marca lo
+    // definió, el sidebar usa ESTE tono en vez del derivado del acento.
+    backgroundColor: string | null;
     logoUrl: string | null;
     iconUrl: string | null;
     slug: string;
@@ -145,6 +183,9 @@ export default function AppShell({
   const [pendingCreditsCount, setPendingCreditsCount] = useState(0);
   const [tenantInfo, setTenantInfo] = useState<{
     brandName?: string;
+    /** Pasarela de la marca (HOTMART/STRIPE/…). Null para Clubify o marca sin
+     *  pasarela definida: los textos caen a "la pasarela de pagos". */
+    brandGateway?: string | null;
     hotmartSubscriberCode?: string | null;
     businessCategorySlug?: string | null;
     mainSectionLabelOverride?: string | null;
@@ -162,6 +203,9 @@ export default function AppShell({
     reservationsEnabled?: boolean;
     // Reservas de SERVICIOS (citas) — PDF245 P7. Activado per-tenant.
     serviceReservationsEnabled?: boolean;
+    // Tipo de negocio: 'INFOLINK' = panel reducido (solo InfoLink). null/'FULL'
+    // = Negocio Completo (todos los módulos).
+    businessType?: string | null;
     // Master Admin 2026-06-14: si la marca blanca tiene créditos ilimitados,
     // este tenant nunca necesita pasar por Hotmart. Salta el lockscreen.
     whiteLabelCreditsUnlimited?: boolean;
@@ -179,6 +223,9 @@ export default function AppShell({
     // negocio. Si la marca lo tiene apagado (ej. Sellea) no aparece. Default
     // true mientras carga (sin flicker).
     referralsEnabled?: boolean;
+    // Wallet V3 — permisos "Wallet Avanzado" de la marca (gatea Historial de
+    // sellos, etc). null/clave ausente = activo (heredado).
+    walletAdvanced?: Record<string, boolean> | null;
     // Branding de la marca blanca para pintar el panel /app (logo + colores).
     // null = Clubify → defaults. Evita el verde + logo Clubify en otra marca.
     whiteLabelBranding?: {
@@ -191,26 +238,31 @@ export default function AppShell({
       supportColor: string | null;
     } | null;
   } | null>(null);
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(
-    new Set(),
-  );
-  // Si el usuario ya tocó algún toggle, respetamos su preferencia. Si no,
-  // por default todas las secciones quedan colapsadas (la activa se
-  // auto-expande igual gracias al hasActive en el render).
-  const [hasUserPref, setHasUserPref] = useState(false);
+  /**
+   * Secciones que el usuario ABRIÓ. Todo lo demás está cerrado.
+   *
+   * Antes se guardaba al revés —las que había cerrado— y eso hacía que
+   * cualquier sección NUEVA (una función que estrenamos, un módulo que se
+   * activa) apareciera abierta para todos los que ya tenían preferencia
+   * guardada: no estaba en el set de "cerradas", así que contaba como
+   * abierta. El menú del cliente se iba llenando solo.
+   *
+   * Guardando las abiertas, lo que no se ha tocado está cerrado — hoy y
+   * cuando agreguemos la sección número veinte.
+   */
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set());
 
-  // Cargar/persistir preferencia de secciones colapsadas
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      const raw = localStorage.getItem('clubify:nav:collapsed');
+      const raw = localStorage.getItem('clubify:nav:open');
       if (raw) {
         const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) {
-          setCollapsedSections(new Set(arr));
-          setHasUserPref(true);
-        }
+        if (Array.isArray(arr)) setOpenSections(new Set(arr));
       }
+      // La preferencia vieja (`clubify:nav:collapsed`) se ignora y se borra: su
+      // semántica era la contraria y arrastrarla dejaría medio menú abierto.
+      localStorage.removeItem('clubify:nav:collapsed');
     } catch {}
   }, []);
 
@@ -218,36 +270,18 @@ export default function AppShell({
   // toggleSection cuando es la primera vez que el user toca un toggle
   // (estado default: todas colapsadas) para invertir la semántica del
   // set sin tener que recalcular `groups` desde el closure.
-  const sectionNamesRef = useRef<string[]>([]);
   // Href más específico que matchea el pathname actual — calculado en el
   // render del nav y leído por cada item para decidir su estado activo.
   const bestActiveHrefRef = useRef<string | null>(null);
 
   function toggleSection(name: string) {
-    if (!hasUserPref) {
-      // Primer toggle — el user quiere expandir esta sección. Como todas
-      // estaban colapsadas por default, llenamos el set con TODAS las
-      // secciones EXCEPTO la clickeada (que queda expandida).
-      const next = new Set(
-        sectionNamesRef.current.filter((n) => n && n !== name),
-      );
-      setCollapsedSections(next);
-      setHasUserPref(true);
-      try {
-        localStorage.setItem(
-          'clubify:nav:collapsed',
-          JSON.stringify(Array.from(next)),
-        );
-      } catch {}
-      return;
-    }
-    setCollapsedSections((prev) => {
+    setOpenSections((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
       try {
         localStorage.setItem(
-          'clubify:nav:collapsed',
+          'clubify:nav:open',
           JSON.stringify(Array.from(next)),
         );
       } catch {}
@@ -258,6 +292,23 @@ export default function AppShell({
   useEffect(() => {
     setImpersonation(getImpersonationBackup());
   }, [pathname]);
+
+  // Pre-paint: siembra el branding del negocio impersonado en el panel /app
+  // (ver appSeed). Corre síncrono antes del primer frame → sin flash del tema
+  // verde por defecto ni de "Mi Negocio".
+  useIsomorphicLayoutEffect(() => {
+    if (variant !== 'app') return;
+    const t = getImpersonationBackup()?.tenant;
+    if (!t) return;
+    setAppSeed({
+      brandName: t.brandName ?? null,
+      whiteLabelSlug: t.whiteLabelSlug ?? null,
+      name: t.whiteLabelName ?? null,
+      color: t.primaryColor ?? null,
+      icon: t.iconUrl ?? null,
+      logo: t.logoUrl ?? null,
+    });
+  }, [variant, pathname]);
 
   // Resuelve branding + módulos de la marca activa por slug (de la pila de
   // impersonación o de la URL /admin/<slug>). Se fetchea SIEMPRE que haya una
@@ -276,6 +327,7 @@ export default function AppShell({
     type BrandResp = {
       name: string;
       primaryColor: string;
+      backgroundColor?: string | null;
       logoUrl?: string | null;
       iconUrl?: string | null;
       slug: string;
@@ -292,6 +344,7 @@ export default function AppShell({
       setBrandFetched({
         name: r.name,
         color: r.primaryColor,
+        backgroundColor: r.backgroundColor ?? null,
         logoUrl: r.logoUrl ?? null,
         iconUrl: r.iconUrl ?? null,
         slug: r.slug,
@@ -384,6 +437,9 @@ export default function AppShell({
       '/admin/audit',
       '/admin/tenants/new',
       '/admin/map',
+      // Cobranza manual: acciones de billing SUPER_ADMIN-only — a MARKETING
+      // solo le mostraría 403s.
+      '/admin/pagos-manuales',
       // ALTO #8 (2026-06-12): payouts (gestión de pagos a afiliados) es
       // dato financiero sensible. Estaba oculto en el sidebar pero el
       // route guard no lo bloqueaba — MARKETING podía entrar por URL
@@ -392,6 +448,18 @@ export default function AppShell({
     ];
     if (blocked.some((p) => pathname === p || pathname.startsWith(p + '/'))) {
       router.replace('/admin');
+    }
+  }, [pathname, user, variant, router]);
+
+  // Route guard "Solo pedidos" (TENANT_ORDERS): este empleado solo puede estar
+  // en /app/orders*. Cualquier otra ruta de /app (o el root) lo redirige a
+  // Pedidos. El backend además bloquea por rol (default-deny) — esto es la capa
+  // de UX para que no navegue por URL directa.
+  useEffect(() => {
+    if (!user || variant !== 'app') return;
+    if (user.role !== 'TENANT_ORDERS') return;
+    if (!pathname.startsWith('/app/orders')) {
+      router.replace('/app/orders');
     }
   }, [pathname, user, variant, router]);
 
@@ -410,6 +478,14 @@ export default function AppShell({
       '/admin/branding',
       '/admin/integrations',
       '/admin/business-groups',
+      // Esconder del menú no basta: sin esto, una marca blanca entraba
+      // escribiendo la URL. Ventas es el equipo comercial de Clubify y la
+      // auditoría de duplicados su ledger interno.
+      '/admin/commissions/audit',
+      '/admin/industries',
+      '/admin/sales-teams',
+      '/admin/sales-leaderboard',
+      '/admin/ventas',
     ];
     const here = urlSlug
       ? pathname.replace(`/admin/${urlSlug}`, '/admin')
@@ -438,12 +514,14 @@ export default function AppShell({
           academyEnabled: t?.academyEnabled ?? true,
           reservationsEnabled: t?.reservationsEnabled ?? false,
           serviceReservationsEnabled: t?.serviceReservationsEnabled ?? false,
+          businessType: t?.businessType ?? 'FULL',
           whiteLabelCreditsUnlimited: t?.whiteLabelCreditsUnlimited ?? false,
           reviewsEnabled: t?.reviewsEnabled ?? true,
           whiteLabelSlug: t?.whiteLabelSlug ?? null,
           whiteLabelName: t?.whiteLabelName ?? null,
           communityEnabled: t?.communityEnabled ?? true,
           referralsEnabled: t?.referralsEnabled ?? true,
+          walletAdvanced: t?.walletAdvanced ?? null,
           whiteLabelBranding: t?.whiteLabelBranding ?? null,
         });
         // PDF 1254 — idioma POR NEGOCIO: si el idioma activo del panel (cookie
@@ -537,6 +615,14 @@ export default function AppShell({
               items: [
                 { href: '/admin', label: 'Dashboard', icon: 'grid' },
                 { href: '/admin/tenants', label: 'Negocios', icon: 'store' },
+                // Exclusivo Sellea: lista SOLO los negocios "Solo InfoLink"
+                // (Gratis y PRO), definidos por su plan. Freemium Sellea.
+                { href: '/admin/infolinks', label: 'InfoLink', icon: 'spark', selleaOnly: true },
+                { href: '/admin/pending-payments', label: 'Pagos sin activar', icon: 'bell', hideForMarketing: true, clubifyOnly: true },
+                // Cobranza manual (Nequi/efectivo/transferencia): vencidos que
+                // hay que perseguir o desconectar a mano. Vale para TODAS las
+                // marcas (el backend aísla por marca) → sin clubifyOnly.
+                { href: '/admin/pagos-manuales', label: 'Pagos por fuera', icon: 'cash', hideForMarketing: true },
                 { href: '/admin/business-groups', label: 'Grupos Empresariales', icon: 'store', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/map', label: 'Mapa', icon: 'pin', hideForMarketing: true },
                 // Trials es exclusivo de Clubify: las marcas blancas no tienen
@@ -550,7 +636,11 @@ export default function AppShell({
               items: [
                 { href: '/admin/referrals', label: 'Referidos', icon: 'gift', hideForMarketing: true },
                 { href: '/admin/commissions', label: 'Comisiones', icon: 'trend-up', hideForMarketing: true },
-                { href: '/admin/commissions/audit', label: 'Auditoría duplicados', icon: 'trend-up', hideForMarketing: true },
+                // Auditoría de duplicados: herramienta interna del ledger de
+                // comisiones de Clubify (cruces con Hotmart, códigos
+                // sintéticos, pagos que no casan). Una marca blanca no tiene
+                // ese historial ni nada que auditar ahí.
+                { href: '/admin/commissions/audit', label: 'Auditoría duplicados', icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/payouts', label: 'Pagos a afiliados', icon: 'card', hideForMarketing: true },
                 { href: '/admin/reports/ambassadors', label: 'Reporte embajadores', icon: 'trend-up', hideForMarketing: true },
                 { href: '/admin/reports/vendors', label: 'Reporte vendedores', icon: 'trend-up', hideForMarketing: true },
@@ -559,12 +649,27 @@ export default function AppShell({
               ],
             },
             {
+              // FINANZAS (Contabilidad): centro financiero de Clubify — ingreso
+              // real por transacción (bruto/fee/impuesto/neto), egresos, nómina,
+              // comisiones y utilidad. Solo Clubify (su propia contabilidad).
+              section: 'Finanzas',
+              items: [
+                { href: '/admin/contabilidad', label: 'Contabilidad', icon: 'cash', hideForMarketing: true, clubifyOnly: true },
+              ],
+            },
+            {
+              // VENTAS es de Clubify y solo de Clubify: son su equipo
+              // comercial, su CRM y sus comunicaciones internas. Una marca
+              // blanca no tiene nada que hacer aquí, y con los referidos ya
+              // abiertos a las marcas la sección se volvía visible sin
+              // sentido. La sección desaparece entera al quedarse sin items
+              // (`filter(g => g.items.length > 0)` más abajo).
               section: 'Ventas',
               items: [
-                { href: '/admin/industries', label: 'Industrias', icon: 'grid' },
-                { href: '/admin/sales-teams', label: 'Equipos de ventas', icon: 'users', hideForMarketing: true },
-                { href: '/admin/sales-leaderboard', label: 'Leaderboard CRM', icon: 'trend-up', hideForMarketing: true },
-                { href: '/admin/ventas/difusion', label: 'Difusión interna', icon: 'spark', hideForMarketing: true },
+                { href: '/admin/industries', label: 'Industrias', icon: 'grid', clubifyOnly: true },
+                { href: '/admin/sales-teams', label: 'Equipos de ventas', icon: 'users', hideForMarketing: true, clubifyOnly: true },
+                { href: '/admin/sales-leaderboard', label: 'Leaderboard CRM', icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
+                { href: '/admin/ventas/difusion', label: 'Difusión interna', icon: 'spark', hideForMarketing: true, clubifyOnly: true },
               ],
             },
             {
@@ -588,9 +693,14 @@ export default function AppShell({
                     ]
                   : []),
                 { href: '/admin/users', label: 'Administradores', icon: 'users', hideForMarketing: true },
+                // Academia — videos-tutorial por módulo (por marca).
+                { href: '/admin/academia', label: '🎓 Academia', icon: 'spark', hideForMarketing: true },
                 // Automatizaciones (mensajes SMS/WhatsApp editables + carpetas).
                 // Solo si la marca tiene el módulo GROW_BUSINESS_SMS habilitado.
                 { href: '/admin/automatizaciones', label: 'Automatizaciones', icon: 'bell', hideForMarketing: true, requiresBrandModule: 'GROW_BUSINESS_SMS' },
+                // Historial de envíos (MessageLog): qué salió, a quién y qué
+                // falló. Mismo gate que Automatizaciones — es su contracara.
+                { href: '/admin/mensajes', label: 'Mensajes enviados', icon: 'history', hideForMarketing: true, requiresBrandModule: 'GROW_BUSINESS_SMS' },
                 // #5: Branding e Integraciones SMS son config de PLATAFORMA
                 // (landing de Clubify, tabla Setting global). Una marca blanca
                 // gestiona su identidad desde Master Admin → Marcas, no acá, así
@@ -633,6 +743,8 @@ export default function AppShell({
           const isOtherBrand = !!brandSlug && brandSlug !== 'clubify';
           const visibleItem = (it: NavItem) =>
             (!isOtherBrand || !it.clubifyOnly) &&
+            // Exclusivo de Sellea: la sección InfoLink solo aparece en su panel.
+            (!it.selleaOnly || brandSlug === 'sellea') &&
             (!isMarketing || !it.hideForMarketing) &&
             // Gate por módulo de la marca (ej. Automatizaciones ↔ GROW_BUSINESS_SMS).
             // brandModules null (Clubify/global sin resolver) → se muestra.
@@ -645,6 +757,45 @@ export default function AppShell({
             .filter((g) => g.items.length > 0);
         })()
       : (() => {
+          // Empleado "Solo pedidos" (TENANT_ORDERS): el menú muestra ÚNICAMENTE
+          // Pedidos. El resto queda oculto acá y bloqueado por el route guard +
+          // los @Roles del backend (default-deny).
+          if (user?.role === 'TENANT_ORDERS') {
+            return [
+              {
+                section: '',
+                items: [
+                  { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag' as IconName },
+                ],
+              },
+            ] as NavGroup[];
+          }
+          // Negocio "Solo InfoLink": panel reducido, producto independiente.
+          // Solo Dashboard, InfoLink, QR InfoLink, Estadísticas, Suscripción y
+          // Configuración. El backend además bloquea el resto de módulos (guard).
+          if (tenantInfo?.businessType === 'INFOLINK') {
+            return [
+              {
+                section: '',
+                items: [{ href: '/app', label: 'Dashboard', icon: 'grid' as IconName }],
+              },
+              {
+                section: 'InfoLink',
+                items: [
+                  { href: '/app/info-links', label: 'InfoLink', icon: 'spark' as IconName },
+                  { href: '/app/marketing/qr-infolink', label: 'QR InfoLink', icon: 'qr' as IconName },
+                  { href: '/app/estadisticas', label: 'Estadísticas', icon: 'history' as IconName },
+                ],
+              },
+              {
+                section: 'Cuenta',
+                items: [
+                  { href: '/app/billing', label: 'Suscripción', icon: 'card' as IconName },
+                  { href: '/app/settings', label: 'Configuraciones', icon: 'gear' as IconName },
+                ],
+              },
+            ] as NavGroup[];
+          }
           const catSlug = tenantInfo?.businessCategorySlug;
           const cat = getCategoryBySlug(catSlug);
           const has = (m: BusinessModule) => cat.modules.includes(m);
@@ -672,6 +823,10 @@ export default function AppShell({
                 { href: '/app/cards', label: 'Tarjetas', icon: 'card', module: 'cards' },
                 { href: '/app/customers', label: 'Clientes', icon: 'users', module: 'customers' },
                 { href: '/scan', label: 'Escáner', icon: 'qr', module: 'scanner' },
+                // Wallet V3 — Historial de sellos, si la marca lo permite.
+                ...(tenantInfo?.walletAdvanced?.showHistory !== false
+                  ? [{ href: '/app/historial-sellos', label: 'Historial de sellos', icon: 'clock' as const }]
+                  : []),
                 { href: '/app/notifications', label: 'Push', icon: 'bell', module: 'push' },
                 { href: '/app/reviews', label: 'Reseña de Google', icon: 'spark' },
               ],
@@ -755,7 +910,10 @@ export default function AppShell({
                     items: [
                       // Clubify Lab — propuestas y votación pública. Accesible a
                       // todos los roles autenticados (item 13 sprint).
-                      { href: '/lab', label: '🧪 Clubify Lab', icon: 'spark' as IconName },
+                      // Nombre de plataforma dinámico: marca blanca → su nombre,
+                      // Clubify → "Clubify". No hardcodear "Clubify" (fuga si una
+                      // marca habilita el módulo COMMUNITY).
+                      { href: '/lab', label: `🧪 ${tenantInfo?.whiteLabelName || 'Clubify'} Lab`, icon: 'spark' as IconName },
                       // Tutoriales — link externo a la academia (Bloque 2 2026-06-12).
                       // SUPER_ADMIN puede ocultarlo per-tenant desde
                       // /admin/tenants/[id] vía Tenant.tutorialsEnabled.
@@ -814,6 +972,10 @@ export default function AppShell({
     variant === 'app' &&
     user.role === 'TENANT_OWNER' &&
     tenantInfo &&
+    // El flujo de pago Hotmart (estos lockscreens dicen "pago en Hotmart") es
+    // SOLO de Clubify. Una marca blanca cobra por su propia pasarela; mostrarle
+    // este lockscreen delataría la plataforma. Clubify = slug null o 'clubify'.
+    (!tenantInfo.whiteLabelSlug || tenantInfo.whiteLabelSlug === 'clubify') &&
     !tenantInfo.hotmartSubscriberCode &&
     !tenantInfo.whiteLabelCreditsUnlimited &&
     planName === 'Elite'
@@ -828,6 +990,7 @@ export default function AppShell({
         <TrialExpiredLockscreen
           brandName={tenantInfo.brandName}
           trialEndsAt={tenantInfo.trialEndsAt ?? null}
+          brandGateway={tenantInfo.brandGateway ?? null}
         />
       );
     }
@@ -837,6 +1000,7 @@ export default function AppShell({
         <CardVerificationLockscreen
           brandName={tenantInfo.brandName}
           planName={planName}
+          brandGateway={tenantInfo.brandGateway ?? null}
         />
       );
     }
@@ -866,9 +1030,29 @@ export default function AppShell({
         }
       : null;
 
+  // Marca del panel /app derivada del SEED de impersonation (leído pre-paint).
+  // Se usa mientras /tenants/me aún no responde → evita el flash. Solo marcas
+  // ≠ clubify con branding propio (Clubify = verde, es el default correcto).
+  const appSeedBrand =
+    variant === 'app' &&
+    appSeed?.whiteLabelSlug &&
+    appSeed.whiteLabelSlug !== 'clubify' &&
+    (appSeed.color || appSeed.icon || appSeed.logo)
+      ? {
+          name: appSeed.name || appSeed.brandName || 'Marca',
+          color: appSeed.color || null,
+          icon: appSeed.icon || null,
+          logo: appSeed.logo || null,
+        }
+      : null;
+
+  // Marca efectiva del panel /app: lo confirmado por /tenants/me tiene
+  // prioridad; si aún no cargó, el seed de impersonation (primer paint).
+  const appBrand = appWlBrand ?? appSeedBrand;
+
   const activeBrand =
     variant === 'app'
-      ? appWlBrand
+      ? appBrand
       : variant !== 'admin'
         ? null
         : impersonation?.tenant?.brandName?.trim()
@@ -895,12 +1079,27 @@ export default function AppShell({
   const panelThemeColor =
     (variant === 'admin' && brandSlug && brandSlug !== 'clubify' && activeBrand?.color
       ? activeBrand.color
-      : // Panel del negocio (/app) de una marca blanca → su color propio.
-        variant === 'app' && appWlBrand?.color
-        ? appWlBrand.color
+      : // Panel del negocio (/app) de una marca blanca → su color propio
+        // (confirmado o del seed de impersonation → primer paint sin flash).
+        variant === 'app' && appBrand?.color
+        ? appBrand.color
         : null) ||
     // Fallback al color resuelto en server (host) → primer paint sin flash.
     serverBrandColor ||
+    null;
+
+  // Fondo propio del sidebar (backgroundColor de la marca). Si está definido, el
+  // sidebar usa ESE tono (ej. #1A1033) en vez del derivado del acento; si no,
+  // queda null → panelBrandCss deriva del acento (comportamiento histórico).
+  // Fuente: /admin → brandFetched (branding por slug/host); /app →
+  // whiteLabelBranding (/tenants/me); anti-flash SSR → serverBrandBackground.
+  const panelSidebarColor =
+    (variant === 'admin'
+      ? brandFetched?.backgroundColor
+      : variant === 'app'
+        ? tenantInfo?.whiteLabelBranding?.backgroundColor
+        : null) ||
+    serverBrandBackground ||
     null;
 
   // Prefija un href de /admin con el slug de marca activo (/admin/tenants →
@@ -925,7 +1124,22 @@ export default function AppShell({
       ? // Prioridad: marca confirmada por el cliente → marca resuelta en SSR
         //   (host/slug, sin flash) → Clubify.
         activeBrand?.name || serverBrandName || 'Admin Clubify'
-      : tenantInfo?.brandName?.trim() || serverBrandName || 'Mi Negocio';
+      : // Panel /app: nombre del NEGOCIO confirmado → seed de impersonation →
+        //   marca por host (SSR) → placeholder.
+        tenantInfo?.brandName?.trim() ||
+        appSeed?.brandName?.trim() ||
+        serverBrandName ||
+        'Mi Negocio';
+
+  // Parte B (skeleton neutro): en /app, si el nombre del negocio aún NO se
+  // conoce (sin /tenants/me, sin seed, sin marca por host) mostramos un
+  // placeholder neutro en vez del texto "Mi Negocio" — que nunca es el nombre
+  // real de ningún negocio. Así no se ve una identidad equivocada.
+  const appNameLoading =
+    variant === 'app' &&
+    !tenantInfo?.brandName?.trim() &&
+    !appSeed?.brandName?.trim() &&
+    !serverBrandName;
 
   const renderBrandMark = (size: number) => {
     // 1) Logo DASHBOARD cuadrado → caja size×size (encaja perfecto, sin deformar).
@@ -1002,7 +1216,11 @@ export default function AppShell({
         {renderBrandMark(42)}
         <div className="flex-1 min-w-0">
           <div className="font-bold text-white text-[15px] leading-tight truncate">
-            {brandTitle}
+            {appNameLoading ? (
+              <span className="inline-block h-3.5 w-28 max-w-full rounded bg-white/20 animate-pulse align-middle" />
+            ) : (
+              brandTitle
+            )}
           </div>
           <div className="text-[11px] text-sidebar-mute">Panel de Control</div>
         </div>
@@ -1026,7 +1244,6 @@ export default function AppShell({
         {(() => {
           // Mantenemos una lista actualizada de nombres de sección para
           // que toggleSection sepa cuáles colapsar al primer click.
-          sectionNamesRef.current = groups.map((g) => g.section).filter(Boolean);
           return null;
         })()}
         {(() => {
@@ -1045,11 +1262,9 @@ export default function AppShell({
           // Si el path activo está dentro de esta sección, fuerza expand para
           // que el usuario vea dónde está parado.
           const hasActive = g.items.some((n) => n.href === bestActiveHref);
-          // Default cerrado si el user nunca tocó nada (hasUserPref=false).
-          // Si ya tiene preferencia, respetamos el set guardado.
-          const collapsed =
-            !hasActive &&
-            (hasUserPref ? collapsedSections.has(g.section) : true);
+          // Cerrada salvo que el usuario la haya abierto. La sección donde
+          // esta parado se expande igual, para que vea donde esta.
+          const collapsed = !hasActive && !openSections.has(g.section);
           // Sección sin nombre = items principales sin header colapsable.
           const noHeader = !g.section;
 
@@ -1159,7 +1374,7 @@ export default function AppShell({
   return (
     <div className={`min-h-screen bg-bg ${panelThemeColor ? 'brand-panel' : ''}`}>
       {panelThemeColor && (
-        <style dangerouslySetInnerHTML={{ __html: panelBrandCss(panelThemeColor) }} />
+        <style dangerouslySetInnerHTML={{ __html: panelBrandCss(panelThemeColor, panelSidebarColor) }} />
       )}
       {/* Sidebar fijo en lg+, drawer overlay en mobile */}
       <div className="hidden lg:flex fixed inset-y-0 left-0">{sidebar}</div>
@@ -1171,12 +1386,12 @@ export default function AppShell({
             className="absolute inset-0 bg-black/60"
             onClick={() => setNavOpen(false)}
           />
-          <div className="relative shadow-2xl">{sidebar}</div>
+          <div className="cajon-lateral relative shadow-2xl">{sidebar}</div>
         </div>
       )}
 
       {/* Topbar mobile (con botón hamburger) */}
-      <header className="lg:hidden sticky top-0 z-30 bg-sidebar-bg text-white px-4 py-3 flex items-center gap-3 border-b border-[#172534]">
+      <header className="barra-superior lg:hidden sticky top-0 z-30 bg-sidebar-bg text-white px-4 py-3 flex items-center gap-3 border-b border-[#172534]">
         <button
           onClick={() => setNavOpen(true)}
           className="w-9 h-9 rounded-lg flex items-center justify-center hover:bg-sidebar-hover transition"
@@ -1186,7 +1401,13 @@ export default function AppShell({
         </button>
         <div className="flex items-center gap-2 flex-1 min-w-0">
           {renderBrandMark(28)}
-          <div className="font-semibold text-sm truncate">{brandTitle}</div>
+          <div className="font-semibold text-sm truncate">
+            {appNameLoading ? (
+              <span className="inline-block h-3 w-24 max-w-full rounded bg-white/25 animate-pulse align-middle" />
+            ) : (
+              brandTitle
+            )}
+          </div>
         </div>
         {variant === 'app' && <NotificationBell />}
       </header>

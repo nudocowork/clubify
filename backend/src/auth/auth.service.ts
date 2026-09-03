@@ -11,17 +11,25 @@ import { AppConfigService } from '../common/config/app-config.service';
 import { RefreshTokenService } from './refresh-token.service';
 import { TwoFactorService } from './two-factor.service';
 import { PreregAlertsService } from './prereg-alerts.service';
+import { periodicityFromOfferCode, resolvePeriodicity } from './plan-from-offer';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { TrialOtpService } from './trial-otp.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { parsePlanPeriodLabel } from '../common/plan-period';
 import {
   welcomeOwnerTemplate,
   passwordResetTemplate,
   inviteAffiliateTemplate,
 } from '../email/templates/templates';
+import { resolveBrandEmail } from '../email/brand-email';
+import { brandBaseUrl } from '../email/brand-email-creds.util';
+import { BrandEmailService } from '../email/brand-email.service';
 import {
   isValidCategorySlug,
   DEFAULT_CATEGORY_SLUG,
 } from '../common/business-categories';
+import { cycleCreditCost, cycleCreditCostForTenant } from '../common/business-types';
+import { normalizeInfolinkTier, type InfolinkTier } from '../common/infolink-tier';
 // HotmartService se resuelve LAZY vía ModuleRef.get + require() inline
 // (ver consumePendingForTenant en signup). NO importar acá estáticamente
 // — el ciclo de archivos (auth.service ↔ hotmart.service via PreregAlerts)
@@ -68,11 +76,13 @@ export class AuthService {
     private jwt: JwtService,
     private audit: AuditService,
     private email: EmailService,
+    private brandEmail: BrandEmailService,
     private appConfig: AppConfigService,
     private refreshTokens: RefreshTokenService,
     private twoFactor: TwoFactorService,
     private preregAlerts: PreregAlertsService,
     private growBusiness: GrowBusinessService,
+    private trialOtp: TrialOtpService,
     private moduleRef: ModuleRef,
   ) {
     const clientId = appConfig.get('GOOGLE_CLIENT_ID');
@@ -152,6 +162,8 @@ export class AuthService {
       fullName: string;
       whiteLabelId?: string | null;
       deliveryCompanyId?: string | null;
+      allyBusinessId?: string | null;
+      campaignId?: string | null;
     },
     ip: string | undefined,
     opts: {
@@ -185,6 +197,9 @@ export class AuthService {
       whiteLabelId: user.whiteLabelId ?? null,
       // Empresa de domicilios (role=DELIVERY_COMPANY). null = no aplica.
       deliveryCompanyId: user.deliveryCompanyId ?? null,
+      // Negocio aliado (role=ALLY_BUSINESS). null = no aplica.
+      allyBusinessId: user.allyBusinessId ?? null,
+      campaignId: user.campaignId ?? null,
     };
 
     const accessToken =
@@ -760,11 +775,22 @@ export class AuthService {
         ownerName: true,
         ownerWhatsapp: true,
         role: true,
+        whiteLabelId: true,
       },
     });
     if (!code) throw new NotFoundException('Código de afiliado no encontrado');
 
-    const loginUrl = `${this.appConfig.APP_URL}/login`;
+    // Brand-aware: el link de acceso que el admin comparte debe apuntar al
+    // dominio de la marca dueña del código (Sellea → selleala.com), NUNCA a
+    // soyclubify.com. Antes usaba APP_URL fijo → un afiliado de Sellea recibía
+    // credenciales con `soyclubify.com/login`, delatando la plataforma.
+    const wl = code.whiteLabelId
+      ? await this.prisma.whiteLabel.findUnique({
+          where: { id: code.whiteLabelId },
+          select: { domain: true, appDomain: true },
+        })
+      : null;
+    const loginUrl = `${brandBaseUrl(wl, this.appConfig.APP_URL)}/login`;
 
     // Caso 1: ya tiene cuenta de login → actualizamos su password.
     if (code.ownerUserId) {
@@ -970,7 +996,12 @@ export class AuthService {
       where: { email, consumedAt: null },
       orderBy: { createdAt: 'desc' },
     });
-    if (!pending) return { found: false };
+    // Marcas con Stripe (ej. Sellea): el pago pendiente vive en
+    // PendingStripePayment, NO en Hotmart. Sin este fallback, /activar mostraba
+    // "Todavía no vemos un pago" a un comprador de Sellea que SÍ pagó → parecía
+    // que no había pagado. Devolvemos el mismo shape para el pre-fill y el badge
+    // "Pago detectado ✅". (2026-08-30, para que Sellea funcione tal cual Clubify.)
+    if (!pending) return this.checkPendingStripePayment(email);
 
     const raw = (pending.rawPayload ?? {}) as any;
     const buyer = raw?.data?.buyer ?? {};
@@ -981,38 +1012,55 @@ export class AuthService {
       Number(purchase?.original_offer_price?.value) ||
       null;
     // Fix 2026-06-12: la moneda viene en el payload, no asumir USD.
+    // Fix 2026-08-18: en producción Hotmart la manda como `currency_value`
+    // (ej. {"value":148.55,"currency_value":"USD"}); leyendo solo
+    // `currency_code` esto quedaba SIEMPRE null y el guard de moneda de abajo
+    // no filtraba nada → un pago en COP (541498) se leía como plan ANUAL.
     const purchaseCurrency =
       (purchase?.price?.currency_code ??
+        purchase?.price?.currency_value ??
         purchase?.original_offer_price?.currency_code ??
+        purchase?.original_offer_price?.currency_value ??
         null) as string | null;
 
-    // Heurística: derivar periodicidad del nombre del producto. Si no
-    // matchea, fallback a inferir por monto USD aproximado vs landing
-    // plans (los 4 default son ~68/150/278/500 USD por el sprint
-    // 2026-06-04). El backend NO depende de esto para activar — es
-    // solo informativo para el pre-fill UI.
+    // Periodicidad — precedencia DETERMINISTA (forward fix #2): OFFER CODE del
+    // pago matcheado contra el `off=` de los checkoutUrls de los 4 planes →
+    // NOMBRE DEL PLAN de la suscripción → NOMBRE del producto → MONTO (solo si
+    // la moneda es USD explícita).
+    //
+    // El paso por `subscription.plan.name` ("Plan Trimestral 150 USD") viene de
+    // feat/emails-sobre-314: el producto de Clubify se llama "CLUBIFY - TARJETAS
+    // DE FIDELIZACION", sin palabra de periodicidad, así que el nombre del
+    // PRODUCTO casi nunca casa. Se conserva la heurística por monto ESTRICTA de
+    // acá (currency === 'USD'), no la de esa rama, que asumía USD cuando la
+    // moneda venía ausente — exactamente el bug que este fix cierra. El offer
+    // code arregla el bug del "Plan Anual": un mensual pagado en moneda local sin
+    // `currency_code` antes se adivinaba por monto (value alto → ANUAL). Solo
+    // informativo para el pre-fill UI; el backend NO depende de esto para activar.
+    const planName: string = String(raw?.data?.subscription?.plan?.name ?? '');
     const productName: string = String(product?.name ?? '');
-    let periodicity:
-      | 'MENSUAL'
-      | 'TRIMESTRAL'
-      | 'SEMESTRAL'
-      | 'ANUAL'
-      | null = null;
-    const upper = productName.toUpperCase();
-    if (/ANUAL/.test(upper)) periodicity = 'ANUAL';
-    else if (/SEMESTRAL/.test(upper)) periodicity = 'SEMESTRAL';
-    else if (/TRIMESTRAL/.test(upper)) periodicity = 'TRIMESTRAL';
-    else if (/MENSUAL|MENSU/.test(upper)) periodicity = 'MENSUAL';
-    else if (value != null && (purchaseCurrency === 'USD' || !purchaseCurrency)) {
-      // Heurística por monto SOLO si la moneda es USD (que es donde los
-      // landing plans fueron definidos: 68/150/278/500). En COP/BRL/etc
-      // el monto convertido no matchea, así que dejamos `periodicity`
-      // en null y el frontend cae al picker normal.
-      if (value >= 400) periodicity = 'ANUAL';
-      else if (value >= 250) periodicity = 'SEMESTRAL';
-      else if (value >= 120) periodicity = 'TRIMESTRAL';
-      else if (value > 0) periodicity = 'MENSUAL';
-    }
+    const offerCode: string | null = purchase?.offer?.code?.trim?.() || null;
+    const PLAN_URL_KEYS = {
+      mensual: 'landing.plans.mensual.checkoutUrl',
+      trimestral: 'landing.plans.trimestral.checkoutUrl',
+      semestral: 'landing.plans.semestral.checkoutUrl',
+      anual: 'landing.plans.anual.checkoutUrl',
+    } as const;
+    const urlRows = await this.prisma.setting.findMany({
+      where: { key: { in: Object.values(PLAN_URL_KEYS) } },
+      select: { key: true, value: true },
+    });
+    const urlByKey = new Map(urlRows.map((r) => [r.key, r.value]));
+    const plans: Record<string, string | null> = {
+      mensual: urlByKey.get(PLAN_URL_KEYS.mensual) ?? null,
+      trimestral: urlByKey.get(PLAN_URL_KEYS.trimestral) ?? null,
+      semestral: urlByKey.get(PLAN_URL_KEYS.semestral) ?? null,
+      anual: urlByKey.get(PLAN_URL_KEYS.anual) ?? null,
+    };
+    const periodicity =
+      periodicityFromOfferCode(offerCode, plans) ??
+      parsePlanPeriodLabel(planName) ??
+      resolvePeriodicity({ productName, value, currency: purchaseCurrency });
 
     return {
       found: true,
@@ -1022,6 +1070,53 @@ export class AuthService {
       purchaseValue: value,
       purchaseCurrency,
       periodicity,
+    };
+  }
+
+  /**
+   * Igual que checkPendingPayment pero para el pago pendiente de STRIPE
+   * (marcas blancas con Stripe, ej. Sellea). Lee nombre/teléfono/monto del
+   * evento Stripe guardado (checkout.session.completed o invoice.paid) para
+   * que /activar pinte "Pago detectado ✅" y pre-llene el form. La
+   * periodicidad no viene lista en el evento → null (el signup toma el plan de
+   * la suscripción real al consumir el pending; esto es solo pre-fill de UI).
+   */
+  private async checkPendingStripePayment(email: string): Promise<{
+    found: boolean;
+    buyerName?: string | null;
+    buyerPhone?: string | null;
+    productName?: string | null;
+    purchaseValue?: number | null;
+    purchaseCurrency?: string | null;
+    periodicity?: 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | null;
+  }> {
+    const pending = await this.prisma.pendingStripePayment.findFirst({
+      where: { email, consumedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!pending) return { found: false };
+
+    const obj = ((pending.rawPayload ?? {}) as any)?.data?.object ?? {};
+    const cd = obj?.customer_details ?? {};
+    const name = (cd?.name ?? obj?.customer_name ?? null) as string | null;
+    const phone = (cd?.phone ?? obj?.customer_phone ?? null) as string | null;
+    // Monto en CENTAVOS: checkout.session usa amount_total; invoice.paid usa
+    // amount_paid. En una prueba de 7 días el cobro inicial es 0 → válido.
+    const cents =
+      Number(obj?.amount_total ?? obj?.amount_paid ?? obj?.amount_due) || null;
+    const value = cents != null ? cents / 100 : null;
+    const currency = obj?.currency
+      ? String(obj.currency).toUpperCase()
+      : null;
+
+    return {
+      found: true,
+      buyerName: name,
+      buyerPhone: phone,
+      productName: null,
+      purchaseValue: value,
+      purchaseCurrency: currency,
+      periodicity: null,
     };
   }
 
@@ -1320,15 +1415,55 @@ export class AuthService {
       );
     }
 
-    // Welcome email best-effort (no bloqueante). Resolvemos la marca del negocio
-    // para que el asunto/cuerpo digan "Sellea" y no "Clubify" en marcas blancas.
+    // Análogo para marcas con Cross (CrossPay): si el comprador pagó por Cross
+    // antes de crear la cuenta, hay un PendingCrossPayment por su email + marca.
+    // Mismo require() inline para resolver el servicio en runtime (evita ciclo DI).
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { CrossService: CrossServiceClass } = require('../billing/cross.service');
+      const cross = this.moduleRef.get(CrossServiceClass, { strict: false });
+      const activated = await cross.consumePendingForTenant(tenant.id, email);
+      if (activated) {
+        this.logger.log(
+          `Signup activado al instante por pago Cross pendiente — tenant=${tenant.id}`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `consumePendingForTenant (Cross) falló para tenant=${tenant.id}: ${(e as Error).message}`,
+      );
+    }
+
+    // Welcome email best-effort (no bloqueante). Resolvemos la IDENTIDAD de email
+    // de la marca: nombre (asunto/cuerpo dicen "Sellea"), remitente propio
+    // (from=hola@selleala.com si está verificado) y link al panel de la marca
+    // (selleala.com/login). Sin marca / sin remitente propio → default Clubify.
+    // Releemos el tenant DESPUES de los tres consumePendingForTenant: si el
+    // comprador pago antes de crear la cuenta, ya quedo activa y el correo
+    // no puede pedirle "completa el pago". Leemos el estado en vez de fiarnos
+    // del flag `activated` de cada bloque, asi tambien cubre la activacion que
+    // entre por webhook entre medias. Caso real: Mr. Pedidos, 2026-08-22.
     const welcomeBrandRow = await this.prisma.tenant
       .findUnique({
         where: { id: tenant.id },
-        select: { whiteLabel: { select: { name: true } } },
+        select: {
+          whiteLabelId: true,
+          status: true,
+          whiteLabel: { select: { name: true } },
+        },
       })
       .catch(() => null);
-    this.email.send({
+    const yaPago = welcomeBrandRow?.status === 'ACTIVE';
+    const brandEmail = await resolveBrandEmail(
+      this.prisma,
+      welcomeBrandRow?.whiteLabelId ?? null,
+      this.appConfig.APP_URL,
+    );
+    // Sale por la subcuenta de Grow Business de la marca, igual que el resto
+    // de los correos. Antes iba por EmailService, que sin RESEND_API_KEY cae al
+    // adaptador de consola: el correo se escribía en el log y nunca llegaba.
+    void this.brandEmail.sendRaw({
+      whiteLabelId: welcomeBrandRow?.whiteLabelId ?? null,
       to: email,
       ...welcomeOwnerTemplate({
         tenant,
@@ -1338,6 +1473,8 @@ export class AuthService {
         brand: welcomeBrandRow?.whiteLabel?.name
           ? { name: welcomeBrandRow.whiteLabel.name }
           : null,
+        loginUrl: brandEmail.hasBrandSender ? brandEmail.loginUrl : undefined,
+        yaPago,
       }),
     });
 
@@ -1374,6 +1511,9 @@ export class AuthService {
         source,
         referrerName,
         campaignName,
+        // Marca del negocio: si es blanca (Sellea), el aviso interno dice su
+        // nombre, no "Clubify". welcomeBrandRow ya trae whiteLabel.name arriba.
+        brandName: welcomeBrandRow?.whiteLabel?.name ?? null,
       })
       .catch(() => null);
 
@@ -1428,6 +1568,259 @@ export class AuthService {
   }
 
   /**
+   * Info pública de una marca para tematizar la página de auto-registro InfoLink
+   * (/i-registro/<marca>). Solo branding — ya es público en su storefront.
+   */
+  async getBrandForInfoLinkSignup(slug: string) {
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { slug: (slug || '').toLowerCase().trim() },
+      select: {
+        name: true,
+        slug: true,
+        logoUrl: true,
+        iconUrl: true,
+        faviconUrl: true,
+        primaryColor: true,
+        secondaryColor: true,
+        backgroundColor: true,
+        creditsUnlimited: true,
+        creditsAvailable: true,
+        status: true,
+      },
+    });
+    if (!wl || wl.status === 'SUSPENDED' || wl.slug === 'clubify') {
+      throw new NotFoundException('Marca no encontrada');
+    }
+    return {
+      slug: wl.slug,
+      name: wl.name,
+      logoUrl: wl.logoUrl ?? wl.iconUrl ?? null,
+      faviconUrl: wl.faviconUrl ?? null,
+      primaryColor: wl.primaryColor ?? null,
+      secondaryColor: wl.secondaryColor ?? null,
+      backgroundColor: wl.backgroundColor ?? null,
+      // Avisa en la UI si la marca no tiene cupo (el negocio nacería bloqueado).
+      hasCredits:
+        wl.creditsUnlimited ||
+        (wl.creditsAvailable ?? 0) >= cycleCreditCost('INFOLINK', 'MENSUAL'),
+    };
+  }
+
+  /**
+   * Auto-registro de un negocio "Solo InfoLink" desde el link compartible de
+   * una marca (/i-registro/<marca>). Crea el negocio con businessType=INFOLINK
+   * bajo la marca y DESCUENTA 0.25 créditos de la marca automáticamente. Si la
+   * marca no tiene cupo, el negocio queda creado pero BLOQUEADO (igual que el
+   * flujo del panel). Auto-login: devuelve tokens como signup.
+   */
+  async infolinkSignup(
+    dto: {
+      brandSlug: string;
+      email: string;
+      password: string;
+      fullName: string;
+      brandName: string;
+      phone?: string;
+      /** Nivel del InfoLink. FREE = captación gratis (0 créditos, freemium
+       *  público de Sellea). PRO = pago (0.25 créditos de la marca). Default
+       *  PRO para no cambiar el flujo del link compartible existente. */
+      tier?: string;
+    },
+    ip?: string,
+  ) {
+    const email = dto.email.toLowerCase().trim();
+    const tier: InfolinkTier = normalizeInfolinkTier(dto.tier);
+    const brandName = dto.brandName.trim();
+    if (!brandName) throw new BadRequestException('Nombre del negocio requerido');
+
+    const brand = await this.prisma.whiteLabel.findUnique({
+      where: { slug: (dto.brandSlug || '').toLowerCase().trim() },
+      select: { id: true, name: true, slug: true, creditsUnlimited: true, status: true },
+    });
+    if (!brand || brand.status === 'SUSPENDED') {
+      throw new NotFoundException('Marca no encontrada');
+    }
+    if (brand.slug === 'clubify') {
+      throw new BadRequestException('Esta marca no admite auto-registro InfoLink');
+    }
+
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) throw new ConflictException('Email ya registrado');
+
+    // Slug único global.
+    let slug = slugify(brandName) || `infolink-${Date.now()}`;
+    let suffix = 0;
+    while (await this.prisma.tenant.findUnique({ where: { slug } })) {
+      suffix += 1;
+      slug = `${slugify(brandName)}-${suffix}`;
+    }
+
+    // Plan "Sin plan" (precio 0) — la facturación es por créditos de la marca.
+    const plan =
+      (await this.prisma.plan.findUnique({ where: { name: 'Sin plan' } })) ??
+      (await this.prisma.plan.create({
+        data: { name: 'Sin plan', priceMonthly: 0, isActive: true },
+      }));
+
+    const passwordHash = await this.hashPassword(dto.password);
+    // Código placeholder para que el lockscreen de tarjeta (Hotmart) no bloquee:
+    // los InfoLink de marca se activan por créditos, no por Hotmart.
+    const placeholderCode = `wl-${randomBytes(6).toString('hex')}`;
+
+    let tenant: Awaited<ReturnType<typeof this.prisma.tenant.create>>;
+    let user: Awaited<ReturnType<typeof this.prisma.user.create>>;
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const t = await tx.tenant.create({
+          data: {
+            name: brandName,
+            brandName,
+            slug,
+            email,
+            phone: dto.phone?.trim() || null,
+            whatsappPhone: dto.phone?.trim() || null,
+            businessType: 'INFOLINK',
+            infolinkTier: tier,
+            businessCategorySlug: DEFAULT_CATEGORY_SLUG,
+            status: 'SUSPENDED', // se activa abajo si la marca tiene créditos
+            planId: plan.id,
+            planPeriodicity: 'MENSUAL',
+            whiteLabelId: brand.id,
+            hotmartSubscriberCode: placeholderCode,
+            trialStartedAt: new Date(),
+            trialEndsAt: null,
+            currentPeriodEnd: null,
+          },
+        });
+        const u = await tx.user.create({
+          data: {
+            email,
+            passwordHash,
+            fullName: dto.fullName.trim(),
+            // El teléfono capturado en el registro va TAMBIÉN al User: la pantalla
+            // "Datos personales" (Mi cuenta) lee user.phone, no tenant.phone. Sin
+            // esto el número quedaba en blanco pese a haberlo pedido en el alta.
+            phone: dto.phone?.trim() || null,
+            role: 'TENANT_OWNER',
+            tenantId: t.id,
+          },
+        });
+        return { t, u };
+      });
+      tenant = result.t;
+      user = result.u;
+    } catch (e: any) {
+      if (e?.code === 'P2002') throw new ConflictException('Email ya registrado');
+      throw e;
+    }
+
+    // Cobro del ciclo según el nivel: FREE = 0 (captación, activa directo),
+    // PRO = 0.25 (InfoLink mensual). Race-safe. Marca ilimitada activa sin
+    // cobrar. Sin cupo → queda bloqueado (SUSPENDED).
+    const cost = cycleCreditCostForTenant('INFOLINK', tier, 'MENSUAL');
+    const oneMonth = new Date();
+    oneMonth.setMonth(oneMonth.getMonth() + 1);
+    let blocked = true;
+    if (brand.creditsUnlimited || cost === 0) {
+      await this.prisma.tenant.update({
+        where: { id: tenant.id },
+        data: { status: 'ACTIVE', currentPeriodEnd: oneMonth },
+      });
+      blocked = false;
+    } else {
+      const debit = await this.prisma.whiteLabel.updateMany({
+        where: { id: brand.id, creditsAvailable: { gte: cost } },
+        data: { creditsAvailable: { decrement: cost }, creditsUsed: { increment: cost } },
+      });
+      if (debit.count > 0) {
+        await this.prisma.tenant.update({
+          where: { id: tenant.id },
+          data: { status: 'ACTIVE', currentPeriodEnd: oneMonth },
+        });
+        await this.prisma.creditTransaction
+          .create({
+            data: {
+              whiteLabelId: brand.id,
+              type: 'CONSUME',
+              amount: -cost,
+              tenantId: tenant.id,
+              note: `Auto-registro InfoLink · ${brandName} · ${cost} créd`,
+            },
+          })
+          .catch(() => undefined);
+        blocked = false;
+      }
+    }
+
+    this.audit.log({
+      actorId: user.id,
+      tenantId: tenant.id,
+      action: 'auth.infolink_signup',
+      resource: `tenant:${tenant.id}`,
+      ip,
+    });
+
+    // Correo de bienvenida con el branding de la marca (sale por SU subcuenta de
+    // Grow Business, igual que el signup normal). Antes el alta InfoLink no
+    // mandaba ninguno. trialEndsAt=null: el InfoLink FREE no vence. yaPago según
+    // si quedó activo (FREE/ilimitada) o bloqueado sin cupo. Fire-and-forget: no
+    // rompe el registro si la marca no tiene subcuenta.
+    const brandEmailInfo = await resolveBrandEmail(
+      this.prisma,
+      brand.id,
+      this.appConfig.APP_URL,
+    ).catch(() => null);
+    void this.brandEmail.sendRaw({
+      whiteLabelId: brand.id,
+      tenantId: tenant.id,
+      to: email,
+      ...welcomeOwnerTemplate({
+        tenant,
+        fullName: dto.fullName.trim(),
+        trialEndsAt: null,
+        appUrl: this.appConfig.APP_URL,
+        brand: { name: brand.name },
+        loginUrl: brandEmailInfo?.hasBrandSender ? brandEmailInfo.loginUrl : undefined,
+        yaPago: !blocked,
+      }),
+    });
+
+    const payload = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: user.tenantId,
+      whiteLabelId: user.whiteLabelId ?? null,
+    };
+    const accessToken = this.jwt.sign(payload);
+    const refreshToken = await this.refreshTokens.issue({
+      userId: user.id,
+      payload,
+      ip: ip ?? null,
+      userAgent: null,
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+      // true si la marca no tenía cupo → negocio creado pero bloqueado.
+      blocked,
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        tenantId: user.tenantId,
+      },
+      tenant: {
+        id: tenant.id,
+        slug: tenant.slug,
+        brandName: tenant.brandName,
+      },
+    };
+  }
+
+  /**
    * Registro al MODO PRUEBA — 5 días gratis. Diferencias con `signup`:
    *  - `trialEndsAt = now + 5d` (signup normal lo deja null porque la
    *    puerta real es Hotmart).
@@ -1439,6 +1832,21 @@ export class AuthService {
    *  - No cobra ni dispara checkout — el dueño accede directo al panel
    *    y al expirar el trial cae en el lockscreen "Activar ahora" (F3).
    */
+  /**
+   * ¿Se exige el PIN por correo para la prueba gratuita?
+   *
+   * Apagado por defecto A PROPÓSITO: encenderlo con el frontend viejo arriba
+   * dejaría a todo el mundo sin poder registrarse. Se enciende con
+   * `Setting['trial.otp.required'] = 'true'` cuando backend y frontend están
+   * los dos desplegados.
+   */
+  private async trialOtpRequerido(): Promise<boolean> {
+    const s = await this.prisma.setting
+      .findUnique({ where: { key: 'trial.otp.required' } })
+      .catch(() => null);
+    return s?.value === 'true';
+  }
+
   async trialSignup(
     dto: {
       email: string;
@@ -1449,6 +1857,8 @@ export class AuthService {
       company?: string;
       city?: string;
       referralCode?: string;
+      /** PIN de 6 dígitos enviado al correo. Ver TrialOtpService. */
+      otp?: string;
       source?: 'LANDING' | 'AMBASSADOR' | 'INFLUENCER' | 'VENDOR' | 'CAMPAIGN' | 'DIRECT';
       attribution?: {
         viaSlug?: string;
@@ -1461,6 +1871,18 @@ export class AuthService {
     ip?: string,
   ) {
     const email = dto.email.toLowerCase().trim();
+
+    // PIN por correo (PDF Software 15). Va ANTES que cualquier otra cosa: si el
+    // correo no se verificó, no se toca la base ni se filtra si ya existe.
+    //
+    // Detrás de un interruptor (`trial.otp.required`, apagado por defecto) para
+    // que backend y frontend puedan desplegarse por separado: si el backend
+    // empezara a exigirlo con el frontend viejo arriba, nadie podría registrarse.
+    // Se enciende cuando los dos están desplegados.
+    if (await this.trialOtpRequerido()) {
+      await this.trialOtp.consumir(email, dto.otp ?? '');
+    }
+
     const phoneRaw = (dto.phone ?? '').replace(/[^\d+]/g, '');
     const firstName = dto.firstName.trim();
     const lastName = dto.lastName.trim();

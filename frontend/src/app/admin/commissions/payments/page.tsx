@@ -24,8 +24,25 @@ type PendingResp = {
   items: PendingPersonRow[];
   totals: {
     count: number;
+    // Brief PASO 6: personas con algo pendiente (los all-paid aparecen en la
+    // lista por su histórico, pero no cuentan como "pendientes").
+    pendingPeople?: number;
     grandTotalOutstanding: number;
+    // Histórico pagado GLOBAL (todos los afiliados).
+    grandTotalPaid?: number;
   };
+};
+
+type BatchOption = {
+  id: string;
+  code: string;
+  cutoffDate: string;
+  // null en los cortes ABIERTOS: la transferencia todavía no se hizo.
+  paymentDate: string | null;
+  status: 'OPEN' | 'CLOSED';
+  kind: string;
+  totalUsd: number;
+  commissionsCount: number;
 };
 
 const ROLE_LABEL_KEY: Record<Role, string> = {
@@ -114,11 +131,18 @@ export default function CommissionsPaymentsPage() {
         </Link>
       </div>
 
+      {/* Fase 1 (2026-08-14): banner informativo. El total "a pagar" ya no
+          suma canceladas; los pagos se registran desde el detalle. */}
+      <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
+        <span aria-hidden>🛈</span>
+        <span>{t('bannerInfo')}</span>
+      </div>
+
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
         <KpiCard
           label={t('kpiPendingPeople')}
-          value={data?.totals.count ?? 0}
+          value={data?.totals.pendingPeople ?? data?.totals.count ?? 0}
           accent="brand"
         />
         <KpiCard
@@ -126,11 +150,20 @@ export default function CommissionsPaymentsPage() {
           value={fmtUsd(data?.totals.grandTotalOutstanding ?? 0)}
           accent="warn"
         />
+        {/* Brief PASO 6: histórico pagado GLOBAL (todos los afiliados). */}
+        <KpiCard
+          label={t('kpiHistoricalPaid')}
+          value={fmtUsd(data?.totals.grandTotalPaid ?? 0)}
+          accent="ok"
+        />
         <KpiCard
           label={t('kpiAveragePerPerson')}
           value={
-            data && data.totals.count > 0
-              ? fmtUsd(data.totals.grandTotalOutstanding / data.totals.count)
+            data && (data.totals.pendingPeople ?? 0) > 0
+              ? fmtUsd(
+                  data.totals.grandTotalOutstanding /
+                    (data.totals.pendingPeople ?? 1),
+                )
               : fmtUsd(0)
           }
           accent="ok"
@@ -255,12 +288,18 @@ export default function CommissionsPaymentsPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <button
-                          onClick={() => setBulkTarget(p)}
-                          className="text-xs px-3 py-1.5 rounded-md bg-brand text-white font-semibold hover:opacity-90 transition select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
-                        >
-                          {t('markAllPaid')}
-                        </button>
+                        {p.commissionsCount > 0 ? (
+                          <button
+                            onClick={() => setBulkTarget(p)}
+                            className="text-xs px-3 py-1.5 rounded-md bg-brand text-white font-semibold hover:opacity-90 transition select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
+                          >
+                            {t('markAllPaid')}
+                          </button>
+                        ) : (
+                          <span className="text-[10px] text-mute">
+                            {t('allPaidTag')}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -300,8 +339,34 @@ function BulkPayModal({
   const t = useTranslations('admin_commissions_payments');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
+  // Brief PASO 6: pagar EXIGE un lote de corte. Se elige uno existente o se crea
+  // uno nuevo (fecha de corte + fecha real de la transferencia).
+  const [batches, setBatches] = useState<BatchOption[]>([]);
+  const [batchMode, setBatchMode] = useState<'existing' | 'new'>('new');
+  const [batchId, setBatchId] = useState('');
+  const [cutoffDate, setCutoffDate] = useState('');
+  const [paymentDate, setPaymentDate] = useState('');
+
+  useEffect(() => {
+    api<BatchOption[]>('/admin/commissions/payout-batches')
+      .then((b) => {
+        setBatches(b ?? []);
+        if (b && b.length) {
+          setBatchMode('existing');
+          setBatchId(b[0].id);
+        }
+      })
+      .catch(() => setBatches([]));
+  }, []);
+
+  const batchReady =
+    !!paymentDate && (batchMode === 'existing' ? !!batchId : !!cutoffDate);
 
   async function submit() {
+    if (!batchReady) {
+      toast(t('errorBatchRequired'), 'error');
+      return;
+    }
     setSaving(true);
     try {
       const res = await api<{ paidCount: number; totalPaid: number }>(
@@ -311,6 +376,8 @@ function BulkPayModal({
           body: JSON.stringify({
             codeId: person.codeId,
             note: note.trim() || undefined,
+            paymentDate,
+            ...(batchMode === 'existing' ? { batchId } : { cutoffDate }),
           }),
         },
       );
@@ -335,7 +402,7 @@ function BulkPayModal({
       onClick={onClose}
     >
       <div
-        className="bg-bg1 rounded-xl max-w-md w-full p-6 shadow-xl"
+        className="bg-surface rounded-xl max-w-md w-full p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-lg font-bold mb-2">
@@ -372,6 +439,74 @@ function BulkPayModal({
           </div>
         </div>
 
+        {/* Brief PASO 6: lote de corte OBLIGATORIO. */}
+        <div className="mb-4 rounded-lg border border-line2 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <label className="label mb-0">{t('modalBatch')}</label>
+            <div className="flex gap-1 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setBatchMode('existing')}
+                disabled={!batches.length}
+                className={`px-2 py-0.5 rounded ${
+                  batchMode === 'existing'
+                    ? 'bg-brand text-white'
+                    : 'bg-bg2 text-mute'
+                } disabled:opacity-40`}
+              >
+                {t('batchExisting')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setBatchMode('new')}
+                className={`px-2 py-0.5 rounded ${
+                  batchMode === 'new' ? 'bg-brand text-white' : 'bg-bg2 text-mute'
+                }`}
+              >
+                {t('batchNew')}
+              </button>
+            </div>
+          </div>
+          {batchMode === 'existing' ? (
+            <select
+              className="input w-full"
+              value={batchId}
+              onChange={(e) => setBatchId(e.target.value)}
+            >
+              <option value="">{t('batchSelectPlaceholder')}</option>
+              {batches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.code}
+                  {b.status === 'OPEN' ? ' · abierto' : ''} · {fmtUsd(b.totalUsd)} ·{' '}
+                  {b.commissionsCount}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div>
+              <label className="label text-[10px]">{t('batchCutoff')}</label>
+              <input
+                type="date"
+                className="input w-full"
+                value={cutoffDate}
+                onChange={(e) => setCutoffDate(e.target.value)}
+              />
+            </div>
+          )}
+          {/* La fecha REAL de la transferencia se pide siempre: un corte ABIERTO
+              todavía no tiene fecha de pago, y es la que se estampa en paidAt. */}
+          <div className="mt-2">
+            <label className="label text-[10px]">{t('batchPayment')}</label>
+            <input
+              type="date"
+              className="input w-full"
+              value={paymentDate}
+              onChange={(e) => setPaymentDate(e.target.value)}
+            />
+          </div>
+          <p className="text-[10px] text-mute mt-1.5">{t('batchHint')}</p>
+        </div>
+
         <div className="mb-4">
           <label className="label">{t('modalReference')}</label>
           <input
@@ -380,7 +515,6 @@ function BulkPayModal({
             className="input w-full"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            autoFocus
           />
         </div>
 
@@ -394,7 +528,7 @@ function BulkPayModal({
           </button>
           <button
             onClick={submit}
-            disabled={saving}
+            disabled={saving || !batchReady}
             className="text-sm px-4 py-2 rounded-md bg-brand text-white font-semibold hover:opacity-90 transition disabled:opacity-50 select-none active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
           >
             {saving ? t('processing') : t('btnConfirmBulk')}

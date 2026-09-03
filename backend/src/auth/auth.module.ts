@@ -4,6 +4,7 @@ import { PassportModule } from '@nestjs/passport';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from '../common/prisma/prisma.module';
 import { EmailModule } from '../email/email.module';
+import { TrialOtpService } from './trial-otp.service';
 import { AppConfigService } from '../common/config/app-config.service';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
@@ -15,6 +16,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { TenantStatusGuard } from '../common/guards/tenant-status.guard';
 import { TenantLockGuard } from '../common/guards/tenant-lock.guard';
+import { InfoLinkOnlyGuard } from '../common/guards/infolink-only.guard';
 import { MaintenanceGuard } from '../maintenance/maintenance.guard';
 import { MaintenanceModule } from '../maintenance/maintenance.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
@@ -35,6 +37,7 @@ import { IntegrationsModule } from '../integrations/integrations.module';
     }),
   ],
   providers: [
+    TrialOtpService,
     AuthService,
     JwtStrategy,
     RefreshTokenService,
@@ -44,6 +47,8 @@ import { IntegrationsModule } from '../integrations/integrations.module';
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: TenantStatusGuard },
     { provide: APP_GUARD, useClass: TenantLockGuard },
+    // Bloqueo de módulos para negocios "Solo InfoLink" (necesita req.user).
+    { provide: APP_GUARD, useClass: InfoLinkOnlyGuard },
     // MaintenanceGuard al final — necesita req.user ya populado por
     // JwtAuthGuard para hacer el bypass de SUPER_ADMIN.
     { provide: APP_GUARD, useClass: MaintenanceGuard },

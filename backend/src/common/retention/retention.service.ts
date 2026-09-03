@@ -9,6 +9,7 @@ import { TenantContext } from '../tenant/tenant-context';
  *   - AuditLog    (acciones del usuario)  — retén 365d (compliance)
  *   - Notification(envíos completados)    — retén 30d post-sent
  *   - RefreshToken (revoked/expired)      — retén 7d post-expiry
+ *   - MessageLog  (historial de envíos)   — retén 90d
  *
  * Comportamiento:
  *   - Default OFF. Solo corre si `RETENTION_ENABLED=true`. Esto evita
@@ -69,12 +70,14 @@ export class RetentionService {
       auditLogs: 0,
       notifications: 0,
       refreshTokens: 0,
+      messageLogs: 0,
     };
 
     const eventDays = this.days('RETENTION_DAYS_EVENT', 90);
     const auditDays = this.days('RETENTION_DAYS_AUDIT', 365);
     const notifDays = this.days('RETENTION_DAYS_NOTIFICATION', 30);
     const refreshDays = this.days('RETENTION_DAYS_REFRESH_TOKEN', 7);
+    const messageLogDays = this.days('RETENTION_DAYS_MESSAGE_LOG', 90);
 
     try {
       const r1 = await this.prisma.event.deleteMany({
@@ -118,9 +121,23 @@ export class RetentionService {
       this.logger.error(`Retention RefreshToken failed: ${e?.message ?? e}`);
     }
 
+    try {
+      // MessageLog crece con CADA SMS/WhatsApp/correo del producto (incluidos
+      // los fallidos). 90 días alcanzan para auditar «¿salió el recordatorio
+      // de este ciclo?»; sin techo repetiría el caso QrPoster (llegó a ser el
+      // 77% de la base).
+      const r5 = await this.prisma.messageLog.deleteMany({
+        where: { createdAt: { lt: this.cutoff(messageLogDays) } },
+      });
+      summary.messageLogs = r5.count;
+    } catch (e: any) {
+      this.logger.error(`Retention MessageLog failed: ${e?.message ?? e}`);
+    }
+
     this.logger.log(
       `Retention OK · events=${summary.events} auditLogs=${summary.auditLogs} ` +
-        `notifications=${summary.notifications} refreshTokens=${summary.refreshTokens}`,
+        `notifications=${summary.notifications} refreshTokens=${summary.refreshTokens} ` +
+        `messageLogs=${summary.messageLogs}`,
     );
     return summary;
   }

@@ -154,6 +154,10 @@ async function fetchPaymentPlans(host: string): Promise<LandingPlan[] | null> {
     if (!d || !Array.isArray(d.links) || !d.links.length) return null;
     const plans: LandingPlan[] = [];
     for (const l of d.links) {
+      // Los links con productKey (INFOLINK_PRO / FULL) son upgrades por
+      // entitlement, NO planes de suscripción: no van en el selector "Elige tu
+      // plan". El de InfoLink PRO se ofrece dentro del panel del negocio.
+      if (l.productKey === 'INFOLINK_PRO' || l.productKey === 'FULL') continue;
       const m = PERIOD_TO_PLAN[l.periodicity as string];
       if (!m) continue; // CUSTOM u otros no se representan en el selector
       plans.push({
@@ -166,7 +170,13 @@ async function fetchPaymentPlans(host: string): Promise<LandingPlan[] | null> {
         description: '',
       });
     }
-    return plans.length ? plans : null;
+    // Dedup por id: si dos links mapean al mismo id de plan (ej. InfoLink PRO es
+    // MENSUAL y colisiona con "Mensual"), conservamos el PRIMERO por sortOrder (el
+    // plan de suscripción real). Red de seguridad: quita el upgrade aunque la
+    // respuesta cacheada no traiga productKey (pasó con caché vieja de Vercel).
+    const seen = new Set<string>();
+    const deduped = plans.filter((pl) => (seen.has(pl.id) ? false : (seen.add(pl.id), true)));
+    return deduped.length ? deduped : null;
   } catch {
     return null;
   }
@@ -240,6 +250,8 @@ export default async function SelleaLandingPage() {
           <nav className="hidden lg:flex items-center gap-8 text-[14px] text-mute">
             <a href="#clientes" className="hover:text-ink">Clientes</a>
             <a href="#precios" className="hover:text-ink">Precios</a>
+            {/* Puerta a la landing freemium de InfoLinks (selleala.com/infolink). */}
+            <Link href="/infolink" className="hover:text-ink">Infolinks</Link>
           </nav>
           <div className="flex gap-2 items-center">
             <Link className="inline-flex text-sm text-mute hover:text-ink" href="/login">Iniciar sesión</Link>

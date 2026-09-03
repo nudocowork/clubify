@@ -76,11 +76,16 @@ export function ProductBadge({
 export function PrimaryProductBadge({
   tags,
   variant = 'overlay',
+  recommended = false,
 }: {
   tags: string[] | null | undefined;
   variant?: BadgeVariant;
+  /** true = el producto es destacado (isRecommended) → antepone "Recomendado"
+   *  para que el badge se vea también dentro de su categoría, no solo en la
+   *  sección Recomendados. Reusa el mismo estilo ámbar existente. */
+  recommended?: boolean;
 }) {
-  const first = tags?.[0];
+  const first = recommended ? 'Recomendado' : tags?.[0];
   if (!first) return null;
   return <ProductBadge tag={first} variant={variant} />;
 }

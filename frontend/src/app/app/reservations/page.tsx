@@ -1,8 +1,11 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { PhoneInput } from '@/components/PhoneInput';
+import { useTenantCountry } from '@/lib/useTenantCountry';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { AcademyButton } from '@/components/AcademyButton';
 import { toast } from '@/components/Toast';
 import {
   Reservation,
@@ -46,6 +49,7 @@ type DailyKpis = {
 
 export default function AgendaPage() {
   const t = useTranslations('app_reservations');
+  const country = useTenantCountry();
   const [date, setDate] = useState(todayISO());
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [kpis, setKpis] = useState<DailyKpis | null>(null);
@@ -95,6 +99,18 @@ export default function AgendaPage() {
   useEffect(() => {
     loadAll();
   }, [date, activeLocationId]);
+
+  // R1 (2026-08-01): default por sede. Multi-sede con todas las zonas asignadas
+  // → arranca en la primera sede (agenda por sede); si hay zonas sin sede →
+  // queda en "Todas". Una sola vez.
+  const didAutoSede = useRef(false);
+  useEffect(() => {
+    if (didAutoSede.current) return;
+    if (locations.length <= 1 || activeLocationId || zones.length === 0) return;
+    if (zones.some((z) => !z.locationId)) return;
+    didAutoSede.current = true;
+    setActiveLocationId(locations[0].id);
+  }, [locations, zones, activeLocationId]);
 
   const filtered = useMemo(() => {
     return reservations.filter((r) => {
@@ -239,6 +255,7 @@ export default function AgendaPage() {
               ))}
             </select>
           )}
+          <AcademyButton moduleKey="agenda" />
           <input
             type="search"
             value={search}
@@ -542,13 +559,14 @@ export default function AgendaPage() {
               value={newForm.customerName}
               onChange={(v) => setNewForm({ ...newForm, customerName: v })}
             />
-            <Input
-              label={t('fieldPhone')}
-              required
-              value={newForm.customerPhone}
-              onChange={(v) => setNewForm({ ...newForm, customerPhone: v })}
-              placeholder="+52 55 0000 0000"
-            />
+            <div>
+              <label className="label">{t('fieldPhone')}</label>
+              <PhoneInput
+                value={newForm.customerPhone}
+                onChange={(v) => setNewForm({ ...newForm, customerPhone: v })}
+                defaultCountry={country}
+              />
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <NumberInput
                 label={t('fieldPax')}

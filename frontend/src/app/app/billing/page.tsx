@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api, clearSession } from '@/lib/api';
+import { useHidesPurchases } from '@/lib/native';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { ConstructionBadge } from '@/components/UnderConstruction';
@@ -42,6 +43,9 @@ type Status = {
   trialEndsAt: string | null;
   currentPeriodEnd: string | null;
   isActiveAccess: boolean;
+  // Prueba PAGA (tarjeta anclada, ej. 7 días de Sellea): en TRIAL pero con cobro
+  // automático al terminar. NO es la prueba gratis ("Esperando pago").
+  paidTrial?: boolean;
 };
 
 const STATUS_LABELS: Record<Status['status'], { text: string; bg: string; ring: string }> = {
@@ -56,8 +60,17 @@ const STATUS_LABELS: Record<Status['status'], { text: string; bg: string; ring: 
 export default function BillingPage() {
   const t = useTranslations('app_billing');
   const router = useRouter();
+  // iOS: sin CTA de compra. Apple exige su compra in-app para vender la
+  // suscripción dentro de la app (guideline 3.1.1) — el plan se activa
+  // desde el navegador. Cancelar y ver el estado sí se quedan.
+  const sinCompras = useHidesPurchases();
   const [s, setS] = useState<Status | null>(null);
   const [tenant, setTenant] = useState<any>(null);
+  // Marca que el fetch de /tenants/me YA terminó (con éxito o error). Sin esto,
+  // gatear el render con `!tenant` colgaría la página para siempre si el endpoint
+  // falla (el .catch deja tenant en null). Con el flag: si falla, renderizamos
+  // igual (el panel full es null-safe con tenant?.).
+  const [tenantLoaded, setTenantLoaded] = useState(false);
   const [hotmartConfigured, setHotmartConfigured] = useState(false);
   const [activating, setActivating] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -69,7 +82,10 @@ export default function BillingPage() {
 
   useEffect(() => {
     api<Status>('/billing/status').then(setS).catch(() => null);
-    api<any>('/tenants/me').then(setTenant).catch(() => null);
+    api<any>('/tenants/me')
+      .then(setTenant)
+      .catch(() => null)
+      .finally(() => setTenantLoaded(true));
     api<{ configured: boolean }>('/billing/hotmart/config')
       .then((r) => setHotmartConfigured(!!r?.configured))
       .catch(() => setHotmartConfigured(false));
@@ -123,6 +139,24 @@ export default function BillingPage() {
   }
 
   if (!s) return <div className="text-mute">{t('loading')}</div>;
+  // Esperamos a que /tenants/me TERMINE (éxito o error): sin saber el tipo de
+  // negocio, pintar el panel full por un instante mostraría info errada al
+  // InfoLink. Si el fetch falló (tenant null pero cargado), cae al panel full
+  // null-safe en vez de colgarse.
+  if (!tenantLoaded) return <div className="text-mute">{t('loading')}</div>;
+
+  // Negocios "Solo InfoLink" (freemium Sellea): su panel es Gratis/PRO, NO el de
+  // la suscripción COMPLETA ($80, Pedidos ilimitados, Wallet…). Mostrarles ese
+  // panel era información errada (reporte del dueño 2026-09-02). Panel propio:
+  if (tenant?.businessType === 'INFOLINK') {
+    return (
+      <InfolinkSubscriptionPanel
+        tenant={tenant}
+        currentPeriodEnd={s.currentPeriodEnd}
+        sinCompras={sinCompras}
+      />
+    );
+  }
 
   const meta = STATUS_LABELS[s.status];
 
@@ -158,6 +192,17 @@ export default function BillingPage() {
     hasPlan && isPlaceholderPlan
       ? `Suscripción · ${periodLabel(periodicity)}`
       : formatPlanLabel(planName, periodicity);
+  // Precio del ciclo: precio REAL de la marca del negocio (Sellea 80/799) desde
+  // tenant.brandPlans (/tenants/me) — host-independiente; fallback al genérico.
+  const planPriceUsd = (() => {
+    const p = periodicity ?? 'MENSUAL';
+    const brandPrice = (tenant?.brandPlans as { periodicity: string; amountUsd: number | null }[] | undefined)?.find(
+      (bp) => bp.periodicity === p,
+    )?.amountUsd;
+    return brandPrice && brandPrice > 0
+      ? brandPrice
+      : periodTotalUsd(p, Number(tenant?.plan?.priceMonthly ?? 0));
+  })();
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -180,12 +225,14 @@ export default function BillingPage() {
           <div>
             <div className="flex items-center gap-2">
               <span className={`text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full ${meta.bg}`}>
-                {t(`badge_${s.status}`)}
+                {s.paidTrial ? 'En prueba' : t(`badge_${s.status}`)}
               </span>
             </div>
             <div className="mt-3 text-3xl font-bold">
               {s.status === 'TRIAL'
-                ? t('statusTrial')
+                ? s.paidTrial
+                  ? 'Prueba activa'
+                  : t('statusTrial')
                 : s.status === 'ACTIVE'
                 ? statusActiveText
                 : s.status === 'EXPIRED'
@@ -197,9 +244,33 @@ export default function BillingPage() {
                 : t('statusNone')}
             </div>
             {s.status === 'TRIAL' && (
-              <div className="text-sm text-mute mt-1">
-                {t('completePaymentHotmart')}
-              </div>
+              // Prueba paga (Sellea): la tarjeta ya está anclada; el cobro llega
+              // solo al terminar la prueba. No se le pide "completar el pago".
+              s.paidTrial ? (
+                <div className="text-sm text-mute mt-1">
+                  {s.trialEndsAt ? (
+                    <>
+                      Primer cobro el{' '}
+                      <span className="font-medium text-ink">
+                        {new Date(s.trialEndsAt).toLocaleDateString('es-CO', {
+                          day: 'numeric',
+                          month: 'long',
+                          year: 'numeric',
+                        })}
+                      </span>
+                      {typeof s.daysLeftInTrial === 'number'
+                        ? ` (en ${s.daysLeftInTrial} ${s.daysLeftInTrial === 1 ? 'día' : 'días'}).`
+                        : '.'}
+                    </>
+                  ) : (
+                    'Tu prueba está activa.'
+                  )}
+                </div>
+              ) : (
+                <div className="text-sm text-mute mt-1">
+                  {t('completePaymentHotmart')}
+                </div>
+              )
             )}
             {s.status === 'ACTIVE' && s.currentPeriodEnd && (
               <div className="text-sm text-mute mt-1">
@@ -222,11 +293,7 @@ export default function BillingPage() {
               {planLabel}
             </div>
             <div className="text-sm text-mute mt-0.5">
-              USD{' '}
-              {periodTotalUsd(
-                tenant?.planPeriodicity as PlanPeriodicity | null,
-                Number(tenant?.plan?.priceMonthly ?? 0),
-              )}
+              USD {planPriceUsd}
               {periodCadence(tenant?.planPeriodicity as PlanPeriodicity | null)}
             </div>
             <div className="text-xs text-mute">
@@ -237,8 +304,21 @@ export default function BillingPage() {
 
       </div>
 
-      {/* CTA principal */}
-      {(s.status === 'TRIAL' || s.status === 'EXPIRED' || s.status === 'PAST_DUE') && (
+      {/* CTA principal — NO en prueba paga: la tarjeta ya está anclada y el
+          cobro es automático, así que no se le pide "activar/pagar". */}
+      {sinCompras && ((s.status === 'TRIAL' && !s.paidTrial) || s.status === 'EXPIRED' || s.status === 'PAST_DUE') && (
+        <div className="card card-pad mt-4">
+          <div className="font-bold text-lg">
+            {s.status === 'TRIAL' ? 'Activa tu suscripción' : 'Activa tu cuenta'}
+          </div>
+          <p className="text-sm text-mute mt-1.5 leading-relaxed">
+            La activación del plan se hace desde el panel web. Aquí puedes
+            seguir viendo el estado de tu cuenta y tus cobros.
+          </p>
+        </div>
+      )}
+
+      {!sinCompras && ((s.status === 'TRIAL' && !s.paidTrial) || s.status === 'EXPIRED' || s.status === 'PAST_DUE') && (
         <div className="card card-pad mt-4 bg-gradient-to-br from-brand-400 to-brand-700 text-white">
           <div className="flex items-start gap-4 flex-wrap">
             <div className="flex-1 min-w-0">
@@ -392,6 +472,146 @@ export default function BillingPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Panel de suscripción para negocios "Solo InfoLink" (freemium Sellea) ──────
+// Reemplaza el panel de suscripción COMPLETA cuando el negocio es INFOLINK: no
+// paga los $80 del Completo. Gratis = sin vencimiento; PRO = $14.99/mes con
+// upgrade al Payment Link INFOLINK_PRO de la marca.
+function InfolinkSubscriptionPanel({
+  tenant,
+  currentPeriodEnd,
+  sinCompras,
+}: {
+  tenant: any;
+  currentPeriodEnd: string | null;
+  sinCompras: boolean;
+}) {
+  const isPro = tenant?.infolinkTier === 'PRO';
+  const proLink = (tenant?.whiteLabel?.paymentLinks as any[] | undefined)?.find(
+    (l) => l?.productKey === 'INFOLINK_PRO',
+  );
+  const proUrl: string | null = proLink?.url ?? null;
+  const proPrice = proLink?.amountUsd != null ? Number(proLink.amountUsd) : 14.99;
+
+  const FREE_FEATURES = [
+    '1 InfoLink personalizado',
+    'Hasta 5 botones',
+    'Redes sociales + WhatsApp',
+    'Plantillas y colores básicos',
+    'Estadísticas esenciales',
+  ];
+  const PRO_FEATURES = [
+    'Botones ilimitados',
+    'Sin publicidad de Sellea',
+    'Todas las plantillas y fondos',
+    'Colores personalizados',
+    'Analítica avanzada',
+  ];
+  const features = isPro ? PRO_FEATURES : FREE_FEATURES;
+
+  const brandWaDigits = (tenant?.brandSupportWhatsApp || '').replace(/[^0-9]/g, '');
+  const supportWaHref = `https://wa.me/${brandWaDigits || CLUBIFY_SUPPORT_WA}`;
+  const supportEmail = tenant?.brandContactEmail || CLUBIFY_SUPPORT_EMAIL;
+
+  const nextChargeDate =
+    isPro && currentPeriodEnd
+      ? new Date(currentPeriodEnd).toLocaleDateString('es-CO', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })
+      : null;
+
+  return (
+    <div className="max-w-3xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight">Tu plan InfoLink</h1>
+        <p className="text-mute mt-1">Estado de tu InfoLink y opciones para mejorar.</p>
+      </div>
+
+      <div className="card card-pad ring-1 ring-line">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <span
+              className={`text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full ${
+                isPro ? 'bg-brand-soft text-brand-700' : 'bg-ok-soft text-ok'
+              }`}
+            >
+              {isPro ? 'InfoLink PRO' : 'Plan Gratis'}
+            </span>
+            <div className="mt-3 text-3xl font-bold">{isPro ? `$${proPrice} USD` : '$0'}</div>
+            <div className="text-sm text-mute mt-1">
+              {isPro ? (
+                nextChargeDate ? (
+                  <>
+                    Próximo cobro <span className="font-medium text-ink">{nextChargeDate}</span>
+                  </>
+                ) : (
+                  'Facturación mensual'
+                )
+              ) : (
+                'Gratis · sin fecha de vencimiento'
+              )}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs uppercase tracking-wider text-mute font-semibold">Plan actual</div>
+            <div className="text-lg font-semibold mt-1">{isPro ? 'InfoLink PRO' : 'InfoLink Gratis'}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Upgrade a PRO — solo en plan Gratis, con Payment Link configurado, y NO
+          en iOS (Apple exige compra in-app). */}
+      {!isPro && proUrl && !sinCompras && (
+        <a
+          href={proUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="no-underline mt-4 flex items-center gap-3 rounded-2xl px-4 py-3"
+          style={{ background: 'linear-gradient(120deg,#FF4D3D,#E63521)', color: '#fff' }}
+        >
+          <span style={{ fontSize: 22 }}>⚡</span>
+          <span className="flex-1">
+            <b className="text-[15px]">Mejora tu InfoLink a PRO</b>
+            <span className="block text-[12.5px]" style={{ color: 'rgba(255,255,255,.85)' }}>
+              Botones ilimitados, sin publicidad, todas las plantillas y analítica avanzada.
+            </span>
+          </span>
+          <span
+            className="font-extrabold text-[13px] whitespace-nowrap flex-none rounded-full px-4 py-2"
+            style={{ background: '#fff', color: '#E63521' }}
+          >
+            Mejorar · ${proPrice}/mes →
+          </span>
+        </a>
+      )}
+
+      <div className="card card-pad mt-4">
+        <h3 className="font-semibold m-0 mb-3">Tu {isPro ? 'plan PRO' : 'plan Gratis'} incluye</h3>
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5 list-none p-0 m-0">
+          {features.map((f) => (
+            <li key={f} className="flex items-start gap-2 text-sm">
+              <span className="text-ok font-bold flex-none">✓</span> {f}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="text-sm text-mute mt-6 text-center">
+        ¿Dudas? Escríbenos por{' '}
+        <a href={supportWaHref} target="_blank" rel="noreferrer" className="text-brand hover:underline">
+          WhatsApp
+        </a>{' '}
+        o{' '}
+        <a href={`mailto:${supportEmail}`} className="text-brand hover:underline">
+          email
+        </a>
+        .
+      </div>
     </div>
   );
 }

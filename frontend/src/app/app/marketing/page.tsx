@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Icon } from '@/components/Icon';
+import { AcademyButton } from '@/components/AcademyButton';
 import { ConstructionBadge } from '@/components/UnderConstruction';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
@@ -178,6 +179,7 @@ export default function MarketingHub() {
     <div>
       <div className="page-head">
         <h1 className="page-title">{t('pageTitle')}</h1>
+        <AcademyButton moduleKey="qr" />
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-6 leading-relaxed">

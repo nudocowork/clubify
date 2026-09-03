@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { cleanDomain } from '@/lib/public-domain';
+import { AcademyButton } from '@/components/AcademyButton';
 import { toast } from '@/components/Toast';
 import { fmtLongDate, todayISO, to12h } from '../_shared';
 
@@ -11,6 +13,8 @@ type Tenant = {
   brandName?: string;
   // Dominio público de la marca del negocio (ej. selleala.com). Null = Clubify.
   brandPublicDomain?: string | null;
+  // Dominio propio del negocio (ej. birrialeon.com). Tiene prioridad. PDF 2026-07-25.
+  customDomain?: string | null;
 };
 
 export default function ReservaOnlinePage() {
@@ -23,11 +27,14 @@ export default function ReservaOnlinePage() {
       .catch(() => null);
   }, []);
 
-  // La URL pública de reservas usa el dominio de la marca (selleala.com), no
-  // soyclubify.com. Sin marca (Clubify) → soyclubify.com.
-  const publicDomain = (tenant?.brandPublicDomain || 'soyclubify.com')
-    .replace(/^https?:\/\//, '')
-    .replace(/\/$/, '');
+  // La URL pública de reservas usa el dominio PROPIO del negocio si lo tiene
+  // (birrialeon.com), luego el PÚBLICO de la marca (selleala.com), y por último
+  // soyclubify.com. Mantiene el orden histórico (público de marca), anteponiendo
+  // el customDomain.
+  const publicDomain =
+    cleanDomain(tenant?.customDomain) ||
+    cleanDomain(tenant?.brandPublicDomain) ||
+    'soyclubify.com';
   const publicUrl = tenant?.slug
     ? `https://${publicDomain}/reserva/${tenant.slug}`
     : '';
@@ -44,9 +51,12 @@ export default function ReservaOnlinePage() {
     <div>
       <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
         <div>
-          <h1 className="page-title m-0">
-            {t('pageTitle')} <span className="page-crumb text-mute font-normal">/ {fmtLongDate(todayISO())}</span>
-          </h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="page-title m-0">
+              {t('pageTitle')} <span className="page-crumb text-mute font-normal">/ {fmtLongDate(todayISO())}</span>
+            </h1>
+            <AcademyButton moduleKey="reservas-online" />
+          </div>
           <p className="text-xs text-mute mt-1">{t('subtitle')}</p>
         </div>
         <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ok-soft text-ok-ink text-xs font-semibold">
@@ -107,6 +117,9 @@ export default function ReservaOnlinePage() {
 
           {/* Configuración de horarios disponibles */}
           <SlotsConfigCard />
+
+          {/* Días habilitados + observaciones para las reservas */}
+          <BookingRulesCard />
 
           <div className="card card-pad mt-6 max-w-md">
             <div className="flex items-start gap-3">
@@ -392,6 +405,122 @@ function SlotsConfigCard() {
 
       <button onClick={save} disabled={busy} className="btn-primary w-full justify-center text-sm">
         {busy ? t('saving') : t('saveSlots')}
+      </button>
+    </div>
+  );
+}
+
+// Orden de display Lun→Dom; el número es JS getDay() (0=Dom..6=Sáb) que se
+// persiste en Tenant.reservationDays.
+const WEEKDAYS: { n: number; key: string }[] = [
+  { n: 1, key: 'wdMon' },
+  { n: 2, key: 'wdTue' },
+  { n: 3, key: 'wdWed' },
+  { n: 4, key: 'wdThu' },
+  { n: 5, key: 'wdFri' },
+  { n: 6, key: 'wdSat' },
+  { n: 0, key: 'wdSun' },
+];
+
+function BookingRulesCard() {
+  const t = useTranslations('app_reservations_online');
+  const [days, setDays] = useState<number[]>([]);
+  const [terms, setTerms] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api<{ days: number[]; terms: string | null }>(`/reservations/config/booking`)
+      .then((d) => {
+        // Vacío en backend = todos los días abiertos. En la UI mostramos los 7
+        // activos para que el negocio deseleccione los que cierra.
+        setDays(d.days && d.days.length > 0 ? d.days : [0, 1, 2, 3, 4, 5, 6]);
+        setTerms(d.terms ?? '');
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  function toggleDay(n: number) {
+    setDays((prev) => (prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n]));
+  }
+
+  async function save() {
+    if (days.length === 0) {
+      toast(t('daysAllWarning'), 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api(`/reservations/config/booking`, {
+        method: 'PATCH',
+        body: JSON.stringify({ days, terms: terms.trim() || null }),
+      });
+      toast(t('toastBookingSaved'), 'success');
+    } catch (e: any) {
+      toast(e.message || t('toastCouldNotSave'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!loaded) {
+    return (
+      <div className="card card-pad mt-6 max-w-md">
+        <div className="text-sm text-mute">{t('loadingSlots')}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card card-pad mt-6 max-w-md">
+      <div className="flex items-start gap-3 mb-3">
+        <div className="w-12 h-12 rounded-xl bg-ok-soft text-ok-ink flex items-center justify-center shrink-0">
+          <span className="text-xl">📅</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-sm">{t('bookingRulesTitle')}</div>
+          <div className="text-xs text-mute leading-snug mt-0.5">
+            {t('bookingRulesDesc')}
+          </div>
+        </div>
+      </div>
+
+      {/* Días habilitados */}
+      <div className="text-xs font-semibold mb-2">{t('daysLabel')}</div>
+      <div className="flex gap-1.5 flex-wrap mb-1.5">
+        {WEEKDAYS.map(({ n, key }) => {
+          const active = days.includes(n);
+          return (
+            <button
+              key={n}
+              onClick={() => toggleDay(n)}
+              className={`text-[11px] font-bold w-11 py-2 rounded-lg border transition ${
+                active
+                  ? 'bg-ok text-white border-ok'
+                  : 'bg-white border-line text-mute hover:text-ink'
+              }`}
+            >
+              {t(key)}
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[11px] text-mute mb-4">{t('daysHint')}</p>
+
+      {/* Observaciones para las reservas */}
+      <div className="text-xs font-semibold mb-1">{t('observationsLabel')}</div>
+      <p className="text-[11px] text-mute mb-2 leading-snug">{t('observationsDesc')}</p>
+      <textarea
+        className="input mb-3 leading-relaxed"
+        rows={7}
+        value={terms}
+        onChange={(e) => setTerms(e.target.value)}
+        placeholder={t('observationsPlaceholder')}
+      />
+
+      <button onClick={save} disabled={busy} className="btn-primary w-full justify-center text-sm">
+        {busy ? t('saving') : t('saveBookingRules')}
       </button>
     </div>
   );

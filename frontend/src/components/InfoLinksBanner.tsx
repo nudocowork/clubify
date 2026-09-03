@@ -1,8 +1,9 @@
 /* eslint-disable @next/next/no-img-element */
 // Banner promocional del feature InfoLinks: dos iPhones tilted con
-// capturas reales (iframes scaled) de menús creados con Clubify
-// (Nudo Cowork + Motilart). Botón "Ver ejemplo →" debajo de cada
-// uno abre el link público real en una nueva pestaña.
+// capturas reales (iframes scaled) de INFOLINKS creados con Clubify
+// (Nudo Cowork + Motilart) — la mini-página estilo Linktree, no el menú.
+// Botón "Ver ejemplo →" debajo de cada uno abre el InfoLink público real
+// en una nueva pestaña.
 
 import Link from 'next/link';
 
@@ -100,24 +101,27 @@ const CLUBIFY_DEMOS: InfolinkDemo[] = [
     rotate: -8,
     floatDelay: 0,
     brandName: 'Nudo Cowork',
-    demoHref: 'https://soyclubify.com/m/nudocowork?mesa=1',
-    title: 'Menú de Nudo Cowork',
+    demoHref: 'https://soyclubify.com/i/nudocowork/mi-nuevo-link-4',
+    title: 'InfoLink de Nudo Cowork',
   },
   {
     rotate: 8,
     floatDelay: 1,
     brandName: 'Motilart',
-    demoHref: 'https://soyclubify.com/m/motilart?mesa=1',
-    title: 'Menú de Motilart',
+    demoHref: 'https://soyclubify.com/i/motilart/mi-nuevo-link-1',
+    title: 'InfoLink de Motilart',
   },
 ];
 
 export function InfoLinksBanner({
   demos = CLUBIFY_DEMOS,
+  hideCtas,
 }: {
   /** Menús de ejemplo (iPhones). Default = clientes de Clubify. Una marca
    *  blanca debe pasar los suyos o `[]` para no mostrar dominios ajenos. */
   demos?: InfolinkDemo[];
+  /** Oculta el CTA "Ver planes y comenzar" (clon de /informacion). Default false. */
+  hideCtas?: boolean;
 } = {}) {
   const showDemos = demos.length > 0;
   return (
@@ -149,6 +153,7 @@ export function InfoLinksBanner({
               de fidelización — todo en un solo lugar.
             </p>
 
+            {!hideCtas && (
             <div className="flex justify-center lg:justify-start mt-6 sm:mt-8">
               <Link
                 href="#precios"
@@ -157,6 +162,7 @@ export function InfoLinksBanner({
                 Ver planes y comenzar
               </Link>
             </div>
+            )}
           </div>
 
           {/* Columna derecha: iPhones tilted con infolinks reales. Cada phone
@@ -234,7 +240,7 @@ function InfolinkCard({
         target="_blank"
         rel="noreferrer"
         className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-ink hover:text-brand transition"
-        title={`Abrir el menú real de ${brandName}`}
+        title={`Abrir el InfoLink real de ${brandName}`}
       >
         <span className="text-mute font-medium">{brandName}</span>
         <span className="text-brand">· Ver ejemplo →</span>

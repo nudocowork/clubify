@@ -6,6 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
+import {
+  brandAppUrl,
+  BRAND_DOMAIN_SELECT,
+} from '../email/brand-email-creds.util';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
@@ -28,6 +33,7 @@ export class ReviewsService {
   private readonly log = new Logger(ReviewsService.name);
 
   constructor(
+    private brands: WhitelabelBrandService,
     private prisma: PrismaService,
     private growBusiness: GrowBusinessService,
   ) {}
@@ -87,8 +93,15 @@ export class ReviewsService {
       }
     }
 
+    // Marca del negocio para el pie de la página. La ve el CLIENTE FINAL: un
+    // «Powered by Clubify» en la página de reseñas de un negocio Sellea delata
+    // la plataforma delante del cliente de otro. Se resuelve desde
+    // `tenant.whiteLabelId`, nunca desde una constante.
+    const brand = await this.brands.resolveTenant(t.id).catch(() => null);
+
     return {
       ...t,
+      brand,
       // Si hay target activo, sus valores ganan sobre los del tenant.
       googleReviewUrl: target?.googleReviewUrl ?? t.googleReviewUrl,
       threshold: target?.threshold ?? 4,
@@ -182,7 +195,9 @@ export class ReviewsService {
         whiteLabelId: true,
         brandName: true,
         slug: true,
-        whiteLabel: { select: { name: true, ...BRAND_GROW_SELECT } },
+        whiteLabel: {
+          select: { name: true, ...BRAND_GROW_SELECT, ...BRAND_DOMAIN_SELECT },
+        },
         phone: true,
         whatsappPhone: true,
         reviewAlertsEnabled: true,
@@ -309,7 +324,14 @@ export class ReviewsService {
         tenant.whiteLabelId,
       )) ||
       DEFAULT_REVIEW_ALERT_TEMPLATE;
-    const feedbackUrl = `https://app.soyclubify.com/app/reviews?focus=${feedback.id}`;
+    // El enlace va al panel de SU marca. Estaba escrito a mano con
+    // `app.soyclubify.com`: el texto decía «Revisar en Sellea» y el enlace era
+    // de Clubify, y WhatsApp pinta la vista previa del dominio — al dueño de un
+    // negocio Sellea le llegaba una tarjeta con el logo de Clubify.
+    const feedbackUrl = `${brandAppUrl(
+      tenant.whiteLabel,
+      process.env.APP_URL ?? 'https://app.soyclubify.com',
+    )}/app/reviews?focus=${feedback.id}`;
     const body = renderTemplate(template, {
       platform: tenant.whiteLabel?.name?.trim() || 'Clubify',
       businessName: tenant.brandName || tenant.slug,

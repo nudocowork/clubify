@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Logger, Param, Post, Query, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
-import { IsEmail, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { PassesService } from './passes.service';
 import { WalletService } from '../wallet/wallet.service';
 import { QueueService } from '../jobs/queue.service';
@@ -31,6 +31,10 @@ class EnrollBody {
   // Si vino el cliente vía un link UTM (/c/u/{slug}), aplicamos el bonus
   // de bienvenida configurado por el dueño.
   @IsOptional() @IsString() utmSlug?: string;
+  // PDF Software(8): el cliente marcó "Acepto las políticas de tratamiento de
+  // datos". Opcional (la casilla no bloquea el registro). Si true, guardamos
+  // evidencia (fecha + URL del documento) en el Pass.
+  @IsOptional() @IsBoolean() dataPolicyAccepted?: boolean;
 }
 
 @Controller('passes')
@@ -78,6 +82,8 @@ export class PassesController {
         description: true,
         rewardText: true,
         terms: true,
+        // PDF Software(8): la tarjeta muestra la casilla de políticas de datos.
+        dataPolicyEnabled: true,
         primaryColor: true,
         secondaryColor: true,
         stampsRequired: true,
@@ -89,6 +95,9 @@ export class PassesController {
             primaryColor: true,
             slug: true,
             status: true,
+            // PDF Software(8): documento propio del negocio (o null → default
+            // /legal/privacy en el frontend). El enlace de la casilla lo usa.
+            dataPolicyUrl: true,
             // País del negocio → el formulario de registro prefija el
             // código telefónico del país correcto (no siempre +57).
             country: true,

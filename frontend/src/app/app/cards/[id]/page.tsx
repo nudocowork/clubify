@@ -11,6 +11,7 @@ import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
 import { ImageUploader } from '@/components/ImageUploader';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
+import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 
 type CardType =
@@ -33,12 +34,18 @@ type Card = {
   rewardText: string;
   terms: string;
   termsEnabled?: boolean;
+  // PDF Software(8): casilla de políticas de datos en el registro público.
+  dataPolicyEnabled?: boolean;
   primaryColor: string;
   secondaryColor: string;
   stampActiveColor?: string | null;
   stampInactiveColor?: string | null;
   stampContourColor?: string | null;
   centerBgColor?: string | null;
+  logoBgColor?: string | null;
+  stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
+  stampBgImageUrl?: string | null;
+  stampIconImageUrl?: string | null;
   stampsRequired: number | null;
   stampIcon?: string;
   heroImageUrl?: string | null;
@@ -57,6 +64,7 @@ type Card = {
   stampEarnedMessage?: string;
   rewardEarnedMessage?: string;
   multiRewards?: Array<{ at: number; reward: string }>;
+  freeRewards?: FreeReward[];
   activeLinks?: Array<{ type: string; url: string; label: string }>;
   utmLinks?: Array<{
     id: string;
@@ -75,6 +83,8 @@ type TenantInfo = {
   brandName?: string;
   walletLogoUrl?: string | null;
   logoUrl?: string | null;
+  // Wallet V3 — permisos "Wallet Avanzado" de la marca (gating de funciones).
+  walletAdvanced?: Record<string, boolean>;
 };
 
 type Customer = {
@@ -390,6 +400,12 @@ export default function CardDetail() {
               stampInactiveColor={card.stampInactiveColor}
               stampContourColor={card.stampContourColor}
               centerBgColor={card.centerBgColor}
+              logoBgColor={card.logoBgColor}
+              stampBgType={card.stampBgType}
+              stampBgImageUrl={card.stampBgImageUrl}
+              stampIconImageUrl={card.stampIconImageUrl}
+              freeRewards={card.freeRewards}
+              showNextReward={tenant?.walletAdvanced?.showNextReward !== false}
               rewardText={card.rewardText}
             />
           </div>
@@ -631,6 +647,9 @@ export default function CardDetail() {
       {editing && (
         <EditCardModal
           card={card}
+          allowCustomBg={tenant?.walletAdvanced?.customBackgrounds !== false}
+          allowFreeRewards={tenant?.walletAdvanced?.freeRewards !== false}
+          showNextReward={tenant?.walletAdvanced?.showNextReward !== false}
           onClose={() => setEditing(false)}
           onSaved={() => {
             setEditing(false);
@@ -887,10 +906,16 @@ function ToggleActiveButton({
 
 function EditCardModal({
   card,
+  allowCustomBg,
+  allowFreeRewards,
+  showNextReward,
   onClose,
   onSaved,
 }: {
   card: Card;
+  allowCustomBg: boolean;
+  allowFreeRewards: boolean;
+  showNextReward: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -904,12 +929,18 @@ function EditCardModal({
     rewardText: card.rewardText ?? '',
     terms: card.terms ?? '',
     termsEnabled: card.termsEnabled ?? true,
+    dataPolicyEnabled: card.dataPolicyEnabled ?? true,
     primaryColor: card.primaryColor,
     secondaryColor: card.secondaryColor,
     stampActiveColor: card.stampActiveColor ?? (null as string | null),
     stampInactiveColor: card.stampInactiveColor ?? (null as string | null),
     stampContourColor: card.stampContourColor ?? (null as string | null),
     centerBgColor: card.centerBgColor ?? (null as string | null),
+    logoBgColor: card.logoBgColor ?? (null as string | null),
+    stampBgType: (card.stampBgType ?? 'GRADIENT') as 'GRADIENT' | 'SOLID' | 'IMAGE',
+    stampBgImageUrl: card.stampBgImageUrl ?? (null as string | null),
+    stampIconImageUrl: card.stampIconImageUrl ?? (null as string | null),
+    freeRewards: (card.freeRewards ?? []) as FreeReward[],
     stampsRequired: card.stampsRequired ?? 10,
     minAmountPerStamp:
       card.minAmountPerStamp == null
@@ -931,6 +962,13 @@ function EditCardModal({
     rewardEarnedMessage: card.rewardEarnedMessage ?? '',
     multiRewards: card.multiRewards ?? [],
     activeLinks: card.activeLinks ?? [],
+    // COUPON/DISCOUNT/GIFT: tarjeta de sellos destino a la que se transforma el
+    // cupón al redimirse. null = auto (primera tarjeta de sellos activa).
+    transformIntoCardId: (card as any).transformIntoCardId ?? (null as string | null),
+    // false = el cupón no se convierte en nada: se canjea y queda usado.
+    // Los cupones anteriores a este campo vienen en true, que es lo que el
+    // sistema hacía siempre.
+    transformOnRedeem: (card as any).transformOnRedeem !== false,
   });
   // Buffer raw del input de multiRewards: el array `form.multiRewards`
   // solo guarda entradas válidas (at>0 + reward no vacío), pero mientras
@@ -957,6 +995,26 @@ function EditCardModal({
       .catch(() => {});
   }, []);
 
+  // Cupones (COUPON/DISCOUNT/GIFT): opciones de tarjeta de sellos destino para
+  // el selector "Al redimirse, transformar en:".
+  const isCouponType =
+    card.type === 'COUPON' || card.type === 'DISCOUNT' || card.type === 'GIFT';
+  const [stampsCardOptions, setStampsCardOptions] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
+  useEffect(() => {
+    if (!isCouponType) return;
+    api<Array<{ id: string; name: string; type: string; isActive: boolean }>>('/cards')
+      .then((all) =>
+        setStampsCardOptions(
+          (all ?? [])
+            .filter((c) => c.type === 'STAMPS' && c.isActive)
+            .map((c) => ({ id: c.id, name: c.name })),
+        ),
+      )
+      .catch(() => setStampsCardOptions([]));
+  }, [isCouponType]);
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -970,12 +1028,17 @@ function EditCardModal({
         rewardText: form.rewardText,
         terms: form.terms,
         termsEnabled: form.termsEnabled,
+        dataPolicyEnabled: form.dataPolicyEnabled,
         primaryColor: form.primaryColor,
         secondaryColor: form.secondaryColor,
         stampActiveColor: form.stampActiveColor,
         stampInactiveColor: form.stampInactiveColor,
         stampContourColor: form.stampContourColor,
         centerBgColor: form.centerBgColor,
+        logoBgColor: form.logoBgColor,
+        stampBgType: form.stampBgType,
+        stampBgImageUrl: form.stampBgType === 'IMAGE' ? form.stampBgImageUrl : null,
+        freeRewards: form.freeRewards,
         validUntil: form.validUntil,
         validDaysAfterIssue: form.validDaysAfterIssue,
         locationId: form.locationId,
@@ -991,10 +1054,15 @@ function EditCardModal({
       if (card.type === 'STAMPS') {
         payload.stampsRequired = form.stampsRequired;
         payload.stampIcon = form.stampIcon;
+        payload.stampIconImageUrl = form.stampIconImageUrl || null;
         payload.minAmountPerStamp = form.minAmountPerStamp;
       }
       if (card.type === 'DISCOUNT') payload.discountPercent = form.discountPercent;
       if (card.type === 'POINTS') payload.pointsPerCurrency = form.pointsPerCurrency;
+      if (isCouponType) {
+        payload.transformIntoCardId = form.transformIntoCardId;
+        payload.transformOnRedeem = form.transformOnRedeem;
+      }
       await api(`/cards/${card.id}`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
@@ -1165,6 +1233,8 @@ function EditCardModal({
                 <StampIconPicker
                   value={form.stampIcon}
                   onSelect={(icon) => setForm({ ...form, stampIcon: icon })}
+                  imageUrl={form.stampIconImageUrl}
+                  onImageChange={(url) => setForm({ ...form, stampIconImageUrl: url })}
                 />
               </div>
               <div>
@@ -1230,6 +1300,47 @@ function EditCardModal({
                   setForm({ ...form, discountPercent: Number(e.target.value) })
                 }
               />
+            </div>
+          )}
+
+          {isCouponType && (
+            <div className="mt-1 pt-3 border-t border-line">
+              <label className="label">
+                {t('transformInto')}{' '}
+                <span className="text-mute font-normal">{t('targetStampsCard')}</span>
+              </label>
+              {/* Tres estados, no dos: `transformIntoCardId = null` ya
+                  significa "auto", así que "a ninguna" necesita su propio
+                  valor (`transformOnRedeem` en el backend). */}
+              <select
+                className="input"
+                value={
+                  !form.transformOnRedeem
+                    ? '__none__'
+                    : (form.transformIntoCardId ?? '')
+                }
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setForm({
+                    ...form,
+                    transformIntoCardId: v === '__none__' ? null : v || null,
+                    transformOnRedeem: v !== '__none__',
+                  });
+                }}
+              >
+                <option value="">{t('autoFirstStampsCard')}</option>
+                {stampsCardOptions.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+                <option value="__none__">{t('noTransform')}</option>
+              </select>
+              <div className="text-[11px] text-mute mt-1 leading-snug">
+                {!form.transformOnRedeem
+                  ? 'El cliente canjea el cupón y su tarjeta queda marcada como usada. No entra al programa de sellos ni se le crea ninguna tarjeta.'
+                  : t('transformHint')}
+              </div>
             </div>
           )}
 
@@ -1303,6 +1414,62 @@ function EditCardModal({
             </div>
           </div>
 
+          {/* Aviso honesto: Apple/Google Wallet no renderizan degradados en
+              el fondo del pase — que la config no prometa lo imposible. */}
+          <p className="text-[11px] text-mute leading-relaxed m-0">
+            {t('walletSolidBgNote')}
+          </p>
+          {/* Fondo/chip detrás del logo — da contraste a logos blancos o
+              transparentes que quedaban invisibles sobre la tarjeta y el
+              pase. Off por defecto (no cambia tarjetas existentes). */}
+          <div className="rounded-lg border border-line p-3">
+            <div className="flex items-center justify-between">
+              <label className="label m-0">Fondo detrás del logo</label>
+              <button
+                type="button"
+                onClick={() =>
+                  setForm({
+                    ...form,
+                    logoBgColor: form.logoBgColor ? null : '#FFFFFF',
+                  })
+                }
+                className="text-[11px] text-brand hover:underline"
+              >
+                {form.logoBgColor ? 'Quitar' : 'Activar'}
+              </button>
+            </div>
+            <div className="text-[11px] text-mute mt-0.5 leading-snug">
+              Si tu logo es blanco o se ve invisible, activá un fondo detrás.
+              Off = el logo va directo sobre el color de la tarjeta.
+            </div>
+            {form.logoBgColor && (
+              <div className="flex items-center gap-2 mt-2">
+                <input
+                  type="color"
+                  className="input h-9 p-1 w-16"
+                  value={form.logoBgColor}
+                  onChange={(e) =>
+                    setForm({ ...form, logoBgColor: e.target.value })
+                  }
+                />
+                <button
+                  type="button"
+                  className="text-[11px] px-2 py-1 rounded border border-line hover:bg-bg2/50"
+                  onClick={() => setForm({ ...form, logoBgColor: '#FFFFFF' })}
+                >
+                  Blanco
+                </button>
+                <button
+                  type="button"
+                  className="text-[11px] px-2 py-1 rounded border border-line hover:bg-bg2/50"
+                  onClick={() => setForm({ ...form, logoBgColor: '#111111' })}
+                >
+                  Oscuro
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={() => setShowAdvancedColors((v) => !v)}
@@ -1335,6 +1502,61 @@ function EditCardModal({
             </div>
           )}
 
+          {(card.type === 'STAMPS' || card.type === 'HYBRID' || card.type === 'VISITS') && (
+            <div className="pt-3 border-t border-line">
+              <label className="label">Fondo del área de sellos</label>
+              <div className="grid grid-cols-3 gap-2 mt-1">
+                {([
+                  { v: 'GRADIENT', label: 'Degradado', hint: 'Clásico' },
+                  { v: 'SOLID', label: 'Color sólido', hint: 'Uniforme' },
+                  ...(allowCustomBg
+                    ? [{ v: 'IMAGE', label: 'Imagen', hint: 'Personalizada' }]
+                    : []),
+                ] as const).map((o) => {
+                  const on = form.stampBgType === o.v;
+                  return (
+                    <button
+                      key={o.v}
+                      type="button"
+                      onClick={() => setForm({ ...form, stampBgType: o.v as any })}
+                      className={`rounded-lg px-2 py-2 text-center transition border-2 ${
+                        on ? 'border-brand bg-brand/10' : 'border-line bg-transparent'
+                      }`}
+                    >
+                      <div className={`text-xs font-semibold ${on ? 'text-brand' : 'text-ink'}`}>
+                        {o.label}
+                      </div>
+                      <div className="text-[10px] text-mute">{o.hint}</div>
+                    </button>
+                  );
+                })}
+              </div>
+              {form.stampBgType === 'IMAGE' && allowCustomBg && (
+                <div className="mt-3">
+                  <ImageUploader
+                    value={form.stampBgImageUrl}
+                    onChange={(url) => setForm({ ...form, stampBgImageUrl: url })}
+                    folder="card-stamp-bg"
+                  />
+                  <div className="text-[11px] text-mute mt-2 leading-relaxed">
+                    Resolución recomendada <b>1200×420 px</b> · PNG/JPG/WEBP · &lt;500 KB ·
+                    relación <b>20:7</b> · se recorta en modo <b>cubrir</b> (centrado), nunca
+                    se deforma ni se estira. Solo afecta el área de los sellos.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {allowFreeRewards &&
+            (card.type === 'STAMPS' || card.type === 'HYBRID' || card.type === 'VISITS') && (
+              <FreeRewardsEditor
+                value={form.freeRewards}
+                onChange={(v) => setForm({ ...form, freeRewards: v })}
+                maxPos={form.stampsRequired}
+              />
+            )}
+
           <div className="pt-3 border-t border-line">
             <div className="flex items-center justify-between">
               <label className="label m-0">{t('termsAndConditions')}</label>
@@ -1365,6 +1587,28 @@ function EditCardModal({
                 {t('noTermsShown')}
               </div>
             )}
+          </div>
+
+          {/* PDF Software(8): toggle de la casilla de políticas de datos. */}
+          <div className="pt-3 border-t border-line">
+            <div className="flex items-center justify-between">
+              <label className="label m-0">{t('dataPolicyToggle')}</label>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, dataPolicyEnabled: !form.dataPolicyEnabled })}
+                className={`relative w-10 h-5 rounded-full transition ${
+                  form.dataPolicyEnabled ? 'bg-brand' : 'bg-bg2 border border-line'
+                }`}
+                aria-label={t('dataPolicyToggle')}
+              >
+                <span
+                  className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition ${
+                    form.dataPolicyEnabled ? 'left-[22px]' : 'left-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-xs text-mute mt-2">{t('dataPolicyToggleHint')}</p>
           </div>
 
           <div className="pt-3 border-t border-line">

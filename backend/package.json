@@ -12,7 +12,9 @@
     "lint": "eslint \"src/**/*.ts\" --fix",
     "test": "vitest run",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "node scripts/guard-db-target.cjs && prisma migrate dev",
+    "db:push": "node scripts/guard-db-target.cjs && prisma db push",
+    "db:target": "node scripts/guard-db-target.cjs"
   },
   "overrides": {
     "@scure/base": "1.2.6",

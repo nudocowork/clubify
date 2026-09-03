@@ -18,6 +18,8 @@ export type LocationDto = {
   // Sedes por estado: estado/región (llave de ruteo) + número de pedidos.
   state?: string;
   ordersWhatsappPhone?: string;
+  // Reservas por sede: si false, la sede no aparece en el flujo público de reservas.
+  reservationsEnabled?: boolean;
 };
 
 @Injectable()
@@ -121,6 +123,7 @@ export class LocationsService {
         adminPhone: dto.adminPhone?.trim() || null,
         state: dto.state?.trim() || null,
         ordersWhatsappPhone: dto.ordersWhatsappPhone?.trim() || null,
+        reservationsEnabled: dto.reservationsEnabled ?? true,
       },
     });
     // Nueva ubicación → los pases ya instalados deben recibir el geofence.

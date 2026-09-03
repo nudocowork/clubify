@@ -39,6 +39,15 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
       'Hola {ownerName} 👋 Te escribo para recordarte que en 7 días se renueva tu suscripción de {platform}. Verifica que tengas saldo disponible en tu tarjeta para que el pago pase sin problema 🙌 Cualquier cosa estoy aquí para ayudarte.',
   },
   {
+    id: 'payment_reminder_3d',
+    label: 'Recordatorio de cobro (3 días antes)',
+    description: 'Se envía 3 días antes de la renovación. Tono personal al dueño.',
+    vars: ['platform', 'ownerName'],
+    group: 'cliente',
+    default:
+      'Hola {ownerName} 👋 En 3 días se renueva tu suscripción de {platform}. Verifica que tu tarjeta tenga saldo para que el pago pase sin problema 🙌 Cualquier cosa, aquí estoy.',
+  },
+  {
     id: 'payment_reminder_tomorrow',
     label: 'Recordatorio de cobro (1 día antes)',
     description: 'Se envía 1 día antes de la renovación. Tono personal al dueño.',
@@ -63,6 +72,16 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
     vars: ['platform', 'brandName', 'nextChargeInfo'],
     group: 'cliente',
     default: '{platform}: Pago de {brandName} recibido.{nextChargeInfo} ¡Gracias!',
+  },
+  {
+    id: 'trial_started',
+    label: 'Prueba iniciada',
+    description:
+      'Se envía cuando un negocio ancla la tarjeta y entra a la prueba de 7 días (aún no se cobra). El primer cobro es al terminar la prueba.',
+    vars: ['platform', 'brandName', 'trialDays', 'chargeDate'],
+    group: 'cliente',
+    default:
+      '{platform}: Tu prueba de {brandName} está activa 🎉 En {trialDays} días ({chargeDate}) se te hace el primer cobro. ¡Gracias!',
   },
   {
     id: 'payment_failed',
@@ -129,10 +148,10 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
     label: 'Marca · Créditos acreditados',
     description:
       'Se envía a la marca blanca cuando se le acreditan créditos (compra Hotmart o asignación manual).',
-    vars: ['brandName', 'credits', 'available'],
+    vars: ['platform', 'brandName', 'credits', 'available'],
     group: 'marca',
     default:
-      'Clubify: Se acreditaron {credits} créditos a {brandName}. Saldo disponible: {available}.',
+      '{platform}: Se acreditaron {credits} créditos a {brandName}. Saldo disponible: {available}.',
   },
   {
     id: 'wl_credits_low',
@@ -143,6 +162,16 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
     group: 'marca',
     default:
       'Clubify: A {brandName} le quedan {available} créditos. Recarga para seguir activando negocios sin interrupción.',
+  },
+  {
+    id: 'wl_refund_window',
+    label: 'Marca · Ventana de reembolso por vencer',
+    description:
+      'Se envía a la marca blanca cuando un crédito consumido está por salir de la ventana de reembolso (queda ~1 día).',
+    vars: ['brandName', 'count'],
+    group: 'marca',
+    default:
+      'Clubify: {brandName} tiene {count} crédito(s) con reembolso por vencer (queda ~1 día). Reembolsalos desde el panel si el negocio no pagó.',
   },
   {
     id: 'wl_clients_pending',

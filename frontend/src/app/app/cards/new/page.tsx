@@ -8,6 +8,8 @@ import { StampIconPicker } from '@/components/StampIconPicker';
 import { CardExpiryPicker } from '@/components/CardExpiryPicker';
 import { ImageUploader } from '@/components/ImageUploader';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
+import { WalletStripRealPreview } from '@/components/WalletStripRealPreview';
+import { FreeRewardsEditor, type FreeReward } from '@/components/FreeRewardsEditor';
 import { WalletStylesGallery } from '@/components/WalletStylesGallery';
 import {
   CARD_TEMPLATES,
@@ -38,12 +40,19 @@ const FROM_SCRATCH_DEFAULTS = {
   description: '',
   terms: '',
   termsEnabled: true,
+  // PDF Software(8): casilla de políticas de datos en el registro. Default on.
+  dataPolicyEnabled: true,
   primaryColor: '#22C55E',
   secondaryColor: '#15803D',
   stampActiveColor: null as string | null,
   stampInactiveColor: null as string | null,
   stampContourColor: null as string | null,
   centerBgColor: null as string | null,
+  // Wallet V3 — tarjetas nuevas nacen con color uniforme (SOLID).
+  stampBgType: 'SOLID' as 'GRADIENT' | 'SOLID' | 'IMAGE',
+  stampBgImageUrl: null as string | null,
+  stampIconImageUrl: null as string | null,
+  freeRewards: [] as FreeReward[],
   stampsRequired: 10,
   rewardText: '1 producto gratis',
   discountPercent: 10,
@@ -76,6 +85,9 @@ const FROM_SCRATCH_DEFAULTS = {
   // COUPON/DISCOUNT/GIFT: tarjeta de sellos destino al redeem. null
   // = auto (primera stamps activa, o se crea).
   transformIntoCardId: null as string | null,
+  // false = no se convierte en nada: se canjea y la tarjeta queda usada.
+  // Hace falta aparte porque transformIntoCardId=null ya significa "auto".
+  transformOnRedeem: true,
 };
 
 type LocationLite = { id: string; name: string };
@@ -92,6 +104,8 @@ export default function NewCardWizard() {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [confirmActivate, setConfirmActivate] = useState(false);
+  // Wallet V3 — permisos de la marca (para gatear la opción de imagen).
+  const [walletAdv, setWalletAdv] = useState<Record<string, boolean> | null>(null);
 
   const [locations, setLocations] = useState<LocationLite[]>([]);
   // Cargar categoría del tenant + sedes
@@ -99,6 +113,7 @@ export default function NewCardWizard() {
     api<any>('/tenants/me')
       .then((me) => {
         if (me?.businessCategorySlug) setTenantCategorySlug(me.businessCategorySlug);
+        if (me?.walletAdvanced) setWalletAdv(me.walletAdvanced);
       })
       .catch(() => {});
     api<any[]>('/locations')
@@ -136,8 +151,11 @@ export default function NewCardWizard() {
         form.type === 'DISCOUNT' ||
         form.type === 'GIFT';
       const STAMP_DEFAULT_REWARD = '¡Has ganado tu recompensa!';
-      const COUPON_DEFAULT_REWARD =
-        '¡Felicidades por canjear tu cupón! Empieza a acumular sellos para seguir obteniendo recompensas.';
+      // Si el cupón NO se convierte en tarjeta de sellos, invitar a "acumular
+      // sellos" sería mentirle al cliente: no va a acumular nada.
+      const COUPON_DEFAULT_REWARD = form.transformOnRedeem
+        ? '¡Felicidades por canjear tu cupón! Empieza a acumular sellos para seguir obteniendo recompensas.'
+        : '¡Felicidades por canjear tu cupón! Gracias por tu visita.';
       const payload = isCoupon
         ? {
             ...form,
@@ -241,7 +259,14 @@ export default function NewCardWizard() {
       )}
 
       {step === 4 && (
-        <Step4Design form={form} setForm={(f) => setForm(f)} err={err} />
+        <Step4Design
+          form={form}
+          setForm={(f) => setForm(f)}
+          err={err}
+          allowCustomBg={walletAdv?.customBackgrounds !== false}
+          allowFreeRewards={walletAdv?.freeRewards !== false}
+          showNextReward={walletAdv?.showNextReward !== false}
+        />
       )}
 
       {step === 5 && (
@@ -823,7 +848,14 @@ function Step3Configure({
           form.type === 'GIFT') && (
           <CouponTransformTargetPicker
             value={form.transformIntoCardId}
-            onChange={(id) => set('transformIntoCardId', id)}
+            transformOnRedeem={form.transformOnRedeem}
+            onChange={(id, transformar) =>
+              setForm({
+                ...form,
+                transformIntoCardId: id,
+                transformOnRedeem: transformar,
+              })
+            }
           />
         )}
 
@@ -879,11 +911,47 @@ function Step3Configure({
             stampInactiveColor={form.stampInactiveColor}
             stampContourColor={form.stampContourColor}
             centerBgColor={form.centerBgColor}
+            stampBgType={form.stampBgType}
+            stampBgImageUrl={form.stampBgImageUrl}
+            stampIconImageUrl={form.stampIconImageUrl}
+            freeRewards={form.freeRewards}
             rewardText={form.rewardText}
             customerName="RICARDO PÉREZ"
             barcodeValue="DEMO123456"
           />
         </div>
+
+        {/* Preview REAL del cartón de sellos: imagen PNG del generador de
+            producción (Sharp) — lo que el cliente ve en su Wallet — en los 3
+            estados. Solo para tarjetas con grilla de sellos. */}
+        {(form.type === 'STAMPS' ||
+          form.type === 'HYBRID' ||
+          form.type === 'VISITS') && (
+          <div className="mt-5">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
+              Imagen real en el Wallet
+            </div>
+            <WalletStripRealPreview
+              config={{
+                primaryColor: form.primaryColor,
+                secondaryColor: form.secondaryColor,
+                stampsRequired:
+                  form.type === 'VISITS'
+                    ? form.visitsRequired ?? 10
+                    : form.stampsRequired,
+                stampIcon: form.stampIcon,
+                stampIconImageUrl: form.stampIconImageUrl,
+                stampActiveColor: form.stampActiveColor,
+                stampInactiveColor: form.stampInactiveColor,
+                stampContourColor: form.stampContourColor,
+                centerBgColor: form.centerBgColor,
+                stampBgType: form.stampBgType,
+                stampBgImageUrl: form.stampBgImageUrl,
+                freeRewards: form.freeRewards,
+              }}
+            />
+          </div>
+        )}
 
         <div className="card card-pad mt-4 flex items-start gap-3">
           <Icon name="spark" size={18} className="text-brand flex-none mt-0.5" />
@@ -904,10 +972,16 @@ function Step4Design({
   form,
   setForm,
   err,
+  allowCustomBg,
+  allowFreeRewards,
+  showNextReward,
 }: {
   form: typeof FROM_SCRATCH_DEFAULTS;
   setForm: (f: typeof FROM_SCRATCH_DEFAULTS) => void;
   err: string | null;
+  allowCustomBg: boolean;
+  allowFreeRewards: boolean;
+  showNextReward: boolean;
 }) {
   const t = useTranslations('app_cards_new');
   function set<K extends keyof typeof form>(k: K, v: any) {
@@ -915,6 +989,7 @@ function Step4Design({
   }
   const brand = (form.name.split('—')[0] || t('yourBrand')).trim();
   const visibleStamps = Math.min(form.stampsRequired, 7);
+  const isProgress = form.type === 'STAMPS' || form.type === 'HYBRID' || form.type === 'VISITS';
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-7">
@@ -1011,8 +1086,61 @@ function Step4Design({
             <StampIconPicker
               value={form.stampIcon}
               onSelect={(icon) => set('stampIcon', icon)}
+              imageUrl={form.stampIconImageUrl}
+              onImageChange={(url) => set('stampIconImageUrl', url)}
             />
           </div>
+        )}
+
+        {isProgress && (
+          <div className="pt-2 border-t border-line">
+            <label className="label">Fondo del área de sellos</label>
+            <div className="grid grid-cols-3 gap-2 mt-1">
+              {([
+                { v: 'GRADIENT', label: 'Degradado', hint: 'Clásico' },
+                { v: 'SOLID', label: 'Color sólido', hint: 'Uniforme' },
+                ...(allowCustomBg ? [{ v: 'IMAGE', label: 'Imagen', hint: 'Personalizada' }] : []),
+              ] as const).map((o) => {
+                const on = form.stampBgType === o.v;
+                return (
+                  <button
+                    key={o.v}
+                    type="button"
+                    onClick={() => set('stampBgType', o.v)}
+                    className={`rounded-lg px-2 py-2 text-center transition border-2 ${
+                      on ? 'border-brand bg-brand/10' : 'border-line bg-transparent'
+                    }`}
+                  >
+                    <div className={`text-xs font-semibold ${on ? 'text-brand' : 'text-ink'}`}>{o.label}</div>
+                    <div className="text-[10px] text-mute">{o.hint}</div>
+                  </button>
+                );
+              })}
+            </div>
+            {form.stampBgType === 'IMAGE' && allowCustomBg && (
+              <div className="mt-3">
+                <ImageUploader
+                  value={form.stampBgImageUrl}
+                  onChange={(url) => set('stampBgImageUrl', url)}
+                  folder="card-stamp-bg"
+                  crop={false}
+                />
+                <div className="text-[11px] text-mute mt-2 leading-relaxed">
+                  Recomendado <b>1200×420 px</b> · PNG/JPG/WEBP · &lt;500 KB · relación{' '}
+                  <b>20:7</b> · modo <b>cubrir</b> centrado (nunca se deforma). Solo afecta el
+                  área de los sellos.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {isProgress && allowFreeRewards && (
+          <FreeRewardsEditor
+            value={form.freeRewards}
+            onChange={(v) => set('freeRewards', v)}
+            maxPos={form.stampsRequired}
+          />
         )}
 
         <div className="pt-2 border-t border-line">
@@ -1061,6 +1189,29 @@ function Step4Design({
           )}
         </div>
 
+        {/* PDF Software(8): toggle de la casilla de políticas de datos. El
+            documento se sube en Configuración → Documento de políticas de datos. */}
+        <div className="pt-2 border-t border-line">
+          <div className="flex items-center justify-between">
+            <label className="label m-0">{t('dataPolicyToggle')}</label>
+            <button
+              type="button"
+              onClick={() => set('dataPolicyEnabled', !form.dataPolicyEnabled)}
+              className={`relative w-10 h-5 rounded-full transition ${
+                form.dataPolicyEnabled ? 'bg-brand' : 'bg-bg2 border border-line'
+              }`}
+              aria-label={t('dataPolicyToggle')}
+            >
+              <span
+                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition ${
+                  form.dataPolicyEnabled ? 'left-[22px]' : 'left-0.5'
+                }`}
+              />
+            </button>
+          </div>
+          <p className="text-xs text-mute mt-2">{t('dataPolicyToggleHint')}</p>
+        </div>
+
         {err && (
           <div className="rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
             {err}
@@ -1074,6 +1225,7 @@ function Step4Design({
         </div>
         <div className="flex justify-center">
           <WalletPassPreview
+            showNextReward={showNextReward}
             brandName={brand}
             primaryColor={form.primaryColor}
             secondaryColor={form.secondaryColor}
@@ -1093,6 +1245,10 @@ function Step4Design({
             stampInactiveColor={form.stampInactiveColor}
             stampContourColor={form.stampContourColor}
             centerBgColor={form.centerBgColor}
+            stampBgType={form.stampBgType}
+            stampBgImageUrl={form.stampBgImageUrl}
+            stampIconImageUrl={form.stampIconImageUrl}
+            freeRewards={form.freeRewards}
             rewardText={form.rewardText}
             customerName="RICARDO PÉREZ"
             barcodeValue="DEMO123456"
@@ -1633,12 +1789,24 @@ function TiersEditor({
  * la crea si no existe. El user puede elegir explícitamente otra para
  * conectar el cupón a una tarjeta de fidelización específica.
  */
+/**
+ * A qué se convierte el cupón al canjearse.
+ *
+ * Tres estados, no dos. `transformIntoCardId = null` NO servía para decir
+ * "a ninguna": null ya significa "auto, la primera tarjeta de sellos activa".
+ * Por eso el backend tiene un campo aparte, `transformOnRedeem`, y aquí un
+ * valor centinela para el desplegable.
+ */
+const SIN_CONVERTIR = '__none__';
+
 function CouponTransformTargetPicker({
   value,
+  transformOnRedeem,
   onChange,
 }: {
   value: string | null;
-  onChange: (id: string | null) => void;
+  transformOnRedeem: boolean;
+  onChange: (id: string | null, transformOnRedeem: boolean) => void;
 }) {
   const t = useTranslations('app_cards_new');
   const [options, setOptions] = useState<
@@ -1670,21 +1838,26 @@ function CouponTransformTargetPicker({
       </label>
       <select
         className="input"
-        value={value ?? ''}
-        onChange={(e) => onChange(e.target.value || null)}
+        value={!transformOnRedeem ? SIN_CONVERTIR : (value ?? '')}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === SIN_CONVERTIR) onChange(null, false);
+          else onChange(v || null, true);
+        }}
         disabled={loading}
       >
-        <option value="">
-          {t('autoFirstStampsCard')}
-        </option>
+        <option value="">{t('autoFirstStampsCard')}</option>
         {options.map((o) => (
           <option key={o.id} value={o.id}>
             {o.name}
           </option>
         ))}
+        <option value={SIN_CONVERTIR}>{t('noTransform')}</option>
       </select>
       <div className="text-[11px] text-mute mt-1 leading-snug">
-        {t('transformHint')}
+        {!transformOnRedeem
+          ? 'El cliente canjea el cupón y su tarjeta queda marcada como usada. No entra al programa de sellos ni se le crea ninguna tarjeta.'
+          : t('transformHint')}
       </div>
     </div>
   );

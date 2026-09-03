@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { api, downloadFile } from '@/lib/api';
 import { Icon } from '@/components/Icon';
+import { AcademyButton } from '@/components/AcademyButton';
 import { toast } from '@/components/Toast';
 
 type Customer = {
@@ -15,6 +16,8 @@ type Customer = {
   lastOrderAt: string | null;
   totalOrdersCount: number;
   totalOrdersAmount: number;
+  // Cumpleaños (año 2000 = centinela; solo día+mes importan). Puede venir null.
+  birthday: string | null;
   _count?: { passes: number; stamps: number };
   // M6: last stamp con operator + location, devuelto por el backend
   // como array de hasta 1 entrada. Vacío si el cliente nunca fue
@@ -30,7 +33,14 @@ type Customer = {
 
 type StaffOption = { id: string; fullName: string; email: string };
 
-type Segment = 'all' | 'new7' | 'vip' | 'recurring' | 'no-pass' | 'inactive';
+type Segment =
+  | 'all'
+  | 'new7'
+  | 'vip'
+  | 'recurring'
+  | 'no-pass'
+  | 'inactive'
+  | 'birthday';
 
 const SEGMENTS: { key: Segment; label: string; emoji: string; help: string }[] = [
   { key: 'all', label: 'Todos', emoji: '👥', help: 'Toda tu base' },
@@ -39,7 +49,25 @@ const SEGMENTS: { key: Segment; label: string; emoji: string; help: string }[] =
   { key: 'recurring', label: 'Recurrentes', emoji: '🔁', help: '2+ pedidos' },
   { key: 'no-pass', label: 'Sin tarjeta', emoji: '🎴', help: 'Aún no tienen tarjeta de fidelización' },
   { key: 'inactive', label: 'Inactivos 30d+', emoji: '💤', help: 'Sin pedido en los últimos 30 días' },
+  { key: 'birthday', label: 'Cumple este mes', emoji: '🎂', help: 'Cumplen años este mes' },
 ];
+
+/** Mes (0-11) del cumpleaños, o null. La fecha se guarda con año centinela
+ *  2000 y @db.Date → usamos getUTCMonth para no derivar por zona horaria. */
+function birthdayMonth(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d.getUTCMonth();
+}
+
+const MONTHS_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+/** "15 may" a partir del cumpleaños (día + mes corto). */
+function fmtBday(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getUTCDate()} ${MONTHS_ES[d.getUTCMonth()]}`;
+}
 
 function avatarClass(seed: string) {
   const sum = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -187,6 +215,7 @@ export default function CustomersPage() {
     const now = Date.now();
     const ms7 = 7 * 24 * 60 * 60 * 1000;
     const ms30 = 30 * 24 * 60 * 60 * 1000;
+    const thisMonth = new Date().getMonth();
     return list.filter((c) => {
       switch (segment) {
         case 'new7':
@@ -202,6 +231,8 @@ export default function CustomersPage() {
             !!c.lastOrderAt &&
             now - new Date(c.lastOrderAt).getTime() > ms30
           );
+        case 'birthday':
+          return birthdayMonth(c.birthday) === thisMonth;
         default:
           return true;
       }
@@ -222,6 +253,8 @@ export default function CustomersPage() {
         (c) =>
           !!c.lastOrderAt && now - new Date(c.lastOrderAt).getTime() > ms30,
       ).length,
+      birthday: list.filter((c) => birthdayMonth(c.birthday) === new Date().getMonth())
+        .length,
     } as Record<Segment, number>;
   }, [list]);
 
@@ -291,6 +324,7 @@ export default function CustomersPage() {
               </button>
             )}
           </div>
+          <AcademyButton moduleKey="clientes" />
           {locations.length > 0 && (
             <select
               className="bg-white border border-line rounded-pill px-3 py-1.5 text-sm"
@@ -532,11 +566,24 @@ export default function CustomersPage() {
                       </span>
                       <div>
                         <div className="font-medium">{c.fullName}</div>
-                        {c.totalOrdersCount >= 3 && (
-                          <span className="badge text-[9px] bg-amber-100 text-amber-800 mt-0.5">
-                            👑 VIP
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {c.totalOrdersCount >= 3 && (
+                            <span className="badge text-[9px] bg-amber-100 text-amber-800 mt-0.5">
+                              👑 VIP
+                            </span>
+                          )}
+                          {c.birthday && (
+                            <span
+                              className={`badge text-[9px] mt-0.5 ${
+                                birthdayMonth(c.birthday) === new Date().getMonth()
+                                  ? 'bg-pink-100 text-pink-700'
+                                  : 'bg-bg2 text-mute'
+                              }`}
+                            >
+                              🎂 {fmtBday(c.birthday)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </Link>
                   </td>

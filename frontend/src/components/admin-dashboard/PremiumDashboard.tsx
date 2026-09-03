@@ -50,12 +50,19 @@ const RANGE_OPTIONS: { value: RangeKind; label: string }[] = [
 type DashboardResp = {
   range: { kind: string; from: string; to: string };
   banner: {
-    billedUsd: number;
+    billedUsd: number; // COBRADO real (caja)
+    estimatedUsd: number; // PROYECTADO (estimado, sin cobro registrado)
+    estimatedCount: number;
+    billedGroups: number; // cuántas unidades del facturado son Grupos
     billedByPlan: Array<{
       periodicity: string;
       label: string;
-      count: number;
-      billingUsd: number;
+      count: number; // negocios + grupos con cobro real
+      businessCount: number;
+      groupCount: number;
+      billingUsd: number; // cobrado real
+      estimatedCount: number;
+      estimatedUsd: number;
     }>;
     newCustomers: {
       currentMonth: number;
@@ -67,6 +74,13 @@ type DashboardResp = {
     mrrUsd: number;
     cancellationRate: number;
     pendingCommissionsUsd: number;
+  };
+  // Fase 5: las 3 tarjetas de cobros (fuente única, mismo motor que suspende).
+  cobros?: {
+    proximos: { count: number; amountUsd: number };
+    procesados: { count: number; amountUsd: number };
+    noProcesados: { count: number; amountUsd: number };
+    generatedAt: string;
   };
   monthlySeries: Array<{
     label: string;
@@ -118,6 +132,11 @@ type BilledCompaniesResp = {
   range: { kind: string; from: string; to: string };
   total: number;
   count: number;
+  // Desglose Cobrado vs Estimado (Bug 1).
+  realTotal: number;
+  realCount: number;
+  estimatedTotal: number;
+  estimatedCount: number;
   companies: BilledCompany[];
 };
 
@@ -140,6 +159,10 @@ export function PremiumDashboard() {
   // #17: los montos financieros se muestran OCULTOS por defecto. El 👁
   // los revela. La preferencia se persiste en localStorage por dispositivo.
   const [showAmounts, setShowAmounts] = useState(false);
+  // Fase 5: drill-down de las 3 tarjetas de cobros (modal con la tabla).
+  const [cobrosBucket, setCobrosBucket] = useState<
+    'proximos' | 'procesados' | 'no-procesados' | null
+  >(null);
   useEffect(() => {
     setShowAmounts(localStorage.getItem('dashboard.showAmounts') === '1');
   }, []);
@@ -169,6 +192,20 @@ export function PremiumDashboard() {
     return () => {
       cancelled = true;
     };
+  }, [range]);
+
+  // Bug 3 (auditoría 2026-08-17): si el rango cambia con el modal "Ver empresas"
+  // ABIERTO, refetchear la lista para que no quede pegada al rango anterior.
+  // (openCompanies ya usa el rango actual AL ABRIR; esto cubre tenerlo abierto.)
+  useEffect(() => {
+    if (!showCompanies) return;
+    setCompaniesLoading(true);
+    api<BilledCompaniesResp>(`/admin/dashboard/billed-companies?range=${range}`)
+      .then((r) => setCompanies(r))
+      .catch(() => setCompanies(null))
+      .finally(() => setCompaniesLoading(false));
+    // showCompanies fuera de deps a propósito: al abrir ya fetchea openCompanies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range]);
 
   // #13/#19 (2026-06-16): series REALES de los últimos 6 meses (backend
@@ -217,8 +254,25 @@ export function PremiumDashboard() {
               <div>
                 <div className="font-bold text-lg">Empresas facturadas</div>
                 <div className="text-xs text-mute">
-                  Rango: {RANGE_OPTIONS.find((r) => r.value === range)?.label} ·{' '}
-                  {companies ? `${companies.count} unidades · total ${usd(companies.total)}` : '…'}
+                  Rango: {RANGE_OPTIONS.find((r) => r.value === range)?.label}
+                  {companies ? (
+                    <>
+                      {' · '}
+                      <span className="text-emerald-600 font-semibold">
+                        Cobrado {usd(companies.realTotal)} ({companies.realCount})
+                      </span>
+                      {companies.estimatedCount > 0 && (
+                        <>
+                          {' · '}
+                          <span className="text-amber-600 font-semibold">
+                            Estimado {usd(companies.estimatedTotal)} ({companies.estimatedCount})
+                          </span>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    ' · …'
+                  )}
                 </div>
               </div>
               <button
@@ -247,6 +301,7 @@ export function PremiumDashboard() {
                       <th className="text-left px-2 py-2">Plan</th>
                       <th className="text-right px-2 py-2">Monto</th>
                       <th className="text-left px-4 py-2">Pago</th>
+                      <th className="text-left px-4 py-2">Estado</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -257,16 +312,26 @@ export function PremiumDashboard() {
                             <span className="mr-1" title="Grupo empresarial">👥</span>
                           )}
                           {c.name}
-                          {c.estimated && (
-                            <span className="ml-1 text-[10px] text-amber-500" title="Estimado (sin fecha de cobro registrada)">
-                              ~est
-                            </span>
-                          )}
                         </td>
                         <td className="px-2 py-2 text-mute capitalize">{c.plan.toLowerCase()}</td>
                         <td className="px-2 py-2 text-right font-semibold">{usd(c.amountUsd)}</td>
                         <td className="px-4 py-2 text-mute">
                           {c.paidAt ? fmtDate(c.paidAt) : '—'}
+                        </td>
+                        {/* Bug 1: estado como badge propio, no como sufijo pegado al nombre. */}
+                        <td className="px-4 py-2">
+                          {c.estimated ? (
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded-pill bg-amber-100 text-amber-700"
+                              title="Sin fecha de cobro registrada; el monto es el precio de lista, no caja real."
+                            >
+                              Estimado
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-pill bg-emerald-100 text-emerald-700">
+                              Cobrado
+                            </span>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -274,6 +339,19 @@ export function PremiumDashboard() {
                 </table>
               )}
             </div>
+            {/* Bug 1: pie del modal con el desglose Cobrado vs Estimado. */}
+            {!companiesLoading && companies && companies.companies.length > 0 && (
+              <div className="p-3 border-t border-line text-xs flex flex-wrap gap-x-4 gap-y-1 justify-end">
+                <span className="text-emerald-600">
+                  <strong>Cobrado:</strong> {companies.realCount} · {usd(companies.realTotal)}
+                </span>
+                {companies.estimatedCount > 0 && (
+                  <span className="text-amber-600">
+                    <strong>Estimado:</strong> {companies.estimatedCount} · {usd(companies.estimatedTotal)}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -292,14 +370,27 @@ export function PremiumDashboard() {
         <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
           <div>
             <div className="text-[11px] uppercase tracking-wider text-sky-200 font-semibold">
-              Monto facturado
+              Cobrado
             </div>
             <div className="text-4xl md:text-5xl font-bold tracking-tight mt-1">
               {money(data.banner.billedUsd)}
             </div>
             <div className="text-xs text-sky-200 mt-1">
-              Cobrado en: {RANGE_OPTIONS.find((r) => r.value === range)?.label}
+              Pagos con fecha real · {RANGE_OPTIONS.find((r) => r.value === range)?.label}
             </div>
+            {/* Bug 1: lo proyectado (estimado, sin cobro registrado) NUNCA se
+                suma dentro de "Cobrado" — se muestra aparte y diferenciado. */}
+            {data.banner.estimatedUsd > 0 && (
+              <div
+                className="text-xs text-amber-200 mt-1"
+                title="Negocios ACTIVE sin fecha de cobro registrada. El monto es el precio de lista (proyección), no caja real."
+              >
+                + Proyectado (sin cobro registrado): {money(data.banner.estimatedUsd)}
+                {' · '}
+                {data.banner.estimatedCount}{' '}
+                {data.banner.estimatedCount === 1 ? 'negocio' : 'negocios'}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <button
@@ -345,9 +436,25 @@ export function PremiumDashboard() {
               <div className="font-bold text-base mt-0.5">
                 {money(p.billingUsd)}
               </div>
-              <div className="text-[10px] text-sky-200">
-                {p.count} negocios
+              {/* Bug 4/5: "negocios" = tenants con su ÚLTIMO cobro en el rango
+                  (no acumula renovaciones); los grupos se cuentan aparte. */}
+              <div
+                className="text-[10px] text-sky-200"
+                title="Negocios con su último cobro en el rango. No incluye renovaciones previas del mismo negocio."
+              >
+                {p.businessCount} negocios
+                {p.groupCount > 0
+                  ? ` · ${p.groupCount} grupo${p.groupCount === 1 ? '' : 's'}`
+                  : ''}
               </div>
+              {p.estimatedUsd > 0 && (
+                <div
+                  className="text-[10px] text-amber-200/90"
+                  title="Proyectado (sin cobro registrado), no incluido en el Cobrado."
+                >
+                  + {money(p.estimatedUsd)} est · {p.estimatedCount}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -355,7 +462,11 @@ export function PremiumDashboard() {
         {/* Clientes nuevos del mes con variación */}
         <div className="flex items-center gap-3 flex-wrap">
           <div className="text-sm">
-            <span className="text-sky-200">Clientes nuevos del mes:</span>{' '}
+            {/* Bug 7: esta métrica es SIEMPRE del mes calendario, NO del rango
+                seleccionado arriba. Se rotula explícito para no confundir. */}
+            <span className="text-sky-200">
+              Clientes nuevos <span className="opacity-80">(este mes calendario)</span>:
+            </span>{' '}
             <span className="font-bold text-base">
               {data.banner.newCustomers.currentMonth}
             </span>
@@ -379,36 +490,43 @@ export function PremiumDashboard() {
         </div>
       </div>
 
-      {/* 3 KPIs glass (#16: se eliminó "Conversión Trial → Cliente") */}
+      {/* Fase 5: 3 tarjetas de COBROS (fuente única — mismo motor que suspende).
+          Reemplazan MRR / Tasa cancelación / Comisiones pendientes. Clickeables:
+          abren el detalle con la lista y filtros de fecha. */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
-        <Kpi
-          label="Ingreso recurrente"
-          value={money(data.kpis.mrrUsd)}
-          sub="MRR mensual"
-          accent="brand"
-          icon="💎"
+        <CobroCard
+          color="blue"
+          icon="🔵"
+          label="Próximos cobros"
+          value={money(data.cobros?.proximos.amountUsd ?? 0)}
+          sub={`${data.cobros?.proximos.count ?? 0} cobros · próximos 7 días`}
+          onClick={() => setCobrosBucket('proximos')}
         />
-        <Kpi
-          label="Tasa de cancelación"
-          value={`${data.kpis.cancellationRate}%`}
-          sub="Clientes que cancelaron"
-          accent={
-            data.kpis.cancellationRate >= 10
-              ? 'bad'
-              : data.kpis.cancellationRate >= 5
-              ? 'warn'
-              : 'ok'
-          }
-          icon="📉"
+        <CobroCard
+          color="green"
+          icon="🟢"
+          label="Pagos procesados"
+          value={money(data.cobros?.procesados.amountUsd ?? 0)}
+          sub={`${data.cobros?.procesados.count ?? 0} pagos · últimos 7 días`}
+          onClick={() => setCobrosBucket('procesados')}
         />
-        <Kpi
-          label="Comisiones pendientes"
-          value={money(data.kpis.pendingCommissionsUsd)}
-          sub="Por pagar a afiliados"
-          accent="amber"
-          icon="💰"
+        <CobroCard
+          color="red"
+          icon="🔴"
+          label="Pagos no procesados"
+          value={money(data.cobros?.noProcesados.amountUsd ?? 0)}
+          sub={`${data.cobros?.noProcesados.count ?? 0} · fallidos o vencidos`}
+          onClick={() => setCobrosBucket('no-procesados')}
         />
       </div>
+
+      {cobrosBucket && (
+        <CobrosDrilldown
+          bucket={cobrosBucket}
+          money={money}
+          onClose={() => setCobrosBucket(null)}
+        />
+      )}
 
       {/* 2 charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
@@ -607,37 +725,305 @@ function totalClients(data: DashboardResp) {
   );
 }
 
-function Kpi({
+// Fase 5 — tarjeta de cobros clickeable (🔴🟢🟡).
+function CobroCard({
+  color,
+  icon,
   label,
   value,
   sub,
-  accent,
-  icon,
+  onClick,
 }: {
+  color: 'red' | 'green' | 'amber' | 'blue';
+  icon: string;
   label: string;
   value: string;
   sub: string;
-  accent: 'brand' | 'ok' | 'warn' | 'bad' | 'amber' | 'neutral';
-  icon: string;
+  onClick: () => void;
 }) {
-  const cls: Record<typeof accent, string> = {
-    brand: 'text-brand',
-    ok: 'text-ok',
-    warn: 'text-amber-600',
-    bad: 'text-red-600',
-    amber: 'text-amber-700',
-    neutral: 'text-mute',
-  } as any;
+  const border = {
+    red: 'border-t-red-500',
+    green: 'border-t-emerald-500',
+    amber: 'border-t-amber-500',
+    blue: 'border-t-blue-500',
+  }[color];
+  const text = {
+    red: 'text-red-600',
+    green: 'text-emerald-600',
+    amber: 'text-amber-600',
+    blue: 'text-blue-600',
+  }[color];
   return (
-    <div className="rounded-2xl backdrop-blur bg-white/80 border border-white/60 shadow-md2 p-4">
+    <button
+      onClick={onClick}
+      className={`text-left rounded-2xl backdrop-blur bg-white/80 border border-white/60 border-t-[3px] ${border} shadow-md2 p-4 transition hover:-translate-y-0.5`}
+    >
       <div className="flex items-start justify-between">
         <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
           {label}
         </div>
         <span className="text-lg">{icon}</span>
       </div>
-      <div className={`text-2xl font-bold mt-1 ${cls[accent]}`}>{value}</div>
+      <div className={`text-2xl font-bold mt-1 ${text}`}>{value}</div>
       <div className="text-[11px] text-mute mt-0.5">{sub}</div>
+      <div className={`text-[11px] font-semibold mt-2 ${text}`}>Ver detalle →</div>
+    </button>
+  );
+}
+
+// Fase 5 — detalle (drill-down) de una tarjeta de cobros.
+type CobroRowAny = {
+  tenantId?: string | null;
+  negocio?: string;
+  esGrupo?: boolean;
+  fechaCobro?: string | null;
+  fechaPrevista?: string | null;
+  fecha?: string | null;
+  periodicidad?: string;
+  montoUsd?: number;
+  metodo?: string;
+  pasarela?: string;
+  tipo?: string;
+  estado?: string;
+  graceLabel?: string | null;
+  diasVencidos?: number;
+};
+
+function CobrosDrilldown({
+  bucket,
+  money,
+  onClose,
+}: {
+  bucket: 'proximos' | 'procesados' | 'no-procesados';
+  money: (n: number) => string;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<CobroRowAny[]>([]);
+  const [loading, setLoading] = useState(true);
+  // "no-procesados" abre en "Todos" para que la lista cuadre con el conteo de la
+  // tarjeta (incluye suspensiones viejas, que el rango de días recortaría).
+  const [range, setRange] = useState(bucket === 'no-procesados' ? 'todos' : '7d');
+  const title = {
+    proximos: '🔵 Próximos cobros',
+    procesados: '🟢 Pagos procesados',
+    'no-procesados': '🔴 Pagos no procesados',
+  }[bucket];
+  const chips: Array<[string, string]> =
+    bucket === 'proximos'
+      ? [
+          ['hoy', 'Hoy'],
+          ['7d', 'Próx. 7 días'],
+          ['15d', '15 días'],
+          ['30d', '30 días'],
+        ]
+      : bucket === 'no-procesados'
+        ? [
+            ['todos', 'Todos'],
+            ['7d', 'Últimos 7 días'],
+            ['15d', '15 días'],
+            ['30d', '30 días'],
+          ]
+        : [
+            ['hoy', 'Hoy'],
+            ['7d', 'Últimos 7 días'],
+            ['15d', '15 días'],
+            ['30d', '30 días'],
+          ];
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api<CobroRowAny[]>(`/admin/dashboard/cobros/${bucket}?range=${range}`)
+      .then((r) => {
+        if (!cancelled) {
+          setRows(Array.isArray(r) ? r : []);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRows([]);
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bucket, range]);
+
+  // Fechas SIEMPRE en hora de Bogotá (no la del navegador del que mira): así
+  // "VENCE" coincide con el conteo de días de gracia, que el backend cuenta en
+  // días de calendario de Bogotá. Sin esto, un valor guardado a medianoche UTC
+  // (= 7pm Bogotá del día anterior) se veía un día corrido y no cuadraba con la
+  // etiqueta "Día N de 5".
+  const fmtD = (s?: string | null) =>
+    s
+      ? new Date(s).toLocaleDateString('es-CO', {
+          timeZone: 'America/Bogota',
+          day: '2-digit',
+          month: 'short',
+        })
+      : '—';
+
+  // Total a cobrar del rango seleccionado: como el backend YA devuelve las filas
+  // filtradas por `range`, sumar su `montoUsd` da exactamente el total del rango
+  // (cambia solo con los chips). Pedido del dueño 2026-09.
+  const totalMonto = rows.reduce((s, r) => s + (r.montoUsd ?? 0), 0);
+  const rangeLabel = chips.find(([v]) => v === range)?.[1] ?? '';
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-4 overflow-y-auto"
+      onClick={onClose}
+    >
+      <div
+        className="bg-surface rounded-xl max-w-4xl w-full p-5 shadow-xl my-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold">{title}</h2>
+          <button onClick={onClose} className="text-mute hover:text-ink text-xl">
+            ✕
+          </button>
+        </div>
+        <div className="text-xs text-mute mb-3">
+          {rows.length} {rows.length === 1 ? 'registro' : 'registros'}
+        </div>
+        <div className="flex gap-1.5 flex-wrap mb-3">
+          {chips.map(([v, lbl]) => (
+            <button
+              key={v}
+              onClick={() => setRange(v)}
+              className={`text-xs px-3 py-1 rounded-full border transition ${
+                range === v
+                  ? 'bg-brand/10 border-brand text-brand font-semibold'
+                  : 'border-line2 text-mute hover:text-ink'
+              }`}
+            >
+              {lbl}
+            </button>
+          ))}
+        </div>
+        {/* Total a cobrar del rango (pedido del dueño): suma de todos los USD de
+            las filas visibles, que ya vienen acotadas por el chip seleccionado. */}
+        {bucket === 'proximos' && !loading && rows.length > 0 && (
+          <div className="mb-3 flex items-center justify-between rounded-lg bg-brand/10 border border-brand/30 px-4 py-2.5">
+            <span className="text-sm font-medium text-ink">
+              Total a cobrar · {rangeLabel}
+            </span>
+            <span className="text-lg font-bold text-brand tabular-nums">
+              {money(totalMonto)}
+            </span>
+          </div>
+        )}
+        <div className="overflow-x-auto border border-line2 rounded-lg">
+          {loading ? (
+            <div className="p-8 text-center text-mute text-sm">Cargando…</div>
+          ) : rows.length === 0 ? (
+            <div className="p-8 text-center text-mute text-sm">
+              Sin resultados en este rango.
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider">
+                {bucket === 'proximos' && (
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Fecha cobro</th>
+                    <th className="px-3 py-2 font-semibold">Negocio</th>
+                    <th className="px-3 py-2 font-semibold">Plan</th>
+                    <th className="px-3 py-2 font-semibold text-right">Monto</th>
+                    <th className="px-3 py-2 font-semibold">Método</th>
+                  </tr>
+                )}
+                {bucket === 'procesados' && (
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Fecha</th>
+                    <th className="px-3 py-2 font-semibold">Negocio</th>
+                    <th className="px-3 py-2 font-semibold">Tipo</th>
+                    <th className="px-3 py-2 font-semibold text-right">Monto</th>
+                    <th className="px-3 py-2 font-semibold">Pasarela</th>
+                  </tr>
+                )}
+                {bucket === 'no-procesados' && (
+                  <tr>
+                    <th className="px-3 py-2 font-semibold">Negocio</th>
+                    <th className="px-3 py-2 font-semibold">Vence</th>
+                    <th className="px-3 py-2 font-semibold text-center">Días</th>
+                    <th className="px-3 py-2 font-semibold">Gracia</th>
+                    <th className="px-3 py-2 font-semibold text-right">Monto</th>
+                    <th className="px-3 py-2 font-semibold">Método</th>
+                  </tr>
+                )}
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-t border-line2">
+                    {bucket === 'proximos' && (
+                      <>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {fmtD(r.fechaCobro)}
+                        </td>
+                        <td className="px-3 py-2 font-medium">
+                          {r.negocio}
+                          {r.esGrupo && (
+                            <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">
+                              Grupo
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-mute">{r.periodicidad}</td>
+                        <td className="px-3 py-2 text-right font-semibold">
+                          {money(r.montoUsd ?? 0)}
+                        </td>
+                        <td className="px-3 py-2 text-mute">{r.metodo}</td>
+                      </>
+                    )}
+                    {bucket === 'procesados' && (
+                      <>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {fmtD(r.fecha)}
+                        </td>
+                        <td className="px-3 py-2 font-medium">{r.negocio}</td>
+                        <td className="px-3 py-2 text-mute">{r.tipo}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-emerald-600">
+                          {money(r.montoUsd ?? 0)}
+                        </td>
+                        <td className="px-3 py-2 text-mute">{r.pasarela}</td>
+                      </>
+                    )}
+                    {bucket === 'no-procesados' && (
+                      <>
+                        <td className="px-3 py-2 font-medium">{r.negocio}</td>
+                        <td className="px-3 py-2 whitespace-nowrap">
+                          {fmtD(r.fechaPrevista)}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {r.diasVencidos}
+                        </td>
+                        <td className="px-3 py-2">
+                          {r.estado === 'SUSPENDIDO' ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
+                              SUSPENDIDO
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">
+                              {r.graceLabel ?? 'En gracia'}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold">
+                          {money(r.montoUsd ?? 0)}
+                        </td>
+                        <td className="px-3 py-2 text-mute">{r.metodo}</td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

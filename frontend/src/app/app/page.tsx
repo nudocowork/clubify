@@ -6,6 +6,7 @@ import { Icon } from '@/components/Icon';
 import { KpiSkeleton, Skeleton } from '@/components/Skeleton';
 import { InsightsCard } from '@/components/InsightsCard';
 import { ActivityFeed } from '@/components/ActivityFeed';
+import { InfoLinkStats } from '@/components/InfoLinkStats';
 
 type Metrics = {
   cards: number;
@@ -294,12 +295,20 @@ export default function TenantDashboard() {
   const [tenant, setTenant] = useState<any>(null);
   const [series, setSeries] = useState<{ date: string; orders: number; revenue: number }[]>([]);
   useEffect(() => {
-    api<Metrics>('/metrics/tenant').then(setM).catch(() => null);
-    api<any>('/tenants/me').then(setTenant).catch(() => null);
-    api<{ date: string; orders: number; revenue: number }[]>(
-      '/metrics/timeseries/orders?days=7',
-    )
-      .then(setSeries)
+    // Primero el tenant: si es "Solo InfoLink" no pedimos métricas de pedidos
+    // (el negocio no tiene ese módulo) y renderizamos el dashboard de InfoLink.
+    api<any>('/tenants/me')
+      .then((t) => {
+        setTenant(t);
+        if (t?.businessType !== 'INFOLINK') {
+          api<Metrics>('/metrics/tenant').then(setM).catch(() => null);
+          api<{ date: string; orders: number; revenue: number }[]>(
+            '/metrics/timeseries/orders?days=7',
+          )
+            .then(setSeries)
+            .catch(() => null);
+        }
+      })
       .catch(() => null);
   }, []);
 
@@ -308,6 +317,28 @@ export default function TenantDashboard() {
     day: 'numeric',
     month: 'long',
   });
+
+  // Negocio "Solo InfoLink": dashboard dedicado con métricas de InfoLink.
+  if (tenant?.businessType === 'INFOLINK') {
+    return (
+      <div>
+        <div className="page-head">
+          <h1 className="page-title">
+            Dashboard <span className="page-crumb">/ {today}</span>
+          </h1>
+          <div className="flex gap-2 flex-wrap">
+            <Link className="btn-primary" href="/app/info-links">
+              <Icon name="edit" /> Editar mi InfoLink
+            </Link>
+          </div>
+        </div>
+        <p className="text-sm text-mute mb-5">
+          Bienvenido{tenant?.brandName ? `, ${tenant.brandName}` : ''}. Este es el resumen de tu InfoLink.
+        </p>
+        <InfoLinkStats variant="dashboard" />
+      </div>
+    );
+  }
 
   return (
     <div>

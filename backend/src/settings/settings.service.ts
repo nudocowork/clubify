@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import {
+  resolveBrandScope,
+  brandWhiteLabelWhere,
+} from '../common/white-label/brand-scope.util';
 
 /** Pricing global de los planes Clubify usado por el módulo Cotizaciones
  * (SuperAdmin). Editables sin redeploy. Las cotizaciones congelan el
@@ -60,6 +64,10 @@ export type BrandingSettings = {
   landingStatWalletCustomers: string | null;
   landingStatOrders: string | null;
   landingStatRating: string | null;
+  // URL de checkout de Hotmart para la PRUEBA con tarjeta (trial 5 días). Si está
+  // seteada, /trial redirige ahí (pasando ?src=<ref>) en vez de crear la cuenta
+  // gratis directo. Vacío = flujo actual (prueba gratis sin tarjeta). Pública.
+  trialCheckoutUrl: string | null;
 };
 
 const KEYS = {
@@ -77,6 +85,7 @@ const KEYS = {
   landingStatWalletCustomers: 'landing.stats.walletCustomers',
   landingStatOrders: 'landing.stats.orders',
   landingStatRating: 'landing.stats.rating',
+  trialCheckoutUrl: 'landing.trial.checkoutUrl',
   pricingEliteCost: 'pricing.eliteCost',
   pricingProCost: 'pricing.proCost',
   pricingCurrency: 'pricing.currency',
@@ -150,6 +159,7 @@ export class SettingsService {
             KEYS.landingStatWalletCustomers,
             KEYS.landingStatOrders,
             KEYS.landingStatRating,
+            KEYS.trialCheckoutUrl,
           ],
         },
       },
@@ -176,6 +186,7 @@ export class SettingsService {
       landingStatWalletCustomers: norm(map.get(KEYS.landingStatWalletCustomers)),
       landingStatOrders: norm(map.get(KEYS.landingStatOrders)),
       landingStatRating: norm(map.get(KEYS.landingStatRating)),
+      trialCheckoutUrl: norm(map.get(KEYS.trialCheckoutUrl)),
     };
   }
 
@@ -225,6 +236,9 @@ export class SettingsService {
     }
     if (data.landingStatRating !== undefined) {
       ops.push(this.upsert(KEYS.landingStatRating, (data.landingStatRating ?? '').trim()));
+    }
+    if (data.trialCheckoutUrl !== undefined) {
+      ops.push(this.upsert(KEYS.trialCheckoutUrl, (data.trialCheckoutUrl ?? '').trim()));
     }
     await Promise.all(ops);
     return this.getBrandingAdmin();
@@ -353,6 +367,31 @@ export class SettingsService {
       out[id] = { price, checkoutUrl: rawUrl.length > 0 ? rawUrl : null };
     });
     return out;
+  }
+
+  /** Nombres de negocios ACTIVOS de la marca Clubify (no de marcas blancas)
+   *  para el marquee de la landing pública. Sin sesión → scope = Clubify por
+   *  defecto (incluye legacy whiteLabelId null). Dedupe + tope 40. */
+  async getLandingActiveBusinesses(): Promise<{ names: string[] }> {
+    const scope = await resolveBrandScope(this.prisma, null);
+    const brandWhere = brandWhiteLabelWhere(scope);
+    const rows = await this.prisma.tenant.findMany({
+      where: { status: 'ACTIVE', ...brandWhere },
+      select: { name: true, brandName: true },
+      orderBy: { createdAt: 'desc' },
+      take: 60,
+    });
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const r of rows) {
+      const n = (r.name || r.brandName || '').trim();
+      if (n && !seen.has(n.toLowerCase())) {
+        seen.add(n.toLowerCase());
+        names.push(n);
+      }
+      if (names.length >= 40) break;
+    }
+    return { names };
   }
 
   /** Update parcial de los planes. Permite mandar solo los planes que

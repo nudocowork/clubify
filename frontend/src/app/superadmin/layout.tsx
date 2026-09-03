@@ -39,13 +39,24 @@ function buildNavGroups(badges: Badges): NavGroup[] {
         { href: '/superadmin/creditos', label: 'Centro de Créditos', icon: '💳' },
         { href: '/superadmin/cobros', label: 'Centro de Cobros', icon: '🧾', badge: badges.billing },
         { href: '/superadmin/empresas-domicilio', label: 'Empresas de Domicilios', icon: '🛵' },
+        // Una sola entrada (2026-09-01). Antes había dos: esta y 'Living Card',
+        // que era el editor de UNA cuponera —la primera— porque sus endpoints
+        // llaman `ensureLivingCampaign()` por dentro y no sabían de otras. Se
+        // unificó: acá se listan todas y cada una abre su panel, ya scopeado
+        // por campaña. /superadmin/living-card redirige acá.
+        { href: '/superadmin/cuponeras', label: 'Cuponeras', icon: '🎟️' },
         { href: '/superadmin/modulos', label: 'Módulos', icon: '⊞' },
       ],
     },
     {
       label: 'PLATAFORMA',
       items: [
+        // La edición de Páginas Informativas se movió a team_clubify → sección
+        // COMERCIAL (/paginas). La ruta /superadmin/paginas-informativas sigue viva
+        // como fallback de PLATFORM_OWNER, pero se oculta del menú a propósito.
+        // { href: '/superadmin/paginas-informativas', label: 'Páginas Informativas', icon: '📄' },
         { href: '/superadmin/integraciones', label: 'Integraciones', icon: '🔌' },
+        { href: '/superadmin/estado-servidor', label: 'Estado del Servidor', icon: '🖥️' },
         { href: '/superadmin/historial', label: 'Historial', icon: '🕒' },
         { href: '/superadmin/configuracion', label: 'Configuración', icon: '⚙' },
       ],
@@ -111,7 +122,9 @@ export default function SuperAdminLayout({ children }: { children: React.ReactNo
           background: `linear-gradient(176deg, color-mix(in srgb, ${pc} 78%, #0a0a0f) 0%, color-mix(in srgb, ${pc} 32%, #0a0a0f) 55%, #0a0a0f 100%)`,
           color: 'white',
           position: 'sticky',
-          top: 0,
+          // Dentro de la app la barra se pegaría bajo la isla dinámica al
+          // hacer scroll. --safe-top solo existe ahí; en el navegador es 0.
+          top: 'var(--safe-top, 0px)',
           maxHeight: '100vh',
         }}
       >

@@ -42,6 +42,109 @@ function dateOrNull(v: unknown): Date | null {
   return d;
 }
 
+// Estilo/plantilla del menú: los 8 nombres del onboarding → enum MenuLayout de
+// Clubify. Acepta también los valores nativos (uppercase). Desconocido → null
+// (se ignora, no rompe el sync).
+const MENU_LAYOUT_MAP: Record<string, string> = {
+  classic: 'CLASSIC',
+  grid: 'GRID',
+  hero: 'CAROUSELS',
+  clean: 'CLEAN',
+  compact: 'COMPACT',
+  dark: 'CLUVI',
+  premium: 'SECTIONS',
+  flipbook: 'FLIPBOOK',
+  // alias directos a los valores nativos de Clubify
+  carousels: 'CAROUSELS',
+  cluvi: 'CLUVI',
+  sections: 'SECTIONS',
+};
+function mapMenuLayout(v: unknown): string | null {
+  if (!v) return null;
+  return MENU_LAYOUT_MAP[String(v).trim().toLowerCase()] ?? null;
+}
+
+// Saneo de URL para botones del infolink: solo http(s). Un dominio pelado se
+// promueve a https://. Esquemas peligrosos (javascript:, data:) → ''.
+function safeUrl(u: unknown): string {
+  const s = String(u ?? '').trim();
+  if (!s) return '';
+  if (/^https?:\/\//i.test(s)) return s;
+  if (/^[a-z0-9.-]+\.[a-z]{2,}(\/|\?|#|$)/i.test(s)) return 'https://' + s;
+  return '';
+}
+function extractPhone(u: unknown): string | null {
+  const d = String(u ?? '').replace(/\D/g, '');
+  return d.length >= 7 ? d : null;
+}
+
+// Mapea un botón del onboarding { label, type, url | popup_message } al shape de
+// botón de Clubify (JSON en InfoLink.buttons). Los tipos nativos de Clubify que
+// NO leen `url` (MENU/MAPS) solo se usan si NO viene url; con url se degrada a
+// EXTERNAL para honrar el destino que mandó el onboarding. Devuelve null si el
+// botón no tiene destino válido (se descarta).
+function mapInfolinkButton(raw: any): Record<string, any> | null {
+  const label = (str(raw?.label) ?? '').trim() || 'Ver';
+  const type = String(raw?.type ?? 'link').trim().toLowerCase();
+  const url = safeUrl(raw?.url);
+  const popupMsg = raw?.popup_message ?? raw?.popupMessage;
+  if (type === 'popup') {
+    return {
+      label,
+      type: 'POPUP',
+      popup: {
+        title: label,
+        description: popupMsg != null ? String(popupMsg) : '',
+        imageUrl: null,
+        ctaText: '',
+        ctaUrl: '',
+      },
+    };
+  }
+  if (type === 'whatsapp') {
+    const phone = extractPhone(raw?.url);
+    if (phone) return { label, type: 'WHATSAPP', waPhone: phone, waMessage: '' };
+    return url ? { label, type: 'EXTERNAL', url } : null;
+  }
+  if (type === 'menu' && !url) return { label, type: 'MENU', menuVariant: 'DELIVERY' };
+  if (type === 'maps' && !url) return { label, type: 'MAPS' };
+  // link | reviews | social | reserva | (menu/maps con url) → EXTERNAL
+  return url ? { label, type: 'EXTERNAL', url } : null;
+}
+
+// Push automáticas por evento → AutomationRule. trigger.type + título/cuerpo
+// por defecto (del motor); el `message` del onboarding pisa el body.
+const AUTOMATION_EVENT_MAP: Record<
+  string,
+  { trigger: Record<string, any>; title: string; defaultBody: string }
+> = {
+  welcome: {
+    trigger: { type: 'PASS_CREATED' },
+    title: '¡Bienvenido/a {{customerName}}! 🎉',
+    defaultBody: 'Tu tarjeta {{cardName}} está activa. Empieza a sumar.',
+  },
+  birthday: {
+    trigger: { type: 'BIRTHDAY' },
+    title: '🎉 Feliz cumpleaños {{customerName}}',
+    defaultBody: 'Ven a {{businessName}}, tenemos un obsequio para ti 🎁',
+  },
+  stamp: {
+    trigger: { type: 'STAMP_ADDED' },
+    title: '¡Sumaste un sello! ⭐',
+    defaultBody: '¡Vas muy bien! Sigue sumando para tu recompensa.',
+  },
+  reward: {
+    trigger: { type: 'PASS_COMPLETED' },
+    title: '🎁 ¡Premio desbloqueado!',
+    defaultBody: '{{rewardText}} es tuyo. Canjéalo en tu próxima visita.',
+  },
+  inactivity: {
+    trigger: { type: 'INACTIVITY', days: 30 },
+    title: 'Te extrañamos {{customerName}} 💌',
+    defaultBody: 'Hace un mes que no nos vemos. ¡Te esperamos!',
+  },
+};
+
 @Injectable()
 export class OnboardingSyncService {
   constructor(
@@ -69,15 +172,29 @@ export class OnboardingSyncService {
       'whatsappOrdersPhone',
       'whatsappDeliveryPhone',
       'whatsappReservationsPhone',
+      'city', // ju1053 Fase 3
     ]) {
       if (b[k] !== undefined) data[k] = b[k] ? String(b[k]) : null;
     }
-    if (!Object.keys(data).length) return { ok: true, updated: [] };
-    await this.prisma.tenant.update({
-      where: { id: tenantId },
-      data: data as Prisma.TenantUpdateInput,
-    });
-    return { ok: true, updated: Object.keys(data) };
+    const updated = Object.keys(data);
+    if (updated.length) {
+      await this.prisma.tenant.update({
+        where: { id: tenantId },
+        data: data as Prisma.TenantUpdateInput,
+      });
+    }
+    // description (descripción corta del negocio) vive en Storefront (1:1), no
+    // en Tenant. Se mapea acá para que el onboarding la mande junto al negocio.
+    if (b.description !== undefined) {
+      const desc = b.description ? String(b.description) : '';
+      await this.prisma.storefront.upsert({
+        where: { tenantId },
+        create: { tenantId, description: desc },
+        update: { description: desc },
+      });
+      updated.push('description');
+    }
+    return { ok: true, updated };
   }
 
   // ── 2. Branding ───────────────────────────────────────────────────────
@@ -87,7 +204,20 @@ export class OnboardingSyncService {
       if (b[k] !== undefined) data[k] = b[k] ? String(b[k]) : null;
     }
     for (const k of ['primaryColor', 'secondaryColor']) {
-      if (b[k]) data[k] = String(b[k]); // no-nulos con default: solo si truthy
+      // Se VALIDA que sea un hex. Este `String(...)` sin comprobar dejó entrar
+      // «Degodoy cocina» en el color de un negocio: el navegador ignoraba el
+      // `background`, y en la página de reservas el botón seleccionado quedaba
+      // blanco sobre blanco. El cliente vioó que «no marcaba» y que no podía
+      // avanzar. Un color inválido se descarta y se deja el anterior.
+      const v = esHex(b[k]);
+      if (v) data[k] = v;
+      else if (b[k]) {
+        // Ruidoso a propósito: un color descartado en silencio es un branding
+        // que «no se aplica» sin que nadie sepa por qué.
+        console.warn(
+          `[onboarding-sync] tenant=${tenantId}: ${k}="${String(b[k]).slice(0, 40)}" no es un color — se ignora.`,
+        );
+      }
     }
     if (Object.keys(data).length) {
       await this.prisma.tenant.update({
@@ -95,13 +225,23 @@ export class OnboardingSyncService {
         data: data as Prisma.TenantUpdateInput,
       });
     }
-    // Portada vive en Storefront (1:1 con el tenant).
-    if (b.heroImageUrl !== undefined) {
-      const hero = b.heroImageUrl ? String(b.heroImageUrl) : null;
+    // Presentación de la vitrina (Storefront 1:1): portada del menú
+    // (photo_menu_banner=heroImageUrl), estilo/plantilla del menú (menuLayout,
+    // 8 valores) e imagen del popup del menú (photo_popup=popupImageUrl).
+    const sf: Record<string, any> = {};
+    if (b.heroImageUrl !== undefined)
+      sf.heroImageUrl = b.heroImageUrl ? String(b.heroImageUrl) : null;
+    if (b.menuLayout !== undefined) {
+      const layout = mapMenuLayout(b.menuLayout);
+      if (layout) sf.menuLayout = layout;
+    }
+    if (b.popupImageUrl !== undefined)
+      sf.popupImageUrl = b.popupImageUrl ? String(b.popupImageUrl) : null;
+    if (Object.keys(sf).length) {
       await this.prisma.storefront.upsert({
         where: { tenantId },
-        create: { tenantId, heroImageUrl: hero },
-        update: { heroImageUrl: hero },
+        create: { tenantId, ...sf },
+        update: sf,
       });
     }
     return { ok: true };
@@ -110,7 +250,14 @@ export class OnboardingSyncService {
   // ── 3. Redes / contacto ───────────────────────────────────────────────
   async syncContact(tenantId: string, b: any) {
     const data: Record<string, any> = {};
-    for (const k of ['instagramUrl', 'facebookUrl', 'mapsUrl', 'whatsappPhone']) {
+    for (const k of [
+      'instagramUrl',
+      'facebookUrl',
+      'mapsUrl',
+      'whatsappPhone',
+      'tiktokUrl', // ju1053 Fase 3
+      'websiteUrl', // ju1053 Fase 3
+    ]) {
       if (b[k] !== undefined) data[k] = b[k] ? String(b[k]) : null;
     }
     if (!Object.keys(data).length) return { ok: true, updated: [] };
@@ -123,11 +270,27 @@ export class OnboardingSyncService {
 
   // ── 4. Google Reviews ─────────────────────────────────────────────────
   async syncReviews(tenantId: string, b: any) {
+    const data: Record<string, any> = {};
+    if (b.googleReviewUrl !== undefined)
+      data.googleReviewUrl = b.googleReviewUrl ? String(b.googleReviewUrl) : null;
+    // alert_phone: número que recibe el aviso cuando un cliente califica 1-3★
+    // (las 4-5★ van a Google). Acepta reviewAlertsPhone o alertPhone. Al llegar
+    // un número se activa el aviso; al limpiarlo, se desactiva.
+    if (b.reviewAlertsPhone !== undefined || b.alertPhone !== undefined) {
+      const raw = b.reviewAlertsPhone ?? b.alertPhone;
+      data.reviewAlertsPhone = raw ? String(raw) : null;
+      data.reviewAlertsEnabled = !!raw;
+    }
+    if (b.reviewAlertsThreshold !== undefined && b.reviewAlertsThreshold !== null) {
+      const th = Math.min(5, Math.max(1, Math.floor(Number(b.reviewAlertsThreshold))));
+      if (Number.isFinite(th)) data.reviewAlertsThreshold = th;
+    }
+    if (!Object.keys(data).length) return { ok: true, updated: [] };
     await this.prisma.tenant.update({
       where: { id: tenantId },
-      data: { googleReviewUrl: b.googleReviewUrl ? String(b.googleReviewUrl) : null },
+      data: data as Prisma.TenantUpdateInput,
     });
-    return { ok: true };
+    return { ok: true, updated: Object.keys(data) };
   }
 
   // ── 5. Sede / ubicación (la primera del negocio) ──────────────────────
@@ -184,7 +347,18 @@ export class OnboardingSyncService {
       if (b[k] !== undefined && b[k] != null) data[k] = String(b[k]);
     }
     for (const k of ['primaryColor', 'secondaryColor']) {
-      if (b[k]) data[k] = String(b[k]);
+      // Mismo motivo que en syncBranding: sin validar, cualquier texto se
+      // guardaba como color y rompía la interfaz en silencio.
+      const v = esHex(b[k]);
+      if (v) data[k] = v;
+    }
+    // Fondo de la tarjeta de fidelidad (photo_card_android). Al setear una
+    // imagen activamos stampBgType=IMAGE para que se renderice detrás de los
+    // sellos; al limpiarla NO tocamos el tipo (queda en su default previo).
+    if (b.stampBgImageUrl !== undefined) {
+      const url = b.stampBgImageUrl ? String(b.stampBgImageUrl) : null;
+      data.stampBgImageUrl = url;
+      if (url) data.stampBgType = 'IMAGE';
     }
     const existing = await this.prisma.card.findFirst({
       where: { tenantId, type: 'STAMPS' },
@@ -368,6 +542,18 @@ export class OnboardingSyncService {
       if (c.terms !== undefined) data.terms = c.terms ? String(c.terms) : '';
       if (c.imageUrl !== undefined)
         data.heroImageUrl = c.imageUrl ? String(c.imageUrl) : null;
+      // ju1053 Fase 3: código canjeable + cantidad disponible (antes iban en
+      // `terms`; ahora en campos reales). Acepta code/couponCode y
+      // quantity/couponQuantity. quantity null/inválido = sin límite declarado.
+      if (c.couponCode !== undefined || c.code !== undefined) {
+        const code = c.couponCode ?? c.code;
+        data.couponCode = code ? String(code) : null;
+      }
+      if (c.couponQuantity !== undefined || c.quantity !== undefined) {
+        const q = c.couponQuantity ?? c.quantity;
+        const n = q == null ? null : Math.max(0, Math.floor(Number(q)));
+        data.couponQuantity = Number.isFinite(n) ? n : null;
+      }
       if (c.validFrom !== undefined) data.validFrom = dateOrNull(c.validFrom);
       if (c.validUntil !== undefined) data.validUntil = dateOrNull(c.validUntil);
       const existing = await this.prisma.card.findFirst({
@@ -385,6 +571,92 @@ export class OnboardingSyncService {
       }
     }
     return { ok: true, coupons: out };
+  }
+
+  // ── 11b. Infolink (link-in-bio) — upsert por negocio, reemplaza botones ──
+  async syncInfolink(tenantId: string, b: any) {
+    const data: Record<string, any> = {};
+    if (b.title !== undefined) data.title = b.title ? String(b.title) : '';
+    // description del onboarding → subtitle; cover → heroImageUrl.
+    if (b.subtitle !== undefined)
+      data.subtitle = b.subtitle ? String(b.subtitle) : null;
+    else if (b.description !== undefined)
+      data.subtitle = b.description ? String(b.description) : null;
+    if (b.cover !== undefined || b.heroImageUrl !== undefined) {
+      const cover = b.cover ?? b.heroImageUrl;
+      data.heroImageUrl = cover ? String(cover) : null;
+    }
+    if (Array.isArray(b.buttons)) {
+      data.buttons = (b.buttons as any[]).map(mapInfolinkButton).filter(Boolean);
+    }
+    const existing = await this.prisma.infoLink.findFirst({
+      where: { tenantId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (existing) {
+      await this.prisma.infoLink.update({ where: { id: existing.id }, data });
+      return { ok: true, infolink_id: existing.id, created: false };
+    }
+    const created = await this.prisma.infoLink.create({
+      data: {
+        tenantId,
+        slug: 'infolink',
+        title: data.title ?? '',
+        subtitle: data.subtitle ?? null,
+        heroImageUrl: data.heroImageUrl ?? null,
+        buttons: (data.buttons ?? []) as any,
+      },
+    });
+    return { ok: true, infolink_id: created.id, created: true };
+  }
+
+  // ── 11c. Push automáticas por evento → AutomationRule (upsert por trigger) ──
+  async syncAutomations(tenantId: string, b: any) {
+    const updated: string[] = [];
+    for (const key of Object.keys(AUTOMATION_EVENT_MAP)) {
+      const incoming = b?.[key];
+      if (incoming === undefined || incoming === null) continue;
+      const def = AUTOMATION_EVENT_MAP[key];
+      const enabled = !!incoming.enabled;
+      const msg = incoming.message != null ? String(incoming.message).trim() : '';
+      const actions = [
+        { type: 'SEND_PUSH', title: def.title, body: msg || def.defaultBody },
+      ];
+      // Buscar la regla existente de ESE evento (por trigger.type) para no
+      // duplicar. El onboarding es la fuente de verdad de estos mensajes.
+      const existing = await this.prisma.automationRule.findFirst({
+        where: {
+          tenantId,
+          trigger: { path: ['type'], equals: def.trigger.type },
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        await this.prisma.automationRule.update({
+          where: { id: existing.id },
+          data: {
+            isActive: enabled,
+            trigger: def.trigger as any,
+            actions: actions as any,
+          },
+        });
+      } else {
+        await this.prisma.automationRule.create({
+          data: {
+            tenantId,
+            name: `Onboarding: ${key}`,
+            description: 'Sincronizado desde el onboarding.',
+            trigger: def.trigger as any,
+            conditions: [] as any,
+            actions: actions as any,
+            isActive: enabled,
+          },
+        });
+      }
+      updated.push(key);
+    }
+    return { ok: true, updated };
   }
 
   // ── 12. Publicar / activar el negocio ─────────────────────────────────
@@ -410,4 +682,15 @@ export class OnboardingSyncService {
       status: 'ACTIVE',
     };
   }
+}
+
+/**
+ * Devuelve el color si es un hex válido (#rgb o #rrggbb), o null.
+ *
+ * Existe porque el onboarding es una fuente EXTERNA: manda lo que le escriban
+ * en su formulario, y aquí no se puede confiar en que sea un color.
+ */
+function esHex(v: unknown): string | null {
+  const c = String(v ?? '').trim();
+  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(c) ? c : null;
 }

@@ -37,12 +37,20 @@ class WhiteLabelBody {
   planPeriodicities?: string[];
   // Imagen Open Graph al compartir el enlace de la marca (WhatsApp/redes).
   @IsOptional() @IsString() @MaxLength(500) shareImageUrl?: string;
+  // Enlace de conexión de WhatsApp de la marca (ej. wazzap.mx). El panel de la
+  // marca lo convierte en un QR (Automatizaciones → QR WhatsApp); no se muestra
+  // el texto del enlace.
+  @IsOptional() @IsString() @MaxLength(500) whatsappQrUrl?: string;
   // Features que la marca incluye en su suscripción (keys i18n). Vacío = todas.
   @IsOptional() @IsArray() @IsString({ each: true }) @MaxLength(60, { each: true })
   subscriptionFeatureKeys?: string[];
   // Costo de instalación + precio promocional (USD) para la página de precios.
   @IsOptional() @IsNumber() @Min(0) @Max(100000) installationFeeUsd?: number | null;
   @IsOptional() @IsNumber() @Min(0) @Max(100000) installationPromoUsd?: number | null;
+  // Wallet V3 — bloque "Wallet Avanzado" (6 permisos booleanos). null/ausente =
+  // heredado/activo; la marca desactiva poniendo la clave en false. Se sanea en
+  // el service (solo claves conocidas → boolean).
+  @IsOptional() @IsObject() walletAdvanced?: Record<string, boolean> | null;
 }
 
 class StatusBody {
@@ -50,9 +58,16 @@ class StatusBody {
 }
 
 class PaymentConfigBody {
-  @IsOptional() @IsIn(['HOTMART', 'STRIPE', 'MANUAL']) gateway?: 'HOTMART' | 'STRIPE' | 'MANUAL';
+  @IsOptional() @IsIn(['HOTMART', 'STRIPE', 'MANUAL', 'CROSS']) gateway?: 'HOTMART' | 'STRIPE' | 'MANUAL' | 'CROSS';
   // Config libre por gateway: secretos se cifran server-side, no-secretos plano.
   @IsOptional() @IsObject() config?: Record<string, any>;
+}
+
+// Enlace de PRUEBA por marca (página /prueba). url vacío = la marca deja de
+// ofrecer prueba. days: 1..90 (default 7). No es secreto (link público de Stripe).
+class TrialConfigBody {
+  @IsOptional() @IsString() @MaxLength(600) trialCheckoutUrl?: string | null;
+  @IsOptional() @IsInt() @Min(1) @Max(90) trialDays?: number | null;
 }
 
 // Subcuenta Grow Business (GoHighLevel) de la MARCA — desde donde salen los SMS
@@ -79,7 +94,7 @@ class MoveTemplateBody {
 }
 
 class PaymentLinkBody {
-  @IsIn(['HOTMART', 'STRIPE', 'MANUAL']) gateway!: 'HOTMART' | 'STRIPE' | 'MANUAL';
+  @IsIn(['HOTMART', 'STRIPE', 'MANUAL', 'CROSS']) gateway!: 'HOTMART' | 'STRIPE' | 'MANUAL' | 'CROSS';
   // Opcional: si no llega, el service usa "Plan {Periodicidad}" como default.
   @IsOptional() @IsString() @MaxLength(120) name?: string;
   @IsOptional() @IsIn(['MENSUAL', 'TRIMESTRAL', 'SEMESTRAL', 'ANUAL', 'CUSTOM']) periodicity?: any;
@@ -89,6 +104,8 @@ class PaymentLinkBody {
   @IsOptional() @IsInt() @Min(0) sortOrder?: number;
   @IsOptional() @IsString() @MaxLength(120) stripePriceId?: string | null;
   @IsOptional() @IsString() @MaxLength(120) stripeProductId?: string | null;
+  // Freemium: qué otorga este link al pagarse (Sellea Infolinks).
+  @IsOptional() @IsIn(['INFOLINK_PRO', 'FULL']) productKey?: string | null;
 }
 
 class AdjustCreditsBody {
@@ -230,6 +247,18 @@ export class SuperAdminController {
   @Patch('white-labels/:id/payment-config')
   updatePaymentConfig(@Param('id') id: string, @Body() body: PaymentConfigBody, @CurrentUser() user: AuthUser) {
     return this.svc.updatePaymentConfig(id, body, user.id);
+  }
+
+  // -------- Enlace de PRUEBA por marca (página dedicada /prueba) --------
+
+  @Get('white-labels/:id/trial-config')
+  getTrialConfig(@Param('id') id: string) {
+    return this.svc.getBrandTrialConfig(id);
+  }
+
+  @Patch('white-labels/:id/trial-config')
+  setTrialConfig(@Param('id') id: string, @Body() body: TrialConfigBody) {
+    return this.svc.setBrandTrialConfig(id, body);
   }
 
   // -------- Subcuenta SMS (Grow Business) por marca --------

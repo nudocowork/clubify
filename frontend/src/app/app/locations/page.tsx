@@ -6,9 +6,12 @@ import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { EmojiPicker } from '@/components/EmojiPicker';
+import { PhoneInput } from '@/components/PhoneInput';
+import { useTenantCountry, stateExamplePlaceholder } from '@/lib/useTenantCountry';
+import { regionsForCountry } from '@/lib/regions';
 import type { MapPickResult } from '@/components/MapPicker';
 
-// Leaflet usa `window` al importar — dynamic import sin SSR
+// Google Maps toca `window` al cargar — import dinámico sin SSR
 const MapPicker = dynamic(
   () => import('@/components/MapPicker').then((m) => m.MapPicker),
   { ssr: false, loading: () => <div className="h-[440px] rounded-input bg-bg2 animate-shimmer" /> },
@@ -29,6 +32,10 @@ type Suggestion = {
 
 export default function LocationsPage() {
   const t = useTranslations('app_locations');
+  const country = useTenantCountry();
+  // Departamentos/estados del pais del negocio. Alimenta la lista del campo
+  // de abajo; vacio = pais sin regiones curadas -> texto libre.
+  const regionesPais = regionsForCountry(country);
   const [list, setList] = useState<any[]>([]);
   const [form, setForm] = useState({
     name: '',
@@ -182,11 +189,10 @@ export default function LocationsPage() {
                 </div>
                 <div>
                   <label className="label">{t('adminPhone')}</label>
-                  <input
-                    className="input"
+                  <PhoneInput
                     value={form.adminPhone}
-                    onChange={(e) => setForm({ ...form, adminPhone: e.target.value })}
-                    placeholder="+52 1 55 1234 5678"
+                    onChange={(v) => setForm({ ...form, adminPhone: v })}
+                    defaultCountry={country}
                   />
                 </div>
                 <p className="text-[11px] text-mute -mt-1 col-span-2 leading-snug">
@@ -198,22 +204,45 @@ export default function LocationsPage() {
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">{t('stateRegionOfSite')}</label>
-                  <input
-                    className="input"
-                    value={form.state}
-                    onChange={(e) => setForm({ ...form, state: e.target.value })}
-                    placeholder={t('stateRegionPlaceholder')}
-                  />
+                  {/* Lista, no texto libre.
+                      Era un input suelto y solo 16 de 130 sedes lo tenian
+                      cargado — y lo poco escrito a mano no casaba con los
+                      nombres del dataset ("Sder", "santander", "Santander/Col").
+                      De este campo depende que el cliente vea SOLO los
+                      municipios del departamento del negocio en vez de los 32
+                      departamentos del pais. */}
+                  {regionesPais.regions.length > 0 ? (
+                    <select
+                      className="input"
+                      value={form.state}
+                      onChange={(e) => setForm({ ...form, state: e.target.value })}
+                    >
+                      <option value="">{t('stateRegionPick')}</option>
+                      {regionesPais.regions.map((r) => (
+                        <option key={r.name} value={r.name}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    // Pais sin regiones curadas: texto libre, como antes.
+                    <input
+                      className="input"
+                      value={form.state}
+                      onChange={(e) => setForm({ ...form, state: e.target.value })}
+                      placeholder={stateExamplePlaceholder(country)}
+                    />
+                  )}
+                  <p className="text-[11px] text-mute mt-1 leading-snug">
+                    {t('stateRegionHelp')}
+                  </p>
                 </div>
                 <div>
                   <label className="label">{t('siteOrdersWhatsapp')}</label>
-                  <input
-                    className="input"
+                  <PhoneInput
                     value={form.ordersWhatsappPhone}
-                    onChange={(e) =>
-                      setForm({ ...form, ordersWhatsappPhone: e.target.value })
-                    }
-                    placeholder="+58 412 000 0000"
+                    onChange={(v) => setForm({ ...form, ordersWhatsappPhone: v })}
+                    defaultCountry={country}
                   />
                 </div>
                 <p className="text-[11px] text-mute -mt-1 col-span-2 leading-snug">
@@ -380,6 +409,11 @@ function LocationCard({
               {lat.toFixed(4)}, {lng.toFixed(4)} ·{' '}
               {t('radiusMeters', { radius })}
             </div>
+            {loc.reservationsEnabled === false && (
+              <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-bad-soft text-bad-ink">
+                🚫 {t('reservationsOffBadge')}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -462,6 +496,7 @@ function EditLocationModal({
 }) {
   const t = useTranslations('app_locations');
   const tc = useTranslations('common');
+  const country = useTenantCountry();
   const [form, setForm] = useState({
     name: loc.name ?? '',
     address: loc.address ?? '',
@@ -472,6 +507,7 @@ function EditLocationModal({
     mapsUrl: loc.mapsUrl ?? '',
     state: loc.state ?? '',
     ordersWhatsappPhone: loc.ordersWhatsappPhone ?? '',
+    reservationsEnabled: loc.reservationsEnabled ?? true,
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -555,18 +591,15 @@ function EditLocationModal({
               className="input"
               value={form.state}
               onChange={(e) => setForm({ ...form, state: e.target.value })}
-              placeholder={t('stateRegionPlaceholderShort')}
+              placeholder={stateExamplePlaceholder(country)}
             />
           </div>
           <div>
             <label className="label">{t('ordersWhatsapp')}</label>
-            <input
-              className="input"
+            <PhoneInput
               value={form.ordersWhatsappPhone}
-              onChange={(e) =>
-                setForm({ ...form, ordersWhatsappPhone: e.target.value })
-              }
-              placeholder="+58 412 000 0000"
+              onChange={(v) => setForm({ ...form, ordersWhatsappPhone: v })}
+              defaultCountry={country}
             />
           </div>
           <p className="text-[11px] text-mute -mt-1 col-span-2 leading-snug">
@@ -630,6 +663,25 @@ function EditLocationModal({
             {t('walletPushHintEdit')}
           </p>
         </div>
+
+        {/* Reservas por sede (2026-08-01): controla si esta sede aparece en el
+            flujo público de reservas. */}
+        <label className="flex items-start gap-2.5 cursor-pointer pt-1">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={form.reservationsEnabled}
+            onChange={(e) =>
+              setForm({ ...form, reservationsEnabled: e.target.checked })
+            }
+          />
+          <span>
+            <span className="label m-0">{t('reservationsEnabledLabel')}</span>
+            <span className="block text-[11px] text-mute leading-snug">
+              {t('reservationsEnabledHint')}
+            </span>
+          </span>
+        </label>
 
         {err && (
           <div className="rounded-lg bg-bad-soft px-3 py-2 text-sm text-bad-ink">

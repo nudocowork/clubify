@@ -7,6 +7,9 @@ import { api, getUser, startImpersonation } from '@/lib/api';
 import { GrowBusinessCard } from '@/components/GrowBusinessCard';
 import { ReferralAssignmentCard } from '@/components/ReferralAssignmentCard';
 import { DeliveryAlertsCard } from '@/components/DeliveryAlertsCard';
+import { CustomerOrderAlertsCard } from '@/components/CustomerOrderAlertsCard';
+import { StampAuditTable } from '@/components/StampAuditTable';
+import { ManualPaymentsCard } from '@/components/ManualPaymentsCard';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import {
@@ -17,7 +20,6 @@ import {
   planDisplayName,
   type PlanPeriodicity,
 } from '@/lib/plan-format';
-
 export default function TenantDetail() {
   const tr = useTranslations('admin_tenants_id');
   const { id } = useParams<{ id: string }>();
@@ -35,8 +37,12 @@ export default function TenantDetail() {
   const [infoEditing, setInfoEditing] = useState(false);
   const [infoDraft, setInfoDraft] = useState({ email: '', whatsappPhone: '', slug: '', customDomain: '' });
   const [infoSaving, setInfoSaving] = useState(false);
+  // Notas internas del negocio — SOLO Clubify (2026-08-17).
+  const [notesDraft, setNotesDraft] = useState('');
+  const [notesSaving, setNotesSaving] = useState(false);
   // PDF123: dominio personalizado del negocio (vive en Storefront.customDomain).
   const [sfDomain, setSfDomain] = useState<string | null>(null);
+  const [showPwdModal, setShowPwdModal] = useState(false);
   // MARKETING ve la página pero sin acciones de billing/status — esos
   // endpoints son SUPER_ADMIN only y mostrarían "Permisos insuficientes"
   // al click. Esconderlos limpia UX en lugar de fallar fuerte.
@@ -54,6 +60,7 @@ export default function TenantDetail() {
       const data = await api<any>(`/tenants/${id}`);
       setT(data);
       setExtraLocations(data.maxLocationsOverride ?? '');
+      setNotesDraft(data.notes ?? '');
       // Dominio personalizado (SUPER_ADMIN puede leerlo por tenantId). Opcional.
       try {
         const sf = await api<{ customDomain: string | null }>(
@@ -166,6 +173,23 @@ export default function TenantDetail() {
     }
   }
 
+  // Notas internas (solo Clubify). Guarda contra PATCH /tenants/:id { notes }.
+  async function saveNotes() {
+    setNotesSaving(true);
+    try {
+      await api(`/tenants/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ notes: notesDraft.trim() || null }),
+      });
+      toast('Notas guardadas', 'success');
+      await load();
+    } catch (e: any) {
+      toast(e.message || tr('couldNotUpdate'), 'error');
+    } finally {
+      setNotesSaving(false);
+    }
+  }
+
   async function save() {
     setSaving(true);
     try {
@@ -230,10 +254,12 @@ export default function TenantDetail() {
   }
 
   /**
-   * Convierte el tenant a cliente pagante (ACTIVE + currentPeriodEnd
-   * +30d + sin trialEndsAt). Útil cuando paga por fuera de Hotmart.
-   * Automáticamente dispara backfill de comisión si tiene asignación
-   * a INFLUENCER/AMBASSADOR.
+   * Convierte el tenant a cliente pagante (ACTIVE + sin trialEndsAt).
+   * Útil cuando paga por fuera de Hotmart. El ciclo lo corre el BACKEND
+   * según la periodicidad del plan (trimestral = 3 meses, anual = 12) —
+   * mandar `periodDays: 30` desde aquí le daba 30 días a cualquier plan,
+   * por eso el backend eliminó ese parámetro. Automáticamente dispara
+   * backfill de comisión si tiene asignación a INFLUENCER/AMBASSADOR.
    */
   async function convertToPaying() {
     if (
@@ -245,7 +271,6 @@ export default function TenantDetail() {
     try {
       await api(`/tenants/${id}/convert-to-paying`, {
         method: 'POST',
-        body: JSON.stringify({ periodDays: 30 }),
       });
       await load();
       toast(tr('businessConvertedToPaying'), 'success');
@@ -388,7 +413,19 @@ export default function TenantDetail() {
                     startImpersonation({
                       accessToken: res.accessToken,
                       user: res.user,
-                      tenant: { id: res.tenant.id, brandName: res.tenant.brandName },
+                      tenant: {
+                        id: res.tenant.id,
+                        brandName: res.tenant.brandName,
+                        // Seed anti-flash del panel /app: branding de la marca
+                        // blanca del negocio (color/logo/nombre) → el panel
+                        // pinta la identidad real desde el primer frame.
+                        primaryColor: res.tenant.primaryColor ?? undefined,
+                        slug: res.tenant.slug,
+                        whiteLabelSlug: res.tenant.whiteLabelSlug ?? null,
+                        whiteLabelName: res.tenant.whiteLabelName ?? null,
+                        logoUrl: res.tenant.logoUrl ?? null,
+                        iconUrl: res.tenant.iconUrl ?? null,
+                      },
                     });
                     toast(tr('enteringBusiness', { name: res.tenant.brandName }), 'success');
                     router.push('/app');
@@ -400,6 +437,16 @@ export default function TenantDetail() {
                 title={t.status === 'SUSPENDED' ? tr('reactivateToEnter') : tr('enterAsOwner')}
               >
                 <Icon name="arrow-right" /> {tr('enterBusiness')}
+              </button>
+            )}
+            {isSuperAdmin && (
+              <button
+                className="btn-ghost text-sm"
+                disabled={actioning}
+                onClick={() => setShowPwdModal(true)}
+                title="Setear una nueva contraseña para el dueño sin necesitar la actual"
+              >
+                🔑 Cambiar contraseña del dueño
               </button>
             )}
             {isSuperAdmin && t.status === 'TRIAL' && (
@@ -546,10 +593,18 @@ export default function TenantDetail() {
           </div>
           <div className="kpi-sub">
             🗓️ {periodLabel(t.planPeriodicity as PlanPeriodicity | null)} ·{' '}
-            {periodTotalUsd(
-              t.planPeriodicity as PlanPeriodicity | null,
-              Number(t.plan?.priceMonthly ?? 0),
-            )}{' '}
+            {(() => {
+              const period = (t.planPeriodicity as PlanPeriodicity | null) ?? 'MENSUAL';
+              // Precio REAL de la marca DEL TENANT (Sellea 80/799) desde sus
+              // paymentLinks — host-independiente (Fidelity viendo un tenant
+              // Sellea también ve el precio de Sellea). Fallback al map Clubify.
+              const brandPrice = (t.brandPlans as { periodicity: string; amountUsd: number | null }[] | undefined)?.find(
+                (bp) => bp.periodicity === period,
+              )?.amountUsd;
+              return brandPrice && brandPrice > 0
+                ? brandPrice
+                : periodTotalUsd(period, Number(t.plan?.priceMonthly ?? 0));
+            })()}{' '}
             USD{periodCadence(t.planPeriodicity as PlanPeriodicity | null)}
           </div>
         </div>
@@ -624,6 +679,20 @@ export default function TenantDetail() {
                     })}
                   </dd>
                 </div>
+                {t.purchasedAt && (
+                  <div className="flex justify-between">
+                    {/* PDF Soft 10: fecha REAL de compra (pago), distinta de la
+                        de creación de la cuenta cuando el negocio activó tarde. */}
+                    <dt className="text-mute">Comprado</dt>
+                    <dd className="font-medium">
+                      {new Date(t.purchasedAt).toLocaleDateString('es-CO', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </dd>
+                  </div>
+                )}
               </dl>
               <div className="mt-4 pt-3 border-t border-line">
                 <Link
@@ -728,7 +797,39 @@ export default function TenantDetail() {
           )}
         </div>
 
+        {/* Notas internas — SOLO Clubify (2026-08-17). El dueño del negocio no las ve. */}
+        {isSuperAdmin && (
+          <div className="card card-pad">
+            <h2 className="text-base font-semibold m-0">Notas internas</h2>
+            <p className="mt-1 text-sm text-mute">
+              Solo visibles para el equipo — el dueño del negocio no las ve.
+              Observaciones operativas del negocio (ej. la forma de pago acordada).
+            </p>
+            <textarea
+              className="input mt-3 w-full min-h-[120px] resize-y"
+              placeholder="Escribí una nota u observación del negocio…"
+              value={notesDraft}
+              maxLength={5000}
+              onChange={(e) => setNotesDraft(e.target.value)}
+            />
+            <div className="flex items-center justify-between gap-2 pt-2">
+              <span className="text-xs text-mute">{notesDraft.length}/5000</span>
+              <button
+                className="btn-primary text-sm"
+                disabled={notesSaving || notesDraft.trim() === (t.notes ?? '').trim()}
+                onClick={saveNotes}
+              >
+                {notesSaving ? tr('saving') : 'Guardar notas'}
+              </button>
+            </div>
+          </div>
+        )}
+
         <PlanCurrentCard tenant={t} isSuperAdmin={isSuperAdmin} onChange={load} />
+
+        {/* Cobranza manual (Nequi/efectivo/transferencia): flag "paga por
+            fuera", registro de pagos e historial. Endpoints SUPER_ADMIN-only. */}
+        {isSuperAdmin && <ManualPaymentsCard tenantId={t.id} onChange={load} />}
 
         {isSuperAdmin && (
           <div className="card card-pad">
@@ -768,6 +869,7 @@ export default function TenantDetail() {
             marca del negocio tiene el módulo GROW_BUSINESS_SMS habilitado
             (Módulos en Master Admin). enabledModules null = Clubify (todo on). */}
         {isSuperAdmin &&
+          t.whiteLabel?.showGrowBusinessCard !== false &&
           (t.enabledModules
             ? t.enabledModules.includes('GROW_BUSINESS_SMS')
             : true) && (
@@ -788,6 +890,13 @@ export default function TenantDetail() {
             </>
           )}
 
+        {/* Wallet V3 — Historial/Auditoría de sellos del negocio (con IP/dispositivo). */}
+        {isSuperAdmin && (
+          <CollapsibleSection title="Historial de sellos" className="md:col-span-2">
+            <StampAuditTable tenantId={t.id} />
+          </CollapsibleSection>
+        )}
+
         {/* #23 (2026-06-16): las secciones avanzadas se agrupan en acordeones
             colapsados para reducir el scroll. Info/Plan/Referidos quedan
             visibles arriba; el resto se despliega bajo demanda. */}
@@ -802,6 +911,12 @@ export default function TenantDetail() {
               tenant={t}
               savePath={`/tenants/${t.id}`}
               testPath={`/tenants/${t.id}/delivery-alerts/test`}
+              onSaved={load}
+            />
+            {/* PDF 1256 F3: notificaciones de pedido al CLIENTE por SMS. */}
+            <CustomerOrderAlertsCard
+              tenant={t}
+              savePath={`/tenants/${t.id}`}
               onSaved={load}
             />
             <ReviewAlertsLogsCard tenantId={t.id} />
@@ -827,8 +942,196 @@ export default function TenantDetail() {
           <CollapsibleSection title={tr('sectionIntegrations')} className="md:col-span-2">
             <AcademyTogglesCard tenant={t} onSaved={load} />
             <WalletsGlobalRefreshCard tenantId={t.id} />
+            {/* Movido desde /app/settings (2026-07-19, PDF1145): los tokens de
+                integración con onboarding los gestiona el operador, no el dueño.
+                SOLO Clubify — el onboarding sync es un sistema INTERNO de Clubify,
+                NO debe aparecer en negocios de marca blanca (ej. Sellea). Gateado
+                por la marca del negocio: whiteLabel null o slug 'clubify'. */}
+            {(!t.whiteLabel || t.whiteLabel.slug === 'clubify') && (
+              <OnboardingConnectAdminCard tenantId={t.id} />
+            )}
           </CollapsibleSection>
         )}
+
+        {/* Onboarding para MARKETING (Samuel): el operador que gestiona el
+            onboarding ve la tarjeta de tokens aunque no sea SUPER_ADMIN. Se
+            muestra SOLO a MARKETING (SUPER_ADMIN ya la ve arriba) y SOLO en
+            negocios Clubify (no marca blanca). Backend: @Roles SUPER_ADMIN+MARKETING. */}
+        {!isSuperAdmin &&
+          me?.role === 'MARKETING' &&
+          (!t.whiteLabel || t.whiteLabel.slug === 'clubify') && (
+            <CollapsibleSection title={tr('sectionIntegrations')} className="md:col-span-2">
+              <OnboardingConnectAdminCard tenantId={t.id} />
+            </CollapsibleSection>
+          )}
+      </div>
+
+      {showPwdModal && (
+        <OwnerPasswordModal
+          tenantId={t.id}
+          brandName={t.brandName}
+          onClose={() => setShowPwdModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Modal de soporte: setear una nueva contraseña para el DUEÑO del negocio sin
+ * necesitar la actual (para cuando el cliente la olvidó). Llama al endpoint
+ * admin `PATCH /tenants/:id/owner-password` (SUPER_ADMIN, auditado).
+ */
+function OwnerPasswordModal({
+  tenantId,
+  brandName,
+  onClose,
+}: {
+  tenantId: string;
+  brandName?: string;
+  onClose: () => void;
+}) {
+  const [pwd, setPwd] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [saving, setSaving] = useState(false);
+  // A QUE correo le vamos a cambiar la contrasena. Se muestra ANTES de
+  // escribirla: el aviso posterior se va solo y el admin se queda sin saberlo.
+  // Caso Limorada (2026-08-23): la cuenta era @gmail, se intentaba entrar con
+  // @hotmail, y fueron 11 intentos fallidos antes de dar con el correo.
+  const [duenio, setDuenio] = useState<{
+    email: string;
+    fullName?: string | null;
+    lastLoginAt?: string | null;
+  } | null>(null);
+  const [cargandoDuenio, setCargandoDuenio] = useState(true);
+  useEffect(() => {
+    api<{ owner: typeof duenio }>(`/tenants/${tenantId}/owner`)
+      .then((r) => setDuenio(r?.owner ?? null))
+      .catch(() => setDuenio(null))
+      .finally(() => setCargandoDuenio(false));
+  }, [tenantId]);
+  const valid = pwd.trim().length >= 8 && pwd === confirm;
+
+  const submit = async () => {
+    if (!valid) return;
+    setSaving(true);
+    try {
+      const res = await api(`/tenants/${tenantId}/owner-password`, {
+        method: 'PATCH',
+        body: JSON.stringify({ newPassword: pwd.trim() }),
+      });
+      toast(
+        `Contraseña actualizada${res?.ownerEmail ? ` para ${res.ownerEmail}` : ''}. El dueño deberá iniciar sesión de nuevo.`,
+        'success',
+      );
+      onClose();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo cambiar la contraseña', 'error');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-neutral-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-bold">Cambiar contraseña del dueño</h3>
+        <p className="mt-1 text-sm text-neutral-500">
+          Setea una nueva contraseña para el dueño de{' '}
+          <b>{brandName || 'este negocio'}</b> sin necesitar la actual. Queda
+          registrada en auditoría y sus sesiones actuales se cerrarán.
+        </p>
+        {/* El correo, arriba y copiable. Es el dato que faltaba. */}
+        <div className="mt-4 rounded-lg border border-line bg-bg2 p-3">
+          <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
+            La contraseña es para esta cuenta
+          </div>
+          {cargandoDuenio ? (
+            <div className="mt-1 h-5 w-40 animate-shimmer rounded" />
+          ) : duenio ? (
+            <>
+              <div className="mt-1 flex items-center gap-2">
+                <code className="text-sm font-semibold break-all">
+                  {duenio.email}
+                </code>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(duenio.email);
+                      toast('Correo copiado', 'success');
+                    } catch {
+                      toast('No se pudo copiar', 'error');
+                    }
+                  }}
+                  className="text-[11px] font-semibold px-2 py-0.5 rounded bg-white border border-line hover:bg-bg2 whitespace-nowrap"
+                >
+                  Copiar
+                </button>
+              </div>
+              <div className="mt-1 text-[11px] text-mute">
+                {duenio.lastLoginAt
+                  ? `Último ingreso: ${new Date(duenio.lastLoginAt).toLocaleString('es-CO')}`
+                  : 'Nunca ha iniciado sesión.'}
+              </div>
+              {/* Si el cliente dice otro correo, el problema no es la
+                  contraseña: hay que corregir el correo primero. */}
+              <div className="mt-1.5 text-[11px] text-amber-700 leading-snug">
+                Si el dueño te dice otro correo, cámbialo primero — con el
+                correo equivocado el ingreso va a fallar aunque la contraseña
+                sea correcta.
+              </div>
+            </>
+          ) : (
+            <div className="mt-1 text-sm text-bad-ink">
+              Este negocio no tiene un dueño activo.
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="label">Nueva contraseña</label>
+            <input
+              type="password"
+              className="input w-full"
+              value={pwd}
+              onChange={(e) => setPwd(e.target.value)}
+              placeholder="Mínimo 8 caracteres"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="label">Confirmar nueva</label>
+            <input
+              type="password"
+              className="input w-full"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submit()}
+            />
+          </div>
+          {confirm.length > 0 && pwd !== confirm && (
+            <p className="text-xs text-red-500">Las contraseñas no coinciden.</p>
+          )}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="btn-ghost text-sm" onClick={onClose} disabled={saving}>
+            Cancelar
+          </button>
+          <button
+            className="btn-primary text-sm"
+            onClick={submit}
+            disabled={!valid || saving}
+          >
+            {saving ? 'Guardando…' : 'Cambiar contraseña'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1054,6 +1357,222 @@ function WalletsGlobalRefreshCard({ tenantId }: { tenantId: string }) {
 }
 
 // ============================================================
+//   Conectar con Onboarding — ADMIN (2026-07-19, PDF1145)
+//   Movido desde /app/settings: el dueño ya no gestiona los tokens
+//   de integración; el operador de Clubify los genera/revoca acá.
+//   Endpoints admin con el tenantId por path (/admin/onboarding/:id/...).
+// ============================================================
+
+type OnbToken = {
+  id: string;
+  label: string;
+  lastFour: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+};
+
+function OnboardingConnectAdminCard({ tenantId }: { tenantId: string }) {
+  const [open, setOpen] = useState(false);
+  const [tokens, setTokens] = useState<OnbToken[]>([]);
+  const [businessId, setBusinessId] = useState<string>(tenantId);
+  const [loading, setLoading] = useState(false);
+  const [label, setLabel] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [newToken, setNewToken] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await api<{ business_id: string; tokens: OnbToken[] }>(
+        `/admin/onboarding/${tenantId}/tokens`,
+      );
+      setTokens(r.tokens);
+      setBusinessId(r.business_id);
+    } catch {
+      /* silencioso — la tarjeta puede quedar vacía */
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    if (open) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  async function generate() {
+    setGenerating(true);
+    try {
+      const r = await api<{ token: string; business_id: string }>(
+        `/admin/onboarding/${tenantId}/token`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ label: label.trim() || undefined }),
+        },
+      );
+      setNewToken(r.token);
+      setBusinessId(r.business_id);
+      setLabel('');
+      load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo generar el token', 'error');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function revoke(id: string) {
+    if (!confirm('¿Revocar este token? Dejará de funcionar de inmediato.')) return;
+    setRevoking(id);
+    try {
+      await api(`/admin/onboarding/${tenantId}/token/${id}`, { method: 'DELETE' });
+      toast('Token revocado', 'success');
+      load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo revocar', 'error');
+    } finally {
+      setRevoking(null);
+    }
+  }
+
+  function copy(text: string) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(
+      () => toast('Copiado', 'success'),
+      () => toast('No se pudo copiar', 'error'),
+    );
+  }
+
+  const activeTokens = tokens.filter((k) => !k.revokedAt);
+
+  return (
+    <div className="card card-pad">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+          🔌 Conectar con Onboarding
+        </h2>
+        <span className="text-mute text-sm">{open ? '▲' : '▼'}</span>
+      </button>
+      <p className="text-xs text-mute mt-1 leading-relaxed">
+        Genera un token para que el sistema de onboarding sincronice la
+        configuración de ESTE negocio. El token solo puede escribir en este
+        negocio. Se muestra en claro una sola vez.
+      </p>
+
+      {open && (
+        <div className="mt-4">
+          <label className="label">business_id</label>
+          <div className="flex gap-2 items-center">
+            <code className="input flex-1 text-xs truncate">
+              {businessId || '—'}
+            </code>
+            <button
+              type="button"
+              className="btn-ghost text-xs whitespace-nowrap"
+              onClick={() => copy(businessId)}
+              disabled={!businessId}
+            >
+              Copiar
+            </button>
+          </div>
+
+          {newToken && (
+            <div
+              className="mt-4 rounded-xl p-3"
+              style={{ background: '#fffbeb', border: '1px solid #fde68a' }}
+            >
+              <div className="text-xs font-semibold" style={{ color: '#92400e' }}>
+                Nuevo token (cópialo ahora)
+              </div>
+              <div className="text-[11px] mb-2" style={{ color: '#92400e' }}>
+                Por seguridad no se vuelve a mostrar. Si lo pierdes, genera otro.
+              </div>
+              <div className="flex gap-2 items-center">
+                <code className="input flex-1 text-xs truncate">{newToken}</code>
+                <button
+                  type="button"
+                  className="btn-primary text-xs whitespace-nowrap"
+                  onClick={() => copy(newToken)}
+                >
+                  Copiar
+                </button>
+              </div>
+              <button
+                type="button"
+                className="text-[11px] underline mt-2"
+                style={{ color: '#92400e' }}
+                onClick={() => setNewToken(null)}
+              >
+                Ocultar
+              </button>
+            </div>
+          )}
+
+          <div className="mt-4">
+            <label className="label">Etiqueta (opcional)</label>
+            <div className="flex gap-2">
+              <input
+                className="input flex-1"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="Onboarding"
+                maxLength={60}
+              />
+              <button
+                type="button"
+                className="btn-primary whitespace-nowrap"
+                onClick={generate}
+                disabled={generating}
+              >
+                {generating ? 'Generando…' : 'Generar token'}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <div className="text-xs font-semibold text-mute mb-1">
+              Tokens activos
+            </div>
+            {loading ? (
+              <div className="text-xs text-mute">…</div>
+            ) : activeTokens.length === 0 ? (
+              <div className="text-xs text-mute">Sin tokens activos.</div>
+            ) : (
+              <ul className="space-y-1">
+                {activeTokens.map((k) => (
+                  <li
+                    key={k.id}
+                    className="flex items-center justify-between gap-2 text-xs border-b border-[#eee] py-1.5"
+                  >
+                    <span className="truncate">
+                      <span className="font-medium">{k.label}</span>
+                      <span className="text-mute"> ····{k.lastFour ?? ''}</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="text-bad hover:underline whitespace-nowrap"
+                      onClick={() => revoke(k.id)}
+                      disabled={revoking === k.id}
+                    >
+                      Revocar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 //   Mensajería WhatsApp del negocio (Bloque 8 — 2026-06-12)
 //   Movido desde /app/settings: el cliente final ya no la edita,
 //   solo SUPER_ADMIN desde acá.
@@ -1195,6 +1714,18 @@ function AcademyTogglesCard({
   const [serviceReservations, setServiceReservations] = useState<boolean>(
     tenant.serviceReservationsEnabled ?? false,
   );
+  const [businessType, setBusinessType] = useState<string>(
+    tenant.businessType ?? 'FULL',
+  );
+  // Varias cartas, una por sede. Se habilita negocio por negocio: la inmensa
+  // mayoria tiene un solo menu y no tiene por que ver esta complejidad.
+  const [multiMenu, setMultiMenu] = useState<boolean>(
+    tenant.multiMenuEnabled ?? false,
+  );
+  // Cuantas cartas EXTRA puede crear, ademas del menu principal.
+  const [maxCartas, setMaxCartas] = useState<number>(
+    tenant.maxExtraMenus ?? 1,
+  );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -1209,6 +1740,9 @@ function AcademyTogglesCard({
           academyEnabled: academy,
           reservationsEnabled: reservations,
           serviceReservationsEnabled: serviceReservations,
+          businessType,
+          multiMenuEnabled: multiMenu,
+          maxExtraMenus: maxCartas,
         }),
       });
       setMsg({ ok: true, text: t('changesSaved') });
@@ -1228,6 +1762,38 @@ function AcademyTogglesCard({
       <p className="text-xs text-mute mt-1 leading-relaxed">
         {t('tenantModulesDesc')}
       </p>
+
+      {/* Tipo de negocio (Negocio Completo / Solo InfoLink). Cambia el consumo
+          de créditos futuro y los módulos visibles (backend + sidebar). */}
+      <div className="mt-4">
+        <div className="text-sm font-semibold mb-1.5">Tipo de negocio</div>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            { key: 'FULL', label: 'Negocio Completo', hint: 'Todos los módulos · 1 créd/mes' },
+            { key: 'INFOLINK', label: 'Solo InfoLink', hint: 'Solo InfoLink · 0.25 créd/mes' },
+          ].map((bt) => {
+            const active = businessType === bt.key;
+            return (
+              <button
+                type="button"
+                key={bt.key}
+                onClick={() => setBusinessType(bt.key)}
+                className={`rounded-input border-2 p-2.5 text-left transition ${
+                  active ? 'border-brand bg-brand-soft' : 'border-line bg-white hover:border-brand/40'
+                }`}
+              >
+                <div className="text-sm font-semibold text-ink">{bt.label}</div>
+                <div className="text-[11px] text-mute mt-0.5">{bt.hint}</div>
+              </button>
+            );
+          })}
+        </div>
+        {businessType === 'INFOLINK' && (
+          <div className="text-[11px] text-warn-ink mt-1.5 leading-snug">
+            Este negocio solo verá el módulo InfoLink; el backend bloquea el resto.
+          </div>
+        )}
+      </div>
 
       <div className="mt-4 space-y-3">
         <label className="flex items-start gap-3 cursor-pointer">
@@ -1257,6 +1823,50 @@ function AcademyTogglesCard({
             <div className="text-xs text-mute leading-snug">
               {t('showAcademyHelp')}
             </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={multiMenu}
+            onChange={(e) => setMultiMenu(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">Varias cartas (una por sede)</div>
+            <div className="text-xs text-mute leading-snug">
+              Para negocios con sedes que ofrecen cosas distintas. Puede
+              duplicar su menú y luego ocultar o cambiar lo que no aplique en
+              cada sede, con su propio QR.{' '}
+              <b>Apagarlo no borra nada</b>: el menú principal es el de siempre.
+            </div>
+            {/* El tope importa: cada carta es un catalogo entero duplicado.
+                Un negocio con 545 productos creando cartas sin freno
+                multiplica la base sin que nadie lo note. */}
+            {multiMenu && (
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <label className="text-xs text-mute">
+                  Cartas extra permitidas:
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  max={20}
+                  value={maxCartas}
+                  onClick={(e) => e.preventDefault()}
+                  onChange={(e) =>
+                    setMaxCartas(
+                      Math.max(0, Math.min(20, Math.floor(Number(e.target.value) || 0))),
+                    )
+                  }
+                  className="input w-20 text-sm py-1"
+                />
+                <span className="text-[11px] text-mute">
+                  además del menú principal
+                </span>
+              </div>
+            )}
           </div>
         </label>
 
@@ -2432,15 +3042,48 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
               onChange={(e) => setNextChargeDate(e.target.value)}
             />
           </div>
-          <div>
-            <label className="label">{t('hotmartSubscriberCode')}</label>
-            <input
-              className="input"
-              placeholder={t('optional')}
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-          </div>
+          {(() => {
+            // PDF 1256 §1: pasarela + identificador dinámicos por marca. El campo
+            // es editable para Hotmart/Manual (código que matchea el webhook);
+            // para Stripe/otras se muestra el id real (lo setea el webhook).
+            const gateway =
+              tenant.subscription?.gateway ||
+              tenant.whiteLabel?.paymentGateway ||
+              'HOTMART';
+            const gatewayLabels: Record<string, string> = {
+              HOTMART: 'Hotmart',
+              STRIPE: 'Stripe',
+              MANUAL: 'Manual',
+              MERCADOPAGO: 'Mercado Pago',
+              WOMPI: 'Wompi',
+              PAYPAL: 'PayPal',
+            };
+            const editable = gateway === 'HOTMART' || gateway === 'MANUAL';
+            return (
+              <div>
+                <label className="label">{t('subscriptionIdLabel')}</label>
+                <div className="text-[11px] text-mute mb-1">
+                  {t('gatewayLabel')}:{' '}
+                  <b>{gatewayLabels[gateway] ?? gateway}</b>
+                </div>
+                {editable ? (
+                  <input
+                    className="input"
+                    placeholder={t('optional')}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                  />
+                ) : (
+                  <input
+                    className="input bg-bg2 text-mute"
+                    value={tenant.subscription?.identifier || '—'}
+                    readOnly
+                    title={t('gatewayLabel')}
+                  />
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -2878,7 +3521,7 @@ function ChangePlanPeriodModal({
           </div>
         </div>
 
-        <div className="px-5 py-4 border-t border-line flex items-center justify-end gap-2 sticky bottom-0 bg-bg1">
+        <div className="px-5 py-4 border-t border-line flex items-center justify-end gap-2 sticky bottom-0 bg-surface">
           <button
             type="button"
             className="btn-ghost text-sm cursor-pointer touch-manipulation select-none active:scale-[0.97] transition-transform duration-150 [-webkit-tap-highlight-color:transparent]"

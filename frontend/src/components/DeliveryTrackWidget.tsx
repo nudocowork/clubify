@@ -61,9 +61,12 @@ function statusOf(o: OrderRow): { label: string; done: boolean; cancelled: boole
 export function DeliveryTrackWidget({
   slug,
   primary,
+  docked = false,
 }: {
   slug: string;
   primary: string;
+  /** true = no se auto-posiciona (fixed); lo ubica un contenedor flotante padre. */
+  docked?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [phone, setPhone] = useState('');
@@ -120,10 +123,9 @@ export function DeliveryTrackWidget({
     <>
       <button
         onClick={() => setOpen(true)}
-        className="fixed z-40 flex items-center gap-2 rounded-full shadow-lg text-white font-semibold text-sm"
+        className={`${docked ? '' : 'fixed z-40 '}flex items-center gap-2 rounded-full shadow-lg text-white font-semibold text-sm`}
         style={{
-          left: 16,
-          bottom: 16,
+          ...(docked ? {} : { left: 16, bottom: 'calc(16px + env(safe-area-inset-bottom))' }),
           background: primary,
           padding: '10px 16px',
           boxShadow: '0 8px 20px rgba(0,0,0,.2)',

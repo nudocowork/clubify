@@ -159,7 +159,7 @@ export default function AdminLabPage() {
     <div className="max-w-6xl">
       <div className="page-head">
         <h1 className="page-title">
-          🧪 Clubify Lab <span className="page-crumb">{t('pageCrumb')}</span>
+          🧪 Lab <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
       </div>
 

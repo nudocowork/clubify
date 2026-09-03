@@ -111,6 +111,10 @@ export class WhiteLabelNotificationsService {
       data: { lowCreditsNotifiedAt: null, pendingClientsNotifiedAt: null },
     });
     await this.send(wl.notifyPhone, 'wl_credits_purchased', {
+      // {platform} = la propia marca blanca (el SMS lo recibe SU dueño). Se pasa
+      // explícito porque este envío no lleva tenantId, y sin él {platform}
+      // caería a "Clubify" y delataría la plataforma al reseller.
+      platform: wl.name,
       brandName: wl.name,
       credits: String(creditsAdded),
       available: String(available),
@@ -146,6 +150,24 @@ export class WhiteLabelNotificationsService {
         data: { lowCreditsNotifiedAt: null },
       });
     }
+  }
+
+  /**
+   * Aviso: la marca tiene `count` créditos cuya ventana de reembolso (5 días)
+   * está por vencer. La dedup vive en CreditTransaction.refundWindowNotifiedAt
+   * (la maneja el cron que llama acá), así que este método solo envía.
+   */
+  async onRefundWindowClosing(whiteLabelId: string, count: number) {
+    if (count <= 0) return;
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id: whiteLabelId },
+      select: { name: true, notifyPhone: true },
+    });
+    if (!wl) return;
+    await this.send(wl.notifyPhone, 'wl_refund_window', {
+      brandName: wl.name,
+      count: String(count),
+    });
   }
 
   /**

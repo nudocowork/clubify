@@ -368,6 +368,8 @@ export class TenantDuplicatorService {
             stampInactiveColor: c.stampInactiveColor ?? null,
             stampContourColor: c.stampContourColor ?? null,
             centerBgColor: c.centerBgColor ?? null,
+            stampBgType: c.stampBgType,
+            stampBgImageUrl: c.stampBgImageUrl ?? null,
             logoUrl: c.logoUrl ?? null,
             heroImageUrl: c.heroImageUrl ?? null,
             iconUrl: c.iconUrl ?? null,
@@ -390,11 +392,15 @@ export class TenantDuplicatorService {
             stampEarnedMessage: c.stampEarnedMessage,
             rewardEarnedMessage: c.rewardEarnedMessage,
             multiRewards: c.multiRewards ?? undefined,
+            freeRewards: c.freeRewards ?? undefined,
             activeLinks: c.activeLinks ?? undefined,
             socialLinks: c.socialLinks ?? undefined,
             autoStampOnOrder: c.autoStampOnOrder,
             autoStampAmount: c.autoStampAmount,
             stampIcon: c.stampIcon,
+            // Ícono propio del sello (imagen). Faltaba: la copia perdía la
+            // imagen y la tarjeta caía al emoji.
+            stampIconImageUrl: c.stampIconImageUrl ?? null,
             // Activación manual deliberada — el dueño revisa antes de habilitar.
             isActive: false,
           },

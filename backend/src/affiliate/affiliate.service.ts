@@ -9,6 +9,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AuthService } from '../auth/auth.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
+import { cambiarSlugConAlias } from '../referrals/slug-alias';
 
 const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 
@@ -173,6 +174,34 @@ export class AffiliateService {
     });
   }
 
+  /**
+   * El afiliado elige la ruta de SU enlace corto `/ref/<ruta>`.
+   *
+   * La ruta se generaba del nombre completo y quedaba larguisima
+   * (`/ref/briggit-stefany-labrador`). Esto deja ponerle la que quiera. No es
+   * un redirector aparte: es la ruta real, asi que conserva codigo,
+   * atribucion y registro de visita.
+   *
+   * Solo toca SU propio codigo — `myCodes` ya filtra por `ownerUserId`, asi
+   * que un afiliado no puede reescribir la ruta de otro.
+   */
+  async setMySlug(user: AuthUser, nuevo: string) {
+    this.assertAffiliate(user);
+    const codes = await this.myCodes(user.id);
+    const mio = codes.find((c) => c.ownerUserId === user.id);
+    if (!mio) throw new NotFoundException('No tenes un codigo propio.');
+
+    // Toda la logica vive en un solo sitio: normalizacion, reservadas,
+    // unicidad contra rutas vivas Y contra alias de otros, y el registro de
+    // la ruta anterior para que los enlaces ya compartidos no se caigan.
+    const slug = await cambiarSlugConAlias(this.prisma, {
+      codeId: mio.id,
+      slugActual: mio.slug,
+      nuevo,
+    });
+    return { slug };
+  }
+
   async me(user: AuthUser) {
     this.assertAffiliate(user);
     const userRow = await this.prisma.user.findUnique({
@@ -186,9 +215,47 @@ export class AffiliateService {
     // fallback explícito al parentEmbajadorCode para vendors.
     const parentForVendor =
       myCode?.role === 'VENDOR' ? myCode.parentEmbajadorCode : null;
+
+    // LA MARCA del afiliado. Sin esto el panel pintaba el logo de Clubify y
+    // decia "Academia Clubify" / "Clubify Lab" a un afiliado de Sellea.
+    // Sale del ReferralCode, que es donde vive la marca de un afiliado (no
+    // tiene tenantId). Ver [[clubify-fugas-de-marca]] y [[clubify-afiliados-y-roles]].
+    const wl = myCode?.whiteLabelId
+      ? await this.prisma.whiteLabel
+          .findUnique({
+            where: { id: myCode.whiteLabelId },
+            select: {
+              slug: true,
+              name: true,
+              logoUrl: true,
+              primaryColor: true,
+              academiaUrl: true,
+              domain: true,
+            },
+          })
+          .catch(() => null)
+      : null;
+
     return {
       user: userRow,
       role: user.role,
+      // null = marca sin resolver. El panel NO debe inventar un nombre: un pie
+      // ausente no delata a nadie, uno equivocado si.
+      brand: wl
+        ? {
+            slug: wl.slug,
+            name: wl.name,
+            logoUrl: wl.logoUrl,
+            primaryColor: wl.primaryColor,
+            academiaUrl: wl.academiaUrl,
+            // Dominio de marketing de la marca: los enlaces de prueba que
+            // comparte el afiliado tenian soyclubify.com escrito a mano.
+            baseUrl: wl.domain ? `https://${wl.domain.replace(/^https?:\/\//, '')}` : null,
+            // El Lab ya esta acotado por marca (`LabProposal.whiteLabelId`),
+            // asi que cada marca ve el suyo y se muestra a todas.
+            labEnabled: true,
+          }
+        : null,
       myCode: myCode
         ? {
             id: myCode.id,
@@ -257,16 +324,28 @@ export class AffiliateService {
     const uses = await this.prisma.referralUse.findMany({
       where: { referralCodeId: { in: codeIds } },
       include: {
-        tenant: { select: { brandName: true, status: true, plan: { select: { name: true } } } },
+        // B2: tenantId para poder entrar (drill-in) a las comisiones del negocio.
+        tenant: {
+          select: {
+            id: true,
+            brandName: true,
+            planPeriodicity: true,
+            status: true,
+            plan: { select: { name: true } },
+          },
+        },
         referralCode: { select: { code: true, role: true, ownerName: true } },
-        commissions: true,
+        // B1: las CANCELADAS no cuentan ni suman en el panel del embajador.
+        commissions: { where: { status: { not: 'REJECTED' } } },
       },
       orderBy: { createdAt: 'desc' },
     });
     return uses.map((u) => ({
       id: u.id,
+      tenantId: u.tenant?.id ?? null,
       tenantBrand: u.tenant?.brandName ?? '—',
       plan: u.tenant?.plan?.name ?? '—',
+      planPeriodicity: u.tenant?.planPeriodicity ?? null,
       status: u.status,
       attribution: {
         code: u.referralCode.code,
@@ -638,6 +717,9 @@ export class AffiliateService {
     const recipientCodeIds = scope.allDescendantCodeIds;
     const items = await this.prisma.commission.findMany({
       where: {
+        // PDF Soft(9) B1: las comisiones CANCELADAS (REJECTED) NO se muestran al
+        // embajador/influencer. Solo disponibles/bloqueadas/pagadas/retenidas.
+        status: { not: 'REJECTED' },
         OR: [
           { recipientCodeId: { in: recipientCodeIds } },
           // Backwards-compat: rows sin recipientCodeId se atribuyen via use.
@@ -654,6 +736,10 @@ export class AffiliateService {
               select: {
                 id: true,
                 brandName: true,
+                // C3: fecha de la 1ª comisión = fecha "de negocio".
+                // PDF Soft 10: purchasedAt (compra real) manda sobre createdAt.
+                createdAt: true,
+                purchasedAt: true,
                 planPeriodicity: true,
                 subscriptionPriceUsd: true,
               },
@@ -667,6 +753,45 @@ export class AffiliateService {
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    // PDF Soft(9) C3 + B3: fecha "de negocio" de cada comisión, IGUAL que el
+    // panel admin (100% sincronizado). El primer cobro de cada empresa (min
+    // availableAt efectivo sobre TODO su historial no anulado, no solo lo que ve
+    // este afiliado) → fecha de REGISTRO; las recompras → fecha del cobro real.
+    const effAvail = (c: { availableAt?: Date | null; createdAt: Date }) =>
+      c.availableAt
+        ? new Date(c.availableAt)
+        : new Date(
+            new Date(c.createdAt).getTime() + AFFILIATE_HOLD_DAYS * 86400000,
+          );
+    const tenantIdsForDate = Array.from(
+      new Set(
+        items
+          .map((c) => c.referralUse?.tenant?.id)
+          .filter((x): x is string => !!x),
+      ),
+    );
+    const firstChargeMsByTenant = new Map<string, number>();
+    if (tenantIdsForDate.length) {
+      const mins = await this.prisma.commission.findMany({
+        where: {
+          status: { not: 'REJECTED' },
+          referralUse: { tenantId: { in: tenantIdsForDate } },
+        },
+        select: {
+          availableAt: true,
+          createdAt: true,
+          referralUse: { select: { tenantId: true } },
+        },
+      });
+      for (const m of mins) {
+        const tid = m.referralUse?.tenantId;
+        if (!tid) continue;
+        const ms = effAvail(m).getTime();
+        const cur = firstChargeMsByTenant.get(tid);
+        if (cur === undefined || ms < cur) firstChargeMsByTenant.set(tid, ms);
+      }
+    }
 
     // Base de comisión por tenant (precio real ?? canónico) para derivar el
     // % aplicado a cada comisión (amount / base). Una sola resolución por
@@ -734,10 +859,44 @@ export class AffiliateService {
             : null;
         const percent =
           snapPct ?? (base > 0 ? Math.round((amount / base) * 100) : null);
-        const daysRemaining = affiliateDaysRemaining(c.createdAt, c.status);
-        const availableAt = new Date(
-          new Date(c.createdAt).getTime() + AFFILIATE_HOLD_DAYS * 86400000,
-        );
+        // B3: usar el availableAt GUARDADO (igual que admin), no createdAt+hold,
+        // para que días restantes / próximo pago coincidan 100% con el panel admin.
+        const availableAt = effAvail(c);
+        const daysRemaining =
+          c.status === 'PENDING'
+            ? Math.max(
+                0,
+                Math.ceil((availableAt.getTime() - Date.now()) / 86400000),
+              )
+            : 0;
+        // C3 + FIX 2026-08-14 (R1/Fable): fecha de negocio. 1ª comisión CON
+        // purchasedAt real → esa; resto (recompras y 1ª sin purchasedAt) → la
+        // fecha del cobro de ESTA comisión (createdAt ≈ webhook/pago). Antes la
+        // 1ª sin purchasedAt caía a tenant.createdAt (REGISTRO ≠ compra) →
+        // fecha equivocada + flip entre renders. Sincronizado con
+        // referrals.service.ts (listAdminCommissions).
+        const tenantForDate = c.referralUse?.tenant;
+        const firstMs = tenantForDate?.id
+          ? firstChargeMsByTenant.get(tenantForDate.id)
+          : undefined;
+        // FECHA DURABLE: si la fila tiene businessDate congelado, se usa tal
+        // cual (estable). Si no, fallback a la heurística (igual que admin).
+        let commissionDate: Date;
+        if (c.businessDate) {
+          commissionDate = new Date(c.businessDate);
+        } else if (
+          tenantForDate?.purchasedAt &&
+          firstMs !== undefined &&
+          availableAt.getTime() === firstMs &&
+          // GUARD R1 (Fable): purchasedAt no puede ser muy posterior a la 1ª
+          // comisión (Bug B pudo estampar fecha de renovación). Paridad backfill.
+          new Date(tenantForDate.purchasedAt).getTime() <=
+            new Date(c.createdAt).getTime() + 86400000
+        ) {
+          commissionDate = new Date(tenantForDate.purchasedAt);
+        } else {
+          commissionDate = new Date(c.createdAt);
+        }
         return {
           id: c.id,
           amount,
@@ -745,7 +904,10 @@ export class AffiliateService {
           // % aplicado de la comisión sobre el pago del cliente (25, 5, etc).
           percent,
           createdAt: c.createdAt,
+          commissionDate,
           paidAt: c.paidAt,
+          // B2: id del negocio para agrupar/entrar (drill-in) por marca.
+          tenantId: c.referralUse?.tenant?.id ?? null,
           tenantBrand:
             c.referralUse?.tenant?.brandName ??
             (c.businessGroup?.name ? `Grupo: ${c.businessGroup.name}` : '—'),
@@ -1367,6 +1529,10 @@ function aggregateKpis(
   for (const u of uses) {
     if (u.status === 'PAYING' || u.status === 'ACTIVE') k.conversions += 1;
     for (const c of u.commissions ?? []) {
+      // PDF Soft(9) B1: las comisiones CANCELADAS (REJECTED) no cuentan en
+      // revenue/pending/paid del embajador (antes seguían sumando aunque el
+      // admin las anulara → el panel no reflejaba el cambio).
+      if (c.status === 'REJECTED') continue;
       // Si pasaron myCodeIds, filtramos: solo cuentan las commissions
       // cuyo recipient está en mi set. Backwards-compat con rows
       // legacy: si recipientCodeId es null (pre-3-way), aceptamos
