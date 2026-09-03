@@ -38,7 +38,6 @@ export function OverflowDebug() {
       const doc = document.documentElement.scrollWidth;
       const exceso = doc - ancho;
 
-      if (exceso <= peor) return; // ya reportamos algo igual o peor
       peor = Math.max(peor, exceso);
 
       const cabecera = [
@@ -48,7 +47,8 @@ export function OverflowDebug() {
       ];
 
       if (exceso <= 1) {
-        setLineas(cabecera);
+        const push = (window as unknown as { __push?: string[] }).__push ?? [];
+        setLineas([...cabecera, ...push.map((l) => `push · ${l}`)]);
         return;
       }
 
@@ -73,8 +73,10 @@ export function OverflowDebug() {
 
       // Los más profundos primero: el ancestro solo se desborda por arrastre.
       fuera.sort((a, b) => b.prof - a.prof);
+      const push = (window as unknown as { __push?: string[] }).__push ?? [];
       setLineas([
         ...cabecera,
+        ...(push.length ? push.map((l) => `push · ${l}`) : ['push · (sin traza)']),
         ...fuera.slice(0, 5).map((f) => {
           const cls = (f.el.getAttribute('class') || '').slice(0, 65);
           return `${f.el.tagName.toLowerCase()} w=${f.w} r=${f.r} · ${cls}`;
