@@ -1961,6 +1961,57 @@ plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
   dos fotos distintas no se fusionan; usa un número inexistente y va por el camino
   saliente, que no dispara flujos).
 
+## 2026-09-03 — Team Clubify: instalable como app + revisión de móvil completa (Jhon)
+**Máquina/quién:** Jhon (Mac)
+**Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commit `8b6007b` · desplegado
+
+### Qué cambié
+Revisión de móvil **medida, no a ojo**: se abre cada pantalla a 390×844 y se
+reporta la que se sale. Importa porque la carcasa **recorta** el desbordamiento
+(`overflow-x-hidden` en `<main>`): lo que se sale **no se alcanza desplazando**,
+es un botón al que no se llega. Eran **6 de 51**; ahora **0 de 63**.
+
+- **Instalable como app** (antes no existía ni `public/`): `manifest.webmanifest`
+  con `display: standalone` y atajos, iconos 192/512/maskable/apple-touch,
+  `theme-color`, `apple-mobile-web-app-*`, `viewport-fit=cover`. El manifiesto
+  tuvo que hacerse **público en el middleware**: protegido devolvía la redirección
+  al login y el navegador nunca ofrecía instalar.
+- **Carcasa:** `h-screen` → `h-[100dvh]`. En el teléfono `100vh` incluye la barra
+  de direcciones que se pliega, así que la carcasa era más alta que lo visible y
+  la última fila de CUALQUIER pantalla quedaba cortada. Más zonas seguras del
+  iPhone (muesca y barra de gestos).
+- **Lo que estaba cortado:** Banco, Workflows y Biblioteca (la fila de botones no
+  envolvía); Configuración de la agenda (una celda de rejilla crece hasta su
+  contenido más ancho — el desplegable de zona horaria estiraba la tarjeta a
+  437 px en 390); constructor de formularios (`min-w-[200px]` dejaba «Guardar»
+  fuera); rangos horarios por día; calendario de Contenido (7 columnas = 50 px por
+  día → en móvil pasa a **agenda**, la rejilla vuelve en tablet).
+- **Uso con el dedo:** «Salir» era el ícono pelado de 20×20 en TODAS las
+  pantallas; botón compacto 32→36 px en móvil; casillas 13→18 px solo con puntero
+  grueso; campos a 16 px en móvil (por debajo, Safari hace zoom al enfocar y **no
+  vuelve**).
+
+### Qué toqué de PRODUCCIÓN
+- Solo despliegue: `vercel --prod` desde `team_clubify/`. Sin cambios de esquema.
+- Verificado en producción: `/manifest.webmanifest` y los iconos responden 200.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Quedan ~1.380 controles por debajo de 36 px de alto (papeleras de 27×24,
+      «← Volver» de 61×20, enlaces de texto dentro de listas). Los globales ya
+      están; el resto es cola larga pantalla por pantalla.
+- [ ] Las tarjetas de métricas ocupan mucho alto en el teléfono (en Contenido, las
+      cinco llenan la primera pantalla). Es densidad, no rotura: decisión de diseño.
+- [ ] Para que se sienta app de verdad falta **service worker** (abrir sin red) y
+      **notificaciones push**. No lo hice: cambia el ciclo de despliegue y conviene
+      decidirlo aparte.
+
+### Riesgos y avisos
+- Los campos a 16 px en móvil **cambian la densidad** de los formularios en
+  teléfono. Es a propósito: es la única forma de que Safari no haga zoom.
+- Herramienta repetible: `node scripts/auditar-movil.mjs scripts/rutas-movil.json`
+  (pide `npm i -D playwright`; entra con una sesión firmada con `AUTH_SECRET` y
+  **solo lee**). Correrla antes de dar por buena cualquier pantalla nueva.
+
 ## 2026-09-01 — Team Clubify: varias agendas por equipo + el líder administra la suya (Jhon)
 **Máquina/quién:** Jhon (Mac)
 **Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commit `ecfca7c` · desplegado
