@@ -8,6 +8,58 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-03 — Fusión de las dos ramas a `main` + deploy: producción DES-cruzada
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `main` · commit `e0e63b32`
+**Estado: DESPLEGADO y verificado.** Ya NO hay freeze.
+
+### Qué pasó
+
+Producción estaba **partida en dos** (backend = `chore/merge-emails-sobre-314`,
+frontend = `feat/commissions-auto-cutoffs`), por `vercel promote` a mano que movió
+el puntero atrás. Se consolidó todo en `main` y se desplegó backend + frontend
+desde ahí. **`main` es ahora la rama de producción** (la guarda de `desplegar.cjs`
+ya lo exige).
+
+### Cómo se hizo la fusión
+
+Base `origin/main` → merge `origin/feat` → merge `origin/chore`, en un **worktree
+aislado** (no se tocó el árbol principal, que tenía trabajo en vuelo). Conflictos:
+los 2 que anticipó Javi (`docs/BITACORA.md` unido, `frontend/src/app/layout.tsx`
+conservando los dos cambios — `NativeAppChrome`/`OverflowDebug` + `googleFontsUrls()`
+plural) más 3 de documentación (`CLAUDE.md`, `ESTADO-PRODUCCION.md`, BITÁCORA) por
+partir de `origin/main`; se tomó la versión de feat (la más nueva).
+
+### Se INCLUYÓ push-notifications (decisión de Jhon)
+
+`feat` traía `6c2cb505 feat(push)`: registro de dispositivos para notificaciones
+nativas, con cambio de esquema. La tabla **`DeviceToken` ya estaba aplicada en
+prod** (aplicada desde la otra máquina; se re-corrió `apply-device-tokens-migration.cjs`
+y confirmó columnas + índices, 0 tokens). Aditiva, sin tocar tablas existentes.
+
+### Verificación
+
+- Backend `tsc` 0 · Frontend `tsc` 0 · `vitest src/convenios` 180/180.
+- `vitest src/email src/integrations`: **38/39**. La única roja (`trial_started`
+  sin correo gemelo, `brand-message-templates.spec.ts`) es **pre-existente en
+  las dos ramas** (archivos idénticos), NO la causó el merge — Javi solo corría
+  `convenios`. El SMS se manda igual; falta el correo gemelo o excluir el trigger
+  del invariante (es mensaje al cliente, no al negocio). Pendiente de decidir.
+- Deploy desde worktree limpio en `main`. Curls: `/hub`, `/app/alianzas`,
+  `/app/club` → 200; `api …/cuponera/panel/card` → 401; `api …/public/alianzas/
+  demo-clubify/ecopetrol` → 200. Prod ya no cruzada.
+
+### PENDIENTE importante
+
+- **Backfill del income capture Hotmart**: el backend estuvo días partido con la
+  versión SIN `9f6bbc7f`, así que hay pagos LATAM (moneda local) que no entraron
+  a Contabilidad esos días. Reconstruir desde `HotmartWebhookEvent` (dedup por
+  txId). Antes se había aparcado; ahora son más días.
+- Decidir lo de `trial_started` (correo gemelo o exclusión del test).
+- De aquí en más **ambas máquinas despliegan solo desde `main`**. Las ramas
+  `feat/commissions-auto-cutoffs` y `chore/merge-emails-sobre-314` ya están
+  fusionadas en `main`.
+
 ## 2026-09-02 — Alianzas terminada en código, SIN desplegar (freeze) + guarda de rama
 
 **Nada de esto está en producción. Freeze en pie: la fusión y el despliegue los
