@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { isNativeApp } from '@/lib/native';
 import { isImpersonating } from '@/lib/api';
 
 /**
@@ -20,10 +19,14 @@ export function OverflowDebug() {
     // en el que hace falta medir el panel del negocio, y ningún cliente real
     // puede estar ahí — impersonar es exclusivo de un admin. Así el
     // diagnóstico sobrevive a navegar sin arrastrar ?dbg=1 en cada URL.
+    //
+    // NUNCA en la app nativa: este es un overlay de diagnóstico TEMPORAL y no
+    // puede aparecer en la build de la App Store (antes se encendía siempre en
+    // nativo). En web sigue disponible con ?dbg=1 o impersonando.
     const forzado =
       typeof window !== 'undefined' &&
       (window.location.search.includes('dbg=1') || isImpersonating());
-    if (!forzado && !isNativeApp()) return;
+    if (!forzado) return;
 
     // Se mide REPETIDAMENTE: el panel carga sus datos por fetch, así que a los
     // 1.8s del montaje todavía faltan tarjetas por pintar. Una sola medida
