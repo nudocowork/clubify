@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Notificaciones push. Sin esta clave register() falla con
+	     "no valid aps-environment entitlement" y el teléfono nunca obtiene
+	     token. Xcode la cambia sola a "production" al archivar para la
+	     tienda; en desarrollo tiene que decir development. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

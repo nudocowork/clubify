@@ -1,7 +1,8 @@
 'use client';
 import { useEffect } from 'react';
 import { nativePlatform } from '@/lib/native';
-import { ocultarSplashNativo } from '@/lib/native-bridge';
+import { ocultarSplashNativo, registrarPush } from '@/lib/native-bridge';
+import { api, getUser } from '@/lib/api';
 
 /**
  * Ajustes que solo aplican dentro de la app instalada:
@@ -29,6 +30,14 @@ export function NativeAppChrome() {
       if (plataforma) {
         document.documentElement.setAttribute('data-native', plataforma);
         ocultarSplashNativo();
+        // Solo con sesión: pedir el permiso de notificaciones en la pantalla
+        // de login, antes de que la persona sepa qué es la app, es la forma
+        // segura de que lo niegue — y en iOS no se puede volver a preguntar.
+        if (getUser()) {
+          registrarPush((token, platform) =>
+            api('/devices', { method: 'POST', body: JSON.stringify({ token, platform }) }),
+          );
+        }
         return;
       }
       // ~3s de margen (30 × 100ms). Si al final no hay puente es que

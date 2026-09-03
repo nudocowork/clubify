@@ -1046,6 +1046,7 @@ model User {
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
+  deviceTokens DeviceToken[]
 
   // 2FA TOTP. Habilitado obligatoriamente para SUPER_ADMIN; opcional para
   // TENANT_OWNER/STAFF. `totpSecret` es el secret base32; `totpEnabledAt`
@@ -6851,4 +6852,28 @@ enum PayrollStatus {
   PENDING
   PARTIAL
   PAID
+}
+
+/// Token de notificaciones push de UN dispositivo (app de iOS/Android).
+///
+/// La clave natural es el TOKEN, no el usuario: una persona puede tener el
+/// teléfono y la tablet, y el mismo aparato cambia de token cuando reinstala
+/// la app o el sistema lo rota. Por eso `token` es único y el registro hace
+/// upsert sobre él — así un token que cambia de dueño (dos empleados que
+/// comparten el móvil del local) queda apuntando a quien inició sesión de
+/// último, y no se le mandan al anterior las notificaciones del nuevo.
+///
+/// `lastSeenAt` permite limpiar los que llevan meses sin aparecer: APNs y FCM
+/// cobran reputación por mandar a tokens muertos.
+model DeviceToken {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 'ios' | 'android'
+  platform   String
+  token      String   @unique
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  @@index([userId])
 }
