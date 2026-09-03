@@ -1,14 +1,12 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon';
+// getToken canónico: prioriza el overlay de impersonación por pestaña sobre la
+// cookie base. La copia cookie-only de antes daba 401 en /media/upload al subir
+// desde "Entrar al negocio" (el token válido está en sessionStorage, no en la cookie).
+import { getToken } from '@/lib/api';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
-
-function getToken() {
-  if (typeof document === 'undefined') return null;
-  const m = document.cookie.match(/(^|;\s*)clubify_token=([^;]+)/);
-  return m ? decodeURIComponent(m[2]) : null;
-}
 
 export function ImageUploader({
   value,

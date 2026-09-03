@@ -4,13 +4,13 @@
  * API funcional para usar como `onUpload` del SectionCoverEditor.
  */
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+// Usa el getToken canónico (lib/api): prioriza el overlay de impersonación
+// por pestaña sobre la cookie base. Antes esto tenía su propia copia que leía
+// SOLO la cookie clubify_token → al entrar a un negocio ajeno ("Entrar al
+// negocio") mandaba el token viejo/ausente y /media/upload devolvía 401.
+import { getToken } from '@/lib/api';
 
-function getToken(): string | null {
-  if (typeof document === 'undefined') return null;
-  const m = document.cookie.match(/(^|;\s*)clubify_token=([^;]+)/);
-  return m ? decodeURIComponent(m[2]) : null;
-}
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
 /** Sube un File a R2 y devuelve la URL pública. Throws si falla. */
 export async function uploadCoverImage(file: File, folder = 'sections'): Promise<string> {
