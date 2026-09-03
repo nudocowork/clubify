@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { useHidesPurchases } from '@/lib/native';
 import { useAuthBrand } from '@/components/AuthBrand';
 
 type Status = {
@@ -15,6 +16,13 @@ type Status = {
 };
 
 export function TrialBanner() {
+  // En iOS el aviso se queda, pero SIN la llamada a la acción: "Activar ahora"
+  // es una invitación a pagar, y Apple prohíbe dirigir a un cobro que no sea
+  // el suyo (3.1.1). El enlace lleva a /app/billing, donde el botón de compra
+  // ya está oculto — pero el reviewer juzga la llamada, no solo el destino.
+  // El texto informativo sí puede quedarse: decirle al dueño en qué estado
+  // está su cuenta no es venderle nada.
+  const sinCompras = useHidesPurchases();
   const [s, setS] = useState<Status | null>(null);
   const [hidden, setHidden] = useState(false);
   // Nombre de la marca (Sellea en su dominio) para no decir "Clubify".
@@ -92,12 +100,14 @@ export function TrialBanner() {
   return (
     <div className={`${bg} ${border} ${text} border-b px-4 py-2.5 flex items-center gap-3 text-sm`}>
       <div className="flex-1 truncate">{label}</div>
-      <Link
-        href="/app/billing"
-        className="font-semibold underline whitespace-nowrap hover:no-underline"
-      >
-        {cta} →
-      </Link>
+      {!sinCompras && (
+        <Link
+          href="/app/billing"
+          className="font-semibold underline whitespace-nowrap hover:no-underline"
+        >
+          {cta} →
+        </Link>
+      )}
       {s.status === 'TRIAL' && (s.daysLeftInTrial ?? 0) > 0 && (
         <button
           onClick={() => setHidden(true)}
