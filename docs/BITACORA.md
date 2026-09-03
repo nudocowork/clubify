@@ -1961,6 +1961,41 @@ plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
   dos fotos distintas no se fusionan; usa un número inexistente y va por el camino
   saliente, que no dispara flujos).
 
+## 2026-09-03 — Team Clubify: el formulario del lead en la agenda y en todas las reuniones (Jhon)
+**Máquina/quién:** Jhon (Mac)
+**Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commits `ecfca7c`…`+2` · desplegado
+
+### Qué cambié
+- **Agenda del equipo:** abrir una reunión mostraba fecha, teléfono y poco más.
+  Para saber si el lead venía calificado había que salir del calendario, buscar el
+  contacto y abrir su ficha — con la decisión de asignar o reagendar esperando.
+  Ahora el modal trae las **respuestas del formulario** y los botones de Sala de
+  Meet / WhatsApp / Llamar, encima de las acciones de siempre.
+- **Vista del closer:** el formulario solo se veía en la reunión destacada; a las
+  demás del día se entraba a ciegas. Cada fila tiene ahora su botón, sin quitarle
+  a la fila su acción principal (registrar el resultado).
+- La tarjeta se extrajo a `LeadFormCard` y la usan las **dos** pantallas. La
+  lectura de las respuestas (resolver el código de la opción a su texto y su
+  puntaje) vive ahora en `lib/server/form-answers.ts`, en un solo sitio.
+- **Rendimiento:** el modal se quedaba en «Cargando…» varios segundos porque pedía
+  el historial COMPLETO del lead para mostrar solo el formulario. Ahora se pinta
+  lo que ya se tiene (la ficha viene con la cita) y solo viajan las respuestas.
+  Medido contra la base remota: cabecera **>4 s → ~85 ms**, respuestas
+  **~1,9 s → ~880 ms**. Esqueleto en vez de la palabra «Cargando…».
+
+### Qué toqué de PRODUCCIÓN
+- Solo despliegue (`vercel --prod` desde `team_clubify/`). Sin cambios de esquema.
+- `MeetingLite` ganó `meet_url` (el campo ya venía de la base; faltaba en el tipo).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Los ~880 ms se midieron desde la máquina de Jhon contra Railway, con el
+      tramo de red más largo que el real. Conviene confirmarlo usándolo.
+
+### Riesgos y avisos
+- `getLeadHistory` sigue existiendo para la ficha completa; la que hay que usar
+  para mostrar el formulario es `getLeadFormAnswers` (o `getLeadFormCard` si no se
+  tiene la ficha). Si se vuelve a la pesada, vuelven los segundos en blanco.
+
 ## 2026-09-03 — Team Clubify: instalable como app + revisión de móvil completa (Jhon)
 **Máquina/quién:** Jhon (Mac)
 **Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commit `8b6007b` · desplegado
