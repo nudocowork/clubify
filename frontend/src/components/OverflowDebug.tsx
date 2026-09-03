@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { isNativeApp } from '@/lib/native';
+import { isImpersonating } from '@/lib/api';
 
 /**
  * TEMPORAL — diagnóstico de desbordamiento horizontal.
@@ -15,8 +16,13 @@ export function OverflowDebug() {
   const [lineas, setLineas] = useState<string[]>([]);
 
   useEffect(() => {
+    // Se enciende también con una impersonación activa: es el único estado
+    // en el que hace falta medir el panel del negocio, y ningún cliente real
+    // puede estar ahí — impersonar es exclusivo de un admin. Así el
+    // diagnóstico sobrevive a navegar sin arrastrar ?dbg=1 en cada URL.
     const forzado =
-      typeof window !== 'undefined' && window.location.search.includes('dbg=1');
+      typeof window !== 'undefined' &&
+      (window.location.search.includes('dbg=1') || isImpersonating());
     if (!forzado && !isNativeApp()) return;
 
     const t = setTimeout(() => {
