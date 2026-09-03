@@ -169,6 +169,74 @@ un único bug de corrección → arreglado y desplegado (frontend READY):
   frontend lo **subió a producción**: `/hub` ahora responde **200**. Si esa fase 1 no estaba
   lista para estar viva, avísame — quedó live junto con mi ranking, tu cuponera y el botón PRO.
 
+## 2026-09-03 (tarde) — PUSH FUNCIONANDO de punta a punta + trampa del AppDelegate
+
+**Máquina/quién:** la de Jhon (sesión Claude)
+
+### ⚠️ La trampa que costó medio día — LEER SI SE REGENERA EL PROYECTO iOS
+
+`register()` se llamaba, iOS obtenía el token del aparato… y se perdía. Sin
+error, sin callback, sin nada en los logs (los de `apsd` vienen redactados por
+Apple como `<private>`).
+
+**Faltaban los dos reenvíos de APNs en `AppDelegate.swift`**, que la plantilla
+de Capacitor NO trae:
+
+```swift
+func application(_:didRegisterForRemoteNotificationsWithDeviceToken:)
+func application(_:didFailToRegisterForRemoteNotificationsWithError:)
+```
+
+El plugin escucha por `NotificationCenter` y nadie publicaba ahí. Todo lo
+demás —permiso, entitlement, clave APNs, endpoint, tabla— estaba bien desde el
+principio. **Si alguien borra y regenera `mobile/ios`, esto se pierde y las
+push vuelven a fallar en silencio.**
+
+### Qué toqué de PRODUCCIÓN
+- **Migración aplicada**: tabla `DeviceToken` (aditiva, idempotente).
+- **Backend desplegado** dos veces: endpoints `/devices` y disparador de
+  pedido nuevo. Verificado el swap las dos veces (404 → 401).
+- **Frontend desplegado** varias veces. El último quita el diagnóstico.
+- **Variables nuevas en Railway**: `APP_PUSH_KEY_ID`, `APP_PUSH_TEAM_ID`,
+  `APP_PUSH_BUNDLE_ID`, `APP_PUSH_KEY_BASE64`.
+  **NO se tocaron las `APNS_*`**, que son las del pase de Apple Wallet: reusar
+  esos nombres habría dejado sin actualizar los pases de todos los negocios.
+
+### Verificado de punta a punta
+Token guardado en producción (`jhon@clubify.com · ios`) y notificación
+entregada al iPhone. El envío intenta **production y luego sandbox**: un build
+instalado por cable lleva entitlement de desarrollo y production lo rechaza
+con `BadDeviceToken`. Sin ese reintento parecería roto.
+
+### Otras dos causas reales encontradas
+- **El service worker seguía en `v55` de agosto** tras una decena de
+  despliegues: la app podía correr código viejo. Explica que las márgenes
+  seguras se aplicaran unas veces sí y otras no **con el mismo build**. Bump a
+  `v56`. **Si un cambio de front no aparece en la app, mirar esto primero.**
+- **El movimiento lateral NO era desbordamiento**: seis pantallas medidas dan
+  `doc == viewport`. Era el rebote elástico del WebView. Cortado con
+  `overscroll-behavior-x: none`, solo en la app.
+
+### Qué falta
+- [ ] Más disparadores de push: reserva, sello, corte de comisiones. El patrón
+      queda en `orders.service.ts` (`appPush.enviarATenant`, dispara y olvida).
+- [ ] **Clave APNs de producción ya creada** (`T57Z72TY6V`). Al subir a
+      TestFlight, Xcode cambia el entitlement a `production` solo.
+- [ ] Google Sign-In nativo: no funciona dentro del WebView (Google bloquea
+      OAuth en webviews embebidos). Hace falta el SDK nativo + client ID iOS.
+- [ ] Android: falta Android Studio + JDK en esta máquina, y Firebase para FCM.
+- [ ] Fichas de tienda: capturas, textos y **cuenta demo para el revisor**.
+- [ ] Revisión responsive a fondo de `/app`: bloqueada por no tener una cuenta
+      de negocio propia (impersonar vive en sessionStorage y se pierde al
+      navegar).
+
+### Riesgos y avisos
+- La app instalada en el iPhone de Jhon quedó **sin** `?dbg=1` y sin
+  diagnóstico: es la build limpia.
+- Se respetó el commit `f8793e29` de la otra máquina (diagnóstico apagado en
+  nativo). Para depurar se compiló una build aparte apuntada a `?dbg=1` en vez
+  de revertirlo.
+
 ## 2026-09-03 — App en el iPhone REAL + push (registro) + hallazgos de medición
 
 **Máquina/quién:** la de Jhon (sesión Claude) · commit `6c2cb505`
