@@ -39,12 +39,19 @@ const config: CapacitorConfig = {
   },
   ios: {
     appendUserAgent: `${UA} (ios)`,
+    // Sin esto un pellizco accidental deja el panel ampliado y desplazado: se
+    // ve todo cortado por los bordes y el usuario no sabe cómo deshacerlo.
+    // Capacitor ya lo trae en false por defecto; se declara explícito porque
+    // pasamos horas persiguiendo un "desbordamiento" que resultó ser esto.
+    // En el NAVEGADOR el zoom sigue disponible (accesibilidad).
+    zoomEnabled: false,
     // La web ya maneja sus propios safe areas (env(safe-area-inset-*)).
     contentInset: 'never',
     backgroundColor: '#0B1F14',
   },
   android: {
     appendUserAgent: `${UA} (android)`,
+    zoomEnabled: false,
     backgroundColor: '#0B1F14',
     // El WebView de Android no permite contenido mixto: todo por https.
     allowMixedContent: false,
