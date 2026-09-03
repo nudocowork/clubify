@@ -49,18 +49,6 @@
 	     pregunta: se cierra en el acto la primera vez que se abre el escáner.
 	     Apple además lo lee en la revisión, así que tiene que decir para qué
 	     se usa de verdad, no una frase genérica. -->
-	<!-- Google devuelve el control a la app por este esquema tras autenticar.
-	     Es el client ID de iOS al revés; sin él, el login nativo abre Safari y
-	     nunca vuelve. -->
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>com.googleusercontent.apps.889594710451-6417l00bclupda5q8b3eir9l1rlc5hle</string>
-			</array>
-		</dict>
-	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Usamos la cámara para escanear el código de la tarjeta de tus clientes y registrar sellos, visitas y compras.</string>
 	<!-- Guardar en Fotos el QR o el pase que el negocio comparte con su cliente. -->

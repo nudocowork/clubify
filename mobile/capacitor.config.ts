@@ -71,18 +71,6 @@ const config: CapacitorConfig = {
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
     },
-    GoogleAuth: {
-      // Google BLOQUEA su OAuth dentro de webviews embebidos, así que el
-      // botón web no puede funcionar aquí por diseño: hay que pasar por el
-      // SDK nativo, que abre una vista de Safari del sistema.
-      //
-      // Este client ID es el de iOS y NO es un secreto: viaja dentro del
-      // binario y cualquiera puede extraerlo. Lo que protege la cuenta es que
-      // Apple firma el bundle id, no que el ID esté oculto.
-      iosClientId:
-        '889594710451-6417l00bclupda5q8b3eir9l1rlc5hle.apps.googleusercontent.com',
-      scopes: ['profile', 'email'],
-    },
   },
 };
 
