@@ -37,6 +37,9 @@ export type AppEnv = {
   S3_FORCE_PATH_STYLE: boolean;
 
   GOOGLE_CLIENT_ID: string | null;
+  /** Client ID de iOS: la app nativa firma con este y su `aud` difiere
+   *  del web. Sin él, el login con Google desde la app se rechaza. */
+  GOOGLE_CLIENT_ID_IOS: string | null;
 
   APPLE_PASS_TYPE_ID: string | null;
   APPLE_TEAM_ID: string | null;
@@ -206,6 +209,7 @@ export function validateEnv(raw: Record<string, unknown>): AppEnv {
     S3_FORCE_PATH_STYLE: readBool(raw, 'S3_FORCE_PATH_STYLE', true),
 
     GOOGLE_CLIENT_ID: readString(raw, 'GOOGLE_CLIENT_ID'),
+    GOOGLE_CLIENT_ID_IOS: readString(raw, 'GOOGLE_CLIENT_ID_IOS'),
 
     APPLE_PASS_TYPE_ID: readString(raw, 'APPLE_PASS_TYPE_ID'),
     APPLE_TEAM_ID: readString(raw, 'APPLE_TEAM_ID'),

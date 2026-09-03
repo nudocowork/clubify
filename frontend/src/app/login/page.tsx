@@ -1,5 +1,5 @@
 'use client';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, setSession, clearSession } from '@/lib/api';
@@ -7,6 +7,7 @@ import { primaryHrefForUser } from '@/lib/modules';
 import { isNativeApp, useHidesPurchases } from '@/lib/native';
 import { useAuthBrand, BrandMark, BrandAuthTheme } from '@/components/AuthBrand';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
+import { hayGoogleNativo, loginGoogleNativo } from '@/lib/google-nativo';
 
 export default function LoginPage() {
   return (
@@ -21,10 +22,18 @@ function LoginInner() {
   const params = useSearchParams();
   const { brand } = useAuthBrand();
   const sinCompras = useHidesPurchases();
+  // El botón web de Google no funciona dentro de la app: Google bloquea su
+  // OAuth en webviews embebidos y se queda cargando para siempre. Se resuelve
+  // tras montar porque depende del puente nativo.
+  const [googleNativo, setGoogleNativo] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    setGoogleNativo(hayGoogleNativo());
+  }, []);
+
   const justReset = params.get('reset') === '1';
   const justCanceled = params.get('canceled') === '1';
   const sessionExpired = params.get('expired') === '1';
@@ -153,7 +162,33 @@ function LoginInner() {
           {loading ? 'Entrando…' : 'Entrar'}
         </button>
 
-        <GoogleSignInButton onCredential={loginWithGoogle} disabled={loading} />
+        {googleNativo ? (
+          <button
+            type="button"
+            disabled={loading}
+            onClick={async () => {
+              setErr(null);
+              setLoading(true);
+              try {
+                await loginWithGoogle(await loginGoogleNativo());
+              } catch (e: any) {
+                setErr(e?.message ?? 'No se pudo iniciar sesión con Google.');
+                setLoading(false);
+              }
+            }}
+            className="w-full mt-3 flex items-center justify-center gap-2.5 border border-line rounded-pill py-3 text-sm font-medium text-ink bg-white hover:bg-bg2 transition disabled:opacity-50"
+          >
+            <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
+              <path fill="#4285F4" d="M45 24c0-1.6-.1-2.7-.4-3.9H24v7.5h12c-.2 1.9-1.5 4.7-4.4 6.6l6.7 5.2C42.2 35.9 45 30.5 45 24z" />
+              <path fill="#34A853" d="M24 46c5.9 0 10.9-2 14.5-5.3l-6.9-5.4c-1.9 1.3-4.4 2.2-7.6 2.2-5.8 0-10.7-3.8-12.5-9.1l-7.1 5.5C8 41.1 15.4 46 24 46z" />
+              <path fill="#FBBC05" d="M11.5 28.4c-.5-1.4-.7-2.9-.7-4.4s.3-3 .7-4.4l-7.1-5.5C2.9 17 2 20.4 2 24s.9 7 2.4 9.9l7.1-5.5z" />
+              <path fill="#EA4335" d="M24 10.6c4.1 0 6.9 1.8 8.5 3.3l6.2-6C34.9 4.4 29.9 2 24 2 15.4 2 8 6.9 4.4 14.1l7.1 5.5c1.8-5.3 6.7-9 12.5-9z" />
+            </svg>
+            Continuar con Google
+          </button>
+        ) : (
+          <GoogleSignInButton onCredential={loginWithGoogle} disabled={loading} />
+        )}
 
         {/* "Adquiérelo aquí" lleva a /signup, que es el checkout de los planes.
             En iOS eso es una compra externa a dos toques del login: motivo de
