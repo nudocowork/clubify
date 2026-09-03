@@ -69,6 +69,23 @@ Nota: la plantilla de **Tarjeta de Club** sigue apareciendo en ese listado. El
 mismo argumento le aplica, pero es módulo de Javier y no se toca sin que lo
 pida.
 
+### La tarjeta ahora nace con la alianza (y se puede retocar)
+
+La `Card` se creaba con el PRIMER empleado que activaba. Eso dejaba al dueño
+repartiendo el enlace a ciegas, al primero en entrar fijando unos colores que
+nadie eligió, y dos activaciones simultáneas podían crear dos plantillas.
+
+Ahora se crea en la misma transacción que el convenio, y el panel trae un editor
+con vista previa en vivo (logo del aliado, colores, título). La forma vive en
+`alianzas-plantilla.ts` —puro, 13 tests que importan el módulo real— y la
+comparten el camino temprano y el perezoso, que se queda como red para las
+alianzas anteriores.
+
+**El texto de recompensa se dejó fuera del editor a propósito**: en un pase de
+alianza lo pisan los beneficios vivos en Apple, en Google y en la vista del
+empleado. Editarlo no cambiaría nada visible y permitiría una tarjeta que promete
+«20% de descuento» mientras la caja aplica el 10%.
+
 ### Al desplegar, comprobar
 
 1. `/app/alianzas` y `/app/club` responden 200 (no 404).
