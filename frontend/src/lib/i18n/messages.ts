@@ -101,7 +101,7 @@ export const messages = {
     'checkout.fulfillment_q': '¿Es para...?',
     'checkout.fulfillment_dinein': '🍽 Mesa',
     'checkout.fulfillment_dinein_hint': 'Escanea el QR de tu mesa',
-    'checkout.fulfillment_pickup': '🛍 Pick Up',
+    'checkout.fulfillment_pickup': '🛍 Recoger',
     'checkout.fulfillment_delivery': '🛵 Domicilio',
     'checkout.fulfillment_delivery_hint': 'A domicilio',
     'checkout.no_options_title': '📍 Para pedir desde aquí',
