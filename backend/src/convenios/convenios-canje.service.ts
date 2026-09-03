@@ -55,6 +55,33 @@ export class ConveniosCanjeService {
   constructor(private prisma: PrismaService) {}
 
   /**
+   * En qué sede está ocurriendo esto.
+   *
+   * El filtro por sedes de un convenio estaba escrito pero **muerto**: la
+   * condición exigía un `locationId` que nadie mandaba nunca —el escáner no
+   * tiene selector de sede— así que un beneficio pactado solo para una sucursal
+   * se podía canjear en cualquiera. El dueño elegía las sedes al crear la
+   * alianza y el producto no cumplía esa promesa.
+   *
+   * Se cae a la sede del CAJERO, que ya existe en la base desde junio
+   * («cada staff puede estar asociado a una sede», `User.locationId`) pero no
+   * viaja en el token. Se lee aquí y no se mete en el JWT para no tocar la
+   * autenticación de todo el producto por un caso de un módulo.
+   *
+   * Si el cajero no tiene sede asignada —o es el dueño, que no la tiene— se
+   * queda como hasta ahora y no se aplica: no se inventa una restricción que
+   * nadie configuró, que sería peor que no tenerla.
+   */
+  private async sedeDelCanje(user: AuthUser, pedida?: string | null) {
+    if (pedida) return pedida;
+    const cajero = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { locationId: true },
+    });
+    return cajero?.locationId ?? null;
+  }
+
+  /**
    * Qué ve el cajero al escanear una tarjeta de convenio.
    *
    * Devuelve TODOS los cupones encendidos con su estado, no solo los
@@ -91,6 +118,7 @@ export class ConveniosCanjeService {
 
     const ahora = new Date();
     const zona = await this.zona(convenio.tenantId);
+    const sede = await this.sedeDelCanje(user, locationId);
 
     // Motivos que tumban el convenio ENTERO. Se comprueban una vez y el
     // mensaje es el mismo para todos los cupones: repetir «Convenio en pausa»
@@ -107,8 +135,8 @@ export class ConveniosCanjeService {
         motivoGlobal = 'Esta persona tiene el beneficio bloqueado.';
       } else if (
         convenio.sedes.length > 0 &&
-        locationId &&
-        !convenio.sedes.some((s) => s.locationId === locationId)
+        sede &&
+        !convenio.sedes.some((s) => s.locationId === sede)
       ) {
         motivoGlobal = 'Este convenio no aplica en esta sede.';
       }
@@ -253,10 +281,11 @@ export class ConveniosCanjeService {
     if (tarjeta.status === 'BLOCKED') {
       throw new BadRequestException('Esta persona tiene el beneficio bloqueado.');
     }
+    const sede = await this.sedeDelCanje(user, dto.locationId);
     if (
       convenio.sedes.length > 0 &&
-      dto.locationId &&
-      !convenio.sedes.some((s) => s.locationId === dto.locationId)
+      sede &&
+      !convenio.sedes.some((s) => s.locationId === sede)
     ) {
       throw new BadRequestException('Este convenio no aplica en esta sede.');
     }
@@ -323,7 +352,9 @@ export class ConveniosCanjeService {
           convenioId: convenio.id,
           cuponId: cupon.id,
           tarjetaId: tarjeta.id,
-          locationId: dto.locationId ?? null,
+          // La sede EFECTIVA, no solo la que mandó el escáner: si salió de
+          // la ficha del cajero, el informe por sede tiene que verla igual.
+          locationId: sede,
           operatorUserId: user.id,
           compraMonto: dto.compraMonto ?? null,
           descuentoMonto: descuento,

@@ -117,6 +117,12 @@ const RELACIONES: Record<string, Record<string, Relacion>> = {
  *  esquema: sin ellos, una fila creada por el servicio saldría con `undefined`
  *  donde el código espera `false`, `0` o `null`, y los tests mentirían. */
 const POR_DEFECTO: Record<string, () => Fila> = {
+  /** El cajero. Existe aquí porque el canje lee su sede para aplicar el filtro
+   *  por sedes del convenio: sin este modelo, `user.findUnique` reventaba. */
+  user: () => ({
+    role: 'TENANT_STAFF',
+    locationId: null,
+  }),
   tenant: () => ({
     brandName: 'Negocio de prueba',
     logoUrl: null,
@@ -646,6 +652,10 @@ export type OpcionesEscenario = {
   /** `false` = convenio sin ningún cupón (enlace repartido antes de tiempo). */
   conCupon?: boolean;
   cupon?: Fila;
+  /** Sedes en las que aplica el convenio. Vacío = en todas. */
+  sedes?: string[];
+  /** Sede asignada al cajero que atiende. `null` = sin sede, como el dueño. */
+  sedeDelCajero?: string | null;
 };
 
 /**
@@ -691,7 +701,15 @@ export function escenario(op: OpcionesEscenario = {}) {
           position: 1,
           ...(op.cupon ?? {}),
         });
-  return { db, tenant, convenio, cupon, prisma: db.comoPrisma() };
+  for (const locationId of op.sedes ?? []) {
+    db.sembrar('convenioSede', { convenioId: convenio.id, locationId });
+  }
+  const cajero = db.sembrar('user', {
+    id: 'cajero-1',
+    tenantId: tenant.id,
+    locationId: op.sedeDelCajero ?? null,
+  });
+  return { db, tenant, convenio, cupon, cajero, prisma: db.comoPrisma() };
 }
 
 /** Los datos que manda el formulario del enlace, ya aceptada la política. */
