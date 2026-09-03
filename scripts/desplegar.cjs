@@ -100,6 +100,49 @@ if (detras > 0 && !FORZAR) {
   );
 }
 
+// ── 3b. Y contener TODO lo que ya está en la rama de producción ────────────
+//
+// El chequeo de arriba compara contra origin/<rama ACTUAL>. Si despliegas
+// desde otra rama, pasa tranquilo — y aun así borra de producción lo que esa
+// otra rama no tiene. Nos pasó con /hub tres veces y con los arreglos de la
+// app: el commit estaba en git, sincronizado, y producción servía código sin
+// él porque el despliegue salió de otra copia.
+//
+// Esto es lo que lo hace imposible: HEAD tiene que CONTENER la punta de la
+// rama de producción, vengas de donde vengas.
+const RAMA_PROD = process.env.RAMA_PRODUCCION || 'feat/commissions-auto-cutoffs';
+if (!FORZAR) {
+  let contiene = false;
+  try {
+    execSync(`git merge-base --is-ancestor origin/${RAMA_PROD} HEAD`, { stdio: 'ignore' });
+    contiene = true;
+  } catch {
+    contiene = false;
+  }
+
+  if (!contiene) {
+    let faltan = '';
+    try {
+      faltan = git(`log --oneline HEAD..origin/${RAMA_PROD}`)
+        .split('\n')
+        .slice(0, 12)
+        .map((l) => `    ${l}`)
+        .join('\n');
+    } catch {
+      faltan = `    (no se pudo listar: ¿existe origin/${RAMA_PROD}?)`;
+    }
+    morir(
+      `Lo que vas a desplegar NO contiene la rama de producción (${RAMA_PROD}).`,
+      `${faltan}\n\n` +
+        `  Estás en la rama "${rama}". Desplegar ahora BORRA de producción todo\n` +
+        `  lo que esos commits añadieron: rutas, arreglos, lo que sea. La señal\n` +
+        `  típica es que algo que funcionaba "vuelve a estar roto".`,
+      `    git fetch origin\n` +
+        `    git checkout ${RAMA_PROD} && git pull    (o mergea esa rama en la tuya)`,
+    );
+  }
+}
+
 if (adelante > 0 && !FORZAR) {
   morir(
     `Tienes ${adelante} commit(s) sin empujar.`,
@@ -116,7 +159,7 @@ if (adelante > 0 && !FORZAR) {
 const ultimo = git('log -1 --pretty=format:"%h %s"');
 console.log(`  rama:   ${rama}`);
 console.log(`  commit: ${ultimo}`);
-console.log(`  estado: limpio, sincronizado con origin\n`);
+console.log(`  estado: contiene origin/${RAMA_PROD}, sincronizado\n`);
 
 // ── 5. Clonar el commit a una carpeta limpia y desplegar DESDE AHÍ ─────────
 //
