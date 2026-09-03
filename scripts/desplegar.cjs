@@ -110,50 +110,75 @@ if (adelante > 0 && !FORZAR) {
   );
 }
 
-// ── 3 bis. No desplegar desde una rama que no sea la de producción ─────────
+// ── 3 bis. Contener TODO lo que ya está en producción ─────────────────────
 //
-// Lo que costó esta guarda: se desplegó producción desde una rama que no era
-// la acordada y se revirtieron cambios que ya estaban arriba (los arreglos de
-// Sellea, el income capture de Hotmart). El script ya impedía desplegar por
-// detrás de TU rama — pero estar al día con tu rama no dice nada de si tu rama
-// tiene el trabajo del otro. Dos ramas largas pueden estar las dos «limpias y
-// sincronizadas» y no verse 39 commits la una a la otra.
+// El chequeo de arriba compara contra `origin/<tu rama>`. Si despliegas desde
+// otra rama pasa tranquilo, y aun así borra de producción lo que esa otra rama
+// no tiene. Ha pasado cuatro veces esta semana: el commit estaba en git,
+// sincronizado, y producción servía código sin él.
 //
-// OJO — esta guarda NO cubre `vercel promote`. Promover no pasa por aquí:
-// coge un despliegue viejo que ya está en Vercel y lo pone en producción, sin
-// mirar git. La única defensa contra eso es no usarlo.
-const RAMA_DE_PRODUCCION = process.env.RAMA_PROD || 'main';
+// La comprobación es de ASCENDENCIA, no de nombre: HEAD tiene que CONTENER la
+// punta de cada rama viva, vengas de donde vengas. Es de Jhon, y es mejor que
+// la que había aquí —«tienes que estar EN main»—, que se saltaba con un
+// checkout y no decía nada de si tu copia tenía el trabajo del otro.
+//
+// Van las DOS ramas a propósito. Cada máquina creía que la de producción era
+// la suya —una `main`, otra `feat/commissions-auto-cutoffs`— y ese desacuerdo
+// ES el problema: con una sola en la lista, quien desplegara desde la otra
+// seguiría pisando. Exigiendo las dos, no se puede desplegar nada que le falte
+// trabajo a alguien. Cuando quede una sola rama viva, se quita la otra de aquí.
+//
+// OJO — esto NO cubre `vercel promote`. Promover no pasa por el script: coge un
+// despliegue viejo que ya está en Vercel y lo pone en producción sin mirar git.
+// La única defensa contra eso es no usarlo.
+const RAMAS_VIVAS = (process.env.RAMAS_PROD || 'main,feat/commissions-auto-cutoffs')
+  .split(',')
+  .map((r) => r.trim())
+  .filter(Boolean);
 
-if (rama !== RAMA_DE_PRODUCCION && !FORZAR) {
-  let cuantoLeFalta = '';
-  try {
-    const n = Number(
-      git(`rev-list --count HEAD..origin/${RAMA_DE_PRODUCCION}`),
-    );
-    if (n > 0) {
-      cuantoLeFalta =
-        `\n  Ahora mismo te faltan ${n} commit(s) que sí están en ` +
-        `${RAMA_DE_PRODUCCION}:\n` +
-        git(`log --oneline HEAD..origin/${RAMA_DE_PRODUCCION}`)
-          .split('\n')
-          .slice(0, 8)
-          .map((l) => `    ${l}`)
-          .join('\n');
+if (!FORZAR) {
+  for (const viva of RAMAS_VIVAS) {
+    let existe = true;
+    try {
+      execSync(`git rev-parse --verify --quiet origin/${viva}`, { stdio: 'ignore' });
+    } catch {
+      // Una rama ya borrada no debe bloquear el despliegue: sería un freno que
+      // nadie puede levantar.
+      existe = false;
     }
-  } catch {
-    /* sin red o sin esa rama: se avisa igual, solo que sin el detalle */
+    if (!existe) {
+      console.warn(`  ⚠ origin/${viva} ya no existe. Quítala de RAMAS_PROD.`);
+      continue;
+    }
+
+    let contiene = false;
+    try {
+      execSync(`git merge-base --is-ancestor origin/${viva} HEAD`, { stdio: 'ignore' });
+      contiene = true;
+    } catch {
+      contiene = false;
+    }
+    if (contiene) continue;
+
+    let faltan = '';
+    try {
+      faltan = git(`log --oneline HEAD..origin/${viva}`)
+        .split('\n')
+        .slice(0, 12)
+        .map((l) => `    ${l}`)
+        .join('\n');
+    } catch {
+      faltan = '    (no se pudo listar)';
+    }
+    morir(
+      `Lo que vas a desplegar NO contiene «${viva}».`,
+      `  Le faltan estos commits, y desplegar así los borra de producción:\n\n${faltan}`,
+      `    git fetch origin\n` +
+        `    git merge origin/${viva}      (y comprueba que compila)\n\n` +
+        `    No uses --force para saltártelo: es justo lo que borra el trabajo\n` +
+        `    del otro sin que nadie se entere hasta que algo aparece roto.`,
+    );
   }
-  morir(
-    `Estás en «${rama}», y producción sale de «${RAMA_DE_PRODUCCION}».`,
-    '  Desplegar desde otra rama publica TU foto del repo: todo lo que la\n' +
-      '  otra máquina subió y tu rama no ve desaparece de producción.' +
-      cuantoLeFalta,
-    `    Fusiona tu rama en ${RAMA_DE_PRODUCCION} (PR), y despliega desde ahí:\n` +
-      `      git checkout ${RAMA_DE_PRODUCCION} && git pull\n` +
-      `      node scripts/desplegar.cjs ${OBJETIVO}\n\n` +
-      `    Si la rama de producción cambió, dilo explícitamente:\n` +
-      `      RAMA_PROD=otra-rama node scripts/desplegar.cjs ${OBJETIVO}`,
-  );
 }
 
 // ── 4. Decir en voz alta qué se va a desplegar ─────────────────────────────
