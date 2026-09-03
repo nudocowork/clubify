@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import {
@@ -78,6 +79,21 @@ class BloqueoBody {
 class ListaBody {
   /** Documentos o correos, uno por línea (o separados por comas). */
   @IsString() @MaxLength(200_000) texto!: string;
+}
+
+class DisenoBody {
+  /**
+   * Todos opcionales: el editor manda solo lo que el dueño tocó. Un campo
+   * ausente no se toca; uno vacío vuelve al valor por defecto.
+   *
+   * Los colores se validan como texto y no con un patrón estricto porque el
+   * servicio ya descarta lo que no sea un hex de 6 dígitos — fallar aquí
+   * impediría guardar el resto del diseño por un color mal pegado.
+   */
+  @IsOptional() @IsString() @MaxLength(60) name?: string | null;
+  @IsOptional() @IsString() @MaxLength(9) primaryColor?: string | null;
+  @IsOptional() @IsString() @MaxLength(9) secondaryColor?: string | null;
+  @IsOptional() @IsString() @MaxLength(2000) logoUrl?: string | null;
 }
 
 class CanjeBody {
@@ -218,6 +234,33 @@ export class ConveniosController {
     @Query('tenantId') tenantId?: string,
   ) {
     return this.svc.rotarTokenAliado(user, id, tenantId);
+  }
+
+  // ─────────────────── Diseño de la tarjeta de la alianza ───────────────────
+
+  /** Cómo se ve hoy el pase, más los valores por defecto para el editor. */
+  @Get(':id/diseno')
+  diseno(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.diseno(user, id, tenantId);
+  }
+
+  /**
+   * Guarda el diseño. Solo el DUEÑO: `TENANT_STAFF` es la caja, y cambiarle el
+   * aspecto a la tarjeta de una empresa aliada no es una operación de caja.
+   */
+  @Put(':id/diseno')
+  @Roles('TENANT_OWNER', 'SUPER_ADMIN')
+  guardarDiseno(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: DisenoBody,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.guardarDiseno(user, id, dto, tenantId);
   }
 
   // ──────────────────── Tarjetas emitidas a los empleados ────────────────────

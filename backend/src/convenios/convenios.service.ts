@@ -28,6 +28,12 @@ import {
   quienApago,
 } from './alianzas-estado';
 import { avisarPasesDeAlianza, avisarUnPase } from './alianzas-pase.util';
+import {
+  cambiosDelDiseno,
+  datosDeLaPlantilla,
+  tituloPorDefecto,
+  type DisenoDeLaAlianza,
+} from './alianzas-plantilla';
 
 /** Sin vocales ni caracteres que se confunden al dictarlo por teléfono. */
 const generarCodigo = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
@@ -313,6 +319,17 @@ export class ConveniosService {
     // vez sin alargarla sin motivo.
     const zonaNegocio = await this.zona(tenantId);
     const finVigencia = this.parsearVigencia(dto.endsAt, zonaNegocio);
+    // La marca se lee fuera de la transacción por lo mismo que la zona: dentro
+    // solo deben quedar escrituras.
+    const negocio = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        brandName: true,
+        primaryColor: true,
+        secondaryColor: true,
+        logoUrl: true,
+      },
+    });
 
     return this.prisma.$transaction(async (tx) => {
       const convenio = await tx.convenio.create({
@@ -366,6 +383,26 @@ export class ConveniosService {
           },
         });
       }
+
+      // La tarjeta nace CON la alianza, no con el primer empleado que activa.
+      //
+      // Perezosa tenía dos problemas. Uno de cara: el dueño no podía ver ni
+      // retocar la tarjeta antes de repartir el enlace, porque no existía —
+      // y él quería «optimizarla más bonita antes de crearse». Otro de fondo:
+      // el primer empleado la creaba, así que fijaba para siempre unos colores
+      // que nadie había elegido, y dos activaciones simultáneas podían crear
+      // dos plantillas para la misma alianza.
+      //
+      // Va dentro de la transacción: una alianza sin tarjeta es una alianza
+      // cuyo enlace falla, así que o están las dos o no está ninguna.
+      await tx.card.create({
+        data: datosDeLaPlantilla(
+          tenantId,
+          { id: convenio.id, name: convenio.name, logoUrl: convenio.logoUrl },
+          negocio,
+        ),
+      });
+
       return convenio;
     });
   }
@@ -921,6 +958,95 @@ export class ConveniosService {
     if (tarjeta.passId) {
       await avisarUnPase(this.prisma, this.queue, tarjeta.passId, 'convenio_tarjeta');
     }
+    return { ok: true, cambio: true };
+  }
+
+  /**
+   * El diseño de la tarjeta de la alianza, para el editor del panel.
+   *
+   * Devuelve también los valores por defecto: el editor los enseña como
+   * marcador de posición, para que el dueño vea qué va a salir si deja la caja
+   * vacía en vez de un hueco.
+   */
+  async diseno(user: AuthUser, id: string, override?: string) {
+    const tenantId = this.tid(user, override);
+    const convenio = await this.prisma.convenio.findFirst({
+      where: { id, tenantId },
+      select: { id: true, name: true, logoUrl: true },
+    });
+    if (!convenio) throw new NotFoundException('Convenio no encontrado');
+
+    const card = await this.prisma.card.findFirst({
+      where: { tenantId, convenioId: id },
+      select: {
+        id: true,
+        name: true,
+        rewardText: true,
+        primaryColor: true,
+        secondaryColor: true,
+        logoUrl: true,
+        businessName: true,
+      },
+    });
+
+    return {
+      // `null` significa «esta alianza es anterior a la plantilla temprana».
+      // El panel lo usa para avisar de que el diseño se fija al activar el
+      // primer empleado, en vez de enseñar un editor que no guarda nada.
+      card,
+      // Solo el título: el texto de recompensa no se edita en una alianza
+      // porque el pase lo pisa con los beneficios vivos. Ver `textoPorDefecto`.
+      porDefecto: { name: tituloPorDefecto(convenio.name) },
+      logoDelAliado: convenio.logoUrl,
+    };
+  }
+
+  /**
+   * Guarda el diseño y avisa a las billeteras ya instaladas.
+   *
+   * Lo segundo no es un extra: cambiar el color de una tarjeta que ya está en
+   * el teléfono de cien empleados y no notificarlo deja el panel diciendo una
+   * cosa y los teléfonos enseñando otra durante días — Apple solo se vuelve a
+   * bajar el pase cuando se le avisa.
+   */
+  async guardarDiseno(
+    user: AuthUser,
+    id: string,
+    dto: DisenoDeLaAlianza,
+    override?: string,
+  ) {
+    const tenantId = this.tid(user, override);
+    await this.assertHabilitado(tenantId);
+    const convenio = await this.prisma.convenio.findFirst({
+      where: { id, tenantId },
+      select: { id: true, name: true },
+    });
+    if (!convenio) throw new NotFoundException('Convenio no encontrado');
+
+    const card = await this.prisma.card.findFirst({
+      where: { tenantId, convenioId: id },
+      select: { id: true },
+    });
+    if (!card) {
+      throw new BadRequestException(
+        'Esta alianza todavía no tiene tarjeta: se crea con el primer empleado que active. Cuando la haya, podrás editarla aquí.',
+      );
+    }
+
+    const cambios = cambiosDelDiseno(dto, convenio.name);
+    if (!Object.keys(cambios).length) return { ok: true, cambio: false };
+
+    await this.prisma.card.update({ where: { id: card.id }, data: cambios });
+    // El logo del aliado se guarda además en el convenio: es de la empresa, no
+    // de la tarjeta, y de ahí lo lee la franja del pase y el portal del aliado.
+    if (cambios.logoUrl !== undefined) {
+      await this.prisma.convenio.update({
+        where: { id },
+        data: { logoUrl: cambios.logoUrl },
+      });
+    }
+
+    await avisarPasesDeAlianza(this.prisma, this.queue, id, 'convenio_diseno');
     return { ok: true, cambio: true };
   }
 }

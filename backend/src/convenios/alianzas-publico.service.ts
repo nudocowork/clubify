@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
@@ -18,6 +19,7 @@ import {
   normalizarDocumento,
   normalizarEmail,
 } from './alianzas-estado';
+import { datosDeLaPlantilla } from './alianzas-plantilla';
 
 export type ActivacionDto = {
   fullName: string;
@@ -583,12 +585,14 @@ export class AlianzasPublicoService {
    * La plantilla de pase del convenio: un `Card` normal del negocio marcado con
    * `convenioId`, que es lo que el escáner lee para desviarse.
    *
-   * Se crea perezosamente con la primera tarjeta, como dice el esquema
-   * («vacío hasta que se emite la primera tarjeta»). `type: 'STAMPS'` por lo
-   * mismo que la tarjeta de club: toda la maquinaria de billetera —render,
-   * push, geolocalización— opera sobre pases de sellos y así se hereda sin
-   * código nuevo. Los resolutores de «primera tarjeta de sellos del negocio»
-   * filtran `convenioId: null` para no confundirla con la de fidelización.
+   * **Normalmente ya existe**: nace con la alianza, para que el dueño pueda
+   * retocarla antes de repartir el enlace. Esto es la red por debajo, y sirve
+   * para dos casos: las alianzas creadas antes de que la plantilla fuera
+   * temprana, y que alguien borre la `Card` a mano.
+   *
+   * La forma vive en `alianzas-plantilla.ts` y la comparten los dos caminos, no
+   * duplicada aquí — si divergieran, una alianza vieja y una nueva pintarían
+   * distinto sin que nadie supiera por qué.
    */
   private async plantilla(
     tenantId: string,
@@ -607,32 +611,25 @@ export class AlianzasPublicoService {
         logoUrl: true,
       },
     });
-    return this.prisma.card.create({
-      data: {
-        tenantId,
-        convenioId: convenio.id,
-        name: `Convenio ${convenio.name}`,
-        type: 'STAMPS',
-        // Los colores DEL NEGOCIO, explícitos. `Card.primaryColor` trae por
-        // defecto el verde de Clubify (#22C55E), así que no escribirlos dejaría
-        // la tarjeta de una marca blanca pintada con el color de la plataforma
-        // — y esta `Card` se crea una sola vez y se queda, así que el primer
-        // empleado que active la fija para siempre.
-        primaryColor: tenant?.primaryColor ?? undefined,
-        secondaryColor: tenant?.secondaryColor ?? undefined,
-        // La tarjeta de alianza no cuenta nada: es un vale permanente. Se pone
-        // 1 porque la columna es opcional pero el render de sellos cae al
-        // default 10 si va en null, y «0 / 10» encima de un descuento del 15%
-        // no significa nada para nadie.
-        stampsRequired: 1,
-        rewardText: `Beneficios de ${convenio.name}`,
-        businessName: tenant?.brandName ?? '',
-        // El logo del ALIADO manda en su tarjeta; si no cargó ninguno, el del
-        // negocio. Nunca uno de la plataforma.
-        logoUrl: convenio.logoUrl ?? tenant?.logoUrl ?? null,
-        isActive: true,
-      },
-    });
+    try {
+      return await this.prisma.card.create({
+        data: datosDeLaPlantilla(tenantId, convenio, tenant),
+      });
+    } catch {
+      // Dos empleados activando a la vez en una alianza sin plantilla: los dos
+      // leen que no existe y los dos crean. Se relee en vez de propagar, porque
+      // para el segundo el resultado correcto es la tarjeta que acaba de crear
+      // el primero — no un error. (No hay único en `(tenantId, convenioId)`
+      // que lo impida; con la plantilla ya creada al nacer la alianza, este
+      // camino casi no se pisa.)
+      const ganador = await this.prisma.card.findFirst({
+        where: { tenantId, convenioId: convenio.id },
+      });
+      if (ganador) return ganador;
+      throw new InternalServerErrorException(
+        'No se pudo preparar la tarjeta del convenio.',
+      );
+    }
   }
 
   private async emitirPase(tenantId: string, cardId: string, customerId: string) {

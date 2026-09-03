@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { QRCodeSVG } from 'qrcode.react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { DisenoTarjeta } from './DisenoTarjeta';
 
 type Cupon = {
   id: string;
@@ -258,6 +259,25 @@ export default function AlianzaDetalle() {
           }
         />
       </section>
+
+      {/* ── Cómo se ve la tarjeta ── */}
+      <DisenoTarjeta
+        convenioId={c.id}
+        empresa={c.name}
+        estado={
+          c.status === 'FINISHED'
+            ? 'FINALIZADO'
+            : c.status === 'PAUSED'
+              ? 'PAUSA'
+              : 'ACTIVO'
+        }
+        // Los que están encendidos por LAS DOS PARTES y no se han agotado: es
+        // justo lo que el pase enseña y lo que la caja aplica. Enseñar aquí los
+        // apagados haría de la vista previa una promesa falsa.
+        beneficiosVivos={c.cupones
+          .filter((x) => x.isActive && x.activoAliado && !x.agotado)
+          .map(resumen)}
+      />
 
       {/* ── Verificación ── */}
       <section className="card card-pad mt-4">
