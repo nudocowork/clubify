@@ -195,10 +195,25 @@ export class CardsService {
     return user.tenantId;
   }
 
+  /**
+   * Las tarjetas del negocio, SIN la plantilla de las alianzas.
+   *
+   * Esa plantilla no es una tarjeta que el dueño haya creado ni que gestione
+   * desde aquí: es la fontanería del pase de un convenio. Todo lo suyo —los
+   * beneficios, los dos enlaces, los empleados, los interruptores— vive en
+   * Alianzas, y aquí no hacía más que invitar a errores: se le ofrecía su
+   * enlace de alta genérico (que se salta el código de la empresa), el botón de
+   * borrar (que se lleva por delante los pases de todos sus empleados), y salía
+   * como destino en la tienda, en los pop-ups del menú, en los QR de mostrador
+   * y en el segmentador de notificaciones.
+   *
+   * Este listado lo consumen once pantallas del panel. Filtrar aquí las limpia
+   * todas de una vez, en vez de repetir la condición en cada una.
+   */
   list(user: AuthUser, tenantId?: string) {
     const tid = this.resolveTenantId(user, tenantId);
     return this.prisma.card.findMany({
-      where: { tenantId: tid },
+      where: { tenantId: tid, convenioId: null },
       include: {
         _count: { select: { passes: true } },
         location: { select: { id: true, name: true } },
