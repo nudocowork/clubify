@@ -158,6 +158,51 @@ export default function AlianzaDetalle() {
     }
   }
 
+  /**
+   * La salida al callejón sin salida: el documento se fija en la PRIMERA
+   * activación, así que un dedazo —o alguien que activó con el teléfono de un
+   * compañero— dejaba fuera a la persona legítima para siempre. Bloquear no
+   * servía: bloqueada tampoco se puede volver a activar.
+   */
+  async function corregirDocumento(t: Tarjeta) {
+    const nuevo = prompt(
+      `Documento con el que ${t.nombre} activó su tarjeta.\n\n` +
+        'Si se equivocó al escribirlo, no puede volver a entrar: al reintentar, ' +
+        'el que teclea no coincide con este. Corrígelo y podrá.',
+      t.documento ?? '',
+    );
+    if (nuevo === null || nuevo.trim() === (t.documento ?? '')) return;
+    try {
+      await api(`/convenios/tarjetas/${t.id}/documento`, {
+        method: 'PATCH',
+        body: JSON.stringify({ documento: nuevo.trim() }),
+      });
+      toast('Documento corregido', 'success');
+      await cargar();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo corregir', 'error');
+    }
+  }
+
+  async function liberar(t: Tarjeta) {
+    if (
+      !confirm(
+        `Se borrará la tarjeta de ${t.nombre} y su pase del teléfono, y esa ` +
+          'persona podrá volver a activar desde cero con el enlace.\n\n' +
+          'Es para cuando activó quien no debía. ¿Liberar?',
+      )
+    ) {
+      return;
+    }
+    try {
+      await api(`/convenios/tarjetas/${t.id}`, { method: 'DELETE' });
+      toast('Tarjeta liberada. Ya puede volver a activar.', 'success');
+      await cargar();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo liberar', 'error');
+    }
+  }
+
   if (!c) return <div className="card card-pad animate-shimmer h-40" />;
 
   const finalizada = c.status === 'FINISHED';
@@ -625,6 +670,28 @@ export default function AlianzaDetalle() {
                       }`}
                   </p>
                 </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    className="btn-ghost text-xs"
+                    disabled={finalizada}
+                    onClick={() => corregirDocumento(t)}
+                    title="Se equivocó al teclear su cédula y ya no puede entrar"
+                  >
+                    Cédula
+                  </button>
+                  {/* Liberar borra: solo tiene sentido cuando no hay nada que
+                      perder. Con canjes el backend se niega, y aquí ni se
+                      ofrece para no prometer un botón que va a fallar. */}
+                  {t.canjes === 0 && (
+                    <button
+                      className="btn-ghost text-xs"
+                      disabled={finalizada}
+                      onClick={() => liberar(t)}
+                      title="Activó quien no debía: la borra para que pueda entrar el legítimo"
+                    >
+                      Liberar
+                    </button>
+                  )}
                 <button
                   className="btn btn-sm shrink-0"
                   disabled={finalizada}
@@ -653,6 +720,7 @@ export default function AlianzaDetalle() {
                 >
                   {t.status === 'BLOCKED' ? 'Reactivar' : 'Bloquear'}
                 </button>
+                </div>
               </li>
             ))}
           </ul>

@@ -76,6 +76,10 @@ class BloqueoBody {
   @IsBoolean() bloquear!: boolean;
 }
 
+class DocumentoBody {
+  @IsString() @MaxLength(40) documento!: string;
+}
+
 class ListaBody {
   /** Documentos o correos, uno por línea (o separados por comas). */
   @IsString() @MaxLength(200_000) texto!: string;
@@ -282,6 +286,35 @@ export class ConveniosController {
     @Query('tenantId') tenantId?: string,
   ) {
     return this.svc.bloquearTarjeta(user, tarjetaId, body.bloquear, tenantId);
+  }
+
+  /**
+   * Corrige la cédula de una tarjeta. Un dedazo al activar dejaba a la persona
+   * fuera para siempre: el documento se fija en la primera activación y luego
+   * ya nunca coincide con el que escribe.
+   */
+  @Patch('tarjetas/:tarjetaId/documento')
+  corregirDocumento(
+    @CurrentUser() user: AuthUser,
+    @Param('tarjetaId') tarjetaId: string,
+    @Body() body: DocumentoBody,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.corregirDocumento(user, tarjetaId, body.documento, tenantId);
+  }
+
+  /**
+   * Libera la tarjeta para que esa persona pueda volver a activar desde cero.
+   * Solo si no tiene canjes — con canjes se corrige el documento, porque
+   * borrarla se llevaría su historial en cascada.
+   */
+  @Delete('tarjetas/:tarjetaId')
+  liberarTarjeta(
+    @CurrentUser() user: AuthUser,
+    @Param('tarjetaId') tarjetaId: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.liberarTarjeta(user, tarjetaId, tenantId);
   }
 
   // ─────────────────────────── Caja / escáner ───────────────────────────
