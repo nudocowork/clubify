@@ -508,7 +508,9 @@ export class AutomationsService {
             const r = await this.wallet.pushPassUpdate(p.id, {
               message: { header: title, body },
             });
-            delivered += r?.sent ?? 0;
+            // Apple + Google, igual que en el envío inmediato: `sent` son
+            // los de Apple y Google solo cuenta si de verdad salió.
+            delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
           } catch (e) {
             this.logger.warn(
               `SEND_PUSH pass ${p.id} (rule ${ruleId}) falló: ${(e as Error).message}`,
@@ -524,11 +526,34 @@ export class AutomationsService {
       case 'ADD_STAMPS': {
         // Añade sellos al pase del customer (de la tarjeta indicada o la primera del tenant)
         if (!customerId) break;
+        // clubPlanId/convenioId: null en el fallback — las tarjetas de CLUB y de
+        // ALIANZA también son type STAMPS; sin el filtro, una automatización sin
+        // cardId explícito le sumaría "sellos" al saldo de la membresía de club
+        // o a la tarjeta de la empresa aliada, donde el contador no significa
+        // nada y el cliente vería subir un número que no le sirve.
+        // El filtro estaba SOLO en el fallback de abajo. Con `cardId` explícito
+        // se cargaba la tarjeta a pelo —sin mirar el tenant siquiera— y si esa
+        // tarjeta era la plantilla de un plan de club, la automatización le
+        // SUMABA cupo al socio: sin `ClubConsumo`, sin tope y sin rastro. Media
+        // puerta cerrada es una puerta abierta.
         const card =
           (action.cardId &&
-            (await this.prisma.card.findUnique({ where: { id: action.cardId } }))) ||
+            (await this.prisma.card.findFirst({
+              where: {
+                id: action.cardId,
+                tenantId,
+                clubPlanId: null,
+                convenioId: null,
+              },
+            }))) ||
           (await this.prisma.card.findFirst({
-            where: { tenantId, type: 'STAMPS', isActive: true },
+            where: {
+              tenantId,
+              type: 'STAMPS',
+              isActive: true,
+              clubPlanId: null,
+              convenioId: null,
+            },
           }));
         if (!card) break;
         const pass = await this.prisma.pass.findUnique({

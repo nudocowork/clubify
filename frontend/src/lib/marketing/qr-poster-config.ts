@@ -601,21 +601,49 @@ export const FONT_CATEGORY_LABELS: Record<FontOption['category'], string> = {
   mono: 'Monoespaciada',
 };
 
-/** Construye la URL de Google Fonts para cargar TODAS las fuentes
- *  declaradas en FONT_OPTIONS con sus pesos. Una sola request al
- *  CDN, los browsers cachean. */
-export function googleFontsUrl(): string {
-  // Nombres de Google: usar el label pero remover comillas y reemplazar
-  // espacios por '+'. Filtrar Inter porque ya viene system-friendly y
-  // las system fonts (system-ui, monospace, etc).
-  const families = FONT_OPTIONS.map((f) => {
-    const name = f.label;
-    if (f.weights.length === 1 && f.weights[0] === 400) {
-      return `family=${name.replace(/ /g, '+')}`;
-    }
-    return `family=${name.replace(/ /g, '+')}:wght@${f.weights.join(';')}`;
-  }).join('&');
-  return `https://fonts.googleapis.com/css2?${families}&display=swap`;
+/**
+ * Familias por peticion a Google Fonts.
+ *
+ * El CDN corta en 120 familias por peticion. Medido contra el CDN el
+ * 2026-08-31, no es una cifra inventada: 120 responde 200 y 121 responde
+ * 403. Es el NUMERO de familias, no el tamano de la URL — con 121 la URL
+ * mide 3.196 caracteres y falla, y otra de 3.781 con 120 familias funciona.
+ * Cada una de esas familias pedida por separado responde 200.
+ *
+ * 60 es la mitad del limite: margen para que la lista siga creciendo sin
+ * volver a romperse.
+ */
+const FAMILIAS_POR_PETICION = 60;
+
+/** `family=Open+Sans:wght@400;600` para una fuente. */
+function parametroDeFamilia(f: FontOption): string {
+  const name = f.label.replace(/ /g, '+');
+  if (f.weights.length === 1 && f.weights[0] === 400) return `family=${name}`;
+  return `family=${name}:wght@${f.weights.join(';')}`;
+}
+
+/**
+ * URLs de Google Fonts para cargar TODAS las fuentes de FONT_OPTIONS.
+ *
+ * Devuelve VARIAS a proposito. Antes era una sola peticion con las 129
+ * familias (4.100 caracteres) y Google la rechazaba con **403**: no cargaba
+ * ninguna fuente, en ninguna parte de la plataforma. El sintoma era el que
+ * reportaron los clientes — «las tipografias del generador de QR no
+ * funcionan, todas se ven iguales» — pero afectaba tambien al infolink, a la
+ * vista previa del wallet y a las cotizaciones, porque el <link> es global.
+ *
+ * Con 129 familias salen 3 peticiones. Van en paralelo y el navegador las
+ * cachea, asi que no se nota.
+ */
+export function googleFontsUrls(): string[] {
+  const base = 'https://fonts.googleapis.com/css2?';
+  const cola = '&display=swap';
+  const urls: string[] = [];
+  for (let i = 0; i < FONT_OPTIONS.length; i += FAMILIAS_POR_PETICION) {
+    const grupo = FONT_OPTIONS.slice(i, i + FAMILIAS_POR_PETICION);
+    urls.push(base + grupo.map(parametroDeFamilia).join('&') + cola);
+  }
+  return urls;
 }
 
 export type CanvasPreset = {

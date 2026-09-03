@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { StampIconPicker } from '@/components/StampIconPicker';
@@ -106,6 +107,18 @@ export default function NewCardWizard() {
   const [confirmActivate, setConfirmActivate] = useState(false);
   // Wallet V3 — permisos de la marca (para gatear la opción de imagen).
   const [walletAdv, setWalletAdv] = useState<Record<string, boolean> | null>(null);
+  /**
+   * Qué módulos tiene ENCENDIDOS este negocio.
+   *
+   * Gatea las dos tarjetas nuevas del paso 2. Se enseñaban a todo el mundo «de
+   * escaparate», y eso significa que un negocio de Sellea —o de cualquier otra
+   * marca blanca— veía Alianzas y Tarjeta de Club antes de que su marca las
+   * tuviera. Adelantar funciones a otra marca no es nuestro para adelantarlo.
+   *
+   * Arranca en `false`: mientras `/tenants/me` no conteste, no se pinta nada
+   * que el negocio no tenga. Es el mismo criterio del menú lateral.
+   */
+  const [modulos, setModulos] = useState({ convenios: false, club: false });
 
   const [locations, setLocations] = useState<LocationLite[]>([]);
   // Cargar categoría del tenant + sedes
@@ -114,6 +127,10 @@ export default function NewCardWizard() {
       .then((me) => {
         if (me?.businessCategorySlug) setTenantCategorySlug(me.businessCategorySlug);
         if (me?.walletAdvanced) setWalletAdv(me.walletAdvanced);
+        setModulos({
+          convenios: me?.conveniosEnabled === true,
+          club: me?.clubEnabled === true,
+        });
       })
       .catch(() => {});
     api<any[]>('/locations')
@@ -246,6 +263,7 @@ export default function NewCardWizard() {
             set('type', t);
           }}
           onContinue={() => setStep(3)}
+          modulos={modulos}
         />
       )}
 
@@ -509,14 +527,94 @@ function Step1Templates({
 // Step 2: Tipo de tarjeta
 // ═══════════════════════════════════════════════════════════
 
+/**
+ * La tarjeta de ALIANZA en el selector de tipo.
+ *
+ * No es un `CardType` y no se selecciona: LLEVA a `/app/alianzas`. Dos motivos,
+ * los dos aprendidos aquí:
+ *
+ *  · Meter tipos nuevos en este asistente ya salió mal (ver el comentario de
+ *    arriba: un `DISCOUNT` que se pintaba como sellos y al canjear no hacía
+ *    nada). Una alianza no tiene sellos, ni premio, ni recompensa que
+ *    configurar en los pasos 3 a 5 — su plantilla de pase se crea sola.
+ *  · El alta de alianzas ya existe y funciona, con su cupo, sus tres modos de
+ *    verificación y sus avisos. Duplicarla aquí garantizaba que los dos
+ *    formularios acabaran diciendo cosas distintas.
+ *
+ * Solo se muestra si el negocio TIENE el módulo encendido. Antes se enseñaba
+ * siempre, «de escaparate», y eso se lo estaba enseñando también a los negocios
+ * de las otras marcas blancas: un cliente de Sellea veía Alianzas antes de que
+ * su marca la tuviera. Lo que aún no se ha lanzado en una marca no se le
+ * adelanta a sus negocios.
+ */
+function TarjetaAlianza() {
+  return (
+    <Link
+      href="/app/alianzas?nueva=1"
+      className="text-left p-4 rounded-2xl border-2 border-line hover:border-ink/40 bg-white transition block"
+    >
+      <div className="flex items-center gap-3">
+        <span className="text-2xl shrink-0">🤝</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-sm">Alianza con una empresa</div>
+        </div>
+        <span className="text-[10px] font-semibold uppercase tracking-wide rounded-full bg-violet-100 text-violet-700 px-2 py-0.5 shrink-0">
+          Nuevo
+        </span>
+      </div>
+      <p className="text-xs leading-snug mt-2 text-mute">
+        Acuerdo con una empresa para que sus empleados tengan un beneficio
+        permanente en tu local. Ella recibe su propio enlace para repartir.
+      </p>
+      <p className="text-xs mt-2 font-medium text-ink">Te llevamos a Alianzas →</p>
+    </Link>
+  );
+}
+
+/**
+ * La tarjeta de CLUB en el selector de tipo.
+ *
+ * Igual que la de alianza: no es un `CardType`, LLEVA a `/app/club`. Sus pasos
+ * son otros —cupo del mes, unidad, tramos de alta— y ninguno de los 3 a 5 de
+ * este asistente le sirve: no tiene sellos que configurar ni premio al final.
+ * Su plantilla de pase se crea sola al dar de alta al primer socio.
+ */
+function TarjetaClub() {
+  return (
+    <Link
+      href="/app/club?nuevo=1"
+      className="text-left p-4 rounded-2xl border-2 border-line hover:border-ink/40 bg-white transition block"
+    >
+      <div className="flex items-center gap-3">
+        <span className="text-2xl shrink-0">🎟️</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-sm">Tarjeta de club</div>
+        </div>
+        <span className="text-[10px] font-semibold uppercase tracking-wide rounded-full bg-violet-100 text-violet-700 px-2 py-0.5 shrink-0">
+          Nuevo
+        </span>
+      </div>
+      <p className="text-xs leading-snug mt-2 text-mute">
+        Una suscripción que tu cliente te paga a ti: cada mes recibe un cupo de
+        beneficios —diez cafés, cuatro lavadas— que gasta en el local y que
+        vuelve a llenarse el día 1.
+      </p>
+      <p className="text-xs mt-2 font-medium text-ink">Te llevamos a Tarjeta de Club →</p>
+    </Link>
+  );
+}
+
 function Step2Type({
   selected,
   onSelect,
   onContinue,
+  modulos,
 }: {
   selected: CardType;
   onSelect: (t: CardType) => void;
   onContinue: () => void;
+  /** Módulos encendidos para ESTE negocio. Gatean las dos tarjetas nuevas. */
+  modulos: { convenios: boolean; club: boolean };
 }) {
   const t = useTranslations('app_cards_new');
   return (
@@ -527,6 +625,8 @@ function Step2Type({
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
+        {modulos.convenios && <TarjetaAlianza />}
+        {modulos.club && <TarjetaClub />}
         {ALL_TYPES.map((t) => {
           const active = selected === t;
           return (

@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { AcademyButton } from '@/components/AcademyButton';
 import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
+import { MenuBookPagesUploader } from '@/components/menu/MenuBookPagesUploader';
 import { SortableList, DragHandle } from '@/components/Sortable';
 import { toast } from '@/components/Toast';
 
@@ -544,7 +545,6 @@ function SectionCard({
   const t = useTranslations('app_menu_book');
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState(section.title);
-  const [adding, setAdding] = useState(false);
 
   async function saveTitle() {
     if (!title.trim() || title === section.title) {
@@ -593,20 +593,14 @@ function SectionCard({
     }
   }
 
-  async function uploadPage(url: string | null) {
-    if (!url) return;
-    setAdding(true);
-    try {
-      await api(`/catalog/menu-book/sections/${section.id}/pages`, {
-        method: 'POST',
-        body: JSON.stringify({ imageUrl: url }),
-      });
-      onChange();
-    } catch (e: any) {
-      toast(e.message || t('errorUploadingPage'), 'error');
-    } finally {
-      setAdding(false);
-    }
+  // Alta de UNA página ya subida a R2. No captura el error a propósito: el
+  // uploader llama a esto en serie por cada imagen del lote y necesita saber
+  // cuáles fallaron para listarlas al final sin cortar la subida del resto.
+  async function addPage(url: string) {
+    await api(`/catalog/menu-book/sections/${section.id}/pages`, {
+      method: 'POST',
+      body: JSON.stringify({ imageUrl: url }),
+    });
   }
 
   async function onReorderPages(next: BookPage[]) {
@@ -710,14 +704,12 @@ function SectionCard({
           <div className="text-xs font-medium text-mute mb-1.5">
             {t('addPageHint')}
           </div>
-          <ImageUploader
+          <MenuBookPagesUploader
             folder="menu-book"
-            crop={false}
             maxSizeMb={25}
-            onChange={uploadPage}
-            value={null}
+            onUploadPage={addPage}
+            onDone={onChange}
           />
-          {adding && <div className="text-xs text-mute mt-1">{t('saving')}</div>}
         </div>
       </div>
     </div>

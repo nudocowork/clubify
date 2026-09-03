@@ -360,8 +360,12 @@ export class OnboardingSyncService {
       data.stampBgImageUrl = url;
       if (url) data.stampBgType = 'IMAGE';
     }
+    // clubPlanId/convenioId: null — las tarjetas de CLUB y de ALIANZA también
+    // son type STAMPS; sin el filtro, una de ellas creada antes que la de sellos
+    // recibiría encima el branding de fidelización del onboarding (colores,
+    // fondo, sellos). En la alianza eso además pisaría el logo del aliado.
     const existing = await this.prisma.card.findFirst({
-      where: { tenantId, type: 'STAMPS' },
+      where: { tenantId, type: 'STAMPS', clubPlanId: null, convenioId: null },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     });

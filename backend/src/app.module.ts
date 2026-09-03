@@ -23,6 +23,7 @@ import { FinanceModule } from './finance/finance.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { CuponeraModule } from './cuponera/cuponera.module';
 import { ConveniosModule } from './convenios/convenios.module';
+import { ClubModule } from './club/club.module';
 import { BadgesModule } from './badges/badges.module';
 import { AffiliateModule } from './affiliate/affiliate.module';
 import { PayoutsModule } from './payouts/payouts.module';
@@ -108,6 +109,7 @@ import { MarketingModule } from './marketing/marketing.module';
     // repo (import colgante rompía el build); la carpeta ya está commiteada.
     CuponeraModule,
     ConveniosModule,
+    ClubModule,
     BadgesModule,
     AffiliateModule,
     PayoutsModule,

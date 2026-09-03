@@ -1519,8 +1519,18 @@ export class ReservationsService {
 
     // Resolver STAMPS card "principal" del tenant. Si no hay, skip
     // silenciosamente — el negocio no está usando fidelización todavía.
+    // clubPlanId/convenioId: null — las tarjetas de CLUB y de ALIANZA también
+    // son type STAMPS; cualquiera de las dos creada antes que la de sellos sería
+    // "la primera" y el sello de la reserva iría a parar al saldo de la
+    // membresía o a la tarjeta de una empresa aliada.
     const stampsCard = await this.prisma.card.findFirst({
-      where: { tenantId: r.tenantId, type: 'STAMPS', isActive: true },
+      where: {
+        tenantId: r.tenantId,
+        type: 'STAMPS',
+        isActive: true,
+        clubPlanId: null,
+        convenioId: null,
+      },
       orderBy: { createdAt: 'asc' },
       select: { id: true, stampsRequired: true },
     });
@@ -1646,8 +1656,17 @@ export class ReservationsService {
       };
     }
 
+    // clubPlanId/convenioId: null — que el pase que se le muestre al staff sea
+    // el de la tarjeta de sellos del negocio, no la membresía de club del
+    // cliente ni su tarjeta de una empresa aliada.
     const stampsCard = await this.prisma.card.findFirst({
-      where: { tenantId: r.tenantId, type: 'STAMPS', isActive: true },
+      where: {
+        tenantId: r.tenantId,
+        type: 'STAMPS',
+        isActive: true,
+        clubPlanId: null,
+        convenioId: null,
+      },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     });

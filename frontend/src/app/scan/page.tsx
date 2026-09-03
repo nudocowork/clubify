@@ -24,6 +24,20 @@ function isCouponLike(type: string | null | undefined): boolean {
   return type === 'COUPON' || type === 'DISCOUNT' || type === 'GIFT';
 }
 
+// Discriminador que manda el backend en /scanner/verify (ScanKind en
+// backend/src/scanner/scanner.service.ts — espejo a mano porque el frontend
+// no importa código del backend). Antes esta pantalla asumía que TODO traía
+// `data.pass` y un convenio o un club, que no lo traen, la dejaba en blanco.
+type ScanKind = 'sellos' | 'cupon' | 'club' | 'convenio' | 'cuponera';
+
+// `unidad` viene en SINGULAR del plan del club («café», «clase», «lavada»).
+// Pluralización mínima vocal→+s / consonante→+es: alcanza para las unidades
+// reales de los planes sin traer una librería para un solo texto de caja.
+function pluralUnidad(unidad: string, n: number) {
+  if (n === 1) return unidad;
+  return /[aeiouáéíóú]$/i.test(unidad) ? `${unidad}s` : `${unidad}es`;
+}
+
 // Cámara elegida a mano por el negocio. Se persiste por dispositivo: en
 // varios Samsung la cámara que entrega facingMode:'environment' es la ultra
 // gran angular, que tiene FOCO FIJO y nunca enfoca un código de cerca.
@@ -82,6 +96,19 @@ export default function ScanPage() {
   const router = useRouter();
   const scannerRef = useRef<any>(null);
   const [data, setData] = useState<any>(null);
+  /** Canje de convenio recién registrado: qué aplicar y hasta cuándo se anula. */
+  const [canjeHecho, setCanjeHecho] = useState<any>(null);
+  // El último consumo de club hecho en esta pantalla, para poder deshacerlo.
+  // Se borra al escanear otra tarjeta: deshacer el consumo de un cliente
+  // estando ya con el siguiente delante sería peor que no poder deshacerlo.
+  const [ultimoConsumo, setUltimoConsumo] = useState<string | null>(null);
+
+  /**
+   * Total del tiquete por beneficio. Un solo estado compartido hacía que, con
+   * dos beneficios que piden monto, lo tecleado en uno viajara con el canje del
+   * otro.
+   */
+  const [montoTiquete, setMontoTiquete] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
   // Cuando el tope diario bloquea un sello y quien escanea es SUPER_ADMIN,
   // guardamos los argumentos del intento para poder reintentarlo forzado.
@@ -496,6 +523,13 @@ export default function ScanPage() {
   async function scanAnother() {
     setData(null);
     setErr(null);
+    // Limpiar el canje de convenio: si se quedara, el siguiente cliente vería
+    // el beneficio del anterior en pantalla.
+    setCanjeHecho(null);
+    // Igual con el consumo de club: «Deshacer el último» con el siguiente
+    // cliente ya en pantalla le devolvería el café al que no era.
+    setUltimoConsumo(null);
+    setMontoTiquete({});
     setTimeout(() => startScanner(), 50);
   }
 
@@ -694,6 +728,121 @@ export default function ScanPage() {
     await act('STAMP_REMOVE', 1);
   }
 
+  // Consumir 1 del cupo del club. La autorización REAL la da el backend con
+  // su UPDATE condicional (dos cajas pueden escanear la misma tarjeta a la
+  // vez): lo que se ve en pantalla nunca autoriza nada, acá solo se refleja
+  // lo que él respondió.
+  async function consumirClub() {
+    if (!data?.membresiaId) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      const res = await api(`/club/caja/consumir/${data.membresiaId}`, {
+        method: 'POST',
+        body: JSON.stringify({ cantidad: 1 }),
+      });
+      setData({
+        ...data,
+        saldo: res.saldo,
+        // El backend solo consume membresías ACTIVA: si respondió ok, el
+        // estado no cambió y poder seguir depende solo del saldo restante.
+        puedeConsumir: res.saldo > 0,
+      });
+      // Se guarda el consumo para poder deshacerlo. Un doble toque del cajero
+      // le costaba un café al cliente sin forma de devolvérselo: el backend
+      // tenía la anulación hecha —con su idempotencia y su push— y aquí se
+      // tiraba el identificador que hacía falta para llamarla.
+      setUltimoConsumo(res.consumoId ?? null);
+      playScanSuccess();
+    } catch (e: any) {
+      setErr(e.message);
+      playScanError();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Deshace el último consumo del club.
+   *
+   * Solo el último y solo mientras la tarjeta siga en pantalla: es para el
+   * resbalón del momento, no un panel de correcciones. Lo que se puede o no
+   * devolver lo decide el backend —un consumo de un período anterior no
+   * devuelve nada, para no regalar cupo del mes nuevo— y aquí se refleja su
+   * respuesta tal cual.
+   */
+  async function deshacerConsumoClub() {
+    if (!ultimoConsumo) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      const res = await api(`/club/caja/anular/${ultimoConsumo}`, {
+        method: 'POST',
+      });
+      if (res.devuelto > 0 && data) {
+        setData({ ...data, saldo: res.saldo, puedeConsumir: res.saldo > 0 });
+      } else {
+        setErr('Ese consumo ya no se puede deshacer.');
+      }
+      setUltimoConsumo(null);
+    } catch (e: any) {
+      setErr(e.message);
+      playScanError();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Registra el canje de un beneficio de convenio.
+   *
+   * Sin esto el módulo entero era decorativo: el cajero veía qué aplicar pero
+   * no quedaba rastro, así que `canjesCount` no subía nunca, los topes («1 al
+   * día») no mordían jamás y el informe del aliado decía 0 usos para siempre.
+   *
+   * La autorización REAL la da el backend dentro de su candado: dos cajas
+   * pueden escanear la misma tarjeta a la vez y lo que se ve aquí nunca
+   * autoriza nada.
+   */
+  async function canjearConvenio(cuponId: string, compraMonto?: number | null) {
+    if (!data?.tarjetaId) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      const res = await api('/convenios/caja/canjear', {
+        method: 'POST',
+        body: JSON.stringify({
+          tarjetaId: data.tarjetaId,
+          cuponId,
+          compraMonto: compraMonto ?? null,
+        }),
+      });
+      setCanjeHecho(res);
+      playScanSuccess();
+    } catch (e: any) {
+      setErr(e.message);
+      playScanError();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Anula el canje recién registrado. Ventana corta, del lado del servidor. */
+  async function anularConvenio(canjeId: string) {
+    setErr(null);
+    setBusy(true);
+    try {
+      await api(`/convenios/caja/anular/${canjeId}`, { method: 'POST' });
+      setCanjeHecho(null);
+      playScanSuccess();
+    } catch (e: any) {
+      setErr(e.message);
+      playScanError();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // ─── Login inline cuando no hay sesión ───
   if (!user) {
     return (
@@ -747,6 +896,20 @@ export default function ScanPage() {
       </div>
     );
   }
+
+  // ── Despacho por familia de tarjeta ──
+  // Las respuestas SIN `kind` pero CON `pass` se pintan con la pantalla de
+  // siempre: así siguen funcionando los pases de reserva (su servicio no pasa
+  // por verify()) y un backend desplegado antes que este frontend.
+  const kind: ScanKind | undefined = data?.kind;
+  const esPantallaDePase =
+    !!data && (kind === 'sellos' || kind === 'cupon' || (kind == null && !!data.pass));
+  const esKindDesconocido =
+    !!data &&
+    !esPantallaDePase &&
+    kind !== 'club' &&
+    kind !== 'convenio' &&
+    kind !== 'cuponera';
 
   return (
     <div className="min-h-screen bg-bg">
@@ -1039,7 +1202,9 @@ export default function ScanPage() {
           </div>
         )}
 
-        {data && (
+        {/* Sellos, visitas, cashback, puntos, membresía y cupones: la
+            pantalla clásica sobre `data.pass`, sin cambios. */}
+        {esPantallaDePase && (
           <div className="card card-pad mt-3">
             <div className="flex items-center gap-3">
               <div
@@ -1320,6 +1485,387 @@ export default function ScanPage() {
               </button>
             )}
 
+            <button
+              className="btn-link mt-4 w-full justify-center text-sm"
+              onClick={scanAnother}
+            >
+              📷 Escanear otro
+            </button>
+          </div>
+        )}
+
+        {/* ── CLUB: suscripción con cupo por período. No acumula, descuenta:
+            se muestra cuánto queda y se consume de a 1. ── */}
+        {data && kind === 'club' && (
+          <div className="card card-pad mt-3">
+            <div className="flex items-center gap-3">
+              <div
+                className={`avatar w-12 h-12 text-base ${avatarClass(data.titular ?? '')}`}
+              >
+                {initials(data.titular ?? '')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate">{data.titular}</div>
+                <div className="text-xs text-mute truncate">{data.plan}</div>
+              </div>
+              <span className="badge badge-info shrink-0">✓</span>
+            </div>
+
+            <div className="mt-4 p-4 rounded-xl bg-bg2/50 text-center">
+              <div className="text-4xl font-bold">
+                {data.saldo}
+                <span className="text-mute text-base"> / {data.cupoDelPeriodo}</span>
+              </div>
+              <div className="text-sm mt-1">
+                {data.saldo === 1 ? 'Te queda' : 'Te quedan'} {data.saldo} de{' '}
+                {data.cupoDelPeriodo}{' '}
+                {pluralUnidad(data.unidad || 'beneficio', data.saldo)}
+              </div>
+            </div>
+
+            {data.puedeConsumir ? (
+              <button
+                className="btn-primary w-full justify-center py-5 text-lg mt-5"
+                disabled={busy}
+                onClick={consumirClub}
+              >
+                <Icon name="check" /> Consumir
+              </button>
+            ) : (
+              // Sin botón cuando no se puede: ofrecerlo y que falle se lee
+              // como "el escáner está roto". Se dice el porqué y listo.
+              <div className="mt-5 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink text-center">
+                {data.status === 'PAUSADA'
+                  ? 'La membresía está pausada: no se puede consumir.'
+                  : data.status === 'CANCELADA'
+                    ? 'La membresía está cancelada.'
+                    : 'Sin cupo disponible en este período.'}
+              </div>
+            )}
+
+            {ultimoConsumo && (
+              <button
+                className="btn-ghost mt-3 w-full justify-center"
+                disabled={busy}
+                onClick={deshacerConsumoClub}
+              >
+                Deshacer el último
+              </button>
+            )}
+
+            <button
+              className="btn-link mt-4 w-full justify-center text-sm"
+              onClick={scanAnother}
+            >
+              📷 Escanear otro
+            </button>
+          </div>
+        )}
+
+        {/* ── CONVENIO: beneficios de empresa aliada. Se pinta el estado que
+            calculó el backend (todos los cupones, también los agotados, con
+            su motivo — esconderlos hacía creer que el escáner fallaba). ── */}
+        {/* Con el canje ya hecho se esconde la lista: dejarla debajo invitaba a
+            pulsar «Canjear» otra vez sobre el mismo cliente. */}
+        {data && kind === 'convenio' && !canjeHecho && (
+          <div className="card card-pad mt-3">
+            <div className="flex items-center gap-3">
+              <div
+                className={`avatar w-12 h-12 text-base ${avatarClass(
+                  data.titular?.nombre ?? '',
+                )}`}
+              >
+                {initials(data.titular?.nombre ?? '')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate">{data.titular?.nombre}</div>
+                <div className="text-xs text-mute truncate">
+                  {data.convenio?.name}
+                  {data.titular?.documento4
+                    ? ` · documento ${data.titular.documento4}`
+                    : ''}
+                </div>
+              </div>
+              <span className="badge badge-info shrink-0">✓</span>
+            </div>
+
+            {data.motivoGlobal && (
+              <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink text-center">
+                {data.motivoGlobal}
+              </div>
+            )}
+
+            <div className="mt-4 space-y-2">
+              {(data.cupones ?? []).length === 0 && (
+                <div className="text-sm text-mute text-center">
+                  Este convenio no tiene beneficios configurados.
+                </div>
+              )}
+              {(data.cupones ?? []).map((c: any) => (
+                <div
+                  key={c.id}
+                  className={`p-3 rounded-xl border ${
+                    c.disponible
+                      ? 'border-emerald-200 bg-emerald-50'
+                      : 'border-line bg-bg2/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold text-sm truncate">{c.name}</div>
+                    <span
+                      className={`text-xs font-semibold shrink-0 ${
+                        c.disponible ? 'text-emerald-700' : 'text-mute'
+                      }`}
+                    >
+                      {c.disponible ? '● Disponible' : 'No disponible'}
+                    </span>
+                  </div>
+                  <div
+                    className={`text-base font-bold mt-1 ${
+                      c.disponible ? 'text-emerald-900' : 'text-mute'
+                    }`}
+                  >
+                    {c.aplicar}
+                  </div>
+                  {c.description ? (
+                    <div className="text-xs text-mute mt-0.5">{c.description}</div>
+                  ) : null}
+                  <div className="text-[11px] text-mute mt-1">
+                    {c.topeTexto}
+                    {c.compraMinima != null
+                      ? ` · Compra mínima $${Number(c.compraMinima).toLocaleString('es-CO')}`
+                      : ''}
+                  </div>
+                  {/* El motivo global ya se mostró arriba: repetirlo en cada
+                      cupón era puro ruido para el cajero. */}
+                  {!c.disponible && c.motivo && c.motivo !== data.motivoGlobal && (
+                    <div className="text-xs text-bad-ink mt-1">{c.motivo}</div>
+                  )}
+
+                  {c.disponible && (
+                    <>
+                      {/* El monto solo se pide cuando de verdad hace falta: con
+                          compra mínima el backend lo exige, y con un % es lo
+                          único que permite decirle al aliado cuánto ahorró su
+                          gente. Pedirlo siempre alargaría cada cobro. */}
+                      {(c.compraMinima != null || c.tipo === 'PERCENT_OFF') && (
+                        <input
+                          className="input mt-2 text-sm"
+                          type="number"
+                          inputMode="numeric"
+                          placeholder={
+                            c.compraMinima != null
+                              ? `Total del tiquete (mínimo $${Number(c.compraMinima).toLocaleString('es-CO')})`
+                              : 'Total del tiquete (opcional)'
+                          }
+                          value={montoTiquete[c.id] ?? ''}
+                          // Solo dígitos. En Colombia el total se escribe
+                          // «12.500», y `Number('12.500')` es 12,5: el backend
+                          // lo rechazaba por no ser entero y le pintaba al
+                          // cajero el error de class-validator EN INGLÉS, con
+                          // el cliente delante.
+                          onChange={(e) =>
+                            setMontoTiquete({
+                              ...montoTiquete,
+                              [c.id]: e.target.value.replace(/\D/g, ''),
+                            })
+                          }
+                        />
+                      )}
+                      <button
+                        className="btn btn-primary w-full justify-center mt-2"
+                        disabled={busy}
+                        onClick={() =>
+                          canjearConvenio(
+                            c.id,
+                            montoTiquete[c.id] ? Number(montoTiquete[c.id]) : null,
+                          )
+                        }
+                      >
+                        {/* Dice las DOS cosas que tiene que hacer: el descuento
+                            lo mete él en la caja, esto solo lo registra. */}
+                        {busy ? 'Registrando…' : 'Aplicar y registrar'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* El error, AQUÍ. El bloque general de errores se pinta cientos de
+                líneas más arriba, o sea fuera de la pantalla del móvil: el
+                cajero pulsaba «Aplicar y registrar», el servidor lo rechazaba
+                —compra mínima sin monto, cupón apagado entre el escaneo y el
+                clic— y a él le parecía que el botón no hacía nada. */}
+            {err && (
+              <div className="mt-3 rounded-lg bg-bad-soft px-3 py-2.5 text-sm text-bad-ink">
+                {err}
+              </div>
+            )}
+
+            <button
+              className="btn-link mt-4 w-full justify-center text-sm"
+              onClick={scanAnother}
+            >
+              📷 Escanear otro
+            </button>
+          </div>
+        )}
+
+        {/* Confirmación del canje. Va aparte y en grande porque es lo que el
+            cajero mira con el cliente delante: qué aplicar, y el botón de
+            deshacer por si se equivocó de beneficio. */}
+        {data && kind === 'convenio' && canjeHecho && (
+          <div className="card card-pad mt-3 border-emerald-200 bg-emerald-50">
+            <div className="text-center">
+              <div className="text-3xl">✓</div>
+              <div className="text-lg font-bold text-emerald-900 mt-1">
+                {canjeHecho.aplicar}
+              </div>
+              <div className="text-xs text-mute mt-1">
+                Registrado para {canjeHecho.titular}
+                {canjeHecho.descuentoMonto != null
+                  ? ` · descuento $${Number(canjeHecho.descuentoMonto).toLocaleString('es-CO')}`
+                  : ''}
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button
+                className="btn flex-1 justify-center"
+                disabled={busy}
+                onClick={() => anularConvenio(canjeHecho.canjeId)}
+              >
+                Anular
+              </button>
+              <button
+                className="btn btn-primary flex-1 justify-center"
+                onClick={scanAnother}
+              >
+                📷 Escanear otro
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── CUPONERA (aliado tipo A): se escaneó la tarjeta de un miembro de
+            la cuponera de la que este negocio es aliado. Acá solo se INFORMA:
+            los endpoints de canje del aliado exigen sesión del portal de
+            aliados (allyBusinessId), que la sesión de staff del escáner no
+            tiene — un botón de canje aquí devolvería 403. ── */}
+        {data && kind === 'cuponera' && (
+          <div className="card card-pad mt-3">
+            <div className="flex items-center gap-3">
+              <div
+                className={`avatar w-12 h-12 text-base ${avatarClass(
+                  data.memberName ?? '',
+                )}`}
+              >
+                {initials(data.memberName ?? '')}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate">{data.memberName}</div>
+                <div
+                  className={`text-xs truncate font-semibold ${
+                    data.membershipActive ? 'text-emerald-700' : 'text-bad-ink'
+                  }`}
+                >
+                  {data.membershipActive
+                    ? `Miembro activo${data.planName ? ` · ${data.planName}` : ''}`
+                    : 'Membresía inactiva'}
+                </div>
+              </div>
+              <span className="badge badge-info shrink-0">✓</span>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {(data.benefits ?? []).length === 0 && (
+                <div className="text-sm text-mute text-center">
+                  No tienes promociones activas para esta cuponera.
+                </div>
+              )}
+              {(data.benefits ?? []).map((b: any) => (
+                <div
+                  key={b.id}
+                  className={`p-3 rounded-xl border ${
+                    b.canRedeem
+                      ? 'border-emerald-200 bg-emerald-50'
+                      : 'border-line bg-bg2/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-semibold text-sm truncate">{b.title}</div>
+                    <span
+                      className={`text-xs font-semibold shrink-0 ${
+                        b.canRedeem ? 'text-emerald-700' : 'text-mute'
+                      }`}
+                    >
+                      {b.canRedeem ? '● Disponible' : 'No disponible'}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-mute mt-1">
+                    {b.perMemberLeft == null
+                      ? 'Sin límite por miembro'
+                      : `${b.perMemberLeft} usos restantes`}
+                    {b.totalLeft != null ? ` · ${b.totalLeft} en total` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {(data.stampPrograms ?? []).length > 0 && (
+              <div className="mt-4">
+                <div className="text-[11px] font-semibold text-mute mb-2">
+                  SELLOS DE LA CUPONERA
+                </div>
+                <div className="space-y-2">
+                  {(data.stampPrograms ?? []).map((p: any) => (
+                    <div key={p.id} className="p-3 rounded-xl border border-line">
+                      <div className="font-semibold text-sm">
+                        {p.name}{' '}
+                        <span className="text-mute text-xs">
+                          · {p.stampsCount}/{p.stampsRequired}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-mute mt-0.5">
+                        {p.rewardReady
+                          ? `🎁 Premio listo: ${p.rewardText}`
+                          : p.rewardText}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="text-[11px] text-mute text-center mt-3">
+              Los canjes y sellos de la cuponera se registran desde tu panel de
+              aliado.
+            </div>
+
+            <button
+              className="btn-link mt-4 w-full justify-center text-sm"
+              onClick={scanAnother}
+            >
+              📷 Escanear otro
+            </button>
+          </div>
+        )}
+
+        {/* Red de seguridad: un `kind` que este frontend no conoce (backend
+            más nuevo) o una respuesta sin pase (reserva confirmada sin tarjeta
+            de sellos) muestra un aviso legible en vez de dejar la pantalla en
+            blanco por un TypeError. */}
+        {esKindDesconocido && (
+          <div className="card card-pad mt-3 text-center">
+            <div className="text-3xl mb-2">🤔</div>
+            <div className="font-semibold">
+              Código leído, pero no se pudo mostrar la tarjeta
+            </div>
+            <div className="text-sm text-mute mt-1 leading-relaxed">
+              {typeof data?.message === 'string' && data.message
+                ? data.message
+                : 'El código es válido, pero esta versión del escáner no sabe mostrar este tipo de tarjeta. Recargá la página; si sigue pasando, avisá a soporte.'}
+            </div>
             <button
               className="btn-link mt-4 w-full justify-center text-sm"
               onClick={scanAnother}

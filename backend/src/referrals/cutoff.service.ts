@@ -17,6 +17,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import { ReferralsService } from './referrals.service';
 import { batchTotal, recalcBatchTotal } from './payout-batch.util';
+import { nombreDePlan } from './plan-label';
 import {
   addDaysYmd,
   bogotaDayEndUtc,
@@ -53,6 +54,30 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const PAYABLE_BASE = {
   status: CommissionStatus.APPROVED,
   paymentStatus: { in: ['PENDING', 'PARTIAL'] },
+  recipientCodeId: { not: null },
+} satisfies Prisma.CommissionWhereInput;
+
+/**
+ * Qué comisiones PERTENECEN a un corte por fecha — se hayan pagado ya o no.
+ *
+ * Un corte es un período contable, no una cola de pago: dice qué se devengó en
+ * esa ventana. Que ya se haya transferido no la saca del período.
+ *
+ * FIX 2026-08-31: se usaba `PAYABLE_BASE` también para enganchar, y ese exige
+ * «aprobada y pendiente de pago». Así que una comisión pagada ANTES de que su
+ * corte se generara quedaba fuera para siempre — el corte, cuando nacía, ya no
+ * la veía.
+ *
+ * Pasó de verdad: 9 comisiones de Nicolás Quintero, creadas entre el 1 y el 13
+ * de agosto y pagadas todas el 24, pertenecían al corte del 31. Ese corte se
+ * generó una semana después de cobrarlas y no las miró. El historial mostraba
+ * 17 comisiones por $205.40 cuando en realidad se habían pagado 21 por $303.85.
+ *
+ * Se excluyen las que siguen retenidas (PENDING) — esas pertenecen a un corte
+ * posterior — y las anuladas (REJECTED).
+ */
+const ATTACHABLE_BASE = {
+  status: { in: [CommissionStatus.APPROVED, CommissionStatus.PAID] },
   recipientCodeId: { not: null },
 } satisfies Prisma.CommissionWhereInput;
 
@@ -229,9 +254,14 @@ export class CutoffService {
     for (const b of open) {
       const res = await this.prisma.commission.updateMany({
         where: {
-          ...PAYABLE_BASE,
+          ...ATTACHABLE_BASE,
           payoutBatchId: null,
-          ...this.dayWindowWhere(bogotaYmd(b.cutoffDate)),
+          // Un corte cuya fecha YA PASÓ no acumula: está esperando que lo
+          // cierren. Solo el vigente absorbe lo adelantado.
+          ...this.dayWindowWhere(
+            bogotaYmd(b.cutoffDate),
+            bogotaYmd(b.cutoffDate) >= bogotaYmd(new Date()),
+          ),
         },
         data: { payoutBatchId: b.id },
       });
@@ -328,9 +358,11 @@ export class CutoffService {
     // 2) Adjuntar lo disponible de SU ventana que todavía no tiene corte.
     const attached = await this.prisma.commission.updateMany({
       where: {
-        ...PAYABLE_BASE,
+        ...ATTACHABLE_BASE,
         payoutBatchId: null,
-        ...this.dayWindowWhere(ymd),
+        // Generación explícita de ESTE corte: se lleva también lo habilitado
+        // a mano, que es justo para lo que se habilitó.
+        ...this.dayWindowWhere(ymd, true),
       },
       data: { payoutBatchId: batch.id },
     });
@@ -625,10 +657,12 @@ export class CutoffService {
         daysRemaining,
         businessName:
           c.referralUse?.tenant?.brandName ?? c.businessGroup?.name ?? '—',
-        planName:
-          c.referralUse?.tenant?.plan?.name ??
-          c.referralUse?.tenant?.planPeriodicity ??
-          null,
+        // El plan ES la periodicidad. El nombre interno del `Plan` («Elite»,
+        // «Pro», «Sin plan») es un SKU para el gating y Hotmart, y no debe
+        // verse: aquí se mandaba en crudo, así que el CORTE mostraba «Elite»
+        // mientras el «Detalle avanzado» —que sí usa el formateador— decía
+        // «Plan Mensual» para el mismo negocio.
+        planName: nombreDePlan(c.referralUse?.tenant?.planPeriodicity),
         batchCode: c.payoutBatch?.code ?? null,
       });
     }
@@ -1326,10 +1360,12 @@ export class CutoffService {
         paidAt: c.paidAt,
         businessName:
           c.referralUse?.tenant?.brandName ?? c.businessGroup?.name ?? '—',
-        planName:
-          c.referralUse?.tenant?.plan?.name ??
-          c.referralUse?.tenant?.planPeriodicity ??
-          null,
+        // El plan ES la periodicidad. El nombre interno del `Plan` («Elite»,
+        // «Pro», «Sin plan») es un SKU para el gating y Hotmart, y no debe
+        // verse: aquí se mandaba en crudo, así que el CORTE mostraba «Elite»
+        // mientras el «Detalle avanzado» —que sí usa el formateador— decía
+        // «Plan Mensual» para el mismo negocio.
+        planName: nombreDePlan(c.referralUse?.tenant?.planPeriodicity),
         recipient: c.recipientCode
           ? {
               id: c.recipientCode.id,
@@ -1358,10 +1394,34 @@ export class CutoffService {
    * Las habilitadas A MANO son la excepción: `status=APPROVED` con un
    * `availableAt` todavía en el futuro solo puede venir de "Habilitar" del super
    * admin (el cron promueve únicamente cuando `availableAt <= ahora`). El punto
-   * de habilitar a mano es poder pagarla ya, así que entra al corte vigente.
+   * de habilitar a mano es poder pagarla ya, así que entra al corte VIGENTE.
+   *
+   * FIX 2026-08-31: esa excepción no tenía tope, y `topUpOpenBatches` recorre
+   * los cortes abiertos del más viejo al más nuevo. Así que lo habilitado a
+   * mano no caía en el corte vigente sino en el ABIERTO MÁS VIEJO — uno cuya
+   * fecha ya pasó y que se está liquidando. Tres comisiones (Hydor, Quipao y
+   * Monet, $25) se habilitaron para el 30 de agosto y quedaron pegadas al
+   * corte del 15, que ya se había transferido: mostraba $343.15 contra una
+   * transferencia de $303.85.
+   *
+   * Un corte cuya fecha YA PASÓ no acumula: está esperando que lo cierren.
+   * Solo el vigente —fecha de hoy o posterior— absorbe lo adelantado.
    */
-  private dayWindowWhere(ymd: string): Prisma.CommissionWhereInput {
+  private dayWindowWhere(
+    ymd: string,
+    /**
+     * Si este corte absorbe lo HABILITADO A MANO con fecha futura.
+     *
+     * `topUpOpenBatches` pasa `false` cuando la fecha del corte ya pasó — ese
+     * es el bug de Hydor, Quipao y Monet. Pero al GENERAR un corte concreto se
+     * pasa `true` siempre: quien lo llama está liquidando ese corte a
+     * propósito, y lo adelantado le pertenece. Gatearlo también ahí dejaba
+     * fuera comisiones que el admin había habilitado justo para ese pago.
+     */
+    absorbeAdelantadas: boolean,
+  ): Prisma.CommissionWhereInput {
     const dayEnd = bogotaDayEndUtc(ymd);
+    const esCorteVigente = absorbeAdelantadas;
     return {
       OR: [
         { availableAt: { lt: dayEnd } },
@@ -1374,7 +1434,9 @@ export class CutoffService {
           },
         },
         // Habilitada a mano (desbloqueo adelantado por el super admin).
-        { availableAt: { gt: new Date() } },
+        ...(esCorteVigente
+          ? [{ availableAt: { gt: new Date() } } as Prisma.CommissionWhereInput]
+          : []),
       ],
     };
   }

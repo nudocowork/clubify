@@ -10,6 +10,8 @@ import { nextRewardLabel } from './free-rewards.util';
 import { resolveWalletAdvanced, WalletAdvancedFlags } from '../common/white-label/wallet-advanced.util';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { passLabels, type PassLocale, normalizePassLocale } from './pass-labels';
+import { alianzaDelPase } from '../convenios/alianzas-pase.util';
+import { clubDelPase, pluralUnidad } from '../club/club-pase.util';
 
 /**
  * Genera pases para Apple Wallet (.pkpass) y Google Wallet (save link).
@@ -133,6 +135,19 @@ export class WalletService {
     // al dominio público de la marca (no hardcode Clubify). resolveTenant cae
     // al row real `clubify` cuando el negocio no tiene whiteLabelId (legacy).
     const passBrand = await this.brand.resolveTenant(pass.tenantId);
+    // Tarjeta de ALIANZA: no cuenta sellos, dice si el beneficio está en pie.
+    // Solo se consulta cuando `convenioId` está puesto, así que los millones de
+    // pases normales no pagan ni una consulta extra por generarse.
+    const alianza = pass.card.convenioId
+      ? await alianzaDelPase(this.prisma, pass.card.convenioId, pass.id)
+      : null;
+    // Tarjeta de CLUB: cuenta al revés que un cartón —empieza llena y se
+    // vacía—, así que necesita sus propios textos. Como con la alianza, solo
+    // se consulta cuando `clubPlanId` está puesto: los pases normales no pagan
+    // ni una consulta extra.
+    const club = pass.card.clubPlanId
+      ? await clubDelPase(this.prisma, pass.card.clubPlanId, pass.id)
+      : null;
     const passBrandHref = passBrand.websiteUrl;
     const passBrandDomain = passBrand.websiteUrl.replace(/^https?:\/\//, '');
     // Idioma del cliente (persistido al enrolarse). Localiza TODOS los labels
@@ -194,6 +209,25 @@ export class WalletService {
         rewardFieldValue = next.label;
       }
     }
+    // En una tarjeta de alianza el campo de recompensa lo ocupan los beneficios
+    // vivos («10% de descuento · Bebida gratis»), que es lo que la persona
+    // enseña en la caja. «Próximo premio» ahí no significa nada: no se acumula
+    // nada hacia ningún sitio.
+    if (alianza) {
+      rewardFieldLabel = L.alliance;
+      rewardFieldValue = alianza.vivos.length
+        ? alianza.vivos.join(' · ').slice(0, 120)
+        : L.alliance_ask(alianza.empresa);
+    }
+    // En el club, «RECOMPENSA» no aplica: no hay nada que acumular hacia un
+    // premio. Lo que le importa al socio es cuánto le queda de lo que ya pagó.
+    if (club) {
+      rewardFieldLabel = L.club_left;
+      rewardFieldValue = L.club_left_count(
+        pass.stampsCount,
+        pluralUnidad(club.unidad, pass.stampsCount),
+      );
+    }
 
     const passJson = {
       formatVersion: 1,
@@ -229,14 +263,8 @@ export class WalletService {
       // estas locations. El `relevantText` es el texto que aparece — el
       // dueño lo edita en /app/locations. maxDistance va a nivel pass, no
       // por location, así que tomamos el mayor radius configurado.
-      locations: pass.tenant.locations.map((l) => ({
-        latitude: Number(l.latitude),
-        longitude: Number(l.longitude),
-        relevantText: l.walletRelevantText?.trim() || L.near_place(brandName),
-      })),
-      maxDistance: pass.tenant.locations.reduce(
-        (max, l) => Math.max(max, l.radiusMeters || 300),
-        300,
+      ...this.geocercoDeApple(pass.tenant.locations, () =>
+        L.near_place(brandName),
       ),
       storeCard: {
         // Header field principal — varía por tipo de tarjeta. Apple Wallet
@@ -244,8 +272,17 @@ export class WalletService {
         // Para COUPON: array vacío. El estado DISPONIBLE/REDIMIDO va
         // pintado dentro del strip image como badge — así no hay overlap
         // visual con el logoText (brand name) que ocupa el mismo row.
+        // La ALIANZA tampoco lleva cabecera, por el mismo motivo que el cupón:
+        // Apple pinta el `logoText` a la izquierda y la cabecera a la derecha
+        // en la MISMA fila, y con un nombre de negocio normal se solapan — se
+        // leía «DEMO CLU‌ACTIVO». El estado va en la franja, que es donde mira
+        // la persona cuando la enseña en la caja.
         headerFields:
-          pass.card.type === 'COUPON' ? [] : [this.buildHeaderField(pass, L)],
+          alianza || pass.card.type === 'COUPON'
+            ? []
+            : club
+              ? [this.headerClub(pass, club, L)]
+              : [this.buildHeaderField(pass, L)],
         // primaryFields vacío → el strip image actúa de hero principal sin
         // texto encima.
         primaryFields: [],
@@ -295,12 +332,41 @@ export class WalletService {
     // sellos con el icono elegido por el tenant. Reemplaza la strip default
     // que solo era gradient verde sólido.
     let dynamicStrips: Record<string, Buffer> = {};
-    if (pass.card.type === 'STAMPS') {
+    // Una tarjeta de CLUB es `STAMPS` por dentro, así que caía aquí y se
+    // dibujaba su cartón. Para un cupo pequeño se lee bien —cuatro círculos
+    // llenos son «te quedan cuatro lavadas»—, pero tiene dos problemas:
+    //
+    //  · El grid se corta en 20 círculos por diseño. Un plan de 30 clases
+    //    pintaba 20 mientras la cabecera decía «7 / 30»: la foto y el número
+    //    contando cosas distintas.
+    //  · El denominador salía de `card.stampsRequired`, que es el cupo del
+    //    PLAN, y la cabecera usa el del PERÍODO. Si el negocio sube el plan a
+    //    mitad de mes, el socio veía «7 / 10» encima de 15 círculos.
+    //
+    // Por eso el club manda su propio cupo, y por encima de 20 se queda sin
+    // cartón: el número de la cabecera es entonces la única versión.
+    const cupoDibujable = club ? club.cupo : (pass.card.stampsRequired ?? 10);
+    // La ALIANZA tiene su propia franja: el logo de la empresa en el centro y
+    // el beneficio debajo. Antes caía en el cartón de sellos y, con
+    // `stampsRequired: 1`, dibujaba UN disco vacío enorme en mitad del pase —
+    // que se lee como «te falta algo por llenar» justo encima de un descuento
+    // que la persona ya tiene.
+    if (alianza) {
+      dynamicStrips = await this.generateAllianceStrip({
+        primary: pass.card.primaryColor,
+        secondary: pass.card.secondaryColor,
+        logoUrl: pass.card.logoUrl,
+        empresa: alianza.empresa,
+        beneficio:
+          alianza.vivos[0] ??
+          (alianza.estado === 'ACTIVO' ? '' : L.alliance_ask(alianza.empresa)),
+      });
+    } else if (pass.card.type === 'STAMPS' && (!club || cupoDibujable <= 20)) {
       const c: any = pass.card;
       dynamicStrips = await this.generateStampsStrip({
         primary: pass.card.primaryColor,
         secondary: pass.card.secondaryColor,
-        required: pass.card.stampsRequired ?? 10,
+        required: cupoDibujable,
         stamped: pass.stampsCount,
         icon: c.stampIcon || '☕',
       stampIconImageUrl: c.stampIconImageUrl ?? null,
@@ -443,6 +509,61 @@ export class WalletService {
   }
 
   /**
+   * El header de una tarjeta de CLUB.
+   *
+   * La etiqueta es la unidad del negocio en plural —CAFÉS, LAVADAS, CLASES—
+   * porque es su palabra y es la que el cliente reconoce. El aviso de cambio
+   * dice «Te quedan: 7 / 10» y no «Sellos: 7»: con el texto de sellos, el
+   * cliente leía que llevaba 7 acumulados cuando le quedaban 7 por gastar.
+   *
+   * Pausada enseña EN PAUSA en vez del número, para que el socio no se plante
+   * en el mostrador con un saldo que la caja le va a rechazar.
+   */
+  private headerClub(
+    pass: { stampsCount: number },
+    club: {
+      unidad: string;
+      cupo: number;
+      detenida: boolean;
+      dadaDeBaja: boolean;
+    },
+    L: ReturnType<typeof passLabels>,
+  ) {
+    const etiqueta = club.unidad.trim()
+      ? pluralUnidad(club.unidad, 2).toUpperCase()
+      : L.club_unit;
+    // El aviso cambia con el valor. Con «Te quedan: %@» siempre, al pausar el
+    // banner del móvil decía literalmente «Te quedan: EN PAUSA».
+    const detenido = club.dadaDeBaja ? L.club_ended : L.club_paused;
+    return {
+      key: 'club',
+      label: etiqueta,
+      value: club.detenida ? detenido : `${pass.stampsCount} / ${club.cupo}`,
+      changeMessage: club.detenida ? L.club_stopped_change : L.club_change,
+    };
+  }
+
+  private headerAlianza(
+    a: { estado: string; empresa: string },
+    L: ReturnType<typeof passLabels>,
+  ) {
+    const valor =
+      a.estado === 'ACTIVO'
+        ? L.alliance_active
+        : a.estado === 'FINALIZADO'
+          ? L.alliance_ended
+          : a.estado === 'BLOQUEADA'
+            ? L.alliance_blocked
+            : L.alliance_paused;
+    return {
+      key: 'alliance',
+      label: L.alliance,
+      value: valor,
+      changeMessage: L.alliance_change,
+    };
+  }
+
+  /**
    * Calcula el header field principal del pkpass según el tipo de tarjeta.
    * Cada tipo muestra el dato relevante (sellos / saldo / visitas / tier).
    */
@@ -542,8 +663,20 @@ export class WalletService {
     const L = passLabels(pass.customer?.locale);
     const t = pass.card.type;
     if (t !== 'STAMPS' && t !== 'HYBRID' && t !== 'VISITS') return null;
-    const required =
-      t === 'VISITS'
+    // Una ALIANZA no lleva hero. Es lo más grande del pase en Android y aquí
+    // mentía entero: «Acumula sellos y obtén beneficios», «Sellos faltantes: 1»
+    // y «Recompensas: 0 premios» encima de un descuento permanente que no
+    // acumula nada. Devolver null hace que Google se salte el módulo.
+    if (pass.card.convenioId) return null;
+    // Una tarjeta de CLUB es `STAMPS` por dentro y caía aquí con los textos de
+    // un cartón: «Acumula sellos y obtén beneficios», y de «Sellos faltantes»
+    // el número de los que YA SE GASTÓ. Justo al revés de lo que significa.
+    const club = pass.card.clubPlanId
+      ? await clubDelPase(this.prisma, pass.card.clubPlanId, pass.id)
+      : null;
+    const required = club
+      ? club.cupo
+      : t === 'VISITS'
         ? pass.card.visitsRequired ?? 10
         : pass.card.stampsRequired ?? 10;
     const current = t === 'VISITS' ? pass.visitsCount : pass.stampsCount;
@@ -554,27 +687,45 @@ export class WalletService {
 
     const W = 1032;
     const H = 336;
-    const title = L.accumulate;
+    const title = club ? L.club_hero : L.accumulate;
 
-    // Tres columnas equidistantes ocupando 60% del ancho centrado.
+    // Columnas equidistantes ocupando el 78% del ancho, centradas. El número
+    // sale de cuántas haya: el club usa DOS y con la rejilla fija de tres se
+    // quedaban pegadas a la izquierda con un hueco a la derecha.
     const colsAreaY = 200;
     const colsW = W * 0.78;
     const colsStart = (W - colsW) / 2;
-    const colW = colsW / 3;
-    const colCx = [
-      colsStart + colW * 0.5,
-      colsStart + colW * 1.5,
-      colsStart + colW * 2.5,
-    ];
+    const centroDeColumna = (i: number, total: number) =>
+      colsStart + (colsW / total) * (i + 0.5);
 
-    const stats = [
+    const iconoCarton =
+      '<path d="M-18 -20 h36 v40 h-36 z M-18 -12 h36 M-12 -16 h6 M-2 -16 h6 M10 -16 h6 M-12 -8 h6 M-2 -8 h6 M10 -8 h6 M-12 0 h6 M-2 0 h6 M10 0 h6 M-12 8 h6 M-2 8 h6 M10 8 h6" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/>';
+    const iconoRegalo =
+      '<path d="M-18 -4 h36 v20 h-36 z M-18 -4 h36 v-6 h-36 z M0 -10 v26 M-12 -10 a6 6 0 1 1 12 0 a6 6 0 1 1 12 0" stroke="white" stroke-width="2.5" fill="none" stroke-linejoin="round"/>';
+
+    const stats = club
+      ? [
+          // Lo que le queda, con la palabra del negocio. Es el único número
+          // que le importa al socio delante del mostrador.
+          {
+            icon: iconoCarton,
+            label: L.club_left,
+            value: L.club_left_count(current, pluralUnidad(club.unidad, current)),
+          },
+          {
+            icon: iconoRegalo,
+            label: L.club_hero,
+            value: L.club_left_count(club.cupo, pluralUnidad(club.unidad, club.cupo)),
+          },
+        ]
+      : [
       {
-        icon: '<path d="M-18 -20 h36 v40 h-36 z M-18 -12 h36 M-12 -16 h6 M-2 -16 h6 M10 -16 h6 M-12 -8 h6 M-2 -8 h6 M10 -8 h6 M-12 0 h6 M-2 0 h6 M10 0 h6 M-12 8 h6 M-2 8 h6 M10 8 h6" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/>',
+        icon: iconoCarton,
         label: L.missing_stamps,
         value: L.stamps_left(remaining),
       },
       {
-        icon: '<path d="M-18 -4 h36 v20 h-36 z M-18 -4 h36 v-6 h-36 z M0 -10 v26 M-12 -10 a6 6 0 1 1 12 0 a6 6 0 1 1 12 0" stroke="white" stroke-width="2.5" fill="none" stroke-linejoin="round"/>',
+        icon: iconoRegalo,
         label: L.rewards,
         value: L.rewards_count(0),
       },
@@ -583,11 +734,11 @@ export class WalletService {
         label: L.next_reward,
         value: rewardText.length > 22 ? rewardText.slice(0, 20) + '…' : rewardText,
       },
-    ];
+        ];
 
     const colSvg = stats
       .map((s, i) => {
-        const cx = colCx[i];
+        const cx = centroDeColumna(i, stats.length);
         return `
         <g transform="translate(${cx} ${colsAreaY})">
           ${s.icon}
@@ -668,6 +819,21 @@ export class WalletService {
     if (!pass) return null;
     const t = pass.card.type;
     if (t !== 'STAMPS' && t !== 'HYBRID' && t !== 'VISITS') return null;
+    // La ALIANZA sirve su propia franja —el logo de la empresa en el centro—
+    // en vez del cartón de sellos, que con `stampsRequired: 1` dibujaba un
+    // disco vacío enorme en mitad del pase.
+    if (pass.card.convenioId) {
+      const a = await alianzaDelPase(this.prisma, pass.card.convenioId, pass.id);
+      if (!a) return null;
+      const tiras = await this.generateAllianceStrip({
+        primary: pass.card.primaryColor,
+        secondary: pass.card.secondaryColor,
+        logoUrl: pass.card.logoUrl,
+        empresa: a.empresa,
+        beneficio: a.vivos[0] ?? '',
+      });
+      return tiras['strip@2x.png'] ?? tiras['strip.png'] ?? null;
+    }
     const c: any = pass.card;
     const required =
       t === 'VISITS'
@@ -764,6 +930,111 @@ export class WalletService {
       half: toDataUri(halfR),
       full: toDataUri(fullR),
     };
+  }
+
+  /**
+   * La franja del pase de una ALIANZA: el logo de la empresa en grande y
+   * centrado, con el beneficio debajo.
+   *
+   * Se dibuja aparte del cartón de sellos porque no cuenta nada. Aquí el
+   * protagonista es de QUIÉN es el convenio —la persona lo enseña en la caja y
+   * lo primero que tiene que leerse es «Ecopetrol»— y qué le dan.
+   *
+   * El logo va sobre un disco BLANCO: los logos corporativos suelen venir con
+   * fondo transparente y en negro, y sobre el color del negocio desaparecen.
+   * Si no hay logo, se pintan las iniciales de la empresa, que es mejor que un
+   * hueco.
+   */
+  private async generateAllianceStrip(opts: {
+    primary: string;
+    secondary: string;
+    logoUrl?: string | null;
+    empresa: string;
+    beneficio: string;
+  }): Promise<Record<string, Buffer>> {
+    const sharp = (await import('sharp')).default;
+    const W = 640;
+    const H = 246;
+
+    const escapar = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // Iniciales de la empresa para cuando no hay logo: «Ecopetrol» → «E»,
+    // «Grupo Aval» → «GA». Máximo dos, que es lo que cabe legible.
+    const iniciales = opts.empresa
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase() ?? '')
+      .join('');
+
+    // El logo se descarga y se mete en el disco. Si falla —URL caída, formato
+    // raro— se cae a las iniciales en vez de dejar el pase a medio pintar.
+    const R = 62;
+    const CX = W / 2;
+    const CY = 96;
+    let logoPng: Buffer | null = null;
+    if (opts.logoUrl) {
+      try {
+        const r = await fetch(opts.logoUrl);
+        if (r.ok) {
+          const bruto = Buffer.from(await r.arrayBuffer());
+          logoPng = await sharp(bruto)
+            .resize(R * 2 - 24, R * 2 - 24, { fit: 'inside', withoutEnlargement: false })
+            .png()
+            .toBuffer();
+        }
+      } catch {
+        logoPng = null;
+      }
+    }
+
+    const beneficio = escapar(opts.beneficio.slice(0, 42));
+    const empresa = escapar(opts.empresa.slice(0, 30));
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="${opts.primary}"/>
+          <stop offset="100%" stop-color="${opts.secondary || opts.primary}"/>
+        </linearGradient>
+      </defs>
+      <rect width="${W}" height="${H}" fill="url(#g)"/>
+      <circle cx="${CX}" cy="${CY}" r="${R}" fill="#FFFFFF"/>
+      ${
+        logoPng
+          ? ''
+          : `<text x="${CX}" y="${CY + 20}" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="54" font-weight="700" fill="${opts.primary}">${escapar(iniciales)}</text>`
+      }
+      <text x="${CX}" y="${CY + R + 40}" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="30" font-weight="700" fill="#FFFFFF">${beneficio}</text>
+      <text x="${CX}" y="${CY + R + 68}" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="19" font-weight="500" fill="rgba(255,255,255,.8)">${empresa}</text>
+    </svg>`;
+
+    let base = sharp(Buffer.from(svg));
+    if (logoPng) {
+      const meta = await sharp(logoPng).metadata();
+      base = sharp(
+        await base
+          .composite([
+            {
+              input: logoPng,
+              left: Math.round(CX - (meta.width ?? 0) / 2),
+              top: Math.round(CY - (meta.height ?? 0) / 2),
+            },
+          ])
+          .png()
+          .toBuffer(),
+      );
+    }
+    const png1 = await base.png().toBuffer();
+
+    // Apple pide las tres resoluciones. Se escala desde la de 1x en vez de
+    // redibujar: el SVG es plano y no gana nada rehaciéndolo.
+    const [png2, png3] = await Promise.all([
+      sharp(png1).resize(W * 2, H * 2).png().toBuffer(),
+      sharp(png1).resize(W * 3, H * 3).png().toBuffer(),
+    ]);
+    return { 'strip.png': png1, 'strip@2x.png': png2, 'strip@3x.png': png3 };
   }
 
   private async generateStampsStrip(opts: {
@@ -1627,6 +1898,57 @@ export class WalletService {
     return { sent, skipped, google };
   }
 
+  /**
+   * Las sedes tal como las quiere Apple, y a qué distancia se dispara.
+   *
+   * Tres cosas que estaban mal y afectaban a TODAS las tarjetas:
+   *
+   *  · **Las coordenadas no se validaban.** Una sede sin coordenadas o en
+   *    `0,0` le metía a Apple un geocerco en medio del Golfo de Guinea, y un
+   *    `NaN` puede hacer que rechace el pase entero. Google ya filtraba; Apple
+   *    no. Ahora los dos igual.
+   *  · **Apple admite 10 ubicaciones por pase.** No había tope, así que un
+   *    negocio con más se las mandaba todas y decidía Apple cuáles.
+   *  · **El radio solo podía SUBIR de 300.** El acumulador del `reduce`
+   *    arrancaba en 300, así que una sede configurada a 100 m se disparaba
+   *    igualmente a 300. El campo del panel no hacía nada por debajo de ese
+   *    número.
+   *
+   * Se queda el máximo de los radios, no el mínimo: Apple solo admite UN
+   * número por pase, y quedarse corto es peor que pasarse. Si una sede pide
+   * 300 y otra 100, con el mínimo la de 300 dejaría de avisar a la distancia
+   * que su dueño configuró — un cliente que pasa por delante y no ve nada. Con
+   * el máximo, la de 100 avisa algo antes de tiempo, que no le cuesta nada a
+   * nadie.
+   */
+  private geocercoDeApple(
+    sedes: Array<{
+      latitude: unknown;
+      longitude: unknown;
+      radiusMeters?: number | null;
+      walletRelevantText?: string | null;
+    }>,
+    textoPorDefecto: (l: { walletRelevantText?: string | null }) => string,
+  ) {
+    const validas = sedes.filter((l) => {
+      const lat = Number(l.latitude);
+      const lng = Number(l.longitude);
+      return (
+        Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)
+      );
+    });
+
+    const radios = validas.map((l) => l.radiusMeters || 300);
+    return {
+      locations: validas.slice(0, 10).map((l) => ({
+        latitude: Number(l.latitude),
+        longitude: Number(l.longitude),
+        relevantText: l.walletRelevantText?.trim() || textoPorDefecto(l),
+      })),
+      maxDistance: radios.length ? Math.max(...radios) : 300,
+    };
+  }
+
   private hexToRgb(hex: string): string {
     const m = hex.replace('#', '').match(/.{2}/g);
     if (!m) return 'rgb(15,61,46)';
@@ -1716,15 +2038,9 @@ export class WalletService {
       ],
       // Apple Wallet lockscreen relevance: cuando el iPhone está cerca de
       // alguna location del tenant, muestra el pase en lockscreen.
-      locations: r.tenant.locations.map((l) => ({
-        latitude: Number(l.latitude),
-        longitude: Number(l.longitude),
-        relevantText:
-          l.walletRelevantText?.trim() || `Tu reserva en ${brandName}`,
-      })),
-      maxDistance: r.tenant.locations.reduce(
-        (max, l) => Math.max(max, l.radiusMeters || 300),
-        300,
+      ...this.geocercoDeApple(
+        r.tenant.locations,
+        () => `Tu reserva en ${brandName}`,
       ),
       // `relevantDate` activa el pase en lockscreen unas horas antes del
       // momento real. Usamos el instante UTC computed con timezone tenant.

@@ -150,12 +150,26 @@ class UpdateTenantBody {
    */
   @IsOptional() @IsBoolean() multiMenuEnabled?: boolean;
   /** Cuantas cartas EXTRA puede crear, ademas del menu principal. */
-  @IsOptional() @IsInt() @Min(0) @Max(20) maxExtraMenus?: number;
+  /** Cartas extra permitidas. `-1` = SIN TOPE (ver `menus.service`). */
+  @IsOptional() @IsInt() @Min(-1) @Max(20) maxExtraMenus?: number;
   @IsOptional() @IsBoolean() academyEnabled?: boolean;
   // Reservations module gate (2026-06-12).
   @IsOptional() @IsBoolean() reservationsEnabled?: boolean;
   // Reservas de SERVICIOS (citas) gate — PDF245 P7.
   @IsOptional() @IsBoolean() serviceReservationsEnabled?: boolean;
+  /**
+   * ALIANZAS con empresas (convenios). Se habilita negocio por negocio, igual
+   * que las cartas por sede: la mayoría no monta ninguna y no tiene por qué ver
+   * la complejidad.
+   *
+   * Hasta ahora esta columna solo se LEÍA: no había ni un panel que la
+   * escribiera, así que el módulo únicamente se podía encender por SQL directo
+   * contra producción.
+   */
+  @IsOptional() @IsBoolean() conveniosEnabled?: boolean;
+  @IsOptional() @IsBoolean() clubEnabled?: boolean;
+  /** Cuántas alianzas puede tener a la vez. Por defecto 3. */
+  @IsOptional() @IsInt() @Min(1) @Max(50) maxConvenios?: number;
   // Notas internas del negocio (SOLO Clubify: este controller es
   // @Roles('SUPER_ADMIN','MARKETING'), el dueño del negocio no lo ve).
   // Observaciones operativas: "pagó por Nequi", etc. null = limpiar.
@@ -233,6 +247,16 @@ export class TenantsController {
     @Query('limit') limit?: string,
   ) {
     return this.svc.listTrialHistory(id, limit ? Number(limit) : 100);
+  }
+
+  /** Historial de pagos unificado (Hotmart + Stripe + cobro por fuera +
+   *  crédito): responde si el negocio está pagando o no. Declarado ANTES de
+   *  @Get(':id') o el router matchea "payment-history" como :id
+   *  (feedback_nestjs_route_order). */
+  @Get(':id/payment-history')
+  @Roles('SUPER_ADMIN')
+  paymentHistory(@Param('id') id: string, @Query('limit') limit?: string) {
+    return this.svc.listPaymentHistory(id, limit ? Number(limit) : 100);
   }
 
   /** Lista de revisión de cobranza manual: negocios "paga por fuera" con el

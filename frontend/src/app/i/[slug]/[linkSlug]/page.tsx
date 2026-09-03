@@ -8,6 +8,7 @@ import {
 } from '@/components/info-link-button-style';
 import type { BrandBadgeBrand } from '@/components/BrandBadge';
 import { resolveTemplate } from '@/lib/info-link-templates';
+import { telHref } from '@/lib/tel-link';
 import { useLocale } from '@/lib/i18n';
 import { InfoLinkPopupModal } from '@/components/InfoLinkPopupModal';
 import type { PopupConfig } from '@/lib/info-link-popup';
@@ -33,9 +34,12 @@ type Button = InfoLinkButtonStyle & {
     | 'CARD'
     | 'PROMO'
     | 'EXTERNAL'
-    | 'POPUP';
+    | 'POPUP'
+    | 'PHONE';
   url?: string;
   igHandle?: string;
+  /** PHONE: número con indicativo de país. Se abre el marcador con `tel:`. */
+  phoneNumber?: string;
   waPhone?: string;
   waMessage?: string;
   locationId?: string | null;
@@ -294,6 +298,11 @@ export default function PublicInfoLink() {
         // (javascript:, data:, vbscript:) que pudiera haber quedado de
         // registros viejos pre-fix.
         return safeUrlOrNull(b.url) ?? undefined;
+      case 'PHONE':
+        // Sin número válido el botón NO se pinta (buttonHref devolviendo
+        // undefined lo filtra). Un botón de llamada que abre el marcador
+        // vacío es peor que no tenerlo.
+        return telHref(b.phoneNumber) ?? undefined;
       case 'POPUP':
         // POPUP no navega — usamos '#' como href neutro; el onClick del
         // botón intercepta con preventDefault y abre el modal.
@@ -327,12 +336,14 @@ export default function PublicInfoLink() {
         b.type === 'INSTAGRAM' ||
         b.type === 'MAPS' ||
         b.type === 'WHATSAPP';
+      // 'PHONE' queda fuera a propósito: `tel:` en pestaña nueva deja una
+      // pestaña en blanco detrás del marcador.
       // Botón ubicación: con 1 sede mostramos su nombre+dirección como
       // tagline; con varias, un conteo ("N ubicaciones") y el click abre el
       // modal de selección de sede.
       const mapsLocs = b.type === 'MAPS' ? mapsLocsFor(b) : [];
       const mapsMulti = mapsLocs.length > 1;
-      let buttonLabel = b.label;
+      const buttonLabel = b.label;
       let buttonTagline = b.tagline ?? null;
       if (b.type === 'MAPS' && mapsLocs.length > 0 && !buttonTagline) {
         if (mapsMulti) {

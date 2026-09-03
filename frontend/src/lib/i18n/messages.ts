@@ -179,6 +179,9 @@ export const messages = {
     'card.create_failed': 'No pudimos crear tu tarjeta',
 
     // Wallet view (/w/[passId])
+    'wallet.not_done_title': 'AÚN NO HA TERMINADO TU REGISTRO',
+    'wallet.not_done_sub': 'Instala la tarjeta de fidelización y empieza a disfrutar de beneficios exclusivos.',
+    'wallet.install_below': 'Instálala aquí',
     'wallet.add_apple': 'Añadir a Apple Wallet',
     'wallet.add_google': 'Añadir a Google Wallet',
     'wallet.show_at_counter': 'Muestra este código al cajero',
@@ -391,6 +394,9 @@ export const messages = {
     'card.create_failed': "We couldn't create your card",
 
     // Wallet view
+    'wallet.not_done_title': 'YOUR SIGN-UP ISN’T FINISHED YET',
+    'wallet.not_done_sub': 'Install your loyalty card and start enjoying exclusive benefits.',
+    'wallet.install_below': 'Install it here',
     'wallet.add_apple': 'Add to Apple Wallet',
     'wallet.add_google': 'Add to Google Wallet',
     'wallet.show_at_counter': 'Show this code at the counter',
@@ -603,6 +609,9 @@ export const messages = {
     'card.create_failed': 'Não conseguimos criar seu cartão',
 
     // Wallet view
+    'wallet.not_done_title': 'AINDA NÃO TERMINOU O SEU CADASTRO',
+    'wallet.not_done_sub': 'Instale o cartão de fidelidade e comece a aproveitar benefícios exclusivos.',
+    'wallet.install_below': 'Instale aqui',
     'wallet.add_apple': 'Adicionar à Apple Wallet',
     'wallet.add_google': 'Adicionar à Google Wallet',
     'wallet.show_at_counter': 'Mostre este código no caixa',
@@ -815,6 +824,9 @@ export const messages = {
     'card.create_failed': 'Non siamo riusciti a creare la tua tessera',
 
     // Wallet view
+    'wallet.not_done_title': 'LA TUA REGISTRAZIONE NON È ANCORA COMPLETA',
+    'wallet.not_done_sub': 'Installa la carta fedeltà e inizia a godere di vantaggi esclusivi.',
+    'wallet.install_below': 'Installala qui',
     'wallet.add_apple': 'Aggiungi ad Apple Wallet',
     'wallet.add_google': 'Aggiungi a Google Wallet',
     'wallet.show_at_counter': 'Mostra questo codice alla cassa',

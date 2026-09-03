@@ -9,6 +9,9 @@ import { api } from '@/lib/api';
 import { useHidesPurchases } from '@/lib/native';
 import { publicHostForTenant } from '@/lib/public-domain';
 import { Icon } from '@/components/Icon';
+import { InfoLinkSocialCard } from '@/components/InfoLinkSocialCard';
+import type { SocialConfig } from '@/lib/info-link-social';
+import { errorDeTelefono, telLegible } from '@/lib/tel-link';
 import { ImageUploader } from '@/components/ImageUploader';
 import {
   INFO_LINK_TEMPLATES,
@@ -102,7 +105,8 @@ type Button = InfoLinkButtonStyle & {
     | 'CARD'
     | 'PROMO'
     | 'EXTERNAL'
-    | 'POPUP';
+    | 'POPUP'
+    | 'PHONE';
   url?: string;
   // Campos específicos por tipo
   // INSTAGRAM: handle del usuario sin '@', se construye https://instagram.com/<handle>
@@ -110,6 +114,9 @@ type Button = InfoLinkButtonStyle & {
   // WHATSAPP: número + mensaje pre-rellenado, se construye wa.me link
   waPhone?: string;
   waMessage?: string;
+  // PHONE: número con indicativo de país. El botón abre el marcador con
+  // `tel:`, no navega a ninguna página.
+  phoneNumber?: string;
   // MAPS: locationId opcional (legacy, 1 sola sede) — si null, usa la primera.
   locationId?: string | null;
   // MAPS multi-sede (2026-07-25): modo de qué sedes mostrar al hacer click.
@@ -176,6 +183,10 @@ type InfoLink = {
     /** Colores de texto por elemento (título/descripción/botones/secundario).
      *  Aditivo — cada campo ausente usa el color por defecto del template. */
     text?: InfoLinkTextColors | null;
+    /** Redes sociales que se pintan debajo de la descripción, y su color.
+     *  Ausente = sin fila propia; la página pública cae a los datos del
+     *  negocio (Instagram/WhatsApp/Maps de la ficha) como hasta ahora. */
+    social?: SocialConfig | null;
   };
   isActive: boolean;
   views: number;
@@ -189,6 +200,7 @@ const BUTTON_TYPE_LABEL: Record<string, string> = {
   PROMO: '🎁 Promociones',
   EXTERNAL: '🔗 Link externo',
   POPUP: '💬 Popup informativo',
+  PHONE: '📞 Llamada telefónica',
 };
 
 export default function InfoLinkEditor() {
@@ -663,6 +675,12 @@ export default function InfoLinkEditor() {
             onChange={(patch) => update('theme', { ...link.theme, ...patch })}
           />
 
+          <InfoLinkSocialCard
+            value={link.theme?.social ?? null}
+            primary={primary}
+            onChange={(social) => update('theme', { ...link.theme, social })}
+          />
+
           {/* URL — muestra la personalizada (vanity) cuando existe; si no, /i/... */}
           <div className="card card-pad">
             <h3 className="font-semibold m-0 mb-3">{t('publicUrl')}</h3>
@@ -1033,6 +1051,32 @@ export default function InfoLinkEditor() {
                         </a>
                         {t('menuStorefrontWarnAfter')}
                       </div>
+                    </div>
+                  )}
+                  {b.type === 'PHONE' && (
+                    <div className="col-span-full">
+                      <input
+                        className="input"
+                        placeholder="+57 300 123 4567"
+                        inputMode="tel"
+                        value={b.phoneNumber ?? ''}
+                        onChange={(e) =>
+                          updateButton(i, { phoneNumber: e.target.value })
+                        }
+                      />
+                      {/* El aviso va aquí y no al guardar: sin número válido
+                          el botón no se pinta en la página pública, y el
+                          negocio se queda creyendo que lo tiene puesto. */}
+                      {errorDeTelefono(b.phoneNumber) ? (
+                        <div className="text-[11px] text-danger mt-1">
+                          {errorDeTelefono(b.phoneNumber)}
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-mute mt-1">
+                          Al tocarlo se abre el marcador con{' '}
+                          <b>{telLegible(b.phoneNumber)}</b>
+                        </div>
+                      )}
                     </div>
                   )}
                   {b.type === 'INSTAGRAM' && (

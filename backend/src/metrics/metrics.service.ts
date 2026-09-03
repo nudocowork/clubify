@@ -968,8 +968,17 @@ export class MetricsService {
   async funnelLoyalty(user: AuthUser, tenantIdParam?: string) {
     const tid = this.getTid(user, tenantIdParam);
 
+    // `clubPlanId`/`convenioId` fuera: son tarjetas de tipo STAMPS por dentro
+    // —el saldo vive en el mismo contador— pero no son cartones de sellos. Un
+    // socio del club, con el cupo lleno el día 1, entraba como «cartón
+    // completo que nunca se canjea» y torcía el embudo del negocio entero.
     const cards = await this.prisma.card.findMany({
-      where: { tenantId: tid, type: 'STAMPS' },
+      where: {
+        tenantId: tid,
+        type: 'STAMPS',
+        clubPlanId: null,
+        convenioId: null,
+      },
       select: { id: true, stampsRequired: true },
     });
     if (cards.length === 0) {

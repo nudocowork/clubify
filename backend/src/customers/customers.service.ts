@@ -120,7 +120,19 @@ export class CustomersService {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      // El tope estaba en 100 y la pantalla NO pagina, así que un negocio con
+      // más de 100 clientes simplemente no veía el resto — y como el orden es
+      // por más recientes, lo que desaparecía eran sus clientes MÁS ANTIGUOS,
+      // que suelen ser los mejores. Sin aviso de que faltaba nadie.
+      //
+      // Lo reportó SUGAR & KISS (195 clientes, veía 100). Medido el 2026-08-28:
+      // le pasaba a 20 de los 77 negocios con clientes; el mayor tiene 380 y
+      // toda la plataforma suma 5.099. Con 2.000 hay margen de sobra.
+      //
+      // Esto es un parche honesto, no la solución: el día que un negocio pase
+      // de 2.000 vuelve el mismo silencio. Lo que toca es paginar la pantalla
+      // (el endpoint ya acepta `search` para acotar mientras tanto).
+      take: 2000,
     });
   }
 
@@ -394,9 +406,9 @@ export class CustomersService {
 
   /**
    * Fusiona N clientes en uno (`keepId`). Reasigna passes/stamps/orders/carts/
-   * messages/eventos/redenciones, suma stamps cuando hay pase del mismo card en
-   * ambos lados, libera los uniques (email/phone) del que se va antes de borrar,
-   * y recalcula los totales del que se conserva.
+   * messages/eventos/redenciones/membresías de club, suma stamps cuando hay
+   * pase del mismo card en ambos lados, libera los uniques (email/phone) del
+   * que se va antes de borrar, y recalcula los totales del que se conserva.
    */
   async merge(user: AuthUser, keepId: string, mergeIds: string[]) {
     if (!mergeIds?.length) {
@@ -423,6 +435,10 @@ export class CustomersService {
       let movedStamps = 0;
       let mergedPasses = 0;
       let movedPasses = 0;
+      let movedMembresias = 0;
+      let mergedMembresias = 0;
+      let movedTarjetasAlianza = 0;
+      let mergedTarjetasAlianza = 0;
 
       for (const src of merging) {
         // 1) Pases — manejar conflicto unique (cardId, customerId)
@@ -434,6 +450,9 @@ export class CustomersService {
             where: {
               cardId_customerId: { cardId: sp.cardId, customerId: keepId },
             },
+            // La tarjeta hace falta para saber si es de club: ahí el contador
+            // es un cupo mensual pagado y no se pueden sumar los dos.
+            include: { card: { select: { clubPlanId: true, stampsRequired: true } } },
           });
           if (dup) {
             // Sumar stamps y puntos al pass del keeper, mover stamps históricos, borrar el pass src.
@@ -449,10 +468,19 @@ export class CustomersService {
                 sp.qrToken,
               ]),
             ).filter((t) => t && t !== dup.qrToken);
+            // Sumar los dos contadores es lo correcto en una tarjeta de
+            // sellos —el cliente ganó los de las dos— pero NO en una de club:
+            // ahí el contador es un cupo mensual pagado, y el mismo socio
+            // duplicado en el mismo plan acababa con 20 de un cupo de 10. Se
+            // acota al cupo, que es lo máximo que puede tener.
+            const esDeClub = Boolean((dup as any).card?.clubPlanId);
+            const sumados = dup.stampsCount + sp.stampsCount;
+            const tope = (dup as any).card?.stampsRequired ?? null;
             await tx.pass.update({
               where: { id: dup.id },
               data: {
-                stampsCount: dup.stampsCount + sp.stampsCount,
+                stampsCount:
+                  esDeClub && tope != null ? Math.min(sumados, tope) : sumados,
                 pointsBalance: Number(dup.pointsBalance) + Number(sp.pointsBalance),
                 legacyQrTokens: preservedTokens,
               },
@@ -523,9 +551,127 @@ export class CustomersService {
           src.id,
         );
 
+        // 3b) Membresías de club — su FK a Customer es onDelete: Cascade: si
+        // no se mueven, borrar el src se lleva la membresía con su saldo y
+        // todos sus ClubConsumo. Es pérdida de datos silenciosa (el cliente
+        // pagó ese saldo). Van DESPUÉS del paso 1 a propósito: la fusión de
+        // pases ya resolvió qué pase de billetera sobrevive.
+        const srcMembresias = await tx.clubMembresia.findMany({
+          where: { customerId: src.id },
+          // El saldo vivo NO está en la membresía: vive en `Pass.stampsCount`,
+          // el mismo contador que usan todas las tarjetas. Hay que traerlo
+          // para poder decidir cuál sobrevive.
+          include: { pass: { select: { stampsCount: true } } },
+        });
+        const saldoDe = (x: { pass?: { stampsCount: number } | null }) =>
+          x.pass?.stampsCount ?? 0;
+        for (const sm of srcMembresias) {
+          const dupM = await tx.clubMembresia.findUnique({
+            where: {
+              planId_customerId: { planId: sm.planId, customerId: keepId },
+            },
+            include: { pass: { select: { stampsCount: true } } },
+          });
+          if (!dupM) {
+            await tx.clubMembresia.update({
+              where: { id: sm.id },
+              data: { customerId: keepId },
+            });
+            movedMembresias += 1;
+            continue;
+          }
+          // Colisión con @@unique([planId, customerId]): los dos clientes
+          // tienen membresía del MISMO plan, mover a ciegas revienta el
+          // índice. Sobrevive la de MAYOR SALDO (empate → la más antigua).
+          //
+          // Por qué el saldo manda: es lo único que no se puede reconstruir —
+          // borrar la de más saldo le quita al cliente beneficios que ya pagó,
+          // y el negocio no puede devolvérselos sin regalarle cupo del
+          // período. El histórico no se pierde con ninguna elección: los
+          // consumos de la perdedora se mueven a la superviviente antes de
+          // borrarla. El empate lo gana la más antigua porque su createdAt es
+          // el alta real del socio (manda en el prorrateo del primer período).
+          const srcGana =
+            saldoDe(sm) > saldoDe(dupM) ||
+            (saldoDe(sm) === saldoDe(dupM) && sm.createdAt < dupM.createdAt);
+          const ganadora = srcGana ? sm : dupM;
+          const perdedora = srcGana ? dupM : sm;
+          await tx.clubConsumo.updateMany({
+            where: { membresiaId: perdedora.id },
+            data: { membresiaId: ganadora.id },
+          });
+          // Si la ganadora quedó sin pase (el suyo se borró en la fusión de
+          // pases del paso 1 → SetNull), hereda el de la perdedora para que
+          // el push de billetera siga llegando. Borrar la perdedora ANTES
+          // libera tanto el unique (planId, customerId) como el de passId.
+          const passIdFinal = ganadora.passId ?? perdedora.passId;
+          await tx.clubMembresia.delete({ where: { id: perdedora.id } });
+          await tx.clubMembresia.update({
+            where: { id: ganadora.id },
+            data: { customerId: keepId, passId: passIdFinal },
+          });
+          mergedMembresias += 1;
+        }
+
+        // 3c) Tarjetas de ALIANZA — mismo problema que las membresías de club:
+        // su FK a Customer es onDelete: Cascade, así que borrar el src se
+        // llevaría la tarjeta del empleado y TODO su historial de canjes. El
+        // negocio no puede reconstruirlo, y el aliado lo tiene en su informe.
+        const srcTarjetas = await tx.convenioTarjeta.findMany({
+          where: { customerId: src.id },
+        });
+        for (const st of srcTarjetas) {
+          const dupT = await tx.convenioTarjeta.findUnique({
+            where: {
+              convenioId_customerId: { convenioId: st.convenioId, customerId: keepId },
+            },
+          });
+          if (!dupT) {
+            await tx.convenioTarjeta.update({
+              where: { id: st.id },
+              data: { customerId: keepId },
+            });
+            movedTarjetasAlianza += 1;
+            continue;
+          }
+          // Colisión con @@unique([convenioId, customerId]): la misma persona
+          // activó el convenio dos veces con contactos distintos.
+          //
+          // Gana la BLOQUEADA sobre la activa. Es la única regla segura: si el
+          // negocio bloqueó a alguien, una fusión de clientes no puede
+          // devolverle el beneficio por la puerta de atrás. A igualdad de
+          // estado gana la más antigua, que es la activación real (su `origen`
+          // dice por qué canal del aliado entró).
+          const srcGana =
+            (st.status === 'BLOCKED' && dupT.status !== 'BLOCKED') ||
+            (st.status === dupT.status && st.createdAt < dupT.createdAt);
+          const ganadora = srcGana ? st : dupT;
+          const perdedora = srcGana ? dupT : st;
+          await tx.convenioCanje.updateMany({
+            where: { tarjetaId: perdedora.id },
+            data: { tarjetaId: ganadora.id },
+          });
+          // Igual que en club: si la ganadora se quedó sin pase en la fusión
+          // del paso 1, hereda el de la perdedora para que el push siga
+          // llegando. Borrar la perdedora antes libera los dos uniques.
+          const passIdFinal = ganadora.passId ?? perdedora.passId;
+          const documentoFinal = ganadora.documento ?? perdedora.documento;
+          await tx.convenioTarjeta.delete({ where: { id: perdedora.id } });
+          await tx.convenioTarjeta.update({
+            where: { id: ganadora.id },
+            data: {
+              customerId: keepId,
+              passId: passIdFinal,
+              documento: documentoFinal,
+            },
+          });
+          mergedTarjetasAlianza += 1;
+        }
+
         // 4) Limpiar contacto del src para liberar uniques antes del delete
-        // (delete cascadea solo donde el FK tiene onDelete: Cascade — passes/stamps —
-        //  pero ya los movimos, así que el delete debe ser limpio)
+        // (delete cascadea solo donde el FK tiene onDelete: Cascade —
+        //  passes/stamps/membresías de club/tarjetas de alianza — pero ya los
+        //  movimos, así que el delete debe ser limpio)
         await tx.customer.update({
           where: { id: src.id },
           data: { email: null, phone: null },
@@ -595,6 +741,10 @@ export class CustomersService {
         movedStamps,
         movedPasses,
         mergedPasses,
+        movedMembresias,
+        mergedMembresias,
+        movedTarjetasAlianza,
+        mergedTarjetasAlianza,
         keeper: updated,
       };
         },

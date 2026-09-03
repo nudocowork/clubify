@@ -40,6 +40,11 @@ export class MenusService {
    * El tope lo pone el admin (`maxExtraMenus`): cada carta es un catálogo
    * entero duplicado, y un negocio con 545 productos creando cartas sin freno
    * multiplica la base sin que nadie lo note hasta que duele.
+   *
+   * `-1` = SIN TOPE. Para negocios donde el número de cartas no se sabe de
+   * antemano — un coworking abre una sala nueva y necesita su carta ese mismo
+   * día, sin pedirle permiso a nadie. Se activa a mano por negocio, no es el
+   * default: sigue siendo una decisión de quien conoce el tamaño del catálogo.
    */
   private async assertHabilitado(tenantId: string, contarCupo = false) {
     const t = await this.prisma.tenant.findUnique({
@@ -54,6 +59,7 @@ export class MenusService {
     if (!contarCupo) return;
 
     const tope = t.maxExtraMenus ?? 1;
+    if (tope < 0) return; // sin tope
     const usadas = await this.prisma.menu.count({ where: { tenantId } });
     if (usadas >= tope) {
       throw new ForbiddenException(
@@ -101,13 +107,17 @@ export class MenusService {
       })),
     );
 
+    const tope = tenant?.maxExtraMenus ?? 1;
     return {
       habilitado: !!tenant?.multiMenuEnabled,
       // Cuántas cartas extra permite el admin y cuántas quedan libres. El
       // panel esconde "Nueva carta" cuando no queda cupo, en vez de dejar
       // pulsarlo para que el backend responda que no.
-      topeExtras: tenant?.maxExtraMenus ?? 1,
-      cupoLibre: Math.max(0, (tenant?.maxExtraMenus ?? 1) - menus.length),
+      // `topeExtras: -1` y `cupoLibre: null` = sin tope. El panel del negocio
+      // enseña «Nueva carta» siempre que `cupoLibre` no sea 0, así que null
+      // pasa la comprobación sin tener que inventar un número grande.
+      topeExtras: tope,
+      cupoLibre: tope < 0 ? null : Math.max(0, tope - menus.length),
       menus: [
         {
           id: null,

@@ -10,6 +10,7 @@ import { DeliveryAlertsCard } from '@/components/DeliveryAlertsCard';
 import { CustomerOrderAlertsCard } from '@/components/CustomerOrderAlertsCard';
 import { StampAuditTable } from '@/components/StampAuditTable';
 import { ManualPaymentsCard } from '@/components/ManualPaymentsCard';
+import { PaymentHistoryCard } from '@/components/PaymentHistoryCard';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import {
@@ -1726,6 +1727,18 @@ function AcademyTogglesCard({
   const [maxCartas, setMaxCartas] = useState<number>(
     tenant.maxExtraMenus ?? 1,
   );
+  // Alianzas con empresas. Se habilita negocio por negocio, igual que las
+  // cartas por sede. Hasta ahora solo se podia encender por SQL directo contra
+  // produccion, porque no habia ningun panel que escribiera la columna.
+  const [convenios, setConvenios] = useState<boolean>(
+    tenant.conveniosEnabled ?? false,
+  );
+  const [maxConvenios, setMaxConvenios] = useState<number>(
+    tenant.maxConvenios ?? 3,
+  );
+  // Tarjeta de Club: la suscripcion con cupo mensual. Mismo criterio que
+  // alianzas: apagado por defecto, se enciende negocio por negocio.
+  const [club, setClub] = useState<boolean>(tenant.clubEnabled ?? false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -1743,6 +1756,9 @@ function AcademyTogglesCard({
           businessType,
           multiMenuEnabled: multiMenu,
           maxExtraMenus: maxCartas,
+          conveniosEnabled: convenios,
+          maxConvenios,
+          clubEnabled: club,
         }),
       });
       setMsg({ ok: true, text: t('changesSaved') });
@@ -1829,6 +1845,66 @@ function AcademyTogglesCard({
         <label className="flex items-start gap-3 cursor-pointer">
           <input
             type="checkbox"
+            checked={convenios}
+            onChange={(e) => setConvenios(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">Alianzas con empresas</div>
+            <div className="text-xs text-mute leading-snug">
+              El negocio pacta con una empresa y sus empleados reciben un
+              beneficio permanente en el local. Cada empresa recibe su propio
+              enlace para repartir entre su gente.{' '}
+              <b>Apagarlo no borra nada</b>: bloquea el canje y las activaciones
+              nuevas, y al reencenderlo vuelve todo tal cual estaba.
+            </div>
+            {convenios && (
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <label className="text-xs text-mute">
+                  Alianzas a la vez:
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={maxConvenios}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) =>
+                    setMaxConvenios(
+                      Math.max(1, Math.min(50, Number(e.target.value) || 1)),
+                    )
+                  }
+                  className="input w-20 py-1 text-xs"
+                />
+              </div>
+            )}
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={club}
+            onChange={(e) => setClub(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">Tarjeta de Club</div>
+            <div className="text-xs text-mute leading-snug">
+              Una suscripcion que el cliente le paga al negocio: cada mes recibe
+              un cupo de beneficios (diez cafes, cuatro lavadas) que gasta en el
+              local y que vuelve a llenarse el dia 1, los haya usado o no. El
+              cobro lo lleva el negocio por fuera y activa o pausa a mano.{' '}
+              <b>Apagarlo no borra nada</b>: impide crear planes y dar de alta a
+              nadie nuevo, pero los socios que ya pagaron siguen consumiendo lo
+              suyo.
+            </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
             checked={multiMenu}
             onChange={(e) => setMultiMenu(e.target.checked)}
             className="mt-1"
@@ -1845,26 +1921,44 @@ function AcademyTogglesCard({
                 Un negocio con 545 productos creando cartas sin freno
                 multiplica la base sin que nadie lo note. */}
             {multiMenu && (
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                <label className="text-xs text-mute">
-                  Cartas extra permitidas:
+              <div className="mt-2 flex flex-col gap-1.5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={maxCartas < 0}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setMaxCartas(e.target.checked ? -1 : 1)}
+                  />
+                  <span className="text-xs">Sin tope de cartas</span>
                 </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={20}
-                  value={maxCartas}
-                  onClick={(e) => e.preventDefault()}
-                  onChange={(e) =>
-                    setMaxCartas(
-                      Math.max(0, Math.min(20, Math.floor(Number(e.target.value) || 0))),
-                    )
-                  }
-                  className="input w-20 text-sm py-1"
-                />
-                <span className="text-[11px] text-mute">
-                  además del menú principal
-                </span>
+                {maxCartas < 0 ? (
+                  <span className="text-[11px] text-mute">
+                    Puede crear las cartas que necesite. Úsalo con negocios de
+                    catálogo pequeño: cada carta lo duplica entero.
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="text-xs text-mute">
+                      Cartas extra permitidas:
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={20}
+                      value={maxCartas}
+                      onClick={(e) => e.preventDefault()}
+                      onChange={(e) =>
+                        setMaxCartas(
+                          Math.max(0, Math.min(20, Math.floor(Number(e.target.value) || 0))),
+                        )
+                      }
+                      className="input w-20 text-sm py-1"
+                    />
+                    <span className="text-[11px] text-mute">
+                      además del menú principal
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -3159,6 +3253,8 @@ function BillingCard({ tenant, onChange }: { tenant: any; onChange: () => void }
           {saving ? t('applying') : t('applyChange')}
         </button>
       </div>
+
+      <PaymentHistoryCard tenantId={tenant.id} />
     </div>
   );
 }

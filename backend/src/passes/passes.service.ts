@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { clubDelPase } from '../club/club-pase.util';
+import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 import { AppConfigService } from '../common/config/app-config.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AutomationsService } from '../automations/automations.service';
@@ -140,8 +142,23 @@ export class PassesService {
     // Marca blanca del negocio (atribución/web/inicial). Nunca Clubify por
     // defecto: legacy sin marca cae al row real `clubify`.
     const b = await this.brand.resolveByWhiteLabelId(pass.tenant.whiteLabelId);
+    // Tarjeta de CLUB. Sin esto, la página que el negocio le manda al socio
+    // para instalarla la pintaba como un cartón de sellos: «SELLOS 7/10», con
+    // el número contando lo contrario de lo que significa. Solo se consulta
+    // cuando la tarjeta es de un plan; el resto no paga nada.
+    const club = pass.card.clubPlanId
+      ? await clubDelPase(this.prisma, pass.card.clubPlanId, pass.id)
+      : null;
+    // Lo mismo para la ALIANZA, y por el mismo motivo: sin esto la tarjeta web
+    // caía al render de sellos y le enseñaba «SELLOS 0 / 1» al empleado — y es
+    // justo la página que el negocio le manda para instalarla.
+    const alianza = pass.card.convenioId
+      ? await alianzaDelPase(this.prisma, pass.card.convenioId, pass.id)
+      : null;
     return {
       ...pass,
+      club,
+      alianza,
       brand: {
         name: b.name,
         slug: b.slug,
@@ -189,11 +206,53 @@ export class PassesService {
         status: 'ACTIVE',
       },
       include: {
-        card: { select: { id: true, name: true, type: true, stampsRequired: true, primaryColor: true } },
+        card: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            stampsRequired: true,
+            primaryColor: true,
+            // Sin esto la tienda no sabe que es de club y la pinta como un
+            // cartón: «SELLOS 7/10», con el número contando lo contrario de lo
+            // que significa. Es el mismo fallo que ya se corrigió en el pase de
+            // Apple, en el de Google y en la página de instalación — este era
+            // el cuarto sitio, y el que ve el cliente final.
+            clubPlanId: true,
+          },
+        },
         customer: { select: { id: true, fullName: true } },
       },
       orderBy: { issuedAt: 'desc' },
     });
+
+    // Los datos de club de TODOS los pases de club en una sola consulta. Uno
+    // por pase sería un N+1 en una ruta pública que un cliente abre con varias
+    // tarjetas; y son pocos, casi siempre cero.
+    const idsDeClub = passes
+      .filter((p) => p.card.clubPlanId)
+      .map((p) => p.id);
+    const membresias = idsDeClub.length
+      ? await this.prisma.clubMembresia.findMany({
+          where: { passId: { in: idsDeClub } },
+          select: {
+            passId: true,
+            status: true,
+            cupoDelPeriodo: true,
+            plan: { select: { unidad: true, beneficiosPorMes: true } },
+          },
+        })
+      : [];
+    const clubPorPase = new Map(
+      membresias.map((m) => [
+        m.passId!,
+        {
+          unidad: m.plan.unidad,
+          cupo: m.cupoDelPeriodo || m.plan.beneficiosPorMes,
+          detenida: m.status !== 'ACTIVA',
+        },
+      ]),
+    );
 
     return {
       passes: passes.map((p) => ({
@@ -203,6 +262,7 @@ export class PassesService {
         pointsBalance: Number(p.pointsBalance ?? 0),
         card: p.card,
         customer: p.customer,
+        club: clubPorPase.get(p.id) ?? null,
       })),
     };
   }
@@ -244,6 +304,24 @@ export class PassesService {
       throw new NotFoundException('Tarjeta no disponible');
     if (card.tenant.status === 'SUSPENDED')
       throw new NotFoundException('Negocio no disponible');
+
+    // La tarjeta de un plan de club no se reparte por QR público: el club se
+    // paga y el negocio da de alta a mano. Quien se enrolaba aquí recibía un
+    // pase SIN membresía, y al escanearlo el club respondía «esta tarjeta no
+    // es de un club» — el cajero leía que el escáner estaba roto.
+    if (card.clubPlanId) {
+      throw new NotFoundException('Tarjeta no disponible');
+    }
+
+    // Ni la de una ALIANZA, y aquí es peor que una molestia: esta puerta se
+    // salta el documento, el código de la empresa y la lista blanca. Cualquiera
+    // con el enlace `/c/<cardId>` se emitía la tarjeta del convenio sin
+    // pertenecer a la empresa. Y encima nacía sin `ConvenioTarjeta`, así que en
+    // caja respondía «esta tarjeta no es de un convenio» y el cajero leía que
+    // el escáner estaba roto. Su alta es `/alianza/<negocio>/<empresa>`.
+    if (card.convenioId) {
+      throw new NotFoundException('Tarjeta no disponible');
+    }
 
     // Sellea: correo y cumpleaños son OBLIGATORIOS en el registro de la tarjeta
     // (decisión del dueño, 2026-08-30). Defensa en profundidad: el formulario

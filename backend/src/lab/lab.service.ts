@@ -590,7 +590,7 @@ export class LabService {
       `Clubify Lab: la propuesta "${proposal.title}" cambió a ${newStatus}` +
       (reason ? ` (motivo: ${reason})` : '');
     try {
-      await this.alerts.sendTeamAlert(teamBody);
+      await this.alerts.sendTeamAlert(teamBody, 'lab');
     } catch (e) {
       this.logger.warn(
         `Lab team alert falló: ${(e as Error)?.message ?? e}`,

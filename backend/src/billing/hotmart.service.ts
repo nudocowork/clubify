@@ -2988,6 +2988,7 @@ export class HotmartService {
       await this.alerts
         .sendTeamAlert(
           `🎉 Nueva compra Clubify\nCliente: ${brandName}\nEmail: ${email}\nPlan: ${planName}\nPróximo cobro: ${nextCharge.toLocaleDateString('es-CO')}`,
+          'nueva_compra',
         )
         .catch((e) =>
           this.logger.warn(

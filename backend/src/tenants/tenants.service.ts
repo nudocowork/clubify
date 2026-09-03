@@ -21,6 +21,12 @@ import { ReferralsService } from '../referrals/referrals.service';
 import { CommissionRecalcService } from '../referrals/commission-recalc.service';
 import { addPlanPeriod, normalizePlanPeriod } from '../common/plan-period';
 import { getCanonicalBundlePrice } from '../common/plan-pricing';
+import {
+  agruparCobrosHotmart,
+  metodoLegible,
+  resumirHistorial,
+  type PagoDelHistorial,
+} from './payment-history.util';
 import { resolveManualPaymentPeriod } from '../common/manual-payment-period';
 import { cycleCreditCostForTenant, normalizeBusinessType, BusinessType } from '../common/business-types';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -1831,6 +1837,162 @@ export class TenantsService {
    *  registro: importe sugerido = precio canónico según la periodicidad del
    *  plan, con override por Setting (la misma verdad que usa Hotmart para
    *  comisiones — ver common/plan-pricing). */
+  /**
+   * Historial de pagos del negocio: qué se le cobró, cuándo y si entró.
+   *
+   * Junta las cuatro vías por las que un negocio puede pagar —Hotmart, Stripe,
+   * cobro por fuera y crédito— porque ninguna sola cuenta la historia
+   * completa: un negocio puede haber empezado en Hotmart, tener un mes
+   * cubierto con crédito y el siguiente pagado por Nequi.
+   *
+   * Los eventos de Stripe no traen `tenantId` (el webhook resuelve la marca,
+   * no el negocio), así que se enlazan por `stripeCustomerId`. Sin ese dato en
+   * el negocio no hay forma de atribuirlos y no se muestran: preferimos un
+   * historial corto a uno que le cuelgue a un negocio el cobro de otro.
+   */
+  async listPaymentHistory(id: string, limit = 100) {
+    const t = await this.prisma.tenant.findFirst({
+      where: { id }, // aislado por marca (middleware)
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        manualPayment: true,
+        planPeriodicity: true,
+        currentPeriodEnd: true,
+        lastChargeAt: true,
+        stripeCustomerId: true,
+      },
+    });
+    if (!t) throw new NotFoundException('Tenant');
+
+    const [eventosHotmart, manuales, creditos] = await Promise.all([
+      this.prisma.hotmartWebhookEvent.findMany({
+        where: { tenantId: id },
+        orderBy: { processedAt: 'desc' },
+        take: 400,
+        select: { eventType: true, payload: true, processedAt: true },
+      }),
+      this.prisma.manualPayment.findMany({
+        where: { tenantId: id },
+        orderBy: { paidAt: 'desc' },
+        take: limit,
+      }),
+      // Solo el consumo: un crédito consumido es un ciclo cubierto. El
+      // reembolso del crédito no es un pago del negocio.
+      this.prisma.creditTransaction.findMany({
+        where: { tenantId: id, type: 'CONSUME' },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+    ]);
+
+    const pagos: PagoDelHistorial[] = agruparCobrosHotmart(eventosHotmart);
+
+    for (const m of manuales) {
+      pagos.push({
+        id: `manual:${m.id}`,
+        fecha: m.paidAt,
+        origen: 'MANUAL',
+        estado: 'PAGADO',
+        monto: m.amount != null ? Number(m.amount) : null,
+        moneda: m.currency ?? null,
+        montoUsd:
+          m.currency === 'USD' && m.amount != null ? Number(m.amount) : null,
+        metodo: metodoLegible(m.method),
+        motivo: null,
+        referencia: m.reference ?? null,
+        numeroDeCobro: null,
+        cubreDesde: m.periodStart,
+        cubreHasta: m.periodEnd,
+        nota: m.note ?? null,
+      });
+    }
+
+    for (const c of creditos) {
+      pagos.push({
+        id: `credito:${c.id}`,
+        fecha: c.createdAt,
+        origen: 'CREDITO',
+        estado: 'PAGADO',
+        monto: null,
+        moneda: null,
+        montoUsd: null,
+        metodo: `${Math.abs(Number(c.amount))} crédito(s)`,
+        motivo: null,
+        referencia: null,
+        numeroDeCobro: null,
+        cubreDesde: null,
+        cubreHasta: null,
+        nota: c.note ?? null,
+      });
+    }
+
+    if (t.stripeCustomerId) {
+      const eventosStripe = await this.prisma.stripeWebhookEvent.findMany({
+        where: {
+          eventType: {
+            in: [
+              'invoice.paid',
+              'invoice.payment_succeeded',
+              'invoice.payment_failed',
+            ],
+          },
+        },
+        orderBy: { processedAt: 'desc' },
+        take: 400,
+        select: { eventType: true, payload: true, processedAt: true },
+      });
+      const vistos = new Set<string>();
+      for (const ev of eventosStripe) {
+        const o = (ev.payload as any)?.data?.object ?? {};
+        if (o.customer !== t.stripeCustomerId) continue;
+        // `invoice.paid` e `invoice.payment_succeeded` son la MISMA factura.
+        const clave = String(o.id ?? ev.processedAt.toISOString());
+        if (vistos.has(clave)) continue;
+        vistos.add(clave);
+        const centavos = Number(o.amount_paid ?? o.amount_due ?? 0);
+        pagos.push({
+          id: `stripe:${clave}`,
+          fecha: o.status_transitions?.paid_at
+            ? new Date(Number(o.status_transitions.paid_at) * 1000)
+            : ev.processedAt,
+          origen: 'STRIPE',
+          estado:
+            ev.eventType === 'invoice.payment_failed' ? 'RECHAZADO' : 'PAGADO',
+          monto: Number.isFinite(centavos) ? centavos / 100 : null,
+          moneda: o.currency ? String(o.currency).toUpperCase() : null,
+          montoUsd:
+            String(o.currency).toLowerCase() === 'usd' &&
+            Number.isFinite(centavos)
+              ? centavos / 100
+              : null,
+          metodo: 'Stripe',
+          motivo: null,
+          referencia: o.number ?? clave,
+          numeroDeCobro: null,
+          cubreDesde: null,
+          cubreHasta: null,
+          nota: null,
+        });
+      }
+    }
+
+    pagos.sort((a, b) => b.fecha.getTime() - a.fecha.getTime());
+
+    return {
+      tenantId: t.id,
+      brandName: t.brandName,
+      status: t.status,
+      manualPayment: t.manualPayment,
+      planPeriodicity: normalizePlanPeriod(t.planPeriodicity),
+      currentPeriodEnd: t.currentPeriodEnd,
+      lastChargeAt: t.lastChargeAt,
+      resumen: resumirHistorial(pagos),
+      pagos: pagos.slice(0, limit),
+    };
+  }
+
   async listManualPayments(id: string) {
     const t = await this.prisma.tenant.findFirst({
       where: { id }, // aislado por marca (middleware)

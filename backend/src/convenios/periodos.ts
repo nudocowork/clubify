@@ -70,7 +70,7 @@ function fechaDePared(instante: Date, zona: string): Pared {
  * siguiente— y se le resta la hora de pared que resulte allí. Así no hace
  * falta conocer el desfase de cada zona ni si ese día tiene horario de verano.
  */
-function medianocheDe(
+export function medianocheDe(
   anio: number,
   mes: number,
   dia: number,
@@ -90,6 +90,34 @@ function medianocheDe(
   const segundosDePared =
     Number(p.hour) * 3600 + Number(p.minute) * 60 + Number(p.second);
   return new Date(mediodiaUtc - segundosDePared * 1000);
+}
+
+/**
+ * El último instante de un día de pared, en la zona del negocio.
+ *
+ * Es lo que hace falta para «hasta el 31 de diciembre»: el dueño espera que ese
+ * día TODAVÍA valga. Un `setHours(23,59,59)` a secas usa la hora del proceso
+ * —que en Railway es UTC—, así que el convenio se apagaba a las 18:59 de
+ * Bogotá, en plena noche de servicio y con un cliente delante.
+ */
+export function finDelDia(
+  anio: number,
+  mes: number,
+  dia: number,
+  zona: string,
+): Date {
+  // Medianoche del día SIGUIENTE menos un milisegundo. Pasar por el día
+  // siguiente en vez de sumar 24 h evita equivocarse los días en que la zona
+  // cambia de horario y solo tienen 23 h.
+  const siguiente = new Date(Date.UTC(anio, mes - 1, dia + 1));
+  return new Date(
+    medianocheDe(
+      siguiente.getUTCFullYear(),
+      siguiente.getUTCMonth() + 1,
+      siguiente.getUTCDate(),
+      zona,
+    ).getTime() - 1,
+  );
 }
 
 /**

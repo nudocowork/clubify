@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, HttpExcepti
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtService } from '@nestjs/jwt';
 import { customAlphabet } from 'nanoid';
-import { CommissionStatus } from '@prisma/client';
+import { CommissionStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import {
@@ -911,6 +911,36 @@ export class ReferralsService {
     });
   }
 
+  /**
+   * Una comisión ANULADA no pertenece a ningún corte: no se va a transferir.
+   *
+   * El enganche a corte ocurre UNA vez y nunca se vuelve a revisar, así que la
+   * que se anula DESPUÉS de engancharse se queda pegada inflando el total.
+   * Pasó con los duplicados de Tubiñez ($7.50) y Delizzibo ($6.80): el corte
+   * del 15-08 decía $343.15 cuando la transferencia fue de $303.85.
+   *
+   * Solo se tocan cortes ABIERTOS. Uno cerrado es contabilidad hecha y no se
+   * reescribe, aunque tenga una anulada dentro.
+   */
+  private async desengancharAnuladas(
+    where: Prisma.CommissionWhereInput,
+  ): Promise<number> {
+    const abiertos = await this.prisma.payoutBatch.findMany({
+      where: { status: 'OPEN' },
+      select: { id: true },
+    });
+    if (abiertos.length === 0) return 0;
+    const res = await this.prisma.commission.updateMany({
+      where: {
+        ...where,
+        status: CommissionStatus.REJECTED,
+        payoutBatchId: { in: abiertos.map((x) => x.id) },
+      },
+      data: { payoutBatchId: null },
+    });
+    return res.count;
+  }
+
   async setCommissionStatus(
     id: string,
     status: CommissionStatus,
@@ -958,6 +988,22 @@ export class ReferralsService {
         data: { status: 'REJECTED' },
       });
       cascaded = res.count;
+    }
+
+    if (status === 'REJECTED') {
+      await this.desengancharAnuladas(
+        updated.periodKey != null
+          ? {
+              OR: [
+                { id: updated.id },
+                {
+                  referralUseId: updated.referralUseId,
+                  periodKey: updated.periodKey,
+                },
+              ],
+            }
+          : { id: updated.id },
+      );
     }
 
     return { ...updated, cascaded };
@@ -3072,6 +3118,7 @@ export class ReferralsService {
             notes: `Anulada al eliminar afiliado por error (${user.email})`,
           },
         });
+        await this.desengancharAnuladas({ id: { in: voidableIds } });
       }
       // Desactivar (soft) — preserva la fila como registro de que existió y,
       // gracias al filtro isActive en reconcileRecurringCommissions, deja de
@@ -6169,7 +6216,26 @@ export class ReferralsService {
           },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      // Se ordena por la MISMA fecha que muestra la columna y que usa el
+      // filtro. Antes ordenaba por `createdAt` —cuándo se creó la fila— así
+      // que la lista salía desordenada respecto a la fecha que se ve.
+      //
+      // No era un detalle: medido el 2026-08-31, 51 de las 99 comisiones con
+      // fecha de compra la tienen a más de 36 h de la creación de su fila. Más
+      // de la mitad de la lista aparecía fuera de sitio. Pasa siempre que una
+      // comisión se genera después de la venta — reconciliaciones, cobros
+      // retroactivos, backfills.
+      //
+      // `nulls: 'last'` porque Postgres pone los nulos ARRIBA en DESC, y las 9
+      // comisiones sin fecha encabezarían la lista. Y `createdAt` de desempate
+      // para que dos compras del mismo día salgan siempre en el mismo orden.
+      orderBy:
+        dateType === 'payment'
+          ? [{ paidAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }]
+          : [
+              { businessDate: { sort: 'desc', nulls: 'last' } },
+              { createdAt: 'desc' },
+            ],
       take: 500,
     });
 
@@ -6248,6 +6314,20 @@ export class ReferralsService {
       const amount = Number(c.amount);
       const amountPaid = Number(c.amountPaid);
       const outstanding = Math.max(0, amount - amountPaid);
+      // ¿Es de una RENOVACIÓN o de la venta inicial?
+      //
+      // Es renovación si el negocio ya había generado una comisión antes. Se
+      // apoya en `firstChargeMsByTenant`, que ya se calcula arriba sobre TODO
+      // el historial y no solo sobre la página — si se mirara únicamente lo
+      // que se está listando, una renovación filtrada a solas parecería la
+      // primera venta.
+      const tenantIdDeLaFila = c.referralUse?.tenant?.id;
+      const primeroMs = tenantIdDeLaFila
+        ? firstChargeMsByTenant.get(tenantIdDeLaFila)
+        : undefined;
+      const esRenovacion =
+        primeroMs !== undefined &&
+        effectiveAvailableAt(c).getTime() > primeroMs;
       return {
         id: c.id,
         amount,
@@ -6255,6 +6335,7 @@ export class ReferralsService {
         outstanding: Math.round(outstanding * 100) / 100,
         currency: c.currency,
         paymentStatus: c.paymentStatus,
+        esRenovacion,
         status: c.status,
         createdAt: c.createdAt,
         // FECHA "de negocio" (columna FECHA del panel). FECHA DURABLE: si la
@@ -6876,6 +6957,8 @@ export class ReferralsService {
           paymentStatus: true,
           status: true,
           notes: true,
+          // Para no reasignarle corte a una que ya lo tenía.
+          payoutBatchId: true,
           payoutItem: { select: { id: true } },
         },
       });
@@ -6928,6 +7011,39 @@ export class ReferralsService {
       // Si el row cambió entre el findUnique y aquí (otra tx paralela), el
       // update no matchea → count=0 → tiramos error de race y el admin
       // reintenta con datos frescos.
+      // Si la comisión no tenía corte, se engancha al que se está liquidando:
+      // el ABIERTO más antiguo.
+      //
+      // Regla de Javier (2026-08-31): el corte refleja LA TRANSFERENCIA. Y las
+      // comisiones adelantadas —pagadas antes de cumplir su retención— tienen
+      // que entrar al corte que se está pagando, no al de su fecha.
+      //
+      // Sin esto quedaban sueltas: `payAllForPerson` sí las engancha, pero el
+      // pago INDIVIDUAL no tocaba `payoutBatchId`. Así se perdieron 9
+      // comisiones por $137.75 del pago del 24 de agosto — el corte mostraba
+      // $205.40 cuando se habían transferido $303.85.
+      //
+      // También se TRAE la que ya estaba enganchada a un corte abierto
+      // POSTERIOR: es el caso de la comisión adelantada —habilitada a mano
+      // antes de cumplir su retención— que se paga en la transferencia de
+      // ahora. Si se queda en su corte futuro, el que se está liquidando no
+      // cuadra con lo transferido.
+      //
+      // Un corte CERRADO nunca se toca: es contabilidad hecha.
+      const enLiquidacion = await tx.payoutBatch.findFirst({
+        where: { status: 'OPEN' },
+        orderBy: { cutoffDate: 'asc' },
+        select: { id: true },
+      });
+      let corteDestino = c.payoutBatchId ?? enLiquidacion?.id ?? null;
+      if (c.payoutBatchId && enLiquidacion && c.payoutBatchId !== enLiquidacion.id) {
+        const suyo = await tx.payoutBatch.findUnique({
+          where: { id: c.payoutBatchId },
+          select: { status: true },
+        });
+        if (suyo?.status === 'OPEN') corteDestino = enLiquidacion.id;
+      }
+
       const result = await tx.commission.updateMany({
         where: { id: commissionId, amountPaid: c.amountPaid },
         data: {
@@ -6936,6 +7052,7 @@ export class ReferralsService {
           ...(isFullPaid
             ? { status: 'PAID' as CommissionStatus, paidAt: new Date() }
             : {}),
+          ...(corteDestino ? { payoutBatchId: corteDestino } : {}),
           notes: nextNotes,
         },
       });

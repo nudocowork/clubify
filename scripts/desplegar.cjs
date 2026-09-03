@@ -110,6 +110,52 @@ if (adelante > 0 && !FORZAR) {
   );
 }
 
+// ── 3 bis. No desplegar desde una rama que no sea la de producción ─────────
+//
+// Lo que costó esta guarda: se desplegó producción desde una rama que no era
+// la acordada y se revirtieron cambios que ya estaban arriba (los arreglos de
+// Sellea, el income capture de Hotmart). El script ya impedía desplegar por
+// detrás de TU rama — pero estar al día con tu rama no dice nada de si tu rama
+// tiene el trabajo del otro. Dos ramas largas pueden estar las dos «limpias y
+// sincronizadas» y no verse 39 commits la una a la otra.
+//
+// OJO — esta guarda NO cubre `vercel promote`. Promover no pasa por aquí:
+// coge un despliegue viejo que ya está en Vercel y lo pone en producción, sin
+// mirar git. La única defensa contra eso es no usarlo.
+const RAMA_DE_PRODUCCION = process.env.RAMA_PROD || 'main';
+
+if (rama !== RAMA_DE_PRODUCCION && !FORZAR) {
+  let cuantoLeFalta = '';
+  try {
+    const n = Number(
+      git(`rev-list --count HEAD..origin/${RAMA_DE_PRODUCCION}`),
+    );
+    if (n > 0) {
+      cuantoLeFalta =
+        `\n  Ahora mismo te faltan ${n} commit(s) que sí están en ` +
+        `${RAMA_DE_PRODUCCION}:\n` +
+        git(`log --oneline HEAD..origin/${RAMA_DE_PRODUCCION}`)
+          .split('\n')
+          .slice(0, 8)
+          .map((l) => `    ${l}`)
+          .join('\n');
+    }
+  } catch {
+    /* sin red o sin esa rama: se avisa igual, solo que sin el detalle */
+  }
+  morir(
+    `Estás en «${rama}», y producción sale de «${RAMA_DE_PRODUCCION}».`,
+    '  Desplegar desde otra rama publica TU foto del repo: todo lo que la\n' +
+      '  otra máquina subió y tu rama no ve desaparece de producción.' +
+      cuantoLeFalta,
+    `    Fusiona tu rama en ${RAMA_DE_PRODUCCION} (PR), y despliega desde ahí:\n` +
+      `      git checkout ${RAMA_DE_PRODUCCION} && git pull\n` +
+      `      node scripts/desplegar.cjs ${OBJETIVO}\n\n` +
+      `    Si la rama de producción cambió, dilo explícitamente:\n` +
+      `      RAMA_PROD=otra-rama node scripts/desplegar.cjs ${OBJETIVO}`,
+  );
+}
+
 // ── 4. Decir en voz alta qué se va a desplegar ─────────────────────────────
 // Comillas obligatorias: sin ellas el shell parte «%h %s» en dos argumentos y
 // git intenta interpretar «%s» como una revisión.
@@ -171,7 +217,21 @@ if (OBJETIVO === 'backend') {
     shell: true,
     cwd: COPIA,
   });
-  process.exit(r.status ?? 0);
+  if (r.status) process.exit(r.status);
+
+  // ── 6. Comprobar que el despliegue ENTRÓ ────────────────────────
+  //
+  // `railway up --detach` vuelve en cuanto sube el paquete: el build puede
+  // fallar después y nadie se entera. Un despliegue fallido es INVISIBLE desde
+  // fuera —`/api/health` sigue en 200 y las rutas viejas en 401, porque
+  // producción se queda con la imagen anterior—, y el 2026-09-02 se dieron por
+  // desplegados tres seguidos que no lo estaban.
+  //
+  // La señal fiable es `uptimeSec`: un contenedor nuevo lo tiene pequeño.
+  esperarQueEntre().catch((e) => {
+    console.error('\n  ⚠ ' + e.message);
+    process.exit(1);
+  });
 } else {
   // `frontend/.vercel/` está en .gitignore, así que la copia limpia NO lo
   // trae — y sin ese fichero, `vercel deploy --yes` no encuentra a qué
@@ -229,4 +289,47 @@ if (OBJETIVO === 'backend') {
     { stdio: 'inherit', shell: true, cwd: path.join(COPIA, 'frontend') },
   );
   process.exit(r.status ?? 0);
+}
+
+
+/**
+ * Espera a que el backend se reinicie de verdad.
+ *
+ * Se mira `uptimeSec` y no el estado del build porque es lo ÚNICO que dice si
+ * lo que corre es lo que acabas de subir. Y aun así no basta: si otra máquina
+ * despliega desde una copia atrasada, el contenedor también es nuevo y tu
+ * código no está. Por eso el mensaje pide comprobar una ruta a mano.
+ */
+async function esperarQueEntre() {
+  const SALUD = 'https://api.soyclubify.com/api/health';
+  const LIMITE = 12 * 60 * 1000;
+  const arranque = Date.now();
+  process.stdout.write('\n  Esperando a que entre en producción');
+
+  while (Date.now() - arranque < LIMITE) {
+    await new Promise((r) => setTimeout(r, 15000));
+    process.stdout.write('.');
+    try {
+      const res = await fetch(SALUD);
+      const j = await res.json();
+      // Menos de 5 minutos de vida = contenedor nuevo. El build tarda ~3.
+      if (typeof j.uptimeSec === 'number' && j.uptimeSec < 300) {
+        console.log('\n\n  ✓ Entró. El backend lleva ' + j.uptimeSec + 's en pie.');
+        console.log(
+          '    Comprueba una ruta que solo exista en tu commit: si da 404\n' +
+            '    mientras otra da 401, tu código NO está arriba.\n',
+        );
+        return;
+      }
+    } catch {
+      /* reiniciando: se reintenta */
+    }
+  }
+
+  throw new Error(
+    'El backend NO se reinició en 12 minutos: el build falló.\n' +
+      '    railway logs --build <id>       → por qué falló el build\n' +
+      '    railway logs --deployment <id>  → por qué no arrancó\n' +
+      '    Producción sigue con la imagen anterior.',
+  );
 }

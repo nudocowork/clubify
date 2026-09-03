@@ -3,6 +3,12 @@ import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from 're
 import type { InfoLinkTemplate } from '@/lib/info-link-templates';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
+import { Icon } from '@/components/Icon';
+import {
+  colorDeIconos,
+  iconosSociales,
+  type SocialConfig,
+} from '@/lib/info-link-social';
 import {
   getLogoContainerProps,
   getLogoImgStyle,
@@ -317,6 +323,55 @@ function ShellBrandBadge({
 //  AURORA · gradient mesh + glassmorphism
 // =============================================================
 
+/**
+ * Fila de iconos de redes, debajo de la descripción.
+ *
+ * Se pinta en los cinco estilos. Solo salen las redes activadas y con enlace
+ * válido: un icono que no lleva a ninguna parte hace quedar mal al negocio,
+ * no a nosotros.
+ *
+ * El color sale de la configuración del infolink; sin elegir, el color
+ * principal, para que encajen con el resto de la página desde el primer
+ * momento.
+ */
+function SocialRow({
+  link,
+  tenant,
+  primary,
+}: {
+  link: ShellProps['link'];
+  tenant: ShellProps['tenant'];
+  primary: string;
+}) {
+  const iconos = iconosSociales(
+    (link.theme as { social?: SocialConfig } | null)?.social ?? null,
+    tenant,
+  );
+  if (iconos.length === 0) return null;
+  const color = colorDeIconos(
+    (link.theme as { social?: SocialConfig } | null)?.social ?? null,
+    primary,
+  );
+  return (
+    <div className="flex items-center justify-center gap-3 mt-4">
+      {iconos.map((s) => (
+        <a
+          key={s.icono + s.href}
+          href={s.href}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={s.label}
+          title={s.label}
+          className="opacity-90 hover:opacity-100 active:scale-95 transition"
+          style={{ color }}
+        >
+          <Icon name={s.icono} size={26} />
+        </a>
+      ))}
+    </div>
+  );
+}
+
 export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   const tc = textColors(link);
@@ -368,6 +423,7 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
               {link.subtitle}
             </p>
           )}
+          <SocialRow link={link} tenant={tenant} primary={primary} />
         </div>
 
         {buttons.length > 0 && (
@@ -435,17 +491,6 @@ export function AuroraShell({ tenant, link, primary, buttons, sectionsNode, cust
 export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, customBackground, brand }: ShellProps) {
   const initial = tenant.brandName[0]?.toUpperCase() ?? '?';
   const tc = textColors(link);
-  const social: { emoji: string; href?: string }[] = [
-    { emoji: '📷', href: tenant.instagramUrl ?? undefined },
-    {
-      emoji: '💬',
-      href: tenant.whatsappPhone
-        ? `https://wa.me/${tenant.whatsappPhone.replace(/\D/g, '')}`
-        : undefined,
-    },
-    { emoji: '📍', href: tenant.mapsUrl ?? undefined },
-  ].filter((s) => !!s.href);
-
   return (
     <div
       className={`min-h-screen animate-in fade-in duration-500 ${customBackground ? '' : 'bg-white'}`}
@@ -493,22 +538,7 @@ export function MinimalShell({ tenant, link, primary, buttons, sectionsNode, cus
               {link.subtitle}
             </p>
           )}
-
-          {social.length > 0 && (
-            <div className="flex gap-2 mt-3">
-              {social.map((s, i) => (
-                <a
-                  key={i}
-                  href={s.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-9 h-9 rounded-full bg-bg2 flex items-center justify-center text-base hover:bg-line transition"
-                >
-                  {s.emoji}
-                </a>
-              ))}
-            </div>
-          )}
+          <SocialRow link={link} tenant={tenant} primary={primary} />
         </div>
 
         {buttons.length > 0 && (
@@ -586,7 +616,18 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
     >
       {/* IMPORTANTE: el article NO debe tener overflow-hidden — sino el
           logo flotante (con -mt-14) se cortaría al desbordar el banner. */}
-      <article className="max-w-md mx-auto bg-white shadow-sm min-h-screen">
+      {/* La columna de contenido llevaba `bg-white` FIJO: el negocio elegía un
+          color de fondo, se guardaba, y encima seguía viéndose la franja
+          blanca. Con fondo propio la columna se vuelve transparente y deja
+          pasar el del contenedor —igual que Aurora, Minimal y Neon, que nunca
+          tuvieron el problema—, así el color llega de borde a borde sin
+          cortar el banner, que pinta el suyo aparte.
+
+          Sin fondo configurado se queda blanca como siempre: los infolinks ya
+          publicados que no tocaron el fondo no cambian. */}
+      <article
+        className={`max-w-md mx-auto min-h-screen ${customBackground ? '' : 'bg-white shadow-sm'}`}
+      >
         {/* Banner: position relative + z-1 explícito. overflow-hidden
             solo aplica DENTRO del banner (recorta la foto al frame) sin
             afectar al logo, que está en otro contenedor afuera. */}
@@ -663,6 +704,7 @@ export function ShopShell({ tenant, link, primary, buttons, sectionsNode, custom
                 {link.subtitle}
               </p>
             )}
+            <SocialRow link={link} tenant={tenant} primary={primary} />
           </div>
 
           {galleryShown.length > 0 && (
@@ -775,7 +817,10 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
         ...(customBackground ? { background: customBackground } : {}),
       }}
     >
-      <article className="max-w-md mx-auto bg-white shadow-sm min-h-screen pb-10">
+      {/* Mismo caso que Shop: `bg-white` fijo tapaba el fondo elegido. */}
+      <article
+        className={`max-w-md mx-auto min-h-screen pb-10 ${customBackground ? '' : 'bg-white shadow-sm'}`}
+      >
         <div className="px-5 pt-7 pb-3 border-b border-line2">
           <div className="flex items-center gap-3">
             <ShellLogoCard
@@ -822,6 +867,7 @@ export function StoriesShell({ tenant, link, primary, buttons, sectionsNode, cus
               {link.subtitle}
             </p>
           )}
+          <SocialRow link={link} tenant={tenant} primary={primary} />
           {buttons.length > 0 && (
             <div className="flex gap-2 mt-3 flex-wrap">
               {buttons.slice(0, 4).map((b, i) => {
@@ -972,6 +1018,7 @@ export function NeonShell({ tenant, link, primary, buttons, sectionsNode, custom
               {link.subtitle}
             </p>
           )}
+          <SocialRow link={link} tenant={tenant} primary={primary} />
         </div>
 
         {buttons.length > 0 && (

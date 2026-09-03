@@ -23,6 +23,8 @@ type CommissionRow = {
   outstanding: number;
   currency: string;
   paymentStatus: PaymentStatus;
+  /** true = viene de una renovación; false = de la venta inicial del negocio. */
+  esRenovacion?: boolean;
   status: string;
   createdAt: string;
   // PDF Soft(9) C3: fecha "de negocio" (registro para la 1ª, cobro real para
@@ -952,8 +954,18 @@ function AdvancedCommissionsView() {
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="font-medium">
-                          {c.tenant?.brandName ?? '—'}
+                        <div className="font-medium flex items-center gap-1.5 flex-wrap">
+                          <span>{c.tenant?.brandName ?? '—'}</span>
+                          {/* Distingue de un vistazo lo que se gana cada mes de
+                              lo que entró por una venta nueva. Solo se marca la
+                              renovación: la venta inicial es el caso normal y
+                              etiquetarla también convertiría la columna en
+                              ruido. */}
+                          {c.esRenovacion && (
+                            <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-ok-soft text-ok-ink">
+                              Renovación
+                            </span>
+                          )}
                         </div>
                         {c.hotmartTransactionId && (
                           <div className="text-[10px] text-mute font-mono">

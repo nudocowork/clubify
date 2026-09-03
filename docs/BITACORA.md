@@ -8,6 +8,960 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-02 — Alianzas terminada en código, SIN desplegar (freeze) + guarda de rama
+
+**Nada de esto está en producción. Freeze en pie: la fusión y el despliegue los
+corre Jhon.**
+
+### Qué pasó
+
+Producción sirve un frontend **anterior** a las dos funciones nuevas. Se
+comprueba en un segundo:
+
+```
+/app/alianzas   404      <- no existe en el build que corre
+/app/club       404
+/app/cards/new  200
+```
+
+Por eso Javier ve que del menú desaparecieron Alianzas y Tarjeta de Club, y que
+el asistente de «nueva tarjeta» ya no ofrece las dos nuevas. **No es un cambio
+de código: es el rollback.** Los interruptores del negocio están bien
+—`demo-clubify` tiene `conveniosEnabled` y `clubEnabled` en `true` en la base de
+producción—, así que al desplegar vuelven solas.
+
+### Ramas
+
+La fusión a `main` tiene que llevar **las dos** ramas o borra trabajo:
+
+| rama | adelante de main | commits que la otra no ve |
+|---|---|---|
+| `chore/merge-emails-sobre-314` (alianzas + club) | 427 | 77 |
+| `feat/commissions-auto-cutoffs` (Jhon) | 389 | 39 |
+
+Los 39 de Jhon incluyen InfoLinks, el income capture de Hotmart y la app móvil
+de iOS. Fusionar solo una de las dos ramas los borra de producción.
+
+### Guarda de rama en `desplegar.cjs`
+
+El script ya se negaba a desplegar por detrás de **tu** rama. El agujero: estar
+al día con tu rama no dice nada de si tu rama tiene el trabajo del otro — hoy
+las dos estaban «limpias y sincronizadas» sin verse 39 commits.
+
+Ahora el despliegue sale de `main`, o de lo que diga `RAMA_PROD` dicho a
+propósito. Desde otra rama muere y enseña los commits que le faltan.
+
+**No cubre `vercel promote`**, y está escrito en el código: promover no pasa por
+el script, coge un despliegue viejo que ya está en Vercel sin mirar git. Ahí la
+única defensa es no usarlo.
+
+### Alianzas — lo último que se tocó
+
+La plantilla `Card` del convenio **ya no sale en el listado de Tarjetas**. El
+filtro va en `list()` del servicio, no en la pantalla, porque ese listado lo
+consumen once pantallas del panel. Estando ahí solo invitaba a errores: ofrecía
+su enlace de alta genérico (que se salta el código de la empresa), el botón de
+borrar (que arrastra los pases de todos los empleados), y salía como destino en
+la tienda, en los pop-ups del menú, en los QR de mostrador y en el segmentador
+de notificaciones.
+
+Nota: la plantilla de **Tarjeta de Club** sigue apareciendo en ese listado. El
+mismo argumento le aplica, pero es módulo de Javier y no se toca sin que lo
+pida.
+
+### La tarjeta ahora nace con la alianza (y se puede retocar)
+
+La `Card` se creaba con el PRIMER empleado que activaba. Eso dejaba al dueño
+repartiendo el enlace a ciegas, al primero en entrar fijando unos colores que
+nadie eligió, y dos activaciones simultáneas podían crear dos plantillas.
+
+Ahora se crea en la misma transacción que el convenio, y el panel trae un editor
+con vista previa en vivo (logo del aliado, colores, título). La forma vive en
+`alianzas-plantilla.ts` —puro, 13 tests que importan el módulo real— y la
+comparten el camino temprano y el perezoso, que se queda como red para las
+alianzas anteriores.
+
+**El texto de recompensa se dejó fuera del editor a propósito**: en un pase de
+alianza lo pisan los beneficios vivos en Apple, en Google y en la vista del
+empleado. Editarlo no cambiaría nada visible y permitiría una tarjeta que promete
+«20% de descuento» mientras la caja aplica el 10%.
+
+### Al desplegar, comprobar
+
+1. `/app/alianzas` y `/app/club` responden 200 (no 404).
+2. El asistente de nueva tarjeta ofrece las cuatro.
+3. `https://api.soyclubify.com/api/public/alianzas/x/y` da **404**, no 401.
+4. El enlace del empleado carga: `/alianza/demo-clubify/ecopetrol`.
+
+Las dos migraciones (`apply-convenios-migration.cjs`,
+`apply-alianzas-migration.cjs`) **ya están aplicadas** en producción.
+
+
+## 2026-09-02 — Los avisos al equipo salen por la línea 2, que no entrega
+
+**Sin resolver. Javier decide dejarlo así por ahora.**
+
+Jhon dice que no le llegó ningún aviso de la compra de `junior_hq@hotmail.com`
+(ojo: con **q**, no con g — con la g no aparece nada y se pierde media hora).
+Comprobado en producción: de nuestro lado los dos salieron bien.
+
+```
+16:06:20  Pago Hotmart recibido SIN cuenta aun  -> sent, con id de proveedor
+16:09:54  Nuevo preregistro en Clubify          -> sent, con id de proveedor
+```
+
+`sent` significa que **Grow Business lo aceptó**, no que llegara al teléfono.
+
+La causa casi segura llevaba escrita en `scripts/linea-de-envio.cjs` desde el
+1 de agosto:
+
+> OJO (2026-08-01): el default del código se cambió de 2 a 1 porque el WhatsApp
+> del 2 fallaba en la entrega. Si vuelves a mover algo al 2, comprueba que los
+> mensajes llegan de verdad antes de darlo por bueno.
+
+El 1 de septiembre se movió la cuenta de plataforma a la línea 2 a petición de
+Javier, **sin leer ese aviso ni comprobar la entrega**.
+
+Para retomarlo:
+
+- Volver a la línea 1 es un comando y es reversible (`linea-de-envio.cjs`).
+- O arreglar la línea 2 en Grow Business: hay que ver por qué ese número acepta
+  y no entrega.
+- El acceso MCP que hay en la sesión apunta a OTRA subcuenta
+  (`Corp. Grow Business`, `NrzXRiuKoid7RrjUW6dL`), no a la que envía
+  (`Reseñas`, `ANHzFDaLU8zKeA3nFCBk`), así que la entrega no se puede verificar
+  desde ahí.
+- Prueba rápida para separar «es la línea» de «es su número»: mirar si a Javier
+  le llegaron los mismos avisos, que salen por la misma línea.
+
+Y una nota de método: al escribir esta entrada con un script de Python, un emoji
+del cuerpo reventó la codificación y el fichero se guardó VACÍO — se commitearon
+4178 líneas borradas. Se recuperó con `git checkout HEAD~1 -- docs/BITACORA.md`.
+Para tocar la bitácora, editarla directamente; no generarla desde un script.
+
+---
+
+## 2026-09-02 — ALIANZAS **DESPLEGADO EN PRODUCCIÓN** ✅
+
+Migraciones aplicadas y código arriba. El módulo existe en producción por
+primera vez.
+
+### Lo que se corrió, en este orden
+
+1. `railway run node scripts/apply-convenios-migration.cjs` → 6 tablas, 3
+   columnas (`Tenant.conveniosEnabled`, `Tenant.maxConvenios`,
+   `Card.convenioId`), 15 índices, 12 claves foráneas.
+2. `railway run node scripts/apply-alianzas-migration.cjs` → `activoAliado`,
+   `aliadoToken` y el índice único parcial `(convenioId, documento)`.
+   Resultado: `convenios: 0 · tarjetas: 0`.
+3. `node scripts/desplegar.cjs backend` — commit `37605259`.
+4. `node scripts/desplegar.cjs frontend`.
+
+### Cómo se verificó que subió de verdad
+
+Un 404 NO sirve de prueba: lo dan igual una ruta viva sin resultados y una que
+no existe. Lo que distingue es el **cuerpo**:
+
+| Ruta | Respuesta | Qué demuestra |
+|---|---|---|
+| `/api/public/alianzas/x/y` | «Este enlace no está disponible.» | el handler está vivo |
+| `/api/public/aliado/tokenfalso` | «Enlace no válido.» | el portal arreglado está arriba (esa ruta solo existe en el último commit) |
+| `/api/public/noexiste/x/y` | `Cannot GET …` | el 404 genérico de Nest — la comparación vale |
+
+Frontend: `/alianza/<negocio>/<empresa>` y `/aliado/<token>` responden 200; una
+ruta inventada, 404.
+
+### QUÉ FALTA PARA USARLO
+
+**Nada está encendido todavía.** `conveniosEnabled` está en `false` para todos
+los negocios, que es lo correcto: nadie ve el módulo hasta que se le active.
+
+Para la primera prueba real: panel de admin del negocio → **Alianzas con
+empresas** → crear desde `Tarjetas → Nueva tarjeta → Alianza con una empresa`.
+Usar verificación **por código** (LISTA es el modo más frágil) y vigencia
+ilimitada.
+
+### Dos defectos conocidos que NO se arreglaron
+
+- **El filtro por sede no se aplica nunca.** `AuthUser` no lleva `locationId` y
+  en `scanner.service.ts` va con un `as any`, que es lo que impide que
+  TypeScript avise. Una alianza limitada a una sede vale en todas, y
+  `ConvenioCanje.locationId` se guarda siempre null: el informe por sede sale
+  vacío. **No vender alianzas por sede.**
+- **Un empleado puede quedar bloqueado por otro.** Si alguien activa con el
+  teléfono de un compañero antes que él (en modo CÓDIGO el código lo sabe toda
+  la empresa), al compañero le sale el mensaje de datos que no coinciden. Lo
+  desatasca el negocio desde el panel. De raíz pide verificar el teléfono, y no
+  hay transporte de SMS por marca.
+
+### Nota de entorno
+
+`npm run arranca` **no funciona en Windows**: el script de build usa `rm -rf`,
+que no existe en cmd. Para comprobar el arranque en esta máquina hay que borrar
+`dist` a mano y correr `npx nest build --tsc`.
+
+## 2026-09-02 15:00 — ⚠️ Un despliegue borró el módulo de club de producción
+
+**Pasó lo que avisa `CLAUDE.md`, y así se ve.** A las 14:21 desplegué el backend
+con el club. A las 14:48 entró otro despliegue **que no es mío** y producción se
+quedó sin `/api/club/*`:
+
+```
+/api/club/planes  404   ← desaparecido
+/api/cards        401   ← sigue ahí
+/api/health       uptimeSec: 229
+```
+
+`railway up` sube **la carpeta local**, no lo que hay en git. Si OneDrive
+todavía no ha sincronizado los ficheros del otro, desplegar desde ahí **borra de
+producción lo que el otro subió**. Los commits estaban intactos en git; lo que
+faltaba era en el servidor.
+
+Restaurado desplegando desde el clon limpio de `HEAD` —que lleva el club Y las
+alianzas—, con `node scripts/desplegar.cjs backend`. **Usad el script**: clona el
+commit a una carpeta aparte y sube eso, así no puede pasar.
+
+### Dos cosas para que no vuelva a colarse
+
+1. **`desplegar.cjs backend` ahora espera y comprueba** que el contenedor se
+   reinicia de verdad (`uptimeSec` pequeño), y si en 12 minutos no pasa, avisa
+   de que el build falló y deja los comandos para mirarlo. Antes volvía en
+   cuanto subía el paquete.
+2. **Comprueba siempre una ruta que solo exista en tu commit.** Si da 404
+   mientras otra da 401, tu código no está arriba — pase lo que pase con
+   `/api/health`.
+
+### Y un bug mío que salió de esto
+
+El panel del club decía **«La Tarjeta de Club todavía no está activa en tu
+cuenta»** cuando el módulo SÍ estaba encendido: el `catch` de `/club/estado`
+caía a `false`, así que un fallo del servidor se le presentaba al negocio como
+una decisión comercial y se le mandaba a escribirnos. Ahora se distingue «dijo
+que no» de «no pudimos preguntar», y lo segundo ofrece reintentar.
+
+---
+
+## 2026-09-02 (tarde) — Tarjeta de Club: repaso de lógica, rendimiento y recorrido
+
+Tres revisiones sobre el módulo ya desplegado. Lo que salió, corregido.
+
+### Caminos por los que se escapaba dinero
+
+1. **Cancelar y readmitir era una recarga.** Gastar los 10 cafés, cancelar,
+   volver a dar de alta → otros 10. Repetible dentro del mismo mes con una sola
+   cuota pagada. Y al revés: al cancelado por error el día 20 se le aplicaba el
+   tramo de alta y perdía lo que ya había pagado. Era además el único camino que
+   escribía un saldo **sin dejar `ClubConsumo`**, así que en el histórico no se
+   veía. Ahora volver dentro del mismo mes conserva el saldo; en un mes
+   posterior entra como nuevo.
+2. **El día 1, la caja rechazaba al socio que había llegado a cero.**
+   `resolverParaCaja` no miraba el período, así que entre las 00:00 y la primera
+   pasada del cron —hasta una hora— el botón de consumir ni se pintaba, aunque
+   `consumir` habría funcionado. El sesgo era feo: al que le SOBRABA cupo del
+   mes viejo sí le dejaba pasar. Ahora la pantalla anticipa el reinicio sin
+   escribir nada; quien escribe sigue siendo el consumo.
+3. **Una automatización con `cardId` explícito le sumaba cupo a un socio.** El
+   filtro `clubPlanId: null` estaba solo en el fallback, y esa rama ni miraba el
+   tenant.
+4. **Fusionar dos fichas del mismo socio** sumaba los dos contadores: 20 de un
+   cupo de 10. Ahora se acota al cupo en las tarjetas de club.
+5. **`anularConsumo` marcaba el consumo aunque no devolviera nada.** La
+   comprobación de período iba DESPUÉS de marcar, así que un consumo de un mes
+   anterior quedaba «anulado» sin devolverle un beneficio al cliente: contaba
+   como anulado en los informes, no se podía reintentar nunca y al cajero se le
+   decía después que no se podía deshacer. Y se cerró la carrera residual con
+   una segunda comprobación **después** de tomar el candado del pase.
+6. **El cron comiteaba a medias.** Si el pase de una membresía había
+   desaparecido, `return false` dejaba el período avanzado con el pase sin
+   tocar, y ni el cron ni el reinicio perezoso volvían a mirarla jamás. Ahora
+   lanza, la transacción se deshace y el `catch` nuevo la salta de verdad.
+
+### Lo que se cambió y luego se revirtió
+
+Cambié `reiniciarCupos` para que un plan apagado dejara de repartir cupo. **Lo
+revertí**, y el test que lo impedía tenía razón: si el negocio solo quería
+cerrar las altas, cortarle el reparto a quien sigue pagando le quita en silencio
+lo que compró — y eso es peor que seguir repartiendo, porque lo segundo tiene un
+cajero delante que lo ve. Lo que faltaba de verdad era **la salida**.
+
+### Lo nuevo
+
+- **«Dar de baja a todos los socios»** en la pantalla del plan. Es la forma de
+  cerrar un club. No borra nada: quedan en CANCELADA con su histórico.
+- **Pantalla de Consumos.** `ClubConsumo` se escribía desde el primer día y no
+  lo leía nadie: qué se llevó cada socio, cuántas unidades entregaste este mes,
+  el promedio por persona, lo que cobras — y el botón de deshacer, que hasta
+  ahora solo existía mientras la tarjeta seguía en pantalla del escáner.
+- **Columna «Aún no la ha instalado»**. `walletInstalledAt` se guardaba en cada
+  descarga del pase y no lo leía nadie: el negocio veía a todos sus socios
+  iguales sin saber quién cobró y nunca instaló.
+- **`?welcome=1`** en el enlace que se le manda al socio. Un parámetro decidía
+  si la página empuja a instalar o si se comporta como «ya la tienes».
+- En la billetera: un socio **de baja** ya no ve «EN PAUSA» sino «FINALIZADA»,
+  el aviso ya no dice «Te quedan: EN PAUSA», y en Android el club **siempre**
+  notifica (el corte genérico de «solo si hay saldo» ocultaba justo el momento
+  de quedarse sin cupo).
+
+### Rendimiento
+
+- **El buscador de socios escaneaba la tabla `Customer` entera**, la de los 168
+  negocios, con tres `ILIKE` por fila y dos veces por tecla. Faltaba el
+  `tenantId` en el subselect.
+- **El cron leía todas las membresías activas de la plataforma** 23 de las 24
+  pasadas diarias para devolver cero filas: `periodo: { not }` no es un rango.
+  Ahora `lt` + índice `[periodo, status]`.
+- **Editar el plan reenviaba el pase a todos los socios** aunque solo cambiaras
+  la descripción. Ahora solo si cambió algo que se ve en el pase.
+- Índices nuevos: `[planId, status, createdAt desc]` para el listado, y
+  **`@@unique([tenantId, clubPlanId])` en `Card`** — dos primeros socios a la
+  vez creaban DOS tarjetas-plantilla y una dejaba huérfano el pase instalado.
+- Menores: `select` acotado al buscar la tarjeta del plan, y el slug libre en
+  una consulta en vez de hasta cincuenta.
+
+**Correr la migración otra vez** (`apply-club-migration.cjs`): trae los tres
+índices nuevos y es idempotente.
+
+### Pendiente que NO toqué
+
+`reiniciarCupos` abre **una transacción por fila** con tope de 5000. Con
+volumen real son ~20.000 viajes a la base en serie y 5.000 pushes de golpe. Hoy
+no duele —hay 0 socios— pero con miles hay que pasarlo a lotes con una sola
+sentencia (CTE modificante) y repartir los pushes en el tiempo. No lo hice
+ahora porque reescribirlo en SQL crudo se lleva por delante los 19 tests del
+reinicio, y prefiero no tocarlo el mismo día que sale.
+
+---
+
+## 2026-09-02 — El backend lleva desde ayer sin desplegarse y nadie se enteró
+
+**Los 3 últimos despliegues del backend FALLARON.** Lo que corre en producción
+es de `2026-09-01 22:05`. Los tres fallos, por orden:
+
+| Despliegue | Hora | Por qué |
+|---|---|---|
+| `6526154d` | 01-sep 23:34 | **52 errores de TypeScript** — el club a medias (`ClubMembresia.saldo`) |
+| `d0998242` | 02-sep 02:18 | **La app no arranca**: `ClubModule` no importaba `WalletModule` |
+| `e17dcbe3` | 02-sep 07:49 | Mío, subiendo desde `backend/` — ver abajo |
+
+### Lo que lo hace peligroso
+
+Un despliegue fallido **no se nota**. `/api/health` sigue en 200 y las rutas
+viejas en 401, porque producción se queda tan tranquila con la imagen anterior.
+Lo único que lo delata es que **una ruta NUEVA da 404**. Si no la pruebas,
+das por desplegado algo que no lo está.
+
+**Después de desplegar, comprueba siempre una ruta que solo exista en tu
+commit.** Y si no la hay, mira `uptimeSec` en `/api/health`: si son horas, tu
+despliegue no entró.
+
+```bash
+railway logs --build <deployment-id>       # por qué falló el build
+railway logs --deployment <deployment-id>  # por qué no arrancó el contenedor
+```
+
+### RESUELTO — y ahora hay una comprobación para esto
+
+```bash
+cd backend && npm run arranca
+```
+
+Compila y levanta la app contra una base de datos **que no existe**. Suena raro
+y es a propósito: Nest resuelve TODO el grafo de módulos antes de que Prisma
+intente conectarse, así que un error de inyección sale primero y el fallo de
+base de datos es la señal de que se llegó hasta el final. Tarda lo que tarde el
+build; con `-- --sin-compilar` son segundos.
+
+Hazlo **antes de desplegar el backend**. Es lo único que coge esta clase de
+fallo: los tests unitarios construyen los servicios a mano.
+
+### El fallo de arranque, que los tests no ven
+
+```
+Nest can't resolve dependencies of the ClubService (PrismaService, ?, QueueService).
+```
+
+`ClubService` inyecta `WalletService` para empujar el pase, y `ClubModule` no
+importaba `WalletModule`. **Los tests unitarios no lo cogen**: construyen el
+servicio a mano con sus tres dependencias. El grafo de módulos solo se arma al
+arrancar, así que esto solo lo ve un arranque real. (`QueueService` sí resolvía:
+`JobsModule` es `@Global()`.)
+
+### Y NO: el `Root Directory` está bien
+
+Me equivoqué al leer el primer fallo y escribí aquí que el servicio había
+perdido `Root Directory = backend`. **Es falso.** El log de `d0998242` carga
+`backend/Dockerfile` sin problema: subir desde la raíz del repo, como hace
+`desplegar.cjs`, es lo correcto.
+
+Lo que sí es verdad es lo contrario: **subir desde `backend/` NO funciona**,
+porque entonces Railway busca `backend/backend`:
+
+```
+lstat .../snapshot-target-unpack/backend: no such file or directory
+```
+
+## 2026-09-02 (madrugada, 4ª vuelta) — Tarjeta de Club: panel, billetera y 9 defectos
+
+El motor del club ya estaba hecho pero **solo respondía por API**: no había
+dónde crear un plan. Ahora tiene panel, y una auditoría de paso encontró nueve
+agujeros que se cierran en el mismo bloque.
+
+### Lo nuevo
+
+- **`/app/club`** — planes: crear, editar, precio, unidad, cupo del mes y los
+  **tramos de alta** (cuántos recibe quien entra a mitad de mes; es solo para su
+  primer mes y la pantalla lo dice, porque el negocio lo lee como el cupo
+  permanente).
+- **`/app/club/[id]`** — socios: alta buscando entre los clientes, pausar,
+  reactivar, dar de baja y readmitir. Con buscador, filtro y paginación.
+- **Entrada en el asistente de tarjetas**, como Alianzas: no es un `CardType`,
+  lleva a `/app/club?nuevo=1`.
+- **`Tenant.clubEnabled`**, apagado por defecto. Se enciende desde Módulos del
+  tenant. Sin él no hay ítem de menú y crear plan o dar de alta da 403 — pero
+  **consumir sigue funcionando**: apagar un módulo no puede quedarse con lo que
+  un cliente ya pagó.
+- **Endpoint nuevo** `GET /club/planes/:id/miembros` y `GET /club/estado`.
+- **Deshacer en la caja**: el escáner tiraba el `consumoId`, así que la
+  anulación —que estaba escrita, con su idempotencia y su push— no se podía
+  llamar. Un doble toque del cajero se comía un café sin vuelta atrás.
+
+### Los defectos que había (todos míos, del bloque anterior)
+
+1. **En la billetera, una tarjeta de club se veía como sellos — e invertida.**
+   Header `SELLOS 7 / 10` y aviso `Sellos: 7`: el cliente leía «llevo 7», y
+   significa «me quedan 7». Ahora el header es la unidad del negocio en plural
+   (`CAFÉS 7 / 10`) con «Te quedan: %@», en Apple y en Google, en los 4 idiomas.
+2. **`/stamps` sellaba y canjeaba pases de club sin barrera.** Sellar le
+   REGALABA cupo; canjear se lo vaciaba entero de un clic. Sin `ClubConsumo`, o
+   sea sin rastro y sin poder anularlo. *(Las tarjetas de convenio tienen el
+   mismo agujero abierto — no lo toqué porque ese módulo lo lleva la otra
+   ventana. **Jhon: mirar `stamps.service.record()`.**)*
+3. **Borrar la tarjeta del plan desde `/app/cards` mataba el club sin retorno**:
+   cascada sobre TODOS los pases, socios con `passId` null y cada escaneo
+   respondiendo «esta membresía todavía no tiene tarjeta», para siempre.
+   Bloqueado en el backend, y en el listado ya ni se ofrece el botón.
+4. **La tarjeta del plan nacía con el verde de Clubify.** La fuga de marca de
+   siempre: se crea una sola vez y el primer socio la fija para todos.
+5. **El enrolamiento público emitía pases de club.** `/c/{cardId}` daba un pase
+   sin membresía; al escanearlo el cajero leía «esta tarjeta no es de un club» y
+   entendía que el escáner estaba roto.
+6. **Editar el plan no repintaba nada.** Subir el cupo de 10 a 15 dejaba la
+   billetera diciendo `15 / 10`.
+7. **Pausar no repintaba el pase.** El socio pausado llegaba al mostrador con su
+   saldo intacto en el móvil. La caja lo frena bien, así que no era dinero: era
+   la discusión en el mostrador.
+8. **`funnelLoyalty` contaba a los socios del club** como cartones completos que
+   nunca se canjean. Era el único resolutor sin el filtro `clubPlanId: null`.
+9. **La ficha del cliente pintaba la tarjeta de club con botones de sellar y
+   canjear** — las dos acciones del punto 2.
+
+Y dos menores: el reinicio mensual se cortaba en 5000 en silencio (ahora avisa),
+y `/api/club` faltaba en el bloqueo de los negocios «solo InfoLink».
+
+### Dos cosas para la ventana de Alianzas
+
+1. **`stamps.service.record()` no filtra las tarjetas de convenio.** Es el mismo
+   agujero que se acaba de cerrar para el club: sellar o canjear un pase de
+   convenio desde la ficha del cliente entra sin ninguna barrera. Solo cerré la
+   rama del club para no tocar ese módulo.
+2. **`scanner.service.ts:110` lee `(user as any).locationId`, y `AuthUser` no
+   tiene ese campo** — verificado: no aparece en el decorador y nada en
+   `src/auth` lo pone. Siempre llega `null`, y en `convenios-canje.service.ts`
+   la comprobación de sede está guardada tras `locationId &&`. Resultado: **un
+   convenio limitado a la sede A se canjea igual en la sede B.**
+
+### ⚠️ `frontend/src/app/scan/page.tsx` queda SIN COMMITEAR — hay que decidir
+
+El botón «Deshacer el último» del club está **en disco pero no en ningún
+commit**, porque ese fichero tiene también un cambio de la otra ventana (el
+`montoTiquete` pasa a ser uno por beneficio, para que con dos beneficios que
+piden monto lo tecleado en uno no viaje con el canje del otro). Los dos cambios
+comparten el primer hunk y no se separan limpio.
+
+No lo commiteo yo para no meter trabajo ajeno a medias bajo mi mensaje — es lo
+que pasó el 2026-08-26 con el editor de correos. **Pero ojo: `desplegar.cjs` se
+niega a desplegar con cambios sin commitear**, así que alguien tiene que
+commitearlo antes del próximo despliegue del frontend. Lo mío ahí son cinco
+hunks aditivos (`ultimoConsumo`, `deshacerConsumoClub` y su botón); no chocan
+con lo del monto.
+
+### Pendiente
+
+- **Correr la migración**: `railway run node scripts/apply-club-migration.cjs`.
+  Aditiva e idempotente. Ahora incluye `Tenant.clubEnabled` y ya no crea la
+  columna `saldo`, que era un residuo del diseño viejo.
+- Encender `clubEnabled` al negocio que lo estrene.
+- Probar en móvil de verdad: el pase en iPhone y en Android.
+
+### De paso, dos cosas que NO son del club
+
+- **`brand-message-templates.spec.ts` está en rojo desde `ebf6551c`** (el ciclo
+  de prueba de 7 días de Sellea): `trial_started` no tiene gemelo por correo. O
+  sea, ese aviso le llega al negocio por SMS pero no por correo.
+- **El backend ya no compila con el heap por defecto de Node en esta máquina.**
+  `npx tsc --noEmit` muere con `heap out of memory` si hay otro proceso pesado a
+  la vez. Con `NODE_OPTIONS="--max-old-space-size=4096"` pasa sin problema.
+
+## 2026-09-02 — Alianzas: probado de punta a punta en local (y el portal no cargaba)
+
+Antes de tocar producción monté el recorrido entero en local —Docker, Postgres,
+la API con SWC— y lo pasé como lo hará un empleado real. **44 comprobaciones,
+todas en verde**, pero el camino hasta ahí destapó un fallo que ningún test de
+servicio podía ver.
+
+### El portal del aliado respondía 404 SIEMPRE
+
+`GET /public/alianzas/portal/:token` lo capturaba
+`@Get(':tenantSlug/:convenioSlug')`, que se declara antes en el mismo
+controlador y también son dos segmentos: Nest resolvía `portal` como el slug del
+negocio y el token como el del convenio. El PATCH y el POST del portal sí
+funcionaban —no compiten con nada—, así que el fallo era justo el de entrar.
+
+Reordenar los métodos lo arreglaba, pero dejaba la trampa puesta: un negocio
+llamado «Portal» volvería a romperlo. Ahora el portal tiene **prefijo propio**
+(`public/aliado/:token`), que además casa con la ruta del frontend.
+
+Es exactamente el mismo error que ya había evitado en el frontend y que se me
+coló en la API.
+
+### Las migraciones, probadas de verdad
+
+Contra una base local a la que le borré las 6 tablas, los 5 enums y las 3
+columnas —el peor caso: una producción que nunca corrió convenios—:
+
+- Las dos, en orden, levantan todo desde cero. ✅
+- Correrlas **dos veces** no hace nada la segunda. ✅
+- La segunda **sola** falla en seco (`relation "ConvenioTarjeta" does not
+  exist`, exit 1) sin aplicar nada a medias. ✅
+- `apply-convenios-migration.cjs` **sí crea `Tenant.conveniosEnabled`** con
+  `IF NOT EXISTS`. Era lo que más me preocupaba: sin esa columna, el backend
+  nuevo rompería `/tenants/me`, que es de donde cuelga el panel de TODOS los
+  negocios.
+
+### El script queda en el repo
+
+`backend/scripts/probar-alianzas-e2e.cjs`. Los 164 tests unitarios corren contra
+un doble de Prisma: prueban la lógica, no el cableado. Este prueba el cableado.
+
+## 2026-09-02 (madrugada, 4ª vuelta) — Alianzas: la lista blanca era adivinable
+
+Otra ronda de agentes. **Nada de esto toca `backend/src/club/**`,
+`stamps.service.ts` ni `frontend/src/app/app/club/**`** — Javier trabaja ahí en
+paralelo.
+
+### El grave: pegar la cabecera del Excel abría el convenio
+
+`cargarLista` no validaba la FORMA de cada entrada, solo normalizaba. Quien
+pegaba el rango de Excel con su cabecera («Documento», «Correo», «Nombre»)
+metía esas palabras como documentos válidos de la lista blanca. A partir de
+ahí, cualquiera escribía `documento` en el formulario público y se llevaba el
+beneficio del aliado sin trabajar allí. **Una lista blanca cuya credencial se
+adivina no es una lista blanca.**
+
+Del mismo sitio: el TABULADOR no era separador, así que pegar dos columnas de
+Excel («Ana Pérez⇥1020304050») producía una sola fila `ANAPÉREZ1020304050` que
+no casaría jamás — el panel decía «120 en la lista» y a las 120 personas les
+salía «no encontramos tu documento».
+
+### El oráculo que decía estar cerrado y no lo estaba
+
+Los dos choques de identidad respondían distinto: 403 «los datos no coinciden»
+para un teléfono con tarjeta, 400 «ese documento ya existe» para lo otro.
+Probar teléfonos ajenos contra el enlace público decía cuáles tienen tarjeta —
+o sea, la plantilla de la empresa aliada. Ahora es **la misma excepción y el
+mismo texto**, y hay un test que compara mensaje y código de estado en vez de
+comprobar una cadena.
+
+### La vigencia moría cinco horas antes
+
+`parsearVigencia` estiraba la fecha al final del día con `setHours`, que usa la
+hora **del proceso** — UTC en Railway. «Hasta el 31 de diciembre» se apagaba a
+las 18:59 de Bogotá, en plena noche de servicio. Ahora se calcula en la zona
+del negocio (`finDelDia` en `periodos.ts`).
+
+### Y una tanda de arreglos menores
+
+Dar de baja a alguien no le quitaba su fila de la lista cargada **por correo**,
+así que volvía a entrar dando ese correo · dos filas de la misma persona
+contaban como dos cupos · con una fila gastada y otra libre se rechazaba a
+quien sí tenía cupo · `verLista` no comprobaba el módulo y ordenaba los ya
+activados primero · el total del tiquete escrito «12.500» llegaba como 12,5 y
+el cajero veía un error de validación **en inglés** · el monto era un solo
+estado compartido por todos los beneficios · el error del canje se pintaba
+cientos de líneas más arriba, fuera de la pantalla del móvil · el empleado y el
+aliado leían los textos escritos para el cajero («Entregar gratis: Bebida»).
+
+### Estado
+
+164 tests en verde, `tsc` en 0 en backend y frontend, lint limpio.
+
+### Lo que sigue mal y no bloquea (no prometérselo a un cliente)
+
+**El filtro por sede no se aplica nunca.** `AuthUser` no lleva `locationId` y en
+`scanner.service.ts` va con un `as any`, que es lo que impide que TypeScript
+avise. Una alianza limitada a una sede vale en todas, y `ConvenioCanje.locationId`
+se guarda siempre null, así que el informe por sede sale vacío.
+
+**Un empleado puede quedar bloqueado por otro.** Si alguien activa con el
+teléfono de un compañero antes que él (en modo CÓDIGO el código lo sabe toda la
+empresa), al compañero le sale el mensaje de datos que no coinciden y no puede
+activar por autoservicio. El negocio lo resuelve desde el panel. Arreglarlo de
+raíz pide verificar el teléfono, y no hay transporte de SMS por marca.
+
+## 2026-09-02 (madrugada, 3ª vuelta) — Alianzas: lo que encontró la auditoría
+
+Tres agentes revisaron el módulo. Lo que salió, y ya está corregido:
+
+### El grave: se podía robar la tarjeta de un compañero
+
+`alianzas-publico.service.ts` resolvía la identidad **solo por teléfono**, y el
+atajo de idempotencia devolvía el `passId` **antes** de llamar a `verificar()`.
+Con el teléfono de un compañero y sin saber el código, cualquiera recibía su
+`passId` — y `GET /passes/:id/apple.pkpass` es `@Public()`, así que ese id es la
+credencial completa. Se instalaba el pase ajeno y se canjeaba con su código de
+barras.
+
+Ahora la tarjeta previa solo se devuelve si el **documento coincide**, y el
+mensaje de fallo es el mismo que el de «documento ya usado» para no convertir el
+endpoint en un oráculo de qué teléfonos tienen tarjeta.
+
+De paso: el `Customer` se creaba ANTES de verificar, así que un código
+equivocado ya dejaba datos personales escritos en el CRM de un negocio ajeno
+desde un endpoint sin sesión. Ahora se verifica primero y se escribe después.
+
+### Dos huecos que hacían el módulo decorativo
+
+1. **No había botón de canje en el escáner.** El cajero veía qué aplicar y no
+   podía registrarlo: `canjesCount` no subía nunca, los topes («1 al día») no
+   mordían jamás, el informe del aliado decía 0 usos para siempre y el candado
+   `pg_advisory_xact_lock` era código muerto. Ya está, con su anulación.
+2. **El modo LISTA era un callejón sin salida.** No existía ninguna ruta que
+   escribiera en `ConvenioListaBlanca`, así que elegir «solo quien esté en la
+   lista» hacía que a TODOS los empleados les saliera «no encontramos tu
+   documento en la lista de tu empresa» — un fallo del producto redactado como
+   culpa del usuario. Ahora se pega la lista desde el panel.
+
+### Y dos más
+
+- **«Añadir a Google Wallet» enseñaba JSON crudo**: el enlace apuntaba directo a
+  `/passes/:id/google`, que devuelve `{saveUrl}`, no un redirect.
+- **La vigencia no se podía tocar desde el panel.** El backend le dedicaba tres
+  comentarios largos y no había ni un campo: un convenio vencido solo se podía
+  finalizar (irreversible) y crear otro.
+
+### Sigue pendiente (no bloquea instalar la tarjeta)
+
+`AuthUser` no lleva `locationId`, así que el filtro por sede del convenio **nunca
+se aplica**: una alianza limitada a una sede vale en todas. No prometérselo a un
+negocio con varias sedes hasta arreglarlo. Y `canjear` toma la sede del body, no
+de la sesión.
+
+## 2026-09-02 (madrugada) — Alianzas: entrada por el asistente y vigencia ilimitada
+
+Segunda vuelta sobre lo de abajo. **Nada de esto toca `backend/src/club/**` ni
+`customers.service.ts`** — Javier está trabajando en la Tarjeta de Club en
+paralelo.
+
+- **Se entra por Tarjetas → Nueva tarjeta → «Alianza con una empresa»**, que es
+  como lo pidió Javier. La tarjeta del paso 2 **no es un `CardType`**: es un
+  enlace que lleva a `/app/alianzas?nueva=1`. Así se respeta el aviso de la
+  línea 23 del asistente (meter tipos ahí ya generó inconsistencias) y no se
+  duplica el alta, que ya existía y funcionaba.
+- **Vigencia ILIMITADA**, que era la petición concreta. No hace falta columna:
+  `endsAt = null` ya significaba eso en los siete lectores. Lo que faltaba era
+  *decirlo* — hasta ahora la opción existía y nadie sabía que estaba ahí, así
+  que el dueño se inventaba una fecha lejana. Es el valor por defecto.
+- La fecha se guarda al **final** del día elegido. Guardarla a las 00:00 apaga
+  el convenio un día antes de lo que el dueño cree, y eso se descubre con un
+  cliente delante.
+- **Interruptor de `conveniosEnabled` en el panel de admin.** Era el bloqueante
+  nº1 para probar: la columna solo se LEÍA, no había ni un panel que la
+  escribiera, así que el módulo únicamente se podía encender por SQL directo
+  contra producción.
+- El alta crea la alianza **y su primer beneficio en una sola transacción**: una
+  alianza sin beneficios está viva pero es inerte (su enlace responde «aún no
+  está disponible»). En la lista, esas salen marcadas «Sin beneficios aún».
+- Cambiar `endsAt` ahora **empuja el pase** si cambia lo que el empleado ve.
+  Antes solo se empujaba al pausar o finalizar: revivir un convenio vencido
+  dejaba las tarjetas diciendo «finalizado» hasta que otro cambio cualquiera
+  empujara.
+
+### Un fallo mío que encontró la revisión
+
+`plantilla()` en `alianzas-publico.service.ts` consultaba `tenant.primaryColor`
+y **nunca lo escribía**: la `Card` nacía con el default del esquema —el verde de
+Clubify— así que la tarjeta de una marca blanca se habría pintado con el color
+de la plataforma. Y esa `Card` se crea **una sola vez y se queda**: el primer
+empleado que activara la habría fijado así para siempre.
+
+### Estado
+
+98 tests en verde (38 nuevos que ejercitan los servicios REALES contra un doble
+de Prisma en memoria). `tsc` en 0 tanto en backend como en frontend. Sigue sin
+desplegar y sigue faltando correr `scripts/apply-alianzas-migration.cjs`.
+
+## 2026-09-02 — Alianzas: la tarjeta de convenio, de punta a punta (SIN DESPLEGAR)
+
+Un negocio pacta con una **empresa** y los empleados de esa empresa reciben un
+beneficio permanente en el local (10%, bebida gratis con el almuerzo, 2x1).
+**Es un estilo de tarjeta propio**, como el club o los sellos — no un tipo más
+dentro del asistente de tarjetas, y nada que ver con la cuponera.
+
+### Lo que había: una casa sin puerta
+
+El módulo de convenios estaba construido desde hace tiempo y **no se podía usar
+en absoluto**. `ConvenioTarjeta` no se creaba en ningún sitio del repo,
+`Card.convenioId` no se escribía nunca, `Convenio.codigo` se guardaba y se
+editaba pero **no se leía jamás**, y `ConvenioListaBlanca` tenía cero
+referencias. El enlace único que el negocio le iba a dar a la empresa no
+llevaba a ninguna parte.
+
+### El doble interruptor — dos banderas, no una
+
+Javier quería que **las dos partes** pudieran encender y apagar. Está resuelto
+con dos columnas independientes: `ConvenioCupon.isActive` es del negocio y
+`activoAliado` de la empresa aliada; el canje exige las dos. Así **ninguno
+puede encender lo que apagó el otro por construcción**, sin reglas que validar
+y sin carreras — cada bandera tiene un único escritor. La lista blanca de
+campos de `actualizarCupon` no incluye `activoAliado`, y esa omisión es la que
+lo sostiene: no la quites.
+
+### Lo nuevo
+
+- `alianzas-estado.ts` — motor de reglas **puro**, con 29 tests que importan el
+  módulo REAL. (Los 31 tests viejos de convenios reimplementaban la lógica
+  dentro del propio fichero de test: verdes sin proteger nada.)
+- `alianzas-publico.service.ts` — el enlace del empleado. Verifica de verdad
+  los tres modos (ABIERTO / CODIGO / LISTA), crea `Customer` + `Card` +
+  `Pass` + `ConvenioTarjeta`, y es idempotente.
+- `alianzas-portal.service.ts` — portal del aliado por token: su interruptor,
+  informe **solo agregado** (ni un nombre ni un teléfono de sus empleados) y
+  **baja a ciegas por documento** para quien deja la empresa.
+- Frontend: `/app/alianzas` (+ detalle), `/alianza/<negocio>/<empresa>` para el
+  empleado y `/aliado/<token>` para la empresa.
+- El pase ya no dice «SELLOS 0 / 1»: dice BENEFICIO · ACTIVO / EN PAUSA, en
+  Apple y en Google, y los cuatro idiomas.
+
+### Seis defectos corregidos de paso
+
+| Qué | Por qué importaba |
+|---|---|
+| Anular era leer-decidir-escribir | Doble clic del cajero **descontaba dos veces** del tope global |
+| `TENANT_STAFF` podía todo | Un cajero podía **subirse el descuento del 10% al 90%** o borrar el convenio |
+| `assertHabilitado` solo al crear | Apagar el módulo desde admin **no impedía editar ni canjear** |
+| Auto-apagado al llegar a `maxTotal` | El cajero leía «apagado por el negocio» (falso) y **subir el tope no lo reabría**. Ahora «Agotado» se calcula |
+| Código vacío en modo CODIGO | Dejaba la puerta abierta de par en par sin que nadie lo notara |
+| FINISHED se podía deshacer | Mezclaba dos épocas del convenio en el mismo historial y rompía el informe del aliado |
+
+Además, los resolutores de «primera tarjeta de sellos» filtraban `clubPlanId:
+null` pero **no** `convenioId`: una tarjeta de alianza se colaba como la
+tarjeta de fidelización del negocio. Añadido `convenioId: null` en los 8 sitios
+(+ el blindaje de `cleanupOrphanStampsPass`), y `merge` de clientes ya mueve
+las `ConvenioTarjeta` — antes fusionar dos clientes **borraba la tarjeta del
+empleado y todo su historial**.
+
+### Pendiente antes de desplegar
+
+1. **Correr la migración**: `railway run node scripts/apply-alianzas-migration.cjs`
+   (2 columnas + el índice único **parcial** `(convenioId, documento)`, que
+   Prisma no sabe expresar). Es aditiva e idempotente, y aborta avisando si
+   encuentra documentos repetidos.
+2. Encender `conveniosEnabled` al negocio que lo vaya a usar.
+3. **No lo he desplegado**: el árbol no compila por el club a medias (ver la
+   entrada de abajo, `ClubMembresia.saldo`). Nada de alianzas está en rojo —
+   los 52 errores son de `src/club/*.spec.ts` y del bloque de club en
+   `customers.service.ts` —, pero prefiero no desplegar encima de eso.
+
+## 2026-09-02 — Tarjeta de Club sobre `Pass.stampsCount` (DESPLEGADO, con tests en rojo)
+
+**El cliente le paga una suscripción AL NEGOCIO** y recibe N beneficios al mes
+que va gastando. Al revés que los sellos: arranca lleno y baja. El cupo se
+**reinicia** cada mes — consumir 3 de 10 deja 10, no 17.
+
+### El error que costó una reescritura
+
+Javier lo dijo en su primer mensaje: «la tiene el cliente con **10 sellos** y
+cada vez que va se le **resta el sello**». Monté el saldo en una tabla aparte
+(`ClubMembresia.saldo`) y de ahí salieron todos los problemas: sin push, sin
+pintado en el pase, sin geolocalización. **La infraestructura ya funcionaba
+para cualquier pase; yo escondí el saldo donde el pase no mira.**
+
+Ahora vive en `Pass.stampsCount`, el mismo contador de siempre, y hereda todo
+gratis. Lo que sigue separado es el SIGNIFICADO: `ClubConsumo` es su propia
+tabla, así que consumir nunca se confunde con `STAMP_REMOVE` (deshacer un error
+del cajero). Se comparte el número, no el significado.
+
+### Cinco defectos que encontró el agente de pruebas
+
+| Qué | Por qué importaba |
+|---|---|
+| El candado del estado se perdió | Una membresía pausada a medio escaneo se llevaba igual el beneficio |
+| Ventana de 1 h en el cambio de mes | A las 00:30 del día 1 el cliente gastaba el sobrante: **17 cafés con plan de 10** |
+| `consumo.periodo` salía de la membresía | Un café del 1 de octubre quedaba contado en septiembre |
+| La anulación leía una foto vieja | Si el cron reiniciaba en medio, devolvía cupo del mes nuevo |
+| Un CANCELADO no podía volver nunca | El índice único se lo impedía para siempre |
+
+El cron horario pasa a ser red de seguridad: el reinicio ocurre **en el momento
+del consumo** si el mes cambió.
+
+### Proteger la tarjeta — 15 filtros `clubPlanId: null`
+
+Al usar `type: STAMPS`, **siete** resolutores de «la primera tarjeta de sellos
+del negocio» se la llevarían por delante. El peor: `cleanupOrphanStampsPass`
+podía **BORRAR el pase del socio** (se dispara con 0 sellos y 0 devices, justo
+el estado de un pase recién instalado). El séptimo (`onboarding-sync`) lo
+encontró el agente, no estaba en mi lista.
+
+**Fusionar clientes** ya no borra la membresía ni su historial.
+
+### El escáner ahora dice qué encontró
+
+Las cuatro ramas devuelven `kind`: `sellos | cupon | club | convenio |
+cuponera`. Antes solo la cuponera se identificaba y el frontend hacía
+`data.pass.customer.fullName` a ciegas. **Esto ya estaba roto para convenios**
+sin que nadie lo notara, porque nadie los usa todavía.
+
+### ⚠️ 26 TESTS EN ROJO
+
+`tsc` 0 errores en ambos lados. Tests: **105 pasan, 26 fallan**. Los rojos son
+specs que un agente dejó a medio migrar —comprueban `saldo` en la fila de la
+membresía, campo que ya no existe—. **No indican código roto: indican una
+migración de tests sin terminar.** Hay que acabarla.
+
+Los tres agentes murieron por límite de sesión a mitad del trabajo.
+
+### Sigue faltando
+
+**Todo el frontend del club.** No se puede crear un plan desde el panel; el
+módulo solo responde por API. Y falta decidir con Javier **dónde vive** en el
+panel: sección propia (mi apuesta) o una tercera opción en el asistente de
+tarjetas.
+
+## 2026-08-31 — Las 6 mejoras pedidas por clientes (DESPLEGADAS)
+
+Un commit por tarea, en el orden del documento. **Ninguna necesitó migración**:
+`InfoLink.theme` y `InfoLink.buttons` ya son columnas JSON.
+
+**T3 · Tipografías** (`bb1d1ae6`) — El reporte decía «la mayoría de fuentes del
+generador de QR no funcionan». Era peor: **no cargaba ninguna, y no solo en el
+QR**. Había un único `<link>` con las 129 familias y **el CDN de Google corta
+en 120 por petición** → 403. Medido contra el CDN y contra producción: 120 da
+200, 121 da 403. Es el número de familias, no el largo de la URL (121 mide
+3.196 car. y falla; otra de 3.781 con 120 funciona). Cada familia por separado
+responde 200 — no hay ningún nombre inválido.
+
+Como el `<link>` es global, también estaban rotas las tipografías del
+**infolink**, la **vista previa del wallet** y las cotizaciones. Ahora van de
+60 en 60 (3 peticiones, las 3 verificadas en 200 en el sitio vivo). Además el
+editor espera a `document.fonts.ready` antes de exportar y redibuja el canvas
+al cargar las fuentes — Konva pinta con la fuente que haya en ese instante.
+
+**T6 · Post-registro** (`5ae3201f`) — La ruta recibía `?welcome=1` desde el
+registro pero **nunca lo leía**. Ahora, recién registrado: aviso «AÚN NO HA
+TERMINADO TU REGISTRO» con el color del negocio, flecha, botones de Wallet, y
+la tarjeta en pequeño debajo. Quien vuelve a abrir su tarjeta ve la pantalla de
+siempre. Badges oficiales en español; en en/pt/it, botón traducido.
+
+**T4 · Fondo del Shop** (`37eb5a7b`) — `bg-white` fijo en el `<article>` tapaba
+el fondo elegido. **Stories tenía el mismo defecto**. Sin fondo configurado
+siguen blancos: los publicados no cambian.
+
+**T1+T2 · Redes sociales** (`caca44ba`) — Los «iconos genéricos» eran **emojis**
+(📷 💬 📍) y **solo existían en Minimal**, alimentados por los campos del
+NEGOCIO, no del infolink. Por eso `iconosSociales()` cae a esos campos cuando
+el infolink no configuró ninguna red: si no, todos esos infolinks se quedaban
+sin iconos. Ahora logos de marca reales (una ruta, `currentColor`), color
+editable con vista previa sobre fondo claro y oscuro, en los 5 estilos.
+
+**T5 · Botón de llamada** (`2cf720e9`) — Tipo `PHONE` → `tel:+<dígitos>`. Se
+exige indicativo de país: el infolink lo abre gente de otra ciudad. No abre en
+pestaña nueva (dejaría una en blanco tras el marcador).
+
+⚠️ **Nada de esto se probó en navegador** — tsc y eslint limpios, y la T3
+verificada contra el CDN real. Falta comprobar en móvil la T6 (iPhone SE) y la
+T5 (iOS/Android).
+
+## 2026-08-31 — Historial de pagos por negocio + menú libro multi-imagen (DESPLEGADO)
+
+**Historial de pagos** (`70da1bf8`). En la ficha del negocio se veía el estado
+(«Pagada, próximo cobro el 24/08») pero no cómo se llegó ahí. Ahora la tarjeta
+de Facturación lleva debajo el historial unificado de las cuatro vías de pago:
+Hotmart, Stripe, cobro por fuera y crédito.
+
+No hizo falta tabla nueva: los webhooks ya se guardaban enteros
+(`HotmartWebhookEvent`, `StripeWebhookEvent`) junto a `ManualPayment` y
+`CreditTransaction`. Faltaba leerlos. `backend/src/tenants/payment-history.util.ts`.
+
+Lo que **no es obvio** y está cubierto con 18 tests:
+
+- Hotmart manda **varios eventos por el mismo cobro** (`PURCHASE_APPROVED` y,
+  ~8 días después al vencer la garantía, `PURCHASE_COMPLETE`). Sin agrupar por
+  `purchase.transaction` se duplicarían los ingresos de todos los negocios.
+- Gana el estado **más definitivo**, no el más reciente: rechazado→aprobado
+  está pagado; pagado→contracargo, no.
+- El importe es `full_price` (lo que se cobró), no `price` (ya lleva
+  descontada la comisión de Hotmart). Moneda en `currency_value`.
+- El aviso rojo solo cuenta rechazos **posteriores al último pago bueno**:
+  varios negocios reintentan 2-3 veces cada mes antes de que entre, y contarlos
+  haría sonar la alarma en negocios al día.
+
+Los eventos de Stripe no traen `tenantId` (el webhook resuelve la marca, no el
+negocio): se enlazan por `stripeCustomerId`.
+
+**Hallazgo que sale solo del historial:** Wok Explosivo tiene el cobro #4
+rechazado desde el 26-08 por «Saldo insuficiente.» — es por lo que no puede
+entrar al panel, que llevaba días sin explicación. Konys igual desde el 30-08.
+
+**Menú libro: subir varias imágenes** (`d2bee275`). Antes una a una. Ahora el
+lote entero, con concurrencia 3. Las páginas se **confirman en serie y en
+orden**: `createPage` (`catalog/menu-book.service.ts:335`) calcula `sortOrder`
+leyendo la última y sumando 1, así que dos altas en paralelo se llevan el mismo
+número y la carta sale barajada.
+
+⚠️ **Sigue abierto:** esa carrera de `sortOrder` está en el backend. El cliente
+la evita serializando, pero dos personas añadiendo páginas a la vez la
+disparan. Arreglo real: `sortOrder` atómico en SQL.
+
+⚠️ El menú libro **no se probó en navegador** (tsc y eslint limpios, nada más).
+
+## 2026-08-31 — El corte del 15 ya cuadra con la transferencia (DESPLEGADO)
+
+Javier transfirió **$303.85 por 21 comisiones** el 24 de agosto. El corte del
+15-08 mostraba **17 por $205.40** primero y **$343.15** después. Eran tres
+fallos distintos, todos por lo mismo: **una comisión se engancha a su corte una
+sola vez y nadie vuelve a mirar si sigue perteneciendo ahí.**
+
+| # | Fallo | Plata |
+|---|---|---|
+| 1 | El pago INDIVIDUAL no escribía `payoutBatchId` (`payAllForPerson` sí) | $137.75 sueltas |
+| 2 | Rama sin tope para lo «habilitado a mano» → caía en el corte abierto MÁS VIEJO, no en el vigente | $25.00 de más |
+| 3 | Anular una comisión no la sacaba del corte | $14.30 de más |
+
+**Estado final en producción, verificado:**
+
+```
+CORTE-2026-08-15   21 comisiones · total $303.85 · pagado $303.85
+CORTE-2026-08-31   14 comisiones · total $289.30 · pagado $0.00
+```
+
+Las 21 son exactamente las de la hoja de Javier. Barrido completo del histórico:
+solo había 3 anuladas pegadas y 3 mal fechadas, todas en los dos cortes
+abiertos. **Los cortes ya cerrados estaban limpios y no se tocaron.**
+
+**Regla que quedó fijada** (`corte-pertenencia.spec.ts`, 41 tests):
+el corte refleja **la transferencia**. Lo que se paga junto pertenece al corte
+que se está liquidando, aunque se haya adelantado. Un corte cuya fecha ya pasó
+**no acumula** — está esperando que lo cierren. Un corte **cerrado nunca se
+reescribe**, ni por una anulada dentro.
+
+Commits: `066f0e04`, `658bdc97`. Dato corregido con
+`backend/scripts/corregir-pertenencia-cortes.cjs` (idempotente, aborta si algún
+corte dejó de estar ABIERTO).
+
+**Ojo Jhon:** el arreglo toca `cutoff.service.ts` y `referrals.service.ts`
+(`dayWindowWhere`, `setCommissionStatus`, `payCommission`). Si tenías algo a
+medias ahí, revisá antes de mergear.
+
 ## Cómo escribir una entrada
 
 Se agrega **arriba** (lo más nuevo primero), con este formato:
@@ -666,6 +1620,88 @@ raíz es la landing de marketing con planes y precios.
 - [ ] El SMS de pago procesado sale para TODAS las marcas (no scopeado). Si es
       mucho volumen, scopear o filtrar.
 
+## 2026-08-26 — Convenios, aislamiento de comisiones y el webhook de Stripe de Sellea
+**Máquina/quién:** Javier (montiieljaviier) con Claude
+**Rama / PR:** `chore/merge-emails-sobre-314` (todo empujado)
+
+### Qué cambié
+
+- **Convenios** (beneficios para empleados de una empresa aliada). Backend
+  completo en `backend/src/convenios/`: esquema, servicio de administración,
+  servicio de canje con candado, controlador y rama nueva en el escáner. 31
+  tests. **Falta todo el frontend** — hay un traspaso detallado con la API y las
+  seis piezas que faltan; Javier tiene el enlace.
+- **Aislamiento por marca en comisiones.** `listAdminCommissions` solo miraba el
+  rol, y `SUPER_ADMIN` lo tienen también los admins de marca blanca: el admin de
+  Sellea veía las comisiones de TODA la plataforma. Acotado por la marca del
+  código destinatario. También `listCommissionBusinesses` y
+  `listUnattributedBusinesses`. Los endpoints `integration/*` de TeamClubify
+  piden `todasLasMarcas: true` explícito — si tocas eso, no se los comas.
+- **Stripe: firma inválida devuelve 400, no 200.** Contestábamos 200 a todo,
+  así que Stripe mostraba «0 % de error» mientras tirábamos cada evento.
+- **Avisos duplicados, dos caminos.** Una compra dispara TRES eventos en el
+  mismo segundo (`checkout.session.completed`, `invoice.paid`,
+  `invoice.payment_succeeded`). Las dos guardas leían-y-luego-escribían y las
+  tres pasaban. Ahora se reclama con UPDATE condicional.
+- **Ranking de negocios**: filtro por período, orden por antigüedad, total de
+  pases emitidos.
+- **Cupones**: opción «no convertir a ninguna tarjeta» (`Card.transformOnRedeem`).
+- **Mapa revertido a Google Maps** y pines individuales, por decisión de Javier.
+- **`scripts/desplegar.cjs`**: despliega una COPIA LIMPIA del commit, no la
+  carpeta. Úsalo en vez de `railway up` / `vercel deploy` a pelo.
+
+### Qué toqué de PRODUCCIÓN
+
+- **Migración de Convenios aplicada** (`scripts/apply-convenios-migration.cjs`),
+  aditiva e idempotente. 6 tablas, 5 enums, 3 columnas. Nadie lo tiene
+  habilitado (`conveniosEnabled` arranca en false).
+- **Migración `Card.transformOnRedeem`** aplicada. Los 68 cupones existentes
+  quedan en `true` = comportamiento de siempre.
+- **Backend desplegado varias veces**; frontend también.
+- **NO toqué** las credenciales de Stripe de Sellea salvo reescribir el
+  `webhookSecret` con el mismo valor que ya tenía (fue un no-op).
+
+### Qué falta / qué hay que validar del otro lado
+
+- [ ] **Frontend de Convenios** — es el grueso. Ver el traspaso.
+- [ ] **Stripe de Sellea: la clave secreta sigue mal.** Lo guardado es
+      `ed_61V1…GMVM`, que no es una clave de Stripe; Stripe la rechaza con
+      «Invalid API Key provided». Hay que crear una nueva (`sk_live_`) porque la
+      vieja ya no se puede revelar. Los avisos salen igual sin ella, pero lo que
+      consulta a Stripe no.
+- [ ] **Hay DOS endpoints de webhook** apuntando a la misma URL
+      (`inspiring-bliss-thin` y `webhookSELLEA`). Sobra el primero, que además
+      usa formato *Thin* que nuestro código no entiende.
+- [ ] **Rotar el `whsec_` de Sellea**: pasó por un chat.
+- [ ] **Recordatorio a las 2 h** al comprador que no activó — no existe.
+- [ ] **Separar el aviso al negocio del aviso a Sellea** con los datos del
+      cliente — hoy sale uno solo.
+- [ ] **Fugas de marca en el panel del afiliado**: `Logo` es el de Clubify a
+      fuego, y hay un `|| !me.brand` que pinta Clubify cuando la marca no
+      resuelve. Está en el documento que Javier le pasó a Jhon.
+
+### Riesgos y avisos
+
+- **El repo está dentro de OneDrive** y se sincroniza entre las dos máquinas: el
+  trabajo SIN COMMITEAR de una aparece en la copia de la otra. **Nunca
+  `git add -A`.** Hoy se coló trabajo ajeno a medias dentro de un commit.
+- **Si te encuentras cambios que no son tuyos, NO los reviertas.** Devolverlos
+  en git los cambia en disco, OneDrive sincroniza, y le borras a la otra persona
+  lo que tiene abierto.
+- **Nunca `prisma migrate diff` contra producción.** Genera 423 líneas que
+  además BORRAN índices que no se pueden expresar en el schema, entre ellos
+  `Pass_legacyQrTokens_idx` — el que hace que un QR ya instalado nunca deje de
+  escanear.
+- **Dos sesiones de Vercel** conviven en esta máquina y el CLI guarda el token
+  en un solo sitio. La de Clubify vive aislada en `~/.vercel-clubify`; el script
+  de despliegue la usa sola.
+- **El patrón de fallo del día**: leer-decidir-escribir sin atomicidad. Salió
+  tres veces (avisos al negocio, avisos al comprador, y casi en el filtro de
+  marca). Si algo puede llegar dos veces en el mismo segundo, recláma­lo con un
+  UPDATE condicional y mira el `count`.
+
+---
+
 ## 2026-09-01 — Fix: /admin/contabilidad (y 4 rutas más) se veían como marca blanca
 
 **Máquina/quién:** máquina de Jhon (Claude) · Rama `feat/commissions-auto-cutoffs`
@@ -1237,7 +2273,6 @@ Archivos: `prisma/schema.prisma` (+`firstFailedAt`), `src/billing/dunning.ts`
 - Cuentas internas/comp de Clubify sin Hotmart activo podrían quedar expuestas a
   la suspensión por fecha cuando venzan (mitiga: `manualPayment` o el tope legacy
   de 60 días). Ninguna está vencida hoy.
-
 ## 2026-08-30 — Fuga cross-marca + avisos de cobro silenciosos (DESPLEGADO)
 
 **Máquina/quién:** máquina de Jhon (Claude)

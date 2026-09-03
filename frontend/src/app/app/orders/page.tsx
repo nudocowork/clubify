@@ -209,10 +209,14 @@ export default function OrdersBoard() {
   /**
    * Al entregar un DOMICILIO, pregunta si se suma el sello.
    *
-   * En domicilio no hay sello automático: «entregado» lo marca quien reparte y
-   * eso no siempre significa que el cliente lo recibió conforme. Pero dejarlo
-   * al olvido hacía que el sello se perdiera, así que el sistema pregunta y el
-   * negocio decide en el momento.
+   * SOLO en domicilio, a propósito. Un pedido NO da sello por sí mismo: los
+   * sellos salen del escáner o del perfil del cliente en el panel (regla de
+   * Javier, 2026-08-26). Esta pregunta es una excepción que ya existía para el
+   * reparto, donde el cliente no pasa por el mostrador y el sello se perdía.
+   *
+   * No ampliar esto a mesa ni a recogida: ahí el cliente sí está delante y se
+   * le sella escaneando. Un tercer camino solo añade un botón que alguien
+   * acabará pulsando sin querer en cada pedido en línea.
    *
    * Best-effort: si algo falla acá, el pedido YA quedó entregado. Un problema
    * al sellar no puede deshacer el cambio de estado.

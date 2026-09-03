@@ -885,10 +885,35 @@ export class StripeService {
     // FIX PDF123 (cobro duplicado): si el webhook se re-procesa para el MISMO
     // período (Stripe puede reintentar/duplicar), no reenviamos "Pago recibido".
     // Un período nuevo (renovación) trae otra fecha → sí notifica.
-    const alreadyConfirmedPeriod =
-      !!periodEnd &&
-      !!tenant.currentPeriodEnd &&
-      periodEnd.getTime() === tenant.currentPeriodEnd.getTime();
+    //
+    // FIX 2026-08-26 (avisos duplicados): esto era leer-y-luego-escribir, y
+    // perdía la carrera. Una sola compra de suscripción dispara TRES eventos
+    // que caen aquí — `checkout.session.completed`, `invoice.paid` e
+    // `invoice.payment_succeeded` — y llegan en el mismo segundo. Los tres
+    // leían el `currentPeriodEnd` viejo, los tres se creían los primeros, y el
+    // negocio recibía el correo y el WhatsApp por duplicado.
+    //
+    // Ahora el período se RECLAMA con un UPDATE condicional: Postgres serializa
+    // la fila, así que solo una de las tres peticiones se lleva el `count: 1` y
+    // es la única que avisa. Las otras dos ven 0 y se callan. Sin candado
+    // explícito y sin transacción larga en mitad del camino del pago.
+    //
+    // Se reclama sobre `periodEnd`, no sobre `nextCharge`: durante la prueba de
+    // 7 días la fecha que vale es el fin de la prueba, y es la que se guarda.
+    // Reclamar la otra dejaría los tres eventos del cobro del día 7 creyéndose
+    // primeros otra vez.
+    let alreadyConfirmedPeriod = false;
+    if (periodEnd) {
+      const reclamo = await this.prisma.tenant.updateMany({
+        where: {
+          id: tenant.id,
+          OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { not: periodEnd } }],
+        },
+        data: { currentPeriodEnd: periodEnd },
+      });
+      // count 0 = otro evento del mismo pago ya reclamó este período.
+      alreadyConfirmedPeriod = reclamo.count === 0;
+    }
     // PDF Soft 10: fecha real de compra — set-once en la 1ª activación (nunca se
     // pisa en renovaciones). Preferimos el timestamp real del evento (ctx.paidAt).
     const curPurchase = await this.prisma.tenant.findUnique({
@@ -1158,6 +1183,28 @@ export class StripeService {
     whiteLabelId: string | null,
     opts: { email: string; name: string | null; phone: string | null },
   ) {
+    // Se RECLAMA el aviso ANTES de mandarlo, no después.
+    //
+    // Antes se enviaba y luego se marcaba, y una compra dispara tres eventos
+    // en el mismo segundo (`checkout.session.completed`, `invoice.paid`,
+    // `invoice.payment_succeeded`): los tres podían pasar el control antes de
+    // que ninguno llegara a marcarlo, y el comprador recibía el enlace de
+    // activación por triplicado. Es la misma carrera que duplicaba el aviso de
+    // pago al negocio.
+    //
+    // El UPDATE condicional lo serializa Postgres: solo uno se lleva el
+    // `count: 1` y es el único que envía.
+    const reclamo = await this.prisma.pendingStripePayment.updateMany({
+      where: {
+        email: opts.email,
+        ...(whiteLabelId ? { whiteLabelId } : {}),
+        consumedAt: null,
+        recoveryNotifiedAt: null,
+      },
+      data: { recoveryNotifiedAt: new Date() },
+    });
+    if (reclamo.count === 0) return;
+
     const r = await this.pendingActivation.notifyBuyer({
       gateway: 'STRIPE',
       whiteLabelId,
@@ -1165,18 +1212,24 @@ export class StripeService {
       name: opts.name,
       phone: opts.phone,
     });
-    if (r.emailSent || r.channel !== 'none') {
+
+    // Si no salió NADA —ni correo ni mensaje— se devuelve la marca. Si no, el
+    // comprador se quedaría sin su enlace y nadie lo reintentaría nunca: ese
+    // fue el fallo original, pagos cobrados sin producto entregado.
+    if (!r.emailSent && r.channel === 'none') {
       await this.prisma.pendingStripePayment
         .updateMany({
           where: {
             email: opts.email,
             ...(whiteLabelId ? { whiteLabelId } : {}),
             consumedAt: null,
-            recoveryNotifiedAt: null,
           },
-          data: { recoveryNotifiedAt: new Date() },
+          data: { recoveryNotifiedAt: null },
         })
         .catch(() => null);
+      this.logger.warn(
+        `aviso de activación no salió para ${opts.email}: marca devuelta para reintentar`,
+      );
     }
   }
 

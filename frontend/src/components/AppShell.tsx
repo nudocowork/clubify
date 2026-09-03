@@ -203,6 +203,10 @@ export default function AppShell({
     reservationsEnabled?: boolean;
     // Reservas de SERVICIOS (citas) — PDF245 P7. Activado per-tenant.
     serviceReservationsEnabled?: boolean;
+    // Alianzas con empresas (convenios). Activado per-tenant: la mayoría de
+    // negocios no monta ninguna y no tiene por qué ver la complejidad.
+    conveniosEnabled?: boolean;
+    clubEnabled?: boolean;
     // Tipo de negocio: 'INFOLINK' = panel reducido (solo InfoLink). null/'FULL'
     // = Negocio Completo (todos los módulos).
     businessType?: string | null;
@@ -514,6 +518,8 @@ export default function AppShell({
           academyEnabled: t?.academyEnabled ?? true,
           reservationsEnabled: t?.reservationsEnabled ?? false,
           serviceReservationsEnabled: t?.serviceReservationsEnabled ?? false,
+          conveniosEnabled: t?.conveniosEnabled ?? false,
+          clubEnabled: t?.clubEnabled ?? false,
           businessType: t?.businessType ?? 'FULL',
           whiteLabelCreditsUnlimited: t?.whiteLabelCreditsUnlimited ?? false,
           reviewsEnabled: t?.reviewsEnabled ?? true,
@@ -829,6 +835,30 @@ export default function AppShell({
                   : []),
                 { href: '/app/notifications', label: 'Push', icon: 'bell', module: 'push' },
                 { href: '/app/reviews', label: 'Reseña de Google', icon: 'spark' },
+                // Alianzas: un estilo de tarjeta propio, no un tipo dentro del
+                // asistente de tarjetas. Solo si el módulo está encendido para
+                // este negocio.
+                ...(tenantInfo?.conveniosEnabled
+                  ? [
+                      {
+                        href: '/app/alianzas',
+                        label: 'Alianzas',
+                        icon: 'users' as const,
+                      },
+                    ]
+                  : []),
+                // Tarjeta de Club: otro estilo de tarjeta propio, no un tipo
+                // dentro del asistente. Como Alianzas, solo si el módulo está
+                // encendido para este negocio.
+                ...(tenantInfo?.clubEnabled
+                  ? [
+                      {
+                        href: '/app/club',
+                        label: 'Tarjeta de Club',
+                        icon: 'card' as const,
+                      },
+                    ]
+                  : []),
               ],
             },
             // Reservas: solo aparece si el SUPER_ADMIN activó el módulo

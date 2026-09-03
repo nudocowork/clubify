@@ -21,6 +21,7 @@ export type CardDto = {
   stampContourColor?: string | null;
   centerBgColor?: string | null;
   logoBgColor?: string | null;
+  logoShape?: string | null;
   stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   stampBgImageUrl?: string | null;
   stampIconImageUrl?: string | null;
@@ -91,6 +92,7 @@ export class CardsService {
     'stampContourColor',
     'centerBgColor',
     'logoBgColor',
+    'logoShape',
     'stampBgType',
     'stampBgImageUrl',
     'logoUrl',
@@ -193,10 +195,25 @@ export class CardsService {
     return user.tenantId;
   }
 
+  /**
+   * Las tarjetas del negocio, SIN la plantilla de las alianzas.
+   *
+   * Esa plantilla no es una tarjeta que el dueño haya creado ni que gestione
+   * desde aquí: es la fontanería del pase de un convenio. Todo lo suyo —los
+   * beneficios, los dos enlaces, los empleados, los interruptores— vive en
+   * Alianzas, y aquí no hacía más que invitar a errores: se le ofrecía su
+   * enlace de alta genérico (que se salta el código de la empresa), el botón de
+   * borrar (que se lleva por delante los pases de todos sus empleados), y salía
+   * como destino en la tienda, en los pop-ups del menú, en los QR de mostrador
+   * y en el segmentador de notificaciones.
+   *
+   * Este listado lo consumen once pantallas del panel. Filtrar aquí las limpia
+   * todas de una vez, en vez de repetir la condición en cada una.
+   */
   list(user: AuthUser, tenantId?: string) {
     const tid = this.resolveTenantId(user, tenantId);
     return this.prisma.card.findMany({
-      where: { tenantId: tid },
+      where: { tenantId: tid, convenioId: null },
       include: {
         _count: { select: { passes: true } },
         location: { select: { id: true, name: true } },
@@ -252,6 +269,7 @@ export class CardsService {
         stampContourColor: dto.stampContourColor ?? undefined,
         centerBgColor: dto.centerBgColor ?? undefined,
         logoBgColor: dto.logoBgColor ?? undefined,
+        logoShape: dto.logoShape ?? undefined,
         // Wallet V3 — tarjetas NUEVAS nacen con color uniforme (SOLID, default
         // del schema); las existentes quedaron en GRADIENT por la migración.
         stampBgType: dto.stampBgType ?? undefined,
@@ -331,6 +349,7 @@ export class CardsService {
       'stampContourColor',
       'centerBgColor',
       'logoBgColor',
+      'logoShape',
       'stampBgImageUrl',
       'stampIconImageUrl',
       'cashbackPercent',
@@ -393,7 +412,31 @@ export class CardsService {
   }
 
   async remove(user: AuthUser, id: string) {
-    await this.get(user, id);
+    const card = await this.get(user, id);
+
+    // La tarjeta-plantilla de un plan de club no se borra desde aquí. Borrarla
+    // arrastraba en cascada TODOS los pases del plan (`Pass.cardId` es
+    // `onDelete: Cascade`) y dejaba a los socios con `passId` en null y sin
+    // forma de reemitir: cada consumo respondía «esta membresía todavía no
+    // tiene tarjeta», para siempre. Y en el listado se ve como una tarjeta de
+    // sellos cualquiera, así que es un clic fácil de dar por error.
+    if (card.clubPlanId) {
+      throw new ForbiddenException(
+        'Esta tarjeta es la de un plan de club. Apaga el plan desde Tarjeta de Club; borrarla dejaría a sus socios sin tarjeta.',
+      );
+    }
+
+    // Y tampoco la plantilla de una ALIANZA, donde el daño es todavía peor:
+    // `ConvenioTarjeta.passId` NO tiene clave foránea, así que la cascada se
+    // lleva los pases y deja las filas apuntando a pases muertos. El canje
+    // busca por `passId`, así que ninguno de esos empleados vuelve a
+    // encontrarse — y no hay forma de reemitirlos.
+    if (card.convenioId) {
+      throw new ForbiddenException(
+        'Esta tarjeta es la de una alianza. Finalízala desde Alianzas; borrarla dejaría a sus empleados sin tarjeta y sin forma de recuperarla.',
+      );
+    }
+
     await this.prisma.card.delete({ where: { id } });
     return { ok: true };
   }

@@ -88,6 +88,9 @@ export class PassesController {
         secondaryColor: true,
         stampsRequired: true,
         isActive: true,
+        // Para poder negarse abajo: la plantilla de una ALIANZA no se reparte
+        // por esta puerta.
+        convenioId: true,
         tenant: {
           select: {
             brandName: true,
@@ -108,6 +111,20 @@ export class PassesController {
       },
     });
     if (!card || !card.isActive || card.tenant.status === 'SUSPENDED') {
+      return { available: false };
+    }
+    // La tarjeta de una ALIANZA no se da por aquí. Esta pantalla es el «Únete
+    // al programa» de una tarjeta de sellos: pide nombre, teléfono y cumpleaños
+    // y entrega el pase — SIN el código de la empresa, sin el documento y sin
+    // mirar la lista blanca. Cualquiera con el enlace se llevaba el beneficio
+    // que el negocio pactó solo para los empleados del aliado.
+    //
+    // `enrollPublic` ya lo rechaza al enviar, pero eso deja al empleado
+    // rellenando un formulario que va a fallar. Aquí se corta antes: la página
+    // dice que no está disponible y no se pinta el formulario.
+    //
+    // Su puerta es `/alianza/<negocio>/<empresa>`, que sí verifica.
+    if (card.convenioId) {
       return { available: false };
     }
     // Marca blanca del negocio (atribución/web/inicial). Nunca Clubify por

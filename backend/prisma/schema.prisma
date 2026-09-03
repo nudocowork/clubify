@@ -444,6 +444,7 @@ model RefreshToken {
 }
 
 model Tenant {
+  clubPlanes          ClubPlan[]
   id                          String                     @id @default(uuid())
   /// Marca Blanca a la que pertenece este negocio (Nivel 3 → Nivel 2).
   /// Nullable solo durante el backfill — todos los tenants existentes se
@@ -464,12 +465,21 @@ model Tenant {
   /// multiplica la base de datos sin que nadie lo note hasta que duele.
   ///
   /// Default 1 = el caso normal (una segunda sede).
+  /// `-1` = SIN TOPE, para cuando no se sabe de antemano cuántas hacen falta
+  /// (un coworking que abre una sala nueva y la necesita ese mismo día). Se
+  /// pone a mano por negocio; sigue siendo decisión de quien conoce el tamaño
+  /// del catálogo.
   maxExtraMenus               Int                        @default(1)
   menus                       Menu[]
   /// Convenios con empresas aliadas. Se habilita NEGOCIO POR NEGOCIO desde el
   /// panel de admin, igual que las cartas por sede: la mayoría no lo necesita
   /// y no debe ver la complejidad. Ver modelo `Convenio`.
   conveniosEnabled            Boolean                    @default(false)
+
+  /// Tarjeta de Club: la suscripción con cupo mensual. Se enciende negocio por
+  /// negocio, como las alianzas y las cartas por sede. Apagado por defecto
+  /// porque cambia el menú del panel de los ~168 negocios que hay.
+  clubEnabled                 Boolean                    @default(false)
   /// Cuántos convenios ACTIVOS puede tener a la vez.
   maxConvenios                Int                        @default(3)
   convenios                   Convenio[]
@@ -1176,6 +1186,7 @@ model User {
 }
 
 model Customer {
+  clubMembresias      ClubMembresia[]
   id         String    @id @default(uuid())
   tenantId   String
   tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1512,6 +1523,14 @@ model Card {
   // Espejo de Storefront.logoBgColor. Off por defecto (aditivo, no cambia
   // tarjetas existentes). Ver feedback_wallet_apple_logo_chromakey_white.
   logoBgColor         String?
+  /// Forma del logo en la tarjeta: SQUARE | ROUNDED | CIRCLE | RECTANGLE.
+  /// null = ROUNDED, que es como se ha pintado siempre — así ninguna tarjeta
+  /// ya publicada cambia de aspecto.
+  ///
+  /// Solo afecta a NUESTRO render (la tarjeta web y la vista previa del
+  /// panel). El pase real de Apple y Google lo dibuja cada plataforma con su
+  /// propia forma, y eso no se puede controlar desde aquí.
+  logoShape           String?
   heroImageUrl        String?
   iconUrl             String?
   stampsRequired      Int?
@@ -1596,8 +1615,24 @@ model Card {
   /// null = tarjeta normal, que es la inmensa mayoría.
   convenioId          String?
   convenio            Convenio? @relation(fields: [convenioId], references: [id], onDelete: Cascade)
-  // v2: si está activa la integración orders→sello
-  autoStampOnOrder    Boolean   @default(true)
+  /// Tarjeta de CLUB: el pase no acumula sellos, consume de un cupo mensual.
+  /// El escáner desvía leyendo esto, igual que con `convenioId`.
+  clubPlanId          String?
+  clubPlan            ClubPlan? @relation(fields: [clubPlanId], references: [id], onDelete: Cascade)
+  /// ¿Un pedido entregado suma sello SOLO? Por defecto NO.
+  ///
+  /// Nació en `true` y nadie lo tocó nunca: las 168 tarjetas activas lo tenían
+  /// puesto porque venía así de fábrica, no porque alguien lo eligiera. El
+  /// resultado es que un pedido del menú de domicilios sellaba solo, y el
+  /// negocio se enteraba después.
+  ///
+  /// El caso que lo destapó (La Gloriosa, 2026-08-26): solo dan sello a quien
+  /// come en el local, y los pedidos en línea les regalaban uno cada vez.
+  ///
+  /// Ahora el sello lo da el negocio. Al pasar un pedido a ENTREGADO el panel
+  /// pregunta, y decide en el momento. La casilla se queda por si algún negocio
+  /// quiere el automático de vuelta — pero es opt-in, no lo contrario.
+  autoStampOnOrder    Boolean   @default(false)
   autoStampAmount     Int       @default(1)
   // Emoji que se usa para representar cada sello visualmente (☕, 🍕, 🍔, etc).
   // El cliente lo elige al crear la tarjeta.
@@ -1618,6 +1653,13 @@ model Card {
   popupForBookSections    MenuBookSection[]       @relation("MenuBookSectionPopupCard")
   popupForBookPages       MenuBookPage[]          @relation("MenuBookPagePopupCard")
 
+  /// Una sola tarjeta-plantilla por plan de club. El alta hace
+  /// «buscar o crear» FUERA de la transacción, así que dos primeros socios a la
+  /// vez creaban DOS plantillas: la segunda dejaba huérfano el pase que el
+  /// cliente ya tenía instalado, y al escanearlo respondía que la tarjeta no
+  /// tiene socio. Los `null` no chocan entre sí en Postgres, así que las
+  /// tarjetas normales no se ven afectadas.
+  @@unique([tenantId, clubPlanId])
   @@index([tenantId])
   @@index([locationId])
 }
@@ -1644,6 +1686,7 @@ model CardUtmLink {
 }
 
 model Pass {
+  clubMembresia       ClubMembresia?
   id                String          @id @default(uuid())
   tenantId          String
   tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1763,6 +1806,7 @@ model Stamp {
 }
 
 model Location {
+  clubConsumos        ClubConsumo[]
   id                  String   @id @default(uuid())
   tenantId            String
   tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -6445,6 +6489,15 @@ model Convenio {
   /// Token del informe de solo lectura que el negocio le pasa al aliado.
   /// Solo agregados, nunca datos personales de los empleados.
   reportToken  String               @unique
+  /// Token del PORTAL del aliado, donde además del informe puede apagar y
+  /// encender sus propios beneficios y dar de baja a quien salió de la empresa.
+  ///
+  /// Va aparte de `reportToken` a propósito: el informe se reenvía por correo
+  /// sin pensarlo y acaba en cualquier bandeja; el interruptor no. Separarlos
+  /// permite pasar el informe a medio mundo y el mando solo a quien lo maneja,
+  /// y regenerar uno sin invalidar el otro. Null en los convenios creados antes
+  /// del portal: se rellena solo la primera vez que el negocio lo abre.
+  aliadoToken  String?              @unique
   createdAt    DateTime             @default(now())
   updatedAt    DateTime             @updatedAt
 
@@ -6507,9 +6560,22 @@ model ConvenioCupon {
   description   String            @default("")
   /// Texto libre, visible en el reverso del pase.
   terms         String            @default("")
-  /// EL INTERRUPTOR. Apagarlo bloquea el canje al instante y pone la tarjeta
-  /// en gris; volver a encenderlo la reactiva SIN reemitir nada.
+  /// EL INTERRUPTOR DEL NEGOCIO. Apagarlo bloquea el canje al instante y pone
+  /// la tarjeta en gris; volver a encenderlo la reactiva SIN reemitir nada.
   isActive      Boolean           @default(true)
+  /// EL INTERRUPTOR DE LA EMPRESA ALIADA. El canje exige los dos encendidos.
+  ///
+  /// Son dos banderas y no una con "quién la apagó" porque así cada parte es
+  /// dueña de la suya POR CONSTRUCCIÓN: el aliado no puede encender lo que
+  /// apagó el negocio ni al revés, sin ninguna regla que validar y sin carreras
+  /// —cada bandera tiene un único escritor—. Con una sola bandera compartida
+  /// habría que arbitrar quién puede reencender, y dos clics simultáneos
+  /// dejarían el interruptor donde llegara el último.
+  ///
+  /// Pausar o finalizar el convenio apaga `isActive` de todos los cupones pero
+  /// NO toca este: la decisión del aliado sobrevive al ciclo de pausa del
+  /// negocio, que es lo que él espera.
+  activoAliado  Boolean           @default(true)
   /// Cuántas veces puede usarlo UNA persona por período. null = sin tope.
   maxPorPersona Int?
   periodo       ConvenioPeriodo   @default(SIEMPRE)
@@ -6566,6 +6632,13 @@ model ConvenioTarjeta {
 
   @@unique([convenioId, customerId])
   @@index([convenioId, status])
+  /// OJO: hay además un índice ÚNICO PARCIAL `(convenioId, documento)` donde
+  /// `documento IS NOT NULL` que Prisma no sabe expresar y por eso vive solo en
+  /// SQL (`scripts/apply-alianzas-migration.cjs`). Es lo que impide que la misma
+  /// cédula active el convenio dos veces con dos teléfonos distintos. Sin él la
+  /// comprobación sería leer-decidir-escribir y dos activaciones simultáneas
+  /// pasarían las dos.
+  @@index([convenioId, documento])
 }
 
 model ConvenioCanje {
@@ -6610,6 +6683,186 @@ model ConvenioListaBlanca {
 
   @@index([convenioId, documento])
   @@index([convenioId, email])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TARJETA DE CLUB — el cliente le paga una suscripción AL NEGOCIO y recibe un
+// cupo mensual de beneficios que va gastando.
+//
+// Va al revés que la tarjeta de sellos, y esa es toda la diferencia: los
+// sellos ARRANCAN EN CERO y suben hasta un premio; el club ARRANCA LLENO y
+// baja. Uno es un progreso que se gana, el otro un saldo que ya se pagó.
+//
+// El cupo se REINICIA cada mes, se haya gastado o no. Quien consume 3 de 10
+// empieza el mes siguiente con 10, no con 17. Lo que no se usa se pierde, y a
+// cambio el negocio sabe que su exposición nunca pasa de N por cliente y mes.
+//
+// Distinto de las otras tres cosas que se le parecen de lejos:
+//   · Sellos    — gratis, acumula hacia un premio.
+//   · Convenios — gratis, lo paga la empresa aliada para sus empleados.
+//   · Cuponera  — el miembro le paga A LA PLATAFORMA, beneficios en aliados.
+//   · Club      — el cliente le paga AL NEGOCIO, beneficios en ese negocio.
+//
+// Reutiliza sin tocar: `Card` (plantilla del pase), `Pass` (QR + billetera),
+// `Customer` y el escáner. Ver `Card.clubPlanId`.
+//
+// El cobro es MANUAL por ahora: el negocio cobra por fuera y activa o pausa la
+// membresía a mano desde el perfil del cliente. La pasarela vendrá después.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum ClubMembresiaStatus {
+  /// Al día: consume de su cupo.
+  ACTIVA
+  /// El negocio la apagó (no pagó, o lo pidió el cliente). No consume ni se
+  /// le reinicia el cupo, pero se conserva todo para reactivarla.
+  PAUSADA
+  /// Terminada. No vuelve.
+  CANCELADA
+}
+
+/// Lo que monta el NEGOCIO: "Club del café, 10 cafés al mes".
+model ClubPlan {
+  id       String @id @default(uuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  name        String
+  slug        String
+  description String @default("")
+
+  /// Cuántos beneficios recibe al mes. Es el número al que se REINICIA cada
+  /// período, no un techo acumulable.
+  beneficiosPorMes Int @default(10)
+
+  /// Cómo se llama lo que consume, en singular ("café", "lavada", "clase").
+  /// Sale en el pase y en la caja: "te queda 1 café" se lee mejor que
+  /// "te queda 1 beneficio".
+  unidad String @default("beneficio")
+
+  /// Lo que el cliente paga. Informativo: el cobro es manual y por fuera.
+  /// En la unidad menor de la moneda (COP no tiene decimales → son pesos).
+  precioCents Int    @default(0)
+  currency    String @default("COP")
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tramos     ClubTramoAlta[]
+  membresias ClubMembresia[]
+  cards      Card[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, isActive])
+}
+
+/// Cuántos beneficios recibe quien se da de alta a mitad de mes.
+///
+/// El negocio parte el mes en tramos por día y le pone precio a cada uno:
+/// "del 1 al 15 → 10", "del 16 al 24 → 5", "del 25 al 31 → 3". Es SOLO para
+/// el primer período; a partir del mes siguiente recibe el cupo completo.
+///
+/// Sin ningún tramo definido, el alta recibe el cupo entero — que es lo que
+/// esperaría alguien que no configuró nada.
+model ClubTramoAlta {
+  id     String   @id @default(uuid())
+  planId String
+  plan   ClubPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  /// Día del mes, ambos incluidos. 1..31. No deben solaparse entre tramos del
+  /// mismo plan; el servicio lo valida al guardar.
+  desdeDia Int
+  hastaDia Int
+
+  /// Beneficios para quien se da de alta dentro de ese tramo.
+  beneficios Int
+
+  @@index([planId, desdeDia])
+}
+
+/// Un cliente suscrito a un plan.
+model ClubMembresia {
+  id     String   @id @default(uuid())
+  planId String
+  plan   ClubPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  /// El pase que lleva el cliente en la billetera. Null hasta que lo instala.
+  passId String? @unique
+  pass   Pass?   @relation(fields: [passId], references: [id], onDelete: SetNull)
+
+  status ClubMembresiaStatus @default(ACTIVA)
+
+  /// OJO: el saldo vivo NO está aquí, está en `Pass.stampsCount` — el mismo
+  /// contador que usan todas las tarjetas. Vive ahí para que el pase se pinte,
+  /// se empuje a la billetera y reciba la geolocalización sin código nuevo:
+  /// toda esa maquinaria opera sobre `Pass` y no mira el tipo de tarjeta.
+
+  /// Período al que corresponde el saldo, en hora de Bogotá: "2026-09".
+  ///
+  /// Es lo que hace idempotente el reinicio: solo se reinicia si el período
+  /// guardado es distinto del actual. Correr el cron dos veces no regala un
+  /// cupo, y una membresía que estuvo pausada tres meses no acumula tres
+  /// reinicios cuando vuelve.
+  periodo String
+
+  /// Cuántos beneficios se le dieron al empezar este período. Se guarda para
+  /// poder decirle al cliente "llevas 7 de 10" sin releer el plan, y para que
+  /// el histórico no cambie si el negocio sube el cupo a mitad de mes.
+  cupoDelPeriodo Int @default(0)
+
+  /// Cuándo se dio de alta. De aquí sale el tramo de prorrateo.
+  createdAt DateTime  @default(now())
+  pausedAt  DateTime?
+  updatedAt DateTime  @updatedAt
+
+  consumos ClubConsumo[]
+
+  /// Un cliente, una membresía por plan.
+  @@unique([planId, customerId])
+  /// El listado de socios ordena por fecha de alta. Sin la fecha EN el índice,
+  /// Postgres traía las miles de filas del plan y las ordenaba en memoria en
+  /// cada página, incluida la primera.
+  @@index([planId, status, createdAt(sort: Desc)])
+  /// El cron busca «período menor que el actual». Con el período delante es un
+  /// rango; al revés recorría todas las membresías activas de la plataforma
+  /// para devolver cero filas, 23 de las 24 pasadas diarias.
+  @@index([periodo, status])
+}
+
+/// Cada beneficio consumido. Es el histórico: nunca se borra ni se edita.
+model ClubConsumo {
+  id          String        @id @default(uuid())
+  membresiaId String
+  membresia   ClubMembresia @relation(fields: [membresiaId], references: [id], onDelete: Cascade)
+
+  /// Cuántos se descontaron de una vez (normalmente 1: dos cafés, dos filas
+  /// no; una fila con cantidad 2 sí, para que el cajero no escanee dos veces).
+  cantidad Int @default(1)
+
+  /// Saldo que quedó DESPUÉS de este consumo. Redundante a propósito: permite
+  /// reconstruir el historial sin recalcular, y delata un descuadre.
+  saldoResultante Int
+
+  /// Período en que ocurrió, para contar por mes sin hacer cuentas de fechas.
+  periodo String
+
+  /// Quién lo registró y dónde. Sin FK al usuario: el histórico sobrevive a
+  /// que se borre la cuenta del cajero.
+  actorId    String?
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  /// Anulación: un consumo mal registrado no se borra, se marca.
+  revertedAt DateTime?
+  revertedBy String?
+
+  createdAt DateTime @default(now())
+
+  @@index([membresiaId, createdAt])
+  @@index([membresiaId, periodo])
 }
 
 /// CONTABILIDAD — Fase 1. Histórico de ingreso REAL por transacción de cobro.
