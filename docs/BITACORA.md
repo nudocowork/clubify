@@ -8,6 +8,78 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-02 — Alianzas terminada en código, SIN desplegar (freeze) + guarda de rama
+
+**Nada de esto está en producción. Freeze en pie: la fusión y el despliegue los
+corre Jhon.**
+
+### Qué pasó
+
+Producción sirve un frontend **anterior** a las dos funciones nuevas. Se
+comprueba en un segundo:
+
+```
+/app/alianzas   404      <- no existe en el build que corre
+/app/club       404
+/app/cards/new  200
+```
+
+Por eso Javier ve que del menú desaparecieron Alianzas y Tarjeta de Club, y que
+el asistente de «nueva tarjeta» ya no ofrece las dos nuevas. **No es un cambio
+de código: es el rollback.** Los interruptores del negocio están bien
+—`demo-clubify` tiene `conveniosEnabled` y `clubEnabled` en `true` en la base de
+producción—, así que al desplegar vuelven solas.
+
+### Ramas
+
+La fusión a `main` tiene que llevar **las dos** ramas o borra trabajo:
+
+| rama | adelante de main | commits que la otra no ve |
+|---|---|---|
+| `chore/merge-emails-sobre-314` (alianzas + club) | 427 | 77 |
+| `feat/commissions-auto-cutoffs` (Jhon) | 389 | 39 |
+
+Los 39 de Jhon incluyen InfoLinks, el income capture de Hotmart y la app móvil
+de iOS. Fusionar solo una de las dos ramas los borra de producción.
+
+### Guarda de rama en `desplegar.cjs`
+
+El script ya se negaba a desplegar por detrás de **tu** rama. El agujero: estar
+al día con tu rama no dice nada de si tu rama tiene el trabajo del otro — hoy
+las dos estaban «limpias y sincronizadas» sin verse 39 commits.
+
+Ahora el despliegue sale de `main`, o de lo que diga `RAMA_PROD` dicho a
+propósito. Desde otra rama muere y enseña los commits que le faltan.
+
+**No cubre `vercel promote`**, y está escrito en el código: promover no pasa por
+el script, coge un despliegue viejo que ya está en Vercel sin mirar git. Ahí la
+única defensa es no usarlo.
+
+### Alianzas — lo último que se tocó
+
+La plantilla `Card` del convenio **ya no sale en el listado de Tarjetas**. El
+filtro va en `list()` del servicio, no en la pantalla, porque ese listado lo
+consumen once pantallas del panel. Estando ahí solo invitaba a errores: ofrecía
+su enlace de alta genérico (que se salta el código de la empresa), el botón de
+borrar (que arrastra los pases de todos los empleados), y salía como destino en
+la tienda, en los pop-ups del menú, en los QR de mostrador y en el segmentador
+de notificaciones.
+
+Nota: la plantilla de **Tarjeta de Club** sigue apareciendo en ese listado. El
+mismo argumento le aplica, pero es módulo de Javier y no se toca sin que lo
+pida.
+
+### Al desplegar, comprobar
+
+1. `/app/alianzas` y `/app/club` responden 200 (no 404).
+2. El asistente de nueva tarjeta ofrece las cuatro.
+3. `https://api.soyclubify.com/api/public/alianzas/x/y` da **404**, no 401.
+4. El enlace del empleado carga: `/alianza/demo-clubify/ecopetrol`.
+
+Las dos migraciones (`apply-convenios-migration.cjs`,
+`apply-alianzas-migration.cjs`) **ya están aplicadas** en producción.
+
+
 ## 2026-09-02 — Los avisos al equipo salen por la línea 2, que no entrega
 
 **Sin resolver. Javier decide dejarlo así por ahora.**
