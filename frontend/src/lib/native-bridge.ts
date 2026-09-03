@@ -207,13 +207,11 @@ export async function detenerEscaneoNativo(): Promise<void> {
 export async function registrarPush(
   enviarToken: (token: string, plataforma: NativePlatform) => Promise<unknown>,
 ): Promise<void> {
-  // Traza visible para depurar: el registro de push falla en silencio por
-  // diseño (no se le puede pedir nada al usuario), y sin esto no hay forma de
-  // saber en qué paso se cayó desde fuera del teléfono.
-  const traza = (t: string) => {
-    const w = window as unknown as { __push?: string[] };
-    w.__push = [...(w.__push ?? []), t];
-  };
+  // El registro de push falla en silencio por diseño: si el usuario no puede
+  // hacer nada al respecto, no se le muestra un error. El precio es que no se
+  // ve desde fuera en qué paso se cayó — por eso queda en consola, que sí se
+  // puede leer con el inspector de Safari conectado al teléfono.
+  const traza = (t: string) => console.info(`[push] ${t}`);
 
   const plataforma = nativePlatform();
   const push = plugin<PushPlugin>('PushNotifications');
