@@ -169,6 +169,67 @@ un único bug de corrección → arreglado y desplegado (frontend READY):
   frontend lo **subió a producción**: `/hub` ahora responde **200**. Si esa fase 1 no estaba
   lista para estar viva, avísame — quedó live junto con mi ranking, tu cuponera y el botón PRO.
 
+## 2026-09-03 (noche) — La causa de días de bugs fantasma: caché + detección tardía
+
+**Máquina/quién:** la de Jhon (sesión Claude)
+
+### ⚠️ DOS TRAMPAS QUE COSTARON DÍAS
+
+**1. El service worker servía código de agosto.**
+`VERSION` llevaba congelada en `v55-2026-08-14` mientras hacíamos más de
+quince despliegues. Cada uno llegaba a producción (verificado con `curl`) pero
+**no llegaba al teléfono**. Estuvimos persiguiendo bugs de layout y de push
+que ya estaban corregidos.
+
+Arreglado de raíz: **dentro de la app NO se registra service worker**, y el
+que hubiera se desregistra y purga sus caches (`PWARegister`). El SW sigue
+para la PWA del navegador, donde sí sirve (escáner sin señal en el mostrador).
+
+Para limpiar un teléfono que ya tenía el SW viejo hay que **desinstalar la
+app**, no basta reinstalarla encima: los datos sobreviven.
+`xcrun devicectl device uninstall app --device <id> com.soyclubify.app`
+
+**2. `data-native` se resolvía en el cliente y llegaba tarde.**
+La detección corría en un `useEffect`, así que el primer render ya pintaba lo
+que debía estar oculto. Síntomas que parecían no tener relación y eran esto:
+- El botón de Google seguía visible pese a estar quitado, y arrancaba su
+  script, que quedaba en «Cargando Google…» (Google bloquea webviews).
+- Las márgenes seguras se aplicaban **unas veces sí y otras no con el mismo
+  build** — lo interpretamos como carrera del puente de Capacitor.
+
+Arreglado: Capacitor marca el User-Agent con `ClubifyApp`, y eso viaja en la
+PETICIÓN. `data-native` se resuelve ahora en el **layout del servidor** y
+llega en el primer HTML. Lo que se oculta en la app se oculta por **CSS**
+(`.solo-web`), no por JavaScript: lo que no depende de que se ejecute nada, no
+puede llegar tarde.
+
+Verificado desde fuera:
+`curl /login -H "User-Agent: … ClubifyApp/1.0.0 (ios)"` → `data-native="ios"`;
+con UA de Safari normal, no aparece.
+
+### Qué toqué de PRODUCCIÓN
+- Frontend desplegado varias veces (SW, detección en servidor, quitar Google).
+- Backend desplegado: acepta dos audiencias de Google (`GOOGLE_CLIENT_ID_IOS`).
+- **Contraseña fijada** a `clubifydemo@gmail.com` (cuenta para el revisor de
+  Apple) y **clientes de DEMO CLUBIFY anonimizados** — eran una mezcla de
+  datos de prueba y personas reales con sus teléfonos y correos.
+
+### Decisiones de producto
+- **Fuera el login con Google DENTRO de la app.** Google bloquea su OAuth en
+  webviews, así que la única vía era saltar al navegador del sistema y volver.
+  Jhon decidió que ese salto no compensa. En el navegador se queda.
+  La implementación nativa (PKCE, sin SDK) funcionaba y está en el historial:
+  se descartaron los dos plugins de Capacitor porque uno choca con MLKit
+  (GTMSessionFetcher) y el otro arrastra el SDK de Facebook.
+
+### Qué falta
+- [ ] Capturas para la ficha, **con la cuenta demo** (las de Jhon mostraban
+      datos reales de Nudo Cowork).
+- [ ] Textos de la ficha y envío a TestFlight.
+- [ ] Más disparadores de push (reserva, sello, corte). Patrón en
+      `orders.service.ts`.
+- [ ] Android: falta Android Studio + JDK y Firebase.
+
 ## 2026-09-03 (tarde) — PUSH FUNCIONANDO de punta a punta + trampa del AppDelegate
 
 **Máquina/quién:** la de Jhon (sesión Claude)
