@@ -147,9 +147,22 @@ export class CardsController {
     return this.wallet.previewStampStrips(body);
   }
 
+  /**
+   * Las tarjetas del negocio.
+   *
+   * `especiales=1` incluye las plantillas de Alianzas y Club, que por defecto
+   * NO salen: son la fontanería de esos módulos y en las demás pantallas del
+   * panel (tienda, pop-ups del menú, QR de mostrador, segmentador de push)
+   * solo eran ruido y un peligro. Lo pide la pantalla de Tarjetas cuando el
+   * dueño filtra por ellas a propósito.
+   */
   @Get()
-  list(@CurrentUser() user: AuthUser, @Query('tenantId') tenantId?: string) {
-    return this.svc.list(user, tenantId);
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+    @Query('especiales') especiales?: string,
+  ) {
+    return this.svc.list(user, tenantId, especiales === '1');
   }
 
   @Get(':id')

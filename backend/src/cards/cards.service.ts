@@ -209,11 +209,18 @@ export class CardsService {
    *
    * Este listado lo consumen once pantallas del panel. Filtrar aquí las limpia
    * todas de una vez, en vez de repetir la condición en cada una.
+   *
+   * La excepción es la propia pantalla de Tarjetas, que pide `especiales=1`
+   * cuando el dueño elige el filtro «Alianzas» o «Club»: ahí sí quiere verlas,
+   * y desde ahí se le manda a su sección de verdad, no a la ficha de tarjeta.
    */
-  list(user: AuthUser, tenantId?: string) {
+  list(user: AuthUser, tenantId?: string, especiales = false) {
     const tid = this.resolveTenantId(user, tenantId);
     return this.prisma.card.findMany({
-      where: { tenantId: tid, convenioId: null },
+      // `especiales` solo lo pide la pantalla de Tarjetas, y solo cuando el
+      // dueño elige el filtro «Alianzas» o «Club». Las otras diez pantallas
+      // que consumen este listado siguen sin verlas.
+      where: { tenantId: tid, ...(especiales ? {} : { convenioId: null }) },
       include: {
         _count: { select: { passes: true } },
         location: { select: { id: true, name: true } },

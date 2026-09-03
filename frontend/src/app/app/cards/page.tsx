@@ -89,7 +89,12 @@ const TYPE_COLORS: Record<CardType, { primary: string; accent: string }> = {
   HYBRID: { primary: '#1E40AF', accent: '#3B82F6' },
 };
 
-type FilterType = 'all' | CardType;
+/**
+ * Alianzas y Club no son `CardType`: por dentro son `STAMPS`. Se filtran por la
+ * plantilla a la que pertenecen (`convenioId` / `clubPlanId`), que es lo que de
+ * verdad las distingue.
+ */
+type FilterType = 'all' | CardType | 'alianza' | 'club';
 type FilterStatus = 'all' | 'active' | 'paused';
 
 export default function CardsList() {
@@ -110,7 +115,9 @@ export default function CardsList() {
     setLoading(true);
     try {
       const [cards, me] = await Promise.all([
-        api<Card[]>('/cards'),
+        // Con las plantillas de Alianzas y Club: aquí SÍ se pueden filtrar.
+        // Las demás pantallas del panel siguen pidiendo el listado limpio.
+        api<Card[]>('/cards?especiales=1'),
         api<any>('/tenants/me').catch(() => null),
       ]);
       setList(cards);
@@ -164,7 +171,22 @@ export default function CardsList() {
 
   const filtered = useMemo(() => {
     return list.filter((c) => {
-      if (filterType !== 'all' && c.type !== filterType) return false;
+      const esAlianza = Boolean(c.convenioId);
+      const esClub = Boolean(c.clubPlanId);
+      // «Todos los tipos» no enseña las alianzas: no son tarjetas que el dueño
+      // gestione desde aquí, y mezclarlas fue justo lo que sobraba. Se ven
+      // pidiendo su ficha a propósito.
+      if (filterType === 'all') {
+        if (esAlianza) return false;
+      } else if (filterType === 'alianza') {
+        if (!esAlianza) return false;
+      } else if (filterType === 'club') {
+        if (!esClub) return false;
+      } else if (c.type !== filterType || esAlianza) {
+        // Una alianza es `STAMPS` por dentro; sin excluirla saldría bajo
+        // «Sellos» con su contador congelado en 0/1.
+        return false;
+      }
       if (filterStatus === 'active' && !c.isActive) return false;
       if (filterStatus === 'paused' && c.isActive) return false;
       if (search.trim()) {
@@ -179,12 +201,23 @@ export default function CardsList() {
     });
   }, [list, filterType, filterStatus, search]);
 
-  const totalPasses = list.reduce((s, c) => s + (c._count?.passes ?? 0), 0);
-  const activeCount = list.filter((c) => c.isActive).length;
+  // Las alianzas quedan fuera de los totales por lo mismo que del listado: no
+  // son tarjetas que el negocio haya creado, y sumarlas cambiaría un número que
+  // el dueño ya conoce.
+  const propias = list.filter((c) => !c.convenioId);
+  const totalPasses = propias.reduce((s, c) => s + (c._count?.passes ?? 0), 0);
+  const activeCount = propias.filter((c) => c.isActive).length;
   const typesPresent: CardType[] = useMemo(
-    () => Array.from(new Set(list.map((c) => c.type))) as CardType[],
+    () =>
+      Array.from(
+        new Set(list.filter((c) => !c.convenioId && !c.clubPlanId).map((c) => c.type)),
+      ) as CardType[],
     [list],
   );
+  // Solo se ofrecen si el negocio tiene alguna: una ficha que siempre da vacío
+  // hace pensar que el filtro está roto.
+  const hayAlianzas = useMemo(() => list.some((c) => c.convenioId), [list]);
+  const hayClub = useMemo(() => list.some((c) => c.clubPlanId), [list]);
 
   return (
     <div>
@@ -222,7 +255,7 @@ export default function CardsList() {
 
       {list.length > 0 && (
         <div className="grid grid-cols-3 gap-3 mb-4">
-          <Kpi label={t('kpiCards')} value={list.length} />
+          <Kpi label={t('kpiCards')} value={propias.length} />
           <Kpi label={t('kpiActive')} value={activeCount} accent="ok" />
           <Kpi label={t('kpiPasses')} value={totalPasses} accent="brand" />
         </div>
@@ -279,6 +312,26 @@ export default function CardsList() {
                 <span>{TYPE_EMOJI[ct]}</span> {t(TYPE_LABEL_KEY[ct])}
               </button>
             ))}
+            {(
+              [
+                ['alianza', '🤝', 'Alianzas', hayAlianzas],
+                ['club', '🎟️', 'Club', hayClub],
+              ] as const
+            )
+              .filter(([, , , hay]) => hay)
+              .map(([clave, emoji, etiqueta]) => (
+                <button
+                  key={clave}
+                  onClick={() => setFilterType(clave)}
+                  className={`text-xs px-3 py-1.5 rounded-full transition flex items-center gap-1.5 ${
+                    filterType === clave
+                      ? 'bg-ink text-white'
+                      : 'bg-bg2 text-mute hover:bg-line/50'
+                  }`}
+                >
+                  <span>{emoji}</span> {etiqueta}
+                </button>
+              ))}
           </div>
         </div>
       )}
@@ -431,7 +484,19 @@ function CardPreview({
     card.type === 'VISITS';
 
   return (
-    <Link href={`/app/cards/${card.id}`} className="block group">
+    <Link
+      // Una alianza o un plan de club se gestionan en SU sección —beneficios,
+      // enlaces, socios—, no en la ficha de tarjeta, que para ellas está medio
+      // vacía y ofrece cosas que no aplican.
+      href={
+        card.convenioId
+          ? `/app/alianzas/${card.convenioId}`
+          : card.clubPlanId
+            ? `/app/club/${card.clubPlanId}`
+            : `/app/cards/${card.id}`
+      }
+      className="block group"
+    >
       <div
         className={`rounded-2xl overflow-hidden h-full flex flex-col bg-white border border-line shadow-sm transition group-hover:shadow-lg group-hover:-translate-y-0.5 ${
           !card.isActive ? 'opacity-70' : ''
