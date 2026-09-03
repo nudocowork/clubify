@@ -613,3 +613,13 @@ body.escaner-nativo-activo .escaner-mira,
 body.escaner-nativo-activo .escaner-mira * {
   visibility: visible;
 }
+
+/* El WebView deja arrastrar la página de lado aunque no haya nada que
+ * desbordar: es el rebote elástico de iOS, y en un panel se siente como si
+ * la app estuviera rota. En el navegador se deja como está — ahí el gesto es
+ * el de "atrás" del sistema y quitarlo sería peor. */
+html[data-native],
+html[data-native] body {
+  overscroll-behavior-x: none;
+  overflow-x: clip;
+}
