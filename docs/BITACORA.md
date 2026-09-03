@@ -169,6 +169,67 @@ un único bug de corrección → arreglado y desplegado (frontend READY):
   frontend lo **subió a producción**: `/hub` ahora responde **200**. Si esa fase 1 no estaba
   lista para estar viva, avísame — quedó live junto con mi ranking, tu cuponera y el botón PRO.
 
+## 2026-09-03 — App en el iPhone REAL + push (registro) + hallazgos de medición
+
+**Máquina/quién:** la de Jhon (sesión Claude) · commit `6c2cb505`
+
+### Qué cambié
+- **La app corre en un iPhone de verdad** (16 Pro Max), firmada con el Team ID
+  `Z4R33X92SH`, con firma automática ya configurada en Debug y Release.
+- **Escáner con mira PROPIA.** `scan()` abre la pantalla del sistema, con un
+  recuadro cuadrado que no se puede cambiar; los pases llevan un PDF417 ANCHO
+  y la gente intentaba encajar la tarjeta entera. Se pasó a `startScan()`: la
+  cámara va detrás del WebView y la mira la dibujamos nosotros a 2.3:1.
+- **Icono y splash** = la flecha verde de la marca (sale del branding del
+  backend, no del repo: el repo solo tenía la 'C' vieja). El lanzador `/hub`
+  mostraba también la 'C'; ahora lee la misma fuente que el panel.
+- **Push, primera mitad:** tabla `DeviceToken` + endpoints `/devices` +
+  registro del token desde la app + entitlement `aps-environment`.
+
+### Qué toqué de PRODUCCIÓN
+- **Vercel frontend**: varios despliegues (mira del escáner, logo del hub,
+  márgenes seguras, buscador de negocios, diagnóstico).
+- **Backend NO desplegado**: los endpoints `/devices` están en la rama, no en
+  producción. **Falta correr la migración** (ver abajo).
+- Sin migraciones aplicadas todavía.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] **Correr la migración de push en producción**:
+      `railway run node scripts/apply-device-tokens-migration.cjs`
+      y después desplegar backend. Es aditiva e idempotente.
+- [ ] **Clave APNs** (App Store Connect → Keys, con APNs activado: da un .p8 +
+      Key ID) y **proyecto Firebase** para Android. Sin eso el token se guarda
+      pero no se envía nada.
+- [ ] **QUITAR `OverflowDebug`** del frontend antes de publicar. Hoy se
+      enciende al impersonar — ningún cliente lo ve, pero es código de
+      diagnóstico en producción.
+- [ ] Google Sign-In nativo (no funciona dentro del WebView).
+- [ ] Android: falta Android Studio + JDK en esta máquina.
+
+### Lo que aprendimos midiendo (importante)
+- **El "no es responsive" no era desbordamiento.** Medido con el diagnóstico:
+  `/app`, `/admin`, `/admin/tenants`, `/admin/commissions`, `/admin/creditos` y
+  `/admin/contabilidad` dan `doc == viewport == 402px`. Lo que se veía cortado
+  era la vista **ampliada y desplazada** por un pellizco: una página que
+  desborda se corta por la derecha, y las capturas mostraban el ☰ cortado por
+  la IZQUIERDA. Queda `zoomEnabled:false` explícito en el WebView.
+- **Pero la primera medición era mala**: medía UNA vez a 1.8s y el panel carga
+  por fetch. Ahora vigila 20s y se queda con el peor caso. Con la versión
+  buena solo se alcanzó a medir `/admin`. **El panel del negocio sigue sin
+  medir de verdad** — Jhon reportó un deslizamiento lateral pequeño que no se
+  ha podido reproducir bajo medición.
+- **Impersonar no sirve para automatizar**: vive en `sessionStorage`, así que
+  se pierde en cada recarga o navegación. Para revisar `/app` a fondo hace
+  falta **una cuenta de negocio propia** (sesión en `localStorage`).
+
+### Riesgos y avisos
+- El escáner nativo deja la página TRANSPARENTE mientras escanea
+  (`body.escaner-nativo-activo`). La limpieza está en tres sitios: lectura,
+  cancelar y desmontaje. Si se toca `/scan`, no romper eso o el usuario queda
+  con el panel invisible y la cámara encendida.
+- En un Mac Apple Silicon la app NO compila para simulador con el escáner:
+  GoogleMLKit 5.0.0 excluye arm64 de simulador. Se prueba en teléfono.
+
 ## 2026-09-02 — La app iOS ya CORRE. Hallazgos de la primera ejecución
 
 **Máquina/quién:** la de Jhon (sesión Claude) · commit `54b1ce55`
