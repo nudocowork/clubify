@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { clearSession, getUser } from '@/lib/api';
 import { modulesForUser, primaryHrefForUser, type AppModule } from '@/lib/modules';
 import { useAuthBrand, BrandMark, BrandAuthTheme } from '@/components/AuthBrand';
+import { useBranding } from '@/lib/useBranding';
 
 /**
  * Lanzador: según el correo con el que se inició sesión, muestra los módulos
@@ -16,6 +17,11 @@ import { useAuthBrand, BrandMark, BrandAuthTheme } from '@/components/AuthBrand'
 export default function HubPage() {
   const router = useRouter();
   const { brand } = useAuthBrand();
+  // En el dominio de Clubify, useAuthBrand devuelve null a propósito (no hay
+  // marca blanca) y BrandMark cae al PNG estático del repo, que es el logo
+  // VIEJO de la 'C'. El logo real se configura en /admin/branding y es de
+  // donde ya lo saca el panel — así el lanzador y el panel muestran lo mismo.
+  const branding = useBranding();
   const [user, setUser] = useState<{ email?: string; name?: string; role?: string } | null>(null);
   const [modules, setModules] = useState<AppModule[]>([]);
 
@@ -55,7 +61,18 @@ export default function HubPage() {
       <BrandAuthTheme brand={brand} />
       <div className="mx-auto w-full max-w-3xl px-5">
         <header className="flex items-center justify-between gap-3 mb-8">
-          <BrandMark brand={brand} size={30} />
+          {brand ? (
+            <BrandMark brand={brand} size={30} />
+          ) : branding.appLogoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={branding.appLogoUrl}
+              alt="Clubify"
+              style={{ height: 34, width: 'auto', maxWidth: 150, objectFit: 'contain' }}
+            />
+          ) : (
+            <BrandMark brand={null} size={30} />
+          )}
           <button
             onClick={salir}
             className="text-xs text-mute hover:text-ink underline underline-offset-2"
