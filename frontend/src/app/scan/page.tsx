@@ -9,6 +9,7 @@ import {
   ErrorEscaner,
 } from '@/lib/native-bridge';
 import { useRouter } from 'next/navigation';
+import { primaryHrefForUser } from '@/lib/modules';
 import { Icon } from '@/components/Icon';
 import { InstallPWAButton } from '@/components/InstallPWAButton';
 import { playScanSuccess, playScanError } from '@/lib/notify';
@@ -552,6 +553,18 @@ export default function ScanPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function volverAtras() {
+    // Cortar el escaneo antes de irse: si la página se desmonta con la cámara
+    // nativa abierta, el usuario queda con el panel invisible por detrás.
+    detenerEscaneoNativo().catch(() => null);
+    stopScanner().catch(() => null);
+    if (window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push(primaryHrefForUser(getUser()));
+  }
+
   async function doLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoginErr(null);
@@ -954,10 +967,26 @@ export default function ScanPage() {
       <div className="w-full max-w-lg mx-auto p-3 sm:p-5">
         {/* Header — compacto en mobile */}
         <div className="flex items-center justify-between mb-2 sm:mb-3">
-          <div className="min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            {/* Volver: la única salida era "Salir", que cierra la SESIÓN — y en
+                un mostrador eso obliga a reescribir la contraseña solo para
+                consultar algo en el panel. Se vuelve por donde se entró
+                (history.back); si no hay historial —se abrió el escáner
+                directo— se cae al destino que corresponde al rol. */}
+            <button
+              type="button"
+              onClick={volverAtras}
+              className="btn-ghost text-xs px-2 shrink-0"
+              title="Volver"
+              aria-label="Volver"
+            >
+              ← Volver
+            </button>
+            <div className="min-w-0">
             <h1 className="text-xl sm:text-2xl font-bold leading-tight">Escáner</h1>
             <div className="text-[10px] text-mute truncate">
               👤 {user.fullName ?? user.email}
+            </div>
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
