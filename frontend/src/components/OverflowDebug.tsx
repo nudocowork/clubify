@@ -25,13 +25,23 @@ export function OverflowDebug() {
       (window.location.search.includes('dbg=1') || isImpersonating());
     if (!forzado && !isNativeApp()) return;
 
-    const t = setTimeout(() => {
+    // Se mide REPETIDAMENTE: el panel carga sus datos por fetch, así que a los
+    // 1.8s del montaje todavía faltan tarjetas por pintar. Una sola medida
+    // decía "sin desbordamiento" en pantallas que sí desbordaban al terminar
+    // de cargar. Guarda el PEOR caso visto.
+    let peor = 0;
+    const medir = () => {
       const ancho = document.documentElement.clientWidth;
       const doc = document.documentElement.scrollWidth;
       const exceso = doc - ancho;
 
+      if (exceso <= peor) return; // ya reportamos algo igual o peor
+      peor = Math.max(peor, exceso);
+
       const cabecera = [
-        exceso > 1 ? `⚠ DESBORDA +${exceso}px (doc=${doc} viewport=${ancho})` : `✓ SIN DESBORDAMIENTO (${ancho}px)`,
+        exceso > 1
+          ? `⚠ DESBORDA +${exceso}px (doc=${doc} viewport=${ancho})`
+          : `✓ SIN DESBORDAMIENTO (${ancho}px) · vigilando…`,
       ];
 
       if (exceso <= 1) {
@@ -67,9 +77,19 @@ export function OverflowDebug() {
           return `${f.el.tagName.toLowerCase()} w=${f.w} r=${f.r} · ${cls}`;
         }),
       ]);
-    }, 1800);
+    };
 
-    return () => clearTimeout(t);
+    // Arranca pronto y sigue vigilando 20s: cubre la carga inicial, los
+    // fetches encadenados y lo que se pinte al hacer scroll.
+    const primeros = setTimeout(medir, 1200);
+    const intervalo = setInterval(medir, 1500);
+    const alto = setTimeout(() => clearInterval(intervalo), 20000);
+
+    return () => {
+      clearTimeout(primeros);
+      clearInterval(intervalo);
+      clearTimeout(alto);
+    };
   }, []);
 
   if (lineas.length === 0) return null;
