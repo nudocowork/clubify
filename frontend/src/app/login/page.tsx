@@ -1,5 +1,5 @@
 'use client';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, setSession, clearSession } from '@/lib/api';
@@ -21,21 +21,10 @@ function LoginInner() {
   const params = useSearchParams();
   const { brand } = useAuthBrand();
   const sinCompras = useHidesPurchases();
-  // Dentro de la app NO se ofrece Google. Google bloquea su OAuth en webviews
-  // embebidos, así que la única vía sería saltar al navegador del sistema y
-  // volver — un salto fuera de la app en mitad del login, que se decidió que
-  // no compensa. Queda usuario y contraseña, que funciona igual de bien.
-  // La implementación nativa existió y funcionaba: está en el historial de git
-  // por si algún día se quiere recuperar.
-  const [enApp, setEnApp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    setEnApp(isNativeApp());
-  }, []);
-
   const justReset = params.get('reset') === '1';
   const justCanceled = params.get('canceled') === '1';
   const sessionExpired = params.get('expired') === '1';
@@ -164,9 +153,12 @@ function LoginInner() {
           {loading ? 'Entrando…' : 'Entrar'}
         </button>
 
-        {!enApp && (
+        {/* .solo-web: dentro de la app se oculta por CSS. Google bloquea su
+            OAuth en webviews embebidos, así que este botón no puede funcionar
+            ahí — se quedaba en "Cargando Google…" para siempre. */}
+        <div className="solo-web">
           <GoogleSignInButton onCredential={loginWithGoogle} disabled={loading} />
-        )}
+        </div>
 
         {/* "Adquiérelo aquí" lleva a /signup, que es el checkout de los planes.
             En iOS eso es una compra externa a dos toques del login: motivo de

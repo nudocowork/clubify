@@ -400,6 +400,14 @@ export async function generateViewport(): Promise<Viewport> {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Capacitor añade "ClubifyApp/<versión> (ios|android)" al User-Agent.
+  const ua = headers().get('user-agent') ?? '';
+  const plataformaNativa = ua.includes('ClubifyApp')
+    ? /\bandroid\b/i.test(ua)
+      ? 'android'
+      : 'ios'
+    : null;
+
   // i18n foundation 2026-06-12: el locale se resuelve server-side
   // (cookie NEXT_LOCALE → Accept-Language → x-vercel-ip-country → 'es').
   // Las messages se importan dinámicamente desde frontend/messages/.
@@ -410,7 +418,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // HTML (sin parpadeo de Clubify). null en Clubify/dev.
   const authBrand = await resolveAuthBrandFromHeaders();
   return (
-    <html lang={locale}>
+    // data-native se resuelve en el SERVIDOR con el User-Agent, que Capacitor
+    // marca con "ClubifyApp". Detectarlo en el cliente es una carrera que se
+    // pierde: el atributo llegaba tarde, el CSS de márgenes seguras no
+    // aplicaba y el botón de Google seguía visible pese a estar quitado. Aquí
+    // ya viene en el primer HTML, sin JS de por medio.
+    <html lang={locale} {...(plataformaNativa ? { 'data-native': plataformaNativa } : {})}>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />

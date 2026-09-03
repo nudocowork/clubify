@@ -623,3 +623,11 @@ html[data-native] body {
   overscroll-behavior-x: none;
   overflow-x: clip;
 }
+
+/* Cosas que solo existen en el NAVEGADOR. Dentro de la app se ocultan por CSS
+ * y no por JavaScript: la detección en cliente llegaba tarde y el elemento
+ * alcanzaba a pintarse (el botón de Google se quedaba visible cargando). Con
+ * data-native resuelto en el servidor, esto se aplica en el primer paint. */
+html[data-native] .solo-web {
+  display: none !important;
+}
