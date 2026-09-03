@@ -6,6 +6,7 @@ import { api, setSession, clearSession } from '@/lib/api';
 import { primaryHrefForUser } from '@/lib/modules';
 import { isNativeApp, useHidesPurchases } from '@/lib/native';
 import { useAuthBrand, BrandMark, BrandAuthTheme } from '@/components/AuthBrand';
+import { useBranding } from '@/lib/useBranding';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 
 export default function LoginPage() {
@@ -20,6 +21,11 @@ function LoginInner() {
   const router = useRouter();
   const params = useSearchParams();
   const { brand } = useAuthBrand();
+  // En el dominio de Clubify useAuthBrand devuelve null (no hay marca
+  // blanca) y BrandMark cae al PNG estático del repo, que es el logo VIEJO
+  // de la 'C'. El real se configura en /admin/branding y es el que ya usan
+  // el panel y el lanzador. Mismo arreglo que en /hub.
+  const branding = useBranding();
   const sinCompras = useHidesPurchases();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -90,7 +96,18 @@ function LoginInner() {
       <BrandAuthTheme brand={brand} />
       <form onSubmit={submit} className="card card-pad w-full max-w-md">
         <div className="flex justify-center mb-4">
-          <BrandMark brand={brand} size={brand ? 56 : 36} />
+          {brand ? (
+            <BrandMark brand={brand} size={56} />
+          ) : branding.appLogoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={branding.appLogoUrl}
+              alt="Clubify"
+              style={{ height: 44, width: 'auto', maxWidth: 180, objectFit: 'contain' }}
+            />
+          ) : (
+            <BrandMark brand={null} size={36} />
+          )}
         </div>
         <h2 className="text-[22px] font-bold m-0 text-center">Inicia sesión</h2>
         <p className="text-sm text-mute mt-1 text-center">
@@ -153,7 +170,12 @@ function LoginInner() {
           {loading ? 'Entrando…' : 'Entrar'}
         </button>
 
-        <GoogleSignInButton onCredential={loginWithGoogle} disabled={loading} />
+        {/* .solo-web: dentro de la app se oculta por CSS. Google bloquea su
+            OAuth en webviews embebidos, así que este botón no puede funcionar
+            ahí — se quedaba en "Cargando Google…" para siempre. */}
+        <div className="solo-web">
+          <GoogleSignInButton onCredential={loginWithGoogle} disabled={loading} />
+        </div>
 
         {/* "Adquiérelo aquí" lleva a /signup, que es el checkout de los planes.
             En iOS eso es una compra externa a dos toques del login: motivo de
