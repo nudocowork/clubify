@@ -26,6 +26,7 @@ import { EmailService } from '../email/email.service';
 import { WalletService } from '../wallet/wallet.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { CustomerOrderSmsService } from '../integrations/customer-order-sms.service';
+import { AppPushService } from '../notifications/app-push.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { resolveBrandTemplate } from '../integrations/brand-message-templates';
 import {
@@ -241,6 +242,7 @@ export class OrdersService {
     private brand: WhitelabelBrandService,
     private delivery: DeliveryService,
     private customerOrderSms: CustomerOrderSmsService,
+    private appPush: AppPushService,
   ) {}
 
   /** Lista de eventos del pedido delivery que pueden disparar SMS al
@@ -802,6 +804,21 @@ export class OrdersService {
     // PDF245 P2: si es domicilio, crea el seguimiento (para que aparezca en el
     // panel de la empresa) y avisa "Hay un nuevo pedido - #X. Revisa el panel".
     this.delivery.onDeliveryOrderCreated(order.id).catch(() => null);
+    // Notificación a la APP del negocio. Es el aviso que de verdad se ve en el
+    // mostrador: el SMS de arriba va al CLIENTE, no al local. Incluye a los
+    // empleados "Solo pedidos", que son justo quienes atienden esto.
+    this.appPush
+      .enviarATenant(
+        tenant.id,
+        {
+          titulo: 'Nuevo pedido',
+          cuerpo: `Pedido #${order.code} · $${Number(order.total).toLocaleString('es-CO')}`,
+          ruta: '/app/orders',
+          datos: { orderId: order.id },
+        },
+        { soloPedidos: true },
+      )
+      .catch(() => null);
 
     this.broadcast(order.id).catch((e) =>
       this.logger.warn(

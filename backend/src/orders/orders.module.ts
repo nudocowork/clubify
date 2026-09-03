@@ -10,6 +10,7 @@ import { AuthModule } from '../auth/auth.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 import { DeliveryModule } from '../delivery/delivery.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { DeliveryModule } from '../delivery/delivery.module';
     WalletModule,
     IntegrationsModule,
     DeliveryModule,
+    NotificationsModule,
   ],
   providers: [OrdersService, OrdersGateway],
   controllers: [OrdersController, PublicOrdersController],

@@ -63,6 +63,39 @@ export class AppPushService {
     }
   }
 
+  /**
+   * Manda un aviso a TODO el equipo de un negocio (dueño y staff).
+   *
+   * Se excluye a TENANT_ORDERS de los avisos que no son de pedidos, y se
+   * excluye siempre a los admin de plataforma: un SUPER_ADMIN que entró a un
+   * negocio para revisar algo no tiene por qué recibir sus pedidos en el
+   * teléfono el resto del día.
+   */
+  async enviarATenant(
+    tenantId: string,
+    aviso: Aviso,
+    opts: { soloPedidos?: boolean } = {},
+  ): Promise<{ enviados: number }> {
+    try {
+      const roles = opts.soloPedidos
+        ? ['TENANT_OWNER', 'TENANT_STAFF', 'TENANT_ORDERS']
+        : ['TENANT_OWNER', 'TENANT_STAFF'];
+      const usuarios = await this.prisma.user.findMany({
+        where: { tenantId, isActive: true, role: { in: roles as any } },
+        select: { id: true },
+      });
+      let enviados = 0;
+      for (const u of usuarios) {
+        const r = await this.enviarAUsuario(u.id, aviso);
+        enviados += r.enviados;
+      }
+      return { enviados };
+    } catch (e) {
+      this.log.error(`Push al negocio ${tenantId} falló: ${(e as Error).message}`);
+      return { enviados: 0 };
+    }
+  }
+
   private async enviarApns(tokens: string[], aviso: Aviso): Promise<number> {
     const key = this.cargarClave();
     const keyId = process.env.APP_PUSH_KEY_ID;
