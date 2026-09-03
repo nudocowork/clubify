@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Param, Post } from '@nestjs/common';
 import { IsIn, IsString, MinLength } from 'class-validator';
 import { DevicesService } from './devices.service';
+import { AppPushService } from './app-push.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 
 class RegistrarBody {
@@ -16,7 +17,10 @@ class RegistrarBody {
  */
 @Controller('devices')
 export class DevicesController {
-  constructor(private svc: DevicesService) {}
+  constructor(
+    private svc: DevicesService,
+    private push: AppPushService,
+  ) {}
 
   @Post()
   registrar(@CurrentUser() user: AuthUser, @Body() body: RegistrarBody) {
@@ -26,5 +30,21 @@ export class DevicesController {
   @Delete(':token')
   borrar(@Param('token') token: string) {
     return this.svc.borrar(token);
+  }
+
+  /**
+   * Manda una notificación de prueba a los dispositivos de QUIEN LLAMA.
+   * Solo a uno mismo: así no hace falta restringir por rol y nadie puede
+   * usarlo para molestar a otra cuenta.
+   */
+  @Post('prueba')
+  async prueba(@CurrentUser() user: AuthUser) {
+    const dispositivos = await this.svc.tokensDe(user.id);
+    const r = await this.push.enviarAUsuario(user.id, {
+      titulo: 'Clubify',
+      cuerpo: 'Las notificaciones están funcionando 🎉',
+      ruta: '/hub',
+    });
+    return { registrados: dispositivos.length, enviados: r.enviados };
   }
 }
