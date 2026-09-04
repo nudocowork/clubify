@@ -39,9 +39,12 @@ export class MovementsService {
     limit?: number;
   }): Promise<{ movements: Movement[]; summary: { ingresosUsd: number; egresosUsd: number; saldoUsd: number; count: number } }> {
     const wlNull = opts.onlyClubify ? { whiteLabelId: null } : {};
+    const rango = { ...(opts.from ? { gte: opts.from } : {}), ...(opts.to ? { lte: opts.to } : {}) };
     const dateFilter = (field: string) =>
+      opts.from || opts.to ? { [field]: rango } : {};
+    const dateFilterConRespaldo = (field: string) =>
       opts.from || opts.to
-        ? { [field]: { ...(opts.from ? { gte: opts.from } : {}), ...(opts.to ? { lte: opts.to } : {}) } }
+        ? { OR: [{ [field]: rango }, { [field]: null, createdAt: rango }] }
         : {};
 
     const [incomes, expenses, cats, runs] = await Promise.all([
@@ -61,10 +64,15 @@ export class MovementsService {
       }),
       this.prisma.expenseCategory.findMany({ select: { id: true, name: true } }),
       this.prisma.payrollRun.findMany({
-        where: { ...wlNull, ...dateFilter('createdAt') },
+        // El corte cuenta en el mes de su período; si no lo trae (el panel
+        // permitía guardarlo sin fechas), cae al día en que se creó. Mismo
+        // respaldo que `finance-report.service`, para que el libro de caja y
+        // el reporte no se contradigan.
+        where: { ...wlNull, ...dateFilterConRespaldo('periodEnd') },
         select: {
-          createdAt: true, periodLabel: true, totalUsd: true, status: true,
-          receiptUrl: true, reference: true, _count: { select: { items: true } },
+          createdAt: true, periodEnd: true, periodLabel: true, totalUsd: true,
+          status: true, receiptUrl: true, reference: true,
+          _count: { select: { items: true } },
         },
       }),
     ]);
@@ -112,7 +120,11 @@ export class MovementsService {
     for (const r of runs) {
       const amt = Number(r.totalUsd);
       raw.push({
-        date: r.createdAt.toISOString(),
+        // La misma fecha por la que se filtró arriba: si el movimiento se
+        // listara por `createdAt` habiendo entrado al rango por `periodEnd`,
+        // aparecería fuera del mes que se está viendo y el saldo corrido
+        // quedaría descolocado.
+        date: (r.periodEnd ?? r.createdAt).toISOString(),
         kind: 'EGRESO',
         category: 'Nómina',
         concept: `Nómina · ${r.periodLabel} (${r._count.items} colab.)`,

@@ -604,8 +604,21 @@ function EmpModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
   );
 }
 
+// Por defecto, el mes en curso: es el corte que se genera el 99% de las veces
+// y evita que el corte nazca sin fechas (ver `save`).
+function mesEnCurso(): { desde: string; hasta: string } {
+  const h = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  const ultimo = new Date(h.getFullYear(), h.getMonth() + 1, 0).getDate();
+  return {
+    desde: `${h.getFullYear()}-${p(h.getMonth() + 1)}-01`,
+    hasta: `${h.getFullYear()}-${p(h.getMonth() + 1)}-${p(ultimo)}`,
+  };
+}
+
 function GenModal({ emps, onClose, onSaved }: { emps: PEmp[]; onClose: () => void; onSaved: () => void }) {
   const [period, setPeriod] = useState('');
+  const [rango, setRango] = useState(mesEnCurso);
   const [sel, setSel] = useState<Record<string, { on: boolean; bonus: string; ded: string }>>(() => Object.fromEntries(emps.map((e) => [e.id, { on: true, bonus: '', ded: '' }])));
   const [busy, setBusy] = useState(false);
   const rowTotal = (e: PEmp) => { const s = sel[e.id]; return e.amountUsd + (Number((s?.bonus || '0').replace(',', '.')) || 0) - (Number((s?.ded || '0').replace(',', '.')) || 0); };
@@ -613,14 +626,26 @@ function GenModal({ emps, onClose, onSaved }: { emps: PEmp[]; onClose: () => voi
   async function save() {
     const items = emps.filter((e) => sel[e.id]?.on).map((e) => ({ employeeId: e.id, employeeName: e.name, role: e.role, baseUsd: e.amountUsd, bonusUsd: Number((sel[e.id].bonus || '0').replace(',', '.')) || 0, deductionUsd: Number((sel[e.id].ded || '0').replace(',', '.')) || 0 }));
     if (!period.trim() || items.length === 0) { toast('Período y al menos un colaborador'); return; }
+    if (!rango.desde || !rango.hasta) { toast('Indicá desde y hasta qué día cubre el corte'); return; }
+    if (rango.hasta < rango.desde) { toast('El corte no puede terminar antes de empezar'); return; }
     setBusy(true);
-    const r = await api(`/admin/contabilidad/nomina/cortes`, { method: 'POST', body: JSON.stringify({ periodLabel: period, items }) }).catch(() => null);
+    // Las fechas van SIEMPRE, no solo la etiqueta: `periodLabel` es texto libre
+    // y no sirve para saber a qué mes pertenece el corte. Mientras se mandó solo
+    // la etiqueta, la nómina no entraba en ningún reporte ni en ningún cierre y
+    // la utilidad salía inflada por ese monto. Al mediodía, para que el borde
+    // del mes no se corra por zona horaria.
+    const r = await api(`/admin/contabilidad/nomina/cortes`, { method: 'POST', body: JSON.stringify({ periodLabel: period, periodStart: `${rango.desde}T12:00:00.000Z`, periodEnd: `${rango.hasta}T12:00:00.000Z`, items }) }).catch(() => null);
     setBusy(false);
     if (r) { toast('Corte de nómina generado'); onSaved(); } else toast('No se pudo generar');
   }
   return (
     <Modal title="Generar pago de nómina" onClose={onClose}>
       <div className="mb-3"><label className="label">Período</label><input className="input w-full" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="Quincena 1–15 sep 2026" /></div>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div><label className="label">Desde</label><input type="date" className="input w-full" value={rango.desde} onChange={(e) => setRango({ ...rango, desde: e.target.value })} /></div>
+        <div><label className="label">Hasta</label><input type="date" className="input w-full" value={rango.hasta} onChange={(e) => setRango({ ...rango, hasta: e.target.value })} /></div>
+      </div>
+      <p className="text-xs text-mute -mt-2 mb-3">Estas fechas deciden en qué mes contable entra el corte.</p>
       <div className="mb-3">
         <label className="label">Colaboradores</label>
         {emps.length === 0 ? <p className="text-mute text-sm">No hay colaboradores activos. Agregá uno primero.</p> : (

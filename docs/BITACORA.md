@@ -67,6 +67,69 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-04 — Contabilidad, Fase 0: el mes contable y la nómina que valía $0
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
+**Estado: EN RAMA, sin desplegar.** No toca esquema ni datos.
+
+### Por qué
+
+Jhon pidió rediseñar Contabilidad para que el **mes sea el eje** del módulo (hoy
+todo se ve como un registro acumulado). Antes de rediseñar nada, la revisión
+encontró tres cosas que ya estaban dando números malos:
+
+1. **La nómina contaba $0 en todo reporte y en todo cierre.** El reporte filtraba
+   `PayrollRun` por `periodEnd`, y el panel creaba los cortes mandando solo
+   `periodLabel` (texto libre tipo "Quincena 1–15 sep"). `periodEnd` quedaba
+   **siempre null** → el `where` descartaba la fila → **la UTILIDAD salía
+   inflada por el monto de la nómina**, incluidos los snapshots ya cerrados.
+2. **Mismo patrón en comisiones:** filtradas por `businessDate`, que es opcional;
+   las que lo tenían en null desaparecían del mes.
+3. **El mes se calculaba en UTC** (`monthBounds` y el `periodKey` de
+   `IncomeRecord`), mientras el resto del producto usa Bogotá. Una venta del 31
+   a las 8 de la noche caía en el mes siguiente.
+
+### Qué se hizo
+
+- Nuevo `backend/src/common/periodo-contable.ts`: único sitio donde se decide a
+  qué mes pertenece un instante y dónde empieza/termina ese mes, **en hora de
+  Bogotá**. Reusa `periodoDe` de `club-periodo.ts` para no tener dos
+  definiciones. 10 tests en `periodo-contable.spec.ts` (bordes, bisiesto, sin
+  huecos ni solapes entre meses seguidos).
+- `finance-report.service`: `monthBounds` delega en el helper; los filtros de
+  nómina y comisiones caen a `createdAt` cuando la fila no trae fecha propia
+  (mismo respaldo que ya usan `referrals.service` y el módulo `accounting`); la
+  serie mensual itera meses de Bogotá.
+- `movements.service`: la nómina se filtra y se **muestra** por `periodEnd ??
+  createdAt`, para que el libro de caja y el reporte no se contradigan.
+- `income-record.service`: `periodKey` se calcula en Bogotá. **No requiere
+  backfill**: hoy ese campo se escribe pero no lo lee nadie, y los reportes van
+  por rango de `saleDate`.
+- Panel: el modal de generar nómina ahora pide **Desde/Hasta** (prellenado con el
+  mes en curso) y los manda al backend. Es el arreglo de raíz del bug 1.
+
+**`common/period-key.ts` (`monthKey`, UTC) NO se tocó**: es componente del UNIQUE
+`(referralUseId, recipientCodeId, periodKey)` de `Commission` y moverlo cambiaría
+la deduplicación de comisiones ya guardadas.
+
+### Verificación
+
+Backend `tsc` 0 · Frontend `tsc` 0 · `eslint src/finance` 0 ·
+`vitest src/common/periodo-contable src/club` 263/263 ·
+`vitest src/email src/integrations` 38/39 (la roja es la de `trial_started`, la
+misma pre-existente de la entrada anterior).
+
+### PENDIENTE
+
+- **Los cierres ya guardados siguen con la nómina en $0.** No se tocaron a
+  propósito (decisión de Jhon). Para ver cuáles están mal:
+  `node backend/scripts/audit-cierres-nomina-cero.cjs` (READ-ONLY, no escribe).
+  Se corrigen reabriendo y volviendo a cerrar desde el panel.
+- Sigue pendiente lo de la entrada anterior: backfill del income capture de
+  Hotmart y decidir lo de `trial_started`.
+- Fases 1-3 del rediseño (el período como marco de TODO el módulo, métricas con
+  gráficas, integrar Próximos cobros y Comisiones) sin empezar.
+
 ## 2026-09-03 — Fusión de las dos ramas a `main` + deploy: producción DES-cruzada
 
 **Máquina/quién:** máquina de Jhon (Claude) · rama `main` · commit `e0e63b32`

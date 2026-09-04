@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import {
+  limitesDelMes,
+  mesAtras,
+  mesContableActual,
+} from '../common/periodo-contable';
 import { IncomeRecordService } from './income-record.service';
 import { ExpenseService } from './expense.service';
 
@@ -43,13 +48,25 @@ export class FinanceReportService {
     to?: Date,
   ): Promise<FinancialSummary> {
     const wl = onlyClubify ? { whiteLabelId: null } : {};
-    const dateWhere = (field: 'periodEnd' | 'businessDate') =>
+    const rango = { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
+    /**
+     * Filtro de fecha con RESPALDO por `createdAt`.
+     *
+     * `PayrollRun.periodEnd` y `Commission.businessDate` son opcionales, y en
+     * la práctica casi ningún corte de nómina los trae: el panel los crea
+     * mandando solo `periodLabel` (texto libre). Filtrando solo por el campo
+     * preferido, esas filas se caían del `where` y el mes las contaba como
+     * CERO — la nómina desaparecía del reporte y la UTILIDAD salía inflada.
+     * Se cae al `createdAt` para la fila que no tenga fecha propia, el mismo
+     * respaldo que ya usan `referrals.service` y el módulo `accounting`.
+     */
+    const dateWhere = (campo: 'periodEnd' | 'businessDate') =>
       from || to
         ? {
-            [field]: {
-              ...(from ? { gte: from } : {}),
-              ...(to ? { lte: to } : {}),
-            },
+            OR: [
+              { [campo]: rango },
+              { [campo]: null, createdAt: rango },
+            ],
           }
         : {};
     const [inc, exp, runs, comms] = await Promise.all([
@@ -87,16 +104,9 @@ export class FinanceReportService {
     };
   }
 
-  /** Bordes UTC de un mes YYYY-MM. */
+  /** Bordes de un mes YYYY-MM, en hora de Bogotá (ver `periodo-contable.ts`). */
   monthBounds(period: string): { from: Date; to: Date } | null {
-    const m = /^(\d{4})-(\d{2})$/.exec(period);
-    if (!m) return null;
-    const y = Number(m[1]);
-    const mo = Number(m[2]);
-    return {
-      from: new Date(Date.UTC(y, mo - 1, 1, 0, 0, 0)),
-      to: new Date(Date.UTC(y, mo, 0, 23, 59, 59, 999)),
-    };
+    return limitesDelMes(period);
   }
 
   /** Serie mensual de la utilidad (últimos N meses, incluido el actual). */
@@ -113,11 +123,10 @@ export class FinanceReportService {
       utilidadUsd: number;
     }>
   > {
-    const now = new Date();
+    const actual = mesContableActual();
     const out = [];
     for (let i = months - 1; i >= 0; i--) {
-      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-      const period = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      const period = mesAtras(actual, i);
       const b = this.monthBounds(period)!;
       const s = await this.summary(onlyClubify, b.from, b.to);
       out.push({
