@@ -8,6 +8,46 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-04 (tarde) — El paso de registro tapaba el botón de instalar en 65 negocios
+
+**Regresión mía, del commit de esta mañana. Corregida y desplegada (`ee6a97a3`).**
+
+El formulario que le pide correo y cumpleaños al socio del club antes de
+enseñarle los botones se estaba pintando en **cualquier** tarjeta: `getPublic`
+calculaba las banderas para todos los pases, no solo para los de un plan.
+
+Alcance medido contra producción: **955 pases de 65 negocios** cuyo cliente no
+tiene correo o cumpleaños. Cada uno es alguien que abre la pantalla de «aún no
+has terminado tu registro» y se encuentra una ficha en vez del botón «Añadir a
+Apple Wallet» — justo la pantalla que el negocio le manda para instalarla.
+
+El gate va ahora **en los dos lados a propósito**: el backend manda
+`registro: null` sin club, y la vista comprueba además `data.club`. Taparle el
+botón de instalar a todos los clientes de todos los negocios sale demasiado caro
+como para colgarlo de un solo sitio.
+
+Comprobado en vivo, no de memoria:
+
+```
+/api/passes/48e50250-…/public  → normal, registro=null      (botones a la vista)
+/api/passes/af7b663f-…/public  → CLUB,   registro={faltaEmail:true, …}
+```
+
+**La lección, que es la de siempre:** el club se da de alta en el mostrador con
+un dato y por eso necesita la ficha; **el resto de tarjetas ya pasó por el
+formulario de su negocio**. Antes de añadir un paso a `/w/[passId]`, preguntarse
+a cuántas de las ~5.900 tarjetas que NO son de club le cae encima.
+
+### Y lo que NO era esto: Serendipity
+
+Su tarjeta «Croissant» está activa, tiene 7 pases y **los 7 la instalaron**, dos
+de ellos hoy mismo. Solo a uno (Ismael Serrate) le falta el cumpleaños. Es decir
+que ahí el registro y la instalación funcionan; si siguen viendo algo raro hace
+falta el enlace exacto y el negocio, porque en los datos no aparece.
+
+Serendipity **no tiene el club encendido** (`clubEnabled = false`), pero eso es
+otra cosa: el interruptor por negocio de `/admin/tenants/{id}`.
+
 ## 2026-09-04 — El club, en vivo: registro antes de instalar + arqueo de producción
 
 Desplegado (`96b3d66f`, backend y frontend, desde `C:\dev\clubify` y por

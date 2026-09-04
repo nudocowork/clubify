@@ -14,6 +14,7 @@ const { PrismaClient } = require('@prisma/client');
     const pases = await p.pass.findMany({
       where: { card: { clubPlanId: null } },
       select: {
+        id: true,
         customer: { select: { fullName: true, email: true, birthday: true } },
         card: { select: { tenant: { select: { name: true } } } },
       },
@@ -30,6 +31,7 @@ const { PrismaClient } = require('@prisma/client');
         !c?.birthday;
       if (!falta) continue;
       afectados++;
+      if (afectados <= 2) console.log(`  ejemplo: ${s.id}`);
       const n = s.card.tenant.name;
       porNegocio.set(n, (porNegocio.get(n) || 0) + 1);
     }
