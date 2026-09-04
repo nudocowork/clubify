@@ -8,6 +8,28 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-04 (tarde) — El registro del socio, con la cara del alta de siempre
+
+El paso que se hizo por la mañana era un formulario aparte: tres cajas sueltas
+sin etiquetas, el cumpleaños en dos casillas de teclear y ni rastro del negocio.
+
+Ahora es el mismo formulario que `/c/[cardId]`: logo y nombre del negocio
+arriba, etiqueta encima de cada campo, y el cumpleaños en **dos listas** con los
+meses traducidos y el aviso del regalo. Elegir «Marzo» no se equivoca; teclear
+«03» sí.
+
+El nombre se enseña **siempre y ya puesto** —es lo que le confirma al socio que
+la tarjeta es suya—, y de solo lectura si el negocio ya lo tiene: cambiarlo se
+pide en el mostrador, así un enlace reenviado sigue sin poder reescribir una
+ficha ajena.
+
+`lib/opciones-cumple` es de los dos formularios. Dos listas de meses en dos
+archivos acaban siempre igual: una traducida y la otra en español para todos.
+
+Con el formulario delante se quita la cabecera de arriba, que decía «muestra
+este código al cajero» a alguien que aún no ha terminado de registrarse y dejaba
+la marca tres veces en la misma pantalla.
+
 ## 2026-09-04 (tarde) — El nombre en la tarjeta se encoge, no se corta
 
 `WalletPassPreview` cortaba con puntos suspensivos: «DEMO CLU…». Ahora el nombre
