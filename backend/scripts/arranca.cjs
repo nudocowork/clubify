@@ -112,8 +112,12 @@ hijo.stderr.on('data', (d) => {
 });
 hijo.on('exit', (c) => veredicto(c));
 
-// Si en dos minutos no ha dicho ni que arranca ni que falla, algo va mal.
+// Si en CUATRO minutos no ha dicho ni que arranca ni que falla, algo va mal.
+// Eran dos, y con la maquina cargada —otro build, o los tests— la carga del
+// AppModule sola pasa del minuto: el script daba por colgado un arranque que
+// llegaba bien. Una falsa alarma justo antes de desplegar asusta y hace
+// perder el tiempo mas que esperar el doble.
 setTimeout(() => {
-  salida += '\n[se agotó el tiempo: 120s sin llegar a la base de datos]';
+  salida += '\n[se agotó el tiempo: 240s sin llegar a la base de datos]';
   veredicto(1);
-}, 120_000);
+}, 240_000);
