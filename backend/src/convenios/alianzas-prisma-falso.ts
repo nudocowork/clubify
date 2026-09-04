@@ -117,6 +117,12 @@ const RELACIONES: Record<string, Record<string, Relacion>> = {
  *  esquema: sin ellos, una fila creada por el servicio saldría con `undefined`
  *  donde el código espera `false`, `0` o `null`, y los tests mentirían. */
 const POR_DEFECTO: Record<string, () => Fila> = {
+  /** El cajero. Existe aquí porque el canje lee su sede para aplicar el filtro
+   *  por sedes del convenio: sin este modelo, `user.findUnique` reventaba. */
+  user: () => ({
+    role: 'TENANT_STAFF',
+    locationId: null,
+  }),
   tenant: () => ({
     brandName: 'Negocio de prueba',
     logoUrl: null,
@@ -275,26 +281,61 @@ function casaCampo(valor: any, cond: any): boolean {
   return valor === cond;
 }
 
-function casa(fila: Fila, where: any): boolean {
+/**
+ * Con qué modelo se está filtrando y de dónde salen las demás tablas. Hace
+ * falta para los filtros POR RELACIÓN (`where: { convenio: { tenantId } }`),
+ * que es como se acota por negocio en todo el panel: sin esto, `casa` solo veía
+ * los campos de la propia fila y esas consultas no se podían probar.
+ */
+type Contexto = { modelo: string; db: PrismaFalso };
+
+function casa(fila: Fila, where: any, ctx?: Contexto): boolean {
   if (!where) return true;
   for (const [k, v] of Object.entries(where)) {
     if (k === 'AND') {
       const lista = Array.isArray(v) ? v : [v];
-      if (!lista.every((w) => casa(fila, w))) return false;
+      if (!lista.every((w) => casa(fila, w, ctx))) return false;
       continue;
     }
     if (k === 'OR') {
       // Un OR vacío no casa con nada, igual que en Prisma. Importa: `activar()`
       // construye el OR de la lista blanca con arrays condicionales.
-      if (!(v as any[]).some((w) => casa(fila, w))) return false;
+      if (!(v as any[]).some((w) => casa(fila, w, ctx))) return false;
       continue;
     }
     if (k === 'NOT') {
-      if (casa(fila, v)) return false;
+      if (casa(fila, v, ctx)) return false;
       continue;
     }
     if (esClaveCompuesta(k, v)) {
-      if (!casa(fila, v)) return false;
+      if (!casa(fila, v, ctx)) return false;
+      continue;
+    }
+    const rel = ctx ? RELACIONES[ctx.modelo]?.[k] : undefined;
+    if (rel && v && typeof v === 'object' && !(v instanceof Date)) {
+      const otras = ctx!.db.tabla(rel.modelo);
+      const hijo = { modelo: rel.modelo, db: ctx!.db };
+      if (!rel.muchos) {
+        const padre = otras.find((f) => f[rel.remoto] === fila[rel.local]);
+        if (!padre || !casa(padre, v, hijo)) return false;
+        continue;
+      }
+      const hijos = otras.filter((f) => f[rel.remoto] === fila[rel.local]);
+      const cond = v as Fila;
+      // `some`/`none`/`every` explícitos; un objeto pelado es `some`, como en
+      // Prisma. Cualquier otra cosa revienta a propósito, igual que un operador
+      // desconocido: un falso verde aquí es peor que un test roto.
+      for (const [modo, sub] of Object.entries(
+        'some' in cond || 'none' in cond || 'every' in cond ? cond : { some: cond },
+      )) {
+        const casan = hijos.filter((h) => casa(h, sub, hijo));
+        if (modo === 'some' && casan.length === 0) return false;
+        if (modo === 'none' && casan.length > 0) return false;
+        if (modo === 'every' && casan.length !== hijos.length) return false;
+        if (!['some', 'none', 'every'].includes(modo)) {
+          throw new Error(`El doble de Prisma no soporta «${modo}» en una relación`);
+        }
+      }
       continue;
     }
     if (!casaCampo(fila[k], v)) return false;
@@ -420,7 +461,7 @@ export class PrismaFalso {
       findFirst: async (args: any = {}) => this.buscarUno(modelo, args),
       findMany: async (args: any = {}) => this.buscarMuchos(modelo, args),
       count: async (args: any = {}) =>
-        this.datos[modelo].filter((f) => casa(f, args.where)).length,
+        this.datos[modelo].filter((f) => casa(f, args.where, { modelo, db: this })).length,
       aggregate: async (args: any = {}) => this.agregar(modelo, args),
       create: async (args: any) => this.crear(modelo, args),
       update: async (args: any) => this.actualizar(modelo, args),
@@ -428,7 +469,7 @@ export class PrismaFalso {
       delete: async (args: any) => this.borrar(modelo, args),
       deleteMany: async (args: any = {}) => this.borrarMuchos(modelo, args),
       upsert: async (args: any) => {
-        const previa = this.datos[modelo].find((f) => casa(f, args.where));
+        const previa = this.datos[modelo].find((f) => casa(f, args.where, { modelo, db: this }));
         return previa
           ? this.actualizar(modelo, { where: args.where, data: args.update })
           : this.crear(modelo, { data: args.create });
@@ -438,14 +479,14 @@ export class PrismaFalso {
 
   private buscarUno(modelo: string, args: any) {
     const fila = ordenar(
-      this.datos[modelo].filter((f) => casa(f, args.where)),
+      this.datos[modelo].filter((f) => casa(f, args.where, { modelo, db: this })),
       args.orderBy,
     )[0];
     return fila ? this.proyectar(modelo, fila, args) : null;
   }
 
   private buscarMuchos(modelo: string, args: any) {
-    let filas = this.datos[modelo].filter((f) => casa(f, args.where));
+    let filas = this.datos[modelo].filter((f) => casa(f, args.where, { modelo, db: this }));
     filas = ordenar(filas, args.orderBy);
     if (args.skip) filas = filas.slice(args.skip);
     if (args.take != null) filas = filas.slice(0, args.take);
@@ -453,7 +494,7 @@ export class PrismaFalso {
   }
 
   private agregar(modelo: string, args: any) {
-    const filas = this.datos[modelo].filter((f) => casa(f, args.where));
+    const filas = this.datos[modelo].filter((f) => casa(f, args.where, { modelo, db: this }));
     const salida: Fila = {};
     if (args._count) salida._count = filas.length;
     for (const clave of ['_sum', '_avg', '_min', '_max'] as const) {
@@ -498,7 +539,7 @@ export class PrismaFalso {
   }
 
   private filaUnica(modelo: string, where: any): Fila {
-    const fila = this.datos[modelo].find((f) => casa(f, where));
+    const fila = this.datos[modelo].find((f) => casa(f, where, { modelo, db: this }));
     if (!fila) {
       const e: any = new Error(`No ${modelo} found`);
       e.code = 'P2025';
@@ -542,7 +583,7 @@ export class PrismaFalso {
   }
 
   private actualizarMuchos(modelo: string, args: any) {
-    const filas = this.datos[modelo].filter((f) => casa(f, args.where));
+    const filas = this.datos[modelo].filter((f) => casa(f, args.where, { modelo, db: this }));
     for (const f of filas) this.aplicar(f, args.data);
     return { count: filas.length };
   }
@@ -554,7 +595,7 @@ export class PrismaFalso {
   }
 
   private borrarMuchos(modelo: string, args: any) {
-    const quedan = this.datos[modelo].filter((f) => !casa(f, args.where));
+    const quedan = this.datos[modelo].filter((f) => !casa(f, args.where, { modelo, db: this }));
     const count = this.datos[modelo].length - quedan.length;
     this.datos[modelo] = quedan;
     return { count };
@@ -575,6 +616,28 @@ export class PrismaFalso {
 
   // ── Proyección: select / include ──
 
+  /**
+   * `_count: { select: { canjes: true } }`.
+   *
+   * Sale en `select` y en `include`, así que se resuelve en un sitio. Lo usa
+   * `liberarTarjeta` para negarse a borrar una tarjeta con historial: sin esto,
+   * el servicio leía `undefined.canjes` y el test no probaba la regla.
+   */
+  private contar(modelo: string, fila: Fila, spec: any): Fila {
+    const salida: Fila = {};
+    for (const [k, v] of Object.entries(spec?.select ?? spec ?? {})) {
+      if (!v) continue;
+      const rel = RELACIONES[modelo]?.[k];
+      if (!rel || !rel.muchos) {
+        throw new Error(`El doble no sabe contar ${modelo}._count.${k}`);
+      }
+      salida[k] = this.tabla(rel.modelo).filter(
+        (f) => f[rel.remoto] === fila[rel.local],
+      ).length;
+    }
+    return salida;
+  }
+
   private proyectar(modelo: string, fila: Fila, args: any): Fila {
     const select = args?.select;
     const include = args?.include;
@@ -582,6 +645,10 @@ export class PrismaFalso {
       const salida: Fila = {};
       for (const [k, v] of Object.entries(select)) {
         if (!v) continue;
+        if (k === '_count') {
+          salida._count = this.contar(modelo, fila, v);
+          continue;
+        }
         const rel = RELACIONES[modelo]?.[k];
         salida[k] = rel
           ? this.resolver(rel, fila, v === true ? {} : (v as any))
@@ -592,6 +659,10 @@ export class PrismaFalso {
     const salida: Fila = clonar(fila);
     for (const [k, v] of Object.entries(include ?? {})) {
       if (!v) continue;
+      if (k === '_count') {
+        salida._count = this.contar(modelo, fila, v);
+        continue;
+      }
       const rel = RELACIONES[modelo]?.[k];
       if (!rel) throw new Error(`El doble no conoce la relación ${modelo}.${k}`);
       salida[k] = this.resolver(rel, fila, v === true ? {} : (v as any));
@@ -646,6 +717,10 @@ export type OpcionesEscenario = {
   /** `false` = convenio sin ningún cupón (enlace repartido antes de tiempo). */
   conCupon?: boolean;
   cupon?: Fila;
+  /** Sedes en las que aplica el convenio. Vacío = en todas. */
+  sedes?: string[];
+  /** Sede asignada al cajero que atiende. `null` = sin sede, como el dueño. */
+  sedeDelCajero?: string | null;
 };
 
 /**
@@ -691,7 +766,15 @@ export function escenario(op: OpcionesEscenario = {}) {
           position: 1,
           ...(op.cupon ?? {}),
         });
-  return { db, tenant, convenio, cupon, prisma: db.comoPrisma() };
+  for (const locationId of op.sedes ?? []) {
+    db.sembrar('convenioSede', { convenioId: convenio.id, locationId });
+  }
+  const cajero = db.sembrar('user', {
+    id: 'cajero-1',
+    tenantId: tenant.id,
+    locationId: op.sedeDelCajero ?? null,
+  });
+  return { db, tenant, convenio, cupon, cajero, prisma: db.comoPrisma() };
 }
 
 /** Los datos que manda el formulario del enlace, ya aceptada la política. */

@@ -424,3 +424,103 @@ describe('anular — el defecto del doble clic', () => {
     expect(db.tabla('convenioCupon')[0].canjesCount).toBe(1);
   });
 });
+
+/**
+ * El filtro por sedes: el dueño elige en qué sucursales aplica el convenio.
+ *
+ * Estaba escrito y MUERTO. La condición exigía un `locationId` que nadie
+ * mandaba nunca —el escáner no tiene selector de sede— así que un beneficio
+ * pactado solo para una sucursal se canjeaba en cualquiera: el panel ofrecía
+ * elegir sedes y el producto no cumplía. Ahora cae a la sede del cajero.
+ */
+describe('el convenio que solo aplica en ciertas sedes', () => {
+  /** Un cajero DE VERDAD: el `id` tiene que existir en la base para que el
+   *  servicio pueda leer su sede. `CAJERO` es el dueño, que no tiene. */
+  const enSede = (id: string | null) =>
+    ({
+      id: 'cajero-1',
+      email: 'caja@cafeluna.co',
+      role: 'TENANT_STAFF',
+      tenantId: 'tenant-cafe',
+      _sede: id,
+    }) as unknown as AuthUser;
+
+  it('rechaza el canje en una sede donde el convenio no aplica', async () => {
+    const { svc, tarjeta } = montar({
+      sedes: ['sede-centro'],
+      sedeDelCajero: 'sede-norte',
+    });
+    await expect(
+      svc.canjear(enSede('sede-norte'), {
+        tarjetaId: tarjeta.id,
+        cuponId: 'cupon-10',
+        locationId: null,
+        compraMonto: null,
+      }),
+    ).rejects.toThrow(/no aplica en esta sede/);
+  });
+
+  it('lo deja pasar en una sede donde sí aplica', async () => {
+    const { svc, tarjeta } = montar({
+      sedes: ['sede-centro'],
+      sedeDelCajero: 'sede-centro',
+    });
+    const r = await svc.canjear(enSede('sede-centro'), {
+      tarjetaId: tarjeta.id,
+      cuponId: 'cupon-10',
+      locationId: null,
+      compraMonto: null,
+    });
+    expect(r.aplicar).toBeTruthy();
+  });
+
+  it('sin sedes configuradas aplica en todas, aunque el cajero tenga una', async () => {
+    const { svc, tarjeta } = montar({ sedeDelCajero: 'sede-norte' });
+    const r = await svc.canjear(enSede('sede-norte'), {
+      tarjetaId: tarjeta.id,
+      cuponId: 'cupon-10',
+      locationId: null,
+      compraMonto: null,
+    });
+    expect(r.aplicar).toBeTruthy();
+  });
+
+  it('un cajero SIN sede asignada no se queda fuera', async () => {
+    // No se inventa una restricción que nadie configuró: sería peor que no
+    // tenerla. Es también el caso del dueño, que nunca tiene sede.
+    const { svc, tarjeta } = montar({
+      sedes: ['sede-centro'],
+      sedeDelCajero: null,
+    });
+    const r = await svc.canjear(enSede(null), {
+      tarjetaId: tarjeta.id,
+      cuponId: 'cupon-10',
+      locationId: null,
+      compraMonto: null,
+    });
+    expect(r.aplicar).toBeTruthy();
+  });
+
+  it('la sede que se registra en el canje es la EFECTIVA, no la que llegó vacía', async () => {
+    // Si sale de la ficha del cajero, el informe por sede tiene que verla:
+    // antes se guardaba el null que mandaba el escáner.
+    const { svc, db, tarjeta } = montar({ sedeDelCajero: 'sede-centro' });
+    await svc.canjear(enSede('sede-centro'), {
+      tarjetaId: tarjeta.id,
+      cuponId: 'cupon-10',
+      locationId: null,
+      compraMonto: null,
+    });
+    expect(db.datos.convenioCanje[0].locationId).toBe('sede-centro');
+  });
+
+  it('la pantalla del cajero avisa antes de que pulse, no al pulsar', async () => {
+    const { svc, pass } = montar({
+      sedes: ['sede-centro'],
+      sedeDelCajero: 'sede-norte',
+    });
+    const r = await svc.resolverParaCaja(enSede('sede-norte'), pass.id, null);
+    expect(r.cupones[0].disponible).toBe(false);
+    expect(r.cupones[0].motivo).toMatch(/no aplica en esta sede/);
+  });
+});

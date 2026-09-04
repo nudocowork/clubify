@@ -962,6 +962,127 @@ export class ConveniosService {
   }
 
   /**
+   * Corrige el documento de una tarjeta ya emitida.
+   *
+   * Sin esto, un dedazo al teclear la cédula dejaba a la persona fuera **para
+   * siempre**: el documento queda fijado en la primera activación, y al volver
+   * al enlace escribe el correcto, no coincide con el guardado y el sistema le
+   * responde que ya hay una tarjeta con esos datos. No tenía arreglo desde
+   * ningún sitio — el panel solo sabía bloquear, y bloquear tampoco deja
+   * volver a activar.
+   *
+   * No manda push: el documento no se pinta en el pase, así que avisar a la
+   * billetera sería despertar el teléfono de la persona para nada.
+   */
+  async corregirDocumento(
+    user: AuthUser,
+    tarjetaId: string,
+    documentoRaw: string,
+    override?: string,
+  ) {
+    const tenantId = this.tid(user, override);
+    await this.assertHabilitado(tenantId);
+    const documento = normalizarDocumento(documentoRaw);
+    if (!documento || documento.length < 4) {
+      throw new BadRequestException('Escribe el documento completo.');
+    }
+
+    const tarjeta = await this.prisma.convenioTarjeta.findFirst({
+      where: { id: tarjetaId, convenio: { tenantId } },
+      select: { id: true, convenioId: true, documento: true },
+    });
+    if (!tarjeta) throw new NotFoundException('Tarjeta no encontrada');
+    if (tarjeta.documento === documento) return { ok: true, cambio: false };
+
+    // El índice único parcial `(convenioId, documento)` lo impediría igual,
+    // pero un P2002 crudo le diría al dueño «error interno» donde lo que pasa
+    // es que esa cédula ya está en otra tarjeta —que es justo el dato que
+    // necesita para entender el lío.
+    const ocupado = await this.prisma.convenioTarjeta.findFirst({
+      where: { convenioId: tarjeta.convenioId, documento, id: { not: tarjeta.id } },
+      select: { customer: { select: { fullName: true } } },
+    });
+    if (ocupado) {
+      throw new BadRequestException(
+        `Ese documento ya está en la tarjeta de ${ocupado.customer.fullName}. Corrige esa primero.`,
+      );
+    }
+
+    await this.prisma.convenioTarjeta.update({
+      where: { id: tarjeta.id },
+      data: { documento },
+    });
+    return { ok: true, cambio: true };
+  }
+
+  /**
+   * Libera una tarjeta: la borra para que esa persona pueda volver a activar
+   * desde cero.
+   *
+   * Es la salida del caso feo: alguien activó con el teléfono de un compañero
+   * —o con el suyo pero con la cédula de otro— y el legítimo se quedaba sin
+   * poder entrar nunca.
+   *
+   * **Solo si no tiene canjes.** `ConvenioCanje` cuelga de la tarjeta en
+   * cascada: borrar una que ya se usó se llevaría su historial y, de paso,
+   * devolvería el tope global del beneficio, que es un descuento que el negocio
+   * ya dio. Con canjes, lo correcto es corregir el documento.
+   *
+   * Se borra también el pase: si se dejara, quedaría en el teléfono apuntando a
+   * una alianza que ya no lo reconoce y se pintaría como un cartón de sellos
+   * vacío. Al pase solo le cuelgan los registros de dispositivo (y sellos, que
+   * una tarjeta de alianza nunca tiene).
+   *
+   * Y se DEVUELVE su cupo en la lista blanca. Activar quema esas filas; sin
+   * devolverlas, en modo LISTA la persona seguiría sin poder entrar y esto no
+   * habría servido de nada.
+   */
+  async liberarTarjeta(user: AuthUser, tarjetaId: string, override?: string) {
+    const tenantId = this.tid(user, override);
+    await this.assertHabilitado(tenantId);
+
+    const tarjeta = await this.prisma.convenioTarjeta.findFirst({
+      where: { id: tarjetaId, convenio: { tenantId } },
+      select: {
+        id: true,
+        convenioId: true,
+        passId: true,
+        documento: true,
+        customer: { select: { email: true } },
+        _count: { select: { canjes: true } },
+      },
+    });
+    if (!tarjeta) throw new NotFoundException('Tarjeta no encontrada');
+    if (tarjeta._count.canjes > 0) {
+      throw new BadRequestException(
+        `Esta tarjeta ya tiene ${tarjeta._count.canjes} ${
+          tarjeta._count.canjes === 1 ? 'canje' : 'canjes'
+        }: liberarla borraría ese historial. Si la cédula está mal, corrígela.`,
+      );
+    }
+
+    const correo = normalizarEmail(tarjeta.customer?.email);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.convenioTarjeta.delete({ where: { id: tarjeta.id } });
+      if (tarjeta.passId) {
+        await tx.pass.delete({ where: { id: tarjeta.passId } });
+      }
+      await tx.convenioListaBlanca.updateMany({
+        where: {
+          convenioId: tarjeta.convenioId,
+          usedAt: { not: null },
+          OR: [
+            ...(tarjeta.documento ? [{ documento: tarjeta.documento }] : []),
+            ...(correo ? [{ email: correo }] : []),
+          ],
+        },
+        data: { usedAt: null },
+      });
+    });
+    return { ok: true };
+  }
+
+  /**
    * El diseño de la tarjeta de la alianza, para el editor del panel.
    *
    * Devuelve también los valores por defecto: el editor los enseña como

@@ -12,6 +12,16 @@ export type AlianzaEnPase = {
   empresa: string;
   /** Los beneficios que hoy se pueden usar, ya redactados para el pase. */
   vivos: string[];
+  /**
+   * Las condiciones de esos beneficios («No acumulable con otras promociones»).
+   *
+   * Van aparte porque el reverso del pase de Apple tiene su propio campo
+   * «Condiciones», que hasta ahora leía `Card.terms` — vacío en la plantilla de
+   * una alianza, así que salía «Condiciones: —» en una tarjeta cuyos beneficios
+   * SÍ tienen letra pequeña. Enseñar un guion donde hay condiciones reales es
+   * peor que no enseñar el campo.
+   */
+  condiciones: string[];
 };
 
 /**
@@ -44,6 +54,10 @@ export async function alianzaDelPase(
     select: { status: true },
   });
 
+  const usables = convenio.cupones.filter(
+    (c) => motivoDelCupon(c, ahora, null) === null,
+  );
+
   return {
     estado: estadoDelPase(
       convenio,
@@ -52,9 +66,17 @@ export async function alianzaDelPase(
       ahora,
     ),
     empresa: convenio.name,
-    vivos: convenio.cupones
-      .filter((c) => motivoDelCupon(c, ahora, null) === null)
-      .map((c) => describirBeneficioCorto(c.tipo, c.valor, c.name)),
+    vivos: usables.map((c) =>
+      describirBeneficioCorto(c.tipo, c.valor, c.name),
+    ),
+    // Solo las de los beneficios USABLES, y sin repetir: varios cupones suelen
+    // compartir la misma letra pequeña, y verla tres veces seguidas en el
+    // reverso del pase se lee como un error.
+    condiciones: [
+      ...new Set(
+        usables.map((c) => (c.terms ?? '').trim()).filter((t) => t.length > 0),
+      ),
+    ],
   };
 }
 

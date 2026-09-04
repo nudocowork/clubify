@@ -302,7 +302,21 @@ export class WalletService {
             changeMessage: '%@',
           },
           { key: 'serial', label: L.card_number, value: pass.serialNumber },
-          { key: 'terms', label: L.terms, value: pass.card.terms || '—' },
+          // En una alianza la letra pequeña es la de los BENEFICIOS, no la de
+          // la plantilla —que está vacía—, así que aquí salía «Condiciones: —»
+          // en una tarjeta que sí tiene condiciones. Si no hay ninguna, el
+          // campo no se pinta: un guion no informa de nada.
+          ...(alianza
+            ? alianza.condiciones.length
+              ? [
+                  {
+                    key: 'terms',
+                    label: L.terms,
+                    value: alianza.condiciones.join('\n'),
+                  },
+                ]
+              : []
+            : [{ key: 'terms', label: L.terms, value: pass.card.terms || '—' }]),
           { key: 'contact', label: L.contact, value: brandName },
           {
             // Apple Wallet detecta URLs en value y las hace clickeables.
@@ -357,9 +371,6 @@ export class WalletService {
         secondary: pass.card.secondaryColor,
         logoUrl: pass.card.logoUrl,
         empresa: alianza.empresa,
-        beneficio:
-          alianza.vivos[0] ??
-          (alianza.estado === 'ACTIVO' ? '' : L.alliance_ask(alianza.empresa)),
       });
     } else if (pass.card.type === 'STAMPS' && (!club || cupoDibujable <= 20)) {
       const c: any = pass.card;
@@ -830,7 +841,6 @@ export class WalletService {
         secondary: pass.card.secondaryColor,
         logoUrl: pass.card.logoUrl,
         empresa: a.empresa,
-        beneficio: a.vivos[0] ?? '',
       });
       return tiras['strip@2x.png'] ?? tiras['strip.png'] ?? null;
     }
@@ -950,7 +960,6 @@ export class WalletService {
     secondary: string;
     logoUrl?: string | null;
     empresa: string;
-    beneficio: string;
   }): Promise<Record<string, Buffer>> {
     const sharp = (await import('sharp')).default;
     const W = 640;
@@ -989,7 +998,14 @@ export class WalletService {
       }
     }
 
-    const beneficio = escapar(opts.beneficio.slice(0, 42));
+    // El beneficio NO se pinta aquí. Lo lleva el campo «BENEFICIO» que Apple
+    // dibuja justo debajo de esta imagen, así que ponerlo en las dos partes lo
+    // enseñaba dos veces seguidas. Además el campo los lleva TODOS y completos
+    // («10% de descuento · Bebida gratis»), mientras que aquí solo cabía el
+    // primero recortado a 42 caracteres.
+    //
+    // Así cada parte hace una cosa: la imagen dice DE QUIÉN es la tarjeta —el
+    // logo de la empresa y su nombre— y el texto de debajo dice QUÉ le dan.
     const empresa = escapar(opts.empresa.slice(0, 30));
 
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">
@@ -1006,8 +1022,7 @@ export class WalletService {
           ? ''
           : `<text x="${CX}" y="${CY + 20}" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="54" font-weight="700" fill="${opts.primary}">${escapar(iniciales)}</text>`
       }
-      <text x="${CX}" y="${CY + R + 40}" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="30" font-weight="700" fill="#FFFFFF">${beneficio}</text>
-      <text x="${CX}" y="${CY + R + 68}" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="19" font-weight="500" fill="rgba(255,255,255,.8)">${empresa}</text>
+      <text x="${CX}" y="${CY + R + 42}" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-size="30" font-weight="700" fill="#FFFFFF">${empresa}</text>
     </svg>`;
 
     let base = sharp(Buffer.from(svg));
