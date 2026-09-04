@@ -3,6 +3,7 @@ import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { ExpenseService } from './expense.service';
+import { rangoDe } from './where-periodo';
 
 class CreateExpenseBody {
   @IsString() concept!: string;
@@ -57,16 +58,17 @@ export class ExpensesController {
 
   // ── Egresos ──
   @Get('egresos')
-  list(@Query('scope') scope?: string, @Query('categoryId') categoryId?: string, @Query('status') status?: string) {
-    return this.expenses.list({ onlyClubify: scope !== 'all', categoryId, status });
+  list(@Query('scope') scope?: string, @Query('categoryId') categoryId?: string, @Query('status') status?: string, @Query('period') period?: string) {
+    return this.expenses.list({ onlyClubify: scope !== 'all', categoryId, status, ...rangoDe(period) });
   }
 
   @Get('egresos/resumen')
-  resumen(@Query('scope') scope?: string, @Query('from') from?: string, @Query('to') to?: string) {
+  resumen(@Query('scope') scope?: string, @Query('from') from?: string, @Query('to') to?: string, @Query('period') period?: string) {
     return this.expenses.summary({
       onlyClubify: scope !== 'all',
-      from: from ? new Date(from) : undefined,
-      to: to ? new Date(to) : undefined,
+      ...(period
+        ? rangoDe(period)
+        : { from: from ? new Date(from) : undefined, to: to ? new Date(to) : undefined }),
     });
   }
 

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { enRango } from './where-periodo';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -58,12 +59,13 @@ export class ExpenseService {
   }
 
   // ── Egresos ─────────────────────────────────────────────────────────────
-  async list(opts: { onlyClubify?: boolean; categoryId?: string; status?: string; limit?: number }) {
+  async list(opts: { onlyClubify?: boolean; categoryId?: string; status?: string; limit?: number; from?: Date; to?: Date }) {
     const rows = await this.prisma.expense.findMany({
       where: {
         ...(opts.onlyClubify ? { whiteLabelId: null } : {}),
         ...(opts.categoryId ? { categoryId: opts.categoryId } : {}),
         ...(opts.status ? { status: opts.status as any } : {}),
+        ...enRango('expenseDate', { from: opts.from, to: opts.to }),
       },
       orderBy: { expenseDate: 'desc' },
       take: Math.min(opts.limit ?? 300, 1000),

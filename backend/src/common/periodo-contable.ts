@@ -58,3 +58,61 @@ export function mesAtras(periodo: string, meses: number): string {
   const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1 - meses, 1));
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
+
+/**
+ * Límites de cualquier período que sepa pedir el panel:
+ *
+ *   "2026-09"    → ese mes
+ *   "2026-T3"    → ese trimestre (julio a septiembre)
+ *   "2026"       → ese año
+ *   "todo" / ""  → sin límites (histórico completo)
+ *
+ * Todo en hora de Bogotá, apoyado en `limitesDelMes` para que el borde del
+ * período sea el MISMO en las tres granularidades. Devuelve `null` si el
+ * período no se entiende, para que quien llama decida si es un 400 o si cae
+ * al mes en curso.
+ */
+export function limitesDelPeriodo(
+  periodo: string | undefined | null,
+): { from?: Date; to?: Date } | null {
+  const p = (periodo ?? '').trim();
+  if (!p || p === 'todo') return {};
+
+  const mes = limitesDelMes(p);
+  if (mes) return mes;
+
+  const t = /^(\d{4})-T([1-4])$/i.exec(p);
+  if (t) {
+    const primerMes = (Number(t[2]) - 1) * 3 + 1;
+    const desde = limitesDelMes(`${t[1]}-${String(primerMes).padStart(2, '0')}`)!;
+    const hasta = limitesDelMes(`${t[1]}-${String(primerMes + 2).padStart(2, '0')}`)!;
+    return { from: desde.from, to: hasta.to };
+  }
+
+  const anio = /^(\d{4})$/.exec(p);
+  if (anio) {
+    return {
+      from: limitesDelMes(`${anio[1]}-01`)!.from,
+      to: limitesDelMes(`${anio[1]}-12`)!.to,
+    };
+  }
+  return null;
+}
+
+/** Etiqueta legible de un período, para títulos y mensajes. */
+export function nombreDelPeriodo(periodo: string): string {
+  const p = (periodo ?? '').trim();
+  if (!p || p === 'todo') return 'Todo el histórico';
+  const MESES = [
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+  ];
+  const m = /^(\d{4})-(\d{2})$/.exec(p);
+  if (m && Number(m[2]) >= 1 && Number(m[2]) <= 12) {
+    return `${MESES[Number(m[2]) - 1]} de ${m[1]}`;
+  }
+  const t = /^(\d{4})-T([1-4])$/i.exec(p);
+  if (t) return `${t[2]}º trimestre de ${t[1]}`;
+  if (/^\d{4}$/.test(p)) return `año ${p}`;
+  return p;
+}

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { mesContable } from '../common/periodo-contable';
+import { enRango } from './where-periodo';
 import type { PaymentGateway } from '@prisma/client';
 
 /** Entrada para registrar un ingreso real. `grossUsd` = lo que pagó el cliente. */
@@ -136,11 +137,14 @@ export class IncomeRecordService {
     limit?: number;
     gateway?: PaymentGateway;
     onlyClubify?: boolean;
+    from?: Date;
+    to?: Date;
   }) {
     const rows = await this.prisma.incomeRecord.findMany({
       where: {
         ...(opts.gateway ? { gateway: opts.gateway } : {}),
         ...(opts.onlyClubify ? { whiteLabelId: null } : {}),
+        ...enRango('saleDate', { from: opts.from, to: opts.to }),
       },
       orderBy: { saleDate: 'desc' },
       take: Math.min(opts.limit ?? 200, 1000),

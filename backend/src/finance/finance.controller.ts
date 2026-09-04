@@ -12,6 +12,7 @@ import { IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { PaymentGateway } from '@prisma/client';
 import { IncomeRecordService } from './income-record.service';
 import { FinanceReportService } from './finance-report.service';
+import { rangoDe } from './where-periodo';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 
@@ -44,11 +45,14 @@ export class FinanceController {
     @Query('gateway') gateway?: string,
     @Query('scope') scope?: string,
     @Query('limit') limit?: string,
+    @Query('period') period?: string,
   ) {
+    const r = rangoDe(period);
     return this.income.list({
       gateway: (gateway || undefined) as PaymentGateway | undefined,
       onlyClubify: scope !== 'all',
       limit: limit ? Number(limit) : undefined,
+      ...r,
     });
   }
 
@@ -58,12 +62,16 @@ export class FinanceController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('scope') scope?: string,
+    @Query('period') period?: string,
   ) {
-    return this.income.summary({
-      from: from ? new Date(from) : undefined,
-      to: to ? new Date(to) : undefined,
-      onlyClubify: scope !== 'all',
-    });
+    // `period` manda; `from`/`to` siguen aceptándose para rangos a medida.
+    const r = period
+      ? rangoDe(period)
+      : {
+          from: from ? new Date(from) : undefined,
+          to: to ? new Date(to) : undefined,
+        };
+    return this.income.summary({ ...r, onlyClubify: scope !== 'all' });
   }
 
   @Roles('SUPER_ADMIN')
@@ -84,15 +92,7 @@ export class FinanceController {
     @Query('period') period?: string,
   ) {
     const onlyClubify = scope !== 'all';
-    let from: Date | undefined;
-    let to: Date | undefined;
-    if (period) {
-      const b = this.report.monthBounds(period);
-      if (b) {
-        from = b.from;
-        to = b.to;
-      }
-    }
+    const { from, to } = rangoDe(period);
     const [summary, series] = await Promise.all([
       this.report.summary(onlyClubify, from, to),
       this.report.monthlySeries(onlyClubify, 6),

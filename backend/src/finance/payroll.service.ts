@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { enRangoConRespaldo, type Rango } from './where-periodo';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -95,9 +96,12 @@ export class PayrollService {
     });
   }
 
-  async listRuns(onlyClubify: boolean) {
+  async listRuns(onlyClubify: boolean, rango: Rango = {}) {
     const rows = await this.prisma.payrollRun.findMany({
-      where: { ...(onlyClubify ? { whiteLabelId: null } : {}) },
+      where: {
+        ...(onlyClubify ? { whiteLabelId: null } : {}),
+        ...enRangoConRespaldo('periodEnd', rango),
+      },
       orderBy: { createdAt: 'desc' },
       include: { _count: { select: { items: true } } },
     });
@@ -160,11 +164,16 @@ export class PayrollService {
     return { ok: true as const, status, paid, outstanding: round2(total - paid) };
   }
 
-  async summary(onlyClubify: boolean) {
+  async summary(onlyClubify: boolean, rango: Rango = {}) {
     const where = onlyClubify ? { whiteLabelId: null } : {};
     const [employees, runs] = await Promise.all([
+      // Los colaboradores NO se acotan por período: son las personas que hay
+      // hoy, y "nómina próxima" mira hacia adelante, no al mes que se ve.
       this.prisma.payrollEmployee.findMany({ where: { ...where, active: true }, select: { amountUsd: true } }),
-      this.prisma.payrollRun.findMany({ where, select: { totalUsd: true, amountPaidUsd: true, status: true } }),
+      this.prisma.payrollRun.findMany({
+        where: { ...where, ...enRangoConRespaldo('periodEnd', rango) },
+        select: { totalUsd: true, amountPaidUsd: true, status: true },
+      }),
     ]);
     const proxima = round2(employees.reduce((a, e) => a + Number(e.amountUsd), 0));
     let pendiente = 0,

@@ -67,6 +67,82 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-04 — Contabilidad, Fase 1: el período contable manda sobre el módulo
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
+**Estado: EN RAMA, sin desplegar.** No toca esquema ni datos.
+
+### Por qué
+
+Contabilidad se leía como un registro acumulado: de las 12 llamadas del panel,
+NINGUNA mandaba fecha; solo Reportes tenía un selector de mes, y dentro de su
+pestaña. Las tarjetas de arriba eran el histórico completo. Lo que pidió Jhon es
+que **el mes sea el marco**: cada mes es un período cerrado, se comparan pero
+nunca se mezclan.
+
+### Qué se hizo
+
+**Backend** — todos los endpoints aceptan `?period=`:
+`ingresos`, `ingresos/resumen`, `egresos`, `egresos/resumen`, `nomina/cortes`,
+`nomina/resumen`, `movimientos` y `reporte`. `ingresos` y `egresos` no aceptaban
+rango de ninguna forma; `nomina` tampoco.
+
+El resolutor (`common/periodo-contable.ts`) entiende **`2026-09` · `2026-T3` ·
+`2026` · `todo`**, así que las métricas de trimestre y año de la Fase 2 ya no
+necesitan backend nuevo. Un período que no se entiende **no revienta la
+pantalla**: cae al histórico completo.
+
+`finance/where-periodo.ts` centraliza los filtros que estaban duplicados entre el
+reporte y Movimientos. Si el reporte cuenta un corte en septiembre y el libro de
+caja lo pinta en agosto, el mes no cuadra nunca.
+
+NO se acotan por período, a propósito: **colaboradores** (son las personas que
+hay hoy; "nómina próxima" mira adelante), **gastos recurrentes** (son plantillas)
+y **categorías**.
+
+**Panel** — `components/SelectorPeriodo.tsx`, en la CABECERA y no dentro de una
+pestaña: granularidad (Mes/Trimestre/Año/Todo), flechas ‹ ›, salto al mes actual
+y bloqueo del futuro. El período va a la URL (`?periodo=2026-08`, con
+`replaceState` para no inflar el historial), así se puede compartir un enlace a
+un mes. Reportes y Cierres perdieron su selector propio: cuelgan del de arriba.
+Solo un MES se puede cerrar; con trimestre o año el botón se desactiva y lo dice.
+
+**Aviso de conciliación cruzada:** acotar por mes esconde lo pendiente de meses
+anteriores. Si hay cobros sin conciliar fuera del período, un aviso lo dice y
+ofrece saltar al histórico — sin sumarlos a las cifras del período.
+
+### Verificación
+
+Backend `tsc` 0 · `eslint src/finance` 0 · **270/270** tests ·
+Frontend `tsc` 0 · `eslint` 0 · **`next build` compila**.
+
+Comprobado contra prod (solo lectura) que los períodos parten de verdad:
+
+| Período | Clubify | Todas las marcas |
+|---|---|---|
+| septiembre 2026 | 2 cobros · $203,00 | 7 cobros · $638,00 |
+| agosto 2026 | 2 cobros · $151,27 | 30 cobros · $4.515,11 |
+| julio 2026 | 3 cobros · $412,47 | 34 cobros · $4.730,19 |
+| histórico | 7 cobros | 92 cobros |
+
+### OJO
+
+- **Los 92 cobros de producción están SIN CONCILIAR, los 92.** Nadie ha
+  conciliado nunca. Con el período puesto, septiembre mostrará 7 pendientes y el
+  aviso nuevo dirá que hay 85 en otros meses.
+- El histórico de Clubify son hoy **7 cobros / $766,74**, más de lo que salía en
+  la captura que mandó Jhon. Si alguien corrió el backfill de Hotmart que está
+  pendiente desde el 03-09, eso lo explicaría; conviene confirmarlo antes de
+  sacar conclusiones de las cifras viejas.
+
+### PENDIENTE
+
+- Fase 2: métricas con gráficas como primera vista del período (`recharts` ya
+  está instalado; hoy la serie de 6 meses es una tabla), y comparador de meses.
+- Fase 3: Próximos cobros y Comisiones como pestañas reales — hoy son etiquetas
+  apagadas (`FUTURE_TABS`) — y decidir qué pasa con el módulo `accounting`
+  paralelo (doble partida, indexado por `periodKey`, sin enlace desde la UI).
+
 ## 2026-09-04 — Contabilidad, Fase 0: el mes contable y la nómina que valía $0
 
 **Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { enRango, enRangoConRespaldo } from './where-periodo';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -39,13 +40,10 @@ export class MovementsService {
     limit?: number;
   }): Promise<{ movements: Movement[]; summary: { ingresosUsd: number; egresosUsd: number; saldoUsd: number; count: number } }> {
     const wlNull = opts.onlyClubify ? { whiteLabelId: null } : {};
-    const rango = { ...(opts.from ? { gte: opts.from } : {}), ...(opts.to ? { lte: opts.to } : {}) };
-    const dateFilter = (field: string) =>
-      opts.from || opts.to ? { [field]: rango } : {};
+    const rango = { from: opts.from, to: opts.to };
+    const dateFilter = (field: string) => enRango(field, rango);
     const dateFilterConRespaldo = (field: string) =>
-      opts.from || opts.to
-        ? { OR: [{ [field]: rango }, { [field]: null, createdAt: rango }] }
-        : {};
+      enRangoConRespaldo(field, rango);
 
     const [incomes, expenses, cats, runs] = await Promise.all([
       this.prisma.incomeRecord.findMany({

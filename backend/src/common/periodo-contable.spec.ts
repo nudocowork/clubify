@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   mesContable,
   limitesDelMes,
+  limitesDelPeriodo,
   mesAtras,
+  nombreDelPeriodo,
 } from './periodo-contable';
 
 describe('mesContable', () => {
@@ -64,5 +66,55 @@ describe('mesAtras', () => {
 
   it('con 0 devuelve el mismo mes', () => {
     expect(mesAtras('2026-09', 0)).toBe('2026-09');
+  });
+});
+
+describe('limitesDelPeriodo', () => {
+  it('el mes coincide con limitesDelMes', () => {
+    expect(limitesDelPeriodo('2026-09')).toEqual(limitesDelMes('2026-09'));
+  });
+
+  it('el trimestre abre con su primer mes y cierra con el tercero', () => {
+    const t3 = limitesDelPeriodo('2026-T3')!;
+    expect(t3.from!.toISOString()).toBe(limitesDelMes('2026-07')!.from.toISOString());
+    expect(t3.to!.toISOString()).toBe(limitesDelMes('2026-09')!.to.toISOString());
+  });
+
+  it('el año va de enero a diciembre, en Bogotá', () => {
+    const a = limitesDelPeriodo('2026')!;
+    expect(a.from!.toISOString()).toBe('2026-01-01T05:00:00.000Z');
+    expect(a.to!.toISOString()).toBe('2027-01-01T04:59:59.999Z');
+  });
+
+  it('"todo" y el vacío no ponen límites', () => {
+    expect(limitesDelPeriodo('todo')).toEqual({});
+    expect(limitesDelPeriodo('')).toEqual({});
+    expect(limitesDelPeriodo(undefined)).toEqual({});
+  });
+
+  it('los cuatro trimestres cubren el año sin huecos ni solapes', () => {
+    const anio = limitesDelPeriodo('2026')!;
+    const ts = ['2026-T1', '2026-T2', '2026-T3', '2026-T4'].map(
+      (x) => limitesDelPeriodo(x)!,
+    );
+    expect(ts[0].from!.getTime()).toBe(anio.from!.getTime());
+    expect(ts[3].to!.getTime()).toBe(anio.to!.getTime());
+    for (let i = 1; i < 4; i++) {
+      expect(ts[i].from!.getTime() - ts[i - 1].to!.getTime()).toBe(1);
+    }
+  });
+
+  it('devuelve null si no se entiende, para que quien llama decida', () => {
+    expect(limitesDelPeriodo('2026-T5')).toBeNull();
+    expect(limitesDelPeriodo('el mes pasado')).toBeNull();
+  });
+});
+
+describe('nombreDelPeriodo', () => {
+  it('nombra mes, trimestre, año y el histórico', () => {
+    expect(nombreDelPeriodo('2026-09')).toBe('septiembre de 2026');
+    expect(nombreDelPeriodo('2026-T3')).toBe('3º trimestre de 2026');
+    expect(nombreDelPeriodo('2026')).toBe('año 2026');
+    expect(nombreDelPeriodo('todo')).toBe('Todo el histórico');
   });
 });

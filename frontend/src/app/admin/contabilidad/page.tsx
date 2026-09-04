@@ -2,6 +2,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import {
+  SelectorPeriodo,
+  esMes,
+  nombreDePeriodo,
+  periodoActual,
+} from '@/components/SelectorPeriodo';
 
 // CONTABILIDAD — Fases 1-2. Ingresos (real por transacción) + Conciliación +
 // Egresos (fijo/%, pagos parciales, "por revisar") + Gastos operativos
@@ -50,6 +56,9 @@ export default function ContabilidadPage() {
   const [loading, setLoading] = useState(true);
 
   const [resumen, setResumen] = useState<Resumen | null>(null);
+  // Resumen SIN período, solo para avisar de lo que quedó pendiente en otros
+  // meses. No se mezcla con las cifras del período: únicamente dice que existe.
+  const [pendienteGlobal, setPendienteGlobal] = useState<Resumen | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [edit, setEdit] = useState<{ id: string; value: string } | null>(null);
 
@@ -73,34 +82,54 @@ export default function ContabilidadPage() {
   const [movKind, setMovKind] = useState<'' | 'INGRESO' | 'EGRESO'>('');
   const [reporte, setReporte] = useState<Reporte | null>(null);
   const [cierres, setCierres] = useState<Cierre[]>([]);
-  const [repPeriod, setRepPeriod] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
+  // El período contable manda sobre TODO el módulo, no sobre una pestaña.
+  // Arranca en el mes en curso y se lee de la URL al montar (no en el
+  // useState, que también corre en el prerender del servidor y ahí no hay
+  // `window`); así un enlace a ?periodo=2026-08 abre agosto.
+  const [periodo, setPeriodo] = useState<string>(periodoActual);
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get('periodo');
+    if (p) setPeriodo(p);
+  }, []);
+  const cambiarPeriodo = useCallback((p: string) => {
+    setPeriodo(p);
+    // replaceState y no push: cambiar de mes no es navegar, y llenar el
+    // historial obligaría a dar diez veces atrás para salir del módulo.
+    const url = new URL(window.location.href);
+    url.searchParams.set('periodo', p);
+    window.history.replaceState(null, '', url);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, list, c, e, er, rc, em, ru, pr, mv, rep, ci] = await Promise.all([
-        api<Resumen>(`/admin/contabilidad/ingresos/resumen?scope=${scope}`).catch(() => null),
-        api<Row[]>(`/admin/contabilidad/ingresos?scope=${scope}`).catch(() => []),
+      // `q` va en TODAS: el módulo entero muestra un solo período. Las que no
+      // lo llevan son las que no pertenecen a un mes — las categorías, los
+      // gastos recurrentes (plantillas) y los colaboradores (las personas que
+      // hay hoy) — y los cierres, que son la lista de meses ya cerrados.
+      const q = `scope=${scope}&period=${encodeURIComponent(periodo)}`;
+      const [r, list, c, e, er, rc, em, ru, pr, mv, rep, ci, global] = await Promise.all([
+        api<Resumen>(`/admin/contabilidad/ingresos/resumen?${q}`).catch(() => null),
+        api<Row[]>(`/admin/contabilidad/ingresos?${q}`).catch(() => []),
         api<Cat[]>(`/admin/contabilidad/categorias`).catch(() => []),
-        api<Exp[]>(`/admin/contabilidad/egresos?scope=${scope}`).catch(() => []),
-        api<ExpResumen>(`/admin/contabilidad/egresos/resumen?scope=${scope}`).catch(() => null),
+        api<Exp[]>(`/admin/contabilidad/egresos?${q}`).catch(() => []),
+        api<ExpResumen>(`/admin/contabilidad/egresos/resumen?${q}`).catch(() => null),
         api<Rec[]>(`/admin/contabilidad/gastos-recurrentes?scope=${scope}`).catch(() => []),
         api<PEmp[]>(`/admin/contabilidad/nomina/colaboradores?scope=${scope}`).catch(() => []),
-        api<PRun[]>(`/admin/contabilidad/nomina/cortes?scope=${scope}`).catch(() => []),
-        api<PResumen>(`/admin/contabilidad/nomina/resumen?scope=${scope}`).catch(() => null),
-        api<MovResp>(`/admin/contabilidad/movimientos?scope=${scope}${movKind ? `&kind=${movKind}` : ''}`).catch(() => null),
-        api<Reporte>(`/admin/contabilidad/reporte?scope=${scope}&period=${repPeriod}`).catch(() => null),
+        api<PRun[]>(`/admin/contabilidad/nomina/cortes?${q}`).catch(() => []),
+        api<PResumen>(`/admin/contabilidad/nomina/resumen?${q}`).catch(() => null),
+        api<MovResp>(`/admin/contabilidad/movimientos?${q}${movKind ? `&kind=${movKind}` : ''}`).catch(() => null),
+        api<Reporte>(`/admin/contabilidad/reporte?${q}`).catch(() => null),
         api<Cierre[]>(`/admin/contabilidad/cierres?scope=${scope}`).catch(() => []),
+        api<Resumen>(`/admin/contabilidad/ingresos/resumen?scope=${scope}&period=todo`).catch(() => null),
       ]);
+      setPendienteGlobal(global);
       setResumen(r); setRows((list ?? []) as Row[]); setCats((c ?? []) as Cat[]);
       setExps((e ?? []) as Exp[]); setExpResumen(er); setRecs((rc ?? []) as Rec[]);
       setEmps((em ?? []) as PEmp[]); setRuns((ru ?? []) as PRun[]); setPRes(pr);
       setMov(mv); setReporte(rep); setCierres((ci ?? []) as Cierre[]);
     } finally { setLoading(false); }
-  }, [scope, movKind, repPeriod]);
+  }, [scope, movKind, periodo]);
   useEffect(() => { void load(); }, [load]);
 
   const catName = useMemo(() => Object.fromEntries(cats.map((c) => [c.id, c.name])), [cats]);
@@ -113,11 +142,21 @@ export default function ContabilidadPage() {
     else toast('No se pudo conciliar');
   }
   const conciliables = rows.filter((r) => r.reconStatus !== 'RECONCILED');
+  // Lo que quedó pendiente FUERA del período que se está viendo. Sin esto, un
+  // cobro sin conciliar de agosto se volvería invisible en septiembre y nadie
+  // volvería a por él.
+  const pendientesDelPeriodo = (resumen?.pendingRecon ?? 0) + (resumen?.inReview ?? 0);
+  const sinConciliarFuera = Math.max(
+    0,
+    (pendienteGlobal?.pendingRecon ?? 0) + (pendienteGlobal?.inReview ?? 0) - pendientesDelPeriodo,
+  );
 
   async function cerrarMes() {
-    if (!/^\d{4}-\d{2}$/.test(repPeriod)) { toast('Elegí un mes válido'); return; }
-    const r = await api(`/admin/contabilidad/cierres`, { method: 'POST', body: JSON.stringify({ period: repPeriod, scope }) }).catch(() => null);
-    if (r) { toast(`Mes ${repPeriod} cerrado ✅`, 'success'); void load(); } else toast('No se pudo cerrar el mes', 'error');
+    // Se cierra el MES: un trimestre o un año no son períodos contables que se
+    // congelen, son formas de mirar meses que ya existen.
+    if (!esMes(periodo)) { toast('Elegí un mes para poder cerrarlo'); return; }
+    const r = await api(`/admin/contabilidad/cierres`, { method: 'POST', body: JSON.stringify({ period: periodo, scope }) }).catch(() => null);
+    if (r) { toast(`${nombreDePeriodo(periodo)} cerrado ✅`, 'success'); void load(); } else toast('No se pudo cerrar el mes', 'error');
   }
   async function reabrirMes(id: string, period: string) {
     if (!window.confirm(`¿Reabrir ${period}? Se borra el cierre y se podrá recalcular.`)) return;
@@ -133,6 +172,14 @@ export default function ContabilidadPage() {
           <button onClick={() => setScope('clubify')} className={`px-3 py-1.5 rounded-pill text-xs font-semibold ${scope === 'clubify' ? 'bg-white shadow-sm2 text-ink' : 'text-mute'}`}>Clubify</button>
           <button onClick={() => setScope('all')} className={`px-3 py-1.5 rounded-pill text-xs font-semibold ${scope === 'all' ? 'bg-white shadow-sm2 text-ink' : 'text-mute'}`}>Todas las marcas</button>
         </div>
+      </div>
+
+      {/* El período contable manda sobre todo lo de abajo. */}
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+        <SelectorPeriodo valor={periodo} onChange={cambiarPeriodo} />
+        <span className="text-xs text-mute">
+          Todo lo que ves abajo es de <strong className="text-ink capitalize">{nombreDePeriodo(periodo)}</strong>.
+        </span>
       </div>
 
       {/* Tabs */}
@@ -182,7 +229,16 @@ export default function ContabilidadPage() {
             </table></div></div>
           ))}
 
-          {tab === 'conciliacion' && (conciliables.length === 0 ? <div className="card card-pad text-center text-mute">Todo conciliado ✅</div> : (
+          {tab === 'conciliacion' && sinConciliarFuera > 0 && (
+            <div className="card card-pad mb-3 flex items-center justify-between gap-3 flex-wrap border-amber-300">
+              <span className="text-sm">
+                Hay <strong>{sinConciliarFuera}</strong> {sinConciliarFuera === 1 ? 'cobro' : 'cobros'} sin conciliar de <strong>otros períodos</strong>. No se suman a las cifras de <span className="capitalize">{nombreDePeriodo(periodo)}</span>.
+              </span>
+              <button onClick={() => cambiarPeriodo('todo')} className="text-sm font-semibold text-brand hover:underline whitespace-nowrap">Ver todo el histórico</button>
+            </div>
+          )}
+
+          {tab === 'conciliacion' && (conciliables.length === 0 ? <div className="card card-pad text-center text-mute">Nada por conciliar en <span className="capitalize">{nombreDePeriodo(periodo)}</span> ✅</div> : (
             <div className="grid md:grid-cols-2 gap-3">{conciliables.map((r) => (
               <div key={r.id} className={`card card-pad ${r.reconStatus === 'REVIEW' ? 'border-amber-300' : ''}`}>
                 <div className="flex justify-between items-center mb-2"><b>{r.brandName ?? '—'}</b><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${RECON_BDG[r.reconStatus].cls}`}>{RECON_BDG[r.reconStatus].label}</span></div>
@@ -358,14 +414,10 @@ export default function ContabilidadPage() {
           {/* ===== REPORTES (F6): cascada de utilidad + serie mensual ===== */}
           {tab === 'reportes' && (
             <>
-              <div className="flex items-center gap-2 mb-4">
-                <label className="text-sm text-mute">Mes:</label>
-                <input type="month" className="input" value={repPeriod} onChange={(e) => setRepPeriod(e.target.value)} />
-              </div>
               {!reporte ? <div className="card card-pad text-center text-mute">Sin datos.</div> : (
                 <div className="grid md:grid-cols-2 gap-4 mb-5">
                   <div className="card card-pad">
-                    <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">Cascada de utilidad · {repPeriod}</div>
+                    <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">Cascada de utilidad · <span className="capitalize">{nombreDePeriodo(periodo)}</span></div>
                     <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">Ingresos brutos</span><span className="tabular-nums font-medium">{money(reporte.summary.grossUsd)}</span></div>
                     <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Fee pasarela + impuestos</span><span className="tabular-nums text-red-600">−{money(reporte.summary.gatewayFeeUsd + reporte.summary.taxUsd)}</span></div>
                     <div className="flex justify-between py-1.5 text-sm border-t border-line2"><span className="font-semibold">= Neto</span><span className="tabular-nums font-semibold">{money(reporte.summary.netUsd)}</span></div>
@@ -395,10 +447,10 @@ export default function ContabilidadPage() {
           {tab === 'cierres' && (
             <>
               <div className="flex items-center gap-2 mb-4 flex-wrap">
-                <label className="text-sm text-mute">Cerrar mes:</label>
-                <input type="month" className="input" value={repPeriod} onChange={(e) => setRepPeriod(e.target.value)} />
-                <button onClick={cerrarMes} className="text-sm px-4 py-2 rounded-md bg-brand text-white font-semibold hover:opacity-90">Cerrar {repPeriod}</button>
-                {reporte && <span className="text-xs text-mute">Utilidad calculada: <strong className={reporte.summary.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}>{money(reporte.summary.utilidadUsd)}</strong></span>}
+                <button onClick={cerrarMes} disabled={!esMes(periodo)} className="text-sm px-4 py-2 rounded-md bg-brand text-white font-semibold hover:opacity-90 disabled:opacity-40 disabled:hover:opacity-40">Cerrar <span className="capitalize">{nombreDePeriodo(periodo)}</span></button>
+                {esMes(periodo)
+                  ? reporte && <span className="text-xs text-mute">Utilidad calculada: <strong className={reporte.summary.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}>{money(reporte.summary.utilidadUsd)}</strong></span>
+                  : <span className="text-xs text-mute">Elegí un <strong>mes</strong> arriba para cerrarlo: lo que se congela es el mes, no el trimestre ni el año.</span>}
               </div>
               {cierres.length === 0 ? (
                 <div className="card card-pad text-center text-mute">Ningún mes cerrado todavía. Cerrar un mes congela su utilidad.</div>

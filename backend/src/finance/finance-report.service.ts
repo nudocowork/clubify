@@ -7,6 +7,7 @@ import {
 } from '../common/periodo-contable';
 import { IncomeRecordService } from './income-record.service';
 import { ExpenseService } from './expense.service';
+import { enRangoConRespaldo } from './where-periodo';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -48,36 +49,19 @@ export class FinanceReportService {
     to?: Date,
   ): Promise<FinancialSummary> {
     const wl = onlyClubify ? { whiteLabelId: null } : {};
-    const rango = { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
-    /**
-     * Filtro de fecha con RESPALDO por `createdAt`.
-     *
-     * `PayrollRun.periodEnd` y `Commission.businessDate` son opcionales, y en
-     * la práctica casi ningún corte de nómina los trae: el panel los crea
-     * mandando solo `periodLabel` (texto libre). Filtrando solo por el campo
-     * preferido, esas filas se caían del `where` y el mes las contaba como
-     * CERO — la nómina desaparecía del reporte y la UTILIDAD salía inflada.
-     * Se cae al `createdAt` para la fila que no tenga fecha propia, el mismo
-     * respaldo que ya usan `referrals.service` y el módulo `accounting`.
-     */
-    const dateWhere = (campo: 'periodEnd' | 'businessDate') =>
-      from || to
-        ? {
-            OR: [
-              { [campo]: rango },
-              { [campo]: null, createdAt: rango },
-            ],
-          }
-        : {};
+    const rango = { from, to };
     const [inc, exp, runs, comms] = await Promise.all([
       this.income.summary({ from, to, onlyClubify }),
       this.expense.summary({ from, to, onlyClubify }),
       this.prisma.payrollRun.findMany({
-        where: { ...wl, ...dateWhere('periodEnd') },
+        where: { ...wl, ...enRangoConRespaldo('periodEnd', rango) },
         select: { totalUsd: true },
       }),
       this.prisma.commission.findMany({
-        where: { status: { not: 'REJECTED' }, ...dateWhere('businessDate') },
+        where: {
+          status: { not: 'REJECTED' },
+          ...enRangoConRespaldo('businessDate', rango),
+        },
         select: { amount: true },
       }),
     ]);
