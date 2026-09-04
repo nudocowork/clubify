@@ -8,6 +8,33 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-04 (tarde) — Redimir el cupo del club desde la ficha del cliente
+
+Solo frontend: el backend ya tenía todo (`POST /club/caja/consumir/:membresiaId`
+y `POST /club/caja/anular/:consumoId`, ambos abiertos a `TENANT_STAFF`). Lo que
+faltaba era el botón en `/app/customers/[id]`.
+
+Hasta ahora el cupo solo se descontaba desde el escáner, y eso deja fuera al
+socio que llama por teléfono, al que pide para llevar y al código que no lee.
+Se apuntaba en un papel.
+
+**Lo que sigue sin haber, a propósito:** los botones genéricos de «Sellar» y
+«Canjear». Son de la tarjeta de sellos y en un club hacen lo contrario de lo que
+dicen —sellar REGALA cupo, canjear lo pone a cero—. El botón nuevo llama al
+consumo del club: descuenta de a uno, deja `ClubConsumo` en el histórico, empuja
+el pase al móvil y se puede anular.
+
+Detalles que no son de adorno:
+
+- **El saldo lo dice el servidor, no se resta a ojo.** Si otra caja consume a la
+  vez, restar en el navegador deja el número mintiendo hasta recargar.
+- **«Deshacer» al lado**, mientras no se salga de la ficha. Un clic de más aquí
+  le quita un café de verdad a alguien que lo pagó, y mandarlo a buscar el
+  consumo en el histórico del plan es demasiado lejos. Pasado ese momento, se
+  anula desde `/app/club`.
+- **Cuando no se puede, se dice por qué** («Membresía detenida», «Sin cafés este
+  mes»). Un botón gris a secas hace que el negocio crea que la web está rota.
+
 ## 2026-09-04 (tarde) — El paso de registro tapaba el botón de instalar en 65 negocios
 
 **Regresión mía, del commit de esta mañana. Corregida y desplegada (`74133bb2`).**

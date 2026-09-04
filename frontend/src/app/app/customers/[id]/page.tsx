@@ -165,28 +165,79 @@ const isCouponLike = (type?: string) => COUPON_TYPES.includes(type ?? '');
 /**
  * La tarjeta de CLUB en la ficha del cliente.
  *
- * Solo informa: el cupo se consume desde el escáner, que es donde queda el
- * registro y donde se puede anular. Aquí no hay botones de sellar ni canjear a
- * propósito — son justo las dos acciones que rompían la tarjeta.
+ * Se puede redimir desde aquí, no solo desde el escáner: el socio llama por
+ * teléfono, pide para llevar, o al cajero no le lee el código. Antes eso
+ * obligaba a apuntarlo en un papel.
+ *
+ * Lo que NO hay, y sigue sin haber a propósito, son los botones genéricos de
+ * «Sellar» y «Canjear». Son de la tarjeta de sellos y en un club hacen lo
+ * contrario de lo que dicen: sellar REGALA cupo y canjear lo pone a cero. Este
+ * botón llama al consumo del club, que descuenta de a uno, deja `ClubConsumo`
+ * en el histórico y se puede anular.
  *
  * El detalle se pide a la ruta de caja, que ya devuelve saldo, cupo, período y
  * estado juntos. Una llamada más por tarjeta de club, y son raras.
  */
 function FilaClub({ pass: p }: { pass: Pass }) {
   const [d, setD] = useState<{
+    membresiaId: string;
     plan: string;
     unidad: string;
     status: string;
     saldo: number;
     cupoDelPeriodo: number;
     periodo: string;
+    puedeConsumir: boolean;
   } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  // El consumo que se acaba de hacer, para poder deshacerlo sin salir de la
+  // ficha. Un clic de más aquí le quita un café de verdad a alguien que lo
+  // pagó, y mandarlo al histórico del plan a buscarlo es demasiado lejos.
+  const [ultimo, setUltimo] = useState<string | null>(null);
 
   useEffect(() => {
     api(`/club/caja/pase/${p.id}`)
       .then(setD)
       .catch(() => setD(null));
   }, [p.id]);
+
+  async function redimir() {
+    if (!d) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api<{ consumoId: string; saldo: number }>(
+        `/club/caja/consumir/${d.membresiaId}`,
+        { method: 'POST', body: JSON.stringify({ cantidad: 1 }) },
+      );
+      // El saldo lo dice el servidor, no se resta a ojo: si otra caja consumió
+      // a la vez, el número de aquí quedaría mintiendo hasta recargar.
+      setD({ ...d, saldo: r.saldo, puedeConsumir: r.saldo > 0 });
+      setUltimo(r.consumoId);
+    } catch (e: any) {
+      setErr(e?.message || 'No se pudo redimir.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deshacer() {
+    if (!d || !ultimo) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api<{ saldo: number }>(`/club/caja/anular/${ultimo}`, {
+        method: 'POST',
+      });
+      setD({ ...d, saldo: r.saldo, puedeConsumir: r.saldo > 0 });
+      setUltimo(null);
+    } catch (e: any) {
+      setErr(e?.message || 'No se pudo deshacer.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const etiqueta =
     d?.status === 'ACTIVA'
@@ -234,9 +285,52 @@ function FilaClub({ pass: p }: { pass: Pass }) {
       </div>
 
       <p className="text-xs text-mute mt-1.5">
-        Se consume desde el escáner. Vuelve a llenarse el día 1
+        Vuelve a llenarse el día 1
         {d?.periodo ? ` · período ${d.periodo}` : ''}.
       </p>
+
+      {/* El botón solo aparece con el detalle cargado: sin `membresiaId` no hay
+          a qué llamar, y un botón que no hace nada es peor que ninguno. */}
+      {d && (
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <button
+            className="btn-primary text-xs whitespace-nowrap"
+            disabled={busy || !d.puedeConsumir}
+            onClick={redimir}
+            title={
+              d.status !== 'ACTIVA'
+                ? 'La membresía no está activa.'
+                : d.saldo < 1
+                  ? 'Ya usó todo su cupo de este mes.'
+                  : undefined
+            }
+          >
+            {busy ? 'Un momento…' : `Redimir 1 ${d.unidad}`}
+          </button>
+
+          {ultimo && (
+            <button
+              className="btn-ghost text-xs whitespace-nowrap"
+              disabled={busy}
+              onClick={deshacer}
+            >
+              Deshacer
+            </button>
+          )}
+
+          {/* Por qué NO se puede, dicho aquí. El botón deshabilitado a secas
+              hace que el negocio piense que la web está rota. */}
+          {!d.puedeConsumir && (
+            <span className="text-xs text-mute">
+              {d.status !== 'ACTIVA'
+                ? 'Membresía detenida.'
+                : `Sin ${plural(d.unidad, 2)} este mes.`}
+            </span>
+          )}
+        </div>
+      )}
+
+      {err && <div className="text-xs text-bad mt-2">{err}</div>}
     </div>
   );
 }
