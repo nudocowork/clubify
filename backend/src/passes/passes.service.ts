@@ -170,12 +170,20 @@ export class PassesService {
     // El nombre cuenta como pendiente si no tiene ni una letra: el alta rápida
     // del club deja el teléfono como nombre —la base exige uno— y ese hay que
     // pedirlo de verdad.
+    //
+    // SOLO EN EL CLUB. El socio del club es el único que llega aquí sin haber
+    // pasado por un formulario: se dio de alta en el mostrador con un dato. En
+    // las demás tarjetas el cliente YA rellenó lo que su negocio le pidió —y lo
+    // que no le pidió, no lo quiere—, así que ponerle una ficha delante le tapa
+    // los botones de instalar, que es lo único que vino a hacer.
     const c = pass.customer;
-    const registro = {
-      faltaNombre: !c?.fullName || !/\p{L}/u.test(c.fullName),
-      faltaEmail: !c?.email?.trim(),
-      faltaCumple: !c?.birthday,
-    };
+    const registro = club
+      ? {
+          faltaNombre: !c?.fullName || !/\p{L}/u.test(c.fullName),
+          faltaEmail: !c?.email?.trim(),
+          faltaCumple: !c?.birthday,
+        }
+      : null;
 
     return {
       ...pass,

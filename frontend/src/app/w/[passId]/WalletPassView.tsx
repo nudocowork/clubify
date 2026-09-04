@@ -30,7 +30,13 @@ export function WalletPassView({
   // El socio del club llega aquí sin haber pasado por ningún formulario: se dio
   // de alta en el mostrador con un solo dato. Se le piden los huecos ANTES de
   // enseñarle los botones — si ve «instalar» primero, instala y no vuelve.
-  const falta = data.registro ?? null;
+  //
+  // Y SOLO al del club. En las demás tarjetas el cliente ya rellenó el
+  // formulario de su negocio, y lo único que ha venido a hacer aquí es
+  // instalarla. El `data.club` repite a propósito el gate que ya hace el
+  // backend: taparle el botón de instalar a todos los clientes de todos los
+  // negocios sale demasiado caro como para colgarlo de un solo sitio.
+  const falta = data.club ? (data.registro ?? null) : null;
   const [registroPendiente, setRegistroPendiente] = useState(
     Boolean(
       falta && (falta.faltaNombre || falta.faltaEmail || falta.faltaCumple),
