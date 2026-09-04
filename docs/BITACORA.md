@@ -8,6 +8,65 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-04 — El repo SALE de OneDrive. Las dos máquinas ya están fuera
+
+**Esta es la causa de los ~8 despliegues que revirtieron producción ayer.**
+
+El repo vivía dentro de OneDrive, que sincronizaba la carpeta entre las dos
+máquinas — **incluido el trabajo sin commitear y el propio `.git`**. Con eso,
+desplegar desde una copia atrasada borraba de producción lo que había subido el
+otro, y el `git status` de cada uno mentía sobre lo que había en la otra
+máquina.
+
+Jhon ya movió la suya. Esta máquina también:
+
+```
+antes:  C:\Users\USUARIO\OneDrive\Documentos\Clubify PRO
+ahora:  C:\dev\clubify
+```
+
+**La copia de OneDrive queda muerta. No trabajar ni desplegar desde ahí.**
+
+### Lo que hubo que copiar a mano (no está en git)
+
+```
+backend/.env
+frontend/.env.local
+frontend/.vercel/        ← sin esto, vercel crea un proyecto NUEVO en vez de actualizar
+```
+
+Si algún día se vuelve a clonar, son esos tres. `team_clubify/` no está en esta
+máquina.
+
+### Las dos reglas que cierran el tema
+
+1. **Desplegar SOLO con `node scripts/desplegar.cjs backend|frontend`, desde
+   `main`.** Nunca `vercel --prod`, `railway up` ni `vercel promote` directos:
+   esos suben la CARPETA local, y eso es exactamente lo que revirtió producción.
+2. **Nada de `git add -A`.** Commitear por rutas explícitas.
+
+### Y la que faltaba, que no era de OneDrive
+
+Aparte del sincronizador había un segundo problema, y conviene no confundirlos:
+**se estaban desplegando dos ramas distintas al mismo producción**
+(`chore/merge-emails-sobre-314` y `feat/commissions-auto-cutoffs`, con 75 y 33
+commits de divergencia). Cada despliegue sustituía al del otro **aunque las dos
+copias estuvieran perfectamente al día**, porque `git pull` solo baja lo de tu
+propia rama.
+
+Eso ya está resuelto: las dos ramas están fusionadas en `main` y producción va
+por `main`. **Que nadie vuelva a abrir una rama larga en paralelo**, o el
+sincronizador dejará de ser el culpable y volveremos a lo mismo.
+
+### Cómo saber si tu despliegue entró
+
+`desplegar.cjs backend` ahora espera y avisa. Y la comprobación manual, que vale
+para los dos: **pedir una ruta que solo exista en tu commit**. Si da 404
+mientras otra da 401, tu código NO está arriba — `/api/health` seguirá diciendo
+200 igualmente.
+
+---
+
 ## 2026-09-03 — Fusión de las dos ramas a `main` + deploy: producción DES-cruzada
 
 **Máquina/quién:** máquina de Jhon (Claude) · rama `main` · commit `e0e63b32`
