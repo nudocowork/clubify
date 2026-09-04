@@ -121,10 +121,22 @@ misma pre-existente de la entrada anterior).
 
 ### PENDIENTE
 
-- **Los cierres ya guardados siguen con la nómina en $0.** No se tocaron a
-  propósito (decisión de Jhon). Para ver cuáles están mal:
-  `node backend/scripts/audit-cierres-nomina-cero.cjs` (READ-ONLY, no escribe).
-  Se corrigen reabriendo y volviendo a cerrar desde el panel.
+- **Los cierres guardados NO están dañados — verificado contra prod el 04-09.**
+  El auditor (`railway run --service Postgres-Nq8w node
+  scripts/audit-cierres-nomina-cero.cjs`, READ-ONLY) dio todo en verde, y el
+  motivo es que **la nómina todavía no se usa**: 0 cortes y 0 colaboradores en
+  producción. El bug estaba LATENTE — habría mordido el primer mes que alguien
+  generara un corte. No hay nada que reabrir ni recalcular.
+- **`periodKey` tampoco necesita backfill**: los 92 `IncomeRecord` de prod ya
+  coinciden con el mes de Bogotá (ninguna venta cayó en la franja de las 7 p.m.
+  a medianoche del último día, que es donde UTC y Bogotá discrepan).
+- Hay **un cierre de prueba de un mes sin terminar**: `2026-09` (scope `all`),
+  cerrado el 02-09 con bruto $0 y utilidad −$5, cuando septiembre apenas
+  empezaba. Mientras siga ahí, la pestaña Cierres muestra ese número. Conviene
+  reabrirlo y volver a cerrarlo cuando el mes termine de verdad.
+- El clon nuevo (`~/dev/clubify`) **no estaba enlazado a Railway** — el enlace
+  apuntaba a la ruta vieja de OneDrive. Se enlazó `backend/` al proyecto
+  `clubify`/production; sin eso, `railway run` no funciona desde acá.
 - Sigue pendiente lo de la entrada anterior: backfill del income capture de
   Hotmart y decidir lo de `trial_started`.
 - Fases 1-3 del rediseño (el período como marco de TODO el módulo, métricas con
