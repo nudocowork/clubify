@@ -13,6 +13,7 @@ import type { PaymentGateway } from '@prisma/client';
 import { IncomeRecordService } from './income-record.service';
 import { FinanceReportService } from './finance-report.service';
 import { rangoDe } from './where-periodo';
+import { CobrosService } from '../admin-reports/cobros.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 
@@ -37,6 +38,7 @@ export class FinanceController {
   constructor(
     private income: IncomeRecordService,
     private report: FinanceReportService,
+    private cobros: CobrosService,
   ) {}
 
   @Roles('SUPER_ADMIN')
@@ -105,6 +107,32 @@ export class FinanceController {
   @Get('panorama')
   panorama(@Query('scope') scope?: string, @Query('period') period?: string) {
     return this.report.panorama(scope !== 'all', period || 'todo');
+  }
+
+  // ── Fase 3 — Comisiones del período ───────────────────────────────────────
+  @Roles('SUPER_ADMIN')
+  @Get('comisiones')
+  comisiones(@Query('period') period?: string) {
+    return this.report.comisionesDelPeriodo(period || 'todo');
+  }
+
+  /**
+   * ── Fase 3 — Próximos cobros ──────────────────────────────────────────────
+   * Lo que se espera cobrar de aquí a `dias`. NO es del período contable: es
+   * plata que todavía no entró, y mezclarla con lo cobrado sería justo lo que
+   * el módulo evita. Sale de `CobrosService`, la misma fuente del dashboard.
+   */
+  @Roles('SUPER_ADMIN')
+  @Get('proximos-cobros')
+  async proximosCobros(@Query('dias') dias?: string) {
+    const n = Number(dias);
+    const ventana = Number.isFinite(n) && n > 0 && n <= 180 ? Math.round(n) : 30;
+    const ahora = new Date();
+    const [resumen, filas] = await Promise.all([
+      this.cobros.summary(null, ahora),
+      this.cobros.detail(null, 'proximos', ahora, { days: ventana }),
+    ]);
+    return { dias: ventana, resumen, filas };
   }
 
   // ── Fase 5 — Cierres contables ─────────────────────────────────────────────

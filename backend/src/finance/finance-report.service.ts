@@ -271,6 +271,86 @@ export class FinanceReportService {
       .sort((a, b) => b.grossUsd - a.grossUsd);
   }
 
+
+  // ── Fase 3 — Comisiones del período (la misma línea de la cascada) ────────
+
+  /**
+   * Las comisiones que cuenta ESTE período, abiertas por beneficiario.
+   *
+   * Usa EXACTAMENTE el mismo `where` que la cascada (`summary`), no uno
+   * parecido: el total de esta pestaña tiene que dar igual que la línea
+   * "− Comisiones afiliados" del Resumen. Dos consultas distintas para el mismo
+   * número es cómo se llega a que un módulo se contradiga consigo mismo.
+   *
+   * Tampoco se acota por marca, igual que la cascada: hoy las comisiones son el
+   * costo de afiliados de la plataforma entera (decisión v1 documentada arriba).
+   */
+  async comisionesDelPeriodo(period: string) {
+    const rango = limitesDelPeriodo(period) ?? {};
+    const filas = await this.prisma.commission.findMany({
+      where: {
+        status: { not: 'REJECTED' },
+        ...enRangoConRespaldo('businessDate', rango),
+      },
+      select: {
+        amount: true,
+        amountPaid: true,
+        paymentStatus: true,
+        businessDate: true,
+        createdAt: true,
+        recipientCode: { select: { code: true, ownerName: true, role: true } },
+      },
+    });
+
+    type Beneficiario = {
+      code: string;
+      nombre: string;
+      rol: string;
+      totalUsd: number;
+      pagadoUsd: number;
+      pendienteUsd: number;
+      count: number;
+    };
+    const porBeneficiario = new Map<string, Beneficiario>();
+    let totalUsd = 0;
+    let pagadoUsd = 0;
+
+    for (const f of filas) {
+      const monto = Number(f.amount);
+      const pagado = Number(f.amountPaid);
+      totalUsd += monto;
+      pagadoUsd += pagado;
+      // Sin código de beneficiario (filas legacy) se agrupan aparte en vez de
+      // desaparecer: si no cuadran con el total, hay que poder verlas.
+      const code = f.recipientCode?.code ?? '—';
+      const b = porBeneficiario.get(code) ?? {
+        code,
+        nombre: f.recipientCode?.ownerName ?? 'Sin beneficiario asignado',
+        rol: f.recipientCode?.role ?? '—',
+        totalUsd: 0,
+        pagadoUsd: 0,
+        pendienteUsd: 0,
+        count: 0,
+      };
+      b.totalUsd = round2(b.totalUsd + monto);
+      b.pagadoUsd = round2(b.pagadoUsd + pagado);
+      b.pendienteUsd = round2(b.totalUsd - b.pagadoUsd);
+      b.count += 1;
+      porBeneficiario.set(code, b);
+    }
+
+    return {
+      period,
+      totalUsd: round2(totalUsd),
+      pagadoUsd: round2(pagadoUsd),
+      pendienteUsd: round2(totalUsd - pagadoUsd),
+      count: filas.length,
+      porBeneficiario: [...porBeneficiario.values()].sort(
+        (a, b) => b.totalUsd - a.totalUsd,
+      ),
+    };
+  }
+
   // ── Fase 5 — Cierres contables ─────────────────────────────────────────────
 
   /** Meses cerrados (snapshots) de un scope, más recientes primero. */

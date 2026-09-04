@@ -19,7 +19,10 @@ import { FinanceModule } from '../finance/finance.module';
     IntegrationsModule,
     BillingModule,
     // CONTABILIDAD Fase 1: TenantsService registra el ingreso del pago manual.
-    // FinanceModule es hoja (solo Prisma) → sin ciclo.
+    // FinanceModule dejó de ser hoja en la Fase 3: importa AdminReportsModule
+    // para leer los próximos cobros. Sigue sin ciclo — esa rama termina en
+    // Settings e Integrations, que no importan a nadie— pero si algún día
+    // AdminReports necesitara Tenants o Billing, aquí es donde va a doler.
     FinanceModule,
     // Fase D: TenantsService dispara el webhook business.activated (one-way,
     // OnboardingSyncModule no importa TenantsModule → sin ciclo).

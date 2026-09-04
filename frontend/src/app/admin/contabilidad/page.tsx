@@ -43,8 +43,13 @@ const GATEWAY_BDG: Record<string, string> = { HOTMART: 'bg-slate-100 text-slate-
 const RECON_BDG: Record<string, { cls: string; label: string }> = { RECONCILED: { cls: 'bg-emerald-100 text-emerald-700', label: 'Conciliado' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Sin conciliar' } };
 const EXP_BDG: Record<string, { cls: string; label: string }> = { PAID: { cls: 'bg-emerald-100 text-emerald-700', label: 'Pagado' }, PARTIAL: { cls: 'bg-blue-100 text-blue-700', label: 'Parcial' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Por revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Pendiente' } };
 
-type Tab = 'resumen' | 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nomina' | 'movimientos' | 'cierres';
-const FUTURE_TABS = ['Próximos cobros', 'Comisiones'];
+type Tab = 'resumen' | 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nomina' | 'comisiones' | 'cobros' | 'movimientos' | 'cierres';
+type Comisiones = {
+  period: string; totalUsd: number; pagadoUsd: number; pendienteUsd: number; count: number;
+  porBeneficiario: Array<{ code: string; nombre: string; rol: string; totalUsd: number; pagadoUsd: number; pendienteUsd: number; count: number }>;
+};
+type CobroProximo = { tenantId: string | null; groupId: string | null; negocio: string; esGrupo: boolean; fechaCobro: string | null; plan: string; periodicidad: string; montoUsd: number; metodo: string; ultimoPago: string | null; estado: string };
+type Cobros = { dias: number; resumen: { proximos: { count: number; amountUsd: number }; procesados: { count: number; amountUsd: number }; noProcesados: { count: number; amountUsd: number } }; filas: CobroProximo[] };
 type Cierre = { id: string; period: string; scope: string; grossUsd: string | number; feeTaxUsd: string | number; netUsd: string | number; egresosUsd: string | number; nominaUsd: string | number; comisionesUsd: string | number; utilidadUsd: string | number; note: string | null; closedAt: string };
 const EXP_STATUS_LABEL: Record<string, string> = { PAID: 'Pagado', PARTIAL: 'Parcial', PENDING: 'Pendiente' };
 
@@ -80,6 +85,10 @@ export default function ContabilidadPage() {
   const [mov, setMov] = useState<MovResp | null>(null);
   const [movKind, setMovKind] = useState<'' | 'INGRESO' | 'EGRESO'>('');
   const [panorama, setPanorama] = useState<Panorama | null>(null);
+  const [comisiones, setComisiones] = useState<Comisiones | null>(null);
+  const [cobros, setCobros] = useState<Cobros | null>(null);
+  // Ventana de los próximos cobros: días hacia adelante, no un período contable.
+  const [diasCobros, setDiasCobros] = useState(30);
   const [cierres, setCierres] = useState<Cierre[]>([]);
   // El período contable manda sobre TODO el módulo, no sobre una pestaña.
   // Arranca en el mes en curso y se lee de la URL al montar (no en el
@@ -107,7 +116,7 @@ export default function ContabilidadPage() {
       // gastos recurrentes (plantillas) y los colaboradores (las personas que
       // hay hoy) — y los cierres, que son la lista de meses ya cerrados.
       const q = `scope=${scope}&period=${encodeURIComponent(periodo)}`;
-      const [r, list, c, e, er, rc, em, ru, pr, mv, rep, ci, global] = await Promise.all([
+      const [r, list, c, e, er, rc, em, ru, pr, mv, rep, ci, global, com, cob] = await Promise.all([
         api<Resumen>(`/admin/contabilidad/ingresos/resumen?${q}`).catch(() => null),
         api<Row[]>(`/admin/contabilidad/ingresos?${q}`).catch(() => []),
         api<Cat[]>(`/admin/contabilidad/categorias`).catch(() => []),
@@ -121,15 +130,26 @@ export default function ContabilidadPage() {
         api<Panorama>(`/admin/contabilidad/panorama?${q}`).catch(() => null),
         api<Cierre[]>(`/admin/contabilidad/cierres?scope=${scope}`).catch(() => []),
         api<Resumen>(`/admin/contabilidad/ingresos/resumen?scope=${scope}&period=todo`).catch(() => null),
+        api<Comisiones>(`/admin/contabilidad/comisiones?period=${encodeURIComponent(periodo)}`).catch(() => null),
+        api<Cobros>(`/admin/contabilidad/proximos-cobros?dias=${diasCobros}`).catch(() => null),
       ]);
-      setPendienteGlobal(global);
+      setPendienteGlobal(global); setComisiones(com); setCobros(cob);
       setResumen(r); setRows((list ?? []) as Row[]); setCats((c ?? []) as Cat[]);
       setExps((e ?? []) as Exp[]); setExpResumen(er); setRecs((rc ?? []) as Rec[]);
       setEmps((em ?? []) as PEmp[]); setRuns((ru ?? []) as PRun[]); setPRes(pr);
       setMov(mv); setPanorama(rep); setCierres((ci ?? []) as Cierre[]);
     } finally { setLoading(false); }
-  }, [scope, movKind, periodo]);
+  }, [scope, movKind, periodo, diasCobros]);
   useEffect(() => { void load(); }, [load]);
+
+  // Si el período es el mes que está corriendo, hay que decirlo: comparado con
+  // el mes anterior COMPLETO siempre va a salir hundido, y sin este aviso la
+  // caída se lee como que el negocio se cayó y no como que el mes va por el día 4.
+  const mesEnCurso = useMemo(() => {
+    if (periodo !== periodoActual()) return null;
+    const h = new Date();
+    return { dia: h.getDate(), total: new Date(h.getFullYear(), h.getMonth() + 1, 0).getDate() };
+  }, [periodo]);
 
   const catName = useMemo(() => Object.fromEntries(cats.map((c) => [c.id, c.name])), [cats]);
 
@@ -178,16 +198,14 @@ export default function ContabilidadPage() {
         <SelectorPeriodo valor={periodo} onChange={cambiarPeriodo} />
         <span className="text-xs text-mute">
           Todo lo que ves abajo es de <strong className="text-ink capitalize">{nombreDePeriodo(periodo)}</strong>.
+          {mesEnCurso && <> · <strong className="text-ink">mes en curso</strong>, día {mesEnCurso.dia} de {mesEnCurso.total}</>}
         </span>
       </div>
 
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-line2 overflow-x-auto">
-        {([['resumen', 'Resumen'], ['ingresos', 'Ingresos'], ['conciliacion', `Conciliación${resumen && resumen.pendingRecon + resumen.inReview > 0 ? ` (${resumen.pendingRecon + resumen.inReview})` : ''}`], ['egresos', 'Egresos'], ['gastos', 'Gastos operativos'], ['nomina', 'Nómina'], ['movimientos', 'Movimientos'], ['cierres', 'Cierres']] as [Tab, string][]).map(([id, label]) => (
+        {([['resumen', 'Resumen'], ['ingresos', 'Ingresos'], ['conciliacion', `Conciliación${resumen && resumen.pendingRecon + resumen.inReview > 0 ? ` (${resumen.pendingRecon + resumen.inReview})` : ''}`], ['egresos', 'Egresos'], ['gastos', 'Gastos operativos'], ['nomina', 'Nómina'], ['comisiones', 'Comisiones'], ['cobros', 'Próximos cobros'], ['movimientos', 'Movimientos'], ['cierres', 'Cierres']] as [Tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap ${tab === id ? 'border-brand text-brand' : 'border-transparent text-mute hover:text-ink'}`}>{label}</button>
-        ))}
-        {FUTURE_TABS.map((t) => (
-          <span key={t} className="px-4 py-2.5 text-sm font-semibold text-mute2 whitespace-nowrap cursor-not-allowed" title="Próxima fase">{t} <span className="text-[9px] align-top">pronto</span></span>
         ))}
       </div>
 
@@ -421,6 +439,91 @@ export default function ContabilidadPage() {
                 nombreAnterior={panorama.anterior ? nombreDePeriodo(panorama.anterior.period) : null}
                 onIrAMes={cambiarPeriodo}
               />
+            )
+          )}
+
+          {/* ===== COMISIONES (F3): la misma línea de la cascada, abierta ===== */}
+          {tab === 'comisiones' && (
+            !comisiones ? <div className="card card-pad text-center text-mute">Sin datos.</div> : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <Kpi lbl="Comisiones del período" dot="#eda100" val={money(comisiones.totalUsd)} sub={`${comisiones.count} ${comisiones.count === 1 ? 'comisión' : 'comisiones'}`} />
+                  <Kpi lbl="Pagadas" dot="#16A34A" val={money(comisiones.pagadoUsd)} sub="ya liquidadas" />
+                  <Kpi lbl="Pendientes" dot="#DC2626" val={money(comisiones.pendienteUsd)} sub="por pagar" />
+                  <Kpi lbl="Beneficiarios" dot="#2563EB" val={String(comisiones.porBeneficiario.length)} sub="con comisión en el período" />
+                </div>
+                <p className="text-xs text-mute mb-3">
+                  Este total es <strong className="text-ink">la misma línea</strong> «− Comisiones afiliados» de la cascada del Resumen: sale de la misma consulta, no de una parecida.
+                  Todavía no se separan por marca — son el costo de afiliados de la plataforma entera.
+                </p>
+                {comisiones.porBeneficiario.length === 0 ? (
+                  <div className="card card-pad text-center text-mute">Ninguna comisión en <span className="capitalize">{nombreDePeriodo(periodo)}</span>.</div>
+                ) : (
+                  <div className="card overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[720px]">
+                    <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
+                      {['Beneficiario', 'Código', 'Rol', 'Comisiones', 'Total', 'Pagado', 'Pendiente'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}
+                    </tr></thead>
+                    <tbody>{comisiones.porBeneficiario.map((b) => (
+                      <tr key={b.code} className="border-t border-line2">
+                        <td className="px-4 py-3 font-semibold">{b.nombre}</td>
+                        <td className="px-4 py-3 text-mute">{b.code}</td>
+                        <td className="px-4 py-3 text-mute text-xs">{b.rol}</td>
+                        <td className="px-4 py-3 text-mute tabular-nums">{b.count}</td>
+                        <td className="px-4 py-3 tabular-nums font-medium">{money(b.totalUsd)}</td>
+                        <td className="px-4 py-3 tabular-nums text-ok">{money(b.pagadoUsd)}</td>
+                        <td className={`px-4 py-3 tabular-nums font-semibold ${b.pendienteUsd > 0 ? 'text-red-600' : 'text-mute'}`}>{money(b.pendienteUsd)}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table></div></div>
+                )}
+              </>
+            )
+          )}
+
+          {/* ===== PRÓXIMOS COBROS (F3): lo que viene, NO lo del período ===== */}
+          {tab === 'cobros' && (
+            !cobros ? <div className="card card-pad text-center text-mute">Sin datos.</div> : (
+              <>
+                <div className="card card-pad mb-3 border-amber-300">
+                  <p className="text-sm">
+                    <strong>Esto no entra en {nombreDePeriodo(periodo)}.</strong> Es plata que todavía no se cobró:
+                    una proyección de lo que vence en los próximos días. Entrará al período en el que se cobre de verdad.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 mb-4 flex-wrap">
+                  <span className="text-sm text-mute">Ventana:</span>
+                  <div className="inline-flex bg-bg2 border border-line rounded-pill p-1">
+                    {[7, 30, 90].map((d) => (
+                      <button key={d} onClick={() => setDiasCobros(d)} className={`px-3 py-1.5 rounded-pill text-xs font-semibold ${diasCobros === d ? 'bg-white shadow-sm2 text-ink' : 'text-mute'}`}>{d} días</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                  <Kpi lbl="Por cobrar" dot="#eda100" val={money(cobros.resumen.proximos.amountUsd)} sub={`${cobros.resumen.proximos.count} negocios con cobro cerca`} />
+                  <Kpi lbl="Cobrados (7 días)" dot="#16A34A" val={money(cobros.resumen.procesados.amountUsd)} sub={`${cobros.resumen.procesados.count} cobros que sí entraron`} />
+                  <Kpi lbl="No procesados" dot="#DC2626" val={money(cobros.resumen.noProcesados.amountUsd)} sub={`${cobros.resumen.noProcesados.count} en gracia o suspendidos`} />
+                </div>
+                {cobros.filas.length === 0 ? (
+                  <div className="card card-pad text-center text-mute">Ningún cobro previsto en los próximos {cobros.dias} días.</div>
+                ) : (
+                  <div className="card overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[820px]">
+                    <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
+                      {['Negocio', 'Cobra el', 'Plan', 'Periodicidad', 'Método', 'Último pago', 'Monto'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}
+                    </tr></thead>
+                    <tbody>{cobros.filas.map((f, i) => (
+                      <tr key={`${f.tenantId ?? f.groupId ?? i}`} className="border-t border-line2">
+                        <td className="px-4 py-3 font-semibold">{f.negocio}{f.esGrupo && <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700">grupo</span>}</td>
+                        <td className="px-4 py-3">{f.fechaCobro ? fmtDate(f.fechaCobro) : '—'}</td>
+                        <td className="px-4 py-3 text-mute">{f.plan}</td>
+                        <td className="px-4 py-3 text-mute text-xs">{f.periodicidad}</td>
+                        <td className="px-4 py-3 text-mute text-xs">{f.metodo}</td>
+                        <td className="px-4 py-3 text-mute">{f.ultimoPago ? fmtDate(f.ultimoPago) : '—'}</td>
+                        <td className="px-4 py-3 text-right tabular-nums font-semibold">{money(f.montoUsd)}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table></div></div>
+                )}
+              </>
             )
           )}
 

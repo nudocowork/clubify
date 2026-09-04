@@ -67,6 +67,63 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-04 — Contabilidad, Fase 3: Comisiones y Próximos cobros, ya de verdad
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
+**Estado: EN RAMA, sin desplegar.** No toca esquema ni datos.
+
+### Qué se hizo
+
+Las dos etiquetas apagadas (`FUTURE_TABS`) son pestañas reales.
+
+**Comisiones** — la línea «− Comisiones afiliados» de la cascada, abierta por
+beneficiario (total / pagado / pendiente). Usa **exactamente el mismo `where`**
+que `summary()`, no uno parecido: dos consultas distintas para el mismo número
+es como un módulo acaba contradiciéndose. Comprobado contra prod: septiembre da
+**$63,80 en las dos pantallas**. Sigue sin separarse por marca, igual que la
+cascada (decisión v1); la pestaña lo dice en pantalla.
+
+**Próximos cobros** — sale de `CobrosService` (`admin-reports`), la misma fuente
+del dashboard de cobros, que clasifica con la MISMA regla que suspende negocios.
+Ventana de 7/30/90 días. Lleva un aviso arriba de que **esto no entra en el
+período**: es plata que no se ha cobrado, y entrará al período en que se cobre.
+
+Nueva nota en la cabecera: cuando el período es el mes en curso, dice **«mes en
+curso, día 4 de 30»**. Sin eso, la caída del 86% contra agosto se lee como que
+el negocio se hundió, y no como que el mes lleva cuatro días.
+
+### Ojo con esto al revisar
+
+`FinanceModule` **dejó de ser hoja**: ahora importa `AdminReportsModule` para
+leer los cobros. `tenants.module.ts` afirmaba en un comentario que era hoja
+«→ sin ciclo»; ese comentario ya está corregido. No hay ciclo (esa rama muere en
+Settings e Integrations), y **se verificó de verdad**, no de memoria: modo
+`preview` de Nest, que construye el grafo y resuelve la inyección sin instanciar
+providers ni tocar la base. `tsc` NO comprueba esto.
+
+### Verificación
+
+Backend `tsc` 0 · `eslint src/finance` 0 · 276/276 · **grafo de Nest OK** ·
+Frontend `tsc` 0 · `eslint` 0 · `next build` compila (331 kB).
+
+### Sobre staging (importante para la otra máquina)
+
+Se intentó desplegar ahí para revisar y **no se pudo: staging está muerto de
+hecho.** Responde 200, pero lleva **16 días de uptime** con el commit `72ed068`,
+y su base **no tiene la tabla `IncomeRecord`** — el esquema se quedó atrás.
+Contabilidad daría 500. Lo bueno: su base **sí está aislada** de producción
+(hosts distintos), así que revivirlo es seguro; es un proyecto aparte (merge de
+`main`, migrar esquema, clonar datos). Mientras tanto, [docs/06-staging.md](06-staging.md)
+promete un proceso que hoy no existe.
+
+### PENDIENTE / seguridad
+
+- **Rotar `ANTHROPIC_API_KEY`.** Un `railway variables` la volcó completa a la
+  salida de una sesión. Dar de baja en la consola de Anthropic, crear una nueva y
+  actualizarla en Railway (`backend`, production y staging).
+- Sigue sin desplegarse ninguna de las cuatro fases.
+- Queda por decidir qué pasa con el módulo `accounting` paralelo.
+
 ## 2026-09-04 — Contabilidad, Fase 2: las métricas del período, con gráficas
 
 **Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
