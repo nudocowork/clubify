@@ -8,6 +8,55 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-04 — El club, en vivo: registro antes de instalar + arqueo de producción
+
+Desplegado (`96b3d66f`, backend y frontend, desde `C:\dev\clubify` y por
+`desplegar.cjs`). Tres cosas que se ven en el móvil:
+
+1. **El socio del club termina su registro antes de ver los botones de
+   instalar.** Se da de alta en el mostrador con un solo dato —el teléfono— y
+   era el único cliente del negocio que nunca pasaba por un formulario. El
+   endpoint `POST /api/passes/:id/completar-registro` es público por `passId`,
+   igual que descargar el pase, y **solo rellena huecos: nunca pisa lo que el
+   negocio ya puso**, así que un enlace reenviado no puede secuestrar una ficha.
+   Se puede saltar: quedarnos sin el cliente por un cumpleaños sería peor.
+2. **El nombre del negocio ya no se come con el contador** en la cabecera de
+   Apple: `10/10` en vez de `10 / 10`. Vale para club y para sellos.
+3. **La miniatura previa ya es el pase**: dos filas a partir de 6 sellos y los
+   campos «Te quedan / Cliente» del club, no «Titular / Recompensa».
+
+### Arqueo de producción (2026-09-04)
+
+| negocio | club | plan | socios |
+|---|---|---|---|
+| DEMO CLUBIFY | ON | Café Plan, 10 café/mes | 3 (1 consumo) |
+| NudoCowork | ON | **ninguno** | 0 |
+| Serendipity | **OFF** | — | — |
+
+Dos cosas quedan **pendientes de una persona**, no de código:
+
+- **NudoCowork tiene el módulo encendido y ningún plan.** Quien entre a su panel
+  ve el club vacío. El plan (nombre, cupo, precio) es decisión del negocio.
+- **Serendipity está apagado** — por eso «no aparecía» al ir a instalarlo. Se
+  enciende en `/admin/tenants/9213a632-686e-41a7-bbc8-be3f8a1bd30e`, interruptor
+  **«Tarjeta de Club»**. Ya no hace falta SQL contra producción.
+
+Los tres socios de Demo Clubify **no tienen correo ni cumpleaños**: son el caso
+real que el paso de registro viene a cerrar, y sirven para verlo en vivo.
+
+Para volver a preguntarle esto a producción sin escribir nada:
+`railway run node scripts/arqueo-club.cjs` (y `arqueo-club-socios.cjs`,
+`arqueo-modulos.cjs`).
+
+### Y una fuga de marca que NO se tocó
+
+En el panel de afiliado de Clubify (`/ref/nicolas-rojas`) aparece material de
+apoyo **de Sellea**. No es un fallo de filtro: **`SupportMaterial` no tiene
+columna de marca**. Se scopea por `audience` y por `scopeInfluencerId`, y nada
+más — así que todo material con `scopeInfluencerId = null` lo ve *cualquier*
+afiliado de *cualquier* marca. Arreglarlo pide columna nueva + backfill + el
+selector en el editor admin. **Es territorio de Jhon (afiliados): no se tocó.**
+
 ## 2026-09-04 — El repo SALE de OneDrive. Las dos máquinas ya están fuera
 
 **Esta es la causa de los ~8 despliegues que revirtieron producción ayer.**
