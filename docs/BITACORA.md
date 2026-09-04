@@ -8,6 +8,26 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-04 (tarde) — El nombre en la tarjeta se encoge, no se corta
+
+`WalletPassPreview` cortaba con puntos suspensivos: «DEMO CLU…». Ahora el nombre
+del negocio —y el del titular, que tenía el mismo defecto— **baja de tamaño en
+tres escalones y salta de renglón**. `line-clamp-2` queda solo de tope para un
+nombre disparatado; a dos renglones de 9px caben unos 60 caracteres.
+
+De 9px no se baja: por debajo deja de leerse, que es justo lo que se quería
+evitar. Y los escalones son fijos, no un ajuste continuo, para que el nombre no
+acabe de un tamaño distinto en cada tarjeta.
+
+Es un solo componente y lo usan los seis sitios donde se ve una tarjeta: alta de
+tarjeta, edición, diseño del club, diseño de alianzas, la página de instalación
+y la vista previa de sellos. Por eso el ajuste es general con un solo cambio.
+
+**Lo que esto NO arregla:** si el recorte se ve en el pase YA INSTALADO, ahí
+manda Apple. `logoText` lo pinta el sistema y no acepta tamaño; lo único que
+podemos hacer —y ya está hecho— es no robarle sitio con el campo de cabecera
+(`10/10` en vez de `10 / 10`).
+
 ## 2026-09-04 (tarde) — Redimir el cupo del club desde la ficha del cliente
 
 Solo frontend: el backend ya tenía todo (`POST /club/caja/consumir/:membresiaId`

@@ -121,6 +121,29 @@ export const LOGO_SHAPES: Array<{ id: LogoShape; label: string }> = [
   { id: 'RECTANGLE', label: 'Rectangular' },
 ];
 
+/**
+ * Con qué tamaño se pinta un nombre en la tarjeta, según lo largo que sea.
+ *
+ * Antes se cortaba con puntos suspensivos: «DEMO CLU…». El nombre del negocio es
+ * lo único que dice de quién ES la tarjeta, así que recortarlo es lo último que
+ * hay que hacer; y en la vista previa, además, le hace creer al negocio que su
+ * tarjeta se instalará así de mocha.
+ *
+ * Encoge en tres escalones y no de forma continua: los saltos calzan con los
+ * tamaños que ya usa el resto del pase, y así el nombre no acaba de un tamaño
+ * distinto en cada tarjeta. De 9px no se baja aunque el nombre siga siendo
+ * largo — dejaría de leerse, que es justo lo que se quería evitar.
+ */
+function claseSegunLargo(
+  texto: string,
+  [normal, medio, chico]: [string, string, string],
+): string {
+  const n = texto.trim().length;
+  if (n > 22) return chico;
+  if (n > 15) return medio;
+  return normal;
+}
+
 export function logoShapeClass(shape?: LogoShape | null): string {
   switch (shape) {
     case 'SQUARE':
@@ -335,7 +358,16 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
               initial
             )}
           </div>
-          <div className="text-[12px] font-bold truncate uppercase tracking-wide">
+          {/* Se encoge y baja de renglón; NO se corta. `line-clamp-2` es solo
+              el tope para un nombre disparatado: a dos renglones de 9px caben
+              unos 60 caracteres, y a partir de ahí el problema es el nombre. */}
+          <div
+            className={`${claseSegunLargo(brandName || 'Tu marca', [
+              'text-[12px] tracking-wide',
+              'text-[10px] tracking-wide',
+              'text-[9px] tracking-normal',
+            ])} font-bold uppercase leading-[1.15] break-words line-clamp-2`}
+          >
             {brandName || 'Tu marca'}
           </div>
         </div>
@@ -564,7 +596,21 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
           <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
             {club ? 'Te quedan' : 'Titular'}
           </div>
-          <div className="text-[13px] font-bold mt-0.5 truncate uppercase tracking-wide">
+          {/* Mismo criterio que el nombre del negocio: el del titular tampoco
+              se corta. «MARÍA FERNANDA RO…» en su propia tarjeta se lee como un
+              descuido del negocio, no del que la diseñó. */}
+          <div
+            className={`${claseSegunLargo(
+              club
+                ? `${stampsCount} ${plural(club.unidad, stampsCount)}`
+                : customerName || '',
+              [
+                'text-[13px] tracking-wide',
+                'text-[11px] tracking-wide',
+                'text-[9px] tracking-normal',
+              ],
+            )} font-bold mt-0.5 uppercase leading-[1.15] break-words line-clamp-2`}
+          >
             {club
               ? `${stampsCount} ${plural(club.unidad, stampsCount)}`
               : customerName}
