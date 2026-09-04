@@ -116,3 +116,58 @@ export function nombreDelPeriodo(periodo: string): string {
   if (/^\d{4}$/.test(p)) return `año ${p}`;
   return p;
 }
+
+/**
+ * El período anterior comparable: el mes anterior de un mes, el trimestre
+ * anterior de un trimestre, el año anterior de un año. `null` para "todo",
+ * que no tiene con qué compararse.
+ *
+ * Sirve para COMPARAR sin mezclar: se ve un período y, al lado, cuánto se movió
+ * respecto del anterior — nunca los dos sumados.
+ */
+export function periodoAnterior(periodo: string): string | null {
+  const p = (periodo ?? '').trim();
+  if (/^\d{4}-\d{2}$/.test(p)) return mesAtras(p, 1);
+  const t = /^(\d{4})-T([1-4])$/.exec(p);
+  if (t) {
+    const total = Number(t[1]) * 4 + (Number(t[2]) - 1) - 1;
+    return `${Math.floor(total / 4)}-T${(total % 4) + 1}`;
+  }
+  if (/^\d{4}$/.test(p)) return String(Number(p) - 1);
+  return null;
+}
+
+/**
+ * Los meses que se dibujan en la gráfica de evolución de un período:
+ *
+ *   mes       → los 6 meses que terminan en él (tendencia, no solo el punto)
+ *   trimestre → sus 3 meses
+ *   año       → sus 12 meses
+ *   todo      → los últimos 12 meses
+ *
+ * Siempre en meses: es la unidad contable del producto, y comparar meses es
+ * exactamente lo que se pidió poder hacer.
+ */
+export function mesesDelPeriodo(periodo: string, ahora: Date = new Date()): string[] {
+  const p = (periodo ?? '').trim();
+  const seisHasta = (fin: string) =>
+    Array.from({ length: 6 }, (_, i) => mesAtras(fin, 5 - i));
+
+  if (/^\d{4}-\d{2}$/.test(p)) return seisHasta(p);
+
+  const t = /^(\d{4})-T([1-4])$/.exec(p);
+  if (t) {
+    const primero = (Number(t[2]) - 1) * 3 + 1;
+    return [0, 1, 2].map(
+      (i) => `${t[1]}-${String(primero + i).padStart(2, '0')}`,
+    );
+  }
+  if (/^\d{4}$/.test(p)) {
+    return Array.from(
+      { length: 12 },
+      (_, i) => `${p}-${String(i + 1).padStart(2, '0')}`,
+    );
+  }
+  const actual = mesContable(ahora);
+  return Array.from({ length: 12 }, (_, i) => mesAtras(actual, 11 - i));
+}

@@ -100,6 +100,13 @@ export class FinanceController {
     return { period: period ?? 'all', summary, series };
   }
 
+  // ── Fase 2 — Panorama del período (lo primero que se ve al abrirlo) ───────
+  @Roles('SUPER_ADMIN')
+  @Get('panorama')
+  panorama(@Query('scope') scope?: string, @Query('period') period?: string) {
+    return this.report.panorama(scope !== 'all', period || 'todo');
+  }
+
   // ── Fase 5 — Cierres contables ─────────────────────────────────────────────
   @Roles('SUPER_ADMIN')
   @Get('cierres')

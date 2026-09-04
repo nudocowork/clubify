@@ -8,6 +8,11 @@ import {
   nombreDePeriodo,
   periodoActual,
 } from '@/components/SelectorPeriodo';
+import {
+  PanoramaPeriodo,
+  money,
+  type Panorama,
+} from '@/components/contabilidad/PanoramaPeriodo';
 
 // CONTABILIDAD — Fases 1-2. Ingresos (real por transacción) + Conciliación +
 // Egresos (fijo/%, pagos parciales, "por revisar") + Gastos operativos
@@ -32,26 +37,20 @@ type PItem = { id: string; employeeName: string; role: string | null; baseUsd: n
 type Mov = { date: string; kind: 'INGRESO' | 'EGRESO'; category: string; concept: string; party: string | null; grossUsd: number | null; debitUsd: number; creditUsd: number; balanceUsd: number; status: string; reference: string | null; hasReceipt: boolean };
 type MovResp = { movements: Mov[]; summary: { ingresosUsd: number; egresosUsd: number; saldoUsd: number; count: number } };
 
-const money = (n: number | null | undefined) =>
-  n == null ? '—' : (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (s: string) => new Date(s).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
 
 const GATEWAY_BDG: Record<string, string> = { HOTMART: 'bg-slate-100 text-slate-700', STRIPE: 'bg-indigo-100 text-indigo-700', CROSS: 'bg-blue-100 text-blue-700', MANUAL: 'bg-amber-100 text-amber-800', MERCADOPAGO: 'bg-sky-100 text-sky-700' };
 const RECON_BDG: Record<string, { cls: string; label: string }> = { RECONCILED: { cls: 'bg-emerald-100 text-emerald-700', label: 'Conciliado' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Sin conciliar' } };
 const EXP_BDG: Record<string, { cls: string; label: string }> = { PAID: { cls: 'bg-emerald-100 text-emerald-700', label: 'Pagado' }, PARTIAL: { cls: 'bg-blue-100 text-blue-700', label: 'Parcial' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Por revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Pendiente' } };
 
-type Tab = 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nomina' | 'movimientos' | 'reportes' | 'cierres';
+type Tab = 'resumen' | 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nomina' | 'movimientos' | 'cierres';
 const FUTURE_TABS = ['Próximos cobros', 'Comisiones'];
-type Reporte = {
-  period: string;
-  summary: { grossUsd: number; gatewayFeeUsd: number; taxUsd: number; netUsd: number; netReceivedUsd: number; egresosUsd: number; nominaUsd: number; comisionesUsd: number; utilidadUsd: number; ingresosCount: number };
-  series: Array<{ period: string; grossUsd: number; egresosUsd: number; nominaUsd: number; comisionesUsd: number; utilidadUsd: number }>;
-};
 type Cierre = { id: string; period: string; scope: string; grossUsd: string | number; feeTaxUsd: string | number; netUsd: string | number; egresosUsd: string | number; nominaUsd: string | number; comisionesUsd: string | number; utilidadUsd: string | number; note: string | null; closedAt: string };
 const EXP_STATUS_LABEL: Record<string, string> = { PAID: 'Pagado', PARTIAL: 'Parcial', PENDING: 'Pendiente' };
 
 export default function ContabilidadPage() {
-  const [tab, setTab] = useState<Tab>('ingresos');
+  // Se entra por el Resumen: las métricas del período son lo primero que se ve.
+  const [tab, setTab] = useState<Tab>('resumen');
   const [scope, setScope] = useState<'clubify' | 'all'>('clubify');
   const [loading, setLoading] = useState(true);
 
@@ -80,7 +79,7 @@ export default function ContabilidadPage() {
 
   const [mov, setMov] = useState<MovResp | null>(null);
   const [movKind, setMovKind] = useState<'' | 'INGRESO' | 'EGRESO'>('');
-  const [reporte, setReporte] = useState<Reporte | null>(null);
+  const [panorama, setPanorama] = useState<Panorama | null>(null);
   const [cierres, setCierres] = useState<Cierre[]>([]);
   // El período contable manda sobre TODO el módulo, no sobre una pestaña.
   // Arranca en el mes en curso y se lee de la URL al montar (no en el
@@ -119,7 +118,7 @@ export default function ContabilidadPage() {
         api<PRun[]>(`/admin/contabilidad/nomina/cortes?${q}`).catch(() => []),
         api<PResumen>(`/admin/contabilidad/nomina/resumen?${q}`).catch(() => null),
         api<MovResp>(`/admin/contabilidad/movimientos?${q}${movKind ? `&kind=${movKind}` : ''}`).catch(() => null),
-        api<Reporte>(`/admin/contabilidad/reporte?${q}`).catch(() => null),
+        api<Panorama>(`/admin/contabilidad/panorama?${q}`).catch(() => null),
         api<Cierre[]>(`/admin/contabilidad/cierres?scope=${scope}`).catch(() => []),
         api<Resumen>(`/admin/contabilidad/ingresos/resumen?scope=${scope}&period=todo`).catch(() => null),
       ]);
@@ -127,7 +126,7 @@ export default function ContabilidadPage() {
       setResumen(r); setRows((list ?? []) as Row[]); setCats((c ?? []) as Cat[]);
       setExps((e ?? []) as Exp[]); setExpResumen(er); setRecs((rc ?? []) as Rec[]);
       setEmps((em ?? []) as PEmp[]); setRuns((ru ?? []) as PRun[]); setPRes(pr);
-      setMov(mv); setReporte(rep); setCierres((ci ?? []) as Cierre[]);
+      setMov(mv); setPanorama(rep); setCierres((ci ?? []) as Cierre[]);
     } finally { setLoading(false); }
   }, [scope, movKind, periodo]);
   useEffect(() => { void load(); }, [load]);
@@ -184,7 +183,7 @@ export default function ContabilidadPage() {
 
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-line2 overflow-x-auto">
-        {([['ingresos', 'Ingresos'], ['conciliacion', `Conciliación${resumen && resumen.pendingRecon + resumen.inReview > 0 ? ` (${resumen.pendingRecon + resumen.inReview})` : ''}`], ['egresos', 'Egresos'], ['gastos', 'Gastos operativos'], ['nomina', 'Nómina'], ['movimientos', 'Movimientos'], ['reportes', 'Reportes'], ['cierres', 'Cierres']] as [Tab, string][]).map(([id, label]) => (
+        {([['resumen', 'Resumen'], ['ingresos', 'Ingresos'], ['conciliacion', `Conciliación${resumen && resumen.pendingRecon + resumen.inReview > 0 ? ` (${resumen.pendingRecon + resumen.inReview})` : ''}`], ['egresos', 'Egresos'], ['gastos', 'Gastos operativos'], ['nomina', 'Nómina'], ['movimientos', 'Movimientos'], ['cierres', 'Cierres']] as [Tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap ${tab === id ? 'border-brand text-brand' : 'border-transparent text-mute hover:text-ink'}`}>{label}</button>
         ))}
         {FUTURE_TABS.map((t) => (
@@ -411,36 +410,18 @@ export default function ContabilidadPage() {
             </>
           )}
 
-          {/* ===== REPORTES (F6): cascada de utilidad + serie mensual ===== */}
-          {tab === 'reportes' && (
-            <>
-              {!reporte ? <div className="card card-pad text-center text-mute">Sin datos.</div> : (
-                <div className="grid md:grid-cols-2 gap-4 mb-5">
-                  <div className="card card-pad">
-                    <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">Cascada de utilidad · <span className="capitalize">{nombreDePeriodo(periodo)}</span></div>
-                    <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">Ingresos brutos</span><span className="tabular-nums font-medium">{money(reporte.summary.grossUsd)}</span></div>
-                    <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Fee pasarela + impuestos</span><span className="tabular-nums text-red-600">−{money(reporte.summary.gatewayFeeUsd + reporte.summary.taxUsd)}</span></div>
-                    <div className="flex justify-between py-1.5 text-sm border-t border-line2"><span className="font-semibold">= Neto</span><span className="tabular-nums font-semibold">{money(reporte.summary.netUsd)}</span></div>
-                    <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Egresos</span><span className="tabular-nums text-red-600">−{money(reporte.summary.egresosUsd)}</span></div>
-                    <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Nómina</span><span className="tabular-nums text-red-600">−{money(reporte.summary.nominaUsd)}</span></div>
-                    <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Comisiones afiliados</span><span className="tabular-nums text-red-600">−{money(reporte.summary.comisionesUsd)}</span></div>
-                    <div className="flex justify-between py-2.5 mt-1 border-t-2 border-line2"><span className="font-bold">= UTILIDAD</span><span className={`tabular-nums font-bold text-lg ${reporte.summary.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}`}>{money(reporte.summary.utilidadUsd)}</span></div>
-                  </div>
-                  <div className="card card-pad">
-                    <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">Utilidad · últimos 6 meses</div>
-                    <table className="w-full text-sm"><tbody>
-                      {reporte.series.map((s) => (
-                        <tr key={s.period} className="border-t border-line2">
-                          <td className="py-2 text-mute">{s.period}</td>
-                          <td className="py-2 text-right tabular-nums text-mute2 text-xs">bruto {money(s.grossUsd)}</td>
-                          <td className={`py-2 text-right tabular-nums font-semibold ${s.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}`}>{money(s.utilidadUsd)}</td>
-                        </tr>
-                      ))}
-                    </tbody></table>
-                  </div>
-                </div>
-              )}
-            </>
+          {/* ===== RESUMEN (F2): las métricas del período, lo primero que se ve.
+               Reemplaza a la vieja pestaña Reportes: era la misma cascada, pero
+               enterrada al final y con la serie en una tabla. ===== */}
+          {tab === 'resumen' && (
+            !panorama ? <div className="card card-pad text-center text-mute">Sin datos.</div> : (
+              <PanoramaPeriodo
+                datos={panorama}
+                nombrePeriodo={nombreDePeriodo(periodo)}
+                nombreAnterior={panorama.anterior ? nombreDePeriodo(panorama.anterior.period) : null}
+                onIrAMes={cambiarPeriodo}
+              />
+            )
           )}
 
           {/* ===== CIERRES (F5): cierre mensual con snapshot ===== */}
@@ -449,7 +430,7 @@ export default function ContabilidadPage() {
               <div className="flex items-center gap-2 mb-4 flex-wrap">
                 <button onClick={cerrarMes} disabled={!esMes(periodo)} className="text-sm px-4 py-2 rounded-md bg-brand text-white font-semibold hover:opacity-90 disabled:opacity-40 disabled:hover:opacity-40">Cerrar <span className="capitalize">{nombreDePeriodo(periodo)}</span></button>
                 {esMes(periodo)
-                  ? reporte && <span className="text-xs text-mute">Utilidad calculada: <strong className={reporte.summary.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}>{money(reporte.summary.utilidadUsd)}</strong></span>
+                  ? panorama && <span className="text-xs text-mute">Utilidad calculada: <strong className={panorama.resumen.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}>{money(panorama.resumen.utilidadUsd)}</strong></span>
                   : <span className="text-xs text-mute">Elegí un <strong>mes</strong> arriba para cerrarlo: lo que se congela es el mes, no el trimestre ni el año.</span>}
               </div>
               {cierres.length === 0 ? (

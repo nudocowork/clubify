@@ -67,6 +67,73 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-04 — Contabilidad, Fase 2: las métricas del período, con gráficas
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
+**Estado: EN RAMA, sin desplegar.** No toca esquema ni datos.
+
+### Qué se hizo
+
+Pestaña **Resumen**, la primera y la de entrada: es lo primero que se ve al abrir
+un período, como pidió Jhon. Responde en orden: cuánto entró y cuánto quedó, en
+qué se fue lo que no quedó, y cómo viene mes a mes.
+
+- **4 tarjetas** (brutas, neto, costos, utilidad + margen %), cada una con la
+  **variación contra el período anterior** — mes contra mes, trimestre contra
+  trimestre, año contra año. Se compara, nunca se suma. Sin base no se inventa
+  porcentaje: de $0 a $200 no es "+∞%", se muestra la diferencia en plata.
+- **"En qué se va lo que entra"**: barra apilada con etiqueta y cifra por
+  segmento. Si el período cierra en pérdida lo dice en rojo, aparte.
+- **Cascada de utilidad**, que estaba enterrada en Reportes.
+- **Mes a mes**: barras de bruto + línea de utilidad (recharts). Tocar una barra
+  abre ese mes. Un mes trae los 6 que terminan en él; un trimestre, sus 3; un
+  año, sus 12.
+- **De dónde entró**: bruto por pasarela.
+
+**La pestaña Reportes desaparece**: era esta misma cascada más una tabla de 6
+meses, al final del todo. Ahora es la primera pantalla y la tabla es una gráfica.
+
+Endpoint nuevo `GET /admin/contabilidad/panorama?scope&period`. La serie se
+calcula con **4 consultas en total** (una por tabla sobre el rango entero, y el
+reparto por mes en memoria); la versión ingenua —un `summary()` por mes— son 4
+consultas POR MES: 48 viajes a la base para pintar un año.
+
+### Colores
+
+Los cuatro costos usan la paleta categórica validada (azul `#2a78d6`, naranja
+`#eb6834`, aguamarina `#1baf7a`, amarillo `#eda100`): separación CVD comprobada
+con el validador, no a ojo. La **utilidad no es una categoría** sino un estado
+—verde si queda, rojo si falta—. Aguamarina y amarillo quedan por debajo de 3:1
+contra el blanco, así que **cada segmento va siempre con su etiqueta y su
+cifra**: el color acompaña, nunca es el único dato.
+
+### Verificación
+
+Backend `tsc` 0 · `eslint src/finance` 0 · **276/276** tests ·
+Frontend `tsc` 0 · `eslint` 0 · `next build` compila.
+La página pasa de 218 kB a **330 kB** de primera carga por recharts — en línea
+con `/admin`, que ya pesa 335 kB por lo mismo.
+
+Contrastado con prod (solo lectura), la serie que va a dibujar:
+
+| mes | bruto | comisiones | utilidad |
+|---|---|---|---|
+| 2026-04 | $150,00 | $0,00 | $108,60 |
+| 2026-05 | $0,00 | $23,50 | **−$23,50** |
+| 2026-06 | $3.513,29 | $491,10 | $2.052,51 |
+| 2026-07 | $4.730,19 | $413,50 | $3.049,82 |
+| 2026-08 | $4.515,11 | $795,00 | $2.503,80 |
+| 2026-09 | $638,00 | $63,80 | $398,11 |
+
+Mayo cierra en pérdida (comisiones sin ingreso ese mes): sirve de caso real para
+el rojo de la barra. Egresos y nómina en $0 todos los meses — todavía no se usan.
+
+### PENDIENTE
+
+- Fase 3: Próximos cobros y Comisiones como pestañas reales, y qué hacer con el
+  módulo `accounting` paralelo.
+- Sigue sin desplegarse nada de las tres fases.
+
 ## 2026-09-04 — Contabilidad, Fase 1: el período contable manda sobre el módulo
 
 **Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
@@ -141,7 +208,11 @@ Comprobado contra prod (solo lectura) que los períodos parten de verdad:
   está instalado; hoy la serie de 6 meses es una tabla), y comparador de meses.
 - Fase 3: Próximos cobros y Comisiones como pestañas reales — hoy son etiquetas
   apagadas (`FUTURE_TABS`) — y decidir qué pasa con el módulo `accounting`
-  paralelo (doble partida, indexado por `periodKey`, sin enlace desde la UI).
+  paralelo (doble partida, indexado por `periodKey`). **Corrección de lo que
+  escribí antes:** sí tiene pantalla, `/admin/accounting`, enlazada desde
+  Comisiones (`admin/commissions/page.tsx:324`); lo que no hay es enlace desde
+  Contabilidad. Siguen siendo dos contabilidades con distinta definición de
+  período.
 
 ## 2026-09-04 — Contabilidad, Fase 0: el mes contable y la nómina que valía $0
 

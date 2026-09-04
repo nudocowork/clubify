@@ -4,7 +4,9 @@ import {
   limitesDelMes,
   limitesDelPeriodo,
   mesAtras,
+  mesesDelPeriodo,
   nombreDelPeriodo,
+  periodoAnterior,
 } from './periodo-contable';
 
 describe('mesContable', () => {
@@ -116,5 +118,43 @@ describe('nombreDelPeriodo', () => {
     expect(nombreDelPeriodo('2026-T3')).toBe('3º trimestre de 2026');
     expect(nombreDelPeriodo('2026')).toBe('año 2026');
     expect(nombreDelPeriodo('todo')).toBe('Todo el histórico');
+  });
+});
+
+describe('periodoAnterior', () => {
+  it('compara mes contra mes, trimestre contra trimestre, año contra año', () => {
+    expect(periodoAnterior('2026-01')).toBe('2025-12');
+    expect(periodoAnterior('2026-T1')).toBe('2025-T4');
+    expect(periodoAnterior('2026')).toBe('2025');
+  });
+
+  it('el histórico no tiene con qué compararse', () => {
+    expect(periodoAnterior('todo')).toBeNull();
+  });
+});
+
+describe('mesesDelPeriodo', () => {
+  it('un mes trae los seis que terminan en él', () => {
+    expect(mesesDelPeriodo('2026-09')).toEqual([
+      '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09',
+    ]);
+  });
+
+  it('un trimestre trae exactamente sus tres meses', () => {
+    expect(mesesDelPeriodo('2026-T3')).toEqual(['2026-07', '2026-08', '2026-09']);
+  });
+
+  it('un año trae sus doce', () => {
+    const m = mesesDelPeriodo('2026');
+    expect(m).toHaveLength(12);
+    expect(m[0]).toBe('2026-01');
+    expect(m[11]).toBe('2026-12');
+  });
+
+  it('el histórico trae los últimos doce meses', () => {
+    const m = mesesDelPeriodo('todo', new Date('2026-09-15T12:00:00Z'));
+    expect(m).toHaveLength(12);
+    expect(m[11]).toBe('2026-09');
+    expect(m[0]).toBe('2025-10');
   });
 });

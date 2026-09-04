@@ -2,12 +2,16 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import {
   limitesDelMes,
+  limitesDelPeriodo,
   mesAtras,
+  mesContable,
   mesContableActual,
+  mesesDelPeriodo,
+  periodoAnterior,
 } from '../common/periodo-contable';
 import { IncomeRecordService } from './income-record.service';
 import { ExpenseService } from './expense.service';
-import { enRangoConRespaldo } from './where-periodo';
+import { enRango, enRangoConRespaldo } from './where-periodo';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -123,6 +127,148 @@ export class FinanceReportService {
       });
     }
     return out;
+  }
+
+
+  // ── Fase 2 — Panorama del período (métricas + gráficas) ────────────────────
+
+  /**
+   * Todo lo que necesita la primera pantalla de un período contable:
+   * la cascada del período, la del período ANTERIOR para comparar sin mezclar,
+   * la evolución mes a mes y de dónde viene el dinero.
+   */
+  async panorama(onlyClubify: boolean, period: string) {
+    const meses = mesesDelPeriodo(period);
+    const anterior = periodoAnterior(period);
+    const rango = limitesDelPeriodo(period) ?? {};
+    const rangoAnterior = anterior ? (limitesDelPeriodo(anterior) ?? {}) : null;
+
+    const [resumen, resumenAnterior, serie, porPasarela] = await Promise.all([
+      this.summary(onlyClubify, rango.from, rango.to),
+      rangoAnterior
+        ? this.summary(onlyClubify, rangoAnterior.from, rangoAnterior.to)
+        : Promise.resolve(null),
+      this.serieDeMeses(onlyClubify, meses),
+      this.ingresosPorPasarela(onlyClubify, rango),
+    ]);
+
+    return {
+      period,
+      resumen,
+      anterior: anterior ? { period: anterior, resumen: resumenAnterior } : null,
+      serie,
+      porPasarela,
+    };
+  }
+
+  /**
+   * La cascada de cada uno de esos meses.
+   *
+   * Cuatro consultas en total —una por tabla, sobre el rango entero— y el
+   * reparto por mes se hace en memoria. La versión ingenua (un `summary()` por
+   * mes) son cuatro consultas POR MES: para un año, 48 viajes a la base para
+   * pintar una gráfica.
+   */
+  async serieDeMeses(onlyClubify: boolean, meses: string[]) {
+    if (meses.length === 0) return [];
+    const desde = limitesDelMes(meses[0])!.from;
+    const hasta = limitesDelMes(meses[meses.length - 1])!.to;
+    const rango = { from: desde, to: hasta };
+    const wl = onlyClubify ? { whiteLabelId: null } : {};
+
+    const [ingresos, egresos, cortes, comisiones] = await Promise.all([
+      this.prisma.incomeRecord.findMany({
+        where: { ...wl, ...enRango('saleDate', rango) },
+        select: {
+          saleDate: true, grossUsd: true, gatewayFeeUsd: true,
+          taxUsd: true, netExpectedUsd: true,
+        },
+      }),
+      this.prisma.expense.findMany({
+        where: { ...wl, ...enRango('expenseDate', rango) },
+        select: { expenseDate: true, amountUsd: true },
+      }),
+      this.prisma.payrollRun.findMany({
+        where: { ...wl, ...enRangoConRespaldo('periodEnd', rango) },
+        select: { periodEnd: true, createdAt: true, totalUsd: true },
+      }),
+      this.prisma.commission.findMany({
+        where: {
+          status: { not: 'REJECTED' },
+          ...enRangoConRespaldo('businessDate', rango),
+        },
+        select: { businessDate: true, createdAt: true, amount: true },
+      }),
+    ]);
+
+    const vacio = () => ({
+      grossUsd: 0, gatewayFeeUsd: 0, taxUsd: 0, netUsd: 0,
+      egresosUsd: 0, nominaUsd: 0, comisionesUsd: 0,
+    });
+    const cubos = new Map(meses.map((m) => [m, vacio()]));
+    const cubo = (fecha: Date) => cubos.get(mesContable(fecha));
+
+    for (const i of ingresos) {
+      const c = cubo(i.saleDate);
+      if (!c) continue;
+      c.grossUsd += Number(i.grossUsd);
+      c.gatewayFeeUsd += Number(i.gatewayFeeUsd);
+      c.taxUsd += Number(i.taxUsd);
+      c.netUsd += Number(i.netExpectedUsd);
+    }
+    for (const e of egresos) {
+      const c = cubo(e.expenseDate);
+      if (c) c.egresosUsd += Number(e.amountUsd);
+    }
+    for (const r of cortes) {
+      const c = cubo(r.periodEnd ?? r.createdAt);
+      if (c) c.nominaUsd += Number(r.totalUsd);
+    }
+    for (const k of comisiones) {
+      const c = cubo(k.businessDate ?? k.createdAt);
+      if (c) c.comisionesUsd += Number(k.amount);
+    }
+
+    return meses.map((period) => {
+      const c = cubos.get(period)!;
+      const utilidadUsd = round2(
+        c.netUsd - c.egresosUsd - c.nominaUsd - c.comisionesUsd,
+      );
+      return {
+        period,
+        grossUsd: round2(c.grossUsd),
+        gatewayFeeUsd: round2(c.gatewayFeeUsd),
+        taxUsd: round2(c.taxUsd),
+        netUsd: round2(c.netUsd),
+        egresosUsd: round2(c.egresosUsd),
+        nominaUsd: round2(c.nominaUsd),
+        comisionesUsd: round2(c.comisionesUsd),
+        utilidadUsd,
+      };
+    });
+  }
+
+  /** De dónde entró el dinero del período, por pasarela. */
+  async ingresosPorPasarela(
+    onlyClubify: boolean,
+    rango: { from?: Date; to?: Date },
+  ) {
+    const filas = await this.prisma.incomeRecord.groupBy({
+      by: ['gateway'],
+      where: {
+        ...(onlyClubify ? { whiteLabelId: null } : {}),
+        ...enRango('saleDate', rango),
+      },
+      _sum: { grossUsd: true },
+      _count: { _all: true },
+    });
+    return filas
+      .map((f) => ({
+        gateway: f.gateway as string,
+        grossUsd: round2(Number(f._sum.grossUsd ?? 0)),
+        count: f._count._all,
+      }))
+      .sort((a, b) => b.grossUsd - a.grossUsd);
   }
 
   // ── Fase 5 — Cierres contables ─────────────────────────────────────────────
