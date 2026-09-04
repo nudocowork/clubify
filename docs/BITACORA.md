@@ -10,7 +10,7 @@
 
 ## 2026-09-04 (tarde) — El paso de registro tapaba el botón de instalar en 65 negocios
 
-**Regresión mía, del commit de esta mañana. Corregida y desplegada (`ee6a97a3`).**
+**Regresión mía, del commit de esta mañana. Corregida y desplegada (`74133bb2`).**
 
 El formulario que le pide correo y cumpleaños al socio del club antes de
 enseñarle los botones se estaba pintando en **cualquier** tarjeta: `getPublic`
