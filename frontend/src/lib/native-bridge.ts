@@ -207,26 +207,38 @@ export async function detenerEscaneoNativo(): Promise<void> {
 export async function registrarPush(
   enviarToken: (token: string, plataforma: NativePlatform) => Promise<unknown>,
 ): Promise<void> {
+  // El registro de push falla en silencio por diseño: si el usuario no puede
+  // hacer nada al respecto, no se le muestra un error. El precio es que no se
+  // ve desde fuera en qué paso se cayó — por eso queda en consola, que sí se
+  // puede leer con el inspector de Safari conectado al teléfono.
+  const traza = (t: string) => console.info(`[push] ${t}`);
+
   const plataforma = nativePlatform();
   const push = plugin<PushPlugin>('PushNotifications');
-  if (!plataforma || !push) return;
+  if (!plataforma) return traza('sin plataforma nativa');
+  if (!push) return traza('plugin PushNotifications AUSENTE');
 
   try {
     const { receive } = await push.requestPermissions();
+    traza(`permiso=${receive}`);
     if (receive !== 'granted') return;
 
     await push.addListener('registration', (dato: { value?: string }) => {
       const token = dato?.value;
-      if (token) enviarToken(token, plataforma).catch(() => null);
+      traza(`token recibido (${token ? token.length : 0} chars)`);
+      if (!token) return;
+      enviarToken(token, plataforma)
+        .then(() => traza('token GUARDADO en backend'))
+        .catch((e) => traza(`fallo al guardar: ${e?.message ?? e}`));
     });
 
-    await push.addListener('registrationError', () => {
-      // Sin entitlement de push o sin red. No hay nada que el usuario pueda
-      // hacer, así que no se le muestra nada.
+    await push.addListener('registrationError', (e: any) => {
+      traza(`APNs rechazó: ${e?.error ?? JSON.stringify(e)}`);
     });
 
     await push.register();
-  } catch {
-    /* push es opcional: nunca debe tumbar el arranque */
+    traza('register() llamado');
+  } catch (e: any) {
+    traza(`excepción: ${e?.message ?? e}`);
   }
 }

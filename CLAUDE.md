@@ -26,6 +26,23 @@ Lee primero, siempre:
    tienes commits sin empujar. Cada una de esas tres cosas nos costó trabajo
    perdido en un mismo día.
 
+   **La rama que corre en producción es `feat/commissions-auto-cutoffs`, no
+   `main`.** El script exige que lo que despliegas CONTENGA esa rama, vengas
+   de donde vengas: si estás en otra rama o por detrás, se niega y te dice qué
+   commits faltan. No lo saltes con `--force` para "salir del paso" — ese
+   candado existe porque desplegar sin los commits del otro **borra su trabajo
+   de producción**, y la víctima no se entera hasta que algo que funcionaba
+   "vuelve a estar roto". Pasó con `/hub` tres veces y con los arreglos de la
+   app iOS.
+
+   **Si algo que ya funcionaba aparece roto, sospecha de esto ANTES que del
+   código.** Compruébalo así, no de memoria:
+
+   ```bash
+   git fetch origin && git log --oneline -1 origin/feat/commissions-auto-cutoffs
+   curl -s https://app.soyclubify.com/<ruta> -o /dev/null -w "%{http_code}\n"
+   ```
+
    `railway up` sube **el directorio local**, no lo que hay en git: desplegar
    estando por detrás borra de producción lo que subió el otro. La señal de
    que te pasó es que una ruta que daba **401 pasa a dar 404**.

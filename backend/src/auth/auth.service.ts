@@ -291,11 +291,18 @@ export class AuthService {
     }
     if (!idToken) throw new BadRequestException('idToken requerido');
 
+    // La app nativa firma con SU PROPIO client ID de iOS, distinto del web:
+    // un token de la app llega con otro `aud` y la verificación lo rechazaría.
+    // verifyIdToken acepta una lista, así que se admiten ambos y cada
+    // plataforma usa el suyo. Sin GOOGLE_CLIENT_ID_IOS se comporta como antes.
+    const iosClientId = this.appConfig.get('GOOGLE_CLIENT_ID_IOS');
+    const audiencias = iosClientId ? [googleClientId, iosClientId] : googleClientId;
+
     let payload: any = null;
     try {
       const ticket = await this.googleClient.verifyIdToken({
         idToken,
-        audience: googleClientId,
+        audience: audiencias,
       });
       payload = ticket.getPayload();
     } catch (e: any) {

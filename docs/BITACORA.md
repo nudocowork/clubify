@@ -1175,6 +1175,135 @@ un único bug de corrección → arreglado y desplegado (frontend READY):
   frontend lo **subió a producción**: `/hub` ahora responde **200**. Si esa fase 1 no estaba
   lista para estar viva, avísame — quedó live junto con mi ranking, tu cuponera y el botón PRO.
 
+## 2026-09-03 (noche) — La causa de días de bugs fantasma: caché + detección tardía
+
+**Máquina/quién:** la de Jhon (sesión Claude)
+
+### ⚠️ DOS TRAMPAS QUE COSTARON DÍAS
+
+**1. El service worker servía código de agosto.**
+`VERSION` llevaba congelada en `v55-2026-08-14` mientras hacíamos más de
+quince despliegues. Cada uno llegaba a producción (verificado con `curl`) pero
+**no llegaba al teléfono**. Estuvimos persiguiendo bugs de layout y de push
+que ya estaban corregidos.
+
+Arreglado de raíz: **dentro de la app NO se registra service worker**, y el
+que hubiera se desregistra y purga sus caches (`PWARegister`). El SW sigue
+para la PWA del navegador, donde sí sirve (escáner sin señal en el mostrador).
+
+Para limpiar un teléfono que ya tenía el SW viejo hay que **desinstalar la
+app**, no basta reinstalarla encima: los datos sobreviven.
+`xcrun devicectl device uninstall app --device <id> com.soyclubify.app`
+
+**2. `data-native` se resolvía en el cliente y llegaba tarde.**
+La detección corría en un `useEffect`, así que el primer render ya pintaba lo
+que debía estar oculto. Síntomas que parecían no tener relación y eran esto:
+- El botón de Google seguía visible pese a estar quitado, y arrancaba su
+  script, que quedaba en «Cargando Google…» (Google bloquea webviews).
+- Las márgenes seguras se aplicaban **unas veces sí y otras no con el mismo
+  build** — lo interpretamos como carrera del puente de Capacitor.
+
+Arreglado: Capacitor marca el User-Agent con `ClubifyApp`, y eso viaja en la
+PETICIÓN. `data-native` se resuelve ahora en el **layout del servidor** y
+llega en el primer HTML. Lo que se oculta en la app se oculta por **CSS**
+(`.solo-web`), no por JavaScript: lo que no depende de que se ejecute nada, no
+puede llegar tarde.
+
+Verificado desde fuera:
+`curl /login -H "User-Agent: … ClubifyApp/1.0.0 (ios)"` → `data-native="ios"`;
+con UA de Safari normal, no aparece.
+
+### Qué toqué de PRODUCCIÓN
+- Frontend desplegado varias veces (SW, detección en servidor, quitar Google).
+- Backend desplegado: acepta dos audiencias de Google (`GOOGLE_CLIENT_ID_IOS`).
+- **Contraseña fijada** a `clubifydemo@gmail.com` (cuenta para el revisor de
+  Apple) y **clientes de DEMO CLUBIFY anonimizados** — eran una mezcla de
+  datos de prueba y personas reales con sus teléfonos y correos.
+
+### Decisiones de producto
+- **Fuera el login con Google DENTRO de la app.** Google bloquea su OAuth en
+  webviews, así que la única vía era saltar al navegador del sistema y volver.
+  Jhon decidió que ese salto no compensa. En el navegador se queda.
+  La implementación nativa (PKCE, sin SDK) funcionaba y está en el historial:
+  se descartaron los dos plugins de Capacitor porque uno choca con MLKit
+  (GTMSessionFetcher) y el otro arrastra el SDK de Facebook.
+
+### Qué falta
+- [ ] Capturas para la ficha, **con la cuenta demo** (las de Jhon mostraban
+      datos reales de Nudo Cowork).
+- [ ] Textos de la ficha y envío a TestFlight.
+- [ ] Más disparadores de push (reserva, sello, corte). Patrón en
+      `orders.service.ts`.
+- [ ] Android: falta Android Studio + JDK y Firebase.
+
+## 2026-09-03 (tarde) — PUSH FUNCIONANDO de punta a punta + trampa del AppDelegate
+
+**Máquina/quién:** la de Jhon (sesión Claude)
+
+### ⚠️ La trampa que costó medio día — LEER SI SE REGENERA EL PROYECTO iOS
+
+`register()` se llamaba, iOS obtenía el token del aparato… y se perdía. Sin
+error, sin callback, sin nada en los logs (los de `apsd` vienen redactados por
+Apple como `<private>`).
+
+**Faltaban los dos reenvíos de APNs en `AppDelegate.swift`**, que la plantilla
+de Capacitor NO trae:
+
+```swift
+func application(_:didRegisterForRemoteNotificationsWithDeviceToken:)
+func application(_:didFailToRegisterForRemoteNotificationsWithError:)
+```
+
+El plugin escucha por `NotificationCenter` y nadie publicaba ahí. Todo lo
+demás —permiso, entitlement, clave APNs, endpoint, tabla— estaba bien desde el
+principio. **Si alguien borra y regenera `mobile/ios`, esto se pierde y las
+push vuelven a fallar en silencio.**
+
+### Qué toqué de PRODUCCIÓN
+- **Migración aplicada**: tabla `DeviceToken` (aditiva, idempotente).
+- **Backend desplegado** dos veces: endpoints `/devices` y disparador de
+  pedido nuevo. Verificado el swap las dos veces (404 → 401).
+- **Frontend desplegado** varias veces. El último quita el diagnóstico.
+- **Variables nuevas en Railway**: `APP_PUSH_KEY_ID`, `APP_PUSH_TEAM_ID`,
+  `APP_PUSH_BUNDLE_ID`, `APP_PUSH_KEY_BASE64`.
+  **NO se tocaron las `APNS_*`**, que son las del pase de Apple Wallet: reusar
+  esos nombres habría dejado sin actualizar los pases de todos los negocios.
+
+### Verificado de punta a punta
+Token guardado en producción (`jhon@clubify.com · ios`) y notificación
+entregada al iPhone. El envío intenta **production y luego sandbox**: un build
+instalado por cable lleva entitlement de desarrollo y production lo rechaza
+con `BadDeviceToken`. Sin ese reintento parecería roto.
+
+### Otras dos causas reales encontradas
+- **El service worker seguía en `v55` de agosto** tras una decena de
+  despliegues: la app podía correr código viejo. Explica que las márgenes
+  seguras se aplicaran unas veces sí y otras no **con el mismo build**. Bump a
+  `v56`. **Si un cambio de front no aparece en la app, mirar esto primero.**
+- **El movimiento lateral NO era desbordamiento**: seis pantallas medidas dan
+  `doc == viewport`. Era el rebote elástico del WebView. Cortado con
+  `overscroll-behavior-x: none`, solo en la app.
+
+### Qué falta
+- [ ] Más disparadores de push: reserva, sello, corte de comisiones. El patrón
+      queda en `orders.service.ts` (`appPush.enviarATenant`, dispara y olvida).
+- [ ] **Clave APNs de producción ya creada** (`T57Z72TY6V`). Al subir a
+      TestFlight, Xcode cambia el entitlement a `production` solo.
+- [ ] Google Sign-In nativo: no funciona dentro del WebView (Google bloquea
+      OAuth en webviews embebidos). Hace falta el SDK nativo + client ID iOS.
+- [ ] Android: falta Android Studio + JDK en esta máquina, y Firebase para FCM.
+- [ ] Fichas de tienda: capturas, textos y **cuenta demo para el revisor**.
+- [ ] Revisión responsive a fondo de `/app`: bloqueada por no tener una cuenta
+      de negocio propia (impersonar vive en sessionStorage y se pierde al
+      navegar).
+
+### Riesgos y avisos
+- La app instalada en el iPhone de Jhon quedó **sin** `?dbg=1` y sin
+  diagnóstico: es la build limpia.
+- Se respetó el commit `f8793e29` de la otra máquina (diagnóstico apagado en
+  nativo). Para depurar se compiló una build aparte apuntada a `?dbg=1` en vez
+  de revertirlo.
+
 ## 2026-09-03 — App en el iPhone REAL + push (registro) + hallazgos de medición
 
 **Máquina/quién:** la de Jhon (sesión Claude) · commit `6c2cb505`
@@ -2979,6 +3108,92 @@ plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
   `npx tsx scripts/verify-inbound-attachments.ts` (la foto entra con su imagen y
   dos fotos distintas no se fusionan; usa un número inexistente y va por el camino
   saliente, que no dispara flujos).
+
+## 2026-09-03 — Team Clubify: el formulario del lead en la agenda y en todas las reuniones (Jhon)
+**Máquina/quién:** Jhon (Mac)
+**Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commits `ecfca7c`…`+2` · desplegado
+
+### Qué cambié
+- **Agenda del equipo:** abrir una reunión mostraba fecha, teléfono y poco más.
+  Para saber si el lead venía calificado había que salir del calendario, buscar el
+  contacto y abrir su ficha — con la decisión de asignar o reagendar esperando.
+  Ahora el modal trae las **respuestas del formulario** y los botones de Sala de
+  Meet / WhatsApp / Llamar, encima de las acciones de siempre.
+- **Vista del closer:** el formulario solo se veía en la reunión destacada; a las
+  demás del día se entraba a ciegas. Cada fila tiene ahora su botón, sin quitarle
+  a la fila su acción principal (registrar el resultado).
+- La tarjeta se extrajo a `LeadFormCard` y la usan las **dos** pantallas. La
+  lectura de las respuestas (resolver el código de la opción a su texto y su
+  puntaje) vive ahora en `lib/server/form-answers.ts`, en un solo sitio.
+- **Rendimiento:** el modal se quedaba en «Cargando…» varios segundos porque pedía
+  el historial COMPLETO del lead para mostrar solo el formulario. Ahora se pinta
+  lo que ya se tiene (la ficha viene con la cita) y solo viajan las respuestas.
+  Medido contra la base remota: cabecera **>4 s → ~85 ms**, respuestas
+  **~1,9 s → ~880 ms**. Esqueleto en vez de la palabra «Cargando…».
+
+### Qué toqué de PRODUCCIÓN
+- Solo despliegue (`vercel --prod` desde `team_clubify/`). Sin cambios de esquema.
+- `MeetingLite` ganó `meet_url` (el campo ya venía de la base; faltaba en el tipo).
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Los ~880 ms se midieron desde la máquina de Jhon contra Railway, con el
+      tramo de red más largo que el real. Conviene confirmarlo usándolo.
+
+### Riesgos y avisos
+- `getLeadHistory` sigue existiendo para la ficha completa; la que hay que usar
+  para mostrar el formulario es `getLeadFormAnswers` (o `getLeadFormCard` si no se
+  tiene la ficha). Si se vuelve a la pesada, vuelven los segundos en blanco.
+
+## 2026-09-03 — Team Clubify: instalable como app + revisión de móvil completa (Jhon)
+**Máquina/quién:** Jhon (Mac)
+**Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commit `8b6007b` · desplegado
+
+### Qué cambié
+Revisión de móvil **medida, no a ojo**: se abre cada pantalla a 390×844 y se
+reporta la que se sale. Importa porque la carcasa **recorta** el desbordamiento
+(`overflow-x-hidden` en `<main>`): lo que se sale **no se alcanza desplazando**,
+es un botón al que no se llega. Eran **6 de 51**; ahora **0 de 63**.
+
+- **Instalable como app** (antes no existía ni `public/`): `manifest.webmanifest`
+  con `display: standalone` y atajos, iconos 192/512/maskable/apple-touch,
+  `theme-color`, `apple-mobile-web-app-*`, `viewport-fit=cover`. El manifiesto
+  tuvo que hacerse **público en el middleware**: protegido devolvía la redirección
+  al login y el navegador nunca ofrecía instalar.
+- **Carcasa:** `h-screen` → `h-[100dvh]`. En el teléfono `100vh` incluye la barra
+  de direcciones que se pliega, así que la carcasa era más alta que lo visible y
+  la última fila de CUALQUIER pantalla quedaba cortada. Más zonas seguras del
+  iPhone (muesca y barra de gestos).
+- **Lo que estaba cortado:** Banco, Workflows y Biblioteca (la fila de botones no
+  envolvía); Configuración de la agenda (una celda de rejilla crece hasta su
+  contenido más ancho — el desplegable de zona horaria estiraba la tarjeta a
+  437 px en 390); constructor de formularios (`min-w-[200px]` dejaba «Guardar»
+  fuera); rangos horarios por día; calendario de Contenido (7 columnas = 50 px por
+  día → en móvil pasa a **agenda**, la rejilla vuelve en tablet).
+- **Uso con el dedo:** «Salir» era el ícono pelado de 20×20 en TODAS las
+  pantallas; botón compacto 32→36 px en móvil; casillas 13→18 px solo con puntero
+  grueso; campos a 16 px en móvil (por debajo, Safari hace zoom al enfocar y **no
+  vuelve**).
+
+### Qué toqué de PRODUCCIÓN
+- Solo despliegue: `vercel --prod` desde `team_clubify/`. Sin cambios de esquema.
+- Verificado en producción: `/manifest.webmanifest` y los iconos responden 200.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] Quedan ~1.380 controles por debajo de 36 px de alto (papeleras de 27×24,
+      «← Volver» de 61×20, enlaces de texto dentro de listas). Los globales ya
+      están; el resto es cola larga pantalla por pantalla.
+- [ ] Las tarjetas de métricas ocupan mucho alto en el teléfono (en Contenido, las
+      cinco llenan la primera pantalla). Es densidad, no rotura: decisión de diseño.
+- [ ] Para que se sienta app de verdad falta **service worker** (abrir sin red) y
+      **notificaciones push**. No lo hice: cambia el ciclo de despliegue y conviene
+      decidirlo aparte.
+
+### Riesgos y avisos
+- Los campos a 16 px en móvil **cambian la densidad** de los formularios en
+  teléfono. Es a propósito: es la única forma de que Safari no haga zoom.
+- Herramienta repetible: `node scripts/auditar-movil.mjs scripts/rutas-movil.json`
+  (pide `npm i -D playwright`; entra con una sesión firmada con `AUTH_SECRET` y
+  **solo lee**). Correrla antes de dar por buena cualquier pantalla nueva.
 
 ## 2026-09-01 — Team Clubify: varias agendas por equipo + el líder administra la suya (Jhon)
 **Máquina/quién:** Jhon (Mac)
