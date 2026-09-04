@@ -1,5 +1,7 @@
 // READ-ONLY: qué cierres contables quedaron con la nómina en CERO.
 //
+// Usage: cd backend && railway run --service Postgres-Nq8w node scripts/audit-cierres-nomina-cero.cjs
+//
 // Hasta el arreglo del 2026-09-04, el reporte filtraba PayrollRun por
 // `periodEnd`, y el panel creaba los cortes mandando solo `periodLabel` (texto
 // libre) → `periodEnd` siempre null → la nómina no entraba en NINGÚN mes y la
@@ -26,9 +28,19 @@ const limitesDelMes = (periodo) => {
 const money = (n) => '$' + Number(n).toFixed(2);
 
 (async () => {
-  const p = new PrismaClient({
-    datasources: { db: { url: process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL } },
-  });
+  const url = process.env.DATABASE_PUBLIC_URL || process.env.DATABASE_URL;
+  // Sin `railway run`, la URL del .env apunta a la base LOCAL —normalmente
+  // vacía— y el script respondería "todos los cierres cuadran" sin haber
+  // mirado producción. Un falso "está todo bien" es peor que un error.
+  if (!url) {
+    console.error('No hay DATABASE_URL. Corré:\n  cd backend && railway run --service Postgres-Nq8w node scripts/audit-cierres-nomina-cero.cjs');
+    process.exit(1);
+  }
+  if (/@(localhost|127\.0\.0\.1)[:/]/.test(url)) {
+    console.error('La base es LOCAL, no producción. Este diagnóstico no sirve contra local.\n  cd backend && railway run --service Postgres-Nq8w node scripts/audit-cierres-nomina-cero.cjs');
+    process.exit(1);
+  }
+  const p = new PrismaClient({ datasources: { db: { url } } });
   const cierres = await p.financialClose.findMany({ orderBy: { period: 'desc' } });
   if (cierres.length === 0) {
     console.log('No hay cierres guardados: no hay nada que recalcular.');
