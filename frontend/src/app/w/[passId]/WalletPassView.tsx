@@ -5,6 +5,7 @@ import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 import { WalletPassPreview } from '@/components/WalletPassPreview';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT, useLocale } from '@/lib/i18n';
+import { CompletarRegistro } from './CompletarRegistro';
 
 type Props = {
   passId: string;
@@ -26,6 +27,15 @@ export function WalletPassView({
   // Detectar plataforma para reordenar los botones — el "save" del nativo
   // del usuario va primero. iOS → Apple primero. Android → Google primero.
   const [platform, setPlatform] = useState<'ios' | 'android' | 'other'>('other');
+  // El socio del club llega aquí sin haber pasado por ningún formulario: se dio
+  // de alta en el mostrador con un solo dato. Se le piden los huecos ANTES de
+  // enseñarle los botones — si ve «instalar» primero, instala y no vuelve.
+  const falta = data.registro ?? null;
+  const [registroPendiente, setRegistroPendiente] = useState(
+    Boolean(
+      falta && (falta.faltaNombre || falta.faltaEmail || falta.faltaCumple),
+    ),
+  );
   useEffect(() => {
     const ua = navigator.userAgent.toLowerCase();
     if (/iphone|ipad|ipod/.test(ua)) setPlatform('ios');
@@ -199,6 +209,15 @@ export function WalletPassView({
 
             <div className="flex justify-center mt-3">{tarjeta}</div>
 
+            {registroPendiente && falta ? (
+              <CompletarRegistro
+                passId={passId}
+                falta={falta}
+                primary={primary}
+                onListo={() => setRegistroPendiente(false)}
+              />
+            ) : (
+            <>
             {/* El texto y las flechas van ENTRE la tarjeta y los botones, no
                 antes: es el punto exacto donde el cliente cree que terminó.
                 Ahí es donde hay que decirle que le falta un paso. */}
@@ -216,6 +235,8 @@ export function WalletPassView({
             </div>
 
             <div className="mt-2">{botones}</div>
+            </>
+            )}
           </>
         ) : (
           /* ── Vuelve a abrir su tarjeta ────────────────────────────────

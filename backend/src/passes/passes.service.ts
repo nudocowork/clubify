@@ -126,7 +126,15 @@ export class PassesService {
       where: { id },
       include: {
         card: true,
-        customer: { select: { id: true, fullName: true } },
+        customer: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            birthday: true,
+            phone: true,
+          },
+        },
         tenant: {
           select: {
             brandName: true,
@@ -155,8 +163,25 @@ export class PassesService {
     const alianza = pass.card.convenioId
       ? await alianzaDelPase(this.prisma, pass.card.convenioId, pass.id)
       : null;
+    // Qué le falta al socio por rellenar. Se mandan BANDERAS y no los datos:
+    // la página es pública por `passId`, y aunque quien la abre sea el propio
+    // cliente, devolver su correo permitiría leerlo con solo tener el enlace.
+    //
+    // El nombre cuenta como pendiente si no tiene ni una letra: el alta rápida
+    // del club deja el teléfono como nombre —la base exige uno— y ese hay que
+    // pedirlo de verdad.
+    const c = pass.customer;
+    const registro = {
+      faltaNombre: !c?.fullName || !/\p{L}/u.test(c.fullName),
+      faltaEmail: !c?.email?.trim(),
+      faltaCumple: !c?.birthday,
+    };
+
     return {
       ...pass,
+      // El cliente se recorta a lo que la página necesita pintar.
+      customer: c ? { id: c.id, fullName: c.fullName } : null,
+      registro,
       club,
       alianza,
       brand: {
@@ -265,6 +290,63 @@ export class PassesService {
         club: clubPorPase.get(p.id) ?? null,
       })),
     };
+  }
+
+  /**
+   * El socio completa su registro desde la página de su propia tarjeta.
+   *
+   * Existe porque el club se da de alta desde el mostrador con un solo dato
+   * —el teléfono— y ese cliente nunca pasa por el formulario que rellenan los
+   * demás: se quedaba sin correo, sin cumpleaños y con el número por nombre.
+   * Sin correo no le llega nada de lo que el negocio manda, y sin cumpleaños
+   * se queda fuera de la automatización que más se usa.
+   *
+   * Es público por `passId`, igual que descargar el pase. Quien tiene ese
+   * enlace ES el cliente: se lo acaba de mandar su negocio.
+   *
+   * Solo RELLENA huecos, nunca pisa lo que ya había: si el negocio ya le puso
+   * el correo, el cliente no puede cambiárselo desde aquí — eso se pide en el
+   * mostrador, y así un enlace reenviado no puede secuestrar una ficha.
+   */
+  async completarRegistro(
+    id: string,
+    dto: { fullName?: string; email?: string; birthday?: string },
+  ) {
+    const pass = await this.prisma.pass.findUnique({
+      where: { id },
+      select: {
+        customer: {
+          select: { id: true, fullName: true, email: true, birthday: true },
+        },
+      },
+    });
+    if (!pass?.customer) throw new NotFoundException('Pass');
+    const c = pass.customer;
+
+    const nombre = dto.fullName?.trim();
+    const correo = dto.email?.trim().toLowerCase();
+    const sinNombreDeVerdad = !c.fullName || !/\p{L}/u.test(c.fullName);
+
+    const data: {
+      fullName?: string;
+      email?: string;
+      birthday?: Date;
+    } = {};
+    if (sinNombreDeVerdad && nombre && /\p{L}/u.test(nombre)) {
+      data.fullName = nombre.slice(0, 80);
+    }
+    if (!c.email?.trim() && correo && /.+@.+\..+/.test(correo)) {
+      data.email = correo.slice(0, 160);
+    }
+    if (!c.birthday && dto.birthday) {
+      const d = new Date(dto.birthday);
+      if (!Number.isNaN(d.getTime())) data.birthday = d;
+    }
+
+    if (Object.keys(data).length) {
+      await this.prisma.customer.update({ where: { id: c.id }, data });
+    }
+    return { ok: true, actualizados: Object.keys(data) };
   }
 
   /**

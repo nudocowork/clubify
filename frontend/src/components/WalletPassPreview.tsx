@@ -182,6 +182,12 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
       : stampsRequired ?? 10;
   const current = cardType === 'VISITS' ? visitsCount : stampsCount;
   const previewStamps = Math.max(1, Math.min(required, 12));
+  // El pase de verdad reparte en DOS FILAS a partir de 6 (10 = 5+5). La
+  // miniatura los ponía todos en una, así que el cliente veía una tarjeta que
+  // no era la que se iba a instalar — diez círculos diminutos en fila contra
+  // los dos renglones que le llegan al móvil.
+  const filasPreview = previewStamps > 6 ? 2 : 1;
+  const porFilaPreview = Math.ceil(previewStamps / filasPreview);
   // Con cupos grandes el cartón deja de significar nada: doce círculos para un
   // plan de treinta clases es una foto que contradice al número de arriba. Es
   // el mismo corte que hace el pase de verdad.
@@ -394,7 +400,12 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
                 }}
               />
             ) : null}
-            <div className="relative flex items-center justify-between gap-1.5">
+            <div
+              className="relative grid gap-1.5 justify-items-center"
+              style={{
+                gridTemplateColumns: `repeat(${porFilaPreview}, minmax(0, 1fr))`,
+              }}
+            >
               {Array.from({ length: previewStamps }).map((_, i) => {
                 const filled = i < current;
                 const prize = prizeByPos.get(i + 1);
@@ -544,22 +555,31 @@ export function WalletPassPreview(props: WalletPassPreviewProps) {
         )}
       </div>
 
-      {/* Fields TITULAR / RECOMPENSA */}
+      {/* Los campos de abajo. En una tarjeta de CLUB el pase real no dice
+          «Titular / Recompensa» sino «Te quedan / Cliente»: no hay premio al
+          final que anunciar, y lo que le importa al socio es cuánto le queda de
+          lo que pagó. La miniatura decía otra cosa que la tarjeta instalada. */}
       <div className="px-4 pt-1 pb-3 grid grid-cols-[1fr_auto] gap-3 items-end relative">
         <div className="min-w-0">
           <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
-            Titular
+            {club ? 'Te quedan' : 'Titular'}
           </div>
           <div className="text-[13px] font-bold mt-0.5 truncate uppercase tracking-wide">
-            {customerName}
+            {club
+              ? `${stampsCount} ${plural(club.unidad, stampsCount)}`
+              : customerName}
           </div>
         </div>
         <div className="text-right max-w-[55%]">
           <div className="text-[9px] tracking-[0.14em] uppercase opacity-80 font-semibold">
-            {nextPrize ? 'Próximo premio' : 'Recompensa'}
+            {club ? 'Cliente' : nextPrize ? 'Próximo premio' : 'Recompensa'}
           </div>
           <div className="text-[12px] font-semibold mt-0.5 leading-snug line-clamp-2">
-            {nextPrize ? nextPrize.label : rewardText || '—'}
+            {club
+              ? customerName
+              : nextPrize
+                ? nextPrize.label
+                : rewardText || '—'}
           </div>
         </div>
       </div>

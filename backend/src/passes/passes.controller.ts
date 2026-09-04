@@ -16,6 +16,17 @@ import {
   normalizeLocale,
 } from '../catalog/translation.service';
 
+/**
+ * Lo que el socio completa desde la página de su tarjeta. Los tres son
+ * opcionales: el servicio solo rellena los huecos que de verdad falten y
+ * nunca pisa lo que el negocio ya había puesto.
+ */
+class CompletarRegistroDto {
+  @IsOptional() @IsString() @MaxLength(80) fullName?: string;
+  @IsOptional() @IsEmail() @MaxLength(160) email?: string;
+  @IsOptional() @IsString() @MaxLength(10) birthday?: string;
+}
+
 class IssueBody {
   @IsUUID() cardId!: string;
   @IsUUID() customerId!: string;
@@ -54,6 +65,16 @@ export class PassesController {
    * Auto-enrollment público: muestra info de la tarjeta antes de que el
    * cliente llene el form. No expone tenantId ni datos sensibles.
    */
+  /** El socio completa sus datos desde la página de su tarjeta. */
+  @Public()
+  @Post(':id/completar-registro')
+  completarRegistro(
+    @Param('id') id: string,
+    @Body() body: CompletarRegistroDto,
+  ) {
+    return this.svc.completarRegistro(id, body);
+  }
+
   @Public()
   @Get('enroll/:cardId')
   async getEnrollCard(

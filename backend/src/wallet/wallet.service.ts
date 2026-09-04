@@ -549,7 +549,11 @@ export class WalletService {
     return {
       key: 'club',
       label: etiqueta,
-      value: club.detenida ? detenido : `${pass.stampsCount} / ${club.cupo}`,
+      // Sin espacios alrededor de la barra. Apple reparte la fila de arriba
+      // entre el nombre del negocio y este campo, y cada carácter de más aquí
+      // se lo come al nombre: con «10 / 10» salía «DEMO CLU…10 / 10», pegados y
+      // con la marca cortada. Dos caracteres menos y el nombre respira.
+      value: club.detenida ? detenido : `${pass.stampsCount}/${club.cupo}`,
       changeMessage: club.detenida ? L.club_stopped_change : L.club_change,
     };
   }
@@ -639,7 +643,9 @@ export class WalletService {
     return {
       key: 'stamps',
       label: L.stamps,
-      value: `${pass.stampsCount} / ${pass.card.stampsRequired ?? 10}`,
+      // Sin espacios, por lo mismo que en el club: la fila de arriba la comparte
+      // con el nombre del negocio, y este valor se lo estaba comiendo.
+      value: `${pass.stampsCount}/${pass.card.stampsRequired ?? 10}`,
       changeMessage: L.stamps_change,
     };
   }
