@@ -3168,6 +3168,60 @@ plantilla de billetera, informe al aliado, avisos. Lo arrancamos cuando digas.
   dos fotos distintas no se fusionan; usa un número inexistente y va por el camino
   saliente, que no dispara flujos).
 
+## 2026-09-04 — Team Clubify: agenda, seguimientos y el flujo de reagendar (Jhon)
+**Máquina/quién:** Jhon (Mac)
+**Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · desplegado
+
+### Qué cambié
+- **Color de la cita = ASISTENCIA**, no resultado. Una reunión `realizada` es
+  verde aunque nadie hubiera pulsado «confirmar» antes — eso la dejaba en gris,
+  igual que una que ni se sabía si iba a ocurrir. El semáforo dice «Asistió» /
+  «No asistió» cuando ya pasó. Y **«Registrar resultado» desaparece** con el
+  cierre ya cargado o si la cita se canceló: antes se escribía encima.
+- **Fuera Comisiones e IA Comercial** de las pestañas de los 4 equipos (Javier
+  hizo lo mismo en paralelo, `c4ae6c9`). Sus rutas redirigen al Resumen en vez de
+  borrarse, para que un enlace viejo no dé 404.
+- **Seguimientos:** la columna «Responsable» pasa a **«Closer»** y muestra al que
+  ATENDIÓ la reunión (la realizada más reciente del contacto), no al responsable
+  temporal del paso. **«Abrir chat» abre un popup con forma de teléfono** encima
+  de la lista, con «Ver contacto» dentro: se lee, se responde y se sigue sin
+  salir de la sección.
+- **Ver contacto:** oculto «Transferir a otro equipo»; y «Responsable» de una
+  tarea ofrece **solo la gente de ESE equipo** (aparecía Eudes en el de Nico).
+  Los nombres de tareas ya asignadas se siguen resolviendo contra todos los
+  usuarios: quien salió del equipo tiene que seguir mostrando su nombre.
+- **Reagendar desde el reporte de la reunión** (lo grande): botón que abre el día
+  completo (6:00–22:30) **sin las reglas del embudo público** —antelación, días
+  hábiles, cupo, horario— porque la hora la pacta el closer en la llamada; solo
+  se respeta que no haya dos reuniones suyas a la vez. Al reagendar salen tres
+  mensajes: aviso del cambio → reconfirmación con los dos botones → **la sala 5
+  minutos antes, conteste o no**. Si contesta «Sí» queda `confirmed_at` (lo que
+  lee el semáforo); si pide reagendar, aviso a la coordinación.
+
+### Qué toqué de PRODUCCIÓN
+- **Base de datos (aditivo, ya aplicado):**
+  `node scripts/add-meeting-reconfirm.cjs` → `CloserMeeting.reconfirm_asked_at`,
+  `reconfirm_reply`, `meet_link_sent_at` + índice.
+- **Cron nuevo:** `/api/cron/meet-link` **cada minuto** (en `vercel.json` y en
+  `lib/cron-jobs.ts`). Con uno de 15, «5 minutos antes» sería entre 5 y 20.
+- Despliegues con `vercel --prod` desde `team_clubify/`.
+
+### Qué falta / qué hay que validar del otro lado
+- [ ] La reconfirmación va **sin firma personal**: el workflow del que salieron
+      los textos dice «Nico por acá» y acá corre para los cuatro equipos. Si se
+      quiere firmar por equipo, sale del responsable — está sin hacer.
+- [ ] Este flujo **solo** alcanza a las citas reagendadas a mano
+      (`reconfirm_asked_at`). Las de la agenda pública las sigue atendiendo su
+      workflow; si se toca eso, ojo con el doble envío.
+
+### Riesgos y avisos
+- **Al probar envíos, el proveedor ACEPTA números inexistentes** y el saliente
+  vuelve por webhook: en una corrida apareció el mensaje duplicado en el hilo.
+  Las pruebas usan `+5700000001xx` y borran lo que crean, pero conviene saberlo.
+- Verificaciones repetibles: `npx tsx scripts/verify-reconfirm-flow.ts` (las dos
+  ramas, la sala una sola vez aunque el cron repita, y que un mensaje cualquiera
+  no se tome como respuesta).
+
 ## 2026-09-03 — Team Clubify: el formulario del lead en la agenda y en todas las reuniones (Jhon)
 **Máquina/quién:** Jhon (Mac)
 **Rama / PR:** `team_clubify` · `feat/automations-engine-audit` · commits `ecfca7c`…`+2` · desplegado

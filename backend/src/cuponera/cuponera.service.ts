@@ -1817,19 +1817,34 @@ export class CuponeraService {
   }) {
     // Se verifica que el negocio EXISTA y que no sea un tenant de sistema:
     // vincular un aliado al tenant que HOSPEDA la cuponera sería circular.
+    const campaign = await this.campaignOrLiving(dto.campaignId);
+
     let tenantId: string | null = null;
     if (dto.tenantId) {
-      const t = await this.prisma.tenant.findUnique({
-        where: { id: dto.tenantId },
+      // El aliado TIPO A (§16) es un negocio que YA es cliente de la marca y
+      // usa SU propio escáner. Enlazar uno de OTRA marca lo publicaría en esta
+      // cartelera y haría que sus canjes cuenten acá.
+      //
+      // La pantalla solo ofrece los de la marca (`panelTenantOptions`), pero el
+      // id llega del cliente y hasta ahora la escritura no lo revalidaba: un
+      // POST a mano podía enlazar cualquiera de la plataforma. Es la misma fuga
+      // que 6052ec91 arregló en la LECTURA; esta era la de escritura.
+      const marca = this.brandScopeForCampaign(campaign);
+      if (!marca) {
+        throw new BadRequestException(
+          'La cuponera no tiene marca asignada: no se puede enlazar un negocio existente',
+        );
+      }
+      const t = await this.prisma.tenant.findFirst({
+        where: { id: dto.tenantId, ...marca },
         select: { id: true, isCampaignHost: true },
       });
-      if (!t) throw new BadRequestException('El negocio no existe');
+      if (!t) throw new BadRequestException('El negocio no existe o no es de esta marca');
       if (t.isCampaignHost) {
         throw new BadRequestException('Ese es un negocio de sistema, no puede ser aliado');
       }
       tenantId = t.id;
     }
-    const campaign = await this.campaignOrLiving(dto.campaignId);
     const categoryId = await this.assertCategory(campaign.id, dto.categoryId);
     const email = dto.email.trim().toLowerCase();
     const existing = await this.prisma.user.findUnique({ where: { email } });
@@ -3175,14 +3190,19 @@ export class CuponeraService {
     }
     if (seg.allyId) {
       // Miembros que interactuaron con el negocio (canjes o sellos).
+      //
+      // El `campaignId` va acá aunque la consulta final ya acote por el tenant
+      // de la campaña: `allyId` llega del cliente, y hacer depender el
+      // aislamiento de un filtro que está más abajo es justo lo que dejó
+      // abierta la escritura de `createAlly`. Se acota en el origen.
       const [reds, stamps] = await Promise.all([
         this.prisma.redemption.findMany({
-          where: { allyBusinessId: seg.allyId },
+          where: { campaignId, allyBusinessId: seg.allyId },
           distinct: ['customerId'],
           select: { customerId: true },
         }),
         this.prisma.stampEvent.findMany({
-          where: { allyBusinessId: seg.allyId },
+          where: { campaignId, allyBusinessId: seg.allyId },
           distinct: ['customerId'],
           select: { customerId: true },
         }),
