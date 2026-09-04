@@ -8,7 +8,6 @@ import { ToastProvider } from '@/components/Toast';
 import { DynamicFavicon } from '@/components/DynamicFavicon';
 import { ChunkReloadGuard } from '@/components/ChunkReloadGuard';
 import { NativeAppChrome } from '@/components/NativeAppChrome';
-import { OverflowDebug } from '@/components/OverflowDebug';
 import { googleFontsUrls } from '@/lib/marketing/qr-poster-config';
 import { AuthBrandProvider } from '@/components/AuthBrand';
 import { resolveAuthBrandFromHeaders } from '@/lib/server-brand';
