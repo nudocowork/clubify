@@ -180,8 +180,8 @@ export const messages = {
 
     // Wallet view (/w/[passId])
     'wallet.not_done_title': 'AÚN NO HA TERMINADO TU REGISTRO',
-    'wallet.reg_title': 'Termina tu registro',
-    'wallet.reg_sub': 'Un par de datos y ya puedes instalar tu tarjeta.',
+    'wallet.reg_title': 'Te damos la bienvenida',
+    'wallet.reg_sub': 'Completa tus datos y descarga tu tarjeta.',
     'wallet.reg_name': 'Tu nombre',
     'wallet.reg_email': 'Tu correo',
     'wallet.reg_day': 'Día',
@@ -406,8 +406,8 @@ export const messages = {
 
     // Wallet view
     'wallet.not_done_title': 'YOUR SIGN-UP ISN’T FINISHED YET',
-    'wallet.reg_title': 'Finish signing up',
-    'wallet.reg_sub': 'A couple of details and your card is ready to install.',
+    'wallet.reg_title': 'Welcome aboard',
+    'wallet.reg_sub': 'Fill in your details and download your card.',
     'wallet.reg_name': 'Your name',
     'wallet.reg_email': 'Your email',
     'wallet.reg_day': 'Day',
@@ -632,8 +632,8 @@ export const messages = {
 
     // Wallet view
     'wallet.not_done_title': 'AINDA NÃO TERMINOU O SEU CADASTRO',
-    'wallet.reg_title': 'Conclua seu cadastro',
-    'wallet.reg_sub': 'Dois dados e já pode instalar seu cartão.',
+    'wallet.reg_title': 'Boas-vindas',
+    'wallet.reg_sub': 'Complete seus dados e baixe seu cartão.',
     'wallet.reg_name': 'Seu nome',
     'wallet.reg_email': 'Seu e-mail',
     'wallet.reg_day': 'Dia',
@@ -858,8 +858,8 @@ export const messages = {
 
     // Wallet view
     'wallet.not_done_title': 'LA TUA REGISTRAZIONE NON È ANCORA COMPLETA',
-    'wallet.reg_title': 'Completa la registrazione',
-    'wallet.reg_sub': 'Due dati e puoi installare la tua tessera.',
+    'wallet.reg_title': 'Ti diamo il benvenuto',
+    'wallet.reg_sub': 'Completa i tuoi dati e scarica la tua tessera.',
     'wallet.reg_name': 'Il tuo nome',
     'wallet.reg_email': 'La tua email',
     'wallet.reg_day': 'Giorno',

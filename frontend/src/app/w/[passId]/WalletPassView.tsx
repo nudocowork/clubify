@@ -196,22 +196,30 @@ export function WalletPassView({
              medio a propósito: es lo que el cliente reconoce como «ya está»,
              y justo debajo es donde hay que decirle que falta un paso. */
           <>
-            <div className="text-center">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-mute font-semibold">
-                {tt('wallet.show_at_counter')}
-              </div>
-              <h1 className="text-[15px] font-bold mt-0.5">
-                {data.tenant.brandName}
-              </h1>
-              <div className="text-[12px] text-mute">{data.card.name}</div>
-            </div>
+            {/* Con el formulario delante, esta cabecera sobra y encima miente:
+                «muestra este código al cajero» antes de haberse registrado no
+                se puede hacer, y la marca acabaría tres veces en la pantalla
+                —aquí, en la tarjeta y en la cabecera del formulario—. */}
+            {!(registroPendiente && falta) && (
+              <>
+                <div className="text-center">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-mute font-semibold">
+                    {tt('wallet.show_at_counter')}
+                  </div>
+                  <h1 className="text-[15px] font-bold mt-0.5">
+                    {data.tenant.brandName}
+                  </h1>
+                  <div className="text-[12px] text-mute">{data.card.name}</div>
+                </div>
 
-            <h2
-              className="text-[19px] leading-[1.15] font-extrabold tracking-tight text-center mt-3"
-              style={{ color: primary }}
-            >
-              {tt('wallet.not_done_title')}
-            </h2>
+                <h2
+                  className="text-[19px] leading-[1.15] font-extrabold tracking-tight text-center mt-3"
+                  style={{ color: primary }}
+                >
+                  {tt('wallet.not_done_title')}
+                </h2>
+              </>
+            )}
 
             <div className="flex justify-center mt-3">{tarjeta}</div>
 
@@ -220,6 +228,16 @@ export function WalletPassView({
                 passId={passId}
                 falta={falta}
                 primary={primary}
+                nombreActual={data.customer?.fullName}
+                marca={data.tenant.brandName}
+                logoUrl={
+                  data.tenant.walletLogoUrl ??
+                  data.tenant.logoUrl ??
+                  data.brand?.logoUrl ??
+                  null
+                }
+                logoShape={data.card.logoShape}
+                logoBgColor={data.card.logoBgColor}
                 onListo={() => setRegistroPendiente(false)}
               />
             ) : (

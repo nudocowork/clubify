@@ -12,6 +12,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useLocale, useT, type MessageKey } from '@/lib/i18n';
+import { DAY_OPTIONS, monthOptionsFor } from '@/lib/opciones-cumple';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -204,28 +205,8 @@ const COUNTRY_OPTIONS = COUNTRIES.map((c) => (
   </option>
 ));
 
-/**
- * Las 31 options de días y 12 de meses también son estáticas.
- */
-const DAY_OPTIONS = Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
-  <option key={d} value={d}>
-    {d}
-  </option>
-));
-// Nombres de mes traducidos según el idioma activo (Intl) — antes estaban
-// hardcodeados en español y no se traducían en /en, /pt, /it.
-function monthOptionsFor(locale: string) {
-  const fmt = new Intl.DateTimeFormat(locale || 'es', { month: 'long' });
-  return Array.from({ length: 12 }, (_, i) => {
-    const name = fmt.format(new Date(2020, i, 1));
-    const label = name.charAt(0).toUpperCase() + name.slice(1);
-    return (
-      <option key={i + 1} value={i + 1}>
-        {label}
-      </option>
-    );
-  });
-}
+// Las options de día y mes se comparten con el paso de registro del club
+// (`/w/[passId]`): es el mismo dato y tienen que preguntarlo igual.
 
 // =============================================================
 //  FormFields — TODO el state del formulario vive ACÁ
