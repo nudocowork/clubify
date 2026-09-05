@@ -15,6 +15,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -27,7 +28,25 @@ import { Public } from '../common/decorators/public.decorator';
 
 class PublicCustomer {
   @IsString() fullName!: string;
-  @IsString() phone!: string;
+  /**
+   * Si viene un telefono, tiene que PARECER un telefono.
+   *
+   * `@IsString()` a secas daba por bueno cualquier cosa, y se crearon pedidos
+   * reales con «123». Un pedido asi el negocio no lo puede confirmar —ni
+   * llamar ni escribir— y el cliente se queda sin «Mis pedidos», que busca
+   * por telefono.
+   *
+   * Aqui NO se exige que venga: para un pedido de MESA el negocio tiene la
+   * mesa y pedirle el numero al que esta sentado sobra. Quien decide eso es
+   * `orders.service`, que es donde se sabe si el pedido es a domicilio, para
+   * recoger o de mesa. Arreglarlo solo en el formulario dejaria la API
+   * abierta a cualquiera que la llame directo.
+   */
+  @IsString()
+  @Matches(/^$|^(?=(?:\D*\d){7,})\+?[\d\s()-]{7,24}$/, {
+    message: 'Escribe un numero de WhatsApp valido.',
+  })
+  phone!: string;
   @IsOptional() @IsEmail() email?: string;
 }
 

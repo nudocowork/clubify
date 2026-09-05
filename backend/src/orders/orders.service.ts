@@ -465,6 +465,24 @@ export class OrdersService {
 
     if (!dto.items?.length) throw new BadRequestException('Carrito vacío');
 
+    // Teléfono OBLIGATORIO salvo en mesa.
+    //
+    // Se crearon pedidos reales sin número: el negocio los ve en el panel y no
+    // puede confirmarlos —no puede llamar ni escribir—, el mensaje de WhatsApp
+    // le llega con el nombre y el separador colgando, y el propio cliente se
+    // queda sin «Mis pedidos», que busca por teléfono.
+    //
+    // En MESA no se exige: el negocio tiene el número de mesa y pedirle el
+    // celular a quien está sentado enfrente sobra.
+    if (dto.fulfillment !== 'DINE_IN') {
+      const digitos = (dto.customer?.phone ?? '').replace(/\D/g, '');
+      if (digitos.length < 7) {
+        throw new BadRequestException(
+          'Escribe tu número de WhatsApp para que el negocio pueda confirmarte el pedido.',
+        );
+      }
+    }
+
     // Método de pago declarado (opcional). Si viene, debe ser uno conocido y
     // estar dentro de los que el negocio acepta. Sin configuración guardada
     // (accepted = null) se aceptan todos — igual que siempre; nadie queda

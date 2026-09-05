@@ -13,6 +13,7 @@ import { useLocale } from '@/lib/i18n';
 import { InfoLinkPopupModal } from '@/components/InfoLinkPopupModal';
 import type { PopupConfig } from '@/lib/info-link-popup';
 import { safeUrlOrNull } from '@/lib/safe-url';
+import { urlDeInstagram } from '@/lib/social-url';
 import {
   backgroundCss,
   type InfoLinkBackground,
@@ -262,11 +263,11 @@ export default function PublicInfoLink() {
       }
       case 'INSTAGRAM': {
         // Prioridad: handle específico del botón > instagramUrl del tenant
-        if (b.igHandle) {
-          const handle = b.igHandle.replace(/^@/, '').trim();
-          return `https://instagram.com/${handle}`;
-        }
-        return tenant.instagramUrl ?? undefined;
+        return (
+          urlDeInstagram(b.igHandle) ??
+          urlDeInstagram(tenant.instagramUrl) ??
+          undefined
+        );
       }
       case 'MAPS': {
         // Con multi-sede, el href es el de la PRIMERA sede resuelta (fallback

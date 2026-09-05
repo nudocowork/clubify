@@ -373,8 +373,11 @@ export default function OrderStatus() {
           />
         )}
 
+        {/* `/d/` y no `/m/`: `/m/` es el menu de MESA, sin boton de agregar,
+            sin carrito y sin «Mis pedidos». El cliente que acaba de pedir y
+            queria anadir algo se quedaba sin salida. */}
         <Link
-          href={`/m/${order.tenant.slug}`}
+          href={`/d/${order.tenant.slug}`}
           className="btn-ghost w-full justify-center mt-4"
         >
           ← Volver al menú

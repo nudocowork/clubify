@@ -53,7 +53,8 @@ export const messages = {
     'storefront.promo_free_item': 'Item gratis',
     'storefront.promo_combo': 'Combo',
     'storefront.directions': 'Cómo llegar',
-    'storefront.cart_items': '🛒 {{count}} items',
+    'storefront.cart_items': '🛒 {{count}} productos',
+    'storefront.cart_items_one': '🛒 1 producto',
     'storefront.cart_order': 'Pedir →',
     'storefront.promo_you_save': 'Ahorras {{amount}}',
     'storefront.promo_select': 'Seleccionar',
@@ -132,6 +133,8 @@ export const messages = {
     'checkout.select_location': 'Elegir sede…',
     'checkout.error_address':
       'Completa departamento, municipio y dirección para entregar a domicilio.',
+    'checkout.error_phone':
+      'Escribe tu número de WhatsApp para que el negocio pueda confirmarte el pedido.',
 
     // Card join (/c/[cardId])
     'card.join_title': 'Únete al programa',
@@ -298,6 +301,7 @@ export const messages = {
     'storefront.sections_empty_main': 'No products in this section',
     'storefront.sections_empty_sub': 'No products in this subsection',
     'storefront.cart_items': '🛒 {{count}} items',
+    'storefront.cart_items_one': '🛒 1 item',
     'storefront.cart_order': 'Order →',
     'storefront.promo_you_save': 'You save {{amount}}',
     'storefront.promo_select': 'Select',
@@ -359,6 +363,8 @@ export const messages = {
     'checkout.select_location': 'Choose location…',
     'checkout.error_address':
       'Fill in state, city and address for delivery.',
+    'checkout.error_phone':
+      'Enter your WhatsApp number so the business can confirm your order.',
 
     // Card join
     'card.join_title': 'Join the rewards program',
@@ -524,6 +530,7 @@ export const messages = {
     'storefront.sections_empty_main': 'Sem produtos nesta seção',
     'storefront.sections_empty_sub': 'Sem produtos nesta subseção',
     'storefront.cart_items': '🛒 {{count}} itens',
+    'storefront.cart_items_one': '🛒 1 item',
     'storefront.cart_order': 'Pedir →',
     'storefront.promo_you_save': 'Você economiza {{amount}}',
     'storefront.promo_select': 'Selecionar',
@@ -585,6 +592,8 @@ export const messages = {
     'checkout.select_location': 'Escolher unidade…',
     'checkout.error_address':
       'Preencha estado, cidade e endereço para entrega.',
+    'checkout.error_phone':
+      'Escreva seu número de WhatsApp para que o negócio possa confirmar seu pedido.',
 
     // Card join
     'card.join_title': 'Entre no programa',
@@ -733,6 +742,7 @@ export const messages = {
     'storefront.promo_combo': 'Combo',
     'storefront.directions': 'Come arrivare',
     'storefront.cart_items': '🛒 {{count}} articoli',
+    'storefront.cart_items_one': '🛒 1 articolo',
     'storefront.cart_order': 'Ordina →',
     'storefront.promo_you_save': 'Risparmi {{amount}}',
     'storefront.promo_select': 'Seleziona',
@@ -811,6 +821,8 @@ export const messages = {
     'checkout.select_location': 'Scegli sede…',
     'checkout.error_address':
       'Compila provincia, città e indirizzo per la consegna a domicilio.',
+    'checkout.error_phone':
+      'Scrivi il tuo numero WhatsApp per far confermare l’ordine dal locale.',
 
     // Card join
     'card.join_title': 'Iscriviti al programma',

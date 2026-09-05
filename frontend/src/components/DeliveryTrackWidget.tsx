@@ -214,7 +214,13 @@ export function DeliveryTrackWidget({
                         </span>
                       </div>
                       <div className="text-[12px] text-gray-500 mt-1 flex flex-wrap gap-x-3">
-                        {o.total != null && <span>${o.total.toFixed(2)}</span>}
+                        {/* «$ 21.500», como en el resto del sitio. Con
+                            `toFixed(2)` salia «$21500.00»: dos decimales que
+                            el peso no tiene y sin separador de miles, asi que
+                            el cliente no reconocia su propio total. */}
+                        {o.total != null && (
+                          <span>$ {Math.round(o.total).toLocaleString('es-CO')}</span>
+                        )}
                         {o.delivery?.etaMinutes != null && !st.done && (
                           <span>⏱️ ~{o.delivery.etaMinutes} min</span>
                         )}

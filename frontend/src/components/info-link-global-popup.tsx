@@ -8,6 +8,7 @@
  * el primero matchable (enabled + schedule + sin "visto" en sesión).
  */
 import { useEffect, useState } from 'react';
+import { avisoYaVisto, marcarAvisoVisto } from '@/lib/popup-visto';
 import {
   combineInfoLinkPopups,
   popupScheduleMatches,
@@ -25,22 +26,17 @@ function popupKey(linkId: string, popup: InfoLinkPopup, index: number): string {
   return `${SESSION_KEY_PREFIX}${linkId}_${index}`;
 }
 
+// `localStorage` con caducidad y no `sessionStorage`: la marca por PESTAÑA
+// hacía que el mismo aviso saliera otra vez en cada pestaña nueva, y otra vez
+// al pasar de la página del link al menú. Se le enseña una vez al día.
 function wasSeen(key: string): boolean {
   if (typeof window === 'undefined') return false;
-  try {
-    return window.sessionStorage.getItem(key) === '1';
-  } catch {
-    return false;
-  }
+  return avisoYaVisto(key);
 }
 
 function markSeen(key: string) {
   if (typeof window === 'undefined') return;
-  try {
-    window.sessionStorage.setItem(key, '1');
-  } catch {
-    /* sessionStorage no disponible en incognito estricto */
-  }
+  marcarAvisoVisto(key);
 }
 
 export function InfoLinkGlobalPopup({

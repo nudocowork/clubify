@@ -25,6 +25,8 @@ import {
 } from '@/components/storefront/ProductBadge';
 import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 import { isDarkBackground } from '@/lib/contrast';
+import { urlDeInstagram } from '@/lib/social-url';
+import { avisoYaVisto, marcarAvisoVisto } from '@/lib/popup-visto';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { DeliveryTrackWidget } from '@/components/DeliveryTrackWidget';
 import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
@@ -755,9 +757,9 @@ function StorefrontPublicInner() {
                 WhatsApp
               </a>
             )}
-            {s.instagramUrl && (
+            {urlDeInstagram(s.instagramUrl) && (
               <a
-                href={s.instagramUrl}
+                href={urlDeInstagram(s.instagramUrl)!}
                 target="_blank"
                 className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white/90 backdrop-blur border border-line text-sm font-medium text-ink hover:bg-white transition"
               >
@@ -1053,7 +1055,14 @@ function StorefrontPublicInner() {
             className="w-full rounded-pill text-white font-semibold py-3.5 flex items-center justify-between px-5 shadow-lg hover:opacity-95 active:scale-[0.98] transition animate-in slide-in-from-bottom-4 duration-200"
             style={{ background: primary }}
           >
-            <span>{tt('storefront.cart_items', { count: totals.count })}</span>
+            <span>
+              {tt(
+                totals.count === 1
+                  ? 'storefront.cart_items_one'
+                  : 'storefront.cart_items',
+                { count: totals.count },
+              )}
+            </span>
             <span>{fmt(totals.subtotal, s.currency, currencySymbol)}</span>
             <span>{tt('storefront.cart_order')}</span>
           </button>
@@ -1784,6 +1793,23 @@ function CartSheet({
 // =====================================================
 // Checkout sheet
 // =====================================================
+/**
+ * ¿Esto parece un teléfono al que se pueda escribir?
+ *
+ * El valor llega del `PhoneInput` como «+57 3150621706»: prefijo, espacio y
+ * número local. Para Colombia se exigen los 10 dígitos del móvil; para el
+ * resto, al menos 7 — no tenemos el plan de numeración de cada país y dejar
+ * fuera a un cliente legítimo sería peor que el hueco que cierra.
+ */
+function telefonoValido(valor: string): boolean {
+  const partes = (valor ?? '').trim().split(/\s+/).filter(Boolean);
+  const prefijo = partes.length > 1 ? partes[0].replace(/\D/g, '') : '';
+  const local = (partes.length > 1 ? partes.slice(1).join('') : (partes[0] ?? ''))
+    .replace(/\D/g, '');
+  if (prefijo === '57') return local.length === 10;
+  return local.length >= 7 && local.length <= 15;
+}
+
 function CheckoutSheet({
   items,
   slug,
@@ -1960,6 +1986,23 @@ function CheckoutSheet({
     e.preventDefault();
     setErr(null);
 
+    // El WhatsApp es OBLIGATORIO y tiene que parecer un teléfono.
+    //
+    // No lo era: se crearon pedidos reales con el número vacío y con «123».
+    // Un pedido sin teléfono es un pedido que el negocio no puede confirmar
+    // —no puede llamar ni escribir—, el mensaje le llega como «Fulano · » y
+    // el propio cliente se queda sin «Mis pedidos», que busca por teléfono.
+    // La API lo rechaza también; esto es para que el cliente lo vea aquí y no
+    // después de pulsar enviar.
+    // En MESA no se le pide: el negocio tiene el número de mesa. Si igual lo
+    // escribe, se comprueba el formato — un «123» no le sirve a nadie.
+    const exigeTelefono = form.fulfillment !== 'DINE_IN';
+    const hayAlgo = form.phone.replace(/\D/g, '').length > 0;
+    if ((exigeTelefono || hayAlgo) && !telefonoValido(form.phone)) {
+      setErr(tt('checkout.error_phone'));
+      return;
+    }
+
     // Validación adicional para delivery: dirección obligatoria
     if (form.fulfillment === 'DELIVERY') {
       if (!form.departamento || !municipioFinal || !form.direccion.trim()) {
@@ -2037,11 +2080,39 @@ function CheckoutSheet({
       const order = await res.json();
       clearCart(slug, mode);
 
+      // El teléfono con el que acaba de pedir, para que «Mis pedidos» no se lo
+      // vuelva a preguntar: es el dato que escribió hace un segundo.
+      try {
+        // La misma clave que lee `DeliveryTrackWidget`: por eso el cliente
+        // que acaba de pedir ya no tiene que volver a escribir su numero.
+        localStorage.setItem(`clubify:trackphone:${slug}`, form.phone.trim());
+      } catch {
+        /* modo privado: se le preguntará, que es lo de antes */
+      }
+
       if (order.whatsappLink) {
-        window.location.href = order.whatsappLink;
-        setTimeout(() => {
+        // WhatsApp en una pestaña NUEVA, y el seguimiento en esta.
+        //
+        // Antes eran dos navegaciones sobre la MISMA pestaña: primero a
+        // WhatsApp y, 800 ms después, al seguimiento. Competían y ganaba la
+        // que llegara antes. Con buena red ganaba WhatsApp y el cliente nunca
+        // veía su pedido; con datos móviles lentos ganaba el temporizador y
+        // **WhatsApp no llegaba a abrirse**: el pedido quedaba en el panel y
+        // al negocio no le entraba ningún mensaje. Ese es el caso de «pedidos
+        // que no se envían».
+        //
+        // `window.open` va dentro del gesto del usuario y antes de tocar
+        // `location`; es la única forma de que el navegador no lo bloquee.
+        const abierta = window.open(order.whatsappLink, '_blank');
+        if (abierta) {
           window.location.href = `/o/${order.code}`;
-        }, 800);
+        } else {
+          // Bloqueada: se navega a WhatsApp en esta pestaña. Que el mensaje
+          // salga es más importante que ver el seguimiento — el pedido sin
+          // avisar al negocio es el fallo caro. El seguimiento queda igual en
+          // el propio mensaje y en «Mis pedidos».
+          window.location.href = order.whatsappLink;
+        }
       } else {
         window.location.href = `/o/${order.code}`;
       }
@@ -3719,18 +3790,17 @@ function StorefrontPopup({
     if (!chosen) return;
     setActive(chosen);
 
-    const storageKey = `clubify:popup-shown:${chosen.key}`;
-    if (sessionStorage.getItem(storageKey)) return;
+    if (avisoYaVisto(chosen.key)) return;
     // #6 (2026-06-16): delaySeconds=0 = aparición INMEDIATA.
     const delayMs = Math.max(0, chosen.delaySeconds ?? 10) * 1000;
     if (delayMs === 0) {
       setOpen(true);
-      sessionStorage.setItem(storageKey, '1');
+      marcarAvisoVisto(chosen.key);
       return;
     }
     const t = window.setTimeout(() => {
       setOpen(true);
-      sessionStorage.setItem(storageKey, '1');
+      marcarAvisoVisto(chosen.key);
     }, delayMs);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps

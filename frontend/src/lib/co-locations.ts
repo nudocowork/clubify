@@ -46,7 +46,7 @@ export const CO_LOCATIONS: CoLocation[] = [
     ],
   },
   {
-    departamento: 'Boyaquí',
+    departamento: 'Boyacá',
     municipios: [
       'Tunja', 'Duitama', 'Sogamoso', 'Chiquinquirá', 'Paipa', 'Villa de Leyva',
     ],

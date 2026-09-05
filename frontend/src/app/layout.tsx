@@ -9,6 +9,7 @@ import { DynamicFavicon } from '@/components/DynamicFavicon';
 import { ChunkReloadGuard } from '@/components/ChunkReloadGuard';
 import { NativeAppChrome } from '@/components/NativeAppChrome';
 import { googleFontsUrls } from '@/lib/marketing/qr-poster-config';
+import { FuentesDelCatalogo } from '@/components/FuentesDelCatalogo';
 import { AuthBrandProvider } from '@/components/AuthBrand';
 import { resolveAuthBrandFromHeaders } from '@/lib/server-brand';
 
@@ -437,11 +438,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             eran 129. No cargaba NINGUNA fuente en toda la plataforma — de
             ahí «las tipografías del QR no funcionan, todas se ven iguales».
             `googleFontsUrls()` las reparte de 60 en 60. */}
-        {googleFontsUrls().map((href) => (
-          <link key={href} href={href} rel="stylesheet" />
-        ))}
+        {/* Ya NO van aquí como <link rel=stylesheet>: en el head bloquean el
+            primer pintado hasta que responden tres peticiones a Google, y las
+            páginas que ve el cliente final —el menú, la página del link, su
+            tarjeta— no usan ninguna de estas familias. Se inyectan tras
+            hidratar; ver `FuentesDelCatalogo`. */}
       </head>
       <body>
+        <FuentesDelCatalogo urls={googleFontsUrls()} />
         <NativeAppChrome />
         <ChunkReloadGuard />
         <DynamicFavicon />

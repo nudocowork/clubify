@@ -9,7 +9,7 @@
 // importantes que necesitan invalidar TODA la cache de los clientes.
 // Cada vez que cambia, el SW activate purga las caches viejas y los clientes
 // vuelven a descargar todo fresh.
-const VERSION = 'v56-2026-09-03-app-nativa';
+const VERSION = 'v57-2026-09-05-sin-navigate';
 const SHELL_CACHE = `clubify-shell-${VERSION}`;
 const ASSET_CACHE = `clubify-assets-${VERSION}`;
 
@@ -47,36 +47,27 @@ self.addEventListener('activate', (event) => {
           .map((k) => caches.delete(k)),
       );
       await self.clients.claim();
-      // Forzar reload de TABs abiertas para que vean los assets nuevos.
-      // CRÍTICO (M8 2026-06-05): NO navegar tabs que están en páginas
-      // transaccionales (/c/, /r/, /q/, /signup) — el cliente está
-      // llenando un form y reloadear le pierde el input. Esas tabs
-      // recibirán el SW nuevo en su próxima visita.
-      const allClients = await self.clients.matchAll({
-        type: 'window',
-        includeUncontrolled: true,
-      });
-      for (const client of allClients) {
-        try {
-          if (!client.url || !client.url.startsWith('http')) continue;
-          if (!('navigate' in client)) continue;
-          const pn = new URL(client.url).pathname;
-          if (
-            pn.startsWith('/c/') ||
-            pn.startsWith('/r/') ||
-            pn.startsWith('/q/') ||
-            pn.startsWith('/cita/') ||
-            pn.startsWith('/signup') ||
-            pn.startsWith('/prueba') ||
-            pn.startsWith('/trial')
-          ) {
-            continue;
-          }
-          await client.navigate(client.url);
-        } catch {
-          /* noop — algunas plataformas restringen navigate */
-        }
-      }
+
+      // AQUÍ NO SE NAVEGA A NADIE. Hubo un bucle que hacía
+      // `await client.navigate(client.url)` sobre cada pestaña abierta para
+      // que vieran los assets nuevos, y era un bloqueo mutuo:
+      //
+      //   · `client.navigate()` no resuelve hasta que TERMINA la navegación.
+      //   · El evento `fetch` de esa navegación no se despacha hasta que el
+      //     worker acabe de activarse.
+      //   · Activarse es justo lo que está esperando a `navigate()`.
+      //
+      // Resultado, la PRIMERA visita de cualquier cliente nuevo: Chrome y
+      // Firefox se quedaban con la pestaña cargando indefinidamente; WebKit
+      // cancelaba las peticiones en vuelo y el menú pintaba «Negocio no
+      // disponible». Recargando funcionaba, y por eso nunca lo vimos desde
+      // dentro: al que ya había entrado una vez no le pasa. Lo mismo ocurría
+      // en la primera visita después de cada despliegue que cambie VERSION.
+      //
+      // No hace falta nada a cambio: `clients.claim()` dispara
+      // `controllerchange` y `PWARegister` ya recarga ahí —y solo cuando ya
+      // había un worker antes, para no recargarle la página al cliente que
+      // está tecleando en un formulario—.
     })(),
   );
 });
@@ -97,6 +88,12 @@ self.addEventListener('fetch', (event) => {
   if (
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/m/') ||
+    // `/d/` es el MISMO menú que `/m/`, en modo domicilio, y se le había
+    // quedado fuera: es la página por la que entran los pedidos. Cacheada,
+    // después de un despliegue servía un HTML viejo que apunta a chunks que
+    // ya no existen. `/w/` es la tarjeta del cliente y también es dato vivo.
+    url.pathname.startsWith('/d/') ||
+    url.pathname.startsWith('/w/') ||
     url.pathname.startsWith('/i/') ||
     url.pathname.startsWith('/o/') ||
     url.pathname.startsWith('/c/') ||

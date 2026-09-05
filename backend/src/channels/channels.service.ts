@@ -50,8 +50,8 @@ export class ChannelsService {
               ? `~${formatMoney(orig, tenant.currency, tenant.currencySymbol)}~ → ${formatMoney(promoPrice, tenant.currency, tenant.currencySymbol)}`
               : formatMoney(i.lineTotal, tenant.currency, tenant.currencySymbol);
           return (
-            `• ${i.qty}x 🎁 ${i.promo.name} — ${priceLine}` +
-            (i.promo.description ? `\n   📝 ${i.promo.description}` : '') +
+            `• ${i.qty}x ★ ${i.promo.name} — ${priceLine}` +
+            (i.promo.description ? `\n   ✎ ${i.promo.description}` : '') +
             (i.note ? `\n   ↳ ${i.note}` : '')
           );
         }
@@ -64,9 +64,9 @@ export class ChannelsService {
       .join('\n');
 
     const fulfillment = {
-      PICKUP: '🥡 Para llevar',
-      DINE_IN: `🍽 Mesa ${order.tableNumber ?? ''}`.trim(),
-      DELIVERY: '🛵 Domicilio',
+      PICKUP: '▸ Para llevar',
+      DINE_IN: `▸ Mesa ${order.tableNumber ?? ''}`.trim(),
+      DELIVERY: '▸ Domicilio',
     }[order.fulfillment];
 
     // Bloque de dirección para delivery — el cliente lo completó en el
@@ -85,18 +85,18 @@ export class ChannelsService {
       order.fulfillment === 'DELIVERY' && addr
         ? [
             '',
-            '*📦 Dirección de envío:*',
+            '*▸ Dirección de envío:*',
             addr.firstName || addr.lastName
               ? `${[addr.firstName, addr.lastName].filter(Boolean).join(' ')}`
               : '',
-            addr.phone ? `📞 ${addr.phone}` : '',
+            addr.phone ? `☎ ${addr.phone}` : '',
             [addr.municipio, addr.departamento].filter(Boolean).join(', '),
-            addr.direccion ? `📍 ${addr.direccion}` : '',
+            addr.direccion ? `▸ ${addr.direccion}` : '',
           ].filter(Boolean)
         : [];
 
     const sedeLine = location
-      ? `🏢 Sede: ${location.name}${location.state ? ` — ${location.state}` : ''}`
+      ? `▸ Sede: ${location.name}${location.state ? ` — ${location.state}` : ''}`
       : '';
 
     // Método de pago que el cliente declaró en el checkout. El dueño pedía
@@ -109,9 +109,9 @@ export class ChannelsService {
     );
 
     const lines = [
-      `🆕 *Pedido #${order.code}*`,
+      `★ *Pedido #${order.code}*`,
       sedeLine,
-      `${customer.fullName} · ${customer.phone}`,
+      [customer.fullName, customer.phone].filter(Boolean).join(' · '),
       '',
       items,
       '',
@@ -122,9 +122,9 @@ export class ChannelsService {
       `*Total: ${formatMoney(Number(order.total), tenant.currency, tenant.currencySymbol)}*`,
       '',
       fulfillment,
-      payLabel ? `💳 Pago: ${payLabel}` : '',
+      payLabel ? `▸ Pago: ${payLabel}` : '',
       ...addressBlock,
-      order.customerNote ? `📝 ${order.customerNote}` : '',
+      order.customerNote ? `✎ ${order.customerNote}` : '',
       '',
       `Ver pedido: ${process.env.APP_URL ?? 'http://localhost:3000'}/o/${order.code}`,
     ].filter(Boolean);
@@ -175,11 +175,11 @@ export class ChannelsService {
       order.paymentStatus === 'PAID'
         ? `Pago: ✅ Pagado online${method ? ` (${method})` : ''} — no cobrar`
         : method
-          ? `Pago: 💵 ${method} — cobrar al cliente`
-          : 'Pago: 💵 Cobrar al cliente';
+          ? `Pago: ▸ ${method} — cobrar al cliente`
+          : 'Pago: ▸ Cobrar al cliente';
 
     const lines = [
-      `🛵 *Despacho domicilio · Pedido #${order.code}*`,
+      `▸ *Despacho domicilio · Pedido #${order.code}*`,
       `Cliente: ${customer.fullName} · ${customer.phone}`,
       '',
       items,
@@ -187,13 +187,13 @@ export class ChannelsService {
       `*Total: ${formatMoney(Number(order.total), tenant.currency, tenant.currencySymbol)}*`,
       payLine,
       '',
-      '*📍 Dirección:*',
+      '*▸ Dirección:*',
       addr
         ? [addr.municipio, addr.departamento].filter(Boolean).join(', ')
         : '',
       addr?.direccion ? addr.direccion : '',
-      addr?.phone ? `📞 ${addr.phone}` : '',
-      order.customerNote ? `\n📝 Nota: ${order.customerNote}` : '',
+      addr?.phone ? `☎ ${addr.phone}` : '',
+      order.customerNote ? `\n✎ Nota: ${order.customerNote}` : '',
       '',
       `Origen: ${tenant.brandName}`,
     ].filter(Boolean);

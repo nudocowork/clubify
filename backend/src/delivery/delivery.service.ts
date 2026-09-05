@@ -1158,14 +1158,24 @@ export class DeliveryService {
       select: { id: true, status: true },
     });
     if (!tenant || tenant.status === 'SUSPENDED') return { orders: [] };
+    // Hace falta el numero COMPLETO, no un trozo.
+    //
+    // Con 7 digitos cualquiera listaba los pedidos de otra persona —y desde
+    // ahi los productos, las notas y la direccion de envio—: bastaba conocer
+    // parte del numero. Se piden al menos 8 digitos y se busca por la COLA
+    // del numero, no por cualquier trozo: «3150621» ya no devuelve nada, y
+    // «0621706» tampoco, porque no es el final de «+57 3150621706».
+    //
+    // 8 y no 10 porque no todos los paises tienen movil de 10 digitos y
+    // dejar sin sus pedidos a un cliente legitimo seria peor.
     const digits = (phoneRaw || '').replace(/\D/g, '');
-    const last = digits.slice(-10);
-    if (last.length < 7) return { orders: [] };
+    if (digits.length < 8) return { orders: [] };
+    const last = digits.length > 10 ? digits.slice(-10) : digits;
 
     const orders = await this.prisma.order.findMany({
       where: {
         tenantId: tenant.id,
-        customer: { phone: { contains: last } },
+        customer: { phone: { endsWith: last } },
       },
       orderBy: { createdAt: 'desc' },
       take: 20,
