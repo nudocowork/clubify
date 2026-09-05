@@ -217,7 +217,11 @@ export class PublicMenuController {
         t.storefront?.whatsappButtonEnabled === false
           ? null
           : t.whatsappPhone,
-      instagramUrl: t.instagramUrl,
+      // Mismo criterio que el de WhatsApp: si el negocio apagó el botón, no
+      // se manda el usuario y el chip no se pinta. El dato sigue guardado —lo
+      // usa la página del link— y volver a encenderlo no le cuesta nada.
+      instagramUrl:
+        t.storefront?.instagramButtonEnabled === false ? null : t.instagramUrl,
       mapsUrl: t.mapsUrl,
       currency: t.currency,
       currencySymbol: t.currencySymbol ?? null,

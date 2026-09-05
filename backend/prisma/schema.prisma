@@ -2833,6 +2833,10 @@ model Storefront {
   // el tenant tenga whatsappPhone seteado. Permite que el dueño "apague"
   // el botón sin perder el número configurado en /app/settings.
   whatsappButtonEnabled  Boolean    @default(true)
+  // Lo mismo para Instagram. Sin esto, la única forma de quitar el botón del
+  // menú era borrar el usuario de Instagram del negocio — y entonces también
+  // desaparecía de la página del link, donde el negocio sí lo quiere.
+  instagramButtonEnabled Boolean    @default(true)
   // Color de fondo de la página pública del menú. NULL = usar el default
   // del layout (#FAFBFC para layouts claros, #0a0a0a para CLUVI). El
   // editor lo expone principalmente para el layout SECTIONS donde el

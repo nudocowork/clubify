@@ -47,6 +47,7 @@ export type StorefrontDto = {
   popupCardId?: string | null;
   popupDelaySeconds?: number;
   whatsappButtonEnabled?: boolean;
+  instagramButtonEnabled?: boolean;
   pageBackgroundColor?: string | null;
   pageBackgroundType?: string | null;
   pageBackgroundGradient?: string | null;
@@ -253,6 +254,7 @@ export class StorefrontService {
             ? undefined
             : dto.bookPopupImageCaption,
         whatsappButtonEnabled: dto.whatsappButtonEnabled ?? undefined,
+        instagramButtonEnabled: dto.instagramButtonEnabled ?? undefined,
         pageBackgroundColor:
           dto.pageBackgroundColor === undefined
             ? undefined

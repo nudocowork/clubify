@@ -48,6 +48,7 @@ type Storefront = {
   popupCardId?: string | null;
   popupDelaySeconds?: number;
   whatsappButtonEnabled?: boolean;
+  instagramButtonEnabled?: boolean;
   pageBackgroundColor?: string | null;
   pageBackgroundType?: string | null;
   pageBackgroundGradient?: string | null;
@@ -218,6 +219,7 @@ export default function StorefrontEditor() {
           popupCardId: sf.popupCardId ?? null,
           popupDelaySeconds: sf.popupDelaySeconds ?? 10,
           whatsappButtonEnabled: sf.whatsappButtonEnabled ?? true,
+          instagramButtonEnabled: sf.instagramButtonEnabled ?? true,
           pageBackgroundColor: sf.pageBackgroundColor ?? null,
           pageBackgroundType: sf.pageBackgroundType ?? null,
           pageBackgroundGradient: sf.pageBackgroundGradient ?? null,
@@ -530,6 +532,24 @@ export default function StorefrontEditor() {
               setTenantDirty(true);
             }}
           />
+
+          <h3 className="text-base font-semibold mt-6 mb-3">
+            {t('instagramButton')}
+          </h3>
+          <p className="text-mute text-xs mb-3 leading-relaxed">
+            {t('instagramButtonHint', { label: mainLabel.toLowerCase() })}
+          </p>
+          <label className="flex items-center gap-2 text-sm font-medium cursor-pointer">
+            <input
+              type="checkbox"
+              className="w-4 h-4"
+              checked={sf.instagramButtonEnabled ?? true}
+              onChange={(e) =>
+                setSf({ ...sf, instagramButtonEnabled: e.target.checked })
+              }
+            />
+            {t('instagramButtonEnable')}
+          </label>
 
           <h3 className="text-base font-semibold mt-6 mb-3">📣 {t('popupHeading')}</h3>
           <p className="text-mute text-xs mb-3 leading-relaxed">

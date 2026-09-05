@@ -74,6 +74,7 @@ class StorefrontBody {
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(200)
   bookPopupImageCaption?: string | null;
   @IsOptional() @IsBoolean() whatsappButtonEnabled?: boolean;
+  @IsOptional() @IsBoolean() instagramButtonEnabled?: boolean;
   // Color CSS válido (#hex, rgb(), nombre). null = usar default del layout.
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(40)
   pageBackgroundColor?: string | null;
