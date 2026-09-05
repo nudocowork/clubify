@@ -355,6 +355,58 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-05 — El backfill de Hotmart YA ESTABA HECHO. No se escribió nada
+
+**Máquina/quién:** máquina de Jhon (Claude) · solo lectura contra prod
+**Estado: NADA QUE HACER. Se cierra el pendiente que venía del 03-09.**
+
+Se fue a hacer el backfill del income capture y, al medirlo antes de escribir,
+resulta que **ya se corrió**: el 31-ago y el 03-sep se crearon **79
+`IncomeRecord`** con `createdAt` muy posterior a su `saleDate`, cubriendo ventas
+del **1-abr al 31-ago**, por **$12.078,59**. (Eso explica por qué el histórico de
+Clubify salía más alto que en la captura que mandó Jhon el 04-09.)
+
+**Cobertura hoy: 156 de 156.** Todas las transacciones aprobadas del producto de
+suscripción (`6504901 · CLUBIFY - TARJETAS DE FIDELIZACION`) tienen su
+`IncomeRecord`. Cero huecos. **No se escribió ni una fila.**
+
+### Lo que sí falta no es un backfill, es una decisión
+
+Quedan **18 transacciones sin `IncomeRecord`, por $645,25**, y son de OTRO
+producto: `7929341 · CLUBIFY - SERVICIOS ADICIONALES`.
+
+| | oferta | USD |
+|---|---|---|
+| 14 | Descuento de Implementacion | $293,45 |
+| 1 | 10 CREDITOS | $158,45 |
+| 1 | **Trimestral 150 USD** | $156,71 |
+| 2 | 1 CREDITO | $36,64 |
+
+**No están perdidas**: las 18 son exactamente las 18 filas de
+`HotmartCreditPurchase`. Lo que pasa es que esa vía **nunca ha registrado
+ingreso** — no es una regresión, es que `incomeRecord.record()` solo se llama
+desde suscripciones (`hotmart`, `stripe`, `cross`) y pagos manuales.
+
+Antes de meterlas a Contabilidad hay que decidir tres cosas:
+
+1. **Las de implementación ($293,45) son ingreso** con toda la ley. Yo las metería.
+2. **Los créditos ($195,09) puede que no**, al menos no todavía: se venden hoy y
+   se consumen después. Contablemente eso es un pasivo (ingreso diferido) hasta
+   que se usan. Meterlos como ingreso del mes de la venta es una postura, no un
+   hecho.
+3. **La «Trimestral 150 USD» ($156,71) huele a suscripción vendida por el
+   producto equivocado.** Merece mirarse aparte: si lo es, le falta mucho más que
+   el `IncomeRecord`.
+
+Y que salga solo de aquí en adelante **no es un backfill: es código** — añadir la
+captura de ingreso a la vía de créditos/servicios.
+
+### PENDIENTE (actualizado)
+
+- ~~Backfill del income capture de Hotmart~~ → **hecho el 31-ago/03-sep**.
+- Decidir lo de SERVICIOS ADICIONALES (los 3 puntos de arriba).
+- **Rotar `ANTHROPIC_API_KEY`** (desde el 04-09).
+
 ## 2026-09-05 — FRONTEND DESPLEGADO. Contabilidad ya está entera en producción
 
 **Máquina/quién:** máquina de Jhon (Claude) · `main` · commit `6e7acc79`
