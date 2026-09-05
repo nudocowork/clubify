@@ -267,7 +267,7 @@ export function PanoramaPeriodo({
           <div className="card card-pad mb-4">
             <div className="flex items-baseline justify-between gap-2 flex-wrap mb-1">
               <div className="text-xs uppercase tracking-wider text-mute font-semibold">Mes a mes</div>
-              <span className="text-[11px] text-mute">Tocá una barra para abrir ese mes</span>
+              <span className="text-[11px] text-mute">Toca una barra para abrir ese mes</span>
             </div>
             <div style={{ width: '100%', height: 260 }}>
               <ResponsiveContainer>

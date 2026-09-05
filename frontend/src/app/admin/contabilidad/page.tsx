@@ -173,7 +173,7 @@ export default function ContabilidadPage() {
   async function cerrarMes() {
     // Se cierra el MES: un trimestre o un año no son períodos contables que se
     // congelen, son formas de mirar meses que ya existen.
-    if (!esMes(periodo)) { toast('Elegí un mes para poder cerrarlo'); return; }
+    if (!esMes(periodo)) { toast('Elige un mes para poder cerrarlo'); return; }
     const r = await api(`/admin/contabilidad/cierres`, { method: 'POST', body: JSON.stringify({ period: periodo, scope }) }).catch(() => null);
     if (r) { toast(`${nombreDePeriodo(periodo)} cerrado ✅`, 'success'); void load(); } else toast('No se pudo cerrar el mes', 'error');
   }
@@ -459,7 +459,7 @@ export default function ContabilidadPage() {
                       ingreso es el precio de la suscripción atribuida, no el
                       cobro real, y no ve los negocios sin afiliado. Se enlaza
                       diciendo para qué sirve, para que nadie compare totales. */}
-                  ¿Necesitás el detalle en doble partida para el contador?{' '}
+                  ¿Necesitas el detalle en doble partida para el contador?{' '}
                   <a href="/admin/accounting" className="text-brand font-semibold hover:underline">Abrir el libro de comisiones</a>{' '}
                   — cuadra Debe contra Haber, pero cuenta solo comisiones y no incluye fee, impuestos ni egresos.
                 </p>
@@ -541,7 +541,7 @@ export default function ContabilidadPage() {
                 <button onClick={cerrarMes} disabled={!esMes(periodo)} className="text-sm px-4 py-2 rounded-md bg-brand text-white font-semibold hover:opacity-90 disabled:opacity-40 disabled:hover:opacity-40">Cerrar <span className="capitalize">{nombreDePeriodo(periodo)}</span></button>
                 {esMes(periodo)
                   ? panorama && <span className="text-xs text-mute">Utilidad calculada: <strong className={panorama.resumen.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}>{money(panorama.resumen.utilidadUsd)}</strong></span>
-                  : <span className="text-xs text-mute">Elegí un <strong>mes</strong> arriba para cerrarlo: lo que se congela es el mes, no el trimestre ni el año.</span>}
+                  : <span className="text-xs text-mute">Elige un <strong>mes</strong> arriba para cerrarlo: lo que se congela es el mes, no el trimestre ni el año.</span>}
               </div>
               {cierres.length === 0 ? (
                 <div className="card card-pad text-center text-mute">Ningún mes cerrado todavía. Cerrar un mes congela su utilidad.</div>
@@ -769,7 +769,7 @@ function GenModal({ emps, onClose, onSaved }: { emps: PEmp[]; onClose: () => voi
   async function save() {
     const items = emps.filter((e) => sel[e.id]?.on).map((e) => ({ employeeId: e.id, employeeName: e.name, role: e.role, baseUsd: e.amountUsd, bonusUsd: Number((sel[e.id].bonus || '0').replace(',', '.')) || 0, deductionUsd: Number((sel[e.id].ded || '0').replace(',', '.')) || 0 }));
     if (!period.trim() || items.length === 0) { toast('Período y al menos un colaborador'); return; }
-    if (!rango.desde || !rango.hasta) { toast('Indicá desde y hasta qué día cubre el corte'); return; }
+    if (!rango.desde || !rango.hasta) { toast('Indica desde y hasta qué día cubre el corte'); return; }
     if (rango.hasta < rango.desde) { toast('El corte no puede terminar antes de empezar'); return; }
     setBusy(true);
     // Las fechas van SIEMPRE, no solo la etiqueta: `periodLabel` es texto libre
@@ -791,7 +791,7 @@ function GenModal({ emps, onClose, onSaved }: { emps: PEmp[]; onClose: () => voi
       <p className="text-xs text-mute -mt-2 mb-3">Estas fechas deciden en qué mes contable entra el corte.</p>
       <div className="mb-3">
         <label className="label">Colaboradores</label>
-        {emps.length === 0 ? <p className="text-mute text-sm">No hay colaboradores activos. Agregá uno primero.</p> : (
+        {emps.length === 0 ? <p className="text-mute text-sm">No hay colaboradores activos. Agrega uno primero.</p> : (
           <div className="flex flex-col gap-2">{emps.map((e) => (
             <div key={e.id} className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={sel[e.id]?.on ?? false} onChange={(ev) => setSel({ ...sel, [e.id]: { ...(sel[e.id] ?? { bonus: '', ded: '' }), on: ev.target.checked } })} />
