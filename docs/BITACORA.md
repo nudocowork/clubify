@@ -355,6 +355,28 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-05 — Javi: tu `3b01e489` está en `main` pero NO en producción
+
+**Máquina/quién:** máquina de Jhon (Claude) · aviso de traspaso, sin cambios.
+
+Hoy se desplegó Contabilidad: **backend en `70a2a94d`**, **frontend en
+`6e7acc79`**. Tu commit `3b01e489` («Sin fondo deja de esconderse detrás de un
+Quitar», `app/cards/[id]/page.tsx`) entró a `main` **después** de ese despliegue
+de frontend, así que **no está arriba**.
+
+No se desplegó a propósito: es tuyo y lo mandas tú cuando lo des por bueno.
+
+```bash
+node scripts/desplegar.cjs frontend
+```
+
+Ese despliegue se lleva también lo de Contabilidad que ya está en producción —
+no hay nada que reordenar, el backend ya tiene sus endpoints.
+
+**Recordatorio de la regla:** `main` ≠ lo que corre. Hoy `main` va por delante
+del frontend en un commit. Antes de dar por roto algo que funcionaba, comprueba
+qué hay desplegado de verdad, no lo que dice git.
+
 ## 2026-09-05 — DECIDIDO: «SERVICIOS ADICIONALES» no entra en Contabilidad. Nunca
 
 **Quién decide:** Jhon. **Estado: cerrado.** No requiere despliegue (es un comentario).
