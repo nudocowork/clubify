@@ -23,6 +23,7 @@ type Respuesta = {
   unidad: string;
   precioCents: number;
   currency: string;
+  periodicidad?: string;
   consumos: Consumo[];
 };
 
@@ -102,9 +103,14 @@ export function Consumos({
 
   const entregadas = datos?.entregadas ?? 0;
   const unidad = datos?.unidad ?? 'beneficio';
-  // Lo que el negocio cobra al mes por los socios que tiene. No se calcula la
+  // Lo que el negocio cobra por los socios que tiene. No se calcula la
   // rentabilidad: el coste de un café lo sabe él, no nosotros, e inventarlo
   // sería peor que no decir nada.
+  //
+  // En un plan ANUAL el número es el del AÑO y así se dice. Dividirlo entre
+  // doce para que se leyera «al mes» sería inventar: ese dinero no entra cada
+  // mes, entró entero cuando el socio se dio de alta.
+  const anual = datos?.periodicidad === 'ANUAL';
   const cobrado = (datos?.precioCents ?? 0) * socios;
 
   return (
@@ -149,7 +155,8 @@ export function Consumos({
               ${cobrado.toLocaleString('es-CO')}
             </div>
             <div className="text-xs text-mute">
-              cobrado este mes por {socios} {socios === 1 ? 'socio' : 'socios'}
+              cobrado {anual ? 'al año' : 'este mes'} por {socios}{' '}
+              {socios === 1 ? 'socio' : 'socios'}
             </div>
           </div>
         )}

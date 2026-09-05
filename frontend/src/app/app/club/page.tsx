@@ -16,6 +16,7 @@ type Plan = {
   beneficiosPorMes: number;
   unidad: string;
   precioCents: number;
+  periodicidad?: string;
   currency: string;
   isActive: boolean;
   tramos: Tramo[];
@@ -29,6 +30,7 @@ type Borrador = {
   unidad: string;
   beneficiosPorMes: number;
   precio: number;
+  periodicidad: 'MENSUAL' | 'ANUAL';
   description: string;
   tramos: Tramo[];
   isActive: boolean;
@@ -39,6 +41,7 @@ const NUEVO: Borrador = {
   unidad: 'café',
   beneficiosPorMes: 10,
   precio: 0,
+  periodicidad: 'MENSUAL',
   description: '',
   tramos: [],
   isActive: true,
@@ -52,6 +55,15 @@ const NUEVO: Borrador = {
 function precioLegible(cents: number, moneda: string) {
   if (!cents) return 'Sin precio';
   return `$${cents.toLocaleString('es-CO')} ${moneda}`;
+}
+
+/**
+ * «al mes» o «al año». El mismo número significa cosas muy distintas y el
+ * negocio tiene varios planes a la vista a la vez: sin esto, un anual de 600.000
+ * al lado de un mensual de 60.000 se lee como diez veces más caro.
+ */
+function cadaCuanto(periodicidad?: string) {
+  return periodicidad === 'ANUAL' ? 'al año' : 'al mes';
 }
 
 export default function ClubPage() {
@@ -212,7 +224,8 @@ export default function ClubPage() {
               <div className="min-w-0">
                 <div className="font-semibold truncate">{p.name}</div>
                 <div className="text-xs text-mute mt-0.5">
-                  {precioLegible(p.precioCents, p.currency)} al mes
+                  {precioLegible(p.precioCents, p.currency)}{' '}
+                  {cadaCuanto(p.periodicidad)}
                 </div>
               </div>
               <span className={`badge ${p.isActive ? 'badge-ok' : 'badge-mute'} shrink-0`}>
@@ -263,6 +276,8 @@ export default function ClubPage() {
                     unidad: p.unidad,
                     beneficiosPorMes: p.beneficiosPorMes,
                     precio: p.precioCents,
+                    periodicidad:
+                      p.periodicidad === 'ANUAL' ? 'ANUAL' : 'MENSUAL',
                     description: p.description,
                     // Solo los tres campos. Las filas que devuelve el
                     // backend traen además `id` y `planId`, y el
@@ -340,6 +355,7 @@ function FormularioPlan({
       unidad: f.unidad.trim(),
       beneficiosPorMes: f.beneficiosPorMes,
       precioCents: Math.max(0, Math.round(f.precio || 0)),
+      periodicidad: f.periodicidad,
       description: f.description.trim(),
       tramos: f.tramos,
       ...(editando ? { isActive: f.isActive } : {}),
@@ -387,17 +403,37 @@ function FormularioPlan({
         </div>
 
         <div>
-          <label className="label">Precio de la suscripción (al mes)</label>
-          <input
-            className="input"
-            type="number"
-            min={0}
-            value={f.precio || ''}
-            placeholder="60000"
-            onChange={(e) => set('precio', Number(e.target.value))}
-          />
+          <label className="label">
+            Precio de la suscripción ({cadaCuanto(f.periodicidad)})
+          </label>
+          <div className="flex gap-2">
+            <input
+              className="input flex-1 min-w-0"
+              type="number"
+              min={0}
+              value={f.precio || ''}
+              placeholder={f.periodicidad === 'ANUAL' ? '600000' : '60000'}
+              onChange={(e) => set('precio', Number(e.target.value))}
+            />
+            <select
+              className="input w-32 flex-none"
+              value={f.periodicidad}
+              onChange={(e) =>
+                set(
+                  'periodicidad',
+                  e.target.value === 'ANUAL' ? 'ANUAL' : 'MENSUAL',
+                )
+              }
+            >
+              <option value="MENSUAL">Al mes</option>
+              <option value="ANUAL">Al año</option>
+            </select>
+          </div>
           <p className="text-xs text-mute mt-1">
-            Solo para tu referencia: el cobro no pasa por aquí.
+            Solo para tu referencia: el cobro no pasa por aquí.{' '}
+            {f.periodicidad === 'ANUAL'
+              ? 'El socio paga el año por adelantado y sigue recibiendo su cupo cada mes.'
+              : null}
           </p>
         </div>
 

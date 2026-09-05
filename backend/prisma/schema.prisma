@@ -6744,6 +6744,19 @@ model ClubPlan {
   precioCents Int    @default(0)
   currency    String @default("COP")
 
+  /// Cada cuánto paga el socio: MENSUAL o ANUAL.
+  ///
+  /// Cambia SOLO lo que significa `precioCents`. El cupo se sigue reponiendo el
+  /// día 1 de cada mes en los dos casos: quien paga el año por adelantado
+  /// recibe sus beneficios mes a mes igual que el que paga cada mes, y por eso
+  /// el anual se puede vender más barato. Un cupo anual de golpe sería otro
+  /// producto —el socio se lo gastaría en enero— y no es lo que se pidió.
+  ///
+  /// String y no enum de Postgres, como `periodicity` en el resto del sistema:
+  /// añadir un valor nuevo a un enum en producción es una migración con bloqueo
+  /// y aquí no compensa.
+  periodicidad String @default("MENSUAL")
+
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

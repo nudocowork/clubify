@@ -36,6 +36,8 @@ class CrearPlanDto {
   @IsOptional() @IsString() @MaxLength(30) unidad?: string;
   @IsOptional() @IsInt() @Min(0) precioCents?: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  /** MENSUAL o ANUAL. Cambia solo cómo se lee `precioCents`. */
+  @IsOptional() @IsIn(['MENSUAL', 'ANUAL']) periodicidad?: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => TramoDto)
   tramos?: TramoDto[];
@@ -46,6 +48,7 @@ class ActualizarPlanDto {
   @IsOptional() @IsInt() @Min(1) @Max(1000) beneficiosPorMes?: number;
   @IsOptional() @IsString() @MaxLength(30) unidad?: string;
   @IsOptional() @IsInt() @Min(0) precioCents?: number;
+  @IsOptional() @IsIn(['MENSUAL', 'ANUAL']) periodicidad?: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => TramoDto)

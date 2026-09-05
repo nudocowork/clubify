@@ -62,6 +62,7 @@ function plan(unidad = 'café', beneficiosPorMes = 10) {
     unidad,
     precioCents: 60000,
     currency: 'COP',
+    periodicidad: 'MENSUAL',
     isActive: true,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),

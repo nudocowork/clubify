@@ -19,6 +19,7 @@ import {
   cupoDeAlta,
   diaDelMes,
   errorDeTramos,
+  periodicidadValida,
   periodoDe,
   tocaReiniciar,
   type TramoAlta,
@@ -140,6 +141,7 @@ export class ClubService {
       unidad?: string;
       precioCents?: number;
       currency?: string;
+      periodicidad?: string;
       description?: string;
       tramos?: TramoAlta[];
     },
@@ -190,6 +192,7 @@ export class ClubService {
         unidad: dto.unidad?.trim() || 'beneficio',
         precioCents: dto.precioCents ?? 0,
         currency: dto.currency ?? 'COP',
+        periodicidad: periodicidadValida(dto.periodicidad),
         tramos: { create: dto.tramos ?? [] },
       },
       include: { tramos: true },
@@ -212,6 +215,7 @@ export class ClubService {
       beneficiosPorMes?: number;
       unidad?: string;
       precioCents?: number;
+      periodicidad?: string;
       description?: string;
       isActive?: boolean;
       tramos?: TramoAlta[];
@@ -253,6 +257,12 @@ export class ClubService {
           // mes». Igual que en `crearPlan`.
           unidad: dto.unidad?.trim() || undefined,
           precioCents: dto.precioCents,
+          // `undefined` cuando no viene, para no pisar el valor guardado: el
+          // panel manda el plan entero, pero la API la usa también el que
+          // solo cambia el cupo.
+          periodicidad: dto.periodicidad
+            ? periodicidadValida(dto.periodicidad)
+            : undefined,
           isActive: dto.isActive,
         },
         include: { tramos: { orderBy: { desdeDia: 'asc' } } },
@@ -958,11 +968,14 @@ export class ClubService {
       porPagina,
       entregadas,
       unidad: plan.unidad,
-      // Lo que el negocio cobra al mes por socio, para que pueda comparar. No
-      // se calcula aquí la rentabilidad: el coste de un café lo sabe él, no
-      // nosotros, e inventarlo sería peor que no decir nada.
+      // Lo que el negocio le cobra a cada socio, para que pueda comparar. Va
+      // con la periodicidad al lado porque el mismo número significa cosas
+      // distintas: 60.000 al mes o 60.000 al año no se comparan igual contra
+      // los cafés de UN mes. No se calcula aquí la rentabilidad: el coste de un
+      // café lo sabe él, no nosotros, e inventarlo sería peor que callar.
       precioCents: plan.precioCents,
       currency: plan.currency,
+      periodicidad: plan.periodicidad,
       consumos: filas.map((c) => ({
         id: c.id,
         cantidad: c.cantidad,

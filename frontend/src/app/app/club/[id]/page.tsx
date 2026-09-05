@@ -20,6 +20,7 @@ type Plan = {
   beneficiosPorMes: number;
   unidad: string;
   precioCents: number;
+  periodicidad?: string;
   currency: string;
   isActive: boolean;
   tramos: Array<{ desdeDia: number; hastaDia: number; beneficios: number }>;
@@ -233,7 +234,11 @@ export default function SociosDelPlanPage() {
           />
           <Dato
             valor={plan.precioCents ? `$${plan.precioCents.toLocaleString('es-CO')}` : '—'}
-            etiqueta="lo que te paga al mes"
+            etiqueta={
+              plan.periodicidad === 'ANUAL'
+                ? 'lo que te paga al año'
+                : 'lo que te paga al mes'
+            }
           />
           <Dato
             valor={plan.tramos.length ? String(plan.tramos.length) : '—'}

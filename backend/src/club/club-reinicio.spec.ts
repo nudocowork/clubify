@@ -47,6 +47,7 @@ function montar(beneficiosPorMes = 10) {
     unidad: 'café',
     precioCents: 60000,
     currency: 'COP',
+    periodicidad: 'MENSUAL',
     isActive: true,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
@@ -140,6 +141,22 @@ describe('el cupo se asigna cada mes, nunca se suma', () => {
     expect(r).toEqual({ periodo: '2026-09', reiniciadas: 1 });
     expect(m.saldo).toBe(10);
     expect(m.periodo).toBe('2026-09');
+  });
+
+  it('el plan ANUAL también se repone cada mes', async () => {
+    // La periodicidad es del PRECIO, no del cupo. Quien paga el año por
+    // adelantado recibe sus beneficios mes a mes igual que el que paga cada
+    // mes — por eso el anual se puede vender más barato.
+    //
+    // Si algún día alguien hace que el cupo dependa de esto, el socio anual se
+    // queda sin reposición y descubre en febrero que pagó doce meses por uno.
+    bd.planes[0].periodicidad = 'ANUAL';
+    const m = conMembresia('m1', 1, '2026-08');
+    expect(await svc.reiniciarCupos()).toEqual({
+      periodo: '2026-09',
+      reiniciadas: 1,
+    });
+    expect(m.saldo).toBe(10);
   });
 
   it('quien no gastó nada tampoco arrastra: 10 y 10', async () => {

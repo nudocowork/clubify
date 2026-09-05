@@ -112,3 +112,26 @@ export function tocaReiniciar(
   if (m.status !== 'ACTIVA') return false;
   return m.periodo !== periodoActual;
 }
+
+/** Cada cuánto paga el socio. Solo dos, y el precio se lee con esto. */
+export type Periodicidad = 'MENSUAL' | 'ANUAL';
+
+/**
+ * Normaliza la periodicidad que llega de fuera.
+ *
+ * Lo que NO cambia según esto: el cupo. Se repone el día 1 de cada mes en los
+ * dos casos —quien paga el año por adelantado recibe sus beneficios mes a mes
+ * igual que el que paga cada mes, y por eso el anual se puede vender más
+ * barato—. Un cupo anual entregado de golpe sería otro producto: el socio se lo
+ * gastaría en enero y el negocio tendría once meses de cliente sin nada que
+ * darle.
+ *
+ * Cualquier valor desconocido cae en MENSUAL, que es lo que eran todos los
+ * planes antes de que esto existiera: un plan no puede quedarse sin decir cómo
+ * se lee su precio.
+ */
+export function periodicidadValida(valor?: string | null): Periodicidad {
+  return String(valor ?? '').trim().toUpperCase() === 'ANUAL'
+    ? 'ANUAL'
+    : 'MENSUAL';
+}

@@ -4,6 +4,7 @@ import {
   diaDelMes,
   cupoDeAlta,
   errorDeTramos,
+  periodicidadValida,
   tocaReiniciar,
 } from './club-periodo';
 
@@ -172,5 +173,21 @@ describe('el cupo se reinicia, no se acumula — la regla que define el producto
     }
     expect(gastoTodo.saldo).toBe(10);
     expect(gastoNada.saldo).toBe(10);
+  });
+});
+
+describe('periodicidad del plan', () => {
+  it('solo reconoce MENSUAL y ANUAL, y ante la duda cobra al mes', () => {
+    expect(periodicidadValida('ANUAL')).toBe('ANUAL');
+    expect(periodicidadValida('anual')).toBe('ANUAL');
+    expect(periodicidadValida(' Anual ')).toBe('ANUAL');
+    expect(periodicidadValida('MENSUAL')).toBe('MENSUAL');
+    // Lo que no se entiende cae en MENSUAL: es lo que eran todos los planes
+    // antes de que esto existiera. Un plan sin periodicidad no puede quedarse
+    // sin decir cómo se lee su precio.
+    expect(periodicidadValida(undefined)).toBe('MENSUAL');
+    expect(periodicidadValida(null)).toBe('MENSUAL');
+    expect(periodicidadValida('')).toBe('MENSUAL');
+    expect(periodicidadValida('TRIMESTRAL')).toBe('MENSUAL');
   });
 });

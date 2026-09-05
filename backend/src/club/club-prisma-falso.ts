@@ -52,6 +52,7 @@ export type FilaPlan = {
   unidad: string;
   precioCents: number;
   currency: string;
+  periodicidad: string;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -402,6 +403,7 @@ export function crearPrismaFalso(bd: BaseDeDatos) {
         unidad: 'beneficio',
         precioCents: 0,
         currency: 'COP',
+        periodicidad: 'MENSUAL',
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
