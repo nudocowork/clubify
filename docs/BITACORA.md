@@ -355,6 +355,55 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-05 — ⚠️ Contabilidad ya está en `main` pero NO desplegada: el orden importa
+
+**Máquina/quién:** máquina de Jhon (Claude) · PR #320 **mergeado** a `main` (11 commits)
+**Estado: EN `main`, SIN DESPLEGAR.**
+
+### Situación exacta, comprobada hace un momento
+
+- **Backend de producción: código VIEJO.** `/api/admin/contabilidad/panorama` y
+  `/comisiones` dan **404**; `/ingresos` da 401 (existe, es el de antes).
+- **El último despliegue lo hizo la otra máquina hace ~39 min** (Vercel
+  producción, usuario `montiieljaviier-3523`; el backend lleva 2293 s de
+  uptime, que cuadra). Ese despliegue es ANTERIOR al merge, así que no lleva
+  nada de Contabilidad.
+- Producción **no está cruzada** ahora mismo. Pero `main` ya tiene el código, y
+  el próximo despliegue de cualquiera de las dos máquinas se lo lleva.
+
+### ⚠️ El orden: BACKEND PRIMERO, FRONTEND DESPUÉS
+
+El panel nuevo llama a endpoints que el backend viejo **no tiene**
+(`/panorama`, `/comisiones`, `/proximos-cobros`, y `?period=` en ingresos y
+egresos). Si se despliega solo el frontend:
+
+- la pestaña Resumen queda en «Sin datos.»
+- Comisiones y Próximos cobros, vacías
+- los importes vuelven a salir sin acotar por período
+
+```bash
+node scripts/desplegar.cjs backend     # PRIMERO
+node scripts/desplegar.cjs frontend    # DESPUÉS
+```
+
+Al revés no rompe datos, pero deja el módulo inservible hasta que suba el
+backend. Es aditivo: el frontend viejo contra el backend nuevo funciona igual
+(los parámetros nuevos son opcionales), así que **desplegar solo el backend es
+seguro** y es el orden correcto.
+
+### Lo que cambia para el usuario al desplegar
+
+- Contabilidad pasa a abrirse por período (mes/trimestre/año) con la pestaña
+  Resumen por delante; desaparece la pestaña Reportes.
+- `/admin/accounting` pasa a llamarse **«Libro de comisiones»**.
+- **Correo nuevo**: los negocios que empiecen una prueba reciben
+  `email_trial_started` además del SMS. Si no se quiere, es el commit `89f662c6`.
+
+### PENDIENTE
+
+- **Rotar `ANTHROPIC_API_KEY`** (sigue desde el 04-09).
+- Staging sigue muerto: su base no tiene ni la tabla `IncomeRecord`.
+
 ## 2026-09-05 — El CI estaba rojo en `main`, no por la rama de Contabilidad
 
 **Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
