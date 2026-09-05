@@ -355,6 +355,30 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-05 — DECIDIDO: «SERVICIOS ADICIONALES» no entra en Contabilidad. Nunca
+
+**Quién decide:** Jhon. **Estado: cerrado.** No requiere despliegue (es un comentario).
+
+El producto de Hotmart **`7929341 · CLUBIFY - SERVICIOS ADICIONALES`** —créditos
+y «Descuento de Implementación»— **queda fuera de Contabilidad al 100%**. No se
+registran sus pagos, ni los 18 viejos ($645,25) ni los que vengan. Se cierra la
+pregunta de los tres puntos de la entrada anterior: no se meten los de
+implementación, ni los créditos, ni la «Trimestral 150 USD».
+
+Queda escrito en el bloque de doc de `finance/income-record.service.ts`, que es
+donde alguien lo va a buscar cuando le parezca un agujero — porque **lo parece**:
+esas 18 transacciones tienen `HotmartWebhookEvent` y no tienen `IncomeRecord`, y
+ya se persiguieron una vez como si fueran un backfill pendiente.
+
+**Si alguien escribe un auditor** que compare `HotmartWebhookEvent` contra
+`IncomeRecord`, tiene que **excluir ese productId** o le dará 18 falsos
+positivos. Contabilidad cuenta el producto de suscripción (`6504901`), Stripe,
+Cross y los pagos manuales.
+
+### PENDIENTE
+
+- **Rotar `ANTHROPIC_API_KEY`** (desde el 04-09). Es lo único que queda abierto.
+
 ## 2026-09-05 — El backfill de Hotmart YA ESTABA HECHO. No se escribió nada
 
 **Máquina/quién:** máquina de Jhon (Claude) · solo lectura contra prod

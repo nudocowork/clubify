@@ -37,6 +37,21 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * (Settings `finance.gatewayFeePct.<gateway>` y `finance.taxPct`), o los
  * valores reales del payload cuando la pasarela los entrega. El neto REALMENTE
  * recibido se concilia después (puede diferir de lo esperado).
+ *
+ * QUÉ NO ENTRA, POR DECISIÓN (2026-09-05, Jhon)
+ * ---------------------------------------------
+ * El producto de Hotmart **`7929341 · CLUBIFY - SERVICIOS ADICIONALES`**
+ * —créditos, «Descuento de Implementación»— **NO va a Contabilidad**. Nunca.
+ *
+ * Se anota aquí porque parece un agujero y no lo es: al 05-09 había 18
+ * transacciones suyas por $645,25 sin `IncomeRecord`, y ya se persiguieron una
+ * vez como si fueran un backfill pendiente. No están perdidas —son las 18 filas
+ * de `HotmartCreditPurchase`—; simplemente no son ingreso de este módulo.
+ *
+ * Si escribes un auditor que compare `HotmartWebhookEvent` contra
+ * `IncomeRecord`, EXCLUYE ese productId o volverá a dar 18 falsos positivos.
+ * Contabilidad cuenta el producto de suscripción (`6504901`), Stripe, Cross y
+ * los pagos manuales.
  */
 @Injectable()
 export class IncomeRecordService {
