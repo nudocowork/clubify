@@ -355,6 +355,56 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-05 — BACKEND DESPLEGADO con Contabilidad. Falta el frontend
+
+**Máquina/quién:** máquina de Jhon (Claude) · `main` · commit `70a2a94d`
+**Estado: BACKEND EN PRODUCCIÓN. FRONTEND NO.**
+
+Desplegado con `node scripts/desplegar.cjs backend` (el candado pasó: sin
+cambios sin commitear, sincronizado, y contiene `origin/feat/commissions-auto-cutoffs`).
+
+### Verificación
+
+Las rutas nuevas pasaron de **404 a 401** — que es justo la comprobación que
+pide el propio script:
+
+| ruta | antes | ahora |
+|---|---|---|
+| `/api/admin/contabilidad/panorama` | 404 | **401** |
+| `/api/admin/contabilidad/comisiones` | 404 | **401** |
+| `/api/admin/contabilidad/proximos-cobros` | 404 | **401** |
+
+Humo, todo verde: `/hub`, `/app/alianzas`, `/app/club` → 200 ·
+`public/alianzas/demo-clubify/ecopetrol` → 200 · `cuponera/panel/card` → 401 ·
+`admin/dashboard/metrics` → 401.
+
+### ⚠️ FALTA EL FRONTEND — y hasta que suba, el panel se ve igual que antes
+
+El backend nuevo es **aditivo**: los parámetros nuevos son opcionales, así que el
+frontend viejo funciona exactamente igual contra él. No hay nada roto ni cruzado.
+Lo que pasa es que **nadie ve todavía** el período, el Resumen ni las pestañas
+nuevas: eso vive en el frontend.
+
+```bash
+node scripts/desplegar.cjs frontend
+```
+
+**Al desplegarlo cambia lo que ve el usuario:** Contabilidad se abre por período
+con el Resumen por delante y sin la pestaña Reportes, y `/admin/accounting` pasa
+a llamarse «Libro de comisiones».
+
+### OJO — el correo nuevo YA está activo
+
+`email_trial_started` viaja en el backend, así que **desde este despliegue** los
+negocios que empiecen una prueba reciben ese correo además del SMS. No depende
+del frontend. Si no se quiere, es revertir `89f662c6` y volver a desplegar backend.
+
+### PENDIENTE
+
+- Desplegar el frontend.
+- **Rotar `ANTHROPIC_API_KEY`** (desde el 04-09).
+- Staging sigue muerto.
+
 ## 2026-09-05 — ⚠️ Contabilidad ya está en `main` pero NO desplegada: el orden importa
 
 **Máquina/quién:** máquina de Jhon (Claude) · PR #320 **mergeado** a `main` (11 commits)
