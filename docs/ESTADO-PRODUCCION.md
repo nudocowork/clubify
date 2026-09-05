@@ -170,6 +170,10 @@ subcuenta de **Clubify**.
 
 ## Notas de datos
 
+- `ClubPlan.periodicidad` (text, `MENSUAL`|`ANUAL`, default `MENSUAL`) se agregó
+  el 2026-09-05 con `scripts/apply-club-periodicidad-migration.cjs`, aditivo e
+  idempotente. **Solo describe el PRECIO**: el cupo se repone el día 1 de cada
+  mes en los dos casos. El único plan que existía quedó en `MENSUAL`.
 - `WhiteLabel.emailConfig` (jsonb) se agregó el 2026-08-19 con un script
   aditivo. Hoy **no se usa** para enviar (el transporte es Grow Business).
 - `WhiteLabel.emailFrom` sí tiene valor en Sellea

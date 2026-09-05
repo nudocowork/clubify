@@ -8,6 +8,35 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-05 — La suscripción del club se puede cobrar al mes o al año
+
+**Tocada la base de producción.** `ClubPlan.periodicidad` (text,
+`MENSUAL`|`ANUAL`, default `MENSUAL`), con
+`scripts/apply-club-periodicidad-migration.cjs` — aditivo e idempotente, se
+puede volver a correr. Aplicado ANTES de desplegar el backend, que es el orden:
+al revés, el backend lee una columna que no existe. El único plan que había
+quedó en `MENSUAL`, que es lo que era.
+
+**Lo que cambia es el precio, NO el cupo.** El cupo se repone el día 1 de cada
+mes en los dos casos: quien paga el año por adelantado recibe sus beneficios mes
+a mes igual que el que paga cada mes, y por eso el anual se puede vender más
+barato. Un cupo anual de golpe sería otro producto —el socio se lo gasta en
+enero y al negocio le quedan once meses de cliente ya cobrado y sin nada que
+darle—. Hay un test en `club-reinicio.spec.ts` que lo fija: si alguien hace que
+el cupo dependa de la periodicidad, se cae.
+
+Se nota en el formulario del plan (desplegable pegado al precio, con la etiqueta
+y el ejemplo cambiando con él), en la lista de planes, en la ficha del plan y en
+el informe de consumos («cobrado al año por N socios» — dividir entre doce para
+que dijera «al mes» sería inventar: ese dinero entró entero en el alta).
+
+`periodicidad` es TEXTO y no enum de Postgres, igual que `periodicity` en el
+resto del sistema: añadir un valor a un enum en producción es una migración con
+bloqueo. Lo que no se entiende cae en `MENSUAL`.
+
+271 tests de club y escáner en verde. Desplegado backend y frontend
+(`6ebe7448`), verificado en el paquete que sirve Vercel.
+
 ## 2026-09-04 (tarde) — El registro del socio, con la cara del alta de siempre
 
 El paso que se hizo por la mañana era un formulario aparte: tres cajas sueltas
