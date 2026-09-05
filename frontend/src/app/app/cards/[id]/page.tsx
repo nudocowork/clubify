@@ -1458,61 +1458,80 @@ function EditCardModal({
               transparentes que quedaban invisibles sobre la tarjeta y el
               pase. Off por defecto (no cambia tarjetas existentes). */}
           <div className="rounded-lg border border-line p-3">
-            <div className="flex items-center justify-between">
-              <label className="label m-0">Fondo detrás del logo</label>
-              <button
-                type="button"
-                onClick={() =>
-                  setForm({
-                    ...form,
-                    logoBgColor: form.logoBgColor ? null : '#FFFFFF',
-                  })
-                }
-                className="text-[11px] text-brand hover:underline"
-              >
-                {form.logoBgColor ? 'Quitar' : 'Activar'}
-              </button>
-            </div>
+            <label className="label m-0">Fondo detrás del logo</label>
             <div className="text-[11px] text-mute mt-0.5 leading-snug">
-              Si tu logo es blanco o se ve invisible, activá un fondo detrás.
-              Off = el logo va directo sobre el color de la tarjeta.
+              Si tu logo es blanco o se ve invisible, ponle un fondo detrás. Sin
+              fondo, el logo va directo sobre el color de la tarjeta.
             </div>
-            {form.logoBgColor && (
-              <div className="flex items-center gap-2 mt-2">
+
+            {/* Las cuatro opciones SIEMPRE a la vista, y marcada la que está
+                puesta.
+
+                Antes «sin fondo» solo existía como un «Quitar» en la esquina, y
+                los colores aparecían únicamente si el fondo ya estaba activado.
+                Quien buscaba «transparente» abría el selector de color del
+                navegador —que no tiene transparencia, es un control del sistema
+                y no lo pintamos nosotros— y se quedaba ahí. */}
+            <div className="grid grid-cols-4 gap-1.5 mt-2">
+              {[
+                { id: null as string | null, texto: 'Sin fondo' },
+                { id: '#FFFFFF', texto: 'Blanco' },
+                { id: '#111111', texto: 'Oscuro' },
+              ].map((o) => {
+                const activa = (form.logoBgColor ?? null) === o.id;
+                return (
+                  <button
+                    key={o.texto}
+                    type="button"
+                    onClick={() => setForm({ ...form, logoBgColor: o.id })}
+                    className={`flex flex-col items-center gap-1 py-2 rounded-input border-2 transition ${
+                      activa
+                        ? 'border-brand bg-brand-soft'
+                        : 'border-line hover:border-brand/40'
+                    }`}
+                  >
+                    <span
+                      className={`w-5 h-5 rounded-full border border-line ${
+                        o.id === null ? 'bg-transparent' : ''
+                      }`}
+                      style={o.id ? { background: o.id } : undefined}
+                    />
+                    <span className="text-[10px] leading-none">{o.texto}</span>
+                  </button>
+                );
+              })}
+
+              {/* El color a medida. El input del navegador no sabe de
+                  transparencia: por eso «Sin fondo» es un botón aparte y no un
+                  valor dentro del selector. */}
+              <label
+                className={`flex flex-col items-center gap-1 py-2 rounded-input border-2 transition cursor-pointer ${
+                  form.logoBgColor &&
+                  form.logoBgColor !== '#FFFFFF' &&
+                  form.logoBgColor !== '#111111'
+                    ? 'border-brand bg-brand-soft'
+                    : 'border-line hover:border-brand/40'
+                }`}
+              >
+                <span
+                  className="w-5 h-5 rounded-full border border-line"
+                  style={{
+                    background:
+                      form.logoBgColor ??
+                      'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)',
+                  }}
+                />
+                <span className="text-[10px] leading-none">Otro color</span>
                 <input
                   type="color"
-                  className="input h-9 p-1 w-16"
-                  value={form.logoBgColor}
+                  className="sr-only"
+                  value={form.logoBgColor ?? '#FFFFFF'}
                   onChange={(e) =>
                     setForm({ ...form, logoBgColor: e.target.value })
                   }
                 />
-                <button
-                  type="button"
-                  className="text-[11px] px-2 py-1 rounded border border-line hover:bg-bg2/50"
-                  onClick={() => setForm({ ...form, logoBgColor: '#FFFFFF' })}
-                >
-                  Blanco
-                </button>
-                <button
-                  type="button"
-                  className="text-[11px] px-2 py-1 rounded border border-line hover:bg-bg2/50"
-                  onClick={() => setForm({ ...form, logoBgColor: '#111111' })}
-                >
-                  Oscuro
-                </button>
-                {/* «Sin fondo» estaba solo en el «Quitar» de la esquina, y ahí
-                    nadie lo buscaba: el que viene a elegir un color mira estos
-                    botones. Es el mismo apagado, dicho donde se decide. */}
-                <button
-                  type="button"
-                  className="text-[11px] px-2 py-1 rounded border border-line hover:bg-bg2/50"
-                  onClick={() => setForm({ ...form, logoBgColor: null })}
-                >
-                  Sin fondo
-                </button>
-              </div>
-            )}
+              </label>
+            </div>
 
             {/* Forma del logo. Los logos que son una palabra se leen como una
                 mancha en un cuadrado de 28 px — para esos está RECTANGULAR. */}
