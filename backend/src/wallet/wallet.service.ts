@@ -277,12 +277,21 @@ export class WalletService {
         // en la MISMA fila, y con un nombre de negocio normal se solapan — se
         // leía «DEMO CLU‌ACTIVO». El estado va en la franja, que es donde mira
         // la persona cuando la enseña en la caja.
-        headerFields:
-          alianza || pass.card.type === 'COUPON'
-            ? []
-            : club
-              ? [this.headerClub(pass, club, L)]
-              : [this.buildHeaderField(pass, L)],
+        // LA FILA DE ARRIBA ES SOLO PARA EL NOMBRE DEL NEGOCIO.
+        //
+        // Ya se había vaciado para el cupón y para la alianza por este mismo
+        // motivo; faltaban los sellos y el club, que son la mayoría de las
+        // tarjetas. Apple reparte esa fila entre el `logoText` y la cabecera, y
+        // el nombre siempre pierde: «D'Ponke Cake & Eatery» salía «D'Ponke
+        // Ca…1 / 10». Quitar los espacios de la barra ayudó, pero con un
+        // nombre normal no alcanza — el sitio no lo daba el formato, lo daba
+        // el campo de al lado.
+        //
+        // El contador no se pierde: baja a la fila de los campos auxiliares,
+        // donde tiene ancho de sobra y comparte sitio con el nombre del
+        // cliente, que también es corto. Y se lleva su `changeMessage`, así que
+        // el aviso del móvil («Tu pase cambió: 3/10») sigue saliendo igual.
+        headerFields: [],
         // primaryFields vacío → el strip image actúa de hero principal sin
         // texto encima.
         primaryFields: [],
@@ -290,6 +299,11 @@ export class WalletService {
           { key: 'reward', label: rewardFieldLabel, value: rewardFieldValue },
         ],
         auxiliaryFields: [
+          ...(alianza || pass.card.type === 'COUPON'
+            ? []
+            : club
+              ? [this.headerClub(pass, club, L)]
+              : [this.buildHeaderField(pass, L)]),
           { key: 'member', label: L.customer, value: pass.customer.fullName },
         ],
         backFields: [
@@ -446,8 +460,12 @@ export class WalletService {
     let tenantLogos: Record<string, Buffer> = {};
     let usedLogoUrl: string | null = null;
     const logoChip = (pass.card as any).logoBgColor as string | null | undefined;
+    // La forma que el negocio eligio en el editor. Hasta ahora solo existia en
+    // la vista previa del panel: el pase instalado enseñaba el logo apaisado y
+    // el fondo en cuadrado aunque se hubiera elegido «circular».
+    const logoForma = (pass.card as any).logoShape as string | null | undefined;
     for (const url of candidates) {
-      const attempt = await this.generateTenantLogos(url, logoChip);
+      const attempt = await this.generateTenantLogos(url, logoChip, logoForma);
       const main = attempt['logo.png'];
       // Un PNG 160×50 totalmente transparente pesa ~130 bytes. Si lo que
       // generamos es <500 bytes, asumimos que el chroma-key vació la
@@ -1558,6 +1576,7 @@ export class WalletService {
   private async generateTenantLogos(
     logoUrl: string | null,
     logoBgColor?: string | null,
+    logoShape?: string | null,
   ): Promise<Record<string, Buffer>> {
     const sharp = (await import('sharp')).default;
     const transparent = (w: number, h: number) =>
@@ -1609,12 +1628,89 @@ export class WalletService {
       // vuelve a ser visible. Sin chip, se mantiene el fondo transparente
       // histórico (logo sobre el gradiente del pase).
       const chip = this.parseChipColor(logoBgColor);
-      const make = (w: number, h: number) => {
-        const img = sharp(prepared).resize(w, h, {
-          fit: 'contain',
-          background: { r: 0, g: 0, b: 0, alpha: 0 },
+      const forma = (logoShape ?? '').toUpperCase();
+      const recortado =
+        forma === 'CIRCLE' || forma === 'ROUNDED' || forma === 'SQUARE';
+
+      /**
+       * Sin forma elegida, todo sigue como estaba: el logo ocupa el ancho que
+       * Apple da (160x50) y el chip, si lo hay, pinta ese rectangulo entero.
+       * Es lo que tienen 179 de las 186 tarjetas, y no se les cambia nada.
+       *
+       * Con forma elegida, el logo y su fondo se meten en una CAJA CUADRADA
+       * del alto del hueco, pegada a la izquierda, y se recorta con la forma.
+       * Ese recorte es lo que faltaba: el chip se aplicaba con `flatten`, que
+       * pinta el rectangulo completo, asi que quien elegia «circular» seguia
+       * viendo un cuadrado de color detras de su logo.
+       */
+      const make = async (w: number, h: number) => {
+        if (!recortado) {
+          const img = sharp(prepared).resize(w, h, {
+            fit: 'contain',
+            background: { r: 0, g: 0, b: 0, alpha: 0 },
+          });
+          return (chip ? img.flatten({ background: chip }) : img)
+            .png()
+            .toBuffer();
+        }
+
+        const caja = h;
+        // Un respiro entre el borde de la forma y el logo. Sin el, un logo
+        // cuadrado toca el filo del circulo y se ve recortado a proposito.
+        const aire = Math.max(2, Math.round(caja * 0.1));
+        const dentro = caja - aire * 2;
+
+        const logo = await sharp(prepared)
+          .resize(dentro, dentro, {
+            fit: 'contain',
+            background: { r: 0, g: 0, b: 0, alpha: 0 },
+          })
+          .png()
+          .toBuffer();
+
+        const fondo = sharp({
+          create: {
+            width: caja,
+            height: caja,
+            channels: 4,
+            background: chip ?? { r: 0, g: 0, b: 0, alpha: 0 },
+          },
         });
-        return (chip ? img.flatten({ background: chip }) : img)
+
+        const conLogo = await fondo
+          .composite([{ input: logo, top: aire, left: aire }])
+          .png()
+          .toBuffer();
+
+        // `dest-in` conserva solo lo que la mascara pinta opaco.
+        const radio =
+          forma === 'CIRCLE'
+            ? caja / 2
+            : forma === 'ROUNDED'
+              ? Math.round(caja * 0.22)
+              : 0;
+        const mascara = Buffer.from(
+          `<svg width="${caja}" height="${caja}">` +
+            `<rect width="${caja}" height="${caja}" rx="${radio}" ry="${radio}" fill="#fff"/>` +
+            `</svg>`,
+        );
+        const enmascarado = await sharp(conLogo)
+          .composite([{ input: mascara, blend: 'dest-in' }])
+          .png()
+          .toBuffer();
+
+        // El hueco de Apple es apaisado (160x50): la forma va pegada a la
+        // izquierda y el resto queda transparente para que el nombre del
+        // negocio se pinte al lado.
+        return sharp({
+          create: {
+            width: w,
+            height: h,
+            channels: 4,
+            background: { r: 0, g: 0, b: 0, alpha: 0 },
+          },
+        })
+          .composite([{ input: enmascarado, top: 0, left: 0 }])
           .png()
           .toBuffer();
       };

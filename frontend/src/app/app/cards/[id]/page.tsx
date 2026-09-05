@@ -1501,6 +1501,16 @@ function EditCardModal({
                 >
                   Oscuro
                 </button>
+                {/* «Sin fondo» estaba solo en el «Quitar» de la esquina, y ahí
+                    nadie lo buscaba: el que viene a elegir un color mira estos
+                    botones. Es el mismo apagado, dicho donde se decide. */}
+                <button
+                  type="button"
+                  className="text-[11px] px-2 py-1 rounded border border-line hover:bg-bg2/50"
+                  onClick={() => setForm({ ...form, logoBgColor: null })}
+                >
+                  Sin fondo
+                </button>
               </div>
             )}
 
