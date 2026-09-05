@@ -8,6 +8,48 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-05 — El informe de QA de Protein Station: 9 defectos REALES, corregidos
+
+Un negocio mandó un informe de pruebas de 14 páginas. **Se verificaron los 12
+puntos uno por uno contra el código y contra producción. Ninguno era inventado.**
+Afectaban a TODOS los negocios, no solo a ese.
+
+**El crítico (`sw.js`): la primera visita se rompía en los tres motores.** El
+`activate` hacía `await client.navigate(client.url)` sobre cada pestaña. Bloqueo
+mutuo: `navigate()` no resuelve hasta que termina la navegación, y el `fetch` de
+esa navegación no se despacha hasta que el worker acabe de activarse, que es lo
+que espera a `navigate()`. Chrome y Firefox: pestaña colgada. WebKit: cancela lo
+que hay en vuelo y el menú pinta «Negocio no disponible». **Recargando funciona,
+y por eso nunca lo vimos: al que ya entró una vez no le pasa.** Y le volvía a
+pasar a todo el mundo en la primera visita tras CADA deploy que cambiara
+`VERSION`. Se quitó el bucle; `clients.claim()` + `PWARegister` ya hacían el
+trabajo. `/d/` y `/w/` pasan además al bypass del `fetch`.
+
+**El caro para el negocio: el pedido se creaba y el WhatsApp no salía.** Dos
+`window.location` sobre la misma pestaña con 800 ms de diferencia, compitiendo.
+Con datos móviles ganaba el temporizador y el mensaje no se enviaba nunca. Ahora
+WhatsApp va en pestaña nueva desde el gesto del usuario.
+
+Los otros siete: pedidos sin teléfono (front **y** API — arreglar solo el front
+deja la API abierta; en MESA no se exige a propósito), «Volver al menú» que
+llevaba al menú de mesa sin botón de pedir, emojis que WhatsApp convierte en
+rombos (es de WhatsApp: `wa.me` devuelve U+FFFD por cada emoji de 4 bytes —
+comprobado con curl; se cambiaron por símbolos del plano básico y hay test),
+«Mis pedidos» que listaba los pedidos de otro con 7 dígitos de su teléfono,
+«Boyaquí», el handle de Instagram usado crudo como href, y las 129 familias de
+tipografías bloqueando el primer pintado de páginas que no usan ninguna.
+
+**Antes de cambiar la búsqueda de «Mis pedidos» a `endsWith` se miró el formato
+real de los teléfonos en producción**: 6.120 de 6.135 en formato simple, y los
+15 raros ya no eran localizables ni con `contains`. No se rompió a nadie.
+
+Pendiente, dicho en la respuesta al cliente: los iconos de 26 px (guía: 44) y
+deduplicar la llamada al menú cuando se resuelve el idioma — esto último no se
+tocó porque el orden de resolución del idioma es delicado y el menú hoy funciona.
+
+Respuesta al negocio en PDF: `Documentos/Respuesta-Clubify-Protein-Station.pdf`
+(fuera del repo, es de cara al cliente).
+
 ## 2026-09-05 — La suscripción del club se puede cobrar al mes o al año
 
 **Tocada la base de producción.** `ClubPlan.periodicidad` (text,
