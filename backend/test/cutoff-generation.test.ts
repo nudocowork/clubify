@@ -155,11 +155,18 @@ describe('generateCutoff', () => {
     expect(res.created).toBe(true);
     expect(prisma.batches[0].status).toBe('OPEN');
     expect(prisma.batches[0].paymentDate).toBeNull();
-    // a + b entran; c (16), d (hold), e (pagada) y f (sin dueño) no.
-    expect(res.attached).toBe(2);
-    expect(res.totalUsd).toBe(150);
-    expect(rows.filter((r) => r.status === 'PAID')).toHaveLength(1); // solo la 'e' previa
-    expect(rows.find((r) => r.id === 'e')!.payoutBatchId).toBeNull();
+    // a + b + e entran; c (16), d (hold) y f (sin dueño) no.
+    //
+    // La 'e' entra AUNQUE YA ESTÉ PAGADA, y eso es lo correcto: una comisión
+    // pagada antes de que su corte se generara pertenece a ese corte igual
+    // (fix `0d17fb02`). Dejarla fuera fue el caso de Nicolás Quintero — 9
+    // comisiones pagadas el 24 que el corte del 31 no miró, y el historial
+    // mostraba $205,40 cuando se habían pagado $303,85. Lo que NO hace generar
+    // el corte es marcar a nadie como pagado; eso se comprueba abajo.
+    expect(res.attached).toBe(3);
+    expect(res.totalUsd).toBe(190);
+    expect(rows.filter((r) => r.status === 'PAID')).toHaveLength(1); // sigue siendo solo la 'e'
+    expect(rows.find((r) => r.id === 'e')!.payoutBatchId).toBe(res.batchId);
   });
 
   it('la comisión que se desbloquea el 16 queda para el corte de fin de mes', async () => {
@@ -225,8 +232,8 @@ describe('generateCutoff', () => {
     const bRow = rows.find((r) => r.id === 'b')!;
     bRow.status = 'PENDING';
     const res = await svc.generateCutoff('2026-08-15');
-    expect(res.attached).toBe(1); // solo 'a'
-    expect(res.totalUsd).toBe(100);
+    expect(res.attached).toBe(2); // 'a' + la 'e' ya pagada, que también es de este corte
+    expect(res.totalUsd).toBe(140);
 
     // 22:00 del 15: el cron del hold la promueve. El top-up horario la mete en
     // el corte que le corresponde, sin crear uno nuevo.
@@ -236,7 +243,7 @@ describe('generateCutoff', () => {
     expect(added).toBe(1);
     expect(prisma.batches).toHaveLength(1);
     expect(bRow.payoutBatchId).toBe(res.batchId);
-    expect(Number(prisma.batches[0].totalUsd)).toBe(150);
+    expect(Number(prisma.batches[0].totalUsd)).toBe(190); // 100 'a' + 40 'e' + 50 'b'
     // La del 16 sigue afuera: el top-up respeta la ventana del corte.
     expect(rows.find((r) => r.id === 'c')!.payoutBatchId).toBeNull();
   });
@@ -263,7 +270,7 @@ describe('generateCutoff', () => {
 
     const res = await svc.generateCutoff('2026-08-15');
     expect(manual.payoutBatchId).toBe(res.batchId);
-    expect(res.totalUsd).toBe(183); // 100 + 50 + 33
+    expect(res.totalUsd).toBe(223); // 100 + 50 + 33 + 40 (la 'e' ya pagada)
   });
 
   it('rechaza fechas que no son día de corte', async () => {
