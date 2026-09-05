@@ -2,6 +2,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import {
+  SelectorPeriodo,
+  esMes,
+  nombreDePeriodo,
+  periodoActual,
+} from '@/components/SelectorPeriodo';
+import {
+  PanoramaPeriodo,
+  money,
+  type Panorama,
+} from '@/components/contabilidad/PanoramaPeriodo';
 
 // CONTABILIDAD — Fases 1-2. Ingresos (real por transacción) + Conciliación +
 // Egresos (fijo/%, pagos parciales, "por revisar") + Gastos operativos
@@ -26,30 +37,32 @@ type PItem = { id: string; employeeName: string; role: string | null; baseUsd: n
 type Mov = { date: string; kind: 'INGRESO' | 'EGRESO'; category: string; concept: string; party: string | null; grossUsd: number | null; debitUsd: number; creditUsd: number; balanceUsd: number; status: string; reference: string | null; hasReceipt: boolean };
 type MovResp = { movements: Mov[]; summary: { ingresosUsd: number; egresosUsd: number; saldoUsd: number; count: number } };
 
-const money = (n: number | null | undefined) =>
-  n == null ? '—' : (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDate = (s: string) => new Date(s).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
 
 const GATEWAY_BDG: Record<string, string> = { HOTMART: 'bg-slate-100 text-slate-700', STRIPE: 'bg-indigo-100 text-indigo-700', CROSS: 'bg-blue-100 text-blue-700', MANUAL: 'bg-amber-100 text-amber-800', MERCADOPAGO: 'bg-sky-100 text-sky-700' };
 const RECON_BDG: Record<string, { cls: string; label: string }> = { RECONCILED: { cls: 'bg-emerald-100 text-emerald-700', label: 'Conciliado' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Sin conciliar' } };
 const EXP_BDG: Record<string, { cls: string; label: string }> = { PAID: { cls: 'bg-emerald-100 text-emerald-700', label: 'Pagado' }, PARTIAL: { cls: 'bg-blue-100 text-blue-700', label: 'Parcial' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Por revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Pendiente' } };
 
-type Tab = 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nomina' | 'movimientos' | 'reportes' | 'cierres';
-const FUTURE_TABS = ['Próximos cobros', 'Comisiones'];
-type Reporte = {
-  period: string;
-  summary: { grossUsd: number; gatewayFeeUsd: number; taxUsd: number; netUsd: number; netReceivedUsd: number; egresosUsd: number; nominaUsd: number; comisionesUsd: number; utilidadUsd: number; ingresosCount: number };
-  series: Array<{ period: string; grossUsd: number; egresosUsd: number; nominaUsd: number; comisionesUsd: number; utilidadUsd: number }>;
+type Tab = 'resumen' | 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nomina' | 'comisiones' | 'cobros' | 'movimientos' | 'cierres';
+type Comisiones = {
+  period: string; totalUsd: number; pagadoUsd: number; pendienteUsd: number; count: number;
+  porBeneficiario: Array<{ code: string; nombre: string; rol: string; totalUsd: number; pagadoUsd: number; pendienteUsd: number; count: number }>;
 };
+type CobroProximo = { tenantId: string | null; groupId: string | null; negocio: string; esGrupo: boolean; fechaCobro: string | null; plan: string; periodicidad: string; montoUsd: number; metodo: string; ultimoPago: string | null; estado: string };
+type Cobros = { dias: number; resumen: { proximos: { count: number; amountUsd: number }; procesados: { count: number; amountUsd: number }; noProcesados: { count: number; amountUsd: number } }; filas: CobroProximo[] };
 type Cierre = { id: string; period: string; scope: string; grossUsd: string | number; feeTaxUsd: string | number; netUsd: string | number; egresosUsd: string | number; nominaUsd: string | number; comisionesUsd: string | number; utilidadUsd: string | number; note: string | null; closedAt: string };
 const EXP_STATUS_LABEL: Record<string, string> = { PAID: 'Pagado', PARTIAL: 'Parcial', PENDING: 'Pendiente' };
 
 export default function ContabilidadPage() {
-  const [tab, setTab] = useState<Tab>('ingresos');
+  // Se entra por el Resumen: las métricas del período son lo primero que se ve.
+  const [tab, setTab] = useState<Tab>('resumen');
   const [scope, setScope] = useState<'clubify' | 'all'>('clubify');
   const [loading, setLoading] = useState(true);
 
   const [resumen, setResumen] = useState<Resumen | null>(null);
+  // Resumen SIN período, solo para avisar de lo que quedó pendiente en otros
+  // meses. No se mezcla con las cifras del período: únicamente dice que existe.
+  const [pendienteGlobal, setPendienteGlobal] = useState<Resumen | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [edit, setEdit] = useState<{ id: string; value: string } | null>(null);
 
@@ -71,37 +84,72 @@ export default function ContabilidadPage() {
 
   const [mov, setMov] = useState<MovResp | null>(null);
   const [movKind, setMovKind] = useState<'' | 'INGRESO' | 'EGRESO'>('');
-  const [reporte, setReporte] = useState<Reporte | null>(null);
+  const [panorama, setPanorama] = useState<Panorama | null>(null);
+  const [comisiones, setComisiones] = useState<Comisiones | null>(null);
+  const [cobros, setCobros] = useState<Cobros | null>(null);
+  // Ventana de los próximos cobros: días hacia adelante, no un período contable.
+  const [diasCobros, setDiasCobros] = useState(30);
   const [cierres, setCierres] = useState<Cierre[]>([]);
-  const [repPeriod, setRepPeriod] = useState<string>(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
+  // El período contable manda sobre TODO el módulo, no sobre una pestaña.
+  // Arranca en el mes en curso y se lee de la URL al montar (no en el
+  // useState, que también corre en el prerender del servidor y ahí no hay
+  // `window`); así un enlace a ?periodo=2026-08 abre agosto.
+  const [periodo, setPeriodo] = useState<string>(periodoActual);
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get('periodo');
+    if (p) setPeriodo(p);
+  }, []);
+  const cambiarPeriodo = useCallback((p: string) => {
+    setPeriodo(p);
+    // replaceState y no push: cambiar de mes no es navegar, y llenar el
+    // historial obligaría a dar diez veces atrás para salir del módulo.
+    const url = new URL(window.location.href);
+    url.searchParams.set('periodo', p);
+    window.history.replaceState(null, '', url);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, list, c, e, er, rc, em, ru, pr, mv, rep, ci] = await Promise.all([
-        api<Resumen>(`/admin/contabilidad/ingresos/resumen?scope=${scope}`).catch(() => null),
-        api<Row[]>(`/admin/contabilidad/ingresos?scope=${scope}`).catch(() => []),
+      // `q` va en TODAS: el módulo entero muestra un solo período. Las que no
+      // lo llevan son las que no pertenecen a un mes — las categorías, los
+      // gastos recurrentes (plantillas) y los colaboradores (las personas que
+      // hay hoy) — y los cierres, que son la lista de meses ya cerrados.
+      const q = `scope=${scope}&period=${encodeURIComponent(periodo)}`;
+      const [r, list, c, e, er, rc, em, ru, pr, mv, rep, ci, global, com, cob] = await Promise.all([
+        api<Resumen>(`/admin/contabilidad/ingresos/resumen?${q}`).catch(() => null),
+        api<Row[]>(`/admin/contabilidad/ingresos?${q}`).catch(() => []),
         api<Cat[]>(`/admin/contabilidad/categorias`).catch(() => []),
-        api<Exp[]>(`/admin/contabilidad/egresos?scope=${scope}`).catch(() => []),
-        api<ExpResumen>(`/admin/contabilidad/egresos/resumen?scope=${scope}`).catch(() => null),
+        api<Exp[]>(`/admin/contabilidad/egresos?${q}`).catch(() => []),
+        api<ExpResumen>(`/admin/contabilidad/egresos/resumen?${q}`).catch(() => null),
         api<Rec[]>(`/admin/contabilidad/gastos-recurrentes?scope=${scope}`).catch(() => []),
         api<PEmp[]>(`/admin/contabilidad/nomina/colaboradores?scope=${scope}`).catch(() => []),
-        api<PRun[]>(`/admin/contabilidad/nomina/cortes?scope=${scope}`).catch(() => []),
-        api<PResumen>(`/admin/contabilidad/nomina/resumen?scope=${scope}`).catch(() => null),
-        api<MovResp>(`/admin/contabilidad/movimientos?scope=${scope}${movKind ? `&kind=${movKind}` : ''}`).catch(() => null),
-        api<Reporte>(`/admin/contabilidad/reporte?scope=${scope}&period=${repPeriod}`).catch(() => null),
+        api<PRun[]>(`/admin/contabilidad/nomina/cortes?${q}`).catch(() => []),
+        api<PResumen>(`/admin/contabilidad/nomina/resumen?${q}`).catch(() => null),
+        api<MovResp>(`/admin/contabilidad/movimientos?${q}${movKind ? `&kind=${movKind}` : ''}`).catch(() => null),
+        api<Panorama>(`/admin/contabilidad/panorama?${q}`).catch(() => null),
         api<Cierre[]>(`/admin/contabilidad/cierres?scope=${scope}`).catch(() => []),
+        api<Resumen>(`/admin/contabilidad/ingresos/resumen?scope=${scope}&period=todo`).catch(() => null),
+        api<Comisiones>(`/admin/contabilidad/comisiones?period=${encodeURIComponent(periodo)}`).catch(() => null),
+        api<Cobros>(`/admin/contabilidad/proximos-cobros?dias=${diasCobros}`).catch(() => null),
       ]);
+      setPendienteGlobal(global); setComisiones(com); setCobros(cob);
       setResumen(r); setRows((list ?? []) as Row[]); setCats((c ?? []) as Cat[]);
       setExps((e ?? []) as Exp[]); setExpResumen(er); setRecs((rc ?? []) as Rec[]);
       setEmps((em ?? []) as PEmp[]); setRuns((ru ?? []) as PRun[]); setPRes(pr);
-      setMov(mv); setReporte(rep); setCierres((ci ?? []) as Cierre[]);
+      setMov(mv); setPanorama(rep); setCierres((ci ?? []) as Cierre[]);
     } finally { setLoading(false); }
-  }, [scope, movKind, repPeriod]);
+  }, [scope, movKind, periodo, diasCobros]);
   useEffect(() => { void load(); }, [load]);
+
+  // Si el período es el mes que está corriendo, hay que decirlo: comparado con
+  // el mes anterior COMPLETO siempre va a salir hundido, y sin este aviso la
+  // caída se lee como que el negocio se cayó y no como que el mes va por el día 4.
+  const mesEnCurso = useMemo(() => {
+    if (periodo !== periodoActual()) return null;
+    const h = new Date();
+    return { dia: h.getDate(), total: new Date(h.getFullYear(), h.getMonth() + 1, 0).getDate() };
+  }, [periodo]);
 
   const catName = useMemo(() => Object.fromEntries(cats.map((c) => [c.id, c.name])), [cats]);
 
@@ -113,11 +161,21 @@ export default function ContabilidadPage() {
     else toast('No se pudo conciliar');
   }
   const conciliables = rows.filter((r) => r.reconStatus !== 'RECONCILED');
+  // Lo que quedó pendiente FUERA del período que se está viendo. Sin esto, un
+  // cobro sin conciliar de agosto se volvería invisible en septiembre y nadie
+  // volvería a por él.
+  const pendientesDelPeriodo = (resumen?.pendingRecon ?? 0) + (resumen?.inReview ?? 0);
+  const sinConciliarFuera = Math.max(
+    0,
+    (pendienteGlobal?.pendingRecon ?? 0) + (pendienteGlobal?.inReview ?? 0) - pendientesDelPeriodo,
+  );
 
   async function cerrarMes() {
-    if (!/^\d{4}-\d{2}$/.test(repPeriod)) { toast('Elegí un mes válido'); return; }
-    const r = await api(`/admin/contabilidad/cierres`, { method: 'POST', body: JSON.stringify({ period: repPeriod, scope }) }).catch(() => null);
-    if (r) { toast(`Mes ${repPeriod} cerrado ✅`, 'success'); void load(); } else toast('No se pudo cerrar el mes', 'error');
+    // Se cierra el MES: un trimestre o un año no son períodos contables que se
+    // congelen, son formas de mirar meses que ya existen.
+    if (!esMes(periodo)) { toast('Elige un mes para poder cerrarlo'); return; }
+    const r = await api(`/admin/contabilidad/cierres`, { method: 'POST', body: JSON.stringify({ period: periodo, scope }) }).catch(() => null);
+    if (r) { toast(`${nombreDePeriodo(periodo)} cerrado ✅`, 'success'); void load(); } else toast('No se pudo cerrar el mes', 'error');
   }
   async function reabrirMes(id: string, period: string) {
     if (!window.confirm(`¿Reabrir ${period}? Se borra el cierre y se podrá recalcular.`)) return;
@@ -135,13 +193,19 @@ export default function ContabilidadPage() {
         </div>
       </div>
 
+      {/* El período contable manda sobre todo lo de abajo. */}
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+        <SelectorPeriodo valor={periodo} onChange={cambiarPeriodo} />
+        <span className="text-xs text-mute">
+          Todo lo que ves abajo es de <strong className="text-ink capitalize">{nombreDePeriodo(periodo)}</strong>.
+          {mesEnCurso && <> · <strong className="text-ink">mes en curso</strong>, día {mesEnCurso.dia} de {mesEnCurso.total}</>}
+        </span>
+      </div>
+
       {/* Tabs */}
       <div className="flex items-center gap-1 mb-4 border-b border-line2 overflow-x-auto">
-        {([['ingresos', 'Ingresos'], ['conciliacion', `Conciliación${resumen && resumen.pendingRecon + resumen.inReview > 0 ? ` (${resumen.pendingRecon + resumen.inReview})` : ''}`], ['egresos', 'Egresos'], ['gastos', 'Gastos operativos'], ['nomina', 'Nómina'], ['movimientos', 'Movimientos'], ['reportes', 'Reportes'], ['cierres', 'Cierres']] as [Tab, string][]).map(([id, label]) => (
+        {([['resumen', 'Resumen'], ['ingresos', 'Ingresos'], ['conciliacion', `Conciliación${resumen && resumen.pendingRecon + resumen.inReview > 0 ? ` (${resumen.pendingRecon + resumen.inReview})` : ''}`], ['egresos', 'Egresos'], ['gastos', 'Gastos operativos'], ['nomina', 'Nómina'], ['comisiones', 'Comisiones'], ['cobros', 'Próximos cobros'], ['movimientos', 'Movimientos'], ['cierres', 'Cierres']] as [Tab, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} className={`px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap ${tab === id ? 'border-brand text-brand' : 'border-transparent text-mute hover:text-ink'}`}>{label}</button>
-        ))}
-        {FUTURE_TABS.map((t) => (
-          <span key={t} className="px-4 py-2.5 text-sm font-semibold text-mute2 whitespace-nowrap cursor-not-allowed" title="Próxima fase">{t} <span className="text-[9px] align-top">pronto</span></span>
         ))}
       </div>
 
@@ -182,7 +246,16 @@ export default function ContabilidadPage() {
             </table></div></div>
           ))}
 
-          {tab === 'conciliacion' && (conciliables.length === 0 ? <div className="card card-pad text-center text-mute">Todo conciliado ✅</div> : (
+          {tab === 'conciliacion' && sinConciliarFuera > 0 && (
+            <div className="card card-pad mb-3 flex items-center justify-between gap-3 flex-wrap border-amber-300">
+              <span className="text-sm">
+                Hay <strong>{sinConciliarFuera}</strong> {sinConciliarFuera === 1 ? 'cobro' : 'cobros'} sin conciliar de <strong>otros períodos</strong>. No se suman a las cifras de <span className="capitalize">{nombreDePeriodo(periodo)}</span>.
+              </span>
+              <button onClick={() => cambiarPeriodo('todo')} className="text-sm font-semibold text-brand hover:underline whitespace-nowrap">Ver todo el histórico</button>
+            </div>
+          )}
+
+          {tab === 'conciliacion' && (conciliables.length === 0 ? <div className="card card-pad text-center text-mute">Nada por conciliar en <span className="capitalize">{nombreDePeriodo(periodo)}</span> ✅</div> : (
             <div className="grid md:grid-cols-2 gap-3">{conciliables.map((r) => (
               <div key={r.id} className={`card card-pad ${r.reconStatus === 'REVIEW' ? 'border-amber-300' : ''}`}>
                 <div className="flex justify-between items-center mb-2"><b>{r.brandName ?? '—'}</b><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${RECON_BDG[r.reconStatus].cls}`}>{RECON_BDG[r.reconStatus].label}</span></div>
@@ -355,50 +428,120 @@ export default function ContabilidadPage() {
             </>
           )}
 
-          {/* ===== REPORTES (F6): cascada de utilidad + serie mensual ===== */}
-          {tab === 'reportes' && (
-            <>
-              <div className="flex items-center gap-2 mb-4">
-                <label className="text-sm text-mute">Mes:</label>
-                <input type="month" className="input" value={repPeriod} onChange={(e) => setRepPeriod(e.target.value)} />
-              </div>
-              {!reporte ? <div className="card card-pad text-center text-mute">Sin datos.</div> : (
-                <div className="grid md:grid-cols-2 gap-4 mb-5">
-                  <div className="card card-pad">
-                    <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">Cascada de utilidad · {repPeriod}</div>
-                    <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">Ingresos brutos</span><span className="tabular-nums font-medium">{money(reporte.summary.grossUsd)}</span></div>
-                    <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Fee pasarela + impuestos</span><span className="tabular-nums text-red-600">−{money(reporte.summary.gatewayFeeUsd + reporte.summary.taxUsd)}</span></div>
-                    <div className="flex justify-between py-1.5 text-sm border-t border-line2"><span className="font-semibold">= Neto</span><span className="tabular-nums font-semibold">{money(reporte.summary.netUsd)}</span></div>
-                    <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Egresos</span><span className="tabular-nums text-red-600">−{money(reporte.summary.egresosUsd)}</span></div>
-                    <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Nómina</span><span className="tabular-nums text-red-600">−{money(reporte.summary.nominaUsd)}</span></div>
-                    <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Comisiones afiliados</span><span className="tabular-nums text-red-600">−{money(reporte.summary.comisionesUsd)}</span></div>
-                    <div className="flex justify-between py-2.5 mt-1 border-t-2 border-line2"><span className="font-bold">= UTILIDAD</span><span className={`tabular-nums font-bold text-lg ${reporte.summary.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}`}>{money(reporte.summary.utilidadUsd)}</span></div>
-                  </div>
-                  <div className="card card-pad">
-                    <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">Utilidad · últimos 6 meses</div>
-                    <table className="w-full text-sm"><tbody>
-                      {reporte.series.map((s) => (
-                        <tr key={s.period} className="border-t border-line2">
-                          <td className="py-2 text-mute">{s.period}</td>
-                          <td className="py-2 text-right tabular-nums text-mute2 text-xs">bruto {money(s.grossUsd)}</td>
-                          <td className={`py-2 text-right tabular-nums font-semibold ${s.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}`}>{money(s.utilidadUsd)}</td>
-                        </tr>
-                      ))}
-                    </tbody></table>
+          {/* ===== RESUMEN (F2): las métricas del período, lo primero que se ve.
+               Reemplaza a la vieja pestaña Reportes: era la misma cascada, pero
+               enterrada al final y con la serie en una tabla. ===== */}
+          {tab === 'resumen' && (
+            !panorama ? <div className="card card-pad text-center text-mute">Sin datos.</div> : (
+              <PanoramaPeriodo
+                datos={panorama}
+                nombrePeriodo={nombreDePeriodo(periodo)}
+                nombreAnterior={panorama.anterior ? nombreDePeriodo(panorama.anterior.period) : null}
+                onIrAMes={cambiarPeriodo}
+              />
+            )
+          )}
+
+          {/* ===== COMISIONES (F3): la misma línea de la cascada, abierta ===== */}
+          {tab === 'comisiones' && (
+            !comisiones ? <div className="card card-pad text-center text-mute">Sin datos.</div> : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <Kpi lbl="Comisiones del período" dot="#eda100" val={money(comisiones.totalUsd)} sub={`${comisiones.count} ${comisiones.count === 1 ? 'comisión' : 'comisiones'}`} />
+                  <Kpi lbl="Pagadas" dot="#16A34A" val={money(comisiones.pagadoUsd)} sub="ya liquidadas" />
+                  <Kpi lbl="Pendientes" dot="#DC2626" val={money(comisiones.pendienteUsd)} sub="por pagar" />
+                  <Kpi lbl="Beneficiarios" dot="#2563EB" val={String(comisiones.porBeneficiario.length)} sub="con comisión en el período" />
+                </div>
+                <p className="text-xs text-mute mb-3">
+                  Este total es <strong className="text-ink">la misma línea</strong> «− Comisiones afiliados» de la cascada del Resumen: sale de la misma consulta, no de una parecida.
+                  Todavía no se separan por marca — son el costo de afiliados de la plataforma entera.{' '}
+                  {/* El libro de asientos NO es otra versión de estas cifras: su
+                      ingreso es el precio de la suscripción atribuida, no el
+                      cobro real, y no ve los negocios sin afiliado. Se enlaza
+                      diciendo para qué sirve, para que nadie compare totales. */}
+                  ¿Necesitas el detalle en doble partida para el contador?{' '}
+                  <a href="/admin/accounting" className="text-brand font-semibold hover:underline">Abrir el libro de comisiones</a>{' '}
+                  — cuadra Debe contra Haber, pero cuenta solo comisiones y no incluye fee, impuestos ni egresos.
+                </p>
+                {comisiones.porBeneficiario.length === 0 ? (
+                  <div className="card card-pad text-center text-mute">Ninguna comisión en <span className="capitalize">{nombreDePeriodo(periodo)}</span>.</div>
+                ) : (
+                  <div className="card overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[720px]">
+                    <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
+                      {['Beneficiario', 'Código', 'Rol', 'Comisiones', 'Total', 'Pagado', 'Pendiente'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}
+                    </tr></thead>
+                    <tbody>{comisiones.porBeneficiario.map((b) => (
+                      <tr key={b.code} className="border-t border-line2">
+                        <td className="px-4 py-3 font-semibold">{b.nombre}</td>
+                        <td className="px-4 py-3 text-mute">{b.code}</td>
+                        <td className="px-4 py-3 text-mute text-xs">{b.rol}</td>
+                        <td className="px-4 py-3 text-mute tabular-nums">{b.count}</td>
+                        <td className="px-4 py-3 tabular-nums font-medium">{money(b.totalUsd)}</td>
+                        <td className="px-4 py-3 tabular-nums text-ok">{money(b.pagadoUsd)}</td>
+                        <td className={`px-4 py-3 tabular-nums font-semibold ${b.pendienteUsd > 0 ? 'text-red-600' : 'text-mute'}`}>{money(b.pendienteUsd)}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table></div></div>
+                )}
+              </>
+            )
+          )}
+
+          {/* ===== PRÓXIMOS COBROS (F3): lo que viene, NO lo del período ===== */}
+          {tab === 'cobros' && (
+            !cobros ? <div className="card card-pad text-center text-mute">Sin datos.</div> : (
+              <>
+                <div className="card card-pad mb-3 border-amber-300">
+                  <p className="text-sm">
+                    <strong>Esto no entra en {nombreDePeriodo(periodo)}.</strong> Es plata que todavía no se cobró:
+                    una proyección de lo que vence en los próximos días. Entrará al período en el que se cobre de verdad.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 mb-4 flex-wrap">
+                  <span className="text-sm text-mute">Ventana:</span>
+                  <div className="inline-flex bg-bg2 border border-line rounded-pill p-1">
+                    {[7, 30, 90].map((d) => (
+                      <button key={d} onClick={() => setDiasCobros(d)} className={`px-3 py-1.5 rounded-pill text-xs font-semibold ${diasCobros === d ? 'bg-white shadow-sm2 text-ink' : 'text-mute'}`}>{d} días</button>
+                    ))}
                   </div>
                 </div>
-              )}
-            </>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                  <Kpi lbl="Por cobrar" dot="#eda100" val={money(cobros.resumen.proximos.amountUsd)} sub={`${cobros.resumen.proximos.count} negocios con cobro cerca`} />
+                  <Kpi lbl="Cobrados (7 días)" dot="#16A34A" val={money(cobros.resumen.procesados.amountUsd)} sub={`${cobros.resumen.procesados.count} cobros que sí entraron`} />
+                  <Kpi lbl="No procesados" dot="#DC2626" val={money(cobros.resumen.noProcesados.amountUsd)} sub={`${cobros.resumen.noProcesados.count} en gracia o suspendidos`} />
+                </div>
+                {cobros.filas.length === 0 ? (
+                  <div className="card card-pad text-center text-mute">Ningún cobro previsto en los próximos {cobros.dias} días.</div>
+                ) : (
+                  <div className="card overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[820px]">
+                    <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
+                      {['Negocio', 'Cobra el', 'Plan', 'Periodicidad', 'Método', 'Último pago', 'Monto'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}
+                    </tr></thead>
+                    <tbody>{cobros.filas.map((f, i) => (
+                      <tr key={`${f.tenantId ?? f.groupId ?? i}`} className="border-t border-line2">
+                        <td className="px-4 py-3 font-semibold">{f.negocio}{f.esGrupo && <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-100 text-blue-700">grupo</span>}</td>
+                        <td className="px-4 py-3">{f.fechaCobro ? fmtDate(f.fechaCobro) : '—'}</td>
+                        <td className="px-4 py-3 text-mute">{f.plan}</td>
+                        <td className="px-4 py-3 text-mute text-xs">{f.periodicidad}</td>
+                        <td className="px-4 py-3 text-mute text-xs">{f.metodo}</td>
+                        <td className="px-4 py-3 text-mute">{f.ultimoPago ? fmtDate(f.ultimoPago) : '—'}</td>
+                        <td className="px-4 py-3 text-right tabular-nums font-semibold">{money(f.montoUsd)}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table></div></div>
+                )}
+              </>
+            )
           )}
 
           {/* ===== CIERRES (F5): cierre mensual con snapshot ===== */}
           {tab === 'cierres' && (
             <>
               <div className="flex items-center gap-2 mb-4 flex-wrap">
-                <label className="text-sm text-mute">Cerrar mes:</label>
-                <input type="month" className="input" value={repPeriod} onChange={(e) => setRepPeriod(e.target.value)} />
-                <button onClick={cerrarMes} className="text-sm px-4 py-2 rounded-md bg-brand text-white font-semibold hover:opacity-90">Cerrar {repPeriod}</button>
-                {reporte && <span className="text-xs text-mute">Utilidad calculada: <strong className={reporte.summary.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}>{money(reporte.summary.utilidadUsd)}</strong></span>}
+                <button onClick={cerrarMes} disabled={!esMes(periodo)} className="text-sm px-4 py-2 rounded-md bg-brand text-white font-semibold hover:opacity-90 disabled:opacity-40 disabled:hover:opacity-40">Cerrar <span className="capitalize">{nombreDePeriodo(periodo)}</span></button>
+                {esMes(periodo)
+                  ? panorama && <span className="text-xs text-mute">Utilidad calculada: <strong className={panorama.resumen.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}>{money(panorama.resumen.utilidadUsd)}</strong></span>
+                  : <span className="text-xs text-mute">Elige un <strong>mes</strong> arriba para cerrarlo: lo que se congela es el mes, no el trimestre ni el año.</span>}
               </div>
               {cierres.length === 0 ? (
                 <div className="card card-pad text-center text-mute">Ningún mes cerrado todavía. Cerrar un mes congela su utilidad.</div>
@@ -604,8 +747,21 @@ function EmpModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
   );
 }
 
+// Por defecto, el mes en curso: es el corte que se genera el 99% de las veces
+// y evita que el corte nazca sin fechas (ver `save`).
+function mesEnCurso(): { desde: string; hasta: string } {
+  const h = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  const ultimo = new Date(h.getFullYear(), h.getMonth() + 1, 0).getDate();
+  return {
+    desde: `${h.getFullYear()}-${p(h.getMonth() + 1)}-01`,
+    hasta: `${h.getFullYear()}-${p(h.getMonth() + 1)}-${p(ultimo)}`,
+  };
+}
+
 function GenModal({ emps, onClose, onSaved }: { emps: PEmp[]; onClose: () => void; onSaved: () => void }) {
   const [period, setPeriod] = useState('');
+  const [rango, setRango] = useState(mesEnCurso);
   const [sel, setSel] = useState<Record<string, { on: boolean; bonus: string; ded: string }>>(() => Object.fromEntries(emps.map((e) => [e.id, { on: true, bonus: '', ded: '' }])));
   const [busy, setBusy] = useState(false);
   const rowTotal = (e: PEmp) => { const s = sel[e.id]; return e.amountUsd + (Number((s?.bonus || '0').replace(',', '.')) || 0) - (Number((s?.ded || '0').replace(',', '.')) || 0); };
@@ -613,17 +769,29 @@ function GenModal({ emps, onClose, onSaved }: { emps: PEmp[]; onClose: () => voi
   async function save() {
     const items = emps.filter((e) => sel[e.id]?.on).map((e) => ({ employeeId: e.id, employeeName: e.name, role: e.role, baseUsd: e.amountUsd, bonusUsd: Number((sel[e.id].bonus || '0').replace(',', '.')) || 0, deductionUsd: Number((sel[e.id].ded || '0').replace(',', '.')) || 0 }));
     if (!period.trim() || items.length === 0) { toast('Período y al menos un colaborador'); return; }
+    if (!rango.desde || !rango.hasta) { toast('Indica desde y hasta qué día cubre el corte'); return; }
+    if (rango.hasta < rango.desde) { toast('El corte no puede terminar antes de empezar'); return; }
     setBusy(true);
-    const r = await api(`/admin/contabilidad/nomina/cortes`, { method: 'POST', body: JSON.stringify({ periodLabel: period, items }) }).catch(() => null);
+    // Las fechas van SIEMPRE, no solo la etiqueta: `periodLabel` es texto libre
+    // y no sirve para saber a qué mes pertenece el corte. Mientras se mandó solo
+    // la etiqueta, la nómina no entraba en ningún reporte ni en ningún cierre y
+    // la utilidad salía inflada por ese monto. Al mediodía, para que el borde
+    // del mes no se corra por zona horaria.
+    const r = await api(`/admin/contabilidad/nomina/cortes`, { method: 'POST', body: JSON.stringify({ periodLabel: period, periodStart: `${rango.desde}T12:00:00.000Z`, periodEnd: `${rango.hasta}T12:00:00.000Z`, items }) }).catch(() => null);
     setBusy(false);
     if (r) { toast('Corte de nómina generado'); onSaved(); } else toast('No se pudo generar');
   }
   return (
     <Modal title="Generar pago de nómina" onClose={onClose}>
       <div className="mb-3"><label className="label">Período</label><input className="input w-full" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="Quincena 1–15 sep 2026" /></div>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div><label className="label">Desde</label><input type="date" className="input w-full" value={rango.desde} onChange={(e) => setRango({ ...rango, desde: e.target.value })} /></div>
+        <div><label className="label">Hasta</label><input type="date" className="input w-full" value={rango.hasta} onChange={(e) => setRango({ ...rango, hasta: e.target.value })} /></div>
+      </div>
+      <p className="text-xs text-mute -mt-2 mb-3">Estas fechas deciden en qué mes contable entra el corte.</p>
       <div className="mb-3">
         <label className="label">Colaboradores</label>
-        {emps.length === 0 ? <p className="text-mute text-sm">No hay colaboradores activos. Agregá uno primero.</p> : (
+        {emps.length === 0 ? <p className="text-mute text-sm">No hay colaboradores activos. Agrega uno primero.</p> : (
           <div className="flex flex-col gap-2">{emps.map((e) => (
             <div key={e.id} className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={sel[e.id]?.on ?? false} onChange={(ev) => setSel({ ...sel, [e.id]: { ...(sel[e.id] ?? { bonus: '', ded: '' }), on: ev.target.checked } })} />

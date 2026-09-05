@@ -316,6 +316,398 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-05 — El CI estaba rojo en `main`, no por la rama de Contabilidad
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
+**Estado: EN RAMA, sin desplegar.** PR #320 abierto contra `main`.
+
+El job de backend del PR falló. **No era de esta rama**: se corrió el mismo test
+en un worktree limpio de `origin/main` y falla igual. Dos causas, las dos viejas.
+
+### 1. `test/cutoff-generation.test.ts` — el test se quedó atrás del código
+
+`ATTACHABLE_BASE` incluye las comisiones **PAID** desde `0d17fb02` («una comisión
+pagada antes de su corte ya no queda fuera»). Es a propósito y está documentado
+en el propio fichero: dejarlas fuera fue el caso de **Nicolás Quintero** — 9
+comisiones pagadas el 24 que el corte del 31 no miró, y el historial mostraba
+$205,40 cuando se habían pagado $303,85.
+
+El test siguió afirmando lo de antes (que una pagada no entra) y llevaba rojo
+desde entonces. Se actualizaron las **cuatro** cifras al comportamiento que el
+fix buscaba. Comprobado que generar el corte **sigue sin marcar a nadie como
+pagado**: eso no cambió.
+
+### 2. `trial_started` sin correo gemelo — faltaba el correo, no sobraba el invariante
+
+Quedaba pendiente de decidir desde el 03-09 si ese mensaje es al negocio o al
+cliente final. **Es al negocio**: se manda con `notifyOwner`, al teléfono de
+facturación del tenant, y dice «en N días se te hace el primer cobro» — el mismo
+ciclo de vida que `payment_confirmed` y `payment_failed`, que sí tienen gemelo.
+(El `group: 'cliente'` de la plantilla SMS despista: ahí «cliente» es el negocio
+que le paga a Clubify.)
+
+Se creó **`email_trial_started`** y se manda junto al SMS.
+
+**OJO — esto cambia comportamiento visible:** al desplegar, los negocios que
+empiecen una prueba recibirán un correo nuevo. Antes solo salía el SMS, y quien
+no lo mira se enteraba del primer cobro cuando ya se lo habían hecho. Si la
+redacción no gusta, es un commit (`89f662c6`) y se cae solo.
+
+`trialDays` se sumó a los tokens rellenables del catálogo: otro test —bueno—
+salta si una plantilla ofrece a la marca un token que nadie calcula.
+
+### 3. Voseo que volvió a colarse
+
+`493f2cee` pasó todo el texto a español neutro LATAM, y las pantallas nuevas de
+Contabilidad metieron «Elegí», «Indicá», «Tocá» y «Necesitás». Corregidas, más un
+«Agregá» que venía de la Fase 3 de Nómina.
+
+### Verificación
+
+Suite completo del backend: **1.166 pasan, 0 fallan**, 2 saltados. Los 3 ficheros
+que fallan en local son e2e que necesitan Postgres — en CI lo tienen.
+`tsc` 0 · `eslint` 0 en los dos lados.
+
+### PENDIENTE
+
+- **Rotar `ANTHROPIC_API_KEY`** (sigue). Un `railway variables` la volcó completa
+  a la salida de una sesión.
+- Decidir el despliegue a producción. Nada de las cuatro fases está desplegado.
+- Staging sigue muerto (ver entrada del 04-09).
+
+## 2026-09-04 — Las dos "Contabilidad": qué mide cada una y por qué no cuadran
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
+**Estado: EN RAMA, sin desplegar.** Solo textos y enlaces; ninguna cifra cambia.
+
+### El problema
+
+Había **dos pantallas llamadas "Contabilidad"**: `/admin/contabilidad`
+("Centro financiero") y `/admin/accounting` ("Asientos y balance"), con números
+que **no pueden coincidir**. No era un bug: miden cosas distintas.
+
+`accounting` deriva doble partida **solo de las comisiones**. Su "Ingresos por
+suscripciones" NO es dinero cobrado: es el **precio de lista** del negocio
+(`subscriptionPriceUsd` ?? canónico del bundle) por cada (negocio, período) con
+comisión. No tiene fee de pasarela, ni impuestos, ni egresos, ni nómina, y
+**no filtra por marca**.
+
+Medido contra prod el 04-09:
+
+| | Contabilidad | `accounting` |
+|---|---|---|
+| agosto 2026 | **$4.515,11** cobrados | **$684,52** derivados de 38 negocios¹ |
+| alcance | los 92 cobros | 82 cobros ($12.277,56) |
+| ciego a | — | **10 cobros · $1.269,03** de negocios sin afiliado |
+| período | mes de Bogotá sobre `saleDate` | `periodKey` UTC de la comisión |
+
+¹ 30 de esos 38 no tienen precio guardado y caen al canónico, que no se replicó;
+el derivado real es más alto. El punto no es el número exacto: **es otra
+cantidad**, no una versión con error de la misma.
+
+### Qué se hizo (y qué NO)
+
+**NO se fusionaron.** Fusionar es rehacer la doble partida sobre `IncomeRecord`
+con cuentas de fee, impuestos, egresos y nómina — proyecto aparte. Y hay un
+consumidor externo: `/admin/accounting/integration/report` alimenta a **Team
+Clubify** con `TEAM_INTEGRATION_KEY`; cambiarle la forma rompe algo fuera del repo.
+
+Lo que sí:
+
+1. `/admin/accounting` deja de llamarse "Contabilidad" y pasa a **"Libro de
+   comisiones"** (es/en/pt, más la entrada del menú de Comisiones). Con eso
+   dejan de ser "dos contabilidades que no cuadran" y pasan a ser "las finanzas"
+   y "la auditoría de comisiones".
+2. Enlace en los **dos sentidos**, cada uno diciendo qué va a encontrar el otro
+   lado: el libro avisa de su alcance y lleva a Contabilidad; la pestaña
+   Comisiones lleva al libro advirtiendo que ahí no hay fee, impuestos ni egresos.
+3. **`periodKey` UTC se queda como está**: es parte del UNIQUE de `Commission` y
+   moverlo cambiaría la deduplicación de comisiones ya guardadas.
+
+### Verificación
+
+Frontend `tsc` 0 · `eslint` 0 · `next build` compila · los 3 JSON de idioma
+siguen válidos (71 namespaces cada uno, sin reordenar nada más).
+
+## 2026-09-04 — Contabilidad, Fase 3: Comisiones y Próximos cobros, ya de verdad
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
+**Estado: EN RAMA, sin desplegar.** No toca esquema ni datos.
+
+### Qué se hizo
+
+Las dos etiquetas apagadas (`FUTURE_TABS`) son pestañas reales.
+
+**Comisiones** — la línea «− Comisiones afiliados» de la cascada, abierta por
+beneficiario (total / pagado / pendiente). Usa **exactamente el mismo `where`**
+que `summary()`, no uno parecido: dos consultas distintas para el mismo número
+es como un módulo acaba contradiciéndose. Comprobado contra prod: septiembre da
+**$63,80 en las dos pantallas**. Sigue sin separarse por marca, igual que la
+cascada (decisión v1); la pestaña lo dice en pantalla.
+
+**Próximos cobros** — sale de `CobrosService` (`admin-reports`), la misma fuente
+del dashboard de cobros, que clasifica con la MISMA regla que suspende negocios.
+Ventana de 7/30/90 días. Lleva un aviso arriba de que **esto no entra en el
+período**: es plata que no se ha cobrado, y entrará al período en que se cobre.
+
+Nueva nota en la cabecera: cuando el período es el mes en curso, dice **«mes en
+curso, día 4 de 30»**. Sin eso, la caída del 86% contra agosto se lee como que
+el negocio se hundió, y no como que el mes lleva cuatro días.
+
+### Ojo con esto al revisar
+
+`FinanceModule` **dejó de ser hoja**: ahora importa `AdminReportsModule` para
+leer los cobros. `tenants.module.ts` afirmaba en un comentario que era hoja
+«→ sin ciclo»; ese comentario ya está corregido. No hay ciclo (esa rama muere en
+Settings e Integrations), y **se verificó de verdad**, no de memoria: modo
+`preview` de Nest, que construye el grafo y resuelve la inyección sin instanciar
+providers ni tocar la base. `tsc` NO comprueba esto.
+
+### Verificación
+
+Backend `tsc` 0 · `eslint src/finance` 0 · 276/276 · **grafo de Nest OK** ·
+Frontend `tsc` 0 · `eslint` 0 · `next build` compila (331 kB).
+
+### Sobre staging (importante para la otra máquina)
+
+Se intentó desplegar ahí para revisar y **no se pudo: staging está muerto de
+hecho.** Responde 200, pero lleva **16 días de uptime** con el commit `72ed068`,
+y su base **no tiene la tabla `IncomeRecord`** — el esquema se quedó atrás.
+Contabilidad daría 500. Lo bueno: su base **sí está aislada** de producción
+(hosts distintos), así que revivirlo es seguro; es un proyecto aparte (merge de
+`main`, migrar esquema, clonar datos). Mientras tanto, [docs/06-staging.md](06-staging.md)
+promete un proceso que hoy no existe.
+
+### PENDIENTE / seguridad
+
+- **Rotar `ANTHROPIC_API_KEY`.** Un `railway variables` la volcó completa a la
+  salida de una sesión. Dar de baja en la consola de Anthropic, crear una nueva y
+  actualizarla en Railway (`backend`, production y staging).
+- Sigue sin desplegarse ninguna de las cuatro fases.
+- Queda por decidir qué pasa con el módulo `accounting` paralelo.
+
+## 2026-09-04 — Contabilidad, Fase 2: las métricas del período, con gráficas
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
+**Estado: EN RAMA, sin desplegar.** No toca esquema ni datos.
+
+### Qué se hizo
+
+Pestaña **Resumen**, la primera y la de entrada: es lo primero que se ve al abrir
+un período, como pidió Jhon. Responde en orden: cuánto entró y cuánto quedó, en
+qué se fue lo que no quedó, y cómo viene mes a mes.
+
+- **4 tarjetas** (brutas, neto, costos, utilidad + margen %), cada una con la
+  **variación contra el período anterior** — mes contra mes, trimestre contra
+  trimestre, año contra año. Se compara, nunca se suma. Sin base no se inventa
+  porcentaje: de $0 a $200 no es "+∞%", se muestra la diferencia en plata.
+- **"En qué se va lo que entra"**: barra apilada con etiqueta y cifra por
+  segmento. Si el período cierra en pérdida lo dice en rojo, aparte.
+- **Cascada de utilidad**, que estaba enterrada en Reportes.
+- **Mes a mes**: barras de bruto + línea de utilidad (recharts). Tocar una barra
+  abre ese mes. Un mes trae los 6 que terminan en él; un trimestre, sus 3; un
+  año, sus 12.
+- **De dónde entró**: bruto por pasarela.
+
+**La pestaña Reportes desaparece**: era esta misma cascada más una tabla de 6
+meses, al final del todo. Ahora es la primera pantalla y la tabla es una gráfica.
+
+Endpoint nuevo `GET /admin/contabilidad/panorama?scope&period`. La serie se
+calcula con **4 consultas en total** (una por tabla sobre el rango entero, y el
+reparto por mes en memoria); la versión ingenua —un `summary()` por mes— son 4
+consultas POR MES: 48 viajes a la base para pintar un año.
+
+### Colores
+
+Los cuatro costos usan la paleta categórica validada (azul `#2a78d6`, naranja
+`#eb6834`, aguamarina `#1baf7a`, amarillo `#eda100`): separación CVD comprobada
+con el validador, no a ojo. La **utilidad no es una categoría** sino un estado
+—verde si queda, rojo si falta—. Aguamarina y amarillo quedan por debajo de 3:1
+contra el blanco, así que **cada segmento va siempre con su etiqueta y su
+cifra**: el color acompaña, nunca es el único dato.
+
+### Verificación
+
+Backend `tsc` 0 · `eslint src/finance` 0 · **276/276** tests ·
+Frontend `tsc` 0 · `eslint` 0 · `next build` compila.
+La página pasa de 218 kB a **330 kB** de primera carga por recharts — en línea
+con `/admin`, que ya pesa 335 kB por lo mismo.
+
+Contrastado con prod (solo lectura), la serie que va a dibujar:
+
+| mes | bruto | comisiones | utilidad |
+|---|---|---|---|
+| 2026-04 | $150,00 | $0,00 | $108,60 |
+| 2026-05 | $0,00 | $23,50 | **−$23,50** |
+| 2026-06 | $3.513,29 | $491,10 | $2.052,51 |
+| 2026-07 | $4.730,19 | $413,50 | $3.049,82 |
+| 2026-08 | $4.515,11 | $795,00 | $2.503,80 |
+| 2026-09 | $638,00 | $63,80 | $398,11 |
+
+Mayo cierra en pérdida (comisiones sin ingreso ese mes): sirve de caso real para
+el rojo de la barra. Egresos y nómina en $0 todos los meses — todavía no se usan.
+
+### PENDIENTE
+
+- Fase 3: Próximos cobros y Comisiones como pestañas reales, y qué hacer con el
+  módulo `accounting` paralelo.
+- Sigue sin desplegarse nada de las tres fases.
+
+## 2026-09-04 — Contabilidad, Fase 1: el período contable manda sobre el módulo
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
+**Estado: EN RAMA, sin desplegar.** No toca esquema ni datos.
+
+### Por qué
+
+Contabilidad se leía como un registro acumulado: de las 12 llamadas del panel,
+NINGUNA mandaba fecha; solo Reportes tenía un selector de mes, y dentro de su
+pestaña. Las tarjetas de arriba eran el histórico completo. Lo que pidió Jhon es
+que **el mes sea el marco**: cada mes es un período cerrado, se comparan pero
+nunca se mezclan.
+
+### Qué se hizo
+
+**Backend** — todos los endpoints aceptan `?period=`:
+`ingresos`, `ingresos/resumen`, `egresos`, `egresos/resumen`, `nomina/cortes`,
+`nomina/resumen`, `movimientos` y `reporte`. `ingresos` y `egresos` no aceptaban
+rango de ninguna forma; `nomina` tampoco.
+
+El resolutor (`common/periodo-contable.ts`) entiende **`2026-09` · `2026-T3` ·
+`2026` · `todo`**, así que las métricas de trimestre y año de la Fase 2 ya no
+necesitan backend nuevo. Un período que no se entiende **no revienta la
+pantalla**: cae al histórico completo.
+
+`finance/where-periodo.ts` centraliza los filtros que estaban duplicados entre el
+reporte y Movimientos. Si el reporte cuenta un corte en septiembre y el libro de
+caja lo pinta en agosto, el mes no cuadra nunca.
+
+NO se acotan por período, a propósito: **colaboradores** (son las personas que
+hay hoy; "nómina próxima" mira adelante), **gastos recurrentes** (son plantillas)
+y **categorías**.
+
+**Panel** — `components/SelectorPeriodo.tsx`, en la CABECERA y no dentro de una
+pestaña: granularidad (Mes/Trimestre/Año/Todo), flechas ‹ ›, salto al mes actual
+y bloqueo del futuro. El período va a la URL (`?periodo=2026-08`, con
+`replaceState` para no inflar el historial), así se puede compartir un enlace a
+un mes. Reportes y Cierres perdieron su selector propio: cuelgan del de arriba.
+Solo un MES se puede cerrar; con trimestre o año el botón se desactiva y lo dice.
+
+**Aviso de conciliación cruzada:** acotar por mes esconde lo pendiente de meses
+anteriores. Si hay cobros sin conciliar fuera del período, un aviso lo dice y
+ofrece saltar al histórico — sin sumarlos a las cifras del período.
+
+### Verificación
+
+Backend `tsc` 0 · `eslint src/finance` 0 · **270/270** tests ·
+Frontend `tsc` 0 · `eslint` 0 · **`next build` compila**.
+
+Comprobado contra prod (solo lectura) que los períodos parten de verdad:
+
+| Período | Clubify | Todas las marcas |
+|---|---|---|
+| septiembre 2026 | 2 cobros · $203,00 | 7 cobros · $638,00 |
+| agosto 2026 | 2 cobros · $151,27 | 30 cobros · $4.515,11 |
+| julio 2026 | 3 cobros · $412,47 | 34 cobros · $4.730,19 |
+| histórico | 7 cobros | 92 cobros |
+
+### OJO
+
+- **Los 92 cobros de producción están SIN CONCILIAR, los 92.** Nadie ha
+  conciliado nunca. Con el período puesto, septiembre mostrará 7 pendientes y el
+  aviso nuevo dirá que hay 85 en otros meses.
+- El histórico de Clubify son hoy **7 cobros / $766,74**, más de lo que salía en
+  la captura que mandó Jhon. Si alguien corrió el backfill de Hotmart que está
+  pendiente desde el 03-09, eso lo explicaría; conviene confirmarlo antes de
+  sacar conclusiones de las cifras viejas.
+
+### PENDIENTE
+
+- Fase 2: métricas con gráficas como primera vista del período (`recharts` ya
+  está instalado; hoy la serie de 6 meses es una tabla), y comparador de meses.
+- Fase 3: Próximos cobros y Comisiones como pestañas reales — hoy son etiquetas
+  apagadas (`FUTURE_TABS`) — y decidir qué pasa con el módulo `accounting`
+  paralelo (doble partida, indexado por `periodKey`). **Corrección de lo que
+  escribí antes:** sí tiene pantalla, `/admin/accounting`, enlazada desde
+  Comisiones (`admin/commissions/page.tsx:324`); lo que no hay es enlace desde
+  Contabilidad. Siguen siendo dos contabilidades con distinta definición de
+  período.
+
+## 2026-09-04 — Contabilidad, Fase 0: el mes contable y la nómina que valía $0
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
+**Estado: EN RAMA, sin desplegar.** No toca esquema ni datos.
+
+### Por qué
+
+Jhon pidió rediseñar Contabilidad para que el **mes sea el eje** del módulo (hoy
+todo se ve como un registro acumulado). Antes de rediseñar nada, la revisión
+encontró tres cosas que ya estaban dando números malos:
+
+1. **La nómina contaba $0 en todo reporte y en todo cierre.** El reporte filtraba
+   `PayrollRun` por `periodEnd`, y el panel creaba los cortes mandando solo
+   `periodLabel` (texto libre tipo "Quincena 1–15 sep"). `periodEnd` quedaba
+   **siempre null** → el `where` descartaba la fila → **la UTILIDAD salía
+   inflada por el monto de la nómina**, incluidos los snapshots ya cerrados.
+2. **Mismo patrón en comisiones:** filtradas por `businessDate`, que es opcional;
+   las que lo tenían en null desaparecían del mes.
+3. **El mes se calculaba en UTC** (`monthBounds` y el `periodKey` de
+   `IncomeRecord`), mientras el resto del producto usa Bogotá. Una venta del 31
+   a las 8 de la noche caía en el mes siguiente.
+
+### Qué se hizo
+
+- Nuevo `backend/src/common/periodo-contable.ts`: único sitio donde se decide a
+  qué mes pertenece un instante y dónde empieza/termina ese mes, **en hora de
+  Bogotá**. Reusa `periodoDe` de `club-periodo.ts` para no tener dos
+  definiciones. 10 tests en `periodo-contable.spec.ts` (bordes, bisiesto, sin
+  huecos ni solapes entre meses seguidos).
+- `finance-report.service`: `monthBounds` delega en el helper; los filtros de
+  nómina y comisiones caen a `createdAt` cuando la fila no trae fecha propia
+  (mismo respaldo que ya usan `referrals.service` y el módulo `accounting`); la
+  serie mensual itera meses de Bogotá.
+- `movements.service`: la nómina se filtra y se **muestra** por `periodEnd ??
+  createdAt`, para que el libro de caja y el reporte no se contradigan.
+- `income-record.service`: `periodKey` se calcula en Bogotá. **No requiere
+  backfill**: hoy ese campo se escribe pero no lo lee nadie, y los reportes van
+  por rango de `saleDate`.
+- Panel: el modal de generar nómina ahora pide **Desde/Hasta** (prellenado con el
+  mes en curso) y los manda al backend. Es el arreglo de raíz del bug 1.
+
+**`common/period-key.ts` (`monthKey`, UTC) NO se tocó**: es componente del UNIQUE
+`(referralUseId, recipientCodeId, periodKey)` de `Commission` y moverlo cambiaría
+la deduplicación de comisiones ya guardadas.
+
+### Verificación
+
+Backend `tsc` 0 · Frontend `tsc` 0 · `eslint src/finance` 0 ·
+`vitest src/common/periodo-contable src/club` 263/263 ·
+`vitest src/email src/integrations` 38/39 (la roja es la de `trial_started`, la
+misma pre-existente de la entrada anterior).
+
+### PENDIENTE
+
+- **Los cierres guardados NO están dañados — verificado contra prod el 04-09.**
+  El auditor (`railway run --service Postgres-Nq8w node
+  scripts/audit-cierres-nomina-cero.cjs`, READ-ONLY) dio todo en verde, y el
+  motivo es que **la nómina todavía no se usa**: 0 cortes y 0 colaboradores en
+  producción. El bug estaba LATENTE — habría mordido el primer mes que alguien
+  generara un corte. No hay nada que reabrir ni recalcular.
+- **`periodKey` tampoco necesita backfill**: los 92 `IncomeRecord` de prod ya
+  coinciden con el mes de Bogotá (ninguna venta cayó en la franja de las 7 p.m.
+  a medianoche del último día, que es donde UTC y Bogotá discrepan).
+- Hay **un cierre de prueba de un mes sin terminar**: `2026-09` (scope `all`),
+  cerrado el 02-09 con bruto $0 y utilidad −$5, cuando septiembre apenas
+  empezaba. Mientras siga ahí, la pestaña Cierres muestra ese número. Conviene
+  reabrirlo y volver a cerrarlo cuando el mes termine de verdad.
+- El clon nuevo (`~/dev/clubify`) **no estaba enlazado a Railway** — el enlace
+  apuntaba a la ruta vieja de OneDrive. Se enlazó `backend/` al proyecto
+  `clubify`/production; sin eso, `railway run` no funciona desde acá.
+- Sigue pendiente lo de la entrada anterior: backfill del income capture de
+  Hotmart y decidir lo de `trial_started`.
+- Fases 1-3 del rediseño (el período como marco de TODO el módulo, métricas con
+  gráficas, integrar Próximos cobros y Comisiones) sin empezar.
+
 ## 2026-09-03 — Fusión de las dos ramas a `main` + deploy: producción DES-cruzada
 
 **Máquina/quién:** máquina de Jhon (Claude) · rama `main` · commit `e0e63b32`

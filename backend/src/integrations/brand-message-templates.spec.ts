@@ -46,6 +46,7 @@ const GEMELO_POR_CORREO: Record<string, string> = {
   account_paused: 'email_account_paused',
   account_reactivated: 'email_account_reactivated',
   // Administrativas
+  trial_started: 'email_trial_started',
   payment_confirmed: 'email_payment_confirmed',
   payment_failed: 'email_payment_failed',
   admin_protest: 'email_dispute',

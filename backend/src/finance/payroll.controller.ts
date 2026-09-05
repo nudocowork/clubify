@@ -3,6 +3,7 @@ import { IsArray, IsBoolean, IsNumber, IsOptional, IsString } from 'class-valida
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PayrollService, RunItemInput } from './payroll.service';
+import { rangoDe } from './where-periodo';
 
 class EmployeeBody {
   @IsString() name!: string;
@@ -36,8 +37,8 @@ export class PayrollController {
   constructor(private payroll: PayrollService) {}
 
   @Get('resumen')
-  resumen(@Query('scope') scope?: string) {
-    return this.payroll.summary(scope !== 'all');
+  resumen(@Query('scope') scope?: string, @Query('period') period?: string) {
+    return this.payroll.summary(scope !== 'all', rangoDe(period));
   }
 
   // ── Colaboradores ──
@@ -58,8 +59,8 @@ export class PayrollController {
 
   // ── Cortes ──
   @Get('cortes')
-  cortes(@Query('scope') scope?: string) {
-    return this.payroll.listRuns(scope !== 'all');
+  cortes(@Query('scope') scope?: string, @Query('period') period?: string) {
+    return this.payroll.listRuns(scope !== 'all', rangoDe(period));
   }
 
   @Get('cortes/:id')

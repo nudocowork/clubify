@@ -2576,7 +2576,7 @@
   "admin_commissions": {
     "pageTitle": "Commissions",
     "pageCrumb": "/ Accounting panel",
-    "navAccounting": "Accounting",
+    "navAccounting": "Commission ledger",
     "navReportByCompany": "Report by company",
     "navViewByPerson": "Pending by person view",
     "errorLoading": "Error loading commissions",
@@ -4716,7 +4716,7 @@
     "toastDeleteError": "Could not delete the business"
   },
   "admin_accounting": {
-    "title": "Accounting",
+    "title": "Commission ledger",
     "crumb": "/ Entries and balance",
     "allHistory": "All history",
     "reportByCompany": "Report by company",
@@ -4769,7 +4769,9 @@
     "monthSep": "Sep",
     "monthOct": "Oct",
     "monthNov": "Nov",
-    "monthDec": "Dec"
+    "monthDec": "Dec",
+    "alcance": "This ledger comes ONLY from commissions: it excludes gateway fees, taxes, expenses and payroll, and it cannot see businesses with no affiliate. Use it to audit and export for the accountant — the full picture is in Accounting.",
+    "verContabilidad": "Go to Accounting"
   },
   "admin_sales_teams": {
     "title": "Sales Teams",

@@ -212,6 +212,20 @@ export default function AccountingPage() {
         </div>
       </div>
 
+      {/* Qué es este libro y qué NO es. Sin esta línea, sus cifras y las de
+          Contabilidad se leen como dos versiones del mismo número —y no cuadran,
+          porque no miden lo mismo: aquí el ingreso es el precio de la
+          suscripción atribuida, allá es el cobro real de la pasarela. */}
+      <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 flex flex-wrap items-center justify-between gap-3">
+        <span className="max-w-3xl">{t('alcance')}</span>
+        <Link
+          href="/admin/contabilidad"
+          className="shrink-0 font-semibold text-brand hover:underline"
+        >
+          {t('verContabilidad')} →
+        </Link>
+      </div>
+
       {/* Estado del balance */}
       {data && (
         <div

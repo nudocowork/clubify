@@ -12,6 +12,8 @@ import { IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { PaymentGateway } from '@prisma/client';
 import { IncomeRecordService } from './income-record.service';
 import { FinanceReportService } from './finance-report.service';
+import { rangoDe } from './where-periodo';
+import { CobrosService } from '../admin-reports/cobros.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 
@@ -36,6 +38,7 @@ export class FinanceController {
   constructor(
     private income: IncomeRecordService,
     private report: FinanceReportService,
+    private cobros: CobrosService,
   ) {}
 
   @Roles('SUPER_ADMIN')
@@ -44,11 +47,14 @@ export class FinanceController {
     @Query('gateway') gateway?: string,
     @Query('scope') scope?: string,
     @Query('limit') limit?: string,
+    @Query('period') period?: string,
   ) {
+    const r = rangoDe(period);
     return this.income.list({
       gateway: (gateway || undefined) as PaymentGateway | undefined,
       onlyClubify: scope !== 'all',
       limit: limit ? Number(limit) : undefined,
+      ...r,
     });
   }
 
@@ -58,12 +64,16 @@ export class FinanceController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('scope') scope?: string,
+    @Query('period') period?: string,
   ) {
-    return this.income.summary({
-      from: from ? new Date(from) : undefined,
-      to: to ? new Date(to) : undefined,
-      onlyClubify: scope !== 'all',
-    });
+    // `period` manda; `from`/`to` siguen aceptándose para rangos a medida.
+    const r = period
+      ? rangoDe(period)
+      : {
+          from: from ? new Date(from) : undefined,
+          to: to ? new Date(to) : undefined,
+        };
+    return this.income.summary({ ...r, onlyClubify: scope !== 'all' });
   }
 
   @Roles('SUPER_ADMIN')
@@ -84,20 +94,45 @@ export class FinanceController {
     @Query('period') period?: string,
   ) {
     const onlyClubify = scope !== 'all';
-    let from: Date | undefined;
-    let to: Date | undefined;
-    if (period) {
-      const b = this.report.monthBounds(period);
-      if (b) {
-        from = b.from;
-        to = b.to;
-      }
-    }
+    const { from, to } = rangoDe(period);
     const [summary, series] = await Promise.all([
       this.report.summary(onlyClubify, from, to),
       this.report.monthlySeries(onlyClubify, 6),
     ]);
     return { period: period ?? 'all', summary, series };
+  }
+
+  // ── Fase 2 — Panorama del período (lo primero que se ve al abrirlo) ───────
+  @Roles('SUPER_ADMIN')
+  @Get('panorama')
+  panorama(@Query('scope') scope?: string, @Query('period') period?: string) {
+    return this.report.panorama(scope !== 'all', period || 'todo');
+  }
+
+  // ── Fase 3 — Comisiones del período ───────────────────────────────────────
+  @Roles('SUPER_ADMIN')
+  @Get('comisiones')
+  comisiones(@Query('period') period?: string) {
+    return this.report.comisionesDelPeriodo(period || 'todo');
+  }
+
+  /**
+   * ── Fase 3 — Próximos cobros ──────────────────────────────────────────────
+   * Lo que se espera cobrar de aquí a `dias`. NO es del período contable: es
+   * plata que todavía no entró, y mezclarla con lo cobrado sería justo lo que
+   * el módulo evita. Sale de `CobrosService`, la misma fuente del dashboard.
+   */
+  @Roles('SUPER_ADMIN')
+  @Get('proximos-cobros')
+  async proximosCobros(@Query('dias') dias?: string) {
+    const n = Number(dias);
+    const ventana = Number.isFinite(n) && n > 0 && n <= 180 ? Math.round(n) : 30;
+    const ahora = new Date();
+    const [resumen, filas] = await Promise.all([
+      this.cobros.summary(null, ahora),
+      this.cobros.detail(null, 'proximos', ahora, { days: ventana }),
+    ]);
+    return { dias: ventana, resumen, filas };
   }
 
   // ── Fase 5 — Cierres contables ─────────────────────────────────────────────
