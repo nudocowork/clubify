@@ -65,6 +65,8 @@ describe('catálogo de correos de marca', () => {
       // extras que pasan los call sites del cron de cobros
       'chargeDate',
       'pauseDate',
+      // extra del aviso de prueba iniciada (StripeService)
+      'trialDays',
       // extras del aviso de compra sin cuenta (PendingActivationService)
       'buyerName',
       'activateUrl',

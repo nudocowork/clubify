@@ -1038,6 +1038,19 @@ export class StripeService {
         )
         .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
         .catch(() => null);
+      // CORREO del mismo hecho. El SMS iba solo, y este aviso es del ciclo de
+      // vida de la suscripción igual que "pago confirmado": un negocio que no
+      // mira el SMS se enteraba del primer cobro cuando ya se lo habían hecho.
+      this.brandEmail
+        .sendTemplate({
+          templateId: 'email_trial_started',
+          tenantId: tenant.id,
+          vars: {
+            trialDays: String(trialDays),
+            chargeDate: fmtEmailDate(ctx.trialEnd),
+          },
+        })
+        .catch(() => null);
     } else if (!alreadyConfirmedPeriod) {
       const nextChargeInfo = periodEnd ? ` Próximo cobro: ${fmtSmsDate(periodEnd)}.` : '';
       this.smsTemplates

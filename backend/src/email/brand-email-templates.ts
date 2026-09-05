@@ -146,6 +146,22 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     cta: { label: 'Ver mi suscripción', urlVar: 'panelUrl' },
   },
   {
+    id: 'email_trial_started',
+    label: 'Prueba iniciada',
+    folderLabel: 'Prueba iniciada',
+    description:
+      'Se envía cuando el negocio ancla la tarjeta y entra a la prueba (aún no se le cobra). Gemelo por correo del SMS "Prueba iniciada": dice cuántos días quedan y en qué fecha cae el primer cobro.',
+    vars: [...BASE_VARS, 'trialDays', 'chargeDate'],
+    subject: 'Tu prueba de {platform} ya está activa',
+    default:
+      'Hola {ownerName}, tu prueba de **{platform}** ya quedó activa.\n\n' +
+      'Tienes {trialDays} días para usarlo todo. El primer cobro se hace el {chargeDate}; hasta esa fecha no se te cobra nada.\n\n' +
+      'Si algo no te cuadra antes de esa fecha, escríbenos y lo revisamos.',
+    folder: EMAIL_FOLDER.id,
+    audience: 'Al negocio',
+    cta: { label: 'Ver mi panel', urlVar: 'panelUrl' },
+  },
+  {
     id: 'email_payment_confirmed',
     label: 'Pago confirmado (renovación)',
     folderLabel: 'Pago confirmado',
