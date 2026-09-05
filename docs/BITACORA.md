@@ -8,6 +8,45 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-05 (tarde) — Eventos con enlace propio, y el pase por fin hace caso al editor
+
+**Eventos: enlace y QR para que el cliente aparte su cupo** (`562c3896`). Se
+podía crear el evento pero no había por dónde entrar: la única forma de llenarlo
+era teclear a los asistentes uno por uno. Ahora `/e/<id>` es público y el panel
+enseña el enlace con Copiar / Ver QR / Descargar PNG debajo de los botones.
+
+**El cupo se cierra con `FOR UPDATE`.** En el mostrador reserva uno a la vez;
+por un enlace en un grupo de WhatsApp entran treinta a la vez. Leer-decidir-
+escribir sin bloquear reparte más entradas que sillas hay, y eso se descubre en
+la puerta. El doble toque devuelve la reserva que ya existe en vez de restar
+otro cupo. Enlace solo con el evento PUBLICADO; la lista de asistentes NO sale
+por la ruta pública.
+
+El bloque de enlace+QR era local de alianzas y pasó a `components/EnlaceConQr`.
+
+**El pase: la fila de arriba es SOLO del nombre** (`86272f2a`). Quitar los
+espacios de la barra no alcanzaba — el sitio no lo quitaba el formato, lo
+quitaba el campo de al lado. `headerFields: []` también para sellos y club (ya
+estaba así para cupón y alianza) y el contador baja a `auxiliaryFields`, con su
+`changeMessage`, así que el aviso del móvil sigue igual.
+
+**Y la forma del logo llega al pase.** Existía en el editor y en la vista previa;
+el pase enseñaba siempre el logo apaisado, y el chip se pintaba con `flatten`
+—que rellena el rectángulo entero—, así que quien elegía «circular» veía un
+cuadrado de color detrás. Ahora se recorta con la forma. **Sin forma elegida no
+cambia nada: 179 de las 186 tarjetas de producción, comprobado antes de tocar.**
+
+Recordatorio que costó una explicación: **los pases YA instalados no cambian
+solos.** Apple solo vuelve a pedir el pase cuando le llega un push, así que esto
+se ve en los nuevos y en los viejos a partir del siguiente movimiento.
+
+### Pendiente y pedido, sin empezar
+
+**SMS al influencer/embajador cuando entra una venta por su enlace de
+referido** — pedido por Javier el 2026-09-05. Es territorio de afiliados
+(de Jhon): antes de escribir nada hay que mirar por dónde se marca hoy una venta
+como referida y por dónde salen los SMS que ya llegan a Javier y a Jhon.
+
 ## 2026-09-05 — El botón de Instagram del menú, y el «no me deja escribir» del escáner
 
 **El login del escáner que se quedaba cargando ERA el fallo del service
