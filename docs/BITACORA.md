@@ -67,6 +67,65 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-05 — El CI estaba rojo en `main`, no por la rama de Contabilidad
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
+**Estado: EN RAMA, sin desplegar.** PR #320 abierto contra `main`.
+
+El job de backend del PR falló. **No era de esta rama**: se corrió el mismo test
+en un worktree limpio de `origin/main` y falla igual. Dos causas, las dos viejas.
+
+### 1. `test/cutoff-generation.test.ts` — el test se quedó atrás del código
+
+`ATTACHABLE_BASE` incluye las comisiones **PAID** desde `0d17fb02` («una comisión
+pagada antes de su corte ya no queda fuera»). Es a propósito y está documentado
+en el propio fichero: dejarlas fuera fue el caso de **Nicolás Quintero** — 9
+comisiones pagadas el 24 que el corte del 31 no miró, y el historial mostraba
+$205,40 cuando se habían pagado $303,85.
+
+El test siguió afirmando lo de antes (que una pagada no entra) y llevaba rojo
+desde entonces. Se actualizaron las **cuatro** cifras al comportamiento que el
+fix buscaba. Comprobado que generar el corte **sigue sin marcar a nadie como
+pagado**: eso no cambió.
+
+### 2. `trial_started` sin correo gemelo — faltaba el correo, no sobraba el invariante
+
+Quedaba pendiente de decidir desde el 03-09 si ese mensaje es al negocio o al
+cliente final. **Es al negocio**: se manda con `notifyOwner`, al teléfono de
+facturación del tenant, y dice «en N días se te hace el primer cobro» — el mismo
+ciclo de vida que `payment_confirmed` y `payment_failed`, que sí tienen gemelo.
+(El `group: 'cliente'` de la plantilla SMS despista: ahí «cliente» es el negocio
+que le paga a Clubify.)
+
+Se creó **`email_trial_started`** y se manda junto al SMS.
+
+**OJO — esto cambia comportamiento visible:** al desplegar, los negocios que
+empiecen una prueba recibirán un correo nuevo. Antes solo salía el SMS, y quien
+no lo mira se enteraba del primer cobro cuando ya se lo habían hecho. Si la
+redacción no gusta, es un commit (`89f662c6`) y se cae solo.
+
+`trialDays` se sumó a los tokens rellenables del catálogo: otro test —bueno—
+salta si una plantilla ofrece a la marca un token que nadie calcula.
+
+### 3. Voseo que volvió a colarse
+
+`493f2cee` pasó todo el texto a español neutro LATAM, y las pantallas nuevas de
+Contabilidad metieron «Elegí», «Indicá», «Tocá» y «Necesitás». Corregidas, más un
+«Agregá» que venía de la Fase 3 de Nómina.
+
+### Verificación
+
+Suite completo del backend: **1.166 pasan, 0 fallan**, 2 saltados. Los 3 ficheros
+que fallan en local son e2e que necesitan Postgres — en CI lo tienen.
+`tsc` 0 · `eslint` 0 en los dos lados.
+
+### PENDIENTE
+
+- **Rotar `ANTHROPIC_API_KEY`** (sigue). Un `railway variables` la volcó completa
+  a la salida de una sesión.
+- Decidir el despliegue a producción. Nada de las cuatro fases está desplegado.
+- Staging sigue muerto (ver entrada del 04-09).
+
 ## 2026-09-04 — Las dos "Contabilidad": qué mide cada una y por qué no cuadran
 
 **Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
