@@ -241,6 +241,178 @@ export class EventsService {
     });
   }
 
+  /**
+   * Lo que ve el cliente al abrir el enlace del evento.
+   *
+   * Publico a proposito y por `id`: el enlace ES la invitacion, igual que el de
+   * una tarjeta. No devuelve la lista de asistentes —quien mas va no es asunto
+   * de quien entra—, solo cuantos cupos quedan.
+   */
+  async eventoPublico(eventId: string) {
+    const e = await this.prisma.reservationEvent.findUnique({
+      where: { id: eventId },
+      include: {
+        attendees: { select: { party: true, status: true } },
+        tenant: {
+          select: {
+            name: true,
+            brandName: true,
+            logoUrl: true,
+            primaryColor: true,
+          },
+        },
+        location: { select: { name: true, address: true } },
+      },
+    });
+    if (!e) throw new NotFoundException('Evento no encontrado');
+    // Un borrador no se ensena: el negocio todavia lo esta armando. Uno
+    // cancelado SI se ensena, pero diciendo que se cancelo — quien tenga el
+    // enlace merece enterarse en vez de encontrarse un 404.
+    if (e.status === 'DRAFT') throw new NotFoundException('Evento no encontrado');
+
+    const ocupados = ocupacion(e.attendees);
+    return {
+      id: e.id,
+      nombre: e.name,
+      descripcion: e.description,
+      portada: e.coverImageUrl,
+      fecha: e.date,
+      horaInicio: e.startTime,
+      horaFin: e.endTime,
+      precio: e.price ? Number(e.price) : null,
+      moneda: e.priceCurrency,
+      cancelado: e.status === 'CANCELLED',
+      terminado: e.status === 'COMPLETED',
+      capacidad: e.capacity,
+      disponibles: Math.max(0, e.capacity - ocupados),
+      sede: e.location
+        ? { nombre: e.location.name, direccion: e.location.address }
+        : null,
+      negocio: {
+        nombre: e.tenant.brandName || e.tenant.name,
+        logoUrl: e.tenant.logoUrl,
+        color: e.tenant.primaryColor,
+      },
+    };
+  }
+
+  /**
+   * El cliente aparta su cupo desde el enlace del evento.
+   *
+   * La diferencia con `addAttendee` no es el formulario, es la CONCURRENCIA: en
+   * el mostrador reserva una persona a la vez; por un enlace que se manda a un
+   * grupo de WhatsApp entran treinta a la vez. Leer el cupo, decidir y escribir
+   * sin bloquear reparte mas entradas que sillas hay, y eso el negocio lo
+   * descubre en la puerta.
+   *
+   * Por eso la fila del evento se bloquea (`FOR UPDATE`) durante la
+   * transaccion: las reservas simultaneas del MISMO evento se ponen en fila una
+   * detras de otra. Eventos distintos no se estorban.
+   */
+  async reservarPublico(eventId: string, dto: AttendeeDto) {
+    const nombre = dto.customerName?.trim();
+    const telefono = dto.customerPhone?.replace(/\s+/g, ' ').trim();
+    const party = dto.party ?? 1;
+    if (!nombre) throw new BadRequestException('Escribe tu nombre.');
+    if (!telefono || telefono.replace(/\D/g, '').length < 7) {
+      throw new BadRequestException(
+        'Escribe tu numero de WhatsApp para que el negocio pueda confirmarte.',
+      );
+    }
+    if (!Number.isInteger(party) || party < 1 || party > 20) {
+      throw new BadRequestException('Indica cuantas personas van (de 1 a 20).');
+    }
+
+    const evento = await this.prisma.reservationEvent.findUnique({
+      where: { id: eventId },
+      select: { id: true, tenantId: true, status: true, capacity: true },
+    });
+    if (!evento) throw new NotFoundException('Evento no encontrado');
+    if (evento.status !== 'PUBLISHED') {
+      throw new BadRequestException('Este evento no esta abierto a reservas.');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // El candado. Nada de lo de abajo sirve sin esta linea.
+      await tx.$queryRaw`SELECT id FROM "ReservationEvent" WHERE id = ${eventId} FOR UPDATE`;
+
+      // Doble toque en el boton, o el cliente que abre el enlace dos veces: se
+      // le devuelve la reserva que YA tiene en vez de restarle otro cupo.
+      const yaEsta = await tx.eventAttendee.findFirst({
+        where: {
+          eventId,
+          customerPhone: telefono,
+          status: { in: ['CONFIRMED', 'CHECKED_IN'] },
+        },
+      });
+      if (yaEsta) return { attendee: yaEsta, yaEstaba: true };
+
+      const dentro = await tx.eventAttendee.findMany({
+        where: { eventId, status: { in: ['CONFIRMED', 'CHECKED_IN'] } },
+        select: { party: true, status: true },
+      });
+      const quedan = evento.capacity - ocupacion(dentro);
+      if (party > quedan) {
+        throw new ConflictException(
+          quedan <= 0
+            ? 'Se agotaron los cupos para este evento.'
+            : `Solo quedan ${quedan} cupos y estas pidiendo ${party}.`,
+        );
+      }
+
+      // Ficha del cliente: se busca por telefono y se crea si no existe, igual
+      // que en el alta del mostrador. Asi el asistente queda en la base del
+      // negocio y no solo en la lista del evento.
+      let customerId: string | null = null;
+      const existente = await tx.customer.findUnique({
+        where: { tenantId_phone: { tenantId: evento.tenantId, phone: telefono } },
+        select: { id: true },
+      });
+      if (existente) {
+        customerId = existente.id;
+      } else {
+        try {
+          const c = await tx.customer.create({
+            data: {
+              tenantId: evento.tenantId,
+              phone: telefono,
+              fullName: nombre,
+              email: dto.customerEmail?.trim() || null,
+              tags: ['evento'],
+            },
+            select: { id: true },
+          });
+          customerId = c.id;
+        } catch (e: any) {
+          // Alguien creo esa ficha entre la consulta y el insert.
+          if (e?.code !== 'P2002') throw e;
+          const c = await tx.customer.findUnique({
+            where: {
+              tenantId_phone: { tenantId: evento.tenantId, phone: telefono },
+            },
+            select: { id: true },
+          });
+          customerId = c?.id ?? null;
+        }
+      }
+
+      const attendee = await tx.eventAttendee.create({
+        data: {
+          tenantId: evento.tenantId,
+          eventId,
+          customerId,
+          customerName: nombre,
+          customerPhone: telefono,
+          customerEmail: dto.customerEmail?.trim() || null,
+          party,
+          notes: dto.notes?.trim() || null,
+          status: 'CONFIRMED',
+        },
+      });
+      return { attendee, yaEstaba: false };
+    });
+  }
+
   async updateAttendee(
     user: AuthUser,
     attendeeId: string,
@@ -282,4 +454,16 @@ export class EventsService {
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(dto.endTime)) throw new BadRequestException('endTime HH:MM');
     if (!dto.capacity || dto.capacity < 1) throw new BadRequestException('capacity >= 1');
   }
+}
+
+/**
+ * Cuantas sillas hay ocupadas. Cuenta PERSONAS (`party`), no reservas: una
+ * reserva de cuatro ocupa cuatro. Las canceladas y los no-show no ocupan.
+ */
+function ocupacion(
+  attendees: Array<{ party: number; status: AttendeeStatus | string }>,
+): number {
+  return attendees
+    .filter((a) => a.status === 'CONFIRMED' || a.status === 'CHECKED_IN')
+    .reduce((n, a) => n + a.party, 0);
 }

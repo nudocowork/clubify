@@ -6,6 +6,7 @@ import { useTenantCountry } from '@/lib/useTenantCountry';
 import { api } from '@/lib/api';
 import { AcademyButton } from '@/components/AcademyButton';
 import { toast } from '@/components/Toast';
+import { EnlaceConQr } from '@/components/EnlaceConQr';
 import { uploadCoverImage } from '@/lib/menu/upload-cover-image';
 import { fmtLongDate, todayISO, to12h } from '../_shared';
 
@@ -501,6 +502,12 @@ function EventDetailModal({
   }
 
   const status = STATUS_META[event.status];
+  // `window` no existe al renderizar en el servidor; este modal es cliente,
+  // así que para cuando se ve ya hay origin.
+  const urlEvento =
+    typeof window === 'undefined'
+      ? undefined
+      : `${window.location.origin}/e/${event.id}`;
   const pct = Math.min(100, Math.round((event.occupied / event.capacity) * 100));
 
   return (
@@ -571,6 +578,26 @@ function EventDetailModal({
               🗑 {t('delete')}
             </button>
           </div>
+
+          {/* El enlace de invitación. Sin esto, la única forma de llenar el
+              evento era que alguien del negocio fuera tecleando a los
+              asistentes uno por uno: el cliente no tenía por dónde entrar.
+
+              Solo con el evento PUBLICADO: en un borrador el enlace existiría
+              pero daría «no disponible», y quien lo reparte no se entera hasta
+              que le contesta el primer cliente. */}
+          {event.status === 'PUBLISHED' ? (
+            <EnlaceConQr
+              titulo="Enlace de invitación"
+              nota="Pásalo por WhatsApp o imprime el QR. Quien lo abra aparta su cupo solo, y aparece aquí en la lista."
+              url={urlEvento}
+              archivo={`evento-${event.id}`}
+            />
+          ) : (
+            <p className="text-xs text-mute mt-3">
+              El enlace de invitación aparece cuando publiques el evento.
+            </p>
+          )}
 
           <div>
             <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-mute mb-2">
