@@ -8,6 +8,26 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-05 — El botón de Instagram del menú, y el «no me deja escribir» del escáner
+
+**El login del escáner que se quedaba cargando ERA el fallo del service
+worker.** Descomunal reportó `/scan` cargando sin fin y sin poder escribir el
+correo. Encaja exacto: la página se pinta con el HTML del servidor pero React no
+llega a hidratar, así que los campos no responden. Y `/scan` **no estaba** en la
+lista de rutas que el `activate` se saltaba —solo `/c/`, `/r/`, `/q/`, `/cita/`,
+`/signup`, `/prueba`, `/trial`—, así que le tocaba de lleno. Con el bucle fuera
+ya no puede pasar. Comprobado: los 16 chunks de `/scan` responden 200.
+
+**Interruptor para el botón de Instagram del menú.** El de WhatsApp existía
+desde siempre (`Storefront.whatsappButtonEnabled`, en Ajustes del menú); el de
+Instagram no, y la única forma de quitarlo era borrarle al negocio el usuario de
+Instagram — con lo que también desaparecía de la página del link, donde sí lo
+quiere. Ahora hay `instagramButtonEnabled` con el mismo criterio: apagado, la
+API pública no manda el usuario y el chip no se pinta.
+
+Migración aditiva ya aplicada a producción (100 tiendas, todas encendidas por
+defecto: apagarlo es decisión de cada negocio).
+
 ## 2026-09-05 — El informe de QA de Protein Station: 9 defectos REALES, corregidos
 
 Un negocio mandó un informe de pruebas de 14 páginas. **Se verificaron los 12
