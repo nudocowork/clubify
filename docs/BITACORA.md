@@ -355,6 +355,52 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-05 — FRONTEND DESPLEGADO. Contabilidad ya está entera en producción
+
+**Máquina/quién:** máquina de Jhon (Claude) · `main` · commit `6e7acc79`
+**Estado: DESPLEGADO backend + frontend, en ese orden. Ya NO hay freeze.**
+
+`node scripts/desplegar.cjs frontend`. Deployment
+`dpl_FMAF9bRfqUodmZLm1WhbLTabuMBz`, READY, target production.
+
+### Verificación
+
+Curls: `/hub`, `/app/alianzas`, `/app/club`, `/admin/contabilidad` → **200**.
+`vercel inspect` confirma los alias del despliegue nuevo, que es lo único
+autoritativo aquí (la salida del deploy solo menciona `fideliso.com` y despista):
+
+```
+https://fideliso.com · https://app.fideliso.com · https://www.fideliso.com
+https://app.soyclubify.com · https://staging.app.soyclubify.com
+```
+
+Buscar textos nuevos en el JS servido **no sirve como prueba**: el bundle de
+`/admin/contabilidad` no se descarga sin sesión, así que sale vacío tanto si
+está como si no. La confirmación de verdad es abrir el panel.
+
+### 🔎 Hallazgo: `staging.app.soyclubify.com` apunta al MISMO despliegue de producción
+
+Sale en la lista de alias de arriba. O sea que el «frontend de staging» nunca ha
+sido un entorno aparte: es producción con otro nombre. Sumado a que la base de
+staging no tiene ni la tabla `IncomeRecord`, **staging no existe como entorno**,
+por mucho que [06-staging.md](06-staging.md) lo describa. Quien lo reviva tiene
+que arreglar las dos mitades, no solo la base.
+
+### Qué cambió para el usuario
+
+- Contabilidad se abre **por período** (mes/trimestre/año/todo) con la pestaña
+  **Resumen** por delante; ya no existe la pestaña Reportes.
+- Pestañas nuevas: **Comisiones** y **Próximos cobros**.
+- `/admin/accounting` ahora se llama **«Libro de comisiones»**.
+- Los negocios que empiecen una prueba reciben `email_trial_started` además del
+  SMS (esto ya estaba activo desde el despliegue del backend).
+
+### PENDIENTE
+
+- **Rotar `ANTHROPIC_API_KEY`** (desde el 04-09, sigue).
+- Backfill del income capture de Hotmart (viene del 03-09).
+- Staging, si se quiere de verdad: base + alias propio.
+
 ## 2026-09-05 — BACKEND DESPLEGADO con Contabilidad. Falta el frontend
 
 **Máquina/quién:** máquina de Jhon (Claude) · `main` · commit `70a2a94d`
