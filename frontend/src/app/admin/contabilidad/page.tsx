@@ -454,7 +454,14 @@ export default function ContabilidadPage() {
                 </div>
                 <p className="text-xs text-mute mb-3">
                   Este total es <strong className="text-ink">la misma línea</strong> «− Comisiones afiliados» de la cascada del Resumen: sale de la misma consulta, no de una parecida.
-                  Todavía no se separan por marca — son el costo de afiliados de la plataforma entera.
+                  Todavía no se separan por marca — son el costo de afiliados de la plataforma entera.{' '}
+                  {/* El libro de asientos NO es otra versión de estas cifras: su
+                      ingreso es el precio de la suscripción atribuida, no el
+                      cobro real, y no ve los negocios sin afiliado. Se enlaza
+                      diciendo para qué sirve, para que nadie compare totales. */}
+                  ¿Necesitás el detalle en doble partida para el contador?{' '}
+                  <a href="/admin/accounting" className="text-brand font-semibold hover:underline">Abrir el libro de comisiones</a>{' '}
+                  — cuadra Debe contra Haber, pero cuenta solo comisiones y no incluye fee, impuestos ni egresos.
                 </p>
                 {comisiones.porBeneficiario.length === 0 ? (
                   <div className="card card-pad text-center text-mute">Ninguna comisión en <span className="capitalize">{nombreDePeriodo(periodo)}</span>.</div>

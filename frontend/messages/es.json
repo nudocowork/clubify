@@ -2573,7 +2573,7 @@
   "admin_commissions": {
     "pageTitle": "Comisiones",
     "pageCrumb": "/ Panel contable",
-    "navAccounting": "Contabilidad",
+    "navAccounting": "Libro de comisiones",
     "navReportByCompany": "Reporte por empresa",
     "navViewByPerson": "Vista por persona pendientes",
     "errorLoading": "Error cargando comisiones",
@@ -4713,7 +4713,7 @@
     "toastDeleteError": "No se pudo eliminar el negocio"
   },
   "admin_accounting": {
-    "title": "Contabilidad",
+    "title": "Libro de comisiones",
     "crumb": "/ Asientos y balance",
     "allHistory": "Todo el histórico",
     "reportByCompany": "Reporte por empresa",
@@ -4766,7 +4766,9 @@
     "monthSep": "Sep",
     "monthOct": "Oct",
     "monthNov": "Nov",
-    "monthDec": "Dic"
+    "monthDec": "Dic",
+    "alcance": "Este libro sale SOLO de las comisiones: no incluye fee de pasarela, impuestos, egresos ni nómina, y no ve los negocios sin afiliado. Sirve para auditar y exportar al contador — el dinero completo de Clubify está en Contabilidad.",
+    "verContabilidad": "Ir a Contabilidad"
   },
   "admin_sales_teams": {
     "title": "Equipos de Ventas",

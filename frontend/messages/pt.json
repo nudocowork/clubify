@@ -2573,7 +2573,7 @@
   "admin_commissions": {
     "pageTitle": "Comissões",
     "pageCrumb": "/ Painel contábil",
-    "navAccounting": "Contabilidade",
+    "navAccounting": "Livro de comissões",
     "navReportByCompany": "Relatório por empresa",
     "navViewByPerson": "Visão de pendentes por pessoa",
     "errorLoading": "Erro ao carregar comissões",
@@ -4713,7 +4713,7 @@
     "toastDeleteError": "Não foi possível excluir o negócio"
   },
   "admin_accounting": {
-    "title": "Contabilidade",
+    "title": "Livro de comissões",
     "crumb": "/ Lançamentos e balanço",
     "allHistory": "Todo o histórico",
     "reportByCompany": "Relatório por empresa",
@@ -4766,7 +4766,9 @@
     "monthSep": "Set",
     "monthOct": "Out",
     "monthNov": "Nov",
-    "monthDec": "Dez"
+    "monthDec": "Dez",
+    "alcance": "Este livro vem SÓ das comissões: não inclui taxa de gateway, impostos, despesas nem folha, e não enxerga os negócios sem afiliado. Serve para auditar e exportar ao contador — o dinheiro completo está em Contabilidade.",
+    "verContabilidad": "Ir para Contabilidade"
   },
   "admin_sales_teams": {
     "title": "Equipes de Vendas",

@@ -67,6 +67,60 @@ mientras otra da 401, tu código NO está arriba — `/api/health` seguirá dici
 
 ---
 
+## 2026-09-04 — Las dos "Contabilidad": qué mide cada una y por qué no cuadran
+
+**Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
+**Estado: EN RAMA, sin desplegar.** Solo textos y enlaces; ninguna cifra cambia.
+
+### El problema
+
+Había **dos pantallas llamadas "Contabilidad"**: `/admin/contabilidad`
+("Centro financiero") y `/admin/accounting` ("Asientos y balance"), con números
+que **no pueden coincidir**. No era un bug: miden cosas distintas.
+
+`accounting` deriva doble partida **solo de las comisiones**. Su "Ingresos por
+suscripciones" NO es dinero cobrado: es el **precio de lista** del negocio
+(`subscriptionPriceUsd` ?? canónico del bundle) por cada (negocio, período) con
+comisión. No tiene fee de pasarela, ni impuestos, ni egresos, ni nómina, y
+**no filtra por marca**.
+
+Medido contra prod el 04-09:
+
+| | Contabilidad | `accounting` |
+|---|---|---|
+| agosto 2026 | **$4.515,11** cobrados | **$684,52** derivados de 38 negocios¹ |
+| alcance | los 92 cobros | 82 cobros ($12.277,56) |
+| ciego a | — | **10 cobros · $1.269,03** de negocios sin afiliado |
+| período | mes de Bogotá sobre `saleDate` | `periodKey` UTC de la comisión |
+
+¹ 30 de esos 38 no tienen precio guardado y caen al canónico, que no se replicó;
+el derivado real es más alto. El punto no es el número exacto: **es otra
+cantidad**, no una versión con error de la misma.
+
+### Qué se hizo (y qué NO)
+
+**NO se fusionaron.** Fusionar es rehacer la doble partida sobre `IncomeRecord`
+con cuentas de fee, impuestos, egresos y nómina — proyecto aparte. Y hay un
+consumidor externo: `/admin/accounting/integration/report` alimenta a **Team
+Clubify** con `TEAM_INTEGRATION_KEY`; cambiarle la forma rompe algo fuera del repo.
+
+Lo que sí:
+
+1. `/admin/accounting` deja de llamarse "Contabilidad" y pasa a **"Libro de
+   comisiones"** (es/en/pt, más la entrada del menú de Comisiones). Con eso
+   dejan de ser "dos contabilidades que no cuadran" y pasan a ser "las finanzas"
+   y "la auditoría de comisiones".
+2. Enlace en los **dos sentidos**, cada uno diciendo qué va a encontrar el otro
+   lado: el libro avisa de su alcance y lleva a Contabilidad; la pestaña
+   Comisiones lleva al libro advirtiendo que ahí no hay fee, impuestos ni egresos.
+3. **`periodKey` UTC se queda como está**: es parte del UNIQUE de `Commission` y
+   moverlo cambiaría la deduplicación de comisiones ya guardadas.
+
+### Verificación
+
+Frontend `tsc` 0 · `eslint` 0 · `next build` compila · los 3 JSON de idioma
+siguen válidos (71 namespaces cada uno, sin reordenar nada más).
+
 ## 2026-09-04 — Contabilidad, Fase 3: Comisiones y Próximos cobros, ya de verdad
 
 **Máquina/quién:** máquina de Jhon (Claude) · rama `fix/contabilidad-fase0-periodo-2026-09-04`
