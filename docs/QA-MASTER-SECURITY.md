@@ -146,13 +146,18 @@ cliente, así que hay que mirar dónde se pinta antes de cambiarlo.
 
 ---
 
-### 🟠 P1-2 · Las 36 rutas públicas nunca se han revisado de forma sistemática
+### 🟠 P1-2 · Las 136 rutas públicas nunca se han revisado de forma sistemática
 
 **Estado: EMPEZADO.**
 
 ```bash
 grep -rc "@Public()" backend/src --include=*.controller.ts | grep -v ":0" | sort -t: -k2 -rn
+grep -rho '@Public()' backend/src --include=*.controller.ts | wc -l    # 136
 ```
+
+**Corregido el 2026-09-05:** este apartado decía «36 rutas». Son **36
+controladores** y **136 rutas**. El trabajo es casi 4× lo que figuraba aquí.
+`auth.controller.ts` solo aporta 16.
 
 En una sola tarde aparecieron **tres huecos reales**: pedidos sin teléfono, ver
 pedidos ajenos con 7 dígitos del número, y la fuga de P0-3. Que salieran tres a
@@ -167,6 +172,78 @@ peticiones (hoy ninguno lo tiene de verdad)? ¿escribe algo?
 
 ---
 
+### 🟠 P1-3 · Nada garantiza el aislamiento entre negocios. Hoy funciona porque está bien escrito a mano, 325 veces
+
+**Estado: ABIERTO. Fase 11, primera pasada hecha el 2026-09-05.**
+
+Lo primero, porque es la parte tranquilizadora y hay que decirla con datos: **el
+aislamiento funciona donde se ha mirado.** El backend es *fail-closed* —
+[auth.module.ts](../backend/src/auth/auth.module.ts) registra 6 guards globales
+(`JwtAuthGuard`, `RolesGuard`, `TenantStatusGuard`, `TenantLockGuard`,
+`InfoLinkOnlyGuard`, `MaintenanceGuard`), así que **todo pide sesión salvo lo
+marcado `@Public()`**. Que 115 controladores no lleven `@UseGuards` no es un
+hueco: es el diseño.
+
+Lo que NO existe es la capa de abajo. El JWT dice *quién eres* y el
+`RolesGuard` *qué tipo de cosas puedes hacer*, pero **nada comprueba que el
+objeto que pides sea tuyo**. No hay extensión ni middleware de Prisma: el
+aislamiento depende, consulta a consulta, de que alguien escriba `tenantId` a
+mano. Sobre 65 modelos que lo llevan, y con **tres patrones distintos** de
+hacerlo conviviendo en el repo:
+
+```ts
+// 1) where compuesto            2) comprobar y luego escribir
+findFirst({ where: { id, tenantId } })   findFirst({ where: { id, tenantId } }); update({ where: { id } })
+
+// 3) guard delegado
+async update(user, id) { await this.get(user, id); /* get() lanza Forbidden */ return prisma.x.update({ where: { id } }) }
+```
+
+Medido con el auditor nuevo:
+
+```bash
+cd backend && node scripts/arqueo-aislamiento-tenant.cjs
+#   Consultas sin tenantId en el where : 442
+#     la funcion SI acota (correctas)  : 325
+#     delegan en un guard (revisar)    :  40
+#     NADIE las acota                  :  77   (33 de ellas escriben)
+```
+
+**Revisados a mano, uno por uno: 12 casos. Los 12, correctos.** Entre ellos los
+que peor pintaban:
+
+| Caso | Por qué parecía un agujero | Por qué no lo es |
+|---|---|---|
+| `products.update/remove`, `badges.update/remove` | `update({ where: { id } })` pelado | `this.get(user, id)` compara `tenantId` y lanza `Forbidden` |
+| `suppliers.remove`, `reminders.update`, `automations.remove` | ídem | comprueban con `tenantId` **antes** de escribir |
+| `cancelByToken` (cancelar cita, público) | cancela con solo acertar la llave | `manageToken` = `randomBytes(16)`, 128 bits |
+| `completarRegistro` (público, escribe sobre un cliente) | `POST /passes/:id/completar-registro` | `id` es UUID v4, y solo rellena campos **vacíos**: no pisa datos |
+| `staff.controller` cambio de contraseña | `user.update({ where: { id } })` | el id es `user.id`, el propio usuario |
+
+**El hallazgo, entonces, no es un agujero: es que no hay red.** Las 325 correctas
+lo son porque alguien se acordó 325 veces. La 326 se escribirá el día que se
+añada un endpoint con prisa, no la va a frenar nada, y no se va a enterar nadie
+—ni el CI, ni una revisión, ni el tipado.
+
+**Arreglo de fondo propuesto (sin riesgo, no toca producción):** meter el
+auditor en el CI con la cuenta actual como techo. No arregla nada de lo que hay
+—no hace falta, está bien— pero **impide que entre la 326**. Es la diferencia
+entre «esperemos que nadie se equivoque» y «no se puede fusionar si te
+equivocas».
+
+**Lo que queda de esta fase, y no se ha hecho:**
+
+- ~20 casos huérfanos y los 40 delegados, sin revisar uno a uno. Se priorizó por
+  daño, no se agotó la lista.
+- El auditor **no sabe si el `id` viene de un `@Param()`** —o sea, si lo controla
+  quien ataca— o de una consulta interna ya acotada. Ese es el discriminador que
+  más falsos positivos quitaría.
+- **La prueba de verdad sigue bloqueada:** dos cuentas de negocios distintos y
+  un intento real de cruzarlas contra producción. Leer el código demuestra que
+  el filtro está escrito; no demuestra que funcione.
+
+---
+
 ## 2. Lo que ya está construido
 
 | Pieza | Dónde | Qué cubre |
@@ -176,6 +253,7 @@ peticiones (hoy ninguno lo tiene de verdad)? ¿escribe algo?
 | CI en cada push | `.github/workflows/ci.yml` | Lint, typecheck, 51 spec, e2e con base, build. **Verde** |
 | Sentry | back y front | Errores en servidor y en el navegador del cliente |
 | Monitor de certificados | `wallet/cert-monitor.service.ts` | Avisa antes de que caduque el de Apple Wallet |
+| Arqueo de aislamiento entre negocios | `backend/scripts/arqueo-aislamiento-tenant.cjs` | Recorre el AST y ordena por riesgo las consultas que no acotan el negocio. **No está en el CI todavía** |
 
 ```bash
 node scripts/humo.cjs                 # a mano, contra producción
@@ -196,8 +274,8 @@ original.
 | 26 | Backups | 🔴 ROTO | P0-1. Bloqueado: hacen falta credenciales |
 | 26 | Prueba de restauración | ❌ | Sin esto no hay respaldo, hay archivos |
 | 16 | Rate limiting | 🔴 ROTO | P0-2. Medir el panel ANTES de activarlo |
-| 10 | API — rutas públicas | 🔄 | P1-2. 3 huecos en la primera pasada |
-| 11 | Multi-tenant / IDOR | ❌ | **La más importante que falta.** Necesita 2 cuentas de prueba |
+| 10 | API — rutas públicas | 🔄 | P1-2. 3 huecos en la primera pasada. Son **136** rutas, no 36 |
+| 11 | Multi-tenant / IDOR | 🔄 | P1-3. Primera pasada hecha: 12 casos revisados, 12 correctos. Falta meter el auditor en el CI y las 2 cuentas de prueba |
 
 ### Después
 

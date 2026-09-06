@@ -8,6 +8,50 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-05 (noche) — Fase 11 del QA: el aislamiento entre negocios está bien escrito, y eso es justo el problema
+
+**No toqué nada de producción.** Un archivo nuevo,
+`backend/scripts/arqueo-aislamiento-tenant.cjs`, y las actualizaciones de
+`docs/QA-MASTER-SECURITY.md`. Cero cambios en `src/`.
+
+**La respuesta corta: el aislamiento funciona donde miré, y no encontré ningún
+agujero.** Revisé 12 casos a mano, uno por uno, y los 12 son correctos. El
+backend es *fail-closed* —`auth.module.ts` registra 6 guards globales, todo pide
+sesión salvo lo marcado `@Public()`— y cada servicio acota el negocio con uno de
+tres patrones: el `where` compuesto, comprobar-antes-de-escribir, o delegar en un
+`get(user, id)` que lanza `Forbidden`.
+
+**Y ahí está lo que sí hay que arreglar.** No existe extensión ni middleware de
+Prisma: nada obliga a acotar. Las **325** consultas que están bien lo están
+porque alguien se acordó 325 veces. La 326 se escribirá con prisa cualquier
+martes, y no la va a frenar el CI, ni el tipado, ni una revisión. Detalle
+completo en `QA-MASTER-SECURITY.md`, hallazgo **P1-3**.
+
+Lo que propongo (aún **sin hacer**, no lo decido yo solo): meter el auditor en el
+CI con la cuenta actual como techo. No arregla nada de lo existente —no hace
+falta— pero impide que entre la 326.
+
+### Dos datos que corrigen el documento
+
+- Decía «las 36 rutas públicas». Son **36 controladores** y **136 rutas**. El
+  trabajo de la fase 10 es casi 4× lo que figuraba.
+- La causa que el documento sospechaba para el rate limiting **es la correcta**:
+  `trust proxy` no aparece en ninguna parte del backend. La única mención es un
+  comentario en `convenios/alianzas-publico.service.ts:78` que ya lo documenta.
+  **No lo toqué**, sigue pendiente la medición del panel.
+
+### Lo que queda de la fase 11
+
+Quedan ~20 casos huérfanos y 40 delegados sin revisar uno a uno —prioricé por
+daño, no agoté la lista. Y el auditor todavía no distingue si el `id` viene de un
+`@Param()` (lo controla quien ataca) o de una consulta interna ya acotada; ese es
+el filtro que más ruido quitaría. La prueba de verdad —dos cuentas de negocios
+distintos intentando cruzarse contra producción— **sigue bloqueada** y sin ella
+esto demuestra que el filtro está escrito, no que funcione.
+
+Ojo con `npx tsc --noEmit` en el backend: se quedó sin memoria (crash de V8) en
+esta máquina. Es de la máquina, no del cambio —no hay ni un `.ts` tocado.
+
 ## 2026-09-05 — Prueba de humo en navegador limpio, y ya no hay que desplegar `3b01e489`
 
 **Jhon: `3b01e489` SÍ está en producción.** Lo desplegué yo justo después de
