@@ -58,8 +58,28 @@ describe('decideDunning — cobro fallido (Hotmart/Stripe)', () => {
   it('al Día 5 sigue en gracia (NO suspende) — este era el reclamo', () => {
     const d = decideDunning(failing, day(4), CFG); // Día 5
     expect(d.daysOverdue).toBe(5);
+    // Lo que este test protege es que NO se suspenda dentro de la gracia. Eso
+    // sigue intacto.
     expect(d.action).not.toBe('suspend');
-    expect(d.action).toBe('none'); // día intermedio de gracia
+    // Lo que SÍ cambió (2026-09-06): el día 5 ya no es silencio. Es el último
+    // de la gracia, así que le toca el aviso de «mañana se pausa» — el que de
+    // verdad hace reaccionar. Antes el negocio pasaba del día 2 a encontrarse
+    // la cuenta pausada sin nada en medio.
+    expect(d.action).toBe('last-call');
+  });
+
+  it('los días 3 y 4 tampoco son silencio', () => {
+    // Son los días en los que el dueño todavía puede recargar la tarjeta y
+    // arreglarlo. Callarse justo ahí era perder la oportunidad.
+    for (const [dia, offset] of [
+      [3, 2],
+      [4, 3],
+    ] as const) {
+      const d = decideDunning(failing, day(offset), CFG);
+      expect(d.daysOverdue).toBe(dia);
+      expect(d.action).toBe('grace');
+      expect(d.action).not.toBe('suspend');
+    }
   });
 
   it('al Día 6 SÍ suspende', () => {

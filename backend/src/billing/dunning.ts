@@ -51,7 +51,9 @@ export interface DunningConfig {
 export type DunningAction =
   | 'none' // no está en mora / renovado / aún no toca nada
   | 'reminder' // recordatorio D+1
-  | 'notice' // aviso "mañana se pausa" D+2
+  | 'notice' // "no se pudo procesar" D+2
+  | 'grace' // días intermedios de gracia (D+3, D+4…)
+  | 'last-call' // último día de gracia: mañana se pausa
   | 'suspend' // pasó la gracia → suspender
   | 'stale-skip'; // pasó la gracia por FECHA pero supera el tope legacy → no auto-suspender
 
@@ -131,7 +133,16 @@ export function decideDunning(
   if (daysOverdue === cfg.reminderDay) {
     return { dueSince, byFailure, daysOverdue, action: 'reminder' };
   }
-  // Días intermedios de gracia (p.ej. 3, 4, 5): sin acción nueva.
+  // ÚLTIMO día de gracia: mañana se pausa. Es el aviso que de verdad hace
+  // reaccionar, y hasta hoy no se mandaba: la secuencia se callaba tres días y
+  // el negocio se enteraba de la suspensión cuando ya estaba suspendido.
+  if (daysOverdue === cfg.graceDays) {
+    return { dueSince, byFailure, daysOverdue, action: 'last-call' };
+  }
+  // Días intermedios (con gracia de 5: el 3 y el 4). Antes eran silencio.
+  if (daysOverdue > cfg.noticeDay && daysOverdue < cfg.graceDays) {
+    return { dueSince, byFailure, daysOverdue, action: 'grace' };
+  }
   return { dueSince, byFailure, daysOverdue, action: 'none' };
 }
 

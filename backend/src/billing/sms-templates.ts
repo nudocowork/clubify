@@ -123,6 +123,29 @@ export const SMS_TEMPLATES: SmsTemplateDef[] = [
       '{platform}: Si no se regulariza el pago de {brandName} antes del {pauseDate}, tu cuenta se pausará automáticamente.',
   },
   {
+    id: 'payment_overdue_grace',
+    label: 'Recordatorio durante la gracia (días 3 y 4)',
+    description:
+      'Se envía los días intermedios de la gracia. Antes eran silencio: el ' +
+      'negocio pasaba del "no se pudo procesar" a la suspensión sin nada en ' +
+      'medio. Tono de ayuda, no de cobro.',
+    vars: ['platform', 'ownerName', 'pauseDate'],
+    group: 'cliente',
+    default:
+      'Hola {ownerName}, seguimos sin poder procesar el pago de tu suscripción de {platform}. Si recargas tu tarjeta lo intentamos de nuevo y listo. Tu cuenta se pausa el {pauseDate}. ¿Te ayudo?',
+  },
+  {
+    id: 'payment_pause_tomorrow',
+    label: 'Mañana se pausa (último día de gracia)',
+    description:
+      'El aviso que de verdad hace reaccionar: mañana se pausa la cuenta. Es ' +
+      'el último antes de la suspensión.',
+    vars: ['platform', 'ownerName'],
+    group: 'cliente',
+    default:
+      '{ownerName}, mañana se pausa tu cuenta de {platform} y tus clientes dejan de recibir notificaciones. Recarga tu tarjeta hoy y el cobro pasa solo. Escríbeme y lo resolvemos.',
+  },
+  {
     id: 'account_paused',
     label: 'Cuenta pausada',
     description: 'Se envía cuando la cuenta se pausa por falta de pago.',

@@ -711,6 +711,10 @@ model Tenant {
   paymentReminderSentFor      DateTime?
   paymentFailureNoticeSentAt  DateTime?
   pausePendingNoticeSentAt    DateTime?
+  /// Ultimo aviso de los dias intermedios de gracia (D+3, D+4) y del ultimo
+  /// dia. Una sola marca para los tres: solo hace falta saber si YA se aviso
+  /// HOY, no cual de ellos fue.
+  graceNoticeSentAt           DateTime?
   // Serie pre-cobro (PDF734): idempotencia por ciclo de los recordatorios
   // amables "7 días antes" y "mismo día del cobro". Igualamos a
   // currentPeriodEnd al enviar, para no repetir si el cron corre 2 veces.

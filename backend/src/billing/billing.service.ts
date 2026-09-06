@@ -1128,6 +1128,7 @@ export class BillingService {
         planPeriodicity: true,
         paymentFailureNoticeSentAt: true,
         pausePendingNoticeSentAt: true,
+        graceNoticeSentAt: true,
         manualPayment: true,
       },
     });
@@ -1262,6 +1263,47 @@ export class BillingService {
         if (r.ok) {
           notices++;
           this.logger.log(`SMS D+2 "no procesado" → ${t.brandName}`);
+        }
+      } else if (action === 'grace' || action === 'last-call') {
+        // Los dias 3, 4 y el ultimo de la gracia.
+        //
+        // Antes eran silencio: el negocio pasaba del «no se pudo procesar» del
+        // dia 2 directamente a encontrarse la cuenta pausada, sin nada en
+        // medio. Justo los dias en los que todavia puede recargar la tarjeta y
+        // arreglarlo, no le deciamos nada.
+        //
+        // Una sola marca para los tres: lo unico que hay que saber es si ya se
+        // aviso HOY.
+        if (this.avisadoHoy(t.graceNoticeSentAt, now)) continue;
+        await this.prisma.tenant.update({
+          where: { id: t.id },
+          data: { graceNoticeSentAt: now },
+        });
+        const target = await this.resolveBillingTarget(t.id);
+        if (!target) continue;
+        const ownerName = await this.ownerFirstName(t.id);
+        // El ultimo dia lleva mensaje propio: «manana se pausa» es lo que de
+        // verdad hace reaccionar, y decirlo el dia 3 seria mentira.
+        const plantilla =
+          action === 'last-call'
+            ? 'payment_pause_tomorrow'
+            : 'payment_overdue_grace';
+        const message = await this.smsTemplates.render(
+          plantilla,
+          { ownerName, pauseDate: fmtSmsDate(pauseDate) },
+          t.id,
+        );
+        const r = await this.growBusiness.sendSmsWithCreds(
+          target.creds,
+          target.phone,
+          message,
+          { tenantId: t.id, templateId: plantilla, feature: 'billing' },
+        );
+        if (r.ok) {
+          notices++;
+          this.logger.log(
+            `SMS D+${daysOverdue} ${action === 'last-call' ? '"manana se pausa"' : 'gracia'} -> ${t.brandName}`,
+          );
         }
       } else if (action === 'reminder') {
         // Ya se avisó hoy: no repetimos el aviso al cliente.
