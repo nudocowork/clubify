@@ -98,6 +98,7 @@ class CardBody {
   // `transformIntoCardId: null` no servía para expresarlo: null ya significa
   // "auto, la primera tarjeta de sellos activa".
   @IsOptional() @IsBoolean() transformOnRedeem?: boolean;
+  @IsOptional() @IsBoolean() couponIndefinido?: boolean;
 }
 
 // Preview REAL del strip de sellos (imagen PNG generada por Sharp, la misma que

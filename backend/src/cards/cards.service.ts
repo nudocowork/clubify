@@ -69,6 +69,7 @@ export type CardDto = {
   isActive?: boolean;
   transformIntoCardId?: string | null;
   transformOnRedeem?: boolean;
+  couponIndefinido?: boolean;
 };
 
 @Injectable()
@@ -311,6 +312,7 @@ export class CardsService {
         stampIcon: dto.stampIcon ?? '☕',
         transformIntoCardId: dto.transformIntoCardId ?? undefined,
         transformOnRedeem: dto.transformOnRedeem ?? undefined,
+        couponIndefinido: dto.couponIndefinido ?? undefined,
       },
     });
   }
