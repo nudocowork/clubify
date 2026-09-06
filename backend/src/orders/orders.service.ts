@@ -1247,7 +1247,7 @@ export class OrdersService {
   /** Historial de pedidos con filtros opcionales de servidor: estado, búsqueda
    *  (código / nombre / teléfono del cliente) y rango de fechas (from/to). Lo
    *  usa el panel de Pedidos → pestaña Historial. */
-  list(
+  async list(
     user: AuthUser,
     override?: string,
     filters?: {
@@ -1261,8 +1261,15 @@ export class OrdersService {
     const tid = this.tid(user, override);
     const where: any = { tenantId: tid };
     if (filters?.status) where.status = filters.status;
-    // Filtro opcional por sede (tenants multi-sede). Sin locationId = todos.
-    if (filters?.locationId) where.locationId = filters.locationId;
+    // La sede del EMPLEADO manda sobre lo que llegue por la URL.
+    //
+    // Antes esto solo miraba el parametro `locationId`, asi que un empleado de
+    // «solo pedidos» asignado a una sede veia los pedidos de TODAS: bastaba con
+    // no mandar el filtro. Y como el filtro lo pone el frontend, cualquiera con
+    // su sesion podia pedir la lista entera llamando a la API a pelo.
+    const suSede = await this.sedeDeSoloPedidos(user);
+    if (suSede) where.locationId = suSede;
+    else if (filters?.locationId) where.locationId = filters.locationId;
     if (filters?.from || filters?.to) {
       where.createdAt = {};
       if (filters.from) {
@@ -1331,6 +1338,29 @@ export class OrdersService {
     return byStatus;
   }
 
+  /**
+   * La sede a la que esta atado un empleado «solo pedidos», si la tiene.
+   *
+   * Se lee de la base y no del token a proposito: `AuthUser` no lleva la sede,
+   * y meterla en el JWT dejaria a los que ya estan dentro viendolo todo hasta
+   * que su sesion caduque. Un arreglo de permisos que tarda dias en aplicarse
+   * no es un arreglo.
+   *
+   * SOLO para `TENANT_ORDERS`. `TENANT_STAFF` tambien tiene sede, pero ese
+   * campo nacio para los rankings de sellos por sede, no para restringir: hay
+   * 52 empleados en 18 negocios con sede puesta que HOY ven todos los pedidos,
+   * y apagarselo de golpe seria cambiarles el trabajo sin avisar. Ese caso se
+   * revisa negocio por negocio, aparte.
+   */
+  private async sedeDeSoloPedidos(user: AuthUser): Promise<string | null> {
+    if (user.role !== 'TENANT_ORDERS') return null;
+    const u = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { locationId: true },
+    });
+    return u?.locationId ?? null;
+  }
+
   async get(user: AuthUser, id: string) {
     const o = await this.prisma.order.findUnique({
       where: { id },
@@ -1349,6 +1379,10 @@ export class OrdersService {
     if (user.role !== 'SUPER_ADMIN' && o.tenantId !== user.tenantId) {
       throw new ForbiddenException();
     }
+    // Y tampoco por el id: ocultar un pedido de la lista no sirve de nada si
+    // se puede abrir escribiendo su id en la barra del navegador.
+    const suSede = await this.sedeDeSoloPedidos(user);
+    if (suSede && o.locationId !== suSede) throw new ForbiddenException();
     return o;
   }
 
