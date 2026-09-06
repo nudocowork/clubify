@@ -105,6 +105,28 @@ bucle. El arreglo toca cómo se traga el webhook real del proveedor, así que lo
 dejo escrito en `QA-MASTER-SECURITY.md` (P1-6) con las dos opciones y no lo
 decido solo.
 
+### Fase 16 (rate limiting): lo que faltaba saber para poder decidir
+
+**No toqué nada.** Pero el P0-2 estaba parado por falta de un dato, y el dato ya
+está: `grep -rn "getTracker" backend/src` sale **vacío**, así que el Throttler
+usa su comportamiento por defecto y **limita por IP**.
+
+Eso cambia el arreglo entero. Activar `trust proxy` a secas no pasa de «nadie
+está limitado» a «todo bien»: pasa a **«los locales con varios empleados se
+autobloquean»**, porque comparten la IP del wifi y sus peticiones se suman
+contra el mismo cubo de 100/min. Y `POST /auth/signup` está en **3 por hora por
+IP**: el día que el límite se aplique, el cuarto registro desde el local de un
+negocio no entra.
+
+El refresco del panel NO es el problema, por si acaso: 30 s en pedidos y
+actividad, 25 s en domicilios, 60 s en cocina.
+
+La solución de fondo es que el cubo sea **por usuario cuando hay sesión y por IP
+solo cuando no la hay** —que es donde importa la fuerza bruta—. Dejé el código
+propuesto y el orden de despliegue en tres pasos en `QA-MASTER-SECURITY.md`
+(P0-2), para que si algo se tuerce se sepa cuál de los pasos fue. **La decisión
+es tuya, no la tomo yo.**
+
 ### El `CLAUDE.md` decía una rama de producción que ya no es
 
 Decía **«la rama que corre en producción es `feat/commissions-auto-cutoffs`, no

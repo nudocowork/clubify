@@ -96,6 +96,64 @@ abierto podría superarlo y quedarse fuera. **Hay que medir primero** cuántas
 peticiones hace el panel en una sesión normal, y subir el global si hace falta.
 Arreglar esto a ciegas tumba producción un lunes por la mañana.
 
+#### Lo que faltaba saber, medido el 2026-09-05
+
+**La causa está confirmada: `trust proxy` no existe en ninguna parte del
+backend.** Lo único que lo menciona es un comentario en
+`convenios/alianzas-publico.service.ts:78` que ya documenta el problema. El
+`ThrottlerGuard` sí está bien registrado.
+
+Y **no hay `getTracker` propio en ningún sitio**, así que el Throttler usa su
+comportamiento por defecto: **limita por IP**. Eso es lo que convierte el
+arreglo de una línea en un problema, y nadie lo había mirado:
+
+```bash
+grep -rn "getTracker" backend/src   # vacío → limita por IP
+```
+
+- **Los empleados de un mismo local comparten la IP del wifi.** Sus peticiones
+  se suman contra el mismo cubo de 100/min. Tres personas con el panel abierto
+  y el dueño se queda fuera sin haber hecho nada raro.
+- **Peor: `POST /auth/signup` está en 3 por hora POR IP.** En el local de un
+  negocio, el cuarto registro del día —empleado o cliente— no entra. Hoy no
+  pasa porque el límite no se aplica; **el día que se active, sí**.
+- El refresco automático del panel es moderado y no es el problema: 30 s en
+  pedidos y actividad, 25 s en domicilios, 60 s en la pantalla de cocina.
+
+**Por eso el arreglo no es solo `trust proxy`.** Activarlo a secas cambia «nadie
+está limitado» por «los locales con varios empleados se autobloquean». La
+solución de fondo es que **el cubo sea por usuario cuando hay sesión, y por IP
+solo cuando no la hay** — que es justo donde importa la fuerza bruta:
+
+```ts
+// backend/src/common/guards/throttler-por-usuario.guard.ts  (PROPUESTO, sin hacer)
+@Injectable()
+export class ThrottlerPorUsuario extends ThrottlerGuard {
+  protected async getTracker(req: Record<string, any>): Promise<string> {
+    // Con sesión, cada usuario tiene su propio cubo: dos empleados del mismo
+    // local dejan de restarse entre ellos. Sin sesión (login, registro,
+    // webhooks) se limita por IP, que es donde importa la fuerza bruta.
+    return req.user?.id ? `u:${req.user.id}` : `ip:${req.ip}`;
+  }
+}
+```
+
+```ts
+// backend/src/main.ts  (PROPUESTO, sin hacer)
+// Railway termina TLS en su proxy: sin esto req.ip es la del proxy, la misma
+// para todo el mundo, y el limitador no distingue a nadie.
+app.getHttpAdapter().getInstance().set('trust proxy', 1);
+```
+
+**Orden para no romper nada**, si se aprueba: (1) el tracker por usuario y subir
+`signup` a algo sensato por IP; (2) desplegar **eso solo**, con `trust proxy`
+todavía apagado — no cambia nada porque nada se aplica aún; (3) activar
+`trust proxy` en un despliegue aparte, y mirar los 429 en Sentry esa misma
+tarde. Así, si algo se tuerce, se sabe cuál de los dos pasos fue.
+
+**Sigue sin decidirse — es del dueño, no mío.** Aquí solo está medido el terreno
+y escrita la propuesta.
+
 ---
 
 ### ✅ P0-3 · La ruta pública del pedido devolvía la ficha entera del cliente
@@ -437,7 +495,7 @@ original.
 |---|---|---|---|
 | 26 | Backups | 🔴 ROTO | P0-1. Bloqueado: hacen falta credenciales |
 | 26 | Prueba de restauración | ❌ | Sin esto no hay respaldo, hay archivos |
-| 16 | Rate limiting | 🔴 ROTO | P0-2. Medir el panel ANTES de activarlo |
+| 16 | Rate limiting | 🔴 ROTO | P0-2. Terreno medido: limita por IP y no hay getTracker. Propuesta escrita (cubo por usuario). Falta la decision |
 | 10 | API — rutas públicas | 🔄 | P1-2. Inventario automatico hecho: **150** rutas, 111 abiertas de verdad, 49 escriben. 1 hueco nuevo (P1-6) |
 | 11 | Multi-tenant / IDOR | 🔄 | P1-3. 12 casos revisados, 12 correctos. Auditor ya en el CI. Falta: ~20 huerfanos + 40 delegados, y las 2 cuentas de prueba |
 
