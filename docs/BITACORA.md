@@ -27,9 +27,42 @@ porque alguien se acordó 325 veces. La 326 se escribirá con prisa cualquier
 martes, y no la va a frenar el CI, ni el tipado, ni una revisión. Detalle
 completo en `QA-MASTER-SECURITY.md`, hallazgo **P1-3**.
 
-Lo que propongo (aún **sin hacer**, no lo decido yo solo): meter el auditor en el
-CI con la cuenta actual como techo. No arregla nada de lo existente —no hace
-falta— pero impide que entre la 326.
+**Hecho, con el visto bueno de Javier: el auditor corre en el CI**, paso
+«Aislamiento entre negocios (multi-tenant)» en el job de backend, justo después
+del lint. No arregla nada de lo existente —no hace falta— pero impide que entre
+la 326.
+
+El techo es **por archivo** (`backend/scripts/aislamiento-tenant.baseline.json`),
+no un número global: con un total, arreglar una consulta en un sitio daría margen
+para colar una mala en otro y el CI se quedaría callado. Cuando sube, el paso
+dice **qué archivo y qué consultas**, con línea.
+
+Si te lo encuentras en rojo: mira la consulta que nombra. Si de verdad falta
+acotar, ponle `tenantId`. Si tras revisarla es correcta —guard delegado, id
+interno, usuario sobre sí mismo— sella el techo y explica por qué en el commit:
+
+```bash
+cd backend && node scripts/arqueo-aislamiento-tenant.cjs --sellar
+```
+
+Comprobado que sabe ponerse en rojo, no solo en verde: bajé el techo de un
+archivo a propósito y salió con código 1 nombrando las consultas.
+
+### El `CLAUDE.md` decía una rama de producción que ya no es
+
+Decía **«la rama que corre en producción es `feat/commissions-auto-cutoffs`, no
+`main`»**. Javier lo confirmó: **producción sale de `main`**. Corregido en el
+`CLAUDE.md`, porque esa frase estaba en la regla nº 2 y la siguiente sesión la
+iba a leer como verdad.
+
+`desplegar.cjs` **no está roto** y no lo toqué: sigue exigiendo que lo que
+despliegas *contenga* `feat/commissions-auto-cutoffs`, y como esa rama está
+mergeada en `main` desde el 2026-09-04 (`ace02697`), desde `main` el candado pasa
+solo. Comprobado, no de memoria:
+
+```bash
+git merge-base --is-ancestor origin/feat/commissions-auto-cutoffs origin/main && echo ok
+```
 
 ### Dos datos que corrigen el documento
 

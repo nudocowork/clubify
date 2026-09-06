@@ -284,9 +284,79 @@ const linea = (h) => {
     h.escribe ? 'ESCRIBE' : 'lee',
     h.listadoGlobal ? 'LISTADO-GLOBAL' : null,
     h.delegado ? `delega->${h.delegado}()` : null,
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
   return `  ${h.archivo}:${h.linea}  ${h.fn}() ${h.modelo}.${h.op}(${h.claves.join(', ')})  [${marcas}]`;
 };
+
+// ---------------------------------------------------------------------------
+// Trinquete para el CI.
+//
+// Las consultas que hoy acotan bien el negocio no lo hacen por ningún mecanismo:
+// lo hacen porque alguien se acordó, una por una. Este modo no arregla ninguna
+// —no hace falta, están bien— sino que impide que entre la siguiente que no
+// acote. Es la diferencia entre «esperemos que nadie se equivoque» y «no se
+// puede fusionar si te equivocas».
+//
+// El techo es POR ARCHIVO a propósito: con un número global, arreglar una
+// consulta en un sitio daría margen para colar una mala en otro, y el CI se
+// quedaría callado.
+//
+//   node scripts/arqueo-aislamiento-tenant.cjs --ci        # falla si sube
+//   node scripts/arqueo-aislamiento-tenant.cjs --sellar    # tras revisar a mano
+// ---------------------------------------------------------------------------
+const BASELINE = path.join(__dirname, 'aislamiento-tenant.baseline.json');
+
+const conteoActual = {};
+for (const h of huerfanos) conteoActual[h.archivo] = (conteoActual[h.archivo] || 0) + 1;
+
+if (process.argv.includes('--sellar')) {
+  fs.writeFileSync(BASELINE, JSON.stringify(conteoActual, null, 2) + '\n');
+  console.log(`\nTecho sellado: ${huerfanos.length} consultas sin acotar en ${Object.keys(conteoActual).length} archivos.`);
+  console.log(`Escrito en ${path.relative(ROOT, BASELINE).replace(/\\/g, '/')}\n`);
+  process.exit(0);
+}
+
+if (process.argv.includes('--ci')) {
+  if (!fs.existsSync(BASELINE)) {
+    console.error('\nNo hay techo sellado. Corre --sellar una vez y commitea el JSON.\n');
+    process.exit(1);
+  }
+  const techo = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
+  const subieron = [];
+  const bajaron = [];
+  for (const archivo of new Set([...Object.keys(techo), ...Object.keys(conteoActual)])) {
+    const antes = techo[archivo] || 0;
+    const ahora = conteoActual[archivo] || 0;
+    if (ahora > antes) subieron.push({ archivo, antes, ahora });
+    else if (ahora < antes) bajaron.push({ archivo, antes, ahora });
+  }
+
+  if (subieron.length) {
+    console.error('\n=== AISLAMIENTO ENTRE NEGOCIOS: hay consultas nuevas que no acotan ===\n');
+    for (const s of subieron) {
+      console.error(`  ${s.archivo}   ${s.antes} -> ${s.ahora}`);
+      for (const h of huerfanos.filter((x) => x.archivo === s.archivo)) console.error(linea(h));
+      console.error('');
+    }
+    console.error('Una consulta sobre un modelo con tenantId que se filtra por id y no acota');
+    console.error('el negocio deja que el dueño de un negocio lea o escriba la fila de otro.');
+    console.error('Acótala con tenantId, o comprueba el dueño antes de escribir. Si tras');
+    console.error('revisarla a mano es correcta (guard delegado, id interno, usuario sobre sí');
+    console.error('mismo), sella el techo con --sellar y explica por qué en el commit.\n');
+    process.exit(1);
+  }
+
+  if (bajaron.length) {
+    console.log('\nBajaron (bien). Sella el techo para que no puedan volver a subir:\n');
+    for (const b of bajaron) console.log(`  ${b.archivo}   ${b.antes} -> ${b.ahora}`);
+    console.log('\n  node scripts/arqueo-aislamiento-tenant.cjs --sellar\n');
+  }
+
+  console.log(`Aislamiento entre negocios: sin consultas nuevas sin acotar (techo ${huerfanos.length}).`);
+  process.exit(0);
+}
 
 console.log('\n=== ARQUEO DE AISLAMIENTO ENTRE NEGOCIOS ===\n');
 console.log(`Modelos con tenantId en el schema  : ${conTenant.size}`);

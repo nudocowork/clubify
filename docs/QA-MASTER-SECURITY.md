@@ -225,11 +225,33 @@ lo son porque alguien se acordó 325 veces. La 326 se escribirá el día que se
 añada un endpoint con prisa, no la va a frenar nada, y no se va a enterar nadie
 —ni el CI, ni una revisión, ni el tipado.
 
-**Arreglo de fondo propuesto (sin riesgo, no toca producción):** meter el
-auditor en el CI con la cuenta actual como techo. No arregla nada de lo que hay
-—no hace falta, está bien— pero **impide que entre la 326**. Es la diferencia
-entre «esperemos que nadie se equivoque» y «no se puede fusionar si te
-equivocas».
+**Arreglo de fondo: HECHO el 2026-09-05.** El auditor corre en el CI con la
+cuenta actual como techo. No arregla nada de lo que hay —no hace falta, está
+bien— pero **impide que entre la 326**. Es la diferencia entre «esperemos que
+nadie se equivoque» y «no se puede fusionar si te equivocas».
+
+El techo es **por archivo**, no un número global: con un total, arreglar una
+consulta en un sitio daría margen para colar una mala en otro y el CI se
+quedaría callado.
+
+```bash
+cd backend
+node scripts/arqueo-aislamiento-tenant.cjs --ci        # lo que corre el CI
+node scripts/arqueo-aislamiento-tenant.cjs --sellar    # tras revisar a mano
+```
+
+Cuando alguien añada una consulta que no acote, el paso se pone rojo y **dice
+qué archivo y qué consultas**, no solo que subió un número:
+
+```
+=== AISLAMIENTO ENTRE NEGOCIOS: hay consultas nuevas que no acotan ===
+  src/crm/crm.service.ts   4 -> 6
+  src/crm/crm.service.ts:1034  connectGrowBusiness() User.update(id)  [ESCRIBE]
+```
+
+Comprobado que sabe ponerse en rojo, no solo en verde: se bajó el techo de un
+archivo a propósito y el paso salió con código 1 nombrando las consultas. Una
+prueba que siempre pasa es peor que no tenerla.
 
 **Lo que queda de esta fase, y no se ha hecho:**
 
@@ -253,7 +275,7 @@ equivocas».
 | CI en cada push | `.github/workflows/ci.yml` | Lint, typecheck, 51 spec, e2e con base, build. **Verde** |
 | Sentry | back y front | Errores en servidor y en el navegador del cliente |
 | Monitor de certificados | `wallet/cert-monitor.service.ts` | Avisa antes de que caduque el de Apple Wallet |
-| Arqueo de aislamiento entre negocios | `backend/scripts/arqueo-aislamiento-tenant.cjs` | Recorre el AST y ordena por riesgo las consultas que no acotan el negocio. **No está en el CI todavía** |
+| Arqueo de aislamiento entre negocios | `backend/scripts/arqueo-aislamiento-tenant.cjs` | Recorre el AST y ordena por riesgo las consultas que no acotan el negocio. **Corre en el CI** con techo por archivo |
 
 ```bash
 node scripts/humo.cjs                 # a mano, contra producción
@@ -275,7 +297,7 @@ original.
 | 26 | Prueba de restauración | ❌ | Sin esto no hay respaldo, hay archivos |
 | 16 | Rate limiting | 🔴 ROTO | P0-2. Medir el panel ANTES de activarlo |
 | 10 | API — rutas públicas | 🔄 | P1-2. 3 huecos en la primera pasada. Son **136** rutas, no 36 |
-| 11 | Multi-tenant / IDOR | 🔄 | P1-3. Primera pasada hecha: 12 casos revisados, 12 correctos. Falta meter el auditor en el CI y las 2 cuentas de prueba |
+| 11 | Multi-tenant / IDOR | 🔄 | P1-3. 12 casos revisados, 12 correctos. Auditor ya en el CI. Falta: ~20 huerfanos + 40 delegados, y las 2 cuentas de prueba |
 
 ### Después
 
@@ -338,3 +360,4 @@ Marcar como `BLOQUEADO` y decir qué falta:
 | 2026-09-05 | Se podían crear pedidos sin teléfono desde la API | La API responde 400 |
 | 2026-09-05 | Bloqueo del service worker: primera visita rota en los 3 motores | `node scripts/humo.cjs` en verde |
 | 2026-09-05 | El pedido se creaba y el WhatsApp no siempre se abría | Ventana nueva desde el gesto del usuario |
+| 2026-09-05 | Nada impedía que entrara una consulta nueva sin acotar el negocio | `arqueo-aislamiento-tenant.cjs --ci` en el CI, techo por archivo; comprobado que sabe ponerse en rojo |

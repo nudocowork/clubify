@@ -83,6 +83,15 @@ jobs:
       - name: Lint
         run: npx eslint "src/**/*.ts" --max-warnings=999
 
+      # Aislamiento entre negocios. No hay extensión ni middleware de Prisma que
+      # inyecte tenantId: las ~325 consultas que acotan bien lo hacen porque
+      # alguien se acordó, una por una. Esto no arregla las que hay —están
+      # bien— sino que impide que entre la siguiente que no acote. El techo es
+      # por archivo (scripts/aislamiento-tenant.baseline.json); si sube, el paso
+      # dice qué archivo y qué consultas. Detalle: docs/QA-MASTER-SECURITY.md P1-3.
+      - name: Aislamiento entre negocios (multi-tenant)
+        run: node scripts/arqueo-aislamiento-tenant.cjs --ci
+
       - name: Typecheck
         run: npx tsc --noEmit
 

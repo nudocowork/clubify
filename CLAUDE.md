@@ -26,14 +26,23 @@ Lee primero, siempre:
    tienes commits sin empujar. Cada una de esas tres cosas nos costó trabajo
    perdido en un mismo día.
 
-   **La rama que corre en producción es `feat/commissions-auto-cutoffs`, no
-   `main`.** El script exige que lo que despliegas CONTENGA esa rama, vengas
-   de donde vengas: si estás en otra rama o por detrás, se niega y te dice qué
-   commits faltan. No lo saltes con `--force` para "salir del paso" — ese
-   candado existe porque desplegar sin los commits del otro **borra su trabajo
-   de producción**, y la víctima no se entera hasta que algo que funcionaba
-   "vuelve a estar roto". Pasó con `/hub` tres veces y con los arreglos de la
-   app iOS.
+   **Producción sale de `main`.** (Actualizado el 2026-09-05: aquí ponía que
+   la rama de producción era `feat/commissions-auto-cutoffs`. Ya no lo es —
+   esa rama está mergeada en `main` desde el 2026-09-04, `ace02697`.)
+
+   `desplegar.cjs` sigue exigiendo que lo que despliegas **contenga**
+   `feat/commissions-auto-cutoffs`, y desde `main` eso pasa solo. Compruébalo
+   antes de dudar del script:
+
+   ```bash
+   git merge-base --is-ancestor origin/feat/commissions-auto-cutoffs origin/main && echo ok
+   ```
+
+   El candado de fondo es el que importa: si estás por detrás o en otra rama, se
+   niega y te dice qué commits faltan. No lo saltes con `--force` para "salir del
+   paso" — existe porque desplegar sin los commits del otro **borra su trabajo de
+   producción**, y la víctima no se entera hasta que algo que funcionaba "vuelve
+   a estar roto". Pasó con `/hub` tres veces y con los arreglos de la app iOS.
 
    **Si algo que ya funcionaba aparece roto, sospecha de esto ANTES que del
    código.** Compruébalo así, no de memoria:
