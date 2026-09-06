@@ -277,6 +277,68 @@ propia sede, correcto— y de ahí salió la lección que importa:
 
 ---
 
+### 🟠 P1-6 · Cualquiera puede dar de baja a un contacto ajeno, y falsear que respondió
+
+**Estado: ABIERTO. Encontrado el 2026-09-05 en la fase 10. NO se tocó — el
+arreglo cambia cómo se traga el webhook real y eso se decide con el dueño.**
+
+`POST /api/webhooks/email-inbound/:slug` no verifica firma. El propio código lo
+sabe: hay un `TODO(hardening)` en
+[mkt-webhook.controller.ts](../backend/src/marketing/mkt-webhook.controller.ts).
+
+Lo que dice el comentario de ese archivo es que da igual, porque *«solo sellamos
+eventos que correlacionan con un envío nuestro por `providerMessageId` → un
+evento forjado sin ese id no hace nada»*. **Eso no es cierto en dos ramas**, y
+son justo las que hacen algo:
+
+```js
+const { contactId } = await this.actions.stampEvent({ ... });   // sin messageId -> null
+if (kind === 'unsubscribe') {
+  const cid = contactId ?? (await this.contactIdByEmail(wl.id, email));  // <-- respaldo POR EMAIL
+  if (cid) await this.contacts.setOptOut(wl.id, cid, true);
+}
+if (isInteraction(kind)) {
+  const cid = contactId ?? (await this.contactIdByEmail(wl.id, email));  // <-- el mismo respaldo
+  if (cid) await this.engine.onContactInteraction(cid, wl.id);
+}
+```
+
+El respaldo por email se salta la correlación entera. Y `detectKind` clasifica
+por una subcadena, así que forjar el evento es escribir una palabra:
+
+```bash
+# Baja a una persona de las comunicaciones de esa marca
+curl -X POST https://api.soyclubify.com/api/webhooks/email-inbound/<slug> \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"unsubscribe","email":"victima@ejemplo.com"}'
+
+# O finge que contestó: reanuda el «esperar respuesta» y dispara email_reply
+  -d '{"type":"reply","email":"victima@ejemplo.com"}'
+```
+
+**Lo único que hace falta** es el slug de la marca —que no es un secreto: va en
+la URL— y un correo. No hace falta acertar ningún id interno.
+
+**Daño:** no se filtran datos, pero se puede vaciar la lista de una marca a base
+de bajas (un competidor deja a un negocio sin canal de correo) y corromper las
+métricas y los workflows fingiendo respuestas. Y como **ningún límite de
+peticiones funciona** (P0-2), se puede hacer en bucle.
+
+**Lo bueno:** `setOptOut` y `contactIdByEmail` **sí** acotan por `whiteLabelId`,
+así que no se puede saltar de una marca a otra. El aislamiento aguanta; lo que
+falla es la puerta.
+
+**Arreglo, a decidir con el dueño porque toca el flujo real del proveedor:**
+
+1. Lo de fondo: verificar la firma sobre `req.rawBody` (el `TODO` que ya está
+   escrito). El `rawBody` ya se guarda en `main.ts` para Stripe.
+2. Mientras tanto, y más barato: exigir correlación real —quitar el respaldo por
+   email para `unsubscribe` e interacción, o aceptarlo solo si a ese correo se le
+   envió algo de esa marca hace poco. Hay que mirar antes cuántos eventos
+   legítimos llegan hoy sin `messageId`, o se pierden bajas de verdad.
+
+---
+
 ### 🟠 P1-4 · 40 dependencias vulnerables en lo que se despliega, y nadie miraba
 
 **Estado: ABIERTO. Fase 37. El CI ya impide que empeore desde el 2026-09-05.**
@@ -354,6 +416,7 @@ APIs y servicios → Credenciales → Restricciones de aplicación → Sitios we
 | Sentry | back y front | Errores en servidor y en el navegador del cliente |
 | Monitor de certificados | `wallet/cert-monitor.service.ts` | Avisa antes de que caduque el de Apple Wallet |
 | Arqueo de dependencias | `scripts/arqueo-dependencias.cjs` | `npm audit` de lo que se despliega, en el CI. Bloquea solo si suben criticas o altas |
+| Inventario de rutas publicas | `backend/scripts/arqueo-rutas-publicas.cjs` | Las 150 `@Public()` ordenadas por dano: si escriben, si la llave es adivinable, si ya se autentican por otra via |
 | Arqueo de aislamiento entre negocios | `backend/scripts/arqueo-aislamiento-tenant.cjs` | Recorre el AST y ordena por riesgo las consultas que no acotan el negocio. **Corre en el CI** con techo por archivo |
 
 ```bash
@@ -375,7 +438,7 @@ original.
 | 26 | Backups | 🔴 ROTO | P0-1. Bloqueado: hacen falta credenciales |
 | 26 | Prueba de restauración | ❌ | Sin esto no hay respaldo, hay archivos |
 | 16 | Rate limiting | 🔴 ROTO | P0-2. Medir el panel ANTES de activarlo |
-| 10 | API — rutas públicas | 🔄 | P1-2. 3 huecos en la primera pasada. Son **136** rutas, no 36 |
+| 10 | API — rutas públicas | 🔄 | P1-2. Inventario automatico hecho: **150** rutas, 111 abiertas de verdad, 49 escriben. 1 hueco nuevo (P1-6) |
 | 11 | Multi-tenant / IDOR | 🔄 | P1-3. 12 casos revisados, 12 correctos. Auditor ya en el CI. Falta: ~20 huerfanos + 40 delegados, y las 2 cuentas de prueba |
 
 ### Después

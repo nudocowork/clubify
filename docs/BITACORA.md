@@ -59,6 +59,52 @@ sellándolo a ciegas y deja de servir. El punto ciego era siempre el mismo
 reconoce `where: { id: user.id }` y no lo marca. Solo eso quitó 14 falsos
 positivos (77 → 63) y 9 escrituras (33 → 24). El techo sellado es **63**.
 
+### Fases 37, 38 y 10 — y un hueco nuevo que sí duele
+
+**Fase 37 (dependencias).** `npm audit` no corría en ningún sitio. Medido solo
+sobre lo que se despliega: **backend 1 crítica y 14 altas**, frontend 8 altas.
+Las que importan aquí: `jsonwebtoken` (la librería de la autenticación entera),
+`ws` y `socket.io-parser` (los pedidos en vivo), `multer`, `sharp` y `tar`.
+**No actualicé ninguna** — subir 40 paquetes de producción de golpe es de las
+cosas que tumban el sistema un lunes. Van por tandas, empezando por
+`jsonwebtoken`, con regresión entre tanda y tanda. Lo que sí hice: job propio en
+el CI con techo, y **solo bloquea si suben críticas o altas**, para que un CVE
+nuevo de nivel moderate no te deje sin mergear un arreglo urgente.
+
+**Fase 38 (secretos).** Buscados en git, en el código por formato conocido y en
+el bundle de producción: **ninguno filtrado**. Solo `.env.example` versionado.
+Queda un pendiente que no está en el código: la clave de Google Maps es pública
+por diseño, pero **hay que comprobar en Google Cloud que esté restringida por
+dominio** (si no, cualquiera la copia y factura contra la cuenta).
+
+**Fase 10 (rutas públicas).** Inventario automático:
+`backend/scripts/arqueo-rutas-publicas.cjs`. **Son 150**, no 136 ni 36. De esas,
+39 se autentican por otra vía (api-key o firma) y **111 están abiertas de
+verdad, 49 escribiendo**.
+
+#### 🟠 Y de ahí salió esto — no lo toqué, lo decides tú
+
+`POST /api/webhooks/email-inbound/:slug` no verifica firma. El comentario del
+archivo dice que da igual porque solo sella lo que correlaciona por
+`providerMessageId`. **No es cierto en dos ramas**: tanto `unsubscribe` como las
+interacciones tienen un respaldo `?? contactIdByEmail(...)` que se salta la
+correlación entera. Con el slug de la marca (que va en la URL, no es secreto) y
+un correo:
+
+```bash
+curl -X POST https://api.soyclubify.com/api/webhooks/email-inbound/<slug> \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"unsubscribe","email":"victima@ejemplo.com"}'   # la da de baja
+  -d '{"type":"reply","email":"victima@ejemplo.com"}'         # finge que contestó
+```
+
+No filtra datos —y `setOptOut` **sí** acota por `whiteLabelId`, así que no se
+salta de marca a marca—, pero se puede vaciar la lista de una marca a base de
+bajas y corromper métricas y workflows. Y sin límite de peticiones (P0-2), en
+bucle. El arreglo toca cómo se traga el webhook real del proveedor, así que lo
+dejo escrito en `QA-MASTER-SECURITY.md` (P1-6) con las dos opciones y no lo
+decido solo.
+
 ### El `CLAUDE.md` decía una rama de producción que ya no es
 
 Decía **«la rama que corre en producción es `feat/commissions-auto-cutoffs`, no
