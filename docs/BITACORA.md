@@ -43,11 +43,27 @@ que de verdad atrapa los fallos de navegación— no la llamaba.
 
 El cliente tenía **VPN activa** en el navegador, lo que explica su «Sin conexión».
 
-### OJO al desplegar el frontend
+### Javi: los sube tu despliegue, y van validados
 
-`6e7acc79` es lo desplegado. Lo que se subiría ahora incluye también
-`app/cards/[id]` y `app/cards/new` — **eso es de Javi**, y él pidió mandar lo
-suyo. Coordinar antes de desplegar.
+**Decisión de Jhon (06-09): el frontend lo despliegas tú**, con lo tuyo de
+tarjetas. Estos dos arreglos viajan en el mismo paquete — no los frenes ni los
+saques: `tsc` 0, `eslint` 0, `next build` compila, y el respaldo por polling
+está comprobado contra producción (handshake 200 y CORS del namespace
+respondiendo a `https://app.soyclubify.com`).
+
+Lo desplegado hoy es `6e7acc79`. Lo que sube contigo:
+
+| fichero | de quién |
+|---|---|
+| `app/cards/[id]`, `app/cards/new` | tuyo |
+| `app/error.tsx`, `lib/socket.ts` | estos dos arreglos |
+
+Backend no hace falta: los dos son solo de frontend.
+
+**Si puedes, no lo despliegues en hora de servicio** (12–15 h y 19–22 h): quien
+tenga el tablero abierto en ese momento es justo a quien le sale «Algo salió
+mal». Después de este despliegue deja de importar —la pantalla se recarga
+sola—, pero durante ÉL todavía aplica lo viejo.
 
 ## 2026-09-05 (noche) — Fase 11 del QA: el aislamiento entre negocios está bien escrito, y eso es justo el problema
 
