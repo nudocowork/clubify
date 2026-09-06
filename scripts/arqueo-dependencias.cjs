@@ -6,17 +6,31 @@
  * que entraba una dependencia con un CVE hasta que alguien lo miraba a mano, y
  * nadie lo miraba a mano.
  *
- * Por qué NO falla con `--audit-level=high` a secas: hoy ya hay 40 avisos en las
- * dependencias de producción del backend. Un candado que nace en rojo se
- * desactiva el primer día. Este cuenta por severidad y falla solo si SUBE, con
- * lo que el número solo puede bajar.
+ * Por qué NO falla con `--audit-level=high` a secas: hoy ya hay decenas de
+ * avisos en las dependencias de producción. Un candado que nace en rojo se
+ * desactiva el primer día. Este compara contra un techo y falla solo si aparece
+ * un paquete grave NUEVO.
+ *
+ * Por qué compara PAQUETES y no contadores (2026-09-05, y esto costó un CI
+ * apagado en silencio): el primer intento contaba vulnerabilidades por
+ * severidad, y el mismo lockfile daba 14 altas aquí y 15 en el CI. Se
+ * diagnosticó como diferencia de sistema operativo y se hizo un techo por
+ * plataforma — **falso**: la diferencia es la VERSION DE NPM (npm 11 ve 14,
+ * npm 10.8 ve 15), y como las dos máquinas del equipo son Windows, el techo de
+ * Linux no se podía sellar desde ninguna. Resultado: el job del CI imprimía
+ * «no hay techo sellado para linux» y salía 0 sin comparar nada, durante horas,
+ * mientras el informe decía que estaba protegido.
+ *
+ * El conjunto de paquetes graves sí es estable entre versiones de npm, y
+ * `--sellar` ACUMULA en vez de reemplazar, para que el techo cubra lo que ve
+ * cada versión sin que nadie tenga que adivinar cuál corre dónde.
  *
  * Mira solo `--omit=dev`: vitest o @nestjs/cli no se despliegan, y mezclarlos
  * con multer o jsonwebtoken esconde lo que sí llega al servidor.
  *
  *   node scripts/arqueo-dependencias.cjs            # resumen
- *   node scripts/arqueo-dependencias.cjs --ci       # falla si sube
- *   node scripts/arqueo-dependencias.cjs --sellar   # tras revisar a mano
+ *   node scripts/arqueo-dependencias.cjs --ci       # falla si aparece uno nuevo
+ *   node scripts/arqueo-dependencias.cjs --sellar   # acumula en el techo
  */
 const { execSync } = require('child_process');
 const fs = require('fs');
@@ -25,11 +39,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 
 /** `--baseline=` y `--auditoria=` existen para poder PROBAR el trinquete sin
- *  depender de la red ni de un `npm audit` real: `--auditoria` carga el
- *  resultado desde un JSON en vez de ejecutar npm. Sin esto habría que fiarse
- *  de que la comparación sigue funcionando, y este script es lo único que
- *  impide que entre una dependencia vulnerable sin que nadie se entere.
- *  Ver `backend/test/arqueo-dependencias.test.ts`. */
+ *  red ni `npm audit` real. Ver `backend/test/arqueo-dependencias.test.ts`. */
 const argOpcion = (nombre) => {
   const a = process.argv.find((x) => x.startsWith(`--${nombre}=`));
   return a ? a.slice(nombre.length + 3) : null;
@@ -39,21 +49,31 @@ const AUDITORIA_FIJA = argOpcion('auditoria');
 const PAQUETES = ['backend', 'frontend'];
 const GRAVES = ['critical', 'high'];
 
+/**
+ * Devuelve la auditoría de un paquete, o `null` si NO se pudo auditar.
+ *
+ * La distinción es todo el asunto: ante un fallo de red o de registro,
+ * `npm audit --json` escribe en stdout un JSON *válido* con `message` y `error`
+ * y sin `metadata`. Parsearlo alegremente daba cero vulnerabilidades, el
+ * trinquete lo leía como «bajaron todas» y el CI salía en verde. Un audit que
+ * falla no es un «sin vulnerabilidades»: es no haber mirado.
+ */
 function auditar(dir) {
   const cwd = path.join(ROOT, dir);
   if (!fs.existsSync(path.join(cwd, 'package.json'))) return null;
   let salida;
   try {
-    // npm audit sale con código != 0 cuando encuentra algo: eso NO es un fallo
-    // del comando, así que se captura y se sigue.
+    // npm audit sale con codigo != 0 cuando ENCUENTRA algo: eso no es un fallo
+    // del comando, asi que se captura y se sigue mirando el contenido.
     salida = execSync('npm audit --omit=dev --json', {
       cwd,
       encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       maxBuffer: 32 * 1024 * 1024,
     });
   } catch (e) {
     salida = e.stdout;
+    if (e.stderr) process.stderr.write(String(e.stderr).split('\n').slice(0, 5).join('\n') + '\n');
   }
   if (!salida) return null;
   let datos;
@@ -62,11 +82,13 @@ function auditar(dir) {
   } catch {
     return null;
   }
-  const v = datos.metadata?.vulnerabilities || {};
+  // Sin `metadata.vulnerabilities` no hay auditoría: es el JSON de error de npm.
+  if (!datos || !datos.metadata || !datos.metadata.vulnerabilities) return null;
+  const v = datos.metadata.vulnerabilities;
   const graves = Object.entries(datos.vulnerabilities || {})
     .filter(([, x]) => GRAVES.includes(x.severity))
-    .map(([nombre, x]) => ({ nombre, severidad: x.severity }))
-    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    .map(([nombre, x]) => `${nombre}:${x.severity}`)
+    .sort();
   return {
     critical: v.critical || 0,
     high: v.high || 0,
@@ -77,128 +99,115 @@ function auditar(dir) {
 }
 
 const actual = {};
+const fallaron = [];
 if (AUDITORIA_FIJA) {
   Object.assign(actual, JSON.parse(fs.readFileSync(AUDITORIA_FIJA, 'utf8')));
 } else {
   for (const p of PAQUETES) {
     const r = auditar(p);
     if (r) actual[p] = r;
+    else fallaron.push(p);
   }
-}
-
-if (!Object.keys(actual).length) {
-  console.error('\nNo se pudo auditar ningún paquete. ¿Falta `npm ci`?\n');
-  process.exit(1);
 }
 
 const resumen = (p, r) =>
-  `  ${p.padEnd(9)} critical ${r.critical}   high ${r.high}   moderate ${r.moderate}   low ${r.low}`;
+  `  ${p.padEnd(9)} critical ${r.critical}   high ${r.high}   moderate ${r.moderate}   low ${r.low}   (${r.graves.length} paquetes graves)`;
 
-// El techo va POR PLATAFORMA, y no es capricho: npm instala dependencias
-// opcionales distintas segun el sistema —los binarios de sharp, por ejemplo—,
-// asi que el mismo lockfile da 14 altas en Windows y 15 en el Linux del CI.
-// Sellar aqui y comparar alli ponia el CI en rojo sin que nadie hubiera tocado
-// una dependencia. Pasó el 2026-09-05, en el primer run.
-const PLATAFORMA = process.platform;
-
-function leerTecho() {
-  if (!fs.existsSync(BASELINE)) return null;
-  const j = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
-  // Formato viejo (sin plataforma): se ignora, hay que volver a sellar.
-  return j[PLATAFORMA] || null;
-}
+// ---------------------------------------------------------------------------
 
 if (process.argv.includes('--sellar')) {
-  const previo = fs.existsSync(BASELINE) ? JSON.parse(fs.readFileSync(BASELINE, 'utf8')) : {};
-  const techo = {};
-  for (const [p, r] of Object.entries(actual)) {
-    techo[p] = { critical: r.critical, high: r.high, moderate: r.moderate, low: r.low };
+  if (fallaron.length) {
+    console.error(`\nNo se sella lo que no se ha podido auditar: ${fallaron.join(', ')}\n`);
+    process.exit(1);
   }
-  // Solo se pisa la plataforma en la que se esta sellando: el techo del CI no
-  // se toca desde un portatil, ni al reves.
-  previo[PLATAFORMA] = techo;
-  fs.writeFileSync(BASELINE, JSON.stringify(previo, null, 2) + '\n');
-  console.log(`\nTecho sellado para ${PLATAFORMA}:\n`);
+  const previo = fs.existsSync(BASELINE) ? JSON.parse(fs.readFileSync(BASELINE, 'utf8')) : {};
+  const techo = previo.graves && typeof previo.graves === 'object' ? previo.graves : {};
+  let nuevos = 0;
+  for (const [p, r] of Object.entries(actual)) {
+    const antes = new Set(techo[p] || []);
+    for (const g of r.graves) if (!antes.has(g)) nuevos++;
+    // ACUMULA: asi el techo cubre lo que ve cada version de npm sin que nadie
+    // tenga que saber cual corre en el CI.
+    techo[p] = [...new Set([...(techo[p] || []), ...r.graves])].sort();
+  }
+  fs.writeFileSync(BASELINE, JSON.stringify({ graves: techo }, null, 2) + '\n');
+  console.log('\nTecho sellado:\n');
   for (const [p, r] of Object.entries(actual)) console.log(resumen(p, r));
-  console.log(`\nEscrito en ${path.relative(ROOT, BASELINE).replace(/\\/g, '/')}\n`);
+  console.log(`\n  ${nuevos} paquete(s) grave(s) añadido(s) al techo.`);
+  console.log(`Escrito en ${path.relative(ROOT, BASELINE).replace(/\\/g, '/')}\n`);
   process.exit(0);
 }
 
 if (process.argv.includes('--ci')) {
-  const techo = leerTecho();
-  if (!techo) {
-    // Sin techo para ESTA plataforma no se puede comparar nada, y fallar aqui
-    // seria dejar el CI en rojo por un techo que falta, no por una dependencia
-    // mala. Se avisa con los numeros para poder sellarlos, y se deja pasar.
-    console.log(`\nNo hay techo sellado para ${PLATAFORMA}. Estos son los numeros de aqui:\n`);
-    for (const [p, r] of Object.entries(actual)) console.log(resumen(p, r));
-    console.log('\nPara activar el candado en esta plataforma, sella y commitea el JSON:');
-    console.log('  node scripts/arqueo-dependencias.cjs --sellar\n');
-    process.exit(0);
-  }
-  // Si un paquete que estaba en el techo hoy no se puede auditar, NO se pasa
-  // por alto. Iterando solo sobre lo auditado, un `npm audit` que fallara solo
-  // en frontend dejaba el frontend sin vigilar y el CI en verde: el mismo
-  // fallo silencioso de siempre, pero a trozos.
-  const faltan = Object.keys(techo).filter((p) => !actual[p]);
-  if (faltan.length) {
-    console.error('\n=== NO SE PUDO AUDITAR LO QUE ANTES SI ===\n');
-    for (const p of faltan) console.error(`  ${p}   (esta en el techo y hoy no devuelve nada)`);
+  if (fallaron.length) {
+    console.error('\n=== NO SE PUDO AUDITAR ===\n');
+    for (const p of fallaron) console.error(`  ${p}`);
     console.error('\nUn `npm audit` que falla no es un «sin vulnerabilidades»: es no haber');
     console.error('mirado. Revisa la red, el lockfile o el registro antes de seguir.\n');
     process.exit(1);
   }
+  if (!fs.existsSync(BASELINE)) {
+    console.error('\nNo hay techo sellado. Corre --sellar una vez y commitea el JSON.\n');
+    process.exit(1);
+  }
+  const techo = (JSON.parse(fs.readFileSync(BASELINE, 'utf8')) || {}).graves || {};
 
-  const subieron = [];
-  const avisos = [];
-  const bajaron = [];
+  // Si un paquete que esta en el techo hoy no devuelve nada, NO se pasa por
+  // alto: seria dejar medio arqueo sin vigilar y el CI en verde.
+  const faltan = Object.keys(techo).filter((p) => !actual[p]);
+  if (faltan.length) {
+    console.error('\n=== NO SE PUDO AUDITAR LO QUE ANTES SI ===\n');
+    for (const p of faltan) console.error(`  ${p}   (esta en el techo y hoy no devuelve nada)`);
+    console.error('');
+    process.exit(1);
+  }
+
+  const nuevos = [];
+  const desaparecidos = [];
   for (const [p, r] of Object.entries(actual)) {
-    const t = techo[p] || { critical: 0, high: 0, moderate: 0, low: 0 };
-    for (const sev of ['critical', 'high', 'moderate', 'low']) {
-      const antes = t[sev] || 0;
-      if (r[sev] > antes) {
-        // Solo las graves tumban el CI. Un CVE nuevo de nivel moderate en una
-        // dependencia de tercero no puede dejar sin mergear el arreglo urgente
-        // de otro: se avisa y se sigue. Un candado que estorba se quita.
-        (GRAVES.includes(sev) ? subieron : avisos).push({ p, sev, antes, ahora: r[sev] });
-      } else if (r[sev] < antes) {
-        bajaron.push({ p, sev, antes, ahora: r[sev] });
-      }
-    }
+    const antes = new Set(techo[p] || []);
+    const ahora = new Set(r.graves);
+    for (const g of r.graves) if (!antes.has(g)) nuevos.push({ p, g });
+    for (const g of antes) if (!ahora.has(g)) desaparecidos.push({ p, g });
   }
 
-  if (avisos.length) {
-    console.log('\nSubieron, pero no son graves (no bloquean):\n');
-    for (const a of avisos) console.log(`  ${a.p}  ${a.sev}: ${a.antes} -> ${a.ahora}`);
-    console.log('');
-  }
-
-  if (subieron.length) {
-    console.error('\n=== DEPENDENCIAS: hay vulnerabilidades nuevas en lo que se despliega ===\n');
-    for (const s of subieron) console.error(`  ${s.p}  ${s.sev}: ${s.antes} -> ${s.ahora}`);
-    console.error('\nEsto mira solo dependencias de PRODUCCION (--omit=dev): lo que corre en el');
-    console.error('servidor, no las herramientas de desarrollo. Mira qué entró:\n');
+  if (nuevos.length) {
+    console.error('\n=== DEPENDENCIAS: PAQUETE GRAVE NUEVO EN LO QUE SE DESPLIEGA ===\n');
+    for (const n of nuevos) console.error(`  ${n.p}   ${n.g}`);
+    console.error('\nEsto mira solo dependencias de PRODUCCION (--omit=dev): lo que corre en');
+    console.error('el servidor, no las herramientas de desarrollo. Mira que entro:\n');
     console.error('  cd backend && npm audit --omit=dev\n');
-    console.error('Si es inevitable por ahora, sella el techo y explica por qué en el commit:\n');
+    console.error('Si es inevitable por ahora, sella el techo y explica por que en el commit:\n');
     console.error('  node scripts/arqueo-dependencias.cjs --sellar\n');
     process.exit(1);
   }
 
-  if (bajaron.length) {
-    console.log('\nBajaron (bien). Sella para que no puedan volver a subir:\n');
-    for (const b of bajaron) console.log(`  ${b.p}  ${b.sev}: ${b.antes} -> ${b.ahora}`);
-    console.log('\n  node scripts/arqueo-dependencias.cjs --sellar\n');
+  if (desaparecidos.length) {
+    console.log('\nYa no aparecen (bien). Quedan en el techo porque otra version de npm');
+    console.log('puede seguir viendolos; para limpiarlos, edita el JSON a mano:\n');
+    for (const d of desaparecidos) console.log(`  ${d.p}   ${d.g}`);
+    console.log('');
   }
 
-  console.log('Dependencias: sin vulnerabilidades nuevas en lo que se despliega.');
+  const total = Object.values(actual).reduce((n, r) => n + r.graves.length, 0);
+  console.log(`Dependencias: sin paquetes graves nuevos (${total} vigilados).`);
   process.exit(0);
 }
 
+// ---------------------------------------------------------------------------
+
+if (fallaron.length) {
+  console.error(`\nNo se pudo auditar: ${fallaron.join(', ')}\n`);
+  process.exit(1);
+}
 console.log('\n=== DEPENDENCIAS VULNERABLES (solo lo que se despliega) ===\n');
 for (const [p, r] of Object.entries(actual)) console.log(resumen(p, r));
 for (const [p, r] of Object.entries(actual)) {
   if (!r.graves.length) continue;
-  console.log(`\n--- ${p}: críticas y altas ---`);
-  for (const g of r.graves) console.log(`  ${g.severidad.padEnd(8)} ${g.nombre}`);
+  console.log(`\n--- ${p}: criticas y altas ---`);
+  for (const g of r.graves) {
+    const [nombre, sev] = g.split(':');
+    console.log(`  ${sev.padEnd(8)} ${nombre}`);
+  }
 }
 console.log('');

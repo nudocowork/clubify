@@ -8,6 +8,76 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-06 (madrugada) — Pasé los candados por una revisión y estaban mal. Tres daban verde sin mirar
+
+**Lo primero, y no es del código: el repositorio es PÚBLICO.**
+`gh repo view --json isPrivate` → `false`, `visibility: PUBLIC`. Todo el código,
+`ESTADO-PRODUCCION.md`, esta bitácora y el inventario de rutas públicas con sus
+hallazgos y líneas exactas lo lee cualquiera. **No lo he tocado — es tu
+decisión**, pero compruébalo antes que nada de lo demás.
+
+### Lo que estaba mal de lo que yo mismo escribí ayer
+
+**1. Mi «arreglo» del techo de dependencias apagó el candado.** Diagnostiqué que
+el mismo lockfile daba 14 altas aquí y 15 en el CI **por el sistema operativo**.
+Es falso: es la **versión de npm** (npm 11 ve 14, el npm 10.8 que trae Node 20 en
+el CI ve 15 — comprobado con `npx npm@10.8.2 audit`). Como las dos máquinas
+somos Windows, el techo de `linux` no se podía sellar desde ninguna, así que el
+job imprimía «no hay techo sellado para linux» y **salía 0 sin comparar nada**.
+Horas con el informe diciendo que estaba protegido.
+
+Rehecho: ahora compara **qué paquetes** son graves, no cuántos —el conjunto es
+estable entre versiones de npm— y `--sellar` **acumula** en vez de reemplazar,
+así que el techo cubre lo que ve cada versión. Sellado con npm 11 y con npm
+10.8.2: 24 paquetes graves vigilados.
+
+**2. Con la red caída, el mismo script daba verde.** `npm audit` ante un fallo
+de registro escribe un JSON **válido** con `message`/`error` y sin `metadata`;
+se leía como cero vulnerabilidades y el trinquete lo celebraba como «bajaron
+todas». Ahora, sin `metadata.vulnerabilities` no hay auditoría: falla.
+Comprobado con `npm_config_registry=http://127.0.0.1:9` → código 1.
+
+**3. El inventario de rutas públicas escondía las 15 rutas de `/auth/*`.** La
+heurística de «ya se autentica por otra vía» incluía la subcadena `firma`… que
+casa dentro de **«confirma», «confirmación», «confirmar»**, y además miraba el
+texto de la **clase entera**. Un comentario cualquiera daba por segura la clase
+completa: login, signup, refresh, reset-password, 2FA, y las de reservas.
+
+**Los números que te di ayer eran falsos.** No son 111 abiertas y 49 que
+escriben: son **140 abiertas y 68 que escriben**. Corregido en
+`QA-MASTER-SECURITY.md`. Ahora el regex lleva límites de palabra y se mira solo
+el handler más los métodos privados que ese handler llama.
+
+**4. El arqueo de aislamiento se excusaba por el nombre de una variable.**
+`AMBITO_PROPIO` daba por acotado `BenefitCampaign` si veía `campaignId` — pero
+`campaignId` no es un campo de ese modelo, **es su propio id**. Un
+`benefitCampaign.update({ where: { id: campaignId } })` sin comprobar nada
+quedaba «acotado». Igual con `AllyBusiness`. Quitados: solo queda `Delivery` con
+`deliveryCompanyId`, que sí es un ámbito real.
+
+Al quitarlos, cuponera pasa de 11 a 30 vigiladas y el techo de 158 a **179**.
+**No ha entrado nada malo: es que antes no las veía.**
+
+### Y lo más importante que aprendí de todo esto
+
+Un candado que da verde sin mirar es peor que no tener candado, porque además
+tranquiliza — y **los tres lo hacían**. Ahora hay **28 pruebas** que corren en el
+CI sin base de datos ni red, y lo que comprueban no es que los scripts «no
+peten», sino que **siguen cazando lo que dicen cazar**. Verificado que muerden:
+reintroduje el bug del `include` a propósito y falló exactamente el test que lo
+cubre.
+
+### Lo que sigue mal y no he tocado
+
+- **Nada bloquea nada.** `main` no tiene protección de rama, los commits van
+  directos, y el CI corre **después** de que el código ya está en `main`.
+  `desplegar.cjs` tampoco consulta el estado de los checks. Hoy el CI es una
+  alarma que suena cuando ya ha pasado, no un candado.
+- Al arqueo de aislamiento le siguen faltando: el `where` construido en una
+  variable, `groupBy`, `$executeRawUnsafe`, y los **modelos hijos sin
+  `tenantId`** (123 llamadas por id sobre 19 modelos que cuelgan de un padre con
+  tenant). Está anotado.
+
 ## 2026-09-05 (noche) — Fase 11 del QA: el aislamiento entre negocios está bien escrito, y eso es justo el problema
 
 **No toqué nada de producción.** Un archivo nuevo,

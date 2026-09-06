@@ -1,16 +1,32 @@
 {
-  "win32": {
-    "backend": {
-      "critical": 1,
-      "high": 14,
-      "moderate": 24,
-      "low": 1
-    },
-    "frontend": {
-      "critical": 0,
-      "high": 8,
-      "moderate": 10,
-      "low": 1
-    }
+  "graves": {
+    "backend": [
+      "@mapbox/node-pre-gyp:high",
+      "@nestjs/platform-express:high",
+      "apn:high",
+      "argon2:high",
+      "brace-expansion:high",
+      "fast-xml-builder:high",
+      "js-yaml:high",
+      "jsonwebtoken:high",
+      "lodash:high",
+      "multer:high",
+      "nanoid:high",
+      "node-forge:high",
+      "sharp:high",
+      "socket.io-parser:high",
+      "tar:critical",
+      "ws:high"
+    ],
+    "frontend": [
+      "brace-expansion:high",
+      "browserslist:high",
+      "fast-uri:high",
+      "nanoid:high",
+      "next:high",
+      "postcss:high",
+      "socket.io-parser:high",
+      "ws:high"
+    ]
   }
 }

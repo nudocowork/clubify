@@ -415,6 +415,53 @@ falla es la puerta.
 
 ---
 
+### 🟠 P1-7 · 18 sitios pueden crear el registro dos veces, y son los de cobros
+
+**Estado: ABIERTO. Fase 17, medido el 2026-09-06. No se tocó nada.**
+
+Es el bug más repetido de este producto y siempre se ve igual: «al cliente le
+llegó dos veces». El patrón:
+
+```ts
+const ya = await prisma.x.findFirst({ where: {...} });   // leer
+if (ya) return;                                          // decidir
+await prisma.x.create({ ... });                          // escribir
+```
+
+Entre el leer y el escribir caben dos peticiones. Los webhooks reintentan, el
+cliente hace doble clic, el cron se solapa con el reintento: las dos leen «no
+existe» y las dos escriben.
+
+```bash
+cd backend && node scripts/arqueo-idempotencia.cjs
+#   Leer-decidir-escribir sin red  : 210
+#     de esas, que CREAN            : 58
+#       ...y SIN unico que las corte: 18   <-- aqui el duplicado se queda
+```
+
+El cruce con el schema es lo que hace la lista utilizable: de 58 creaciones, 40
+están cortadas por un `@unique` que el código no menciona porque vive en el
+schema —la segunda petición choca contra la base, falla feo, pero **no
+duplica**—. Quedan 18 sin nada que las pare.
+
+**Y son justo las de dinero:**
+
+| Sitio | Qué duplica |
+|---|---|
+| `billing/hotmart.service.ts:1760` `storePendingPayment()` | Un pago pendiente de Hotmart. El webhook **reintenta por diseño** |
+| `billing/cross.service.ts:648` `storePending()` | Lo mismo en Cross |
+| `billing/hotmart.service.ts:705` y `:2665` | Atribución de referido y comisión de socio |
+| `auth/trial-otp.service.ts:59` `solicitar()` | Códigos OTP de prueba |
+
+**No se tocó, y por dos razones:** Hotmart, comisiones y referidos son
+territorio de Jhon (regla 7); y el arreglo correcto no es comprobar mejor —el
+problema no es la comprobación— sino que **solo una petición pueda ganar**:
+índice único sobre la clave natural + `upsert`, o un `UPDATE` condicional
+mirando el `count`, o un advisory lock. Eso es un cambio de esquema y de
+comportamiento en el camino del dinero: se decide antes de escribirlo.
+
+---
+
 ### 🟡 P2-1 · 121 filtros escanean la tabla entera por falta de índice
 
 **Estado: ABIERTO. Fase 20, medido el 2026-09-05. No se aplicó ningún índice.**
@@ -545,9 +592,10 @@ APIs y servicios → Credenciales → Restricciones de aplicación → Sitios we
 | CI en cada push | `.github/workflows/ci.yml` | Lint, typecheck, 51 spec, e2e con base, build. **Verde** |
 | Sentry | back y front | Errores en servidor y en el navegador del cliente |
 | Monitor de certificados | `wallet/cert-monitor.service.ts` | Avisa antes de que caduque el de Apple Wallet |
-| Arqueo de dependencias | `scripts/arqueo-dependencias.cjs` | `npm audit` de lo que se despliega, en el CI. Bloquea solo si suben criticas o altas |
+| Arqueo de dependencias | `scripts/arqueo-dependencias.cjs` | `npm audit` de lo que se despliega, en el CI. Compara QUE paquetes son graves, no cuantos |
+| Arqueo de leer-decidir-escribir | `backend/scripts/arqueo-idempotencia.cjs` | Cruza el patron con los unicos del schema: de 58 creaciones, 18 sin nada que las corte |
 | Arqueo de indices que faltan | `backend/scripts/arqueo-indices.cjs` | Cruza los campos de los `where` con los indices del schema. Distingue escaneo real de filtro acompanado |
-| Inventario de rutas publicas | `backend/scripts/arqueo-rutas-publicas.cjs` | Las 150 `@Public()` ordenadas por dano: si escriben, si la llave es adivinable, si ya se autentican por otra via |
+| Inventario de rutas publicas | `backend/scripts/arqueo-rutas-publicas.cjs` | Las 150 `@Public()` ordenadas por dano. Con pruebas: marcar como segura una ruta abierta la saca de la lista de pendientes |
 | Arqueo de aislamiento entre negocios | `backend/scripts/arqueo-aislamiento-tenant.cjs` | Recorre el AST y ordena por riesgo las consultas que no acotan el negocio. **Corre en el CI** con techo por archivo |
 
 ```bash
@@ -569,7 +617,7 @@ original.
 | 26 | Backups | 🔴 ROTO | P0-1. Bloqueado: hacen falta credenciales |
 | 26 | Prueba de restauración | ❌ | Sin esto no hay respaldo, hay archivos |
 | 16 | Rate limiting | 🔴 ROTO | P0-2. Terreno medido: limita por IP y no hay getTracker. Propuesta escrita (cubo por usuario). Falta la decision |
-| 10 | API — rutas públicas | 🔄 | P1-2. Inventario automatico hecho: **150** rutas, 111 abiertas de verdad, 49 escriben. 1 hueco nuevo (P1-6) |
+| 10 | API — rutas públicas | 🔄 | P1-2. Inventario: **150** rutas, **140 abiertas de verdad**, **68 escriben**. 1 hueco nuevo (P1-6) |
 | 11 | Multi-tenant / IDOR | 🔄 | P1-3. 12 casos revisados, 12 correctos. Auditor ya en el CI. Falta: ~20 huerfanos + 40 delegados, y las 2 cuentas de prueba |
 
 ### Después
@@ -582,7 +630,7 @@ original.
 | 24 | Observabilidad | 🔄 | Sentry sí. Falta alerta por TASA: si los pedidos caen a cero un viernes a las 8 PM, algo pasó aunque todo responda 200 |
 | 12 | Roles y permisos | ❌ | Matriz por rol contra API, no contra la UI |
 | 13 | Autenticación y sesiones | ❌ | Con el rate limit roto, la fuerza bruta está abierta |
-| 17 | Idempotencia | 🔄 | Club, alianzas y eventos ya usan bloqueo. Falta auditar pedidos y cupones |
+| 17 | Idempotencia | 🔄 | P1-7. Medido: 18 sitios crean sin nada que corte la carrera, y son los de cobros |
 | 20 | Base de datos | 🔄 | P2-1. Indices medidos: 121 escaneos de tabla. Falta N+1 (81 consultas en bucle) y consultas lentas reales |
 | 27 | Disaster recovery | ❌ | Definir RPO y RTO. Hoy no existen |
 | 21 | Rendimiento | 🔄 | Fuentes arregladas. Falta medir de verdad |

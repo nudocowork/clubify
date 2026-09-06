@@ -208,12 +208,24 @@ function funcionContenedora(node) {
 // blanqueaba 57 consultas sobre Customer, User y Card por tocar una campana.
 // Solo valen como ambito para los modelos de los que SON la clave.
 const ACOTA = /tenantId/;
+
+/**
+ * Ámbitos alternativos LEGÍTIMOS, por modelo. La lista es corta a propósito y
+ * cuesta ganársela: una clave solo entra aquí si es un campo REAL del modelo
+ * que acota a quién pertenece la fila.
+ *
+ * Lo que había antes y estaba mal: `BenefitCampaign: /campaignId/` y
+ * `AllyBusiness: /allyBusinessId/`. En ambos casos esa clave no es un campo del
+ * modelo — es SU PROPIO id. Con eso, un `benefitCampaign.update({ where: { id:
+ * campaignId } })` sin comprobar nada quedaba «acotado» por el nombre del
+ * parámetro. Excusarse por cómo se llama una variable no es acotar.
+ * (`Benefit` y `Redemption` tampoco llevan `tenantId`, así que ni siquiera
+ * llegaban a mirarse: eran código muerto.)
+ */
 const AMBITO_PROPIO = {
+  // Delivery tiene tenantId Y deliveryCompanyId: el portal de la empresa de
+  // domicilios se acota por el segundo, y es correcto.
   Delivery: /deliveryCompanyId/,
-  AllyBusiness: /campaignId|allyBusinessId/,
-  Benefit: /campaignId/,
-  BenefitCampaign: /campaignId/,
-  Redemption: /campaignId/,
 };
 
 /** ¿La función acota el negocio en ALGUNA parte de su cuerpo? Cubre el

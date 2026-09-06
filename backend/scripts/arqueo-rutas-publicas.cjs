@@ -25,7 +25,10 @@ const path = require('path');
 const ts = require('typescript');
 
 const ROOT = path.join(__dirname, '..');
-const SRC = path.join(ROOT, 'src');
+/** `--src=` para poder probarlo con controladores de ejemplo.
+ *  Ver `test/arqueo-rutas-publicas.test.ts`. */
+const argSrc = process.argv.find((x) => x.startsWith('--src='));
+const SRC = argSrc ? path.resolve(argSrc.slice(6)) : path.join(ROOT, 'src');
 
 const METODOS = { Get: 'GET', Post: 'POST', Patch: 'PATCH', Put: 'PUT', Delete: 'DELETE' };
 const ESCRIBEN = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
@@ -40,12 +43,53 @@ const LLAVE_DEBIL = /^(code|codigo|pin|slug|phone|telefono|numero|email|correo|r
  *
  *    - x-api-key contra TEAM_INTEGRATION_KEY (integración con TeamClubify)
  *    - firma del webhook (Stripe, Hotmart, MercadoPago)
- *    - un token largo en la propia ruta, que ES la credencial
  *
- *  Se mira el texto del handler Y el de la clase, porque el guard suele estar
- *  en un método privado del controlador (assertKey) o en el servicio. */
+ *  OJO con lo que se mete aquí. La primera versión incluía `firma` y
+ *  `signature` sueltos y miraba el texto de la CLASE ENTERA. Resultado: la
+ *  palabra «confirmación» dentro de un comentario cualquiera marcaba como
+ *  segura la clase entera, y con ella **las 15 rutas `@Public()` de
+ *  `/auth/*`** —login, signup, refresh, reset-password, 2FA— más las de
+ *  reservas. Es decir: el inventario escondía justo las rutas más sensibles
+ *  del sistema, y los números que se publicaron a partir de él eran falsos.
+ *
+ *  Por eso ahora: límites de palabra, nada de `firma`/`signature` sueltos, y
+ *  se mira SOLO el handler más los métodos privados que ese handler invoca. */
 const OTRA_AUTENTICACION =
-  /apiKey|api_key|x-api-key|assertKey|TEAM_INTEGRATION_KEY|verif(y|icar)Firma|verifySignature|constructEvent|checkSignature|hmac|HMAC|signature|firma/;
+  /\b(apiKey|api_key|assertKey|TEAM_INTEGRATION_KEY|verifyFirma|verificarFirma|verifySignature|constructEvent|checkSignature|createHmac|verificarWebhook)\b|['"]x-api-key['"]/;
+
+/**
+ * ¿Este handler concreto se autentica de otra forma? Mira SOLO su cuerpo y los
+ * métodos de la misma clase que él invoca (el patrón habitual es un
+ * `assertKey()` privado). Nunca la clase entera: un método que valide api-key
+ * no dice nada de sus vecinos, y dar por segura una ruta abierta es peor que
+ * no mirarla, porque la saca de la lista de pendientes.
+ */
+function seAutenticaDeOtraForma(metodo, clase) {
+  const cuerpo = metodo.getText();
+  if (OTRA_AUTENTICACION.test(cuerpo)) return true;
+
+  // Métodos de la clase que este handler llama por `this.x()`.
+  const invocados = new Set();
+  const walk = (n) => {
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      n.expression.expression.kind === ts.SyntaxKind.ThisKeyword
+    ) {
+      invocados.add(n.expression.name.text);
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(metodo);
+  if (!invocados.size) return false;
+
+  for (const m of clase.members) {
+    if (!ts.isMethodDeclaration(m) || !m.name) continue;
+    if (!invocados.has(m.name.getText())) continue;
+    if (OTRA_AUTENTICACION.test(m.getText())) return true;
+  }
+  return false;
+}
 
 function archivosControlador(dir, acc = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -131,7 +175,7 @@ for (const file of archivosControlador(SRC)) {
         llaveDebil: llaves.some((k) => LLAVE_DEBIL.test(k)),
         sinLlave: llaves.length === 0,
         throttle: !!throttle,
-        otraAuth: OTRA_AUTENTICACION.test(cuerpo) || OTRA_AUTENTICACION.test(textoClase),
+        otraAuth: seAutenticaDeOtraForma(m, clase),
         // `return { ...algo }` publica la fila entera: el fallo de P0-3.
         derramaObjeto: /return\s*\{\s*\.\.\./.test(cuerpo),
       });
