@@ -2103,9 +2103,35 @@ function CheckoutSheet({
         //
         // `window.open` va dentro del gesto del usuario y antes de tocar
         // `location`; es la única forma de que el navegador no lo bloquee.
+        // Para poder reintentarlo desde el seguimiento si WhatsApp no abre.
+        // Va en sessionStorage y no en la URL: el mensaje lleva la direccion
+        // del cliente dentro, y una URL se comparte o se queda en el historial.
+        try {
+          sessionStorage.setItem(`clubify:wa:${order.code}`, order.whatsappLink);
+        } catch {
+          /* modo privado: se pierde el reintento, no el pedido */
+        }
+
         const abierta = window.open(order.whatsappLink, '_blank');
-        if (abierta) {
+
+        // OJO CON ESTA COMPARACION.
+        //
+        // En los WebView de Android —el navegador interno de Instagram,
+        // Facebook o TikTok, por donde entra media clientela de un
+        // restaurante— `window.open` NO abre pestana: devuelve LA MISMA
+        // ventana y navega esta vista a WhatsApp. Chromium lo hace a
+        // proposito cuando la app anfitriona no soporta varias ventanas
+        // (`supports_multiple_windows` es false por defecto).
+        //
+        // Sin esta comprobacion, `abierta` es un objeto y damos por bueno que
+        // abrio, asi que la linea de abajo navegaba al seguimiento y pisaba la
+        // navegacion a WhatsApp EN EL MISMO TICK. El mensaje no salia nunca.
+        // Es el «entra el pedido pero no me llega el WhatsApp» del 2026-09-06.
+        if (abierta && abierta !== window) {
           window.location.href = `/o/${order.code}`;
+        } else if (abierta === window) {
+          // Esta vista ya va camino de WhatsApp. No tocar `location`: pisarlo
+          // es justamente el fallo. El cliente vuelve con el boton de atras.
         } else {
           // Bloqueada: se navega a WhatsApp en esta pestaña. Que el mensaje
           // salga es más importante que ver el seguimiento — el pedido sin

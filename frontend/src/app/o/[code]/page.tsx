@@ -107,6 +107,27 @@ export default function OrderStatus() {
   const [order, setOrder] = useState<Order | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [refetchTick, setRefetchTick] = useState(0);
+  /**
+   * El enlace de WhatsApp de ESTE pedido, si el cliente acaba de hacerlo desde
+   * este mismo navegador.
+   *
+   * Si WhatsApp no llegaba a abrirse —ventana bloqueada, un WebView raro, o el
+   * cliente que cerro sin pulsar enviar—, el pedido quedaba registrado, el
+   * negocio no se enteraba, y aqui no habia NADA para recuperarlo.
+   *
+   * Sale de sessionStorage y no del servidor a proposito: el mensaje lleva la
+   * direccion del cliente dentro, y esta pagina es publica por un codigo de 4
+   * caracteres. Guardado en la pestana, solo lo tiene quien hizo el pedido.
+   */
+  const [enlaceWa, setEnlaceWa] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      if (code) setEnlaceWa(sessionStorage.getItem(`clubify:wa:${code}`));
+    } catch {
+      /* modo privado: sin reintento, igual que antes */
+    }
+  }, [code]);
 
   // HOTFIX 2026-06-05 (bug I): fetch sin AbortController + interval cada
   // 10s. Si el cliente navega o el `code` cambia, las respuestas en
@@ -371,6 +392,27 @@ export default function OrderStatus() {
             onRated={() => setRefetchTick((t) => t + 1)}
             primary={primary}
           />
+        )}
+
+        {/* La segunda oportunidad, y solo mientras el pedido siga sin
+            confirmar: si el negocio ya lo confirmó es que se enteró, y
+            ofrecerlo entonces solo confunde. */}
+        {enlaceWa && order.status === 'PENDING' && (
+          <>
+            <a
+              href={enlaceWa}
+              target="_blank"
+              rel="noreferrer"
+              className="w-full mt-4 rounded-xl py-3 font-semibold text-white flex items-center justify-center active:scale-[0.99] transition"
+              style={{ background: '#25D366' }}
+            >
+              Enviar mi pedido por WhatsApp
+            </a>
+            <p className="text-[12px] text-mute text-center mt-2 leading-snug">
+              Si no se abrió WhatsApp al enviar, tócalo aquí. El negocio recibe
+              tu pedido cuando pulses enviar dentro de WhatsApp.
+            </p>
+          </>
         )}
 
         {/* `/d/` y no `/m/`: `/m/` es el menu de MESA, sin boton de agregar,
