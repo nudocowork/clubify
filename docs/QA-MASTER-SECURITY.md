@@ -277,6 +277,73 @@ propia sede, correcto— y de ahí salió la lección que importa:
 
 ---
 
+### 🟠 P1-4 · 40 dependencias vulnerables en lo que se despliega, y nadie miraba
+
+**Estado: ABIERTO. Fase 37. El CI ya impide que empeore desde el 2026-09-05.**
+
+`npm audit` no corría en ninguna parte. Medido solo sobre lo que **se despliega**
+(`--omit=dev`: vitest o `@nestjs/cli` no llegan al servidor y mezclarlos esconde
+lo que sí):
+
+```bash
+node scripts/arqueo-dependencias.cjs
+#   backend    critical 1   high 14   moderate 24   low 1
+#   frontend   critical 0   high  8   moderate 10   low 1
+```
+
+Las que pesan **en este producto concreto**, no en abstracto:
+
+| Paquete | Por qué importa aquí |
+|---|---|
+| `jsonwebtoken` (high) | Es la librería de la autenticación entera. Claves de tipo no restringido |
+| `ws` + `socket.io-parser` (high) | El backend empuja pedidos en vivo por websocket. Exposición de memoria y agotamiento por adjuntos |
+| `multer` (high) | Toda subida de archivos. DoS por limpieza incompleta |
+| `sharp` (high) | Genera los QR y las imágenes de los pases. CVEs heredados de libvips |
+| `tar` (critical) | Escritura arbitraria de ficheros por travesía de enlaces duros |
+
+**No se actualizó ninguna, a propósito.** Subir 40 paquetes de producción de
+golpe es exactamente la clase de cambio que tumba el sistema un lunes. Hay que
+ir por tandas, empezando por `jsonwebtoken`, con `npm audit fix` sin `--force`
+y corriendo la regresión entre tanda y tanda.
+
+**Lo que sí se hizo, sin riesgo:** el mismo trinquete que en P1-3, en un job
+propio del CI. Solo bloquea si suben las **críticas o altas** — un CVE nuevo de
+nivel *moderate* en una dependencia de tercero avisa pero no deja a nadie sin
+mergear un arreglo urgente. Un candado que estorba se acaba quitando.
+
+```bash
+node scripts/arqueo-dependencias.cjs --ci        # lo que corre el CI
+node scripts/arqueo-dependencias.cjs --sellar    # tras revisar a mano
+```
+
+---
+
+### ✅ P1-5 · Secretos filtrados: buscados y no encontrados
+
+**Estado: CERRADO el 2026-09-05, con un pendiente que no depende del código.**
+
+Lo que se comprobó, y con qué:
+
+```bash
+git ls-files | grep -iE "\.env"          # solo .env.example — ningún secreto versionado
+grep -rnE "(sk_live_|AIza[0-9A-Za-z_-]{30,}|ghp_|xox[baprs]-|AKIA[0-9A-Z]{16})" backend/src frontend/src
+#   4 resultados, los 4 son validaciones y enmascarado de la UI, no claves
+grep -rhoE "NEXT_PUBLIC_[A-Z0-9_]+" frontend/src   # 6, todas legítimamente públicas
+```
+
+Las 6 variables `NEXT_PUBLIC_*` viajan al navegador de cualquiera **por
+definición** —API_URL, APP_URL, LANDING_URL, S3_PUBLIC_URL, GOOGLE_CLIENT_ID,
+GOOGLE_MAPS_API_KEY— y ninguna debería ser secreta. Ninguna lo es.
+
+**Pendiente, y NO se puede cerrar desde el código:** la clave de Google Maps es
+pública por diseño, pero **tiene que estar restringida por dominio** en Google
+Cloud. Sin esa restricción, cualquiera que la copie factura contra la cuenta.
+No aparece en el HTML ni en los 12 chunks de la home de producción, así que no
+se pudo extraer para probarla. **Hay que mirarlo en la consola de Google Cloud:
+APIs y servicios → Credenciales → Restricciones de aplicación → Sitios web.**
+
+---
+
 ## 2. Lo que ya está construido
 
 | Pieza | Dónde | Qué cubre |
@@ -286,6 +353,7 @@ propia sede, correcto— y de ahí salió la lección que importa:
 | CI en cada push | `.github/workflows/ci.yml` | Lint, typecheck, 51 spec, e2e con base, build. **Verde** |
 | Sentry | back y front | Errores en servidor y en el navegador del cliente |
 | Monitor de certificados | `wallet/cert-monitor.service.ts` | Avisa antes de que caduque el de Apple Wallet |
+| Arqueo de dependencias | `scripts/arqueo-dependencias.cjs` | `npm audit` de lo que se despliega, en el CI. Bloquea solo si suben criticas o altas |
 | Arqueo de aislamiento entre negocios | `backend/scripts/arqueo-aislamiento-tenant.cjs` | Recorre el AST y ordena por riesgo las consultas que no acotan el negocio. **Corre en el CI** con techo por archivo |
 
 ```bash
@@ -325,8 +393,8 @@ original.
 | 27 | Disaster recovery | ❌ | Definir RPO y RTO. Hoy no existen |
 | 21 | Rendimiento | 🔄 | Fuentes arregladas. Falta medir de verdad |
 | 22 | Carga | ❌ | Nadie sabe cuánto aguanta la plataforma |
-| 37 | Dependencias | ❌ | `npm audit` no corre en CI |
-| 38 | Secretos | 🔄 | Se sabe que faltan en GitHub. Falta buscar filtrados en el bundle |
+| 37 | Dependencias | 🔄 | P1-4. Ya corre en el CI con techo. Faltan las 40 por arreglar, empezando por `jsonwebtoken` |
+| 38 | Secretos | 🔄 | P1-5. Buscados en git, codigo y bundle: **ninguno filtrado**. Siguen faltando los del backup en GitHub |
 | 35 | Accesibilidad | 🔄 | Íconos de 26 px pendientes (guía: 44) |
 
 ### Lo que NO se puede hacer desde aquí

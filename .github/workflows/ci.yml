@@ -134,3 +134,22 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # Dependencias vulnerables en lo que SE DESPLIEGA (--omit=dev). No necesita
+  # npm ci: npm audit trabaja desde el package-lock.json, asi que el job es
+  # ligero. Solo bloquea si suben las CRITICAS o ALTAS; un CVE nuevo de nivel
+  # moderate en una dependencia de tercero avisa pero no deja a nadie sin
+  # mergear un arreglo urgente. Techo en scripts/dependencias.baseline.json.
+  dependencias:
+    name: Dependencias (npm audit, solo produccion)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Arqueo de dependencias
+        run: node scripts/arqueo-dependencias.cjs --ci
