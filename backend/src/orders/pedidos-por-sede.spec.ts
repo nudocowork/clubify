@@ -50,7 +50,7 @@ function servicio(prisma: any) {
     prisma,
     null as any, null as any, null as any, null as any, null as any,
     null as any, null as any, null as any, null as any, null as any,
-    null as any, null as any,
+    null as any, null as any, null as any,
   );
 }
 

@@ -146,6 +146,7 @@ function makeService(prisma: ReturnType<typeof makePrisma>) {
     delivery as any,
     { notify: vi.fn(async () => undefined) } as any, // customerOrderSms
     { enviarATenant: vi.fn(async () => ({ enviados: 0 })) } as any, // appPush
+    { avisar: vi.fn(async () => undefined) } as any, // ownerAlert
   );
   return { svc, automations, wallet };
 }

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { OrdersService } from './orders.service';
+import { OwnerOrderAlertService } from './owner-order-alert.service';
 import { OrdersController } from './orders.controller';
 import { PublicOrdersController } from './public-orders.controller';
 import { OrdersGateway } from './orders.gateway';
@@ -23,7 +24,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     DeliveryModule,
     NotificationsModule,
   ],
-  providers: [OrdersService, OrdersGateway],
+  providers: [OwnerOrderAlertService, OrdersService, OrdersGateway],
   controllers: [OrdersController, PublicOrdersController],
   exports: [OrdersService, OrdersGateway],
 })

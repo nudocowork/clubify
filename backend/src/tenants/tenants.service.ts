@@ -113,6 +113,8 @@ export type UpdateTenantDto = Partial<{
   deliveryAlertsAccountId: string | null;
   // #14 (2026-06-17): config de alertas SMS de domicilio movida de
   // /app/settings (vista cliente) a super-admin /admin/tenants/[id].
+  ownerOrderAlertsEnabled: boolean;
+  ownerOrderAlertsPhone: string | null;
   deliveryAlertsEnabled: boolean;
   deliveryAlertsPhones: string[] | null;
   deliveryAlertsEvents: string[] | null;
@@ -154,6 +156,8 @@ export type UpdateMyTenantDto = Partial<{
   reviewAlertsTemplate: string | null;
   billingAlertsEnabled: boolean;
   billingAlertsPhone: string | null;
+  ownerOrderAlertsEnabled: boolean;
+  ownerOrderAlertsPhone: string | null;
   deliveryAlertsEnabled: boolean;
   deliveryAlertsPhones: string[] | null;
   deliveryAlertsEvents: string[] | null;

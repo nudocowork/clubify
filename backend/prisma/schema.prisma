@@ -768,6 +768,24 @@ model Tenant {
   /// Null = usa creds del tenant directo (comportamiento legacy).
   reviewAlertsAccountId       String?
   reviewAlertsAccount         GrowBusinessAccount?       @relation("ReviewAlertsAccount", fields: [reviewAlertsAccountId], references: [id], onDelete: SetNull)
+  /// AVISO DE PEDIDO NUEVO al telefono del negocio, desde el servidor.
+  ///
+  /// Existe porque el mensaje de WhatsApp del pedido lo abre el navegador del
+  /// CLIENTE, y si eso falla —ventana bloqueada, WebView raro, o simplemente
+  /// no pulsa enviar— el pedido entra y el negocio no se entera. Esto no
+  /// depende de nadie: lo manda el servidor al crear el pedido.
+  ///
+  /// APAGADO por defecto porque cada aviso gasta saldo de Grow Business. Se
+  /// enciende negocio por negocio, a quien lo pida.
+  ownerOrderAlertsEnabled     Boolean                    @default(false)
+  /// Telefono destino. Null = el mismo al que va el wa.me del pedido
+  /// (sede -> whatsappOrdersPhone -> whatsappPhone -> phone).
+  ownerOrderAlertsPhone       String?
+  /// Subcuenta global para mandarlo. Igual que en las alertas de resenas:
+  /// permite que el super admin conecte UNA y la reparta entre negocios.
+  /// Null = cascada creds propias -> subcuenta de su marca.
+  ownerOrderAlertsAccountId   String?
+  ownerOrderAlertsAccount     GrowBusinessAccount?       @relation("OwnerOrderAlertsAccount", fields: [ownerOrderAlertsAccountId], references: [id], onDelete: SetNull)
   /// SMS administrativos (recordatorios de pago, impago, suspensión).
   /// Default true para no romper comportamiento legacy — billing
   /// siempre venía mandando. El owner lo puede apagar desde su panel.
@@ -4132,6 +4150,7 @@ model GrowBusinessAccount {
   deletedAt    DateTime?
 
   reviewTenants   Tenant[] @relation("ReviewAlertsAccount")
+  ownerOrderTenants Tenant[] @relation("OwnerOrderAlertsAccount")
   billingTenants  Tenant[] @relation("BillingAlertsAccount")
   deliveryTenants Tenant[] @relation("DeliveryAlertsAccount")
 }

@@ -27,6 +27,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { CustomerOrderSmsService } from '../integrations/customer-order-sms.service';
 import { AppPushService } from '../notifications/app-push.service';
+import { OwnerOrderAlertService } from './owner-order-alert.service';
 import { brandGrowCreds, BRAND_GROW_SELECT } from '../integrations/brand-sms-creds.util';
 import { resolveBrandTemplate } from '../integrations/brand-message-templates';
 import {
@@ -243,6 +244,7 @@ export class OrdersService {
     private delivery: DeliveryService,
     private customerOrderSms: CustomerOrderSmsService,
     private appPush: AppPushService,
+    private ownerAlert: OwnerOrderAlertService,
   ) {}
 
   /** Lista de eventos del pedido delivery que pueden disparar SMS al
@@ -836,6 +838,11 @@ export class OrdersService {
         { soloPedidos: true },
       )
       .catch(() => null);
+
+    // Aviso al TELEFONO del negocio, desde el servidor. Es lo unico que no
+    // depende de que el navegador del cliente consiga abrir WhatsApp. Apagado
+    // por defecto y por negocio — cada aviso gasta saldo de Grow Business.
+    this.ownerAlert.avisar(order.id).catch(() => null);
 
     this.broadcast(order.id).catch((e) =>
       this.logger.warn(

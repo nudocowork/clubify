@@ -1739,6 +1739,11 @@ function AcademyTogglesCard({
   // Tarjeta de Club: la suscripcion con cupo mensual. Mismo criterio que
   // alianzas: apagado por defecto, se enciende negocio por negocio.
   const [club, setClub] = useState<boolean>(tenant.clubEnabled ?? false);
+  // Aviso de pedido nuevo al telefono del negocio, desde el servidor. Apagado
+  // por defecto: cada aviso gasta saldo de Grow Business.
+  const [avisoPedidos, setAvisoPedidos] = useState<boolean>(
+    tenant.ownerOrderAlertsEnabled ?? false,
+  );
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -1759,6 +1764,7 @@ function AcademyTogglesCard({
           conveniosEnabled: convenios,
           maxConvenios,
           clubEnabled: club,
+          ownerOrderAlertsEnabled: avisoPedidos,
         }),
       });
       setMsg({ ok: true, text: t('changesSaved') });
@@ -1898,6 +1904,30 @@ function AcademyTogglesCard({
               <b>Apagarlo no borra nada</b>: impide crear planes y dar de alta a
               nadie nuevo, pero los socios que ya pagaron siguen consumiendo lo
               suyo.
+            </div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={avisoPedidos}
+            onChange={(e) => setAvisoPedidos(e.target.checked)}
+            className="mt-1"
+          />
+          <div>
+            <div className="text-sm font-semibold">
+              Avisar al negocio de cada pedido
+            </div>
+            <div className="text-xs text-mute leading-snug">
+              Un SMS al telefono de pedidos en cuanto entra uno, enviado por
+              nosotros. Existe porque el WhatsApp del pedido lo abre el
+              navegador del CLIENTE, y si eso falla —ventana bloqueada, el
+              navegador de Instagram, o que no pulsa enviar— el pedido entra y
+              el negocio no se entera. Esto no depende de nadie.{' '}
+              <b>Cada aviso gasta saldo de Grow Business</b>, por eso viene
+              apagado y se enciende a quien lo pida. El mensaje es corto a
+              proposito: codigo, cliente, total y enlace al panel.
             </div>
           </div>
         </label>
