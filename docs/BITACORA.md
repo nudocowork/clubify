@@ -8,6 +8,58 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-06 — 🔴 Jhon: una ruta pública cambia la contraseña de un afiliado con solo saber su correo
+
+**Esto es tuyo (afiliados/campañas) y no lo he tocado, pero míralo hoy.** Es toma
+de cuenta, no fuga de datos, y se hace con una sola petición:
+
+```bash
+POST /api/public/campaigns/by-owner-code/<CODIGO-PUBLICO>/apply
+{ "email": "<correo del embajador>", "password": "<la que yo quiera>",
+  "fullName": "x", "whatsapp": "x" }
+```
+
+`applyAsAmbassador` (`campaigns.service.ts:504`) ve que ya hay un embajador con
+ese correo, y **vuelve a llamar a `inviteAffiliate` pasándole la contraseña que
+venía en la petición**. Allí (`auth.service.ts:670`) la rama `usingPresetPassword`
+hace `user.update({ passwordHash })`. Sin confirmación por correo, sin contraseña
+anterior, sin token.
+
+**La propia respuesta lo dice:** «Ya tenías cuenta. Actualizamos tu contraseña —
+ya puedes entrar a tu panel.»
+
+El fallo de fondo está en el comentario del código: *«Equivale a un admin reset
+manual»*. Esa función se escribió para que **un admin** reseteara contraseñas, y
+hoy la alcanza una ruta **pública**. El `ownerCode` no es secreto: va en la
+landing `/refer/<code>` que el influencer reparte.
+
+Y hay segunda vuelta: con el correo de un afiliado de otro rol, la primera
+llamada le **cambia el rol** a embajador y la segunda ya entra por el camino del
+duplicado. Dos peticiones para cualquier cuenta `AFFILIATE_*`.
+
+Lo mínimo: que el camino público no pueda pasar `presetPassword`. Lo de fondo:
+que `inviteAffiliate` solo lo acepte de un llamador autenticado como admin.
+
+### Otras dos de lo tuyo, menos urgentes pero reales
+
+- **`POST /api/referrals/codes` deja elegir la comisión al que la llama.** El DTO
+  tiene `commissionPercent` **sin `@Min` ni `@Max`** y la columna admite hasta
+  **999,99 %**. Se refiere un negocio y cada cobro de $50 anota $499,50
+  pendientes. Lo que evita el desastre es que el pago de comisiones es manual —
+  o sea, que alguien se fije.
+- **`POST /api/billing/cross/checkout`** hace un pago real contra Cross con la API
+  key del comercio y **la tarjeta que mande quien llame**. Sin límite ni captcha
+  es un validador de tarjetas robadas a costa del negocio (contracargos, y que
+  Cross le suspenda la cuenta). El monto sí lo resuelve el servidor, eso está
+  bien.
+
+### Y una que te quito de encima: el webhook legacy de Hotmart está BIEN
+
+Se sospechaba que aceptaba cualquier cuerpo si faltaban `HOTMART_HOTTOK` y
+`NODE_ENV`. **Comprobado en Railway: las dos están puestas**, así que el camino
+permisivo no se alcanza. Conviene igualmente hacer el hottok obligatorio en
+producción, para no depender de que dos variables estén bien a la vez.
+
 ## 2026-09-06 — Fase 10 a fondo: dos P0 nuevos, y el código de 4 caracteres es peor de lo que creíamos
 
 Auditadas una a una las rutas públicas que escriben. Dos hallazgos que suben a

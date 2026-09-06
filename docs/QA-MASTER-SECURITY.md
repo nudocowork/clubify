@@ -156,6 +156,143 @@ y escrita la propuesta.
 
 ---
 
+### 🔴 P0-6 · Una ruta pública cambia la contraseña de un afiliado con solo saber su correo
+
+**Estado: ABIERTO. Encontrado y verificado el 2026-09-06. NO se tocó — es
+territorio de Jhon (regla 7), pero hay que mirarlo hoy.**
+
+Es toma de cuenta, no fuga de datos. Se hace con una sola petición:
+
+```bash
+POST /api/public/campaigns/by-owner-code/<CODIGO-PUBLICO>/apply
+{ "email": "<correo del embajador>", "password": "<la que yo quiera>",
+  "fullName": "x", "whatsapp": "x" }
+```
+
+El camino, verificado leyendo las dos funciones:
+
+1. `applyAsAmbassador` ([campaigns.service.ts:504](../backend/src/campaigns/campaigns.service.ts#L504))
+   busca si ya hay un embajador con ese correo bajo ese influencer.
+2. Si lo hay **y está activo**, vuelve a llamar a `inviteAffiliate` pasándole
+   `presetPassword` = **la contraseña que venía en la petición**.
+3. En `inviteAffiliate` ([auth.service.ts:670](../backend/src/auth/auth.service.ts#L670)),
+   la rama `usingPresetPassword` hace
+   `user.update({ passwordHash: hashed, passwordChangedAt: new Date() })`.
+
+No hay verificación de nada: ni correo de confirmación, ni contraseña anterior,
+ni token. **La respuesta lo dice con todas las letras**: «Ya tenías cuenta.
+Actualizamos tu contraseña — ya puedes entrar a tu panel.»
+
+El comentario del código dice *«Equivale a un admin reset manual»*, y ahí está el
+fallo de fondo: esa función se escribió para que **un admin** reseteara una
+contraseña, y hoy la alcanza una **ruta pública**. El `ownerCode` no es un
+secreto — va en la landing `/refer/<code>` que el influencer reparte.
+
+**Qué se llevan:** el panel del embajador — sus comisiones y sus datos de cobro.
+
+Y hay una segunda vuelta: con el correo de un afiliado de **otro** rol
+(influencer, socio, vendedor), la primera llamada le **cambia el rol** a
+`AFFILIATE_AMBASSADOR` ([auth.service.ts:657](../backend/src/auth/auth.service.ts#L657)),
+y la segunda ya entra por el camino del duplicado. Dos peticiones para tomar
+cualquier cuenta `AFFILIATE_*`.
+
+**Lo que NO pasa**, para no exagerar: con el correo de un `TENANT_OWNER` salta un
+`ConflictException`, que además se traga un `.catch(() => null)`. Ahí no hay toma
+de cuenta; queda un `ReferralCode` huérfano con el correo de la víctima.
+
+**Arreglo (de Jhon, y hay que avisarle):** una ruta pública no puede pasar
+`presetPassword`. Lo mínimo es quitar ese parámetro del camino público y mandar
+siempre el correo de restablecimiento. Lo de fondo es que `inviteAffiliate` no
+acepte `presetPassword` salvo desde un llamador autenticado como admin.
+
+---
+
+### 🟠 P1-8 · El cliente elige su propia comisión, sin tope
+
+**Estado: ABIERTO. Territorio de Jhon. Verificado el 2026-09-06.**
+
+`POST /api/referrals/codes` es pública y su DTO declara
+`@IsOptional() @IsNumber() commissionPercent` **sin `@Min` ni `@Max`**
+([referrals.controller.ts:11](../backend/src/referrals/referrals.controller.ts#L11)).
+El valor se guarda tal cual y la comisión se calcula como `price * pct / 100`
+directamente desde ahí. La columna es `Decimal(5,2)`: admite hasta **999,99 %**.
+
+Un desconocido crea su código con 999 %, refiere un negocio, y cada cobro de $50
+le anota $499,50 en comisiones pendientes.
+
+**Lo que evita el desastre hoy** es que el pago de comisiones es **manual**: hay
+un humano mirando antes de pagar. Eso convierte un robo en un susto — pero
+depende de que alguien se fije.
+
+**Arreglo:** un `@Max` sensato en el DTO y, mejor, tomar el porcentaje del
+ajuste del sistema en vez del cuerpo de la petición, como ya hacen
+`seller/register` y `ambassador/register` (que sí lo capan al del padre).
+
+---
+
+### 🟠 P1-9 · La pasarela de pago pública sirve para probar tarjetas robadas
+
+**Estado: ABIERTO. Verificado el 2026-09-06. No se tocó.**
+
+`POST /api/billing/cross/checkout` está bien en lo que suele fallar —**el monto
+lo resuelve el servidor**, no viene del cliente— pero cada llamada hace un
+`POST /payments/process` real contra Cross **con la API key del comercio y la
+tarjeta que mande quien llame**
+([cross.service.ts:193](../backend/src/billing/cross.service.ts#L193)).
+
+Sin límite de peticiones que funcione (P0-2) ni captcha, eso es un **validador de
+tarjetas robadas a costa del comercio**: se prueban números y la respuesta de
+Cross dice cuáles son buenas. Lo paga el negocio en contracargos y en riesgo de
+que Cross le suspenda la cuenta.
+
+**Anotado de paso:** el `redirectUrl` se reenvía a Cross como `returnUrl` sin
+validar el dominio, así que la vuelta de un pago legítimo puede acabar en un
+sitio del atacante.
+
+---
+
+### 🟡 P2-2 · MercadoPago verifica la firma y tira el resultado
+
+**Estado: ABIERTO. Verificado el 2026-09-06.**
+
+`verifySignature` está bien escrita, pero en
+[mercadopago.service.ts:235](../backend/src/cuponera/mercadopago.service.ts#L235)
+**su resultado solo se escribe en el log**: el flujo continúa igual, firme o no.
+Y sin secreto configurado devuelve `true`.
+
+**Lo que salva la ruta** —y por eso es P2 y no P0— es que el estado del pago
+**nunca se toma del cuerpo**: se consulta a MercadoPago con el token del
+comercio. No se puede forjar una activación.
+
+**El daño que sí queda:** el `eventId` se reclama **antes** de consultar a MP. Una
+petición forjada con un `data.id` real deja el evento marcado como visto, y
+cuando llegue el webhook de verdad se descarta como duplicado — **el alta o la
+renovación se pierde en silencio**. Lo mismo puede pasar sin atacante, si la API
+de MP falla en ese momento.
+
+---
+
+### ✅ REFUTADO · El webhook legacy de Hotmart NO está abierto
+
+Se sospechó que `POST /api/webhooks/hotmart` (el legacy, sin marca) aceptaba
+cualquier cuerpo, porque `verifyHottok` deja pasar si falta `HOTMART_HOTTOK` **y**
+`NODE_ENV !== 'production'`, y `HOTMART_HOTTOK` no está en la lista de variables
+obligatorias.
+
+**Comprobado en Railway el 2026-09-06: las dos están puestas** —el hottok existe
+y `NODE_ENV=production`—, así que el camino permisivo no se alcanza. Repetible:
+
+```bash
+railway variables --service backend --environment production | grep -E "HOTMART_HOTTOK|NODE_ENV"
+```
+
+**Sigue siendo frágil**, y conviene arreglarlo aunque hoy no muerda: que
+`HOTMART_HOTTOK` sea obligatoria en producción quita la dependencia de que dos
+variables estén bien a la vez. Y la comparación del hottok no es de tiempo
+constante.
+
+---
+
 ### 🔴 P0-4 · Con un código de pedido acertado se escribe EN NOMBRE DEL CLIENTE
 
 **Estado: ABIERTO. Encontrado el 2026-09-06 auditando la fase 10. No se tocó.**
