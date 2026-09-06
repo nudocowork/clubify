@@ -92,6 +92,14 @@ jobs:
       - name: Aislamiento entre negocios (multi-tenant)
         run: node scripts/arqueo-aislamiento-tenant.cjs --ci
 
+      # Rutas públicas que escriben. Una `@Public()` que escribe la puede llamar
+      # cualquiera: el menú o el pase del cliente TIENEN que abrirse sin sesión,
+      # pero cada nueva hay que mirarla antes de darla por buena. Sin esto entra
+      # la 151 y nadie se entera. El techo guarda la identidad de cada ruta
+      # (método + path), no un contador: sustituir una por otra no cuela.
+      - name: Rutas publicas que escriben
+        run: node scripts/arqueo-rutas-publicas.cjs --ci
+
       - name: Typecheck
         run: npx tsc --noEmit
 

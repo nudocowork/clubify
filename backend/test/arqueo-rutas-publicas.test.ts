@@ -81,6 +81,21 @@ describe('no marcar como autenticado lo que no lo esta', () => {
     expect(buscar(rs, 'login')?.escribe).toBe(true);
   });
 
+  it('un @UseGuards explicito SI es autenticacion', () => {
+    // Las 15 rutas de /sync/* salian como abiertas: las cubre
+    // OnboardingTokenGuard, que exige Authorization: Bearer y resuelve el
+    // negocio DESDE el token. Marcar como abierta una ruta protegida mete
+    // ruido en la lista que hay que revisar a mano.
+    const rs = arquear(`
+      @Public()
+      @UseGuards(TokenDelNegocioGuard)
+      @Controller('sync')
+      export class C {
+        @Patch('business') business(@Body() body: any) { return body; }
+      }`);
+    expect(buscar(rs, 'business')?.otraAuth).toBe(true);
+  });
+
   it('reconoce la firma de un webhook de verdad', () => {
     const rs = arquear(`
       @Controller('webhooks')

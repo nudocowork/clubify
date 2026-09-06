@@ -156,6 +156,80 @@ y escrita la propuesta.
 
 ---
 
+### 🔴 P0-4 · Con un código de pedido acertado se escribe EN NOMBRE DEL CLIENTE
+
+**Estado: ABIERTO. Encontrado el 2026-09-06 auditando la fase 10. No se tocó.**
+
+Esto cambia la gravedad de P1-1 (el código de 4 caracteres). Hasta ahora el daño
+conocido era enumerar pedidos y quemar la calificación. Hay más:
+
+```bash
+POST /api/public/deliveries/<CODIGO>/chat
+```
+
+`customerChatPost` ([delivery.service.ts:1256](../backend/src/delivery/delivery.service.ts#L1256))
+busca el pedido **solo por el código**, y crea un mensaje con
+`senderRole: 'CUSTOMER'` y **`senderName` = el nombre real del cliente**. Además
+devuelve el hilo completo, con lo que el negocio y el repartidor habían escrito.
+
+O sea: acertando un código, un desconocido **habla como el cliente** con el
+negocio —«cámbiame la dirección», «ya pagué por transferencia»— y **lee la
+conversación privada** del pedido. No hay segundo factor: ni teléfono, ni PIN.
+
+La llave es la misma de siempre: `customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 4)`
+= 923.521 combinaciones, **únicas en toda la plataforma**, y con ~450 pedidos eso
+es **1 acierto cada 1.808 intentos** — un número que el propio código ya tiene
+escrito. Sin límite de peticiones que funcione (P0-2), un bucle lo encuentra en
+segundos.
+
+**Por qué es P0 y no P1:** no es leer datos de más, es **suplantar a una persona
+ante el negocio**. El negocio no tiene forma de saber que no habla con su
+cliente.
+
+**Arreglo:** subir los códigos nuevos a 6 caracteres (P1-1) reduce el acierto
+1000×, pero **no basta para el chat**: ahí la llave debería ser algo que solo
+tenga el cliente —el teléfono del pedido, o un token en el enlace que se le
+manda—. Los dos cambios se pueden hacer por separado.
+
+---
+
+### 🔴 P0-5 · Dos rutas públicas mandan SMS al número que diga quien llama, en bucle
+
+**Estado: ABIERTO. Encontrado el 2026-09-06. No se tocó.**
+
+`POST /api/public/service-reservations/:slug/book` crea la cita y llama a
+`notifyAppointment(appt, 'confirm')`, que manda un **SMS al `customerPhone` que
+venía en el cuerpo de la petición**, con las credenciales Grow del negocio o de
+su marca ([service-reservations.service.ts:1014](../backend/src/service-reservations/service-reservations.service.ts#L1014)).
+La llave es el **slug del negocio**, que es público por diseño.
+
+Y el bucle es infinito: la respuesta devuelve el `manageToken`, `cancelByToken`
+libera el hueco, y `rescheduleByToken` **reenvía la confirmación en cada
+reagendado**. Reservar → cancelar → reservar = un SMS por vuelta, para siempre,
+sobre el mismo hueco. Ese controlador **no tiene ni un `@Throttle` nominal**.
+
+Lo mismo, condicionado, en `POST /api/passes/enroll/:cardId`: si el negocio
+tiene una automatización de bienvenida, el alta pública dispara un mensaje al
+teléfono que ponga quien llama.
+
+**El daño no es solo el coste.** Es que se puede acosar a un tercero **desde el
+remitente del negocio**, y quemarle la reputación del remitente. El que recibe
+el SMS ve el nombre del negocio, no al que lo mandó.
+
+**Y hay una variante que paga la plataforma:** `POST /api/public/reservations/:slug`
+avisa al negocio por SMS/WhatsApp en cada reserva, y la cascada de credenciales
+es negocio → marca blanca → **cuenta global de Clubify**. Un negocio sin Grow
+propio deja la factura en la plataforma. Igual con
+`POST /api/public/r/:slug/submit`, que avisa al dueño en cada reseña baja.
+
+**Arreglo (a decidir, toca el flujo real del cliente):** lo barato es un límite
+por destinatario y por negocio antes de mandar —«a este número, uno cada N
+minutos»— que no depende de que el rate limit global funcione. Lo de fondo es no
+mandar nada a un número que no se ha verificado, y no reenviar la confirmación
+en cada reagendado.
+
+---
+
 ### ✅ P0-3 · La ruta pública del pedido devolvía la ficha entera del cliente
 
 **Estado: CERRADO el 2026-09-05.** Commit en `main`, desplegado y verificado.
@@ -194,9 +268,16 @@ columna que alguien añada al modelo saldrá publicada sin que nadie lo note.
 
 **Estado: ABIERTO.**
 
-4 caracteres, 810.000 combinaciones, únicos globalmente. Aunque ya no filtren
-datos personales, siguen permitiendo enumerar pedidos ajenos (artículos, notas,
-total) y **calificar el pedido de otro** (`POST /:code/rate`).
+4 caracteres, **923.521** combinaciones (alfabeto de 31, no de 30), únicos
+globalmente. Aunque ya no filtren datos personales, siguen permitiendo enumerar
+pedidos ajenos (artículos, notas, total), **calificar el pedido de otro**
+(`POST /:code/rate`) y —lo que se descubrió el 2026-09-06— **escribir en el chat
+del pedido haciéndose pasar por el cliente**: ver **P0-4**, que es la razón por
+la que esto ya no es solo un P1.
+
+Calificar el pedido de otro además **no es gratis para el negocio**: emite
+`ORDER_RATED`, que dispara las automatizaciones y puede acabar en un SMS o
+WhatsApp al cliente real, pagado por el negocio.
 
 Subirlos a 6 caracteres son 729 millones de combinaciones. **Solo para pedidos
 NUEVOS** — los existentes se quedan como están, y el código se le enseña al
@@ -227,6 +308,35 @@ invitación o son datos de marca públicos).
 **Método para las que faltan:** para cada ruta pública, responder por escrito:
 ¿qué llave la abre? ¿es adivinable? ¿qué devuelve de más? ¿tiene límite de
 peticiones (hoy ninguno lo tiene de verdad)? ¿escribe algo?
+
+#### Revisadas a fondo el 2026-09-06 y CORRECTAS — no hace falta volver
+
+Esto vale tanto como los hallazgos: evita que la próxima sesión gaste el día en
+lo que ya está mirado. Todas verificadas leyendo cómo se genera la llave, no por
+el nombre.
+
+| Ruta | Llave | Por qué aguanta |
+|---|---|---|
+| `POST /public/reservations/cancel/:token` | JWT HS256 con `QR_HMAC_SECRET`, claim `t:'cancel'`, 30 d | El secreto es obligatorio en producción y distinto del de los JWT de sesión. Idempotente y solo toca la reserva firmada |
+| `POST /public/service-reservations/manage/:token/cancel` | `randomBytes(16)` = **128 bits**, `@unique` | No se adivina. Solo afecta a su propia cita |
+| `POST /public/quote/:token/cta-click` | `uuid()` = 122 bits | Solo incrementa contadores |
+| `POST /passes/:id/completar-registro` | `Pass.id` uuid v4 | Solo rellena `fullName`/`email`/`birthday` **vacíos**: nunca pisa un dato existente |
+| `POST /wallet/apple/.../registrations/...` | `authToken = nanoid(32)` ≈ 190 bits | Se compara contra `pass.authToken` **antes** de escribir |
+| `POST /superadmin-public/owner-invites/:token/accept` (y el de marca) | `randomBytes(32)` = **256 bits**; en la base solo el SHA-256 | Caduca a 7 días, es **de un solo uso** —`updateMany` condicional mirando el `count`, atómico dentro de la transacción— y es revocable. No reutilizable |
+| `POST /public/info-pages/:slug/lead` | slug público | Solo acepta los campos configurados, escalares y con tope de 2000 caracteres. No notifica a nadie |
+| `POST /metrics/enroll-perf` | ninguna | **No escribe en la base**: solo deja una línea de log |
+
+**Menor, anotado y sin arreglar:** `DELETE /wallet/apple/.../registrations/...`
+no comprueba la cabecera `Authorization: ApplePass` que pide la especificación de
+Apple. Para explotarlo hacen falta el `serial` (~52 bits) **y** el
+`deviceLibraryId`, que lo genera iOS y **ninguna ruta del backend devuelve**. El
+daño máximo es que un dispositivo deje de recibir avisos de un pase.
+
+**Y una molestia real, no de seguridad:** `POST /public/i/:id/track` acepta el
+cuerpo sin ningún DTO (`{ type: string; metadata?: any }`) y lo guarda tal cual
+en un campo `Json`, con el límite global de **15 MB** por petición. Es una vía
+directa para engordar la base — y en este producto eso ya pasó una vez, con
+`QrPoster` llegando al 77 % del total.
 
 ---
 
@@ -617,7 +727,7 @@ original.
 | 26 | Backups | 🔴 ROTO | P0-1. Bloqueado: hacen falta credenciales |
 | 26 | Prueba de restauración | ❌ | Sin esto no hay respaldo, hay archivos |
 | 16 | Rate limiting | 🔴 ROTO | P0-2. Terreno medido: limita por IP y no hay getTracker. Propuesta escrita (cubo por usuario). Falta la decision |
-| 10 | API — rutas públicas | 🔄 | P1-2. Inventario: **150** rutas, **140 abiertas de verdad**, **68 escriben**. 1 hueco nuevo (P1-6) |
+| 10 | API — rutas públicas | 🔄 | P1-2. **150** rutas, **125 abiertas**, **54 escriben** (ya en el CI). Auditadas a fondo: 2 hallazgos P0 y 8 correctas |
 | 11 | Multi-tenant / IDOR | 🔄 | P1-3. 12 casos revisados, 12 correctos. Auditor ya en el CI. Falta: ~20 huerfanos + 40 delegados, y las 2 cuentas de prueba |
 
 ### Después

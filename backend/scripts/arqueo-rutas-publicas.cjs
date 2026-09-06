@@ -27,8 +27,14 @@ const ts = require('typescript');
 const ROOT = path.join(__dirname, '..');
 /** `--src=` para poder probarlo con controladores de ejemplo.
  *  Ver `test/arqueo-rutas-publicas.test.ts`. */
-const argSrc = process.argv.find((x) => x.startsWith('--src='));
-const SRC = argSrc ? path.resolve(argSrc.slice(6)) : path.join(ROOT, 'src');
+const argOpcion = (nombre) => {
+  const a = process.argv.find((x) => x.startsWith(`--${nombre}=`));
+  return a ? a.slice(nombre.length + 3) : null;
+};
+const SRC = argOpcion('src') ? path.resolve(argOpcion('src')) : path.join(ROOT, 'src');
+const BASELINE =
+  (argOpcion('baseline') && path.resolve(argOpcion('baseline'))) ||
+  path.join(__dirname, 'rutas-publicas.baseline.json');
 
 const METODOS = { Get: 'GET', Post: 'POST', Patch: 'PATCH', Put: 'PUT', Delete: 'DELETE' };
 const ESCRIBEN = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
@@ -65,6 +71,20 @@ const OTRA_AUTENTICACION =
  * no mirarla, porque la saca de la lista de pendientes.
  */
 function seAutenticaDeOtraForma(metodo, clase) {
+  // Un `@UseGuards(...)` explícito en el método o en la clase es autenticación
+  // de pleno derecho, y no la veía: las 11 rutas de `/sync/*` salían como
+  // abiertas cuando las cubre `OnboardingTokenGuard`, que exige
+  // `Authorization: Bearer` y resuelve el negocio DESDE el token, nunca del
+  // body. En este repo solo hay un `@UseGuards` —los demás guards son
+  // globales—, así que el caso es raro, pero marcar como abierta una ruta
+  // protegida mete ruido en la lista que hay que revisar a mano.
+  const tieneGuard = (n) =>
+    decoradores(n).some((d) => {
+      const dec = leerDecorador(d);
+      return dec && dec.nombre === 'UseGuards';
+    });
+  if (tieneGuard(metodo) || tieneGuard(clase)) return true;
+
   const cuerpo = metodo.getText();
   if (OTRA_AUTENTICACION.test(cuerpo)) return true;
 
@@ -210,14 +230,18 @@ const debiles = abiertas.filter((r) => r.llaveDebil);
 const derraman = rutas.filter((r) => r.derramaObjeto);
 const conThrottle = rutas.filter((r) => r.throttle);
 
-console.log('\n=== RUTAS PUBLICAS (@Public) ===\n');
-console.log(`Total                                  : ${rutas.length}`);
-console.log(`  con otra autenticacion (api-key/firma): ${conOtraAuth.length}   <- no son agujeros`);
-console.log(`  ABIERTAS de verdad                   : ${abiertas.length}`);
-console.log(`    de esas, que ESCRIBEN              : ${escriben.length}   <-- por aqui se empieza`);
-console.log(`  se abren con una llave adivinable    : ${debiles.length}`);
-console.log(`  devuelven el objeto entero (...spread): ${derraman.length}`);
-console.log(`  con @Throttle (hoy decorativo, P0-2) : ${conThrottle.length}\n`);
+// En el CI el resumen es ruido: lo único que importa allí es el veredicto.
+const modoCandado = process.argv.includes('--ci') || process.argv.includes('--sellar');
+const informar = modoCandado ? () => {} : console.log;
+
+informar('\n=== RUTAS PUBLICAS (@Public) ===\n');
+informar(`Total                                  : ${rutas.length}`);
+informar(`  con otra autenticacion (api-key/firma): ${conOtraAuth.length}   <- no son agujeros`);
+informar(`  ABIERTAS de verdad                   : ${abiertas.length}`);
+informar(`    de esas, que ESCRIBEN              : ${escriben.length}   <-- por aqui se empieza`);
+informar(`  se abren con una llave adivinable    : ${debiles.length}`);
+informar(`  devuelven el objeto entero (...spread): ${derraman.length}`);
+informar(`  con @Throttle (hoy decorativo, P0-2) : ${conThrottle.length}\n`);
 
 const fmt = (r) => {
   const marcas = [
@@ -235,6 +259,71 @@ const fmt = (r) => {
   const llaves = extra.length ? `  (+${extra.join(',')})` : '';
   return `  ${r.metodo.padEnd(6)} ${r.ruta}${llaves}\n         ${r.archivo}:${r.linea} ${r.handler}()  [${marcas}]`;
 };
+
+// ---------------------------------------------------------------------------
+// Trinquete para el CI.
+//
+// El inventario ordena el trabajo, pero no impide que entre la ruta publica 151
+// sin que nadie la mire. Esto lo impide: el techo guarda las rutas ABIERTAS que
+// ESCRIBEN, y si aparece una nueva el CI la nombra y para.
+//
+// No cuenta: guarda la identidad de cada ruta. Sustituir una por otra no mueve
+// un contador, y ese fue justo el fallo del primer trinquete de dependencias.
+//
+//   node scripts/arqueo-rutas-publicas.cjs --ci       # falla si aparece una nueva
+//   node scripts/arqueo-rutas-publicas.cjs --sellar   # tras revisarla a mano
+// ---------------------------------------------------------------------------
+const identidad = (r) => `${r.metodo} ${r.ruta}`;
+const vigiladas = abiertas.filter((r) => r.escribe).map(identidad).sort();
+
+// Si el arqueo deja de ver controladores, no puede dar el visto bueno: diria
+// que no hay rutas publicas nuevas porque no ha mirado ninguna.
+if (rutas.length === 0) {
+  console.error('El arqueo no esta viendo el codigo: 0 rutas @Public().');
+  console.error('Revisa que src/ este donde se espera.\n');
+  process.exit(1);
+}
+
+if (process.argv.includes('--sellar')) {
+  fs.writeFileSync(BASELINE, JSON.stringify({ escribenAbiertas: vigiladas }, null, 2) + '\n');
+  console.log(`
+Techo sellado: ${vigiladas.length} rutas abiertas que escriben.`);
+  console.log(`Escrito en ${path.relative(ROOT, BASELINE).replace(/\\/g, '/')}\n`);
+  process.exit(0);
+}
+
+if (process.argv.includes('--ci')) {
+  if (!fs.existsSync(BASELINE)) {
+    console.error('No hay techo sellado. Corre --sellar una vez y commitea el JSON.\n');
+    process.exit(1);
+  }
+  const techo = new Set((JSON.parse(fs.readFileSync(BASELINE, 'utf8')) || {}).escribenAbiertas || []);
+  const nuevas = vigiladas.filter((v) => !techo.has(v));
+  const idas = [...techo].filter((t) => !vigiladas.includes(t));
+
+  if (nuevas.length) {
+    console.error('\n=== RUTA PUBLICA NUEVA QUE ESCRIBE SIN AUTENTICAR ===\n');
+    for (const n of nuevas) {
+      const r = rutas.find((x) => identidad(x) === n);
+      console.error(`  ${n}`);
+      if (r) console.error(`      ${r.archivo}:${r.linea} ${r.handler}()`);
+    }
+    console.error('Una ruta @Public() que escribe la puede llamar cualquiera. Antes de');
+    console.error('sellarla, responde por escrito: que llave la abre, si es adivinable,');
+    console.error('que escribe, y si con la llave de un negocio se toca otro.');
+    console.error('Metodo y ejemplos en docs/QA-MASTER-SECURITY.md (P1-2).\n');
+    console.error('  node scripts/arqueo-rutas-publicas.cjs --sellar\n');
+    process.exit(1);
+  }
+
+  if (idas.length) {
+    console.log('\nYa no estan (bien). Sella para que no puedan volver sin revisar:\n');
+    for (const i of idas) console.log(`  ${i}`);
+    console.log('');
+  }
+  console.log(`Rutas publicas: ninguna nueva que escriba sin autenticar (${vigiladas.length} vigiladas).`);
+  process.exit(0);
+}
 
 const full = process.argv.includes('--full');
 const lista = full ? rutas : abiertas.filter((r) => r.escribe).slice(0, 25);

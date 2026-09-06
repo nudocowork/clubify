@@ -8,6 +8,75 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-06 — Fase 10 a fondo: dos P0 nuevos, y el código de 4 caracteres es peor de lo que creíamos
+
+Auditadas una a una las rutas públicas que escriben. Dos hallazgos que suben a
+**P0**, los dos sin tocar:
+
+### 🔴 Con un código de pedido acertado se ESCRIBE COMO EL CLIENTE
+
+`POST /api/public/deliveries/<CODIGO>/chat` busca el pedido **solo por el
+código** y crea el mensaje con `senderRole: 'CUSTOMER'` y **el nombre real del
+cliente**. Y devuelve el hilo entero, con lo que escribieron el negocio y el
+repartidor.
+
+Acertando un código, un desconocido **habla como el cliente** —«cámbiame la
+dirección», «ya pagué por transferencia»— y lee la conversación privada. Sin
+segundo factor: ni teléfono ni PIN. La llave es la de siempre: 4 caracteres,
+923.521 combinaciones, **1 acierto cada 1.808 intentos** con los pedidos que hay
+—número que ya está escrito en nuestro propio código— y sin rate limit que
+funcione, eso es un bucle de segundos.
+
+Esto ya no es «leer datos de más»: es **suplantar a una persona ante el
+negocio**, y el negocio no tiene forma de notarlo. Subir el código a 6
+caracteres ayuda pero **no basta aquí**: la llave del chat debería ser algo que
+solo tenga el cliente.
+
+### 🔴 Dos rutas públicas mandan SMS al número que diga quien llama, en bucle
+
+`POST /api/public/service-reservations/:slug/book` manda la confirmación **al
+teléfono que venía en el cuerpo**, con las credenciales Grow del negocio. La
+llave es el slug, que es público. Y el bucle no acaba: la respuesta trae el
+`manageToken`, cancelar libera el hueco, y **reagendar reenvía la confirmación
+otra vez**. Ese controlador no tiene ni un `@Throttle` nominal.
+
+Lo mismo, si el negocio tiene automatización de bienvenida, en
+`POST /api/passes/enroll/:cardId`.
+
+**El daño no es solo el coste:** se puede acosar a un tercero **desde el
+remitente del negocio**. Quien recibe el SMS ve el nombre del negocio.
+
+Y una variante que **paga la plataforma**: `POST /api/public/reservations/:slug`
+avisa al negocio en cada reserva, y la cascada de credenciales acaba en la cuenta
+global de Clubify si el negocio no tiene Grow propio. Igual el aviso de reseña
+baja.
+
+### Lo que está BIEN, verificado, para que no lo revises otra vez
+
+Los tokens de cancelar reserva (JWT firmado), gestionar cita (`randomBytes(16)`,
+128 bits), presupuesto (uuid), pase de Apple (`nanoid(32)`) y **las invitaciones
+de dueño y de marca** (`randomBytes(32)`, guardadas como SHA-256, caducan a 7
+días, **de un solo uso** con `updateMany` condicional atómico, revocables).
+`completar-registro` solo rellena campos vacíos. `enroll-perf` no escribe en la
+base. Detalle en `QA-MASTER-SECURITY.md` §P1-2.
+
+Menor y anotado: el `DELETE` de registro de Apple Wallet no comprueba la cabecera
+`Authorization: ApplePass` que pide la spec, pero hace falta un
+`deviceLibraryId` que ninguna ruta devuelve. Y `POST /public/i/:id/track` acepta
+el cuerpo **sin ningún DTO** y lo guarda tal cual, con el tope global de 15 MB:
+vía directa para engordar la base, que en este producto ya pasó con `QrPoster`.
+
+### Y el inventario de rutas ya es un candado
+
+Corre en el CI (`Rutas publicas que escriben`). Si aparece una `@Public()` nueva
+que escriba, **el CI la nombra y para**. El techo guarda la identidad de cada
+ruta, no un contador. Comprobado que sabe ponerse en rojo.
+
+De paso arreglé un falso positivo: las **15 rutas de `/sync/*`** salían como
+abiertas y no lo están — las cubre `OnboardingTokenGuard` con
+`Authorization: Bearer`, que resuelve el negocio **desde el token** y nunca del
+body. El inventario no miraba los `@UseGuards` explícitos. Ahora sí, con prueba.
+
 ## 2026-09-06 (madrugada) — Pasé los candados por una revisión y estaban mal. Tres daban verde sin mirar
 
 **Lo primero, y no es del código: el repositorio es PÚBLICO.**
