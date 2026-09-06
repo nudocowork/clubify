@@ -1609,6 +1609,14 @@ model Card {
   // Default `true` = lo que el sistema hacía hasta ahora. Ningún cupón
   // existente cambia de comportamiento.
   transformOnRedeem   Boolean   @default(true)
+  /// Cupón INDEFINIDO: se puede redimir siempre, en cualquier visita.
+  ///
+  /// El cupón normal es de un solo uso — al canjearlo el pase se cierra. Con
+  /// esto no se cierra nunca: es un beneficio permanente para quien tenga la
+  /// tarjeta (el 2x1 de los martes, el descuento de los socios). Manda sobre
+  /// `transformOnRedeem`: si es indefinido no se transforma en nada, porque
+  /// transformarlo seria justamente dejar de ser un cupon.
+  couponIndefinido    Boolean   @default(false)
   /// Si esta tarjeta es la plantilla de un CONVENIO con una empresa aliada.
   /// El escáner lo lee del `card` que ya trae incluido en el pase para
   /// desviarse al flujo de convenios sin una consulta extra por escaneo.

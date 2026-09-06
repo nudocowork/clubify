@@ -89,6 +89,7 @@ const FROM_SCRATCH_DEFAULTS = {
   // false = no se convierte en nada: se canjea y la tarjeta queda usada.
   // Hace falta aparte porque transformIntoCardId=null ya significa "auto".
   transformOnRedeem: true,
+  couponIndefinido: false,
 };
 
 type LocationLite = { id: string; name: string };
@@ -949,11 +950,13 @@ function Step3Configure({
           <CouponTransformTargetPicker
             value={form.transformIntoCardId}
             transformOnRedeem={form.transformOnRedeem}
-            onChange={(id, transformar) =>
+            couponIndefinido={form.couponIndefinido}
+            onChange={(id, transformar, indefinido) =>
               setForm({
                 ...form,
                 transformIntoCardId: id,
                 transformOnRedeem: transformar,
+                couponIndefinido: indefinido,
               })
             }
           />
@@ -1898,15 +1901,23 @@ function TiersEditor({
  * valor centinela para el desplegable.
  */
 const SIN_CONVERTIR = '__none__';
+/** El cupon que no se gasta: se puede canjear en cada visita. */
+const INDEFINIDO = '__indefinido__';
 
 function CouponTransformTargetPicker({
   value,
   transformOnRedeem,
+  couponIndefinido,
   onChange,
 }: {
   value: string | null;
   transformOnRedeem: boolean;
-  onChange: (id: string | null, transformOnRedeem: boolean) => void;
+  couponIndefinido: boolean;
+  onChange: (
+    id: string | null,
+    transformOnRedeem: boolean,
+    couponIndefinido: boolean,
+  ) => void;
 }) {
   const t = useTranslations('app_cards_new');
   const [options, setOptions] = useState<
@@ -1938,11 +1949,20 @@ function CouponTransformTargetPicker({
       </label>
       <select
         className="input"
-        value={!transformOnRedeem ? SIN_CONVERTIR : (value ?? '')}
+        value={
+          couponIndefinido
+            ? INDEFINIDO
+            : !transformOnRedeem
+              ? SIN_CONVERTIR
+              : (value ?? '')
+        }
         onChange={(e) => {
           const v = e.target.value;
-          if (v === SIN_CONVERTIR) onChange(null, false);
-          else onChange(v || null, true);
+          // Indefinido NO se transforma en nada: transformarlo seria justo
+          // dejar de ser un cupon.
+          if (v === INDEFINIDO) onChange(null, false, true);
+          else if (v === SIN_CONVERTIR) onChange(null, false, false);
+          else onChange(v || null, true, false);
         }}
         disabled={loading}
       >
@@ -1953,11 +1973,14 @@ function CouponTransformTargetPicker({
           </option>
         ))}
         <option value={SIN_CONVERTIR}>{t('noTransform')}</option>
+        <option value={INDEFINIDO}>{t('indefinite')}</option>
       </select>
       <div className="text-[11px] text-mute mt-1 leading-snug">
-        {!transformOnRedeem
-          ? 'El cliente canjea el cupón y su tarjeta queda marcada como usada. No entra al programa de sellos ni se le crea ninguna tarjeta.'
-          : t('transformHint')}
+        {couponIndefinido
+          ? 'La tarjeta no se gasta: el cliente la puede usar en cada visita, siempre. Úsalo para beneficios permanentes —el 2x1 de los martes, el descuento de los socios—, no para una promoción de una sola vez.'
+          : !transformOnRedeem
+            ? 'El cliente canjea el cupón y su tarjeta queda marcada como usada. No entra al programa de sellos ni se le crea ninguna tarjeta.'
+            : t('transformHint')}
       </div>
     </div>
   );

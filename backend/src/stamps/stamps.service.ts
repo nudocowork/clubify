@@ -402,8 +402,15 @@ export class StampsService {
     // entrada al programa de sellos. Sin este gate, resolveOrCreateStampsCard
     // llegaría a CREARLE una tarjeta de sellos al negocio que no quiere tener
     // una.
+    // Cupon INDEFINIDO: ni se transforma ni se cierra. El pase se queda ACTIVE
+    // con su mismo cardId, que es justo lo que miran los dos guardias de
+    // re-redencion — asi el cliente lo puede volver a usar en la siguiente
+    // visita. Es un beneficio permanente, no un vale de un uso.
+    const indefinido =
+      isCouponRedeem && (pass.card as any).couponIndefinido === true;
     const noTransformar =
-      isCouponRedeem && (pass.card as any).transformOnRedeem === false;
+      isCouponRedeem &&
+      ((pass.card as any).transformOnRedeem === false || indefinido);
 
     let stampsCardForTransform: { id: string } | null = null;
     if (isCouponRedeem && !noTransformar) {
@@ -442,7 +449,7 @@ export class StampsService {
       passUpdateData.cardId = stampsCardForTransform.id;
       passUpdateData.stampsCount = 0;
       passUpdateData.status = 'ACTIVE';
-    } else if (noTransformar) {
+    } else if (noTransformar && !indefinido) {
       // Sin transformación hay que CERRAR el pase a mano. `completed` excluye
       // a propósito las redenciones de cupón (se asumía que siempre acababan
       // transformadas y ACTIVE), así que sin esto el cupón se quedaría ACTIVE
