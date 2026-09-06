@@ -1268,8 +1268,15 @@ export class OrdersService {
     // no mandar el filtro. Y como el filtro lo pone el frontend, cualquiera con
     // su sesion podia pedir la lista entera llamando a la API a pelo.
     const suSede = await this.sedeDeSoloPedidos(user);
-    if (suSede) where.locationId = suSede;
-    else if (filters?.locationId) where.locationId = filters.locationId;
+    if (suSede) {
+      // SU sede Y los pedidos SIN sede. Un pedido sin sede no es de otro: es de
+      // antes de que el negocio tuviera sedes, o de un negocio que no las usa.
+      // Filtrarlos fuera dejo a un empleado sin poder tocar los 89 pedidos
+      // historicos que no la tienen — incidencia del 2026-09-06.
+      where.OR = [{ locationId: suSede }, { locationId: null }];
+    } else if (filters?.locationId) {
+      where.locationId = filters.locationId;
+    }
     if (filters?.from || filters?.to) {
       where.createdAt = {};
       if (filters.from) {
@@ -1381,8 +1388,13 @@ export class OrdersService {
     }
     // Y tampoco por el id: ocultar un pedido de la lista no sirve de nada si
     // se puede abrir escribiendo su id en la barra del navegador.
+    // Solo se bloquea si el pedido es de OTRA sede. Sin sede no es de nadie —y
+    // `setStatus` entra por aqui, asi que bloquearlo dejaba pedidos que se ven
+    // pero no se pueden confirmar, que es peor que no verlos.
     const suSede = await this.sedeDeSoloPedidos(user);
-    if (suSede && o.locationId !== suSede) throw new ForbiddenException();
+    if (suSede && o.locationId && o.locationId !== suSede) {
+      throw new ForbiddenException();
+    }
     return o;
   }
 

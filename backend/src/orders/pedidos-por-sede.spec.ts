@@ -61,7 +61,7 @@ describe('pedidos que ve cada empleado', () => {
   it('«solo pedidos» con sede: se le fuerza SU sede', async () => {
     const f = prismaFalso({ sedeDelUsuario: 'sede-a' });
     await servicio(f.prisma).list(usuario('TENANT_ORDERS'), undefined);
-    expect(f.llamadas[0].where.locationId).toBe('sede-a');
+    expect(f.llamadas[0].where.OR).toContainEqual({ locationId: 'sede-a' });
   });
 
   it('«solo pedidos» no puede pedir OTRA sede por la URL', async () => {
@@ -71,7 +71,28 @@ describe('pedidos que ve cada empleado', () => {
     await servicio(f.prisma).list(usuario('TENANT_ORDERS'), undefined, {
       locationId: 'sede-b',
     });
-    expect(f.llamadas[0].where.locationId).toBe('sede-a');
+    expect(f.llamadas[0].where.OR).toContainEqual({ locationId: 'sede-a' });
+    expect(f.llamadas[0].where.locationId).toBeUndefined();
+  });
+
+  it('ve TAMBIÉN los pedidos sin sede — la incidencia del 2026-09-06', async () => {
+    // 89 pedidos de la plataforma no tienen sede: son de antes de que el
+    // negocio la tuviera, o de negocios que no usan sedes. Filtrarlos fuera
+    // dejó a los empleados sin poder confirmar los pedidos del día anterior.
+    const f = prismaFalso({ sedeDelUsuario: 'sede-a' });
+    await servicio(f.prisma).list(usuario('TENANT_ORDERS'), undefined);
+    expect(f.llamadas[0].where.OR).toEqual([
+      { locationId: 'sede-a' },
+      { locationId: null },
+    ]);
+  });
+
+  it('puede confirmar un pedido sin sede', async () => {
+    // `setStatus` entra por `get`, asi que bloquear aqui es «lo veo pero no lo
+    // puedo confirmar» — peor que no verlo.
+    const f = prismaFalso({ sedeDelUsuario: 'sede-a', sedeDelPedido: null });
+    const o = await servicio(f.prisma).get(usuario('TENANT_ORDERS'), 'o1');
+    expect(o.id).toBe('o1');
   });
 
   it('«solo pedidos» SIN sede asignada sigue viéndolos todos', async () => {
