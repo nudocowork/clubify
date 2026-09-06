@@ -356,6 +356,29 @@ if (OBJETIVO === 'backend') {
     ],
     { stdio: 'inherit', shell: true, cwd: path.join(COPIA, 'frontend') },
   );
+
+  // Prueba de humo DESPUÉS de publicar, en un navegador con perfil limpio.
+  //
+  // No bloquea nada —a estas alturas ya está arriba— y ese es justo su valor:
+  // te enteras AHORA de que el recorrido del cliente se rompió, en vez de
+  // enterarte por el informe de un negocio tres días después. Que es lo que
+  // pasó el 2026-09-05.
+  if (r.status === 0) {
+    console.log(``);
+    console.log(`  Comprobando el recorrido del cliente…`);
+    console.log(``);
+    const humo = spawnSync('node', [path.join(__dirname, 'humo.cjs')], {
+      stdio: 'inherit',
+      shell: true,
+    });
+    if (humo.status !== 0) {
+      console.log(``);
+      console.log(`  ⚠ La prueba de humo salió EN ROJO y ya está publicado.`);
+      console.log(`    Revísalo ahora: node scripts/humo.cjs`);
+      console.log(``);
+    }
+  }
+
   process.exit(r.status ?? 0);
 }
 

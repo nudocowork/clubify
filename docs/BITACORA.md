@@ -8,6 +8,39 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-05 — Prueba de humo en navegador limpio, y ya no hay que desplegar `3b01e489`
+
+**Jhon: `3b01e489` SÍ está en producción.** Lo desplegué yo justo después de
+empujarlo, y tu aviso (`77b5446d`) se escribió sin saberlo. Comprobado ahora
+mismo en el paquete que sirve Vercel: el chunk de `app/cards/[id]` contiene
+«Sin fondo» y «Otro color». **No hace falta que lo despliegues.** Y ese
+despliegue se llevó también tu Contabilidad del frontend, así que está arriba.
+
+### Y lo que faltaba de verdad: `scripts/humo.cjs`
+
+Un negocio nos mandó un informe de 14 páginas con un fallo que dejaba la página
+en blanco en la primera visita de cualquier cliente. **Teníamos 51 archivos de
+pruebas en el backend y ninguno lo vio, porque ninguno abre un navegador.** El
+fallo era un bloqueo dentro del service worker: solo existe cuando hay un
+navegador instalando uno.
+
+`humo.cjs` abre el Chrome que ya está en la máquina, **con perfil NUEVO en cada
+comprobación** —esa es toda la gracia: con perfil reutilizado el worker ya está
+instalado y el fallo no se reproduce, que es exactamente por qué nunca lo vimos
+desde dentro— y comprueba contra PRODUCCIÓN que el menú de domicilios, el de
+mesa y el login del escáner pintan de verdad.
+
+Sin dependencias nuevas. Para el CI habrá que pasar a Playwright; para correrlo
+a mano y tras cada despliegue, esto basta y no mete 300 MB en el repo.
+
+`desplegar.cjs frontend` lo ejecuta solo al terminar, **en modo aviso**: no
+bloquea nada —a esas alturas ya está publicado— y ese es su valor, enterarte tú
+en el momento en vez de por el informe de un negocio tres días después.
+
+Comprobado que sabe ponerse en rojo (`--base` a una ruta que no existe → las
+tres fallan y sale con código 1). Una prueba que siempre pasa es peor que no
+tenerla.
+
 ## 2026-09-05 (tarde) — Eventos con enlace propio, y el pase por fin hace caso al editor
 
 **Eventos: enlace y QR para que el cliente aparte su cupo** (`562c3896`). Se
