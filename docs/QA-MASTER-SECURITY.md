@@ -338,3 +338,19 @@ Marcar como `BLOQUEADO` y decir qué falta:
 | 2026-09-05 | Se podían crear pedidos sin teléfono desde la API | La API responde 400 |
 | 2026-09-05 | Bloqueo del service worker: primera visita rota en los 3 motores | `node scripts/humo.cjs` en verde |
 | 2026-09-05 | El pedido se creaba y el WhatsApp no siempre se abría | Ventana nueva desde el gesto del usuario |
+| 2026-09-05 | El empleado «solo pedidos» con sede veía los de TODAS las sedes | 6 tests en `orders/pedidos-por-sede.spec.ts`, incluido abrir por id |
+
+### Abierto de eso mismo · roles y sedes (fase 12)
+
+Al arreglar lo de arriba salieron dos cosas que NO se tocaron:
+
+- **`TENANT_STAFF` con sede sigue viendo todos los pedidos.** Es deliberado: ese
+  campo nació para los rankings de sellos por sede, y hay **52 empleados en 18
+  negocios** con sede puesta que hoy ven todo. Apagárselo de golpe les cambia el
+  trabajo sin avisar. Hay que revisarlo negocio por negocio y avisando. Medible
+  con `railway run node backend/scripts/arqueo-empleados-sede.cjs`.
+- **No existe el rol «solo escanear».** Los roles son `TENANT_OWNER`,
+  `TENANT_STAFF`, `TENANT_ORDERS`. Un empleado creado «para que solo escanee»
+  queda como `TENANT_STAFF` y ve casi todo el panel. No es un permiso que falle:
+  es un rol que no existe. Hay que crearlo como se creó `TENANT_ORDERS`, y
+  decidir antes qué ve (¿clientes? ¿el historial de sellos que él mismo puso?).
