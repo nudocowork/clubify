@@ -105,6 +105,54 @@ bucle. El arreglo toca cómo se traga el webhook real del proveedor, así que lo
 dejo escrito en `QA-MASTER-SECURITY.md` (P1-6) con las dos opciones y no lo
 decido solo.
 
+### Me equivoqué en algo del apartado de aislamiento, y lo corrijo
+
+**Escribí que no había middleware de Prisma. Sí lo hay:**
+`src/common/prisma/prisma-tenant-middleware.ts`, registrado en
+`prisma.service.ts:17`. Mi grep buscó en `src/prisma/` y vive en
+`src/common/prisma/`. Está corregido en `QA-MASTER-SECURITY.md` y en la cabecera
+del script.
+
+**Y funciona.** Lo comprobé levantando una app Nest con el mismo patrón de
+interceptor: el contexto del `AsyncLocalStorage` llega al handler incluso
+después de varios `await`. El comentario de `test/tenant-isolation.e2e.test.ts`
+que lo afirmaba **tiene razón** — lo que se pierde es el contexto dentro del
+test, no el del request real. (Llegué a montar la demostración de que se perdía
+con un Observable de mentira; con RxJS y Nest de verdad, no se pierde. Aviso por
+si alguien repite el camino.)
+
+Lo que sigue en pie, y es lo que el arqueo cubre, son los agujeros que **el
+propio middleware declara en su cabecera**: `update`/`delete`/`upsert`
+**singulares** —Prisma no admite filtro no-único en el `where`, y son justo las
+que escriben—, todo lo que corre sin contexto (crons, scripts,
+`runWithoutTenant`) y los roles `MARKETING` y `SUPER_ADMIN`.
+
+#### El arqueo se pasó por una revisión y estaba flojo
+
+Le pasé el script a un revisor y salieron cuatro falsos negativos de verdad, ya
+arreglados:
+
+- `mencionaTenant` miraba el argumento ENTERO, así que un `include: { tenant }`
+  o un `select: { tenantId: true }` excusaban la consulta **sin filtrar nada**.
+  Ahora solo cuenta el `where`.
+- `campaignId` y `whiteLabelId` valían como si fueran el negocio. No lo son: una
+  campaña está dentro de un negocio y una marca tiene N. Ahora cada clave
+  alternativa solo vale para su propio modelo.
+- El texto de la función se leía con comentarios y cadenas dentro: un
+  `logger.debug('tenantId ...')` daba por acotada una consulta que no lo estaba.
+- `metodosQueAcotan` indexaba solo por nombre de método, y hay 98 archivos con
+  más de una clase: el `update()` de una excusaba el de la otra. Ahora
+  `Clase.metodo`.
+
+Y lo más importante: **los delegados ya cuentan para el techo.** Estaban fuera
+del CI por una heurística que no comprueba que el guard reciba el mismo id —
+bastaba llamar a cualquier `this.loQueSea()` que mencionara `tenantId` para que
+una consulta desapareciera.
+
+Con todo eso el techo pasa de 63 a **158 vigiladas** (116 que nadie acota + 42
+delegadas). **No es que haya entrado nada malo: es que antes no las veía.**
+Comprobado otra vez que sabe ponerse en rojo.
+
 ### Fase 16 (rate limiting): lo que faltaba saber para poder decidir
 
 **No toqué nada.** Pero el P0-2 estaba parado por falta de un dato, y el dato ya

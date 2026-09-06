@@ -2,13 +2,28 @@
 /**
  * Arqueo de aislamiento entre negocios (multi-tenant / IDOR).
  *
- * Por qué existe: este backend NO tiene extensión ni middleware de Prisma que
- * inyecte `tenantId`. El aislamiento entre negocios depende por completo de que
- * cada consulta lo escriba a mano. Con ~85 modelos que llevan `tenantId`, eso
- * es imposible de sostener a ojo: basta un `findUnique({ where: { id } })` en
- * una ruta autenticada para que el dueño del negocio A lea o modifique la fila
- * del negocio B. El JWT dice quién eres y el RolesGuard qué tipo de cosas
- * puedes hacer, pero nada comprueba que el OBJETO que pides es tuyo.
+ * Por qué existe: SÍ hay un middleware de Prisma que inyecta `tenantId`
+ * —`src/common/prisma/prisma-tenant-middleware.ts`, registrado en
+ * `prisma.service.ts:17`— y SÍ funciona en los requests HTTP autenticados.
+ * Comprobado el 2026-09-05 levantando una app Nest con el mismo patrón de
+ * interceptor: el contexto del AsyncLocalStorage llega al handler incluso
+ * después de varios `await`. (El comentario de `test/tenant-isolation.e2e.test.ts`
+ * ya lo decía, y tiene razón: lo que falla es el contexto DENTRO del test,
+ * no el del request real.)
+ *
+ * Lo que este arqueo cubre son los agujeros que el propio middleware declara
+ * en su cabecera y que no puede tapar:
+ *
+ *   - `update` / `delete` / `upsert` SINGULARES. Prisma no admite un filtro
+ *     no-único en su `where`, así que el middleware no puede inyectar nada.
+ *     Son justo las operaciones que ESCRIBEN.
+ *   - Todo lo que corre sin contexto: crons, scripts, colas, y lo envuelto en
+ *     `TenantContext.runWithoutTenant()`.
+ *   - `role === MARKETING` y `SUPER_ADMIN`, que lo saltan por diseño.
+ *
+ * Es decir: el JWT dice quién eres, el RolesGuard qué tipo de cosas puedes
+ * hacer, y el middleware acota casi todo... menos la escritura por id, que es
+ * la que más duele. Ahí solo queda que alguien se acuerde de escribirlo a mano.
  *
  * Qué hace: recorre el AST de los .ts, encuentra las llamadas a Prisma sobre
  * modelos que tienen `tenantId`, y marca las que se filtran por identificador
@@ -131,7 +146,10 @@ function esSobreSiMismo(whereNode) {
 }
 
 /** Claves por las que se filtra, para saber si se apoya en un identificador
- *  opaco (id/code/slug/token): esas son las que dejan saltar de negocio. */
+ *  opaco (id/code/slug/token): esas son las que dejan saltar de negocio.
+ *
+ *  Sin la `i` a propósito: con ella, `\w+Id$` casaba `paid`, `valid` y `void`,
+ *  y un `where: { paid: true }` habría salido como si filtrara por un id. */
 function claveDelWhere(whereNode) {
   const claves = [];
   const walk = (n) => {
@@ -174,13 +192,52 @@ function funcionContenedora(node) {
   return null;
 }
 
-const ACOTA = /tenantId|allyBusinessId|deliveryCompanyId|campaignId|whiteLabelId/;
+// `tenantId` es el negocio. `campaignId` es un objeto DENTRO de un negocio y
+// `whiteLabelId` es una marca con N negocios: aceptarlos para cualquier modelo
+// blanqueaba 57 consultas sobre Customer, User y Card por tocar una campana.
+// Solo valen como ambito para los modelos de los que SON la clave.
+const ACOTA = /tenantId/;
+const AMBITO_PROPIO = {
+  Delivery: /deliveryCompanyId/,
+  AllyBusiness: /campaignId|allyBusinessId/,
+  Benefit: /campaignId/,
+  BenefitCampaign: /campaignId/,
+  Redemption: /campaignId/,
+};
 
 /** ¿La función acota el negocio en ALGUNA parte de su cuerpo? Cubre el
  *  where compuesto, la comparación explícita y el parámetro tenantId. */
-function funcionAcotaTenant(fn) {
+function funcionAcotaTenant(fn, modelo) {
   if (!fn) return false;
-  return ACOTA.test(fn.getText());
+  const texto = textoSinLiterales(fn);
+  if (ACOTA.test(texto)) return true;
+  const propio = AMBITO_PROPIO[modelo];
+  return propio ? propio.test(texto) : false;
+}
+
+/** El texto de la funcion sin comentarios ni cadenas. Sin esto, un
+ *  `logger.debug('tenantId ...')` o un `// aqui no aplica tenantId` bastaba
+ *  para dar por acotada una consulta que no lo estaba. */
+function textoSinLiterales(fn) {
+  let out = '';
+  const walk = (n) => {
+    if (
+      ts.isStringLiteral(n) ||
+      ts.isNoSubstitutionTemplateLiteral(n) ||
+      n.kind === ts.SyntaxKind.TemplateHead ||
+      n.kind === ts.SyntaxKind.TemplateMiddle ||
+      n.kind === ts.SyntaxKind.TemplateTail
+    ) {
+      return; // se salta el literal entero
+    }
+    if (n.getChildCount() === 0) {
+      out += ' ' + n.getText();
+      return;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(fn);
+  return out;
 }
 
 /** Métodos del archivo que sí acotan, para poder seguir la delegación.
@@ -192,8 +249,15 @@ function funcionAcotaTenant(fn) {
 function metodosQueAcotan(sf) {
   const mapa = new Map();
   const walk = (n) => {
-    if (ts.isMethodDeclaration(n) && n.name) {
-      mapa.set(n.name.getText(), ACOTA.test(n.getText()));
+    // Se indexa por Clase.metodo: 98 archivos tienen mas de una clase, y con
+    // solo el nombre un `update()` de una clase excusaba el de la otra.
+    if (ts.isClassDeclaration(n) && n.name) {
+      const clase = n.name.getText();
+      for (const m of n.members) {
+        if (ts.isMethodDeclaration(m) && m.name) {
+          mapa.set(`${clase}.${m.name.getText()}`, ACOTA.test(textoSinLiterales(m)));
+        }
+      }
     }
     ts.forEachChild(n, walk);
   };
@@ -201,11 +265,21 @@ function metodosQueAcotan(sf) {
   return mapa;
 }
 
+/** La clase que contiene un nodo, para resolver `this.x()` sin colisiones. */
+function claseContenedora(node) {
+  let n = node.parent;
+  while (n) {
+    if (ts.isClassDeclaration(n) && n.name) return n.name.getText();
+    n = n.parent;
+  }
+  return '';
+}
+
 /** ¿La función delega la comprobación en un método del mismo servicio que sí
  *  acota? Heurística deliberada: no verifica que le pase EL MISMO id, así que
  *  puede tapar un caso real. Por eso los delegados se listan aparte con
  *  --delegados, para revisarlos a mano en vez de darlos por buenos. */
-function delegaEnMetodoQueAcota(fn, mapa) {
+function delegaEnMetodoQueAcota(fn, mapa, clase) {
   if (!fn) return null;
   let encontrado = null;
   const walk = (n) => {
@@ -216,7 +290,7 @@ function delegaEnMetodoQueAcota(fn, mapa) {
       n.expression.expression.kind === ts.SyntaxKind.ThisKeyword
     ) {
       const nombre = n.expression.name.text;
-      if (mapa.get(nombre) === true) {
+      if (mapa.get(`${clase}.${nombre}`) === true) {
         encontrado = nombre;
         return;
       }
@@ -251,11 +325,21 @@ for (const file of archivosTs(SRC)) {
     if (call && conTenant.has(call.modelo)) {
       const arg = node.arguments[0];
       const where = propiedad(arg, 'where');
-      const acotaTenant = arg ? mencionaTenant(arg) : false;
+      // Solo el `where` acota de verdad. Mirar el argumento entero hacia que
+      // un `include: { tenant: ... }` o un `select: { tenantId: true }`
+      // excusaran la consulta sin filtrar nada: 78 consultas se libraban asi.
+      const esCreacionOp = call.op === 'create' || call.op === 'createMany';
+      const acotaTenant = where
+        ? mencionaTenant(where)
+        : esCreacionOp && arg
+          ? mencionaTenant(propiedad(arg, 'data') || arg)
+          : false;
 
       if (!acotaTenant && !esSobreSiMismo(where)) {
         const claves = where ? claveDelWhere(where) : [];
-        const porIdOpaco = claves.some((k) => /^(id|code|slug|token|uuid|publicId|\w+Id)$/i.test(k));
+        const porIdOpaco = claves.some((k) =>
+          /^(id|code|slug|token|uuid|publicId|serialNumber|manageToken|qrToken|tokenHash|email|phone|\w+Id)$/.test(k),
+        );
         // create/createMany sin tenantId es otro problema (fila huérfana), no IDOR.
         const esCreacion = call.op === 'create' || call.op === 'createMany';
         // findMany sin where ni tenantId = listado global: se lo lleva TODO.
@@ -266,8 +350,11 @@ for (const file of archivosTs(SRC)) {
           const fn = funcionContenedora(node);
           // Si la función entera no nombra el negocio ni una vez, nada la acota:
           // ni antes de la consulta ni después. Ese es el hallazgo de verdad.
-          const cubierto = funcionAcotaTenant(fn);
-          const delegado = cubierto ? null : delegaEnMetodoQueAcota(fn, acotanAqui);
+          const modelo = conTenant.get(call.modelo);
+          const cubierto = funcionAcotaTenant(fn, modelo);
+          const delegado = cubierto
+            ? null
+            : delegaEnMetodoQueAcota(fn, acotanAqui, claseContenedora(node));
           const nombreFn = fn && fn.name ? fn.name.getText() : '(anonima)';
 
           hallazgos.push({
@@ -334,12 +421,21 @@ const linea = (h) => {
 // ---------------------------------------------------------------------------
 const BASELINE = path.join(__dirname, 'aislamiento-tenant.baseline.json');
 
+// Los delegados cuentan para el techo. La delegacion NO comprueba que el guard
+// reciba el mismo id: basta un `this.loQueSea()` que mencione tenantId para que
+// la consulta desapareciera del CI. Son «por revisar», no «correctas», y
+// dejarlas fuera era un agujero por el que colar cualquier cosa.
+const vigiladas = [...huerfanos, ...delegados];
 const conteoActual = {};
-for (const h of huerfanos) conteoActual[h.archivo] = (conteoActual[h.archivo] || 0) + 1;
+for (const h of vigiladas) conteoActual[h.archivo] = (conteoActual[h.archivo] || 0) + 1;
 
 if (process.argv.includes('--sellar')) {
   fs.writeFileSync(BASELINE, JSON.stringify(conteoActual, null, 2) + '\n');
-  console.log(`\nTecho sellado: ${huerfanos.length} consultas sin acotar en ${Object.keys(conteoActual).length} archivos.`);
+  console.log(
+    `\nTecho sellado: ${vigiladas.length} consultas vigiladas ` +
+      `(${huerfanos.length} que nadie acota + ${delegados.length} delegadas) ` +
+      `en ${Object.keys(conteoActual).length} archivos.`,
+  );
   console.log(`Escrito en ${path.relative(ROOT, BASELINE).replace(/\\/g, '/')}\n`);
   process.exit(0);
 }
@@ -363,7 +459,7 @@ if (process.argv.includes('--ci')) {
     console.error('\n=== AISLAMIENTO ENTRE NEGOCIOS: hay consultas nuevas que no acotan ===\n');
     for (const s of subieron) {
       console.error(`  ${s.archivo}   ${s.antes} -> ${s.ahora}`);
-      for (const h of huerfanos.filter((x) => x.archivo === s.archivo)) console.error(linea(h));
+      for (const h of vigiladas.filter((x) => x.archivo === s.archivo)) console.error(linea(h));
       console.error('');
     }
     console.error('Una consulta sobre un modelo con tenantId que se filtra por id y no acota');
@@ -380,7 +476,7 @@ if (process.argv.includes('--ci')) {
     console.log('\n  node scripts/arqueo-aislamiento-tenant.cjs --sellar\n');
   }
 
-  console.log(`Aislamiento entre negocios: sin consultas nuevas sin acotar (techo ${huerfanos.length}).`);
+  console.log(`Aislamiento entre negocios: sin consultas nuevas sin acotar (techo ${vigiladas.length}).`);
   process.exit(0);
 }
 

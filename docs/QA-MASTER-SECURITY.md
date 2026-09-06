@@ -242,11 +242,29 @@ aislamiento funciona donde se ha mirado.** El backend es *fail-closed* —
 marcado `@Public()`**. Que 115 controladores no lleven `@UseGuards` no es un
 hueco: es el diseño.
 
-Lo que NO existe es la capa de abajo. El JWT dice *quién eres* y el
-`RolesGuard` *qué tipo de cosas puedes hacer*, pero **nada comprueba que el
-objeto que pides sea tuyo**. No hay extensión ni middleware de Prisma: el
-aislamiento depende, consulta a consulta, de que alguien escriba `tenantId` a
-mano. Sobre 65 modelos que lo llevan, y con **tres patrones distintos** de
+**CORREGIDO el 2026-09-05 (lo de abajo estaba mal escrito aquí antes).** Sí
+hay un middleware de Prisma que inyecta `tenantId`:
+[prisma-tenant-middleware.ts](../backend/src/common/prisma/prisma-tenant-middleware.ts),
+registrado en `prisma.service.ts:17`. Y **sí funciona** en los requests HTTP
+autenticados: comprobado levantando una app Nest con el mismo patrón de
+interceptor, el contexto del `AsyncLocalStorage` llega al handler incluso
+después de varios `await`. El comentario de `test/tenant-isolation.e2e.test.ts`
+que lo afirmaba tenía razón — lo que se pierde es el contexto **dentro del
+test**, no el del request real.
+
+Lo que queda descubierto son los agujeros que **el propio middleware declara**
+en su cabecera y no puede tapar:
+
+- **`update` / `delete` / `upsert` SINGULARES.** Prisma no admite un filtro
+  no-único en su `where`, así que no hay nada que inyectar. Son justo las
+  operaciones que **escriben**.
+- Todo lo que corre **sin contexto**: crons, scripts, colas y lo envuelto en
+  `TenantContext.runWithoutTenant()`.
+- `role === MARKETING` y `SUPER_ADMIN`, que lo saltan por diseño.
+
+O sea: el JWT dice *quién eres*, el `RolesGuard` *qué tipo de cosas puedes
+hacer*, el middleware acota casi todo… **menos la escritura por id**. Ahí solo
+queda que alguien se acuerde de escribirlo a mano. Sobre 65 modelos que lo llevan, y con **tres patrones distintos** de
 hacerlo conviviendo en el repo:
 
 ```ts
