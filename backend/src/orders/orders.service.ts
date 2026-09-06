@@ -1119,8 +1119,31 @@ export class OrdersService {
     // Marca blanca del negocio (atribución/web/inicial). Nunca Clubify por
     // defecto: legacy sin marca cae al row real `clubify`.
     const b = await this.brand.resolveByWhiteLabelId(o.tenant.whiteLabelId);
+    // Fuera los datos personales y los de cobro.
+    //
+    // Esta ruta es PÚBLICA y la llave es el código del pedido: 4 caracteres de
+    // un alfabeto de 30, únicos en toda la plataforma. Devolvía la fila entera
+    // —`...o`—, así que con acertar un código cualquiera salían el NOMBRE, el
+    // TELÉFONO y la DIRECCIÓN DE CASA del cliente, más las referencias de pago.
+    // Medido el 2026-09-05: 1 acierto cada 1.808 intentos a ciegas, y la
+    // probabilidad sube conforme entran pedidos.
+    //
+    // La página de seguimiento no usa nada de esto: solo estado, artículos,
+    // total, notas y calificación. El cliente ya sabe su dirección; no hace
+    // falta devolvérsela por una ruta que cualquiera puede llamar.
+    const {
+      customer: _cliente,
+      deliveryAddress: _direccion,
+      whatsappLink: _wa,
+      customerId: _idCliente,
+      tenantId: _idNegocio,
+      paymentRef: _refPago,
+      paymentUrl: _urlPago,
+      paymentProvider: _proveedorPago,
+      ...publico
+    } = o as Record<string, unknown> & typeof o;
     return {
-      ...o,
+      ...publico,
       brand: {
         name: b.name,
         slug: b.slug,
