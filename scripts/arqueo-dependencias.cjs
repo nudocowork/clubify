@@ -23,7 +23,19 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const BASELINE = path.join(__dirname, 'dependencias.baseline.json');
+
+/** `--baseline=` y `--auditoria=` existen para poder PROBAR el trinquete sin
+ *  depender de la red ni de un `npm audit` real: `--auditoria` carga el
+ *  resultado desde un JSON en vez de ejecutar npm. Sin esto habría que fiarse
+ *  de que la comparación sigue funcionando, y este script es lo único que
+ *  impide que entre una dependencia vulnerable sin que nadie se entere.
+ *  Ver `backend/test/arqueo-dependencias.test.ts`. */
+const argOpcion = (nombre) => {
+  const a = process.argv.find((x) => x.startsWith(`--${nombre}=`));
+  return a ? a.slice(nombre.length + 3) : null;
+};
+const BASELINE = argOpcion('baseline') || path.join(__dirname, 'dependencias.baseline.json');
+const AUDITORIA_FIJA = argOpcion('auditoria');
 const PAQUETES = ['backend', 'frontend'];
 const GRAVES = ['critical', 'high'];
 
@@ -65,9 +77,13 @@ function auditar(dir) {
 }
 
 const actual = {};
-for (const p of PAQUETES) {
-  const r = auditar(p);
-  if (r) actual[p] = r;
+if (AUDITORIA_FIJA) {
+  Object.assign(actual, JSON.parse(fs.readFileSync(AUDITORIA_FIJA, 'utf8')));
+} else {
+  for (const p of PAQUETES) {
+    const r = auditar(p);
+    if (r) actual[p] = r;
+  }
 }
 
 if (!Object.keys(actual).length) {
@@ -120,6 +136,19 @@ if (process.argv.includes('--ci')) {
     console.log('  node scripts/arqueo-dependencias.cjs --sellar\n');
     process.exit(0);
   }
+  // Si un paquete que estaba en el techo hoy no se puede auditar, NO se pasa
+  // por alto. Iterando solo sobre lo auditado, un `npm audit` que fallara solo
+  // en frontend dejaba el frontend sin vigilar y el CI en verde: el mismo
+  // fallo silencioso de siempre, pero a trozos.
+  const faltan = Object.keys(techo).filter((p) => !actual[p]);
+  if (faltan.length) {
+    console.error('\n=== NO SE PUDO AUDITAR LO QUE ANTES SI ===\n');
+    for (const p of faltan) console.error(`  ${p}   (esta en el techo y hoy no devuelve nada)`);
+    console.error('\nUn `npm audit` que falla no es un «sin vulnerabilidades»: es no haber');
+    console.error('mirado. Revisa la red, el lockfile o el registro antes de seguir.\n');
+    process.exit(1);
+  }
+
   const subieron = [];
   const avisos = [];
   const bajaron = [];

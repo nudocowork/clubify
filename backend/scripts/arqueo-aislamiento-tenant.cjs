@@ -43,8 +43,19 @@ const path = require('path');
 const ts = require('typescript');
 
 const ROOT = path.join(__dirname, '..');
-const SRC = path.join(ROOT, 'src');
-const SCHEMA = path.join(ROOT, 'prisma', 'schema.prisma');
+
+/** `--src=` y `--schema=` existen para poder PROBAR el arqueo contra ficheros
+ *  de ejemplo. Sin ellos habria que fiarse de que sigue detectando lo que dice
+ *  detectar, y este script es lo unico que separa una consulta sin acotar de
+ *  producción: si se rompe en silencio, nadie se entera. Ver
+ *  `test/arqueo-aislamiento.test.ts`. */
+const argOpcion = (nombre, porDefecto) => {
+  const a = process.argv.find((x) => x.startsWith(`--${nombre}=`));
+  return a ? path.resolve(a.slice(nombre.length + 3)) : porDefecto;
+};
+const SRC = argOpcion('src', path.join(ROOT, 'src'));
+const SCHEMA = argOpcion('schema', path.join(ROOT, 'prisma', 'schema.prisma'));
+const BASELINE_ARG = argOpcion('baseline', null);
 
 const ESCRITURA = new Set(['update', 'delete', 'upsert', 'updateMany', 'deleteMany']);
 const LECTURA = new Set([
@@ -314,6 +325,9 @@ function propiedad(objNode, nombre) {
 
 const conTenant = modelosConTenant();
 const hallazgos = [];
+// Cuantas llamadas a Prisma sobre modelos con tenantId se han llegado a
+// ANALIZAR (hallazgo o no). Es el pulso del arqueo: ver mas abajo por que.
+let analizadas = 0;
 
 for (const file of archivosTs(SRC)) {
   const texto = fs.readFileSync(file, 'utf8');
@@ -323,6 +337,7 @@ for (const file of archivosTs(SRC)) {
   const visit = (node) => {
     const call = llamadaPrisma(node);
     if (call && conTenant.has(call.modelo)) {
+      analizadas++;
       const arg = node.arguments[0];
       const where = propiedad(arg, 'where');
       // Solo el `where` acota de verdad. Mirar el argumento entero hacia que
@@ -419,7 +434,55 @@ const linea = (h) => {
 //   node scripts/arqueo-aislamiento-tenant.cjs --ci        # falla si sube
 //   node scripts/arqueo-aislamiento-tenant.cjs --sellar    # tras revisar a mano
 // ---------------------------------------------------------------------------
-const BASELINE = path.join(__dirname, 'aislamiento-tenant.baseline.json');
+const BASELINE = BASELINE_ARG || path.join(__dirname, 'aislamiento-tenant.baseline.json');
+
+/**
+ * Comprobacion de cordura. Sin esto el arqueo es peor que no tener nada:
+ * si una refactorizacion rompe el parseo del schema o el reconocimiento de
+ * llamadas —mover el schema, renombrar `this.prisma`, subir de Prisma mayor—,
+ * el script encuentra CERO consultas, informa de que todo bajo a cero, y el CI
+ * pasa en VERDE para siempre sin que nadie se entere. Comprobado el 2026-09-05
+ * vaciando el schema a proposito: salia codigo 0 y un alegre «Bajaron (bien)».
+ *
+ * Un candado que siempre abre es peor que no poner candado, porque ademas
+ * tranquiliza. Asi que el arqueo se exige a si mismo seguir viendo el codigo:
+ * si no encuentra modelos, o si las consultas analizadas se desploman respecto
+ * a lo sellado, falla RUIDOSAMENTE en vez de dar el visto bueno.
+ */
+function comprobarCordura(techoCordura) {
+  const problemas = [];
+  if (conTenant.size === 0) {
+    problemas.push(
+      `No se encontro NINGUN modelo con tenantId en ${path.relative(ROOT, SCHEMA).replace(/\\/g, '/')}.` +
+        ' El schema no se pudo leer o cambio de formato.',
+    );
+  }
+  if (analizadas === 0) {
+    problemas.push(
+      'No se reconocio NINGUNA llamada a Prisma. El AST no encuentra' +
+        ' `this.prisma.<modelo>.<op>()`: ¿cambio el nombre del cliente o la version de Prisma?',
+    );
+  }
+  if (techoCordura) {
+    // Un margen del 40% deja sitio a refactorizaciones grandes de verdad y aun
+    // asi caza el desplome que delata un analisis roto.
+    const minModelos = Math.floor(techoCordura.modelos * 0.6);
+    const minAnalizadas = Math.floor(techoCordura.analizadas * 0.6);
+    if (conTenant.size < minModelos) {
+      problemas.push(
+        `Modelos con tenantId: ${conTenant.size}, y el techo se sello con ${techoCordura.modelos}.` +
+          ' Una caida asi no es una refactorizacion, es el parseo roto.',
+      );
+    }
+    if (analizadas < minAnalizadas) {
+      problemas.push(
+        `Consultas analizadas: ${analizadas}, y el techo se sello con ${techoCordura.analizadas}.` +
+          ' El arqueo esta viendo mucho menos codigo del que veia.',
+      );
+    }
+  }
+  return problemas;
+}
 
 // Los delegados cuentan para el techo. La delegacion NO comprueba que el guard
 // reciba el mismo id: basta un `this.loQueSea()` que mencione tenantId para que
@@ -430,7 +493,19 @@ const conteoActual = {};
 for (const h of vigiladas) conteoActual[h.archivo] = (conteoActual[h.archivo] || 0) + 1;
 
 if (process.argv.includes('--sellar')) {
-  fs.writeFileSync(BASELINE, JSON.stringify(conteoActual, null, 2) + '\n');
+  // No se sella un arqueo que no esta viendo el codigo: seria grabar «cero
+  // hallazgos» como si fuera la verdad y dejar el CI en verde para siempre.
+  const problemas = comprobarCordura(null);
+  if (problemas.length) {
+    console.error('\nNo se puede sellar: el arqueo no esta viendo el codigo.\n');
+    for (const x of problemas) console.error(`  - ${x}`);
+    console.error('');
+    process.exit(1);
+  }
+  fs.writeFileSync(
+    BASELINE,
+    JSON.stringify({ _cordura: { modelos: conTenant.size, analizadas }, archivos: conteoActual }, null, 2) + '\n',
+  );
   console.log(
     `\nTecho sellado: ${vigiladas.length} consultas vigiladas ` +
       `(${huerfanos.length} que nadie acota + ${delegados.length} delegadas) ` +
@@ -445,7 +520,28 @@ if (process.argv.includes('--ci')) {
     console.error('\nNo hay techo sellado. Corre --sellar una vez y commitea el JSON.\n');
     process.exit(1);
   }
-  const techo = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
+  const crudo = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
+  // El techo lleva sus invariantes dentro desde el 2026-09-05. Un JSON viejo
+  // (plano, sin `_cordura`) sigue valiendo: se compara igual, solo que sin la
+  // red de seguridad, y se avisa para que se vuelva a sellar.
+  const techo = crudo.archivos || crudo;
+  const techoCordura = crudo._cordura || null;
+
+  const problemas = comprobarCordura(techoCordura);
+  if (problemas.length) {
+    console.error('\n=== EL ARQUEO NO ESTA VIENDO EL CODIGO ===\n');
+    for (const x of problemas) console.error(`  - ${x}`);
+    console.error('\nNo se puede dar el visto bueno con el analisis roto: diria que');
+    console.error('todo esta bien porque no ha mirado nada. Arregla el arqueo antes');
+    console.error('de tocar el techo — y NO lo selles para salir del paso.\n');
+    process.exit(1);
+  }
+  if (!techoCordura) {
+    console.log('\nAviso: el techo es de formato viejo y no lleva invariantes.');
+    console.log('Vuelve a sellarlo para activar la comprobacion de cordura:');
+    console.log('  node scripts/arqueo-aislamiento-tenant.cjs --sellar\n');
+  }
+
   const subieron = [];
   const bajaron = [];
   for (const archivo of new Set([...Object.keys(techo), ...Object.keys(conteoActual)])) {
