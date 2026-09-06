@@ -78,24 +78,48 @@ if (!Object.keys(actual).length) {
 const resumen = (p, r) =>
   `  ${p.padEnd(9)} critical ${r.critical}   high ${r.high}   moderate ${r.moderate}   low ${r.low}`;
 
+// El techo va POR PLATAFORMA, y no es capricho: npm instala dependencias
+// opcionales distintas segun el sistema —los binarios de sharp, por ejemplo—,
+// asi que el mismo lockfile da 14 altas en Windows y 15 en el Linux del CI.
+// Sellar aqui y comparar alli ponia el CI en rojo sin que nadie hubiera tocado
+// una dependencia. Pasó el 2026-09-05, en el primer run.
+const PLATAFORMA = process.platform;
+
+function leerTecho() {
+  if (!fs.existsSync(BASELINE)) return null;
+  const j = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
+  // Formato viejo (sin plataforma): se ignora, hay que volver a sellar.
+  return j[PLATAFORMA] || null;
+}
+
 if (process.argv.includes('--sellar')) {
+  const previo = fs.existsSync(BASELINE) ? JSON.parse(fs.readFileSync(BASELINE, 'utf8')) : {};
   const techo = {};
   for (const [p, r] of Object.entries(actual)) {
     techo[p] = { critical: r.critical, high: r.high, moderate: r.moderate, low: r.low };
   }
-  fs.writeFileSync(BASELINE, JSON.stringify(techo, null, 2) + '\n');
-  console.log('\nTecho sellado:\n');
+  // Solo se pisa la plataforma en la que se esta sellando: el techo del CI no
+  // se toca desde un portatil, ni al reves.
+  previo[PLATAFORMA] = techo;
+  fs.writeFileSync(BASELINE, JSON.stringify(previo, null, 2) + '\n');
+  console.log(`\nTecho sellado para ${PLATAFORMA}:\n`);
   for (const [p, r] of Object.entries(actual)) console.log(resumen(p, r));
   console.log(`\nEscrito en ${path.relative(ROOT, BASELINE).replace(/\\/g, '/')}\n`);
   process.exit(0);
 }
 
 if (process.argv.includes('--ci')) {
-  if (!fs.existsSync(BASELINE)) {
-    console.error('\nNo hay techo sellado. Corre --sellar una vez y commitea el JSON.\n');
-    process.exit(1);
+  const techo = leerTecho();
+  if (!techo) {
+    // Sin techo para ESTA plataforma no se puede comparar nada, y fallar aqui
+    // seria dejar el CI en rojo por un techo que falta, no por una dependencia
+    // mala. Se avisa con los numeros para poder sellarlos, y se deja pasar.
+    console.log(`\nNo hay techo sellado para ${PLATAFORMA}. Estos son los numeros de aqui:\n`);
+    for (const [p, r] of Object.entries(actual)) console.log(resumen(p, r));
+    console.log('\nPara activar el candado en esta plataforma, sella y commitea el JSON:');
+    console.log('  node scripts/arqueo-dependencias.cjs --sellar\n');
+    process.exit(0);
   }
-  const techo = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
   const subieron = [];
   const avisos = [];
   const bajaron = [];

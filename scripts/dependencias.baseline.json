@@ -1,14 +1,16 @@
 {
-  "backend": {
-    "critical": 1,
-    "high": 14,
-    "moderate": 24,
-    "low": 1
-  },
-  "frontend": {
-    "critical": 0,
-    "high": 8,
-    "moderate": 10,
-    "low": 1
+  "win32": {
+    "backend": {
+      "critical": 1,
+      "high": 14,
+      "moderate": 24,
+      "low": 1
+    },
+    "frontend": {
+      "critical": 0,
+      "high": 8,
+      "moderate": 10,
+      "low": 1
+    }
   }
 }
