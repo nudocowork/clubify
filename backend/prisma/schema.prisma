@@ -775,9 +775,10 @@ model Tenant {
   /// no pulsa enviar— el pedido entra y el negocio no se entera. Esto no
   /// depende de nadie: lo manda el servidor al crear el pedido.
   ///
-  /// APAGADO por defecto porque cada aviso gasta saldo de Grow Business. Se
-  /// enciende negocio por negocio, a quien lo pida.
-  ownerOrderAlertsEnabled     Boolean                    @default(false)
+  /// ENCENDIDO por defecto (decision del dueno, 2026-09-06): que un negocio se
+  /// entere de sus pedidos pesa mas que el saldo que gasta el aviso. Se puede
+  /// apagar negocio por negocio desde el panel de super admin.
+  ownerOrderAlertsEnabled     Boolean                    @default(true)
   /// Telefono destino. Null = el mismo al que va el wa.me del pedido
   /// (sede -> whatsappOrdersPhone -> whatsappPhone -> phone).
   ownerOrderAlertsPhone       String?

@@ -25,10 +25,13 @@ type Creds = {
  * está instalada, y el socket exige tener el panel abierto. Esto no depende de
  * nada del cliente.
  *
- * APAGADO por defecto, y se enciende negocio por negocio: cada aviso gasta
- * saldo de Grow Business. Por eso el texto es CORTO —lo imprescindible y un
- * enlace— en vez del pedido entero: el detalle está en el panel, y un mensaje
- * largo son cinco segmentos de SMS por cada pedido.
+ * ENCENDIDO para todos (decisión del dueño, 2026-09-06): que un negocio se
+ * entere de sus pedidos pesa más que el saldo que gasta el aviso. Se puede
+ * apagar uno a uno desde el panel de super admin.
+ *
+ * Por eso mismo el texto es CORTO —lo imprescindible y un enlace— en vez del
+ * pedido entero: el detalle está en el panel, y un mensaje largo son cinco o
+ * seis segmentos de SMS por cada pedido de cada negocio.
  */
 @Injectable()
 export class OwnerOrderAlertService {
@@ -92,12 +95,17 @@ export class OwnerOrderAlertService {
       });
       if (yaAvisado) return;
 
+      // A quien se le avisa, en orden. El ultimo escalon es el movil del
+      // DUENO: hay negocios dados de alta sin ningun telefono propio, y sin
+      // esto se quedaban sin aviso teniendo a una persona detras perfectamente
+      // localizable.
       const telefono = (
         tenant.ownerOrderAlertsPhone ??
         (await this.telefonoDeLaSede(order.locationId)) ??
         tenant.whatsappOrdersPhone ??
         tenant.whatsappPhone ??
         tenant.phone ??
+        (await this.telefonoDelDueno(order.tenantId)) ??
         ''
       ).trim();
       if (!telefono) {
@@ -141,6 +149,22 @@ export class OwnerOrderAlertService {
         `aviso de pedido ${orderId} falló: ${(e as Error).message}`,
       );
     }
+  }
+
+  /**
+   * El móvil del dueño del negocio.
+   *
+   * Último recurso, y por eso va el último: el aviso es operativo —lo atiende
+   * quien despacha—, no personal. Pero es mejor que se entere el dueño a que
+   * no se entere nadie.
+   */
+  private async telefonoDelDueno(tenantId: string): Promise<string | null> {
+    const dueno = await this.prisma.user.findFirst({
+      where: { tenantId, role: 'TENANT_OWNER', isActive: true },
+      select: { phone: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return dueno?.phone?.trim() || null;
   }
 
   /** El número de pedidos de la SEDE, si el pedido tiene una asignada. */

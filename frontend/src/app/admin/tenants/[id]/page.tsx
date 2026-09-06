@@ -1925,9 +1925,10 @@ function AcademyTogglesCard({
               navegador del CLIENTE, y si eso falla —ventana bloqueada, el
               navegador de Instagram, o que no pulsa enviar— el pedido entra y
               el negocio no se entera. Esto no depende de nadie.{' '}
-              <b>Cada aviso gasta saldo de Grow Business</b>, por eso viene
-              apagado y se enciende a quien lo pida. El mensaje es corto a
-              proposito: codigo, cliente, total y enlace al panel.
+              <b>Cada aviso gasta saldo de Grow Business</b>, y por eso el
+              mensaje es corto a proposito: codigo, cliente, total y enlace al
+              panel. Viene encendido para todos; apagalo aqui si este negocio
+              no lo quiere.
             </div>
           </div>
         </label>
