@@ -415,6 +415,60 @@ falla es la puerta.
 
 ---
 
+### 🟡 P2-1 · 121 filtros escanean la tabla entera por falta de índice
+
+**Estado: ABIERTO. Fase 20, medido el 2026-09-05. No se aplicó ningún índice.**
+
+```bash
+cd backend && node scripts/arqueo-indices.cjs
+#   Campos distintos usados en where : 653
+#     ya indexados                   : 364
+#     sin indice, pero acompanados   : 168   (el where lleva otro campo indexado)
+#     SIN INDICE Y SIN ENTRADA       : 121   <-- estos si escanean la tabla
+```
+
+La distinción importa y es lo que hace la lista utilizable: un campo sin índice
+**acompañado** de otro que sí lo tiene —casi siempre `tenantId`— no escanea
+nada; Postgres entra por el índice y filtra el resto sobre pocas filas. Los 121
+que quedan son los que no tienen por dónde entrar.
+
+Los primeros, por veces que ocurren:
+
+| Campo | Veces | Nota |
+|---|---|---|
+| `ReferralUse.tenantId` | 16 | Un `tenantId` **sin índice**. El modelo solo tiene `@@index([referralCodeId, status])` |
+| `GrowBusinessAccount.deletedAt` | 15 | Borrado lógico sin índice, y se filtra en todo el flujo de mensajería |
+| `ReferralCode.role` | 14 | |
+| `Tenant.deletedAt` | 12 | |
+| `ReferralUse.referralCode` | 12 | |
+| `BusinessGroup.deletedAt` | 10 | |
+
+**Verificado a mano y con matiz:** `Tenant.whiteLabelId` sale en el arqueo y se
+usa en `tenant-context.interceptor.ts:38`, que suena a «en cada request». **No
+lo es**: esa consulta tiene caché con TTL (`wlTenantCache`), así que el impacto
+real es mucho menor. Se anota para que nadie se asuste al leer la lista.
+
+**Nada de esto se ha aplicado, y hay dos razones:**
+
+1. Un índice no sale gratis: ocupa disco y encarece **cada escritura**. La lista
+   es para revisarla de arriba a abajo, no para aplicarla en bloque.
+2. `ReferralUse` y `ReferralCode` son de **comisiones y afiliados**, territorio
+   de Jhon (regla 7). Se audita, no se toca.
+
+**Cuando se decida aplicar alguno**, va como script SQL aditivo e idempotente,
+nunca `prisma db push`. Y con `CONCURRENTLY`, que no bloquea escrituras:
+
+```sql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS "ReferralUse_tenantId_idx" ON "ReferralUse"("tenantId");
+```
+
+**Sin verificar:** el plan real. Esto es análisis estático — dice qué consulta
+*puede* escanear, no cuál escanea de verdad ni cuánto cuesta. Para eso hace
+falta `EXPLAIN ANALYZE` contra producción con los datos de verdad, y
+`pg_stat_statements` para saber cuáles se llaman más.
+
+---
+
 ### 🟠 P1-4 · 40 dependencias vulnerables en lo que se despliega, y nadie miraba
 
 **Estado: ABIERTO. Fase 37. El CI ya impide que empeore desde el 2026-09-05.**
@@ -492,6 +546,7 @@ APIs y servicios → Credenciales → Restricciones de aplicación → Sitios we
 | Sentry | back y front | Errores en servidor y en el navegador del cliente |
 | Monitor de certificados | `wallet/cert-monitor.service.ts` | Avisa antes de que caduque el de Apple Wallet |
 | Arqueo de dependencias | `scripts/arqueo-dependencias.cjs` | `npm audit` de lo que se despliega, en el CI. Bloquea solo si suben criticas o altas |
+| Arqueo de indices que faltan | `backend/scripts/arqueo-indices.cjs` | Cruza los campos de los `where` con los indices del schema. Distingue escaneo real de filtro acompanado |
 | Inventario de rutas publicas | `backend/scripts/arqueo-rutas-publicas.cjs` | Las 150 `@Public()` ordenadas por dano: si escriben, si la llave es adivinable, si ya se autentican por otra via |
 | Arqueo de aislamiento entre negocios | `backend/scripts/arqueo-aislamiento-tenant.cjs` | Recorre el AST y ordena por riesgo las consultas que no acotan el negocio. **Corre en el CI** con techo por archivo |
 
@@ -528,7 +583,7 @@ original.
 | 12 | Roles y permisos | ❌ | Matriz por rol contra API, no contra la UI |
 | 13 | Autenticación y sesiones | ❌ | Con el rate limit roto, la fuerza bruta está abierta |
 | 17 | Idempotencia | 🔄 | Club, alianzas y eventos ya usan bloqueo. Falta auditar pedidos y cupones |
-| 20 | Base de datos | 🔄 | Falta: índices, N+1, consultas lentas |
+| 20 | Base de datos | 🔄 | P2-1. Indices medidos: 121 escaneos de tabla. Falta N+1 (81 consultas en bucle) y consultas lentas reales |
 | 27 | Disaster recovery | ❌ | Definir RPO y RTO. Hoy no existen |
 | 21 | Rendimiento | 🔄 | Fuentes arregladas. Falta medir de verdad |
 | 22 | Carga | ❌ | Nadie sabe cuánto aguanta la plataforma |
