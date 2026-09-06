@@ -56,6 +56,15 @@ type Order = {
   deliveredAt: string | null;
   cancelledAt: string | null;
   customer: { id: string; fullName: string; phone: string; email: string | null };
+  /** Direccion de entrega que el cliente rellena en el checkout. */
+  deliveryAddress: {
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    departamento?: string;
+    municipio?: string;
+    direccion?: string;
+  } | null;
   events: OrderEvent[];
   location: { id: string; name: string } | null;
   // Presencia del delivery + empresa asignada: el chat del domicilio solo
@@ -507,6 +516,92 @@ export default function OrderDetail() {
                 {o.location.name}
               </div>
             )}
+
+            {/* LA DIRECCION.
+                Hasta hoy el negocio no la veía en ninguna parte del panel: solo
+                existía dentro del mensaje de WhatsApp que abre el navegador del
+                CLIENTE. Si ese mensaje no salía —conexión lenta, ventana
+                bloqueada, el cliente que no pulsa enviar—, el pedido entraba sin
+                que hubiera forma de saber a dónde llevarlo. Reportado por un
+                negocio el 2026-09-06: «en la app no se puede ver los datos del
+                cliente para poder tomar la dirección». */}
+            {o.fulfillment === 'DELIVERY' && o.deliveryAddress && (
+              <div className="mt-3 pt-3 border-t border-line">
+                <div className="text-[10px] font-bold tracking-[0.14em] uppercase text-mute mb-1.5">
+                  Dirección de entrega
+                </div>
+                {o.deliveryAddress.direccion && (
+                  <div className="text-sm font-medium leading-snug">
+                    {o.deliveryAddress.direccion}
+                  </div>
+                )}
+                {(o.deliveryAddress.municipio ||
+                  o.deliveryAddress.departamento) && (
+                  <div className="text-sm text-mute">
+                    {[o.deliveryAddress.municipio, o.deliveryAddress.departamento]
+                      .filter(Boolean)
+                      .join(', ')}
+                  </div>
+                )}
+                {o.deliveryAddress.phone &&
+                  o.deliveryAddress.phone !== o.customer.phone && (
+                    <div className="text-xs text-mute mt-1">
+                      Teléfono de la entrega: {o.deliveryAddress.phone}
+                    </div>
+                  )}
+
+                {/* Los dos botones que de verdad usa quien reparte: copiar la
+                    dirección para pegarla donde sea, y abrirla en el mapa. */}
+                {o.deliveryAddress.direccion && (
+                  <div className="flex gap-2 mt-2.5">
+                    <button
+                      type="button"
+                      className="btn-ghost text-xs flex-1 justify-center"
+                      onClick={() => {
+                        const texto = [
+                          o.deliveryAddress?.direccion,
+                          o.deliveryAddress?.municipio,
+                          o.deliveryAddress?.departamento,
+                        ]
+                          .filter(Boolean)
+                          .join(', ');
+                        navigator.clipboard.writeText(texto);
+                        toast('Dirección copiada', 'success');
+                      }}
+                    >
+                      Copiar
+                    </button>
+                    <a
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                        [
+                          o.deliveryAddress.direccion,
+                          o.deliveryAddress.municipio,
+                          o.deliveryAddress.departamento,
+                        ]
+                          .filter(Boolean)
+                          .join(', '),
+                      )}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn-ghost text-xs flex-1 justify-center"
+                    >
+                      Ver en el mapa
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Un domicilio SIN dirección es un pedido que no se puede
+                entregar. Decirlo aquí evita que el negocio lo descubra cuando
+                ya salió el repartidor. */}
+            {o.fulfillment === 'DELIVERY' &&
+              !o.deliveryAddress?.direccion && (
+                <div className="mt-3 pt-3 border-t border-line text-xs text-mute">
+                  Este pedido no trae dirección. Escríbele al cliente por
+                  WhatsApp para pedírsela.
+                </div>
+              )}
           </div>
 
           <div className="card card-pad">
