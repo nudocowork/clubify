@@ -172,7 +172,7 @@ peticiones (hoy ninguno lo tiene de verdad)? ¿escribe algo?
 
 ---
 
-### 🟠 P1-3 · Nada garantiza el aislamiento entre negocios. Hoy funciona porque está bien escrito a mano, 325 veces
+### 🟠 P1-3 · Nada garantiza el aislamiento entre negocios. Hoy funciona porque está bien escrito a mano, 322 veces
 
 **Estado: ABIERTO. Fase 11, primera pasada hecha el 2026-09-05.**
 
@@ -203,10 +203,10 @@ Medido con el auditor nuevo:
 
 ```bash
 cd backend && node scripts/arqueo-aislamiento-tenant.cjs
-#   Consultas sin tenantId en el where : 442
-#     la funcion SI acota (correctas)  : 325
+#   Consultas sin tenantId en el where : 425
+#     la funcion SI acota (correctas)  : 322
 #     delegan en un guard (revisar)    :  40
-#     NADIE las acota                  :  77   (33 de ellas escriben)
+#     NADIE las acota                  :  63   (24 de ellas escriben)
 ```
 
 **Revisados a mano, uno por uno: 12 casos. Los 12, correctos.** Entre ellos los
@@ -220,14 +220,14 @@ que peor pintaban:
 | `completarRegistro` (público, escribe sobre un cliente) | `POST /passes/:id/completar-registro` | `id` es UUID v4, y solo rellena campos **vacíos**: no pisa datos |
 | `staff.controller` cambio de contraseña | `user.update({ where: { id } })` | el id es `user.id`, el propio usuario |
 
-**El hallazgo, entonces, no es un agujero: es que no hay red.** Las 325 correctas
-lo son porque alguien se acordó 325 veces. La 326 se escribirá el día que se
+**El hallazgo, entonces, no es un agujero: es que no hay red.** Las 322 correctas
+lo son porque alguien se acordó 322 veces. La 323 se escribirá el día que se
 añada un endpoint con prisa, no la va a frenar nada, y no se va a enterar nadie
 —ni el CI, ni una revisión, ni el tipado.
 
 **Arreglo de fondo: HECHO el 2026-09-05.** El auditor corre en el CI con la
 cuenta actual como techo. No arregla nada de lo que hay —no hace falta, está
-bien— pero **impide que entre la 326**. Es la diferencia entre «esperemos que
+bien— pero **impide que entre la 323**. Es la diferencia entre «esperemos que
 nadie se equivoque» y «no se puede fusionar si te equivocas».
 
 El techo es **por archivo**, no un número global: con un total, arreglar una
@@ -252,6 +252,17 @@ qué archivo y qué consultas**, no solo que subió un número:
 Comprobado que sabe ponerse en rojo, no solo en verde: se bajó el techo de un
 archivo a propósito y el paso salió con código 1 nombrando las consultas. Una
 prueba que siempre pasa es peor que no tenerla.
+
+**Y se puso en rojo de verdad a los cinco minutos**, con el primer código nuevo
+que tocó: `sedeDeSoloPedidos()` del commit `434e9039` de la otra máquina. Se
+revisó a mano — `where: { id: user.id }`, el usuario de la sesión leyendo su
+propia sede, correcto— y de ahí salió la lección que importa:
+
+> **Un candado que da falsos rojos se acaba sellando a ciegas, y entonces ya no
+> candado nada.** El punto ciego era siempre el mismo: *usuario sobre sí mismo*
+> —cambiar la contraseña, el perfil, el idioma, el 2FA—. El auditor ahora
+> reconoce `where: { id: user.id }` y no lo marca. Eso solo quitó 14 falsos
+> positivos (77 → 63) y 9 escrituras (33 → 24).
 
 **Lo que queda de esta fase, y no se ha hecho:**
 

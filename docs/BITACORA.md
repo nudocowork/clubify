@@ -48,6 +48,17 @@ cd backend && node scripts/arqueo-aislamiento-tenant.cjs --sellar
 Comprobado que sabe ponerse en rojo, no solo en verde: bajé el techo de un
 archivo a propósito y salió con código 1 nombrando las consultas.
 
+**Y se puso en rojo de verdad enseguida, con tu commit `434e9039`** — el de la
+sede del empleado «solo pedidos». Lo revisé antes de sellar nada: tu
+`sedeDeSoloPedidos()` hace `where: { id: user.id }`, el usuario de la sesión
+leyendo su propia sede. **Está bien, no toqué nada.**
+
+Pero me enseñó lo importante: si el candado da rojos por código correcto, acabas
+sellándolo a ciegas y deja de servir. El punto ciego era siempre el mismo
+—usuario sobre sí mismo: contraseña, perfil, idioma, 2FA—, así que el auditor ya
+reconoce `where: { id: user.id }` y no lo marca. Solo eso quitó 14 falsos
+positivos (77 → 63) y 9 escrituras (33 → 24). El techo sellado es **63**.
+
 ### El `CLAUDE.md` decía una rama de producción que ya no es
 
 Decía **«la rama que corre en producción es `feat/commissions-auto-cutoffs`, no

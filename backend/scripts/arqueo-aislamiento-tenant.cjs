@@ -104,6 +104,32 @@ function mencionaTenant(node) {
   return visto;
 }
 
+/** `where: { id: user.id }` no es un salto entre negocios: es el usuario de la
+ *  sesión leyendo o tocando su propia fila. Sale mucho —cambiar la contraseña,
+ *  el perfil, el idioma, el 2FA, la sede del empleado— y si el arqueo lo marca,
+ *  el CI se pone rojo por código correcto una y otra vez. Un candado que da
+ *  falsos rojos se acaba sellando a ciegas, y entonces ya no candado nada. */
+function esSobreSiMismo(whereNode) {
+  if (!whereNode) return false;
+  let propio = false;
+  const walk = (n) => {
+    if (propio || !n) return;
+    if (ts.isPropertyAssignment(n) && /^(id|userId)$/.test(n.name.getText())) {
+      const v = n.initializer;
+      if (ts.isPropertyAccessExpression(v) && v.name.text === 'id') {
+        // user.id, usuario.id, currentUser.id, u.id, req.user.id…
+        if (/^(user|usuario|currentUser|u|me|actor)$/i.test(v.expression.getText().split('.').pop() || '')) {
+          propio = true;
+          return;
+        }
+      }
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(whereNode);
+  return propio;
+}
+
 /** Claves por las que se filtra, para saber si se apoya en un identificador
  *  opaco (id/code/slug/token): esas son las que dejan saltar de negocio. */
 function claveDelWhere(whereNode) {
@@ -227,7 +253,7 @@ for (const file of archivosTs(SRC)) {
       const where = propiedad(arg, 'where');
       const acotaTenant = arg ? mencionaTenant(arg) : false;
 
-      if (!acotaTenant) {
+      if (!acotaTenant && !esSobreSiMismo(where)) {
         const claves = where ? claveDelWhere(where) : [];
         const porIdOpaco = claves.some((k) => /^(id|code|slug|token|uuid|publicId|\w+Id)$/i.test(k));
         // create/createMany sin tenantId es otro problema (fila huérfana), no IDOR.
