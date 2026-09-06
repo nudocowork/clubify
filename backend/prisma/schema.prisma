@@ -4559,6 +4559,36 @@ model SequenceExecution {
 /// el porcentaje normal de la cadena de afiliados (influencer/embajador/
 /// vendedor) solo para ese tenant. Aplica a comisiones futuras + PENDING;
 /// las ya PAID no se tocan salvo override manual del SUPER_ADMIN.
+/// Aviso al afiliado de que entró una venta por su enlace.
+///
+/// Tabla PROPIA y no una columna en `Commission` a propósito: el motor de
+/// comisiones lo lleva otra persona y esto solo lo LEE. Sin FK por el mismo
+/// motivo —una relación obliga a declarar el lado inverso en `Commission`—, así
+/// que `commissionId` es texto suelto con índice único.
+///
+/// El único constraint es ese `@unique`: la fila se inserta ANTES de mandar el
+/// SMS, así que si dos pasadas del cron se cruzan, la segunda choca contra el
+/// índice y no manda un mensaje repetido. Y queda el registro de qué se le
+/// avisó a quién, que es la pregunta que llega cuando un afiliado dice que no
+/// le llegó nada.
+model AffiliateSaleAlert {
+  id             String    @id @default(uuid())
+  /// `Commission.id` que disparó el aviso. Sin FK, ver arriba.
+  commissionId   String    @unique
+  referralCodeId String
+  /// El número al que se mandó, congelado: si el afiliado lo cambia después,
+  /// el histórico sigue diciendo a dónde fue.
+  phone          String
+  /// false = primera compra de ese negocio. true = una renovación suya.
+  esRenovacion   Boolean   @default(false)
+  sentAt         DateTime?
+  ok             Boolean   @default(false)
+  error          String?
+  createdAt      DateTime  @default(now())
+
+  @@index([referralCodeId, createdAt])
+}
+
 model CommissionException {
   id              String       @id @default(cuid())
   tenantId        String
