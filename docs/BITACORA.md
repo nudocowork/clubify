@@ -78,6 +78,63 @@ cubre.
   `tenantId`** (123 llamadas por id sobre 19 modelos que cuelgan de un padre con
   tenant). Está anotado.
 
+## 2026-09-06 — La Gloriosa: «Algo salió mal» al abrir un pedido. Dos arreglos
+
+**Máquina/quién:** máquina de Jhon (Claude) · `main` · commit `a43bd9f5`
+**Estado: EN `main`, SIN DESPLEGAR.**
+
+### Qué pasó
+
+El cliente pulsó un pedido en el tablero y le salió **«Algo salió mal»**. A Jhon
+le funcionaba. La cuenta estaba sana (ACTIVE, trimestral, sin suspender) y el
+tablero cuadraba con la base — no era un problema de datos.
+
+**Causa:** la pestaña del cliente llevaba abierta desde ANTES del despliegue de
+frontend de la víspera. Abrir un pedido navega a `/app/orders/[id]`, que se
+carga como un trozo de JS aparte, y cada despliegue le cambia el nombre al
+fichero. Pidió uno que ya no existe → error de carga.
+
+**Lo grave era la salida, no el error:** la pantalla ofrecía «Reintentar», y
+reintentar NO cura eso — remonta la misma ruta y vuelve a pedir el fichero que
+falta. El cliente se quedaba dando al botón contra una pared. El repo YA tenía
+la cura (`ChunkReloadGuard`) y `global-error.tsx` la usaba, pero `error.tsx` —el
+que de verdad atrapa los fallos de navegación— no la llamaba.
+
+### Arreglado (falta desplegar)
+
+1. `app/error.tsx` detecta el fallo de versión y **recarga solo** (con el
+   anti-bucle de 20 s que ya existía). El botón principal pasa a «Recargar».
+2. `lib/socket.ts`: el socket de pedidos solo intentaba **websocket**. Una VPN o
+   un wifi que los bloquee dejaba el tablero en «Sin conexión» — pedidos nuevos
+   con hasta 30 s de retraso (la recarga de reserva) y **sin campana**. En hora
+   punta, un pedido que nadie ve. Se añade **polling de respaldo**. Comprobado
+   contra prod que el servidor lo acepta y que el CORS del namespace responde al
+   origen del panel.
+
+El cliente tenía **VPN activa** en el navegador, lo que explica su «Sin conexión».
+
+### Javi: los sube tu despliegue, y van validados
+
+**Decisión de Jhon (06-09): el frontend lo despliegas tú**, con lo tuyo de
+tarjetas. Estos dos arreglos viajan en el mismo paquete — no los frenes ni los
+saques: `tsc` 0, `eslint` 0, `next build` compila, y el respaldo por polling
+está comprobado contra producción (handshake 200 y CORS del namespace
+respondiendo a `https://app.soyclubify.com`).
+
+Lo desplegado hoy es `6e7acc79`. Lo que sube contigo:
+
+| fichero | de quién |
+|---|---|
+| `app/cards/[id]`, `app/cards/new` | tuyo |
+| `app/error.tsx`, `lib/socket.ts` | estos dos arreglos |
+
+Backend no hace falta: los dos son solo de frontend.
+
+**Si puedes, no lo despliegues en hora de servicio** (12–15 h y 19–22 h): quien
+tenga el tablero abierto en ese momento es justo a quien le sale «Algo salió
+mal». Después de este despliegue deja de importar —la pantalla se recarga
+sola—, pero durante ÉL todavía aplica lo viejo.
+
 ## 2026-09-05 (noche) — Fase 11 del QA: el aislamiento entre negocios está bien escrito, y eso es justo el problema
 
 **No toqué nada de producción.** Un archivo nuevo,
