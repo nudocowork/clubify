@@ -78,6 +78,29 @@ cubre.
   `tenantId`** (123 llamadas por id sobre 19 modelos que cuelgan de un padre con
   tenant). Está anotado.
 
+## 2026-09-06 — DESPLEGADO: los dos arreglos de La Gloriosa ya están arriba
+
+**Quién:** lo desplegó Javi. **Verificado desde la máquina de Jhon.**
+
+Comprobado, no de palabra: el bundle que sirve `app.soyclubify.com` contiene
+**«recarga con Ctrl+R»** y **«Cmd+R»**, textos que solo existen en el
+`error.tsx` nuevo. El cambio del socket viaja en el mismo commit y por tanto en
+el mismo build.
+
+Humo: `/hub`, `/app/orders`, `/admin/contabilidad` → 200 · handshake de
+socket.io por polling con el origen del panel → 200.
+
+**Nada pendiente de desplegar** en backend ni en frontend.
+
+### Truco para la próxima
+
+`vercel ls` muestra el MISMO usuario para los dos (el script despliega con esa
+cuenta), así que no sirve para saber quién desplegó. Lo que sirve es cruzar la
+**hora** del despliegue con la de los commits — y, para saber si algo tuyo está
+arriba de verdad, buscar en el bundle servido un texto que solo exista en tu
+código. Los chunks de `/admin` no se pueden mirar sin sesión, pero los de la
+raíz (donde vive `error.tsx`) sí.
+
 ## 2026-09-06 — La Gloriosa: «Algo salió mal» al abrir un pedido. Dos arreglos
 
 **Máquina/quién:** máquina de Jhon (Claude) · `main` · commit `a43bd9f5`
