@@ -16,7 +16,7 @@ justo para eso: sus dependencias no entran al bundle del panel.
 |---|---|
 | Proyecto Capacitor + config | ✅ |
 | Proyecto Android (`android/`) | ✅ generado, sin compilar |
-| Proyecto iOS (`ios/`) | ⚠️ generado, **falta `pod install`** (no había Xcode ni CocoaPods en la máquina) |
+| Proyecto iOS (`ios/`) | ✅ pods instalados, compila (verificado en simulador) |
 | Lanzador por rol (`/hub` en el panel) | ✅ desplegable |
 | Escáner nativo, push, biometría | ⛔ pendiente (fase 3) |
 | Fichas de tienda | ⛔ pendiente |
@@ -88,6 +88,44 @@ capturas.
 ficha qué datos se recogen (cámara, notificaciones, cuenta).
 
 ---
+
+## Parche de MLKit (ITMS-91061 — manifiesto de privacidad)
+
+`patches/@capacitor-mlkit+barcode-scanning+6.2.0.patch` sube el pin de MLKit de
+`5.0.0` a `6.0.0` en el podspec del plugin. **No es cosmético: sin él Apple
+rechaza el binario.**
+
+La cadena era:
+
+```
+@capacitor-mlkit/barcode-scanning 6.2.0
+  └─ GoogleMLKit/BarcodeScanning 5.0.0   (pin exacto en el podspec)
+       └─ MLKitCommon 10.0.0
+            └─ GoogleToolboxForMac ~> 2.1  →  2.3.2  ← SIN PrivacyInfo.xcprivacy
+```
+
+GoogleToolboxForMac está en la lista de SDKs de terceros que Apple obliga a
+llevar manifiesto de privacidad, y no lo incluyó hasta la **4.2.1**. La 2.x
+nunca lo va a tener. `MLKitCommon 11.0.0` es la primera versión que exige
+`GoogleToolboxForMac >= 4.2.1`, y llega vía `GoogleMLKit 6.0.0`.
+
+No se puede arreglar desde el `Podfile`: el podspec del plugin fija la versión
+con `=`, así que CocoaPods rechaza cualquier override. Por eso el parche, que
+se reaplica solo con `postinstall` (`patch-package`).
+
+La 6.2.0 es la última del plugin para Capacitor 6, y el código Swift que toca
+MLKit (`MLKitBarcodeScanner.barcodeScanner(options:)`, `BarcodeScannerOptions`,
+`BarcodeFormat`) es idéntico al de la 7.0.0 — por eso compila sin tocar nada
+más. **Al subir a Capacitor 7/8 el parche sobra:** el plugin 7.x ya pide
+GoogleMLKit 7.0.0 y hay que borrar `patches/`.
+
+Verificación de que quedó bien, tras `npx cap sync ios`:
+
+```bash
+grep "GoogleToolboxForMac/Logger (" ios/App/Podfile.lock   # debe decir 4.2.1
+# y en el .app compilado:
+find <ruta>.app/Frameworks/GoogleToolboxForMac.framework -name "*.xcprivacy"
+```
 
 ## Identidad de la app
 

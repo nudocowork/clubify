@@ -4,6 +4,7 @@
   "private": true,
   "description": "Shell nativo (iOS/Android) de Clubify. Carga el panel de producción y le agrega escáner nativo, notificaciones push y biometría. No se construye en Vercel: vive fuera del build del frontend a propósito.",
   "scripts": {
+    "postinstall": "patch-package",
     "sync": "cap sync",
     "ios": "cap open ios",
     "android": "cap open android",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^6.2.1",
+    "patch-package": "^8.0.1",
     "typescript": "^5.9.3"
   }
 }
