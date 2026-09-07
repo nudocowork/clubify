@@ -1330,7 +1330,24 @@ export class OrdersService {
         { status: { in: ['PENDING', 'CONFIRMED', 'READY'] } },
       ],
     };
-    if (locationId) where.locationId = locationId;
+    // LA MISMA REGLA QUE EN EL LISTADO Y EN EL DETALLE.
+    //
+    // Este es el tablero que el negocio tiene abierto todo el dia, y se me
+    // quedo fuera al acotar por sede: el empleado «solo pedidos» VEIA los
+    // pedidos de las otras sedes y al confirmarlos le saltaba un error, porque
+    // `setStatus` si comprobaba la sede. Ver y no poder tocar es peor que no
+    // ver. Reportado por La Gloriosa —4 sedes, 3 empleados, uno por sede— el
+    // 2026-09-07.
+    const suSede = await this.sedeDeSoloPedidos(user);
+    if (suSede) {
+      // Su sede Y los pedidos sin sede, igual que en el listado: un pedido sin
+      // sede no es de otro.
+      where.AND = [
+        { OR: [{ locationId: suSede }, { locationId: null }] },
+      ];
+    } else if (locationId) {
+      where.locationId = locationId;
+    }
     // `items` es Json scalar — Prisma lo devuelve siempre sin necesidad de
     // include/select. El frontend lee o.items.length.
     const all = await this.prisma.order.findMany({

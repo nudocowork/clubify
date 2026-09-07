@@ -101,6 +101,18 @@ describe('pedidos que ve cada empleado', () => {
     expect(f.llamadas[0].where.locationId).toBeUndefined();
   });
 
+  it('el TABLERO filtra igual que el listado', async () => {
+    // El tablero es lo que el negocio tiene abierto todo el día. Se me quedó
+    // fuera al acotar por sede y el resultado fue el peor: el empleado VEÍA los
+    // pedidos de otras sedes y al confirmarlos le saltaba un error, porque
+    // `setStatus` sí comprobaba. Ver y no poder tocar es peor que no ver.
+    const f = prismaFalso({ sedeDelUsuario: 'sede-a' });
+    await servicio(f.prisma).board(usuario('TENANT_ORDERS'), undefined);
+    expect(f.llamadas[0].where.AND).toEqual([
+      { OR: [{ locationId: 'sede-a' }, { locationId: null }] },
+    ]);
+  });
+
   it('el empleado normal NO se filtra: es a propósito', async () => {
     // `TENANT_STAFF` también tiene sede, pero ese campo nació para los rankings
     // de sellos, no para restringir. Hay 52 empleados en 18 negocios con sede
