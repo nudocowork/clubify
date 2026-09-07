@@ -1,6 +1,7 @@
 'use client';
 /**
- * Popup bloqueante de difusión interna para los equipos comerciales.
+ * Popup bloqueante de difusión interna. Va en el panel de afiliados y en el
+ * del negocio; la audiencia de cada pieza decide quién lo ve.
  *
  * Al cargar (post-login si ya hay sesión, o cuando aparece en pantalla),
  * pega a GET /broadcasts/login-popup. Si devuelve una pieza pendiente,

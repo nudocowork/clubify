@@ -40,6 +40,30 @@ export type CreateBroadcastDto = {
 
 export type UpdateBroadcastDto = Partial<CreateBroadcastDto>;
 
+/**
+ * Cómo se turnan los popups cuando hay varios avisos vivos a la vez.
+ *
+ * Sin esto, quien tuviera tres avisos sin leer se comía tres modales
+ * bloqueantes seguidos al entrar: cierra uno, recarga, y ahí está el
+ * siguiente. Con `horas` se le da descanso entre avisos, así que los ve
+ * repartidos en el tiempo — uno ahora, otro esta tarde, otro mañana.
+ */
+export type RotacionPopups = {
+  /** Horas de descanso entre un aviso y el siguiente. 0 = seguidos. */
+  horas: number;
+  /**
+   * ORDEN: del más antiguo al más nuevo, siempre igual para todos.
+   * ALTERNAR: cambia con la franja horaria y con la persona, para que los
+   * avisos circulen y dos negocios que entran a la vez no vean lo mismo.
+   */
+  modo: 'ORDEN' | 'ALTERNAR';
+};
+
+const CLAVE_ROTACION = 'difusion.rotacionPopups';
+const ROTACION_POR_DEFECTO: RotacionPopups = { horas: 6, modo: 'ORDEN' };
+/** 30 días. Tope de cordura: más que eso es no publicar el aviso. */
+const MAX_HORAS = 720;
+
 export type ListBroadcastFilters = {
   kind?: BroadcastKind;
   isActive?: boolean;
@@ -47,9 +71,14 @@ export type ListBroadcastFilters = {
 };
 
 // Mapeo entre rol del user autenticado y las audiences a las que aplica.
-// ALL siempre matchea. Vendors ven AMBASSADORS también porque trabajan
-// dentro del equipo del embajador y el SUPER_ADMIN puede querer comunicar
-// algo "a todo el equipo del embajador" sin distinguir.
+// ALL siempre matchea DENTRO DE LOS AFILIADOS. Vendors ven AMBASSADORS
+// también porque trabajan dentro del equipo del embajador y el SUPER_ADMIN
+// puede querer comunicar algo "a todo el equipo del embajador" sin distinguir.
+//
+// Hay dos mundos que NO se mezclan: la red de ventas (afiliados) y los
+// negocios. `ALL` nació significando «todos los afiliados» y las piezas
+// creadas con esa audiencia hablan de comisiones y de argumentario de venta;
+// `TENANTS` es el mundo del cliente que paga el software.
 function audiencesForRole(role: Role): BroadcastAudience[] {
   switch (role) {
     case 'AFFILIATE_INFLUENCER':
@@ -59,9 +88,35 @@ function audiencesForRole(role: Role): BroadcastAudience[] {
       return ['ALL', 'AMBASSADORS'];
     case 'AFFILIATE_VENDOR':
       return ['ALL', 'VENDORS', 'AMBASSADORS'];
-    default:
+    // El dueño del negocio, y solo él. Devolver `ALL` aquí —como hacía el
+    // `default` de antes— le abriría la difusión interna del equipo comercial
+    // en cuanto el panel del negocio monte el popup.
+    case 'TENANT_OWNER':
+      return ['TENANTS'];
+    // Se quedan como estaban: ven las piezas de afiliados para poder
+    // revisarlas en /affiliate antes de publicarlas.
+    case 'SUPER_ADMIN':
+    case 'MARKETING':
       return ['ALL'];
+    // Empleados del negocio (TENANT_STAFF, TENANT_ORDERS) y todo lo demás:
+    // nada. Un modal que bloquea la pantalla en mitad del servicio no es
+    // sitio para un anuncio de producto.
+    default:
+      return [];
   }
+}
+
+/**
+ * A quién le toca qué. Determinista a propósito: dentro de la misma franja
+ * horaria una persona ve SIEMPRE el mismo aviso (recargar la página no se lo
+ * cambia debajo), y al cambiar la franja le toca otro.
+ */
+function turno(userId: string, franja: number, total: number) {
+  let h = 0;
+  for (let i = 0; i < userId.length; i++) {
+    h = (h * 31 + userId.charCodeAt(i)) | 0;
+  }
+  return (((h + franja) % total) + total) % total;
 }
 
 function isSuperAdmin(role: Role | null | undefined) {
@@ -229,6 +284,7 @@ export class BroadcastsService {
   async getActiveBannerForUser(user: AuthUser) {
     const now = new Date();
     const audiences = audiencesForRole(user.role);
+    if (!audiences.length) return null;
 
     // Banners ya descartados por este user (BroadcastRead = descartar/cerrar
     // para BANNER, "leído" para LOGIN_POPUP — reusamos el modelo).
@@ -263,6 +319,7 @@ export class BroadcastsService {
   async getPendingLoginPopupForUser(user: AuthUser) {
     const now = new Date();
     const audiences = audiencesForRole(user.role);
+    if (!audiences.length) return null;
 
     const readIds = await this.prisma.broadcastRead.findMany({
       where: { userId: user.id },
@@ -283,8 +340,79 @@ export class BroadcastsService {
       orderBy: { createdAt: 'asc' },
     });
 
-    const pending = candidates.find((b) => !readSet.has(b.id));
-    return pending ?? null;
+    const pendientes = candidates.filter((b) => !readSet.has(b.id));
+    if (!pendientes.length) return null;
+
+    const rotacion = await this.rotacion();
+
+    // Descanso entre avisos. Se mide contra el último popup que esta persona
+    // dio por leído: si fue hace poco, hoy no le toca otro.
+    if (rotacion.horas > 0) {
+      const ultimo = await this.prisma.broadcastRead.findFirst({
+        where: { userId: user.id, broadcast: { kind: 'LOGIN_POPUP' } },
+        orderBy: { readAt: 'desc' },
+        select: { readAt: true },
+      });
+      if (
+        ultimo &&
+        now.getTime() - ultimo.readAt.getTime() < rotacion.horas * 3_600_000
+      ) {
+        return null;
+      }
+    }
+
+    if (rotacion.modo === 'ALTERNAR' && pendientes.length > 1) {
+      const ancho = Math.max(1, rotacion.horas) * 3_600_000;
+      const franja = Math.floor(now.getTime() / ancho);
+      return pendientes[turno(user.id, franja, pendientes.length)];
+    }
+
+    return pendientes[0];
+  }
+
+  // -----------------------------------------------------------------------
+  // ROTACIÓN (config global, en Setting para no pedir migración)
+  // -----------------------------------------------------------------------
+
+  async rotacion(): Promise<RotacionPopups> {
+    const row = await this.prisma.setting.findUnique({
+      where: { key: CLAVE_ROTACION },
+    });
+    if (!row) return ROTACION_POR_DEFECTO;
+    try {
+      const v = JSON.parse(row.value);
+      const horas = Number(v?.horas);
+      return {
+        horas:
+          Number.isFinite(horas) && horas >= 0
+            ? Math.min(Math.round(horas), MAX_HORAS)
+            : ROTACION_POR_DEFECTO.horas,
+        modo: v?.modo === 'ALTERNAR' ? 'ALTERNAR' : 'ORDEN',
+      };
+    } catch {
+      // Un valor corrupto no puede dejar el panel sin avisos.
+      return ROTACION_POR_DEFECTO;
+    }
+  }
+
+  async guardarRotacion(user: AuthUser, dto: Partial<RotacionPopups>) {
+    if (!isSuperAdmin(user.role)) throw new ForbiddenException();
+    const actual = await this.rotacion();
+    const horas = Number(dto.horas);
+    const valor: RotacionPopups = {
+      horas:
+        Number.isFinite(horas) && horas >= 0
+          ? Math.min(Math.round(horas), MAX_HORAS)
+          : actual.horas,
+      modo:
+        dto.modo === 'ALTERNAR' || dto.modo === 'ORDEN' ? dto.modo : actual.modo,
+    };
+    await this.prisma.setting.upsert({
+      where: { key: CLAVE_ROTACION },
+      create: { key: CLAVE_ROTACION, value: JSON.stringify(valor) },
+      update: { value: JSON.stringify(valor) },
+    });
+    return valor;
   }
 
   /**
@@ -342,6 +470,8 @@ function audienceToRoles(audience: BroadcastAudience): Role[] {
       return ['AFFILIATE_AMBASSADOR', 'AFFILIATE_SOCIO'];
     case 'VENDORS':
       return ['AFFILIATE_VENDOR'];
+    case 'TENANTS':
+      return ['TENANT_OWNER'];
     case 'ALL':
     default:
       return [

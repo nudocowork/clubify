@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import {
@@ -15,6 +16,7 @@ import {
   BroadcastsService,
   CreateBroadcastDto,
   ListBroadcastFilters,
+  RotacionPopups,
   UpdateBroadcastDto,
 } from './broadcasts.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
@@ -40,13 +42,30 @@ export class BroadcastsAdminController {
       audience === 'ALL' ||
       audience === 'INFLUENCERS' ||
       audience === 'AMBASSADORS' ||
-      audience === 'VENDORS'
+      audience === 'VENDORS' ||
+      audience === 'TENANTS'
     ) {
       filters.audience = audience as BroadcastAudience;
     }
     if (isActive === 'true') filters.isActive = true;
     if (isActive === 'false') filters.isActive = false;
     return this.svc.list(user, filters);
+  }
+
+  // OJO CON EL ORDEN: esta ruta va antes que `@Get(':id')`. Nest resuelve por
+  // orden de declaración, y ahí abajo `rotacion` entraría como si fuera el id
+  // de una pieza (404 permanente).
+  @Get('rotacion')
+  rotacion() {
+    return this.svc.rotacion();
+  }
+
+  @Put('rotacion')
+  guardarRotacion(
+    @CurrentUser() user: AuthUser,
+    @Body() body: Partial<RotacionPopups>,
+  ) {
+    return this.svc.guardarRotacion(user, body);
   }
 
   @Get(':id')

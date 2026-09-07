@@ -4774,10 +4774,14 @@ enum BroadcastKind {
 }
 
 enum BroadcastAudience {
+  /// ALL = todos los AFILIADOS. Nació así y hay piezas vivas con ese valor:
+  /// no significa «todo el mundo». Los negocios son `TENANTS`.
   ALL
   INFLUENCERS
   AMBASSADORS
   VENDORS
+  /// Los negocios que usan el software (llega al dueño, no a sus empleados).
+  TENANTS
 }
 
 enum BroadcastColor {
