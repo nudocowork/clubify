@@ -7,6 +7,8 @@ import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT, useLocale } from '@/lib/i18n';
 import { CompletarRegistro } from './CompletarRegistro';
 
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+
 type Props = {
   passId: string;
   data: any;
@@ -75,11 +77,29 @@ export function WalletPassView({
     </a>
   );
 
+  /**
+   * El cliente pulsó «Guardar en Google Wallet».
+   *
+   * Antes la instalación se marcaba al GENERAR el enlace, y esta página lo pide
+   * en el servidor cada vez que se abre: bastaba con mirar la tarjeta para
+   * quedar contado como instalada. `sendBeacon` no retrasa la navegación a
+   * Google —se manda y el navegador se encarga— y si falla, no pasa nada: es
+   * una métrica, no un cobro.
+   */
+  const avisarGuardado = () => {
+    try {
+      navigator.sendBeacon(`${API}/api/passes/${passId}/google/guardado`);
+    } catch {
+      /* navegador antiguo: se pierde la marca, no la instalación */
+    }
+  };
+
   const googleBtn = !googleSaveUrl ? null : badgesOficiales ? (
     <a
       href={googleSaveUrl}
       target="_blank"
       rel="noreferrer"
+      onClick={avisarGuardado}
       className="block active:scale-[0.98] transition"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -94,6 +114,7 @@ export function WalletPassView({
       href={googleSaveUrl}
       target="_blank"
       rel="noreferrer"
+      onClick={avisarGuardado}
       className="btn-ghost w-full justify-center active:scale-[0.98] transition"
     >
       <Icon name="google" /> {tt('wallet.add_google')}
