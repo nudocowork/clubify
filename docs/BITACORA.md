@@ -8,6 +8,115 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-07 — DESPLEGADO: Difusión interna llega a los negocios, y se turna
+
+**Qué había.** «Difusión interna» (banner + popup) solo se pintaba en
+`/affiliate`. Sus cuatro audiencias son la red de ventas. Publicar ahí una
+novedad del producto la veían los vendedores y **ningún negocio**.
+
+**Qué hay ahora.** Audiencia `TENANTS`, y las dos piezas montadas también en
+`/app`. En el editor la lista sale agrupada: «Red de ventas (afiliados)» y
+«Negocios», porque elegir «Todos los afiliados» creyendo que incluye a los
+negocios era el error fácil de cometer.
+
+Llega al **dueño**, no a sus empleados. Un modal que bloquea la pantalla en
+mitad del servicio no es sitio para un anuncio de producto.
+
+### El agujero que casi abro
+
+`audiencesForRole` tenía `default: return ['ALL']`. `TENANT_OWNER` no estaba
+en el `switch`, así que caía en el default — y `ALL` significa «todos los
+afiliados» desde que existe el módulo. Al montar el popup en `/app`, los 115
+negocios habrían empezado a recibir la difusión interna del equipo comercial
+(comisiones, argumentario) tal cual. Ahora cada rol declara lo suyo y lo que
+no está en la lista no ve nada. Hay una prueba por rol.
+
+### Turnos
+
+Con varios avisos vivos, antes se los comía seguidos: cierra uno, recarga, y
+ahí está el siguiente. Ahora se configura desde el mismo panel:
+
+- **Descanso entre avisos** — 6 h por defecto. 0 = seguidos, 24 = uno al día.
+- **Orden o alternando.** Alternando es determinista dentro de cada franja:
+  recargar la página no le cambia el aviso debajo.
+
+La config vive en `Setting` (`difusion.rotacionPopups`), sin migración.
+La única migración es aditiva: `ADD VALUE IF NOT EXISTS 'TENANTS'`. Aplicada.
+En producción no había ninguna pieza creada todavía, así que nada cambió de
+audiencia.
+
+14 pruebas en `src/broadcasts/difusion-audiencias.spec.ts`.
+
+## 2026-09-07 — Quipao: el mensaje de «cuenta pausada» era verdad
+
+Reportado como «se le envió el mensaje pero no se suspendió». Sí se suspendió.
+El rastro de auditoría no deja dudas:
+
+```
+09-01 13:47  subscription.payment_failed   PURCHASE_DELAYED (Hotmart)
+09-02 03:00  SMS + correo  recordatorio
+09-03 03:00  SMS + correo  «no se pudo procesar»
+09-04/05/06  ── silencio ──
+09-07 03:00  subscription.suspended  reason=payment_failed daysOverdue=6
+09-07 10:51  el negocio ENTRA al panel (suspendido)
+09-07 21:48  cobro → reactivado, status ACTIVE, suspendedAt=null
+```
+
+Se ve ACTIVE ahora porque **el cobro lo reactivó**. Mirarlo después de cobrar
+siempre lo va a mostrar activo; eso no es el defecto.
+
+**Los dos defectos que sí hay:**
+
+1. **Cuatro días de silencio.** Los avisos de los días de gracia se
+   commitearon el 09-06 a las 17:11, después del cron de ese día. El ciclo de
+   Quipao cayó entero en el hueco: pasó del aviso del día 2 a la suspensión sin
+   nada en medio. Para los ciclos siguientes ya está — comprobado que hoy no
+   hay nadie en mora, así que el primer caso real será el próximo.
+
+2. **Una cuenta suspendida sigue funcionando casi entera.** `TenantStatusGuard`
+   bloquea solo las ESCRITURAS del panel. Todo lo `@Public` pasa sin mirar el
+   estado: el menú, los pedidos del cliente, la tarjeta de fidelidad. Y el
+   dueño puede entrar y navegarlo todo (los GET pasan). Quipao entró a las
+   10:51 estando suspendido. El banner rojo del panel sí se lo decía, pero el
+   negocio seguía vendiendo.
+
+   Eso es una decisión de producto, no un bug que arregle por mi cuenta: apagar
+   el menú de un negocio suspendido afecta a SUS clientes. **Pendiente de que
+   Javier decida hasta dónde llega una suspensión.**
+
+## 2026-09-07 — Contabilidad: mayo no está y no se puede reconstruir desde la base
+
+Reportado: «ha registrado bien septiembre, pero los ingresos desde mayo no se
+ven». Es cierto, y la causa está medida:
+
+```
+  mes       webhooks  aprobados   IncomeRecord   bruto USD
+  2026-04          0          0              1      150.00
+  2026-05          0          0              0        0.00   ← nada
+  2026-06         58         28             20     3513.29   ← desde el día 14
+  2026-07         98         63             34     4730.19
+  2026-08        102         74             30     4515.11
+  2026-09         37         20             10      917.52
+```
+
+`HotmartWebhookEvent` —el crudo del que se reconstruye todo— **empieza el
+2026-06-14**. Antes de esa fecha no se guardaba el payload de ningún cobro.
+Las filas de junio a agosto existen porque alguien ya corrió el volcado sobre
+ese crudo (29 filas creadas en agosto, 66 en septiembre).
+
+Así que **mayo y la primera quincena de junio no están en ninguna tabla**. No
+es un filtro ni un fallo del panel: el dato nunca se guardó.
+
+Sale solo del informe de ventas de Hotmart. No hay cliente de su API en el
+código (solo webhooks), así que hace falta el CSV o las credenciales de la
+API de historial. Faltan también los 5 `ManualPayment`, que sí están en la
+base y no tienen `IncomeRecord`.
+
+Arqueos (solo lectura) en `backend/scripts/`:
+`arqueo-contabilidad-historico.cjs`, `arqueo-contabilidad-mayo.cjs`,
+`arqueo-quipao-suspension.cjs`, `arqueo-suspension-rastro.cjs`,
+`arqueo-quipao-ventana.cjs`, `arqueo-mora-hoy.cjs`.
+
 ## 2026-09-07 — El CI está en rojo por dos motivos, y uno es tuyo
 
 **El mío ya está arreglado.** El candado de aislamiento llevaba tres runs
