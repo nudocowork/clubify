@@ -47,6 +47,41 @@ audiencia.
 
 14 pruebas en `src/broadcasts/difusion-audiencias.spec.ts`.
 
+## 2026-09-07 — Quipao aparecía en PRUEBA: el negocio se había reactivado solo
+
+Javier lo vio en «trial», no suspendido. Tenía razón, y hay un único camino que
+lleva de SUSPENDED a TRIAL sin que entre un peso: `POST /billing/reactivate`.
+
+Lo llama **el propio dueño** (`@Roles('TENANT_OWNER')`), y `/api/billing` está
+en la lista blanca de `TenantStatusGuard`, así que una cuenta pausada por no
+pagar puede llamarlo. Hace: `status: 'TRIAL'`, `suspendedAt: null`,
+`trialEndsAt` a **+3 días**.
+
+Es una función buscada, no un descuido — el texto del panel lo dice: «te
+reactivamos por 3 días para que completes el pago en la pasarela». Lo que
+estaba mal era cómo:
+
+1. **No tenía freno.** Al vencer los 3 días el cron de pruebas vuelve a
+   pausar, y ahí el botón está otra vez. Tres días gratis cada vez, sin
+   límite.
+2. **No dejaba rastro.** Ni auditoría ni aviso. Por eso el negocio aparecía en
+   «prueba» sin que nadie supiera por qué, y por eso en la auditoría de Quipao
+   no hay nada entre la suspensión de las 03:00 y el cobro de las 21:48: entró
+   a las 10:51, vio el banner rojo con «Reactivar →» y se dio sus 3 días.
+   (El cobro de la noche puso `trialEndsAt` a null, así que la huella
+   desapareció de la fila; el camino, en cambio, es el único posible.)
+
+**Arreglado:** una sola vez por ciclo de cobro —hasta que entre un pago no hay
+segunda—, se audita como `subscription.self_reactivated`, y el equipo recibe un
+SMS: «X se reactivó SOLO por 3 días para ir a pagar». No se le quita la función
+al negocio; se le quita la invisibilidad.
+
+6 pruebas en `src/billing/reactivacion-una-sola-vez.spec.ts`.
+
+Arqueo: `backend/scripts/arqueo-reactivaciones-gratis.cjs`. Hoy solo hay 2
+suspensiones auditadas en toda la plataforma (la auditoría de ciclo de vida es
+reciente), así que no hay bucle en marcha — pero la puerta estaba abierta.
+
 ## 2026-09-07 — Quipao: el mensaje de «cuenta pausada» era verdad
 
 Reportado como «se le envió el mensaje pero no se suspendió». Sí se suspendió.
