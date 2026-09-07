@@ -216,7 +216,17 @@ export class MetricsService {
       this.prisma.customer.count({ where: { tenantId: tid } }),
       this.prisma.pass.count({ where: { tenantId: tid } }),
       this.prisma.pass.count({
-        where: { tenantId: tid, walletDevices: { some: {} } },
+      // «Pases en Wallet» = el cliente SE DESCARGO la tarjeta, en cualquiera de
+      // las dos billeteras. Se mide con `walletInstalledAt`, que se sella para
+      // Apple y para Google.
+      //
+      // Antes se contaban los pases con DISPOSITIVO registrado
+      // (`walletDevices`), y eso solo lo crea Apple al darse de alta para
+      // recibir push: quien instalaba en Google Wallet no aparecia. A Primor
+      // Barber el panel le decia 11%% cuando la realidad era 99%%, porque 112
+      // de sus 125 clientes son de Android. En toda la plataforma el panel
+      // decia 38%% y son el 97%%.
+        where: { tenantId: tid, walletInstalledAt: { not: null } },
       }),
       // Plataformas wallet — cuántos clientes eligieron Apple vs Google al
       // instalar. Si walletPlatform es null, todavía no instaló (escaneó
@@ -893,7 +903,12 @@ export class MetricsService {
     const [totalPasses, installed] = await Promise.all([
       this.prisma.pass.count({ where: { tenantId: tid } }),
       this.prisma.pass.count({
-        where: { tenantId: tid, walletDevices: { some: {} } },
+      // Mismo criterio que el KPI: instalada = descargada, en cualquiera de las
+      // dos billeteras. Con el conteo anterior este calculo disparaba el aviso
+      // «solo el X% de tus tarjetas estan en Wallet» a negocios que tenian el
+      // 99% instalado — un consejo falso que les hacia perseguir a sus
+      // clientes para nada.
+        where: { tenantId: tid, walletInstalledAt: { not: null } },
       }),
     ]);
     const rate = totalPasses === 0 ? 0 : installed / totalPasses;
