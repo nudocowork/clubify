@@ -42,6 +42,10 @@ const GEMELO_POR_CORREO: Record<string, string> = {
   payment_due_today: 'email_payment_due_today',
   payment_overdue_reminder: 'email_payment_overdue',
   payment_not_processed_2d: 'email_account_will_pause',
+  // Los dias 3, 4 y el ultimo de la gracia (2026-09-07). Antes eran silencio:
+  // el negocio pasaba del dia 2 a encontrarse la cuenta pausada.
+  payment_overdue_grace: 'email_payment_overdue_grace',
+  payment_pause_tomorrow: 'email_payment_pause_tomorrow',
   account_will_pause: 'email_account_will_pause',
   account_paused: 'email_account_paused',
   account_reactivated: 'email_account_reactivated',

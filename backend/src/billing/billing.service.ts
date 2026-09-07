@@ -1279,6 +1279,20 @@ export class BillingService {
           where: { id: t.id },
           data: { graceNoticeSentAt: now },
         });
+        // El correo va SIEMPRE, aunque no haya telefono o el SMS falle. Es el
+        // canal de respaldo: el SMS a segun que paises no llega —el caso de
+        // Jean, con numero venezolano— y quedarse sin avisar por eso seria
+        // suspenderle la cuenta a alguien que nunca supo que debia pagar.
+        this.brandEmail
+          .sendTemplate({
+            templateId:
+              action === 'last-call'
+                ? 'email_payment_pause_tomorrow'
+                : 'email_payment_overdue_grace',
+            tenantId: t.id,
+            vars: { pauseDate: fmtEmailDate(pauseDate) },
+          })
+          .catch(() => null);
         const target = await this.resolveBillingTarget(t.id);
         if (!target) continue;
         const ownerName = await this.ownerFirstName(t.id);
