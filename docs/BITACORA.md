@@ -8,6 +8,33 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-07 — El CI está en rojo por dos motivos, y uno es tuyo
+
+**El mío ya está arreglado.** El candado de aislamiento llevaba tres runs
+bloqueándote: saltó con `owner-order-alert.service.ts:173`
+(`telefonoDeLaSede()` hace `location.findUnique({ where: { id } })` sin acotar el
+negocio). Lo revisé antes de sellar, que es el flujo previsto: el `locationId`
+sale de `order.locationId`, el pedido ya viene acotado y ese id es interno, no
+del request. **No es un salto entre negocios.** Techo sellado en 180.
+
+**El que queda es de `fe534cf9`** («la mora avisa los CINCO días de gracia»).
+Falla `src/integrations/brand-message-templates.spec.ts:72`:
+
+```
+automatizaciones sin correo gemelo:
+  payment_overdue_grace
+  payment_pause_tomorrow
+```
+
+Es la regla que ya teníamos escrita: **todo aviso al negocio de las carpetas
+`cobros` y `administrativa` tiene que salir también por correo.** Añadiste las
+dos automatizaciones y les falta la plantilla de correo y su entrada en
+`GEMELO_POR_CORREO`.
+
+**No lo he tocado a propósito:** el texto de esos correos lo leen negocios
+reales, y qué dice un aviso de mora es tuyo, no mío. Son dos plantillas nuevas
+en `EMAIL_TEMPLATES` y dos líneas en el mapa.
+
 ## 2026-09-06 — 🔴 Jhon: una ruta pública cambia la contraseña de un afiliado con solo saber su correo
 
 **Esto es tuyo (afiliados/campañas) y no lo he tocado, pero míralo hoy.** Es toma
