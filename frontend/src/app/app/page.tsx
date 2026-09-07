@@ -20,7 +20,10 @@ type Metrics = {
   walletGoogle: number;
   walletNone: number;
   stamps30: number;
+  stampsGiven30?: number;
+  stampsRemoved30?: number;
   redemptions30: number;
+  coupons30?: number;
   ordersToday: number;
   revenueToday: number;
   orders30: number;
@@ -475,15 +478,36 @@ export default function TenantDashboard() {
         <KPI
           label="Sellos (30d)"
           value={m?.stamps30 ?? '–'}
+          // Si hubo correcciones se dice, para que el número no parezca un
+          // error: el negocio dio 12 y quitó 2, y ve 10.
+          sub={
+            m?.stampsRemoved30
+              ? `${m.stampsGiven30} dados · ${m.stampsRemoved30} corregidos`
+              : undefined
+          }
           icon="check"
           tone="info"
         />
         <KPI
           label="Recompensas (30d)"
           value={m?.redemptions30 ?? '–'}
+          sub="premios canjeados con sellos"
           icon="gift"
           tone="brand"
         />
+        {/* Los cupones se cuentan aparte: son de un solo uso y no se ganan
+            juntando sellos. Mezclados con las recompensas, el panel decía
+            «2 sellos · 122 recompensas» y no había forma de que cuadrara.
+            Solo aparece si el negocio usa cupones. */}
+        {!!m?.coupons30 && (
+          <KPI
+            label="Cupones (30d)"
+            value={m.coupons30}
+            sub="cupones redimidos"
+            icon="gift"
+            tone="warn"
+          />
+        )}
         <KPI
           label="★ Calificación"
           value={

@@ -197,7 +197,9 @@ export class MetricsService {
       walletGoogle,
       walletNone,
       stamps30,
+      stampsRemoved30,
       redemptions30,
+      coupons30,
       ordersToday,
       ordersTodayAgg,
       orders30,
@@ -243,8 +245,43 @@ export class MetricsService {
       this.prisma.stamp.count({
         where: { tenantId: tid, action: 'STAMP', createdAt: { gte: since30 } },
       }),
+      // Las correcciones. «Sellos dados» tiene que ser lo que de verdad quedó
+      // puesto: un sello que el negocio quitó porque lo dio por error no se
+      // dio. Antes se sumaban los STAMP a secas y el número salía inflado.
       this.prisma.stamp.count({
-        where: { tenantId: tid, action: 'REDEEM', createdAt: { gte: since30 } },
+        where: {
+          tenantId: tid,
+          action: 'STAMP_REMOVE',
+          createdAt: { gte: since30 },
+        },
+      }),
+      // PREMIOS y CUPONES son dos cosas distintas y estaban en el mismo saco.
+      //
+      // Al redimir un cupón el pase se TRANSFORMA en tarjeta de sellos, así
+      // que ese canje acababa contado como «recompensa» de la tarjeta de
+      // fidelidad. Primor Barber veía «SELLOS 2 · RECOMPENSAS 122»: los 122
+      // eran cupones de bienvenida que él mismo fue redimiendo desde el panel,
+      // no premios que sus clientes se hubieran ganado. Es imposible que
+      // cuadre, y con razón lo reportó.
+      //
+      // `redeemKind` lo escribe stamps.service en el momento del canje.
+      // Histórico anterior a la columna: relleno por la nota (ver
+      // scripts/apply-stamp-redeemkind-migration.cjs).
+      this.prisma.stamp.count({
+        where: {
+          tenantId: tid,
+          action: 'REDEEM',
+          redeemKind: { not: 'COUPON' },
+          createdAt: { gte: since30 },
+        },
+      }),
+      this.prisma.stamp.count({
+        where: {
+          tenantId: tid,
+          action: 'REDEEM',
+          redeemKind: 'COUPON',
+          createdAt: { gte: since30 },
+        },
       }),
       this.prisma.order.count({
         where: {
@@ -382,8 +419,12 @@ export class MetricsService {
       walletApple,
       walletGoogle,
       walletNone,
-      stamps30,
+      // Neto: los dados menos los que el negocio quitó como corrección.
+      stamps30: Math.max(0, stamps30 - stampsRemoved30),
+      stampsGiven30: stamps30,
+      stampsRemoved30,
       redemptions30,
+      coupons30,
       // v2 — comercial. #7: facturación = órdenes + sellos de compra.
       ordersToday: ordersToday + (stampRevToday._count._all ?? 0),
       revenueToday: Number(ordersTodayAgg._sum.total ?? 0) + Number(stampRevToday._sum.purchaseAmount ?? 0),

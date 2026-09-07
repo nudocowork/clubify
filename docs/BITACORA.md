@@ -47,6 +47,51 @@ audiencia.
 
 14 pruebas en `src/broadcasts/difusion-audiencias.spec.ts`.
 
+## 2026-09-07 — El panel decía «2 sellos · 122 recompensas» y tenía razón el negocio
+
+Primor Barber: los números no cuadran. No cuadraban.
+
+**Lo que pasaba.** Al redimir un CUPÓN el pase se **transforma in-place** en
+tarjeta de sellos (cambia `cardId`). Un minuto después, mirando la fila de
+`Stamp`, ya no hay forma de saber que aquello fue un cupón: parece el canje de
+un premio de la tarjeta de fidelidad. Así que los 122 cupones de bienvenida que
+el barbero fue redimiendo desde el panel entre el 31-08 y el 06-09 salían como
+«RECOMPENSAS (30D) 122» junto a «SELLOS (30D) 2». Imposible que cuadre.
+
+Comprobado antes de tocar nada: 122 canjes, **122 pases y 122 clientes
+distintos**, ninguno repetido, todos sobre la tarjeta de sellos (post-
+transformación), y la tarjeta pide 10 sellos con un máximo real de 1 por pase.
+Los datos estaban BIEN; lo que mentía era la etiqueta.
+
+**En toda la plataforma: 411 de los 454 canjes eran cupones.** El 90 % de lo que
+los negocios veían como «recompensas» no lo era.
+
+**Arreglado:**
+
+- `Stamp.redeemKind` (`REWARD` / `COUPON`), columna aditiva, la escribe
+  `stamps.service` en el momento del canje —cuando todavía se sabe qué era—.
+  Mismo motivo por el que existe `giftReason`. Histórico relleno por la nota.
+- El panel separa **Recompensas** (premios ganados con sellos) de **Cupones**,
+  y la tarjeta de cupones solo aparece si el negocio los usa.
+- **Sellos (30d) ahora es NETO**: los dados menos los que el negocio quitó como
+  corrección. Si hubo correcciones lo dice debajo («12 dados · 2 corregidos»).
+
+### Y el cliente que no aparecía en ninguna lista
+
+«127 de 128 instalados» y el que faltaba no salía por ningún lado: el filtro
+«Sin tarjeta» mira si el cliente tiene pases, y tenerlo lo tiene — lo que no
+hizo fue instalarlo. Punto ciego.
+
+Nuevo segmento en Clientes: **«Sin instalar»** — tiene tarjeta y no está en su
+móvil. Es además la respuesta a la otra pregunta de Primor («¿cómo identifico a
+los clientes a los que no les llega el push?»): son exactamente esos. Sin
+tarjeta instalada no hay a dónde mandar el push.
+
+En Primor era una sola persona, María Guedez, emitida el 27-08 y nunca
+instalada.
+
+Arqueos: `arqueo-primor-panel.cjs`, `arqueo-primor-redenciones.cjs`.
+
 ## 2026-09-07 — Quipao aparecía en PRUEBA: el negocio se había reactivado solo
 
 Javier lo vio en «trial», no suspendido. Tenía razón, y hay un único camino que

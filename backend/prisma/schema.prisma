@@ -1819,6 +1819,18 @@ model Stamp {
   /// MEDIRLO: cuántos sellos regaló y por qué. Y para que un regalo nunca
   /// cuente como venta: `purchaseAmount` queda null.
   giftReason     String?
+  /// Qué clase de canje fue este `REDEEM`. Solo se llena para esa acción.
+  ///
+  /// `REWARD` = premio de la tarjeta de sellos/visitas: el cliente juntó los
+  /// sellos y se los gastó. `COUPON` = cupón de un solo uso (bienvenida,
+  /// promoción), que además transforma el pase en tarjeta de sellos.
+  ///
+  /// Existe como campo propio —igual que `giftReason`— porque después del
+  /// canje el pase YA NO apunta a la tarjeta de cupón: se transformó. Sin
+  /// esto no hay forma de saber, mirando la fila, qué se canjeó. Primor
+  /// Barber veía «SELLOS 2 · RECOMPENSAS 122» en su panel: las 122 eran
+  /// cupones de bienvenida, no premios ganados con sellos.
+  redeemKind     String?
   note           String?
   // Wallet V3 — auditoría de ajustes manuales de sellos (+1/-1 desde escáner).
   // "note" cumple como Motivo; estos dos completan el rastro (IP + navegador/
