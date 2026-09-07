@@ -1,7 +1,7 @@
 {
   "_cordura": {
     "modelos": 65,
-    "analizadas": 1204
+    "analizadas": 1214
   },
   "archivos": {
     "src/admin-reports/admin-reports.service.ts": 1,
@@ -35,6 +35,7 @@
     "src/crm/crm.service.ts": 2,
     "src/cuponera/membership-billing.service.ts": 1,
     "src/lab/lab.service.ts": 2,
+    "src/orders/owner-order-alert.service.ts": 1,
     "src/qr-posters/qr-posters.service.ts": 3,
     "src/quotes/quotes.service.ts": 1,
     "src/reservations/events.service.ts": 1,
