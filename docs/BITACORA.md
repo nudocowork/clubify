@@ -35,6 +35,62 @@ dos automatizaciones y les falta la plantilla de correo y su entrada en
 reales, y qué dice un aviso de mora es tuyo, no mío. Son dos plantillas nuevas
 en `EMAIL_TEMPLATES` y dos líneas en el mapa.
 
+## 2026-09-07 — Team Clubify: un despliegue borró la agenda de producción
+
+**Máquina/quién:** máquina de Jhon (Claude) · repo `team-clubify`, no este.
+**Estado: RESUELTO.** Redesplegado desde `main` (`db1c9c0`).
+
+### Qué pasó
+
+`team.soyclubify.com/agenda/ventas/nico` daba **404**. No era la cuenta ni el
+vendedor: **toda la rama `agenda` había desaparecido** del build desplegado.
+
+Lo que lo prueba, y sirve de método la próxima vez: el resto del panel
+(`/dashboard`, `/contactos`, `/crm`, `/closers`, `/admin`) respondía **307** —
+existe y pide login— y solo `agenda` daba 404. Y la prueba fina, comparando por
+edad del código:
+
+| ruta | creada | estaba |
+|---|---|---|
+| `/preview/agenda`, `/sorteo` | 17-jul | sí |
+| `/agenda/ventas/[vendedor]` | **05-sep 18:28** | **no** |
+
+O sea: lo desplegado era una copia **anterior al viernes** del mismo repo.
+
+**Causa:** el despliegue de hoy 09:50 (cuenta `montiieljaviier-3523`) salió de
+una carpeta que no tenía el centro de ventas. `vercel --prod` sube **la carpeta
+local, no lo que hay en git**. El código nunca se perdió: estaba intacto en
+`origin/main`.
+
+### Arreglo
+
+`vercel --prod` desde `~/Documents/AGENTES/CLUBIFY/team_clubify`, verificada
+limpia y sincronizada con `origin/main` antes de subir. Las rutas de agenda
+pasaron de 404 a **307** y lo demás quedó igual (`/dashboard` 307,
+`/preview/agenda` 200, `/sorteo` 200, `/login` 200).
+
+**Se pudo subir sin miedo a pisar lo de Javi** porque su despliegue contenía
+*menos* que git —una copia vieja del mismo repo—, no cosas distintas. Volver a
+publicar `main` DEVUELVE lo que faltaba sin quitar nada. Si algún día la copia
+del otro tuviera trabajo sin commitear, esto sí se lo llevaría por delante.
+
+### ⚠️ `team-clubify` NO tiene el candado de Clubify
+
+Aquí no hay `scripts/desplegar.cjs`: nada impide desplegar desde una carpeta
+atrasada, que es exactamente lo que pasó hoy. **Antes de `vercel --prod` en ese
+repo, siempre:**
+
+```bash
+git fetch origin && git status -sb    # ¿sincronizado con origin/main?
+git status --porcelain                # ¿carpeta limpia?
+```
+
+Y después, comprobar una ruta que solo exista en tu commit: si da **404**
+mientras otra da **307**, tu código NO subió.
+
+**Volver atrás es barato:** Vercel guarda los despliegues. El de Javi de hoy es
+`team-clubify-mpfmfrm9u-jhonarias888-1963s-projects.vercel.app`.
+
 ## 2026-09-06 — 🔴 Jhon: una ruta pública cambia la contraseña de un afiliado con solo saber su correo
 
 **Esto es tuyo (afiliados/campañas) y no lo he tocado, pero míralo hoy.** Es toma
