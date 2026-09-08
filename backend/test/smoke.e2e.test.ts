@@ -78,7 +78,11 @@ describe('smoke', () => {
         fulfillment: 'PICKUP',
       });
     expect(res.status).toBe(201);
-    expect(res.body.code).toMatch(/^[A-Z0-9]{4}$/);
+    // Seis desde el 2026-09-08, antes cuatro. El código es la única llave de
+    // las rutas públicas del pedido, y con cuatro se acertaba uno cada 1.808
+    // intentos. Los pedidos VIEJOS siguen teniendo cuatro y siguen valiendo;
+    // esto comprueba uno recién creado. Ver QA-MASTER-SECURITY.md (P1-1).
+    expect(res.body.code).toMatch(/^[A-Z0-9]{6}$/);
     expect(res.body.whatsappLink).toContain('wa.me');
   });
 
