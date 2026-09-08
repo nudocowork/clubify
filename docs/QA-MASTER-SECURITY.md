@@ -151,10 +151,12 @@ todavía apagado — no cambia nada porque nada se aplica aún; (3) activar
 `trust proxy` en un despliegue aparte, y mirar los 429 en Sentry esa misma
 tarde. Así, si algo se tuerce, se sabe cuál de los dos pasos fue.
 
-#### HECHO el 2026-09-08: el código está listo y APAGADO
+#### HECHO el 2026-09-08: desplegado y APAGADO
 
-Está todo en `main`, **sin desplegar**, y sobre todo: **apagado detrás de una
-variable**. Esa es la diferencia con la propuesta original de tres despliegues.
+Está **desplegado** desde el 2026-09-08 y, sobre todo, **apagado detrás de una
+variable**. Esa es la diferencia con la propuesta original de tres despliegues:
+el código ya está arriba sin cambiar nada, y encenderlo es poner
+`TRUST_PROXY=1` en Railway.
 
 | Cambio | Dónde |
 |---|---|
@@ -343,8 +345,7 @@ constante.
 
 ### 🟡 P0-7 · Con solo el teléfono de alguien se le toma la cuenta
 
-**Estado: ARREGLADO EN `main` el 2026-09-08. SIN DESPLEGAR — y el orden importa,
-ver abajo.**
+**Estado: CERRADO. Migración aplicada y desplegado el 2026-09-08.**
 
 #### Lo que se cambió
 
@@ -440,7 +441,7 @@ ni tener que traerse todos los tokens del usuario para compararlos uno a uno.)*
 
 ### 🟡 P0-8 · El segundo factor no frena a nadie, y se puede usar para dejar fuera al dueño
 
-**Estado: MEDIO ARREGLADO en `main` el 2026-09-08, SIN DESPLEGAR.**
+**Estado: MEDIO CERRADO. Desplegado el 2026-09-08 (el contador de intentos).**
 
 **Hecho — el contador de intentos.** `verify()` lleva ahora **5 fallos seguidos
 → bloqueo de 15 minutos**, y acertar limpia el contador. Con eso, probar códigos
@@ -546,7 +547,7 @@ lo lee.
 
 ### 🟢 P1-11 · Cambiar tu contraseña no cierra las sesiones robadas
 
-**Estado: ARREGLADO en `main` el 2026-09-08, SIN DESPLEGAR.**
+**Estado: CERRADO. Desplegado el 2026-09-08.**
 
 Los dos sitios que faltaban —`POST /users/me/password` y el reseteo que hace el
 dueño a un empleado— ahora escriben `passwordChangedAt` y llaman a
@@ -615,8 +616,7 @@ refresco.
 
 ### 🟢 P0-4 · Con un código de pedido acertado se escribe EN NOMBRE DEL CLIENTE
 
-**Estado: ARREGLADO en `main` el 2026-09-08, SIN DESPLEGAR. Toca backend Y
-frontend, hay que desplegar los dos.**
+**Estado: CERRADO. Backend y frontend desplegados el 2026-09-08.**
 
 **El chat pide ahora el teléfono del pedido, además del código** — para escribir
 y también para leer, porque en la conversación está lo que el negocio y el
@@ -683,7 +683,7 @@ manda—. Los dos cambios se pueden hacer por separado.
 
 ### 🟢 P0-5 · Dos rutas públicas mandan SMS al número que diga quien llama, en bucle
 
-**Estado: ARREGLADO en `main` el 2026-09-08, SIN DESPLEGAR.**
+**Estado: CERRADO. Desplegado el 2026-09-08.**
 
 **Tope de 3 mensajes por hora a un número que eligió quien llamó.** Va en
 `grow-business.service.ts`, o sea en el punto donde se manda, no en cada sitio
@@ -794,8 +794,7 @@ columna que alguien añada al modelo saldrá publicada sin que nadie lo note.
 
 ### 🟢 P1-1 · Los códigos de pedido son demasiado cortos
 
-**Estado: ARREGLADO en `main` el 2026-09-08, SIN DESPLEGAR. Los nuevos son de 6
-caracteres.**
+**Estado: CERRADO. Desplegado el 2026-09-08. Los nuevos son de 6 caracteres.**
 
 ```
 antes:  31^4 =       923.521 combinaciones → 1 acierto cada 1.808 intentos
@@ -1023,8 +1022,8 @@ propia sede, correcto— y de ahí salió la lección que importa:
 
 ### 🟡 P1-6 · Cualquiera puede dar de baja a un contacto ajeno, y falsear que respondió
 
-**Estado: MITIGADO en `main` el 2026-09-08, SIN DESPLEGAR. El arreglo de fondo
-sigue pendiente, y ahora hay cómo decidirlo.**
+**Estado: MITIGADO y desplegado el 2026-09-08. El arreglo de fondo sigue
+pendiente, y ahora hay cómo decidirlo.**
 
 **Qué se hizo:**
 

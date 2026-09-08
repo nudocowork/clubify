@@ -367,9 +367,14 @@ if (OBJETIVO === 'backend') {
     console.log(``);
     console.log(`  Comprobando el recorrido del cliente…`);
     console.log(``);
-    const humo = spawnSync('node', [path.join(__dirname, 'humo.cjs')], {
+    // SIN `shell: true`. Con shell, Node concatena los argumentos sin
+    // escaparlos, y la ruta de este repo lleva un espacio («Clubify PRO»): se
+    // partía en dos y la prueba de humo moría con
+    // `Cannot find module 'C:\...\Documentos\Clubify'` — o sea, **nunca llegó a
+    // correr después de un despliegue**, que es justo cuando hace falta.
+    // Detectado el 2026-09-08 desplegando el frontend.
+    const humo = spawnSync(process.execPath, [path.join(__dirname, 'humo.cjs')], {
       stdio: 'inherit',
-      shell: true,
     });
     if (humo.status !== 0) {
       console.log(``);

@@ -8,6 +8,49 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-08 — DESPLEGADO todo lo de seguridad. Y la prueba de humo no corría nunca
+
+**Backend y frontend en producción**, con las dos migraciones aplicadas antes.
+Verificado, no supuesto:
+
+- Migraciones: `attempts` creada; las dos del 2FA **ya existían** (ver abajo).
+- Backend: `POST /api/passes/<uuid>/google/guardado` responde **204**, o sea que
+  el código nuevo está arriba. `/api/health` en 200.
+- Frontend: `node scripts/humo.cjs` → **los tres en verde** (menú de domicilios,
+  menú de mesa, login del escáner).
+
+### 🐛 `desplegar.cjs` nunca llegaba a correr la prueba de humo
+
+Lo descubrí al desplegar el frontend: la prueba murió con
+`Cannot find module 'C:\Users\USUARIO\OneDrive\Documentos\Clubify'`.
+
+`spawnSync('node', [ruta], { shell: true })` **concatena los argumentos sin
+escaparlos**, y la ruta del repo lleva un espacio —«Clubify PRO»—, así que se
+partía en dos. O sea: **la comprobación automática de después de cada despliegue
+no ha corrido nunca desde esta máquina**, justo cuando más falta hace.
+
+Arreglado quitando `shell: true` (no hace falta para invocar `node`). Los otros
+tres `shell: true` del script sí lo necesitan —`railway` y `vercel` son `.cmd` en
+Windows— y comprobé que ninguno pasa rutas con espacios.
+
+### ⚠️ Los cambios de esquema están llegando a producción por otra vía
+
+Al aplicar la migración del 2FA salió **«ya existe, no se toca»** para las dos
+columnas. Y no solo las mías: comprobé que `Tenant.sedeMenuEnabled` y la tabla
+`ProductLocation` —cambios recientes tuyos— **también están ya en producción**.
+
+No es un problema hoy: el esquema tenía lo que hacía falta y por eso el
+despliegue fue limpio. Pero conviene saber por dónde entran, porque la regla nº1
+del proyecto es que a producción no se le aplica esquema sin control. Si son tus
+scripts `apply-*.cjs`, perfecto — solo que entonces conviene anotarlo aquí
+cuando se corren, que es para lo que sirve esta bitácora.
+
+### Lo que queda SIN encender
+
+`TRUST_PROXY` sigue en 0: los límites de peticiones están desplegados pero **no
+se aplican**. Es una variable en Railway, y conviene ponerla un día que puedas
+mirar los 429 en Sentry esa misma tarde.
+
 ## 2026-09-08 — Cortado el bucle de SMS, y mitigado el webhook de correo
 
 **P0-5 y P1-6.** Los dos en `main`, sin desplegar, sin migración.
