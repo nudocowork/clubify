@@ -167,6 +167,76 @@ escriben, roles por endpoint y dependencias.
 rol, no si le corresponden. `AFFILIATE_*` llega a **74** — es mucho para quien
 solo debería ver sus comisiones. Eso es tuyo, Jhon, y hay que mirarlo aparte.
 
+## 2026-09-08 — DESPLEGADO: menú por sede de punta a punta, y lo que encontraron los agentes
+
+Tres agentes en paralelo sobre tres apartados. Lo que sacaron, verificado por
+mí antes de tocar nada.
+
+### Lo que se arregló y está arriba
+
+**El pedido cobraba el precio de base.** Los tres sitios que arman líneas —el
+público (`orders.service.ts:629`), el manual desde el panel (`:957`) y la
+edición (`:1488`)— hacían `unit = Number(p.basePrice)` sin mirar la sede. Con
+un precio por sede eso es: el cliente ve $12.000 en el menú de la sede y se le
+cobra $10.000. Los tres pasan ahora por `filasDeSede`, que además **valida que
+la sede sea del negocio antes de decidir precios** (antes se comprobaba
+después, y solo para el link de WhatsApp) y **rechaza lo que esa sede no vende
+o tiene agotado**.
+
+**El panel ya deja elegir.** Bloque nuevo en el editor de producto, solo
+visible con más de una sede. «Todas las sedes» primero; debajo, precio propio
+y agotado por sede.
+
+**«Ver empresas» contradecía al banner.** Lo introduje yo ayer: el banner decía
+$917,52 y el modal $1.454,52, con Moa Café y Oh! Cookies en verde como
+«Cobrado» sin tener transacción. Misma fuente ahora, y «Sin transacción» con
+su etiqueta y su total.
+
+### 🔴 Lo que hay que decidir, no es código
+
+**1. Las marcas blancas ven casi todo en naranja.** Medido a 30 días:
+
+```
+  Clubify   30 negocios cobraron ·  4 sin transacción · «Cobrado» $3.562,52
+  Sellea     8 negocios cobraron ·  6 sin transacción · «Cobrado» $160
+```
+
+La causa: las activaciones y renovaciones **por crédito** sellan
+`lastChargeAt` y nunca escriben `IncomeRecord`
+(`renewals.service.ts:257,302`, `admin-reports.service.ts:2012,2050`,
+`tenants.service.ts:1208,1243,1592`). Y por decisión del 05-09 el producto de
+créditos no entra en Contabilidad, así que **nunca saldrán de ahí solos**.
+
+Para un admin de Sellea, «Cobrado» pasa de un precio de lista inventado a
+~$0 con todo el mes en naranja. Ninguno de los dos números es bueno. O esos
+caminos escriben ingreso, o las marcas necesitan otra cifra.
+
+**2. Los Grupos Empresariales tampoco escriben ingreso.** El webhook de Hotmart
+sale antes (`hotmart.service.ts:539-566`). Todo grupo cobrado cae para siempre
+en «sin transacción». Contabilidad tampoco los ve.
+
+**3. El QR por sede no existe para quien lo necesita.** `?sede=` solo se
+imprime si el negocio tiene **cartas por sede** habilitadas
+(`marketing/qr-menu/page.tsx:36-53`). Los 25 de 26 que comparten una sola
+carta **no tienen forma de generar un QR de su sede**, así que el precio por
+sede no le llega a nadie. Esto es lo que falta para que la función sirva.
+
+**4. Menú general vs sede del checkout.** Quien entra por el enlace general ve
+precios base y elige sede en el checkout: verá un precio y pagará otro. Hoy
+son cero casos; con precios por sede deja de serlo.
+
+### Lo que queda apuntado (no urgente)
+
+- Variantes en modo `ABSOLUTE` ignoran el precio de sede (`variant-price.ts:26`):
+  el precio de sede solo pisa `basePrice`.
+- Los extras no tienen precio por sede.
+- `ProductLocation.stock` no agota: `resolverEnSede` lo devuelve pero no decide.
+- El duplicador de tenants no copia `locationMode` ni `productLocations`.
+- Primor: el embudo de fidelización, la página de la tarjeta y el feed de
+  actividad **siguen** contando cupones como premios (`metrics.service.ts:1074`,
+  `cards/[id]:1409`, `metrics.service.ts:876`). Lo del dashboard ya está
+  arreglado y desplegado — 122 canjes marcados COUPON, 0 nulos.
+
 ## 2026-09-07 — Menú por sede: motor construido y funcionando, sin panel todavía
 
 Tres pasos desplegados, y ninguno cambia nada para nadie **todavía**. Es a
