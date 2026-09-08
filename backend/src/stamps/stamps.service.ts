@@ -635,11 +635,36 @@ export class StampsService {
     // rechaza y caemos al call directo in-process como fallback. Antes
     // se llamaban AMBOS siempre → push doble al iPhone (2 fetches del
     // .pkpass innecesarios).
+    // El cupón que acaba de convertirse en tarjeta de sellos necesita texto
+    // PROPIO, y no es cosmética: el aviso genérico de Google solo sale si la
+    // tarjeta tiene progreso (`stampsCount > 0`), y la conversión deja el
+    // contador justo en CERO. Sin mensaje, el Android no recibe nada: el
+    // cliente canjea su cupón, su tarjeta cambia por dentro y en su billetera
+    // no se entera nadie.
+    //
+    // Es la tercera vez que aparece esta trampa — ya se le puso una excepción
+    // al club y otra a las alianzas, que también viven con el contador a cero
+    // (ver `google-wallet.service.ts`). Aquí se resuelve mandando el texto, que
+    // además le dice al cliente algo cierto y útil.
+    const convertido = isCouponRedeem && !!stampsCardForTransform;
+    const mensajeDeConversion = convertido
+      ? {
+          header: '¡Cupón canjeado!',
+          body: 'Ya tienes tu tarjeta de sellos. Empieza a sumar para tu premio.',
+        }
+      : undefined;
+
     this.jobs
-      .enqueue('wallet.push', { passId: pass.id, reason: dto.action })
+      .enqueue('wallet.push', {
+        passId: pass.id,
+        reason: dto.action,
+        message: mensajeDeConversion,
+      })
       .catch(() => {
         // Fallback: queue no disponible, push directo in-process
-        this.wallet.pushPassUpdate(pass.id).catch(() => null);
+        this.wallet
+          .pushPassUpdate(pass.id, { message: mensajeDeConversion })
+          .catch(() => null);
       });
 
     // Hito de multiRewards alcanzado → push de "ganaste X". Solo cuando

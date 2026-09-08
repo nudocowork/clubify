@@ -17,10 +17,17 @@ export class WalletPushWorker implements OnModuleInit {
 
   onModuleInit() {
     this.queue.registerWorker('wallet.push', async (data) => {
-      const { passId, reason, silent } = data as {
+      const { passId, reason, silent, message } = data as {
         passId: string;
         reason: string;
         silent?: boolean;
+        /**
+         * Texto propio del aviso. Sin él, Google solo notifica si la tarjeta
+         * tiene progreso (`stampsCount > 0`), y hay casos legítimos con el
+         * contador a cero que se quedaban mudos — el cupón recién convertido
+         * en tarjeta de sellos, sobre todo.
+         */
+        message?: { header: string; body: string };
       };
       this.logger.log(
         `wallet.push job: pass=${passId} reason=${reason}${silent ? ' (silent)' : ''}`,
@@ -35,7 +42,7 @@ export class WalletPushWorker implements OnModuleInit {
       //  - PERMANENTE (404 object_not_found = el cliente no saveó el pase; 403
       //    api_disabled) o éxito → NO se reintenta (return normal). Reintentar
       //    un 404/403 solo gasta llamadas.
-      const result = (await this.wallet.pushPassUpdate(passId, { silent })) as {
+      const result = (await this.wallet.pushPassUpdate(passId, { silent, message })) as {
         google?: { ok?: boolean; status?: string };
       };
       const gstatus = result?.google?.status;
