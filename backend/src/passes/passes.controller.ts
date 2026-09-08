@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Logger, Param, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Logger, Param, Post, Query, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { IsBoolean, IsEmail, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
@@ -287,12 +287,38 @@ export class PassesController {
     res.send(buf);
   }
 
+  /**
+   * El enlace para guardar en Google Wallet. GENERARLO NO ES INSTALARLO.
+   *
+   * Antes esta ruta marcaba el pase como instalado, y la pagina del pase la
+   * llama en el SERVIDOR cada vez que alguien la abre: bastaba con mirar la
+   * tarjeta para quedar contado como instalada en Google. Por eso 6.007 de
+   * 6.204 pases tenian `googleObjectId` — incluidos 1.538 marcados como Apple.
+   * Comprobado contra la propia API de Google: de una muestra de 80 pases
+   * «GOOGLE», solo 31 existian de verdad alli.
+   *
+   * La instalacion se marca cuando el cliente PULSA el boton (ver
+   * `guardadoEnGoogle`).
+   */
   @Public()
   @Get(':id/google')
   async google(@Param('id') id: string) {
     const url = await this.wallet.generateGoogleSaveUrl(id);
-    this.trackWalletInstall(id, 'GOOGLE').catch(() => null);
     return { saveUrl: url };
+  }
+
+  /**
+   * El cliente pulso «Guardar en Google Wallet».
+   *
+   * No prueba que Google lo haya guardado —eso solo lo sabe Google, y
+   * preguntarselo por cada pase no es viable— pero prueba una INTENCION del
+   * cliente, que es infinitamente mas que haber abierto la pagina.
+   */
+  @Public()
+  @Post(':id/google/guardado')
+  @HttpCode(204)
+  async guardadoEnGoogle(@Param('id') id: string) {
+    await this.trackWalletInstall(id, 'GOOGLE').catch(() => null);
   }
 
   /** Marca el pass con la plataforma de wallet elegida por el cliente.

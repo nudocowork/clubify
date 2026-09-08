@@ -96,6 +96,16 @@ export class CustomersService {
       },
       include: {
         _count: { select: { passes: true, stamps: true } },
+        // Si el pase está instalado o no. Es lo que separa «no tiene tarjeta»
+        // de «tiene tarjeta y nunca se la descargó», que hasta ahora era un
+        // punto ciego: el panel decía «127 de 128 instalados» y el que
+        // faltaba no salía en ninguna lista, porque el filtro «Sin tarjeta»
+        // mira si tiene pases, y tenerlo lo tiene. Reportado por Primor
+        // Barber. Es además el mismo cliente al que NO le llega el push: sin
+        // tarjeta instalada no hay a dónde mandarlo.
+        passes: {
+          select: { id: true, walletInstalledAt: true, walletPlatform: true },
+        },
         // M6: último stamp con operator + location para enriquecer la
         // tabla con "quién/dónde fue el último escaneo".
         //

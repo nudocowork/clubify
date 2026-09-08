@@ -566,6 +566,16 @@ export class StampsService {
               ? new Prisma.Decimal(dto.purchaseAmount)
               : undefined,
           giftReason: esRegalo ? dto.giftReason : null,
+          // Qué se canjeó. Se decide AQUÍ y no se deduce después: al redimir
+          // un cupón el pase se transforma en tarjeta de sellos, así que un
+          // minuto más tarde ya no hay manera de saber que aquello fue un
+          // cupón. Sin esto el panel contaba los cupones como premios.
+          redeemKind:
+            dto.action === 'REDEEM'
+              ? isCouponRedeem
+                ? 'COUPON'
+                : 'REWARD'
+              : null,
           note: isCouponRedeem
             ? (dto.note ??
               (skipCouponTransform

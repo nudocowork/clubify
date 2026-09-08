@@ -19,6 +19,7 @@ type Customer = {
   // Cumpleaños (año 2000 = centinela; solo día+mes importan). Puede venir null.
   birthday: string | null;
   _count?: { passes: number; stamps: number };
+  passes?: { id: string; walletInstalledAt: string | null; walletPlatform: string | null }[];
   // M6: last stamp con operator + location, devuelto por el backend
   // como array de hasta 1 entrada. Vacío si el cliente nunca fue
   // escaneado.
@@ -39,6 +40,7 @@ type Segment =
   | 'vip'
   | 'recurring'
   | 'no-pass'
+  | 'sin-instalar'
   | 'inactive'
   | 'birthday';
 
@@ -48,9 +50,30 @@ const SEGMENTS: { key: Segment; label: string; emoji: string; help: string }[] =
   { key: 'vip', label: 'VIP', emoji: '👑', help: '3+ pedidos en total' },
   { key: 'recurring', label: 'Recurrentes', emoji: '🔁', help: '2+ pedidos' },
   { key: 'no-pass', label: 'Sin tarjeta', emoji: '🎴', help: 'Aún no tienen tarjeta de fidelización' },
+  {
+    key: 'sin-instalar',
+    label: 'Sin instalar',
+    emoji: '📥',
+    help: 'Tienen tarjeta pero no se la descargaron al móvil — a estos NO les llega el push',
+  },
   { key: 'inactive', label: 'Inactivos 30d+', emoji: '💤', help: 'Sin pedido en los últimos 30 días' },
   { key: 'birthday', label: 'Cumple este mes', emoji: '🎂', help: 'Cumplen años este mes' },
 ];
+
+/**
+ * Tiene tarjeta, pero no está en su móvil.
+ *
+ * Es un estado propio y no un «sin tarjeta»: el negocio le emitió el pase y el
+ * cliente nunca lo instaló (o lo desinstaló). Importa por dos motivos —el
+ * panel cuenta «X de Y instalados» y hasta ahora no había forma de saber quién
+ * era el que faltaba, y sobre todo porque a una tarjeta sin instalar NO le
+ * llega el push. Son exactamente los clientes a los que el negocio cree que
+ * está avisando y no.
+ */
+function sinInstalar(c: { passes?: { walletInstalledAt: string | null }[] }) {
+  const p = c.passes ?? [];
+  return p.length > 0 && p.every((x) => !x.walletInstalledAt);
+}
 
 /** Mes (0-11) del cumpleaños, o null. La fecha se guarda con año centinela
  *  2000 y @db.Date → usamos getUTCMonth para no derivar por zona horaria. */
@@ -226,6 +249,8 @@ export default function CustomersPage() {
           return (c.totalOrdersCount ?? 0) >= 2;
         case 'no-pass':
           return (c._count?.passes ?? 0) === 0;
+        case 'sin-instalar':
+          return sinInstalar(c);
         case 'inactive':
           return (
             !!c.lastOrderAt &&
@@ -249,6 +274,7 @@ export default function CustomersPage() {
       vip: list.filter((c) => (c.totalOrdersCount ?? 0) >= 3).length,
       recurring: list.filter((c) => (c.totalOrdersCount ?? 0) >= 2).length,
       'no-pass': list.filter((c) => (c._count?.passes ?? 0) === 0).length,
+      'sin-instalar': list.filter(sinInstalar).length,
       inactive: list.filter(
         (c) =>
           !!c.lastOrderAt && now - new Date(c.lastOrderAt).getTime() > ms30,

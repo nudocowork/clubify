@@ -1,9 +1,10 @@
 'use client';
 /**
- * Banner de difusión interna para afiliados.
+ * Banner de difusión interna. Se monta en el panel de afiliados y en el del
+ * negocio; quién ve qué lo decide el backend por el rol (audiencia).
  *
  * Pide GET /broadcasts/banner — si hay un banner activo dirigido al rol
- * del user que todavía no descartó, lo pinta encima de los tabs del panel.
+ * del user que todavía no descartó, lo pinta encima del panel.
  * El botón X dispara POST /broadcasts/:id/read y lo oculta.
  */
 import { useEffect, useState } from 'react';

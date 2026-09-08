@@ -2,8 +2,10 @@
 /**
  * Admin · Ventas · Difusión interna (item 14 sprint).
  *
- * El SUPER_ADMIN crea piezas de comunicación que aparecen en el panel
- * de embajadores / influencers / vendedores:
+ * El SUPER_ADMIN crea piezas de comunicación que aparecen, según la
+ * audiencia elegida, en el panel de afiliados (embajadores / influencers /
+ * vendedores) o en el panel de los NEGOCIOS — para anunciarles novedades del
+ * producto, avisos y noticias:
  *   - Banner: barra arriba del panel afiliado, descartable.
  *   - Login popup: modal bloqueante una sola vez por user.
  *
@@ -16,7 +18,9 @@ import { toast } from '@/components/Toast';
 import { ImageUploader } from '@/components/ImageUploader';
 
 type Kind = 'BANNER' | 'LOGIN_POPUP';
-type Audience = 'ALL' | 'INFLUENCERS' | 'AMBASSADORS' | 'VENDORS';
+type Audience = 'ALL' | 'INFLUENCERS' | 'AMBASSADORS' | 'VENDORS' | 'TENANTS';
+
+type Rotacion = { horas: number; modo: 'ORDEN' | 'ALTERNAR' };
 type Color = 'GREEN' | 'BLUE' | 'YELLOW' | 'RED' | 'CUSTOM';
 type IconKind = 'INFO' | 'ALERT' | 'NEWS' | 'TRAINING' | 'PROMO';
 type MediaKind = 'TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO' | 'PDF';
@@ -57,7 +61,11 @@ const AUDIENCE_LABEL_KEY: Record<Audience, string> = {
   INFLUENCERS: 'audienceInfluencers',
   AMBASSADORS: 'audienceAmbassadors',
   VENDORS: 'audienceVendors',
+  TENANTS: 'audienceTenants',
 };
+
+/** Las dos audiencias no se mezclan: o es la red de ventas, o son los negocios. */
+const AUDIENCIAS_AFILIADOS = ['ALL', 'INFLUENCERS', 'AMBASSADORS', 'VENDORS'] as const;
 
 const COLOR_PRESETS: Record<Exclude<Color, 'CUSTOM'>, { bg: string; ink: string }> = {
   GREEN: { bg: '#16a34a', ink: '#ffffff' },
@@ -263,6 +271,8 @@ export default function DifusionAdminPage() {
         </div>
       </div>
 
+      {tab === 'LOGIN_POPUP' && <RotacionCard />}
+
       {visible.length === 0 && (
         <div className="card card-pad text-center text-mute py-10">
           {tab === 'BANNER' ? t('emptyBanners') : t('emptyPopups')}
@@ -288,6 +298,93 @@ export default function DifusionAdminPage() {
           onSave={save}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Cómo se turnan los popups cuando hay varios avisos vivos a la vez.
+ *
+ * Sin esto, quien tuviera tres avisos sin leer se comía tres modales
+ * bloqueantes seguidos: cierra uno, recarga, y ahí está el siguiente. Con el
+ * descanso se reparten en el tiempo — uno ahora, otro esta tarde, otro mañana.
+ */
+function RotacionCard() {
+  const t = useTranslations('admin_ventas_difusion');
+  const [rot, setRot] = useState<Rotacion | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    api<Rotacion>('/admin/broadcasts/rotacion')
+      .then((r) => {
+        if (vivo) setRot(r);
+      })
+      .catch(() => null);
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
+  async function guardar() {
+    if (!rot || busy) return;
+    setBusy(true);
+    try {
+      const guardado = await api<Rotacion>('/admin/broadcasts/rotacion', {
+        method: 'PUT',
+        body: JSON.stringify(rot),
+      });
+      setRot(guardado);
+      toast(t('rotationSaved'), 'success');
+    } catch (e: any) {
+      toast(e?.message ?? t('errorGeneric'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!rot) return null;
+
+  return (
+    <div className="card card-pad mb-3">
+      <div className="font-semibold text-sm">{t('rotationTitle')}</div>
+      <div className="text-xs text-mute mt-1 mb-4">{t('rotationHint')}</div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label={t('rotationHours')}>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={0}
+              max={720}
+              className="input w-28"
+              value={rot.horas}
+              onChange={(e) =>
+                setRot({ ...rot, horas: Math.max(0, Number(e.target.value) || 0) })
+              }
+            />
+            <span className="text-sm text-mute">{t('rotationHoursSuffix')}</span>
+          </div>
+          <div className="text-xs text-mute mt-1.5">{t('rotationHoursHint')}</div>
+        </Field>
+
+        <Field label={t('rotationMode')}>
+          <select
+            className="input"
+            value={rot.modo}
+            onChange={(e) =>
+              setRot({ ...rot, modo: e.target.value as Rotacion['modo'] })
+            }
+          >
+            <option value="ORDEN">{t('rotationModeOrder')}</option>
+            <option value="ALTERNAR">{t('rotationModeShuffle')}</option>
+          </select>
+        </Field>
+      </div>
+
+      <button className="btn-primary mt-4" onClick={guardar} disabled={busy}>
+        {busy ? '…' : t('rotationSave')}
+      </button>
     </div>
   );
 }
@@ -686,14 +783,24 @@ function EditorModal({
                 value={form.audience ?? 'ALL'}
                 onChange={(e) => patch({ audience: e.target.value as Audience })}
               >
-                {(['ALL', 'INFLUENCERS', 'AMBASSADORS', 'VENDORS'] as const).map(
-                  (a) => (
+                {/* Agrupado a propósito: elegir «Todos los afiliados» creyendo
+                    que incluye a los negocios es el error fácil de cometer. */}
+                <optgroup label={t('groupAffiliates')}>
+                  {AUDIENCIAS_AFILIADOS.map((a) => (
                     <option key={a} value={a}>
                       {t(AUDIENCE_LABEL_KEY[a])}
                     </option>
-                  ),
-                )}
+                  ))}
+                </optgroup>
+                <optgroup label={t('groupTenants')}>
+                  <option value="TENANTS">{t(AUDIENCE_LABEL_KEY.TENANTS)}</option>
+                </optgroup>
               </select>
+              <div className="text-xs text-mute mt-1.5">
+                {form.audience === 'TENANTS'
+                  ? t('audienceHintTenants')
+                  : t('audienceHintAffiliates')}
+              </div>
             </Field>
 
             <div className="grid grid-cols-2 gap-3">

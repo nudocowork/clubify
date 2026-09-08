@@ -45,6 +45,239 @@ escriben, roles por endpoint y dependencias.
 rol, no si le corresponden. `AFFILIATE_*` llega a **74** — es mucho para quien
 solo debería ver sus comisiones. Eso es tuyo, Jhon, y hay que mirarlo aparte.
 
+## 2026-09-07 — DESPLEGADO: «Cobrado» del panel llevaba meses inflado
+
+Reportado como «al poner Esta semana no refleja el monto real cobrado». La
+semana estaba bien —empieza el lunes, y el lunes por la mañana el rango son
+horas—. Lo que estaba mal era la cifra, y en todos los rangos.
+
+**No sumaba pagos.** Contaba NEGOCIOS con `lastChargeAt` dentro del rango y le
+ponía a cada uno el precio de su plan. Falla por los dos lados a la vez.
+Septiembre, contra producción:
+
+```
+  PANEL                          REAL (IncomeRecord)
+  Moa Café        ANUAL   $480   — no hay transacción —
+  Oh! Cookies     TRIM.   $135   — no hay transacción —
+  Segundo Piso    TRIM.   $135   $150
+  Dónde Jeank     MENS.    $50   $68   (primer pago)
+  La Cacerola     TRIM.   $135   $150  (primer pago)
+  demo demo       MENS.    $50   $80   (Stripe)
+  …
+  TOTAL        $1.454,52         $917,52     → 58% de más
+```
+
+$615 de esos eran caja que **nunca entró**: dos negocios con fecha de cobro y
+ninguna transacción detrás. Y un negocio que pagara dos veces en el rango
+contaba una sola vez, al precio de su plan.
+
+Ahora sale de `IncomeRecord`, la misma fuente que Contabilidad. Lo que tiene
+fecha pero no transacción se pinta aparte, en «sin transacción registrada» —
+o es un pago que no llegó a Contabilidad y hay que perseguirlo, o una fecha
+colgada y hay que limpiarla.
+
+**Ojo con los rangos largos.** `IncomeRecord` empieza el 2026-06-14 (ver la
+entrada de Contabilidad). En «Este año», lo de antes de esa fecha caerá en
+«sin transacción registrada». Es verdad, no un fallo nuevo: ese dinero no
+está en ninguna tabla.
+
+La cuenta vive ahora en `src/admin-reports/cobrado.ts`, fuera del servicio
+gigante, con 12 pruebas — el caso de septiembre entre ellas. Al extraerla me
+cargué el bloque de PROYECTADO y lo restauré antes de compilar; queda dicho
+por si alguien ve el diff y se pregunta.
+
+El banner enseña además las fechas del rango, para que un lunes «Esta semana ·
+7 sep» se lea como lo que es.
+
+## 2026-09-07 — DESPLEGADO: Difusión interna llega a los negocios, y se turna
+
+**Qué había.** «Difusión interna» (banner + popup) solo se pintaba en
+`/affiliate`. Sus cuatro audiencias son la red de ventas. Publicar ahí una
+novedad del producto la veían los vendedores y **ningún negocio**.
+
+**Qué hay ahora.** Audiencia `TENANTS`, y las dos piezas montadas también en
+`/app`. En el editor la lista sale agrupada: «Red de ventas (afiliados)» y
+«Negocios», porque elegir «Todos los afiliados» creyendo que incluye a los
+negocios era el error fácil de cometer.
+
+Llega al **dueño**, no a sus empleados. Un modal que bloquea la pantalla en
+mitad del servicio no es sitio para un anuncio de producto.
+
+### El agujero que casi abro
+
+`audiencesForRole` tenía `default: return ['ALL']`. `TENANT_OWNER` no estaba
+en el `switch`, así que caía en el default — y `ALL` significa «todos los
+afiliados» desde que existe el módulo. Al montar el popup en `/app`, los 115
+negocios habrían empezado a recibir la difusión interna del equipo comercial
+(comisiones, argumentario) tal cual. Ahora cada rol declara lo suyo y lo que
+no está en la lista no ve nada. Hay una prueba por rol.
+
+### Turnos
+
+Con varios avisos vivos, antes se los comía seguidos: cierra uno, recarga, y
+ahí está el siguiente. Ahora se configura desde el mismo panel:
+
+- **Descanso entre avisos** — 6 h por defecto. 0 = seguidos, 24 = uno al día.
+- **Orden o alternando.** Alternando es determinista dentro de cada franja:
+  recargar la página no le cambia el aviso debajo.
+
+La config vive en `Setting` (`difusion.rotacionPopups`), sin migración.
+La única migración es aditiva: `ADD VALUE IF NOT EXISTS 'TENANTS'`. Aplicada.
+En producción no había ninguna pieza creada todavía, así que nada cambió de
+audiencia.
+
+14 pruebas en `src/broadcasts/difusion-audiencias.spec.ts`.
+
+## 2026-09-07 — El panel decía «2 sellos · 122 recompensas» y tenía razón el negocio
+
+Primor Barber: los números no cuadran. No cuadraban.
+
+**Lo que pasaba.** Al redimir un CUPÓN el pase se **transforma in-place** en
+tarjeta de sellos (cambia `cardId`). Un minuto después, mirando la fila de
+`Stamp`, ya no hay forma de saber que aquello fue un cupón: parece el canje de
+un premio de la tarjeta de fidelidad. Así que los 122 cupones de bienvenida que
+el barbero fue redimiendo desde el panel entre el 31-08 y el 06-09 salían como
+«RECOMPENSAS (30D) 122» junto a «SELLOS (30D) 2». Imposible que cuadre.
+
+Comprobado antes de tocar nada: 122 canjes, **122 pases y 122 clientes
+distintos**, ninguno repetido, todos sobre la tarjeta de sellos (post-
+transformación), y la tarjeta pide 10 sellos con un máximo real de 1 por pase.
+Los datos estaban BIEN; lo que mentía era la etiqueta.
+
+**En toda la plataforma: 411 de los 454 canjes eran cupones.** El 90 % de lo que
+los negocios veían como «recompensas» no lo era.
+
+**Arreglado:**
+
+- `Stamp.redeemKind` (`REWARD` / `COUPON`), columna aditiva, la escribe
+  `stamps.service` en el momento del canje —cuando todavía se sabe qué era—.
+  Mismo motivo por el que existe `giftReason`. Histórico relleno por la nota.
+- El panel separa **Recompensas** (premios ganados con sellos) de **Cupones**,
+  y la tarjeta de cupones solo aparece si el negocio los usa.
+- **Sellos (30d) ahora es NETO**: los dados menos los que el negocio quitó como
+  corrección. Si hubo correcciones lo dice debajo («12 dados · 2 corregidos»).
+
+### Y el cliente que no aparecía en ninguna lista
+
+«127 de 128 instalados» y el que faltaba no salía por ningún lado: el filtro
+«Sin tarjeta» mira si el cliente tiene pases, y tenerlo lo tiene — lo que no
+hizo fue instalarlo. Punto ciego.
+
+Nuevo segmento en Clientes: **«Sin instalar»** — tiene tarjeta y no está en su
+móvil. Es además la respuesta a la otra pregunta de Primor («¿cómo identifico a
+los clientes a los que no les llega el push?»): son exactamente esos. Sin
+tarjeta instalada no hay a dónde mandar el push.
+
+En Primor era una sola persona, María Guedez, emitida el 27-08 y nunca
+instalada.
+
+Arqueos: `arqueo-primor-panel.cjs`, `arqueo-primor-redenciones.cjs`.
+
+## 2026-09-07 — Quipao aparecía en PRUEBA: el negocio se había reactivado solo
+
+Javier lo vio en «trial», no suspendido. Tenía razón, y hay un único camino que
+lleva de SUSPENDED a TRIAL sin que entre un peso: `POST /billing/reactivate`.
+
+Lo llama **el propio dueño** (`@Roles('TENANT_OWNER')`), y `/api/billing` está
+en la lista blanca de `TenantStatusGuard`, así que una cuenta pausada por no
+pagar puede llamarlo. Hace: `status: 'TRIAL'`, `suspendedAt: null`,
+`trialEndsAt` a **+3 días**.
+
+Es una función buscada, no un descuido — el texto del panel lo dice: «te
+reactivamos por 3 días para que completes el pago en la pasarela». Lo que
+estaba mal era cómo:
+
+1. **No tenía freno.** Al vencer los 3 días el cron de pruebas vuelve a
+   pausar, y ahí el botón está otra vez. Tres días gratis cada vez, sin
+   límite.
+2. **No dejaba rastro.** Ni auditoría ni aviso. Por eso el negocio aparecía en
+   «prueba» sin que nadie supiera por qué, y por eso en la auditoría de Quipao
+   no hay nada entre la suspensión de las 03:00 y el cobro de las 21:48: entró
+   a las 10:51, vio el banner rojo con «Reactivar →» y se dio sus 3 días.
+   (El cobro de la noche puso `trialEndsAt` a null, así que la huella
+   desapareció de la fila; el camino, en cambio, es el único posible.)
+
+**Arreglado:** una sola vez por ciclo de cobro —hasta que entre un pago no hay
+segunda—, se audita como `subscription.self_reactivated`, y el equipo recibe un
+SMS: «X se reactivó SOLO por 3 días para ir a pagar». No se le quita la función
+al negocio; se le quita la invisibilidad.
+
+6 pruebas en `src/billing/reactivacion-una-sola-vez.spec.ts`.
+
+Arqueo: `backend/scripts/arqueo-reactivaciones-gratis.cjs`. Hoy solo hay 2
+suspensiones auditadas en toda la plataforma (la auditoría de ciclo de vida es
+reciente), así que no hay bucle en marcha — pero la puerta estaba abierta.
+
+## 2026-09-07 — Quipao: el mensaje de «cuenta pausada» era verdad
+
+Reportado como «se le envió el mensaje pero no se suspendió». Sí se suspendió.
+El rastro de auditoría no deja dudas:
+
+```
+09-01 13:47  subscription.payment_failed   PURCHASE_DELAYED (Hotmart)
+09-02 03:00  SMS + correo  recordatorio
+09-03 03:00  SMS + correo  «no se pudo procesar»
+09-04/05/06  ── silencio ──
+09-07 03:00  subscription.suspended  reason=payment_failed daysOverdue=6
+09-07 10:51  el negocio ENTRA al panel (suspendido)
+09-07 21:48  cobro → reactivado, status ACTIVE, suspendedAt=null
+```
+
+Se ve ACTIVE ahora porque **el cobro lo reactivó**. Mirarlo después de cobrar
+siempre lo va a mostrar activo; eso no es el defecto.
+
+**Los dos defectos que sí hay:**
+
+1. **Cuatro días de silencio.** Los avisos de los días de gracia se
+   commitearon el 09-06 a las 17:11, después del cron de ese día. El ciclo de
+   Quipao cayó entero en el hueco: pasó del aviso del día 2 a la suspensión sin
+   nada en medio. Para los ciclos siguientes ya está — comprobado que hoy no
+   hay nadie en mora, así que el primer caso real será el próximo.
+
+2. **Una cuenta suspendida sigue funcionando casi entera.** `TenantStatusGuard`
+   bloquea solo las ESCRITURAS del panel. Todo lo `@Public` pasa sin mirar el
+   estado: el menú, los pedidos del cliente, la tarjeta de fidelidad. Y el
+   dueño puede entrar y navegarlo todo (los GET pasan). Quipao entró a las
+   10:51 estando suspendido. El banner rojo del panel sí se lo decía, pero el
+   negocio seguía vendiendo.
+
+   Eso es una decisión de producto, no un bug que arregle por mi cuenta: apagar
+   el menú de un negocio suspendido afecta a SUS clientes. **Pendiente de que
+   Javier decida hasta dónde llega una suspensión.**
+
+## 2026-09-07 — Contabilidad: mayo no está y no se puede reconstruir desde la base
+
+Reportado: «ha registrado bien septiembre, pero los ingresos desde mayo no se
+ven». Es cierto, y la causa está medida:
+
+```
+  mes       webhooks  aprobados   IncomeRecord   bruto USD
+  2026-04          0          0              1      150.00
+  2026-05          0          0              0        0.00   ← nada
+  2026-06         58         28             20     3513.29   ← desde el día 14
+  2026-07         98         63             34     4730.19
+  2026-08        102         74             30     4515.11
+  2026-09         37         20             10      917.52
+```
+
+`HotmartWebhookEvent` —el crudo del que se reconstruye todo— **empieza el
+2026-06-14**. Antes de esa fecha no se guardaba el payload de ningún cobro.
+Las filas de junio a agosto existen porque alguien ya corrió el volcado sobre
+ese crudo (29 filas creadas en agosto, 66 en septiembre).
+
+Así que **mayo y la primera quincena de junio no están en ninguna tabla**. No
+es un filtro ni un fallo del panel: el dato nunca se guardó.
+
+Sale solo del informe de ventas de Hotmart. No hay cliente de su API en el
+código (solo webhooks), así que hace falta el CSV o las credenciales de la
+API de historial. Faltan también los 5 `ManualPayment`, que sí están en la
+base y no tienen `IncomeRecord`.
+
+Arqueos (solo lectura) en `backend/scripts/`:
+`arqueo-contabilidad-historico.cjs`, `arqueo-contabilidad-mayo.cjs`,
+`arqueo-quipao-suspension.cjs`, `arqueo-suspension-rastro.cjs`,
+`arqueo-quipao-ventana.cjs`, `arqueo-mora-hoy.cjs`.
+
 ## 2026-09-07 — El CI está en rojo por dos motivos, y uno es tuyo
 
 **El mío ya está arreglado.** El candado de aislamiento llevaba tres runs
@@ -71,6 +304,62 @@ dos automatizaciones y les falta la plantilla de correo y su entrada en
 **No lo he tocado a propósito:** el texto de esos correos lo leen negocios
 reales, y qué dice un aviso de mora es tuyo, no mío. Son dos plantillas nuevas
 en `EMAIL_TEMPLATES` y dos líneas en el mapa.
+
+## 2026-09-07 — Team Clubify: un despliegue borró la agenda de producción
+
+**Máquina/quién:** máquina de Jhon (Claude) · repo `team-clubify`, no este.
+**Estado: RESUELTO.** Redesplegado desde `main` (`db1c9c0`).
+
+### Qué pasó
+
+`team.soyclubify.com/agenda/ventas/nico` daba **404**. No era la cuenta ni el
+vendedor: **toda la rama `agenda` había desaparecido** del build desplegado.
+
+Lo que lo prueba, y sirve de método la próxima vez: el resto del panel
+(`/dashboard`, `/contactos`, `/crm`, `/closers`, `/admin`) respondía **307** —
+existe y pide login— y solo `agenda` daba 404. Y la prueba fina, comparando por
+edad del código:
+
+| ruta | creada | estaba |
+|---|---|---|
+| `/preview/agenda`, `/sorteo` | 17-jul | sí |
+| `/agenda/ventas/[vendedor]` | **05-sep 18:28** | **no** |
+
+O sea: lo desplegado era una copia **anterior al viernes** del mismo repo.
+
+**Causa:** el despliegue de hoy 09:50 (cuenta `montiieljaviier-3523`) salió de
+una carpeta que no tenía el centro de ventas. `vercel --prod` sube **la carpeta
+local, no lo que hay en git**. El código nunca se perdió: estaba intacto en
+`origin/main`.
+
+### Arreglo
+
+`vercel --prod` desde `~/Documents/AGENTES/CLUBIFY/team_clubify`, verificada
+limpia y sincronizada con `origin/main` antes de subir. Las rutas de agenda
+pasaron de 404 a **307** y lo demás quedó igual (`/dashboard` 307,
+`/preview/agenda` 200, `/sorteo` 200, `/login` 200).
+
+**Se pudo subir sin miedo a pisar lo de Javi** porque su despliegue contenía
+*menos* que git —una copia vieja del mismo repo—, no cosas distintas. Volver a
+publicar `main` DEVUELVE lo que faltaba sin quitar nada. Si algún día la copia
+del otro tuviera trabajo sin commitear, esto sí se lo llevaría por delante.
+
+### ⚠️ `team-clubify` NO tiene el candado de Clubify
+
+Aquí no hay `scripts/desplegar.cjs`: nada impide desplegar desde una carpeta
+atrasada, que es exactamente lo que pasó hoy. **Antes de `vercel --prod` en ese
+repo, siempre:**
+
+```bash
+git fetch origin && git status -sb    # ¿sincronizado con origin/main?
+git status --porcelain                # ¿carpeta limpia?
+```
+
+Y después, comprobar una ruta que solo exista en tu commit: si da **404**
+mientras otra da **307**, tu código NO subió.
+
+**Volver atrás es barato:** Vercel guarda los despliegues. El de Javi de hoy es
+`team-clubify-mpfmfrm9u-jhonarias888-1963s-projects.vercel.app`.
 
 ## 2026-09-06 — 🔴 Jhon: una ruta pública cambia la contraseña de un afiliado con solo saber su correo
 

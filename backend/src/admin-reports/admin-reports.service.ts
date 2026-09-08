@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { calcularCobrado, type PeriodKey } from './cobrado';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { SettingsService } from '../settings/settings.service';
 import { normalizePlanPeriod, addPlanPeriod, bundleMonths } from '../common/plan-period';
@@ -1017,6 +1018,8 @@ export class AdminReportsService {
       newGroupsCurrent,
       newGroupsPrev,
       groupsActive,
+      ingresosDelRango,
+      idsEnAlcance,
     ] = await Promise.all([
       // Tenants ACTIVE con periodicidad y fecha de último ciclo, para
       // billing por plan + MRR + facturado en rango.
@@ -1056,6 +1059,8 @@ export class AdminReportsService {
           subscriptionPriceUsd: true,
         },
       }),
+      // MARCADOR: las dos consultas nuevas van AL FINAL del Promise.all,
+      // detrás de `groupsActive`. Ver el bloque de abajo.
       // FIX 2026-06-07: clientes nuevos = solo ACTIVE creados en el
       // rango. Antes contaba TRIAL también.
       this.prisma.tenant.count({
@@ -1167,7 +1172,13 @@ export class AdminReportsService {
           lastChargeAt: { gte: from, lte: to },
           ...groupWhere,
         },
-        select: { planPeriodicity: true, priceUsd: true },
+        // `tenants` hace falta para saber si el dinero del grupo ya entró por
+        // la transacción de alguno de sus negocios.
+        select: {
+          planPeriodicity: true,
+          priceUsd: true,
+          tenants: { select: { id: true } },
+        },
       }),
       // Grupos nuevos (ACTIVE) este mes / mes anterior → cuentan como clientes.
       this.prisma.businessGroup.count({
@@ -1190,6 +1201,37 @@ export class AdminReportsService {
       this.prisma.businessGroup.findMany({
         where: { deletedAt: null, status: 'ACTIVE', ...groupWhere },
         select: { planPeriodicity: true, createdAt: true, priceUsd: true },
+      }),
+      // EL DINERO DE VERDAD (2026-09-07). Hasta hoy «Cobrado» no sumaba pagos:
+      // contaba NEGOCIOS con `lastChargeAt` en el rango y le ponía a cada uno
+      // el precio de su plan. Eso falla por los dos lados —y a la vez:
+      //
+      //   · de más: Moa Café y Oh! Cookies tenían fecha de cobro en septiembre
+      //     y NINGUNA transacción detrás. $615 de caja que nunca entró.
+      //   · de menos: Segundo Piso pagó $150 y se contaba $135; Dónde Jeank
+      //     pagó $68 y se contaba $50; demo demo pagó $80 por Stripe y también
+      //     se contaba $50.
+      //
+      // Total de septiembre: el panel decía $1.454,52 y habían entrado $917,52.
+      // Un 58% de más en la cifra grande del panel.
+      //
+      // `IncomeRecord` es la transacción real, con su importe y su fecha reales
+      // —la misma fuente que Contabilidad—, así que es de donde sale ahora.
+      this.prisma.incomeRecord.findMany({
+        where: { saleDate: { gte: from, lte: to } },
+        select: {
+          tenantId: true,
+          whiteLabelId: true,
+          grossUsd: true,
+          planPeriodicity: true,
+        },
+      }),
+      // Los negocios de esta marca, para acotar las transacciones de arriba:
+      // `IncomeRecord` no tiene relación con Tenant, así que el filtro por
+      // marca se hace en memoria (son ~130 filas).
+      this.prisma.tenant.findMany({
+        where: tenantWhere,
+        select: { id: true, planPeriodicity: true },
       }),
     ]);
 
@@ -1259,19 +1301,34 @@ export class AdminReportsService {
     // suma su precio real (subscriptionPriceUsd ?? canónico), agrupado por
     // periodicidad. Incluye negocios que luego se suspendieron (igual facturaron)
     // y hace que día/semana/mes/trimestre/año cuadren igual para todas las marcas.
-    for (const t of paidInRangeTenants) {
-      const key = normalizePeriod(t.planPeriodicity);
-      const amount = billedAmountFor(t);
-      billedUsd += amount;
-      billedAcc[key].count += 1;
-      billedAcc[key].amount += amount;
+    // COBRADO = la suma de las transacciones REALES del rango. La cuenta vive
+    // en `cobrado.ts`, fuera de aquí, para poder probarla sin base de datos:
+    // es la cifra grande del panel y llevaba meses inflada.
+    const cuenta = calcularCobrado({
+      ingresos: ingresosDelRango,
+      negociosConFecha: paidInRangeTenants,
+      gruposConFecha: groupsPaidInRange,
+      negociosEnAlcance: idsEnAlcance,
+      wlId: wlId ?? null,
+      normalizePeriod: (p) => normalizePeriod(p) as PeriodKey,
+      precioDeLista: billedAmountFor,
+      precioCanonico: (k) => PERIODS[k].bundlePrice,
+    });
+    billedUsd = cuenta.cobradoUsd;
+    const sinRegistrarUsd = cuenta.sinRegistrarUsd;
+    const sinRegistrarCount = cuenta.sinRegistrarCount;
+    for (const k of Object.keys(billedAcc)) {
+      billedAcc[k].count = cuenta.porPlan[k as PeriodKey].count;
+      billedAcc[k].amount = cuenta.porPlan[k as PeriodKey].amount;
+      billedAcc[k].groups = cuenta.porPlan[k as PeriodKey].groups;
     }
+
     // PROYECTADO (antes "FALLBACK legacy"): negocios ACTIVE SIN lastChargeAt.
     // Su fecha de cobro se ESTIMA (currentPeriodEnd−meses, o createdAt). NO es
     // caja real → va a estimatedAcc/estimatedUsd, nunca al "Cobrado" (Bug 1).
     // Un cobro/activación real que setee lastChargeAt vuelve esta rama inerte.
     for (const t of activeTenantsForPricing) {
-      if (t.lastChargeAt) continue; // ya contado por paidInRangeTenants si cae en rango
+      if (t.lastChargeAt) continue; // ya contado por las transacciones reales
       const key = normalizePeriod(t.planPeriodicity);
       const period = PERIODS[key];
       const cpe = t.currentPeriodEnd ?? null;
@@ -1295,19 +1352,6 @@ export class AdminReportsService {
         estimatedAcc[key].amount += amount;
       }
     }
-    // P3: cada Grupo Empresarial cobrado en el rango suma como 1 negocio en la
-    // tarjeta de su plan (precio canónico de la periodicidad del grupo).
-    for (const g of groupsPaidInRange) {
-      const key = normalizePeriod(g.planPeriodicity);
-      // Precio real del grupo (priceUsd, ej: 3×$50=$150) o canónico si null.
-      const amount =
-        Number(g.priceUsd) > 0 ? Number(g.priceUsd) : PERIODS[key].bundlePrice;
-      billedUsd += amount;
-      billedAcc[key].count += 1;
-      billedAcc[key].amount += amount;
-      billedAcc[key].groups += 1; // Bug 5: 1 unidad = 1 grupo (no negocio individual)
-    }
-    billedUsd = round2(billedUsd);
     estimatedUsd = round2(estimatedUsd);
 
     const billedByPlan = Object.entries(PERIODS).map(([key, meta]) => ({
@@ -1544,7 +1588,9 @@ export class AdminReportsService {
       },
       cobros,
       banner: {
-        billedUsd, // COBRADO real (solo negocios/grupos con lastChargeAt en rango)
+        billedUsd, // COBRADO: suma de las transacciones reales del rango
+        sinRegistrarUsd, // cobro fechado en el rango SIN transacción detrás
+        sinRegistrarCount,
         estimatedUsd, // Bug 1: PROYECTADO (estimado, sin cobro registrado) — aparte
         estimatedCount,
         billedGroups, // Bug 5: cuántas unidades del facturado son Grupos

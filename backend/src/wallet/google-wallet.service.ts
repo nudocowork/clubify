@@ -197,7 +197,35 @@ export class GoogleWalletService {
           }
         : undefined,
       reviewStatus: 'UNDER_REVIEW',
-    };
+      // Tambien en la CLASE, y no solo en el objeto: el `loyaltyclass.patch`
+      // ya corre en cada sello y en cada push, asi que las sedes llegan solas
+      // a los miles de pases que YA existen. Ponerlo unicamente en el objeto
+      // obligaria a recorrerlos uno a uno.
+      merchantLocations: this.sedesParaGoogle(pass),
+    } as any;
+  }
+
+  /**
+   * Las sedes del negocio en el formato que pide Google: solo lat/lng.
+   *
+   * Se descartan las coordenadas invalidas y el (0,0), que es el punto en
+   * medio del Atlantico donde caen las sedes a las que nadie les puso
+   * direccion. Tope de 10, el mismo que Apple, para que las dos billeteras
+   * avisen en los mismos sitios y no en unos u otros segun el telefono.
+   */
+  private sedesParaGoogle(pass: any) {
+    return (pass.tenant?.locations ?? [])
+      .map((l: any) => ({
+        latitude: Number(l.latitude),
+        longitude: Number(l.longitude),
+      }))
+      .filter(
+        (p: { latitude: number; longitude: number }) =>
+          Number.isFinite(p.latitude) &&
+          Number.isFinite(p.longitude) &&
+          (p.latitude !== 0 || p.longitude !== 0),
+      )
+      .slice(0, 10);
   }
 
   /** Construye el LoyaltyObject para inline JWT o REST API. */
@@ -386,27 +414,29 @@ export class GoogleWalletService {
       });
     }
 
-    // locations: geofence del LoyaltyObject. Equivalente al `locations` de
-    // Apple Wallet (wallet.service.ts): cuando el Android está cerca de una
-    // sede activa del negocio, Google muestra el pase en la pantalla de
-    // bloqueo. Google sólo acepta lat/lng (LatLongPoint) — no hay relevantText
+    // Las sedes del negocio, para que el pase avise al pasar cerca.
+    //
+    // OJO CON EL CAMPO. Google tiene DOS y solo uno funciona:
+    //
+    //   · `locations`         → DEPRECADO. Su propia documentación dice, con
+    //                           todas las letras: «this field is currently not
+    //                           supported to trigger geo notifications».
+    //   · `merchantLocations` → el que sí avisa. Disponible para todos los
+    //                           tipos de pase desde octubre de 2025.
+    //
+    // Mandábamos solo el primero, y de ahí el reporte de Primor Barber
+    // (2026-09-07): «el geo-push llega a los iPhone y a los Android no». No era
+    // cosa suya: comprobado contra los objetos vivos en Google, 89 de sus 89
+    // pases traían `locations` y NINGUNO `merchantLocations`. Afecta a los 95
+    // negocios con sede, y en esta plataforma tres de cada cuatro clientes
+    // están en Android.
+    //
+    // Se mandan los DOS: `locations` no estorba y hay pases viejos que ya lo
+    // traen. Google solo acepta lat/lng — no hay texto propio (ver abajo).
     // ni maxDistance por objeto (eso es Apple). Filtramos coords inválidas
     // (0/0 o NaN) para no enviar geofences basura. Si el tenant no se cargó con
     // locations (queries que no las incluyen), `?? []` evita romper.
-    const locations = (pass.tenant?.locations ?? [])
-      .map((l: any) => ({
-        latitude: Number(l.latitude),
-        longitude: Number(l.longitude),
-      }))
-      .filter(
-        (p: { latitude: number; longitude: number }) =>
-          Number.isFinite(p.latitude) &&
-          Number.isFinite(p.longitude) &&
-          (p.latitude !== 0 || p.longitude !== 0),
-      )
-      // Mismo tope que en Apple, por simetría: que las dos billeteras avisen
-      // en los mismos sitios y no en unos u otros según el teléfono.
-      .slice(0, 10);
+    const locations = this.sedesParaGoogle(pass);
 
     return {
       id: objectId,
@@ -433,7 +463,10 @@ export class GoogleWalletService {
       // objeto de Google. Un negocio que cierra su única sede seguiría
       // avisando a sus clientes al pasar por una dirección donde ya no está.
       locations,
-    };
+      // El campo que de verdad dispara el aviso. Va con `as any` porque los
+      // typings de `googleapis` 133 todavía no lo conocen; la API REST sí.
+      merchantLocations: locations,
+    } as any;
   }
 
   private buildIds(pass: any) {

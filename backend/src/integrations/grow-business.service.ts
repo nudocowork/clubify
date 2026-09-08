@@ -240,7 +240,50 @@ export class GrowBusinessService {
    * Envía un SMS desde el sub-account del tenant. Devuelve `{ok:true, id}` o
    * `{ok:false, message}`. Used internamente por el motor de mensajes.
    */
+  /**
+   * Numeros a los que el sistema NO escribe, pase lo que pase.
+   *
+   * Hay gente que compra varias veces al mes —revendedores, socios— y a la que
+   * los avisos automaticos le llegan una y otra vez sin sentido: «recibimos tu
+   * pago, activa tu cuenta» a alguien que ya tiene diez cuentas activadas.
+   * Tambien sirve para quien pide expresamente que no le escribamos.
+   *
+   * Se comprueba AQUI y no en cada aviso a proposito: por estos dos metodos
+   * pasa todo lo que sale de la plataforma, asi que ninguna via nueva puede
+   * saltarselo por olvido. Un filtro puesto en cada sitio es un filtro que
+   * algun sitio no tendra.
+   *
+   * Se guarda en `Setting` («mensajes.numerosBloqueados», array JSON) y no en
+   * una tabla: son un punado de numeros y se cambian a mano.
+   */
+  private async estaBloqueado(toPhone: string): Promise<boolean> {
+    const digitos = (toPhone ?? '').replace(/\D/g, '');
+    if (!digitos) return false;
+    try {
+      const s = await this.prisma.setting.findUnique({
+        where: { key: 'mensajes.numerosBloqueados' },
+      });
+      if (!s?.value) return false;
+      const lista = JSON.parse(s.value) as string[];
+      // Se comparan los ULTIMOS 10 digitos: el mismo numero aparece como
+      // «+1 786…», «1786…» o «786…» segun de donde venga, y todos son el
+      // mismo telefono.
+      const cola = digitos.slice(-10);
+      return lista.some(
+        (n) => String(n).replace(/\D/g, '').slice(-10) === cola,
+      );
+    } catch {
+      // Ante la duda, se manda: perder un aviso legitimo es peor que colar uno
+      // a alguien de la lista.
+      return false;
+    }
+  }
+
   async sendSms(tenantId: string, toPhone: string, body: string) {
+    if (await this.estaBloqueado(toPhone)) {
+      this.logger.log(`SMS no enviado: ${toPhone} esta en la lista de no molestar`);
+      return { ok: false as const, message: 'numero en la lista de no molestar' };
+    }
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: {
@@ -316,6 +359,12 @@ export class GrowBusinessService {
     body: string,
     ctx?: SendContext,
   ) {
+    if (await this.estaBloqueado(toPhone)) {
+      this.logger.log(
+        `SMS no enviado: ${toPhone} esta en la lista de no molestar`,
+      );
+      return { ok: false as const, message: 'numero en la lista de no molestar' };
+    }
     if (!creds.locationId || !creds.apiKey) {
       // Se registra igual: «no salió por falta de credenciales» es justo lo que
       // hay que poder ver en el historial.

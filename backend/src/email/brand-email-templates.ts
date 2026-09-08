@@ -208,6 +208,38 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     cta: { label: 'Regularizar mi pago', urlVar: 'panelUrl' },
   },
   {
+    id: 'email_payment_overdue_grace',
+    label: 'Recordatorio durante la gracia',
+    folderLabel: 'Gracia (días 3 y 4)',
+    description:
+      'Se envía los días intermedios de la gracia, junto con su SMS. Antes ' +
+      'esos días eran silencio.',
+    vars: BASE_VARS,
+    subject: 'Seguimos sin poder cobrar tu suscripción de {platform}',
+    default:
+      'Hola {ownerName}, seguimos sin poder procesar el pago de tu suscripción de **{platform}**.\n\n' +
+      'Si recargas saldo en tu tarjeta, lo intentamos de nuevo y no tienes que hacer nada más. Si prefieres, escríbenos y lo resolvemos juntos.',
+    folder: EMAIL_FOLDER.id,
+    audience: 'Al negocio',
+    cta: { label: 'Regularizar mi pago', urlVar: 'panelUrl' },
+  },
+  {
+    id: 'email_payment_pause_tomorrow',
+    label: 'Mañana se pausa la cuenta',
+    folderLabel: 'Mañana se pausa',
+    description:
+      'Último día de la gracia. Es el aviso que de verdad hace reaccionar, y ' +
+      'va por correo además de por SMS porque el SMS no siempre llega.',
+    vars: BASE_VARS,
+    subject: 'Mañana se pausa tu cuenta de {platform}',
+    default:
+      '{ownerName}, mañana se pausa tu cuenta de **{platform}** y tus clientes dejan de recibir sus notificaciones.\n\n' +
+      'Recarga saldo en tu tarjeta hoy y el cobro pasa solo en el próximo intento. Tus datos quedan guardados en cualquier caso.',
+    folder: EMAIL_FOLDER.id,
+    audience: 'Al negocio',
+    cta: { label: 'Regularizar mi pago', urlVar: 'panelUrl' },
+  },
+  {
     id: 'email_account_will_pause',
     label: 'Aviso de pausa próxima',
     folderLabel: 'Aviso de pausa',

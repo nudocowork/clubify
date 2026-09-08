@@ -88,16 +88,22 @@ export class BillingService {
    * Best-effort, no bloquea. Enviado por la subcuenta del equipo.
    */
   async notifyBillingTeam(
-    kind: 'renovacion_fallida' | 'suspendido' | 'pago_procesado',
+    kind:
+      | 'renovacion_fallida'
+      | 'suspendido'
+      | 'pago_procesado'
+      | 'autoreactivado',
     brandName: string,
-    opts?: { amountUsd?: number | null; renewal?: boolean },
+    opts?: { amountUsd?: number | null; renewal?: boolean; dias?: number },
   ): Promise<void> {
     const body =
       kind === 'renovacion_fallida'
         ? `⚠️ Cobro FALLIDO: ${brandName}. Entró en gracia (5 días). Revisar en Clubify.`
         : kind === 'suspendido'
           ? `🔴 SUSPENDIDO por falta de pago: ${brandName}. Revisar en Clubify.`
-          : `✅ Pago procesado${opts?.renewal ? ' (renovación)' : ''}: ${brandName}. (Clubify)`;
+          : kind === 'autoreactivado'
+            ? `🟡 ${brandName} se reactivó SOLO por ${opts?.dias ?? 3} días para ir a pagar. Si no paga, vuelve a pausarse. (Clubify)`
+            : `✅ Pago procesado${opts?.renewal ? ' (renovación)' : ''}: ${brandName}. (Clubify)`;
     await Promise.all(
       BILLING_ALERT_PHONES.map((phone) =>
         this.prereg
@@ -376,15 +382,58 @@ export class BillingService {
     return { ok: true, accessUntil: t.currentPeriodEnd ?? t.trialEndsAt };
   }
 
+  /**
+   * El negocio se reactiva solo, 3 días, para ir a pagar. Lo dice el propio
+   * texto del panel: «te reactivamos por 3 días para que completes el pago».
+   * Al vencer, el cron de pruebas lo vuelve a pausar.
+   *
+   * DOS COSAS QUE FALTABAN (2026-09-07, caso Quipao):
+   *
+   *  · **No se podía repetir y sí se repetía.** No había nada que lo impidiera:
+   *    cada vez que la cuenta volvía a pausarse, otro botón y otros 3 días
+   *    gratis, sin fin. Ahora solo una vez por ciclo de cobro — hasta que
+   *    entre un pago, no hay una segunda.
+   *
+   *  · **No dejaba rastro.** Ni auditoría ni aviso. Por eso el negocio salía en
+   *    «prueba» sin que nadie supiera por qué, y en la auditoría de Quipao no
+   *    aparecía nada entre la suspensión de las 03:00 y el cobro de la noche.
+   *    Ahora se audita y el equipo recibe un SMS.
+   */
   async reactivate(tenantId: string) {
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { id: true, status: true, suspendedAt: true, trialEndsAt: true },
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        suspendedAt: true,
+        trialEndsAt: true,
+        lastChargeAt: true,
+      },
     });
     if (!t) throw new Error('Tenant not found');
     if (t.status !== 'SUSPENDED') {
       throw new Error('La cuenta no está suspendida');
     }
+
+    // ¿Ya usó su ventana en este ciclo? Se mide contra el último cobro: si
+    // pagó después de reactivarse, empieza ciclo nuevo y vuelve a tener una.
+    const previa = await this.prisma.auditLog.findFirst({
+      where: {
+        tenantId,
+        action: 'subscription.self_reactivated',
+        ...(t.lastChargeAt ? { createdAt: { gt: t.lastChargeAt } } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    if (previa) {
+      throw new Error(
+        'Ya usaste los días para completar el pago. Para volver a entrar, ' +
+          'termina el pago en la pasarela y tu cuenta se activa sola.',
+      );
+    }
+
     const bonusDays = 3;
     const newTrialEnd = new Date(Date.now() + bonusDays * 24 * 60 * 60 * 1000);
     await this.prisma.tenant.update({
@@ -395,6 +444,14 @@ export class BillingService {
         trialEndsAt: newTrialEnd,
       },
     });
+    await this.auditLifecycle('subscription.self_reactivated', tenantId, {
+      bonusDays,
+      suspendedAt: t.suspendedAt?.toISOString() ?? null,
+      until: newTrialEnd.toISOString(),
+    });
+    await this.notifyBillingTeam('autoreactivado', t.brandName, {
+      dias: bonusDays,
+    }).catch(() => null);
     this.logger.log(`Tenant ${tenantId} reactivated with ${bonusDays} bonus days`);
     return { ok: true, trialEndsAt: newTrialEnd };
   }
@@ -1279,6 +1336,20 @@ export class BillingService {
           where: { id: t.id },
           data: { graceNoticeSentAt: now },
         });
+        // El correo va SIEMPRE, aunque no haya telefono o el SMS falle. Es el
+        // canal de respaldo: el SMS a segun que paises no llega —el caso de
+        // Jean, con numero venezolano— y quedarse sin avisar por eso seria
+        // suspenderle la cuenta a alguien que nunca supo que debia pagar.
+        this.brandEmail
+          .sendTemplate({
+            templateId:
+              action === 'last-call'
+                ? 'email_payment_pause_tomorrow'
+                : 'email_payment_overdue_grace',
+            tenantId: t.id,
+            vars: { pauseDate: fmtEmailDate(pauseDate) },
+          })
+          .catch(() => null);
         const target = await this.resolveBillingTarget(t.id);
         if (!target) continue;
         const ownerName = await this.ownerFirstName(t.id);

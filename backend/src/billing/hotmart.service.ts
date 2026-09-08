@@ -1812,6 +1812,31 @@ export class HotmartService {
      *  reenvío manual siempre pasa null; el webhook sí conoce su scope. */
     whiteLabelId?: string | null;
   }) {
+    // QUIEN YA TIENE CUENTA NO NECESITA ACTIVARLA.
+    //
+    // Este aviso es para el comprador que pago y todavia no ha creado su
+    // cuenta. Pero por el MISMO producto de Hotmart se cobran otras cosas
+    // —subproductos, servicios sueltos—, y esos pagos no casan con ningun
+    // negocio: caen aqui como si fueran huerfanos. Resultado: a alguien que ya
+    // tiene su cuenta —y varias— le llega «recibimos tu pago, activa tu cuenta
+    // en 30 segundos» cada vez que compra algo. Reportado el 2026-09-07: ocho
+    // compras en cuatro meses, ocho avisos equivocados.
+    //
+    // Si el correo ya tiene usuario, el pago se guarda igual (el dinero entro y
+    // hay que conciliarlo) pero al comprador no se le escribe: no hay nada que
+    // active. Lo mira el equipo, que para eso recibe su propio aviso.
+    const yaTieneCuenta = await this.prisma.user.findFirst({
+      where: { email: opts.email.trim().toLowerCase() },
+      select: { id: true },
+    });
+    if (yaTieneCuenta) {
+      this.logger.log(
+        `Pago huerfano de ${opts.email}: ya tiene cuenta, no se le manda el ` +
+          'aviso de activacion. Se guarda para conciliar.',
+      );
+      return;
+    }
+
     const r = await this.pendingActivation.notifyBuyer({
       gateway: 'HOTMART',
       whiteLabelId: opts.whiteLabelId ?? null,
