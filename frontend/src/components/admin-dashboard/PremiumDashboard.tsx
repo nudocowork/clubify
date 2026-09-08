@@ -39,6 +39,22 @@ type RangeKind =
 
 // PDF 2026-07-02 (P1): se quitó "Este mes" (redundante con "Últimos 30 días").
 // "Este trimestre" ahora muestra los últimos 3 meses (lógica en el backend).
+/** «1 sep – 7 sep», o «7 sep» si el rango es de un solo día. */
+function fmtRango(fromIso: string, toIso: string): string {
+  const f = new Date(fromIso);
+  const t = new Date(toIso);
+  if (Number.isNaN(f.getTime()) || Number.isNaN(t.getTime())) return '';
+  const dia = (d: Date) =>
+    d.toLocaleDateString('es-CO', {
+      day: 'numeric',
+      month: 'short',
+      timeZone: 'America/Bogota',
+    });
+  const a = dia(f);
+  const b = dia(t);
+  return a === b ? a : `${a} – ${b}`;
+}
+
 const RANGE_OPTIONS: { value: RangeKind; label: string }[] = [
   { value: 'today', label: 'Hoy' },
   { value: 'this-week', label: 'Esta semana' },
@@ -50,7 +66,9 @@ const RANGE_OPTIONS: { value: RangeKind; label: string }[] = [
 type DashboardResp = {
   range: { kind: string; from: string; to: string };
   banner: {
-    billedUsd: number; // COBRADO real (caja)
+    billedUsd: number; // COBRADO real (caja) — suma de transacciones reales
+    sinRegistrarUsd: number; // cobro fechado en el rango SIN transacción detrás
+    sinRegistrarCount: number;
     estimatedUsd: number; // PROYECTADO (estimado, sin cobro registrado)
     estimatedCount: number;
     billedGroups: number; // cuántas unidades del facturado son Grupos
@@ -377,9 +395,29 @@ export function PremiumDashboard() {
             </div>
             <div className="text-xs text-sky-200 mt-1">
               Pagos con fecha real · {RANGE_OPTIONS.find((r) => r.value === range)?.label}
+              {/* Las fechas, en claro. «Esta semana» empieza el lunes: un lunes
+                  por la mañana el rango son horas, y sin verlo escrito la cifra
+                  parece rota cuando es correcta. */}
+              {data.range?.from && (
+                <span className="text-sky-300"> · {fmtRango(data.range.from, data.range.to)}</span>
+              )}
             </div>
             {/* Bug 1: lo proyectado (estimado, sin cobro registrado) NUNCA se
                 suma dentro de "Cobrado" — se muestra aparte y diferenciado. */}
+            {/* Cobro fechado en el rango que no tiene transacción detrás.
+                Antes esto se sumaba a «Cobrado» al precio de lista e inflaba
+                la cifra grande — en septiembre, $615 que nunca entraron. */}
+            {data.banner.sinRegistrarUsd > 0 && (
+              <div
+                className="text-xs text-orange-200 mt-1"
+                title="Negocios con fecha de cobro en este rango pero sin ninguna transacción registrada. O el pago no llegó a Contabilidad, o la fecha quedó colgada."
+              >
+                Sin transacción registrada: {money(data.banner.sinRegistrarUsd)}
+                {' · '}
+                {data.banner.sinRegistrarCount}{' '}
+                {data.banner.sinRegistrarCount === 1 ? 'negocio' : 'negocios'}
+              </div>
+            )}
             {data.banner.estimatedUsd > 0 && (
               <div
                 className="text-xs text-amber-200 mt-1"
