@@ -8,6 +8,50 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-08 — Dos rojos más: el 2FA ya se bloquea, y cambiar la clave cierra sesiones
+
+**P0-8 y P1-11.** Los dos en `main`, **sin desplegar**.
+
+### El segundo factor se bloquea al fallar
+
+No había ningún contador: probar un código costaba un HMAC, y con la tolerancia
+de ±30 s hay unos tres válidos por ventana. Sin límite de peticiones, el segundo
+factor de una cuenta con la contraseña ya filtrada era cuestión de insistir.
+
+Ahora: **5 fallos seguidos → bloqueado 15 minutos.** Acertar limpia el contador.
+
+**El bloqueo es temporal a propósito**, y hay una prueba solo para eso: uno
+permanente convertiría «fallar cinco veces» en dejar a alguien fuera de su cuenta
+para siempre, y hoy **no hay ninguna ruta de administración para desbloquear**.
+Eso último sigue pendiente, y es lo que hace falta para cerrar del todo el otro
+escenario del 2FA (activarlo con una sesión robada y dejar fuera al dueño).
+
+⚠️ **Necesita migración ANTES de desplegar** — dos columnas nuevas:
+
+```bash
+railway run node backend/scripts/apply-totp-intentos-migration.cjs
+```
+
+### Cambiar la contraseña ahora cierra las sesiones
+
+`POST /users/me/password` y el reseteo que hace el dueño a un empleado escribían
+**solo el hash**. El token robado seguía rotando 30 días mientras la persona
+creía haberse puesto a salvo. Ahora los dos escriben `passwordChangedAt` y
+revocan: la comprobación `iat < passwordChangedAt` que ya hacía la rotación **por
+fin dispara**.
+
+Este no necesita migración.
+
+**Sigue pendiente:** el frontend no llama a `/auth/logout`, así que «cerrar
+sesión» solo borra cookies del navegador. Eso es cambio de frontend.
+
+### De paso, el candado me cazó a mí
+
+Al añadir las escrituras del contador, el arqueo de aislamiento se puso en rojo
+con `two-factor.service.ts`. Revisado antes de sellar: `verify(userId)` escribe
+sobre **el usuario que se está autenticando**, cuyo id sale del challenge y no de
+fuera. No es un salto entre negocios. Techo 181.
+
 ## 2026-09-08 — Los códigos de pedido nuevos son de 6 caracteres
 
 **P1-1.** Mil veces más difíciles de acertar:

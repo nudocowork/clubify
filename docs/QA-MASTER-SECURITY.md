@@ -438,9 +438,41 @@ ni tener que traerse todos los tokens del usuario para compararlos uno a uno.)*
 
 ---
 
-### 🔴 P0-8 · El segundo factor no frena a nadie, y se puede usar para dejar fuera al dueño
+### 🟡 P0-8 · El segundo factor no frena a nadie, y se puede usar para dejar fuera al dueño
 
-**Estado: ABIERTO. Fase 13, verificado el 2026-09-07. No se tocó.**
+**Estado: MEDIO ARREGLADO en `main` el 2026-09-08, SIN DESPLEGAR.**
+
+**Hecho — el contador de intentos.** `verify()` lleva ahora **5 fallos seguidos
+→ bloqueo de 15 minutos**, y acertar limpia el contador. Con eso, probar códigos
+deja de ser gratis aunque el rate limit siga sin aplicarse.
+
+El bloqueo es **temporal a propósito**, y hay una prueba dedicada a ello: uno
+permanente convertiría «fallar cinco veces» en dejar a alguien fuera de su cuenta
+para siempre, y hoy no hay ruta de administración para desbloquear.
+
+⚠️ **Necesita migración ANTES de desplegar** (dos columnas nuevas):
+
+```bash
+railway run node backend/scripts/apply-totp-intentos-migration.cjs
+node scripts/desplegar.cjs backend
+```
+
+Verificación: `npx vitest run src/auth/two-factor-intentos.spec.ts` — 5 pruebas
+sin base de datos, incluida la de que **el bloqueo caduca**.
+
+**SIN hacer, y es lo que queda de este apartado:**
+
+1. **Ruta de administración auditada para apagar el 2FA de alguien.** Sin ella
+   sigue en pie el escenario feo: con una sesión robada de una cuenta *sin* 2FA,
+   el atacante lo activa con su secreto y **nadie puede quitárselo**.
+2. **Cifrar `totpSecret`**, que sigue en claro en la base. El repo ya tiene
+   `secret-box` para esto.
+3. **Códigos de respaldo**, que no existen.
+
+<details>
+<summary>Cómo estaba antes</summary>
+
+**Estado original: ABIERTO. Fase 13, verificado el 2026-09-07.**
 
 **No hay contador de intentos en `/auth/2fa/challenge`.** Ni ahí ni en ningún
 sitio: `totpAttempts`, `lockedUntil` y `failedLogin` no existen en el código ni
@@ -467,6 +499,10 @@ que no vale ni como token de acceso ni como refresco.
 **Arreglo:** contador de intentos (5 fallos → invalidar el challenge y exigir
 login otra vez), una ruta de administración **auditada** para apagar el 2FA, y
 cifrar `totpSecret` con el `secret-box` que ya existe en el repo.
+
+*(El contador se hizo el 2026-09-08. Los otros dos, no.)*
+
+</details>
 
 ---
 
@@ -508,9 +544,29 @@ lo lee.
 
 ---
 
-### 🟠 P1-11 · Cambiar tu contraseña no cierra las sesiones robadas
+### 🟢 P1-11 · Cambiar tu contraseña no cierra las sesiones robadas
 
-**Estado: ABIERTO. Fase 13, verificado el 2026-09-07. No se tocó.**
+**Estado: ARREGLADO en `main` el 2026-09-08, SIN DESPLEGAR.**
+
+Los dos sitios que faltaban —`POST /users/me/password` y el reseteo que hace el
+dueño a un empleado— ahora escriben `passwordChangedAt` y llaman a
+`revokeAllSessions()`. Con eso, la comprobación `iat < passwordChangedAt` que ya
+hacía la rotación del refresco **por fin dispara**, y el token robado muere en
+cuanto la persona cambia su contraseña.
+
+Se añadió `AuthService.revokeAllSessions()` para que quien cambia una contraseña
+no tenga que conocer el servicio de refrescos. No lanza: si fallara la
+revocación, no tiene sentido dejar a alguien sin poder cambiar su clave — se
+registra y se sigue.
+
+**Sigue pendiente de este apartado:** el frontend **nunca llama a
+`/auth/logout`**, así que «cerrar sesión» solo borra cookies del navegador y el
+refresco sigue vivo en el servidor. Eso es cambio de frontend.
+
+<details>
+<summary>Cómo estaba antes</summary>
+
+**Estado original: ABIERTO. Fase 13, verificado el 2026-09-07.**
 
 El único cambio de contraseña que puede hacer el usuario por su cuenta
 —`POST /users/me/password`, [staff.controller.ts:343](../backend/src/tenants/staff.controller.ts#L343)—
@@ -532,6 +588,10 @@ absoluto, así que una sesión usada de vez en cuando **no caduca nunca**.
 
 **Arreglo:** añadir `passwordChangedAt` y `revokeAllForUser` en los dos sitios, y
 que el frontend llame a `/auth/logout` al cerrar sesión.
+
+*(Lo del backend se hizo el 2026-09-08. Lo del frontend, no.)*
+
+</details>
 
 ---
 

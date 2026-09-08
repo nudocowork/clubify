@@ -1099,6 +1099,13 @@ model User {
   // se setea sólo después de que el usuario confirma con un código válido.
   totpSecret        String?
   totpEnabledAt     DateTime?
+  /// Fallos seguidos del segundo factor. Un acierto lo devuelve a cero.
+  totpFallos        Int       @default(0)
+  /// Hasta cuándo está bloqueado el segundo factor por fallar demasiado.
+  /// Sin esto, probar códigos cuesta un HMAC y nada más: con la tolerancia de
+  /// ±30 s hay ~3 códigos válidos por ventana y, sin límite de peticiones, el
+  /// segundo factor de una cuenta con la contraseña ya filtrada era un trámite.
+  totpBloqueadoHasta DateTime?
   // Timestamp del último cambio de password. Usado para forzar logout
   // global: cualquier token emitido antes de esta fecha queda inválido.
   passwordChangedAt DateTime?

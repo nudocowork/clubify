@@ -71,6 +71,27 @@ export class AuthService {
   private logger = new Logger(AuthService.name);
   private googleClient: OAuth2Client | null;
 
+  /**
+   * Cierra TODAS las sesiones abiertas de un usuario.
+   *
+   * Existe para que quien cambia una contraseña no tenga que conocer el
+   * servicio de refrescos. Lo usan el cambio propio y el reseteo que hace el
+   * dueño a un empleado: los dos escribían solo el hash, y el token robado
+   * seguía rotando 30 días mientras la persona creía haberse puesto a salvo.
+   *
+   * No lanza: si falla la revocación no tiene sentido dejar al usuario sin
+   * poder cambiar su contraseña. Se registra y se sigue.
+   */
+  async revokeAllSessions(userId: string): Promise<void> {
+    try {
+      await this.refreshTokens.revokeAllForUser(userId);
+    } catch (e) {
+      this.logger.error(
+        `No se pudieron revocar las sesiones de ${userId}: ${(e as Error).message}`,
+      );
+    }
+  }
+
   /** Intentos fallidos que aguanta un código SMS antes de quemarse. Con seis
    *  dígitos y cinco tiros, acertar es 1 entre 200.000. */
   private static readonly SMS_MAX_INTENTOS = 5;

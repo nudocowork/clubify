@@ -33,6 +33,13 @@ const TOTP_TOLERANCE_SECONDS = 30;
  */
 @Injectable()
 export class TwoFactorService {
+  /** Fallos seguidos antes de bloquear el segundo factor. */
+  private static readonly MAX_FALLOS = 5;
+  /** Cuánto dura el bloqueo. Temporal a propósito: uno permanente convertiría
+   *  «fallar cinco veces» en quedarse fuera de la cuenta para siempre, y hoy
+   *  no hay ninguna ruta de administración para desbloquear a nadie. */
+  private static readonly BLOQUEO_MIN = 15;
+
   constructor(
     private prisma: PrismaService,
     private appConfig: AppConfigService,
@@ -140,9 +147,20 @@ export class TwoFactorService {
   async verify(userId: string, totpCode: string): Promise<boolean> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { totpSecret: true, totpEnabledAt: true },
+      select: {
+        totpSecret: true,
+        totpEnabledAt: true,
+        totpFallos: true,
+        totpBloqueadoHasta: true,
+      },
     });
     if (!user || !user.totpSecret || !user.totpEnabledAt) return false;
+
+    // Bloqueado por fallar demasiado: ni se mira el código.
+    if (user.totpBloqueadoHasta && user.totpBloqueadoHasta > new Date()) {
+      return false;
+    }
+
     const code = (totpCode ?? '').replace(/\s+/g, '');
     if (!code) return false;
     const result = verifySync({
@@ -150,7 +168,40 @@ export class TwoFactorService {
       secret: user.totpSecret,
       epochTolerance: TOTP_TOLERANCE_SECONDS,
     });
-    return result.valid;
+
+    if (!result.valid) {
+      // Probar un código costaba un HMAC y nada más. Con la tolerancia de
+      // ±30 s hay unos tres códigos válidos por ventana, así que sin contador
+      // —y sin límite de peticiones que funcione— el segundo factor de una
+      // cuenta con la contraseña ya filtrada era cuestión de insistir.
+      const fallos = user.totpFallos + 1;
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          totpFallos: fallos,
+          // El bloqueo es TEMPORAL a propósito. Uno permanente convierte
+          // «fallar cinco veces» en dejar a alguien fuera de su cuenta para
+          // siempre, y no hay ruta de administración para desbloquearlo.
+          totpBloqueadoHasta:
+            fallos >= TwoFactorService.MAX_FALLOS
+              ? new Date(Date.now() + TwoFactorService.BLOQUEO_MIN * 60 * 1000)
+              : user.totpBloqueadoHasta,
+        },
+      });
+      return false;
+    }
+
+    // Acertar limpia la cuenta de fallos: los cinco tiros son seguidos, no de
+    // por vida.
+    if (user.totpFallos > 0 || user.totpBloqueadoHasta) {
+      await this.prisma.user
+        .update({
+          where: { id: userId },
+          data: { totpFallos: 0, totpBloqueadoHasta: null },
+        })
+        .catch(() => undefined);
+    }
+    return true;
   }
 
   /**

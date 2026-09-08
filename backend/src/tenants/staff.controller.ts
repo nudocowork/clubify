@@ -238,10 +238,14 @@ export class StaffController {
     }
     const tempPassword = body.newPassword ?? genTempPassword();
     const passwordHash = await this.auth.hashPassword(tempPassword);
+    // Igual que en el cambio propio: si el dueño le resetea la contraseña a un
+    // empleado —porque se va, o porque sospecha— las sesiones que ese empleado
+    // tuviera abiertas tienen que morir. Antes seguían vivas 30 días.
     await this.prisma.user.update({
       where: { id },
-      data: { passwordHash },
+      data: { passwordHash, passwordChangedAt: new Date() },
     });
+    await this.auth.revokeAllSessions(id);
     return { tempPassword };
   }
 
@@ -348,10 +352,22 @@ export class ChangePasswordController {
     const ok = await argon2.verify(u.passwordHash, body.currentPassword);
     if (!ok) throw new BadRequestException('Contraseña actual incorrecta');
     const passwordHash = await this.auth.hashPassword(body.newPassword);
+    // `passwordChangedAt` y revocar NO son adorno: son lo que hace que cambiar
+    // la contraseña sirva de algo cuando te han robado la sesión.
+    //
+    // Sin ellos, este endpoint solo cambiaba el hash. El token de refresco que
+    // te robaron seguía rotando **30 días**, renovándose solo, mientras la
+    // víctima creía haberse puesto a salvo. La rotación sí comprueba
+    // `iat < passwordChangedAt` (`refresh-token.service.ts`), pero como el
+    // campo no cambiaba, esa comprobación no saltaba nunca por esta vía.
+    //
+    // Los caminos de administración ya lo hacían bien; el que faltaba era
+    // justo el que usa la persona afectada. Ver QA-MASTER-SECURITY.md (P1-11).
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash },
+      data: { passwordHash, passwordChangedAt: new Date() },
     });
+    await this.auth.revokeAllSessions(user.id);
     return { ok: true };
   }
 }
