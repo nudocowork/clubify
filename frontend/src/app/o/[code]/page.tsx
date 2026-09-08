@@ -121,6 +121,16 @@ export default function OrderStatus() {
    */
   const [enlaceWa, setEnlaceWa] = useState<string | null>(null);
 
+  // Teléfono para el chat del domicilio.
+  //
+  // El chat pide el teléfono además del código porque el código NO es un
+  // secreto: se le enseña al cliente y se pinta en esta misma página. Sin él,
+  // quien acertara un código podía escribirle al negocio haciéndose pasar por
+  // el cliente, y leer la conversación. Se pide UNA vez y se recuerda en este
+  // navegador para ese pedido, así que el cliente no lo teclea cada vez.
+  const [telChat, setTelChat] = useState('');
+  const [telChatOk, setTelChatOk] = useState(false);
+
   useEffect(() => {
     try {
       if (code) setEnlaceWa(sessionStorage.getItem(`clubify:wa:${code}`));
@@ -311,23 +321,45 @@ export default function OrderStatus() {
             <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">
               💬 Chat del domicilio
             </div>
-            <DeliveryChat
-              meRole="CUSTOMER"
-              primary={primary}
-              load={async () => {
-                const r = await fetch(`${API}/api/public/deliveries/${order.code}/chat`);
-                return r.ok ? ((await r.json()) as ChatMessage[]) : [];
-              }}
-              send={async (body) => {
-                const r = await fetch(`${API}/api/public/deliveries/${order.code}/chat`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ body }),
-                });
-                if (!r.ok) throw new Error('No se pudo enviar.');
-                return (await r.json()) as ChatMessage[];
-              }}
-            />
+            {!telChatOk ? (
+              <ConfirmarTelefonoChat
+                codigo={order.code}
+                primary={primary}
+                onConfirmado={(tel) => {
+                  setTelChat(tel);
+                  setTelChatOk(true);
+                }}
+                comprobar={async (tel) => {
+                  // Se comprueba pidiendo la conversación: si el teléfono no es
+                  // el del pedido, el backend responde lo mismo que si el
+                  // pedido no existiera.
+                  const r = await fetch(
+                    `${API}/api/public/deliveries/${order.code}/chat?phone=${encodeURIComponent(tel)}`,
+                  );
+                  return r.ok;
+                }}
+              />
+            ) : (
+              <DeliveryChat
+                meRole="CUSTOMER"
+                primary={primary}
+                load={async () => {
+                  const r = await fetch(
+                    `${API}/api/public/deliveries/${order.code}/chat?phone=${encodeURIComponent(telChat)}`,
+                  );
+                  return r.ok ? ((await r.json()) as ChatMessage[]) : [];
+                }}
+                send={async (body) => {
+                  const r = await fetch(`${API}/api/public/deliveries/${order.code}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ body, phone: telChat }),
+                  });
+                  if (!r.ok) throw new Error('No se pudo enviar.');
+                  return (await r.json()) as ChatMessage[];
+                }}
+              />
+            )}
           </div>
         )}
 
@@ -561,5 +593,114 @@ function RatingWidget({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Pide el teléfono del pedido antes de abrir el chat.
+ *
+ * Por qué existe este paso. El código del pedido se le enseña al cliente y se
+ * pinta en esta misma pantalla: no es un secreto. Sin una segunda prueba,
+ * cualquiera que acertara un código podía escribirle al negocio **haciéndose
+ * pasar por el cliente** —con su nombre— y leer la conversación. El teléfono sí
+ * lo sabe el cliente y no lo sabe quien va probando códigos.
+ *
+ * Se pregunta UNA vez por pedido y se recuerda en este navegador, así que quien
+ * vuelve a mirar su domicilio no lo teclea otra vez.
+ */
+function ConfirmarTelefonoChat({
+  codigo,
+  primary,
+  onConfirmado,
+  comprobar,
+}: {
+  codigo: string;
+  primary: string;
+  onConfirmado: (tel: string) => void;
+  comprobar: (tel: string) => Promise<boolean>;
+}) {
+  // Por pedido, no global: el mismo navegador puede seguir dos pedidos de
+  // personas distintas (un móvil prestado, el del local).
+  const CLAVE_TEL_CHAT = `clubify:telchat:${codigo}`;
+  const [tel, setTel] = useState('');
+  const [cargando, setCargando] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [listo, setListo] = useState(false);
+
+  // Si ya lo confirmó antes en este navegador, se entra directo.
+  useEffect(() => {
+    try {
+      const guardado = localStorage.getItem(CLAVE_TEL_CHAT);
+      if (guardado) {
+        void (async () => {
+          if (await comprobar(guardado)) onConfirmado(guardado);
+          else localStorage.removeItem(CLAVE_TEL_CHAT);
+          setListo(true);
+        })();
+        return;
+      }
+    } catch {
+      // localStorage puede fallar (modo privado, permisos): se pregunta y ya.
+    }
+    setListo(true);
+    // Solo al montar: si se re-ejecutara, volvería a preguntar sin motivo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function enviar(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    const digits = tel.replace(/\D/g, '');
+    if (digits.length < 8) {
+      setErr('Escribe tu número completo.');
+      return;
+    }
+    setCargando(true);
+    try {
+      if (await comprobar(tel)) {
+        try {
+          localStorage.setItem(CLAVE_TEL_CHAT, tel);
+        } catch {
+          // Si no se puede guardar, funciona igual: solo lo pedirá otra vez.
+        }
+        onConfirmado(tel);
+      } else {
+        setErr('Ese número no es el del pedido.');
+      }
+    } catch {
+      setErr('No se pudo comprobar. Inténtalo de nuevo.');
+    } finally {
+      setCargando(false);
+    }
+  }
+
+  if (!listo) return <div className="text-sm text-mute">Un momento…</div>;
+
+  return (
+    <form onSubmit={enviar} className="space-y-2">
+      <div className="text-sm text-mute">
+        Escribe el teléfono con el que hiciste el pedido para abrir el chat.
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="tel"
+          inputMode="tel"
+          value={tel}
+          onChange={(e) => setTel(e.target.value)}
+          placeholder="Tu teléfono"
+          className="input flex-1"
+          autoComplete="tel"
+        />
+        <button
+          type="submit"
+          disabled={cargando}
+          className="btn"
+          style={{ background: primary, color: '#fff' }}
+        >
+          {cargando ? '…' : 'Abrir'}
+        </button>
+      </div>
+      {err && <div className="text-sm text-red-600">{err}</div>}
+    </form>
   );
 }

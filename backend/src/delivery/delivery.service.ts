@@ -1244,22 +1244,60 @@ export class DeliveryService {
   }
 
   // --- Cliente (público, por código de pedido) ---
-  async customerChatList(code: string) {
+  /** Leer la conversación también pide el teléfono: ahí dentro está lo que el
+   *  negocio y el repartidor le escribieron al cliente. Ver la explicación
+   *  larga en `telefonoDelPedidoCoincide`. */
+  async customerChatList(code: string, phoneRaw: string) {
     const o = await this.prisma.order.findUnique({
       where: { code },
-      select: { id: true },
+      select: { id: true, customer: { select: { phone: true } } },
     });
-    if (!o) throw new NotFoundException('Pedido no encontrado');
+    if (!o || !this.telefonoDelPedidoCoincide(phoneRaw, o.customer?.phone)) {
+      throw new NotFoundException('Pedido no encontrado');
+    }
     return this.chatList(o.id);
   }
 
-  async customerChatPost(code: string, body: string) {
+  /**
+   * El código del pedido NO basta para el chat, y esta es la razón.
+   *
+   * El código se le enseña al cliente y se pinta en su pantalla: no es un
+   * secreto. Con cuatro caracteres se acertaba uno cada 1.808 intentos, y quien
+   * acertaba podía **escribir haciéndose pasar por el cliente** ante el negocio
+   * («cámbiame la dirección», «ya pagué por transferencia») y leer la
+   * conversación privada. El negocio no tenía forma de notarlo. Subir el código
+   * a seis caracteres lo hace mil veces más difícil, pero no arregla el fondo:
+   * la llave es la equivocada.
+   *
+   * El teléfono sí lo sabe el cliente y no lo sabe quien adivina un código: la
+   * respuesta pública del pedido dejó de devolverlo al cerrar P0-3.
+   *
+   * Mismo criterio que «mis pedidos»: al menos 8 dígitos y comparación por la
+   * COLA del número, no por un trozo cualquiera. 8 y no 10 porque no todos los
+   * países tienen móvil de 10 dígitos.
+   */
+  private telefonoDelPedidoCoincide(phoneRaw: string, phoneGuardado?: string | null): boolean {
+    const digits = (phoneRaw || '').replace(/\D/g, '');
+    if (digits.length < 8) return false;
+    const guardado = (phoneGuardado || '').replace(/\D/g, '');
+    if (!guardado) return false;
+    const cola = digits.length > 10 ? digits.slice(-10) : digits;
+    return guardado.endsWith(cola);
+  }
+
+  async customerChatPost(code: string, body: string, phoneRaw: string) {
     const text = this.cleanBody(body);
     const o = await this.prisma.order.findUnique({
       where: { code },
-      select: { id: true, customer: { select: { fullName: true } } },
+      select: { id: true, customer: { select: { fullName: true, phone: true } } },
     });
-    if (!o) throw new NotFoundException('Pedido no encontrado');
+    // El MISMO error tanto si el código no existe como si el teléfono no casa.
+    // Si no, el chat se convierte en un detector de códigos válidos: probar
+    // códigos hasta que el mensaje cambie de «no existe» a «teléfono
+    // incorrecto» es justo la mitad del trabajo del atacante.
+    if (!o || !this.telefonoDelPedidoCoincide(phoneRaw, o.customer?.phone)) {
+      throw new NotFoundException('Pedido no encontrado');
+    }
     await this.prisma.deliveryMessage.create({
       data: {
         orderId: o.id,

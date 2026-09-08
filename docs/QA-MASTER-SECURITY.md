@@ -613,9 +613,36 @@ refresco.
 
 ---
 
-### 🔴 P0-4 · Con un código de pedido acertado se escribe EN NOMBRE DEL CLIENTE
+### 🟢 P0-4 · Con un código de pedido acertado se escribe EN NOMBRE DEL CLIENTE
 
-**Estado: ABIERTO. Encontrado el 2026-09-06 auditando la fase 10. No se tocó.**
+**Estado: ARREGLADO en `main` el 2026-09-08, SIN DESPLEGAR. Toca backend Y
+frontend, hay que desplegar los dos.**
+
+**El chat pide ahora el teléfono del pedido, además del código** — para escribir
+y también para leer, porque en la conversación está lo que el negocio y el
+repartidor le dijeron al cliente.
+
+El teléfono es la llave correcta: el cliente lo sabe, y quien va probando códigos
+no, porque la respuesta pública del pedido dejó de devolverlo al cerrar P0-3.
+Mismo criterio que «mis pedidos»: **al menos 8 dígitos y comparación por la cola
+del número**, así que conocer un trozo no basta.
+
+**Detalle que importa:** el error es **el mismo** si el código no existe que si
+el teléfono no casa. Si fueran distintos, probar códigos hasta que el mensaje
+cambiara de «no existe» a «teléfono incorrecto» sería media faena hecha.
+
+**En el frontend**, la página del pedido pide el teléfono **una vez** y lo
+recuerda en ese navegador, con la clave por pedido —un móvil prestado o el del
+local pueden seguir dos pedidos de personas distintas—. Quien vuelve a mirar su
+domicilio no lo teclea otra vez.
+
+Verificación: `npx vitest run src/delivery/chat-telefono.spec.ts` — 7 pruebas sin
+base de datos, y **comprobado que muerden**: quitando la comprobación fallan 3.
+
+<details>
+<summary>Cómo era antes</summary>
+
+**Estado original: ABIERTO. Encontrado el 2026-09-06 auditando la fase 10.**
 
 Esto cambia la gravedad de P1-1 (el código de 4 caracteres). Hasta ahora el daño
 conocido era enumerar pedidos y quemar la calificación. Hay más:
@@ -647,6 +674,10 @@ cliente.
 1000×, pero **no basta para el chat**: ahí la llave debería ser algo que solo
 tenga el cliente —el teléfono del pedido, o un token en el enlace que se le
 manda—. Los dos cambios se pueden hacer por separado.
+
+*(Los dos se hicieron el 2026-09-08: el código a 6, y el teléfono en el chat.)*
+
+</details>
 
 ---
 

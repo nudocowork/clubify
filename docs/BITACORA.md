@@ -8,6 +8,46 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-08 — El chat del pedido ya pide el teléfono. ⚠️ Hay que desplegar backend Y frontend
+
+**P0-4 cerrado en `main`.** Era el peor de los que quedaban: con un código de
+pedido acertado se podía **escribir al negocio haciéndose pasar por el cliente**
+—con su nombre— y leer la conversación privada.
+
+Subir el código a 6 caracteres (lo de antes) lo hace mil veces más difícil, pero
+no arreglaba el fondo: **la llave era la equivocada.** El código se le enseña al
+cliente y se pinta en su pantalla; no es un secreto.
+
+**Ahora el chat pide el teléfono del pedido**, para escribir y también para leer
+—en la conversación está lo que el negocio y el repartidor le dijeron—. El
+teléfono sí lo sabe el cliente y no lo sabe quien prueba códigos: dejamos de
+devolverlo en la respuesta pública al cerrar P0-3.
+
+Mismo criterio que «mis pedidos»: **al menos 8 dígitos y comparación por la cola
+del número**, así que saberse un trozo no vale.
+
+**Detalle que importa:** el error es **el mismo** si el código no existe que si
+el teléfono no casa. Con mensajes distintos, ir probando códigos hasta que
+cambiara de «no existe» a «teléfono incorrecto» sería media faena hecha.
+
+### En el frontend
+
+La página del pedido pide el teléfono **una vez** y lo recuerda en ese navegador,
+con **la clave por pedido** — un móvil prestado, o el del local, pueden seguir
+dos pedidos de personas distintas. Quien vuelve a mirar su domicilio no lo
+teclea otra vez.
+
+### ⚠️ Este necesita los dos despliegues
+
+Si se despliega solo el backend, el chat deja de funcionar para clientes reales
+hasta que suba el frontend. **Backend primero, frontend justo después** — o los
+dos seguidos.
+
+No necesita migración: no toca el esquema.
+
+7 pruebas sin base de datos, y comprobado que muerden: quitando la comprobación
+del teléfono fallan 3. Las 50 de delivery y orders siguen verdes.
+
 ## 2026-09-08 — Dos rojos más: el 2FA ya se bloquea, y cambiar la clave cierra sesiones
 
 **P0-8 y P1-11.** Los dos en `main`, **sin desplegar**.
