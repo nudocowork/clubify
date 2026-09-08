@@ -1687,7 +1687,15 @@ export class AdminReportsService {
       }),
       this.prisma.businessGroup.findMany({
         where: { deletedAt: null, lastChargeAt: { gte: from, lte: to }, ...groupWhere },
-        select: { id: true, name: true, planPeriodicity: true, priceUsd: true, lastChargeAt: true },
+        select: {
+          id: true,
+          name: true,
+          planPeriodicity: true,
+          priceUsd: true,
+          lastChargeAt: true,
+          // Para saber si el dinero del grupo entró por alguno de sus negocios.
+          tenants: { select: { id: true } },
+        },
       }),
       // Las transacciones reales del rango, para que esta lista diga LO MISMO
       // que la cifra grande del panel. Sin esto el banner decía $917,52 y al
@@ -1761,7 +1769,13 @@ export class AdminReportsService {
       const key = normalizePeriod(g.planPeriodicity);
       const amount = Number(g.priceUsd) > 0 ? Number(g.priceUsd) : PERIODS[key].bundlePrice;
       // Un grupo cobra por todos sus negocios de una vez, así que su dinero
-      // real —si lo hay— llega como transacción de alguno de ellos.
+      // real —si lo hay— llega como transacción de alguno de ellos. Marcarlos
+      // TODOS como «sin transacción» hacía que el modal contradijera al banner:
+      // la cifra grande contaba el cobro del grupo y la lista lo pintaba en
+      // naranja. Misma regla que en `cobrado.ts`.
+      const cobroDelGrupo = (g.tenants ?? []).some((m: { id: string }) =>
+        realPorNegocio.has(m.id),
+      );
       rows.push({
         kind: 'group',
         id: g.id,
@@ -1770,7 +1784,7 @@ export class AdminReportsService {
         amountUsd: round2(amount),
         paidAt: g.lastChargeAt,
         status: '—',
-        sinRegistrar: true,
+        sinRegistrar: !cobroDelGrupo,
       });
     }
     rows.sort((a, b) => (b.paidAt?.getTime() ?? 0) - (a.paidAt?.getTime() ?? 0));

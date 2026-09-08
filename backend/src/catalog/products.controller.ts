@@ -20,7 +20,7 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
-import { ProductsService } from './products.service';
+import { ProductsService, type SedesDto } from './products.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 
@@ -75,6 +75,17 @@ class ProductBody {
   @IsOptional() @IsArray() extras?: any[];
   @IsOptional() stock?: number | null;
   @IsOptional() stockAlert?: number | null;
+  /**
+   * En qué sedes se vende y con qué precio.
+   *
+   * TIENE QUE ESTAR DECLARADO. El `ValidationPipe` global corre con
+   * `forbidNonWhitelisted`, así que una propiedad que no aparezca aquí no es
+   * que se ignore: la petición entera se rechaza con 400. Sin esta línea, al
+   * primer negocio con el menú por sede encendido le fallaba CREAR un
+   * producto — el `PATCH` no, porque su cuerpo es `Partial` y Nest no lo
+   * valida, que es justo por lo que no se vio antes.
+   */
+  @IsOptional() sedes?: SedesDto;
 }
 
 @Controller('catalog/products')

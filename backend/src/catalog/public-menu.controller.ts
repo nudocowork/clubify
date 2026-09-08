@@ -521,7 +521,20 @@ export class PublicMenuController {
     // Hoy esta consulta devuelve 0 filas en los 115 negocios — nadie ha
     // separado nada todavía— y con 0 filas `catalogoDeSede` devuelve el
     // catálogo entero a precio de base, que es exactamente lo de siempre.
-    const filasDeSede = locationId
+    // El interruptor manda también al LEER, no solo al guardar. Si no,
+    // apagarle la función a un negocio le dejaba los precios por sede puestos
+    // y sin forma de quitarlos desde el panel: el botón decía apagado y el
+    // cliente seguía pagando el precio de la sede.
+    const menuPorSede = locationId
+      ? (
+          await this.prisma.tenant.findUnique({
+            where: { id: t.id },
+            select: { sedeMenuEnabled: true },
+          })
+        )?.sedeMenuEnabled === true
+      : false;
+
+    const filasDeSede = menuPorSede && locationId
       ? await this.prisma.productLocation.findMany({
           where: { locationId, product: { tenantId: t.id } },
           select: {

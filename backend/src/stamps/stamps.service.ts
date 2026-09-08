@@ -652,7 +652,18 @@ export class StampsService {
           header: '¡Cupón canjeado!',
           body: 'Ya tienes tu tarjeta de sellos. Empieza a sumar para tu premio.',
         }
-      : undefined;
+      : // El canje del PREMIO cae en la misma trampa, y es el momento que más
+        // importa de toda la tarjeta: el cliente completa el cartón, se lleva
+        // lo suyo y el contador vuelve a cero. Con el contador a cero el aviso
+        // genérico de Google no sale, así que en Android no le llegaba nada
+        // justo cuando ganó algo. Medido: 17 de los 29 canjes de premio del
+        // último mes fueron en Google.
+        dto.action === 'REDEEM'
+        ? {
+            header: '¡Premio canjeado!',
+            body: 'Disfrútalo. Tu tarjeta vuelve a empezar desde cero.',
+          }
+        : undefined;
 
     this.jobs
       .enqueue('wallet.push', {
@@ -683,7 +694,14 @@ export class StampsService {
           newStamps >= m.at,
       );
       if (just) {
-        const message = `🎉 ¡Ganaste ${just.reward}! Acumulaste ${just.at} sellos.`;
+        // OJO CON LA FORMA. `pushPassUpdate` espera `{header, body}`; una
+        // cadena suelta hace que `opts.message?.body` sea undefined y el aviso
+        // cae al genérico «Sellos: X/Y». O sea, el «¡Ganaste!» se perdía
+        // entero — y encima en silencio.
+        const message = {
+          header: `¡Ganaste ${just.reward}!`,
+          body: `Acumulaste ${just.at} sellos. Enséñale esta tarjeta al negocio.`,
+        };
         // Push silencioso por canal wallet — el cliente lo ve al abrir
         // el .pkpass actualizado. La notif programada formal se podrá
         // enviar después por SMS/Push si el dueño lo configura en
