@@ -38,6 +38,11 @@ import {
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import {
+  indexarFilas,
+  resolverEnSede,
+  seVendeEn,
+} from '../catalog/producto-en-sede';
+import {
   orderConfirmedTemplate,
   orderCreatedTemplate,
   orderReadyTemplate,
@@ -576,6 +581,9 @@ export class OrdersService {
       include: { variants: true, extras: true },
     });
     const map = new Map(products.map((p) => [p.id, p]));
+    // El precio de la sede desde la que se pide.
+    const sede = await this.filasDeSede(tenant.id, dto.locationId);
+    const sedeIdx = indexarFilas(sede.filas);
     const promos = promoIds.length
       ? await this.prisma.promotion.findMany({
           where: { tenantId: tenant.id, id: { in: promoIds }, isActive: true },
@@ -626,7 +634,15 @@ export class OrdersService {
       }
       const p = map.get(i.productId);
       if (!p) throw new BadRequestException(`Producto ${i.productId} no disponible`);
-      let unit = Number(p.basePrice);
+      // Lo que esta sede no vende no se puede pedir aquí, aunque el producto
+      // exista y esté disponible en el negocio.
+      const enSede = resolverEnSede(p as any, sede.locationId, sedeIdx);
+      if (!seVendeEn(p as any, sede.locationId, sedeIdx) || !enSede.isAvailable) {
+        throw new BadRequestException(
+          `Producto ${p.name} no disponible en esta sede`,
+        );
+      }
+      let unit = enSede.price;
       let variantName = '';
       const vr = resolverVariantes(p as any, unit, i as any);
       unit = vr.unit;
@@ -948,13 +964,16 @@ export class OrdersService {
       include: { variants: true, extras: true },
     });
     const map = new Map(products.map((p) => [p.id, p]));
+    // El de mostrador se cobra al precio de SU sede, igual que el del QR.
+    const sedeInt = await this.filasDeSede(tid, dto.locationId);
+    const sedeIntIdx = indexarFilas(sedeInt.filas);
 
     const items: OrderItem[] = [];
     let subtotal = 0;
     for (const i of dto.items) {
       const p = map.get(i.productId);
       if (!p) throw new BadRequestException(`Producto ${i.productId} no existe`);
-      let unit = Number(p.basePrice);
+      let unit = resolverEnSede(p as any, sedeInt.locationId, sedeIntIdx).price;
       let variantName = '';
       const vr = resolverVariantes(p as any, unit, i as any);
       unit = vr.unit;
@@ -1383,6 +1402,39 @@ export class OrdersService {
    * y apagarselo de golpe seria cambiarles el trabajo sin avisar. Ese caso se
    * revisa negocio por negocio, aparte.
    */
+  /**
+   * Lo que esta sede tiene distinto, para cobrar SU precio y no el de base.
+   *
+   * Hay TRES sitios que arman líneas de pedido —el público, el manual desde el
+   * panel y la edición— y los tres hacían `unit = Number(p.basePrice)`. Con un
+   * precio por sede eso significa que el cliente ve $12.000 en el menú de la
+   * sede y se le cobra $10.000; o al revés, y paga de más. Por eso el ayudante
+   * es uno solo: si mañana aparece un cuarto camino, que se vea qué le falta.
+   *
+   * Valida que la sede sea DEL NEGOCIO antes de usarla. Un `locationId` de otro
+   * negocio en el cuerpo de la petición no puede decidir precios aquí.
+   */
+  private async filasDeSede(tenantId: string, locationId?: string | null) {
+    if (!locationId) return { locationId: null as string | null, filas: [] as any[] };
+    const suya = await this.prisma.location.findFirst({
+      where: { id: locationId, tenantId },
+      select: { id: true },
+    });
+    if (!suya) return { locationId: null as string | null, filas: [] as any[] };
+    const filas = await this.prisma.productLocation.findMany({
+      where: { locationId, product: { tenantId } },
+      select: {
+        productId: true,
+        locationId: true,
+        selected: true,
+        price: true,
+        isAvailable: true,
+        stock: true,
+      },
+    });
+    return { locationId: locationId as string | null, filas };
+  }
+
   private async sedeDeSoloPedidos(user: AuthUser): Promise<string | null> {
     if (user.role !== 'TENANT_ORDERS') return null;
     const u = await this.prisma.user.findUnique({
@@ -1479,13 +1531,17 @@ export class OrdersService {
       include: { variants: true, extras: true },
     });
     const map = new Map(products.map((p) => [p.id, p]));
+    // La sede del PEDIDO, no la de quien lo edita: tocarle una línea a un
+    // pedido de la sede norte no puede recalcularlo a precio de base.
+    const sedeEd = await this.filasDeSede(o.tenantId, o.locationId);
+    const sedeEdIdx = indexarFilas(sedeEd.filas);
 
     const items: any[] = [];
     let subtotal = 0;
     for (const i of dto.items) {
       const p = map.get(i.productId);
       if (!p) throw new BadRequestException(`Producto ${i.productId} no disponible`);
-      let unit = Number(p.basePrice);
+      let unit = resolverEnSede(p as any, sedeEd.locationId, sedeEdIdx).price;
       let variantName = '';
       const vr = resolverVariantes(p as any, unit, i as any);
       unit = vr.unit;

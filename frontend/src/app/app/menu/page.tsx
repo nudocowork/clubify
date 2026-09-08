@@ -80,6 +80,16 @@ type Product = {
   stockAlert: number | null;
   variants: Variant[];
   extras: Extra[];
+  /** TODAS = también las sedes que se abran mañana. */
+  locationMode?: 'TODAS' | 'SELECCIONADAS';
+  /** Lo que este producto tiene distinto en cada sede. */
+  productLocations?: {
+    locationId: string;
+    selected: boolean;
+    price: number | string | null;
+    isAvailable: boolean | null;
+    stock: number | null;
+  }[];
 };
 
 // Métodos de pago que puede declarar el cliente en el checkout público.
@@ -604,6 +614,22 @@ export default function MenuEditor() {
         name: e.name,
         price: Number(e.price ?? 0),
       })),
+      // Solo se manda si el editor lo tocó. Una pantalla que no conoce las
+      // sedes no puede borrarle al negocio lo que configuró.
+      ...(p.locationMode || p.productLocations
+        ? {
+            sedes: {
+              modo: p.locationMode ?? 'TODAS',
+              filas: (p.productLocations ?? []).map((f) => ({
+                locationId: f.locationId,
+                selected: f.selected,
+                price: f.price === null || f.price === '' ? null : Number(f.price),
+                isAvailable: f.isAvailable,
+                stock: f.stock,
+              })),
+            },
+          }
+        : {}),
     };
     try {
       if (p.id) {
@@ -1445,6 +1471,7 @@ export default function MenuEditor() {
         <ProductDrawer
           value={editing}
           onSyncChanged={() => void load()}
+          sedes={sedes}
           categories={cats}
           adicionales={adicionales}
           mainLabel={mainLabel}
@@ -2246,10 +2273,13 @@ function ProductDrawer({
   onCancel,
   onSave,
   onSyncChanged,
+  sedes,
 }: {
   value: Partial<Product>;
   /** Se llama tras enganchar/desenganchar, para recargar el catalogo. */
   onSyncChanged?: () => void;
+  /** Las sedes del negocio. Con menos de dos, el bloque ni se pinta. */
+  sedes: { id: string; name: string }[];
   categories: Category[];
   adicionales: Adicional[];
   mainLabel: string;
@@ -2591,6 +2621,155 @@ function ProductDrawer({
               );
             })()}
           </fieldset>
+
+          {/* SEDES. Solo si el negocio tiene más de una: los 69 de un solo
+              local no tienen por qué ver esto, y de los que tienen varias,
+              25 de 26 comparten carta y les vale «Todas las sedes» sin tocar
+              nada nunca. */}
+          {sedes.length > 1 && (
+            <fieldset className="border border-line rounded-lg p-3">
+              <legend className="px-1 text-xs font-semibold text-mute">
+                ¿En qué sedes se vende?
+              </legend>
+              {(() => {
+                const modo = form.locationMode ?? 'TODAS';
+                const filas = form.productLocations ?? [];
+                const filaDe = (id: string) =>
+                  filas.find((f) => f.locationId === id);
+                const cambiar = (
+                  id: string,
+                  campo: 'selected' | 'price' | 'isAvailable',
+                  valor: unknown,
+                ) => {
+                  const otras = filas.filter((f) => f.locationId !== id);
+                  const actual = filaDe(id) ?? {
+                    locationId: id,
+                    selected: true,
+                    price: null,
+                    isAvailable: null,
+                    stock: null,
+                  };
+                  update('productLocations', [
+                    ...otras,
+                    { ...actual, [campo]: valor },
+                  ] as never);
+                };
+                return (
+                  <>
+                    <label className="flex items-start gap-2.5 py-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={modo === 'TODAS'}
+                        onChange={() => update('locationMode', 'TODAS' as never)}
+                        className="mt-0.5"
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-semibold">Todas las sedes</div>
+                        <div className="text-xs text-mute mt-0.5">
+                          También las que abras más adelante. No tendrás que
+                          acordarte de añadirlo.
+                        </div>
+                      </div>
+                    </label>
+                    <label className="flex items-start gap-2.5 py-1.5 cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={modo === 'SELECCIONADAS'}
+                        onChange={() =>
+                          update('locationMode', 'SELECCIONADAS' as never)
+                        }
+                        className="mt-0.5"
+                      />
+                      <div className="flex-1">
+                        <div className="text-sm font-semibold">
+                          Solo en las que marque
+                        </div>
+                        <div className="text-xs text-mute mt-0.5">
+                          Una sede nueva no lo venderá hasta que la marques.
+                        </div>
+                      </div>
+                    </label>
+
+                    <div className="mt-2 space-y-1.5">
+                      {sedes.map((sede) => {
+                        const f = filaDe(sede.id);
+                        const marcada =
+                          modo === 'TODAS' ? true : (f?.selected ?? false);
+                        return (
+                          <div
+                            key={sede.id}
+                            className="flex items-center gap-2 rounded-md border border-line px-2.5 py-1.5"
+                          >
+                            {modo === 'SELECCIONADAS' && (
+                              <input
+                                type="checkbox"
+                                checked={marcada}
+                                onChange={(e) =>
+                                  cambiar(sede.id, 'selected', e.target.checked)
+                                }
+                              />
+                            )}
+                            <span
+                              className={`flex-1 text-sm truncate ${
+                                marcada ? '' : 'text-mute line-through'
+                              }`}
+                              title={sede.name}
+                            >
+                              {sede.name}
+                            </span>
+                            {marcada && (
+                              <>
+                                <input
+                                  type="number"
+                                  className="input h-8 w-28 text-sm"
+                                  placeholder="mismo precio"
+                                  value={
+                                    f?.price === null || f?.price === undefined
+                                      ? ''
+                                      : String(f.price)
+                                  }
+                                  onChange={(e) =>
+                                    cambiar(
+                                      sede.id,
+                                      'price',
+                                      e.target.value === ''
+                                        ? null
+                                        : Number(e.target.value),
+                                    )
+                                  }
+                                />
+                                <label
+                                  className="flex items-center gap-1 text-xs text-mute cursor-pointer whitespace-nowrap"
+                                  title="Marcar como agotado solo en esta sede"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={f?.isAvailable === false}
+                                    onChange={(e) =>
+                                      cambiar(
+                                        sede.id,
+                                        'isAvailable',
+                                        e.target.checked ? false : null,
+                                      )
+                                    }
+                                  />
+                                  agotado
+                                </label>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="text-xs text-mute mt-2">
+                      Deja el precio en blanco para cobrar el mismo de arriba.
+                      Los cambios en el menú tardan hasta 3 minutos en verse.
+                    </div>
+                  </>
+                );
+              })()}
+            </fieldset>
+          )}
 
           <fieldset className="border border-line rounded-lg p-3">
             <legend className="px-1 text-xs font-semibold text-mute">
