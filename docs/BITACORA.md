@@ -8,6 +8,52 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-08 — Cortado el bucle de SMS, y mitigado el webhook de correo
+
+**P0-5 y P1-6.** Los dos en `main`, sin desplegar, sin migración.
+
+### El bucle de SMS (P0-5)
+
+Reservar una cita mandaba la confirmación **al teléfono que viniera en el
+cuerpo**, con las credenciales del negocio, y el bucle no acababa: la respuesta
+trae el `manageToken`, cancelar libera el hueco y reagendar reenvía. Un SMS por
+vuelta, para siempre, y **con el remitente del negocio** — o sea, se podía acosar
+a un tercero y que pareciera que era el negocio.
+
+Ahora hay **tope de 3 por hora a un número que eligió quien llamó**. Va en el
+punto donde se manda, no en cada sitio que llama, y se cuenta sobre `MessageLog`,
+que ya registraba todos los envíos: sin tabla nueva.
+
+**Lo que hace que esto no rompa nada** —y tiene prueba propia—: el tope solo se
+aplica cuando el destinatario lo eligió alguien desde una ruta pública. **Los
+avisos al propio negocio siguen sin tope**: un local con veinte pedidos en una
+hora tiene que recibir veinte avisos.
+
+Detalles: se comparan los últimos 10 dígitos (si no, se rodea escribiendo el
+número de otra forma), y **si el conteo falla, deja pasar** — quedarse sin mandar
+la confirmación de una cita real es peor que un mensaje de más.
+
+**Refutado de paso:** se dijo que el alta pública de pases tenía el mismo bucle.
+**No lo tiene**: `enrollPublic` deduplica y devuelve el pase existente sin emitir
+nada, así que el segundo intento con el mismo teléfono no manda mensaje.
+
+**Lo que NO cubre esto:** el aviso al negocio en cada reserva o reseña. Ahí el
+destinatario no lo elige el atacante, así que el tope no aplica —capparía avisos
+legítimos—. Eso lo frena el rate limiting cuando lo enciendas.
+
+### El webhook de correo (P1-6)
+
+Tope de 10 eventos por marca y hora sin correlacionar, y **cada uso del respaldo
+por correo queda en el log** (`RESPALDO_POR_CORREO`).
+
+**Por qué no quité el respaldo, que era lo obvio.** Hay bajas legítimas que
+llegan sin `messageId`, y perder una baja de verdad no es un fallo técnico: es un
+problema con la persona que la pidió. Intenté medir cuántas son contra
+producción y no pude, así que quitarlo a ciegas era el cambio arriesgado.
+
+Con el registro, **en un mes se sabrá**: si no aparece ninguno, se borra el
+respaldo; si aparecen muchos, hay que arreglar la correlación antes.
+
 ## 2026-09-08 — El chat del pedido ya pide el teléfono. ⚠️ Hay que desplegar backend Y frontend
 
 **P0-4 cerrado en `main`.** Era el peor de los que quedaban: con un código de

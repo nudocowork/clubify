@@ -26,6 +26,19 @@ export type SendContext = {
   templateId?: string | null;
   /** billing | reviews | orders | reservations | marketing | auth | prueba… */
   feature?: string | null;
+  /**
+   * El destinatario lo eligió quien llamó a una ruta PÚBLICA, y nadie ha
+   * comprobado que sea suyo.
+   *
+   * Lo ponen los sitios donde el teléfono viene en el cuerpo de una petición
+   * sin sesión: reservar una cita, apuntarse a una tarjeta. Ahí el envío se
+   * puede usar como arma —mandarle mensajes a un tercero desde el remitente
+   * del negocio, y a su costa— y encima en bucle: reservar, cancelar, reservar.
+   *
+   * Los avisos al propio negocio NO llevan esto, y por eso siguen sin tope: un
+   * local con veinte pedidos en una hora tiene que recibir veinte avisos.
+   */
+  destinatarioSinVerificar?: boolean;
 };
 
 @Injectable()
@@ -256,6 +269,45 @@ export class GrowBusinessService {
    * Se guarda en `Setting` («mensajes.numerosBloqueados», array JSON) y no en
    * una tabla: son un punado de numeros y se cambian a mano.
    */
+  /** Mensajes por hora a un número que eligió un desconocido. Tres es holgado
+   *  para el uso real —reservar y, como mucho, reagendar— y corta el bucle. */
+  private static readonly TOPE_SIN_VERIFICAR = 3;
+
+  /**
+   * ¿Se ha pasado ya el tope de mensajes a este número en la última hora?
+   *
+   * Solo se aplica cuando el destinatario lo eligió quien llamó a una ruta
+   * pública. Sin esto, `POST /public/service-reservations/:slug/book` era una
+   * pasarela de SMS abierta: la respuesta trae el `manageToken`, cancelar
+   * libera el hueco y reagendar reenvía la confirmación, así que reservar →
+   * cancelar → reservar mandaba un mensaje por vuelta, para siempre, al número
+   * que quisiera el atacante y con el remitente del negocio.
+   *
+   * Se cuenta sobre `MessageLog`, que ya registra todos los envíos, así que no
+   * hace falta tabla nueva. Se comparan los últimos 10 dígitos porque el mismo
+   * número aparece como «+57 315…», «57315…» o «315…» según de dónde venga.
+   */
+  private async pasoElTopeSinVerificar(toPhone: string): Promise<boolean> {
+    const cola = (toPhone ?? '').replace(/\D/g, '').slice(-10);
+    if (!cola) return false;
+    try {
+      const desde = new Date(Date.now() - 60 * 60 * 1000);
+      const enviados = await this.prisma.messageLog.count({
+        where: {
+          createdAt: { gte: desde },
+          status: 'sent',
+          toPhone: { endsWith: cola },
+        },
+      });
+      return enviados >= GrowBusinessService.TOPE_SIN_VERIFICAR;
+    } catch (e) {
+      // Si el conteo falla, se deja pasar: quedarse sin mandar la confirmación
+      // de una cita real es peor que un mensaje de más.
+      this.logger.warn(`No se pudo comprobar el tope de envíos: ${(e as Error).message}`);
+      return false;
+    }
+  }
+
   private async estaBloqueado(toPhone: string): Promise<boolean> {
     const digitos = (toPhone ?? '').replace(/\D/g, '');
     if (!digitos) return false;
@@ -364,6 +416,15 @@ export class GrowBusinessService {
         `SMS no enviado: ${toPhone} esta en la lista de no molestar`,
       );
       return { ok: false as const, message: 'numero en la lista de no molestar' };
+    }
+    if (ctx?.destinatarioSinVerificar && (await this.pasoElTopeSinVerificar(toPhone))) {
+      // No se lanza: la cita o el alta se crean igual. Lo único que no ocurre
+      // es el mensaje, que es lo que se estaba usando como arma.
+      this.logger.warn(
+        `SMS no enviado a ${toPhone}: tope de ${GrowBusinessService.TOPE_SIN_VERIFICAR}/hora ` +
+          'para destinatarios sin verificar',
+      );
+      return { ok: false as const, message: 'tope de envios a este numero' };
     }
     if (!creds.locationId || !creds.apiKey) {
       // Se registra igual: «no salió por falta de credenciales» es justo lo que

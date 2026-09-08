@@ -57,20 +57,100 @@ export class MktWebhookController {
       // Baja: detiene todo para ese contacto.
       if (kind === 'unsubscribe') {
         const cid = contactId ?? (await this.contactIdByEmail(wl.id, email));
-        if (cid) await this.contacts.setOptOut(wl.id, cid, true).catch(() => {});
+        if (!cid) return { ok: true };
+        if (!contactId && (await this.demasiadasSinCorrelacion(wl.id))) {
+          return { ok: true };
+        }
+        this.avisarSiVaSinCorrelacion('unsubscribe', contactId, wl.id, email);
+        await this.contacts.setOptOut(wl.id, cid, true).catch(() => {});
         return { ok: true };
       }
 
       // Solo interacción reanuda wait_reply + dispara el trigger email_reply.
       if (isInteraction(kind)) {
         const cid = contactId ?? (await this.contactIdByEmail(wl.id, email));
-        if (cid) await this.engine.onContactInteraction(cid, wl.id);
+        if (!cid) return { ok: true };
+        if (!contactId && (await this.demasiadasSinCorrelacion(wl.id))) {
+          return { ok: true };
+        }
+        this.avisarSiVaSinCorrelacion(kind, contactId, wl.id, email);
+        await this.engine.onContactInteraction(cid, wl.id);
       }
       return { ok: true };
     } catch (e) {
       this.log.warn(`inbound falló: ${(e as Error).message}`);
       return { ok: true };
     }
+  }
+
+  /**
+   * Bajas e interacciones seguidas que llegan SIN correlacionar por
+   * `providerMessageId`, por marca y hora. Pasado el tope, se ignoran.
+   *
+   * De dónde sale esto. Este webhook no verifica la firma del proveedor —hay un
+   * `TODO(hardening)` desde el principio— y el comentario del archivo decía que
+   * daba igual, porque solo se sella lo que correlaciona por `providerMessageId`.
+   * **No era cierto en estas dos ramas**: las dos tienen un respaldo
+   * `?? contactIdByEmail(...)` que se salta la correlación entera. Con el slug
+   * de la marca —que va en la URL, no es secreto— y un correo, cualquiera podía
+   * dar de baja a esa persona o fingir que había contestado.
+   *
+   * Por qué un tope y no quitar el respaldo: **hay bajas legítimas que llegan
+   * sin `messageId`**, y perder una baja de verdad no es un fallo técnico, es un
+   * problema con la persona que la pidió. Sin poder medir cuántas son, quitarlo
+   * a ciegas era el cambio arriesgado. El tope corta el abuso —vaciar una lista
+   * a base de bajas— y deja pasar el goteo normal.
+   *
+   * Lo de fondo sigue siendo verificar la firma sobre `req.rawBody`, que ya se
+   * guarda para Stripe. Ver docs/QA-MASTER-SECURITY.md (P1-6).
+   */
+  private static readonly TOPE_SIN_CORRELACION = 10;
+
+  private async demasiadasSinCorrelacion(whiteLabelId: string): Promise<boolean> {
+    const marca = MktWebhookController.sinCorrelacion.get(whiteLabelId);
+    const ahora = Date.now();
+    if (!marca || marca.hasta < ahora) {
+      MktWebhookController.sinCorrelacion.set(whiteLabelId, {
+        veces: 1,
+        hasta: ahora + 60 * 60 * 1000,
+      });
+      return false;
+    }
+    marca.veces += 1;
+    if (marca.veces > MktWebhookController.TOPE_SIN_CORRELACION) {
+      this.log.warn(
+        `Marca ${whiteLabelId}: ${marca.veces} eventos sin correlacionar en una hora. ` +
+          'Se ignoran los siguientes. Si esto no es un ataque, revisar por qué el ' +
+          'proveedor no manda providerMessageId.',
+      );
+      return true;
+    }
+    return false;
+  }
+
+  /** En memoria a propósito: es una mitigación, no contabilidad. Si el proceso
+   *  reinicia se pierde el conteo, y lo peor que pasa es que el atacante gane
+   *  diez intentos más. Una tabla para esto sería peor negocio. */
+  private static readonly sinCorrelacion = new Map<string, { veces: number; hasta: number }>();
+
+  /**
+   * Deja constancia de cada vez que se usa el respaldo por correo.
+   *
+   * Es el dato que hoy falta para decidir si se puede quitar: si en un mes no
+   * aparece ninguno, el respaldo no lo necesita nadie y se elimina; si aparecen
+   * muchos, hay que arreglar la correlación antes de tocarlo.
+   */
+  private avisarSiVaSinCorrelacion(
+    kind: string,
+    contactId: string | null | undefined,
+    whiteLabelId: string,
+    email?: string,
+  ) {
+    if (contactId) return;
+    this.log.warn(
+      `RESPALDO_POR_CORREO kind=${kind} marca=${whiteLabelId} email=${email ?? '—'} ` +
+        '(no correlacionó por providerMessageId)',
+    );
   }
 
   private async contactIdByEmail(whiteLabelId: string, email?: string): Promise<string | null> {

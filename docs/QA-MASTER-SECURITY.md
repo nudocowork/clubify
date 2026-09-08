@@ -681,9 +681,44 @@ manda—. Los dos cambios se pueden hacer por separado.
 
 ---
 
-### 🔴 P0-5 · Dos rutas públicas mandan SMS al número que diga quien llama, en bucle
+### 🟢 P0-5 · Dos rutas públicas mandan SMS al número que diga quien llama, en bucle
 
-**Estado: ABIERTO. Encontrado el 2026-09-06. No se tocó.**
+**Estado: ARREGLADO en `main` el 2026-09-08, SIN DESPLEGAR.**
+
+**Tope de 3 mensajes por hora a un número que eligió quien llamó.** Va en
+`grow-business.service.ts`, o sea en el punto donde se manda, no en cada sitio
+que llama: se cuenta sobre `MessageLog` —que ya registra todos los envíos— así
+que no hizo falta tabla nueva.
+
+**La distinción que hace que esto no rompa nada:** el tope solo se aplica cuando
+el destinatario lo eligió alguien desde una ruta pública
+(`destinatarioSinVerificar` en el contexto del envío). **Los avisos al propio
+negocio no lo llevan**, y siguen sin tope — un local con veinte pedidos en una
+hora tiene que recibir veinte avisos. Hay una prueba dedicada solo a eso.
+
+Se comparan los últimos 10 dígitos, porque «+57 315…», «57315…» y «315…» son el
+mismo teléfono y si no, el tope se rodea cambiando el formato. Y si el conteo
+falla, **deja pasar**: quedarse sin mandar la confirmación de una cita real es
+peor que un mensaje de más.
+
+**Refutado, de paso:** se dijo que el alta pública de pases tenía el mismo bucle.
+**No lo tiene.** `enrollPublic` deduplica: si el pase ya existe devuelve
+`isNew: false` **sin crear ni emitir `PASS_CREATED`**, así que el segundo intento
+con el mismo teléfono no manda nada. Para repetir harían falta tarjetas distintas.
+
+**Lo que NO cubre este arreglo, y sí cubre otro:** `POST /public/reservations/:slug`
+y el aviso de reseña baja avisan **al negocio**, no a un tercero. Ahí el
+destinatario no lo elige el atacante, así que el tope por destinatario no aplica
+—y aplicarlo capparía avisos legítimos—. Eso lo frena el rate limiting cuando se
+active (**P0-2**), que es exactamente para lo que sirve.
+
+Verificación: `npx vitest run src/integrations/tope-destinatario.spec.ts` — 7
+pruebas sin base de datos ni red.
+
+<details>
+<summary>Cómo era antes</summary>
+
+**Estado original: ABIERTO. Encontrado el 2026-09-06.**
 
 `POST /api/public/service-reservations/:slug/book` crea la cita y llama a
 `notifyAppointment(appt, 'confirm')`, que manda un **SMS al `customerPhone` que
@@ -715,6 +750,11 @@ por destinatario y por negocio antes de mandar —«a este número, uno cada N
 minutos»— que no depende de que el rate limit global funcione. Lo de fondo es no
 mandar nada a un número que no se ha verificado, y no reenviar la confirmación
 en cada reagendado.
+
+*(Se hizo lo primero el 2026-09-08. Lo segundo —no reenviar en cada reagendado—
+sigue pendiente, pero con el tope ya no se puede explotar en bucle.)*
+
+</details>
 
 ---
 
@@ -981,10 +1021,40 @@ propia sede, correcto— y de ahí salió la lección que importa:
 
 ---
 
-### 🟠 P1-6 · Cualquiera puede dar de baja a un contacto ajeno, y falsear que respondió
+### 🟡 P1-6 · Cualquiera puede dar de baja a un contacto ajeno, y falsear que respondió
 
-**Estado: ABIERTO. Encontrado el 2026-09-05 en la fase 10. NO se tocó — el
-arreglo cambia cómo se traga el webhook real y eso se decide con el dueño.**
+**Estado: MITIGADO en `main` el 2026-09-08, SIN DESPLEGAR. El arreglo de fondo
+sigue pendiente, y ahora hay cómo decidirlo.**
+
+**Qué se hizo:**
+
+1. **Tope de 10 eventos por marca y hora** que lleguen sin correlacionar por
+   `providerMessageId`. Pasado eso, se ignoran. Corta el abuso —vaciar la lista
+   de una marca a base de bajas— y deja pasar el goteo normal.
+2. **Cada uso del respaldo por correo queda registrado** (`RESPALDO_POR_CORREO`
+   en los logs).
+
+**Por qué un tope y no quitar el respaldo, que era lo obvio.** Hay bajas
+legítimas que llegan sin `messageId`, y **perder una baja de verdad no es un
+fallo técnico: es un problema con la persona que la pidió**. Intenté medir
+cuántas son contra producción y no pude, así que quitarlo a ciegas era el cambio
+arriesgado.
+
+**Y eso es lo que arregla el punto 2:** en un mes de logs se sabrá. Si no aparece
+ningún `RESPALDO_POR_CORREO`, el respaldo no lo necesita nadie y se borra. Si
+aparecen muchos, hay que arreglar la correlación antes de tocarlo.
+
+El conteo va **en memoria a propósito**: es una mitigación, no contabilidad. Si
+el proceso reinicia, lo peor que pasa es que el atacante gane diez intentos más;
+una tabla para esto sería peor negocio.
+
+**Lo de fondo sigue siendo verificar la firma** sobre `req.rawBody`, que ya se
+guarda para Stripe. Eso depende de si el proveedor la manda, que no consta.
+
+<details>
+<summary>Cómo era antes</summary>
+
+**Estado original: ABIERTO. Encontrado el 2026-09-05 en la fase 10.**
 
 `POST /api/webhooks/email-inbound/:slug` no verifica firma. El propio código lo
 sabe: hay un `TODO(hardening)` en
@@ -1040,6 +1110,11 @@ falla es la puerta.
    email para `unsubscribe` e interacción, o aceptarlo solo si a ese correo se le
    envió algo de esa marca hace poco. Hay que mirar antes cuántos eventos
    legítimos llegan hoy sin `messageId`, o se pierden bajas de verdad.
+
+*(El 2026-09-08 se puso un tope y se registró cada uso del respaldo, que es
+justo lo que faltaba para poder mirar eso.)*
+
+</details>
 
 ---
 

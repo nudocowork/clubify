@@ -1012,7 +1012,18 @@ export class ServiceReservationsService {
           ? `${tenant.brandName}: ${firstName ? firstName + ', tu' : 'Tu'} cita de ${svc} quedó confirmada para el ${fecha} a las ${hora}. ¡Te esperamos!${manageLine}`
           : `${tenant.brandName}: Recordatorio — tu cita de ${svc} es el ${fecha} a las ${hora}.${manageLine}`;
       await this.growBusiness
-        .sendSmsWithCreds(creds, appt.customerPhone, body)
+        // `destinatarioSinVerificar`: la cita se puede pedir desde una ruta
+        // pública con el teléfono que sea, y nadie comprueba que sea de quien
+        // reserva. Sin tope, esto era una pasarela de SMS abierta: la respuesta
+        // trae el `manageToken`, cancelar libera el hueco y reagendar reenvía
+        // la confirmación, así que reservar → cancelar → reservar mandaba un
+        // mensaje por vuelta, al número que quisiera el atacante y con el
+        // remitente del negocio. Ver QA-MASTER-SECURITY.md (P0-5).
+        .sendSmsWithCreds(creds, appt.customerPhone, body, {
+          tenantId: appt.tenantId,
+          feature: 'reservations',
+          destinatarioSinVerificar: true,
+        })
         .catch(() => null);
     } catch (e) {
       this.logger.warn(
