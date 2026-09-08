@@ -171,6 +171,12 @@ class UpdateTenantBody {
    */
   @IsOptional() @IsBoolean() conveniosEnabled?: boolean;
   @IsOptional() @IsBoolean() clubEnabled?: boolean;
+  /**
+   * MENU POR SEDE: precio y disponibilidad propios de cada local, sobre un
+   * solo catalogo. Se habilita negocio por negocio desde el panel de admin,
+   * antes de mandarle el onboarding.
+   */
+  @IsOptional() @IsBoolean() sedeMenuEnabled?: boolean;
   /** Cuántas alianzas puede tener a la vez. Por defecto 3. */
   @IsOptional() @IsInt() @Min(1) @Max(50) maxConvenios?: number;
   // Notas internas del negocio (SOLO Clubify: este controller es

@@ -163,6 +163,15 @@ export class ProductsService {
     tenantId: string,
     sedes: SedesDto,
   ) {
+    // El interruptor manda, y se comprueba AQUI y no solo en el panel: esconder
+    // el bloque no impide que alguien llame a la API a mano. Un negocio al que
+    // no se le habilito la funcion no puede tener precios por sede.
+    const negocio = await tx.tenant.findUnique({
+      where: { id: tenantId },
+      select: { sedeMenuEnabled: true },
+    });
+    if (!negocio?.sedeMenuEnabled) return;
+
     const modo = sedes.modo === 'SELECCIONADAS' ? 'SELECCIONADAS' : 'TODAS';
 
     const mias = new Set(
