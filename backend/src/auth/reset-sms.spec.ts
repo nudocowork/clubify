@@ -16,6 +16,7 @@
  * eso van estos casos.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createHmac } from 'node:crypto';
 import { AuthService } from './auth.service';
 
 /** Prisma de mentira con lo justo para este flujo. */
@@ -128,8 +129,7 @@ describe('pedir el codigo', () => {
       espia.mockRestore();
     }
     // Con Math.random()=0.5 el codigo viejo habria sido siempre 550000.
-    const conMathRandom = require('crypto')
-      .createHmac('sha256', process.env.QR_HMAC_SECRET)
+    const conMathRandom = createHmac('sha256', process.env.QR_HMAC_SECRET!)
       .update('550000')
       .digest('hex');
     expect(prisma.tokens[0].tokenHash).not.toBe(conMathRandom);
@@ -142,10 +142,9 @@ describe('usar el codigo', () => {
   async function pedirYAveriguar(svc: any, prisma: any): Promise<string> {
     await svc.requestPasswordResetSms(TELEFONO);
     const hash = prisma.tokens[prisma.tokens.length - 1].tokenHash;
-    const { createHmac } = require('crypto');
     for (let i = 0; i < 1_000_000; i++) {
       const c = String(i).padStart(6, '0');
-      if (createHmac('sha256', process.env.QR_HMAC_SECRET).update(c).digest('hex') === hash) return c;
+      if (createHmac('sha256', process.env.QR_HMAC_SECRET!).update(c).digest('hex') === hash) return c;
     }
     throw new Error('no se encontro el codigo');
   }
