@@ -661,9 +661,34 @@ columna que alguien añada al modelo saldrá publicada sin que nadie lo note.
 
 ---
 
-### 🟠 P1-1 · Los códigos de pedido son demasiado cortos
+### 🟢 P1-1 · Los códigos de pedido son demasiado cortos
 
-**Estado: ABIERTO.**
+**Estado: ARREGLADO en `main` el 2026-09-08, SIN DESPLEGAR. Los nuevos son de 6
+caracteres.**
+
+```
+antes:  31^4 =       923.521 combinaciones → 1 acierto cada 1.808 intentos
+ahora:  31^6 =   887.503.681 combinaciones → 1 acierto cada 1.972.230
+```
+
+**Mil veces más difícil**, y además empeora mil veces más despacio a medida que
+crecen los pedidos, que era la otra mitad del problema.
+
+**No rompe nada, y por eso se pudo hacer sin más:** los códigos ya emitidos
+siguen siendo de cuatro y siguen funcionando. No hay ni una validación de
+longitud en el backend ni en el frontend, la columna es `String @unique`, y donde
+se pinta es texto libre (`Pedido #ABC123`). Se comprobó antes de tocarlo. De
+hecho afiliados y campañas ya usaban 8.
+
+**Lo que NO arregla, y hay que decirlo:** el chat del pedido (**P0-4**). Ahí el
+problema no es solo que la llave sea corta, es que **es la llave equivocada**: el
+código se le enseña al cliente y se pinta en pantalla. Para escribir en su
+nombre hace falta algo que solo tenga él.
+
+<details>
+<summary>Cómo estaba antes</summary>
+
+**Estado original: ABIERTO.**
 
 4 caracteres, **923.521** combinaciones (alfabeto de 31, no de 30), únicos
 globalmente. Aunque ya no filtren datos personales, siguen permitiendo enumerar
@@ -679,6 +704,11 @@ WhatsApp al cliente real, pagado por el negocio.
 Subirlos a 6 caracteres son 729 millones de combinaciones. **Solo para pedidos
 NUEVOS** — los existentes se quedan como están, y el código se le enseña al
 cliente, así que hay que mirar dónde se pinta antes de cambiarlo.
+
+*(Se miró, no había nada que rompiera, y se hizo el 2026-09-08. El alfabeto es de
+31 símbolos, no 30, así que son 887 millones y no 729.)*
+
+</details>
 
 ---
 

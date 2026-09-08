@@ -48,7 +48,27 @@ import {
   orderReadyTemplate,
 } from '../email/templates/templates';
 
-const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 4);
+/**
+ * Código del pedido. Seis caracteres desde el 2026-09-08, antes cuatro.
+ *
+ * Por qué se subió: es la ÚNICA llave de las rutas públicas del pedido, y son
+ * únicas en toda la plataforma, no por negocio. Con cuatro caracteres eran
+ * 923.521 combinaciones y unos 450 pedidos vivos: **un acierto cada 1.808
+ * intentos** —medido, no estimado— y sin límite de peticiones que funcione, un
+ * bucle lo encontraba en segundos. Con eso se podía ver el pedido de otro,
+ * quemarle la calificación y, lo peor, escribir en su chat **haciéndose pasar
+ * por él** ante el negocio (P0-4).
+ *
+ * Con seis: 887.503.681 combinaciones. El mismo ataque pasa a un acierto cada
+ * dos millones de intentos, y encima empeora mil veces más despacio a medida
+ * que crecen los pedidos.
+ *
+ * Los códigos YA EMITIDOS siguen siendo de cuatro y siguen funcionando: no hay
+ * validación de longitud en ninguna parte y la columna es `String`. Esto solo
+ * afecta a los pedidos nuevos. Lo que NO arregla es el chat: ahí la llave
+ * debería ser algo que solo tenga el cliente, no un código que se le enseña.
+ */
+const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 6);
 
 export type OrderItem = {
   productId: string;

@@ -8,6 +8,29 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-08 — Los códigos de pedido nuevos son de 6 caracteres
+
+**P1-1.** Mil veces más difíciles de acertar:
+
+```
+antes:  31^4 =     923.521 → 1 acierto cada 1.808 intentos
+ahora:  31^6 = 887.503.681 → 1 acierto cada 1.972.230
+```
+
+**No rompe nada** y por eso se pudo hacer sin más: los códigos ya emitidos siguen
+siendo de cuatro y siguen valiendo. No hay ni una validación de longitud en
+backend ni en frontend, la columna es `String @unique`, y donde se pinta es texto
+libre (`Pedido #ABC123`). Lo comprobé antes de tocarlo — de hecho afiliados y
+campañas ya generaban de 8.
+
+**Lo que esto NO arregla: el chat del pedido (P0-4).** Ahí el problema no es que
+la llave sea corta, es que **es la llave equivocada**: el código se le enseña al
+cliente y se pinta en su pantalla. Para escribir en su nombre hace falta algo que
+solo tenga él —su teléfono, o un token en el enlace— y eso **toca frontend y
+backend a la vez**, así que lo dejo para decidir contigo: hoy la página del
+pedido ya no recibe el teléfono (lo quitamos al cerrar P0-3), así que exigirlo
+sin tocar el frontend dejaría a los clientes reales sin poder escribir.
+
 ## 2026-09-08 — El rate limiting está listo y APAGADO detrás de un interruptor
 
 **P0-2.** Está todo en `main`, sin desplegar, y **apagado**. Cambié la propuesta
