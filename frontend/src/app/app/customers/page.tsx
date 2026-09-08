@@ -83,7 +83,31 @@ function birthdayMonth(iso: string | null | undefined): number | null {
   return Number.isNaN(d.getTime()) ? null : d.getUTCMonth();
 }
 
+type Orden = 'reciente' | 'alfabetico' | 'cumple';
+
+/**
+ * Cómo se ordena la lista.
+ *
+ * «Reciente» es lo de siempre y sigue siendo lo primero: el negocio entra a
+ * ver quién acaba de darse de alta. Los otros dos los pidió Primor Barber:
+ * alfabético para buscar a alguien por el nombre en una lista de 128, y por
+ * día de cumpleaños para saber a quién le toca esta semana — un mes ordenado
+ * por fecha de alta no sirve para felicitar a nadie.
+ */
+const ORDENES: { key: Orden; label: string }[] = [
+  { key: 'reciente', label: 'Más recientes' },
+  { key: 'alfabetico', label: 'A → Z' },
+  { key: 'cumple', label: 'Por día de cumpleaños' },
+];
+
 const MONTHS_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+/** Día del mes del cumpleaños, o null. Mismo criterio UTC que el mes. */
+function birthdayDay(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d.getUTCDate();
+}
+
 /** "15 may" a partir del cumpleaños (día + mes corto). */
 function fmtBday(iso: string | null | undefined): string | null {
   if (!iso) return null;
@@ -131,6 +155,7 @@ export default function CustomersPage() {
   const [staff, setStaff] = useState<StaffOption[]>([]);
   const [sinceDays, setSinceDays] = useState<string>(''); // '' | '7' | '30' | '90'
   const [segment, setSegment] = useState<Segment>('all');
+  const [orden, setOrden] = useState<Orden>('reciente');
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ fullName: '', email: '', phone: '' });
   const [showForm, setShowForm] = useState(false);
@@ -263,6 +288,31 @@ export default function CustomersPage() {
       }
     });
   }, [list, segment]);
+
+  const ordenados = useMemo(() => {
+    const copia = [...visible];
+    if (orden === 'alfabetico') {
+      // `localeCompare` con locale español: así la Ñ va entre la N y la O y
+      // los acentos no mandan a Álvaro al final de la lista.
+      copia.sort((a, b) =>
+        (a.fullName || '').localeCompare(b.fullName || '', 'es', {
+          sensitivity: 'base',
+        }),
+      );
+    } else if (orden === 'cumple') {
+      // Por día del mes. Quien no tiene fecha se va al final: no estorba
+      // arriba y sigue estando en la lista.
+      copia.sort((a, b) => {
+        const da = birthdayDay(a.birthday);
+        const db = birthdayDay(b.birthday);
+        if (da === null && db === null) return 0;
+        if (da === null) return 1;
+        if (db === null) return -1;
+        return da - db;
+      });
+    }
+    return copia;
+  }, [visible, orden]);
 
   const segmentCounts = useMemo(() => {
     const now = Date.now();
@@ -452,6 +502,24 @@ export default function CustomersPage() {
         })}
       </div>
 
+      {/* Ordenar. Lo pidio Primor Barber: con 128 clientes, una lista por
+          fecha de alta no sirve para buscar a nadie por su nombre, ni para
+          saber a quien hay que felicitar esta semana. */}
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-xs text-mute">Ordenar por</span>
+        <select
+          className="input h-8 text-sm w-auto"
+          value={orden}
+          onChange={(e) => setOrden(e.target.value as Orden)}
+        >
+          {ORDENES.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {showForm && (
         <form
           onSubmit={create}
@@ -559,7 +627,7 @@ export default function CustomersPage() {
               </tr>
             )}
             {!loading &&
-              visible.map((c) => (
+              ordenados.map((c) => (
                 <tr
                   key={c.id}
                   className={`border-t border-line2 hover:bg-[#FAFAFB] ${
