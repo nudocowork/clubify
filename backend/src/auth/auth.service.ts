@@ -5,7 +5,7 @@ import * as argon2 from 'argon2';
 import { OAuth2Client } from 'google-auth-library';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, createHmac, randomBytes, randomInt } from 'crypto';
 import { EmailService } from '../email/email.service';
 import { AppConfigService } from '../common/config/app-config.service';
 import { RefreshTokenService } from './refresh-token.service';
@@ -70,6 +70,29 @@ function slugify(s: string) {
 export class AuthService {
   private logger = new Logger(AuthService.name);
   private googleClient: OAuth2Client | null;
+
+  /** Intentos fallidos que aguanta un código SMS antes de quemarse. Con seis
+   *  dígitos y cinco tiros, acertar es 1 entre 200.000. */
+  private static readonly SMS_MAX_INTENTOS = 5;
+  /** Códigos SMS por usuario y hora. Frena tanto el ataque —cada código nuevo
+   *  era otra oportunidad de acertar— como usar nuestro envío para bombardear
+   *  el móvil de otra persona a nuestra costa. */
+  private static readonly SMS_CODIGOS_POR_HORA = 5;
+
+  /**
+   * Hash del código SMS. Va con HMAC y la clave del servidor, no con SHA-256 a
+   * secas: un código de seis dígitos hasheado sin clave se saca de un volcado
+   * de la base con una tabla de un millón de entradas, es decir, al instante.
+   * Con HMAC, el volcado no basta.
+   *
+   * Sigue siendo determinista a propósito, para no perder el `@unique` de
+   * `tokenHash` ni tener que traerse los tokens del usuario para compararlos.
+   */
+  private hashCodigoSms(code: string): string {
+    return createHmac('sha256', process.env.QR_HMAC_SECRET ?? 'sin-clave')
+      .update(code)
+      .digest('hex');
+  }
 
   constructor(
     private prisma: PrismaService,
@@ -451,8 +474,33 @@ export class AuthService {
     const user = await this.findUniqueUserByPhoneLast10(last10);
 
     if (user && user.phone) {
-      const code = String(Math.floor(100000 + Math.random() * 900000));
-      const codeHash = createHash('sha256').update(code).digest('hex');
+      // Tope por usuario y hora. Sin esto, cada petición dejaba un código más
+      // vivo a la vez: con 100 llamadas había 100 códigos válidos y acertar
+      // pasaba de 1 entre un millón a 1 entre 10.000. Y de paso frena usar
+      // nuestro SMS para bombardear el móvil de otra persona.
+      const haceUnaHora = new Date(Date.now() - 60 * 60 * 1000);
+      const pedidos = await this.prisma.passwordResetToken.count({
+        where: { userId: user.id, createdAt: { gte: haceUnaHora } },
+      });
+      if (pedidos >= AuthService.SMS_CODIGOS_POR_HORA) {
+        // Se responde igual que siempre: quien pide esto no debe poder
+        // distinguir «hay tope» de «ese teléfono no existe».
+        this.logger.warn(
+          `Tope de códigos SMS alcanzado para el usuario ${user.id}; no se envía otro.`,
+        );
+        return { ok: true };
+      }
+
+      // Y el que se emite MATA a los anteriores: solo puede haber uno vivo.
+      await this.prisma.passwordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null, expiresAt: { gt: new Date() } },
+        data: { usedAt: new Date() },
+      });
+
+      // randomInt (crypto) y no Math.random(): un código predecible no protege
+      // nada, y este abre la puerta a cambiar la contraseña.
+      const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+      const codeHash = this.hashCodigoSms(code);
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
       await this.prisma.passwordResetToken.create({
@@ -509,29 +557,52 @@ export class AuthService {
     const user = await this.findUniqueUserByPhoneLast10(last10);
     if (!user) throw new BadRequestException('Código inválido o vencido');
 
-    const codeHash = createHash('sha256').update(code.trim()).digest('hex');
+    // Se busca EL código vivo del usuario, no uno que case con el hash. Así se
+    // puede contar cuántas veces se ha fallado contra él: sin contador, seis
+    // dígitos y sin límite de peticiones se adivinan en minutos.
     const token = await this.prisma.passwordResetToken.findFirst({
-      where: {
-        userId: user.id,
-        tokenHash: codeHash,
-        usedAt: null,
-        expiresAt: { gt: new Date() },
-      },
+      where: { userId: user.id, usedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
     });
     if (!token) throw new BadRequestException('Código inválido o vencido');
 
-    const passwordHash = await this.hashPassword(newPassword);
-    await this.prisma.$transaction([
-      this.prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash, passwordChangedAt: new Date() },
-      }),
-      this.prisma.passwordResetToken.update({
-        where: { id: token.id },
+    if (token.attempts >= AuthService.SMS_MAX_INTENTOS) {
+      // Se quema el código: quien se equivoca cinco veces pide otro.
+      await this.prisma.passwordResetToken.updateMany({
+        where: { id: token.id, usedAt: null },
         data: { usedAt: new Date() },
-      }),
-    ]);
+      });
+      throw new BadRequestException(
+        'Demasiados intentos con ese código. Pedí uno nuevo.',
+      );
+    }
+
+    const codeHash = this.hashCodigoSms(code.trim());
+    if (token.tokenHash !== codeHash) {
+      await this.prisma.passwordResetToken.update({
+        where: { id: token.id },
+        data: { attempts: { increment: 1 } },
+      });
+      throw new BadRequestException('Código inválido o vencido');
+    }
+
+    const passwordHash = await this.hashPassword(newPassword);
+    // updateMany + usedAt null: si dos peticiones llegan a la vez con el código
+    // bueno, solo una lo gasta. La otra ve count 0 y no pasa.
+    const gastado = await this.prisma.passwordResetToken.updateMany({
+      where: { id: token.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    if (gastado.count === 0) {
+      throw new BadRequestException('Código inválido o vencido');
+    }
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash, passwordChangedAt: new Date() },
+    });
+    // Cambiar la contraseña por esta vía cierra las sesiones abiertas: si te la
+    // robaron, el token que tenían deja de valer.
+    await this.refreshTokens.revokeAllForUser(user.id).catch(() => undefined);
     return { ok: true };
   }
 

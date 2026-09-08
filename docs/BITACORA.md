@@ -8,6 +8,56 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-08 — Arreglado el reset por SMS. ⚠️ SIN DESPLEGAR, y el orden importa
+
+Primer arreglo de código de esta tanda. **P0-7 cerrado en `main`, no en
+producción.**
+
+### Qué cambió
+
+| Antes | Ahora |
+|---|---|
+| `Math.random()` para el código | `randomInt` (criptográfico) |
+| Cada petición dejaba **otro** código vivo | El nuevo **mata a los anteriores** |
+| Sin tope de peticiones | **5 por usuario y hora** |
+| Sin contador de intentos | **5 fallos y se quema** |
+| SHA-256 a secas | **HMAC** con la clave del servidor |
+| Cambiar la clave dejaba las sesiones vivas | **Revoca todas** |
+
+Acertar vuelve a ser 1 entre 1.000.000, y solo caben **25 tiros por hora** en vez
+de millones.
+
+### ⚠️ Al desplegar: PRIMERO la columna, DESPUÉS el backend
+
+El código nuevo lee `attempts`, que **no existe todavía en producción**. Si se
+despliega el backend primero, las consultas fallan.
+
+```bash
+railway run node backend/scripts/apply-reset-token-attempts-migration.cjs
+node scripts/desplegar.cjs backend
+```
+
+La migración es aditiva e idempotente (`ADD COLUMN IF NOT EXISTS ... DEFAULT 0`),
+se puede repetir sin miedo y no toca nada existente.
+
+**Efecto secundario aceptado:** los códigos SMS emitidos en los 10 minutos
+anteriores al despliegue dejan de valer, porque cambia la forma del hash. Quien
+lo pida otra vez lo tiene al momento.
+
+### Lo que NO se tocó, a propósito
+
+- **El reset por CORREO no se ha rozado.** Comparte tabla pero tiene su propio
+  hash sobre un token de 32 bytes, y ya estaba bien. Comprobado.
+- La validación de contraseña sigue yendo **antes** de tocar el token, que es lo
+  correcto: escribir mal la contraseña no debe gastarte intentos del código.
+
+### Verificación
+
+`npx vitest run src/auth/reset-sms.spec.ts` → 6 pruebas, sin base de datos. Y
+**comprobado que muerden**: quité el «mata a los anteriores» y falló su prueba;
+quité el contador de intentos y falló la suya. Los 25 tests de `src/auth` y
+`src/integrations` siguen en verde, y los cuatro candados también.
+
 ## 2026-09-07 — 🔴 Fase 13: con el teléfono de alguien se le toma la cuenta
 
 Auditado el ciclo de sesión entero. Lo peor primero. **Nada tocado.**

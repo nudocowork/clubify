@@ -408,6 +408,10 @@ model PasswordResetToken {
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   tokenHash String    @unique
+  /// Intentos fallidos de validación. Solo lo usa el código por SMS, que son 6
+  /// dígitos y sin tope se adivina en minutos. El token por correo son 32 bytes
+  /// aleatorios: ahí el contador no cambia nada, pero no estorba.
+  attempts  Int       @default(0)
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime  @default(now())

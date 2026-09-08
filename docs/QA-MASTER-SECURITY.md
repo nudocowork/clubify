@@ -293,9 +293,66 @@ constante.
 
 ---
 
-### 🔴 P0-7 · Con solo el teléfono de alguien se le toma la cuenta
+### 🟡 P0-7 · Con solo el teléfono de alguien se le toma la cuenta
 
-**Estado: ABIERTO. Fase 13, verificado el 2026-09-07. No se tocó.**
+**Estado: ARREGLADO EN `main` el 2026-09-08. SIN DESPLEGAR — y el orden importa,
+ver abajo.**
+
+#### Lo que se cambió
+
+| Antes | Ahora |
+|---|---|
+| `Math.floor(100000 + Math.random() * 900000)` | `randomInt(0, 1_000_000)` — CSPRNG |
+| Cada petición dejaba **otro** código vivo | El nuevo **mata a los anteriores**: solo hay uno |
+| Sin tope de peticiones | **5 por usuario y hora**, respondiendo siempre igual |
+| Sin contador de intentos | **5 fallos y el código se quema** |
+| `SHA-256` a secas del código | **HMAC** con la clave del servidor: un volcado de la base ya no revela los códigos |
+| Cambiar la clave dejaba vivas las sesiones | **Revoca todas** las sesiones del usuario |
+
+Con eso, acertar vuelve a ser 1 entre 1.000.000 y solo se puede intentar 5 veces
+por código, 5 códigos por hora: **25 tiros por hora**, no millones.
+
+Y el consumo del código pasa a ser atómico (`updateMany` mirando el `count`), así
+que dos peticiones simultáneas con el código bueno no lo gastan dos veces.
+
+#### Cómo desplegarlo, que el orden NO es indiferente
+
+El código nuevo lee la columna `attempts`, que hoy **no existe en producción**.
+Si se despliega el backend primero, las consultas fallan.
+
+```bash
+# 1) La columna, ANTES. Aditiva e idempotente: se puede repetir sin miedo.
+railway run node backend/scripts/apply-reset-token-attempts-migration.cjs
+
+# 2) Solo entonces, el backend.
+node scripts/desplegar.cjs backend
+```
+
+**Efecto secundario aceptado:** los códigos SMS emitidos justo antes del
+despliegue dejan de valer, porque cambia la forma del hash. Duran 10 minutos, así
+que la ventana es esa; quien lo pida de nuevo lo tiene al instante.
+
+#### Verificación
+
+```bash
+cd backend && npx vitest run src/auth/reset-sms.spec.ts     # 6 pruebas, sin BD
+```
+
+Cubren las tres protecciones y **está comprobado que muerden**: quitando el «mata
+a los anteriores» falla su prueba, y quitando el contador de intentos falla la
+suya. Una prueba que no sabe fallar no prueba nada.
+
+**Sigue pendiente de este apartado:** el `@Throttle` de estas rutas no funciona
+(P0-2). Lo de aquí no depende de él —el tope por hora y el contador de intentos
+están en la base—, pero con el rate limit arreglado además no se podría ni
+llamar en bucle.
+
+---
+
+<details>
+<summary>Cómo era antes (se deja escrito porque explica por qué el arreglo es el que es)</summary>
+
+**Estado original: ABIERTO. Fase 13, verificado el 2026-09-07.**
 
 Tres fallos pequeños en `forgot-password-sms` / `reset-password-sms` que se
 multiplican entre sí ([auth.service.ts:446](../backend/src/auth/auth.service.ts#L446)):
@@ -324,6 +381,12 @@ coincidencias, y al terminar sí escribe `passwordChangedAt`.
 mismo repo — `randomInt`, el PIN hasheado con argon2, 5 intentos, consumo
 atómico con `updateMany` mirando el `count`, y tope por hora. Y borrar los
 códigos anteriores al emitir uno nuevo.
+
+*(Es exactamente lo que se hizo el 2026-09-08, salvo el hash: se usó HMAC con la
+clave del servidor en vez de argon2, para no perder el `@unique` de `tokenHash`
+ni tener que traerse todos los tokens del usuario para compararlos uno a uno.)*
+
+</details>
 
 ---
 
