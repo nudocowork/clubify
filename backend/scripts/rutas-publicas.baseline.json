@@ -22,6 +22,7 @@
     "POST /cuponera/public/subscribe",
     "POST /metrics/enroll-perf",
     "POST /passes/:id/completar-registro",
+    "POST /passes/:id/google/guardado",
     "POST /passes/demo-wallet/enroll",
     "POST /passes/enroll/:cardId",
     "POST /public/affiliate-signup/register",

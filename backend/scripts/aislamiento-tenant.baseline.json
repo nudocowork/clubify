@@ -1,7 +1,7 @@
 {
   "_cordura": {
     "modelos": 65,
-    "analizadas": 1214
+    "analizadas": 1219
   },
   "archivos": {
     "src/admin-reports/admin-reports.service.ts": 1,
@@ -31,6 +31,7 @@
     "src/admin/commission-exceptions.service.ts": 1,
     "src/affiliate/affiliate.service.ts": 1,
     "src/automations/automations.service.ts": 2,
+    "src/billing/hotmart.service.ts": 1,
     "src/campaigns/campaigns.service.ts": 1,
     "src/crm/crm.service.ts": 2,
     "src/cuponera/membership-billing.service.ts": 1,
