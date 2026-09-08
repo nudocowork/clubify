@@ -1892,6 +1892,7 @@ model Location {
   stamps            Stamp[]
   orders            Order[]
   cards             Card[]
+  productLocations  ProductLocation[]
   reviewQrTargets   ReviewQrTarget[]
   // Fase F 2026-06-07: usuarios del tenant pueden estar asociados a una
   // sede para rankings de sellos por miembro+ubicación.
@@ -2117,7 +2118,59 @@ model Product {
 
   extras   ProductExtra[]
 
+  /// En qué sedes se vende. Dos valores, y la diferencia importa:
+  ///
+  ///  · "TODAS" (por defecto) — se vende en todas, y **también en las que se
+  ///    abran mañana**. Es el estado de los 3.418 productos que ya existen y
+  ///    el de 25 de los 26 negocios con varias sedes, que comparten carta.
+  ///  · "SELECCIONADAS" — solo en las que tengan fila en `ProductLocation`
+  ///    con `selected`. Una sede nueva NO entra sola: la cocina que no hace
+  ///    ese plato no debe empezar a venderlo porque alguien abrió un local.
+  ///
+  /// Un producto en "TODAS" puede igualmente tener filas: ahí sirven para
+  /// precio o disponibilidad propios de una sede, no para decidir dónde se
+  /// vende.
+  locationMode String @default("TODAS")
+
+  productLocations ProductLocation[]
+
   @@index([tenantId, categoryId, position])
+}
+
+/// Un producto EN una sede: dónde se vende y con qué precio.
+///
+/// Sustituye a duplicar el catálogo por sede (`Menu` + copias sincronizadas de
+/// `Product`). Ahí un cambio de precio había que replicarlo carta por carta y
+/// una copia desincronizada era invisible; aquí el producto es uno solo y la
+/// sede guarda **solo lo que cambia**.
+///
+/// Regla de oro: **null = lo mismo que el producto**. Una sede que no
+/// personaliza nada no guarda nada, y hereda sola el cambio de precio base.
+model ProductLocation {
+  id         String   @id @default(uuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  /// Solo cuenta cuando el producto está en `locationMode = "SELECCIONADAS"`:
+  /// marca que esta sede es una de las elegidas.
+  selected Boolean @default(true)
+
+  /// Precio propio de esta sede. Null = el del producto.
+  price       Decimal? @db.Decimal(10, 2)
+  /// Agotado SOLO aquí. Null = lo que diga el producto.
+  isAvailable Boolean?
+  /// Stock de esta sede. Null = sin control de inventario aquí.
+  stock       Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Una fila por producto y sede. Sin esto, dos guardados a la vez dejan dos
+  /// precios distintos para la misma sede y gana el que lea primero.
+  @@unique([productId, locationId])
+  @@index([locationId])
 }
 
 model ProductVariant {

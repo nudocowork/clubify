@@ -1669,7 +1669,8 @@ export class AdminReportsService {
       return PERIODS[normalizePeriod(t.planPeriodicity)].bundlePrice;
     };
 
-    const [paidTenants, activeNoCharge, groups] = await Promise.all([
+    const [paidTenants, activeNoCharge, groups, ingresosReales] =
+      await Promise.all([
       this.prisma.tenant.findMany({
         where: { businessGroupId: null, lastChargeAt: { gte: from, lte: to }, ...tenantWhere },
         select: { id: true, brandName: true, planPeriodicity: true, subscriptionPriceUsd: true, lastChargeAt: true, status: true },
@@ -1688,7 +1689,25 @@ export class AdminReportsService {
         where: { deletedAt: null, lastChargeAt: { gte: from, lte: to }, ...groupWhere },
         select: { id: true, name: true, planPeriodicity: true, priceUsd: true, lastChargeAt: true },
       }),
+      // Las transacciones reales del rango, para que esta lista diga LO MISMO
+      // que la cifra grande del panel. Sin esto el banner decía $917,52 y al
+      // pulsar «Ver empresas» la cabecera decía $1.454,52, con Moa Café y
+      // Oh! Cookies marcados en verde como cobrados sin haber cobrado nada.
+      this.prisma.incomeRecord.findMany({
+        where: { saleDate: { gte: from, lte: to } },
+        select: { tenantId: true, grossUsd: true },
+      }),
     ]);
+
+    // Cuánto entró de verdad por negocio (puede haber más de un cobro).
+    const realPorNegocio = new Map<string, number>();
+    for (const r of ingresosReales) {
+      if (!r.tenantId) continue;
+      realPorNegocio.set(
+        r.tenantId,
+        (realPorNegocio.get(r.tenantId) ?? 0) + (Number(r.grossUsd) || 0),
+      );
+    }
 
     type Row = {
       kind: 'business' | 'group';
@@ -1699,13 +1718,24 @@ export class AdminReportsService {
       paidAt: Date | null;
       status: string;
       estimated?: boolean;
+      /** false = tiene fecha de cobro pero NINGUNA transacción detrás. */
+      sinRegistrar?: boolean;
     };
     const rows: Row[] = [];
     for (const t of paidTenants) {
+      // El importe REAL si lo hay; si no, el de lista, pero marcado — el que
+      // mira la lista tiene que poder distinguir el dinero que entró del que
+      // solo tiene una fecha puesta.
+      const real = realPorNegocio.get(t.id);
       rows.push({
-        kind: 'business', id: t.id, name: t.brandName,
-        plan: normalizePeriod(t.planPeriodicity), amountUsd: round2(billedAmountFor(t)),
-        paidAt: t.lastChargeAt, status: t.status,
+        kind: 'business',
+        id: t.id,
+        name: t.brandName,
+        plan: normalizePeriod(t.planPeriodicity),
+        amountUsd: round2(real ?? billedAmountFor(t)),
+        paidAt: t.lastChargeAt,
+        status: t.status,
+        sinRegistrar: real === undefined,
       });
     }
     // Fallback legacy (mismo criterio que el panel): ACTIVE sin lastChargeAt
@@ -1730,18 +1760,33 @@ export class AdminReportsService {
     for (const g of groups) {
       const key = normalizePeriod(g.planPeriodicity);
       const amount = Number(g.priceUsd) > 0 ? Number(g.priceUsd) : PERIODS[key].bundlePrice;
+      // Un grupo cobra por todos sus negocios de una vez, así que su dinero
+      // real —si lo hay— llega como transacción de alguno de ellos.
       rows.push({
-        kind: 'group', id: g.id, name: g.name, plan: key,
-        amountUsd: round2(amount), paidAt: g.lastChargeAt, status: '—',
+        kind: 'group',
+        id: g.id,
+        name: g.name,
+        plan: key,
+        amountUsd: round2(amount),
+        paidAt: g.lastChargeAt,
+        status: '—',
+        sinRegistrar: true,
       });
     }
     rows.sort((a, b) => (b.paidAt?.getTime() ?? 0) - (a.paidAt?.getTime() ?? 0));
     const total = round2(rows.reduce((s, r) => s + r.amountUsd, 0));
     // Bug 1 (auditoría 2026-08-17): desglose para el pie del modal — el "Cobrado"
     // real (filas con fecha de pago) NO se mezcla con lo estimado (sin cobro).
-    const realRows = rows.filter((r) => !r.estimated);
+    // «Cobrado» = solo lo que tiene transacción detrás, para que este pie diga
+    // el MISMO número que la cifra grande del panel. Lo que tiene fecha pero no
+    // transacción sale en su propio total, no mezclado.
+    const realRows = rows.filter((r) => !r.estimated && !r.sinRegistrar);
+    const sinRegRows = rows.filter((r) => !r.estimated && r.sinRegistrar);
     const estimatedRows = rows.filter((r) => r.estimated);
     const realTotal = round2(realRows.reduce((s, r) => s + r.amountUsd, 0));
+    const sinRegistrarTotal = round2(
+      sinRegRows.reduce((s, r) => s + r.amountUsd, 0),
+    );
     const estimatedTotal = round2(estimatedRows.reduce((s, r) => s + r.amountUsd, 0));
     return {
       range: { kind: opts.range ?? 'last-30', from, to },
@@ -1750,6 +1795,8 @@ export class AdminReportsService {
       // Desglose Cobrado vs Estimado (Bug 1).
       realTotal,
       realCount: realRows.length,
+      sinRegistrarTotal,
+      sinRegistrarCount: sinRegRows.length,
       estimatedTotal,
       estimatedCount: estimatedRows.length,
       companies: rows,

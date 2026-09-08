@@ -167,6 +167,58 @@ escriben, roles por endpoint y dependencias.
 rol, no si le corresponden. `AFFILIATE_*` llega a **74** — es mucho para quien
 solo debería ver sus comisiones. Eso es tuyo, Jhon, y hay que mirarlo aparte.
 
+## 2026-09-07 — Menú por sede: motor construido y funcionando, sin panel todavía
+
+Tres pasos desplegados, y ninguno cambia nada para nadie **todavía**. Es a
+propósito: la lógica se prueba en vivo antes de que exista un dato que la
+active.
+
+1. **`ProductLocation` + `Product.locationMode`** — migración aditiva
+   aplicada. 3.447 productos, todos en `TODAS`, 0 filas. Ni uno cambia de
+   comportamiento.
+2. **`src/catalog/producto-en-sede.ts`** — la decisión entera en funciones
+   puras, 22 pruebas.
+3. **El menú público la usa** — con 0 filas devuelve exactamente lo de ayer.
+
+### Las dos reglas
+
+- **Sin filas = en todas las sedes**, incluidas las que se abran mañana. Es
+  lo que hacen 25 de los 26 negocios con más de una sede, que comparten una
+  sola carta. No mantienen nada, nunca.
+- **Null en un campo = lo mismo que el producto.** La sede que no personaliza
+  el precio lo hereda solo. Es lo que fallaba en las cartas duplicadas: allí
+  había que replicar cada cambio carta por carta.
+
+`TODAS` **no es** «todas las casillas marcadas», y la diferencia solo se nota
+el día que abren un local: en `TODAS` el producto entra solo; en
+`SELECCIONADAS` no entra y alguien decide.
+
+### 🔴 LA CACHÉ DEL MENÚ — apuntar esto
+
+`GET /public/m/:slug/menu` sale con `s-maxage=180, stale-while-revalidate=600`.
+
+La primera pasada de la prueba de extremo a extremo dio «no funciona nada» y
+era mentira: escribía la fila y leía la respuesta de hacía tres minutos. Con
+la caché rota, las ocho comprobaciones salen en verde.
+
+**Afecta al producto, no solo a la prueba.** Cuando el panel deje cambiar el
+precio de una sede, tardará hasta 3 minutos en verse. O se asume y se le dice
+al negocio, o hay que invalidar al guardar. Sin decidirlo, el primer soporte
+va a ser «cambié el precio y no cambia».
+
+### Lo que falta
+
+- El panel: el selector de sedes en el producto y la etiqueta «Todas las
+  sedes». **Nada de esto se puede usar hasta que exista.**
+- Que el pedido cobre el precio de la sede (hoy el carrito lee `basePrice`
+  del menú, que ya viene resuelto — hay que comprobar el camino de `createPublic`).
+- Decidir qué pasa con las cartas duplicadas que ya existen (Fusion sushi es
+  el único negocio con una).
+- La caché de arriba.
+
+`backend/scripts/probar-menu-por-sede.cjs` deja el negocio como estaba pase
+lo que pase; se puede correr contra producción sin miedo.
+
 ## 2026-09-07 — DESPLEGADO: «Cobrado» del panel llevaba meses inflado
 
 Reportado como «al poner Esta semana no refleja el monto real cobrado». La

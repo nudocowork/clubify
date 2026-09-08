@@ -145,6 +145,8 @@ type BilledCompany = {
   paidAt: string | null;
   status: string;
   estimated?: boolean;
+  /** Tiene fecha de cobro pero ninguna transacción detrás. */
+  sinRegistrar?: boolean;
 };
 type BilledCompaniesResp = {
   range: { kind: string; from: string; to: string };
@@ -153,6 +155,8 @@ type BilledCompaniesResp = {
   // Desglose Cobrado vs Estimado (Bug 1).
   realTotal: number;
   realCount: number;
+  sinRegistrarTotal: number;
+  sinRegistrarCount: number;
   estimatedTotal: number;
   estimatedCount: number;
   companies: BilledCompany[];
@@ -279,6 +283,15 @@ export function PremiumDashboard() {
                       <span className="text-emerald-600 font-semibold">
                         Cobrado {usd(companies.realTotal)} ({companies.realCount})
                       </span>
+                      {companies.sinRegistrarCount > 0 && (
+                        <>
+                          {' · '}
+                          <span className="text-orange-600 font-semibold">
+                            Sin transacción {usd(companies.sinRegistrarTotal)} (
+                            {companies.sinRegistrarCount})
+                          </span>
+                        </>
+                      )}
                       {companies.estimatedCount > 0 && (
                         <>
                           {' · '}
@@ -345,6 +358,17 @@ export function PremiumDashboard() {
                             >
                               Estimado
                             </span>
+                          ) : c.sinRegistrar ? (
+                            // Tiene fecha de cobro y ninguna transacción
+                            // detrás. En verde sería mentir: el importe que se
+                            // pinta es el precio de su plan, no dinero que
+                            // entró.
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded-pill bg-orange-100 text-orange-700"
+                              title="Tiene fecha de cobro pero ninguna transacción registrada. O el pago no llegó a Contabilidad, o la fecha quedó colgada."
+                            >
+                              Sin transacción
+                            </span>
                           ) : (
                             <span className="text-[10px] px-1.5 py-0.5 rounded-pill bg-emerald-100 text-emerald-700">
                               Cobrado
@@ -363,6 +387,12 @@ export function PremiumDashboard() {
                 <span className="text-emerald-600">
                   <strong>Cobrado:</strong> {companies.realCount} · {usd(companies.realTotal)}
                 </span>
+                {companies.sinRegistrarCount > 0 && (
+                  <span className="text-orange-600">
+                    <strong>Sin transacción:</strong> {companies.sinRegistrarCount} ·{' '}
+                    {usd(companies.sinRegistrarTotal)}
+                  </span>
+                )}
                 {companies.estimatedCount > 0 && (
                   <span className="text-amber-600">
                     <strong>Estimado:</strong> {companies.estimatedCount} · {usd(companies.estimatedTotal)}

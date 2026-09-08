@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { Prisma } from '@prisma/client';
 
 export type VariantDto = {
   id?: string;
@@ -57,6 +58,27 @@ export type ProductDto = {
   stockAlert?: number | null;
   variants?: VariantDto[];
   extras?: ExtraDto[];
+  /**
+   * En qué sedes se vende y con qué precio. Ver `producto-en-sede.ts`.
+   *
+   * Si NO se manda, no se toca nada — un guardado desde una pantalla que no
+   * conoce las sedes no puede borrarle al negocio lo que configuró.
+   */
+  sedes?: SedesDto;
+};
+
+export type SedesDto = {
+  /** TODAS = también las que se abran mañana. SELECCIONADAS = solo las marcadas. */
+  modo: 'TODAS' | 'SELECCIONADAS';
+  filas?: {
+    locationId: string;
+    selected?: boolean;
+    /** null = el precio del producto. */
+    price?: number | null;
+    /** null = lo que diga el producto. */
+    isAvailable?: boolean | null;
+    stock?: number | null;
+  }[];
 };
 
 @Injectable()
@@ -106,7 +128,14 @@ export class ProductsService {
   async get(user: AuthUser, id: string) {
     const p = await this.prisma.product.findUnique({
       where: { id },
-      include: { variants: true, extras: true, category: true },
+      include: {
+        variants: true,
+        extras: true,
+        category: true,
+        // Para que el panel pinte el selector con lo que ya hay guardado.
+        // Sin filas = «todas las sedes», que es lo normal.
+        productLocations: true,
+      },
     });
     if (!p) throw new NotFoundException();
     if (user.role !== 'SUPER_ADMIN' && p.tenantId !== user.tenantId) {
@@ -115,64 +144,151 @@ export class ProductsService {
     return p;
   }
 
+  /**
+   * Guarda en qué sedes se vende el producto y qué tiene distinto en cada una.
+   *
+   * Dos cosas que no son opcionales:
+   *
+   *  · **Solo sedes de ESTE negocio.** Sin el filtro, una llamada a la API a
+   *    mano podría escribirle el precio de un producto en la sede de otro
+   *    negocio. El panel nunca lo haría; la API no la escribe solo el panel.
+   *  · **Las filas vacías no se guardan.** «Sin filas = en todas las sedes» es
+   *    la regla de la que cuelga todo lo demás (`producto-en-sede.ts`), y
+   *    dejar filas que no dicen nada la va oxidando: mañana alguien cuenta
+   *    filas para saber si un producto está personalizado y le sale que sí.
+   */
+  private async guardarSedes(
+    tx: Prisma.TransactionClient,
+    productId: string,
+    tenantId: string,
+    sedes: SedesDto,
+  ) {
+    const modo = sedes.modo === 'SELECCIONADAS' ? 'SELECCIONADAS' : 'TODAS';
+
+    const mias = new Set(
+      (
+        await tx.location.findMany({
+          where: { tenantId },
+          select: { id: true },
+        })
+      ).map((l) => l.id),
+    );
+
+    const filas = (sedes.filas ?? [])
+      .filter((f) => f.locationId && mias.has(f.locationId))
+      .map((f) => ({
+        locationId: f.locationId,
+        selected: f.selected !== false,
+        price: f.price ?? null,
+        isAvailable: f.isAvailable ?? null,
+        stock: f.stock ?? null,
+      }))
+      // Una fila solo se guarda si dice ALGO: o marca la sede (cuando el
+      // producto va por sedes elegidas), o lleva precio/agotado/stock propios.
+      .filter(
+        (f) =>
+          (modo === 'SELECCIONADAS' && f.selected) ||
+          f.price !== null ||
+          f.isAvailable !== null ||
+          f.stock !== null,
+      );
+
+    await tx.product.update({
+      where: { id: productId },
+      data: { locationMode: modo },
+    });
+
+    const quedan = filas.map((f) => f.locationId);
+    await tx.productLocation.deleteMany({
+      where: {
+        productId,
+        ...(quedan.length ? { locationId: { notIn: quedan } } : {}),
+      },
+    });
+
+    for (const f of filas) {
+      await tx.productLocation.upsert({
+        where: {
+          productId_locationId: { productId, locationId: f.locationId },
+        },
+        create: { productId, ...f },
+        update: {
+          selected: f.selected,
+          price: f.price,
+          isAvailable: f.isAvailable,
+          stock: f.stock,
+        },
+      });
+    }
+  }
+
   async create(user: AuthUser, dto: ProductDto, override?: string) {
     const tid = this.tid(user, override);
-    return this.prisma.product.create({
-      data: {
-        tenantId: tid,
-        // La carta que se esta editando. Sin esto, un producto creado desde la
-        // carta de la sede 2 aparecia en el menu principal.
-        menuId: dto.menuId ?? null,
-        categoryId: dto.categoryId ?? null,
-        name: dto.name,
-        description: dto.description ?? '',
-        basePrice: dto.basePrice,
-        priceMode: dto.priceMode ?? 'FIXED',
-        priceMax:
-          dto.priceMode === 'RANGE' && dto.priceMax != null
-            ? dto.priceMax
-            : null,
-        variantPriceMode: dto.variantPriceMode ?? 'DELTA',
-        maxVariantsTotal:
-          dto.maxVariantsTotal != null && dto.maxVariantsTotal > 1
-            ? Math.floor(dto.maxVariantsTotal)
-            : null,
-        maxExtrasTotal:
-          dto.maxExtrasTotal != null && dto.maxExtrasTotal > 0
-            ? Math.floor(dto.maxExtrasTotal)
-            : null,
-        imageUrl: dto.imageUrl,
-        tags: dto.tags ?? [],
-        isAvailable: dto.isAvailable ?? true,
-        availableForMesa: dto.availableForMesa ?? true,
-        availableForDelivery: dto.availableForDelivery ?? true,
-        isRecommended: dto.isRecommended ?? false,
-        position: dto.position ?? 0,
-        stock: dto.stock ?? null,
-        stockAlert: dto.stockAlert ?? null,
-        variants: dto.variants
-          ? {
-              create: dto.variants.map((v) => ({
-                groupName: v.groupName ?? 'Tamaño',
-                name: v.name,
-                priceDelta: v.priceDelta,
-                isDefault: v.isDefault ?? false,
-                position: v.position ?? 0,
-              })),
-            }
-          : undefined,
-        extras: dto.extras
-          ? {
-              create: dto.extras.map((e) => ({
-                name: e.name,
-                price: e.price,
-                maxQty: e.maxQty ?? 1,
-                isAvailable: e.isAvailable ?? true,
-              })),
-            }
-          : undefined,
-      },
-      include: { variants: true, extras: true, category: true },
+    return this.prisma.$transaction(async (tx) => {
+      const creado = await tx.product.create({
+        data: {
+          tenantId: tid,
+          // La carta que se esta editando. Sin esto, un producto creado desde la
+          // carta de la sede 2 aparecia en el menu principal.
+          menuId: dto.menuId ?? null,
+          categoryId: dto.categoryId ?? null,
+          name: dto.name,
+          description: dto.description ?? '',
+          basePrice: dto.basePrice,
+          priceMode: dto.priceMode ?? 'FIXED',
+          priceMax:
+            dto.priceMode === 'RANGE' && dto.priceMax != null
+              ? dto.priceMax
+              : null,
+          variantPriceMode: dto.variantPriceMode ?? 'DELTA',
+          maxVariantsTotal:
+            dto.maxVariantsTotal != null && dto.maxVariantsTotal > 1
+              ? Math.floor(dto.maxVariantsTotal)
+              : null,
+          maxExtrasTotal:
+            dto.maxExtrasTotal != null && dto.maxExtrasTotal > 0
+              ? Math.floor(dto.maxExtrasTotal)
+              : null,
+          imageUrl: dto.imageUrl,
+          tags: dto.tags ?? [],
+          isAvailable: dto.isAvailable ?? true,
+          availableForMesa: dto.availableForMesa ?? true,
+          availableForDelivery: dto.availableForDelivery ?? true,
+          isRecommended: dto.isRecommended ?? false,
+          position: dto.position ?? 0,
+          stock: dto.stock ?? null,
+          stockAlert: dto.stockAlert ?? null,
+          variants: dto.variants
+            ? {
+                create: dto.variants.map((v) => ({
+                  groupName: v.groupName ?? 'Tamaño',
+                  name: v.name,
+                  priceDelta: v.priceDelta,
+                  isDefault: v.isDefault ?? false,
+                  position: v.position ?? 0,
+                })),
+              }
+            : undefined,
+          extras: dto.extras
+            ? {
+                create: dto.extras.map((e) => ({
+                  name: e.name,
+                  price: e.price,
+                  maxQty: e.maxQty ?? 1,
+                  isAvailable: e.isAvailable ?? true,
+                })),
+              }
+            : undefined,
+        },
+        include: { variants: true, extras: true, category: true },
+      });
+      // Va DENTRO de la misma transacción: si guardar las sedes falla, el
+      // producto tampoco se crea. Peor que no crearlo es crearlo a medias
+      // y que se venda donde no toca.
+      if (dto.sedes) {
+        await this.guardarSedes(tx, creado.id, tid, dto.sedes);
+      }
+      return creado;
     });
   }
 
@@ -270,9 +386,21 @@ export class ProductsService {
       // carta, que son la inmensa mayoria.
       await this.propagarASincronizados(tx, id, dto);
 
+      // Solo si el guardado trae sedes. Una pantalla que no las conoce —el
+      // editor rápido de precios, una importación— no puede borrarle al
+      // negocio lo que configuró por no mandarlas.
+      if (dto.sedes) {
+        await this.guardarSedes(tx, id, existing.tenantId, dto.sedes);
+      }
+
       return tx.product.findUnique({
         where: { id },
-        include: { variants: true, extras: true, category: true },
+        include: {
+          variants: true,
+          extras: true,
+          category: true,
+          productLocations: true,
+        },
       });
     });
   }
