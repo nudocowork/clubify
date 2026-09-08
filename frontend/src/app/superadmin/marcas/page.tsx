@@ -21,6 +21,7 @@ type WhiteLabel = {
   instagram: string | null;
   contactEmail: string | null;
   notifyPhone: string | null;
+  demoButtonWhatsApp: string | null;
   mapsApiKey: string | null;
   shareImageUrl: string | null;
   whatsappQrUrl: string | null;
@@ -693,6 +694,7 @@ function BrandDetailFull({
                   instagram: w.instagram,
                   contactEmail: w.contactEmail,
                   notifyPhone: w.notifyPhone,
+                  demoButtonWhatsApp: w.demoButtonWhatsApp,
                   mapsApiKey: w.mapsApiKey,
                   shareImageUrl: w.shareImageUrl ?? null,
                   subscriptionFeatureKeys: w.subscriptionFeatureKeys ?? [],
@@ -2782,6 +2784,7 @@ function BrandingConfig({
     instagram: string | null;
     contactEmail: string | null;
     notifyPhone: string | null;
+    demoButtonWhatsApp: string | null;
     mapsApiKey: string | null;
     shareImageUrl: string | null;
     subscriptionFeatureKeys: string[];
@@ -2802,6 +2805,7 @@ function BrandingConfig({
     instagram: initial.instagram ?? '',
     contactEmail: initial.contactEmail ?? '',
     notifyPhone: initial.notifyPhone ?? '',
+    demoButtonWhatsApp: initial.demoButtonWhatsApp ?? '',
     mapsApiKey: initial.mapsApiKey ?? '',
     installationFeeUsd:
       initial.installationFeeUsd != null ? String(initial.installationFeeUsd) : '',
@@ -2881,7 +2885,13 @@ function BrandingConfig({
 
   const textInput = (
     label: string,
-    key: 'logoUrl' | 'instagram' | 'contactEmail' | 'notifyPhone' | 'mapsApiKey',
+    key:
+      | 'logoUrl'
+      | 'instagram'
+      | 'contactEmail'
+      | 'notifyPhone'
+      | 'demoButtonWhatsApp'
+      | 'mapsApiKey',
     placeholder: string,
   ) => (
     <div>
@@ -3017,6 +3027,15 @@ function BrandingConfig({
         )}
         <p className="text-[11px]" style={{ color: '#9aa3ad', marginTop: -4 }}>
           Recibe los avisos de créditos (compra, saldo bajo, pendientes).
+        </p>
+        {textInput(
+          'WhatsApp de la landing',
+          'demoButtonWhatsApp',
+          '+1 305 310 7130',
+        )}
+        <p className="text-[11px]" style={{ color: '#9aa3ad', marginTop: -4 }}>
+          El número de los botones de la página pública: «Agendar demo»,
+          «Escríbenos» y el del pie. No es el mismo que el de arriba.
         </p>
         {textInput('Google Maps API key (mapa del panel)', 'mapsApiKey', 'AIza…')}
         <p className="text-[11px]" style={{ color: '#9aa3ad', marginTop: -4 }}>

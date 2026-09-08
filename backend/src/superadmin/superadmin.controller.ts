@@ -29,6 +29,16 @@ class WhiteLabelBody {
   @IsOptional() @IsEmail() contactEmail?: string;
   // Teléfono al que la plataforma le manda los SMS de créditos a la marca.
   @IsOptional() @IsString() @MaxLength(30) notifyPhone?: string;
+  /**
+   * El WhatsApp que sale en la LANDING de la marca: el boton de demo, el del
+   * pie y el de «Escribenos».
+   *
+   * No estaba aqui, y por eso el 2026-09-08 el cambio de telefono de Sellea
+   * no llego a ninguna parte: la unica casilla del panel guardaba en
+   * `notifyPhone` —que es otra cosa, los SMS de creditos— mientras la landing
+   * segui­a leyendo esta columna, que solo habia escrito un script en junio.
+   */
+  @IsOptional() @IsString() @MaxLength(30) demoButtonWhatsApp?: string;
   // Google Maps API key de la marca (browser key restringida por referrer).
   @IsOptional() @IsString() @MaxLength(200) mapsApiKey?: string;
   // Periodicidades de plan que ofrece la marca (form "Nuevo negocio").
