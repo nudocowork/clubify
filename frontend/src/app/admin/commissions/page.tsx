@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
@@ -380,6 +380,30 @@ function AdvancedCommissionsView() {
   const t = useTranslations('admin_commissions');
   const [data, setData] = useState<CommissionsResp | null>(null);
   const [loading, setLoading] = useState(true);
+  /**
+   * Las comisiones, en orden cronologico de verdad.
+   *
+   * La lista salia como viniera del backend: 30 jul, 2 jul, 30 may, 1 sep.
+   * Con eso no se puede revisar el corte de un negocio ni cuadrar un pago.
+   *
+   * Se ordena por la MISMA fecha que se pinta en la primera columna
+   * —`commissionDate` si esta fijada a mano, si no la de creacion— y de la
+   * mas reciente a la mas vieja, que es como se mira: lo ultimo primero.
+   * A igualdad de fecha, por negocio, para que las de un mismo negocio queden
+   * juntas en vez de barajadas.
+   */
+  const itemsOrdenados = useMemo(() => {
+    const fecha = (c: CommissionRow) =>
+      new Date(c.commissionDate ?? c.createdAt).getTime() || 0;
+    return [...(data?.items ?? [])].sort(
+      (a, b) =>
+        fecha(b) - fecha(a) ||
+        (a.tenant?.brandName ?? '').localeCompare(
+          b.tenant?.brandName ?? '',
+          'es',
+        ),
+    );
+  }, [data]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   // Brief PASO 5: tipo de fecha activo (compra por defecto = la columna FECHA
@@ -518,7 +542,7 @@ function AdvancedCommissionsView() {
       t('csvEnabledDate'),
       t('csvPaidDate'),
     ];
-    const rows = data.items.map((c) => [
+    const rows = itemsOrdenados.map((c) => [
       fmtDate(c.commissionDate ?? c.createdAt),
       c.tenant?.brandName ?? '',
       c.tenant?.planName ?? '',
@@ -854,7 +878,7 @@ function AdvancedCommissionsView() {
                 </tr>
               )}
               {!loading &&
-                (data?.items ?? []).map((c) => {
+                itemsOrdenados.map((c) => {
                   const badge = lifecycleBadge(c.status, c.paymentStatus);
                   return (
                     <tr
