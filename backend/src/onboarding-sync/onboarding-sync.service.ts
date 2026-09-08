@@ -422,6 +422,19 @@ export class OnboardingSyncService {
     if (b.reservations !== undefined) tData.reservationsEnabled = !!b.reservations;
     if (b.serviceReservations !== undefined)
       tData.serviceReservationsEnabled = !!b.serviceReservations;
+    // Los tres que se asignan ANTES de mandarle el onboarding al negocio.
+    // Van aqui y no en el panel de admin a mano porque quien los decide es
+    // quien hace el alta, y lo decide mientras habla con el cliente.
+    //
+    // Los tres estan apagados por defecto y encenderlos NO crea nada: abren
+    // la seccion en el panel del negocio para que la monte el mismo.
+    // Apagarlos tampoco borra — lo configurado se queda esperando.
+    if (b.club !== undefined) tData.clubEnabled = !!b.club;
+    if (b.convenios !== undefined) tData.conveniosEnabled = !!b.convenios;
+    // Menu por sede: precio y disponibilidad propios de cada local sobre UN
+    // solo catalogo. Solo tiene sentido con dos sedes o mas, y solo si el
+    // negocio lo pide: 25 de los 26 que tienen varias usan la misma carta.
+    if (b.sedeMenu !== undefined) tData.sedeMenuEnabled = !!b.sedeMenu;
     if (Object.keys(tData).length) {
       await this.prisma.tenant.update({
         where: { id: tenantId },
