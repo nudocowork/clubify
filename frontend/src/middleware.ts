@@ -473,8 +473,13 @@ export async function middleware(req: NextRequest) {
   if (!slug) return NextResponse.next();
 
   if (url.pathname === '/') {
+    // La raiz de un dominio propio va al INFOLINK del negocio, no al menu.
+    // El infolink es su hub: menu, WhatsApp, resenas, redes. Un negocio que
+    // paga por tener su dominio quiere su pagina, no una carta suelta.
+    //
+    // Rewrite y no redirect: la barra de direcciones se queda con SU dominio.
     const rewrite = url.clone();
-    rewrite.pathname = `/m/${slug}`;
+    rewrite.pathname = `/i/${slug}`;
     return NextResponse.rewrite(rewrite);
   }
 

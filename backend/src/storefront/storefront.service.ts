@@ -315,11 +315,28 @@ export class StorefrontService {
     return locations;
   }
 
+  /**
+   * De qué negocio es este dominio.
+   *
+   * Prueba el host tal cual y TAMBIÉN sin `www.`. Sin eso,
+   * `www.birrialeon.com` no resolvía —el dominio guardado es
+   * `birrialeon.com`—, el middleware se quedaba sin negocio y el visitante
+   * acababa en la landing de Clubify. Con el dominio del cliente en la barra
+   * de direcciones.
+   *
+   * Es la clase de fuga de marca más cara de este producto, y aquí llegaba
+   * por un prefijo de cuatro letras: casi todos los DNS mandan el dominio
+   * desnudo al `www`, así que el caso NORMAL era el roto.
+   */
   async resolveHost(host: string) {
     const normalized = this.normalizeDomain(host);
     if (!normalized) return null;
+    const candidatos = [normalized];
+    if (normalized.startsWith('www.')) candidatos.push(normalized.slice(4));
+    else candidatos.push(`www.${normalized}`);
+
     const sf = await this.prisma.storefront.findFirst({
-      where: { customDomain: normalized, isPublished: true },
+      where: { customDomain: { in: candidatos }, isPublished: true },
       include: { tenant: { select: { slug: true, brandName: true } } },
     });
     if (!sf) return null;

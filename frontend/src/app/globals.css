@@ -307,6 +307,9 @@
   body[data-print-mode="receipt"] .receipt-only { display: block !important; }
   body[data-print-mode="receipt"] .print-only { display: none !important; }
 
+  /* Respaldo, por si alguien imprime con Ctrl+P sin pasar por los botones:
+     el caso más común es el ticket. Los botones inyectan la medida correcta
+     (ver `src/lib/imprimir.ts`), que gana por ir en un <style> del documento. */
   @page { margin: 8mm; size: 80mm auto; }
   @page :first { margin: 8mm; }
 }
@@ -468,7 +471,19 @@
   body:has(.poster-print-only) aside,
   body:has(.poster-print-only) nav,
   body:has(.poster-print-only) .print-hide { display: none !important; }
-  @page { size: A4 portrait; margin: 12mm; }
+
+  /* AQUÍ NO VA UN @page. Un `@page` no se puede acotar con un selector: es
+     GLOBAL por mucho que esté escrito dentro de un bloque. El que había aquí
+     —`size: A4 portrait`— ganaba por ser el último del archivo y le imponía
+     A4 a TODO, incluido el ticket de cocina, que está maquetado a 72 mm para
+     un rollo térmico de 80. La impresora recibía una página A4 con el
+     contenido en una esquina y sacaba papel EN BLANCO.
+
+     Reportado por Serendipity el 2026-09-08: «intentó imprimir un pedido y
+     su factura salió totalmente en blanco».
+
+     El tamaño lo pone ahora quien imprime, justo antes de imprimir:
+     `medidaDePagina()` en `src/lib/imprimir.ts`. */
 }
 
 .poster {

@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { imprimirCon } from '@/lib/imprimir';
 import { DeliveryChat, type ChatMessage } from '@/components/DeliveryChat';
 
 type OrderItem = {
@@ -135,6 +136,7 @@ export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
   const [o, setO] = useState<Order | null>(null);
   const [busy, setBusy] = useState(false);
+  const [negocio, setNegocio] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   // Edición del método de pago declarado por el cliente.
   const [editPay, setEditPay] = useState(false);
@@ -222,14 +224,31 @@ export default function OrderDetail() {
     }
   }
 
+  // El nombre del negocio, para el recibo que se le entrega al cliente.
+  useEffect(() => {
+    let vivo = true;
+    api<{ brandName?: string }>('/tenants/me')
+      .then((me) => {
+        if (vivo && me?.brandName) setNegocio(me.brandName);
+      })
+      .catch(() => null);
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
   function printAs(mode: 'ticket' | 'receipt') {
-    document.body.dataset.printMode = mode;
-    setTimeout(() => {
-      window.print();
-      setTimeout(() => {
+    // La medida de pagina se inyecta al imprimir. Ver `lib/imprimir.ts`: el
+    // @page del poster era global y le imponia A4 al ticket termico, que salia
+    // en blanco.
+    imprimirCon(mode === 'receipt' ? 'recibo' : 'ticket', {
+      antes: () => {
+        document.body.dataset.printMode = mode;
+      },
+      despues: () => {
         delete document.body.dataset.printMode;
-      }, 500);
-    }, 50);
+      },
+    });
   }
 
   if (!o) return <div className="text-mute">{t('loading')}</div>;
@@ -739,7 +758,7 @@ export default function OrderDetail() {
 
      {/* Ticket para imprimir — solo visible en window.print() */}
      <KitchenTicket order={o} />
-     <CustomerReceipt order={o} />
+     <CustomerReceipt order={o} negocio={negocio} />
     </div>
   );
 }
@@ -1193,13 +1212,25 @@ function PrintMenu({
   );
 }
 
-function CustomerReceipt({ order }: { order: Order }) {
+function CustomerReceipt({
+  order,
+  negocio,
+}: {
+  order: Order;
+  /** Nombre del negocio. Null mientras carga o si no se pudo resolver. */
+  negocio: string | null;
+}) {
   const t = useTranslations('app_orders_id');
   return (
     <div className="receipt-only">
       <div className="receipt">
         <div className="receipt-head">
-          <div className="receipt-brand">CLUBIFY</div>
+          {/* El nombre del NEGOCIO, no el nuestro. Aqui decia «CLUBIFY» a
+              fuego: un recibo que se le entrega a un cliente de Serendipity
+              —o de cualquier negocio de una marca blanca— con el nombre de la
+              plataforma encima. Si no se resolvio, no se pinta nada: mejor un
+              recibo sin encabezado que uno con la marca de otro. */}
+          {negocio && <div className="receipt-brand">{negocio}</div>}
           <div className="receipt-code">{t('receiptOrderCode', { code: order.code })}</div>
           <div className="receipt-date">
             {new Date(order.createdAt).toLocaleString('es-CO', {

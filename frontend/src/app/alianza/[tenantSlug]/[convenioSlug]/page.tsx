@@ -51,7 +51,15 @@ export default function ActivarAlianza() {
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [passId, setPassId] = useState<string | null>(null);
-  const [abriendoGoogle, setAbriendoGoogle] = useState(false);
+  // El enlace de Google Wallet, resuelto EN CUANTO existe el pase.
+  //
+  // Antes se pedia al pulsar y se navegaba con `window.location.href`. En
+  // Android eso NO es un enlace: perdido el gesto del usuario, ni Chrome ni el
+  // navegador incrustado de WhatsApp le entregan `pay.google.com/gp/v/save` a
+  // la app de Google Wallet, y el boton se quedaba sin hacer nada. En iPhone
+  // no se notaba porque el boton de Apple siempre fue un <a> normal.
+  const [googleSaveUrl, setGoogleSaveUrl] = useState<string | null>(null);
+  const [googleFallo, setGoogleFallo] = useState(false);
 
   useEffect(() => {
     fetch(`${API}/api/public/alianzas/${tenantSlug}/${convenioSlug}`)
@@ -59,6 +67,25 @@ export default function ActivarAlianza() {
       .then(setInfo)
       .catch(() => setNoExiste(true));
   }, [tenantSlug, convenioSlug]);
+
+  useEffect(() => {
+    if (!passId) return;
+    let vivo = true;
+    setGoogleFallo(false);
+    fetch(`${API}/api/passes/${passId}/google`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((d) => {
+        if (!vivo) return;
+        if (d?.saveUrl) setGoogleSaveUrl(d.saveUrl);
+        else setGoogleFallo(true);
+      })
+      .catch(() => {
+        if (vivo) setGoogleFallo(true);
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [passId]);
 
   async function activar(e: React.FormEvent) {
     e.preventDefault();
@@ -139,31 +166,28 @@ export default function ActivarAlianza() {
           >
             Añadir a Apple Wallet
           </a>
-          {/* Google Wallet NO se enlaza directo: `/passes/:id/google` devuelve
-              `{ saveUrl }` en JSON, así que un <a> normal le enseña el JSON en
-              pantalla al empleado en vez de abrir la billetera. Hay que pedirlo
-              y luego navegar, como hace el resto del producto. */}
-          <button
-            type="button"
-            className="rounded-xl border border-neutral-300 px-4 py-3 text-center text-sm font-medium disabled:opacity-60"
-            disabled={abriendoGoogle}
-            onClick={async () => {
-              setAbriendoGoogle(true);
-              try {
-                const r = await fetch(`${API}/api/passes/${passId}/google`);
-                const d = await r.json();
-                if (d?.saveUrl) window.location.href = d.saveUrl;
-                else throw new Error();
-              } catch {
-                setError(
-                  'No pudimos abrir Google Wallet. Inténtalo de nuevo en un momento.',
-                );
-                setAbriendoGoogle(false);
-              }
-            }}
-          >
-            {abriendoGoogle ? 'Abriendo…' : 'Añadir a Google Wallet'}
-          </button>
+{/* Un <a> de verdad, con el enlace ya resuelto. `/passes/:id/google`
+              devuelve `{ saveUrl }` en JSON —por eso no se puede enlazar ese
+              endpoint directamente—, pero se pide al cargar y aquí ya está.
+              Tiene que ser un enlace: Android solo le entrega el pase a Google
+              Wallet cuando la navegación sale de un toque del usuario. */}
+          {googleSaveUrl ? (
+            <a
+              href={googleSaveUrl}
+              className="rounded-xl border border-neutral-300 px-4 py-3 text-center text-sm font-medium"
+            >
+              Añadir a Google Wallet
+            </a>
+          ) : googleFallo ? (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              No pudimos preparar la tarjeta para Google Wallet. Recarga la
+              página e inténtalo de nuevo.
+            </p>
+          ) : (
+            <span className="rounded-xl border border-neutral-200 px-4 py-3 text-center text-sm font-medium text-neutral-400">
+              Preparando Google Wallet…
+            </span>
+          )}
           {error && (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
               {error}

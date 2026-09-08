@@ -371,17 +371,33 @@ export class GoogleWalletService {
       const cacheBust = `${activityV}-${designV}`;
       // 1° hero — banner con título + stats (sellos faltantes, recompensas,
       // premio siguiente). Aparece como primer image module.
-      imageModules.push({
-        id: 'hero',
-        mainImage: {
-          sourceUri: {
-            uri: `${apiUrl}/api/passes/${pass.id}/hero.png?v=${cacheBust}`,
+      //
+      // NO va en las tarjetas de ALIANZA. `generatePassHeroImage` devuelve
+      // null para ellas a propósito (wallet.service.ts) y el controlador
+      // convierte ese null en un 404. El comentario de allí decía que
+      // devolver null «hace que Google se salte el módulo», y es falso: la
+      // URL seguía dentro del JWT, Google la iba a buscar al guardar, se
+      // encontraba el 404 y abortaba el guardado entero.
+      //
+      // De ahí el síntoma que se reportó el 2026-09-08: la tarjeta de alianzas
+      // no se podía añadir en ANDROID y en iPhone sí. Apple no descarga nada
+      // —dibuja su propia franja del aliado—, así que nunca se enteró.
+      //
+      // El `strip` sí se queda: para alianzas devuelve 200 y es el que pinta
+      // el logo del aliado.
+      if (!pass.card?.convenioId) {
+        imageModules.push({
+          id: 'hero',
+          mainImage: {
+            sourceUri: {
+              uri: `${apiUrl}/api/passes/${pass.id}/hero.png?v=${cacheBust}`,
+            },
+            contentDescription: {
+              defaultValue: { language: 'es', value: L.accumulate },
+            },
           },
-          contentDescription: {
-            defaultValue: { language: 'es', value: L.accumulate },
-          },
-        },
-      });
+        });
+      }
       // 2° strip — grilla de sellos con cookies/iconos.
       imageModules.push({
         id: 'strip',
