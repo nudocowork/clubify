@@ -8,6 +8,50 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-07 — DESPLEGADO: «Cobrado» del panel llevaba meses inflado
+
+Reportado como «al poner Esta semana no refleja el monto real cobrado». La
+semana estaba bien —empieza el lunes, y el lunes por la mañana el rango son
+horas—. Lo que estaba mal era la cifra, y en todos los rangos.
+
+**No sumaba pagos.** Contaba NEGOCIOS con `lastChargeAt` dentro del rango y le
+ponía a cada uno el precio de su plan. Falla por los dos lados a la vez.
+Septiembre, contra producción:
+
+```
+  PANEL                          REAL (IncomeRecord)
+  Moa Café        ANUAL   $480   — no hay transacción —
+  Oh! Cookies     TRIM.   $135   — no hay transacción —
+  Segundo Piso    TRIM.   $135   $150
+  Dónde Jeank     MENS.    $50   $68   (primer pago)
+  La Cacerola     TRIM.   $135   $150  (primer pago)
+  demo demo       MENS.    $50   $80   (Stripe)
+  …
+  TOTAL        $1.454,52         $917,52     → 58% de más
+```
+
+$615 de esos eran caja que **nunca entró**: dos negocios con fecha de cobro y
+ninguna transacción detrás. Y un negocio que pagara dos veces en el rango
+contaba una sola vez, al precio de su plan.
+
+Ahora sale de `IncomeRecord`, la misma fuente que Contabilidad. Lo que tiene
+fecha pero no transacción se pinta aparte, en «sin transacción registrada» —
+o es un pago que no llegó a Contabilidad y hay que perseguirlo, o una fecha
+colgada y hay que limpiarla.
+
+**Ojo con los rangos largos.** `IncomeRecord` empieza el 2026-06-14 (ver la
+entrada de Contabilidad). En «Este año», lo de antes de esa fecha caerá en
+«sin transacción registrada». Es verdad, no un fallo nuevo: ese dinero no
+está en ninguna tabla.
+
+La cuenta vive ahora en `src/admin-reports/cobrado.ts`, fuera del servicio
+gigante, con 12 pruebas — el caso de septiembre entre ellas. Al extraerla me
+cargué el bloque de PROYECTADO y lo restauré antes de compilar; queda dicho
+por si alguien ve el diff y se pregunta.
+
+El banner enseña además las fechas del rango, para que un lunes «Esta semana ·
+7 sep» se lea como lo que es.
+
 ## 2026-09-07 — DESPLEGADO: Difusión interna llega a los negocios, y se turna
 
 **Qué había.** «Difusión interna» (banner + popup) solo se pintaba en
