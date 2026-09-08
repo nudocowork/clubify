@@ -484,6 +484,15 @@ model Tenant {
   /// negocio, como las alianzas y las cartas por sede. Apagado por defecto
   /// porque cambia el menú del panel de los ~168 negocios que hay.
   clubEnabled                 Boolean                    @default(false)
+  /// Menu por SEDE: precio propio y disponibilidad por local, sobre UN solo
+  /// catalogo. Se habilita negocio por negocio, igual que las cartas por sede,
+  /// las alianzas y el club.
+  ///
+  /// Apagado por defecto y a proposito: 25 de los 26 negocios con varias sedes
+  /// usan la MISMA carta en todas y no tienen por que ver esta complejidad.
+  /// Apagarlo no borra nada — las filas de `ProductLocation` se quedan y
+  /// vuelven a aplicar si se enciende otra vez.
+  sedeMenuEnabled             Boolean                    @default(false)
   /// Cuántos convenios ACTIVOS puede tener a la vez.
   maxConvenios                Int                        @default(3)
   convenios                   Convenio[]

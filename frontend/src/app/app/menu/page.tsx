@@ -178,6 +178,9 @@ export default function MenuEditor() {
   // Fix 2026-06-10: moneda del tenant para mostrar precios correctos.
   // Default COP para fallback histórico mientras /tenants/me carga.
   const [tenantCurrency, setTenantCurrency] = useState<string>('COP');
+  // Interruptor del menu por sede. Lo enciende casa desde el panel de admin,
+  // negocio por negocio, antes de mandarle el onboarding.
+  const [sedeMenuEnabled, setSedeMenuEnabled] = useState(false);
   // Override opcional del símbolo (ej "Ref." para Venezuela). null = usar
   // el símbolo automático de la moneda.
   const [tenantCurrencySymbol, setTenantCurrencySymbol] = useState<
@@ -269,9 +272,11 @@ export default function MenuEditor() {
       businessCategorySlug?: string | null;
       currency?: string;
       currencySymbol?: string | null;
+      sedeMenuEnabled?: boolean;
     }>('/tenants/me')
       .then((me) => {
         setTenantSlug(me?.slug ?? null);
+        setSedeMenuEnabled(me?.sedeMenuEnabled === true);
         if (me?.currency) setTenantCurrency(me.currency.toUpperCase());
         setTenantCurrencySymbol(me?.currencySymbol ?? null);
         setMainLabel(
@@ -1472,6 +1477,7 @@ export default function MenuEditor() {
           value={editing}
           onSyncChanged={() => void load()}
           sedes={sedes}
+          sedeMenuEnabled={sedeMenuEnabled}
           categories={cats}
           adicionales={adicionales}
           mainLabel={mainLabel}
@@ -2274,12 +2280,15 @@ function ProductDrawer({
   onSave,
   onSyncChanged,
   sedes,
+  sedeMenuEnabled,
 }: {
   value: Partial<Product>;
   /** Se llama tras enganchar/desenganchar, para recargar el catalogo. */
   onSyncChanged?: () => void;
   /** Las sedes del negocio. Con menos de dos, el bloque ni se pinta. */
   sedes: { id: string; name: string }[];
+  /** Interruptor del menu por sede. Lo enciende casa, negocio por negocio. */
+  sedeMenuEnabled: boolean;
   categories: Category[];
   adicionales: Adicional[];
   mainLabel: string;
@@ -2626,7 +2635,7 @@ function ProductDrawer({
               local no tienen por qué ver esto, y de los que tienen varias,
               25 de 26 comparten carta y les vale «Todas las sedes» sin tocar
               nada nunca. */}
-          {sedes.length > 1 && (
+          {sedeMenuEnabled && sedes.length > 1 && (
             <fieldset className="border border-line rounded-lg p-3">
               <legend className="px-1 text-xs font-semibold text-mute">
                 ¿En qué sedes se vende?
