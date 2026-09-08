@@ -293,6 +293,155 @@ constante.
 
 ---
 
+### 🔴 P0-7 · Con solo el teléfono de alguien se le toma la cuenta
+
+**Estado: ABIERTO. Fase 13, verificado el 2026-09-07. No se tocó.**
+
+Tres fallos pequeños en `forgot-password-sms` / `reset-password-sms` que se
+multiplican entre sí ([auth.service.ts:446](../backend/src/auth/auth.service.ts#L446)):
+
+1. **El código es de 6 dígitos** — un millón de combinaciones — y se genera con
+   `Math.floor(100000 + Math.random() * 900000)`. `Math.random()` **no es
+   criptográfico**. (El OTP del trial sí usa `randomInt`: ahí está el modelo.)
+2. **Cada petición crea un código más, sin borrar los anteriores.** Es un
+   `create` a secas. Pide 100 y hay 100 códigos válidos a la vez, cada uno 10
+   minutos.
+3. **No hay contador de intentos.** Al verificar solo se busca si el hash casa;
+   fallar no cuesta nada.
+
+Multiplicado: con 100 peticiones —100 SMS a la víctima, que además paga la
+empresa— la probabilidad por intento pasa de 1 entre 1.000.000 a **1 entre
+10.000**. Y como **ningún límite de peticiones funciona** (P0-2), se prueban
+miles por minuto. Es cuestión de minutos, no de suerte.
+
+Lo único que hace falta es **el número de teléfono** de la persona.
+
+**Lo que sí está bien**, para no rehacerlo: la respuesta es idéntica exista o no
+el teléfono, la resolución por sufijo de 10 dígitos devuelve null si hay 0 o 2+
+coincidencias, y al terminar sí escribe `passwordChangedAt`.
+
+**Arreglo: copiar `auth/trial-otp.service.ts`**, que ya lo hace bien en este
+mismo repo — `randomInt`, el PIN hasheado con argon2, 5 intentos, consumo
+atómico con `updateMany` mirando el `count`, y tope por hora. Y borrar los
+códigos anteriores al emitir uno nuevo.
+
+---
+
+### 🔴 P0-8 · El segundo factor no frena a nadie, y se puede usar para dejar fuera al dueño
+
+**Estado: ABIERTO. Fase 13, verificado el 2026-09-07. No se tocó.**
+
+**No hay contador de intentos en `/auth/2fa/challenge`.** Ni ahí ni en ningún
+sitio: `totpAttempts`, `lockedUntil` y `failedLogin` no existen en el código ni
+en el esquema. Con la tolerancia de ±30 s hay ~3 códigos válidos por ventana, y
+verificar cuesta una lectura y un HMAC. Sin rate limit (P0-2), el 2FA de una
+cuenta con la contraseña ya filtrada es un trámite.
+
+Y hay un segundo escenario, más raro pero peor porque **no tiene salida**:
+
+> Con una sesión robada de una cuenta **sin** 2FA, el atacante llama a
+> `2fa/setup` y `2fa/confirm` con **su propio** secreto. A partir de ahí el dueño
+> no puede entrar… y **nadie puede quitárselo**: el único sitio que pone
+> `totpSecret: null` es `disable`, que exige un código TOTP válido. No hay ruta
+> de administración para desactivarlo.
+
+Añádase que **`User.totpSecret` se guarda en claro** en la base: un volcado anula
+el segundo factor de todos a la vez. Y que **no existen códigos de respaldo**.
+
+**Lo que está bien:** `disable` exige código; `setup` no regenera el secreto si
+ya hay 2FA activo; el challenge comprueba `isActive`; el login con Google pasa
+por el mismo gate; y el `challengeToken` se firma con el secreto de refresco, así
+que no vale ni como token de acceso ni como refresco.
+
+**Arreglo:** contador de intentos (5 fallos → invalidar el challenge y exigir
+login otra vez), una ruta de administración **auditada** para apagar el 2FA, y
+cifrar `totpSecret` con el `secret-box` que ya existe en el repo.
+
+---
+
+### 🟠 P1-10 · Un MARKETING de una marca puede entrar en los negocios de otra
+
+**Estado: ABIERTO. Fase 13, verificado el 2026-09-07. No se tocó.**
+
+Otra vez un comentario que afirma lo que el código no hace.
+[tenants.service.ts:322](../backend/src/tenants/tenants.service.ts#L322):
+
+```ts
+// Seguridad: findFirst (NO findUnique) → el middleware lo acota a la marca
+// del admin. Un admin de otra marca NO puede impersonar este negocio.
+```
+
+**Es cierto para `SUPER_ADMIN` y falso para `MARKETING`**, y `POST /tenants/:id/impersonate`
+acepta los dos roles. Lo dice el propio middleware en su cabecera:
+
+```
+role === MARKETING → no actúa (marketing/diseño cross-tenant)
+```
+
+Si el middleware no actúa, ese `findFirst` no está acotado por nada y encuentra
+cualquier negocio de cualquier marca. Y el interceptor solo resuelve los tenants
+de la marca `if (user.role === 'SUPER_ADMIN' && user.whiteLabelId)` —
+`MARKETING` queda fuera.
+
+**El camino completo:** el `SUPER_ADMIN` de una marca blanca puede crear usuarios
+`MARKETING` de su marca. Ese `MARKETING` llama a `impersonate` sobre un negocio
+de **otra** marca y sale con una sesión de `TENANT_OWNER`: clientes, tarjetas,
+cobros.
+
+**No es un agujero anónimo** —hace falta ser MARKETING de alguna marca— pero
+rompe la separación entre marcas blancas, que es de lo que vive el producto.
+
+**Arreglo:** acotar `MARKETING` en el interceptor igual que a `SUPER_ADMIN`, o
+quitarlo de `impersonate`. Y corregir ese comentario, que hoy tranquiliza a quien
+lo lee.
+
+---
+
+### 🟠 P1-11 · Cambiar tu contraseña no cierra las sesiones robadas
+
+**Estado: ABIERTO. Fase 13, verificado el 2026-09-07. No se tocó.**
+
+El único cambio de contraseña que puede hacer el usuario por su cuenta
+—`POST /users/me/password`, [staff.controller.ts:343](../backend/src/tenants/staff.controller.ts#L343)—
+escribe **solo** `{ passwordHash }`. No pone `passwordChangedAt` ni revoca nada.
+Igual cuando el dueño le resetea la contraseña a un empleado.
+
+La rotación del refresco **sí** comprueba `iat < passwordChangedAt`… pero como
+el campo no cambia, esa comprobación no dispara nunca por esta vía. Resultado: la
+persona sospecha, cambia su contraseña, y **el token robado sigue funcionando 30
+días**, renovándose solo.
+
+Los caminos de administración sí lo hacen bien (ocho sitios distintos ponen
+`passwordChangedAt`). El que falta es justo el que usa la víctima.
+
+**Se agrava con dos cosas:** el frontend **nunca llama a `/auth/logout`** —el
+backend sabe revocar, pero nadie se lo pide: «cerrar sesión» solo borra cookies
+del navegador—, y cada rotación emite otro refresco de 30 días sin tope
+absoluto, así que una sesión usada de vez en cuando **no caduca nunca**.
+
+**Arreglo:** añadir `passwordChangedAt` y `revokeAllForUser` en los dos sitios, y
+que el frontend llame a `/auth/logout` al cerrar sesión.
+
+---
+
+### 🟡 P2-4 · La impersonación no deja rastro de lo que se hace dentro
+
+**Estado: ABIERTO. Verificado el 2026-09-07.**
+
+`impersonatedBy` viaja en el token y llega hasta `AuthUser`, pero **nadie lo
+lee**: `AuditService.log` no lo recibe y `AuditLog` no tiene columna para él. Así
+que **todo lo que se hace dentro de una sesión impostada queda auditado como si
+lo hubiera hecho el dueño del negocio.**
+
+El *inicio* sí se registra para tenant y marca blanca —y el comentario del código
+cuenta que eso se arregló en un hotfix—, pero **`impersonateAffiliate` no llama a
+`audit.log`** pese a que su comentario dice que sí.
+
+**Lo que está bien:** los tokens impostados son de acceso, 15 minutos, sin
+refresco.
+
+---
+
 ### 🔴 P0-4 · Con un código de pedido acertado se escribe EN NOMBRE DEL CLIENTE
 
 **Estado: ABIERTO. Encontrado el 2026-09-06 auditando la fase 10. No se tocó.**
@@ -945,7 +1094,7 @@ original.
 | 3 | Navegadores (Playwright) | ❌ | Hoy solo Chrome. Falta WebKit y Firefox |
 | 24 | Observabilidad | 🔄 | Sentry sí. Falta alerta por TASA: si los pedidos caen a cero un viernes a las 8 PM, algo pasó aunque todo responda 200 |
 | 12 | Roles y permisos | 🔄 | P2-3. Matriz hecha: 898/917 con @Roles; los 19 sin el, revisados y correctos. Ya en el CI. Falta: si cada rol DEBE llegar a lo suyo (AFFILIATE_* tiene 74) |
-| 13 | Autenticación y sesiones | ❌ | Con el rate limit roto, la fuerza bruta está abierta |
+| 13 | Autenticación y sesiones | 🔄 | Auditada: **P0-7** (toma de cuenta con solo el telefono), **P0-8** (2FA sin intentos), **P1-10** (MARKETING cruza marcas), **P1-11** (cambiar clave no cierra sesiones). Lo demas, verificado y bien |
 | 17 | Idempotencia | 🔄 | P1-7. Medido: 18 sitios crean sin nada que corte la carrera, y son los de cobros |
 | 20 | Base de datos | 🔄 | P2-1. Indices medidos: 121 escaneos de tabla. Falta N+1 (81 consultas en bucle) y consultas lentas reales |
 | 27 | Disaster recovery | ❌ | Definir RPO y RTO. Hoy no existen |

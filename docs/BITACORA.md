@@ -8,6 +8,78 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-07 — 🔴 Fase 13: con el teléfono de alguien se le toma la cuenta
+
+Auditado el ciclo de sesión entero. Lo peor primero. **Nada tocado.**
+
+### Con solo el número de teléfono, en minutos
+
+Tres fallos pequeños del reset por SMS que se multiplican entre sí:
+
+1. El código es de **6 dígitos** y sale de `Math.random()`, que no es
+   criptográfico. (El OTP del trial sí usa `randomInt` — ahí está el modelo, en
+   este mismo repo.)
+2. **Cada petición crea un código más y no borra los anteriores.** Pides 100 y
+   hay 100 válidos a la vez.
+3. **No hay contador de intentos.** Fallar no cuesta nada.
+
+Juntos: con 100 peticiones —100 SMS a la víctima, que además pagamos nosotros—
+se pasa de 1 entre 1.000.000 a **1 entre 10.000** por intento. Y sin límite de
+peticiones que funcione, se prueban miles por minuto.
+
+El arreglo es copiar `auth/trial-otp.service.ts`, que ya lo hace bien aquí
+mismo: `randomInt`, PIN con argon2, 5 intentos, consumo atómico y tope por hora.
+
+### El 2FA no frena a nadie, y sirve para dejar fuera al dueño
+
+**No hay contador de intentos** en `/auth/2fa/challenge` — ni ahí ni en el
+esquema: `totpAttempts`, `lockedUntil` y `failedLogin` no existen. Con ±30 s de
+tolerancia hay ~3 códigos válidos por ventana y probar cuesta un HMAC.
+
+Y hay un escenario sin salida: con una sesión robada de una cuenta **sin** 2FA,
+el atacante lo activa con **su** secreto. El dueño queda fuera y **nadie puede
+quitárselo**: lo único que borra el secreto es `disable`, que pide un código
+válido. No hay ruta de administración para apagarlo.
+
+Además `User.totpSecret` está **en claro** en la base, y no hay códigos de
+respaldo.
+
+### Un MARKETING de una marca entra en los negocios de otra
+
+Otra vez un comentario que dice lo que el código no hace.
+`tenants.service.ts:322`: «el middleware lo acota a la marca del admin. Un admin
+de otra marca NO puede impersonar este negocio».
+
+Es cierto para SUPER_ADMIN y **falso para MARKETING**, y
+`POST /tenants/:id/impersonate` acepta los dos. Lo dice el propio middleware:
+`role === MARKETING → no actúa`. Si no actúa, ese `findFirst` no está acotado por
+nada. Un MARKETING de una marca sale con sesión de `TENANT_OWNER` de un negocio
+de otra: clientes, tarjetas, cobros.
+
+### Cambiar tu contraseña no cierra las sesiones robadas
+
+`POST /users/me/password` escribe **solo** `{ passwordHash }`: no pone
+`passwordChangedAt` ni revoca nada. La rotación del refresco sí comprueba
+`iat < passwordChangedAt`, pero como el campo no cambia, no dispara nunca por
+ahí. La persona sospecha, cambia la contraseña, y el token robado sigue vivo
+**30 días** renovándose solo.
+
+Se agrava con que **el frontend nunca llama a `/auth/logout`** —el backend sabe
+revocar, pero nadie se lo pide— y con que no hay tope absoluto de sesión.
+
+### Y lo que está BIEN, verificado, para no revisarlo otra vez
+
+- **El refresco está bien hecho:** hash en base (nunca en claro), familia con
+  detección de reuso que revoca la cadena, rotación real, y en cada rotación
+  re-lee de la base `isActive`, rol, tenant y `passwordChangedAt`.
+- **Secretos separados:** acceso con `JWT_SECRET`, refresco y challenge con
+  `JWT_REFRESH_SECRET`, y producción exige que sean distintos.
+- **El reset por CORREO es correcto:** 32 bytes CSPRNG, hash en base, 30 min, un
+  solo uso, invalida los demás **y revoca todas las sesiones**.
+- **El hash de contraseñas es bueno:** argon2id, 64 MiB, t=3, p=4 — por encima
+  del mínimo recomendado.
+- **Borrar un negocio desactiva a todos sus usuarios** en la misma transacción.
+
 ## 2026-09-07 — Fase 12: la matriz de roles sale bien, y ya hay cuarto candado
 
 **Resultado tranquilizador, con datos:** de **917** endpoints con sesión, **898
