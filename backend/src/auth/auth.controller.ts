@@ -198,7 +198,15 @@ export class AuthController {
 
   // Signup: 3 cuentas por hora por IP. Bloquea creación masiva de tenants.
   @Public()
-  @Throttle({ default: { ttl: 3_600_000, limit: 3 } })
+  // 10/hora y no 3. El registro no tiene sesión, así que se cuenta por IP — y
+  // en el local de un negocio salen todos por el mismo wifi: el dueño dando de
+  // alta a su equipo, o varios clientes seguidos. Con 3 el cuarto se quedaba
+  // fuera sin entender por qué. Hoy no se nota porque ningún límite se aplica
+  // (falta `TRUST_PROXY=1`); el día que se active, sí.
+  //
+  // 10 sigue frenando la creación masiva de cuentas, que es de lo que protege.
+  // Si aun así molesta, este es el número que hay que mover.
+  @Throttle({ default: { ttl: 3_600_000, limit: 10 } })
   @Post('signup')
   signup(
     @Body() dto: SignupDto,

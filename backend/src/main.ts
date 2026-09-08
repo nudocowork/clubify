@@ -229,6 +229,25 @@ async function bootstrap() {
   // consola y favicon de marca caído. La protección de datos sensibles la dan
   // JWT + CORS (isOriginAllowed), no CORP.
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+
+  // Railway termina el TLS en su proxy: sin esto, `req.ip` es la IP interna del
+  // proxy —la misma para todo el mundo, y encima rotatoria— y el limitador de
+  // peticiones no distingue a nadie. Por eso TODOS los `@Throttle` de la
+  // plataforma llevaban meses sin frenar nada, incluido el de `/auth/login`.
+  //
+  // Va detrás de una variable a propósito, y no encendido a secas: el día que
+  // se active, los límites empiezan a aplicarse DE VERDAD por primera vez. Si
+  // algo se atasca —un negocio con muchos empleados, un cron nuestro— se apaga
+  // poniendo la variable a 0 en Railway, sin desplegar y sin esperar un build.
+  //
+  // Para activarlo: `TRUST_PROXY=1` en Railway, y mirar los 429 en Sentry esa
+  // misma tarde. Ver docs/QA-MASTER-SECURITY.md (P0-2).
+  if (process.env.TRUST_PROXY === '1') {
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
+    console.log('[Boot] trust proxy ACTIVADO — los limites de peticiones se aplican');
+  } else {
+    console.log('[Boot] trust proxy apagado — los limites de peticiones NO frenan nada');
+  }
   // Compat versioning + Swagger gating se conectan ANTES del global prefix
   // porque tocan la URL en bruto del request.
   app.use(v1AliasMiddleware);

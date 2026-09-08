@@ -8,6 +8,51 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-08 — El rate limiting está listo y APAGADO detrás de un interruptor
+
+**P0-2.** Está todo en `main`, sin desplegar, y **apagado**. Cambié la propuesta
+de tres despliegues por algo mejor: una variable.
+
+| Cambio | Dónde |
+|---|---|
+| `trust proxy`, **solo si `TRUST_PROXY=1`** | `main.ts` |
+| Cubo **por usuario** con sesión, por IP sin ella | `guards/throttler-por-usuario.guard.ts` |
+| Ese guard sustituye al de serie | `app.module.ts` |
+| `signup` de 3/hora → **10/hora** por IP | `auth.controller.ts` |
+
+**Por qué una variable y no tres despliegues.** El día que se active, los límites
+se aplican **por primera vez** en la vida de la plataforma. Si algo se atasca, se
+apaga con `TRUST_PROXY=0` en Railway: treinta segundos, sin build. Con tres
+despliegues encadenados, la vuelta atrás son veinte minutos y con el negocio
+parado.
+
+**Y el problema real no era `trust proxy`.** Era que el limitador cuenta por IP y
+los empleados de un local salen todos por el mismo wifi: con el cubo en 100/min y
+tres personas trabajando, el dueño se quedaba fuera de su panel. Por eso llevaba
+meses sin poder encenderse. Con el cubo por usuario, cada uno gasta el suyo.
+
+Lo mismo con `signup`: 3/hora **por IP** dejaba fuera al cuarto registro desde el
+local. Subido a 10, que sigue frenando la creación masiva.
+
+Al arrancar, el backend dice en qué modo está:
+
+```
+[Boot] trust proxy apagado — los limites de peticiones NO frenan nada
+```
+
+### Para activarlo cuando quieras
+
+1. `node scripts/desplegar.cjs backend` — no cambia nada todavía.
+2. `TRUST_PROXY=1` en Railway. Reinicia solo.
+3. Mirar los 429 en Sentry esa tarde: si salen en `/orders` o `/metrics`, el cubo
+   de 100/min se queda corto y hay que subirlo; si salen en `/auth/login`, está
+   haciendo su trabajo.
+4. Si molesta: `TRUST_PROXY=0` y lo pensamos.
+
+5 pruebas nuevas, sin base de datos. La que más me importa: que sin usuario ni IP
+**agrupa en vez de dejar pasar** — el peor caso tiene que ser contar de más,
+nunca no contar.
+
 ## 2026-09-08 — Arreglado el reset por SMS. ⚠️ SIN DESPLEGAR, y el orden importa
 
 Primer arreglo de código de esta tanda. **P0-7 cerrado en `main`, no en

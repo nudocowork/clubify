@@ -151,8 +151,56 @@ todavía apagado — no cambia nada porque nada se aplica aún; (3) activar
 `trust proxy` en un despliegue aparte, y mirar los 429 en Sentry esa misma
 tarde. Así, si algo se tuerce, se sabe cuál de los dos pasos fue.
 
-**Sigue sin decidirse — es del dueño, no mío.** Aquí solo está medido el terreno
-y escrita la propuesta.
+#### HECHO el 2026-09-08: el código está listo y APAGADO
+
+Está todo en `main`, **sin desplegar**, y sobre todo: **apagado detrás de una
+variable**. Esa es la diferencia con la propuesta original de tres despliegues.
+
+| Cambio | Dónde |
+|---|---|
+| `trust proxy`, **solo si `TRUST_PROXY=1`** | `main.ts` |
+| Cubo **por usuario** con sesión, por IP sin ella | `common/guards/throttler-por-usuario.guard.ts` |
+| Ese guard sustituye al `ThrottlerGuard` de serie | `app.module.ts` |
+| `signup` de 3/hora → **10/hora** por IP | `auth.controller.ts` |
+
+**Por qué detrás de una variable y no encendido:** el día que se active, los
+límites empiezan a aplicarse **por primera vez** en la vida de la plataforma. Si
+algo se atasca —un negocio con muchos empleados, un cron nuestro— se apaga
+poniendo `TRUST_PROXY=0` en Railway: **treinta segundos, sin desplegar y sin
+esperar un build**. Con tres despliegues encadenados, la vuelta atrás son veinte
+minutos.
+
+Al arrancar, el backend dice en qué modo está:
+
+```
+[Boot] trust proxy apagado — los limites de peticiones NO frenan nada
+[Boot] trust proxy ACTIVADO — los limites de peticiones se aplican
+```
+
+#### Cómo activarlo, cuando se decida
+
+```bash
+node scripts/desplegar.cjs backend          # 1) el código, que no cambia nada aún
+# 2) TRUST_PROXY=1 en Railway  →  reinicia solo
+# 3) mirar los 429 en Sentry esa misma tarde
+# 4) si algo molesta: TRUST_PROXY=0 y a pensarlo con calma
+```
+
+**Qué mirar en el paso 3:** 429 en rutas del panel (`/orders`, `/metrics`) = el
+cubo de 100/min se queda corto para un usuario real y hay que subirlo. 429 en
+`/auth/login` = está haciendo su trabajo.
+
+#### Verificación
+
+```bash
+cd backend && npx vitest run src/common/guards/throttler-por-usuario.spec.ts
+```
+
+Cinco pruebas, sin base de datos: que dos empleados **de la misma IP** no se
+restan entre sí, que el mismo usuario desde dos sitios sí comparte cubo, que sin
+sesión se cuenta por IP, que con `trust proxy` se usa la IP real del cliente y no
+la del proxy, y que sin usuario ni IP **agrupa en vez de dejar pasar** — el peor
+caso tiene que ser contar de más, nunca no contar.
 
 ---
 
@@ -1144,7 +1192,7 @@ original.
 |---|---|---|---|
 | 26 | Backups | 🔴 ROTO | P0-1. Bloqueado: hacen falta credenciales |
 | 26 | Prueba de restauración | ❌ | Sin esto no hay respaldo, hay archivos |
-| 16 | Rate limiting | 🔴 ROTO | P0-2. Terreno medido: limita por IP y no hay getTracker. Propuesta escrita (cubo por usuario). Falta la decision |
+| 16 | Rate limiting | 🟡 | P0-2. **Codigo hecho y APAGADO** tras `TRUST_PROXY`. Cubo por usuario, signup a 10/hora. Falta desplegar y encender |
 | 10 | API — rutas públicas | 🔄 | P1-2. **150** rutas, **125 abiertas**, **54 escriben** (ya en el CI). Auditadas a fondo: 2 hallazgos P0 y 8 correctas |
 | 11 | Multi-tenant / IDOR | 🔄 | P1-3. 12 casos revisados, 12 correctos. Auditor ya en el CI. Falta: ~20 huerfanos + 40 delegados, y las 2 cuentas de prueba |
 

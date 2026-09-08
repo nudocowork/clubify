@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerPorUsuario } from './common/guards/throttler-por-usuario.guard';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppConfigModule } from './common/config/app-config.module';
 import { validateEnv } from './common/config/env.validation';
@@ -168,7 +169,11 @@ import { VigilanciaModule } from './vigilancia/vigilancia.module';
     // endpoint son NO-OP. NestJS Throttler 5+ requiere registrar el guard
     // como APP_GUARD para que la verificación de rate limit corra en cada
     // request.
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // ThrottlerPorUsuario y no el ThrottlerGuard de serie: el de serie cuenta
+    // por IP, y los empleados de un local salen todos por la misma. Con tres
+    // personas trabajando, el dueño se quedaba fuera de su panel. Ver el
+    // comentario del guard.
+    { provide: APP_GUARD, useClass: ThrottlerPorUsuario },
   ],
 })
 export class AppModule {}
