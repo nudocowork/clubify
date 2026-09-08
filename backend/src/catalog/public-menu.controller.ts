@@ -18,6 +18,11 @@ const PUBLIC_CACHE =
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import {
+  indexarFilas,
+  resolverEnSede,
+  seVendeEn,
+} from './producto-en-sede';
+import {
   WhitelabelBrandService,
   ResolvedBrand,
 } from '../whitelabel/whitelabel-brand.service';
@@ -483,6 +488,7 @@ export class PublicMenuController {
     // un QR con una sede que ya no existe tambien — mejor el menu general que
     // una pantalla vacia.
     let menuId: string | null = null;
+    let locationId: string | null = null;
     const sede = (sedeRaw ?? '').trim();
     if (sede) {
       const carta = await this.prisma.menu.findFirst({
@@ -496,7 +502,47 @@ export class PublicMenuController {
         select: { id: true },
       });
       menuId = carta?.id ?? null;
+      // Y la SEDE, que es otra cosa. `sede` puede traer el id de la sede o el
+      // de la carta; para el precio por sede hace falta el de la SEDE.
+      const local = await this.prisma.location.findFirst({
+        where: { tenantId: t.id, id: sede, isActive: true },
+        select: { id: true },
+      });
+      locationId = local?.id ?? null;
     }
+
+    // Lo que esta sede tiene distinto: precio propio, agotado aquí, o la lista
+    // de productos si el negocio separó su carta.
+    //
+    // UNA consulta, y acotada a la sede. Licores El Amanecer tiene 545
+    // productos: preguntar por cada uno serían 545 idas a la base cada vez que
+    // un cliente abre el menú.
+    //
+    // Hoy esta consulta devuelve 0 filas en los 115 negocios — nadie ha
+    // separado nada todavía— y con 0 filas `catalogoDeSede` devuelve el
+    // catálogo entero a precio de base, que es exactamente lo de siempre.
+    const filasDeSede = locationId
+      ? await this.prisma.productLocation.findMany({
+          where: { locationId, product: { tenantId: t.id } },
+          select: {
+            productId: true,
+            locationId: true,
+            selected: true,
+            price: true,
+            isAvailable: true,
+            stock: true,
+          },
+        })
+      : [];
+    const sedeIdx = indexarFilas(filasDeSede);
+
+    /** Quita lo que esta sede no vende y lo que aquí está agotado. */
+    const soloLoDeEstaSede = (ps: any[]) =>
+      ps.filter(
+        (p) =>
+          seVendeEn(p, locationId, sedeIdx) &&
+          resolverEnSede(p, locationId, sedeIdx).isAvailable,
+      );
 
     const categories = await this.prisma.category.findMany({
       where: { tenantId: t.id, isActive: true, parentId: null, menuId },
@@ -531,7 +577,9 @@ export class PublicMenuController {
       id: p.id,
       name: p.name,
       description: p.description,
-      basePrice: Number(p.basePrice),
+      // El precio de ESTA sede si lo tiene; si no, el del producto. Sin fila
+      // propia son el mismo número.
+      basePrice: resolverEnSede(p, locationId, sedeIdx).price,
       priceMode: p.priceMode ?? 'FIXED',
       priceMax: p.priceMax != null ? Number(p.priceMax) : null,
       variantPriceMode: p.variantPriceMode ?? 'DELTA',
@@ -593,7 +641,7 @@ export class PublicMenuController {
             tagline: sub.tagline,
             coverConfig: sub.coverConfig,
             popupConfig: mapPopup(sub.popupConfig),
-            products: (sub.products ?? []).map(mapProduct),
+            products: soloLoDeEstaSede(sub.products ?? []).map(mapProduct),
           }))
           .filter((sub: any) => sub.products.length > 0);
         return {
@@ -605,7 +653,7 @@ export class PublicMenuController {
           tagline: c.tagline,
           coverConfig: c.coverConfig,
           popupConfig: mapPopup(c.popupConfig),
-          products: c.products.map(mapProduct),
+          products: soloLoDeEstaSede(c.products).map(mapProduct),
           subsections,
         };
       })
@@ -616,7 +664,7 @@ export class PublicMenuController {
 
     // Sección virtual "Otros" para productos sin categoría (Bloque 2).
     // Va al FINAL del array `mapped` antes de los Recomendados.
-    if (orphanProducts.length > 0) {
+    if (soloLoDeEstaSede(orphanProducts).length > 0) {
       mapped.push({
         id: '__uncategorized__',
         name: 'Otros',
@@ -626,7 +674,7 @@ export class PublicMenuController {
         tagline: null,
         coverConfig: null,
         popupConfig: null,
-        products: orphanProducts.map(mapProduct),
+        products: soloLoDeEstaSede(orphanProducts).map(mapProduct),
         subsections: [],
       });
     }
@@ -641,7 +689,7 @@ export class PublicMenuController {
       ]),
       ...orphanProducts,
     ];
-    const recommended = allProducts
+    const recommended = soloLoDeEstaSede(allProducts)
       .filter((p: any) => p.isRecommended)
       .map(mapProduct);
 
