@@ -8,6 +8,43 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-07 — Fase 12: la matriz de roles sale bien, y ya hay cuarto candado
+
+**Resultado tranquilizador, con datos:** de **917** endpoints con sesión, **898
+llevan `@Roles`**. La disciplina es buena.
+
+Los **19 que no lo llevan los revisé uno a uno, y los 19 están bien.** Cuatro son
+sobre uno mismo (`/users/me`, `/auth/locale`, `/devices`). Los otros once son de
+`/metrics/*` y comprueban el permiso **dentro del servicio** en vez de en el
+decorador: `global()` exige SUPER_ADMIN, `cardMetrics()` compara
+`card.tenantId`, y el resto pasa por `getTid(user, ...)`. Detalle que está bien
+resuelto: `GET /metrics/tenant?tenantId=<otro>` **solo hace caso al parámetro si
+eres SUPER_ADMIN**; para los demás usa el suyo.
+
+### Lo que sí hay que saber
+
+El `RolesGuard` es **fail-open**. Está en una línea:
+
+```ts
+if (!required || required.length === 0) return true;
+```
+
+Un endpoint sin `@Roles` lo alcanza **cualquiera con sesión**: un afiliado, un
+repartidor, el empleado de otro negocio. Y **no se ve en la UI** —el botón no
+está—, pero la API responde igual. Hoy no hay ningún caso malo porque alguien se
+acordó 15 veces; el 16 no lo frenaría nada.
+
+Así que va al CI: paso **«Roles por endpoint»**. Si aparece uno nuevo sin
+`@Roles`, lo nombra y para. Con 6 pruebas, incluida la de que el `@Roles` del
+método pisa al de la clase (igual que hace el `Reflector` de Nest).
+
+**Ya son cuatro candados:** aislamiento entre negocios, rutas públicas que
+escriben, roles por endpoint y dependencias.
+
+**Lo que queda de la 12 y no he hecho:** esto dice a cuántos endpoints llega cada
+rol, no si le corresponden. `AFFILIATE_*` llega a **74** — es mucho para quien
+solo debería ver sus comisiones. Eso es tuyo, Jhon, y hay que mirarlo aparte.
+
 ## 2026-09-07 — El CI está en rojo por dos motivos, y uno es tuyo
 
 **El mío ya está arreglado.** El candado de aislamiento llevaba tres runs

@@ -100,6 +100,15 @@ jobs:
       - name: Rutas publicas que escriben
         run: node scripts/arqueo-rutas-publicas.cjs --ci
 
+      # Endpoints autenticados sin @Roles. El RolesGuard deja pasar cuando no
+      # hay decorador (`if (!required) return true`), así que uno nuevo sin
+      # @Roles queda abierto a CUALQUIER sesión: un afiliado, un repartidor, el
+      # empleado de otro negocio. En la UI el botón no está, pero la API
+      # responde. Los 19 de hoy están revisados uno a uno y comprueban el
+      # permiso dentro del servicio; esto vigila el 20º.
+      - name: Roles por endpoint
+        run: node scripts/arqueo-roles.cjs --ci
+
       - name: Typecheck
         run: npx tsc --noEmit
 

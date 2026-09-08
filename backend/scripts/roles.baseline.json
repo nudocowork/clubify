@@ -1,0 +1,23 @@
+{
+  "sinRoles": [
+    "DELETE /devices/:token",
+    "GET /auth/me",
+    "GET /metrics/activity",
+    "GET /metrics/cards/:id",
+    "GET /metrics/funnel/customers",
+    "GET /metrics/funnel/loyalty",
+    "GET /metrics/funnel/orders",
+    "GET /metrics/global",
+    "GET /metrics/heatmap/orders",
+    "GET /metrics/insights",
+    "GET /metrics/onboarding-status",
+    "GET /metrics/tenant",
+    "GET /metrics/timeseries/orders",
+    "POST /auth/2fa/confirm",
+    "POST /auth/2fa/disable",
+    "POST /auth/2fa/setup",
+    "POST /auth/locale",
+    "POST /devices",
+    "POST /devices/prueba"
+  ]
+}

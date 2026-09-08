@@ -709,6 +709,74 @@ comportamiento en el camino del dinero: se decide antes de escribirlo.
 
 ---
 
+### 🟡 P2-3 · La autorización por rol es opt-in: sin decorador, entra cualquiera con sesión
+
+**Estado: ABIERTO como riesgo, sin ningún caso malo hoy. Fase 12, medido el
+2026-09-07. Ya vigilado en el CI.**
+
+Todo está en una línea de
+[roles.guard.ts](../backend/src/common/guards/roles.guard.ts):
+
+```ts
+if (!required || required.length === 0) return true;
+```
+
+**Un endpoint sin `@Roles(...)` lo alcanza cualquier usuario autenticado**: un
+afiliado, un repartidor, el empleado «solo pedidos» de otro negocio, el admin de
+una cuponera. Y **no se ve mirando la UI** —ahí el botón no está—, pero la API
+responde igual. Por eso el documento pedía la matriz «contra la API, no contra
+la UI».
+
+Lo bueno primero, porque es lo que hay:
+
+```bash
+cd backend && node scripts/arqueo-roles.cjs
+#   Endpoints con sesion (no @Public) : 917
+#     con @Roles                      : 898
+#     SIN @Roles                      :  19
+#       de esos, sobre uno mismo      :   4   (correcto: /users/me y similares)
+#       ABIERTOS A CUALQUIER SESION   :  15
+```
+
+**Los 15 se revisaron uno a uno el 2026-09-07 y los 15 están bien.** Once son de
+`/metrics/*` y comprueban el permiso **dentro del servicio**, no en el decorador:
+
+| Comprobación | Dónde |
+|---|---|
+| `if (user.role !== 'SUPER_ADMIN') throw Forbidden` | `metrics.service.ts:35` (`global`) |
+| `const tid = user.role === 'SUPER_ADMIN' ? tenantIdParam : user.tenantId` | `tenant`, `onboardingStatus` y `getTid(...)` en los 8 restantes |
+| `if (user.tenantId !== card.tenantId) throw Forbidden` | `metrics.service.ts:1298` (`cardMetrics`) |
+
+Ese detalle importa: `GET /metrics/tenant?tenantId=<otro>` **solo respeta el
+parámetro si eres SUPER_ADMIN**. Para el resto usa el suyo. Está bien resuelto.
+Los otros cuatro (`/devices`, `/auth/locale`) son sobre uno mismo.
+
+**Entonces, ¿cuál es el problema?** El mismo de siempre en este backend: funciona
+porque alguien se acordó quince veces, y **el guard es fail-open**. El
+endpoint 16 que se escriba sin `@Roles` quedará abierto a cualquier sesión, y no
+lo va a frenar nada — ni el tipado, ni una revisión, ni la UI.
+
+**Arreglo, hecho el 2026-09-07:** el arqueo corre en el CI (paso «Roles por
+endpoint»). Si aparece uno nuevo sin `@Roles`, lo nombra y para. No arregla los
+15 —no hace falta— pero impide el 16.
+
+A cuántos endpoints llega cada rol, para tenerlo escrito:
+
+```
+   733  SUPER_ADMIN          74  AFFILIATE_INFLUENCER    35  TENANT_ORDERS
+   290  TENANT_OWNER         74  AFFILIATE_AMBASSADOR    23  ALLY_BUSINESS
+   243  PLATFORM_OWNER       66  AFFILIATE_SOCIO         19  (sin @Roles)
+   178  TENANT_STAFF         63  AFFILIATE_VENDOR        15  DELIVERY_COMPANY
+    88  MARKETING            39  CUPONERA_ADMIN
+```
+
+**Sin verificar:** que cada rol *deba* llegar a todos los suyos. Esto dice a
+cuántos llega, no si le corresponden. Revisar `AFFILIATE_*` (74 endpoints es
+mucho para quien solo debería ver sus comisiones) es trabajo aparte, y es
+territorio de Jhon.
+
+---
+
 ### 🟡 P2-1 · 121 filtros escanean la tabla entera por falta de índice
 
 **Estado: ABIERTO. Fase 20, medido el 2026-09-05. No se aplicó ningún índice.**
@@ -840,6 +908,7 @@ APIs y servicios → Credenciales → Restricciones de aplicación → Sitios we
 | Sentry | back y front | Errores en servidor y en el navegador del cliente |
 | Monitor de certificados | `wallet/cert-monitor.service.ts` | Avisa antes de que caduque el de Apple Wallet |
 | Arqueo de dependencias | `scripts/arqueo-dependencias.cjs` | `npm audit` de lo que se despliega, en el CI. Compara QUE paquetes son graves, no cuantos |
+| Matriz de roles contra la API | `backend/scripts/arqueo-roles.cjs` | Endpoints autenticados sin `@Roles`, que el guard deja pasar a cualquier sesion. En el CI, con pruebas |
 | Arqueo de leer-decidir-escribir | `backend/scripts/arqueo-idempotencia.cjs` | Cruza el patron con los unicos del schema: de 58 creaciones, 18 sin nada que las corte |
 | Arqueo de indices que faltan | `backend/scripts/arqueo-indices.cjs` | Cruza los campos de los `where` con los indices del schema. Distingue escaneo real de filtro acompanado |
 | Inventario de rutas publicas | `backend/scripts/arqueo-rutas-publicas.cjs` | Las 150 `@Public()` ordenadas por dano. Con pruebas: marcar como segura una ruta abierta la saca de la lista de pendientes |
@@ -875,7 +944,7 @@ original.
 | 6 | Service worker / PWA | ✅ | Auditado y corregido el 2026-09-05 |
 | 3 | Navegadores (Playwright) | ❌ | Hoy solo Chrome. Falta WebKit y Firefox |
 | 24 | Observabilidad | 🔄 | Sentry sí. Falta alerta por TASA: si los pedidos caen a cero un viernes a las 8 PM, algo pasó aunque todo responda 200 |
-| 12 | Roles y permisos | ❌ | Matriz por rol contra API, no contra la UI |
+| 12 | Roles y permisos | 🔄 | P2-3. Matriz hecha: 898/917 con @Roles; los 19 sin el, revisados y correctos. Ya en el CI. Falta: si cada rol DEBE llegar a lo suyo (AFFILIATE_* tiene 74) |
 | 13 | Autenticación y sesiones | ❌ | Con el rate limit roto, la fuerza bruta está abierta |
 | 17 | Idempotencia | 🔄 | P1-7. Medido: 18 sitios crean sin nada que corte la carrera, y son los de cobros |
 | 20 | Base de datos | 🔄 | P2-1. Indices medidos: 121 escaneos de tabla. Falta N+1 (81 consultas en bucle) y consultas lentas reales |
