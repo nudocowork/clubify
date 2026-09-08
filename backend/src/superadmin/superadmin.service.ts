@@ -90,6 +90,8 @@ export type WhiteLabelDto = {
   instagram?: string;
   contactEmail?: string;
   notifyPhone?: string;
+  /** WhatsApp que se pinta en la landing de la marca. */
+  demoButtonWhatsApp?: string;
   mapsApiKey?: string;
   planPeriodicities?: string[];
   shareImageUrl?: string;
@@ -772,6 +774,7 @@ export class SuperAdminService {
           instagram: dto.instagram?.trim() || null,
           contactEmail: dto.contactEmail?.trim().toLowerCase() || null,
           notifyPhone: dto.notifyPhone?.trim() || null,
+          demoButtonWhatsApp: dto.demoButtonWhatsApp?.trim() || null,
           initial: (dto.initial || dto.name.trim()[0] || 'M').toUpperCase().slice(0, 1),
           adminEmail: dto.adminEmail?.trim().toLowerCase() || null,
           creditsUnlimited: dto.creditsUnlimited ?? false,
@@ -831,6 +834,10 @@ export class SuperAdminService {
         instagram: patch.instagram === undefined ? undefined : patch.instagram?.trim() || null,
         contactEmail: patch.contactEmail === undefined ? undefined : patch.contactEmail?.trim().toLowerCase() || null,
         notifyPhone: patch.notifyPhone === undefined ? undefined : patch.notifyPhone?.trim() || null,
+        demoButtonWhatsApp:
+          patch.demoButtonWhatsApp === undefined
+            ? undefined
+            : patch.demoButtonWhatsApp?.trim() || null,
         initial: patch.initial ? patch.initial.toUpperCase().slice(0, 1) : undefined,
         adminEmail: patch.adminEmail === undefined ? undefined : patch.adminEmail?.trim().toLowerCase() || null,
         creditsUnlimited: patch.creditsUnlimited === undefined ? undefined : patch.creditsUnlimited,

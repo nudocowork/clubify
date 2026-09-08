@@ -319,16 +319,33 @@ export async function generateMetadata(): Promise<Metadata> {
       ]
     : localIcons;
 
+  // Un negocio con dominio propio no puede compartir con nuestra cara.
+  //
+  // `bizName` solo tiene valor cuando el host es el dominio de un negocio
+  // (`Storefront.customDomain`). Hasta ahora eso cambiaba el titulo de la
+  // pestana, pero las etiquetas de compartir seguian siendo las nuestras: quien
+  // pegaba birrialeon.com en WhatsApp veia «Clubify · El sistema operativo de
+  // tu negocio local» y la imagen de soyclubify.com. El dominio del cliente
+  // ensenando la marca de la plataforma.
+  //
+  // Sin imagen propia no se pone NINGUNA: mejor una tarjeta sin foto que una
+  // con el logotipo de otro.
+  const enDominioPropio = !!bizName;
+  const baseDelNegocio = `https://${host}`;
+
   return {
     metadataBase: new URL(
-      process.env.NEXT_PUBLIC_APP_URL ?? 'https://soyclubify.com',
+      enDominioPropio
+        ? baseDelNegocio
+        : (process.env.NEXT_PUBLIC_APP_URL ?? 'https://soyclubify.com'),
     ),
     title: {
       default: bizName || 'Clubify · El sistema operativo de tu negocio local',
       template: bizName ? `%s · ${bizName}` : '%s · Clubify',
     },
-    description:
-      'Vende por WhatsApp, fideliza con tarjetas wallet y automatiza con un solo lugar. Activa tu cuenta y empieza a vender hoy.',
+    description: enDominioPropio
+      ? undefined
+      : 'Vende por WhatsApp, fideliza con tarjetas wallet y automatiza con un solo lugar. Activa tu cuenta y empieza a vender hoy.',
     manifest: '/manifest.webmanifest',
     applicationName: bizName || 'Clubify',
     appleWebApp: {
@@ -337,25 +354,35 @@ export async function generateMetadata(): Promise<Metadata> {
       statusBarStyle: 'black-translucent',
       startupImage: ['/apple-touch-icon.png'],
     },
-    openGraph: {
-      title: 'Clubify · El sistema operativo de tu negocio local',
-      description:
-        'Vende por WhatsApp, fideliza con tarjetas wallet y automatiza. Activa tu cuenta y empieza a vender hoy.',
-      url: '/',
-      siteName: 'Clubify',
-      locale: 'es_LA',
-      type: 'website',
-      images: [
-        { url: v('/og-image.png'), width: 1200, height: 630, alt: 'Clubify · El sistema operativo de tu negocio local' },
-      ],
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title: 'Clubify · El sistema operativo de tu negocio local',
-      description:
-        'Vende por WhatsApp, fideliza con wallet y automatiza. Activa tu cuenta y empieza a vender hoy.',
-      images: [v('/og-image.png')],
-    },
+    openGraph: enDominioPropio
+      ? {
+          title: bizName!,
+          url: '/',
+          siteName: bizName!,
+          locale: 'es_LA',
+          type: 'website',
+        }
+      : {
+          title: 'Clubify · El sistema operativo de tu negocio local',
+          description:
+            'Vende por WhatsApp, fideliza con tarjetas wallet y automatiza. Activa tu cuenta y empieza a vender hoy.',
+          url: '/',
+          siteName: 'Clubify',
+          locale: 'es_LA',
+          type: 'website',
+          images: [
+            { url: v('/og-image.png'), width: 1200, height: 630, alt: 'Clubify · El sistema operativo de tu negocio local' },
+          ],
+        },
+    twitter: enDominioPropio
+      ? { card: 'summary', title: bizName! }
+      : {
+          card: 'summary_large_image',
+          title: 'Clubify · El sistema operativo de tu negocio local',
+          description:
+            'Vende por WhatsApp, fideliza con wallet y automatiza. Activa tu cuenta y empieza a vender hoy.',
+          images: [v('/og-image.png')],
+        },
     robots: {
       index: true,
       follow: true,
