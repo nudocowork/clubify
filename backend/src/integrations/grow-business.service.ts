@@ -274,6 +274,43 @@ export class GrowBusinessService {
   private static readonly TOPE_SIN_VERIFICAR = 3;
 
   /**
+   * Mensajes por hora que un NEGOCIO puede mandar a destinatarios sin
+   * verificar, sumando todos los números.
+   *
+   * Hace falta además del tope por número, y esta es la razón: con una lista de
+   * teléfonos distintos, cada vuelta manda un mensaje a una víctima nueva y el
+   * tope de 3/hora **no se toca nunca**. Protegía a una persona de recibir
+   * treinta mensajes, pero no impedía mandar un mensaje a treinta personas.
+   *
+   * 20 es holgado para el uso real —un negocio no da veinte citas por hora
+   * desde la web— y corta el goteo. Si algún negocio lo alcanza de verdad,
+   * saldrá en el log y se sube.
+   */
+  private static readonly TOPE_POR_NEGOCIO = 20;
+
+  private async elNegocioPasoSuTope(tenantId?: string | null): Promise<boolean> {
+    if (!tenantId) return false;
+    try {
+      const desde = new Date(Date.now() - 60 * 60 * 1000);
+      const enviados = await this.prisma.messageLog.count({
+        where: {
+          createdAt: { gte: desde },
+          status: 'sent',
+          tenantId,
+          // Solo los envíos a destinatarios que eligió quien llamó. Los avisos
+          // al propio negocio no se cuentan: no son el problema.
+          feature: { in: ['reservations', 'automations'] },
+        },
+      });
+      return enviados >= GrowBusinessService.TOPE_POR_NEGOCIO;
+    } catch (e) {
+      // Mismo criterio que el tope por número: si el conteo falla, deja pasar.
+      this.logger.warn(`No se pudo comprobar el tope del negocio: ${(e as Error).message}`);
+      return false;
+    }
+  }
+
+  /**
    * ¿Se ha pasado ya el tope de mensajes a este número en la última hora?
    *
    * Solo se aplica cuando el destinatario lo eligió quien llamó a una ruta
@@ -417,14 +454,27 @@ export class GrowBusinessService {
       );
       return { ok: false as const, message: 'numero en la lista de no molestar' };
     }
-    if (ctx?.destinatarioSinVerificar && (await this.pasoElTopeSinVerificar(toPhone))) {
+    if (ctx?.destinatarioSinVerificar) {
       // No se lanza: la cita o el alta se crean igual. Lo único que no ocurre
       // es el mensaje, que es lo que se estaba usando como arma.
-      this.logger.warn(
-        `SMS no enviado a ${toPhone}: tope de ${GrowBusinessService.TOPE_SIN_VERIFICAR}/hora ` +
-          'para destinatarios sin verificar',
-      );
-      return { ok: false as const, message: 'tope de envios a este numero' };
+      //
+      // Dos topes, y hacen falta los dos: el del número impide bombardear a
+      // UNA persona; el del negocio impide mandar un mensaje a treinta
+      // personas distintas, que el primero no veía.
+      if (await this.pasoElTopeSinVerificar(toPhone)) {
+        this.logger.warn(
+          `SMS no enviado a ${toPhone}: tope de ${GrowBusinessService.TOPE_SIN_VERIFICAR}/hora ` +
+            'para destinatarios sin verificar',
+        );
+        return { ok: false as const, message: 'tope de envios a este numero' };
+      }
+      if (await this.elNegocioPasoSuTope(ctx.tenantId)) {
+        this.logger.warn(
+          `SMS no enviado a ${toPhone}: el negocio ${ctx.tenantId} paso su tope de ` +
+            `${GrowBusinessService.TOPE_POR_NEGOCIO}/hora a destinatarios sin verificar`,
+        );
+        return { ok: false as const, message: 'tope de envios del negocio' };
+      }
     }
     if (!creds.locationId || !creds.apiKey) {
       // Se registra igual: «no salió por falta de credenciales» es justo lo que
@@ -530,12 +580,21 @@ export class GrowBusinessService {
       );
       return { ok: false as const, message: 'numero en la lista de no molestar' };
     }
-    if (ctx?.destinatarioSinVerificar && (await this.pasoElTopeSinVerificar(toPhone))) {
-      this.logger.warn(
-        `WhatsApp no enviado a ${toPhone}: tope de ${GrowBusinessService.TOPE_SIN_VERIFICAR}/hora ` +
-          'para destinatarios sin verificar',
-      );
-      return { ok: false as const, message: 'tope de envios a este numero' };
+    if (ctx?.destinatarioSinVerificar) {
+      if (await this.pasoElTopeSinVerificar(toPhone)) {
+        this.logger.warn(
+          `WhatsApp no enviado a ${toPhone}: tope de ${GrowBusinessService.TOPE_SIN_VERIFICAR}/hora ` +
+            'para destinatarios sin verificar',
+        );
+        return { ok: false as const, message: 'tope de envios a este numero' };
+      }
+      if (await this.elNegocioPasoSuTope(ctx.tenantId)) {
+        this.logger.warn(
+          `WhatsApp no enviado a ${toPhone}: el negocio ${ctx.tenantId} paso su tope de ` +
+            `${GrowBusinessService.TOPE_POR_NEGOCIO}/hora a destinatarios sin verificar`,
+        );
+        return { ok: false as const, message: 'tope de envios del negocio' };
+      }
     }
     if (!creds.locationId || !creds.apiKey) {
       await this.registrarEnvio({

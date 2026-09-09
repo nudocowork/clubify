@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { Throttle } from '@nestjs/throttler';
 import { Public } from '../common/decorators/public.decorator';
 import { ServiceReservationsService } from './service-reservations.service';
 
@@ -40,7 +41,13 @@ export class PublicServiceReservationsController {
     return this.svc.publicSlots(slug, serviceId, date, providerId);
   }
 
+  // 5/min. Reservar crea una cita Y manda un SMS con las credenciales del
+  // negocio, asi que sin freno era una pasarela de envios abierta. Los topes de
+  // `grow-business` frenan el abuso aunque este limite no aplique todavia
+  // -falta `TRUST_PROXY=1`-, pero el limite es lo que impide ademas llenar la
+  // agenda de citas basura. Mismo numero que `POST /public/reservations/:slug`.
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post(':slug/book')
   book(@Param('slug') slug: string, @Body() body: PublicBookBody) {
     return this.svc.publicBook(slug, body);

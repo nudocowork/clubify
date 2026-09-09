@@ -147,3 +147,53 @@ describe('lo que el primer intento de arreglo NO cazaba', () => {
     expect(r.message).toContain('tope');
   });
 });
+
+describe('tope por NEGOCIO, ademas del tope por numero', () => {
+  // El tope por numero protege a UNA persona de recibir treinta mensajes. No
+  // impedia mandar un mensaje a treinta personas distintas: con una lista de
+  // numeros, cada vuelta estrenaba victima y el tope no se tocaba nunca.
+
+  /** Prisma que responde distinto segun si la consulta lleva tenantId. */
+  function servicioConTopes(porNumero: number, porNegocio: number) {
+    const svc = servicio(0);
+    svc.prisma.messageLog.count = vi.fn(async ({ where }: any) =>
+      where.tenantId ? porNegocio : porNumero,
+    );
+    return svc;
+  }
+
+  it('corta cuando el NEGOCIO pasa su tope, aunque el numero sea nuevo', async () => {
+    const svc = servicioConTopes(0, 20); // numero limpio, negocio pasado
+    const r = await svc.sendSmsWithCreds(CREDS, '3009998877', 'x', {
+      tenantId: 't1',
+      destinatarioSinVerificar: true,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('negocio');
+    expect(svc.enviarSms).not.toHaveBeenCalled();
+  });
+
+  it('deja pasar mientras el negocio no llegue a su tope', async () => {
+    const svc = servicioConTopes(0, 19);
+    const r = await svc.sendSmsWithCreds(CREDS, '3009998877', 'x', {
+      tenantId: 't1',
+      destinatarioSinVerificar: true,
+    });
+    // Lo que se afirma es que NINGÚN tope lo cortó. Más allá el envío real
+    // depende del proveedor, que aquí no se levanta.
+    expect(r.message ?? '').not.toContain('tope');
+  });
+
+  it('no cuenta los avisos al propio negocio', async () => {
+    // Solo cuentan los envios con feature de rutas publicas. Si contara todo,
+    // un negocio con muchos pedidos se quedaria sin poder confirmar citas.
+    const svc = servicioConTopes(0, 0);
+    await svc.sendSmsWithCreds(CREDS, '3009998877', 'x', {
+      tenantId: 't1',
+      destinatarioSinVerificar: true,
+    });
+    const where = svc.prisma.messageLog.count.mock.calls.at(-1)[0].where;
+    expect(where.feature.in).toContain('reservations');
+    expect(where.feature.in).toContain('automations');
+  });
+});

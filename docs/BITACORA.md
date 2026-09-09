@@ -94,6 +94,30 @@ Al commitear me encontré trabajo sin commitear de la otra máquina dentro de
 toqué**: separé mis hunks y commiteé solo los míos. Después apareció commiteado
 como `3678c3b6`.
 
+## 2026-09-09 (2) — Segundo tope: por NEGOCIO, no solo por número
+
+Lo de antes protegía a **una persona** de recibir treinta mensajes. No impedía
+mandar **un mensaje a treinta personas**: con una lista de números, cada vuelta
+estrenaba víctima y el tope por número no se tocaba nunca.
+
+Ahora hay dos, y hacen falta los dos:
+
+| Tope | Qué impide |
+|---|---|
+| 3/hora **por número** | bombardear a una persona |
+| 20/hora **por negocio** | usar el negocio como pasarela contra una lista |
+
+El segundo cuenta **solo** los envíos con `feature` de rutas públicas
+(`reservations`, `automations`). Los avisos al propio negocio no entran: si
+contara todo, un local con muchos pedidos se quedaría sin poder confirmar citas.
+
+Y dos `@Throttle` que faltaban: **5/min en `/book`** —reservar crea una cita *y*
+manda un SMS— y **60/min en el webhook de correo**, que no tenía ninguno. Ojo:
+estos dos no aplican hasta que se encienda `TRUST_PROXY=1`; los topes de arriba
+sí funcionan ya, porque van contra la base.
+
+12 pruebas en el arqueo de topes, 1063 unitarias en verde.
+
 ## 2026-09-09 — Pasé mis propios arreglos por una revisión adversarial, y tres estaban rotos
 
 Lo desplegado ayer parecía bien y pasaba sus pruebas. Al atacarlo de verdad,

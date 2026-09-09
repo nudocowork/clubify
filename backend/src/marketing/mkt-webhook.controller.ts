@@ -1,5 +1,6 @@
 import { Body, Controller, Logger, Param, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import { Public } from '../common/decorators/public.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { MktActionService } from './mkt-action.service';
@@ -32,7 +33,11 @@ export class MktWebhookController {
     private contacts: MktContactService,
   ) {}
 
+  // 60/min. Un proveedor de correo real manda ráfagas al abrir una campaña, así
+  // que el límite es holgado; lo que corta es el goteo sostenido de bajas
+  // forjadas, que a 10/hora durante un día son 240 personas.
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
   @Post(':slug')
   async inbound(
     @Param('slug') slug: string,
