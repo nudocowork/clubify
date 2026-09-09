@@ -24,6 +24,11 @@ import {
   tocaReiniciar,
   type TramoAlta,
 } from './club-periodo';
+import {
+  errorDeLimites,
+  inicioDelDia,
+  puedeConsumir,
+} from './club-frecuencia';
 
 /**
  * Tarjeta de Club: el cliente le paga una suscripción AL NEGOCIO y recibe un
@@ -144,6 +149,8 @@ export class ClubService {
       periodicidad?: string;
       description?: string;
       tramos?: TramoAlta[];
+      maxPorDia?: number | null;
+      minutosEntreConsumos?: number | null;
     },
     override?: string,
   ) {
@@ -155,6 +162,14 @@ export class ClubService {
     }
     const errTramos = errorDeTramos(dto.tramos ?? []);
     if (errTramos) throw new BadRequestException(errTramos);
+    const errLimites = errorDeLimites(
+      {
+        maxPorDia: dto.maxPorDia ?? null,
+        minutosEntreConsumos: dto.minutosEntreConsumos ?? null,
+      },
+      dto.beneficiosPorMes,
+    );
+    if (errLimites) throw new BadRequestException(errLimites);
 
     const slug = dto.name
       .trim()
@@ -193,6 +208,8 @@ export class ClubService {
         precioCents: dto.precioCents ?? 0,
         currency: dto.currency ?? 'COP',
         periodicidad: periodicidadValida(dto.periodicidad),
+        maxPorDia: dto.maxPorDia ?? null,
+        minutosEntreConsumos: dto.minutosEntreConsumos ?? null,
         tramos: { create: dto.tramos ?? [] },
       },
       include: { tramos: true },
@@ -219,6 +236,8 @@ export class ClubService {
       description?: string;
       isActive?: boolean;
       tramos?: TramoAlta[];
+      maxPorDia?: number | null;
+      minutosEntreConsumos?: number | null;
     },
     override?: string,
   ) {
@@ -233,6 +252,23 @@ export class ClubService {
     if (dto.tramos) {
       const err = errorDeTramos(dto.tramos);
       if (err) throw new BadRequestException(err);
+    }
+    // Se valida contra el cupo QUE VA A QUEDAR, no contra el guardado: bajar el
+    // cupo del mes a 3 y dejar el tope diario en 5 lo volvería inservible sin
+    // que nadie avise. `undefined` = no lo tocan, y entonces vale el de antes.
+    if (dto.maxPorDia !== undefined || dto.minutosEntreConsumos !== undefined) {
+      const errLimites = errorDeLimites(
+        {
+          maxPorDia:
+            dto.maxPorDia !== undefined ? dto.maxPorDia : previo.maxPorDia,
+          minutosEntreConsumos:
+            dto.minutosEntreConsumos !== undefined
+              ? dto.minutosEntreConsumos
+              : previo.minutosEntreConsumos,
+        },
+        dto.beneficiosPorMes ?? previo.beneficiosPorMes,
+      );
+      if (errLimites) throw new BadRequestException(errLimites);
     }
 
     const plan = await this.prisma.$transaction(async (tx) => {
@@ -263,6 +299,13 @@ export class ClubService {
           periodicidad: dto.periodicidad
             ? periodicidadValida(dto.periodicidad)
             : undefined,
+          // `null` es un valor con significado —«sin límite»— así que se
+          // distingue de `undefined`, que es «no lo toques».
+          maxPorDia: dto.maxPorDia !== undefined ? dto.maxPorDia : undefined,
+          minutosEntreConsumos:
+            dto.minutosEntreConsumos !== undefined
+              ? dto.minutosEntreConsumos
+              : undefined,
           isActive: dto.isActive,
         },
         include: { tramos: { orderBy: { desdeDia: 'asc' } } },
@@ -1084,7 +1127,13 @@ export class ClubService {
       where: { id: membresiaId },
       include: {
         plan: {
-          select: { tenantId: true, unidad: true, beneficiosPorMes: true },
+          select: {
+            tenantId: true,
+            unidad: true,
+            beneficiosPorMes: true,
+            maxPorDia: true,
+            minutosEntreConsumos: true,
+          },
         },
       },
     });
@@ -1148,6 +1197,59 @@ export class ClubService {
         throw new ConflictException(
           'La membresía cambió de estado mientras se cobraba. Volvé a escanear.',
         );
+      }
+
+      // ── Ritmo: cuántos al día y cada cuánto ──────────────────────────────
+      //
+      // Va DESPUÉS del reclamo y no antes a propósito. Ese `updateMany` deja la
+      // fila de la membresía bloqueada hasta el commit, así que a partir de
+      // aquí somos los únicos tocándola: cualquier otro escaneo del mismo socio
+      // está esperando en esa misma línea. Por eso se puede leer el historial y
+      // decidir sin carrera — que es el fallo que más veces hemos repetido.
+      //
+      // Las cuentas salen de `ClubConsumo` y no de un contador guardado: así
+      // anular un consumo devuelve el cupo del día sin código extra.
+      const limites = {
+        maxPorDia: m.plan.maxPorDia,
+        minutosEntreConsumos: m.plan.minutosEntreConsumos,
+      };
+      if (limites.maxPorDia != null || limites.minutosEntreConsumos != null) {
+        const ahora = new Date();
+        const desdeHoy = inicioDelDia(ahora);
+        const [delDia, ultimo] = await Promise.all([
+          limites.maxPorDia != null
+            ? tx.clubConsumo.aggregate({
+                where: {
+                  membresiaId,
+                  revertedAt: null,
+                  createdAt: { gte: desdeHoy },
+                },
+                _sum: { cantidad: true },
+              })
+            : Promise.resolve({ _sum: { cantidad: 0 } }),
+          limites.minutosEntreConsumos != null
+            ? tx.clubConsumo.findFirst({
+                where: { membresiaId, revertedAt: null },
+                orderBy: { createdAt: 'desc' },
+                select: { createdAt: true },
+              })
+            : Promise.resolve(null),
+        ]);
+        const veredicto = puedeConsumir({
+          limites,
+          estado: {
+            consumidosHoy: delDia._sum.cantidad ?? 0,
+            ultimoConsumoAt: ultimo?.createdAt ?? null,
+          },
+          cantidad,
+          ahora,
+          unidad: m.plan.unidad,
+        });
+        if (!veredicto.permitido) {
+          // Lanzar aquí deshace el reclamo de arriba: no se descuenta nada y la
+          // membresía queda como estaba.
+          throw new ConflictException(veredicto.mensaje);
+        }
       }
 
       // Con reinicio, el pase vuelve al cupo del mes ANTES de descontar.

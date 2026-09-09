@@ -39,6 +39,9 @@ class CrearPlanDto {
   /** MENSUAL o ANUAL. Cambia solo cómo se lee `precioCents`. */
   @IsOptional() @IsIn(['MENSUAL', 'ANUAL']) periodicidad?: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
+  /** Límites de ritmo. `null` = sin límite; ausente = igual, sin límite. */
+  @IsOptional() @IsInt() @Min(1) @Max(1000) maxPorDia?: number | null;
+  @IsOptional() @IsInt() @Min(1) @Max(1440) minutosEntreConsumos?: number | null;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => TramoDto)
   tramos?: TramoDto[];
 }
@@ -51,6 +54,10 @@ class ActualizarPlanDto {
   @IsOptional() @IsIn(['MENSUAL', 'ANUAL']) periodicidad?: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
+  /** `null` significa «quitar el límite» y NO es lo mismo que no mandarlo, que
+   *  significa «déjalo como está». El servicio distingue los dos casos. */
+  @IsOptional() @IsInt() @Min(1) @Max(1000) maxPorDia?: number | null;
+  @IsOptional() @IsInt() @Min(1) @Max(1440) minutosEntreConsumos?: number | null;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => TramoDto)
   tramos?: TramoDto[];
 }

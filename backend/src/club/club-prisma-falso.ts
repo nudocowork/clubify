@@ -54,6 +54,10 @@ export type FilaPlan = {
   currency: string;
   periodicidad: string;
   isActive: boolean;
+  /** Ritmo: cuántos al día y cada cuántos minutos. Ausente o null = sin
+   *  límite, que es lo que quieren los tests que no van de esto. */
+  maxPorDia?: number | null;
+  minutosEntreConsumos?: number | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -630,6 +634,19 @@ export function crearPrismaFalso(bd: BaseDeDatos) {
     },
     count: async ({ where }: any) =>
       bd.consumos.filter((x) => filtra(x, where, relConsumo)).length,
+    /** El último consumo vivo — lo usa el límite de espera entre usos. */
+    findFirst: async ({ where, orderBy, include, select }: any) => {
+      let filas = bd.consumos.filter((x) => filtra(x, where, relConsumo));
+      if (orderBy?.createdAt) {
+        const dir = orderBy.createdAt === 'desc' ? -1 : 1;
+        filas = [...filas].sort(
+          (a, b) => dir * (a.createdAt.getTime() - b.createdAt.getTime()),
+        );
+      }
+      const c = filas[0];
+      if (!c) return null;
+      return include || select ? proyectar(c, { include, select }, relConsumo) : { ...c };
+    },
     /** Solo `_sum.cantidad`, que es lo único que usa el historial. */
     aggregate: async ({ where }: any) => ({
       _sum: {

@@ -22,6 +22,9 @@ type Plan = {
   tramos: Tramo[];
   miembrosActivos: number;
   miembrosPausados: number;
+  /** null = sin límite. Ver «¿Cada cuánto puede usarlo?» más abajo. */
+  maxPorDia: number | null;
+  minutosEntreConsumos: number | null;
 };
 
 type Borrador = {
@@ -34,6 +37,9 @@ type Borrador = {
   description: string;
   tramos: Tramo[];
   isActive: boolean;
+  /** Cadena vacía = sin límite. Se guarda como número o null. */
+  maxPorDia: string;
+  minutosEntreConsumos: string;
 };
 
 const NUEVO: Borrador = {
@@ -45,7 +51,21 @@ const NUEVO: Borrador = {
   description: '',
   tramos: [],
   isActive: true,
+  // Vacíos = sin límite. Es lo que ha funcionado hasta ahora y no se le cambian
+  // las reglas a un plan ya vendido; el negocio los pone si los quiere.
+  maxPorDia: '',
+  minutosEntreConsumos: '',
 };
+
+/** Atajos de espera, para no obligar a nadie a calcular minutos. */
+const ESPERAS: { minutos: string; label: string }[] = [
+  { minutos: '', label: 'Sin espera' },
+  { minutos: '30', label: '30 min' },
+  { minutos: '60', label: '1 hora' },
+  { minutos: '240', label: '4 horas' },
+  { minutos: '720', label: '12 horas' },
+  { minutos: '1440', label: '1 día' },
+];
 
 /**
  * En COP no hay decimales, así que la unidad menor SON los pesos y el campo
@@ -290,6 +310,11 @@ export default function ClubPage() {
                       beneficios: t.beneficios,
                     })),
                     isActive: p.isActive,
+                    maxPorDia: p.maxPorDia == null ? '' : String(p.maxPorDia),
+                    minutosEntreConsumos:
+                      p.minutosEntreConsumos == null
+                        ? ''
+                        : String(p.minutosEntreConsumos),
                   })
                 }
               >
@@ -350,6 +375,22 @@ function FormularioPlan({
       toast('En los tramos, los días van del 1 al 31.', 'error');
       return;
     }
+    // Vacío = sin límite, y se manda como `null` explícito para poder QUITAR
+    // un límite ya guardado. Omitir el campo significaría «déjalo como está».
+    const maxPorDia = f.maxPorDia.trim() === '' ? null : Number(f.maxPorDia);
+    const minutosEntreConsumos =
+      f.minutosEntreConsumos.trim() === '' ? null : Number(f.minutosEntreConsumos);
+    if (maxPorDia != null && (!Number.isInteger(maxPorDia) || maxPorDia < 1)) {
+      toast('El máximo por día tiene que ser 1 o más, o vacío.', 'error');
+      return;
+    }
+    if (maxPorDia != null && maxPorDia > f.beneficiosPorMes) {
+      toast(
+        `Un máximo de ${maxPorDia} al día no limita nada con un cupo de ${f.beneficiosPorMes} al mes.`,
+        'error',
+      );
+      return;
+    }
     const cuerpo = {
       name: f.name.trim(),
       unidad: f.unidad.trim(),
@@ -358,6 +399,8 @@ function FormularioPlan({
       periodicidad: f.periodicidad,
       description: f.description.trim(),
       tramos: f.tramos,
+      maxPorDia,
+      minutosEntreConsumos,
       ...(editando ? { isActive: f.isActive } : {}),
     };
     setGuardando(true);
@@ -465,6 +508,60 @@ function FormularioPlan({
             Vuelve a {f.beneficiosPorMes || 0} el día 1 de cada mes, los haya
             gastado o no. No se acumulan.
           </p>
+        </div>
+
+        {/* El cupo dice CUÁNTOS al mes; esto dice a qué ritmo. Sin ritmo, un
+            plan de 10 cafés al mes se agota el día 1 en una sola visita: le
+            vacía el mostrador al negocio y deja al socio 29 días sin nada. */}
+        <div className="md:col-span-2 rounded-xl border border-line p-3">
+          <div className="text-sm font-semibold mb-1">
+            ¿Cada cuánto puede usarlo?
+          </div>
+          <p className="text-xs text-mute mb-3">
+            Opcional. Vacío es como hasta ahora: puede gastarse el cupo del mes
+            entero de una sentada.
+          </p>
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="label">Máximo al día</label>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={f.beneficiosPorMes || 1000}
+                placeholder="Sin límite"
+                value={f.maxPorDia}
+                onChange={(e) => set('maxPorDia', e.target.value)}
+              />
+              <p className="text-xs text-mute mt-1">
+                {f.maxPorDia.trim() === ''
+                  ? `Puede llevarse ${f.beneficiosPorMes || 0} en un mismo día.`
+                  : `Como mucho ${f.maxPorDia} ${plural(
+                      f.unidad || 'café',
+                      Number(f.maxPorDia) || 1,
+                    )} por día. El resto queda para los días siguientes.`}
+              </p>
+            </div>
+            <div>
+              <label className="label">Espera entre usos</label>
+              <select
+                className="input"
+                value={f.minutosEntreConsumos}
+                onChange={(e) => set('minutosEntreConsumos', e.target.value)}
+              >
+                {ESPERAS.map((o) => (
+                  <option key={o.minutos || 'sin'} value={o.minutos}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-mute mt-1">
+                {f.minutosEntreConsumos === ''
+                  ? 'Puede pedir dos seguidos en el mismo minuto.'
+                  : 'Es la forma de decir «uno por visita» sin tener que definir qué es una visita.'}
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="md:col-span-2">

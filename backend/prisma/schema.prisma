@@ -7114,6 +7114,20 @@ model ClubPlan {
   /// "te queda 1 beneficio".
   unidad String @default("beneficio")
 
+  /// Cuántos como mucho en un día (hora de Bogotá). null = sin tope.
+  ///
+  /// El cupo es MENSUAL y nada regulaba el ritmo: con 10 al mes se podían
+  /// llevar los 10 de una sentada, y el sistema solo paraba al llegar a cero.
+  /// Reportado por Javier el 2026-09-09 sobre su propia tarjeta.
+  ///
+  /// Nace en null a propósito: encenderlo de oficio le cambiaría las reglas a
+  /// socios que ya pagaron. Ver `club-frecuencia.ts`.
+  maxPorDia Int?
+
+  /// Espera mínima entre un consumo y el siguiente, en minutos. null = ninguna.
+  /// Es la forma de decir "uno por visita" sin definir qué es una visita.
+  minutosEntreConsumos Int?
+
   /// Lo que el cliente paga. Informativo: el cobro es manual y por fuera.
   /// En la unidad menor de la moneda (COP no tiene decimales → son pesos).
   precioCents Int    @default(0)
