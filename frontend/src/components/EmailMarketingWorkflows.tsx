@@ -44,6 +44,78 @@ const TRIGGERS = [
   { key: 'tag_added', label: 'Etiqueta agregada', hint: 'Se inscribe cuando al contacto se le agrega una etiqueta.' },
   { key: 'email_reply', label: 'Responde / interactúa', hint: 'Cuando el contacto responde, abre o hace clic en un correo.' },
 ];
+/**
+ * Las acciones de un workflow, en un menú.
+ *
+ * En la fila solo había «Duplicar». Publicar, volver a borrador, exportar o
+ * borrar obligaban a entrar al flujo — o no se podían hacer desde aquí. El
+ * backend ya las soportaba todas; lo que faltaba era el menú.
+ */
+function FilaMenu({
+  publicado,
+  busy,
+  onEditar,
+  onEstado,
+  onDuplicar,
+  onExportar,
+  onBorrar,
+}: {
+  publicado: boolean;
+  busy: boolean;
+  onEditar: () => void;
+  onEstado: () => void;
+  onDuplicar: () => void;
+  onExportar: () => void;
+  onBorrar: () => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const item =
+    'flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100';
+  const cerrarY = (fn: () => void) => () => {
+    setAbierto(false);
+    fn();
+  };
+  return (
+    <div className="relative inline-block text-left">
+      <button
+        onClick={() => setAbierto((v) => !v)}
+        aria-label="Acciones"
+        className="rounded-lg px-2 py-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+      >
+        ⋮
+      </button>
+      {abierto && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setAbierto(false)} />
+          <div className="absolute right-0 z-50 mt-1 w-56 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+            <button onClick={cerrarY(onEditar)} className={item}>
+              <span className="w-4 text-center">✏️</span> Editar flujo
+            </button>
+            <button onClick={cerrarY(onEstado)} disabled={busy} className={item}>
+              <span className="w-4 text-center">{publicado ? '⏸' : '▶'}</span>{' '}
+              {publicado ? 'Desactivar (borrador)' : 'Activar (publicar)'}
+            </button>
+            <button onClick={cerrarY(onDuplicar)} disabled={busy} className={item}>
+              <span className="w-4 text-center">⧉</span> Duplicar
+            </button>
+            <button onClick={cerrarY(onExportar)} className={item}>
+              <span className="w-4 text-center">↓</span> Exportar JSON
+            </button>
+            <div className="my-1 border-t border-slate-100" />
+            <button
+              onClick={cerrarY(onBorrar)}
+              disabled={busy}
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-rose-600 hover:bg-rose-50"
+            >
+              <span className="w-4 text-center">✕</span> Eliminar
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function uid() { try { return 'n' + crypto.randomUUID().slice(0, 8); } catch { return 'n' + Math.random().toString(36).slice(2, 10); } }
 function fmtDate(s?: string) { return s ? new Date(s).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'; }
 const inp = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-emerald-500';
@@ -73,6 +145,54 @@ export default function EmailMarketingWorkflows() {
     catch { await load(); } finally { setBusy(false); }
   }
 
+  /** Publicar o volver a borrador desde la lista, sin entrar al flujo. */
+  async function cambiarEstado(id: string, publicar: boolean) {
+    setBusy(true);
+    try {
+      await api(`/admin/marketing/workflows/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: publicar ? 'published' : 'draft' }),
+      });
+      await load();
+      toast(publicar ? 'Workflow publicado' : 'Workflow en borrador', 'success');
+    } catch (e: any) {
+      toast(e.message ?? 'Error', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Borra, preguntando antes: un flujo publicado se lleva sus inscritos. */
+  async function borrar(id: string, nombre: string) {
+    if (!window.confirm(`¿Eliminar el workflow «${nombre}»? No se puede deshacer.`)) return;
+    setBusy(true);
+    try {
+      await api(`/admin/marketing/workflows/${id}`, { method: 'DELETE' });
+      await load();
+      toast('Workflow eliminado', 'success');
+    } catch (e: any) {
+      toast(e.message ?? 'Error', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Se descarga el flujo tal cual, para guardarlo o llevarlo a otra marca.
+   * Sale del que ya está en la lista: no hace falta volver a pedirlo.
+   */
+  function exportar(w: any) {
+    const blob = new Blob([JSON.stringify(w, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `workflow-${(w.name || 'sin-nombre').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   const open = wfs.find((w) => w.id === openId) ?? null;
   if (open) return <Editor key={open.id} wf={open} onBack={() => { setOpenId(null); load(); }} onDeleted={() => { setWfs((p) => p.filter((w) => w.id !== open.id)); setOpenId(null); }} />;
   if (loading) return <div className="py-10 text-center text-sm text-slate-400">Cargando…</div>;
@@ -98,7 +218,17 @@ export default function EmailMarketingWorkflows() {
                 <td className="text-slate-800">{w._stats.active + w._stats.completed}</td>
                 <td className="text-slate-800">{w._stats.active}</td>
                 <td className="whitespace-nowrap text-slate-400">{fmtDate(w.createdAt)}</td>
-                <td className="text-right"><button onClick={() => duplicate(w.id)} disabled={busy} className="text-xs text-slate-400 hover:text-emerald-700">⧉ Duplicar</button></td>
+                <td className="text-right">
+                  <FilaMenu
+                    publicado={w.status === 'published'}
+                    busy={busy}
+                    onEditar={() => setOpenId(w.id)}
+                    onEstado={() => cambiarEstado(w.id, w.status !== 'published')}
+                    onDuplicar={() => duplicate(w.id)}
+                    onExportar={() => exportar(w)}
+                    onBorrar={() => borrar(w.id, w.name)}
+                  />
+                </td>
               </tr>
             ))}
             {wfs.length === 0 && <tr><td colSpan={6} className="px-3 py-10 text-center text-slate-400">Aún no hay workflows. Crea el primero.</td></tr>}
