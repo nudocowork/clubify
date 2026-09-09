@@ -113,12 +113,20 @@ export default function SalesTeamsPage() {
                   <div className="text-xs text-mute/60 mt-1">{t('noLead')}</div>
                 )}
               </button>
-              <Link
-                href={`/admin/sales-teams/${team.id}/board`}
-                className="btn-ghost w-full justify-center mt-3 text-sm"
-              >
-                Ver tablero
-              </Link>
+              <div className="flex gap-2 mt-3">
+                <Link
+                  href={`/admin/sales-teams/${team.id}/board`}
+                  className="btn-ghost flex-1 justify-center text-sm"
+                >
+                  Tablero
+                </Link>
+                <Link
+                  href={`/admin/sales-teams/${team.id}/agenda`}
+                  className="btn-ghost flex-1 justify-center text-sm"
+                >
+                  Agenda
+                </Link>
+              </div>
             </div>
           ))}
         </div>

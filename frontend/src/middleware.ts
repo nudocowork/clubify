@@ -416,6 +416,11 @@ export async function middleware(req: NextRequest) {
     // quedaba mirando una página que no terminaba de cargar.
     url.pathname.startsWith('/alianza/') ||
     url.pathname.startsWith('/aliado/') ||
+    // La agenda pública de un equipo de ventas. Misma razón que las de arriba:
+    // es una página pública propia, no el sitio de un negocio, y sin esta
+    // línea caería al resolutor de dominios y haría dos consultas por carga
+    // para decidir un reescrito que aquí no toca.
+    url.pathname.startsWith('/agenda/') ||
     url.pathname.startsWith('/affiliate') ||
     url.pathname.startsWith('/domicilios') ||
     url.pathname.startsWith('/cuponera') ||
