@@ -673,7 +673,11 @@ export default function AppShell({
               section: 'Ventas',
               items: [
                 { href: '/admin/industries', label: 'Industrias', icon: 'grid', clubifyOnly: true },
-                { href: '/admin/sales-teams', label: 'Equipos de ventas', icon: 'users', hideForMarketing: true, clubifyOnly: true },
+                // Equipos de ventas: deja de ser exclusivo de Clubify. Ahora
+                // lo enciende cada marca desde /superadmin/modulos, y el
+                // backend lo comprueba de verdad (`team-access.ts`) — esconder
+                // el menú no era protección.
+                { href: '/admin/sales-teams', label: 'Equipos de ventas', icon: 'users', hideForMarketing: true, requiresBrandModule: 'SALES_TEAMS' },
                 { href: '/admin/sales-leaderboard', label: 'Leaderboard CRM', icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
                 { href: '/admin/ventas/difusion', label: 'Difusión interna', icon: 'spark', hideForMarketing: true, clubifyOnly: true },
               ],

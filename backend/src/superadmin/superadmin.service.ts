@@ -2258,7 +2258,10 @@ export class SuperAdminService {
    *  los 3 módulos. Si la marca no tiene una fila de
    *  WhiteLabelModule para un módulo, asumimos enabled=false. */
   async modulesMatrix() {
-    const ALL_MODULES: ModuleKey[] = ['REFERRALS', 'ORDERS', 'GROW_BUSINESS_SMS', 'REVIEWS', 'SERVICE_RESERVATIONS'];
+    // OJO: esta lista es la que se PINTA en la matriz. Un módulo que exista en
+    // el enum pero no esté aquí no se puede encender desde ningún sitio
+    // (le pasa hoy a COMMUNITY).
+    const ALL_MODULES: ModuleKey[] = ['REFERRALS', 'ORDERS', 'GROW_BUSINESS_SMS', 'REVIEWS', 'SERVICE_RESERVATIONS', 'SALES_TEAMS'];
     const whiteLabels = await this.prisma.whiteLabel.findMany({
       orderBy: { name: 'asc' },
       include: {

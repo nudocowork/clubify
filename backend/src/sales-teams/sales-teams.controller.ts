@@ -8,7 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
 import { SalesTeamsService } from './sales-teams.service';
 import { CrmService } from '../crm/crm.service';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -26,6 +26,12 @@ class TeamUpdateBody {
 
 class MemberAddBody {
   @IsString() userId!: string;
+  /** lider · closer · setter · lectura. Sin roles, entra como `lectura`. */
+  @IsOptional() @IsArray() @IsString({ each: true }) roles?: string[];
+}
+
+class MemberRolesBody {
+  @IsArray() @IsString({ each: true }) roles!: string[];
 }
 
 /**
@@ -70,30 +76,50 @@ export class SalesTeamsController {
   }
 
   @Post()
-  create(@Body() body: TeamCreateBody) {
-    return this.svc.create(body);
+  create(@CurrentUser() user: AuthUser, @Body() body: TeamCreateBody) {
+    return this.svc.create(user, body);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: TeamUpdateBody) {
-    return this.svc.update(id, body);
+  update(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: TeamUpdateBody,
+  ) {
+    return this.svc.update(id, user, body);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.svc.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.svc.remove(id, user);
   }
 
   @Post(':id/members')
-  addMember(@Param('id') id: string, @Body() body: MemberAddBody) {
-    return this.svc.addMember(id, body.userId);
+  addMember(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: MemberAddBody,
+  ) {
+    return this.svc.addMember(id, user, body.userId, body.roles);
+  }
+
+  /** Cambiar los roles de alguien que ya está en el equipo. */
+  @Patch(':id/members/:userId')
+  setMemberRoles(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @CurrentUser() user: AuthUser,
+    @Body() body: MemberRolesBody,
+  ) {
+    return this.svc.setMemberRoles(id, user, userId, body.roles ?? []);
   }
 
   @Delete(':id/members/:userId')
   removeMember(
     @Param('id') id: string,
     @Param('userId') userId: string,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.svc.removeMember(id, userId);
+    return this.svc.removeMember(id, user, userId);
   }
 }

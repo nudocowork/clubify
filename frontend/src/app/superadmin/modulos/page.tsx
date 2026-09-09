@@ -8,6 +8,7 @@ const MODULE_LABELS: Record<string, string> = {
   GROW_BUSINESS_SMS: 'GrowBusiness SMS',
   REVIEWS: 'Reseñas',
   SERVICE_RESERVATIONS: 'Reservas de servicios',
+  SALES_TEAMS: 'Equipos de ventas',
 };
 
 type Row = {
