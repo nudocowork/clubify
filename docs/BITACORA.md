@@ -97,6 +97,63 @@ producción y no pude, así que quitarlo a ciegas era el cambio arriesgado.
 Con el registro, **en un mes se sabrá**: si no aparece ninguno, se borra el
 respaldo; si aparecen muchos, hay que arreglar la correlación antes.
 
+## 2026-09-09 — El lienzo de Workflows de marca, rediseñado. Solo frontend
+
+**Solo presentación.** No se tocó el motor, ni el modelo (`BrandWorkflow.nodes`
+sigue siendo el mapa por id con `next/yes/no`), ni un solo endpoint. Un archivo:
+`frontend/src/components/BrandWorkflowsPanel.tsx`. Sin migración.
+
+Qué cambió en el Creador:
+
+| Antes | Ahora |
+|---|---|
+| Tres trocitos de línea sueltos entre pasos | **Un riel continuo** de 2px con el «+» apoyado encima |
+| Ramas Sí/No como dos columnas flotando | **Conector en T** con la barra enganchada al centro de cada rama |
+| Config del paso en **modal centrado** (tapaba el flujo) | **Panel lateral** — se edita viendo el lienzo |
+| El disparador, una tarjeta más | **Banda «Cuándo entra el negocio»**, y lleva a Configuración |
+| Lienzo vacío y mudo | **Onboarding de dos pasos** |
+| Menú «+» como lista plana | **Agrupado** por Mensaje / Espera / Lógica / Salida |
+| Color por nodo, a ojo | **Color por familia**, y el catálogo del menú se deriva del propio catálogo |
+
+Y tres cosas que no son estética:
+
+- **El contador de segmentos SMS.** GSM-7 cabe 160; con una emoji el mensaje
+  pasa a UCS-2 y baja a 70. Es la diferencia entre pagar 1 envío y pagar 3, y
+  no se veía hasta la factura. Va avisado en el panel, marcado como aproximado
+  porque las variables se sustituyen al enviar.
+- **Borrar un «Si / No» ya avisa.** Al quitarlo se conserva la rama «Sí» y se
+  pierde la de «No» entera — eso pasaba **en silencio**. Ahora dice cuántos
+  pasos se lleva por delante y pide confirmación.
+- **Después de «Terminar» ya no hay «+».** El motor da el flujo por acabado
+  ahí; ofrecer un paso más era prometer algo que nunca se ejecuta. Si un flujo
+  viejo trae algo colgando de un `end`, se sigue pintando (esconderlo lo
+  dejaría invisible pero guardado, que es peor).
+
+Las variables ahora se insertan **donde está el cursor**, no al final.
+
+`npx tsc --noEmit` y `npx eslint` limpios. **Sin verificación visual en
+navegador** — queda pendiente mirarlo en `/admin/automatizaciones` → Workflows.
+
+### Lo que este trabajo NO arregla, y conviene saberlo
+
+Se pidió que funcionara «con automatizaciones de WhatsApp (SMS)». El nodo de
+mensaje **ya es** ese canal (`send_sms` → `sendSmsWithCreds` → subcuenta de
+Grow Business de la marca, canal SMS). Pero el arqueo del módulo dejó dos
+techos que son de motor, no de lienzo:
+
+1. **No existe canal ENTRANTE de SMS/WhatsApp.** El único webhook de mensajería
+   entrante es `POST /api/webhooks/email-inbound/:slug`, y es solo de correo y
+   solo para `MktContact`. Un paso «esperar a que responda» o un disparador
+   «el negocio respondió» **no se puede construir hoy** sin escribir el webhook
+   de conversaciones de GoHighLevel desde cero.
+2. **El motor solo ejecuta 5 tipos de nodo**: `send_sms`, `send_email`,
+   `wait_delay`, `if_else`, `end`. El menú ofrece exactamente esos cinco a
+   propósito. Añadir uno al menú sin añadirlo al motor haría que el negocio
+   pase por el paso sin que ocurra nada y sin que nadie se entere.
+
+Además, sin reintentos: un envío que falla se anota en Registros y el flujo
+sigue al paso siguiente.
+
 ## 2026-09-08 — El chat del pedido ya pide el teléfono. ⚠️ Hay que desplegar backend Y frontend
 
 **P0-4 cerrado en `main`.** Era el peor de los que quedaban: con un código de

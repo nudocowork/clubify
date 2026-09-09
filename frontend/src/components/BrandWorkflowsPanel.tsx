@@ -20,14 +20,39 @@ type Folder = { id: string; name: string; parentId?: string | null; createdAt?: 
 type WFNode = { id: string; type: string; config: any; next?: string | null; yes?: string | null; no?: string | null };
 
 const ACCENT = '#16a34a';
+// Color del riel que une los pasos. Un solo tono para TODO el cableado: el
+// color informa la familia del paso, no la línea que los conecta.
+const RAIL = '#CBD5E1';
+// Separación entre las columnas «Sí» y «No». Es una constante porque la barra
+// en T se calcula a partir de ella (ver el conector de rama en Slot).
+const RAMA_GAP = 32;
+
+// El color va por FAMILIA, no por nodo suelto. Así el lienzo se lee de un
+// vistazo — verde sale un mensaje, violeta espera, índigo decide, rojo
+// termina — en vez de ser un mosaico de colores sin sistema.
+//
+// Y el catálogo tiene EXACTAMENTE los 5 tipos que el motor sabe ejecutar
+// (brand-workflow-engine.service.ts). Ofrecer un paso que el motor no ejecuta
+// es peor que no ofrecerlo: el flujo se guarda, se publica, y el negocio pasa
+// por ese nodo sin que ocurra nada y sin que nadie se entere.
 const NODE = {
-  send_sms: { label: 'Enviar SMS', icon: '💬', chip: '#d1fae5', color: '#059669' },
-  send_email: { label: 'Enviar correo', icon: '✉️', chip: '#dbeafe', color: '#2563eb' },
-  wait_delay: { label: 'Espera (tiempo)', icon: '⏱', chip: '#ede9fe', color: '#7c3aed' },
-  if_else: { label: 'Si / No (condición)', icon: '{ }', chip: '#e0e7ff', color: '#4f46e5', branch: true },
-  end: { label: 'Terminar', icon: '🚪', chip: '#fee2e2', color: '#dc2626' },
+  send_sms: { label: 'Enviar mensaje', sub: 'SMS al dueño', icon: '💬', chip: '#D1FAE5', color: '#047857', group: 'Mensaje' },
+  send_email: { label: 'Enviar correo', sub: 'Al correo del dueño', icon: '✉️', chip: '#D1FAE5', color: '#047857', group: 'Mensaje' },
+  wait_delay: { label: 'Esperar un tiempo', sub: 'Pausa el flujo', icon: '⏱', chip: '#EDE9FE', color: '#6D28D9', group: 'Espera' },
+  if_else: { label: 'Si / No', sub: 'Parte el flujo en dos', icon: '⑂', chip: '#E0E7FF', color: '#4338CA', group: 'Lógica', branch: true },
+  end: { label: 'Terminar el flujo', sub: 'El negocio sale', icon: '🚪', chip: '#FEE2E2', color: '#B91C1C', group: 'Salida' },
 } as const;
 const NODE_TYPES = Object.keys(NODE) as (keyof typeof NODE)[];
+// Orden de los grupos en el menú «+». Se deriva del catálogo para que añadir un
+// tipo nuevo no obligue a tocar el menú en otro sitio y se quede fuera.
+const NODE_GROUPS = NODE_TYPES.reduce<{ group: string; types: (keyof typeof NODE)[] }[]>((acc, t) => {
+  const g = NODE[t].group;
+  const found = acc.find((x) => x.group === g);
+  if (found) found.types.push(t); else acc.push({ group: g, types: [t] });
+  return acc;
+}, []);
+const nodeMeta = (type: string) =>
+  (NODE as any)[type] ?? { label: type, sub: 'Paso desconocido', icon: '•', chip: '#F1F5F9', color: '#64748B', group: '—' };
 const MERGE = [
   { key: 'negocio', label: 'Negocio' }, { key: 'owner', label: 'Dueño' },
   { key: 'plan', label: 'Plan' }, { key: 'platform', label: 'Marca' },
@@ -552,7 +577,23 @@ function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDelet
     setNodes((n) => ({ ...n, [id]: node })); setSlot(id); touch(); setEditNode(id);
   }
   function setField(nodeId: string, field: 'next' | 'yes' | 'no', v: string | null) { setNodes((n) => ({ ...n, [nodeId]: { ...n[nodeId], [field]: v } })); touch(); }
-  function del(node: WFNode, setSlot: (v: string | null) => void) { setSlot(node.next ?? node.yes ?? null); touch(); }
+  // Al borrar un paso, el hueco lo ocupa su continuación. En un «Si / No» eso
+  // solo puede ser UNA de las dos ramas: la de «No» se pierde entera y hasta
+  // ahora se perdía en silencio. Se avisa antes, con el número de pasos que se
+  // van por delante.
+  function del(node: WFNode, setSlot: (v: string | null) => void) {
+    if (node.type === 'if_else' && node.no) {
+      const cuenta = (id?: string | null, vistos = new Set<string>()): number => {
+        if (!id || vistos.has(id) || !nodes[id]) return 0;
+        vistos.add(id);
+        return 1 + cuenta(nodes[id].next, vistos) + cuenta(nodes[id].yes, vistos) + cuenta(nodes[id].no, vistos);
+      };
+      const n = cuenta(node.no);
+      if (!window.confirm(`Al quitar este «Si / No» se conserva la rama «Sí» y se elimina la rama «No» con sus ${n} paso(s). ¿Seguir?`)) return;
+    }
+    setSlot(node.next ?? node.yes ?? null);
+    touch();
+  }
   function patchNode(id: string, cfg: any) { setNodes((n) => ({ ...n, [id]: { ...n[id], config: { ...n[id].config, ...cfg } } })); touch(); }
 
   async function save(publish?: boolean) {
@@ -594,7 +635,12 @@ function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDelet
       </div>
 
       <div className="relative min-h-0 flex-1">
-        {tab === 'creador' && <Canvas trigger={trigger} root={root} setRoot={(v: string | null) => { setRoot(v); touch(); }} nodes={nodes} onInsert={insert} onEdit={setEditNode} onDelete={del} setField={setField} />}
+        {tab === 'creador' && <Canvas trigger={trigger} root={root} setRoot={(v: string | null) => { setRoot(v); touch(); }} nodes={nodes} onInsert={insert} onEdit={setEditNode} onDelete={del} setField={setField} selectedId={editNode} onGoConfig={() => { setEditNode(null); setTab('config'); }} />}
+        {/* El panel del paso vive DENTRO del lienzo: se edita viendo el flujo.
+            Solo en «Creador» — en las otras pestañas taparía el contenido. */}
+        {tab === 'creador' && editNode && nodes[editNode] && (
+          <NodeConfig node={nodes[editNode]} onClose={() => setEditNode(null)} onPatch={(cfg) => patchNode(editNode, cfg)} />
+        )}
         {tab === 'config' && (
           <div className="absolute inset-0 overflow-auto p-5"><div className="mx-auto max-w-2xl space-y-4">
             <Card title="Disparador">
@@ -620,12 +666,11 @@ function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDelet
         {tab === 'registros' && <LogsTab workflowId={wf.id} />}
       </div>
 
-      {editNode && nodes[editNode] && <NodeConfig node={nodes[editNode]} onClose={() => setEditNode(null)} onPatch={(cfg) => patchNode(editNode, cfg)} />}
     </div>
   );
 }
 
-function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, setField }: any) {
+function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, setField, selectedId, onGoConfig }: any) {
   const [view, setView] = useState({ x: 0, y: 30, z: 0.9 });
   const pan = useRef<any>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -665,15 +710,42 @@ function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, set
     window.addEventListener('resize', measure);
     return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', measure); };
   }, [structSig]);
-  const trigLabel = TRIGGERS.find((t) => t.key === trigger.type)?.label ?? trigger.type;
+  const trigDef = TRIGGERS.find((t) => t.key === trigger.type);
+  const trigLabel = trigDef?.label ?? trigger.type;
+  const vacio = !root;
   return (
     <div ref={wrapRef} className="absolute inset-0 overflow-hidden bg-slate-50 [background-image:radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:22px_22px]" onPointerDown={down} onPointerMove={moveP} onPointerUp={() => (pan.current = null)} onPointerLeave={() => (pan.current = null)} onWheel={(e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(-e.deltaY * 0.002); } }} style={{ cursor: pan.current ? 'grabbing' : 'grab' }}>
       <div ref={contentRef} className="absolute left-1/2 top-0 origin-top" style={{ transform: `translate(-50%,0) translate(${view.x}px,${view.y}px) scale(${view.z})` }}>
         <div className="flex flex-col items-center pb-40">
-          <div className="wf-node w-[280px] rounded-xl border px-3 py-2.5 shadow-sm" style={{ borderColor: '#a7f3d0', background: 'white' }}>
-            <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg text-sm" style={{ background: '#d1fae5', color: '#059669' }}>▶</span><div className="min-w-0"><p className="truncate text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#059669' }}>Disparador</p><p className="truncate text-sm font-medium text-slate-800">{trigLabel}</p></div></div>
+          {/* Banda de disparadores: un bloque claro que dice CUÁNDO entra el
+              negocio. Antes era una tarjeta suelta más, indistinguible de un
+              paso — y el disparador no es un paso, es la puerta. */}
+          <div className="wf-node w-[300px] rounded-2xl border border-emerald-200 bg-emerald-50/70 p-2">
+            <p className="px-1.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700">Cuándo entra el negocio</p>
+            <button
+              onClick={onGoConfig}
+              className="flex w-full items-center gap-2.5 rounded-xl border border-emerald-200 bg-white px-3 py-2.5 text-left shadow-sm transition hover:border-emerald-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+              title="Cambiar el disparador en Configuración"
+            >
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-sm" style={{ background: '#D1FAE5', color: '#047857' }}>▶</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold text-slate-800">{trigLabel}</span>
+                <span className="block truncate text-[11px] text-slate-500">{trigger.type === 'manual' ? 'Los inscribes tú desde «Inscribir»' : 'Automático, se revisa cada hora'}</span>
+              </span>
+              <span className="shrink-0 text-slate-300">✎</span>
+            </button>
           </div>
-          <Slot value={root} setSlot={setRoot} nodes={nodes} onInsert={onInsert} onEdit={onEdit} onDelete={onDelete} setField={setField} depth={0} />
+          <Slot value={root} setSlot={setRoot} nodes={nodes} onInsert={onInsert} onEdit={onEdit} onDelete={onDelete} setField={setField} depth={0} selectedId={selectedId} />
+          {/* Flujo vacío: guiar los dos pasos en vez de dejar un lienzo mudo. */}
+          {vacio && (
+            <div className="wf-nopan mt-3 w-[300px] rounded-2xl border border-dashed border-slate-300 bg-white/80 p-4 text-center">
+              <p className="text-sm font-semibold text-slate-700">Este flujo aún no hace nada</p>
+              <ol className="mt-2 space-y-1 text-left text-[12px] text-slate-500">
+                <li><span className="font-semibold text-slate-600">1.</span> Elige cuándo se dispara en <button onClick={onGoConfig} className="font-medium text-emerald-700 underline underline-offset-2">Configuración</button>.</li>
+                <li><span className="font-semibold text-slate-600">2.</span> Pulsa el <span className="font-semibold text-slate-600">+</span> de arriba y añade el primer paso.</li>
+              </ol>
+            </div>
+          )}
         </div>
       </div>
       <div className="wf-nopan absolute bottom-4 left-4 flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -707,77 +779,327 @@ function BrandMinimap({ mini, view, getWrapH, onJump }: { mini: { boxes: { x: nu
   );
 }
 
-function Slot({ value, setSlot, nodes, onInsert, onEdit, onDelete, setField, depth }: any) {
+function Slot({ value, setSlot, nodes, onInsert, onEdit, onDelete, setField, depth, selectedId }: any) {
   const node = value ? nodes[value] : null;
+  const esRama = node?.type === 'if_else';
+  // Tras «Terminar» no se ofrece continuación: el motor da por acabado el flujo
+  // ahí y un «+» prometería un paso que nunca se ejecuta. Si un flujo viejo ya
+  // trae algo colgando de un `end`, se sigue pintando — esconderlo lo dejaría
+  // invisible pero guardado, que es peor.
+  const cierra = node?.type === 'end' && !node?.next;
+  const sub = { nodes, onInsert, onEdit, onDelete, setField, selectedId };
   return (
     <div className="flex flex-col items-center">
-      <Insert terminal={!node} onPick={(t: string) => onInsert(t, value, setSlot)} />
+      <Connector terminal={!node} onPick={(t: string) => onInsert(t, value, setSlot)} />
       {node && (<>
-        <NodeCard node={node} onEdit={() => onEdit(node.id)} onDelete={() => onDelete(node, setSlot)} />
-        {node.type === 'if_else' ? (
-          <div className="flex items-start gap-6 pt-1 sm:gap-10">
-            <Branch label="Sí" bg="#ecfdf5" color="#059669"><Slot value={node.yes ?? null} setSlot={(v: string | null) => setField(node.id, 'yes', v)} nodes={nodes} onInsert={onInsert} onEdit={onEdit} onDelete={onDelete} setField={setField} depth={depth + 1} /></Branch>
-            <Branch label="No" bg="#fef2f2" color="#dc2626"><Slot value={node.no ?? null} setSlot={(v: string | null) => setField(node.id, 'no', v)} nodes={nodes} onInsert={onInsert} onEdit={onEdit} onDelete={onDelete} setField={setField} depth={depth + 1} /></Branch>
-          </div>
-        ) : (<Slot value={node.next ?? null} setSlot={(v: string | null) => setField(node.id, 'next', v)} nodes={nodes} onInsert={onInsert} onEdit={onEdit} onDelete={onDelete} setField={setField} depth={depth} />)}
+        <NodeCard node={node} selected={selectedId === node.id} onEdit={() => onEdit(node.id)} onDelete={() => onDelete(node, setSlot)} />
+        {esRama ? (
+          // Conector en T: un tramo que baja del nodo y una barra horizontal que
+          // va del centro de una columna al centro de la otra. Con dos columnas
+          // iguales, esos centros están al 25% y al 75% — por eso el grid.
+          <>
+            <span aria-hidden className="h-5 w-[2px]" style={{ background: RAIL }} />
+            <div className="relative grid grid-cols-2 justify-items-center" style={{ columnGap: RAMA_GAP }}>
+              {/* Con dos columnas iguales y una separación g, el centro de cada
+                  una NO cae en el 25%/75% exactos: cae en 25% − g/4. Sin ese
+                  ajuste la barra se quedaba corta y dejaba un hueco visible
+                  justo donde tiene que enganchar con cada rama. */}
+              <span aria-hidden className="absolute top-0 h-[2px]" style={{ background: RAIL, left: `calc(25% - ${RAMA_GAP / 4}px)`, right: `calc(25% - ${RAMA_GAP / 4}px)` }} />
+              <BranchCol label="Sí" chip="#DCFCE7" color="#15803D">
+                <Slot value={node.yes ?? null} setSlot={(v: string | null) => setField(node.id, 'yes', v)} depth={depth + 1} {...sub} />
+              </BranchCol>
+              <BranchCol label="No" chip="#FEE2E2" color="#B91C1C">
+                <Slot value={node.no ?? null} setSlot={(v: string | null) => setField(node.id, 'no', v)} depth={depth + 1} {...sub} />
+              </BranchCol>
+            </div>
+          </>
+        ) : cierra ? null : (
+          <Slot value={node.next ?? null} setSlot={(v: string | null) => setField(node.id, 'next', v)} depth={depth} {...sub} />
+        )}
       </>)}
-      {!node && depth > 0 && <span className="mt-1 rounded-full bg-slate-200 px-2 py-0.5 text-[9px] font-medium uppercase text-slate-500">Fin</span>}
+      {!node && depth > 0 && <span className="mt-1.5 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-400">Fin</span>}
     </div>
   );
 }
-function Insert({ terminal, onPick }: { terminal: boolean; onPick: (t: string) => void }) {
-  const [op, setOp] = useState(false);
+
+// Riel continuo entre pasos, con el «+» encima. La línea es UNA sola (absoluta,
+// de borde a borde) y el botón se apoya sobre ella con fondo sólido: así se ve
+// un cable que atraviesa el punto de inserción, no tres trozos sueltos.
+function Connector({ terminal, onPick }: { terminal: boolean; onPick: (t: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const fuera = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', fuera);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', fuera); document.removeEventListener('keydown', esc); };
+  }, [open]);
   return (
-    <div className="relative flex flex-col items-center">
-      <div className="h-4 w-px bg-slate-300" />
-      <button onClick={() => setOp((o) => !o)} className="wf-node grid h-6 w-6 place-items-center rounded-full border text-sm" style={op ? { background: ACCENT, color: 'white', borderColor: ACCENT } : { background: 'white', color: '#94a3b8', borderColor: '#cbd5e1' }}>+</button>
-      {!terminal && <div className="h-4 w-px bg-slate-300" />}
-      {op && <div className="wf-node absolute top-11 z-30 w-52 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
-        <p className="px-2 py-1 text-[10px] font-semibold uppercase text-slate-400">Añadir paso</p>
-        {NODE_TYPES.map((t) => <button key={t} onClick={() => { onPick(t); setOp(false); }} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50"><span className="grid h-6 w-6 place-items-center rounded-md text-xs" style={{ background: NODE[t].chip, color: NODE[t].color }}>{NODE[t].icon}</span> {NODE[t].label}</button>)}
-      </div>}
+    <div ref={ref} className="wf-nopan relative flex flex-col items-center justify-center" style={{ height: 46 }}>
+      {/* left+translate en vez de dejarlo en su posición estática: un absolute
+          sin left dentro de un flex centrado lo resuelve cada navegador a su
+          manera y el riel se iba a un lado. */}
+      <span aria-hidden className="absolute w-[2px] -translate-x-1/2" style={{ background: RAIL, left: '50%', top: 0, bottom: terminal ? '50%' : 0 }} />
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Añadir paso"
+        aria-expanded={open}
+        className="relative z-10 grid h-7 w-7 place-items-center rounded-full border-2 text-sm font-medium leading-none transition-all hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1"
+        style={open ? { background: ACCENT, color: 'white', borderColor: ACCENT } : { background: 'white', color: '#64748B', borderColor: RAIL }}
+      >
+        +
+      </button>
+      {open && (
+        <div className="absolute top-10 z-30 w-60 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
+          {NODE_GROUPS.map((g) => (
+            <div key={g.group}>
+              <p className="px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">{g.group}</p>
+              {g.types.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => { onPick(t); setOpen(false); }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"
+                >
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-xs" style={{ background: NODE[t].chip, color: NODE[t].color }}>{NODE[t].icon}</span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-medium text-slate-800">{NODE[t].label}</span>
+                    <span className="block truncate text-[11px] text-slate-400">{NODE[t].sub}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
+
 function summary(node: WFNode) {
   const c = node.config || {};
-  if (node.type === 'send_sms') return String(c.message || '(sin mensaje)').slice(0, 44);
-  if (node.type === 'send_email') return String(c.subject || '(sin asunto)').slice(0, 44);
-  if (node.type === 'wait_delay') return `Espera ${c.amount ?? 1} ${c.unit ?? 'días'}`;
-  if (node.type === 'if_else') return `${(c.conditions || []).length} condición(es)`;
+  if (node.type === 'send_sms') return String(c.message || '').trim() || 'Sin mensaje todavía';
+  if (node.type === 'send_email') return String(c.subject || '').trim() || 'Sin asunto todavía';
+  if (node.type === 'wait_delay') {
+    const u: Record<string, string> = { minutes: 'minutos', hours: 'horas', days: 'días', weeks: 'semanas' };
+    const n = Number(c.amount) || 1;
+    return `${n} ${u[String(c.unit || 'days')] ?? 'días'}`;
+  }
+  if (node.type === 'if_else') {
+    const n = (c.conditions || []).length;
+    if (!n) return 'Sin condiciones — siempre irá por «Sí»';
+    return `${n} condición${n === 1 ? '' : 'es'} · cumplir ${c.match === 'any' ? 'alguna' : 'todas'}`;
+  }
+  if (node.type === 'end') return 'El negocio sale del flujo';
   return '';
 }
-function NodeCard({ node, onEdit, onDelete }: { node: WFNode; onEdit: () => void; onDelete: () => void }) {
-  const s = (NODE as any)[node.type] ?? { icon: '•', chip: '#f1f5f9', color: '#64748b', label: node.type };
+
+function NodeCard({ node, selected, onEdit, onDelete }: { node: WFNode; selected: boolean; onEdit: () => void; onDelete: () => void }) {
+  const s = nodeMeta(node.type);
+  // Un paso a medio configurar se marca: es la causa nº1 de «publiqué el flujo
+  // y no llegó nada».
+  const incompleto =
+    (node.type === 'send_sms' && !String(node.config?.message || '').trim()) ||
+    (node.type === 'send_email' && !String(node.config?.body || '').trim());
   return (
-    <div className="wf-node group flex w-[240px] items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
-      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-sm" style={{ background: s.chip, color: s.color }}>{s.icon}</span>
-      <button onClick={onEdit} className="min-w-0 flex-1 text-left"><p className="truncate text-sm font-semibold text-slate-800">{s.label}</p><p className="truncate text-[11px] text-slate-400">{summary(node)}</p></button>
-      <button onClick={onDelete} className="shrink-0 text-slate-300 opacity-0 hover:text-rose-500 group-hover:opacity-100">✕</button>
+    <div
+      className={`wf-node group relative flex w-[264px] items-center gap-3 rounded-2xl border bg-white px-3 py-2.5 transition-shadow ${selected ? 'border-emerald-400 shadow-md ring-2 ring-emerald-100' : 'border-slate-200 shadow-sm hover:shadow-md'}`}
+    >
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-sm" style={{ background: s.chip, color: s.color }}>{s.icon}</span>
+      <button
+        type="button"
+        onClick={onEdit}
+        className="min-w-0 flex-1 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 rounded-md"
+      >
+        <span className="flex items-center gap-1.5">
+          <span className="truncate text-sm font-semibold text-slate-800">{s.label}</span>
+          {incompleto && <span className="shrink-0 rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700" style={{ background: '#FEF3C7' }}>Vacío</span>}
+        </span>
+        <span className="mt-0.5 block truncate text-[11.5px] text-slate-400">{summary(node)}</span>
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        aria-label={`Eliminar el paso ${s.label}`}
+        className="shrink-0 rounded-md px-1 text-slate-300 opacity-0 transition hover:text-rose-500 focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 group-hover:opacity-100"
+      >
+        ✕
+      </button>
     </div>
   );
 }
-function Branch({ label, bg, color, children }: any) { return <div className="flex flex-col items-center"><span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ background: bg, color }}>{label}</span>{children}</div>; }
 
+function BranchCol({ label, chip, color, children }: any) {
+  return (
+    <div className="flex flex-col items-center">
+      <span aria-hidden className="h-4 w-[2px]" style={{ background: RAIL }} />
+      <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ background: chip, color }}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+// Segmentos de SMS. GSM-7 cabe 160 (153 si va partido); en cuanto entra un
+// carácter fuera del alfabeto —una emoji, casi siempre— el mensaje pasa a UCS-2
+// y baja a 70/67. Es la diferencia entre pagar 1 envío y pagar 3, y no se ve
+// hasta que llega la factura; por eso el contador está a la vista.
+const GSM7 = '@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&\'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà';
+const GSM7_EXT = '^{}\\[~]|€';
+function segmentosSms(texto: string) {
+  let unidades = 0;
+  let esGsm = true;
+  for (const ch of texto) {
+    if (GSM7_EXT.includes(ch)) { unidades += 2; continue; }
+    if (GSM7.includes(ch)) { unidades += 1; continue; }
+    esGsm = false;
+    // Fuera de GSM-7 se cuenta por unidades UTF-16: una emoji ocupa 2.
+    unidades += ch.length;
+  }
+  const simple = esGsm ? 160 : 70;
+  const multi = esGsm ? 153 : 67;
+  const segmentos = unidades === 0 ? 0 : unidades <= simple ? 1 : Math.ceil(unidades / multi);
+  return { unidades, segmentos, esGsm };
+}
+
+// Inserta la variable DONDE está el cursor, no al final. Escribir el mensaje y
+// tener que recolocar cada {{negocio}} a mano era la queja de siempre.
+function pegarEnCursor(el: HTMLTextAreaElement | HTMLInputElement | null, texto: string, valor: string) {
+  const ini = el?.selectionStart ?? texto.length;
+  const fin = el?.selectionEnd ?? texto.length;
+  const salida = texto.slice(0, ini) + valor + texto.slice(fin);
+  const cursor = ini + valor.length;
+  if (el) requestAnimationFrame(() => { try { el.focus(); el.setSelectionRange(cursor, cursor); } catch { /* el panel pudo cerrarse */ } });
+  return salida;
+}
+
+function ChipsMerge({ onPick }: { onPick: (clave: string) => void }) {
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      <span className="mr-0.5 self-center text-[11px] text-slate-400">Insertar:</span>
+      {MERGE.map((m) => (
+        <button
+          key={m.key}
+          type="button"
+          onClick={() => onPick(m.key)}
+          className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[11px] text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+        >
+          {m.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Panel LATERAL (antes era un modal centrado que tapaba el flujo). Editar un
+// paso mirando el lienzo es media faena: se ve dónde encaja lo que escribes.
 function NodeConfig({ node, onClose, onPatch }: { node: WFNode; onClose: () => void; onPatch: (c: any) => void }) {
   const c = node.config || {};
-  const s = (NODE as any)[node.type] ?? { icon: '•', chip: '#f1f5f9', color: '#64748b', label: node.type };
+  const s = nodeMeta(node.type);
+  const msgRef = useRef<HTMLTextAreaElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const mensaje = String(c.message || '');
+  const { unidades, segmentos, esGsm } = segmentosSms(mensaje);
+
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-3 flex items-center justify-between"><h3 className="flex items-center gap-2 text-sm font-semibold"><span className="grid h-7 w-7 place-items-center rounded-lg text-sm" style={{ background: s.chip, color: s.color }}>{s.icon}</span> {s.label}</h3><button onClick={onClose} className="text-slate-400">✕</button></div>
-        {node.type === 'send_sms' && (<div><Label>Mensaje SMS (al dueño del negocio)</Label><textarea rows={4} value={String(c.message || '')} onChange={(e) => onPatch({ message: e.target.value })} className={`${inp} resize-none`} placeholder="Hola {{owner}}, …" /><div className="mt-1 flex flex-wrap gap-1">{MERGE.map((m) => <button key={m.key} onClick={() => onPatch({ message: `${c.message || ''}{{${m.key}}}` })} className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-emerald-100 hover:text-emerald-700">{m.label}</button>)}</div></div>)}
-        {node.type === 'send_email' && (<div className="space-y-2">
-          <div><Label>Asunto</Label><input value={String(c.subject || '')} onChange={(e) => onPatch({ subject: e.target.value })} className={inp} placeholder="Hola {{owner}} 👋" /></div>
-          <div><Label>Cuerpo del correo (al dueño del negocio · texto o HTML)</Label><textarea rows={5} value={String(c.body || '')} onChange={(e) => onPatch({ body: e.target.value })} className={`${inp} resize-none`} placeholder="Escribe el correo…" /><div className="mt-1 flex flex-wrap gap-1">{MERGE.map((m) => <button key={m.key} onClick={() => onPatch({ body: `${c.body || ''}{{${m.key}}}` })} className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500 hover:bg-emerald-100 hover:text-emerald-700">{m.label}</button>)}</div></div>
-          <p className="rounded-md bg-blue-50 px-3 py-2 text-[11px] text-blue-700">Se envía al correo del dueño por la subcuenta de Grow Business de tu marca (canal Email).</p>
-        </div>)}
-        {node.type === 'wait_delay' && (<div className="flex items-center gap-2"><input type="number" min={1} value={Number(c.amount) || 1} onChange={(e) => onPatch({ amount: +e.target.value })} className={`${inp} w-24`} /><select value={String(c.unit || 'days')} onChange={(e) => onPatch({ unit: e.target.value })} className={inp}><option value="minutes">minutos</option><option value="hours">horas</option><option value="days">días</option><option value="weeks">semanas</option></select></div>)}
+    <aside
+      role="dialog"
+      aria-label={`Configurar el paso ${s.label}`}
+      className="absolute inset-x-0 bottom-0 z-30 flex max-h-[75%] flex-col rounded-t-2xl border-t border-slate-200 bg-white shadow-2xl sm:inset-y-0 sm:left-auto sm:right-0 sm:max-h-none sm:w-[380px] sm:rounded-none sm:border-l sm:border-t-0"
+    >
+      <header className="flex shrink-0 items-center gap-2.5 border-b border-slate-100 px-4 py-3">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-sm" style={{ background: s.chip, color: s.color }}>{s.icon}</span>
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-sm font-semibold text-slate-800">{s.label}</h3>
+          <p className="truncate text-[11px] text-slate-400">{s.sub}</p>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Cerrar" className="rounded-md px-2 py-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500">✕</button>
+      </header>
+
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        {node.type === 'send_sms' && (
+          <div>
+            <Label>Mensaje</Label>
+            <textarea
+              ref={msgRef}
+              rows={6}
+              value={mensaje}
+              onChange={(e) => onPatch({ message: e.target.value })}
+              className={`${inp} resize-none`}
+              placeholder="Hola {{owner}}, tu plan de {{negocio}} vence pronto…"
+            />
+            <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px]">
+              <span className="text-slate-400">
+                {unidades} caracteres · <span className={segmentos > 1 ? 'font-semibold text-amber-700' : ''}>{segmentos} segmento{segmentos === 1 ? '' : 's'}</span>
+              </span>
+              {!esGsm && <span className="text-amber-700">Con emoji o tildes raras el tope baja a 70 por segmento.</span>}
+            </div>
+            <ChipsMerge onPick={(k) => onPatch({ message: pegarEnCursor(msgRef.current, mensaje, `{{${k}}}`) })} />
+            <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600">
+              Sale por la subcuenta de Grow Business de <strong>tu marca</strong>, canal SMS, al teléfono del dueño del negocio.
+              Si la marca no tiene subcuenta propia, el paso se salta y queda anotado en Registros.
+            </p>
+            <p className="mt-1.5 text-[11px] text-slate-400">El contador es aproximado: las variables se sustituyen al enviar y cambian el largo.</p>
+          </div>
+        )}
+
+        {node.type === 'send_email' && (
+          <div className="space-y-3">
+            <div>
+              <Label>Asunto</Label>
+              <input value={String(c.subject || '')} onChange={(e) => onPatch({ subject: e.target.value })} className={inp} placeholder="Hola {{owner}} 👋" />
+            </div>
+            <div>
+              <Label>Cuerpo del correo · texto o HTML</Label>
+              <textarea ref={bodyRef} rows={8} value={String(c.body || '')} onChange={(e) => onPatch({ body: e.target.value })} className={`${inp} resize-none`} placeholder="Escribe el correo…" />
+              <ChipsMerge onPick={(k) => onPatch({ body: pegarEnCursor(bodyRef.current, String(c.body || ''), `{{${k}}}`) })} />
+            </div>
+            <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600">
+              Se envía al correo del dueño por la subcuenta de Grow Business de tu marca (canal Email).
+            </p>
+          </div>
+        )}
+
+        {node.type === 'wait_delay' && (
+          <div>
+            <Label>Cuánto espera antes del siguiente paso</Label>
+            <div className="flex items-center gap-2">
+              <input type="number" min={1} value={Number(c.amount) || 1} onChange={(e) => onPatch({ amount: +e.target.value })} className={`${inp} w-24`} />
+              <select value={String(c.unit || 'days')} onChange={(e) => onPatch({ unit: e.target.value })} className={inp}>
+                <option value="minutes">minutos</option>
+                <option value="hours">horas</option>
+                <option value="days">días</option>
+                <option value="weeks">semanas</option>
+              </select>
+            </div>
+            <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600">
+              Si tienes ventana de envío activa, la espera puede alargarse hasta la siguiente hora permitida.
+            </p>
+          </div>
+        )}
+
         {node.type === 'if_else' && <IfConfig conditions={c.conditions || []} match={c.match || 'all'} onPatch={onPatch} />}
-        {node.type === 'end' && <p className="text-sm text-slate-500">El negocio sale del workflow.</p>}
-        <div className="mt-4 flex justify-end"><button onClick={onClose} className="rounded-lg px-4 py-1.5 text-sm font-semibold text-white" style={{ background: ACCENT }}>Listo</button></div>
+
+        {node.type === 'end' && (
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-[12px] leading-relaxed text-slate-600">
+            El negocio sale del flujo aquí. No se ejecuta ningún paso posterior.
+          </p>
+        )}
       </div>
-    </div>
+
+      <footer className="shrink-0 border-t border-slate-100 px-4 py-3">
+        <button type="button" onClick={onClose} className="w-full rounded-lg py-2 text-sm font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2" style={{ background: ACCENT }}>Listo</button>
+        <p className="mt-1.5 text-center text-[11px] text-slate-400">Los cambios se guardan con «Guardar» arriba.</p>
+      </footer>
+    </aside>
   );
 }
 function IfConfig({ conditions, match, onPatch }: any) {
