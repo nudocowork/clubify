@@ -43,6 +43,18 @@ type BrandMsgTemplate = {
 };
 type BrandMsgFolder = { id: string; name: string; system: boolean };
 
+/**
+ * Cómo se llama el canal DE CARA AL USUARIO.
+ *
+ * Por dentro se llama `SMS`, pero lo que sale es un WhatsApp. Vive en una sola
+ * función porque la cabecera decía «WhatsApp» y el botón de probar decía
+ * «Probar» a secas: al lado de «Probar correo» se leía como un botón genérico
+ * y parecía que no había forma de probar el mensaje. Sí la había.
+ */
+function nombreDeCanal(canal: string): string {
+  return canal === 'SMS' ? 'WhatsApp' : canal;
+}
+
 export default function AutomatizacionesPanel() {
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<BrandMsgTemplate[]>([]);
@@ -528,7 +540,7 @@ export default function AutomatizacionesPanel() {
                                 className="text-[11px] truncate"
                                 style={{ color: '#9aa4af' }}
                               >
-                                {t.channel === 'SMS' ? 'WhatsApp' : t.channel}
+                                {nombreDeCanal(t.channel)}
                                 {t.email ? ' · Email' : ''} · {t.audience}
                               </div>
                             </div>
@@ -735,12 +747,29 @@ export default function AutomatizacionesPanel() {
                                   <button
                                     onClick={() => testSend(t.id, draft)}
                                     disabled={testingId === t.id || !phoneDraft.trim()}
-                                    title={phoneDraft.trim() ? 'Enviar este WhatsApp a tu número de prueba' : 'Guarda un número de prueba arriba'}
+                                    title={
+                                      phoneDraft.trim()
+                                        ? `Enviar este ${nombreDeCanal(t.channel)} a tu número de prueba`
+                                        : 'Escribe arriba un número de prueba para poder enviarlo'
+                                    }
                                     className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
                                     style={{ background: 'white', color: '#0369a1', border: '1px solid #bae6fd' }}
                                   >
-                                    {testingId === t.id ? 'Enviando…' : '🧪 Probar'}
+                                    {testingId === t.id
+                                      ? 'Enviando…'
+                                      : `🧪 Probar ${nombreDeCanal(t.channel)}`}
                                   </button>
+                                )}
+                                {t.channel === 'SMS' && !phoneDraft.trim() && (
+                                  // Un botón apagado y sin explicación se lee
+                                  // como «esto no se puede probar». Sí se
+                                  // puede: lo que falta es el número.
+                                  <span
+                                    className="text-[11px]"
+                                    style={{ color: '#a16207' }}
+                                  >
+                                    Pon un número de prueba arriba
+                                  </span>
                                 )}
                                 {t.isBrandCustom && (
                                   <button
