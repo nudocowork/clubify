@@ -120,7 +120,9 @@ beforeEach(() => {
   // Sábado 5 de septiembre, mediodía en Bogotá (17:00 UTC).
   vi.setSystemTime(new Date('2026-09-05T17:00:00Z'));
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe('sin límites, el plan sigue funcionando exactamente igual', () => {
   it('los tres seguidos de DEMO CLUBIFY pasan, como hasta ahora', async () => {

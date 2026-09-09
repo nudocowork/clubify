@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
@@ -92,23 +93,33 @@ export default function SalesTeamsPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {teams.map((team) => (
-            <button
-              key={team.id}
-              onClick={() => setEditingId(team.id)}
-              className="card card-pad text-left hover:border-ink/30 transition group"
-            >
-              <div className="font-semibold mb-1">{team.name}</div>
-              <div className="text-xs text-mute">
-                {t('memberCount', { count: team.memberCount })}
-              </div>
-              {team.leadUser ? (
-                <div className="text-xs text-mute mt-1">
-                  {t('leadPrefix', { name: team.leadUser.fullName })}
+            <div key={team.id} className="card card-pad">
+              {/* La tarjeta entera abría la ficha de miembros. Ahora hay dos
+                  destinos —quiénes son y qué están vendiendo— y el segundo es
+                  el que se usa a diario, así que va como enlace propio. */}
+              <button
+                onClick={() => setEditingId(team.id)}
+                className="text-left w-full hover:opacity-80 transition"
+              >
+                <div className="font-semibold mb-1">{team.name}</div>
+                <div className="text-xs text-mute">
+                  {t('memberCount', { count: team.memberCount })}
                 </div>
-              ) : (
-                <div className="text-xs text-mute/60 mt-1">{t('noLead')}</div>
-              )}
-            </button>
+                {team.leadUser ? (
+                  <div className="text-xs text-mute mt-1">
+                    {t('leadPrefix', { name: team.leadUser.fullName })}
+                  </div>
+                ) : (
+                  <div className="text-xs text-mute/60 mt-1">{t('noLead')}</div>
+                )}
+              </button>
+              <Link
+                href={`/admin/sales-teams/${team.id}/board`}
+                className="btn-ghost w-full justify-center mt-3 text-sm"
+              >
+                Ver tablero
+              </Link>
+            </div>
           ))}
         </div>
       )}
