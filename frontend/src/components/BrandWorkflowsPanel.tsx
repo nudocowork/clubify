@@ -577,21 +577,35 @@ function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDelet
     setNodes((n) => ({ ...n, [id]: node })); setSlot(id); touch(); setEditNode(id);
   }
   function setField(nodeId: string, field: 'next' | 'yes' | 'no', v: string | null) { setNodes((n) => ({ ...n, [nodeId]: { ...n[nodeId], [field]: v } })); touch(); }
-  // Al borrar un paso, el hueco lo ocupa su continuación. En un «Si / No» eso
-  // solo puede ser UNA de las dos ramas: la de «No» se pierde entera y hasta
-  // ahora se perdía en silencio. Se avisa antes, con el número de pasos que se
-  // van por delante.
+  // Al borrar un paso, el hueco lo ocupa su continuación. En un «Si / No» solo
+  // puede sobrevivir UNA rama: la otra se pierde entera, y hasta ahora se
+  // perdía en silencio. Se prefiere la rama que TIENE contenido (antes se
+  // conservaba «Sí» aunque estuviera vacía y se tiraba «No» con todo dentro).
   function del(node: WFNode, setSlot: (v: string | null) => void) {
-    if (node.type === 'if_else' && node.no) {
-      const cuenta = (id?: string | null, vistos = new Set<string>()): number => {
-        if (!id || vistos.has(id) || !nodes[id]) return 0;
-        vistos.add(id);
-        return 1 + cuenta(nodes[id].next, vistos) + cuenta(nodes[id].yes, vistos) + cuenta(nodes[id].no, vistos);
-      };
-      const n = cuenta(node.no);
-      if (!window.confirm(`Al quitar este «Si / No» se conserva la rama «Sí» y se elimina la rama «No» con sus ${n} paso(s). ¿Seguir?`)) return;
+    const sucesor = node.next ?? node.yes ?? node.no ?? null;
+    const subarbol = (id?: string | null, vistos = new Set<string>()): Set<string> => {
+      if (!id || vistos.has(id) || !nodes[id]) return vistos;
+      vistos.add(id);
+      subarbol(nodes[id].next, vistos);
+      subarbol(nodes[id].yes, vistos);
+      subarbol(nodes[id].no, vistos);
+      return vistos;
+    };
+    const perdida =
+      node.type === 'if_else'
+        ? subarbol(node.yes === sucesor ? node.no : node.yes)
+        : new Set<string>();
+    if (perdida.size) {
+      const cual = node.yes === sucesor ? 'No' : 'Sí';
+      if (!window.confirm(`Al quitar este «Si / No» se conserva una rama y se elimina la rama «${cual}» con sus ${perdida.size} paso(s). ¿Seguir?`)) return;
     }
-    setSlot(node.next ?? node.yes ?? null);
+    // Si el paso abierto en el panel es el que se borra —o iba dentro de la
+    // rama que se pierde— hay que cerrarlo. Si no, el panel se queda editando
+    // un nodo ya desenganchado: lo que escribas se ve, y al guardar se poda sin
+    // avisar. (Antes no pasaba porque el modal tapaba el lienzo entero y no se
+    // podía llegar al ✕ de la tarjeta.)
+    if (editNode && (editNode === node.id || perdida.has(editNode))) setEditNode(null);
+    setSlot(sucesor);
     touch();
   }
   function patchNode(id: string, cfg: any) { setNodes((n) => ({ ...n, [id]: { ...n[id], config: { ...n[id].config, ...cfg } } })); touch(); }
@@ -635,7 +649,7 @@ function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDelet
       </div>
 
       <div className="relative min-h-0 flex-1">
-        {tab === 'creador' && <Canvas trigger={trigger} root={root} setRoot={(v: string | null) => { setRoot(v); touch(); }} nodes={nodes} onInsert={insert} onEdit={setEditNode} onDelete={del} setField={setField} selectedId={editNode} onGoConfig={() => { setEditNode(null); setTab('config'); }} />}
+        {tab === 'creador' && <Canvas trigger={trigger} root={root} setRoot={(v: string | null) => { setRoot(v); touch(); }} nodes={nodes} onInsert={insert} onEdit={setEditNode} onDelete={del} setField={setField} selectedId={editNode} panelAbierto={!!(editNode && nodes[editNode])} onGoConfig={() => { setEditNode(null); setTab('config'); }} />}
         {/* El panel del paso vive DENTRO del lienzo: se edita viendo el flujo.
             Solo en «Creador» — en las otras pestañas taparía el contenido. */}
         {tab === 'creador' && editNode && nodes[editNode] && (
@@ -670,7 +684,7 @@ function Editor({ wf, onBack, onDeleted }: { wf: WF; onBack: () => void; onDelet
   );
 }
 
-function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, setField, selectedId, onGoConfig }: any) {
+function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, setField, selectedId, panelAbierto, onGoConfig }: any) {
   const [view, setView] = useState({ x: 0, y: 30, z: 0.9 });
   const pan = useRef<any>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -714,7 +728,12 @@ function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, set
   const trigLabel = trigDef?.label ?? trigger.type;
   const vacio = !root;
   return (
-    <div ref={wrapRef} className="absolute inset-0 overflow-hidden bg-slate-50 [background-image:radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:22px_22px]" onPointerDown={down} onPointerMove={moveP} onPointerUp={() => (pan.current = null)} onPointerLeave={() => (pan.current = null)} onWheel={(e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(-e.deltaY * 0.002); } }} style={{ cursor: pan.current ? 'grabbing' : 'grab' }}>
+    // Con el panel abierto el lienzo se ENCOGE en vez de quedar tapado. Así el
+    // centrado, el minimapa y «ajustar al contenido» (que mide wrap.clientWidth)
+    // siguen contando sobre lo que de verdad se ve. Antes el panel se comía la
+    // rama derecha y el minimapa entero, y un paso recién insertado en la rama
+    // «No» nacía escondido debajo.
+    <div ref={wrapRef} className={`absolute inset-0 overflow-hidden bg-slate-50 [background-image:radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:22px_22px] ${panelAbierto ? 'sm:right-[380px]' : ''}`} onPointerDown={down} onPointerMove={moveP} onPointerUp={() => (pan.current = null)} onPointerLeave={() => (pan.current = null)} onWheel={(e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(-e.deltaY * 0.002); } }} style={{ cursor: pan.current ? 'grabbing' : 'grab' }}>
       <div ref={contentRef} className="absolute left-1/2 top-0 origin-top" style={{ transform: `translate(-50%,0) translate(${view.x}px,${view.y}px) scale(${view.z})` }}>
         <div className="flex flex-col items-center pb-40">
           {/* Banda de disparadores: un bloque claro que dice CUÁNDO entra el
@@ -748,7 +767,10 @@ function Canvas({ trigger, root, setRoot, nodes, onInsert, onEdit, onDelete, set
           )}
         </div>
       </div>
-      <div className="wf-nopan absolute bottom-4 left-4 flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      {/* En móvil el panel es una hoja que sube desde abajo y se comía estos
+          botones; con el panel abierto se suben arriba. En sm+ el lienzo ya se
+          encogió, así que se quedan donde estaban. */}
+      <div className={`wf-nopan absolute left-4 flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${panelAbierto ? 'top-4 sm:bottom-4 sm:top-auto' : 'bottom-4'}`}>
         <button onClick={() => zoom(0.1)} className="px-3 py-2 text-slate-500 hover:bg-slate-50">+</button>
         <span className="border-y border-slate-100 px-2 py-1 text-center text-[11px] text-slate-400">{Math.round(view.z * 100)}%</span>
         <button onClick={() => zoom(-0.1)} className="px-3 py-2 text-slate-500 hover:bg-slate-50">−</button>
@@ -813,7 +835,18 @@ function Slot({ value, setSlot, nodes, onInsert, onEdit, onDelete, setField, dep
               </BranchCol>
             </div>
           </>
-        ) : cierra ? null : (
+        ) : cierra ? null : node.type === 'end' ? (
+          // Un flujo viejo puede traer pasos colgando de «Terminar» (se dan si
+          // se inserta el Terminar ENCIMA de un paso que ya existía). No se
+          // esconden —quedarían invisibles pero guardados— pero se marcan: el
+          // motor devuelve `removed` en `end` y nunca los ejecuta.
+          <div className="flex flex-col items-center opacity-50">
+            <span className="mt-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+              Nunca se ejecuta
+            </span>
+            <Slot value={node.next ?? null} setSlot={(v: string | null) => setField(node.id, 'next', v)} depth={depth} {...sub} />
+          </div>
+        ) : (
           <Slot value={node.next ?? null} setSlot={(v: string | null) => setField(node.id, 'next', v)} depth={depth} {...sub} />
         )}
       </>)}
@@ -949,19 +982,27 @@ function BranchCol({ label, chip, color, children }: any) {
 const GSM7 = '@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&\'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà';
 const GSM7_EXT = '^{}\\[~]|€';
 function segmentosSms(texto: string) {
-  let unidades = 0;
+  // DOS pasadas a propósito. La primera decide el alfabeto del mensaje ENTERO;
+  // la segunda cuenta. Contar y decidir a la vez estaba mal: `{ } [ ] ~ ^ | €`
+  // valen 2 en GSM-7 pero 1 en UCS-2, y como cada variable es `{{x}}` (cuatro
+  // de esos), un mensaje con una tilde o una emoji se contaba 4 de más por
+  // variable.
   let esGsm = true;
   for (const ch of texto) {
-    if (GSM7_EXT.includes(ch)) { unidades += 2; continue; }
-    if (GSM7.includes(ch)) { unidades += 1; continue; }
+    if (GSM7_EXT.includes(ch) || GSM7.includes(ch)) continue;
     esGsm = false;
-    // Fuera de GSM-7 se cuenta por unidades UTF-16: una emoji ocupa 2.
-    unidades += ch.length;
+    break;
+  }
+  let unidades = 0;
+  for (const ch of texto) {
+    // En GSM-7 los de la tabla de extensión ocupan dos septetos; en UCS-2 se
+    // cuenta por unidades UTF-16 (una emoji ocupa 2).
+    unidades += esGsm ? (GSM7_EXT.includes(ch) ? 2 : 1) : ch.length;
   }
   const simple = esGsm ? 160 : 70;
   const multi = esGsm ? 153 : 67;
   const segmentos = unidades === 0 ? 0 : unidades <= simple ? 1 : Math.ceil(unidades / multi);
-  return { unidades, segmentos, esGsm };
+  return { unidades, segmentos, esGsm, tope: segmentos > 1 ? multi : simple };
 }
 
 // Inserta la variable DONDE está el cursor, no al final. Escribir el mensaje y
@@ -1001,7 +1042,7 @@ function NodeConfig({ node, onClose, onPatch }: { node: WFNode; onClose: () => v
   const msgRef = useRef<HTMLTextAreaElement>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const mensaje = String(c.message || '');
-  const { unidades, segmentos, esGsm } = segmentosSms(mensaje);
+  const { unidades, segmentos, esGsm, tope } = segmentosSms(mensaje);
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -1038,9 +1079,13 @@ function NodeConfig({ node, onClose, onPatch }: { node: WFNode; onClose: () => v
             />
             <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px]">
               <span className="text-slate-400">
-                {unidades} caracteres · <span className={segmentos > 1 ? 'font-semibold text-amber-700' : ''}>{segmentos} segmento{segmentos === 1 ? '' : 's'}</span>
+                {unidades} / {tope} · <span className={segmentos > 1 ? 'font-semibold text-amber-700' : ''}>{segmentos} segmento{segmentos === 1 ? '' : 's'}</span>
               </span>
-              {!esGsm && <span className="text-amber-700">Con emoji o tildes raras el tope baja a 70 por segmento.</span>}
+              {!esGsm && (
+                <span className="text-amber-700">
+                  Lleva algo fuera del alfabeto SMS —una emoji, o á í ó ú—: el tope cae de 160 a 70 por segmento.
+                </span>
+              )}
             </div>
             <ChipsMerge onPick={(k) => onPatch({ message: pegarEnCursor(msgRef.current, mensaje, `{{${k}}}`) })} />
             <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600">

@@ -134,6 +134,40 @@ Las variables ahora se insertan **donde está el cursor**, no al final.
 `npx tsc --noEmit` y `npx eslint` limpios. **Sin verificación visual en
 navegador** — queda pendiente mirarlo en `/admin/automatizaciones` → Workflows.
 
+### Revisión adversarial: 3 bugs propios encontrados y arreglados
+
+Pasé el commit por una revisión que buscaba tumbarlo. Encontró tres cosas
+reales, todas del propio rediseño:
+
+1. **Borrar el paso que tenías abierto dejaba el panel editando un fantasma.**
+   Antes no pasaba porque el modal tapaba el lienzo y no se llegaba al ✕. Con
+   el panel lateral el lienzo queda vivo: borrabas la tarjeta, el panel seguía
+   abierto, escribías, y al guardar se podaba **sin avisar**. Ahora al borrar
+   se cierra el panel si el paso abierto es el que se va (o iba dentro de la
+   rama que se pierde).
+2. **El panel tapaba el minimapa** (en pantalla grande quedaba entero debajo,
+   inalcanzable) **y los botones de zoom** en móvil. Peor: el contenido se
+   centraba sobre el ancho completo, así que un paso recién insertado en la
+   rama «No» nacía escondido. Ahora el lienzo **se encoge** en vez de quedar
+   tapado, y con eso el centrado, el minimapa y «ajustar al contenido» vuelven
+   a contar sobre lo que de verdad se ve.
+3. **El contador de SMS sobrecontaba.** `{ } [ ] ~ ^ | €` valen 2 en GSM-7
+   pero **1** en Unicode, y se contaban como 2 siempre. Como cada variable es
+   `{{x}}` —cuatro de esos—, cualquier mensaje con una tilde o una emoji se
+   contaba 4 de más por variable. Ahora se decide el alfabeto del mensaje
+   entero primero y se cuenta después.
+
+De paso: borrar un «Si / No» ahora conserva la rama **que tiene contenido** (
+antes se quedaba con «Sí» aunque estuviera vacía y tiraba «No» con todo
+dentro), y los pasos colgando de un «Terminar» se pintan marcados **«Nunca se
+ejecuta»** en vez de aparentar que corren.
+
+Y el aviso del alfabeto se corrigió: decía «tildes raras», pero las que rompen
+GSM-7 son **á í ó ú** (é è ù ì ò à sí están). En español eso significa que casi
+cualquier mensaje con tilde baja de 160 a 70 caracteres por segmento.
+
+14 pruebas del contador, en verde, incluida la que cazaba el bug 3.
+
 ### Lo que este trabajo NO arregla, y conviene saberlo
 
 Se pidió que funcionara «con automatizaciones de WhatsApp (SMS)». El nodo de
