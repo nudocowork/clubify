@@ -121,6 +121,8 @@ type Storefront = {
   acceptedPaymentMethods?: string[];
   pageBackgroundColor?: string | null;
   pageBackgroundType?: string | null;
+  /** Ajustes del menu que viven en JSON. `badgeColor` tinta el «Hecho con X». */
+  theme?: { badgeColor?: string | null } | null;
   pageBackgroundGradient?: string | null;
   pageBackgroundImageUrl?: string | null;
   logoBgColor?: string | null;
@@ -1158,6 +1160,10 @@ function StorefrontPublicInner() {
           brand={s.brand as BrandBadgeBrand}
           variant="auto"
           dark={pageIsDark}
+          // El color que eligio el negocio, si eligio alguno. Sin el, el badge
+          // decide claro/oscuro por el brillo del fondo — que acierta casi
+          // siempre, pero no con una foto de fondo.
+          color={s.theme?.badgeColor ?? null}
         />
       )}
     </div>

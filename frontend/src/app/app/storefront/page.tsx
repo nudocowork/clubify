@@ -485,6 +485,31 @@ export default function StorefrontEditor() {
               ]}
               onChange={(v) => setSf({ ...sf, descriptionColor: v })}
             />
+            {/* El «Hecho con {marca}» del pie.
+                Sin color propio, el badge se pinta claro u oscuro segun el
+                brillo del fondo. Eso acierta casi siempre y falla justo cuando
+                mas se nota: con una foto de fondo, donde no hay un brillo
+                unico. Vive en `theme` (JSON) y no en columna, como el resto de
+                ajustes que no necesitan migracion. */}
+            <HeaderColorRow
+              label="Color del «Hecho con»"
+              hint="El sello del pie de tu menu. Dejalo en automatico y se adapta al fondo; elige un color si con tu portada no se lee."
+              value={sf.theme?.badgeColor ?? ''}
+              defaultLabel="Automatico"
+              defaultColor="#64748B"
+              presets={[
+                { color: '#FFFFFF', label: 'Blanco' },
+                { color: '#0F172A', label: 'Negro' },
+                { color: '#64748B', label: 'Gris' },
+                { color: primaryColor, label: 'Tu color' },
+              ]}
+              onChange={(v) =>
+                setSf({
+                  ...sf,
+                  theme: { ...(sf.theme ?? {}), badgeColor: v || null },
+                })
+              }
+            />
           </div>
 
           {/* Solo aparece para SECTIONS — es el único layout que muestra

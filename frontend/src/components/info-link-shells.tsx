@@ -299,23 +299,16 @@ function ShellBrandBadge({
   color?: string | null;
 }) {
   if (!brand) return null;
-  const c = color && String(color).trim() ? String(color).trim() : null;
-  if (!c) return <BrandBadge brand={brand} variant={variant ?? 'subtle'} />;
+  // El tinte lo aplica ahora el propio BrandBadge, por su prop `color`. Antes
+  // se inyectaba desde fuera con un <style> y `!important` porque el
+  // componente no lo aceptaba; aquel apaño teñía por selector y había que
+  // excluir a mano el cuadrito de la marca. Ahora es un color, no una regla.
   return (
-    <div
-      className="il-badge-tint"
-      style={{ ['--il-badge-c' as string]: c } as CSSProperties}
-    >
-      <style>{`
-        .il-badge-tint a,
-        .il-badge-tint a span:not([style]) {
-          color: var(--il-badge-c) !important;
-          background: transparent !important;
-          box-shadow: none !important;
-        }
-      `}</style>
-      <BrandBadge brand={brand} variant={variant ?? 'subtle'} />
-    </div>
+    <BrandBadge
+      brand={brand}
+      variant={variant ?? 'subtle'}
+      color={color ?? null}
+    />
   );
 }
 
