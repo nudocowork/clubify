@@ -1138,6 +1138,9 @@ model User {
   // via SalesTeamMember).
   salesTeamsAsLead    SalesTeam[]          @relation("SalesTeamLead")
   salesTeamMembers    SalesTeamMember[]    @relation("SalesTeamMember")
+  // Leads del equipo asignados a esta persona. SetNull al borrarla: que se
+  // vaya un vendedor no puede llevarse por delante los leads del equipo.
+  salesLeadsAsignados SalesLead[]          @relation("SalesLeadAssignee")
   // CRM (C5): botones automáticos configurados por el afiliado.
   crmButtons          CrmButton[]          @relation("CrmButtonOwner")
   // CRM (C6): actividades registradas por el user (historial de
@@ -4362,10 +4365,35 @@ model SalesTeam {
   leadUserId String?
   leadUser   User?    @relation("SalesTeamLead", fields: [leadUserId], references: [id], onDelete: SetNull)
   createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
 
-  members SalesTeamMember[]
+  /// La MARCA dueña del equipo.
+  ///
+  /// Antes se adivinaba por el código de referido del líder, así que un equipo
+  /// sin líder no era de nadie. Nullable porque los equipos que ya existían
+  /// pueden no tener una marca deducible sin ambigüedad — y adivinarla sería
+  /// peor que dejarla vacía.
+  whiteLabelId String?
+  whiteLabel   WhiteLabel? @relation(fields: [whiteLabelId], references: [id], onDelete: SetNull)
+
+  /// Para la agenda pública: /agenda/<slug>.
+  slug     String? @unique
+  isActive Boolean @default(true)
+  color    String?
+
+  /// Ajustes de la agenda (duración, margen, zona horaria, título público).
+  /// En JSON y no en columnas: son preferencias de presentación que cambian
+  /// más que el esquema, igual que `WhiteLabel.walletAdvanced`.
+  bookingConfig Json @default("{}")
+
+  members       SalesTeamMember[]
+  stages        SalesStage[]
+  leads         SalesLead[]
+  meetings      SalesMeeting[]
+  availability  SalesAvailability[]
 
   @@index([leadUserId])
+  @@index([whiteLabelId])
 }
 
 // Membresía m2m User ↔ SalesTeam. Un user puede pertenecer a varios
@@ -4378,8 +4406,194 @@ model SalesTeamMember {
   user     User      @relation("SalesTeamMember", fields: [userId], references: [id], onDelete: Cascade)
   joinedAt DateTime  @default(now())
 
+  /// Varios a la vez: alguien puede ser setter Y closer del mismo equipo.
+  /// Valores: lider · closer · setter · lectura.
+  roles    String[] @default([])
+  isActive Boolean  @default(true)
+
   @@unique([teamId, userId])
   @@index([userId])
+}
+
+/// Columna del embudo del equipo. Es del EQUIPO, no de una persona: el
+/// `Pipeline` que ya existe tiene `ownerUserId @unique` y es el CRM privado de
+/// cada afiliado.
+model SalesStage {
+  id          String    @id @default(uuid())
+  salesTeamId String
+  team        SalesTeam @relation(fields: [salesTeamId], references: [id], onDelete: Cascade)
+  name        String
+  /// CONTACTS · INTERESTED · FOLLOWUP · CLIENT · NOT_INTERESTED (texto, no
+  /// enum: cada marca puede renombrar sus columnas sin migración).
+  kind        String?
+  position    Int       @default(0)
+  color       String?
+  createdAt   DateTime  @default(now())
+
+  leads SalesLead[]
+
+  @@index([salesTeamId, position])
+}
+
+/// Un lead del equipo.
+///
+/// Tabla propia, y no `CrmContact` ni `MktContact`, por dos motivos duros:
+///
+///  · `CrmContact.ownerUserId` es NOT NULL con borrado en cascada, y los
+///    usuarios se borran en duro. Al salir un vendedor se llevaría por delante
+///    los leads del equipo.
+///  · `MktContact` tiene índices únicos parciales por marca — UNA fila por
+///    persona. La misma persona como lead de dos equipos los rompería.
+///
+/// Se enlaza a `MktContact` por id y SIN clave foránea (ese modelo no declara
+/// relaciones). De ahí salen gratis la identidad por teléfono, el opt-out y la
+/// puerta a las automatizaciones, que solo conocen `MktContact`.
+model SalesLead {
+  id           String     @id @default(uuid())
+  salesTeamId  String
+  team         SalesTeam  @relation(fields: [salesTeamId], references: [id], onDelete: Cascade)
+  /// Desnormalizado a propósito: evita un join en cada consulta de marca.
+  whiteLabelId String?
+  stageId      String
+  stage        SalesStage @relation(fields: [stageId], references: [id], onDelete: Restrict)
+
+  /// SetNull, nunca Cascade: que se vaya un vendedor no puede borrar leads.
+  assignedUserId  String?
+  assignedUser    User?   @relation("SalesLeadAssignee", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdByUserId String?
+
+  /// El contacto de marketing equivalente. Sin FK: `MktContact` no declara
+  /// relaciones (mismo criterio que el resto de enlaces hacia él).
+  mktContactId String?
+
+  name       String?
+  phone      String?
+  /// Últimos 10 dígitos. El mismo criterio de identidad de `identity.ts`.
+  phoneKey   String?
+  email      String?
+  instagram  String?
+  company    String?
+  source     String?
+  value      Decimal? @db.Decimal(12, 2)
+  tags       String[] @default([])
+  lostReason String?
+  wonAt      DateTime?
+
+  lastActivityAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
+
+  activities SalesLeadActivity[]
+  followups  SalesFollowup[]
+  meetings   SalesMeeting[]
+  messages   SalesMessage[]
+
+  @@index([salesTeamId, stageId])
+  @@index([salesTeamId, assignedUserId])
+  @@index([whiteLabelId, phoneKey])
+  @@index([mktContactId])
+}
+
+/// Lo que le ha pasado a un lead. Auditable y no editable.
+model SalesLeadActivity {
+  id          String    @id @default(uuid())
+  leadId      String
+  lead        SalesLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  salesTeamId String
+  userId      String?
+  /// nota · etapa · llamada · mensaje · cita · sistema
+  kind        String
+  body        String?   @db.Text
+  meta        Json      @default("{}")
+  createdAt   DateTime  @default(now())
+
+  @@index([leadId, createdAt])
+}
+
+/// El próximo paso con un lead: a quién le toca y cuándo.
+model SalesFollowup {
+  id             String    @id @default(uuid())
+  leadId         String
+  lead           SalesLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  salesTeamId    String
+  assignedUserId String?
+  dueAt          DateTime
+  channel        String?
+  note           String?   @db.Text
+  done           Boolean   @default(false)
+  doneAt         DateTime?
+  /// continuar · mas_tiempo · no_respondio · compro · no_calificado
+  outcome        String?
+  createdAt      DateTime  @default(now())
+
+  @@index([salesTeamId, dueAt, done])
+}
+
+/// Una cita del equipo.
+///
+/// Tabla propia y no `Appointment` ni `Reservation`: los dos llevan una columna
+/// `tenantId`, y `prisma-tenant-middleware.ts` le inyecta el filtro por negocio
+/// a TODO modelo que tenga un campo con ese nombre. Una cita de equipo de marca
+/// no tiene negocio — el middleware la escondería.
+model SalesMeeting {
+  id          String     @id @default(uuid())
+  salesTeamId String
+  team        SalesTeam  @relation(fields: [salesTeamId], references: [id], onDelete: Cascade)
+  leadId      String?
+  lead        SalesLead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  hostUserId  String?
+  startAt     DateTime
+  durationMin Int        @default(30)
+  timezone    String?
+  /// PENDIENTE · CONFIRMADA · REALIZADA · NO_ASISTIO · CANCELADA
+  status      String     @default("PENDIENTE")
+  /// Para gestionar la cita sin sesión: /agenda/gestion/<token>.
+  manageToken String     @unique
+  notes       String?    @db.Text
+  /// Marca de recordatorio enviado. Sirve de candado: se pone con un UPDATE
+  /// condicional para que dos ciclos del cron no avisen dos veces.
+  reminderSentAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now()) @updatedAt
+
+  @@index([salesTeamId, startAt])
+  @@index([hostUserId, startAt])
+}
+
+/// Cuándo atiende el equipo, o una persona concreta. `userId` null = el equipo.
+model SalesAvailability {
+  id          String    @id @default(uuid())
+  salesTeamId String
+  team        SalesTeam @relation(fields: [salesTeamId], references: [id], onDelete: Cascade)
+  userId      String?
+  /// 0 = domingo.
+  weekday     Int
+  /// Minutos desde medianoche, igual que las reservas de servicios.
+  startMin    Int
+  endMin      Int
+  createdAt   DateTime  @default(now())
+
+  @@index([salesTeamId, weekday])
+}
+
+/// Un mensaje del chat de seguimiento.
+model SalesMessage {
+  id          String    @id @default(uuid())
+  salesTeamId String
+  leadId      String
+  lead        SalesLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  /// in · out · internal (nota que el cliente no ve)
+  direction   String
+  /// sms · whatsapp · note
+  channel     String
+  body        String?   @db.Text
+  userId      String?
+  providerMessageId String?
+  status            String?
+  createdAt         DateTime @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([providerMessageId])
 }
 
 // Canal de envío del botón automático del CRM (C5).
@@ -5319,6 +5533,8 @@ model WhiteLabel {
   benefitCampaigns       BenefitCampaign[]
   // Academia interactiva: videos-tutorial de YouTube por módulo (por marca).
   academyVideos          AcademyVideo[]
+  // Equipos de ventas de la marca (módulo SALES_TEAMS).
+  salesTeams             SalesTeam[]
 
   @@index([status])
 }
@@ -5822,6 +6038,10 @@ enum ModuleKey {
   // Sección Comunidad / Lab / Tutoriales. Habilitado solo para Clubify por
   // ahora; cada marca blanca lo enciende/apaga por config (sin tocar código).
   COMMUNITY
+  /// Equipos de Ventas de la MARCA: sus vendedores, sus leads, su agenda y su
+  /// chat de seguimiento. Apagado en todas por defecto; se enciende marca por
+  /// marca desde /superadmin/modulos.
+  SALES_TEAMS
 }
 
 /// Ledger de movimientos de créditos por marca blanca. Cada compra,
