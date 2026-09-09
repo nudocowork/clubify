@@ -169,14 +169,25 @@ export class MktActionService {
     messageId?: string;
     email?: string;
     kind: EmailEventKind;
-  }): Promise<{ contactId: string | null }> {
+  }): Promise<{ contactId: string | null; correlacionado: boolean }> {
     let action: { id: string; contactId: string } | null = null;
+    // `correlacionado` = casó por providerMessageId, que es un id NUESTRO que
+    // el atacante no conoce. Hay que devolverlo por separado porque abajo hay
+    // un respaldo por correo, y quien llama necesita distinguir «esto viene de
+    // un envío nuestro» de «esto lo ha dicho cualquiera».
+    //
+    // Sin esta distinción, el tope del webhook no servía de nada: el respaldo
+    // rellenaba `contactId` igual, así que el `if (!contactId)` del controlador
+    // nunca se cumplía y ni se limitaba ni se registraba. Justo para los
+    // contactos a los que la marca ya había escrito — los únicos que importan.
+    let correlacionado = false;
     if (input.messageId) {
       action = await this.prisma.mktAction.findFirst({
         where: { whiteLabelId: input.whiteLabelId, providerMessageId: input.messageId },
         orderBy: { createdAt: 'desc' },
         select: { id: true, contactId: true },
       });
+      correlacionado = !!action;
     }
     if (!action && input.email) {
       const c = await this.prisma.mktContact.findFirst({
@@ -197,6 +208,6 @@ export class MktActionService {
         .update({ where: { id: action.id }, data: { [col]: new Date() } })
         .catch(() => {});
     }
-    return { contactId: action?.contactId ?? null };
+    return { contactId: action?.contactId ?? null, correlacionado };
   }
 }

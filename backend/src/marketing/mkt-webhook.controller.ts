@@ -47,7 +47,7 @@ export class MktWebhookController {
       this.log.log(`inbound slug=${slug} kind=${kind} msg=${messageId ?? '—'} email=${email ?? '—'}`);
 
       // Sella el evento en su envío (por messageId; respaldo por email).
-      const { contactId } = await this.actions.stampEvent({
+      const { contactId, correlacionado } = await this.actions.stampEvent({
         whiteLabelId: wl.id,
         messageId,
         email,
@@ -58,10 +58,10 @@ export class MktWebhookController {
       if (kind === 'unsubscribe') {
         const cid = contactId ?? (await this.contactIdByEmail(wl.id, email));
         if (!cid) return { ok: true };
-        if (!contactId && (await this.demasiadasSinCorrelacion(wl.id))) {
+        if (!correlacionado && (await this.demasiadasSinCorrelacion(wl.id))) {
           return { ok: true };
         }
-        this.avisarSiVaSinCorrelacion('unsubscribe', contactId, wl.id, email);
+        this.avisarSiVaSinCorrelacion('unsubscribe', correlacionado, wl.id, email);
         await this.contacts.setOptOut(wl.id, cid, true).catch(() => {});
         return { ok: true };
       }
@@ -70,10 +70,10 @@ export class MktWebhookController {
       if (isInteraction(kind)) {
         const cid = contactId ?? (await this.contactIdByEmail(wl.id, email));
         if (!cid) return { ok: true };
-        if (!contactId && (await this.demasiadasSinCorrelacion(wl.id))) {
+        if (!correlacionado && (await this.demasiadasSinCorrelacion(wl.id))) {
           return { ok: true };
         }
-        this.avisarSiVaSinCorrelacion(kind, contactId, wl.id, email);
+        this.avisarSiVaSinCorrelacion(kind, correlacionado, wl.id, email);
         await this.engine.onContactInteraction(cid, wl.id);
       }
       return { ok: true };
@@ -142,11 +142,11 @@ export class MktWebhookController {
    */
   private avisarSiVaSinCorrelacion(
     kind: string,
-    contactId: string | null | undefined,
+    correlacionado: boolean,
     whiteLabelId: string,
     email?: string,
   ) {
-    if (contactId) return;
+    if (correlacionado) return;
     this.log.warn(
       `RESPALDO_POR_CORREO kind=${kind} marca=${whiteLabelId} email=${email ?? '—'} ` +
         '(no correlacionó por providerMessageId)',

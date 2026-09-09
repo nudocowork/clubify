@@ -519,6 +519,24 @@ export class GrowBusinessService {
     body: string,
     ctx?: SendContext,
   ) {
+    // Las dos comprobaciones que sí tenía el SMS y aquí faltaban. La de «no
+    // molestar» es un fallo que venía de antes: quien pidió no recibir
+    // mensajes seguía recibiéndolos por WhatsApp, que para el que los recibe
+    // es exactamente lo mismo. Y sin el tope, todo el arreglo del bucle de
+    // envíos se rodeaba usando el canal de al lado.
+    if (await this.estaBloqueado(toPhone)) {
+      this.logger.log(
+        `WhatsApp no enviado: ${toPhone} esta en la lista de no molestar`,
+      );
+      return { ok: false as const, message: 'numero en la lista de no molestar' };
+    }
+    if (ctx?.destinatarioSinVerificar && (await this.pasoElTopeSinVerificar(toPhone))) {
+      this.logger.warn(
+        `WhatsApp no enviado a ${toPhone}: tope de ${GrowBusinessService.TOPE_SIN_VERIFICAR}/hora ` +
+          'para destinatarios sin verificar',
+      );
+      return { ok: false as const, message: 'tope de envios a este numero' };
+    }
     if (!creds.locationId || !creds.apiKey) {
       await this.registrarEnvio({
         channel: 'WhatsApp',
@@ -763,7 +781,13 @@ export class GrowBusinessService {
           whiteLabelId,
           templateId: datos.ctx?.templateId ?? null,
           feature: datos.ctx?.feature ?? null,
-          toPhone: datos.toPhone ?? null,
+          // Solo dígitos, a propósito. El tope por destinatario cuenta con
+          // `endsWith` sobre los últimos 10 dígitos, y si aquí se guarda el
+          // número tal cual llegó —«315 062 1706», «315-062-1706»— la fila no
+          // casa ni consigo misma: el tope contaba CERO y se rodeaba metiendo
+          // un espacio. Con dígitos, el mismo teléfono es la misma fila venga
+          // como venga. `estaBloqueado` ya comparaba así.
+          toPhone: datos.toPhone ? datos.toPhone.replace(/\D/g, '') || null : null,
           toEmail: datos.toEmail ?? null,
           subject: datos.subject?.slice(0, 300) ?? null,
           preview: limpiarCuerpo(datos.body),

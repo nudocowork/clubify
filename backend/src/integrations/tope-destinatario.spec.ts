@@ -103,3 +103,47 @@ describe('el tope solo se aplica si el destinatario no esta verificado', () => {
     expect(svc.enviarSms).not.toHaveBeenCalled();
   });
 });
+
+describe('lo que el primer intento de arreglo NO cazaba', () => {
+  // Estas tres son las que faltaban. El tope estaba escrito, pasaba sus
+  // pruebas, y aun asi no frenaba nada: se rodeaba metiendo un espacio en el
+  // numero, o usando WhatsApp, o pasando por una automatizacion.
+
+  it('lo GUARDADO en el registro casa con lo que se cuenta', async () => {
+    // El agujero: `registrarEnvio` guardaba «315 062 1706» tal cual y el tope
+    // buscaba `endsWith('3150621706')`. La fila no casaba ni consigo misma:
+    // el tope contaba CERO y bastaba un espacio para rodearlo.
+    const svc = servicio(0);
+    // Aquí SÍ se usa el `registrarEnvio` de verdad: lo que se prueba es
+    // exactamente lo que acaba en la base.
+    delete svc.registrarEnvio;
+    svc.prisma.tenant = { findUnique: vi.fn(async () => null) };
+    await svc.registrarEnvio({
+      channel: 'SMS',
+      ok: true,
+      locationId: 'loc1',
+      toPhone: '315 062 1706',
+      body: 'hola',
+      ctx: { tenantId: 't1', destinatarioSinVerificar: true },
+    });
+    const guardado = svc.prisma.messageLog.create.mock.calls.at(-1)?.[0]?.data?.toPhone;
+    expect(guardado).toBe('3150621706');
+    // Y lo que se cuenta usa la misma forma.
+    await svc.pasoElTopeSinVerificar('315 062 1706');
+    const buscado = svc.prisma.messageLog.count.mock.calls.at(-1)[0].where.toPhone.endsWith;
+    expect(guardado?.endsWith(buscado)).toBe(true);
+  });
+
+  it('WhatsApp tambien respeta el tope y la lista de no molestar', async () => {
+    // Sin esto, todo el arreglo se rodeaba usando el canal de al lado. Y la
+    // lista de «no molestar» tampoco aplicaba a WhatsApp, que para quien lo
+    // recibe es exactamente lo mismo.
+    const svc = servicio(99);
+    const r = await svc.sendWhatsAppWithCreds({ locationId: 'l', apiKey: 'k' }, '3150621706', 'x', {
+      tenantId: 't1',
+      destinatarioSinVerificar: true,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('tope');
+  });
+});

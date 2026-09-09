@@ -8,6 +8,60 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-09 — Pasé mis propios arreglos por una revisión adversarial, y tres estaban rotos
+
+Lo desplegado ayer parecía bien y pasaba sus pruebas. Al atacarlo de verdad,
+**cuatro arreglos no frenaban nada**. Los cuatro ya están corregidos en `main`,
+**sin desplegar**.
+
+### 1. El tope de SMS se rodeaba con un espacio
+
+`registrarEnvio` guardaba el teléfono **tal como llegaba** —«315 062 1706»— y el
+tope contaba con `endsWith('3150621706')`. **La fila no casaba ni consigo
+misma**: el tope contaba cero y bastaba escribir el número con un espacio para
+saltárselo. El bucle de reservas volvía a ser infinito.
+
+Ahora `toPhone` se guarda **solo con dígitos**, que es como ya comparaba
+`estaBloqueado`.
+
+**Mi prueba daba verde con el agujero abierto**, porque comprobaba la consulta y
+no lo guardado. Ahora hay una que va de punta a punta: escribe y comprueba que
+lo almacenado casa con lo que se busca.
+
+### 2. WhatsApp no tenía ni el tope ni la lista de «no molestar»
+
+`sendWhatsAppWithCreds` iba directo a las credenciales. Todo el arreglo se
+rodeaba usando el canal de al lado.
+
+Y lo de «no molestar» **es un fallo que venía de antes, no mío**: quien pidió no
+recibir mensajes los seguía recibiendo por WhatsApp, que para quien los recibe es
+exactamente lo mismo. Los dos arreglados.
+
+### 3. Las automatizaciones mandaban sin marcar al destinatario
+
+`executeAction` llamaba a los envíos **sin contexto**, así que el tope no se
+aplicaba. Y ese teléfono es el del **cliente**, que en un alta pública lo elige
+quien llama: era la puerta de al lado para el mismo abuso.
+
+### 4. Y la mitigación del webhook no se ejecutaba nunca
+
+La peor de las cuatro. `stampEvent` tiene **su propio respaldo por correo** y
+devolvía el `contactId` relleno aunque no hubiera correlacionado. Mi
+`if (!contactId)` no se cumplía jamás, así que **ni el tope ni el registro
+corrían** — y justo para los contactos a los que la marca ya había escrito, que
+son los únicos que importan.
+
+Ahora `stampEvent` devuelve `correlacionado` por separado: cierto solo si casó
+por `providerMessageId`, que es un id nuestro que el atacante no conoce.
+
+### La lección, que es la de siempre en esta tanda
+
+**Un arreglo que pasa sus pruebas puede no arreglar nada.** Las tres pruebas que
+tenía comprobaban la pieza que yo había escrito, no el camino completo. La que
+faltaba era la de punta a punta: escribir y leer con el mismo formato.
+
+907 pruebas unitarias en verde, lint limpio.
+
 ## 2026-09-08 — DESPLEGADO todo lo de seguridad. Y la prueba de humo no corría nunca
 
 **Backend y frontend en producción**, con las dos migraciones aplicadas antes.

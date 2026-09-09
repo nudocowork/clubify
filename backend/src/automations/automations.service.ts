@@ -426,13 +426,25 @@ export class AutomationsService {
           break;
         }
         const body = await this.renderTemplate(action.body, payload);
+        // `destinatarioSinVerificar`: este teléfono es el del CLIENTE, y el
+        // cliente pudo crearse desde una ruta pública —un alta por QR, un
+        // pedido— con el número que quisiera quien la llamó. Sin la marca, el
+        // tope no se aplicaba y las automatizaciones eran la puerta de al lado
+        // para el mismo abuso que se cerró en las reservas: mandar mensajes a
+        // un tercero desde el remitente del negocio y a su costa.
+        const ctxEnvio = {
+          tenantId,
+          feature: 'automations',
+          destinatarioSinVerificar: true,
+        };
         if (action.type === 'SEND_SMS') {
-          await this.growBusiness.sendSmsWithCreds(creds, phone, body);
+          await this.growBusiness.sendSmsWithCreds(creds, phone, body, ctxEnvio);
         } else {
           await this.growBusiness.sendWhatsAppWithCreds(
             { locationId: creds.locationId, apiKey: creds.apiKey },
             phone,
             body,
+            ctxEnvio,
           );
         }
         break;
