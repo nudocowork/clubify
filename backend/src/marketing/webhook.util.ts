@@ -35,8 +35,23 @@ export function detectKind(payload: unknown): EmailEventKind {
   return 'unknown';
 }
 
-/** Extrae el messageId (correlación) y el email del payload, probando varias formas. */
-export function extractRefs(payload: unknown): { messageId?: string; email?: string } {
+/**
+ * Extrae de quién viene el evento: el messageId (correlación), el correo y el
+ * TELÉFONO.
+ *
+ * El teléfono hace falta para los SMS entrantes. Un SMS no trae correo: quien
+ * escribe al número del negocio se identifica por su número y nada más. Sin
+ * esto, la respuesta llegaba, se clasificaba bien como interacción, y luego no
+ * se encontraba al contacto — así que el workflow no seguía y nadie contestaba.
+ *
+ * Se prueban las formas habituales de GoHighLevel, que manda el número en el
+ * contacto y a veces en la raíz.
+ */
+export function extractRefs(payload: unknown): {
+  messageId?: string;
+  email?: string;
+  phone?: string;
+} {
   const p = (payload ?? {}) as Record<string, any>;
   const messageId =
     pickMessageId(p) ??
@@ -45,7 +60,17 @@ export function extractRefs(payload: unknown): { messageId?: string; email?: str
   const emailRaw =
     p.email ?? p.to ?? p.recipient ?? p.contact?.email ?? p.message?.email ?? p.data?.email ?? '';
   const email = String(emailRaw).trim().toLowerCase() || undefined;
-  return { messageId, email };
+  const phoneRaw =
+    p.phone ??
+    p.from ??
+    p.fromNumber ??
+    p.contact?.phone ??
+    p.message?.phone ??
+    p.data?.phone ??
+    p.data?.contact?.phone ??
+    '';
+  const phone = String(phoneRaw).trim() || undefined;
+  return { messageId, email, phone };
 }
 
 /** Solo estas cuentan como interacción (reanudan wait_reply + disparan el trigger). */

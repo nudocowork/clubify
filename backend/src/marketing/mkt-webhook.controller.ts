@@ -6,6 +6,7 @@ import { MktActionService } from './mkt-action.service';
 import { MktEngineService } from './mkt-engine.service';
 import { MktContactService } from './mkt-contact.service';
 import { detectKind, extractRefs, isInteraction } from './webhook.util';
+import { phoneKeyOf } from './identity';
 
 /**
  * Webhook público de eventos de correo del proveedor: entregado / abrió / clic /
@@ -43,8 +44,11 @@ export class MktWebhookController {
       if (!wl) return { ok: true }; // marca desconocida → 200 e ignoramos
 
       const kind = detectKind(body);
-      const { messageId, email } = extractRefs(body);
-      this.log.log(`inbound slug=${slug} kind=${kind} msg=${messageId ?? '—'} email=${email ?? '—'}`);
+      const { messageId, email, phone } = extractRefs(body);
+      this.log.log(
+        `inbound slug=${slug} kind=${kind} msg=${messageId ?? '—'} ` +
+          `email=${email ?? '—'} tel=${phone ? '✓' : '—'}`,
+      );
 
       // Sella el evento en su envío (por messageId; respaldo por email).
       const { contactId, correlacionado } = await this.actions.stampEvent({
@@ -56,7 +60,10 @@ export class MktWebhookController {
 
       // Baja: detiene todo para ese contacto.
       if (kind === 'unsubscribe') {
-        const cid = contactId ?? (await this.contactIdByEmail(wl.id, email));
+        const cid =
+          contactId ??
+          (await this.contactIdByEmail(wl.id, email)) ??
+          (await this.contactIdByPhone(wl.id, phone));
         if (!cid) return { ok: true };
         if (!correlacionado && (await this.demasiadasSinCorrelacion(wl.id))) {
           return { ok: true };
@@ -68,7 +75,10 @@ export class MktWebhookController {
 
       // Solo interacción reanuda wait_reply + dispara el trigger email_reply.
       if (isInteraction(kind)) {
-        const cid = contactId ?? (await this.contactIdByEmail(wl.id, email));
+        const cid =
+          contactId ??
+          (await this.contactIdByEmail(wl.id, email)) ??
+          (await this.contactIdByPhone(wl.id, phone));
         if (!cid) return { ok: true };
         if (!correlacionado && (await this.demasiadasSinCorrelacion(wl.id))) {
           return { ok: true };
@@ -157,6 +167,25 @@ export class MktWebhookController {
     if (!email) return null;
     const c = await this.prisma.mktContact.findFirst({
       where: { whiteLabelId, email, deleted: false },
+      select: { id: true },
+    });
+    return c?.id ?? null;
+  }
+
+  /**
+   * El contacto a partir de su TELÉFONO. Es como se identifica quien responde
+   * un SMS: no hay correo por ninguna parte.
+   *
+   * Busca por `phoneKey` —los últimos 10 dígitos— y no por el número literal,
+   * porque el mismo teléfono se escribe de cinco formas distintas según quién
+   * lo teclee: con prefijo, sin él, con espacios o con guiones. Es el mismo
+   * criterio que usa el resto del módulo (`identity.ts`).
+   */
+  private async contactIdByPhone(whiteLabelId: string, phone?: string): Promise<string | null> {
+    const key = phoneKeyOf(phone);
+    if (!key) return null;
+    const c = await this.prisma.mktContact.findFirst({
+      where: { whiteLabelId, phoneKey: key, deleted: false },
       select: { id: true },
     });
     return c?.id ?? null;
