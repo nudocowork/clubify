@@ -8,6 +8,92 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-09 (tarde) — Créditos como ingreso, ritmo del club, y la fase 3 de Equipos
+
+**Todo desplegado** (backend `f2cf5d15`, frontend en Vercel) y verificado contra
+producción. Las dos migraciones ya están aplicadas.
+
+### Los «servicios adicionales» ahora SÍ son ingreso
+
+Javier lo decidió hoy: *«sí, cuentan como ingreso, pero no va a comisiones ni
+nada de eso, ni tiene influencer ni se crea un negocio en cada pago»*. **Esto
+revierte la decisión del 2026-09-05**, que los dejaba fuera; el comentario
+grande de `IncomeRecordService` está actualizado con la nueva.
+
+Backfill corrido: **18 transacciones, $646,80**, desde el 2026-07-24. Es
+idempotente — correrlo otra vez dice «ya estaban: 18».
+
+Dos cosas que salieron al mirar los datos y conviene saber:
+
+- **14 de las 18 NO son créditos.** Son «Descuento de Implementación»
+  (`offer.code = 9veek0a9`), que comparte el producto `7929341` y caía en la
+  rama de oferta ambigua — la única que no registraba nada. Y una de ellas es
+  un **«Trimestral 150 USD»** que se coló en la tabla de créditos el 1-ago.
+- **El importe NO puede salir de `purchase.price.value`.** De las 18: 12 en COP,
+  2 en PAB, 1 en PEN, 2 en USD y una sin precio. Tomarlo por dólares habría
+  sumado medio millón por una compra de veinte. Sale de `original_offer_price`,
+  que viene en USD en 17 de 18. La regla vive en `billing/precio-de-pack.ts` con
+  sus pruebas.
+
+Estas filas van con `tenantId` nulo, así que quedan **dentro del «Cobrado» y
+fuera del desglose por plan** — no son la cuota de nadie. El panel dice cuánto
+del total es esto para que las dos cifras cuadren a la vista.
+
+### La tarjeta de Club ya puede decir a qué ritmo se usa
+
+Nada miraba el reloj: con 10 cafés al mes se podían llevar los 10 en un minuto.
+Rastro en producción (DEMO CLUBIFY, 2026-09-08): tres consumos en dos minutos y
+medio, saldo 9 → 8 → 7 → 6.
+
+Dos límites nuevos en `ClubPlan`, **los dos NULL = sin límite**, que es el
+comportamiento de hoy: `maxPorDia` y `minutosEntreConsumos`. Nacen apagados a
+propósito — encenderlos de oficio le cambiaría las reglas a socios que ya
+pagaron. **El plan de DEMO CLUBIFY sigue exactamente igual.**
+
+Migración: `railway run node scripts/apply-club-frecuencia-migration.cjs`
+(**ya aplicada**, aditiva e idempotente).
+
+Lo que hay que respetar si alguien toca esto: la comprobación va **dentro de la
+transacción y después del reclamo de la membresía**. Ese `updateMany` deja la
+fila bloqueada hasta el commit, y es lo único que permite leer el historial sin
+carrera. Y el día se cuenta **en Bogotá**: a las 19:00 allá ya son las 00:00
+UTC, así que contando en UTC el tope diario dejaría pasar el doble cada tarde.
+
+### Equipos de Ventas: fase 3 (el tablero)
+
+Cada equipo de marca tiene ya su embudo: cinco columnas sembradas solas,
+arrastrar tarjetas, alta rápida, ficha con historial. Sin migración — son las
+tablas de la fase 1. Ruta: `/admin/sales-teams/<id>/board`.
+
+Faltan las fases **4 (agenda), 5 (chat) y 6 (disparadores nuevos del motor Mkt)**.
+
+Dos cosas para quien siga:
+
+- **El módulo se comprueba en el servidor**, en cada puerta. Con `SALES_TEAMS`
+  apagado la API responde 404. Es la única excepción en toda la plataforma: el
+  resto de módulos solo esconden el menú.
+- **La pantalla NO reutiliza `CrmKanban`** (el de afiliados). Ese fichero tiene
+  catorce rutas `/crm/...` escritas a mano por dentro de sus subcomponentes;
+  parametrizarlo obliga a hilar una prop por código vivo de Jhon. Se hizo una
+  pantalla propia, la mitad de líneas, sin tocar nada suyo. La **forma** de la
+  API sí se comparte, por si algún día conviene unificar.
+
+### Verificado, no supuesto
+
+Lo que ya estaba hecho y creía pendiente, comprobado **contra el bundle que
+sirve producción**, no de memoria:
+
+- El **orden de clientes** (A→Z y por día de cumpleaños) está vivo.
+- El **QR por sede** está vivo: `?sede=` viaja hasta el menú y hasta el pedido,
+  y `/d/` reexporta el mismo cliente que `/m/`, así que vale para los dos.
+
+### Ojo con esto
+
+Al commitear me encontré trabajo sin commitear de la otra máquina dentro de
+`hotmart.service.ts` (el corte de la comisión duplicada de Drive Pizza). **No lo
+toqué**: separé mis hunks y commiteé solo los míos. Después apareció commiteado
+como `3678c3b6`.
+
 ## 2026-09-09 — Pasé mis propios arreglos por una revisión adversarial, y tres estaban rotos
 
 Lo desplegado ayer parecía bien y pasaba sus pruebas. Al atacarlo de verdad,
