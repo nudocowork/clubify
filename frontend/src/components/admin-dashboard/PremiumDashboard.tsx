@@ -69,6 +69,10 @@ type DashboardResp = {
     billedUsd: number; // COBRADO real (caja) — suma de transacciones reales
     sinRegistrarUsd: number; // cobro fechado en el rango SIN transacción detrás
     sinRegistrarCount: number;
+    // Créditos y «Descuento de Implementación»: dinero sin negocio detrás. Va
+    // DENTRO de billedUsd y FUERA de billedByPlan.
+    sueltoUsd?: number;
+    sueltoCount?: number;
     estimatedUsd: number; // PROYECTADO (estimado, sin cobro registrado)
     estimatedCount: number;
     billedGroups: number; // cuántas unidades del facturado son Grupos
@@ -446,6 +450,20 @@ export function PremiumDashboard() {
                 {' · '}
                 {data.banner.sinRegistrarCount}{' '}
                 {data.banner.sinRegistrarCount === 1 ? 'negocio' : 'negocios'}
+              </div>
+            )}
+            {/* Sin esta línea, el desglose por plan de más abajo no cuadra con
+                la cifra grande y parece un error de cuentas. No es: son cobros
+                que no son la cuota de ningún negocio. */}
+            {(data.banner.sueltoUsd ?? 0) > 0 && (
+              <div
+                className="text-xs text-sky-200 mt-1"
+                title="Packs de créditos y «Descuento de Implementación». Entran sin negocio detrás, así que suman al Cobrado pero no aparecen en el desglose por plan."
+              >
+                Incluye {money(data.banner.sueltoUsd ?? 0)} de créditos e implementación
+                {' · '}
+                {data.banner.sueltoCount ?? 0}{' '}
+                {(data.banner.sueltoCount ?? 0) === 1 ? 'cobro' : 'cobros'}
               </div>
             )}
             {data.banner.estimatedUsd > 0 && (

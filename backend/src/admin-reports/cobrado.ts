@@ -61,6 +61,12 @@ export interface Cobrado {
   porPlan: Record<PeriodKey, Bucket>;
   sinRegistrarUsd: number;
   sinRegistrarCount: number;
+  /** Dinero que entró sin negocio detrás: packs de créditos y «Descuento de
+   *  Implementación» (2026-09-09). Está DENTRO de `cobradoUsd` y FUERA de
+   *  `porPlan` — no es la cuota de nadie, así que meterlo en un plan inventaría
+   *  suscripciones mensuales que no existen. */
+  sueltoUsd: number;
+  sueltoCount: number;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -107,22 +113,36 @@ export function calcularCobrado(entrada: {
   const cobraronDeVerdad = new Set<string>();
 
   let cobradoUsd = 0;
+  let sueltoUsd = 0;
+  let sueltoCount = 0;
   for (const r of ingresos) {
     // Acotar a la marca. Un ingreso sin negocio (pago suelto) entra solo si su
-    // marca coincide, o si se mira la plataforma entera.
+    // marca coincide, o si se mira la plataforma entera. Un suelto SIN marca
+    // —una compra que no se pudo atribuir— solo cuenta en la vista global; en
+    // la de una marca no aparece, porque no consta que sea suyo.
     if (r.tenantId) {
       if (!enAlcance.has(r.tenantId)) continue;
       cobraronDeVerdad.add(r.tenantId);
     } else if (wlId && r.whiteLabelId !== wlId) {
       continue;
     }
-    const key = normalizePeriod(
-      r.planPeriodicity ??
-        (r.tenantId ? (periodicidadDe.get(r.tenantId) ?? null) : null),
-    );
     const monto = Number(r.grossUsd);
     if (!Number.isFinite(monto)) continue;
     cobradoUsd += monto;
+
+    // Sin negocio no hay cuota, así que no hay plan al que sumarlo. Va aparte:
+    // dentro del total, fuera del desglose. Antes esto habría caído en MENSUAL
+    // —el destino por defecto de una periodicidad nula— e inventado
+    // suscripciones que nadie contrató.
+    if (!r.tenantId) {
+      sueltoUsd += monto;
+      sueltoCount += 1;
+      continue;
+    }
+
+    const key = normalizePeriod(
+      r.planPeriodicity ?? periodicidadDe.get(r.tenantId) ?? null,
+    );
     porPlan[key].count += 1;
     porPlan[key].amount += monto;
   }
@@ -161,5 +181,7 @@ export function calcularCobrado(entrada: {
     porPlan,
     sinRegistrarUsd: round2(sinRegistrarUsd),
     sinRegistrarCount,
+    sueltoUsd: round2(sueltoUsd),
+    sueltoCount,
   };
 }

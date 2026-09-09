@@ -38,20 +38,25 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * valores reales del payload cuando la pasarela los entrega. El neto REALMENTE
  * recibido se concilia después (puede diferir de lo esperado).
  *
- * QUÉ NO ENTRA, POR DECISIÓN (2026-09-05, Jhon)
- * ---------------------------------------------
+ * LOS «SERVICIOS ADICIONALES» SÍ ENTRAN (2026-09-09, Javier)
+ * ---------------------------------------------------------
  * El producto de Hotmart **`7929341 · CLUBIFY - SERVICIOS ADICIONALES`**
- * —créditos, «Descuento de Implementación»— **NO va a Contabilidad**. Nunca.
+ * —packs de créditos, «Descuento de Implementación»— **cuenta como ingreso**.
  *
- * Se anota aquí porque parece un agujero y no lo es: al 05-09 había 18
- * transacciones suyas por $645,25 sin `IncomeRecord`, y ya se persiguieron una
- * vez como si fueran un backfill pendiente. No están perdidas —son las 18 filas
- * de `HotmartCreditPurchase`—; simplemente no son ingreso de este módulo.
+ * Esto **revierte la decisión del 2026-09-05 (Jhon)**, que lo dejaba fuera. La
+ * de ahora: *«sí, cuentan como ingreso, pero no va a comisiones ni nada de eso,
+ * ni tiene influencer ni se crea un negocio en cada pago»*. De ahí la forma de
+ * estas filas: `tenantId: null`, sin plan y sin periodicidad. Solo llevan la
+ * marca que compró — cuando se la pudo identificar.
  *
- * Si escribes un auditor que compare `HotmartWebhookEvent` contra
- * `IncomeRecord`, EXCLUYE ese productId o volverá a dar 18 falsos positivos.
- * Contabilidad cuenta el producto de suscripción (`6504901`), Stripe, Cross y
- * los pagos manuales.
+ * Son 18 transacciones por **$646,80** hasta el 2026-09-09. Las escribe
+ * `HotmartService.registrarIngresoDePack`, con el importe que resuelve
+ * `billing/precio-de-pack.ts`; el histórico lo puso
+ * `scripts/backfill-ingreso-creditos.cjs`.
+ *
+ * Un auditor que compare `HotmartWebhookEvent` contra `IncomeRecord` ya NO debe
+ * excluir ese productId. Contabilidad cuenta el producto de suscripción
+ * (`6504901`), este, Stripe, Cross y los pagos manuales.
  */
 @Injectable()
 export class IncomeRecordService {

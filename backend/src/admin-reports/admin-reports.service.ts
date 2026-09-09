@@ -1591,6 +1591,10 @@ export class AdminReportsService {
         billedUsd, // COBRADO: suma de las transacciones reales del rango
         sinRegistrarUsd, // cobro fechado en el rango SIN transacción detrás
         sinRegistrarCount,
+        // Dentro de `billedUsd` y fuera de `billedByPlan`: packs de créditos y
+        // «Descuento de Implementación», que entran sin negocio detrás.
+        sueltoUsd: cuenta.sueltoUsd,
+        sueltoCount: cuenta.sueltoCount,
         estimatedUsd, // Bug 1: PROYECTADO (estimado, sin cobro registrado) — aparte
         estimatedCount,
         billedGroups, // Bug 5: cuántas unidades del facturado son Grupos

@@ -185,3 +185,78 @@ describe('cobrado · los bordes', () => {
     expect(r.cobradoUsd).toBe(49.82);
   });
 });
+
+describe('cobrado · el dinero sin negocio detras (creditos, implementacion)', () => {
+  // Javier, 2026-09-09: «si, cuentan como ingreso, pero no va a comisiones ni
+  // nada de eso, ni tiene influencer ni se crea un negocio en cada pago».
+  const suelto = (usd: number, wl: string | null = null) => ({
+    tenantId: null,
+    whiteLabelId: wl,
+    grossUsd: usd,
+    planPeriodicity: null,
+  });
+
+  it('suma al total pero NO inventa una suscripcion mensual', () => {
+    const r = calc({
+      ingresos: [ingreso('a', 50), suelto(20.9)],
+      negociosEnAlcance: [{ id: 'a', planPeriodicity: 'MENSUAL' }],
+    });
+    expect(r.cobradoUsd).toBe(70.9);
+    expect(r.sueltoUsd).toBe(20.9);
+    expect(r.sueltoCount).toBe(1);
+    // El desglose por plan sigue viendo UN mensual, no dos.
+    expect(r.porPlan.MENSUAL).toEqual({ count: 1, amount: 50, groups: 0 });
+  });
+
+  it('mirando UNA marca, solo cuenta lo que es suyo', () => {
+    const r = calc({
+      wlId: 'sellea',
+      ingresos: [suelto(160, 'sellea'), suelto(18, 'otra'), suelto(20.9, null)],
+      negociosEnAlcance: [],
+    });
+    expect(r.cobradoUsd).toBe(160);
+    expect(r.sueltoUsd).toBe(160);
+    expect(r.sueltoCount).toBe(1);
+  });
+
+  it('mirando la plataforma entera, hasta lo no atribuido cuenta', () => {
+    const r = calc({
+      ingresos: [suelto(160, 'sellea'), suelto(18, 'otra'), suelto(20.9, null)],
+    });
+    expect(r.cobradoUsd).toBe(198.9);
+    expect(r.sueltoCount).toBe(3);
+  });
+
+  it('no cuenta como negocio que pago: no tapa un «sin registrar»', () => {
+    // Que entre plata suelta no puede hacer desaparecer a un negocio con fecha
+    // de cobro y sin transaccion — es justo lo que hay que perseguir.
+    const r = calc({
+      ingresos: [suelto(20.9, 'clubify')],
+      negociosConFecha: [negocio('a', 'MENSUAL', 135)],
+      negociosEnAlcance: [{ id: 'a', planPeriodicity: 'MENSUAL' }],
+    });
+    expect(r.sinRegistrarUsd).toBe(135);
+    expect(r.sinRegistrarCount).toBe(1);
+    expect(r.cobradoUsd).toBe(20.9);
+  });
+
+  it('las 18 compras del historico: 646,80 fuera del desglose por plan', () => {
+    const r = calc({
+      ingresos: [
+        suelto(160, 'sellea'),
+        suelto(156.71, 'clubify'),
+        suelto(19.81, 'clubify'),
+        suelto(21.79, 'clubify'),
+        suelto(17.83, 'clubify'),
+        ...Array.from({ length: 9 }, () => suelto(20.9, 'clubify')),
+        suelto(18.81, 'clubify'),
+        suelto(21.67, null),
+        suelto(21.18, null),
+        suelto(20.9, null),
+      ],
+    });
+    expect(r.cobradoUsd).toBe(646.8);
+    expect(r.sueltoUsd).toBe(646.8);
+    expect(r.porPlan.MENSUAL.count).toBe(0);
+  });
+});

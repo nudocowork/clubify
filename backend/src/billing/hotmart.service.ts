@@ -17,6 +17,7 @@ import { BrandEmailService } from '../email/brand-email.service';
 import { fmtEmailDate } from '../email/brand-email-templates';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { parseWlIdFromSrc, parseAffiliateRawFromSrc } from './hotmart-src';
+import { precioDePackUsd } from './precio-de-pack';
 import { ModuleRef } from '@nestjs/core';
 import { MembershipBillingService } from '../cuponera/membership-billing.service';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
@@ -763,6 +764,53 @@ export class HotmartService {
     }
   }
 
+  /**
+   * CONTABILIDAD — el dinero de los packs de "servicios adicionales".
+   *
+   * Javier decidió el 2026-09-09 que este cobro SÍ es ingreso. No genera
+   * comisión, no tiene influencer y no crea ningún negocio: por eso el
+   * `IncomeRecord` va con `tenantId: null` y solo lleva la marca que compró.
+   * Eso lo deja fuera del desglose por plan y dentro del total cobrado.
+   *
+   * Reemplaza la decisión contraria del 2026-09-05 (ver `IncomeRecordService`).
+   *
+   * Best-effort, como el resto de la contabilidad: si falla, el webhook sigue
+   * acreditando los créditos igual. Idempotente por transactionId.
+   */
+  private registrarIngresoDePack(args: {
+    transactionId: string;
+    payload: HotmartWebhookPayload;
+    pack?: { price?: unknown; currency?: string | null } | null;
+    whiteLabelId: string | null;
+    etiqueta: string;
+  }) {
+    const compra = args.payload.data?.purchase;
+    const precio = precioDePackUsd(compra, args.pack ?? null);
+    if (precio.usd == null) {
+      this.logger.warn(
+        `[CREDITOS] tx=${args.transactionId} sin importe en USD (${precio.motivo}) — ` +
+          `NO se registra ingreso. Poné el precio del pack en USD en /superadmin/creditos.`,
+      );
+      return;
+    }
+    const aprobado = compra?.approved_date;
+    void this.incomeRecord.record({
+      gateway: 'HOTMART',
+      externalTxId: args.transactionId,
+      // Sin negocio a propósito: nadie se da de alta con esta compra.
+      tenantId: null,
+      whiteLabelId: args.whiteLabelId,
+      productName: args.etiqueta,
+      currency: 'USD',
+      grossUsd: precio.usd,
+      saleDate: aprobado ? new Date(aprobado) : new Date(),
+    });
+    this.logger.log(
+      `[CREDITOS] ingreso $${precio.usd} (por ${precio.fuente}) tx=${args.transactionId} ` +
+        `marca=${args.whiteLabelId ?? 'sin asignar'}`,
+    );
+  }
+
   async tryHandleCreditPurchase(
     payload: HotmartWebhookPayload,
     dryRun = false,
@@ -817,6 +865,16 @@ export class HotmartService {
             },
           })
           .catch(() => null);
+        // El dinero entró aunque no sepamos qué pack era: 14 de las 18 compras
+        // del histórico son de una oferta sin link ("Descuento de
+        // Implementación") y caen justo aquí. Sin esto, la contabilidad se
+        // perdería el grueso de este producto.
+        this.registrarIngresoDePack({
+          transactionId,
+          payload,
+          whiteLabelId: null,
+          etiqueta: payload.data?.purchase?.offer?.description?.trim() || 'Servicios adicionales',
+        });
         return 'credit_purchase_offer_ambiguous';
       }
     }
@@ -947,6 +1005,15 @@ export class HotmartService {
           `offer=${offerCode ?? '-'}) no tiene whiteLabelId y no existe la marca Clubify. ` +
           `→ UNASSIGNED. Asigná la marca al link o la compra desde /superadmin/creditos.`,
       );
+      // Sin marca, pero con dinero: el ingreso se registra sin atribuir. Cuenta
+      // en el total de la plataforma y en ninguna marca — que es la verdad.
+      this.registrarIngresoDePack({
+        transactionId,
+        payload,
+        pack: creditLink,
+        whiteLabelId: null,
+        etiqueta: creditLink.label,
+      });
       return 'credit_purchase_unassigned';
     }
 
@@ -970,6 +1037,14 @@ export class HotmartService {
       this.logger.log(
         `Hotmart credit purchase ${transactionId}: marca ${whiteLabelId} es ilimitada, compra registrada sin incrementar`,
       );
+      // Ilimitada no quiere decir gratis: pagó igual y el ingreso es real.
+      this.registrarIngresoDePack({
+        transactionId,
+        payload,
+        pack: creditLink,
+        whiteLabelId,
+        etiqueta: creditLink.label,
+      });
       return 'credit_purchase_unlimited';
     }
     // CRÉDITOS ANTES (para log + trazabilidad).
@@ -1013,6 +1088,13 @@ export class HotmartService {
       `[CREDITOS] ✅ ACREDITADO · tx=${transactionId} · ${creditLink.credits} créditos → marca ${whiteLabelId} · ` +
         `CRÉDITOS DESPUÉS=${updatedWl.creditsAvailable}`,
     );
+    this.registrarIngresoDePack({
+      transactionId,
+      payload,
+      pack: creditLink,
+      whiteLabelId,
+      etiqueta: creditLink.label,
+    });
     // SMS a la marca: créditos acreditados (+ reset de dedups de avisos).
     const fresh = { creditsAvailable: updatedWl.creditsAvailable };
     await this.wlNotifications
