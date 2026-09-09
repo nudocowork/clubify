@@ -151,6 +151,90 @@ producción y no pude, así que quitarlo a ciegas era el cambio arriesgado.
 Con el registro, **en un mes se sabrá**: si no aparece ninguno, se borra el
 respaldo; si aparecen muchos, hay que arreglar la correlación antes.
 
+## 2026-09-09 — Se corta la cadena que duplicó la comisión de Drive Pizza
+
+**Backend, sin migración.** Tres arreglos, y uno que se DEJÓ SIN HACER a
+propósito (abajo, es lo más importante de esta entrada).
+
+### Lo que pasó, para que se entienda el arreglo
+
+Una venta, un cobro, cuatro comisiones. Cuatro cosas alineadas:
+
+1. 24-ago entra el cobro. No había atribución todavía → sin comisión. Correcto.
+2. 25-ago un admin atribuye la venta a un VENDOR → se crea el par, **sin
+   número de transacción**: el backfill pasaba `hotmartTransactionId: null`
+   escrito a mano, teniéndolo en la ficha del negocio.
+3. 1-sep Hotmart re-anuncia el MISMO cobro con **`PURCHASE_COMPLETE`** — que no
+   es un pago nuevo, es el cierre de la ventana de garantía de 7 días. Comparte
+   `case` con `PURCHASE_APPROVED`, así que se trató como cobro y generó el par
+   otra vez.
+4. Las dos dedups fallaron a la vez: la de transacción porque las primeras la
+   tenían en null, y la de base de datos porque los `periodKey` cayeron en
+   meses distintos.
+
+### Lo que se arregló
+
+| Qué | Dónde |
+|---|---|
+| El backfill de atribución manual sella la comisión con el tx del negocio (los dos caminos: VENDOR y directo) | `referrals.service.ts` |
+| `PURCHASE_COMPLETE` ya no vuelve a devengar el mismo cobro | `hotmart.service.ts` |
+| El camino legacy escribe `businessDate` (directa, indirecta y socio) | `hotmart.service.ts` |
+| `setTenantAssignment` deja rastro en AuditLog | `referrals.service.ts` + su controlador |
+
+Lo del `businessDate` no es cosmético: **ese camino nunca lo escribía**, y es el
+que genera la mayoría de las comisiones. Por eso había ~20 filas en producción
+invisibles a todos los chequeos por ciclo, incluido el que evita devengar dos
+veces el mismo cobro.
+
+Sobre `PURCHASE_COMPLETE`: el guard usa `alreadyConfirmedTx`, que compara la
+transacción entrante contra la que el negocio ya tenía guardada **antes** de
+actualizarla. Una renovación de verdad trae otra transacción y **sigue
+devengando** — hay una prueba solo para eso, porque es lo que no se puede
+romper.
+
+### ⚠️ Lo que NO se hizo, y por qué
+
+Estaba pedido **alinear el `periodKey` con el mes del cobro** en el camino
+legacy. **No se hizo: habría perdido comisiones reales.**
+
+Caso concreto, **Konys**: plan MENSUAL, cobrado el **2-jul y el 30-jul**. Dos
+cobros Hotmart reales de $50, dos comisiones legítimas de $5. Los dos cobros
+caen en julio, así que con `periodKey = mes(businessDate)` las dos filas
+quedarían en `2026-07` y la `@@unique([referralUseId, recipientCodeId,
+periodKey])` **rechazaría la segunda en silencio** (el `catch` de P2002 la
+salta). Se perdería una comisión pagable.
+
+Alinear la etiqueta del mes es cosmético; perder una comisión no lo es. El
+duplicado que motivaba el cambio ya lo cortan el tx sellado y el guard de
+`PURCHASE_COMPLETE`. **Si alguien retoma esto, la llave de dedup tiene que
+incluir la transacción, no el mes.**
+
+### Verificación
+
+8 pruebas nuevas (`comision-duplicada-drive-pizza.spec.ts`) y **se comprobó que
+muerden**: con el código anterior, 2 fallan. **1363 pruebas unitarias en verde.**
+Los 3 ficheros que fallan son los e2e preexistentes que necesitan base de datos
+(`P1001`), sin relación con esto.
+
+`npx tsc --noEmit` limpio — pero ojo: ahora **necesita más memoria**. Con el
+cliente de Prisma regenerado se queda sin heap y muere. Usar:
+
+```bash
+cd backend && NODE_OPTIONS=--max-old-space-size=6144 npx tsc --noEmit -p tsconfig.json
+```
+
+(Si te salen errores en `src/sales-teams/` sobre `whiteLabelId` o `roles` que no
+existen, no es el código: es el cliente de Prisma viejo. `npx prisma generate`.)
+
+### Sin desplegar
+
+Esto NO está en producción. Y aparte: **Quipao Bubble Tea corregido en prod**
+el mismo día (`subscriptionPriceUsd` 49.52 → 50.00 y su comisión viva 4.95 →
+5.00). El 49.52 no era un precio: era el monto con FX del plan de $50. El
+control es MOTILART — mismo plan, mismo FX 49.52, precio 50.00 correcto.
+Quedan **4 `IncomeRecord` a $49.52** ($1,92 sub-reportados): decisión contable,
+no tocada.
+
 ## 2026-09-09 — El lienzo de Workflows de marca, rediseñado. Solo frontend
 
 **Solo presentación.** No se tocó el motor, ni el modelo (`BrandWorkflow.nodes`

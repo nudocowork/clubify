@@ -608,10 +608,18 @@ export class ReferralsController {
   @Roles('SUPER_ADMIN')
   @Patch('tenants/:tenantId/assignment')
   setTenantAssignment(
+    @CurrentUser() user: AuthUser,
     @Param('tenantId') tenantId: string,
     @Body() body: { referralCodeId: string | null },
   ) {
-    return this.svc.setTenantAssignment(tenantId, body.referralCodeId ?? null);
+    // El actor va al servicio para que quede en el registro de auditoría: esta
+    // ruta MUEVE DINERO (crea la comisión retroactiva) y hasta ahora no dejaba
+    // ni una línea de rastro, a diferencia de assign-affiliate.
+    return this.svc.setTenantAssignment(
+      tenantId,
+      body.referralCodeId ?? null,
+      user?.id ?? null,
+    );
   }
 
   /**

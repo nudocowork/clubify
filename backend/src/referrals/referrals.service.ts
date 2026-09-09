@@ -2638,7 +2638,11 @@ export class ReferralsService {
    * No-op si ya está asignado a ese mismo code.
    * Las Commissions históricas viven aparte — no las tocamos.
    */
-  async setTenantAssignment(tenantId: string, codeId: string | null) {
+  async setTenantAssignment(
+    tenantId: string,
+    codeId: string | null,
+    actorId: string | null = null,
+  ) {
     // FIX 2026-06-15: antes tomaba solo la asignación MÁS RECIENTE (findFirst)
     // y borraba esa. Si quedaban varias atribuciones colgadas (ej por
     // parent-uses viejos o reasignaciones previas), las demás sobrevivían →
@@ -2714,6 +2718,28 @@ export class ReferralsService {
         tenantId,
         status: 'PAYING', // asignación manual del super admin = ya cliente
         convertedAt: new Date(),
+      },
+    });
+
+    // Rastro de auditoría. Esta ruta genera la comisión retroactiva justo
+    // debajo, o sea MUEVE DINERO, y no dejaba ni una línea: por eso, al
+    // investigar el duplicado de Drive Pizza, no se pudo saber quién había
+    // atribuido la venta ni cuándo. `assignAffiliate` sí lo registra; esta no.
+    const codeInfo = await this.prisma.referralCode.findUnique({
+      where: { id: codeId },
+      select: { code: true, ownerName: true, role: true },
+    });
+    this.audit.log({
+      actorId,
+      tenantId,
+      action: 'commission.manual_attribution',
+      resource: `tenant:${tenantId}`,
+      metadata: {
+        codeId,
+        code: codeInfo?.code ?? null,
+        ownerName: codeInfo?.ownerName ?? null,
+        role: codeInfo?.role ?? null,
+        via: 'setTenantAssignment',
       },
     });
 
@@ -2815,6 +2841,10 @@ export class ReferralsService {
         planPeriodicity: true,
         subscriptionPriceUsd: true,
         whiteLabelId: true,
+        // La transacción del cobro que esta comisión retroactiva está pagando.
+        // Sin ella la comisión nace sin recibo y la dedup por transacción no
+        // puede verla — ver el comentario del branch VENDOR más abajo.
+        hotmartTransactionId: true,
         plan: { select: { priceMonthly: true } },
       },
     });
@@ -2902,10 +2932,16 @@ export class ReferralsService {
     // única en vez de duplicar la fórmula. Idempotente por
     // UNIQUE(referralUseId, recipientCodeId, periodKey) → no duplica este mes.
     if (code.role === 'VENDOR') {
+      // El id de la transacción va SIEMPRE que lo tengamos. Antes iba `null`
+      // escrito a mano, y eso es lo que rompió Drive Pizza: la comisión nacía
+      // sin recibo, así que cuando Hotmart re-anunció el MISMO cobro con
+      // `PURCHASE_COMPLETE` (el cierre de la garantía a los 7 días), la dedup
+      // por transacción no encontró nada con qué comparar y generó el par otra
+      // vez. Espeja lo que ya hacía bien `assignAffiliate`.
       await this.generateCommissionsForPayment({
         tenantId,
         paymentAmountUsd: price,
-        hotmartTransactionId: null,
+        hotmartTransactionId: tenant.hotmartTransactionId ?? null,
       });
       return;
     }
@@ -2922,6 +2958,9 @@ export class ReferralsService {
           status: 'PENDING',
           recipientCodeId: code.id,
           periodKey: monthKey(),
+          // Mismo motivo que en el branch VENDOR: sin el recibo del cobro que
+          // paga esta comisión, un re-anuncio del mismo pago la duplica.
+          externalTxId: tenant.hotmartTransactionId ?? null,
         },
       })
       .catch((e: any) => {

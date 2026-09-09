@@ -1722,11 +1722,27 @@ export class HotmartService {
 
     // Comisiones del cobro. La lógica vive en un metodo aparte porque la
     // comparten las tres pasarelas — ver generarComisionesDeCobro.
-    await this.generarComisionesDeCobro({
-      tenantId: tenant.id,
-      montoCanonicoUsd: canonicalUsd,
-      transaccionId: transactionId ?? null,
-    });
+    //
+    // NO se devenga dos veces por el MISMO cobro. `PURCHASE_APPROVED` y
+    // `PURCHASE_COMPLETE` comparten `case` (arriba, en runEventLogic), pero el
+    // segundo no es un pago nuevo: es Hotmart avisando de que se cerró la
+    // ventana de garantía de 7 días de esa misma compra. Llega con otro
+    // eventId, así que pasa el claimEvent y volvía a generar el par de
+    // comisiones (caso real: Drive Pizza, 24-ago cobrado y 1-sep re-anunciado).
+    // `alreadyConfirmedTx` compara contra la transacción que el tenant ya tenía
+    // guardada ANTES de este update, así que una renovación de verdad —que trae
+    // otra transacción— sigue devengando con normalidad.
+    if (alreadyConfirmedTx) {
+      this.logger.log(
+        `Comisiones: skip re-anuncio del mismo cobro tenant=${tenant.id} tx=${transactionId}`,
+      );
+    } else {
+      await this.generarComisionesDeCobro({
+        tenantId: tenant.id,
+        montoCanonicoUsd: canonicalUsd,
+        transaccionId: transactionId ?? null,
+      });
+    }
 
     // SMS al dueño (best-effort): si la cuenta venía SUSPENDED, "cuenta
     // reactivada"; si no, "pago confirmado" (con info del próximo cobro).
@@ -2536,6 +2552,12 @@ export class HotmartService {
     // Hotmart (Tenant.lastChargeAt, seteado por activatePurchase antes de esto).
     // GUARD B6/R4: holdReleaseFrom clampa si lastChargeAt está viejo.
     const commissionAvailableAt = holdReleaseFrom(tenant?.lastChargeAt);
+    // Fecha de negocio = la del cobro REAL que genera esta comisión.
+    // Este camino (el legacy, sin vendedor) nunca la escribía, y es el que
+    // genera la mayoría de las comisiones: por eso había ~20 filas en
+    // producción con `businessDate` en null, invisibles a todos los chequeos
+    // por ciclo (incluido el que evita devengar dos veces el mismo cobro).
+    const commissionBusinessDate = tenant?.lastChargeAt ?? null;
 
     // 1) Comisión DIRECTA (+ posible INDIRECTA al influencer parent).
     const use = await this.prisma.referralUse.findFirst({
@@ -2643,6 +2665,7 @@ export class HotmartService {
               recipientCodeId: use.referralCode.id,
               periodKey,
               availableAt: commissionAvailableAt,
+              businessDate: commissionBusinessDate,
             },
           })
           .catch((e: any) => {
@@ -2714,6 +2737,7 @@ export class HotmartService {
                 recipientCodeId: parent.id,
                 periodKey: monthKey(),
                 availableAt: commissionAvailableAt,
+                businessDate: commissionBusinessDate,
               },
             })
             .catch((e: any) => {
@@ -2745,6 +2769,7 @@ export class HotmartService {
         socioBase,
         commissionAvailableAt,
         opts.transactionId,
+        commissionBusinessDate,
       ).catch((e) =>
         this.logger.warn(`Comisión socio falló: ${(e as Error).message}`),
       );
@@ -2756,6 +2781,7 @@ export class HotmartService {
     amountPaid: number,
     availableAt?: Date,
     transactionId?: string | null,
+    businessDate?: Date | null,
   ) {
     const socioRow = await this.prisma.setting.findUnique({
       where: { key: 'referrals.socioCodeId' },
@@ -2815,6 +2841,7 @@ export class HotmartService {
           recipientCodeId: socio.id,
           periodKey: monthKey(),
           availableAt: availableAt ?? null,
+          businessDate: businessDate ?? null,
         },
       })
       .catch((e: any) => {
