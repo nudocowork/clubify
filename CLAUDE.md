@@ -11,6 +11,9 @@ Lee primero, siempre:
   producción, qué hay ahí que no está en el código, y las reglas duras.
 - **[docs/BITACORA.md](docs/BITACORA.md)** — qué hizo la otra máquina y qué dejó
   pendiente de validar.
+- **[docs/SYNC-API.md](docs/SYNC-API.md)** — el diccionario de campos de la
+  Sync API del Onboarding. Antes de decir «eso no existe en Clubify»,
+  míralo: ya pasó tres veces que sí existía.
 
 ### Reglas que no se rompen
 
