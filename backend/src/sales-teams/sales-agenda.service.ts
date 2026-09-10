@@ -20,6 +20,7 @@ import {
 import { phoneKeyOf, emailNormOf } from '../marketing/identity';
 import { MktProviderService } from '../marketing/provider/mkt-provider.service';
 import { exigirEscritura, resolveTeamAccess } from './team-access';
+import { asegurarColumnas } from './sales-columnas';
 
 /**
  * La agenda del equipo de ventas — fase 4.
@@ -499,12 +500,13 @@ export class SalesAgendaService {
       if (ya) return ya.id;
     }
 
-    const primera = await this.prisma.salesStage.findFirst({
-      where: { salesTeamId: teamId },
-      orderBy: { position: 'asc' },
-      select: { id: true },
-    });
-    // Sin columnas no hay tablero todavía: la cita se guarda igual, sin lead.
+    // Se SIEMBRAN si el equipo aún no tiene tablero abierto. Rendirse aquí
+    // hacía desaparecer al prospecto: la cita quedaba y la persona no, así que
+    // el vendedor veía un hueco ocupado sin saber de quién. Cazado en una
+    // prueba contra producción con «Equipo Ecuador», creado en agosto y con el
+    // tablero sin estrenar.
+    const columnas = await asegurarColumnas(this.prisma, teamId);
+    const primera = columnas[0];
     if (!primera) return null;
 
     const lead = await this.prisma.salesLead.create({

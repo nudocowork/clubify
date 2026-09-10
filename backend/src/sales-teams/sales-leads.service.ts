@@ -16,6 +16,7 @@ import {
   resolveTeamAccess,
   type AccesoAlEquipo,
 } from './team-access';
+import { asegurarColumnas } from './sales-columnas';
 
 /**
  * El CRM de un equipo de ventas de marca — fase 3.
@@ -48,15 +49,6 @@ import {
  * escribe a mano en cada consulta y no hay red debajo.
  */
 
-/** Las columnas con las que arranca un equipo. Se pueden renombrar después. */
-const COLUMNAS_INICIALES: Array<{ name: string; kind: string; color: string }> = [
-  { name: 'Contactos', kind: 'CONTACTS', color: '#64748b' },
-  { name: 'Interesados', kind: 'INTERESTED', color: '#0ea5e9' },
-  { name: 'Seguimiento', kind: 'FOLLOWUP', color: '#f59e0b' },
-  { name: 'Clientes', kind: 'CLIENT', color: '#22c55e' },
-  { name: 'No interesados', kind: 'NOT_INTERESTED', color: '#ef4444' },
-];
-
 /** Cuántos leads devuelve el tablero de una vez. */
 const TOPE_LEADS = 2000;
 
@@ -82,34 +74,9 @@ export class SalesLeadsService {
 
   // ── Columnas ────────────────────────────────────────────────────────────
 
-  /**
-   * Las columnas del equipo, creándolas la primera vez.
-   *
-   * La siembra va con `createMany` + `skipDuplicates` no, sino comprobando
-   * antes: dos personas abriendo el tablero a la vez podrían sembrar dos
-   * juegos. Se vuelve a leer después de escribir y se devuelve lo que quedó,
-   * así el segundo se encuentra las del primero en vez de duplicar.
-   */
-  private async columnasDe(salesTeamId: string) {
-    const hay = await this.prisma.salesStage.findMany({
-      where: { salesTeamId },
-      orderBy: { position: 'asc' },
-    });
-    if (hay.length) return hay;
-
-    await this.prisma.salesStage.createMany({
-      data: COLUMNAS_INICIALES.map((c, i) => ({
-        salesTeamId,
-        name: c.name,
-        kind: c.kind,
-        color: c.color,
-        position: i,
-      })),
-    });
-    return this.prisma.salesStage.findMany({
-      where: { salesTeamId },
-      orderBy: { position: 'asc' },
-    });
+  /** Las columnas del equipo, sembrándolas si es la primera vez. */
+  private columnasDe(salesTeamId: string) {
+    return asegurarColumnas(this.prisma, salesTeamId);
   }
 
   /** La columna, comprobando que es de ESTE equipo. */

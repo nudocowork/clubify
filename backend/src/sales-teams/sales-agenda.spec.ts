@@ -26,7 +26,10 @@ function baseFalsa(opts: { modulo?: boolean; slug?: string | null } = {}) {
     franjas: [] as Fila[],
     citas: [] as Fila[],
     leads: [] as Fila[],
-    stages: [{ id: 'st1', salesTeamId: 't1', name: 'Contactos', position: 0 }] as Fila[],
+    // A propósito VACÍO. Traer una columna puesta es lo que hizo que la
+    // prueba pasara mientras producción perdía al prospecto: «Equipo Ecuador»
+    // nunca había abierto su tablero. Aquí se siembra como en la vida real.
+    stages: [] as Fila[],
     actividades: [] as Fila[],
     miembros: [
       { teamId: 't1', userId: 'u-vendedor', isActive: true, roles: ['closer'] },
@@ -147,6 +150,12 @@ function baseFalsa(opts: { modulo?: boolean; slug?: string | null } = {}) {
     },
     salesStage: {
       findFirst: async ({ where }: any) => bd.stages.find((s) => casa(s, where)) ?? null,
+      findMany: async ({ where }: any) =>
+        bd.stages.filter((s) => casa(s, where)).sort((a, b) => a.position - b.position),
+      createMany: async ({ data }: any) => {
+        for (const d of data) bd.stages.push({ id: id('st'), ...d });
+        return { count: data.length };
+      },
     },
     salesLeadActivity: {
       create: async ({ data }: any) => {
@@ -413,6 +422,21 @@ describe('la agenda pública', () => {
     });
     expect(bd.leads).toHaveLength(1);
     expect(bd.leads[0].source).toBe('agenda');
+    expect(bd.citas[0].leadId).toBe(bd.leads[0].id);
+  });
+
+  it('un equipo SIN tablero estrenado tambien recoge al prospecto', async () => {
+    // El fallo real: «Equipo Ecuador» se creo en agosto, nadie abrio su
+    // tablero, y quien reservaba por el enlace desaparecia. La cita quedaba y
+    // la persona no: el vendedor veia un hueco ocupado sin saber de quien.
+    expect(bd.stages).toHaveLength(0);
+    await svc.reservarPublico('norte', {
+      startAt: '2026-09-08T14:30:00Z',
+      name: 'Ana Ruiz',
+      phone: '3001112233',
+    });
+    expect(bd.stages.length).toBeGreaterThan(0);
+    expect(bd.leads).toHaveLength(1);
     expect(bd.citas[0].leadId).toBe(bd.leads[0].id);
   });
 
