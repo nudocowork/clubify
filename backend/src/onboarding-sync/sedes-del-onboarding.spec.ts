@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   llaveDeSede,
+  resolverOverridesDeProducto,
   resolverSedesDeProducto,
   type SedeConocida,
 } from './sedes-del-onboarding';
@@ -126,5 +127,99 @@ describe('llaveDeSede', () => {
     expect(llaveDeSede('SEDE  CABECERA')).toBe('sede cabecera');
     expect(llaveDeSede('Sede — Cabecera')).toBe('sede cabecera');
     expect(llaveDeSede(null)).toBe('');
+  });
+});
+
+describe('resolverOverridesDeProducto', () => {
+  const ov = (locationOverrides: unknown) =>
+    resolverOverridesDeProducto({ locationOverrides }, SEDES);
+
+  it('sin la clave no hay nada que escribir', () => {
+    expect(resolverOverridesDeProducto({}, SEDES)).toEqual({
+      overrides: [],
+      desconocidas: [],
+    });
+  });
+
+  it('recoge precio, foto, texto y agotado de cada sede', () => {
+    const r = ov([
+      {
+        name: 'Sede Cabecera',
+        price: 25000,
+        imageUrl: 'https://cdn/cesta.jpg',
+        description: 'En cesta',
+      },
+      { name: 'Sede Cacique', price: 28000, isAvailable: false },
+    ]);
+    expect(r.overrides).toEqual([
+      {
+        locationId: 'loc-cab',
+        price: 25000,
+        imageUrl: 'https://cdn/cesta.jpg',
+        description: 'En cesta',
+      },
+      { locationId: 'loc-cac', price: 28000, isAvailable: false },
+    ]);
+  });
+
+  // «Sin filas = como el producto». Una línea que no cambia nada no es una fila.
+  it('una sede que no cambia nada no genera fila', () => {
+    expect(ov([{ name: 'Sede Centro' }]).overrides).toEqual([]);
+    expect(ov([{ name: 'Sede Centro', price: '', description: '  ' }]).overrides).toEqual(
+      [],
+    );
+  });
+
+  // Una data: URL en base64 no se puede servir desde el menú y además infla la
+  // fila a varios MB. Es el error que convirtió QrPoster en el 77% de la base.
+  it('descarta imágenes que no son una URL descargable', () => {
+    expect(
+      ov([{ name: 'Sede Centro', imageUrl: 'data:image/png;base64,AAAA' }])
+        .overrides,
+    ).toEqual([]);
+  });
+
+  it('un precio que no es número se ignora, no rompe el sync', () => {
+    expect(ov([{ name: 'Sede Centro', price: 'Consultar' }]).overrides).toEqual([]);
+  });
+
+  it('un precio de 0 es un precio', () => {
+    expect(ov([{ name: 'Sede Centro', price: 0 }]).overrides).toEqual([
+      { locationId: 'loc-cen', price: 0 },
+    ]);
+  });
+
+  it('un precio negativo no', () => {
+    expect(ov([{ name: 'Sede Centro', price: -5 }]).overrides).toEqual([]);
+  });
+
+  it('una sede que no existe se informa y no arrastra a las demás', () => {
+    const r = ov([
+      { name: 'Sede Piedecuesta', price: 9000 },
+      { name: 'Sede Centro', price: 9000 },
+    ]);
+    expect(r.overrides).toEqual([{ locationId: 'loc-cen', price: 9000 }]);
+    expect(r.desconocidas).toEqual(['Sede Piedecuesta']);
+  });
+
+  it('dos líneas para la misma sede: manda la primera', () => {
+    const r = ov([
+      { name: 'Sede Centro', price: 1000 },
+      { name: 'sede centro', price: 2000 },
+    ]);
+    expect(r.overrides).toEqual([{ locationId: 'loc-cen', price: 1000 }]);
+  });
+
+  it('«disponible» solo cuenta si viene como booleano de verdad', () => {
+    expect(ov([{ name: 'Sede Centro', isAvailable: 'si' }]).overrides).toEqual([]);
+    expect(ov([{ name: 'Sede Centro', isAvailable: true }]).overrides).toEqual([
+      { locationId: 'loc-cen', isAvailable: true },
+    ]);
+  });
+
+  it('aguanta basura sin reventar', () => {
+    expect(ov([null, 'texto', 42, { sinNombre: 1 }]).overrides).toEqual([]);
+    expect(resolverOverridesDeProducto({ locationOverrides: 'no es lista' }, SEDES))
+      .toEqual({ overrides: [], desconocidas: [] });
   });
 });

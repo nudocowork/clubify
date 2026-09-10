@@ -101,3 +101,91 @@ export function resolverSedesDeProducto(
   // filas (ver `producto-en-sede.ts`).
   return { modo: 'SELECCIONADAS', locationIds, desconocidas };
 }
+
+/** Lo que UNA sede cambia de un producto. Solo lo que venga con valor. */
+export interface OverrideDeSede {
+  locationId: string;
+  price?: number;
+  imageUrl?: string;
+  description?: string;
+  isAvailable?: boolean;
+}
+
+/**
+ * Qué cambia cada sede: precio, foto, texto o agotado.
+ *
+ * Es independiente de dónde se vende. Un producto en TODAS puede igualmente
+ * tener filas —ahí sirven para el precio propio de una sede, no para decidir
+ * dónde se vende— y esa distinción es la que sostiene el modelo entero (ver
+ * `producto-en-sede.ts`).
+ *
+ * **Solo escribe lo que llega con valor; nunca vacía un campo.** El formulario
+ * del Onboarding se rellena una vez, al principio, y después el negocio trabaja
+ * en el panel. Si un reenvío del módulo pudiera borrar campos, el día que
+ * alguien reabre el Onboarding le limpia a la sede el precio que llevaba meses
+ * cobrando. Vaciar se hace desde el panel, que es donde se ve lo que hay.
+ */
+export function resolverOverridesDeProducto(
+  entrada: { locationOverrides?: unknown },
+  sedes: SedeConocida[],
+): { overrides: OverrideDeSede[]; desconocidas: string[] } {
+  if (!Array.isArray(entrada.locationOverrides)) {
+    return { overrides: [], desconocidas: [] };
+  }
+
+  const porLlave = new Map<string, string>();
+  for (const s of sedes) {
+    const k = llaveDeSede(s.name);
+    if (k && !porLlave.has(k)) porLlave.set(k, s.id);
+  }
+
+  const overrides: OverrideDeSede[] = [];
+  const desconocidas: string[] = [];
+  const vistas = new Set<string>();
+
+  for (const o of entrada.locationOverrides) {
+    if (!o || typeof o !== 'object') continue;
+    const fila = o as Record<string, unknown>;
+    const nombre = String(fila.name ?? fila.locationName ?? '').trim();
+    if (!nombre) continue;
+
+    const locationId = porLlave.get(llaveDeSede(nombre));
+    if (!locationId) {
+      desconocidas.push(nombre);
+      continue;
+    }
+    if (vistas.has(locationId)) continue; // dos líneas para la misma sede: manda la primera
+    vistas.add(locationId);
+
+    const out: OverrideDeSede = { locationId };
+
+    const precio = Number(fila.price);
+    if (fila.price != null && fila.price !== '' && Number.isFinite(precio) && precio >= 0) {
+      out.price = precio;
+    }
+
+    const foto = typeof fila.imageUrl === 'string' ? fila.imageUrl.trim() : '';
+    // Solo URLs descargables: una data: URL en base64 no se puede servir desde
+    // el menú y además infla la fila a varios MB.
+    if (/^https?:\/\//i.test(foto)) out.imageUrl = foto;
+
+    const texto =
+      typeof fila.description === 'string' ? fila.description.trim() : '';
+    if (texto) out.description = texto;
+
+    if (typeof fila.isAvailable === 'boolean') out.isAvailable = fila.isAvailable;
+
+    // Una línea que no cambia nada no es una fila: «sin filas = como el
+    // producto» es la regla de la que cuelga todo lo demás.
+    if (
+      out.price !== undefined ||
+      out.imageUrl !== undefined ||
+      out.description !== undefined ||
+      out.isAvailable !== undefined
+    ) {
+      overrides.push(out);
+    }
+  }
+
+  return { overrides, desconocidas };
+}

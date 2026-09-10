@@ -4,7 +4,9 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { OnboardingWebhookService } from './onboarding-webhook.service';
 import {
   llaveDeSede,
+  resolverOverridesDeProducto,
   resolverSedesDeProducto,
+  type OverrideDeSede,
   type SedesDeProducto,
 } from './sedes-del-onboarding';
 
@@ -590,7 +592,10 @@ export class OnboardingSyncService {
     // trae cientos de líneas (Licores El Amanecer tiene 545) y una consulta
     // por cada una convierte un guardado en una espera.
     const hablaDeSedes = items.some(
-      (p: any) => p?.locationMode !== undefined || p?.locationNames !== undefined,
+      (p: any) =>
+        p?.locationMode !== undefined ||
+        p?.locationNames !== undefined ||
+        p?.locationOverrides !== undefined,
     );
     let sedes: { id: string; name: string }[] = [];
     let sedeMenuEnabled = false;
@@ -664,9 +669,20 @@ export class OnboardingSyncService {
       // media carta escondida porque alguien llamó a la API a mano.
       if (hablaDeSedes && sedeMenuEnabled) {
         const donde = resolverSedesDeProducto(p, sedes);
+        const cambios = resolverOverridesDeProducto(p, sedes);
+        for (const d of cambios.desconocidas) desconocidas.add(d);
         if (donde) {
-          await this.guardarSedesDeProducto(productId, donde);
+          await this.guardarSedesDeProducto(
+            productId,
+            donde,
+            cambios.overrides,
+          );
           for (const d of donde.desconocidas) desconocidas.add(d);
+        } else if (cambios.overrides.length) {
+          // El producto no dice dónde se vende pero sí qué cambia en una
+          // sede. Son cosas independientes: en TODAS las filas sirven para
+          // el precio propio, no para decidir dónde se vende.
+          await this.aplicarOverrides(productId, cambios.overrides);
         }
       }
     }
@@ -688,17 +704,19 @@ export class OnboardingSyncService {
   }
 
   /**
-   * En qué sedes se vende un producto, escrito en `ProductLocation`.
+   * En qué sedes se vende un producto y qué cambia en cada una.
    *
-   * El ORDEN de las dos escrituras no es indiferente:
+   * El ORDEN de las escrituras no es indiferente:
    *
-   *  · A SELECCIONADAS se escriben **primero las filas** y después el modo. Si
-   *    algo falla en medio, el producto se queda en TODAS —visible— en vez de
-   *    quedar en «solo en las sedes marcadas» con cero sedes marcadas, que lo
-   *    esconde de todas las cartas y no se nota hasta que un cliente escanea
-   *    el QR.
-   *  · A TODAS se escribe **primero el modo**, por lo mismo: lo primero que
-   *    ocurre es que el producto vuelve a verse.
+   *  · **Lo primero son los cambios de cada sede** (precio, foto, texto). Así,
+   *    cuando toca decidir qué filas sobran, una sede que cambia algo ya no
+   *    parece vacía y no se borra para volver a crearse.
+   *  · A SELECCIONADAS el **modo va al final**. Si algo falla en medio, el
+   *    producto se queda en TODAS —visible— en vez de quedar en «solo en las
+   *    sedes marcadas» con cero sedes marcadas, que lo esconde de todas las
+   *    cartas y no se nota hasta que un cliente escanea el QR.
+   *  · A TODAS el **modo va primero**, por lo mismo: lo primero que ocurre es
+   *    que el producto vuelve a verse.
    *
    * Las filas que guardan algo propio de una sede —precio, agotado, stock, foto
    * o texto— NUNCA se borran: eso lo puso el negocio en el panel, no el
@@ -707,33 +725,40 @@ export class OnboardingSyncService {
   private async guardarSedesDeProducto(
     productId: string,
     donde: SedesDeProducto,
+    overrides: OverrideDeSede[] = [],
   ) {
+    const vacia = {
+      price: null,
+      isAvailable: null,
+      stock: null,
+      imageUrl: null,
+      description: null,
+    };
+
     if (donde.modo === 'TODAS') {
       await this.prisma.product.update({
         where: { id: productId },
         data: { locationMode: 'TODAS' },
       });
+      await this.aplicarOverrides(productId, overrides);
       // «Sin filas = en todas las sedes». Una fila que solo dice `selected`
       // sobra aquí, y dejarla oxida esa regla: mañana alguien cuenta filas
       // para saber si un producto está personalizado y le sale que sí.
-      // Una fila con foto o texto propios de la sede NO esta vacia: eso lo
-      // puso el negocio en el panel y un re-sync del formulario no puede
-      // llevarselo.
       await this.prisma.productLocation.deleteMany({
-        where: {
-          productId,
-          price: null,
-          isAvailable: null,
-          stock: null,
-          imageUrl: null,
-          description: null,
-        },
+        where: { productId, ...vacia },
       });
       return;
     }
 
     const elegidas = donde.locationIds;
-    if (elegidas.length === 0) return; // el helper no lo permite; red de seguridad
+    if (elegidas.length === 0) {
+      // El helper no lo permite; red de seguridad. Los cambios de sede sí se
+      // guardan: no dependen de dónde se venda.
+      await this.aplicarOverrides(productId, overrides);
+      return;
+    }
+
+    await this.aplicarOverrides(productId, overrides);
 
     for (const locationId of elegidas) {
       await this.prisma.productLocation.upsert({
@@ -743,17 +768,10 @@ export class OnboardingSyncService {
       });
     }
     // Las sedes que salen de la selección: si no guardaban nada propio se
-    // borran; si guardaban precio o stock se quedan con `selected` en false.
+    // borran; si guardaban precio, foto o texto se quedan con `selected` en
+    // false, porque ese dato es del negocio.
     await this.prisma.productLocation.deleteMany({
-      where: {
-        productId,
-        locationId: { notIn: elegidas },
-        price: null,
-        isAvailable: null,
-        stock: null,
-        imageUrl: null,
-        description: null,
-      },
+      where: { productId, locationId: { notIn: elegidas }, ...vacia },
     });
     await this.prisma.productLocation.updateMany({
       where: { productId, locationId: { notIn: elegidas } },
@@ -764,6 +782,36 @@ export class OnboardingSyncService {
       where: { id: productId },
       data: { locationMode: 'SELECCIONADAS' },
     });
+  }
+
+  /**
+   * Lo que cada sede cambia del producto.
+   *
+   * Escribe SOLO los campos que llegaron con valor. Un reenvío del módulo del
+   * Onboarding —que el cliente rellenó una vez, al principio— no puede vaciarle
+   * a una sede el precio que el negocio lleva meses cobrando. Vaciar se hace
+   * desde el panel, que es donde se ve lo que hay.
+   */
+  private async aplicarOverrides(
+    productId: string,
+    overrides: OverrideDeSede[],
+  ) {
+    for (const o of overrides) {
+      const campos: Record<string, any> = {};
+      if (o.price !== undefined) campos.price = new Prisma.Decimal(o.price);
+      if (o.imageUrl !== undefined) campos.imageUrl = o.imageUrl;
+      if (o.description !== undefined) campos.description = o.description;
+      if (o.isAvailable !== undefined) campos.isAvailable = o.isAvailable;
+      if (!Object.keys(campos).length) continue;
+
+      await this.prisma.productLocation.upsert({
+        where: {
+          productId_locationId: { productId, locationId: o.locationId },
+        },
+        create: { productId, locationId: o.locationId, ...campos },
+        update: campos,
+      });
+    }
   }
 
   // ── 11. Cupones (Card type COUPON, upsert por name, no destructivo) ───

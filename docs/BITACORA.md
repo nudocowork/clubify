@@ -37,6 +37,60 @@ entre las 17:27 y las 17:34.
 NOMBRE**, no por el id local del formulario. Hay que mandar `locationNames`
 (y el nombre se compara sin tildes, mayúsculas ni espacios de más).
 
+### El contrato, para quien cierre el puente en Unboarding
+
+Cuatro llamadas, **en este orden**, al guardar el módulo «menú» de un negocio
+multisede. El orden no es estético: cada una depende de la anterior.
+
+```js
+// 1. Sin esto, Clubify IGNORA las sedes de los productos y no dice nada raro:
+//    responde ok y el menú sale igual en todas partes.
+PATCH /sync/modules      { sedeMenu: true }
+
+// 2. Las sedes. Upsert por NOMBRE. Los ids locales del formulario no viajan.
+PUT   /sync/locations    [{ name, address?, latitude?, longitude?, mapsUrl?,
+                            state?, ordersWhatsappPhone? }]
+
+// 3. Igual que hoy.
+POST  /sync/categories   [{ name, position }]
+
+// 4. El catálogo, UNA vez. Nada de repetir el producto por sede.
+POST  /sync/products     [{
+        name, basePrice, description, imageUrl, categoryName, position,
+
+        // DÓNDE se vende. Omitir las dos = «en todas», como hasta ahora.
+        locationMode: 'TODAS' | 'SELECCIONADAS',
+        locationNames: ['Sede Cabecera', 'Sede Cacique'],
+
+        // QUÉ cambia en cada sede. Independiente de lo anterior: un producto
+        // en TODAS puede tener otro precio en una sede.
+        locationOverrides: [
+          { name: 'Sede Cabecera', price: 25000,
+            imageUrl: 'https://…', description: '…', isAvailable: true },
+        ],
+      }]
+```
+
+**Los nombres se comparan sin tildes, mayúsculas ni espacios de más**, así que
+«sede CABECERA» casa con «Sede Cábecera». Lo que no casa con ninguna sede se
+devuelve en la respuesta:
+
+```json
+{ "ok": true, "products": [...],
+  "sedes": { "aplicado": true, "nombres_sin_sede": ["Sede Piedecuesta"] } }
+```
+
+Si `aplicado` es `false`, faltó la llamada 1. **Mirar ese campo en el log del
+push**: es la única señal de que las sedes se ignoraron.
+
+Dos cosas que el sync NO hace, a propósito:
+
+- **No borra sedes.** Las que el formulario ya no menciona salen en `sobrantes`.
+- **No vacía campos.** `locationOverrides` escribe solo lo que llega con valor;
+  un reenvío del módulo no le quita a una sede el precio que el negocio puso en
+  el panel. Vaciar se hace desde el panel.
+
+
 ### La decisión que evita vaciar una carta entera
 
 Si los nombres que llegan no casan con ninguna sede —el push de sedes falló,
