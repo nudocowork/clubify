@@ -77,6 +77,12 @@ export type HotmartWebhookPayload = {
       phone_number?: string;
       phone_local_code?: string;
     };
+    /**
+     * SOLO en `SUBSCRIPTION_CANCELLATION`: ahí Hotmart NO manda `buyer` ni
+     * `purchase`, y pone al suscriptor colgando de `data` directamente.
+     * Comprobado con el payload real de Veterinaria Con Sentido (2026-09-10).
+     */
+    subscriber?: { code?: string; name?: string; email?: string };
     subscription?: {
       subscriber?: { code?: string };
       /** Plan REAL contratado, ej. "Plan Trimestral 150 USD". Es la fuente
@@ -136,6 +142,38 @@ export type HotmartWebhookPayload = {
  * UPDATE_SUBSCRIPTION_CHARGE_DATE sí la manda en subscription, así que hay que
  * soportar ambas rutas.
  */
+/**
+ * El correo del comprador, mire donde mire Hotmart.
+ *
+ * En las compras va en `data.buyer.email`. En `SUBSCRIPTION_CANCELLATION` NO
+ * hay `buyer`: el correo cuelga de `data.subscriber.email`. Leer solo el
+ * primero es la razón de que las cancelaciones no reconocieran a nadie —
+ * el negocio se quedaba ACTIVE y seguía recibiendo recordatorios de cobro.
+ */
+export function correoDelComprador(
+  payload: HotmartWebhookPayload,
+): string | undefined {
+  const e = payload.data?.buyer?.email ?? payload.data?.subscriber?.email;
+  return e ? e.toLowerCase() : undefined;
+}
+
+/**
+ * El código de suscriptor, en las dos formas que manda Hotmart.
+ *
+ * Compras: `data.subscription.subscriber.code`.
+ * Cancelación: `data.subscriber.code` — y ahí `data.subscription` existe pero
+ * solo trae el id y el plan, sin suscriptor dentro.
+ */
+export function codigoDeSuscriptor(
+  payload: HotmartWebhookPayload,
+): string | undefined {
+  return (
+    payload.data?.subscription?.subscriber?.code ??
+    payload.data?.subscriber?.code ??
+    undefined
+  );
+}
+
 function nextChargeFromPayload(payload: HotmartWebhookPayload): Date | null {
   const raw =
     payload.data?.purchase?.date_next_charge ??
@@ -461,8 +499,8 @@ export class HotmartService {
    */
   async handleEvent(payload: HotmartWebhookPayload, scope?: TenantScope) {
     const event = payload.event;
-    const buyerEmail = payload.data?.buyer?.email?.toLowerCase();
-    const subscriberCode = payload.data?.subscription?.subscriber?.code;
+    const buyerEmail = correoDelComprador(payload);
+    const subscriberCode = codigoDeSuscriptor(payload);
     const transactionId = payload.data?.purchase?.transaction;
 
     this.logger.log(
@@ -819,7 +857,7 @@ export class HotmartService {
     if (productIdRaw === undefined || productIdRaw === null) return null;
     const productId = String(productIdRaw);
     const offerCode = payload.data?.purchase?.offer?.code?.trim() || null;
-    const buyerEmail = payload.data?.buyer?.email?.toLowerCase();
+    const buyerEmail = correoDelComprador(payload);
     const transactionId =
       payload.data?.purchase?.transaction ?? `derived:${productId}:${buyerEmail ?? '?'}`;
 
@@ -1129,8 +1167,8 @@ export class HotmartService {
 
     const productId = payload.data?.product?.id;
     const offerCode = payload.data?.purchase?.offer?.code;
-    const buyerEmail = payload.data?.buyer?.email?.toLowerCase() ?? null;
-    const subscriberCode = payload.data?.subscription?.subscriber?.code ?? null;
+    const buyerEmail = correoDelComprador(payload) ?? null;
+    const subscriberCode = codigoDeSuscriptor(payload) ?? null;
     const transaction = payload.data?.purchase?.transaction ?? null;
 
     const ALTA = event === 'PURCHASE_APPROVED' || event === 'PURCHASE_COMPLETE';
@@ -1507,7 +1545,7 @@ export class HotmartService {
     // primer cobro quedaban marcados como renovación y la alerta de la venta
     // nueva NO se enviaba. hotmartTransactionId sí distingue bien.
     const isFirstHotmartPurchase = !tenant.hotmartTransactionId;
-    const subscriberCode = payload.data?.subscription?.subscriber?.code;
+    const subscriberCode = codigoDeSuscriptor(payload);
     const transactionId = payload.data?.purchase?.transaction;
     // FIX PDF123 (cobro duplicado): Hotmart dispara PURCHASE_APPROVED y — días
     // después, al cerrar la ventana de garantía — PURCHASE_COMPLETE para la MISMA
