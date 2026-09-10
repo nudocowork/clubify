@@ -19,7 +19,8 @@ import {
 } from './info-link-button-style';
 import {
   INFO_LINK_ICONS,
-  searchInfoLinkIcons,
+  INFO_LINK_ICONS_ALL,
+  searchInfoLinkIconGroups,
   INFO_LINK_ICONS_BY_NAME,
 } from './info-link-icons';
 
@@ -217,7 +218,8 @@ export function ButtonDesignPanel({
     });
   };
 
-  const results = searchInfoLinkIcons(q);
+  const grupos = searchInfoLinkIconGroups(q);
+  const encontrados = grupos.reduce((n, g) => n + g.iconos.length, 0);
 
   return (
     <div className="col-span-full border-t border-line2 pt-3">
@@ -419,12 +421,19 @@ export function ButtonDesignPanel({
                   onChange={(v) => onPatch({ iconBackground: v ?? 'transparent' })}
                 />
                 {iconType === 'library' && (
-                  <ColorRow
-                    label={t('bdIconColor')}
-                    value={b.iconColor}
-                    fallback="#ffffff"
-                    onChange={(v) => onPatch({ iconColor: v })}
-                  />
+                  <div>
+                    <ColorRow
+                      label={t('bdIconColor')}
+                      value={b.iconColor}
+                      fallback="#ffffff"
+                      onChange={(v) => onPatch({ iconColor: v })}
+                    />
+                    <p className="text-[10px] text-mute mt-1">
+                      Se aplica a cualquier icono de la biblioteca, también a
+                      los logos de apps. Sin color elegido, cada logo usa el
+                      suyo de marca.
+                    </p>
+                  </div>
                 )}
               </div>
             )}
@@ -481,7 +490,7 @@ export function ButtonDesignPanel({
           onClick={() => setPickerOpen(false)}
         >
           <div
-            className="bg-bg rounded-2xl shadow-xl w-full max-w-md p-5"
+            className="bg-bg rounded-2xl shadow-xl w-full max-w-lg p-5"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-3">
@@ -494,41 +503,65 @@ export function ButtonDesignPanel({
               </button>
             </div>
             <input
-              className="input w-full mb-3"
+              className="input w-full mb-2"
               placeholder={t('bdIconSearch')}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               autoFocus
             />
-            <div className="grid grid-cols-4 gap-2 max-h-[340px] overflow-y-auto">
-              {results.map((ic) => {
-                const on = b.iconName === ic.name;
-                return (
-                  <button
-                    key={ic.name}
-                    type="button"
-                    onClick={() => {
-                      onPatch({ iconType: 'library', iconName: ic.name });
-                      setPickerOpen(false);
-                    }}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition ${
-                      on
-                        ? 'border-brand bg-brand-soft'
-                        : 'border-line hover:border-brand bg-bg2'
-                    }`}
-                    title={ic.label}
-                  >
-                    <span className="w-7 h-7 grid place-items-center">
-                      {ic.render(visibleColor(ic.defaultColor))}
-                    </span>
-                    <span className="text-[9px] text-mute truncate w-full text-center">
-                      {ic.label}
-                    </span>
-                  </button>
-                );
-              })}
-              {results.length === 0 && (
-                <div className="col-span-4 text-center text-mute text-sm py-6">
+            {/* El contador existe porque la queja era «la biblioteca es muy
+                pobre»: que se vea cuántos hay, y cuántos deja la búsqueda. */}
+            <div className="text-[11px] text-mute mb-2">
+              {q
+                ? `${encontrados} de ${INFO_LINK_ICONS_ALL.length}`
+                : `${INFO_LINK_ICONS_ALL.length} iconos · todos admiten color`}
+            </div>
+            <div className="max-h-[380px] overflow-y-auto -mx-1 px-1">
+              {grupos.map((g) => (
+                <div key={g.categoria} className="mb-3 last:mb-0">
+                  <div className="sticky top-0 z-10 bg-bg text-[10px] uppercase tracking-wide text-mute py-1">
+                    {g.categoria}
+                  </div>
+                  <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5">
+                    {g.iconos.map((ic) => {
+                      const on = b.iconName === ic.name;
+                      // Si el usuario YA eligió un color, la rejilla entera se
+                      // pinta con ese color. Antes se enseñaba siempre el color
+                      // de marca del icono, y de ahí salió «no se le puede
+                      // cambiar el color»: sí se podía, pero el picker no lo
+                      // enseñaba nunca.
+                      const previo = b.iconColor
+                        ? visibleColor(b.iconColor)
+                        : visibleColor(ic.defaultColor);
+                      return (
+                        <button
+                          key={ic.name}
+                          type="button"
+                          onClick={() => {
+                            onPatch({ iconType: 'library', iconName: ic.name });
+                            setPickerOpen(false);
+                          }}
+                          className={`flex flex-col items-center gap-1 p-1.5 rounded-lg border transition ${
+                            on
+                              ? 'border-brand bg-brand-soft'
+                              : 'border-line hover:border-brand bg-bg2'
+                          }`}
+                          title={ic.label}
+                        >
+                          <span className="w-6 h-6 grid place-items-center">
+                            {ic.render(previo)}
+                          </span>
+                          <span className="text-[8px] text-mute truncate w-full text-center leading-tight">
+                            {ic.label}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              {encontrados === 0 && (
+                <div className="text-center text-mute text-sm py-6">
                   {t('bdIconEmpty')}
                 </div>
               )}

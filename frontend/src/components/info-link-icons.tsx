@@ -12,9 +12,21 @@
  *
  *  Los iconos son monocromáticos a propósito → respetan iconColor. Para
  *  logos multicolor de marca propia, el usuario sube una imagen (iconType
- *  = 'image'). NUEVO módulo, aditivo — no toca nada existente.
+ *  = 'image').
+ *
+ *  LA BIBLIOTECA SON DOS COSAS
+ *  ---------------------------
+ *  1. Los logos de apps y redes que hay en este archivo, dibujados a mano
+ *     porque ninguna librería libre trae logos de marca.
+ *  2. Los 213 iconos de trazo de `info-link-icons-lucide.ts`, que se GENERAN
+ *     (ver `scripts/generar-iconos-infolink.cjs`).
+ *
+ *  Con 29 iconos la biblioteca se quedaba corta para cualquier negocio que no
+ *  fuera «pon aquí tu Instagram»: no había café, ni tijeras, ni mascotas, ni
+ *  domicilio. De ahí el catálogo de trazo.
  * =================================================================== */
 import type { ReactNode } from 'react';
+import { ICONOS_DE_TRAZO, type IconoDeTrazo } from './info-link-icons-lucide';
 
 export type InfoLinkIconEntry = {
   name: string;
@@ -162,8 +174,61 @@ export const INFO_LINK_ICONS: InfoLinkIconEntry[] = [
   },
 ];
 
+/* ---------------------------------------------------------------------
+ *  Los 213 iconos de trazo (Lucide, ISC) que se suman a los logos de arriba.
+ *
+ *  PREFIJO `lucide-`, y no es cosmético: arriba ya existen `phone`, `store`,
+ *  `star`, `clock`, `link`… Sin prefijo, el mapa por nombre se pisaría y un
+ *  botón que hoy enseña el logo de WhatsApp podría amanecer con otro dibujo.
+ *  Los `iconName` ya guardados en la base NO se tocan.
+ * ------------------------------------------------------------------- */
+
+/** Un icono de trazo pinta por `currentColor`, así que basta con fijar
+ *  `color` en el <svg> para que obedezca el control «Color del icono». */
+function deTrazo(i: IconoDeTrazo): InfoLinkIconEntry {
+  return {
+    name: `lucide-${i.name}`,
+    label: i.label,
+    keywords: i.keywords,
+    // Sin color elegido se pinta con el color del texto, no con un color de
+    // marca inventado: estos no son logos de nadie.
+    defaultColor: '#111827',
+    render: (c) => (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        width="100%"
+        height="100%"
+        style={{ color: c }}
+        dangerouslySetInnerHTML={{ __html: i.svg }}
+      />
+    ),
+  };
+}
+
+export type InfoLinkIconGroup = { categoria: string; iconos: InfoLinkIconEntry[] };
+
+/** La biblioteca completa, agrupada. «Apps y redes» va primero porque es lo
+ *  que busca el 90% de la gente al abrir el picker. */
+export const INFO_LINK_ICON_GROUPS: InfoLinkIconGroup[] = [
+  { categoria: 'Apps y redes', iconos: INFO_LINK_ICONS },
+  ...ICONOS_DE_TRAZO.map((g) => ({
+    categoria: g.categoria,
+    iconos: g.iconos.map(deTrazo),
+  })),
+];
+
+/** Plana, en el mismo orden que los grupos. */
+export const INFO_LINK_ICONS_ALL: InfoLinkIconEntry[] = INFO_LINK_ICON_GROUPS.flatMap(
+  (g) => g.iconos,
+);
+
 export const INFO_LINK_ICONS_BY_NAME: Record<string, InfoLinkIconEntry> =
-  Object.fromEntries(INFO_LINK_ICONS.map((i) => [i.name, i]));
+  Object.fromEntries(INFO_LINK_ICONS_ALL.map((i) => [i.name, i]));
 
 /** Renderiza el glifo de un icono nativo por nombre. `color` opcional
  *  (si falta usa el defaultColor de marca del icono). Devuelve null si el
@@ -175,14 +240,37 @@ export function renderInfoLinkIcon(name: string | undefined, color?: string): Re
   return entry.render(color || entry.defaultColor);
 }
 
+/** Quita tildes para que «peluquería» encuentre `peluqueria`. Sin esto, la
+ *  mitad de las búsquedas en español no devuelven nada y la biblioteca
+ *  «no tiene» iconos que sí están. */
+function sinTildes(s: string): string {
+  return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+}
+
 /** Filtra la biblioteca por texto (label + keywords + name). */
 export function searchInfoLinkIcons(q: string): InfoLinkIconEntry[] {
-  const s = q.trim().toLowerCase();
-  if (!s) return INFO_LINK_ICONS;
-  return INFO_LINK_ICONS.filter(
+  const s = sinTildes(q.trim());
+  if (!s) return INFO_LINK_ICONS_ALL;
+  return INFO_LINK_ICONS_ALL.filter(
     (i) =>
-      i.name.includes(s) ||
-      i.label.toLowerCase().includes(s) ||
-      i.keywords.toLowerCase().includes(s),
+      sinTildes(i.name).includes(s) ||
+      sinTildes(i.label).includes(s) ||
+      sinTildes(i.keywords).includes(s),
   );
+}
+
+/** Igual que `searchInfoLinkIcons` pero conservando las categorías, para que
+ *  el picker pueda enseñar secciones cuando no hay búsqueda. */
+export function searchInfoLinkIconGroups(q: string): InfoLinkIconGroup[] {
+  const s = sinTildes(q.trim());
+  if (!s) return INFO_LINK_ICON_GROUPS;
+  return INFO_LINK_ICON_GROUPS.map((g) => ({
+    categoria: g.categoria,
+    iconos: g.iconos.filter(
+      (i) =>
+        sinTildes(i.name).includes(s) ||
+        sinTildes(i.label).includes(s) ||
+        sinTildes(i.keywords).includes(s),
+    ),
+  })).filter((g) => g.iconos.length > 0);
 }
