@@ -154,7 +154,7 @@ Arreglo de:
 | Campo | Notas |
 |---|---|
 | `variants` | `[{ name, price (o priceDelta), groupName, isDefault }]`. El orden que mandes es el que se ve. |
-| `variantPriceMode` | `ABSOLUTE` (por defecto) | `DELTA`. |
+| `variantPriceMode` | `ABSOLUTE` (por defecto) o `DELTA`. |
 | `maxVariantsTotal` | Cuántas puede elegir el cliente. Null o 1 = una sola. |
 | `extras` | `[{ name, price, maxQty, isAvailable }]`. |
 | `maxExtrasTotal` | Tope de adiciones en total. |
