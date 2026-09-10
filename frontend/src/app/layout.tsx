@@ -15,10 +15,11 @@ import {
   resolveAuthBrandFromHeaders,
   resolveBrandFromHeadersOrSlug,
 } from '@/lib/server-brand';
-import MetaPixel, {
-  codigoBaseDelPixel,
-  pixelIdValido,
-} from '@/components/MetaPixel';
+import MetaPixel from '@/components/MetaPixel';
+// Del lib y NO del componente: `MetaPixel.tsx` es `'use client'`, y sus
+// exports llegan aquí como referencias, no como funciones. Llamarlas desde el
+// servidor devuelve 500 en TODAS las páginas — pasó el 2026-09-10.
+import { codigoBaseDelPixel, pixelIdValido } from '@/lib/meta-pixel';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 

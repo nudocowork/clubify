@@ -25,6 +25,10 @@
 
 import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
+// Las dos funciones puras viven FUERA de este archivo a propósito: este lleva
+// `'use client'`, y lo que exporta un módulo cliente no se puede llamar desde
+// el servidor. Ver `lib/meta-pixel.ts`.
+import { pixelIdValido } from '@/lib/meta-pixel';
 
 declare global {
   interface Window {
@@ -32,32 +36,6 @@ declare global {
   }
 }
 
-/** El id que acepta Meta: solo dígitos. Filtra un pegado con espacios o texto. */
-function idValido(raw: string | null | undefined): string | null {
-  const v = (raw ?? '').trim();
-  return /^\d{6,20}$/.test(v) ? v : null;
-}
-
-/**
- * El script base, tal cual lo entrega Meta.
- *
- * Va en el `<head>` y **lo más arriba posible**: si un `fbq('track', …)` se
- * ejecuta antes de que exista la cola, se pierde el evento.
- */
-export function codigoBaseDelPixel(pixelId: string): string {
-  return `!function(f,b,e,v,n,t,s)
-{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-n.queue=[];t=b.createElement(e);t.async=!0;
-t.src=v;s=b.getElementsByTagName(e)[0];
-s.parentNode.insertBefore(t,s)}(window,document,'script',
-'https://connect.facebook.net/en_US/fbevents.js');
-fbq('init', '${pixelId}');
-fbq('track', 'PageView');`;
-}
-
-export { idValido as pixelIdValido };
 
 /**
  * Los eventos que el script base no cubre.
@@ -79,7 +57,7 @@ export default function MetaPixel({ pixelId }: { pixelId: string | null }) {
 
   // PageView por cambio de ruta.
   useEffect(() => {
-    if (!idValido(pixelId)) return;
+    if (!pixelIdValido(pixelId)) return;
     // La carga inicial ya la mandó el script base del `<head>`. Repetirla aquí
     // duplicaría TODA visita de entrada, y Meta las cuenta.
     if (primeraCarga.current) {
@@ -91,7 +69,7 @@ export default function MetaPixel({ pixelId }: { pixelId: string | null }) {
 
   // Contact (clic a WhatsApp) y ViewContent (precios).
   useEffect(() => {
-    if (!idValido(pixelId)) return;
+    if (!pixelIdValido(pixelId)) return;
 
     const alPulsar = (e: MouseEvent) => {
       const destino = e.target as HTMLElement | null;
@@ -109,7 +87,7 @@ export default function MetaPixel({ pixelId }: { pixelId: string | null }) {
   }, [pixelId]);
 
   useEffect(() => {
-    if (!idValido(pixelId)) return;
+    if (!pixelIdValido(pixelId)) return;
     // El brief avisa de esto: si «precios» es una sección de la portada y no
     // una ruta propia, esto no dispara y hay que hacerlo por visibilidad del
     // bloque. Se deja escrito para que quien lo vea sepa por qué no salta.

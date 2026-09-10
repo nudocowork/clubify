@@ -2088,6 +2088,11 @@ export class SuperAdminService {
       planPeriodicities: wl.planPeriodicities ?? [],
       // Imagen Open Graph al compartir (fallback en frontend al logo de la marca).
       shareImageUrl: wl.shareImageUrl ?? null,
+      // Pixel de Meta de ESTA marca. null = no mide; el layout no pinta nada.
+      // OJO: este método arma el objeto de vuelta CAMPO POR CAMPO. Añadirlo al
+      // `select` de arriba no basta —lo aprendí subiéndolo sin esta línea y
+      // viendo `metaPixelId: null` en la respuesta con el dato ya en la base.
+      metaPixelId: wl.metaPixelId ?? null,
       // Features que la marca incluye (panel billing). Vacío = lista completa.
       subscriptionFeatureKeys: wl.subscriptionFeatureKeys ?? [],
       // Instalación: costo + promo (página de precios). null = no se muestra.
