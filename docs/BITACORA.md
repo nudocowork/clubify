@@ -8,6 +8,60 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-10 (5) — La biblioteca de iconos del InfoLink: de 29 a 242
+
+Desplegado, commit `b2943ed8`. Prueba de humo en verde y las tres páginas
+públicas de InfoLink que probé siguen en 200.
+
+Javier reportó dos cosas: «la biblioteca es muy pobre» y «no se le puede
+cambiar el color a los iconos». La primera era cierta. **La segunda no**: el
+control existía y funcionaba, pero la rejilla del picker pintaba SIEMPRE el
+color de marca de cada icono, así que elegir un color no cambiaba nada de lo
+que estabas mirando. Ahora, con un color elegido, la rejilla entera se pinta
+con él.
+
+### Cómo está montada, para no romperla
+
+**`src/components/info-link-icons-lucide.ts` ES UN ARCHIVO GENERADO.** No
+editarlo a mano. La fuente es `frontend/scripts/catalogo-iconos-infolink.cjs`:
+
+```
+cd frontend
+npm install --no-save lucide-static      # solo para generar
+node scripts/generar-iconos-infolink.cjs
+```
+
+Tres decisiones que conviene no deshacer sin saber por qué están:
+
+- **No se instaló `lucide-react`.** Metería el componente de cada icono en el
+  bundle de una página **pública** que se abre desde el móvil con datos. El
+  generador copia solo el trazo: **20 KB comprimidos**, sin dependencia en
+  tiempo de ejecución y **sin tocar `package.json`** — por eso `lucide-static`
+  va con `--no-save`.
+- **No se usó Flaticon**, que es lo que se pidió mirar. Su licencia gratuita
+  **exige crédito visible en cada uso**, y eso no se sostiene dentro de un
+  producto que revenden marcas blancas. Lucide es ISC y no pide nada.
+- **Los nombres nuevos llevan prefijo `lucide-`.** Sin él chocarían con
+  `phone`, `store`, `star`, `clock` y `link`, que ya existían: un botón que hoy
+  enseña un logo podría amanecer con otro dibujo. **Ningún `iconName` guardado
+  cambia.**
+
+El generador **muere** si un nombre no existe en lucide o si hay repetidos.
+Cazó `screwdriver`, que no existe (es `drill`). Un icono que se salta en
+silencio es exactamente cómo se llega a una biblioteca pobre sin que nadie se
+entere.
+
+El buscador **ignora tildes**: sin eso, quien escribe «peluquería» no encuentra
+las tijeras y concluye otra vez que la biblioteca está vacía.
+
+### Lo que NO se tocó
+
+`scripts/desplegar.cjs` está modificado en el árbol con un `--sin-cache` para
+Vercel (lo de los hosts de `next/image`). **No es mío y lo dejé.** Igual que
+`backend/src/auth/auth.service.ts` y `backend/src/auth/reset-sms.spec.ts`.
+
+---
+
 ## 2026-09-10 (4) — 448 cupones reparados, el desplegable de automatizaciones, y qué falta para medir el Purchase
 
 Cierre del día. Commit `924fa0ed`.
