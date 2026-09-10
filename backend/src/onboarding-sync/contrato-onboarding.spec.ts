@@ -62,6 +62,11 @@ describe('la carga del Onboarding contra el resolutor de Clubify', () => {
       name: 'Limonada',
       basePrice: 8000,
       locationMode: 'TODAS',
+      // Sin overrides: es justo lo que prueba el caso. Se declara explícito
+      // porque TypeScript rechaza un objeto literal que no comparte NINGUNA
+      // propiedad con el parámetro, y ese error rompía el build de producción
+      // —los despliegues llevaban dos intentos fallando por esta línea—.
+      locationOverrides: undefined,
     };
     expect(resolverSedesDeProducto(limonada, SEDES)?.modo).toBe('TODAS');
     expect(resolverOverridesDeProducto(limonada, SEDES).overrides).toEqual([]);
