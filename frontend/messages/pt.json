@@ -996,6 +996,8 @@
     "save": "Salvar",
     "publicLinksTitle": "Links públicos do {label}",
     "publicLinksIntro": "Mesma informação de produtos, função diferente. O link de mesa é só para o cliente ver, o de delivery aceita pedidos.",
+    "sedeLinksTitle": "Links por unidade",
+    "sedeLinksIntro": "Cada unidade tem seu próprio link e seu próprio QR. Use o da unidade correspondente: o pedido fica vinculado a ela e chega ao WhatsApp dessa unidade, não ao geral.",
     "mesaMenu": "Cardápio Mesa",
     "informative": "Informativo",
     "mesaMenuDesc": "Apenas visualização. Sem carrinho, sem botão WhatsApp. Pensado para o QR de cada mesa — o cliente sentado pede ao garçom.",

@@ -147,8 +147,17 @@ export default function MenuEditor() {
   // Carta que se esta editando. null = menu principal.
   const [menuActivo, setMenuActivo] = useState<string | null>(null);
   const [menus, setMenus] = useState<MenusResp | null>(null);
-  // Sedes del negocio, para asignarle una a cada carta.
-  const [sedes, setSedes] = useState<{ id: string; name: string }[]>([]);
+  // Sedes del negocio. Se usan para DOS cosas: asignarle una sede a cada
+  // carta, y pintar un enlace público por sede en la tarjeta de arriba.
+  //
+  // Sedes y cartas NO son lo mismo, y confundirlas es lo que dejaba a Slata
+  // sin enlaces: tenía sus dos sedes creadas desde el Onboarding y un solo
+  // catálogo, así que no había ninguna carta por sede que enseñar. Un negocio
+  // con 2 sedes igual necesita un enlace por sede — el `?sede=` es lo que ata
+  // el pedido y lo manda al WhatsApp de ESA sede.
+  const [sedes, setSedes] = useState<
+    { id: string; name: string; address?: string | null; isActive?: boolean }[]
+  >([]);
   const [creandoCarta, setCreandoCarta] = useState(false);
   const t = useTranslations('app_menu');
   const [cats, setCats] = useState<Category[]>([]);
@@ -253,7 +262,7 @@ export default function MenuEditor() {
   }
   useEffect(() => {
     void loadMenus();
-    void api<{ id: string; name: string }[]>('/locations')
+    void api<{ id: string; name: string; address?: string | null; isActive?: boolean }[]>('/locations')
       .then((r) => setSedes(r ?? []))
       .catch(() => setSedes([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -960,6 +969,7 @@ export default function MenuEditor() {
           slug={tenantSlug}
           mainLabel={mainLabel}
           carta={cartaActual}
+          sedes={sedes}
         />
       )}
 
@@ -3207,11 +3217,14 @@ function PublicMenuLinks({
   slug,
   mainLabel,
   carta,
+  sedes = [],
 }: {
   slug: string;
   mainLabel: string;
   /** Carta activa. El menú principal no lleva parámetro. */
   carta?: { id: string | null; name: string; locationId: string | null } | null;
+  /** Sedes del negocio. Con 2 o más se enseña un enlace por cada una. */
+  sedes?: Array<{ id: string; name: string; address?: string | null; isActive?: boolean }>;
 }) {
   const t = useTranslations('app_menu');
   const [origin, setOrigin] = useState<string>('');
@@ -3226,6 +3239,20 @@ function PublicMenuLinks({
   const mesaUrl = `${origin}/m/${slug}${sedeQ}`;
   const deliveryUrl = `${origin}/d/${slug}${sedeQ}`;
   const labelLower = mainLabel.toLowerCase();
+
+  /**
+   * Enlaces por sede.
+   *
+   * Con UNA sede no se enseña nada: el enlace general ya es el de esa sede y
+   * dos enlaces idénticos solo confunden. A partir de dos, cada una necesita
+   * el suyo — es lo que hace que el pedido llegue al WhatsApp correcto.
+   *
+   * OJO: esto NO depende de que el negocio tenga una carta por sede. Slata
+   * tenía sus dos sedes creadas desde el Onboarding, un solo catálogo, y aquí
+   * no salía ninguna. Las sedes y las cartas son cosas distintas.
+   */
+  const sedesActivas = sedes.filter((s) => s.isActive !== false);
+  const haySedes = sedesActivas.length >= 2;
 
   async function copy(url: string, label: string) {
     try {
@@ -3269,8 +3296,11 @@ function PublicMenuLinks({
             >
               📋 {t('copy')}
             </button>
+            {/* Con la sede: antes abría el menú principal aunque la URL de
+                arriba llevara `?sede=`, así que copiar y abrir daban cosas
+                distintas. */}
             <Link
-              href={`/m/${slug}`}
+              href={`/m/${slug}${sedeQ}`}
               target="_blank"
               className="btn-ghost text-xs flex-1 justify-center"
             >
@@ -3303,7 +3333,7 @@ function PublicMenuLinks({
               📋 {t('copy')}
             </button>
             <Link
-              href={`/d/${slug}`}
+              href={`/d/${slug}${sedeQ}`}
               target="_blank"
               className="btn-ghost text-xs flex-1 justify-center"
             >
@@ -3312,6 +3342,75 @@ function PublicMenuLinks({
           </div>
         </div>
       </div>
+
+      {haySedes && (
+        <div className="mt-5 border-t border-line2 pt-4">
+          <h3 className="text-sm font-semibold m-0 flex items-center gap-2">
+            📍 {t('sedeLinksTitle')}
+            <span className="text-[10px] font-bold uppercase tracking-wider bg-bg2 text-mute px-1.5 py-0.5 rounded">
+              {sedesActivas.length}
+            </span>
+          </h3>
+          <p className="text-[11px] text-mute mt-1 leading-snug">
+            {t('sedeLinksIntro')}
+          </p>
+          <div className="mt-3 space-y-2">
+            {sedesActivas.map((sede) => {
+              const q = `?sede=${encodeURIComponent(sede.id)}`;
+              const mesa = `${origin}/m/${slug}${q}`;
+              const delivery = `${origin}/d/${slug}${q}`;
+              return (
+                <div
+                  key={sede.id}
+                  className="rounded-input border border-line2 bg-bg2/30 p-3"
+                >
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className="text-sm font-semibold">{sede.name}</span>
+                    {sede.address ? (
+                      <span className="text-[11px] text-mute truncate">
+                        {sede.address}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-2 grid md:grid-cols-2 gap-2">
+                    {[
+                      { icono: '🍽', titulo: t('mesaMenu'), url: mesa, ruta: `/m/${slug}${q}`, etiqueta: t('mesaLabel') },
+                      { icono: '🛵', titulo: t('deliveryMenu'), url: delivery, ruta: `/d/${slug}${q}`, etiqueta: t('deliveryLabel') },
+                    ].map((x) => (
+                      <div key={x.ruta}>
+                        <div className="text-[11px] font-semibold flex items-center gap-1.5">
+                          <span>{x.icono}</span>
+                          <span>{x.titulo}</span>
+                        </div>
+                        <div className="mt-1 rounded-input bg-white border border-line px-2 py-1.5 text-[10px] font-mono break-all">
+                          {x.url || '—'}
+                        </div>
+                        <div className="mt-1.5 flex gap-1.5">
+                          <button
+                            type="button"
+                            className="btn-ghost text-[11px] flex-1 justify-center"
+                            onClick={() => copy(x.url, `${x.etiqueta} · ${sede.name}`)}
+                            disabled={!origin}
+                          >
+                            📋 {t('copy')}
+                          </button>
+                          <Link
+                            href={x.ruta}
+                            target="_blank"
+                            className="btn-ghost text-[11px] flex-1 justify-center"
+                          >
+                            ↗ {t('open')}
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

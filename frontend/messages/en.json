@@ -996,6 +996,8 @@
     "save": "Save",
     "publicLinksTitle": "Public links for the {label}",
     "publicLinksIntro": "Same product information, different purpose. The table link is just for the customer to view, the delivery one accepts orders.",
+    "sedeLinksTitle": "Links per location",
+    "sedeLinksIntro": "Each location has its own link and its own QR. Use the one for that location: the order is tied to it and reaches that location's WhatsApp, not the general one.",
     "mesaMenu": "Table Menu",
     "informative": "Informational",
     "mesaMenuDesc": "View only. No cart, no WhatsApp button. Designed for each table's QR — the seated customer orders from the waiter.",

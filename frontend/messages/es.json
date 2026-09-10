@@ -996,6 +996,8 @@
     "save": "Guardar",
     "publicLinksTitle": "Links públicos del {label}",
     "publicLinksIntro": "Misma información de productos, distinta función. El link de mesa es solo para que el cliente vea, el de delivery acepta pedidos.",
+    "sedeLinksTitle": "Enlaces por sede",
+    "sedeLinksIntro": "Cada sede tiene su propio enlace y su propio QR. Usa el de la sede correspondiente: el pedido queda atado a ella y llega al WhatsApp de esa sede, no al general.",
     "mesaMenu": "Menú Mesa",
     "informative": "Informativo",
     "mesaMenuDesc": "Solo visualización. Sin carrito, sin botón WhatsApp. Pensado para el QR de cada mesa — el cliente sentado pide al mozo.",
