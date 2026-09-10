@@ -8,6 +8,112 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-10 (3) — Píxel de Meta, cancelaciones, la billetera del cupón, y la impresora
+
+Día largo. **Todo lo de abajo está desplegado y verificado**, salvo lo que diga
+lo contrario.
+
+### ⚠️ LO PRIMERO: el build de producción estuvo roto y NADIE podía desplegar
+
+`contrato-onboarding.spec.ts:67` no compilaba, y `nest build --tsc` compila
+también los `.spec.ts`. **Dos despliegues murieron sin motivo visible.**
+
+Cómo se ve este fallo, para no perder otra hora: el script solo dice «el backend
+no se reinició en 12 minutos», y **`railway logs --build` enseña el build BUENO
+anterior**, no el que falló. Hay que pedirlo por id:
+
+```
+railway deployment list          → busca el FAILED
+railway logs --build <id>        → OJO: sin --deployment, el id va suelto
+```
+
+Y ojo también: `railway status` en `backend/` estaba enlazado al servicio
+**`recordatorios-cobro`**, no a `backend`. Los logs que salen de ahí son de otro
+servicio y te mandan a diagnosticar lo que no es.
+
+### Píxel de Meta para Sellea
+
+Id `1393034506278228` (brief de Humberto del 08-09). Vivo en `selleala.com` y
+`app.selleala.com`, **ausente en `app.soyclubify.com`** — el tráfico de Clubify
+no entra en la cuenta publicitaria de Sellea. Un solo `fbq('init')` por carga.
+
+El id vive en `WhiteLabel.metaPixelId`, no en el código: un id fijo en el layout
+se le colaría a todas las marcas. El día que Fideliso pida el suyo es rellenar
+un campo.
+
+`Purchase` NO se instaló: el cobro lo hace Hotmart fuera del sitio, así que no
+hay página de gracias con el importe real. Con un número fijo se contarían
+compras que no ocurrieron — lo dice el propio brief.
+
+**Y tumbé producción cinco minutos con esto.** Puse dos funciones puras dentro
+de un componente `'use client'` y las llamé desde el layout: en el App Router
+eso llega al servidor como una referencia, no como la función. **500 en todas
+las páginas.** `tsc` y `next build` pasaron en verde — aquí nada se
+prerrenderiza, así que ninguno de los dos podía verlo.
+
+**La regla que queda:** para cambios en el layout, la comprobación es
+`next start` en local y pedirle una página. No basta con que compile.
+
+### Cancelaciones de Hotmart: NINGUNA se reconocía
+
+Cuatro avisos desde julio, cero reconocidos. El manejador sí suspende; nunca
+llegaba a ejecutarse.
+
+No era el evento: era la FORMA del payload. En una compra el comprador va en
+`data.buyer` y el suscriptor en `data.subscription.subscriber`. En
+`SUBSCRIPTION_CANCELLATION` **no hay `buyer` ni `purchase`**, y el suscriptor
+cuelga de `data.subscriber` a secas. Las dos búsquedas salían vacías y el evento
+moría en `tenant_not_found` sin error ni log rojo.
+
+**Y la política cambió** (decisión de Javier): cancelar ya NO corta el servicio.
+El negocio sigue hasta el fin del período que pagó, no recibe recordatorios, y
+`suspendCanceledAtPeriodEnd` lo suspende en el cron diario. Un reembolso o
+contracargo SÍ suspenden en el acto. Migración: `Tenant.canceledAt`.
+
+Veterinaria Con Sentido (canceló el 10) sigue activa hasta el **25 de
+septiembre**. Los cuatro eventos viejos NO se reprocesan solos.
+
+### El cupón que no se convertía en la billetera: 85 pases
+
+**Mi hipótesis anterior era falsa y conviene no repetirla:** creía que Google no
+dejaba cambiar el `classId` de un objeto emitido. Se probó contra la API real:
+**sí se puede**, devuelve 200.
+
+La causa: **las clases solo nacían dentro del JWT de `generateSaveUrl`**. No hay
+un solo `loyaltyclass.insert` en el resto del código. Al canjear un cupón el
+pase pasa a la tarjeta de sellos y `buildIds` pide `card_<nuevo cardId>` — una
+clase que nadie creó nunca. 404 en la clase (tragado con un warn que decía «no
+bloquea»; sí bloqueaba), 404 en el objeto, y el `catch` lo anotaba como
+**«cliente no saveó»** — falso, y es lo que desvió el diagnóstico dos veces.
+
+Afectados: **85 pases** — `limorada 78`, `tabu-club 2`, `cafeteria-piedra-negra
+2`, `protein-station 1`, `monet 1`, `d-ponke 1`. **No hace falta que nadie
+reinstale nada**: «Refrescar wallet» del negocio los repara, y el siguiente
+sello también.
+
+**INCOFFE es otro problema**: 63 conversiones y CERO objetos vivos en Google. No
+diagnosticado.
+
+### La impresora de Serendipity, segunda vuelta
+
+La primera vez era el `@page` del póster. Esta vez: **`window.print()` no
+bloquea**. La limpieza iba en un `setTimeout` de 500 ms, así que borraba
+`data-print-mode` con el diálogo abierto. La vista previa salía bien y el papel
+en blanco. Ahora se limpia con `afterprint`.
+
+Probado en Chrome real contra las DOS versiones: con la vieja, a 1,6 s la marca
+ya vale `null`.
+
+### Anotado, sin hacer: el crédito de la marca
+
+Smart Solutions (Sellea, 10-sep) se activó **sin descontarle crédito a
+Humberto**. Los demás negocios de Sellea llevan código `wl-…` porque los creó un
+admin de la marca; Smart Solutions no lo lleva: **lo creó Clubify**.
+
+La lógica de créditos está atada a QUIÉN crea el negocio (`user.whiteLabelId`),
+no a DE QUIÉN es (`tenant.whiteLabelId`). Si Humberto crea, se le cobra; si lo
+crea Clubify por él, sale gratis — y tampoco entra al circuito de recurrencia.
+
 ## 2026-09-10 (2) — Equipos de Ventas fase 6, y un constructor entero que no estaba enchufado
 
 **Desplegado.** Con esto se cierra Equipos de Ventas: fases 1 a 6.
