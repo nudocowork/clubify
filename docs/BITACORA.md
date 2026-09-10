@@ -8,6 +8,52 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-10 (9) — Esconder el menú NO era cerrar la puerta (Equipos de Ventas)
+
+Desplegado (backend, `dc74d29f`). **Verificado contra producción con tokens
+reales**, que es lo único que prueba un candado:
+
+```
+sellea   GET  /api/admin/sales-teams              → 404
+sellea   GET  /api/admin/sales-teams/leaderboard  → 404
+sellea   POST crear equipo                        → 404
+clubify  GET  /api/admin/sales-teams              → 200
+clubify  POST crear equipo                        → 201   (equipo de prueba borrado)
+```
+
+### El agujero
+
+Antes arreglé el **parpadeo del menú** — cosmético. Javier: «no debería ser
+ocultarlos, deberían no aparecer de ninguna manera». Tenía razón: **la ruta
+seguía abierta.**
+
+Las rutas por equipo (`sales-teams/:teamId/...`) ya pasaban por
+`resolveTeamAccess`, que comprueba el módulo. Pero **`admin/sales-teams` no
+pasa por ahí**: `list`, `get`, `create`, `update`, `delete`, `leaderboard` y
+`eligible-users` solo aislaban por marca. Un admin de una marca **sin** el
+módulo podía pedir la lista y —lo serio— **crear un equipo** escribiendo la URL
+a mano.
+
+`ModuloVentasGuard` va en el controlador entero. La marca sale de la SESIÓN vía
+`resolveBrandScope` (sin marca → Clubify, nunca «todas»).
+
+**404 y no 403**, igual que `resolveTeamAccess`: un 403 confirma que la función
+existe y que a esa marca le falta el permiso.
+
+**NO se toca `public/agenda/...`** — son las rutas del cliente final, sin
+sesión, y ya comprueban el módulo por su cuenta.
+
+5 tests. Uno cubre el caso real: Sellea **no tiene ni la fila** del módulo, que
+no es lo mismo que tenerla en `false`; los dos dan 404.
+
+### La lección, que ya estaba escrita
+
+`clubify-modulos-de-marca` decía que los módulos de marca **solo esconden la
+interfaz**. Eso es una descripción del bug, no del diseño. Cada módulo necesita
+su candado en el backend o el «módulo» es decoración.
+
+---
+
 ## 2026-09-10 (8) — El `?sede=` se perdía solo, y un error mío que hubo que deshacer
 
 Desplegado (frontend, `0e2780e5`). Prueba de humo en verde.
