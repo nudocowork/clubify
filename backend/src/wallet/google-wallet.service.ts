@@ -485,6 +485,50 @@ export class GoogleWalletService {
     } as any;
   }
 
+  /**
+   * Deja la clase lista para usar: la crea si no existe, la actualiza si sí.
+   *
+   * Google no tiene `upsert`, así que se intenta el patch y solo ante un 404
+   * se inserta. Ese orden y no el contrario porque el caso normal —la clase ya
+   * existe— es el 99% de las llamadas y así se ahorra una petición.
+   *
+   * Devuelve `false` cuando no se pudo dejar lista. Quien llama NO debe seguir:
+   * patchear un objeto contra una clase que no existe devuelve otro 404 que se
+   * lee como «el objeto no existe», y ahí se pierde el rastro del problema.
+   */
+  private async asegurarClase(
+    wallet: any,
+    classId: string,
+    classBody: unknown,
+  ): Promise<boolean> {
+    try {
+      await wallet.loyaltyclass.patch({
+        resourceId: classId,
+        requestBody: classBody as any,
+      });
+      this.logger.log(`Google Wallet class patched: ${classId}`);
+      return true;
+    } catch (e: any) {
+      const code = e?.code ?? e?.response?.status;
+      if (code !== 404) {
+        this.logger.warn(`Google Wallet class patch failed: ${e?.message ?? e}`);
+        // Un fallo que NO es «no existe» (permisos, red) no impide que el
+        // objeto se patchee contra su clase de siempre.
+        return true;
+      }
+      try {
+        await wallet.loyaltyclass.insert({ requestBody: classBody as any });
+        this.logger.log(`Google Wallet class CREADA: ${classId}`);
+        return true;
+      } catch (e2: any) {
+        this.logger.error(
+          `Google Wallet: no se pudo crear la clase ${classId}: ${e2?.message ?? e2}`,
+        );
+        return false;
+      }
+    }
+  }
+
   private buildIds(pass: any) {
     const issuerId = process.env.GOOGLE_WALLET_ISSUER_ID;
     if (!issuerId) return null;
@@ -738,20 +782,38 @@ export class GoogleWalletService {
       // patcheamos la clase, cambiar el logo/branding NO se reflejaba en el
       // pase instalado (fix 2026-06-15). El logoUri lleva cache-bust por
       // tenant.updatedAt para que Google re-descargue la imagen.
-      try {
-        const brand = await this.brand.resolveTenant(pass.tenantId);
-        const logoUri = this.resolveLogoUri(pass, brand);
-        const classBody = this.buildClass(pass, ids.classId, logoUri);
-        await wallet.loyaltyclass.patch({
-          resourceId: ids.classId,
-          requestBody: classBody as any,
-        });
-        this.logger.log(`Google Wallet class patched: ${ids.classId}`);
-      } catch (e: any) {
-        // No bloquea el update del objeto si el patch de clase falla.
-        this.logger.warn(
-          `Google Wallet class patch failed: ${e?.message ?? e}`,
-        );
+      // La clase se CREA si no existe, no solo se patchea.
+      //
+      // ESTE ERA EL FALLO DEL CUPÓN QUE NO SE CONVERTÍA. Las clases solo
+      // nacían dentro del JWT de `generateSaveUrl`; no hay ningún
+      // `loyaltyclass.insert` en el resto del código. Al canjear un cupón, el
+      // pase pasa a la tarjeta de sellos y `buildIds` calcula
+      // `card_<nuevo cardId>` — una clase que NADIE creó nunca.
+      //
+      // A partir de ahí caía todo: el patch de la clase daba 404 y se tragaba
+      // con un warn, el patch del OBJETO daba el mismo 404 y ya no escribía
+      // nada —ni la clase, ni los sellos, ni los textos— y el `catch` de más
+      // abajo confundía ese 404 con «el objeto no existe» y anotaba en el log
+      // «cliente no saveó», que es falso y desvió el diagnóstico dos veces.
+      //
+      // Medido el 2026-09-10: 85 pases convertidos seguían enseñando el cupón
+      // en la billetera. 78 de Limorada.
+      //
+      // El `classId` de un objeto SÍ se puede cambiar — comprobado contra la
+      // API real: crear la clase que falta y patchear devuelve 200 y el objeto
+      // cambia de clase, sin que el cliente reinstale nada.
+      const brand = await this.brand.resolveTenant(pass.tenantId);
+      const logoUri = this.resolveLogoUri(pass, brand);
+      const classBody = this.buildClass(pass, ids.classId, logoUri);
+      const claseLista = await this.asegurarClase(
+        wallet,
+        ids.classId,
+        classBody,
+      );
+      if (!claseLista) {
+        // Sin clase, el patch del objeto va a fallar igual. Se corta aquí para
+        // que el motivo quede escrito, en vez de salir por un 404 disfrazado.
+        return { ok: false, status: 'class_unavailable' };
       }
 
       // PATCH del objeto completo para que cambios visuales (textModules,
@@ -842,6 +904,19 @@ export class GoogleWalletService {
     } catch (e: any) {
       const code = e?.code || e?.response?.status;
       if (code === 404) {
+        // Un 404 aquí tiene DOS causas y decirlas al revés cuesta días: puede
+        // faltar el objeto (el cliente nunca guardó el pase) o puede faltar la
+        // CLASE a la que apunta. El mensaje decía siempre lo primero, así que
+        // los 85 pases con la clase del cupón salían en el log como «cliente
+        // no saveó» — y sus objetos existían y estaban vivos.
+        const esDeClase = /class/i.test(String(e?.message ?? ''));
+        if (esDeClase) {
+          this.logger.error(
+            `Google Wallet: la CLASE ${ids.classId} no existe (el objeto ${pass.googleObjectId} sí). ` +
+              `Nada se actualizó en la billetera del cliente.`,
+          );
+          return { ok: false, status: 'class_not_found' };
+        }
         this.logger.warn(
           `Google Wallet object ${pass.googleObjectId} not found — cliente no saveó`,
         );
