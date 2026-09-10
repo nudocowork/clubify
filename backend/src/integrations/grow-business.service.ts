@@ -334,6 +334,15 @@ export class GrowBusinessService {
           createdAt: { gte: desde },
           status: 'sent',
           toPhone: { endsWith: cola },
+          // Solo los envíos de rutas públicas, igual que el tope por negocio.
+          //
+          // Antes contaba TODO lo mandado a ese número por cualquier negocio y
+          // cualquier motivo. Un cliente que hace un pedido recibe dos SMS de
+          // seguimiento; con eso ya iba por 2 de 3, y la confirmación de una
+          // cita suya esa misma hora se cortaba. El tope existe para frenar el
+          // acoso desde rutas públicas, no para racionar los avisos que el
+          // cliente pidió.
+          feature: { in: ['reservations', 'automations'] },
         },
       });
       return enviados >= GrowBusinessService.TOPE_SIN_VERIFICAR;
@@ -466,6 +475,28 @@ export class GrowBusinessService {
           `SMS no enviado a ${toPhone}: tope de ${GrowBusinessService.TOPE_SIN_VERIFICAR}/hora ` +
             'para destinatarios sin verificar',
         );
+        // Se registra el corte: si no, el mensaje desaparece sin rastro y el
+        // negocio no entiende por qué su cliente no recibió nada.
+        await this.registrarEnvio({
+          channel: 'SMS',
+          ok: false,
+          locationId: creds.locationId || '',
+          toPhone,
+          body,
+          error: 'tope de envios a este numero',
+          ctx,
+        });
+        // Se registra el corte: si no, el mensaje desaparece sin rastro y el
+        // negocio no entiende por qué su cliente no recibió nada.
+        await this.registrarEnvio({
+          channel: 'WhatsApp',
+          ok: false,
+          locationId: creds.locationId || '',
+          toPhone,
+          body,
+          error: 'tope de envios a este numero',
+          ctx,
+        });
         return { ok: false as const, message: 'tope de envios a este numero' };
       }
       if (await this.elNegocioPasoSuTope(ctx.tenantId)) {
@@ -473,6 +504,24 @@ export class GrowBusinessService {
           `SMS no enviado a ${toPhone}: el negocio ${ctx.tenantId} paso su tope de ` +
             `${GrowBusinessService.TOPE_POR_NEGOCIO}/hora a destinatarios sin verificar`,
         );
+        await this.registrarEnvio({
+          channel: 'SMS',
+          ok: false,
+          locationId: creds.locationId || '',
+          toPhone,
+          body,
+          error: 'tope de envios del negocio',
+          ctx,
+        });
+        await this.registrarEnvio({
+          channel: 'WhatsApp',
+          ok: false,
+          locationId: creds.locationId || '',
+          toPhone,
+          body,
+          error: 'tope de envios del negocio',
+          ctx,
+        });
         return { ok: false as const, message: 'tope de envios del negocio' };
       }
     }

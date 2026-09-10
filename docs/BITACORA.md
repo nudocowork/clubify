@@ -94,6 +94,61 @@ Al commitear me encontré trabajo sin commitear de la otra máquina dentro de
 toqué**: separé mis hunks y commiteé solo los míos. Después apareció commiteado
 como `3678c3b6`.
 
+## 2026-09-09 (3) — ⚠️ Mi tope de envíos se comía recordatorios de citas. Arreglado
+
+Una revisión de regresiones encontró que **el tope que puse ayer rompía a los
+negocios con muchas citas**. Es lo más serio de esta tanda, porque perdía datos
+sin dejar rastro.
+
+### Qué estaba mal
+
+Marqué `destinatarioSinVerificar` en `notifyAppointment`, que se usa para
+**cuatro cosas**, no solo para la reserva pública:
+
+| Aviso | ¿El número lo eligió un desconocido? |
+|---|---|
+| Confirmación de reserva **web** | Sí — es el único |
+| Confirmación de cita creada **desde el panel** | No, la escribió el negocio |
+| Reagenda | No |
+| **Recordatorio del cron** | No |
+
+Los cuatro caían en el mismo cubo de 20/hora por negocio. Una barbería de cinco
+puestos, o una clínica con varios profesionales, lo pasa en hora punta.
+
+**Y lo peor:** el cron marcaba `reminderSentAt` **aunque el envío se hubiera
+cortado**. Ese recordatorio se perdía **para siempre**, sin reintento y sin
+rastro. Como el enlace para reagendar viaja solo en ese SMS, el cliente se
+quedaba además sin poder cambiar ni cancelar su cita.
+
+### Qué se hizo
+
+1. **`destinatarioSinVerificar` solo en la reserva pública.** Las otras tres van
+   a un número que el negocio ya verificó.
+2. **El cron no marca como enviado lo que no salió**: `notifyAppointment` ahora
+   devuelve si el mensaje salió, y si un tope lo cortó se reintenta en la vuelta
+   siguiente.
+3. **El tope por número solo cuenta envíos de rutas públicas.** Antes contaba
+   todo: un cliente con un pedido recibe dos SMS de seguimiento, y con eso ya
+   iba por 2 de 3 — la confirmación de una cita suya esa misma hora se cortaba.
+4. **Los cortes por tope quedan en el historial** (`status: failed`, con el
+   motivo). Antes desaparecían y el negocio no entendía por qué su cliente no
+   recibió nada.
+
+### Lo que sigue pendiente de ese informe, sin tocar
+
+- **Países con móvil de menos de 10 dígitos** (Panamá, Perú): si el teléfono se
+  guardó sin prefijo y el cliente lo teclea con él, el chat le dice que no es su
+  número. Solo pasa con clientes creados a mano desde el panel, no desde el
+  storefront.
+- **Cambiar la contraseña** echa al empleado hasta 15 min después, en un momento
+  cualquiera, y el login le dice «sesión expirada» — que es falso.
+- **El 2FA no reinicia los fallos** al caducar el bloqueo: un fallo más rebloquea
+  otros 15 min. Y el mensaje no dice que estés bloqueado.
+- **429 sin traducir** en el frontend: hoy no se ve porque `TRUST_PROXY=0`, pero
+  hay que preparar los textos **antes** de encenderlo.
+
+1122 pruebas en verde.
+
 ## 2026-09-09 (2) — Segundo tope: por NEGOCIO, no solo por número
 
 Lo de antes protegía a **una persona** de recibir treinta mensajes. No impedía

@@ -197,3 +197,37 @@ describe('tope por NEGOCIO, ademas del tope por numero', () => {
     expect(where.feature.in).toContain('automations');
   });
 });
+
+describe('el tope no puede comerse los avisos que el cliente si pidio', () => {
+  // Regresion encontrada al revisar: el tope por numero contaba TODO lo
+  // mandado a ese numero por cualquier negocio y cualquier motivo. Un cliente
+  // que hace un pedido recibe dos SMS de seguimiento; con eso ya iba por 2 de
+  // 3, y la confirmacion de una cita suya esa misma hora se cortaba.
+
+  it('el tope por numero solo cuenta envios de rutas publicas', async () => {
+    const svc = servicio(0);
+    await svc.pasoElTopeSinVerificar('3150621706');
+    const where = svc.prisma.messageLog.count.mock.calls.at(-1)[0].where;
+    expect(where.feature.in).toContain('reservations');
+    expect(where.feature.in).toContain('automations');
+    // Los SMS de seguimiento de un pedido no llevan esos features, asi que no
+    // gastan el cubo de nadie.
+    expect(where.feature.in).not.toContain('orders');
+  });
+
+  it('un corte por tope queda en el historial, no desaparece', async () => {
+    // Si no se registra, el negocio no entiende por que su cliente no recibio
+    // nada: ni en el panel ni en ningun sitio queda rastro.
+    const svc = servicio(99);
+    delete svc.registrarEnvio;
+    svc.prisma.tenant = { findUnique: vi.fn(async () => null) };
+    await svc.sendSmsWithCreds(CREDS, '3150621706', 'Tu cita', {
+      tenantId: 't1',
+      feature: 'reservations',
+      destinatarioSinVerificar: true,
+    });
+    const fila = svc.prisma.messageLog.create.mock.calls.at(-1)?.[0]?.data;
+    expect(fila?.status).toBe('failed');
+    expect(fila?.error).toContain('tope');
+  });
+});

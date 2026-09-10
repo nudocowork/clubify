@@ -1,7 +1,7 @@
 {
   "_cordura": {
     "modelos": 65,
-    "analizadas": 1226
+    "analizadas": 1234
   },
   "archivos": {
     "src/admin-reports/admin-reports.service.ts": 1,
@@ -17,6 +17,7 @@
     "src/cuponera/mercadopago.service.ts": 2,
     "src/delivery/delivery.service.ts": 11,
     "src/finance/income-record.service.ts": 4,
+    "src/onboarding-sync/onboarding-sync.service.ts": 2,
     "src/orders/orders.service.ts": 3,
     "src/passes/passes.controller.ts": 2,
     "src/passes/passes.service.ts": 3,

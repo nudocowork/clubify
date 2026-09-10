@@ -26,6 +26,8 @@
     "POST /passes/demo-wallet/enroll",
     "POST /passes/enroll/:cardId",
     "POST /public/affiliate-signup/register",
+    "POST /public/agenda/:teamSlug/reservar",
+    "POST /public/agenda/cita/:token/cancelar",
     "POST /public/aliado/:token/baja",
     "POST /public/alianzas/:tenantSlug/:convenioSlug/activar",
     "POST /public/campaigns/by-owner-code/:code/apply",

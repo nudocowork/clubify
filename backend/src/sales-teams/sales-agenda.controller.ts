@@ -22,6 +22,7 @@ import {
 import { Type } from 'class-transformer';
 import { SalesAgendaService } from './sales-agenda.service';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Throttle } from '@nestjs/throttler';
 import { Public } from '../common/decorators/public.decorator';
 import {
   CurrentUser,
@@ -164,7 +165,12 @@ export class PublicSalesAgendaController {
     return this.svc.calendarioPublico(teamSlug, hostUserId || null);
   }
 
+  // 5/min, igual que las otras reservas publicas. El token de la cita es un
+  // nanoid(32) y el recordatorio ya va marcado como destinatario sin
+  // verificar, asi que lo que falta aqui no es proteger el envio: es que nadie
+  // pueda llenar la agenda del equipo con citas basura.
   @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @Post(':teamSlug/reservar')
   reservar(
     @Param('teamSlug') teamSlug: string,

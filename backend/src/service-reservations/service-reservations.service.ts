@@ -640,10 +640,11 @@ export class ServiceReservationsService {
     },
   ) {
     const tid = await this.resolveEnabledTenant(slug);
-    const appt = await this.createAppointment(tid, {
-      ...dto,
-      status: 'confirmed',
-    });
+    const appt = await this.createAppointment(
+      tid,
+      { ...dto, status: 'confirmed' },
+      true, // viene de la web pública: el teléfono lo escribió cualquiera
+    );
     return {
       ok: true,
       id: appt.id,
@@ -796,6 +797,10 @@ export class ServiceReservationsService {
       notes?: string;
       status?: ApptStatus;
     },
+    /** true SOLO desde la reserva pública. Decide si el aviso entra en el tope
+     *  de envíos a destinatarios sin verificar: en el panel el número lo puso
+     *  el propio negocio. */
+    esReservaPublica = false,
   ) {
     const service = await this.prisma.service.findFirst({
       where: { id: dto.serviceId, tenantId, isActive: true },
@@ -886,7 +891,8 @@ export class ServiceReservationsService {
       },
     });
     // Fase 4: SMS de confirmación al cliente (best-effort, aislado por marca).
-    this.notifyAppointment(appt, 'confirm').catch(() => null);
+    // La unica de las cuatro cuyo telefono lo escribio alguien sin sesion.
+    this.notifyAppointment(appt, 'confirm', esReservaPublica).catch(() => null);
     return appt;
   }
 
@@ -959,6 +965,16 @@ export class ServiceReservationsService {
   }
 
   /** SMS de confirmación / recordatorio de una cita al cliente (best-effort). */
+  /**
+   * Manda el aviso de la cita. Devuelve si salió, para que quien llame pueda
+   * decidir —el cron necesita saberlo para no dar por enviado lo que no salió.
+   *
+   * `sinVerificar` solo va en true para la reserva PÚBLICA. Se marcaba en todas
+   * y eso rompía a los negocios ocupados: el tope de 20/hora por negocio se
+   * comía también los recordatorios, las reagendas y las confirmaciones de
+   * citas creadas desde el panel —números que el propio negocio verificó—.
+   * Ninguno de esos lo elige un desconocido.
+   */
   private async notifyAppointment(
     appt: {
       tenantId: string;
@@ -969,6 +985,7 @@ export class ServiceReservationsService {
       manageToken?: string | null;
     },
     kind: 'confirm' | 'reminder',
+    sinVerificar = false,
   ) {
     try {
       const [tenant, service] = await Promise.all([
@@ -1011,20 +1028,25 @@ export class ServiceReservationsService {
         kind === 'confirm'
           ? `${tenant.brandName}: ${firstName ? firstName + ', tu' : 'Tu'} cita de ${svc} quedó confirmada para el ${fecha} a las ${hora}. ¡Te esperamos!${manageLine}`
           : `${tenant.brandName}: Recordatorio — tu cita de ${svc} es el ${fecha} a las ${hora}.${manageLine}`;
-      await this.growBusiness
-        // `destinatarioSinVerificar`: la cita se puede pedir desde una ruta
-        // pública con el teléfono que sea, y nadie comprueba que sea de quien
-        // reserva. Sin tope, esto era una pasarela de SMS abierta: la respuesta
-        // trae el `manageToken`, cancelar libera el hueco y reagendar reenvía
-        // la confirmación, así que reservar → cancelar → reservar mandaba un
-        // mensaje por vuelta, al número que quisiera el atacante y con el
-        // remitente del negocio. Ver QA-MASTER-SECURITY.md (P0-5).
+      const r = await this.growBusiness
+        // `destinatarioSinVerificar` solo en la reserva PÚBLICA: ahí el teléfono
+        // lo escribe alguien sin sesión, y sin tope era una pasarela de SMS
+        // abierta —la respuesta trae el `manageToken`, cancelar libera el hueco
+        // y reagendar reenvía, así que reservar → cancelar → reservar mandaba un
+        // mensaje por vuelta al número que quisiera el atacante—.
+        //
+        // Recordatorios, reagendas y citas creadas desde el panel NO lo llevan:
+        // ese número ya lo verificó el negocio, y meterlos en el mismo cubo
+        // dejaba sin avisos a los negocios ocupados. Ver P0-5.
         .sendSmsWithCreds(creds, appt.customerPhone, body, {
           tenantId: appt.tenantId,
           feature: 'reservations',
-          destinatarioSinVerificar: true,
+          destinatarioSinVerificar: sinVerificar,
         })
         .catch(() => null);
+      // `false` solo cuando un tope lo cortó: el cron lo necesita para no dar
+      // por enviado un recordatorio que no salió.
+      return !(r && r.ok === false);
     } catch (e) {
       this.logger.warn(
         `notifyAppointment(${kind}) falló: ${(e as Error).message}`,
@@ -1048,7 +1070,11 @@ export class ServiceReservationsService {
       orderBy: { startAt: 'asc' },
     });
     for (const a of due) {
-      await this.notifyAppointment(a, 'reminder');
+      const salio = await this.notifyAppointment(a, 'reminder');
+      // Si un tope lo corto, NO se marca: se reintenta en la vuelta siguiente.
+      // Marcarlo igual perdia el recordatorio para siempre, sin reintento y
+      // sin rastro, justo en los negocios con muchas citas.
+      if (!salio) continue;
       await this.prisma.appointment
         .update({ where: { id: a.id }, data: { reminderSentAt: new Date() } })
         .catch(() => null);
