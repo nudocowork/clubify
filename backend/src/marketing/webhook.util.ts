@@ -73,6 +73,44 @@ export function extractRefs(payload: unknown): {
   return { messageId, email, phone };
 }
 
+/**
+ * El TEXTO del mensaje entrante.
+ *
+ * `extractRefs` saca quién escribe y a qué envío responde, pero tiraba lo que
+ * dijo. Para las automatizaciones daba igual —solo importaba que hubiera
+ * respuesta— pero el equipo de ventas necesita leerlo: sin esto, el vendedor ve
+ * «respondió» y tiene que salir a GoHighLevel a enterarse de qué.
+ *
+ * GoHighLevel no manda el cuerpo en un sitio fijo: depende de si el flujo usa
+ * el disparador de SMS, el de conversación o un webhook a mano. Se miran todas
+ * las rutas vistas en payloads reales, en orden de más específica a más
+ * genérica.
+ *
+ * Se recorta a 4.000 caracteres: un SMS no llega ni a 1.600, y un correo
+ * entero con su cadena de citados no cabe en una burbuja de chat ni aporta.
+ */
+export function extractBody(payload: unknown): string | undefined {
+  const p = (payload ?? {}) as Record<string, any>;
+  const candidatos = [
+    p.body,
+    p.message?.body,
+    p.data?.body,
+    p.data?.message?.body,
+    p.text,
+    p.message?.text,
+    p.data?.text,
+    p.messageBody,
+    p.sms?.body,
+    p.conversation?.lastMessageBody,
+  ];
+  for (const c of candidatos) {
+    if (typeof c !== 'string') continue;
+    const t = c.trim();
+    if (t) return t.slice(0, 4000);
+  }
+  return undefined;
+}
+
 /** Solo estas cuentan como interacción (reanudan wait_reply + disparan el trigger). */
 export function isInteraction(kind: EmailEventKind): boolean {
   return kind === 'reply' || kind === 'open' || kind === 'click';

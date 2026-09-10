@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { IntegrationsModule } from '../integrations/integrations.module';
+import { SalesInboxModule } from '../sales-teams/sales-inbox.module';
 import { MktProviderService } from './provider/mkt-provider.service';
 import { MktContactService } from './mkt-contact.service';
 import { MktActionService } from './mkt-action.service';
@@ -22,7 +23,9 @@ import { MktTemplatesController } from './mkt-templates.controller';
  * IntegrationsModule exporta GrowBusinessService (proveedor de envío).
  */
 @Module({
-  imports: [IntegrationsModule],
+  // Solo para que el webhook entrante pueda dejar el mensaje en la
+  // conversación del lead. Ese módulo no importa nada, así que no hay ciclo.
+  imports: [IntegrationsModule, SalesInboxModule],
   providers: [
     MktProviderService,
     MktContactService,

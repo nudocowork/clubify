@@ -6,7 +6,8 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { MktActionService } from './mkt-action.service';
 import { MktEngineService } from './mkt-engine.service';
 import { MktContactService } from './mkt-contact.service';
-import { detectKind, extractRefs, isInteraction } from './webhook.util';
+import { detectKind, extractBody, extractRefs, isInteraction } from './webhook.util';
+import { SalesInboxService } from '../sales-teams/sales-chat.service';
 import { phoneKeyOf } from './identity';
 
 /**
@@ -31,6 +32,7 @@ export class MktWebhookController {
     private actions: MktActionService,
     private engine: MktEngineService,
     private contacts: MktContactService,
+    private inbox: SalesInboxService,
   ) {}
 
   // 60/min. Un proveedor de correo real manda ráfagas al abrir una campaña, así
@@ -54,6 +56,19 @@ export class MktWebhookController {
         `inbound slug=${slug} kind=${kind} msg=${messageId ?? '—'} ` +
           `email=${email ?? '—'} tel=${phone ? '✓' : '—'}`,
       );
+
+      // El chat del equipo de ventas. Va ANTES del resto y sin `await` sobre
+      // el resultado: guardar la conversación no puede retrasar ni tumbar la
+      // reanudación de las automatizaciones, que es para lo que nació esta
+      // ruta. El servicio no lanza nunca.
+      if (kind === 'reply') {
+        void this.inbox.guardarEntrante({
+          whiteLabelId: wl.id,
+          phone,
+          body: extractBody(body),
+          providerMessageId: messageId,
+        });
+      }
 
       // Sella el evento en su envío (por messageId; respaldo por email).
       const { contactId, correlacionado } = await this.actions.stampEvent({

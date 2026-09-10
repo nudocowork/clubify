@@ -8,6 +8,9 @@ import {
   SalesAgendaController,
   PublicSalesAgendaController,
 } from './sales-agenda.controller';
+import { SalesChatService } from './sales-chat.service';
+import { SalesChatController } from './sales-chat.controller';
+import { SalesInboxModule } from './sales-inbox.module';
 import { CrmModule } from '../crm/crm.module';
 import { MarketingModule } from '../marketing/marketing.module';
 
@@ -15,13 +18,19 @@ import { MarketingModule } from '../marketing/marketing.module';
   // MarketingModule solo por el envío del recordatorio: sale por la subcuenta
   // de la marca, igual que todo lo demás. Una marca sin subcuenta propia no
   // manda — el proveedor lo devuelve como `skipped`, no como error.
-  imports: [CrmModule, MarketingModule],
-  providers: [SalesTeamsService, SalesLeadsService, SalesAgendaService],
+  imports: [CrmModule, MarketingModule, SalesInboxModule],
+  providers: [
+    SalesTeamsService,
+    SalesLeadsService,
+    SalesAgendaService,
+    SalesChatService,
+  ],
   controllers: [
     SalesTeamsController,
     SalesLeadsController,
     SalesAgendaController,
     PublicSalesAgendaController,
+    SalesChatController,
   ],
   exports: [SalesTeamsService],
 })

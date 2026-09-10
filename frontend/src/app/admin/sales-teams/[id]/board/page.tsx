@@ -563,6 +563,8 @@ function FichaDelLead({
               </div>
             )}
 
+            <Conversacion teamId={teamId} leadId={leadId} onCambio={onCambio} />
+
             <h3 className="text-sm font-semibold mt-6 mb-2">Historial</h3>
             <ol className="flex flex-col gap-2">
               {lead.actividades.map((a) => (
@@ -581,5 +583,176 @@ function FichaDelLead({
         )}
       </aside>
     </div>
+  );
+}
+
+// ── Conversación ──────────────────────────────────────────────────────────
+
+type Mensaje = {
+  id: string;
+  direction: 'in' | 'out' | 'internal';
+  channel: string;
+  body: string | null;
+  createdAt: string;
+};
+
+type Hilo = {
+  puedeEscribir: boolean;
+  telefono: string | null;
+  optOut: boolean;
+  mensajes: Mensaje[];
+};
+
+/**
+ * El hilo con el prospecto.
+ *
+ * Tres tipos de burbuja, y la diferencia importa: lo que él escribió, lo que
+ * le escribimos, y la nota interna —que se lee aquí y NO sale a ninguna parte—.
+ * Confundir la tercera con la segunda es mandarle al cliente el «ojo, ya le
+ * bajamos el precio una vez».
+ */
+function Conversacion({
+  teamId,
+  leadId,
+  onCambio,
+}: {
+  teamId: string;
+  leadId: string;
+  onCambio: () => void;
+}) {
+  const [hilo, setHilo] = useState<Hilo | null>(null);
+  const [texto, setTexto] = useState('');
+  const [modo, setModo] = useState<'mensaje' | 'nota'>('mensaje');
+  const [enviando, setEnviando] = useState(false);
+
+  const cargar = useCallback(async () => {
+    try {
+      setHilo(await api<Hilo>(`/sales-teams/${teamId}/leads/${leadId}/chat`));
+    } catch {
+      setHilo(null);
+    }
+  }, [teamId, leadId]);
+
+  useEffect(() => {
+    cargar();
+  }, [cargar]);
+
+  async function mandar() {
+    const t = texto.trim();
+    if (!t) return;
+    setEnviando(true);
+    try {
+      const ruta =
+        modo === 'nota'
+          ? `/sales-teams/${teamId}/leads/${leadId}/chat/nota`
+          : `/sales-teams/${teamId}/leads/${leadId}/chat`;
+      await api(ruta, { method: 'POST', body: JSON.stringify({ body: t }) });
+      setTexto('');
+      await cargar();
+      onCambio();
+    } catch (e: any) {
+      // El backend devuelve el motivo real («la marca no tiene subcuenta de
+      // SMS configurada», «se dio de baja»), que es accionable. Se enseña tal
+      // cual en vez de un «error al enviar».
+      toast(e?.message ?? 'No se pudo enviar.', 'error');
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  if (!hilo) return null;
+
+  const sinTelefono = !hilo.telefono?.trim();
+  const bloqueado = sinTelefono || hilo.optOut;
+
+  return (
+    <>
+      <h3 className="text-sm font-semibold mt-6 mb-2">Conversación</h3>
+
+      {!hilo.mensajes.length ? (
+        <p className="text-sm text-mute">
+          Todavía no hay mensajes. Cuando responda por SMS, aparece aquí.
+        </p>
+      ) : (
+        <ol className="flex flex-col gap-2">
+          {hilo.mensajes.map((m) => {
+            const mio = m.direction === 'out';
+            const nota = m.direction === 'internal';
+            return (
+              <li
+                key={m.id}
+                className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                  nota
+                    ? 'bg-amber-50 border border-amber-200 self-stretch'
+                    : mio
+                      ? 'bg-brand/10 self-end'
+                      : 'bg-bg2 self-start'
+                }`}
+              >
+                {nota && (
+                  <div className="text-[10px] font-semibold text-amber-700 mb-0.5">
+                    NOTA INTERNA · no la ve el cliente
+                  </div>
+                )}
+                <div className="whitespace-pre-wrap break-words">{m.body}</div>
+                <div className="text-[10px] text-mute mt-0.5">
+                  {desdeHace(m.createdAt)}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {hilo.puedeEscribir && (
+        <div className="mt-3">
+          <div className="inline-flex bg-bg2 rounded-pill p-0.5 mb-2 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setModo('mensaje')}
+              className={`px-3 py-1 rounded-pill ${modo === 'mensaje' ? 'bg-white shadow-sm' : 'text-mute'}`}
+            >
+              Mensaje
+            </button>
+            <button
+              type="button"
+              onClick={() => setModo('nota')}
+              className={`px-3 py-1 rounded-pill ${modo === 'nota' ? 'bg-white shadow-sm' : 'text-mute'}`}
+            >
+              Nota interna
+            </button>
+          </div>
+
+          {modo === 'mensaje' && bloqueado ? (
+            <p className="text-xs text-amber-700">
+              {sinTelefono
+                ? 'Este lead no tiene teléfono. Añádeselo para poder escribirle.'
+                : 'Esta persona se dio de baja de los mensajes de la marca. Puedes dejar una nota interna, pero no escribirle.'}
+            </p>
+          ) : (
+            <>
+              <textarea
+                className="input"
+                rows={2}
+                placeholder={
+                  modo === 'nota'
+                    ? 'Para el equipo. El cliente no la ve.'
+                    : 'Le llega por SMS…'
+                }
+                value={texto}
+                onChange={(e) => setTexto(e.target.value)}
+              />
+              <button
+                className="btn mt-2 w-full"
+                disabled={enviando || !texto.trim()}
+                onClick={mandar}
+              >
+                {enviando ? 'Enviando…' : modo === 'nota' ? 'Guardar nota' : 'Enviar'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </>
   );
 }
