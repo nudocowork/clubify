@@ -148,6 +148,18 @@ function baseFalsa(opts: { modulo?: boolean; whiteLabelId?: string | null } = {}
   return { prisma, bd };
 }
 
+/** Doble del puente de automatizaciones: apunta lo que se dispararía. */
+function automatizacionesFalsas() {
+  const disparos: Array<{ leadId: string; evento: string; ctx: Record<string, string> }> = [];
+  const svc: any = {
+    disparar: async (leadId: string, evento: string, ctx: Record<string, string> = {}) => {
+      disparos.push({ leadId, evento, ctx });
+      return true;
+    },
+  };
+  return { svc, disparos };
+}
+
 const VENDEDOR: AuthUser = {
   id: 'u-vendedor',
   email: 'v@sellea.com',
@@ -157,11 +169,14 @@ const VENDEDOR: AuthUser = {
 
 let svc: SalesLeadsService;
 let bd: ReturnType<typeof baseFalsa>['bd'];
+let disparos: ReturnType<typeof automatizacionesFalsas>['disparos'];
 
 function abrir(opts: Parameters<typeof baseFalsa>[0] = {}) {
   const f = baseFalsa(opts);
   bd = f.bd;
-  svc = new SalesLeadsService(f.prisma as unknown as PrismaService);
+  const autos = automatizacionesFalsas();
+  disparos = autos.disparos;
+  svc = new SalesLeadsService(f.prisma as unknown as PrismaService, autos.svc);
   return f;
 }
 
@@ -403,5 +418,83 @@ describe('solo lectura mira y no toca', () => {
     await expect(
       svc.moverLead(VENDEDOR, 't1', lead.id, t.columnas[1].id),
     ).rejects.toThrow(/solo lectura/i);
+  });
+});
+
+describe('los disparadores de ventas', () => {
+  it('un lead nuevo dispara «lead nuevo» con su columna', async () => {
+    await svc.crearLead(VENDEDOR, 't1', { name: 'Ana', phone: '3001112233' });
+    expect(disparos).toHaveLength(1);
+    expect(disparos[0].evento).toBe('sales_lead_created');
+    expect(disparos[0].ctx.etapa).toBe('Contactos');
+  });
+
+  it('un lead REPETIDO no vuelve a disparar', async () => {
+    // Si no, dos vendedores metiendo al mismo prospecto le mandan la
+    // bienvenida dos veces.
+    await svc.crearLead(VENDEDOR, 't1', { name: 'Ana', phone: '3001112233' });
+    await svc.crearLead(VENDEDOR, 't1', { name: 'Ana R.', phone: '+57 3001112233' });
+    expect(disparos.filter((d) => d.evento === 'sales_lead_created')).toHaveLength(1);
+  });
+
+  it('mover a Clientes dispara «cambio de columna» Y «ganado»', async () => {
+    const t = await svc.tablero(VENDEDOR, 't1');
+    const lead = await svc.crearLead(VENDEDOR, 't1', { name: 'Ana' });
+    const clientes = t.columnas.find((c: any) => c.kind === 'CLIENT')!;
+    await svc.moverLead(VENDEDOR, 't1', lead.id, clientes.id);
+    const eventos = disparos.map((d) => d.evento);
+    expect(eventos).toContain('sales_stage_changed');
+    expect(eventos).toContain('sales_lead_won');
+    expect(eventos).not.toContain('sales_lead_lost');
+  });
+
+  it('mover a No interesados dispara «perdido», no «ganado»', async () => {
+    const t = await svc.tablero(VENDEDOR, 't1');
+    const lead = await svc.crearLead(VENDEDOR, 't1', { name: 'Ana' });
+    const perdidos = t.columnas.find((c: any) => c.kind === 'NOT_INTERESTED')!;
+    await svc.moverLead(VENDEDOR, 't1', lead.id, perdidos.id);
+    const eventos = disparos.map((d) => d.evento);
+    expect(eventos).toContain('sales_lead_lost');
+    expect(eventos).not.toContain('sales_lead_won');
+  });
+
+  it('una columna intermedia NO dispara ni ganado ni perdido', async () => {
+    const t = await svc.tablero(VENDEDOR, 't1');
+    const lead = await svc.crearLead(VENDEDOR, 't1', { name: 'Ana' });
+    await svc.moverLead(VENDEDOR, 't1', lead.id, t.columnas[1].id);
+    const eventos = disparos.map((d) => d.evento);
+    expect(eventos).toContain('sales_stage_changed');
+    expect(eventos).not.toContain('sales_lead_won');
+    expect(eventos).not.toContain('sales_lead_lost');
+  });
+
+  it('el contexto lleva la columna nueva Y la anterior', async () => {
+    const t = await svc.tablero(VENDEDOR, 't1');
+    const lead = await svc.crearLead(VENDEDOR, 't1', { name: 'Ana' });
+    await svc.moverLead(VENDEDOR, 't1', lead.id, t.columnas[1].id);
+    const cambio = disparos.find((d) => d.evento === 'sales_stage_changed')!;
+    expect(cambio.ctx).toMatchObject({
+      etapa: 'Interesados',
+      etapa_anterior: 'Contactos',
+    });
+  });
+
+  it('un movimiento que NO se aplicó (otro llegó antes) no dispara nada', async () => {
+    // Disparar aquí mandaría el mensaje de una etapa a la que el lead no fue.
+    const t = await svc.tablero(VENDEDOR, 't1');
+    const [contactos, interesados, seguimiento] = t.columnas;
+    const lead = await svc.crearLead(VENDEDOR, 't1', { name: 'Ana' });
+    await svc.moverLead(VENDEDOR, 't1', lead.id, interesados.id, contactos.id);
+    const antes = disparos.length;
+    await svc.moverLead(VENDEDOR, 't1', lead.id, seguimiento.id, contactos.id);
+    expect(disparos).toHaveLength(antes);
+  });
+
+  it('mover a la MISMA columna no dispara nada', async () => {
+    const t = await svc.tablero(VENDEDOR, 't1');
+    const lead = await svc.crearLead(VENDEDOR, 't1', { name: 'Ana' });
+    const antes = disparos.length;
+    await svc.moverLead(VENDEDOR, 't1', lead.id, t.columnas[0].id);
+    expect(disparos).toHaveLength(antes);
   });
 });

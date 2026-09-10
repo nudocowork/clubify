@@ -21,6 +21,7 @@ import { phoneKeyOf, emailNormOf } from '../marketing/identity';
 import { MktProviderService } from '../marketing/provider/mkt-provider.service';
 import { exigirEscritura, resolveTeamAccess } from './team-access';
 import { asegurarColumnas } from './sales-columnas';
+import { SalesAutomationsService } from './sales-automations.service';
 
 /**
  * La agenda del equipo de ventas — fase 4.
@@ -74,6 +75,7 @@ export class SalesAgendaService {
   constructor(
     private prisma: PrismaService,
     private mkt: MktProviderService,
+    private automations: SalesAutomationsService,
   ) {}
 
   // ── Horario del equipo ──────────────────────────────────────────────────
@@ -464,13 +466,17 @@ export class SalesAgendaService {
       });
     });
 
-    if (body.leadId) {
+    const leadDeLaCita = cita.leadId;
+    if (leadDeLaCita) {
       await this.anotarEnElLead(
-        body.leadId,
+        leadDeLaCita,
         teamId,
         body.creadaPor ?? null,
         `Cita agendada para el ${fechaEn(inicio, ZONA_POR_DEFECTO)}`,
       );
+      void this.automations.disparar(leadDeLaCita, 'sales_meeting_booked', {
+        cita_fecha: fechaEn(inicio, ZONA_POR_DEFECTO),
+      });
     }
     return this.paraElPanel(cita);
   }
@@ -555,6 +561,12 @@ export class SalesAgendaService {
         user.id,
         `Cita marcada como ${estado.toLowerCase().replace('_', ' ')}`,
       );
+      // Solo el plantón tiene disparador propio: es el único estado que pide
+      // una reacción automática («¿reagendamos?»). Los demás los ve el
+      // vendedor en su agenda.
+      if (estado === 'NO_ASISTIO') {
+        void this.automations.disparar(cita.leadId, 'sales_meeting_no_show', {});
+      }
     }
     return this.paraElPanel(actualizada);
   }

@@ -393,12 +393,30 @@ export class MktEngineService {
     return all.filter((wf) => ((wf.trigger as WFTrigger) || {}).type === type);
   }
 
-  /** Disparo en tiempo real (contact_created, tag_added, email_reply). Idempotente. */
-  async fireTrigger(type: string, contactId: string, whiteLabelId: string): Promise<void> {
+  /**
+   * Disparo en tiempo real (contact_created, tag_added, email_reply y los de
+   * ventas). Idempotente.
+   *
+   * `extra` son campos que NO viven en el contacto y que la condición del
+   * disparador puede mirar igual: la etapa a la que acaba de pasar el lead, su
+   * equipo, su vendedor. Sin esto, «cuando pase a Interesados» no se puede
+   * expresar — el filtro solo veía nombre, correo, teléfono, empresa y
+   * etiquetas.
+   *
+   * Va después del contacto a propósito: un campo de ventas con el mismo
+   * nombre que uno del contacto gana, porque es el que describe lo que acaba
+   * de pasar.
+   */
+  async fireTrigger(
+    type: string,
+    contactId: string,
+    whiteLabelId: string,
+    extra?: Record<string, string>,
+  ): Promise<void> {
     try {
       const wfs = await this.publishedByTrigger(type, whiteLabelId);
       if (!wfs.length) return;
-      const ctx = await this.ctxFor(contactId);
+      const ctx = { ...(await this.ctxFor(contactId)), ...(extra ?? {}) };
       for (const wf of wfs) {
         const filters = ((wf.trigger as WFTrigger) || {}).filters;
         if (!evalWF(filters, ctx, 'all')) continue;

@@ -176,6 +176,18 @@ function baseFalsa(opts: { modulo?: boolean; slug?: string | null } = {}) {
   return { prisma, bd, mkt, enviados };
 }
 
+/** Doble del puente de automatizaciones: apunta lo que se dispararía. */
+function automatizacionesFalsas() {
+  const disparos: Array<{ leadId: string; evento: string; ctx: Record<string, string> }> = [];
+  const svc: any = {
+    disparar: async (leadId: string, evento: string, ctx: Record<string, string> = {}) => {
+      disparos.push({ leadId, evento, ctx });
+      return true;
+    },
+  };
+  return { svc, disparos };
+}
+
 const VENDEDOR: AuthUser = {
   id: 'u-vendedor',
   email: 'v@sellea.com',
@@ -186,14 +198,18 @@ const VENDEDOR: AuthUser = {
 let svc: SalesAgendaService;
 let bd: ReturnType<typeof baseFalsa>['bd'];
 let enviados: any[];
+let disparos: ReturnType<typeof automatizacionesFalsas>['disparos'];
 
 function abrir(opts: Parameters<typeof baseFalsa>[0] = {}) {
   const f = baseFalsa(opts);
   bd = f.bd;
   enviados = f.enviados;
+  const autos = automatizacionesFalsas();
+  disparos = autos.disparos;
   svc = new SalesAgendaService(
     f.prisma as unknown as PrismaService,
     f.mkt as unknown as MktProviderService,
+    autos.svc,
   );
 }
 
@@ -586,5 +602,55 @@ describe('el recordatorio', () => {
     await svc.agendar(VENDEDOR, 't1', { startAt: '2026-09-08T13:30:00Z' });
     await expect(svc.recordarCitas()).resolves.toBeUndefined();
     expect(enviados).toHaveLength(0);
+  });
+});
+
+describe('los disparadores de la agenda', () => {
+  beforeEach(() => {
+    bd.franjas.push({ ...HORARIO_EQUIPO });
+    bd.leads.push({ id: 'lead-1', salesTeamId: 't1', stageId: 'st1', phone: '3001112233' });
+  });
+
+  it('agendar con lead dispara «cita agendada»', async () => {
+    await svc.agendar(VENDEDOR, 't1', {
+      leadId: 'lead-1',
+      startAt: '2026-09-08T14:30:00Z',
+    });
+    expect(disparos.map((d) => d.evento)).toContain('sales_meeting_booked');
+  });
+
+  it('una cita SIN lead no dispara nada: no hay a quién escribirle', async () => {
+    await svc.agendar(VENDEDOR, 't1', { startAt: '2026-09-08T14:30:00Z' });
+    expect(disparos).toHaveLength(0);
+  });
+
+  it('la reserva pública también dispara: el lead lo crea ella misma', async () => {
+    await svc.reservarPublico('norte', {
+      startAt: '2026-09-08T15:00:00Z',
+      name: 'Nueva Persona',
+      phone: '3007776655',
+    });
+    expect(disparos.map((d) => d.evento)).toContain('sales_meeting_booked');
+  });
+
+  it('marcar «no asistió» dispara su evento', async () => {
+    const c = await svc.agendar(VENDEDOR, 't1', {
+      leadId: 'lead-1',
+      startAt: '2026-09-08T14:30:00Z',
+    });
+    await svc.cambiarEstado(VENDEDOR, 't1', c.id, 'NO_ASISTIO');
+    expect(disparos.map((d) => d.evento)).toContain('sales_meeting_no_show');
+  });
+
+  it('los OTROS estados no disparan: los ve el vendedor en su agenda', async () => {
+    const c = await svc.agendar(VENDEDOR, 't1', {
+      leadId: 'lead-1',
+      startAt: '2026-09-08T14:30:00Z',
+    });
+    const antes = disparos.length;
+    await svc.cambiarEstado(VENDEDOR, 't1', c.id, 'CONFIRMADA');
+    await svc.cambiarEstado(VENDEDOR, 't1', c.id, 'REALIZADA');
+    await svc.cambiarEstado(VENDEDOR, 't1', c.id, 'CANCELADA');
+    expect(disparos).toHaveLength(antes);
   });
 });

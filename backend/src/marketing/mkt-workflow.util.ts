@@ -33,6 +33,16 @@ export const MKT_TRIGGERS: { key: string; label: string; wired: boolean; hint?: 
   { key: 'contact_created', label: 'Contacto nuevo', wired: true, hint: 'Al crearse un contacto nuevo en la marca.' },
   { key: 'tag_added', label: 'Etiqueta agregada', wired: true, hint: 'Cuando se le agrega una etiqueta al contacto (config: etiqueta).' },
   { key: 'email_reply', label: 'Responde / interactúa', wired: true, hint: 'Cuando el contacto responde, abre o hace clic en un correo.' },
+  // ── Equipos de ventas ──
+  // Cada evento es su propio disparador en vez de uno solo con un filtro,
+  // porque «ganado» y «perdido» piden mensajes opuestos y esconderlos detrás
+  // de una condición es la forma de mandarle el equivocado a alguien.
+  { key: 'sales_lead_created', label: 'Lead nuevo (equipo de ventas)', wired: true, hint: 'Cuando entra un lead al tablero de un equipo, venga de donde venga.' },
+  { key: 'sales_stage_changed', label: 'El lead cambia de columna', wired: true, hint: 'Al mover la tarjeta. Condición sobre «etapa» para una columna concreta.' },
+  { key: 'sales_lead_won', label: 'Lead ganado', wired: true, hint: 'Al pasar a la columna de clientes.' },
+  { key: 'sales_lead_lost', label: 'Lead perdido', wired: true, hint: 'Al pasar a la columna de no interesados.' },
+  { key: 'sales_meeting_booked', label: 'Cita agendada', wired: true, hint: 'Cuando queda una cita, la ponga el vendedor o el propio prospecto.' },
+  { key: 'sales_meeting_no_show', label: 'No asistió a la cita', wired: true, hint: 'Cuando el vendedor marca la cita como «no asistió».' },
 ];
 
 export const MKT_NODE_TYPES: { key: string; label: string; branch?: boolean }[] = [
@@ -54,6 +64,12 @@ export const MKT_FIELDS: { key: string; label: string }[] = [
   { key: 'telefono', label: 'Teléfono' },
   { key: 'empresa', label: 'Empresa' },
   { key: 'tags', label: 'Etiquetas' },
+  // Solo tienen valor en los disparadores de ventas. En los demás llegan
+  // vacíos, y una condición sobre un campo vacío no casa — que es lo correcto:
+  // un flujo de «contacto nuevo» no debería colarse por la etapa de un lead.
+  { key: 'etapa', label: 'Columna del tablero (ventas)' },
+  { key: 'equipo', label: 'Equipo de ventas' },
+  { key: 'vendedor', label: 'Vendedor asignado (ventas)' },
 ];
 
 export const MKT_MERGE_FIELDS: { key: string; label: string }[] = [
@@ -62,6 +78,9 @@ export const MKT_MERGE_FIELDS: { key: string; label: string }[] = [
   { key: 'telefono', label: 'Teléfono' },
   { key: 'empresa', label: 'Empresa' },
   { key: 'marca', label: 'Nombre de la marca' },
+  { key: 'etapa', label: 'Columna del tablero (ventas)' },
+  { key: 'equipo', label: 'Equipo de ventas' },
+  { key: 'vendedor', label: 'Vendedor asignado (ventas)' },
 ];
 
 /** Reemplaza {{campo}} por su valor del contexto (vacío si no existe). */

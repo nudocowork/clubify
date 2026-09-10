@@ -33,16 +33,34 @@ const NODE_TYPES = Object.keys(NODE);
 const MERGE = [
   { key: 'nombre', label: 'Nombre' }, { key: 'email', label: 'Correo' },
   { key: 'telefono', label: 'Teléfono' }, { key: 'empresa', label: 'Empresa' }, { key: 'marca', label: 'Marca' },
+  { key: 'etapa', label: 'Columna (ventas)' }, { key: 'equipo', label: 'Equipo (ventas)' },
+  { key: 'vendedor', label: 'Vendedor (ventas)' },
 ];
 const COND_FIELDS = [
   { key: 'nombre', label: 'Nombre' }, { key: 'email', label: 'Correo' },
   { key: 'telefono', label: 'Teléfono' }, { key: 'empresa', label: 'Empresa' }, { key: 'tags', label: 'Etiquetas' },
+  // Solo traen valor en los disparadores de ventas. En los demás llegan
+  // vacíos, y una condición sobre un campo vacío no casa — que es lo que se
+  // quiere: un flujo de «contacto nuevo» no debe colarse por la etapa de un
+  // lead que no existe.
+  { key: 'etapa', label: 'Columna del tablero (ventas)' },
+  { key: 'equipo', label: 'Equipo de ventas' },
+  { key: 'vendedor', label: 'Vendedor asignado (ventas)' },
 ];
 const TRIGGERS = [
   { key: 'manual', label: 'Inscripción manual / lista', hint: 'Inscribe contactos a mano desde la pestaña "Inscribir".' },
   { key: 'contact_created', label: 'Contacto nuevo', hint: 'Se inscribe solo cuando se crea un contacto nuevo.' },
   { key: 'tag_added', label: 'Etiqueta agregada', hint: 'Se inscribe cuando al contacto se le agrega una etiqueta.' },
   { key: 'email_reply', label: 'Responde / interactúa', hint: 'Cuando el contacto responde, abre o hace clic en un correo.' },
+  // Equipos de ventas. Cada evento es su propio disparador y no uno con
+  // filtro: «ganado» y «perdido» piden mensajes opuestos, y esconderlos
+  // detrás de una condición es cómo se le manda el equivocado a alguien.
+  { key: 'sales_lead_created', label: 'Lead nuevo (equipo de ventas)', hint: 'Cuando entra un lead al tablero, venga de donde venga.' },
+  { key: 'sales_stage_changed', label: 'El lead cambia de columna', hint: 'Al mover la tarjeta. Usa una condición sobre «Columna» para una en concreto.' },
+  { key: 'sales_lead_won', label: 'Lead ganado', hint: 'Al pasar a la columna de clientes.' },
+  { key: 'sales_lead_lost', label: 'Lead perdido', hint: 'Al pasar a la columna de no interesados.' },
+  { key: 'sales_meeting_booked', label: 'Cita agendada', hint: 'La ponga el vendedor o el propio prospecto desde el enlace.' },
+  { key: 'sales_meeting_no_show', label: 'No asistió a la cita', hint: 'Cuando el vendedor la marca como «no asistió».' },
 ];
 /**
  * Las acciones de un workflow, en un menú.

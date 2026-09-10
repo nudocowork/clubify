@@ -17,6 +17,7 @@ import {
   type AccesoAlEquipo,
 } from './team-access';
 import { asegurarColumnas } from './sales-columnas';
+import { SalesAutomationsService } from './sales-automations.service';
 
 /**
  * El CRM de un equipo de ventas de marca — fase 3.
@@ -70,7 +71,10 @@ export interface DatosDeLead {
 export class SalesLeadsService {
   private logger = new Logger(SalesLeadsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private automations: SalesAutomationsService,
+  ) {}
 
   // ── Columnas ────────────────────────────────────────────────────────────
 
@@ -291,6 +295,12 @@ export class SalesLeadsService {
     });
 
     await this.anotar(lead.id, teamId, user.id, 'sistema', 'Lead creado');
+    // Sin `await`: una automatización lenta no puede dejar al vendedor
+    // mirando el botón de guardar.
+    const columna = columnas.find((c) => c.id === stageId);
+    void this.automations.disparar(lead.id, 'sales_lead_created', {
+      etapa: columna?.name ?? '',
+    });
     return { ...this.paraElPanel(lead), yaExistia: false };
   }
 
@@ -482,6 +492,18 @@ export class SalesLeadsService {
       'etapa',
       `${origen?.name ?? 'Sin columna'} → ${destino.name}`,
     );
+
+    // Un evento genérico y otro específico. «Ganado» y «perdido» piden
+    // mensajes opuestos, y esconderlos detrás de una condición sobre la etapa
+    // es la forma de mandarle el equivocado a alguien: si el negocio renombra
+    // la columna, el filtro deja de casar y el flujo se dispara para todos.
+    const ctx = { etapa: destino.name, etapa_anterior: origen?.name ?? '' };
+    void this.automations.disparar(leadId, 'sales_stage_changed', ctx);
+    if (destino.kind === 'CLIENT') {
+      void this.automations.disparar(leadId, 'sales_lead_won', ctx);
+    } else if (destino.kind === 'NOT_INTERESTED') {
+      void this.automations.disparar(leadId, 'sales_lead_lost', ctx);
+    }
     return this.paraElPanel(await this.leadDelEquipo(teamId, leadId));
   }
 
