@@ -1415,19 +1415,34 @@ export class HotmartService {
       case 'PURCHASE_CHARGEBACK':
       case 'SUBSCRIPTION_CANCELLATION': {
         const transactionId = payload.data?.purchase?.transaction;
+        // Una CANCELACIÓN no corta el servicio: el negocio sigue hasta el fin
+        // del período que ya pagó, y el cron diario lo suspende entonces.
+        // Decisión de Javier (2026-09-10): cortarle a alguien que pagó hasta el
+        // 25 porque avisó el 10 es quedarse con su dinero.
+        //
+        // Un reembolso o un contracargo SÍ suspenden en el acto — ahí el dinero
+        // volvió— y por eso siguen cayendo en el `default` de abajo.
+        const soloCancelacion = event === 'SUBSCRIPTION_CANCELLATION';
         await this.prisma.tenant.update({
           where: { id: tenant.id },
-          data: {
-            status: 'SUSPENDED',
-            suspendedAt: new Date(),
-          },
+          data: soloCancelacion
+            ? { canceledAt: new Date() }
+            : { status: 'SUSPENDED', suspendedAt: new Date() },
         });
-        // PDF 1256 §2/§8: liberar crédito a la marca (marca blanca) + auditar.
+        // El crédito de la marca se libera cuando el negocio DEJA de ocupar
+        // plaza, no cuando avisa de que se va: hasta el fin del período sigue
+        // usando el servicio. En una cancelación lo hace el cron al vencer.
+        if (!soloCancelacion) {
+          await this.billing
+            .releaseBrandCreditOnSuspend(tenant.id, `hotmart_${event.toLowerCase()}`)
+            .catch(() => null);
+        }
         await this.billing
-          .releaseBrandCreditOnSuspend(tenant.id, `hotmart_${event.toLowerCase()}`)
-          .catch(() => null);
-        await this.billing
-          .auditLifecycle('subscription.suspended', tenant.id, { gateway: 'HOTMART', reason: event })
+          .auditLifecycle(
+            soloCancelacion ? 'subscription.canceled' : 'subscription.suspended',
+            tenant.id,
+            { gateway: 'HOTMART', reason: event },
+          )
           .catch(() => null);
         // Reflejar el cambio en el referido. CHURNED frena nuevas comisiones
         // recurrentes. Si fue refund/chargeback, además rechazamos la última

@@ -600,6 +600,54 @@ export class BillingService {
     }
   }
 
+  /**
+   * Suspende a quien canceló y ya se le acabó el período que pagó.
+   *
+   * Es la otra mitad de la decisión del 2026-09-10: la cancelación NO corta el
+   * servicio en el acto —el cliente pagó hasta una fecha y hasta esa fecha
+   * tiene derecho a usarlo— así que alguien tiene que apagarlo cuando llegue.
+   * Ese alguien es esto.
+   *
+   * Sin este método, no suspender al recibir el aviso significaría que un
+   * negocio que canceló se queda ACTIVO para siempre. Es exactamente el hueco
+   * que abriría hacer solo la mitad del cambio.
+   *
+   * `updateMany` condicional sobre `status: 'ACTIVE'`: si otro camino ya lo
+   * suspendió (mora, reembolso), esto no lo toca ni lo cuenta.
+   */
+  private async suspendCanceledAtPeriodEnd(now: Date) {
+    const vencidos = await this.prisma.tenant.findMany({
+      where: {
+        status: 'ACTIVE',
+        canceledAt: { not: null },
+        currentPeriodEnd: { lte: now },
+      },
+      select: { id: true, brandName: true, currentPeriodEnd: true },
+    });
+    let n = 0;
+    for (const t of vencidos) {
+      const r = await this.prisma.tenant.updateMany({
+        where: { id: t.id, status: 'ACTIVE' },
+        data: { status: 'SUSPENDED', suspendedAt: now },
+      });
+      if (r.count === 0) continue;
+      n++;
+      // El crédito de la marca se libera AQUÍ, que es cuando el negocio deja
+      // de ocupar plaza de verdad — no cuando avisó de que se iba.
+      await this.releaseBrandCreditOnSuspend(t.id, 'cancelacion_fin_de_periodo').catch(
+        () => null,
+      );
+      await this.auditLifecycle('subscription.suspended', t.id, {
+        reason: 'canceled_period_ended',
+        periodEnd: t.currentPeriodEnd?.toISOString() ?? null,
+      }).catch(() => null);
+      this.logger.log(
+        `Cancelación vencida: ${t.brandName} suspendido (pagó hasta ${t.currentPeriodEnd?.toISOString().slice(0, 10)}).`,
+      );
+    }
+    return n;
+  }
+
   /** Bloquea tenants con trial expirado (respetando gracePeriodDays) + secuencia SMS. */
   async runDailyCheck() {
     const now = new Date();
@@ -647,6 +695,7 @@ export class BillingService {
     }
 
     // ────── Serie pre-cobro (PDF734): 7 días antes · 1 día antes · mismo día ──────
+    const canceladosVencidos = await this.suspendCanceledAtPeriodEnd(now);
     const reminder7dCount = await this.sendPreChargeReminder7d(now);
     const reminder3dCount = await this.sendPreChargeReminder3d(now); // D-3 (PDF 1256)
     const reminderCount = await this.sendPaymentReminders(now); // D-1
@@ -656,6 +705,8 @@ export class BillingService {
 
     return {
       suspendedCount: trialSuspendedCount,
+      // Los que cancelaron y se les acabó el período que pagaron.
+      canceledEndedCount: canceladosVencidos,
       reminderCount:
         reminder7dCount + reminder3dCount + reminderCount + reminderTodayCount,
       overdueReminderCount: dunning.reminders,
@@ -780,6 +831,11 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
+        // Quien ya canceló NO recibe recordatorios de un cobro que no va a
+        // ocurrir. Sigue activo hasta el fin del período que pagó —decisión de
+        // Javier, 2026-09-10— pero cobrarle de nuevo no está en el plan, así
+        // que recordárselo solo hace ruido y parece que no nos enteramos.
+        canceledAt: null,
         isCampaignHost: false,
         currentPeriodEnd: { gte: from, lt: to },
         // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
@@ -890,6 +946,11 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
+        // Quien ya canceló NO recibe recordatorios de un cobro que no va a
+        // ocurrir. Sigue activo hasta el fin del período que pagó —decisión de
+        // Javier, 2026-09-10— pero cobrarle de nuevo no está en el plan, así
+        // que recordárselo solo hace ruido y parece que no nos enteramos.
+        canceledAt: null,
         isCampaignHost: false,
         currentPeriodEnd: { gte: from, lt: to },
         OR: [
@@ -974,6 +1035,11 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
+        // Quien ya canceló NO recibe recordatorios de un cobro que no va a
+        // ocurrir. Sigue activo hasta el fin del período que pagó —decisión de
+        // Javier, 2026-09-10— pero cobrarle de nuevo no está en el plan, así
+        // que recordárselo solo hace ruido y parece que no nos enteramos.
+        canceledAt: null,
         isCampaignHost: false,
         currentPeriodEnd: { gte: desde, lt: to },
         // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
@@ -1056,6 +1122,11 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
+        // Quien ya canceló NO recibe recordatorios de un cobro que no va a
+        // ocurrir. Sigue activo hasta el fin del período que pagó —decisión de
+        // Javier, 2026-09-10— pero cobrarle de nuevo no está en el plan, así
+        // que recordárselo solo hace ruido y parece que no nos enteramos.
+        canceledAt: null,
         isCampaignHost: false,
         currentPeriodEnd: { gte: inOneDay, lt: inTwoDays },
         // El recordatorio "revisa tu tarjeta en Hotmart" solo aplica a
@@ -1155,6 +1226,11 @@ export class BillingService {
     const candidates = await this.prisma.tenant.findMany({
       where: {
         status: 'ACTIVE',
+        // Quien ya canceló NO recibe recordatorios de un cobro que no va a
+        // ocurrir. Sigue activo hasta el fin del período que pagó —decisión de
+        // Javier, 2026-09-10— pero cobrarle de nuevo no está en el plan, así
+        // que recordárselo solo hace ruido y parece que no nos enteramos.
+        canceledAt: null,
         isCampaignHost: false,
         AND: [
           {

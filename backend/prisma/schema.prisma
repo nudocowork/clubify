@@ -712,6 +712,17 @@ model Tenant {
   /// los mismos 5 días de gracia y se auto-suspende al día 6, igual que
   /// Hotmart — antes se eximía. Sigue apareciendo en la lista de revisión.
   manualPayment               Boolean                    @default(false)
+  /// Cuando el cliente canceló la suscripción en la pasarela.
+  ///
+  /// NO se suspende al recibir el aviso: el negocio sigue funcionando hasta el
+  /// fin del período que ya pagó (`currentPeriodEnd`), y el cron diario lo
+  /// suspende entonces. Decisión de Javier, 2026-09-10: cortarle el servicio a
+  /// alguien que pagó hasta el 25 porque avisó el 10 es quedarse con su dinero.
+  ///
+  /// Mientras tanto no recibe recordatorios de cobro — no hay cobro que venga.
+  /// Un reembolso o un contracargo SÍ suspenden en el acto: ahí el dinero se
+  /// devolvió.
+  canceledAt                  DateTime?
   suspendedAt                 DateTime?
   // Tracking de notificaciones de cobro automáticas (idempotencia del cron):
   // - paymentReminderSentFor: igualamos a currentPeriodEnd cuando ya
