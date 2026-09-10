@@ -7,10 +7,12 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
 import { SalesTeamsService } from './sales-teams.service';
 import { CrmService } from '../crm/crm.service';
+import { ModuloVentasGuard } from './modulo-ventas.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 
@@ -44,6 +46,11 @@ class MemberRolesBody {
  */
 @Controller('admin/sales-teams')
 @Roles('SUPER_ADMIN')
+// Sin el módulo en la marca, esta ruta entera responde 404. `resolveTeamAccess`
+// cubría las rutas por equipo, pero NO esta: `list`, `create`, `leaderboard` y
+// `eligible-users` solo aislaban por marca, así que un admin de una marca sin
+// el módulo podía crear un equipo escribiendo la URL. Ver el guard.
+@UseGuards(ModuloVentasGuard)
 export class SalesTeamsController {
   constructor(
     private svc: SalesTeamsService,

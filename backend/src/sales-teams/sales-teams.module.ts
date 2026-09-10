@@ -12,6 +12,7 @@ import { SalesChatService } from './sales-chat.service';
 import { SalesChatController } from './sales-chat.controller';
 import { SalesAutomationsService } from './sales-automations.service';
 import { SalesInboxModule } from './sales-inbox.module';
+import { ModuloVentasGuard } from './modulo-ventas.guard';
 import { CrmModule } from '../crm/crm.module';
 import { MarketingModule } from '../marketing/marketing.module';
 
@@ -26,6 +27,7 @@ import { MarketingModule } from '../marketing/marketing.module';
     SalesAgendaService,
     SalesChatService,
     SalesAutomationsService,
+    ModuloVentasGuard,
   ],
   controllers: [
     SalesTeamsController,
