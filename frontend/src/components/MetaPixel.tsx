@@ -46,10 +46,17 @@ declare global {
  *   añadan más enlaces, que en esta plataforma pasa cada semana.
  * - `ViewContent` en la página de precios.
  *
- * `Purchase` NO está aquí a propósito: el cobro lo procesa Hotmart fuera de
- * este sitio, así que no hay una página de gracias propia donde el importe sea
- * un dato del sistema. Dispararlo con un número fijo contaría compras que no
- * ocurrieron; ver la nota del brief.
+ * `Purchase` NO está aquí a propósito. En Sellea el cobro va por **STRIPE**
+ * (Payment Links alojados en stripe.com), no por Hotmart — Hotmart es la
+ * pasarela de Clubify y de Fideliso, y confundirlas ya costó un SMS erróneo el
+ * 2026-09-10. El checkout ocurre FUERA de este sitio, así que no hay página de
+ * gracias propia donde el importe sea un dato del sistema, y dispararlo con un
+ * número fijo contaría compras que no ocurrieron.
+ *
+ * El camino bueno es la **API de Conversiones** desde el webhook de Stripe
+ * (`billing/stripe.service.ts`), que ya recibe `checkout.session.completed` con
+ * el correo y el importe. Falta el token de acceso del píxel, que lo genera el
+ * dueño de la cuenta publicitaria.
  */
 export default function MetaPixel({ pixelId }: { pixelId: string | null }) {
   const pathname = usePathname();

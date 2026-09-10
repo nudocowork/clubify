@@ -427,10 +427,26 @@ function RuleDrawer({
                   value={a.type}
                   onChange={(e) => updateAction(i, { type: e.target.value })}
                 >
+                  {/* Solo push y sello de gracia. SMS y WhatsApp se quitaron a
+                      propósito (decisión de Javier, 2026-09-10): salen por la
+                      subcuenta del negocio, cuestan envío y van al teléfono del
+                      cliente, que en muchos casos llegó por una ruta pública.
+
+                      Las que YA estaban configuradas se siguen ofreciendo —solo
+                      esa, y marcada— para que el desplegable no MIENTA: sin
+                      esta línea, una regla con WhatsApp se vería como «push» y
+                      el negocio creería que la cambió sin haberla tocado. En
+                      toda la plataforma son 3, las tres de PRIMOR BARBER. */}
                   <option value="SEND_PUSH">{t('actionSendPush')}</option>
-                  <option value="SEND_SMS">SMS</option>
-                  <option value="SEND_WHATSAPP">WhatsApp</option>
                   <option value="ADD_STAMPS">{t('actionAddStamps')}</option>
+                  {a.type === 'SEND_SMS' && (
+                    <option value="SEND_SMS">SMS (ya no se ofrece)</option>
+                  )}
+                  {a.type === 'SEND_WHATSAPP' && (
+                    <option value="SEND_WHATSAPP">
+                      WhatsApp (ya no se ofrece)
+                    </option>
+                  )}
                 </select>
                 {a.type === 'SEND_PUSH' && (
                   <>
@@ -456,10 +472,11 @@ function RuleDrawer({
                       value={a.body ?? ''}
                       onChange={(e) => updateAction(i, { body: e.target.value })}
                     />
-                    <p className="text-xs text-mute mt-1">
-                      Se envía al teléfono del cliente desde la subcuenta de Grow
-                      Business del negocio (o, si no tiene, la de su marca). Si no
-                      hay ninguna configurada, no se envía.
+                    <p className="text-xs text-amber-700 mt-1">
+                      Esta acción ya no se ofrece para reglas nuevas. La tuya
+                      sigue funcionando: se envía al teléfono del cliente desde
+                      la subcuenta de Grow Business del negocio (o la de su
+                      marca). Si la cambias a otra, no podrás volver a ponerla.
                     </p>
                   </>
                 )}

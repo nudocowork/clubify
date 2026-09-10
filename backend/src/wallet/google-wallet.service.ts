@@ -636,8 +636,17 @@ export class GoogleWalletService {
    * PATCH al LoyaltyObject vía REST API — propaga sellos/saldo/visitas/tier
    * al wallet del cliente en Android cuando hay un scan nuevo.
    *
-   * Solo corre si el pass tiene googleObjectId seteado (o sea, el cliente
-   * ya hizo "Save to Google Wallet" antes). Sino skipea silenciosamente.
+   * Solo corre si el pass tiene googleObjectId seteado. **OJO: eso NO
+   * significa que el cliente tenga la tarjeta instalada.** `googleObjectId`
+   * se escribe al GENERAR el save URL (ver `generateSaveUrl`), no cuando el
+   * cliente pulsa «Añadir a Google Wallet». Quien abrió la página y no
+   * completó el guardado queda con `googleObjectId` en la base y sin objeto
+   * en Google.
+   *
+   * Por eso un `object_not_found` de la API casi siempre quiere decir «nunca
+   * la instaló», no «se rompió algo». Es lo que explica INCOFFE: 63
+   * conversiones de cupón y cero objetos vivos en Google. La reparación
+   * masiva del 2026-09-10 dio 448 arreglados y 88 así.
    */
   /**
    * GET del LoyaltyObject en Google Wallet — para diagnóstico admin.
