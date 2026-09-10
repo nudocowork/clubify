@@ -8,6 +8,76 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-09 (noche) — Equipos de Ventas fase 4: la agenda
+
+**Desplegado y probado de punta a punta contra producción.** Sin migración: las
+tablas son las de la fase 1.
+
+Qué hay: horario por equipo (y por vendedor, que manda sobre el del equipo),
+huecos que salen de él, citas con estado, **enlace público** para que el
+prospecto elija hora solo, y recordatorio por SMS una hora antes.
+
+Rutas nuevas: `/sales-teams/:id/agenda/*` (privadas) y `/public/agenda/*`
+(públicas). Pantallas: `/admin/sales-teams/<id>/agenda` y `/agenda/<slug>`.
+
+### El fallo que solo salió probando de verdad
+
+La prueba unitaria estaba en verde y producción perdía gente.
+
+«Equipo Ecuador» se creó en agosto y nadie había abierto su tablero, así que no
+tenía columnas. Las columnas se sembraban al abrir el tablero, y la reserva
+pública, al no encontrar ninguna, **guardaba la cita y tiraba a la persona**. El
+vendedor habría visto un hueco ocupado sin saber de quién.
+
+La unitaria no lo cazó porque su base falsa ya traía una columna puesta. Se le
+quitó; ahora sin el arreglo se ponen en rojo tres pruebas — comprobado
+revirtiéndolo a propósito.
+
+**La lección, que ya nos ha costado antes: una base falsa que arranca en un
+estado cómodo prueba el caso cómodo.** Los equipos de verdad arrancan vacíos.
+
+### Lo que hay que respetar aquí
+
+- **El enlace público lleva un token de 32 caracteres, NO el id de la cita.**
+  Con el id, cambiar un número en la URL cancelaría la cita de otro.
+- **El recordatorio reclama antes de mandar** (`reminderSentAt` con UPDATE
+  condicional). Sin eso, dos ciclos del cron avisan dos veces.
+- **Un teléfono escrito sin sesión va marcado** como destinatario sin verificar,
+  para que el tope de envíos lo cuente: reservar y cancelar en bucle es la forma
+  de usar el remitente de la marca contra un tercero.
+- **Los huecos son una foto, no una reserva.** El solape se vuelve a comprobar
+  dentro de la transacción al agendar.
+- **La agenda pública comprueba el módulo**: apagar `SALES_TEAMS` cierra también
+  la puerta de la calle, no solo el menú de dentro.
+
+### `franjas-horarias.ts`, y por qué NO toqué las reservas de servicios
+
+El motor de huecos está en `backend/src/common/franjas-horarias.ts` **con 28
+pruebas**, incluidas Madrid en invierno (+1) y en verano (+2): la misma hora
+local cae en dos instantes distintos según el mes, y ahí muere cualquier
+«súmale las horas de la zona».
+
+`service-reservations.service.ts` tiene el MISMO algoritmo copiado. **No lo
+toqué**: son 1.057 líneas sin una sola prueba y mueve citas de negocios reales.
+El día que se unifiquen, ya hay quien avise — borrar las privadas de allí y
+apuntar aquí.
+
+### Equipo Ecuador
+
+Estaba **sin marca** desde la fase 1: el backfill dedujo la marca del código de
+referido del líder, y ese equipo no tiene líder, así que se dejó en null antes
+que adivinar. Sin marca no hay módulo que consultar, así que su tablero
+respondía 404 a todo el mundo. **Javier confirmó que es de Clubify y ya está
+puesto.** Los dos equipos siguen con **0 miembros**: solo entra el admin de la
+marca hasta que se les meta gente.
+
+### Ojo
+
+Al commitear me encontré trabajo sin commitear de la otra máquina —
+`ProductLocation.imageUrl`/`descripcion`, `onboarding-sync`, `auth` — y un
+cliente de Prisma viejo que daba tres errores de tipos falsos. **No toqué nada
+suyo**: commiteé por rutas explícitas y regeneré el cliente.
+
 ## 2026-09-09 (tarde) — Créditos como ingreso, ritmo del club, y la fase 3 de Equipos
 
 **Todo desplegado** (backend `f2cf5d15`, frontend en Vercel) y verificado contra
