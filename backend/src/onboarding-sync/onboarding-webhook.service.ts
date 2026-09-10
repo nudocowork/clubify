@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { QueueService } from '../jobs/queue.service';
 import { EmailService } from '../email/email.service';
+import { OnboardingService } from './onboarding.service';
 import { resolveBrandEmail } from '../email/brand-email';
 import { accountActivatedTemplate } from '../email/templates/templates';
 
@@ -18,6 +19,10 @@ const K = {
   url: 'onboarding.webhook.url',
   secret: 'onboarding.webhook.secret',
   enabled: 'onboarding.webhook.enabled',
+  // API de la app de Onboarding, para dar de alta el onboarding al crear el
+  // negocio. Separadas del webhook: aquel avisa de una activación, esta CREA.
+  apiUrl: 'onboarding.api.url',
+  apiKey: 'onboarding.api.key',
 };
 
 @Injectable()
@@ -27,6 +32,7 @@ export class OnboardingWebhookService {
     private readonly prisma: PrismaService,
     private readonly jobs: QueueService,
     private readonly email: EmailService,
+    private readonly onboarding: OnboardingService,
   ) {}
 
   private async read() {
@@ -42,6 +48,16 @@ export class OnboardingWebhookService {
     };
   }
 
+  /** Config de la API del Onboarding. Sin url o sin llave, no se hace nada. */
+  private async readApi() {
+    const rows = await this.prisma.setting.findMany({
+      where: { key: { in: [K.apiUrl, K.apiKey] } },
+      select: { key: true, value: true },
+    });
+    const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    return { url: map[K.apiUrl] || '', key: map[K.apiKey] || '' };
+  }
+
   private upsert(key: string, value: string) {
     return this.prisma.setting.upsert({
       where: { key },
@@ -52,12 +68,15 @@ export class OnboardingWebhookService {
 
   /** Config para el panel — nunca devuelve el secreto en claro. */
   async getConfig() {
-    const c = await this.read();
+    const [c, api] = await Promise.all([this.read(), this.readApi()]);
     return {
       url: c.url,
       enabled: c.enabled,
       hasSecret: !!c.secret,
       secretLast4: c.secret ? c.secret.slice(-4) : null,
+      apiUrl: api.url,
+      hasApiKey: !!api.key,
+      apiKeyLast4: api.key ? api.key.slice(-4) : null,
     };
   }
 
@@ -69,6 +88,10 @@ export class OnboardingWebhookService {
       ops.push(this.upsert(K.secret, body.secret ? String(body.secret) : ''));
     if (body.enabled !== undefined)
       ops.push(this.upsert(K.enabled, body.enabled ? '1' : '0'));
+    if (body.apiUrl !== undefined)
+      ops.push(this.upsert(K.apiUrl, body.apiUrl ? String(body.apiUrl).trim() : ''));
+    if (body.apiKey !== undefined)
+      ops.push(this.upsert(K.apiKey, body.apiKey ? String(body.apiKey) : ''));
     if (ops.length) await this.prisma.$transaction(ops);
     return this.getConfig();
   }
@@ -248,5 +271,88 @@ export class OnboardingWebhookService {
         ? `OK — el endpoint respondió HTTP ${r.status}.`
         : `Falló${r.status ? ` (HTTP ${r.status})` : ''}${r.error ? `: ${r.error}` : ''}.`,
     };
+  }
+
+  /**
+   * Da de alta el onboarding del negocio en la app de Onboarding.
+   *
+   * Es el disparo que faltaba: hasta ahora Clubify creaba el negocio y alguien
+   * tenía que ir a la otra app a crear el onboarding a mano, copiar el
+   * business_id y pegar un token. Cuando ese paso se olvidaba, el cliente
+   * llenaba el formulario entero y no salía nada hacia Clubify.
+   *
+   * Manda el negocio YA VINCULADO (`clubify: {business_id, token}`), así que la
+   * sincronización funciona desde el primer minuto, y el otro lado le manda el
+   * enlace a los implementadores.
+   *
+   * Best-effort y sin reintentos a propósito: el negocio ya está creado y el
+   * alta del onboarding se puede rehacer a mano. Reintentar sin coordinar con
+   * la idempotencia del otro lado es cómo se acaba con dos onboardings del
+   * mismo negocio.
+   */
+  async crearClienteEnOnboarding(tenantId: string): Promise<void> {
+    try {
+      const cfg = await this.readApi();
+      // Sin configurar no hace nada. Es lo que mantiene esto inerte hasta que
+      // alguien ponga la URL y la llave en el panel.
+      if (!cfg.url || !cfg.key) return;
+
+      const t = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          brandName: true,
+          phone: true,
+          businessCategorySlug: true,
+          sedeMenuEnabled: true,
+        },
+      });
+      if (!t) return;
+
+      // `createToken` se niega en negocios de marca blanca: el onboarding sync
+      // es interno de Clubify. Que se niegue aquí es correcto, no un fallo.
+      let token: string;
+      try {
+        const cred = await this.onboarding.createToken(tenantId, 'Alta automática');
+        token = cred.token;
+      } catch {
+        return;
+      }
+
+      const base = cfg.url.replace(/\/+$/, '');
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await fetch(`${base}/api/v1/clients`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${cfg.key}`,
+          },
+          body: JSON.stringify({
+            name: t.brandName,
+            business_type: t.businessCategorySlug ?? null,
+            // El teléfono viaja para que el implementador sepa a quién
+            // reenviarle el enlace; el enlace NO se le manda al negocio.
+            data: { step1: { name: t.brandName, whatsapp: t.phone ?? '' } },
+            clubify: { business_id: tenantId, token },
+            // Clubify ya sabe si el negocio lleva varias sedes, así que el
+            // cliente recibe el flujo correcto sin que nadie lo elija.
+            menu_type: t.sedeMenuEnabled ? 'multi_location' : 'single',
+          }),
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          this.logger.warn(
+            `Alta en Onboarding falló para ${tenantId}: HTTP ${res.status}`,
+          );
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (e: any) {
+      this.logger.warn(
+        `Alta en Onboarding falló para ${tenantId}: ${e?.message || 'error'}`,
+      );
+    }
   }
 }

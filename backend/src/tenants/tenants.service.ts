@@ -1068,6 +1068,15 @@ export class TenantsService {
       void this.onboardingWebhook.emitBusinessActivated(tenant.id);
     }
 
+    // Da de alta el onboarding del negocio en la otra app, ya vinculado, y
+    // desde ahí el enlace le llega a los implementadores. Antes esto era un
+    // paso a mano, y cuando se olvidaba el cliente llenaba el formulario
+    // entero sin que nada llegara a Clubify.
+    //
+    // Fire-and-forget: el negocio ya está creado y no puede fallar por esto.
+    // Queda inerte mientras no se configuren la URL y la llave en el panel.
+    void this.onboardingWebhook.crearClienteEnOnboarding(tenant.id);
+
     return {
       tenant,
       ownerTempPassword: dto.ownerPassword ? undefined : tempPassword,

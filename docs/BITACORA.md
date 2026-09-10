@@ -121,6 +121,57 @@ nada. Datos de prueba borrados al terminar.
 
 **Falta la fase 6**: disparadores nuevos en el motor Mkt.
 
+## 2026-09-10 — El alta del onboarding se dispara sola desde Clubify
+
+**Sin migración. Sin desplegar.** Queda inerte hasta que alguien configure la
+URL y la llave en el panel, así que desplegarlo no cambia nada por sí solo.
+
+### El hueco que había
+
+El plan de las dos partes daba por hecho que «Clubify llama a
+`POST /api/v1/clients` y eso funciona hoy». El endpoint sí existe del lado del
+Onboarding, pero **nada en este repo lo llamaba**: cero referencias en
+`backend/src` y `frontend/src`. Cada onboarding se creaba a mano, copiando el
+`business_id` y pegando un token — y cuando ese paso se olvidaba, el cliente
+llenaba el formulario entero y no llegaba nada.
+
+Ahora `TenantsService.create` dispara
+`OnboardingWebhookService.crearClienteEnOnboarding(tenantId)`, al lado del
+webhook de activación que ya estaba y con el mismo patrón fire-and-forget.
+
+### Lo que manda
+
+Nombre, categoría, teléfono, `clubify: { business_id, token }` y `menu_type`.
+
+- El **token se genera solo** (`OnboardingService.createToken`). Ese método se
+  niega en negocios de marca blanca —el onboarding sync es interno de Clubify— y
+  aquí eso NO es un fallo: se salta el alta y se sigue.
+- `menu_type` sale de `sedeMenuEnabled`, así que el cliente ve el flujo
+  multisede desde el primer minuto sin que nadie lo elija.
+
+### Configuración, en el panel
+
+Dos claves nuevas en `Setting`: `onboarding.api.url` y `onboarding.api.key`,
+expuestas por el `getConfig`/`setConfig` que ya existía (la llave nunca se
+devuelve en claro, solo los últimos 4). **Sin las dos, no se hace nada.**
+
+Sin reintentos a propósito: el negocio ya está creado, el alta se rehace a mano,
+y reintentar sin coordinar con la idempotencia del otro lado es cómo se acaba
+con dos onboardings del mismo negocio.
+
+### Y en el repo del Onboarding (Documentos/Unboarding)
+
+Hecho ahí, sin commitear todavía: el rol **Implementadores** (lista editable en
+Configuración, no un número en el código), el envío del enlace a todos ellos, y
+`POST /api/v1/clients` aceptando el vínculo con Clubify, el `menu_type` y siendo
+idempotente por `business_id`. El enlace **ya no se le manda al negocio**: lo
+reenvía el implementador.
+
+Nada nuevo en `api/`: el proyecto está en 12/12 funciones del plan de Vercel, así
+que los ayudantes de mensajería se exportaron desde `notify-client.js` y se
+importan. Exportar no crea una función.
+
+
 ## 2026-09-09 (noche, 2) — Menú multisede desde el Onboarding: la mitad de acá
 
 **Migración APLICADA a producción. Código NO desplegado.** Es aditiva y sobre
