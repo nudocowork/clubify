@@ -8,6 +8,81 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-10 (8) — El `?sede=` se perdía solo, y un error mío que hubo que deshacer
+
+Desplegado (frontend, `0e2780e5`). Prueba de humo en verde.
+
+### ⚠️ LO PRIMERO: HAY DOS MECANISMOS DE «MENÚ POR SEDE», Y ME EQUIVOQUÉ DE UNO
+
+Esto es lo que hay que llevarse de esta entrada:
+
+1. **`Product.locationMode = SELECCIONADAS` + `ProductLocation`** — el producto
+   vive en el **menú principal** y se enseña solo en las sedes elegidas. **Es
+   lo que usa el Onboarding.** No necesita cartas ni `multiMenuEnabled`.
+2. **Una carta por sede** (`multiMenuEnabled` + filas en `Menu`) — catálogos
+   **separados**. Mucho menos común.
+
+Slata tenía el **1** bien puesto desde el Onboarding: `bfdwiqivncfdks` solo en
+Cabecera, `Golden soft` en las dos, `Orion` en todas. Yo di por hecho que le
+faltaban cartas, le encendí `multiMenuEnabled` y **le creé dos cartas
+duplicando el menú principal**. Las copias salen con `locationMode = TODAS` y
+**cero filas de `ProductLocation`**, así que las dos sedes pasaron a enseñar lo
+mismo: **rompí el reparto que ya funcionaba.**
+
+**Deshecho**: las dos cartas borradas (`Product.menu` es `onDelete: Cascade`,
+así que se llevó las copias y no tocó el principal), `multiMenuEnabled` de
+vuelta a false, `maxExtraMenus` a 1. Slata: 3 productos, 0 cartas extra.
+
+Verificado contra la API pública:
+
+```
+Floridablanca  → Recomendados, Golden soft, Anillos, Cadenas, Orion
+Cabecera       → …lo mismo + bfdwiqivncfdks
+```
+
+`backend/scripts/habilitar-cartas-por-sede.cjs` queda en el repo **con el aviso
+en la cabecera**: comprobar primero si el negocio ya reparte por
+`ProductLocation`. Si sí, no tocarlo.
+
+### El fallo de verdad: el `?sede=` se perdía al abrir una sección
+
+Los dos enlaces de sede acababan los dos en `/m/slata-2/recomendados`, sin
+sede. La causa está en `storefront-client.tsx`: el `replaceState` que sincroniza
+la URL con la sección abierta usa `buildStorefrontPath`, que devuelve **solo el
+path**. En cuanto se abría una sección, la query desaparecía.
+
+**No era cosmético**: `sedeDelQr` se lee de la query, así que perderla se
+llevaba por delante el ruteo del pedido al WhatsApp de esa sede. Ahora el
+`replaceState` conserva `window.location.search`.
+
+Comprobado que **ningún redirect del dominio** se come la query: `soyclubify.com`
+y `app.soyclubify.com` la conservan hasta la página.
+
+### La regla de los enlaces por sede vuelve a «2 o más sedes»
+
+La tuve un rato en «varias sedes Y varias cartas». Era consecuencia del mismo
+error: con el mecanismo 1 las sedes **comparten carta** y aun así cada enlace
+enseña cosas distintas, así que pedir varias cartas escondía los enlaces justo
+a quien los necesita.
+
+### Y el menú del panel que enseñaba y quitaba
+
+En el panel de Sellea salía «Equipos de ventas» y desaparecía medio segundo
+después. `brandFetched === null` significaba **tres** cosas —no es admin, es
+Clubify, o **todavía no ha llegado**— y el gating trataba la tercera como «no
+gatear nada»: se pintaba el menú entero y al resolverse se caía lo que la marca
+no tiene.
+
+Ahora los módulos son **tri-estado**: `undefined` = aún no se sabe → se esconde
+lo gateado. La bandera arranca en `true` porque **los efectos corren DESPUÉS
+del primer pintado**; con `false` ese primer frame ya enseñaba todo.
+
+Sellea **no tiene el módulo `SALES_TEAMS`** y sus dos equipos (`Sara y Nico`,
+`Equipo Ecuador`) son **de Clubify**, así que esconderlo es correcto. Lo que
+estaba mal era enseñarlo primero.
+
+---
+
 ## 2026-09-10 (7) — «Links públicos del menú» no enseñaba las sedes
 
 Desplegado (frontend, commit `0eb6f5ec`). Prueba de humo en verde, `/app/menu`
