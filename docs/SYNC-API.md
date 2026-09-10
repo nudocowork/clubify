@@ -149,6 +149,25 @@ Arreglo de:
 | `locationNames` | Respaldo cuando no hay ids. |
 | `locationOverrides` | `[{ externalId \| name, price, imageUrl, description, isAvailable }]` — lo que cambia **en esa sede**. |
 
+### Variantes y adiciones (los dos ejes)
+
+| Campo | Notas |
+|---|---|
+| `variants` | `[{ name, price (o priceDelta), groupName, isDefault }]`. El orden que mandes es el que se ve. |
+| `variantPriceMode` | `ABSOLUTE` (por defecto) | `DELTA`. |
+| `maxVariantsTotal` | Cuántas puede elegir el cliente. Null o 1 = una sola. |
+| `extras` | `[{ name, price, maxQty, isAvailable }]`. |
+| `maxExtrasTotal` | Tope de adiciones en total. |
+
+**El precio de la variante es el PRECIO FINAL**, no lo que suma sobre el base:
+es lo que pide el formulario («Torre pequeña $34.900»). Por eso el modo por
+defecto es `ABSOLUTE`. Mandarlo como `DELTA` cobraría base + variante.
+
+Variantes y adiciones **se reemplazan** cuando llegan, como en el panel. Que no
+lleguen no es lo mismo que que lleguen vacías: **sin la clave no se toca nada**
+(un onboarding viejo no puede borrar los tamaños que el negocio configuró a
+mano); con la clave vacía se quitan a propósito.
+
 `locationOverrides` **solo escribe lo que llega con valor**: un reenvío no vacía
 el precio que el negocio puso en el panel.
 

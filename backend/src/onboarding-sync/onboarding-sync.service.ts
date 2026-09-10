@@ -12,6 +12,11 @@ import {
   type OverrideDeSede,
   type SedesDeProducto,
 } from './sedes-del-onboarding';
+import {
+  adicionesDeProducto,
+  modoDePrecioDeVariantes,
+  variantesDeProducto,
+} from './variantes-del-onboarding';
 
 // Onboarding Sync API — Fase C. Escrituras por entidad, TODAS scoped al
 // tenantId que resuelve el token (nunca del body). Upsert NO destructivo: crea
@@ -737,6 +742,18 @@ export class OnboardingSyncService {
       if (p.isAvailable !== undefined) data.isAvailable = !!p.isAvailable;
       if (p.isRecommended !== undefined) data.isRecommended = !!p.isRecommended;
       if (p.position !== undefined) data.position = Math.floor(Number(p.position)) || 0;
+      // Los precios de las variantes del formulario son FINALES, no deltas.
+      // Ver `variantes-del-onboarding.ts`: tratarlos como delta cobraría el
+      // base más el de la variante.
+      if (Array.isArray(p.variants) || p.variantPriceMode !== undefined) {
+        data.variantPriceMode = modoDePrecioDeVariantes(p);
+      }
+      if (p.maxVariantsTotal !== undefined)
+        data.maxVariantsTotal =
+          p.maxVariantsTotal == null ? null : Math.max(1, Math.floor(Number(p.maxVariantsTotal)));
+      if (p.maxExtrasTotal !== undefined)
+        data.maxExtrasTotal =
+          p.maxExtrasTotal == null ? null : Math.max(1, Math.floor(Number(p.maxExtrasTotal)));
       const existing = await this.prisma.product.findFirst({
         where: { tenantId, name, categoryId },
         select: { id: true },
@@ -761,6 +778,8 @@ export class OnboardingSyncService {
         productId = created.id;
         out.push({ name, id: created.id, created: true });
       }
+
+      await this.guardarVariantes(productId, p);
 
       // El interruptor manda, y se comprueba AQUÍ y no solo en el Onboarding:
       // un negocio al que no se le habilitó la función no puede acabar con
@@ -799,6 +818,39 @@ export class OnboardingSyncService {
       };
     }
     return resumen;
+  }
+
+  /**
+   * Variantes y adiciones del producto.
+   *
+   * Se REEMPLAZAN cuando llegan, igual que en el panel: son un conjunto, no
+   * campos sueltos, y no hay forma de casar una variante vieja con una nueva
+   * sin un id que el formulario no tiene.
+   *
+   * Que no lleguen NO es lo mismo que que lleguen vacías: sin la clave no se
+   * toca nada —un onboarding viejo no puede borrarle al negocio los tamaños
+   * que configuró a mano— y con la clave vacía se quitan a propósito.
+   */
+  private async guardarVariantes(productId: string, p: any) {
+    const variantes = variantesDeProducto(p);
+    if (variantes) {
+      await this.prisma.productVariant.deleteMany({ where: { productId } });
+      if (variantes.length) {
+        await this.prisma.productVariant.createMany({
+          data: variantes.map((v) => ({ productId, ...v })),
+        });
+      }
+    }
+
+    const adiciones = adicionesDeProducto(p);
+    if (adiciones) {
+      await this.prisma.productExtra.deleteMany({ where: { productId } });
+      if (adiciones.length) {
+        await this.prisma.productExtra.createMany({
+          data: adiciones.map((e) => ({ productId, ...e })),
+        });
+      }
+    }
   }
 
   /**
