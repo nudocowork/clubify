@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { StageKind } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { resolveBrandScope } from '../common/white-label/brand-scope.util';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { SequencesService, renderTemplate } from '../sequences/sequences.service';
@@ -1346,9 +1347,17 @@ export class CrmService {
    * sus miembros.
    */
   async getLeaderboard(user?: AuthUser) {
-    // Aislamiento por marca: solo afiliados de la marca activa (su marca =
-    // ReferralCode.whiteLabelId del owner). whiteLabelId null = global.
-    const wlId = user?.whiteLabelId ?? null;
+    // AISLAMIENTO POR MARCA.
+    //
+    // Antes esto era `user?.whiteLabelId ?? null` y, con la sesión sin marca,
+    // el `where` se quedaba VACÍO: el ranking enseñaba a todas las marcas a la
+    // vez. Es el mismo agujero que ya se cerró en `SalesTeamsService.list`.
+    // `resolveBrandScope` es la regla de la casa: sin marca en sesión →
+    // Clubify, NUNCA «ver todo».
+    const { wlId, isClubify } = await resolveBrandScope(
+      this.prisma,
+      user?.whiteLabelId ?? null,
+    );
     const ownerBrandWhere = wlId
       ? { ownerUser: { referralCodes: { some: { whiteLabelId: wlId } } } }
       : {};
@@ -1409,21 +1418,16 @@ export class CrmService {
 
     // Top equipos: por cada SalesTeam, suma de contactos y clients de
     // sus miembros (incluyendo el lead).
+    // La marca del equipo es SU COLUMNA, no algo que se deduzca de los códigos
+    // de referido de su líder o sus miembros. Deducirla dejaba fuera del
+    // ranking a un equipo sin líder ni miembros —que no era de nadie— y metía
+    // dentro a cualquiera cuyo líder tuviera un código de otra marca.
+    // Mismo criterio que `SalesTeamsService.list`: Clubify incluye los equipos
+    // legacy sin marca; las demás marcas, estricto a la suya.
     const teams = await this.prisma.salesTeam.findMany({
-      where: wlId
-        ? {
-            OR: [
-              { leadUser: { referralCodes: { some: { whiteLabelId: wlId } } } },
-              {
-                members: {
-                  some: {
-                    user: { referralCodes: { some: { whiteLabelId: wlId } } },
-                  },
-                },
-              },
-            ],
-          }
-        : {},
+      where: isClubify
+        ? { OR: [{ whiteLabelId: wlId }, { whiteLabelId: null }] }
+        : { whiteLabelId: wlId },
       include: {
         members: { select: { userId: true } },
       },
