@@ -105,7 +105,34 @@ El arreglo está en `main` desde el **2026-08-02** (`5a80c23d`, «permitir el
 bucket del onboarding (Supabase) en proxy + next/image»), y `next.config.js` no
 ha cambiado desde entonces. El backend sí se desplegó; el frontend no.
 
-**Arreglo: `node scripts/desplegar.cjs frontend`.** No hay que tocar código.
+**CORREGIDO el 2026-09-10: esto era FALSO.** Se desplegó el frontend dos veces
+—una normal y otra sin caché de build— y las fotos siguen rotas. Lo que se sabe
+midiendo entrada por entrada contra producción:
+
+| Entrada de `remotePatterns` | Producción |
+|---|---|
+| 1. `**.r2.dev` | permitida (502: host inexistente) |
+| 2. `**.r2.cloudflarestorage.com` | permitida (502) |
+| 3. `cdn.soyclubify.com` | permitida (404) |
+| 4. `lh3.googleusercontent.com` | **rechazada** (400) |
+| 5. `static-media.hotmart.com` | **rechazada** |
+| 6. Supabase del Onboarding | **rechazada** |
+
+Producción aplica **exactamente las tres primeras**, o sea el `next.config.js`
+anterior al 2026-05-12 (`cc5f1380` añadió `lh3`). El build local de ese mismo
+commit sí genera las siete: `frontend/.next/required-server-files.json` las trae
+todas.
+
+**Descartado**: caché de build de Vercel (se desplegó con `--sin-cache` y da
+igual), alias del dominio (el despliegue directo falla igual), configuración de
+imágenes a nivel de proyecto en Vercel (la API no devuelve ninguna) y que el
+código desplegado fuera viejo (el build corre y compila).
+
+**Sin resolver.** La pista que queda: el proyecto de Vercel tiene
+`framework: null` y `rootDirectory` en la raíz, mientras el Next vive en
+`frontend/` con `outputDirectory: frontend/.next`. Algo de esa combinación hace
+que el `images` del build no llegue al optimizador. Hace falta mirar el Build
+Output en el panel de Vercel, que no se ve desde la CLI.
 
 Host permitido, por si alguien lo cambia: `ugbqfcogmqkuhhepecfq.supabase.co`,
 solo bajo `/storage/v1/object/public/**`.

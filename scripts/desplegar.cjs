@@ -26,11 +26,19 @@
  *   node scripts/desplegar.cjs backend
  *   node scripts/desplegar.cjs frontend
  *   node scripts/desplegar.cjs backend --force   (salta los frenos; que conste)
+ *   node scripts/desplegar.cjs frontend --sin-cache  (reconstruye sin la cache
+ *                                                     de Vercel; mas lento)
  */
 const { execSync, spawnSync } = require('child_process');
 
 const OBJETIVO = process.argv[2];
 const FORZAR = process.argv.includes('--force');
+// Vercel restaura la cache de build entre despliegues. El 2026-09-10 el build
+// corrio de verdad y aun asi produccion se quedo con la lista de hosts de
+// next/image ANTERIOR AL 12 DE MAYO: cuatro meses de despliegues que no
+// llevaban el config. Con esto se pasa `--force` a vercel, que reconstruye
+// desde cero. Tarda mas; por eso no es lo normal.
+const SIN_CACHE = process.argv.includes('--sin-cache');
 
 function git(cmd) {
   return execSync(`git ${cmd}`, { encoding: 'utf8' }).trim();
@@ -350,6 +358,7 @@ if (OBJETIVO === 'backend') {
       'deploy',
       '--prod',
       '--yes',
+      ...(SIN_CACHE ? ['--force'] : []),
       '--scope',
       'jhonarias888-1963s-projects',
       ...(aislada ? ['--global-config', CONFIG_CLUBIFY] : []),
