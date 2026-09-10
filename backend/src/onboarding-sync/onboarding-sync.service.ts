@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { cobrarCreditoDeActivacion } from '../common/creditos-de-marca';
 import { OnboardingWebhookService } from './onboarding-webhook.service';
 import {
   indexarSedes,
@@ -1044,12 +1045,49 @@ export class OnboardingSyncService {
   }
 
   // ── 12. Publicar / activar el negocio ─────────────────────────────────
+  /**
+   * ESTA ES UNA PUERTA DE ACTIVACIÓN, no solo un «publicar».
+   *
+   * Hasta el 2026-09-10 ponía el negocio en ACTIVE y no cobraba el crédito de
+   * la marca. Las tres acciones del panel sí lo cobraban, así que la regla
+   * «marca blanca sin créditos NO activa negocios» se saltaba entera por aquí,
+   * que es justo por donde Sellea da de alta a sus clientes. Smart Solutions
+   * quedó activo sin descontarle nada a Humberto.
+   *
+   * El cobro va ANTES del update: si la marca no tiene créditos, esto lanza
+   * 403 y el negocio no se publica — igual que en el panel. Si el update
+   * falla después, se devuelve el crédito.
+   */
   async activate(tenantId: string) {
-    const t = await this.prisma.tenant.update({
+    const previo = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      data: { status: 'ACTIVE' },
-      select: { id: true, brandName: true, phone: true, slug: true },
+      select: {
+        id: true,
+        whiteLabelId: true,
+        status: true,
+        brandName: true,
+        businessType: true,
+        infolinkTier: true,
+        planPeriodicity: true,
+      },
     });
+    if (!previo) throw new NotFoundException('Negocio no encontrado');
+
+    const credito = await cobrarCreditoDeActivacion(this.prisma, previo, 'onboarding');
+
+    let t: { id: string; brandName: string; phone: string | null; slug: string };
+    try {
+      t = await this.prisma.tenant.update({
+        where: { id: tenantId },
+        data: { status: 'ACTIVE' },
+        select: { id: true, brandName: true, phone: true, slug: true },
+      });
+    } catch (e) {
+      await credito.rollback();
+      throw e;
+    }
+    await credito.commit();
+
     await this.prisma.storefront.upsert({
       where: { tenantId },
       create: { tenantId, isPublished: true },

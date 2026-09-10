@@ -3,7 +3,7 @@ import { normalizeBusinessType, creditCostFor } from './business-types';
 /**
  * NIVEL del producto InfoLink (freemium de Sellea Infolinks).
  *   FREE = captación (0 créditos, con publicidad de Sellea y límites).
- *   PRO  = pago del usuario final (0.25 créditos/mes, sin publicidad, todo).
+ *   PRO  = pago del usuario final (0.1 créditos/mes, sin publicidad, todo).
  *
  * Este archivo es la ÚNICA fuente de verdad de qué puede hacer cada tier.
  * ESPEJO: frontend/src/lib/infolink-tier.ts — mantener sincronizado.
@@ -32,7 +32,7 @@ export interface InfolinkCapabilities {
   customIcons: boolean;
   /** Analítica avanzada (fuentes, visitantes únicos, histórico completo). */
   advancedAnalytics: boolean;
-  /** Créditos de plataforma que consume por mes (FREE=0, PRO=0.25, FULL=1). */
+  /** Créditos de plataforma que consume por mes (FREE=0, PRO=0.1, FULL=1). */
   monthlyCreditCost: number;
 }
 

@@ -88,7 +88,7 @@ export function cycleCreditCost(
 /**
  * Igual que cycleCreditCost pero consciente del NIVEL del InfoLink (freemium).
  * Un InfoLink en tier FREE es de captación → NO consume créditos (0). El resto
- * (INFOLINK PRO = 0.25, FULL = 1) cobra normal. Úsalo en el auto-registro y en
+ * (INFOLINK PRO = 0.1, FULL = 1) cobra normal. Úsalo en el auto-registro y en
  * el cron de renovación para no cobrarle a las cuentas gratis.
  */
 export function cycleCreditCostForTenant(

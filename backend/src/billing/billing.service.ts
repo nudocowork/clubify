@@ -198,7 +198,7 @@ export class BillingService {
     });
     if (!consumed) return false;
     // Se libera el costo del ciclo según el tipo de negocio × periodicidad
-    // (mismo valor que se cobró al activar/renovar: InfoLink mensual = 0.25).
+    // (mismo valor que se cobró al activar/renovar: InfoLink mensual = 0.1).
     const cost = cycleCreditCostForTenant(t.businessType, t.infolinkTier, t.planPeriodicity);
     // Devolver el crédito + registrar en el ledger + auditar. Marca idempotente.
     await this.prisma.$transaction([

@@ -11,6 +11,7 @@ import { TenantStatus } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { cobrarCreditoDeActivacion } from '../common/creditos-de-marca';
 import { AuthService } from '../auth/auth.service';
 import { AuditService } from '../audit/audit.service';
 import { invalidateTenantStatusCache } from '../common/guards/tenant-status.guard';
@@ -1533,48 +1534,10 @@ export class TenantsService {
     },
     source: string,
   ): Promise<{ rollback: () => Promise<void>; commit: () => Promise<void> }> {
-    const noop = { rollback: async () => {}, commit: async () => {} };
-    // Solo al PASAR a ACTIVE (no recobra si ya estaba activo) y solo marcas.
-    if (previous.status === 'ACTIVE' || !previous.whiteLabelId) return noop;
-    const wl = await this.prisma.whiteLabel.findUnique({
-      where: { id: previous.whiteLabelId },
-      select: { id: true, slug: true, creditsUnlimited: true },
-    });
-    if (!wl || wl.slug === 'clubify' || wl.creditsUnlimited) return noop;
-    // Costo según tipo de negocio × periodicidad (InfoLink mensual = 0.25).
-    const cost = cycleCreditCostForTenant(previous.businessType, previous.infolinkTier, previous.planPeriodicity);
-    const debit = await this.prisma.whiteLabel.updateMany({
-      where: { id: wl.id, creditsAvailable: { gte: cost } },
-      data: { creditsAvailable: { decrement: cost }, creditsUsed: { increment: cost } },
-    });
-    if (debit.count === 0) {
-      throw new ForbiddenException(
-        'La marca no tiene créditos disponibles. Compra un pack para activar este negocio.',
-      );
-    }
-    return {
-      rollback: async () => {
-        await this.prisma.whiteLabel
-          .update({
-            where: { id: wl.id },
-            data: { creditsAvailable: { increment: cost }, creditsUsed: { decrement: cost } },
-          })
-          .catch(() => undefined);
-      },
-      commit: async () => {
-        await this.prisma.creditTransaction
-          .create({
-            data: {
-              whiteLabelId: wl.id,
-              type: 'CONSUME',
-              amount: -cost,
-              tenantId: previous.id,
-              note: `Activación (${source}) · ${previous.brandName} · ${cost} créd`,
-            },
-          })
-          .catch(() => undefined);
-      },
-    };
+    // La regla vive en `common/creditos-de-marca.ts` porque el panel NO es la
+    // unica puerta: el Onboarding activa negocios por su cuenta y no cobraba.
+    // Una sola copia de la regla o vuelven a divergir.
+    return cobrarCreditoDeActivacion(this.prisma, previous, source);
   }
 
   async convertToPaying(id: string, actorId: string) {
