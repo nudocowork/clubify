@@ -82,72 +82,42 @@ railway run npx prisma db pull --schema=/tmp/introspect.prisma
 
 ## Divergencias conocidas
 
-### El frontend desplegado es anterior al 2026-08-02 — y por eso el menú no tiene fotos (2026-09-10)
+### Las fotos del menú SÍ funcionan — mi diagnóstico era falso (2026-09-10)
 
-El equipo del Onboarding reporta que «el backend rechaza las imágenes que no son
-de vuestro bucket» y que los menús se ven sin fotos. **No es el backend y no es
-código: es un despliegue de frontend que nunca se hizo.**
+Esta sección decía que producción aplicaba solo las tres primeras entradas de
+`remotePatterns` y que las fotos estaban rotas desde mayo. **Era falso, y se
+sostuvo un día entero.**
 
-Lo que se midió, contra producción:
+Con URLs **reales** el optimizador responde 200, incluidas las del bucket del
+Onboarding:
 
-| Prueba | Resultado |
-|---|---|
-| `api/media/proxy` con una URL del bucket del Onboarding | **La acepta** (`Upstream 400` = llegó a Supabase) |
-| `_next/image` con esa misma URL | `400 INVALID_IMAGE_OPTIMIZE_REQUEST` |
-| `_next/image` con `cdn.soyclubify.com` y archivo inexistente | `404 NOT_FOUND` |
-| `_next/image` con `example.com` | `400 INVALID_IMAGE_OPTIMIZE_REQUEST` |
+```
+/_next/image  imagen real de r2.dev        -> 200
+/_next/image  imagen real de Supabase      -> 200
+/_next/image  /favicon.ico (local)         -> 200
+```
 
-Las dos últimas filas son la prueba de control: distinguen «host no permitido»
-de «archivo no existe». El bucket del Onboarding da **el mismo error que
-`example.com`**, así que el frontend que corre no lo tiene en `remotePatterns`.
+**El error de método:** probé con archivos que no existen (`x.jpg`,
+`no-existe.jpg`). El optimizador devuelve `400
+INVALID_IMAGE_OPTIMIZE_REQUEST` tanto cuando el host no está permitido como
+cuando el upstream falla, así que leí «rechazado por la allowlist» donde solo
+había «esa imagen no existe». Encima interpreté un `502
+OPTIMIZED_EXTERNAL_IMAGE_REQUEST_UNAUTHORIZED` como «permitido», y de ahí salió
+la fantasía de «las tres primeras entradas».
 
-El arreglo está en `main` desde el **2026-08-02** (`5a80c23d`, «permitir el
-bucket del onboarding (Supabase) en proxy + next/image»), y `next.config.js` no
-ha cambiado desde entonces. El backend sí se desplegó; el frontend no.
+Lo dijo el equipo del Onboarding antes que yo: **sin calibrar contra un caso
+que sabemos bueno, un 400 no distingue «me lo rechazan» de «no está
+permitido».** Y el argumento que lo cerró fue suyo: ninguna versión de
+`next.config.js` tuvo nunca tres entradas — el histórico va de 0 a 6 (mayo) a 7
+(agosto)—, así que ningún build podía producir ese comportamiento.
 
-**CORREGIDO el 2026-09-10: esto era FALSO.** Se desplegó el frontend dos veces
-—una normal y otra sin caché de build— y las fotos siguen rotas. Lo que se sabe
-midiendo entrada por entrada contra producción:
+**Regla para la próxima:** antes de declarar rota una allowlist, probar con un
+recurso que exista de verdad. Un 404 o un 400 sobre algo inexistente no prueba
+nada.
 
-| Entrada de `remotePatterns` | Producción |
-|---|---|
-| 1. `**.r2.dev` | permitida (502: host inexistente) |
-| 2. `**.r2.cloudflarestorage.com` | permitida (502) |
-| 3. `cdn.soyclubify.com` | permitida (404) |
-| 4. `lh3.googleusercontent.com` | **rechazada** (400) |
-| 5. `static-media.hotmart.com` | **rechazada** |
-| 6. Supabase del Onboarding | **rechazada** |
-
-Producción aplica **exactamente las tres primeras**, o sea el `next.config.js`
-anterior al 2026-05-12 (`cc5f1380` añadió `lh3`). El build local de ese mismo
-commit sí genera las siete: `frontend/.next/required-server-files.json` las trae
-todas.
-
-**Descartado**: caché de build de Vercel (se desplegó con `--sin-cache` y da
-igual), alias del dominio (el despliegue directo falla igual), configuración de
-imágenes a nivel de proyecto en Vercel (la API no devuelve ninguna) y que el
-código desplegado fuera viejo (el build corre y compila).
-
-**Sin resolver.** La pista que queda: el proyecto de Vercel tiene
-`framework: null` y `rootDirectory` en la raíz, mientras el Next vive en
-`frontend/` con `outputDirectory: frontend/.next`. Algo de esa combinación hace
-que el `images` del build no llegue al optimizador. Hace falta mirar el Build
-Output en el panel de Vercel, que no se ve desde la CLI.
-
-Host permitido, por si alguien lo cambia: `ugbqfcogmqkuhhepecfq.supabase.co`,
-solo bajo `/storage/v1/object/public/**`.
-
-### `Location.externalId` existe en producción y el código aún no está desplegado (2026-09-10)
-
-El id que le pone el Onboarding a cada sede, para que renombrarla no cree una
-sede nueva. Nullable, sin default, y con un único `(tenantId, externalId)`.
-Aplicado sobre las 161 sedes existentes sin tocar ninguna: todas quedan con
-`externalId` en null y se les graba solo cuando el Onboarding las sincronice.
-
-Script: `backend/scripts/apply-location-external-id-migration.cjs`, idempotente
-y con un aborto explícito si encontrara ids repetidos dentro de un negocio.
-
-
+Los dos despliegues de frontend que se hicieron persiguiendo esto no sobraban
+—llevaban meses de cambios sin salir—, pero no arreglaron nada porque no había
+nada roto.
 
 ### `ProductLocation` tiene dos columnas que el código desplegado aún no usa (2026-09-09)
 
