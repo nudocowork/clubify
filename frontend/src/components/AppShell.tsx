@@ -176,6 +176,21 @@ export default function AppShell({
     slug: string;
     modules: string[];
   } | null>(null);
+  /**
+   * true mientras se resuelve la marca activa.
+   *
+   * Hace falta porque `brandFetched === null` significa TRES cosas distintas:
+   * no es el panel admin, la marca es Clubify (que no se gatea), o **todavía
+   * no ha llegado la respuesta**. Ese tercer caso es el que hacía que el menú
+   * enseñara «Equipos de ventas» y se lo quitara medio segundo después en el
+   * panel de Sellea, que no tiene ese módulo. Un menú que ofrece algo y lo
+   * retira es peor que uno que tarda en aparecer.
+   */
+  // Arranca en `true`, no en `false`: los efectos corren DESPUÉS del primer
+  // pintado, así que con `false` ese primer frame ya enseñaba el menú entero
+  // — justo el parpadeo que esto viene a quitar. El efecto la baja enseguida
+  // cuando no hay nada que resolver.
+  const [brandCargando, setBrandCargando] = useState(true);
   // Fase 3 (#6): si el admin actual es de una marca blanca con créditos
   // (no ilimitada), se muestra la sección "Créditos" en /admin. Para
   // Clubify / PLATFORM_OWNER el endpoint da 403 y queda oculta.
@@ -321,8 +336,10 @@ export default function AppShell({
   useEffect(() => {
     if (variant !== 'admin') {
       setBrandFetched(null);
+      setBrandCargando(false);
       return;
     }
+    setBrandCargando(true);
     const backup = getImpersonationBackup();
     const m = pathname.match(/^\/admin\/([^/]+)/);
     const urlSlug = m && !ADMIN_ROUTE_SEGMENTS.has(m[1]) ? m[1] : null;
@@ -367,7 +384,14 @@ export default function AppShell({
             typeof window !== 'undefined' ? window.location.host : '',
           )}`,
         );
-    req.then(apply).catch(() => {});
+    // `finally` y no solo `then`: si la petición falla, seguir en «cargando»
+    // dejaría el menú recortado para siempre.
+    req
+      .then(apply)
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setBrandCargando(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -608,9 +632,24 @@ export default function AppShell({
     variant === 'admin'
       ? impersonation?.tenant?.slug || urlBrandSlug || brandFetched?.slug || null
       : null;
-  // null = aún sin resolver o sin marca (global) → no se gatea nada.
-  const brandModules =
-    variant === 'admin' && brandSlug ? brandFetched?.modules ?? null : null;
+  /**
+   * Módulos de la marca activa, en TRES estados — y la distinción importa:
+   *
+   *   null       no hay marca que gatear (Clubify o panel global) → se enseña todo
+   *   undefined  hay marca pero aún no sabemos sus módulos → se ESCONDE lo gateado
+   *   string[]   la lista real
+   *
+   * Antes «aún no se sabe» y «no hay marca» eran el mismo `null`, así que
+   * durante la carga se enseñaba todo y al llegar la respuesta desaparecía lo
+   * que la marca no tiene. Eso es lo que se veía en el panel de Sellea con
+   * «Equipos de ventas».
+   */
+  const brandModules: string[] | null | undefined =
+    variant === 'admin' && brandSlug
+      ? brandFetched?.modules ?? (brandCargando ? undefined : null)
+      : null;
+  /** Con la marca a medio resolver, lo que depende de un módulo no se pinta. */
+  const modulosSinResolver = brandModules === undefined;
 
   const groups: NavGroup[] =
     variant === 'admin'
@@ -741,6 +780,11 @@ export default function AppShell({
           // config — solo Clubify lo tiene por defecto).
           const referralSections = new Set(['Programa', 'Ventas']);
           const moduleAllowed = (g: NavGroup) => {
+            const gateada =
+              g.section === 'Comunidad' || referralSections.has(g.section);
+            // Aún sin resolver: esconder lo gateado en vez de enseñarlo y
+            // quitarlo después. Lo no gateado se pinta igual.
+            if (modulosSinResolver) return !gateada;
             if (!brandModules) return true;
             if (g.section === 'Comunidad')
               return brandModules.includes('COMMUNITY');
@@ -759,8 +803,9 @@ export default function AppShell({
             // Gate por módulo de la marca (ej. Automatizaciones ↔ GROW_BUSINESS_SMS).
             // brandModules null (Clubify/global sin resolver) → se muestra.
             (!it.requiresBrandModule ||
-              !brandModules ||
-              brandModules.includes(it.requiresBrandModule));
+              (modulosSinResolver
+                ? false
+                : !brandModules || brandModules.includes(it.requiresBrandModule)));
           return adminGroups
             .filter(moduleAllowed)
             .map((g) => ({ ...g, items: g.items.filter(visibleItem) }))

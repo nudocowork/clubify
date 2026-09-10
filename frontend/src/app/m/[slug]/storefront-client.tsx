@@ -3423,7 +3423,13 @@ function LayoutSections({
     }
     const target = buildStorefrontPath(storefrontSlug, mode, sectionSlug, subSlug);
     if (window.location.pathname === target) return;
-    window.history.replaceState({}, '', target);
+    // CONSERVAR LA QUERY. `buildStorefrontPath` devuelve SOLO el path, así que
+    // este replaceState borraba `?sede=` en cuanto se abría una sección: los
+    // dos enlaces de sede de Slata acababan los dos en
+    // `/m/slata-2/recomendados`, sin sede, y el pedido dejaba de ir atado a la
+    // suya. `sedeDelQr` se lee de la query, así que perderla no era solo
+    // cosmético — se llevaba por delante el ruteo al WhatsApp de la sede.
+    window.history.replaceState({}, '', `${target}${window.location.search}`);
   }, [activeSection, activeSub, menu, storefrontSlug, mode]);
 
   // Estilo aplicado al botón "Volver". Defaults reproducen el estilo

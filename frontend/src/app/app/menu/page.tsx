@@ -970,7 +970,6 @@ export default function MenuEditor() {
           mainLabel={mainLabel}
           carta={cartaActual}
           sedes={sedes}
-          cartas={menus?.menus ?? []}
         />
       )}
 
@@ -3219,7 +3218,6 @@ function PublicMenuLinks({
   mainLabel,
   carta,
   sedes = [],
-  cartas = [],
 }: {
   slug: string;
   mainLabel: string;
@@ -3227,8 +3225,6 @@ function PublicMenuLinks({
   carta?: { id: string | null; name: string; locationId: string | null } | null;
   /** Sedes del negocio. */
   sedes?: Array<{ id: string; name: string; address?: string | null; isActive?: boolean }>;
-  /** Cartas del negocio, incluida la principal. */
-  cartas?: Array<{ id: string | null }>;
 }) {
   const t = useTranslations('app_menu');
   const [origin, setOrigin] = useState<string>('');
@@ -3245,17 +3241,24 @@ function PublicMenuLinks({
   const labelLower = mainLabel.toLowerCase();
 
   /**
-   * Cuándo se enseñan los enlaces por sede: **varias sedes Y varias cartas**
-   * (decisión de Javier, 2026-09-10).
+   * Cuándo se enseñan los enlaces por sede: **2 o más sedes activas**.
    *
-   * Si todas las sedes comparten la MISMA carta, los enlaces por sede llevan
-   * al mismo sitio que el general y solo añaden ruido. Solo cuando cada sede
-   * tiene su propia carta hay algo distinto que copiar.
+   * Estuvo un rato pidiendo además «varias cartas», y era un error mío: di por
+   * hecho que repartir productos entre sedes exigía una carta por sede. NO.
+   * Hay DOS mecanismos y el más usado es el otro:
    *
-   * `cartas` incluye la principal, así que «varias» es 2 o más.
+   *   · `Product.locationMode = SELECCIONADAS` + `ProductLocation` — el
+   *     producto vive en el menú principal y se enseña solo en las sedes
+   *     elegidas. Es lo que usa el Onboarding, y lo que tiene Slata.
+   *   · Una carta por sede (`multiMenuEnabled`) — catálogos separados de
+   *     verdad. Mucho menos común.
+   *
+   * Con el primero, las sedes comparten carta y aun así cada enlace enseña
+   * cosas distintas. Pedir «varias cartas» escondía los enlaces justo a quien
+   * los necesitaba.
    */
   const sedesActivas = sedes.filter((s) => s.isActive !== false);
-  const haySedes = sedesActivas.length >= 2 && cartas.length >= 2;
+  const haySedes = sedesActivas.length >= 2;
 
   // Plegables. Abiertos de entrada: la flecha está para poder cerrar, no para
   // esconder de salida algo que antes se veía.
