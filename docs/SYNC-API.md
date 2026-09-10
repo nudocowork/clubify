@@ -182,6 +182,29 @@ el precio que el negocio puso en el panel.
 
 Reemplaza la lista de botones entera.
 
+### Forma de cada botón
+
+`{ label, type, url, popupMessage }` (también vale `popup_message`).
+
+| `type` | Qué hace |
+|---|---|
+| `link`, `reviews`, `social`, `reserva` | Botón externo con la `url`. |
+| `whatsapp` | Saca el teléfono de la `url`. Si no encuentra ninguno, cae a externo. |
+| `menu` | **Sin `url`** = botón nativo al menú. **Con `url`** = externo. |
+| `maps` | Igual: sin `url`, botón nativo de ubicación. |
+| `popup` | Usa `popupMessage`. No necesita `url`. |
+
+Sin `label` se pone «Ver». **Un botón sin URL válida que no sea `popup`,
+`menu` ni `maps` se descarta** — no se puede pintar. Los descartados salen en
+la respuesta:
+
+```json
+{ "ok": true, "infolink_id": "...", "botones_descartados": ["Reservar mesa"] }
+```
+
+Antes se iban en silencio: el cliente escribía cinco botones, le llegaban tres
+y nadie sabía cuáles ni por qué.
+
 > El **estilo** del infolink no tiene campo. `InfoLink.theme` guarda el tema
 > desmenuzado (`background`, `fontFamily`, `logoContainer`, `text`,
 > `bannerConfig`), no un nombre de estilo: mapear los cinco estilos exige

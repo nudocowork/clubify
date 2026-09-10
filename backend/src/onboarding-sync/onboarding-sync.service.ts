@@ -1023,8 +1023,19 @@ export class OnboardingSyncService {
       const cover = b.cover ?? b.heroImageUrl;
       data.heroImageUrl = cover ? String(cover) : null;
     }
+    // Un boton sin URL valida —y que no sea popup/menu/maps— no se puede pintar,
+    // asi que se descarta. Antes se iba en silencio con `.filter(Boolean)`: el
+    // cliente escribia cinco botones, le llegaban tres, y nadie tenia forma de
+    // saber cuales ni por que.
+    const descartados: string[] = [];
     if (Array.isArray(b.buttons)) {
-      data.buttons = (b.buttons as any[]).map(mapInfolinkButton).filter(Boolean);
+      const mapeados: any[] = [];
+      for (const raw of b.buttons as any[]) {
+        const btn = mapInfolinkButton(raw);
+        if (btn) mapeados.push(btn);
+        else descartados.push(String(raw?.label ?? '(sin nombre)').trim() || '(sin nombre)');
+      }
+      data.buttons = mapeados;
     }
     const existing = await this.prisma.infoLink.findFirst({
       where: { tenantId },
@@ -1033,7 +1044,12 @@ export class OnboardingSyncService {
     });
     if (existing) {
       await this.prisma.infoLink.update({ where: { id: existing.id }, data });
-      return { ok: true, infolink_id: existing.id, created: false };
+      return {
+        ok: true,
+        infolink_id: existing.id,
+        created: false,
+        ...(descartados.length ? { botones_descartados: descartados } : {}),
+      };
     }
     const created = await this.prisma.infoLink.create({
       data: {
@@ -1045,7 +1061,12 @@ export class OnboardingSyncService {
         buttons: (data.buttons ?? []) as any,
       },
     });
-    return { ok: true, infolink_id: created.id, created: true };
+    return {
+      ok: true,
+      infolink_id: created.id,
+      created: true,
+      ...(descartados.length ? { botones_descartados: descartados } : {}),
+    };
   }
 
   // ── 11c. Push automáticas por evento → AutomationRule (upsert por trigger) ──
