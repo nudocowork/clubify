@@ -37,6 +37,8 @@ export interface ProductoBase {
   basePrice: unknown;
   isAvailable?: boolean | null;
   stock?: number | null;
+  imageUrl?: string | null;
+  description?: string | null;
 }
 
 export interface FilaDeSede {
@@ -46,6 +48,8 @@ export interface FilaDeSede {
   price?: unknown;
   isAvailable?: boolean | null;
   stock?: number | null;
+  imageUrl?: string | null;
+  description?: string | null;
 }
 
 /** El producto tal y como lo ve UNA sede. */
@@ -56,7 +60,11 @@ export interface ProductoResuelto<T extends ProductoBase> {
   /** Si se puede pedir aquí y ahora. */
   isAvailable: boolean;
   stock: number | null;
-  /** true si esta sede tiene algo propio (precio, agotado o stock). */
+  /** La foto que se le enseña al cliente en esta sede. */
+  imageUrl: string | null;
+  /** El texto que se le enseña al cliente en esta sede. */
+  description: string;
+  /** true si esta sede cambia algo: precio, agotado, stock, foto o texto. */
   personalizado: boolean;
 }
 
@@ -124,14 +132,28 @@ export function resolverEnSede<T extends ProductoBase>(
 
   const stock = fila?.stock ?? producto.stock ?? null;
 
+  // Foto y texto propios de la sede. Null = el del producto, igual que el
+  // precio: una sede que no personaliza nada hereda sola el cambio del
+  // catálogo. La cadena vacía se normaliza a null al ESCRIBIR (ver
+  // `products.service.ts`), así que aquí `??` basta y no hay que decidir si
+  // un texto en blanco es «sin descripción» o «la del producto».
+  const imageUrl = fila?.imageUrl ?? producto.imageUrl ?? null;
+  const description = fila?.description ?? producto.description ?? '';
+
   return {
     producto,
     price,
     isAvailable,
     stock,
+    imageUrl,
+    description,
     personalizado:
       !!fila &&
-      (fila.price != null || fila.isAvailable != null || fila.stock != null),
+      (fila.price != null ||
+        fila.isAvailable != null ||
+        fila.stock != null ||
+        fila.imageUrl != null ||
+        fila.description != null),
   };
 }
 

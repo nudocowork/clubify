@@ -82,6 +82,24 @@ railway run npx prisma db pull --schema=/tmp/introspect.prisma
 
 ## Divergencias conocidas
 
+### `ProductLocation` tiene dos columnas que el código desplegado aún no usa (2026-09-09)
+
+`ProductLocation.imageUrl` y `ProductLocation.description` **ya existen en la
+base de producción**. El código que las lee y las escribe **todavía no está
+desplegado**.
+
+No rompe nada y no hay prisa: son nullable, sin default, y se aplicaron sobre
+**0 filas** (a esta fecha ningún negocio tiene `sedeMenuEnabled`, así que nadie
+personaliza productos por sede todavía). Un backend viejo simplemente las ignora.
+
+Script: `backend/scripts/apply-producto-sede-foto-descripcion-migration.cjs`.
+Idempotente — comprobado ejecutándolo dos veces seguidas contra producción.
+
+**Al desplegar el backend, esta divergencia se cierra sola.** No hay que correr
+nada antes ni después.
+
+
+
 ### Motor de Email Marketing — SÍ está en el repo (corrección)
 
 > Esta sección decía que el código «no está en ningún repositorio». **Era

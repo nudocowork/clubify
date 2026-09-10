@@ -2183,6 +2183,20 @@ model ProductLocation {
   /// Stock de esta sede. Null = sin control de inventario aquí.
   stock       Int?
 
+  /// Foto propia de esta sede. Null = la del producto.
+  ///
+  /// Es la misma hamburguesa, pero la de Cabecera se sirve en cesta y la de
+  /// Cacique en plato: el cliente que escanea el QR tiene que ver LA SUYA.
+  /// Solo la URL, nunca la imagen: ver el arqueo de QrPoster, que llegó a ser
+  /// el 77% de la base por guardar base64 dentro de un JSON.
+  imageUrl    String?
+  /// Descripción propia de esta sede. Null = la del producto.
+  ///
+  /// Cadena vacía NO es un caso aparte: el panel la normaliza a null. Sin eso,
+  /// borrar el texto en una sede dejaba un producto sin descripción en vez de
+  /// devolverlo a la del catálogo, que es lo que espera quien lo borra.
+  description String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

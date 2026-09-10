@@ -586,19 +586,22 @@ export class PublicMenuController {
       },
     });
 
-    const mapProduct = (p: any) => ({
+    const mapProduct = (p: any) => {
+      // UNA sola resolución por producto: precio, foto y texto de ESTA sede.
+      // Sin fila propia son exactamente los del catálogo, así que el negocio
+      // de una sola sede ve lo mismo de siempre.
+      const enSede = resolverEnSede(p, locationId, sedeIdx);
+      return {
       id: p.id,
       name: p.name,
-      description: p.description,
-      // El precio de ESTA sede si lo tiene; si no, el del producto. Sin fila
-      // propia son el mismo número.
-      basePrice: resolverEnSede(p, locationId, sedeIdx).price,
+      description: enSede.description,
+      basePrice: enSede.price,
       priceMode: p.priceMode ?? 'FIXED',
       priceMax: p.priceMax != null ? Number(p.priceMax) : null,
       variantPriceMode: p.variantPriceMode ?? 'DELTA',
       maxVariantsTotal: p.maxVariantsTotal ?? null,
       maxExtrasTotal: p.maxExtrasTotal ?? null,
-      imageUrl: p.imageUrl,
+      imageUrl: enSede.imageUrl,
       tags: p.tags,
       isRecommended: p.isRecommended,
       variants: p.variants.map((v: any) => ({
@@ -614,7 +617,8 @@ export class PublicMenuController {
         price: Number(e.price),
         maxQty: e.maxQty,
       })),
-    });
+      };
+    };
 
     // popupConfig solo viaja al cliente si está enabled — sin enabled
     // el frontend no tiene nada que hacer con esa data y evita exponer

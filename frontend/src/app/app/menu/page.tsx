@@ -89,6 +89,9 @@ type Product = {
     price: number | string | null;
     isAvailable: boolean | null;
     stock: number | null;
+    /** Foto y texto propios de la sede. null = los del producto. */
+    imageUrl: string | null;
+    description: string | null;
   }[];
 };
 
@@ -631,6 +634,8 @@ export default function MenuEditor() {
                 price: f.price === null || f.price === '' ? null : Number(f.price),
                 isAvailable: f.isAvailable,
                 stock: f.stock,
+                imageUrl: f.imageUrl,
+                description: f.description,
               })),
             },
           }
@@ -2647,7 +2652,12 @@ function ProductDrawer({
                   filas.find((f) => f.locationId === id);
                 const cambiar = (
                   id: string,
-                  campo: 'selected' | 'price' | 'isAvailable',
+                  campo:
+                    | 'selected'
+                    | 'price'
+                    | 'isAvailable'
+                    | 'imageUrl'
+                    | 'description',
                   valor: unknown,
                 ) => {
                   const otras = filas.filter((f) => f.locationId !== id);
@@ -2657,6 +2667,8 @@ function ProductDrawer({
                     price: null,
                     isAvailable: null,
                     stock: null,
+                    imageUrl: null,
+                    description: null,
                   };
                   update('productLocations', [
                     ...otras,
@@ -2707,8 +2719,9 @@ function ProductDrawer({
                         return (
                           <div
                             key={sede.id}
-                            className="flex items-center gap-2 rounded-md border border-line px-2.5 py-1.5"
+                            className="rounded-md border border-line px-2.5 py-1.5"
                           >
+                            <div className="flex items-center gap-2">
                             {modo === 'SELECCIONADAS' && (
                               <input
                                 type="checkbox"
@@ -2765,6 +2778,56 @@ function ProductDrawer({
                                   agotado
                                 </label>
                               </>
+                            )}
+                            </div>
+
+                            {/* La misma hamburguesa se sirve en cesta en una
+                                sede y en plato en la otra. Va plegado porque
+                                casi nadie lo usa y Revent tiene 18 sedes:
+                                desplegado, el modal no cabe en la pantalla. */}
+                            {marcada && (
+                              <details className="mt-1.5">
+                                <summary className="text-xs text-mute cursor-pointer select-none">
+                                  Foto y texto propios de esta sede
+                                  {f?.imageUrl || f?.description
+                                    ? ' · personalizado'
+                                    : ''}
+                                </summary>
+                                <div className="grid gap-3 mt-2 sm:grid-cols-2">
+                                  <div>
+                                    <label className="label">Foto</label>
+                                    <ImageUploader
+                                      value={f?.imageUrl ?? ''}
+                                      onChange={(url) =>
+                                        cambiar(sede.id, 'imageUrl', url || null)
+                                      }
+                                      folder="products"
+                                    />
+                                    <p className="text-xs text-mute mt-1">
+                                      Sin foto aquí se usa la del producto.
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <label className="label">Descripción</label>
+                                    <textarea
+                                      className="input"
+                                      rows={3}
+                                      placeholder="la misma del producto"
+                                      value={f?.description ?? ''}
+                                      onChange={(e) =>
+                                        cambiar(
+                                          sede.id,
+                                          'description',
+                                          e.target.value,
+                                        )
+                                      }
+                                    />
+                                    <p className="text-xs text-mute mt-1">
+                                      Bórrala para volver a la del producto.
+                                    </p>
+                                  </div>
+                                </div>
+                              </details>
                             )}
                           </div>
                         );

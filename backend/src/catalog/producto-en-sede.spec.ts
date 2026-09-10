@@ -23,6 +23,8 @@ const prod = (
     basePrice: unknown;
     isAvailable: boolean | null;
     stock: number | null;
+    imageUrl: string | null;
+    description: string | null;
   }> = {},
 ) => ({
   id,
@@ -30,6 +32,8 @@ const prod = (
   basePrice: 10,
   isAvailable: true as boolean | null,
   stock: null as number | null,
+  imageUrl: 'catalogo.jpg' as string | null,
+  description: 'La del catálogo' as string | null,
   ...extra,
 });
 
@@ -225,5 +229,77 @@ describe('un caso completo', () => {
       ['cafe', 8],
       ['tostada', 12],
     ]);
+  });
+});
+
+describe('foto y texto propios de la sede', () => {
+  // La misma hamburguesa servida en cesta en una sede y en plato en la otra.
+  // Si el QR de Cacique enseña la foto de Cabecera, el cliente pide una cosa
+  // y le llega otra — que es exactamente la queja que originó todo esto.
+  it('la sede que tiene foto propia enseña la suya', () => {
+    const r = resolverEnSede(prod('burger'), 'cacique', indexarFilas([
+      fila('burger', 'cacique', { imageUrl: 'cacique.jpg' }),
+    ]));
+    expect(r.imageUrl).toBe('cacique.jpg');
+  });
+
+  it('la sede que no la tiene hereda la del catálogo', () => {
+    const r = resolverEnSede(prod('burger'), 'centro', indexarFilas([
+      fila('burger', 'centro', { price: 25000 }),
+    ]));
+    expect(r.imageUrl).toBe('catalogo.jpg');
+    expect(r.description).toBe('La del catálogo');
+  });
+
+  it('el texto propio de la sede reemplaza al del catálogo', () => {
+    const r = resolverEnSede(prod('burger'), 'cabecera', indexarFilas([
+      fila('burger', 'cabecera', { description: 'Con papas de la casa' }),
+    ]));
+    expect(r.description).toBe('Con papas de la casa');
+  });
+
+  // Esta es la razón de normalizar la cadena vacía a null al escribir: quien
+  // borra el texto de una sede quiere volver al del catálogo, no dejar el
+  // producto mudo.
+  it('null vuelve al catálogo, no deja el producto sin texto', () => {
+    const r = resolverEnSede(prod('burger'), 'cabecera', indexarFilas([
+      fila('burger', 'cabecera', { description: null, imageUrl: null }),
+    ]));
+    expect(r.description).toBe('La del catálogo');
+    expect(r.imageUrl).toBe('catalogo.jpg');
+  });
+
+  it('un producto sin foto en el catálogo no inventa ninguna', () => {
+    const r = resolverEnSede(
+      prod('burger', { imageUrl: null }),
+      'centro',
+      indexarFilas([]),
+    );
+    expect(r.imageUrl).toBeNull();
+  });
+
+  it('una sede que solo cambia la foto ya cuenta como personalizada', () => {
+    const r = resolverEnSede(prod('burger'), 'cacique', indexarFilas([
+      fila('burger', 'cacique', { imageUrl: 'cacique.jpg' }),
+    ]));
+    expect(r.personalizado).toBe(true);
+  });
+
+  it('una fila que no cambia nada NO cuenta como personalizada', () => {
+    const r = resolverEnSede(prod('burger'), 'cacique', indexarFilas([
+      fila('burger', 'cacique'),
+    ]));
+    expect(r.personalizado).toBe(false);
+  });
+
+  it('sin sede en la URL se ve el catálogo, no lo de ninguna sede', () => {
+    const r = resolverEnSede(prod('burger'), null, indexarFilas([
+      fila('burger', 'cacique', {
+        imageUrl: 'cacique.jpg',
+        description: 'En plato',
+      }),
+    ]));
+    expect(r.imageUrl).toBe('catalogo.jpg');
+    expect(r.description).toBe('La del catálogo');
   });
 });

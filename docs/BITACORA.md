@@ -8,6 +8,74 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-09 (noche, 2) — Menú multisede desde el Onboarding: la mitad de acá
+
+**Migración APLICADA a producción. Código NO desplegado.** Es aditiva y sobre
+cero filas, así que producción sigue igual — la divergencia queda anotada en
+[ESTADO-PRODUCCION.md](ESTADO-PRODUCCION.md).
+
+### Esto se construye entre DOS repos a la vez
+
+| Mitad | Repo | Quién |
+|---|---|---|
+| El asistente: el admin elige el tipo de menú, el cliente crea sus sedes y marca dónde va cada producto | `Documentos/Unboarding` | la otra sesión |
+| La API que lo recibe y los menús que salen por sede | este repo | esta |
+
+**No toqué ni un archivo de Unboarding.** Mientras trabajaba sus archivos
+cambiaban solos por OneDrive: `BusinessConfig.jsx` pasó de 1510 a 2106 líneas
+entre las 17:27 y las 17:34.
+
+### La API nueva
+
+- `PUT /sync/locations` — la lista de sedes del formulario. Upsert **por
+  nombre**, y **no borra**: una sede lleva pedidos, sellos y tarjetas colgando.
+  Las que el formulario ya no menciona salen en `sobrantes` para que alguien las
+  mire en el panel.
+- `POST /sync/products` acepta ahora `locationMode` + `locationNames`.
+
+**El contrato que la otra mitad tiene que respetar: Clubify casa las sedes por
+NOMBRE**, no por el id local del formulario. Hay que mandar `locationNames`
+(y el nombre se compara sin tildes, mayúsculas ni espacios de más).
+
+### La decisión que evita vaciar una carta entera
+
+Si los nombres que llegan no casan con ninguna sede —el push de sedes falló,
+alguien renombró una en el panel, el cliente escribió otra cosa— el producto
+queda en **TODAS**, visible. Lo contrario (`SELECCIONADAS` con cero sedes) lo
+esconde de todas las cartas y no se nota hasta que un cliente escanea el QR.
+
+Vive en `backend/src/onboarding-sync/sedes-del-onboarding.ts`, con 12 pruebas, y
+el sync devuelve `nombres_sin_sede` para que nunca sea silencioso.
+
+Por lo mismo, al escribir se guardan **primero las filas y después el modo**: si
+falla en medio, el producto se queda visible en vez de desaparecer.
+
+### Foto y descripción por sede
+
+`ProductLocation` ya guardaba precio, agotado y stock propios; le faltaban la
+foto y el texto. Es la misma hamburguesa servida en cesta en una sede y en plato
+en la otra, y el que escanea el QR tiene que ver la suya.
+
+- Columnas nuevas `ProductLocation.imageUrl` y `.description`, nullable y sin
+  default. **Null = lo del producto**, la misma regla que las otras tres.
+- La cadena vacía se normaliza a null **al escribir**: quien borra el texto de
+  una sede quiere volver al del catálogo, no dejar el producto mudo.
+- El menú público resuelve precio, foto y texto en una sola pasada por producto.
+- En el panel van plegadas (`<details>`): Revent tiene 18 sedes y desplegadas no
+  cabía el modal.
+
+### Pendiente, y por qué
+
+1. **No desplegué.** El árbol tiene cambios sin commitear que **no son míos**
+   (`auth.service.ts`, `sales-agenda.controller.ts`,
+   `service-reservations.service.ts`, los dos `*.baseline.json`). Los dejé
+   exactamente como estaban, según la regla 3.
+2. `sedeMenuEnabled` está en **false en los 119 negocios** y hay **0 filas** en
+   `ProductLocation`. Nada de esto se enciende solo: el Onboarding multisede
+   tiene que mandar `PATCH /sync/modules {sedeMenu: true}` **antes** que los
+   productos, o las sedes se ignoran — y cuando pasa, el sync lo dice en
+   `sedes.aplicado: false`.
+
 ## 2026-09-09 (noche) — Equipos de Ventas fase 4: la agenda
 
 **Desplegado y probado de punta a punta contra producción.** Sin migración: las

@@ -2,6 +2,11 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { OnboardingWebhookService } from './onboarding-webhook.service';
+import {
+  llaveDeSede,
+  resolverSedesDeProducto,
+  type SedesDeProducto,
+} from './sedes-del-onboarding';
 
 // Onboarding Sync API — Fase C. Escrituras por entidad, TODAS scoped al
 // tenantId que resuelve el token (nunca del body). Upsert NO destructivo: crea
@@ -328,6 +333,87 @@ export class OnboardingSyncService {
     return { ok: true, location_id: created.id, created: true };
   }
 
+  // ── 5b. Sedes del negocio (varias) — upsert por NOMBRE, no destructivo ──
+  //
+  // El Onboarding multisede manda la lista entera cada vez. Casa por nombre
+  // porque es lo único que el formulario conoce (ver `sedes-del-onboarding.ts`).
+  //
+  // **No borra.** Una sede que ya no está en la lista se informa en `sobrantes`
+  // y se queda: tiene pedidos, sellos y tarjetas colgando, y un formulario del
+  // que alguien borró una línea sin querer no puede llevarse eso por delante.
+  async syncLocations(tenantId: string, items: any) {
+    if (!Array.isArray(items)) {
+      throw new BadRequestException('Se espera un arreglo de sedes.');
+    }
+    const existentes = await this.prisma.location.findMany({
+      where: { tenantId },
+      select: { id: true, name: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const porLlave = new Map<string, string>();
+    for (const l of existentes) {
+      const k = llaveDeSede(l.name);
+      if (k && !porLlave.has(k)) porLlave.set(k, l.id);
+    }
+
+    const out: any[] = [];
+    const vistas = new Set<string>();
+    for (const s of items) {
+      const name = str(s?.name)?.trim();
+      if (!name) throw new BadRequestException('Cada sede requiere `name`.');
+      const llave = llaveDeSede(name);
+      if (vistas.has(llave)) continue; // dos líneas con el mismo nombre = una sede
+      vistas.add(llave);
+
+      const data: Record<string, any> = { name };
+      if (s.address !== undefined) data.address = String(s.address ?? '');
+      if (s.mapsUrl !== undefined) data.mapsUrl = s.mapsUrl ? String(s.mapsUrl) : null;
+      if (s.latitude !== undefined && s.latitude !== null)
+        data.latitude = decimal(s.latitude, 'latitude');
+      if (s.longitude !== undefined && s.longitude !== null)
+        data.longitude = decimal(s.longitude, 'longitude');
+      if (s.state !== undefined) data.state = s.state ? String(s.state) : null;
+      if (s.ordersWhatsappPhone !== undefined)
+        data.ordersWhatsappPhone = s.ordersWhatsappPhone
+          ? String(s.ordersWhatsappPhone)
+          : null;
+
+      const existente = porLlave.get(llave);
+      if (existente) {
+        await this.prisma.location.update({ where: { id: existente }, data });
+        out.push({ name, id: existente, created: false });
+      } else {
+        // latitude/longitude son obligatorias en el modelo y el formulario no
+        // siempre pide mapa. 0/0 es el mismo relleno que usa `syncLocation`:
+        // la sede existe y se puede completar después desde el panel.
+        const creada = await this.prisma.location.create({
+          data: {
+            tenantId,
+            name,
+            address: data.address ?? '',
+            latitude: data.latitude ?? new Prisma.Decimal(0),
+            longitude: data.longitude ?? new Prisma.Decimal(0),
+            mapsUrl: data.mapsUrl ?? null,
+            state: data.state ?? null,
+            ordersWhatsappPhone: data.ordersWhatsappPhone ?? null,
+          },
+        });
+        porLlave.set(llave, creada.id);
+        out.push({ name, id: creada.id, created: true });
+      }
+    }
+
+    // Sedes que el negocio tiene y el formulario ya no menciona. Se informan
+    // para que el operador las revise en el panel — típicamente la «Principal»
+    // que creó el alta del negocio antes de que hubiera nombres de verdad.
+    const enviadas = new Set(vistas);
+    const sobrantes = existentes
+      .filter((l) => !enviadas.has(llaveDeSede(l.name)))
+      .map((l) => ({ id: l.id, name: l.name }));
+
+    return { ok: true, locations: out, sobrantes };
+  }
+
   // ── 6. Programa de sellos (la tarjeta STAMPS del negocio) ─────────────
   async syncLoyaltyCard(tenantId: string, b: any) {
     const name = str(b.name)?.trim();
@@ -491,11 +577,40 @@ export class OnboardingSyncService {
   }
 
   // ── 10. Productos del menú (upsert por name+categoría, no destructivo) ─
+  //
+  // Con `locationMode` / `locationNames` el producto es UNO y cada sede solo
+  // guarda lo que cambia. El Onboarding multisede manda el catálogo entero una
+  // vez y marca dónde se vende cada cosa; no duplica productos por sede.
   async upsertProducts(tenantId: string, items: any) {
     if (!Array.isArray(items)) {
       throw new BadRequestException('Se espera un arreglo de productos.');
     }
+
+    // Las sedes se leen UNA vez, no por producto: un catálogo de onboarding
+    // trae cientos de líneas (Licores El Amanecer tiene 545) y una consulta
+    // por cada una convierte un guardado en una espera.
+    const hablaDeSedes = items.some(
+      (p: any) => p?.locationMode !== undefined || p?.locationNames !== undefined,
+    );
+    let sedes: { id: string; name: string }[] = [];
+    let sedeMenuEnabled = false;
+    if (hablaDeSedes) {
+      const [negocio, locs] = await Promise.all([
+        this.prisma.tenant.findUnique({
+          where: { id: tenantId },
+          select: { sedeMenuEnabled: true },
+        }),
+        this.prisma.location.findMany({
+          where: { tenantId },
+          select: { id: true, name: true },
+        }),
+      ]);
+      sedeMenuEnabled = negocio?.sedeMenuEnabled === true;
+      sedes = locs;
+    }
+
     const out: any[] = [];
+    const desconocidas = new Set<string>();
     for (const p of items) {
       const name = str(p?.name)?.trim();
       if (!name) throw new BadRequestException('Cada producto requiere `name`.');
@@ -523,11 +638,13 @@ export class OnboardingSyncService {
         where: { tenantId, name, categoryId },
         select: { id: true },
       });
+      let productId: string;
       if (existing) {
         await this.prisma.product.update({
           where: { id: existing.id },
           data: { ...data, categoryId },
         });
+        productId = existing.id;
         out.push({ name, id: existing.id, created: false });
       } else {
         if (p.basePrice === undefined) {
@@ -538,10 +655,115 @@ export class OnboardingSyncService {
         const created = await this.prisma.product.create({
           data: { tenantId, categoryId, ...data } as Prisma.ProductUncheckedCreateInput,
         });
+        productId = created.id;
         out.push({ name, id: created.id, created: true });
       }
+
+      // El interruptor manda, y se comprueba AQUÍ y no solo en el Onboarding:
+      // un negocio al que no se le habilitó la función no puede acabar con
+      // media carta escondida porque alguien llamó a la API a mano.
+      if (hablaDeSedes && sedeMenuEnabled) {
+        const donde = resolverSedesDeProducto(p, sedes);
+        if (donde) {
+          await this.guardarSedesDeProducto(productId, donde);
+          for (const d of donde.desconocidas) desconocidas.add(d);
+        }
+      }
     }
-    return { ok: true, products: out };
+
+    const resumen: Record<string, any> = { ok: true, products: out };
+    if (hablaDeSedes) {
+      // Callarse aquí sería el peor resultado posible: el cliente marcó sedes
+      // en el formulario y el menú saldría igual en todas sin que nadie sepa
+      // por qué. El log del push del Onboarding enseña esto.
+      resumen.sedes = {
+        aplicado: sedeMenuEnabled,
+        ...(sedeMenuEnabled
+          ? {}
+          : { motivo: 'El negocio no tiene el menú por sede habilitado (sedeMenu).' }),
+        ...(desconocidas.size ? { nombres_sin_sede: [...desconocidas] } : {}),
+      };
+    }
+    return resumen;
+  }
+
+  /**
+   * En qué sedes se vende un producto, escrito en `ProductLocation`.
+   *
+   * El ORDEN de las dos escrituras no es indiferente:
+   *
+   *  · A SELECCIONADAS se escriben **primero las filas** y después el modo. Si
+   *    algo falla en medio, el producto se queda en TODAS —visible— en vez de
+   *    quedar en «solo en las sedes marcadas» con cero sedes marcadas, que lo
+   *    esconde de todas las cartas y no se nota hasta que un cliente escanea
+   *    el QR.
+   *  · A TODAS se escribe **primero el modo**, por lo mismo: lo primero que
+   *    ocurre es que el producto vuelve a verse.
+   *
+   * Las filas que guardan algo propio de una sede —precio, agotado, stock, foto
+   * o texto— NUNCA se borran: eso lo puso el negocio en el panel, no el
+   * formulario, y repetir un sync no puede llevárselo.
+   */
+  private async guardarSedesDeProducto(
+    productId: string,
+    donde: SedesDeProducto,
+  ) {
+    if (donde.modo === 'TODAS') {
+      await this.prisma.product.update({
+        where: { id: productId },
+        data: { locationMode: 'TODAS' },
+      });
+      // «Sin filas = en todas las sedes». Una fila que solo dice `selected`
+      // sobra aquí, y dejarla oxida esa regla: mañana alguien cuenta filas
+      // para saber si un producto está personalizado y le sale que sí.
+      // Una fila con foto o texto propios de la sede NO esta vacia: eso lo
+      // puso el negocio en el panel y un re-sync del formulario no puede
+      // llevarselo.
+      await this.prisma.productLocation.deleteMany({
+        where: {
+          productId,
+          price: null,
+          isAvailable: null,
+          stock: null,
+          imageUrl: null,
+          description: null,
+        },
+      });
+      return;
+    }
+
+    const elegidas = donde.locationIds;
+    if (elegidas.length === 0) return; // el helper no lo permite; red de seguridad
+
+    for (const locationId of elegidas) {
+      await this.prisma.productLocation.upsert({
+        where: { productId_locationId: { productId, locationId } },
+        create: { productId, locationId, selected: true },
+        update: { selected: true },
+      });
+    }
+    // Las sedes que salen de la selección: si no guardaban nada propio se
+    // borran; si guardaban precio o stock se quedan con `selected` en false.
+    await this.prisma.productLocation.deleteMany({
+      where: {
+        productId,
+        locationId: { notIn: elegidas },
+        price: null,
+        isAvailable: null,
+        stock: null,
+        imageUrl: null,
+        description: null,
+      },
+    });
+    await this.prisma.productLocation.updateMany({
+      where: { productId, locationId: { notIn: elegidas } },
+      data: { selected: false },
+    });
+
+    await this.prisma.product.update({
+      where: { id: productId },
+      data: { locationMode: 'SELECCIONADAS' },
+    });
   }
 
   // ── 11. Cupones (Card type COUPON, upsert por name, no destructivo) ───

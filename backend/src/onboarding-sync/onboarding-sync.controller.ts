@@ -73,6 +73,15 @@ export class OnboardingSyncController {
     return this.sync.syncLocation(tid, body || {});
   }
 
+  // Varias sedes (Onboarding multisede). Arreglo directo o { items: [...] }.
+  // Upsert por NOMBRE y no borra ninguna: una sede lleva pedidos, sellos y
+  // tarjetas colgando, y un formulario al que alguien le quito una linea no
+  // puede llevarselos por delante. Ver syncLocations.
+  @Put('locations')
+  locations(@OnboardingTenantId() tid: string, @Body() body: any) {
+    return this.sync.syncLocations(tid, body?.items ?? body);
+  }
+
   @Put('loyalty-card')
   loyaltyCard(@OnboardingTenantId() tid: string, @Body() body: any) {
     return this.sync.syncLoyaltyCard(tid, body || {});

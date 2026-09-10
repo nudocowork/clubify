@@ -78,6 +78,10 @@ export type SedesDto = {
     /** null = lo que diga el producto. */
     isAvailable?: boolean | null;
     stock?: number | null;
+    /** Foto propia de esta sede. null = la del producto. */
+    imageUrl?: string | null;
+    /** Texto propio de esta sede. null = el del producto. */
+    description?: string | null;
   }[];
 };
 
@@ -157,6 +161,18 @@ export class ProductsService {
    *    dejar filas que no dicen nada la va oxidando: mañana alguien cuenta
    *    filas para saber si un producto está personalizado y le sale que sí.
    */
+  /**
+   * Texto en blanco = «lo mismo que el producto», no «esta sede no tiene».
+   *
+   * El panel manda cadena vacía cuando el usuario borra el campo, y quien lo
+   * borra quiere volver al catálogo. Guardarlo tal cual dejaba el producto
+   * mudo en esa sede y sin forma de deshacerlo desde la interfaz.
+   */
+  private sinVacio(v: string | null | undefined): string | null {
+    const t = typeof v === 'string' ? v.trim() : v;
+    return t == null || t === '' ? null : t;
+  }
+
   private async guardarSedes(
     tx: Prisma.TransactionClient,
     productId: string,
@@ -191,6 +207,8 @@ export class ProductsService {
         price: f.price ?? null,
         isAvailable: f.isAvailable ?? null,
         stock: f.stock ?? null,
+        imageUrl: this.sinVacio(f.imageUrl),
+        description: this.sinVacio(f.description),
       }))
       // Una fila solo se guarda si dice ALGO: o marca la sede (cuando el
       // producto va por sedes elegidas), o lleva precio/agotado/stock propios.
@@ -199,7 +217,9 @@ export class ProductsService {
           (modo === 'SELECCIONADAS' && f.selected) ||
           f.price !== null ||
           f.isAvailable !== null ||
-          f.stock !== null,
+          f.stock !== null ||
+          f.imageUrl !== null ||
+          f.description !== null,
       );
 
     await tx.product.update({
@@ -226,6 +246,8 @@ export class ProductsService {
           price: f.price,
           isAvailable: f.isAvailable,
           stock: f.stock,
+          imageUrl: f.imageUrl,
+          description: f.description,
         },
       });
     }
