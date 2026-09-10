@@ -8,6 +8,55 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-10 — Equipos de Ventas fase 5: la conversación
+
+**Desplegado y probado de punta a punta contra producción.** Sin migración:
+`SalesMessage` es de la fase 1.
+
+El vendedor ya lee en la ficha del lead lo que el cliente escribió, le responde
+desde ahí, y puede dejar notas internas en el mismo hilo.
+
+**Lo que faltaba no era saber quién escribe**, eso ya lo resolvía el webhook de
+marketing. Faltaba guardar QUÉ dijo: `extractRefs` sacaba el remitente y tiraba
+el texto. Ahora hay `extractBody` en `webhook.util.ts`, con sus pruebas — GHL no
+manda el cuerpo en un sitio fijo, depende del disparador que use el flujo.
+
+### Lo que no se puede romper aquí
+
+- **Un entrante se guarda en TODOS los leads que casen**, no en el más reciente.
+  El índice `[whiteLabelId, phoneKey]` de `SalesLead` **no es único a propósito**:
+  dos equipos de la misma marca pueden trabajar a la misma persona. Guardarlo en
+  uno solo deja al otro creyendo que nunca contestó.
+- **Dedup por `providerMessageId`**, porque GHL reintenta. Sin id NO se
+  deduplica, y también es a propósito: dos «hola» seguidos de verdad son dos
+  mensajes, y perder uno es peor que repetirlo.
+- **A quien se dio de baja no se le escribe.** El opt-out vive en `MktContact` y
+  es de la persona, no del canal.
+- **La burbuja se guarda solo si el proveedor aceptó el mensaje.** Pintar algo
+  que nunca salió deja al vendedor esperando una respuesta a algo que nadie
+  leyó.
+
+### Fontanería que conviene no «simplificar»
+
+«Lo que entra» (`SalesInboxService`) vive en su propia clase y su propio módulo,
+con Prisma como única dependencia. El webhook de marketing tiene que llamar ahí,
+y `SalesTeamsModule` ya importa `MarketingModule` para poder ENVIAR: juntas, los
+módulos se importan en círculo y **Nest no arranca**. Partirlo por
+entrada/salida lo rompe sin `forwardRef`.
+
+El enganche en el webhook va **sin `await`** y el servicio **no lanza nunca**:
+guardar la conversación no puede retrasar ni tumbar la reanudación de las
+automatizaciones, que es para lo que nació esa ruta.
+
+### Probado contra producción
+
+Webhook real a `/webhooks/email-inbound/clubify` con `type=inbound`, teléfono y
+cuerpo: el mensaje llegó a la conversación, la actividad del lead subió, el
+reintento con el mismo `messageId` no duplicó, y un teléfono desconocido no creó
+nada. Datos de prueba borrados al terminar.
+
+**Falta la fase 6**: disparadores nuevos en el motor Mkt.
+
 ## 2026-09-09 (noche, 2) — Menú multisede desde el Onboarding: la mitad de acá
 
 **Migración APLICADA a producción. Código NO desplegado.** Es aditiva y sobre
@@ -129,55 +178,6 @@ en la otra, y el que escanea el QR tiene que ver la suya.
    tiene que mandar `PATCH /sync/modules {sedeMenu: true}` **antes** que los
    productos, o las sedes se ignoran — y cuando pasa, el sync lo dice en
    `sedes.aplicado: false`.
-
-## 2026-09-10 — Equipos de Ventas fase 5: la conversación
-
-**Desplegado y probado de punta a punta contra producción.** Sin migración:
-`SalesMessage` es de la fase 1.
-
-El vendedor ya lee en la ficha del lead lo que el cliente escribió, le responde
-desde ahí, y puede dejar notas internas en el mismo hilo.
-
-**Lo que faltaba no era saber quién escribe**, eso ya lo resolvía el webhook de
-marketing. Faltaba guardar QUÉ dijo: `extractRefs` sacaba el remitente y tiraba
-el texto. Ahora hay `extractBody` en `webhook.util.ts`, con sus pruebas — GHL no
-manda el cuerpo en un sitio fijo, depende del disparador que use el flujo.
-
-### Lo que no se puede romper aquí
-
-- **Un entrante se guarda en TODOS los leads que casen**, no en el más reciente.
-  El índice `[whiteLabelId, phoneKey]` de `SalesLead` **no es único a propósito**:
-  dos equipos de la misma marca pueden trabajar a la misma persona. Guardarlo en
-  uno solo deja al otro creyendo que nunca contestó.
-- **Dedup por `providerMessageId`**, porque GHL reintenta. Sin id NO se
-  deduplica, y también es a propósito: dos «hola» seguidos de verdad son dos
-  mensajes, y perder uno es peor que repetirlo.
-- **A quien se dio de baja no se le escribe.** El opt-out vive en `MktContact` y
-  es de la persona, no del canal.
-- **La burbuja se guarda solo si el proveedor aceptó el mensaje.** Pintar algo
-  que nunca salió deja al vendedor esperando una respuesta a algo que nadie
-  leyó.
-
-### Fontanería que conviene no «simplificar»
-
-«Lo que entra» (`SalesInboxService`) vive en su propia clase y su propio módulo,
-con Prisma como única dependencia. El webhook de marketing tiene que llamar ahí,
-y `SalesTeamsModule` ya importa `MarketingModule` para poder ENVIAR: juntas, los
-módulos se importan en círculo y **Nest no arranca**. Partirlo por
-entrada/salida lo rompe sin `forwardRef`.
-
-El enganche en el webhook va **sin `await`** y el servicio **no lanza nunca**:
-guardar la conversación no puede retrasar ni tumbar la reanudación de las
-automatizaciones, que es para lo que nació esa ruta.
-
-### Probado contra producción
-
-Webhook real a `/webhooks/email-inbound/clubify` con `type=inbound`, teléfono y
-cuerpo: el mensaje llegó a la conversación, la actividad del lead subió, el
-reintento con el mismo `messageId` no duplicó, y un teléfono desconocido no creó
-nada. Datos de prueba borrados al terminar.
-
-**Falta la fase 6**: disparadores nuevos en el motor Mkt.
 
 ## 2026-09-09 (noche) — Equipos de Ventas fase 4: la agenda
 
