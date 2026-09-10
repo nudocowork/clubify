@@ -1874,6 +1874,12 @@ model Stamp {
 model Location {
   clubConsumos        ClubConsumo[]
   id                  String   @id @default(uuid())
+  /// El id que le puso el Onboarding a esta sede. Null en las creadas a mano.
+  ///
+  /// Existe para que renombrar una sede en el formulario sea un cambio de
+  /// nombre y no una sede nueva: casar por nombre creaba una segunda y dejaba
+  /// los productos repartidos entre las dos.
+  externalId          String?
   tenantId            String
   tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name                String
@@ -1926,6 +1932,10 @@ model Location {
   convenioSedes     ConvenioSede[]
   convenioCanjes    ConvenioCanje[]
 
+  /// Un negocio no puede tener dos sedes con el mismo id del Onboarding.
+  /// Nullable: en Postgres varios NULL conviven, así que las sedes de siempre
+  /// no estorban.
+  @@unique([tenantId, externalId])
   @@index([tenantId])
 }
 

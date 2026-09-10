@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+  indexarSedes,
   llaveDeSede,
   resolverOverridesDeProducto,
+  resolverSede,
   resolverSedesDeProducto,
   type SedeConocida,
 } from './sedes-del-onboarding';
@@ -221,5 +223,116 @@ describe('resolverOverridesDeProducto', () => {
     expect(ov([null, 'texto', 42, { sinNombre: 1 }]).overrides).toEqual([]);
     expect(resolverOverridesDeProducto({ locationOverrides: 'no es lista' }, SEDES))
       .toEqual({ overrides: [], desconocidas: [] });
+  });
+});
+
+describe('el id del Onboarding manda sobre el nombre', () => {
+  // Las sedes ya sincronizadas llevan el id que les puso el Onboarding.
+  const CON_ID: SedeConocida[] = [
+    { id: 'loc-cab', name: 'Sede Cabecera', externalId: 'ob-1' },
+    { id: 'loc-cac', name: 'Sede Cacique', externalId: 'ob-2' },
+    { id: 'loc-cen', name: 'Sede Centro', externalId: 'ob-3' },
+  ];
+
+  it('casa por externalId aunque el nombre no se parezca', () => {
+    const r = resolverSedesDeProducto(
+      { locationMode: 'SELECCIONADAS', locationExternalIds: ['ob-1', 'ob-2'] },
+      CON_ID,
+    );
+    expect(r?.locationIds).toEqual(['loc-cab', 'loc-cac']);
+  });
+
+  // El daño que este campo existe para evitar: sin él, corregir el nombre en el
+  // formulario creaba una SEGUNDA sede y repartía los productos entre las dos.
+  it('renombrar la sede en el formulario sigue apuntando a la misma sede', () => {
+    const r = resolverSedesDeProducto(
+      {
+        locationMode: 'SELECCIONADAS',
+        locationExternalIds: ['ob-2'],
+        locationNames: ['Cacique Mall'],
+      },
+      CON_ID,
+    );
+    expect(r?.locationIds).toEqual(['loc-cac']);
+    expect(r?.desconocidas).toEqual([]);
+  });
+
+  // Compatibilidad: las 161 sedes de producción se crearon antes del id.
+  it('sin externalId todavía casa por nombre', () => {
+    const r = resolverSedesDeProducto(
+      { locationMode: 'SELECCIONADAS', locationNames: ['Sede Centro'] },
+      SEDES,
+    );
+    expect(r?.locationIds).toEqual(['loc-cen']);
+  });
+
+  // Un id que no conocemos es una sede NUEVA. Engancharla a otra que se llame
+  // parecido le metería los productos a la sede equivocada.
+  it('un externalId desconocido no se cae al nombre de otra sede', () => {
+    const r = resolverSedesDeProducto(
+      {
+        locationMode: 'SELECCIONADAS',
+        locationExternalIds: ['ob-nueva'],
+      },
+      CON_ID,
+    );
+    expect(r?.modo).toBe('TODAS');
+    expect(r?.desconocidas).toEqual(['#ob-nueva']);
+  });
+
+  it('no duplica cuando la misma sede llega por id y por nombre', () => {
+    const r = resolverSedesDeProducto(
+      {
+        locationMode: 'SELECCIONADAS',
+        locationExternalIds: ['ob-3'],
+        locationNames: ['Sede Centro'],
+      },
+      CON_ID,
+    );
+    expect(r?.locationIds).toEqual(['loc-cen']);
+  });
+
+  it('los cambios por sede también casan por externalId', () => {
+    const r = resolverOverridesDeProducto(
+      {
+        locationOverrides: [
+          { externalId: 'ob-2', price: 28000, imageUrl: 'https://cdn/plato.jpg' },
+        ],
+      },
+      CON_ID,
+    );
+    expect(r.overrides).toEqual([
+      { locationId: 'loc-cac', price: 28000, imageUrl: 'https://cdn/plato.jpg' },
+    ]);
+  });
+
+  it('una sede sin id del Onboarding se identifica por su nombre', () => {
+    const mixtas: SedeConocida[] = [
+      { id: 'loc-vieja', name: 'Principal', externalId: null },
+      { id: 'loc-cab', name: 'Sede Cabecera', externalId: 'ob-1' },
+    ];
+    const r = resolverOverridesDeProducto(
+      { locationOverrides: [{ name: 'Principal', price: 100 }] },
+      mixtas,
+    );
+    expect(r.overrides).toEqual([{ locationId: 'loc-vieja', price: 100 }]);
+  });
+});
+
+describe('resolverSede', () => {
+  const idx = indexarSedes([
+    { id: 'a', name: 'Sede Norte', externalId: 'x1' },
+    { id: 'b', name: 'Sede Sur', externalId: null },
+  ]);
+
+  it('encuentra por id, por nombre, y devuelve null si no hay nada', () => {
+    expect(resolverSede({ externalId: 'x1' }, idx)).toBe('a');
+    expect(resolverSede({ name: 'sede sur' }, idx)).toBe('b');
+    expect(resolverSede({ name: 'Sede Este' }, idx)).toBeNull();
+    expect(resolverSede({}, idx)).toBeNull();
+  });
+
+  it('con id conocido ignora el nombre que venga', () => {
+    expect(resolverSede({ externalId: 'x1', name: 'Sede Sur' }, idx)).toBe('a');
   });
 });

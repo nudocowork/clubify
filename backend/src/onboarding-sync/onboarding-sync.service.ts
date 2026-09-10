@@ -3,8 +3,10 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { OnboardingWebhookService } from './onboarding-webhook.service';
 import {
+  indexarSedes,
   llaveDeSede,
   resolverOverridesDeProducto,
+  resolverSede,
   resolverSedesDeProducto,
   type OverrideDeSede,
   type SedesDeProducto,
@@ -335,37 +337,38 @@ export class OnboardingSyncService {
     return { ok: true, location_id: created.id, created: true };
   }
 
-  // ── 5b. Sedes del negocio (varias) — upsert por NOMBRE, no destructivo ──
+  // ── 5b. Sedes del negocio (varias) — upsert por externalId, no destructivo ──
   //
-  // El Onboarding multisede manda la lista entera cada vez. Casa por nombre
-  // porque es lo único que el formulario conoce (ver `sedes-del-onboarding.ts`).
+  // El Onboarding multisede manda la lista entera cada vez, con SU id
+  // (`externalId`) en cada sede. Se casa por ese id y, de respaldo, por nombre:
+  // las sedes que ya existen en producción se crearon antes de que el id
+  // existiera. Al casarlas por nombre se les graba el id, y a partir de ahí
+  // renombrar la sede en el formulario es un cambio de nombre y no una sede
+  // nueva (ver `sedes-del-onboarding.ts`).
   //
   // **No borra.** Una sede que ya no está en la lista se informa en `sobrantes`
-  // y se queda: tiene pedidos, sellos y tarjetas colgando, y un formulario del
-  // que alguien borró una línea sin querer no puede llevarse eso por delante.
+  // y se queda: tiene pedidos, sellos y tarjetas colgando, y un formulario al
+  // que alguien le quitó una línea sin querer no puede llevarse eso por delante.
   async syncLocations(tenantId: string, items: any) {
     if (!Array.isArray(items)) {
       throw new BadRequestException('Se espera un arreglo de sedes.');
     }
     const existentes = await this.prisma.location.findMany({
       where: { tenantId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, externalId: true },
       orderBy: { createdAt: 'asc' },
     });
-    const porLlave = new Map<string, string>();
-    for (const l of existentes) {
-      const k = llaveDeSede(l.name);
-      if (k && !porLlave.has(k)) porLlave.set(k, l.id);
-    }
+    const idx = indexarSedes(existentes);
+    const yaConId = new Set(
+      existentes.filter((l) => l.externalId).map((l) => l.id),
+    );
 
     const out: any[] = [];
-    const vistas = new Set<string>();
+    const usadas = new Set<string>();
     for (const s of items) {
       const name = str(s?.name)?.trim();
       if (!name) throw new BadRequestException('Cada sede requiere `name`.');
-      const llave = llaveDeSede(name);
-      if (vistas.has(llave)) continue; // dos líneas con el mismo nombre = una sede
-      vistas.add(llave);
+      const externalId = str(s?.externalId)?.trim() || null;
 
       const data: Record<string, any> = { name };
       if (s.address !== undefined) data.address = String(s.address ?? '');
@@ -380,37 +383,57 @@ export class OnboardingSyncService {
           ? String(s.ordersWhatsappPhone)
           : null;
 
-      const existente = porLlave.get(llave);
-      if (existente) {
+      const existente = resolverSede({ externalId, name }, idx);
+
+      // Una sede ya casada en esta misma pasada no se vuelve a casar: dos
+      // líneas del formulario que apuntan a la misma sede son un error del
+      // formulario, y dejar que la segunda pise a la primera renombraría una
+      // sede real con el nombre de otra.
+      if (existente && !usadas.has(existente)) {
+        usadas.add(existente);
+        // El id solo se graba si la sede no tenía uno. Sobrescribir el de una
+        // sede que ya venía identificada la robaría de otro registro.
+        if (externalId && !yaConId.has(existente)) {
+          data.externalId = externalId;
+          idx.porExterno.set(externalId, existente);
+          yaConId.add(existente);
+        }
         await this.prisma.location.update({ where: { id: existente }, data });
-        out.push({ name, id: existente, created: false });
-      } else {
-        // latitude/longitude son obligatorias en el modelo y el formulario no
-        // siempre pide mapa. 0/0 es el mismo relleno que usa `syncLocation`:
-        // la sede existe y se puede completar después desde el panel.
-        const creada = await this.prisma.location.create({
-          data: {
-            tenantId,
-            name,
-            address: data.address ?? '',
-            latitude: data.latitude ?? new Prisma.Decimal(0),
-            longitude: data.longitude ?? new Prisma.Decimal(0),
-            mapsUrl: data.mapsUrl ?? null,
-            state: data.state ?? null,
-            ordersWhatsappPhone: data.ordersWhatsappPhone ?? null,
-          },
-        });
-        porLlave.set(llave, creada.id);
-        out.push({ name, id: creada.id, created: true });
+        out.push({ name, externalId, id: existente, created: false });
+        continue;
       }
+
+      // latitude/longitude son obligatorias en el modelo y el formulario no
+      // siempre pide mapa. 0/0 es el mismo relleno que usa `syncLocation`: la
+      // sede existe y se completa después desde el panel.
+      const creada = await this.prisma.location.create({
+        data: {
+          tenantId,
+          externalId,
+          name,
+          address: data.address ?? '',
+          latitude: data.latitude ?? new Prisma.Decimal(0),
+          longitude: data.longitude ?? new Prisma.Decimal(0),
+          mapsUrl: data.mapsUrl ?? null,
+          state: data.state ?? null,
+          ordersWhatsappPhone: data.ordersWhatsappPhone ?? null,
+        },
+      });
+      usadas.add(creada.id);
+      if (externalId) {
+        idx.porExterno.set(externalId, creada.id);
+        yaConId.add(creada.id);
+      }
+      const k = llaveDeSede(name);
+      if (k && !idx.porNombre.has(k)) idx.porNombre.set(k, creada.id);
+      out.push({ name, externalId, id: creada.id, created: true });
     }
 
     // Sedes que el negocio tiene y el formulario ya no menciona. Se informan
     // para que el operador las revise en el panel — típicamente la «Principal»
     // que creó el alta del negocio antes de que hubiera nombres de verdad.
-    const enviadas = new Set(vistas);
     const sobrantes = existentes
-      .filter((l) => !enviadas.has(llaveDeSede(l.name)))
+      .filter((l) => !usadas.has(l.id))
       .map((l) => ({ id: l.id, name: l.name }));
 
     return { ok: true, locations: out, sobrantes };
@@ -595,6 +618,7 @@ export class OnboardingSyncService {
       (p: any) =>
         p?.locationMode !== undefined ||
         p?.locationNames !== undefined ||
+        p?.locationExternalIds !== undefined ||
         p?.locationOverrides !== undefined,
     );
     let sedes: { id: string; name: string }[] = [];
@@ -607,7 +631,7 @@ export class OnboardingSyncService {
         }),
         this.prisma.location.findMany({
           where: { tenantId },
-          select: { id: true, name: true },
+          select: { id: true, name: true, externalId: true },
         }),
       ]);
       sedeMenuEnabled = negocio?.sedeMenuEnabled === true;

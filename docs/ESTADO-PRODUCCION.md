@@ -82,6 +82,46 @@ railway run npx prisma db pull --schema=/tmp/introspect.prisma
 
 ## Divergencias conocidas
 
+### El frontend desplegado es anterior al 2026-08-02 — y por eso el menú no tiene fotos (2026-09-10)
+
+El equipo del Onboarding reporta que «el backend rechaza las imágenes que no son
+de vuestro bucket» y que los menús se ven sin fotos. **No es el backend y no es
+código: es un despliegue de frontend que nunca se hizo.**
+
+Lo que se midió, contra producción:
+
+| Prueba | Resultado |
+|---|---|
+| `api/media/proxy` con una URL del bucket del Onboarding | **La acepta** (`Upstream 400` = llegó a Supabase) |
+| `_next/image` con esa misma URL | `400 INVALID_IMAGE_OPTIMIZE_REQUEST` |
+| `_next/image` con `cdn.soyclubify.com` y archivo inexistente | `404 NOT_FOUND` |
+| `_next/image` con `example.com` | `400 INVALID_IMAGE_OPTIMIZE_REQUEST` |
+
+Las dos últimas filas son la prueba de control: distinguen «host no permitido»
+de «archivo no existe». El bucket del Onboarding da **el mismo error que
+`example.com`**, así que el frontend que corre no lo tiene en `remotePatterns`.
+
+El arreglo está en `main` desde el **2026-08-02** (`5a80c23d`, «permitir el
+bucket del onboarding (Supabase) en proxy + next/image»), y `next.config.js` no
+ha cambiado desde entonces. El backend sí se desplegó; el frontend no.
+
+**Arreglo: `node scripts/desplegar.cjs frontend`.** No hay que tocar código.
+
+Host permitido, por si alguien lo cambia: `ugbqfcogmqkuhhepecfq.supabase.co`,
+solo bajo `/storage/v1/object/public/**`.
+
+### `Location.externalId` existe en producción y el código aún no está desplegado (2026-09-10)
+
+El id que le pone el Onboarding a cada sede, para que renombrarla no cree una
+sede nueva. Nullable, sin default, y con un único `(tenantId, externalId)`.
+Aplicado sobre las 161 sedes existentes sin tocar ninguna: todas quedan con
+`externalId` en null y se les graba solo cuando el Onboarding las sincronice.
+
+Script: `backend/scripts/apply-location-external-id-migration.cjs`, idempotente
+y con un aborto explícito si encontrara ids repetidos dentro de un negocio.
+
+
+
 ### `ProductLocation` tiene dos columnas que el código desplegado aún no usa (2026-09-09)
 
 `ProductLocation.imageUrl` y `ProductLocation.description` **ya existen en la

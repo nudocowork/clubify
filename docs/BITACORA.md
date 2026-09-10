@@ -160,9 +160,12 @@ multisede. El orden no es estético: cada una depende de la anterior.
 //    responde ok y el menú sale igual en todas partes.
 PATCH /sync/modules      { sedeMenu: true }
 
-// 2. Las sedes. Upsert por NOMBRE. Los ids locales del formulario no viajan.
-PUT   /sync/locations    [{ name, address?, latitude?, longitude?, mapsUrl?,
-                            state?, ordersWhatsappPhone? }]
+// 2. Las sedes. `externalId` es VUESTRO id (el uid del formulario) y es lo que
+//    manda: con él, renombrar una sede es un cambio de nombre y no una sede
+//    nueva. Las sedes que ya existan se encuentran por nombre la primera vez y
+//    se quedan con el id grabado.
+PUT   /sync/locations    [{ externalId, name, address?, latitude?, longitude?,
+                            mapsUrl?, state?, ordersWhatsappPhone? }]
 
 // 3. Igual que hoy.
 POST  /sync/categories   [{ name, position }]
@@ -171,37 +174,47 @@ POST  /sync/categories   [{ name, position }]
 POST  /sync/products     [{
         name, basePrice, description, imageUrl, categoryName, position,
 
-        // DÓNDE se vende. Omitir las dos = «en todas», como hasta ahora.
+        // DÓNDE se vende. Omitir todo = «en todas», como hasta ahora.
         locationMode: 'TODAS' | 'SELECCIONADAS',
-        locationNames: ['Sede Cabecera', 'Sede Cacique'],
+        locationExternalIds: ['ob-1', 'ob-2'],   // preferido
+        locationNames: ['Sede Cabecera'],        // respaldo, si no hay ids
 
         // QUÉ cambia en cada sede. Independiente de lo anterior: un producto
         // en TODAS puede tener otro precio en una sede.
         locationOverrides: [
-          { name: 'Sede Cabecera', price: 25000,
+          { externalId: 'ob-1', price: 25000,
             imageUrl: 'https://…', description: '…', isAvailable: true },
         ],
       }]
 ```
 
-**Los nombres se comparan sin tildes, mayúsculas ni espacios de más**, así que
-«sede CABECERA» casa con «Sede Cábecera». Lo que no casa con ninguna sede se
-devuelve en la respuesta:
+La Hamburguesa BBQ del ejemplo es exactamente esto: **un** producto, con
+`locationMode: 'SELECCIONADAS'`, `locationExternalIds: ['cabecera','cacique']` y
+dos `locationOverrides` con su precio y su foto. Centro no aparece y por eso no
+la vende.
+
+**Si mandáis `locationExternalIds`, los nombres se ignoran** — son la misma
+lista dicha dos veces. Un id que Clubify no conoce **no** se busca por nombre:
+es una sede nueva, y sale en la respuesta para avisar de que faltó el paso 2.
 
 ```json
 { "ok": true, "products": [...],
-  "sedes": { "aplicado": true, "nombres_sin_sede": ["Sede Piedecuesta"] } }
+  "sedes": { "aplicado": true, "nombres_sin_sede": ["#ob-9"] } }
 ```
 
 Si `aplicado` es `false`, faltó la llamada 1. **Mirar ese campo en el log del
 push**: es la única señal de que las sedes se ignoraron.
 
-Dos cosas que el sync NO hace, a propósito:
+Tres cosas que el sync NO hace, a propósito:
 
 - **No borra sedes.** Las que el formulario ya no menciona salen en `sobrantes`.
 - **No vacía campos.** `locationOverrides` escribe solo lo que llega con valor;
   un reenvío del módulo no le quita a una sede el precio que el negocio puso en
   el panel. Vaciar se hace desde el panel.
+- **No esconde el producto si algo no casa.** Si ninguna sede se resuelve, queda
+  en TODAS y se ve. Lo contrario vacía la carta y no se nota hasta que un
+  cliente escanea el QR — por eso **no hace falta** mandar `isAvailable: false`
+  para los productos sin sede: eso apagaría el producto en el catálogo entero.
 
 
 ### La decisión que evita vaciar una carta entera
