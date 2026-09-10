@@ -970,6 +970,7 @@ export default function MenuEditor() {
           mainLabel={mainLabel}
           carta={cartaActual}
           sedes={sedes}
+          cartas={menus?.menus ?? []}
         />
       )}
 
@@ -3218,13 +3219,16 @@ function PublicMenuLinks({
   mainLabel,
   carta,
   sedes = [],
+  cartas = [],
 }: {
   slug: string;
   mainLabel: string;
   /** Carta activa. El menú principal no lleva parámetro. */
   carta?: { id: string | null; name: string; locationId: string | null } | null;
-  /** Sedes del negocio. Con 2 o más se enseña un enlace por cada una. */
+  /** Sedes del negocio. */
   sedes?: Array<{ id: string; name: string; address?: string | null; isActive?: boolean }>;
+  /** Cartas del negocio, incluida la principal. */
+  cartas?: Array<{ id: string | null }>;
 }) {
   const t = useTranslations('app_menu');
   const [origin, setOrigin] = useState<string>('');
@@ -3241,18 +3245,22 @@ function PublicMenuLinks({
   const labelLower = mainLabel.toLowerCase();
 
   /**
-   * Enlaces por sede.
+   * Cuándo se enseñan los enlaces por sede: **varias sedes Y varias cartas**
+   * (decisión de Javier, 2026-09-10).
    *
-   * Con UNA sede no se enseña nada: el enlace general ya es el de esa sede y
-   * dos enlaces idénticos solo confunden. A partir de dos, cada una necesita
-   * el suyo — es lo que hace que el pedido llegue al WhatsApp correcto.
+   * Si todas las sedes comparten la MISMA carta, los enlaces por sede llevan
+   * al mismo sitio que el general y solo añaden ruido. Solo cuando cada sede
+   * tiene su propia carta hay algo distinto que copiar.
    *
-   * OJO: esto NO depende de que el negocio tenga una carta por sede. Slata
-   * tenía sus dos sedes creadas desde el Onboarding, un solo catálogo, y aquí
-   * no salía ninguna. Las sedes y las cartas son cosas distintas.
+   * `cartas` incluye la principal, así que «varias» es 2 o más.
    */
   const sedesActivas = sedes.filter((s) => s.isActive !== false);
-  const haySedes = sedesActivas.length >= 2;
+  const haySedes = sedesActivas.length >= 2 && cartas.length >= 2;
+
+  // Plegables. Abiertos de entrada: la flecha está para poder cerrar, no para
+  // esconder de salida algo que antes se veía.
+  const [abierto, setAbierto] = useState(true);
+  const [abiertoSedes, setAbiertoSedes] = useState(true);
 
   async function copy(url: string, label: string) {
     try {
@@ -3265,13 +3273,25 @@ function PublicMenuLinks({
 
   return (
     <div className="card card-pad mb-4">
-      <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-        🔗 {t('publicLinksTitle', { label: labelLower })}
-      </h2>
+      <button
+        type="button"
+        onClick={() => setAbierto((v) => !v)}
+        aria-expanded={abierto}
+        className="w-full flex items-center gap-2 text-left"
+      >
+        <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+          🔗 {t('publicLinksTitle', { label: labelLower })}
+        </h2>
+        <span className="ml-auto text-mute text-sm select-none" aria-hidden>
+          {abierto ? '▾' : '▸'}
+        </span>
+      </button>
+      {abierto && (
       <p className="text-xs text-mute mt-1 leading-relaxed">
         {t('publicLinksIntro')}
       </p>
-      <div className="mt-4 grid md:grid-cols-2 gap-3">
+      )}
+      <div className={`mt-4 grid md:grid-cols-2 gap-3 ${abierto ? '' : 'hidden'}`}>
         {/* Mesa */}
         <div className="rounded-input border border-line2 bg-bg2/30 p-4">
           <div className="flex items-center gap-2 text-sm font-semibold">
@@ -3345,16 +3365,28 @@ function PublicMenuLinks({
 
       {haySedes && (
         <div className="mt-5 border-t border-line2 pt-4">
-          <h3 className="text-sm font-semibold m-0 flex items-center gap-2">
-            📍 {t('sedeLinksTitle')}
-            <span className="text-[10px] font-bold uppercase tracking-wider bg-bg2 text-mute px-1.5 py-0.5 rounded">
-              {sedesActivas.length}
+          <button
+            type="button"
+            onClick={() => setAbiertoSedes((v) => !v)}
+            aria-expanded={abiertoSedes}
+            className="w-full flex items-center gap-2 text-left"
+          >
+            <h3 className="text-sm font-semibold m-0 flex items-center gap-2">
+              📍 {t('sedeLinksTitle')}
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-bg2 text-mute px-1.5 py-0.5 rounded">
+                {sedesActivas.length}
+              </span>
+            </h3>
+            <span className="ml-auto text-mute text-sm select-none" aria-hidden>
+              {abiertoSedes ? '▾' : '▸'}
             </span>
-          </h3>
+          </button>
+          {abiertoSedes && (
           <p className="text-[11px] text-mute mt-1 leading-snug">
             {t('sedeLinksIntro')}
           </p>
-          <div className="mt-3 space-y-2">
+          )}
+          <div className={`mt-3 space-y-2 ${abiertoSedes ? '' : 'hidden'}`}>
             {sedesActivas.map((sede) => {
               const q = `?sede=${encodeURIComponent(sede.id)}`;
               const mesa = `${origin}/m/${slug}${q}`;
