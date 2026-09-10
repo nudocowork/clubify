@@ -8,6 +8,48 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-10 (7) — «Links públicos del menú» no enseñaba las sedes
+
+Desplegado (frontend, commit `0eb6f5ec`). Prueba de humo en verde, `/app/menu`
+en 200, y los cuatro enlaces por sede de Slata responden 200.
+
+### SEDES ≠ CARTAS, y confundirlas era el bug
+
+Slata tiene sus **dos sedes creadas desde el Onboarding** (Cabecera
+Bucaramanga y Floridablanca, las dos activas) y en la tarjeta salía **un solo
+enlace**.
+
+La tarjeta solo sabía de **cartas**. Y una carta por sede es otra cosa: es
+`Tenant.multiMenuEnabled` (Slata lo tiene en **false**) y sirve para que cada
+sede tenga un **catálogo distinto**. Las **sedes** existen siempre.
+
+**Un negocio con dos sedes y un solo catálogo igual necesita un enlace por
+sede**: el `?sede=<Location.id>` es lo que ata el pedido a esa sede y lo hace
+llegar al WhatsApp de ESA sede (`Location.ordersWhatsappPhone`). Sin enlace por
+sede, ese campo era **inalcanzable desde esta pantalla**.
+
+Ahora, **con 2 o más sedes activas** aparece un bloque «Enlaces por sede» con
+el par Mesa/Delivery de cada una. Con **una sola sede no se enseña nada**: el
+enlace general ya es el de esa sede, y dos enlaces idénticos solo confunden.
+
+### El segundo fallo, que estaba a la vista
+
+El botón **«Abrir» apuntaba a `/m/<slug>` y `/d/<slug>` pelados**, sin el
+`?sede=`. En un negocio que sí tiene carta por sede, la cajita de arriba
+enseñaba la URL con la sede y el botón de al lado abría el menú principal:
+**copiar y abrir daban cosas distintas.** Corregido.
+
+### Detalle de implementación
+
+La página **ya cargaba `/locations`** en un estado `sedes` para asignarle sede
+a cada carta. Se reutiliza ese —solo se le añaden `address` e `isActive`— en
+vez de pedir lo mismo dos veces. Si `/locations` falla, la tarjeta enseña solo
+el enlace general, como antes.
+
+Textos nuevos en `es`, `en` y `pt`.
+
+---
+
 ## 2026-09-10 (6) — El Onboarding activaba negocios GRATIS: la marca no pagaba el crédito
 
 Desplegado (backend, commit `7df04c71`). Health en 200.
