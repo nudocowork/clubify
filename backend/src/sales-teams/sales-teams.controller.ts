@@ -70,9 +70,14 @@ export class SalesTeamsController {
     return this.svc.listEligibleUsers(user, teamId);
   }
 
+  // El usuario NO es opcional aquí, y esa es toda la corrección: `svc.get`
+  // solo comprueba la marca si lo recibe, y esta ruta no se lo pasaba. Un
+  // admin de Sellea con el id de un equipo de Clubify leía su nombre, su líder
+  // y el correo de todos sus miembros. La escritura sí estaba cerrada; la
+  // lectura se quedó fuera, que es la mitad que no se nota.
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.svc.get(id);
+  get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.get(id, user);
   }
 
   @Post()

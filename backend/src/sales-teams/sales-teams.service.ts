@@ -64,9 +64,15 @@ export class SalesTeamsService {
    * podía leer, editar y borrar un equipo de Clubify con solo saber su id. Los
    * métodos de escritura llamaban a este `get` creyendo que validaba, y solo
    * validaba que existiera.
+   *
+   * El usuario es OBLIGATORIO desde el 2026-09-10. Antes era opcional «por si
+   * alguien lo llama por dentro», y la ruta `GET /admin/sales-teams/:id` no se
+   * lo pasaba: la escritura quedó cerrada y la lectura abierta durante dos
+   * días. Un parámetro opcional en una comprobación de seguridad es una puerta
+   * que alguien vuelve a dejar abierta sin querer.
    */
-  async get(id: string, user?: AuthUser) {
-    if (user) await this.exigirMiMarca(id, user);
+  async get(id: string, user: AuthUser) {
+    await this.exigirMiMarca(id, user);
     const team = await this.prisma.salesTeam.findUnique({
       where: { id },
       include: {
@@ -245,15 +251,18 @@ export class SalesTeamsService {
    * ser miembro adicionalmente).
    */
   async listEligibleUsers(user: AuthUser, teamId?: string) {
+    const alcance = await resolveBrandScope(this.prisma, user.whiteLabelId);
     const where: any = {
       role: {
         in: ['AFFILIATE_INFLUENCER', 'AFFILIATE_AMBASSADOR', 'AFFILIATE_SOCIO'],
       },
       isActive: true,
-      // Aislamiento por marca: solo afiliados de la marca activa.
-      ...(user.whiteLabelId
-        ? { referralCodes: { some: { whiteLabelId: user.whiteLabelId } } }
-        : {}),
+      // Aislamiento por marca. Se resuelve con `resolveBrandScope`, NO con
+      // `user.whiteLabelId` a pelo: con la sesión sin marca, ese campo es null
+      // y el `where` se quedaba sin la condición entera — o sea, listaba los
+      // afiliados de TODAS las marcas con su nombre y su correo. Es el mismo
+      // agujero que `list()` ya había cerrado tres métodos más arriba.
+      referralCodes: { some: { whiteLabelId: alcance.wlId } },
     };
     if (teamId) {
       // Excluir users que YA están en este equipo.
