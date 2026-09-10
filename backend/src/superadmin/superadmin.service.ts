@@ -2034,6 +2034,10 @@ export class SuperAdminService {
         mapsApiKey: true,
         planPeriodicities: true,
         shareImageUrl: true,
+        // Pixel de Meta de ESTA marca. Va en el branding público porque el
+        // layout lo necesita en el PRIMER HTML: un pixel que llega por una
+        // segunda petición se pierde la visita que venía a medir.
+        metaPixelId: true,
         subscriptionFeatureKeys: true,
         installationFeeUsd: true,
         installationPromoUsd: true,

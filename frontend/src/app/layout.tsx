@@ -11,7 +11,14 @@ import { NativeAppChrome } from '@/components/NativeAppChrome';
 import { googleFontsUrls } from '@/lib/marketing/qr-poster-config';
 import { FuentesDelCatalogo } from '@/components/FuentesDelCatalogo';
 import { AuthBrandProvider } from '@/components/AuthBrand';
-import { resolveAuthBrandFromHeaders } from '@/lib/server-brand';
+import {
+  resolveAuthBrandFromHeaders,
+  resolveBrandFromHeadersOrSlug,
+} from '@/lib/server-brand';
+import MetaPixel, {
+  codigoBaseDelPixel,
+  pixelIdValido,
+} from '@/components/MetaPixel';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
@@ -445,6 +452,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // pantallas de login/registro rendericen el logo de la marca desde el primer
   // HTML (sin parpadeo de Clubify). null en Clubify/dev.
   const authBrand = await resolveAuthBrandFromHeaders();
+
+  // El píxel de Meta de la marca del host. Sale de la marca resuelta y NUNCA
+  // escrito a mano: un id fijo aquí se le colaría a todas, y el tráfico de
+  // Clubify acabaría en la cuenta publicitaria de Sellea. Sin marca, sin píxel.
+  const marcaDelHost = await resolveBrandFromHeadersOrSlug();
+  const pixelId = pixelIdValido(marcaDelHost?.metaPixelId);
   return (
     // data-native se resuelve en el SERVIDOR con el User-Agent, que Capacitor
     // marca con "ClubifyApp". Detectarlo en el cliente es una carrera que se
@@ -453,6 +466,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     // ya viene en el primer HTML, sin JS de por medio.
     <html lang={locale} {...(plataformaNativa ? { 'data-native': plataformaNativa } : {})}>
       <head>
+        {/* Píxel de Meta — LO PRIMERO del head, antes de cualquier otro
+            script. Si un `fbq('track', …)` corre antes de que exista la cola,
+            el evento se pierde. El `PageView` de las navegaciones internas lo
+            manda <MetaPixel/>: en una SPA el código base solo dispara el de la
+            carga inicial. */}
+        {pixelId && (
+          <script
+            dangerouslySetInnerHTML={{ __html: codigoBaseDelPixel(pixelId) }}
+          />
+        )}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
         {/* TODAS las fuentes de FONT_OPTIONS cargadas globalmente —
@@ -472,6 +495,19 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             hidratar; ver `FuentesDelCatalogo`. */}
       </head>
       <body>
+        {pixelId && (
+          <noscript>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              height="1"
+              width="1"
+              alt=""
+              style={{ display: 'none' }}
+              src={`https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1`}
+            />
+          </noscript>
+        )}
+        <MetaPixel pixelId={pixelId} />
         <FuentesDelCatalogo urls={googleFontsUrls()} />
         <NativeAppChrome />
         <ChunkReloadGuard />

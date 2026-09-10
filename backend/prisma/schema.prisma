@@ -5397,6 +5397,13 @@ model WhiteLabel {
   /// Twitter Card) en WhatsApp/redes. Si null, se usa el logo de la marca; nunca
   /// la imagen de Clubify. Recomendado 1200×630.
   shareImageUrl            String?
+
+  /// Pixel de Meta de ESTA marca (solo el id). null = la marca no mide.
+  ///
+  /// Por marca y no fijo en el codigo: un id en el layout se le colaria a
+  /// todas, que es mandarle el trafico de Clubify a la cuenta publicitaria de
+  /// Sellea. Lo pidio Humberto para Sellea el 2026-09-08.
+  metaPixelId String?
   /// Academia de la marca: el curso/portal externo para sus afiliados.
   ///
   /// El panel del afiliado tenía el enlace de Clubify escrito a mano

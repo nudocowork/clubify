@@ -11,6 +11,8 @@ export type ServerBrand = {
   /** Color propio del fondo del sidebar del panel (null = derivar del acento). */
   backgroundColor: string | null;
   slug: string;
+  /** Pixel de Meta de ESTA marca. null = no mide. Nunca se hereda el ajeno. */
+  metaPixelId: string | null;
 } | null;
 
 // Última marca conocida por host/slug (sin expiración, por instancia). Regla
@@ -50,6 +52,7 @@ export async function resolveBrandForHost(host: string): Promise<ServerBrand> {
       primaryColor: d.primaryColor || '#111827',
       backgroundColor: d.backgroundColor ?? null,
       slug: d.slug,
+      metaPixelId: d.metaPixelId ?? null,
     };
     lastKnownBrandByHost.set(h, brand);
     return brand;
@@ -79,6 +82,7 @@ export async function resolveBrandBySlug(slug: string): Promise<ServerBrand> {
       primaryColor: d.primaryColor || '#111827',
       backgroundColor: d.backgroundColor ?? null,
       slug: d.slug,
+      metaPixelId: d.metaPixelId ?? null,
     };
     lastKnownBrandBySlug.set(s, brand);
     return brand;
