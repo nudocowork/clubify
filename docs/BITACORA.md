@@ -8,6 +8,87 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-10 (4) — 448 cupones reparados, el desplegable de automatizaciones, y qué falta para medir el Purchase
+
+Cierre del día. Commit `924fa0ed`.
+
+### La reparación masiva de cupones convertidos: 448 de 538
+
+Corrió `backend/scripts/reparar-cupones-convertidos.cjs --aplicar` contra los
+538 pases que habían canjeado un cupón y hoy son tarjeta de sellos.
+
+```
+reparados = 448
+fallos    =  90   →  object_not_found: 88 · fetch failed: 1 · sin admin: 1
+```
+
+**Los 88 `object_not_found` NO son reparables, y no son un fallo.** Aquí está el
+dato que faltaba desde hace días:
+
+> `googleObjectId` se escribe al **GENERAR el save URL**
+> (`google-wallet.service.ts`, dentro de `generateSaveUrl`), **no** cuando el
+> cliente pulsa «Añadir a Google Wallet».
+
+Es decir: quien abrió la página de su tarjeta y no completó el guardado queda
+con `googleObjectId` en la base y **sin objeto en Google**. El comentario del
+código afirmaba lo contrario («o sea, el cliente ya hizo Save») y mandó el
+diagnóstico al sitio equivocado. Ya está corregido.
+
+**Esto explica INCOFFE** (`n-coffee`): 63 conversiones y cero objetos vivos. No
+hay nada que arreglar — esos 63 nunca instalaron la tarjeta. Se cierra el
+pendiente.
+
+El `fetch failed` es un fallo de red puntual: se repara solo con el siguiente
+sello. El `sin admin` es `panama-smashpoint`, y aun con un admin de Clubify
+prestado sigue dando `pass_not_found`. **No se persiguió**: los 6 negocios sin
+`whiteLabelId` de la base están **todos SUSPENDED** (`sec-audit`,
+`panama-smashpoint`, `sara-plata`, `clubify`, `abka`, `ricardo-perez`) — son
+pruebas y bajas, no clientes.
+
+### Automatizaciones: el desplegable de acciones
+
+En `/app/automations`, «editar regla» ya solo ofrece **notificación push** y
+**sello de gracia**. SMS y WhatsApp fuera (decisión de Javier).
+
+**Lo que no hay que "limpiar" después:** las reglas que YA usan SMS o WhatsApp
+siguen viendo su opción, marcada «ya no se ofrece». Sin eso, una regla de
+WhatsApp se pinta como «push» y el negocio cree que la cambió sin tocarla. Son
+3 en toda la plataforma, las tres de PRIMOR BARBER.
+
+### Píxel de Meta — qué falta para que se mida el Purchase
+
+El píxel `1393034506278228` está **vivo en selleala.com** y dispara `PageView`
+(incluido el cambio de ruta de la SPA) y `Contact` en los clics a WhatsApp.
+
+Dos cosas que conviene saber antes de tocarlo:
+
+- **`ViewContent` no dispara nunca.** Está condicionado a que la ruta contenga
+  `precios`, y **no existe ninguna ruta `/precios`** — los precios son una
+  sección de la portada. Hay que hacerlo por visibilidad del bloque.
+- **`Purchase` no está, y no puede estar en el navegador.** Sellea cobra por
+  **STRIPE** con Payment Links alojados en stripe.com; no hay página de gracias
+  propia. El camino bueno es la **API de Conversiones** desde
+  `billing/stripe.service.ts`, que ya recibe `checkout.session.completed` con
+  correo e importe. **Falta el token de acceso del píxel**, que solo puede
+  generarlo el dueño de la cuenta publicitaria (pedido a Humberto vía Javier).
+
+### Y una trampa de `railway run` que costó un mensaje a medias
+
+`railway run` **corta el argumento en el primer salto de línea**. Un aviso de 6
+líneas salió con la primera y nada más, sin error y sin aviso. Para textos con
+saltos: `enviar-aviso-interno.cjs ... --archivo <ruta.txt>`, que ya está.
+
+Ese script lleva además un **candado de marca**: si el texto nombra a OTRA
+marca, no sale por el número de esta (`--igual` lo salta a propósito). Existe
+porque el 2026-09-10 salió un aviso por el número de Sellea firmado «- Clubify».
+
+### Sin tocar (no son míos)
+
+`backend/src/auth/auth.service.ts` y `backend/src/auth/reset-sms.spec.ts` están
+modificados en el árbol y **no los toqué**. Son de la otra máquina.
+
+---
+
 ## 2026-09-10 (3) — Píxel de Meta, cancelaciones, la billetera del cupón, y la impresora
 
 Día largo. **Todo lo de abajo está desplegado y verificado**, salvo lo que diga
