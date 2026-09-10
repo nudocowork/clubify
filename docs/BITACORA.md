@@ -8,6 +8,70 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-10 (2) — Equipos de Ventas fase 6, y un constructor entero que no estaba enchufado
+
+**Desplegado.** Con esto se cierra Equipos de Ventas: fases 1 a 6.
+
+### Seis disparadores de ventas
+
+`sales_lead_created` · `sales_stage_changed` · `sales_lead_won` ·
+`sales_lead_lost` · `sales_meeting_booked` · `sales_meeting_no_show`.
+
+**El hueco era lo importante, no los disparadores.** El motor Mkt inscribe
+CONTACTOS, no leads. Un lead que entra al tablero con un teléfono que la marca
+no conocía **no tiene contacto**, así que ningún disparador le habría llegado:
+el flujo se publica, se ve bien y no se ejecuta para nadie nuevo.
+`sales-automations.service.ts` garantiza el contacto ANTES de disparar, con el
+`upsert` de marketing —que pasa por `resolveContact`, el único sitio que decide
+identidad— y guarda el id en el lead.
+
+Crear ese contacto **NO** dispara `contact_created`: eso lo lanza el controlador
+de marketing. Meter un lead en el tablero no puede colarlo en el flujo de
+bienvenida de la marca.
+
+Decisiones: un disparador por evento y no uno con filtro (si el negocio renombra
+la columna, un filtro deja de casar y el flujo se dispara para todos);
+`fireTrigger` acepta contexto extra (`etapa`, `equipo`, `vendedor`) porque esos
+campos no viven en el contacto; un movimiento que **no se aplicó** no dispara
+nada; de los estados de la cita solo el plantón tiene disparador.
+
+### ⚠️ HAY TRES MOTORES DE «WORKFLOWS» Y SE LLAMAN IGUAL
+
+Esto costó encontrarlo y conviene que no se vuelva a perder:
+
+| Motor | Inscribe | Pantalla |
+|---|---|---|
+| `automations` | clientes de UN negocio | `/app/automations/workflows` |
+| `brand-workflows` (`/admin/workflows`) | **NEGOCIOS** de la marca | pestaña «🔀 Workflows» |
+| `mkt` (`/admin/marketing/workflows`) | **PERSONAS** (contactos/leads) | pestaña «👥 Flujos de contactos» |
+
+**`EmailMarketingWorkflows.tsx` no lo importaba nadie.** Un constructor entero
+—árbol de nodos, ramas, API, rutas vivas— sin pantalla. La prueba de que llevaba
+así desde siempre: **192 contactos en la base y CERO inscripciones de todos los
+tiempos** en ese motor.
+
+Cómo pasó: alguien lo sacó del panel de Email Marketing con la nota «los
+Workflows viven en su propia pestaña principal» — y esa pestaña era la del OTRO
+motor. Ahora tiene la suya y el nombre dice de qué va.
+
+Se descubrió comprobando si los disparadores nuevos aparecían en el bundle
+desplegado. No aparecían. **Mirar el bundle y no el código es lo que lo cazó.**
+
+### Lo que NO pude verificar
+
+La prueba de punta a punta por HTTP (crear flujo → mover lead → ver inscripción)
+**no se pudo correr**: `JWT_SECRET` no está expuesto a `railway run`, así que no
+hay forma de firmar un token desde un script. Es correcto que no esté.
+
+Verificado en su lugar: 123 pruebas unitarias del módulo, los seis disparadores
+presentes en el bundle desplegado, y la API `/admin/marketing/workflows` viva
+(401). **Queda pendiente la comprobación manual**, que son 30 segundos desde la
+pantalla.
+
+Un script de prueba murió a mitad y dejó un flujo **publicado** en producción;
+se borró enseguida. Lección: la limpieza va en `finally`, no al final del
+camino feliz.
+
 ## 2026-09-10 — Equipos de Ventas fase 5: la conversación
 
 **Desplegado y probado de punta a punta contra producción.** Sin migración:
