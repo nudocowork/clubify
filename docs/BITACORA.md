@@ -8,6 +8,83 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-10 (6) — El Onboarding activaba negocios GRATIS: la marca no pagaba el crédito
+
+Desplegado (backend, commit `7df04c71`). Health en 200.
+
+### El agujero
+
+Javier lo vio con **Smart Solutions**: creado bajo Sellea el 2026-09-10, quedó
+ACTIVO y **a Humberto no se le descontó nada**.
+
+Las tres acciones del panel («marcar activo», «marcar pagado», «pago manual»)
+**sí** cobraban, y por eso desde ahí el bug era invisible. Pero el panel no es
+la única puerta: **`onboarding-sync.service.ts → activate()` ponía el negocio
+en ACTIVE y punto** — sin cobro y sin auditoría. Y esa es justo la vía por la
+que las marcas dan de alta a sus clientes.
+
+La huella lo confirma: Smart Solutions tenía **cero movimientos de crédito y
+cero líneas de auditoría**, que es lo que deja esa ruta y ninguna otra.
+
+### El alcance, medido antes de tocar nada
+
+**Solo Sellea tiene créditos limitados** — el resto de marcas son ilimitadas, o
+son Clubify (Hotmart, no usa créditos). De sus 10 negocios activos, **2 nunca
+se cobraron**: `smart-solutions` y `prueba-selleala` (de junio, y por el nombre
+es una prueba). **Un caso real, no una fuga sistemática.**
+
+Y una buena noticia: **la renovación mensual (`renewals.service.ts`) sí
+descontaba bien.** Solo faltaba la activación.
+
+### Dónde vive ahora la regla
+
+La regla sale de `TenantsService` (donde era privada) a
+**`backend/src/common/creditos-de-marca.ts`**, y la usan las DOS puertas.
+
+Es una **función suelta, no un servicio de Nest**, a propósito: `TenantsModule`
+ya importa `OnboardingSyncModule` para el webhook, así que un servicio nuevo en
+cualquiera de los dos lados **crea un ciclo de módulos**. Solo necesita el
+Prisma que le pasen.
+
+En `activate()` el cobro va **antes** del update: sin créditos lanza 403 y el
+negocio no se publica, igual que en el panel. Si el update falla después, se
+devuelve el crédito.
+
+### El test que importa
+
+Hay dos ficheros y **la diferencia entre ellos es la lección**:
+
+- `creditos-de-marca.spec.ts` (11) prueba la regla. **Habría seguido en verde
+  mientras Smart Solutions se activaba gratis**, porque el fallo no estaba en
+  la regla sino en que nadie la llamaba.
+- `activar-cobra-credito.spec.ts` (4) prueba la **puerta**. Se comprobó que
+  sabe ponerse en rojo: quitando la llamada de `activate()` fallan 2 —«no
+  cobró» y «publicó sin créditos»—, que son los dos síntomas reales.
+
+### El cobro de lo ya pasado
+
+`backend/scripts/cobrar-activaciones-sin-credito.cjs`, **idempotente** (un
+negocio con movimiento de crédito no se recobra; correrlo dos veces no cobra
+dos veces — verificado).
+
+Cobrado **Smart Solutions, 1 crédito**, por decisión de Javier. **Sellea pasa
+de 4 disponibles a 3, y de 11 usados a 12.** `prueba-selleala` se dejó como
+estaba.
+
+### Comentarios que mentían
+
+Varios sitios decían que un InfoLink cuesta **0.25** créditos/mes. Cuesta
+**0.1** desde que se cambió el precio (`business-types.ts` es la fuente y lo
+dice). Corregidos en `billing.service.ts`, `business-types.ts` e
+`infolink-tier.ts`.
+
+**Quedan sin corregir los de `auth.service.ts` y `auth.controller.ts`**, a
+propósito: la otra máquina tiene trabajo sin commitear en `auth.service.ts`
+(el reset por SMS). Si quien lea esto es esa máquina: son 4 comentarios que
+dicen 0.25 donde debería decir 0.1.
+
+---
+
 ## 2026-09-10 (5) — La biblioteca de iconos del InfoLink: de 29 a 242
 
 Desplegado, commit `b2943ed8`. Prueba de humo en verde y las tres páginas
