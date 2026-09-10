@@ -87,6 +87,15 @@ export class OnboardingSyncController {
     return this.sync.syncLoyaltyCard(tid, body || {});
   }
 
+  // VARIAS tarjetas de sellos. El singular de arriba pisa siempre la primera,
+  // asi que mandar la segunda borraba la primera. Upsert por NOMBRE y no borra
+  // las que no vengan: una tarjeta tiene sellos y clientes colgando.
+  // Arreglo directo o { items: [...] }.
+  @Put('loyalty-cards')
+  loyaltyCards(@OnboardingTenantId() tid: string, @Body() body: any) {
+    return this.sync.upsertLoyaltyCards(tid, body?.items ?? body);
+  }
+
   // Acepta un arreglo directo o { items: [...] }.
   @Put('hours')
   hours(@OnboardingTenantId() tid: string, @Body() body: any) {

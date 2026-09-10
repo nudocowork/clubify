@@ -51,6 +51,50 @@ function dateOrNull(v: unknown): Date | null {
   return d;
 }
 
+
+/**
+ * Los campos de una tarjeta de sellos que llegan del Onboarding.
+ *
+ * Vive fuera de la clase para que lo usen las dos vías —la de una tarjeta y la
+ * de varias— sin duplicar el mapeo. Cuando estaba escrito dos veces era
+ * cuestión de tiempo que una ganara un campo y la otra no.
+ */
+export function datosDeTarjetaDeSellos(b: any): Record<string, any> {
+  const data: Record<string, any> = {};
+  const name = str(b?.name)?.trim();
+  if (name) data.name = name;
+  if (b?.stampsRequired !== undefined)
+    data.stampsRequired =
+      b.stampsRequired == null
+        ? null
+        : Math.max(1, Math.floor(Number(b.stampsRequired)));
+  for (const k of [
+    'rewardText',
+    'rewardDescText',
+    'description',
+    'rewardEarnedMessage',
+    'stampEarnedMessage',
+    'stampIcon',
+  ]) {
+    if (b?.[k] !== undefined && b[k] != null) data[k] = String(b[k]);
+  }
+  for (const k of ['primaryColor', 'secondaryColor']) {
+    // Sin validar, cualquier texto se guardaba como color y rompía la interfaz
+    // en silencio. Mismo motivo que en syncBranding.
+    const v = esHex(b?.[k]);
+    if (v) data[k] = v;
+  }
+  // Fondo de la tarjeta (photo_card_android). Al poner imagen se activa
+  // stampBgType=IMAGE para que se pinte detrás de los sellos; al limpiarla NO
+  // se toca el tipo (se queda en su default anterior).
+  if (b?.stampBgImageUrl !== undefined) {
+    const url = b.stampBgImageUrl ? String(b.stampBgImageUrl) : null;
+    data.stampBgImageUrl = url;
+    if (url) data.stampBgType = 'IMAGE';
+  }
+  return data;
+}
+
 // Estilo/plantilla del menú: los 8 nombres del onboarding → enum MenuLayout de
 // Clubify. Acepta también los valores nativos (uppercase). Desconocido → null
 // (se ignora, no rompe el sync).
@@ -442,35 +486,8 @@ export class OnboardingSyncService {
   // ── 6. Programa de sellos (la tarjeta STAMPS del negocio) ─────────────
   async syncLoyaltyCard(tenantId: string, b: any) {
     const name = str(b.name)?.trim();
-    const data: Record<string, any> = {};
-    if (name) data.name = name;
-    if (b.stampsRequired !== undefined)
-      data.stampsRequired =
-        b.stampsRequired == null ? null : Math.max(1, Math.floor(Number(b.stampsRequired)));
-    for (const k of [
-      'rewardText',
-      'rewardDescText',
-      'description',
-      'rewardEarnedMessage',
-      'stampEarnedMessage',
-      'stampIcon',
-    ]) {
-      if (b[k] !== undefined && b[k] != null) data[k] = String(b[k]);
-    }
-    for (const k of ['primaryColor', 'secondaryColor']) {
-      // Mismo motivo que en syncBranding: sin validar, cualquier texto se
-      // guardaba como color y rompía la interfaz en silencio.
-      const v = esHex(b[k]);
-      if (v) data[k] = v;
-    }
-    // Fondo de la tarjeta de fidelidad (photo_card_android). Al setear una
-    // imagen activamos stampBgType=IMAGE para que se renderice detrás de los
-    // sellos; al limpiarla NO tocamos el tipo (queda en su default previo).
-    if (b.stampBgImageUrl !== undefined) {
-      const url = b.stampBgImageUrl ? String(b.stampBgImageUrl) : null;
-      data.stampBgImageUrl = url;
-      if (url) data.stampBgType = 'IMAGE';
-    }
+    const data = datosDeTarjetaDeSellos(b);
+
     // clubPlanId/convenioId: null — las tarjetas de CLUB y de ALIANZA también
     // son type STAMPS; sin el filtro, una de ellas creada antes que la de sellos
     // recibiría encima el branding de fidelización del onboarding (colores,
@@ -493,6 +510,62 @@ export class OnboardingSyncService {
       data: { tenantId, type: 'STAMPS', ...data, name },
     });
     return { ok: true, card_id: created.id, created: true };
+  }
+
+  // ── 6b. Varias tarjetas de sellos (upsert por nombre, no destructivo) ──
+  //
+  // El Onboarding deja crear VARIAS tarjetas y hasta ahora solo cabía una: el
+  // endpoint singular hace `findFirst` y la pisa, así que mandar la segunda
+  // borraba la primera. Café Momento tiene dos y por eso solo se veía una.
+  //
+  // Casa por NOMBRE, y con eso el negocio que ya tenía su tarjeta creada por el
+  // endpoint singular no acaba con una duplicada: aquella se creó con el nombre
+  // de la primera tarjeta del formulario, que es el mismo que llega aquí.
+  //
+  // No borra las que no vengan en la lista: una tarjeta tiene sellos y clientes
+  // colgando, y quitar una línea del formulario no puede llevárselos.
+  async upsertLoyaltyCards(tenantId: string, items: any) {
+    if (!Array.isArray(items)) {
+      throw new BadRequestException('Se espera un arreglo de tarjetas.');
+    }
+    const out: any[] = [];
+    const vistas = new Set<string>();
+    for (const b of items) {
+      const name = str(b?.name)?.trim();
+      if (!name) {
+        throw new BadRequestException('Cada tarjeta de sellos requiere `name`.');
+      }
+      const llave = name.toLowerCase();
+      if (vistas.has(llave)) continue; // dos líneas con el mismo nombre = una tarjeta
+      vistas.add(llave);
+
+      const data = datosDeTarjetaDeSellos(b);
+      data.name = name;
+
+      // clubPlanId/convenioId null: las tarjetas de CLUB y de ALIANZA también
+      // son type STAMPS. Sin el filtro, el branding del onboarding caería encima
+      // de una de ellas — y en la alianza pisaría el logo del aliado.
+      const existing = await this.prisma.card.findFirst({
+        where: {
+          tenantId,
+          type: 'STAMPS',
+          clubPlanId: null,
+          convenioId: null,
+          name,
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        await this.prisma.card.update({ where: { id: existing.id }, data });
+        out.push({ name, id: existing.id, created: false });
+      } else {
+        const created = await this.prisma.card.create({
+          data: { tenantId, type: 'STAMPS', ...data, name } as any,
+        });
+        out.push({ name, id: created.id, created: true });
+      }
+    }
+    return { ok: true, cards: out };
   }
 
   // ── 7. Horarios (set completo a nivel negocio) ────────────────────────
