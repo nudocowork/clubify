@@ -145,11 +145,18 @@ export class SalesChatService {
   async conversacion(user: AuthUser, teamId: string, leadId: string) {
     const acceso = await resolveTeamAccess(this.prisma, user, teamId);
     const lead = await this.leadDelEquipo(teamId, leadId);
-    const mensajes = await this.prisma.salesMessage.findMany({
+    // LOS 200 MÁS NUEVOS, no los 200 más viejos.
+    //
+    // Estaba en `asc` con el mismo tope: pasada esa cifra el vendedor veía el
+    // PRINCIPIO de la conversación y nunca lo último — justo al revés de lo
+    // que hace falta en un chat. Se piden en `desc` y se le da la vuelta para
+    // pintarlos en orden.
+    const recientes = await this.prisma.salesMessage.findMany({
       where: { leadId },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
       take: TOPE_HISTORIAL,
     });
+    const mensajes = recientes.reverse();
     const optOut = await this.estaDeBaja(acceso.team.whiteLabelId, lead.phone);
     return {
       puedeEscribir: acceso.puedeEscribir,

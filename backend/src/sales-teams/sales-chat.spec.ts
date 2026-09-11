@@ -28,6 +28,7 @@ function baseFalsa(opts: { envio?: { ok: boolean; error?: string; messageId?: st
     ] as Fila[],
   };
   let sec = 0;
+  let reloj = 0;
   const id = (p: string) => `${p}-${++sec}`;
   const casa = (f: Fila, where: Fila = {}) =>
     Object.entries(where).every(([k, v]) => f[k] === v);
@@ -59,13 +60,27 @@ function baseFalsa(opts: { envio?: { ok: boolean; error?: string; messageId?: st
       },
     },
     salesMessage: {
-      findMany: async ({ where }: any) =>
-        bd.mensajes
+      // El doble HONRA `orderBy` y `take`. Antes los ignoraba y devolvia todo
+      // en orden de insercion, asi que la prueba de la conversacion pasaba
+      // hiciera lo que hiciera el servicio — no sabia ponerse en rojo. Sin
+      // esto no se puede probar que se traen los mensajes MAS NUEVOS.
+      findMany: async ({ where, orderBy, take }: any) => {
+        const desc = orderBy?.createdAt === 'desc';
+        const filas = bd.mensajes
           .filter((m) => casa(m, where))
-          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime()),
+          .sort((a, b) =>
+            desc
+              ? b.createdAt.getTime() - a.createdAt.getTime()
+              : a.createdAt.getTime() - b.createdAt.getTime(),
+          );
+        return typeof take === 'number' ? filas.slice(0, take) : filas;
+      },
       findFirst: async ({ where }: any) => bd.mensajes.find((m) => casa(m, where)) ?? null,
       create: async ({ data }: any) => {
-        const m = { id: id('msg'), createdAt: new Date(), ...data };
+        // Reloj que AVANZA. Con `new Date()` a secas los dos mensajes de una
+        // misma prueba caian en el mismo milisegundo y el orden quedaba
+        // indefinido: la prueba fallaba por el empate, no por el codigo.
+        const m = { id: id('msg'), createdAt: new Date(Date.now() + ++reloj), ...data };
         bd.mensajes.push(m);
         return { ...m };
       },
@@ -235,6 +250,28 @@ describe('leer la conversación', () => {
     expect(c.mensajes.map((m: any) => m.body)).toEqual(['primero', 'segundo']);
     expect(c.telefono).toBe('3001112233');
     expect(c.optOut).toBe(false);
+  });
+
+  it('con mas de 200 mensajes se traen los MAS NUEVOS, no los mas viejos', async () => {
+    // Estaba en `asc` con tope 200: pasada esa cifra el vendedor veia el
+    // PRINCIPIO de la conversacion y nunca lo ultimo. En un chat eso es
+    // justo al reves de lo que hace falta.
+    bd.leads.push(lead());
+    const base = Date.now() - 300 * 60_000;
+    for (let i = 0; i < 250; i++) {
+      bd.mensajes.push({
+        id: `m${i}`,
+        leadId: 'lead-1',
+        body: `msg-${i}`,
+        createdAt: new Date(base + i * 60_000),
+      });
+    }
+    const c = await chat.conversacion(VENDEDOR, 't1', 'lead-1');
+    expect(c.mensajes).toHaveLength(200);
+    // El ultimo escrito tiene que estar, y el primero NO.
+    expect(c.mensajes[c.mensajes.length - 1].body).toBe('msg-249');
+    expect(c.mensajes[0].body).toBe('msg-50');
+    expect(c.mensajes.map((m: any) => m.body)).not.toContain('msg-0');
   });
 
   it('un lead de otro equipo no se abre', async () => {

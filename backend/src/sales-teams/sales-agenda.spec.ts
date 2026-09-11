@@ -611,6 +611,54 @@ describe('el recordatorio', () => {
     expect(enviados).toHaveLength(1);
   });
 
+  it('un lead SIN telefono no QUEMA su recordatorio', async () => {
+    // El fallo: se sellaba `reminderSentAt` y DESPUES se miraba el telefono,
+    // asi que se salia sin mandar nada pero con el candado ya puesto. Si el
+    // vendedor anadia el numero mas tarde, el aviso no salia nunca.
+    bd.leads.push({
+      id: 'lead-mudo',
+      salesTeamId: 't1',
+      stageId: 'st1',
+      name: 'Sin Telefono',
+      phone: null,
+      source: 'agenda',
+    });
+    await svc.agendar(VENDEDOR, 't1', {
+      leadId: 'lead-mudo',
+      startAt: '2026-09-08T13:30:00Z',
+    });
+    await svc.recordarCitas();
+    expect(enviados).toHaveLength(0);
+    // Lo que importa: la cita sigue PENDIENTE de aviso.
+    const cita = bd.citas.find((c: any) => c.leadId === 'lead-mudo');
+    expect(cita).toBeDefined();
+    expect(cita!.reminderSentAt).toBeNull();
+  });
+
+  it('y cuando le ponen el telefono, el recordatorio SI sale', async () => {
+    bd.leads.push({
+      id: 'lead-mudo',
+      salesTeamId: 't1',
+      stageId: 'st1',
+      name: 'Sin Telefono',
+      phone: null,
+      source: 'agenda',
+    });
+    await svc.agendar(VENDEDOR, 't1', {
+      leadId: 'lead-mudo',
+      startAt: '2026-09-08T13:30:00Z',
+    });
+    await svc.recordarCitas();
+    expect(enviados).toHaveLength(0);
+
+    const mudo = bd.leads.find((l: any) => l.id === 'lead-mudo');
+    expect(mudo).toBeDefined();
+    mudo!.phone = '3007776655';
+    await svc.recordarCitas();
+    expect(enviados).toHaveLength(1);
+    expect(enviados[0].toPhone).toBe('3007776655');
+  });
+
   it('no avisa de lo que está lejos', async () => {
     await svc.agendar(VENDEDOR, 't1', {
       leadId: 'lead-1',

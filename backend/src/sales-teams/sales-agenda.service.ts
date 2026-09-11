@@ -764,16 +764,27 @@ export class SalesAgendaService {
 
     let enviados = 0;
     for (const c of candidatas) {
+      // EL TELÉFONO SE MIRA ANTES DE RECLAMAR.
+      //
+      // Estaba después, y eso QUEMABA el recordatorio: a una cita cuyo lead no
+      // tenía teléfono se le sellaba `reminderSentAt` y luego se salía por el
+      // `continue` sin mandar nada. Si el vendedor le ponía el número más
+      // tarde, el aviso ya no salía nunca — el candado anti-duplicados creía
+      // que ya se había enviado.
+      //
+      // No confundirlo con el reclamo: ese SÍ va antes del envío a propósito
+      // (mejor un recordatorio perdido que dos). Pero esto no es una carrera,
+      // es una condición previa.
+      const telefono = (c.lead?.phone ?? '').trim();
+      const wlId = c.team.whiteLabelId;
+      if (!telefono || !wlId) continue;
+
       // Reclamo: si otro ciclo llegó primero, `count` es 0 y no se manda nada.
       const reclamo = await this.prisma.salesMeeting.updateMany({
         where: { id: c.id, reminderSentAt: null },
         data: { reminderSentAt: new Date() },
       });
       if (reclamo.count === 0) continue;
-
-      const telefono = (c.lead?.phone ?? '').trim();
-      const wlId = c.team.whiteLabelId;
-      if (!telefono || !wlId) continue;
 
       const hora = new Intl.DateTimeFormat('es-CO', {
         timeZone: c.timezone ?? ZONA_POR_DEFECTO,
