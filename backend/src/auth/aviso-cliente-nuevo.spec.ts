@@ -14,7 +14,9 @@ import { PreregAlertsService } from './prereg-alerts.service';
  * crear (Laly.com). Mezclarlos es como se cuelan las fugas de marca.
  */
 function mensaje(opts: Record<string, unknown>) {
-  const svc = new PreregAlertsService({} as any, {} as any, {} as any) as any;
+  // Dos dependencias, no tres. `nest build --tsc` compila los .spec.ts, asi que
+  // un argumento de mas aqui tumba el build de produccion.
+  const svc = new PreregAlertsService({} as any, {} as any) as any;
   return svc.buildMessage({
     customerName: 'Doralis rodriguez reyes',
     customerEmail: 'dorore.4@hotmail.com',
