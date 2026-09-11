@@ -2171,6 +2171,31 @@ export default function QrPosterEditor({
         ))}
 
         {/* Textos libres adicionales */}
+        {/* Pie «Powered by». No se puede quitar ni cambiar el texto —es la
+            marca— pero SÍ el color: el automático solo distingue «fondo blanco
+            sólido» de todo lo demás, y sobre una foto o un color vivo el pie
+            se perdía. */}
+        <Section title='Pie "Powered by"' icon="🅟">
+          <p className="text-[11px] text-mute leading-snug mb-2">
+            El pie no se puede quitar. Si sobre tu fondo no se lee, elígele un
+            color.
+          </p>
+          <ColorRow
+            label="Color"
+            value={cfg.footerColor?.trim() || '#9CA3AF'}
+            onChange={(v) => setCfg((c) => ({ ...c, footerColor: v }))}
+          />
+          {cfg.footerColor ? (
+            <button
+              type="button"
+              className="btn-ghost text-xs mt-2"
+              onClick={() => setCfg((c) => ({ ...c, footerColor: null }))}
+            >
+              Volver a automático
+            </button>
+          ) : null}
+        </Section>
+
         <CustomTextsSection
           texts={cfg.customTexts ?? []}
           canvasW={cfg.canvas.w}
@@ -2518,7 +2543,16 @@ export default function QrPosterEditor({
                           width={cfg.canvas.w}
                           fontFamily="Inter, system-ui, sans-serif"
                           fontSize={22}
-                          fill={bgIsLightSolid ? '#9CA3AF' : 'rgba(255,255,255,0.75)'}
+                          // El color elegido manda sobre el automático, que
+                          // solo sabe distinguir «fondo blanco sólido» de todo
+                          // lo demás y se pierde sobre una foto o un color vivo.
+                          fill={
+                            cfg.footerColor?.trim()
+                              ? cfg.footerColor.trim()
+                              : bgIsLightSolid
+                                ? '#9CA3AF'
+                                : 'rgba(255,255,255,0.75)'
+                          }
                           align="center"
                           listening={false}
                         />

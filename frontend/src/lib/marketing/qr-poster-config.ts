@@ -362,6 +362,18 @@ export type QrPosterConfig = {
   /** Footer "Powered by Clubify" — siempre visible (no removible, ver
    *  feedback_clubify_branding_locked memory). */
   showClubifyFooter: true;
+  /**
+   * Color del pie. Null/ausente = automático.
+   *
+   * El automático era: gris si el fondo es blanco sólido, blanco translúcido
+   * en cualquier otro caso. Con dos únicas salidas, un cartel de fondo rosa o
+   * con foto se llevaba el blanco translúcido y el pie desaparecía. Reportado
+   * por Javier el 2026-09-11.
+   *
+   * El TEXTO no se toca: sigue siendo el de la marca resuelta, y el pie sigue
+   * sin poder quitarse. Esto solo decide con qué color se lee.
+   */
+  footerColor?: string | null;
   /** Datos opaque type-specific (cardId para COUNTER, promoCode para
    *  DISCOUNT, etc). Persisten en config.meta JSON; el editor los trata
    *  como caja negra. */
