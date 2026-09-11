@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { resolveBrandScope } from '../common/white-label/brand-scope.util';
+import { TenantContext } from '../common/tenant/tenant-context';
 import { normalizarRoles } from './team-access';
 
 /**
@@ -272,10 +273,25 @@ export class SalesTeamsService {
       });
       where.id = { notIn: existing.map((m) => m.userId) };
     }
-    return this.prisma.user.findMany({
-      where,
-      select: { id: true, fullName: true, email: true, role: true },
-      orderBy: { fullName: 'asc' },
-    });
+    // SIN EL FILTRO AUTOMÁTICO DE NEGOCIO.
+    //
+    // `User` tiene `tenantId`, así que el middleware le inyecta el negocio (o
+    // la lista de negocios de la marca) a toda consulta. Y **un afiliado no
+    // pertenece a ningún negocio**: su `tenantId` es null, así que no entraba
+    // en ninguna lista y esto devolvía CERO — en todas las marcas, incluida
+    // Clubify con sus dos equipos. Se podía crear un equipo y no meter a
+    // nadie; el panel enseñaba el desplegable vacío sin decir por qué.
+    //
+    // El aislamiento NO se pierde: se hace arriba, a mano y explícito, con
+    // `referralCodes.some.whiteLabelId` sobre el alcance de `resolveBrandScope`
+    // — que es más preciso que el del middleware, porque la marca de un
+    // afiliado vive en su código de referido, no en un negocio.
+    return TenantContext.runWithoutTenant(() =>
+      this.prisma.user.findMany({
+        where,
+        select: { id: true, fullName: true, email: true, role: true },
+        orderBy: { fullName: 'asc' },
+      }),
+    );
   }
 }
