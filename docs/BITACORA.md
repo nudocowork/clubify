@@ -8,6 +8,71 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-10 (10) — Equipos de Ventas encendido en Sellea, y el `?sede=` que se comía el SCROLL
+
+### ⚠️ ROMPÍ EL BUILD DEL BACKEND (y así se ve)
+
+`leaderboard-aislamiento.spec.ts` hacía `new CrmService(prisma)` con **1
+argumento** cuando el constructor pide **4**. `nest build --tsc` compila
+también los `.spec.ts`, así que **el backend estuvo un rato sin poder
+desplegarse** — el mío y el de la otra máquina. Producción siguió con la
+imagen anterior.
+
+Es la **segunda vez hoy** (antes fue `contrato-onboarding.spec.ts`). La regla,
+otra vez: **si `tsc --noEmit` marca algo en un `.spec.ts`, NO es «solo un
+test».** Arreglado en `a59761c0`.
+
+### El `?sede=` seguía perdiéndose: faltaban DOS sitios
+
+El arreglo anterior (`storefront-client`) **sí estaba en producción**, pero hay
+**tres** sitios que reescriben la URL y solo había tocado uno. El culpable era
+el que no miré:
+
+- **`CategoryUrlSync`** — el espía de scroll. Bastaba con que el cliente bajara
+  un poco para que la barra se reescribiera **sin query**. Por eso los dos
+  enlaces de sede de Slata acababan igual en `/m/slata-2/recomendados`.
+- **`MenuBookViewer`** — lo mismo al pasar de página en el menú libro.
+
+Los tres construyen la ruta con `buildStorefrontPath`, que devuelve **solo el
+path**. Los tres concatenan ya `window.location.search`. **Verificado en el
+bundle servido**: los 3 `replaceState` del chunk público conservan la query.
+
+**Si aparece un cuarto sitio que reescriba la URL del menú, tiene el mismo
+fallo por defecto.** El patrón a buscar es `history.replaceState` + una ruta
+construida a mano.
+
+### Equipos de Ventas en Sellea: encendido, y AISLADO
+
+Javier lo quería **con lo suyo, independiente de Clubify**. Antes de encenderlo
+hubo que cerrar dos fugas en `CrmService.getLeaderboard`:
+
+1. La marca salía de `user?.whiteLabelId ?? null` → sesión sin marca dejaba el
+   `where` **vacío**, que en Prisma es «tráelo todo».
+2. Los equipos se filtraban por los **códigos de referido** del líder/miembros,
+   no por `SalesTeam.whiteLabelId`, que es su columna.
+
+Los dos con `resolveBrandScope` + la columna. 4 tests, **comprobados en rojo**.
+
+El módulo se encendió por el endpoint del panel
+(`PATCH /superadmin/modules/:wlId/SALES_TEAMS`), que **exige `PLATFORM_OWNER`**
+— con un `SUPER_ADMIN` de Clubify da 403.
+
+**Verificado con tokens reales:**
+
+```
+sellea   lista → 200  equipos=0    ranking → 200  equipos=0  usuarios=0
+clubify  lista → 200  equipos=2    ranking → 200  equipos=2
+```
+
+### Lo que NO era un bug
+
+El desplegable de acciones sin SMS/WhatsApp **ya estaba en producción** — se
+comprobó bajando el chunk que sirve el navegador y contiene «ya no se ofrece».
+Lo que se veía era **caché del navegador**. La pista: el orden de las opciones
+en la captura era el viejo.
+
+---
+
 ## 2026-09-10 (9) — Esconder el menú NO era cerrar la puerta (Equipos de Ventas)
 
 Desplegado (backend, `dc74d29f`). **Verificado contra producción con tokens
