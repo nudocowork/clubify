@@ -70,7 +70,11 @@ function servicioDePrueba(opciones: {
     },
   };
   const webhook: any = { emitBusinessActivated: async () => undefined };
-  const srv = new OnboardingSyncService(prisma, webhook);
+  // Club y Convenios no los toca `activate`, pero el constructor los exige y
+  // **`nest build --tsc` compila tambien los .spec.ts**: un tipo mal aqui tumba
+  // el build de produccion, no solo el test.
+  const nada: any = {};
+  const srv = new OnboardingSyncService(prisma, webhook, nada, nada);
   return {
     srv,
     marca,

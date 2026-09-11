@@ -96,6 +96,21 @@ export class OnboardingSyncController {
     return this.sync.upsertLoyaltyCards(tid, body?.items ?? body);
   }
 
+  // Plan de CLUB: la membresia de cupo mensual («10 cafes al mes»). Upsert por
+  // nombre. Delega en ClubService, que es quien valida tramos y topes.
+  @Put('club-plan')
+  clubPlan(@OnboardingTenantId() tid: string, @Body() body: any) {
+    return this.sync.syncClubPlan(tid, body || {});
+  }
+
+  // CONVENIO (alianza con una empresa). Upsert por nombre de la empresa.
+  // Los cupones solo se crean al CREAR el convenio: en uno que ya existe
+  // llevan canjes y topes consumidos colgando.
+  @Put('convenio')
+  convenio(@OnboardingTenantId() tid: string, @Body() body: any) {
+    return this.sync.syncConvenio(tid, body || {});
+  }
+
   // Acepta un arreglo directo o { items: [...] }.
   @Put('hours')
   hours(@OnboardingTenantId() tid: string, @Body() body: any) {

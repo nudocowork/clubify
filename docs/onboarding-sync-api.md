@@ -185,6 +185,8 @@ model OnboardingToken {
 | `PATCH /sync/reviews` | `googleReviewUrl` → `Tenant.googleReviewUrl` | `{ok}` |
 | `PUT /sync/location` | `address, mapsUrl, latitude, longitude, name` → la **primera `Location`** del negocio (crea si no hay; lat/lng default 0) | `{ok, location_id, created}` |
 | `PUT /sync/loyalty-card` | `name` (req. al crear), `stampsRequired, rewardText, rewardDescText, description, rewardEarnedMessage, stampEarnedMessage, stampIcon, primaryColor, secondaryColor, stampBgImageUrl` · **`freeRewards`** (premios intermedios — ver abajo) → la **`Card` type=STAMPS** del negocio (crea si no hay) | `{ok, card_id, created}` |
+| `PUT /sync/club-plan` | plan de CLUB (cupo mensual): `name*`, `beneficiosPorMes*` (al crear), `unidad, description, precioCents, currency, periodicidad, maxPorDia, minutosEntreConsumos, tramosAlta[]` → **`ClubPlan`** (upsert por nombre). Ver sección propia | `{ok, plan_id, created}` |
+| `PUT /sync/convenio` | ALIANZA con una empresa: `name*`, `logoUrl, description, contact*, verificacion, codigo, endsAt, cupones[]` → **`Convenio`** (upsert por nombre; los cupones solo al crear). Ver sección propia | `{ok, convenio_id, created, cupones}` |
 | `PUT /sync/hours` | arreglo (o `{items:[...]}`) de `{weekday(0=dom…6=sáb), startMin, endMin}` (minutos-desde-medianoche) → **reemplaza** las `ServiceAvailability` a nivel negocio (providerId null) | `{ok, count}` |
 | `PATCH /sync/modules` | `digitalMenu, orders, ordersDelivery, published` → `Storefront.*Enabled`/`isPublished` · `reservations, serviceReservations` → `Tenant.*Enabled` (booleans) | `{ok}` |
 | `POST /sync/categories` | arreglo (o `{items}`) de `{name*, description, imageUrl, position}` → **`Category`** (upsert por slug, parent nivel raíz) | `{ok, categories:[{name,slug,id,created}]}` |
@@ -292,12 +294,8 @@ del sello correspondiente.
 
 ## Tarjeta de CLUB y tarjeta de ALIANZA (convenio)
 
-> **Estado: contrato acordado, endpoints pendientes de implementar en Clubify.**
-> Esta sección define qué datos tiene que recoger el Onboarding y con qué
-> forma se enviarán. El formulario se puede construir ya; el `PUT` se conecta
-> cuando Clubify publique los endpoints. Si algo de aquí no encaja con el
-> formulario, decirlo ANTES de construirlo — cambiar el contrato después
-> cuesta mucho más.
+> **Estado: LIVE.** Los dos endpoints ya existen y aceptan datos.
+> `PUT /sync/club-plan` y `PUT /sync/convenio`.
 
 Las dos son **tarjetas de sellos por dentro** (`Card type=STAMPS`), pero no se
 parecen en nada a la de fidelización y **no se pueden crear por
@@ -315,7 +313,11 @@ consumiendo: «10 cafés al mes», «4 lavadas al mes». El cupo **se reinicia**
 día 1; no se acumula. El cobro de la cuota es **manual y por fuera de
 Clubify** — aquí solo se configura y se descuenta.
 
-**Endpoint previsto:** `PUT /sync/club-plan`
+**Endpoint:** `PUT /sync/club-plan` → `{ok, plan_id, created}`
+
+**Upsert por NOMBRE.** Mandar el mismo `name` dos veces actualiza el plan, no
+crea otro. Un negocio puede tener varios planes, así que se casa por nombre y
+no por «el primero».
 
 ```jsonc
 {
@@ -376,7 +378,15 @@ puede usar repetidamente mientras el negocio lo tenga encendido.
 > una membresía. Aquí el negocio monta el convenio, el aliado es una empresa
 > cuyos empleados reciben, y es **gratis**.
 
-**Endpoint previsto:** `PUT /sync/convenio`
+**Endpoint:** `PUT /sync/convenio` → `{ok, convenio_id, created, cupones}`
+
+**Upsert por NOMBRE de la empresa aliada.**
+
+⚠️ **Los cupones solo se crean al CREAR el convenio.** En uno que ya existe se
+ignoran, y la respuesta lo dice en `cupones_ignorados`. Es a propósito: sus
+cupones llevan canjes colgando y topes por persona ya consumidos, así que
+rehacerlos desde el formulario le borraría al negocio el histórico sin avisar.
+Para cambiar los beneficios de un convenio vivo, se hace desde el panel.
 
 ```jsonc
 {
@@ -429,20 +439,20 @@ persona **al mes**». `periodo: SIEMPRE` = una sola vez en la vida. Sin
 
 ---
 
-### Qué falta para que esto funcione
+### Reglas comunes a los dos
 
-Los dos endpoints (`PUT /sync/club-plan` y `PUT /sync/convenio`) **están por
-implementar en Clubify**. El formulario del Onboarding se puede construir
-contra este contrato desde ya.
-
-Cuando se implementen seguirán las mismas reglas que el resto del sync, que
-conviene tener presentes al diseñar el formulario:
-
-- **Omitir un campo ≠ mandarlo vacío.** Ausente = no se toca; `[]` o `null` =
-  se borra. Vale igual para `cupones` y `tramosAlta`.
-- **Puede estar apagado por marca.** Si la marca del negocio no tiene el módulo
-  encendido, Clubify lo ignora y responde `{ok:true}` sin error. No es un fallo
-  del envío: es un permiso.
+- **Omitir un campo ≠ mandarlo vacío.** Ausente = **no se toca**; `null` en
+  `maxPorDia`/`minutosEntreConsumos` = **quitar el tope**. Un sync que solo
+  cambia el nombre no debe mandar los topes, o se lleva por delante lo que el
+  negocio configuró a mano.
+- **El módulo tiene que estar encendido en el negocio.** Si no, Clubify
+  responde **403** con un mensaje claro (`La Tarjeta de Club no está habilitada
+  para este negocio`). A diferencia de otros campos, esto **no se ignora en
+  silencio**: es un error que el Onboarding debe mostrar.
+- **Las validaciones de fondo las hace Clubify**, no este contrato: tramos que
+  se solapan, un tope diario mayor que el cupo del mes, un nombre de empresa de
+  una sola letra. Devuelve **400** con el motivo en español, listo para
+  enseñárselo al cliente.
 
 
 ## FASE D — Webhook de activación (LIVE)

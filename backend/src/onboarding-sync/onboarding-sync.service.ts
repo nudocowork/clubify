@@ -2,6 +2,10 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { sanearPremiosIntermedios } from '../cards/premios-intermedios';
+import { datosDePlanDeClub, datosDeConvenio } from './sync-club-convenio';
+import { ClubService } from '../club/club.service';
+import { ConveniosService } from '../convenios/convenios.service';
+import type { AuthUser } from '../common/decorators/current-user.decorator';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { cobrarCreditoDeActivacion } from '../common/creditos-de-marca';
 import { OnboardingWebhookService } from './onboarding-webhook.service';
@@ -226,6 +230,9 @@ export class OnboardingSyncService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly webhook: OnboardingWebhookService,
+    // Los servicios del PANEL. El sync no reimplementa sus reglas: las llama.
+    private readonly club: ClubService,
+    private readonly convenios: ConveniosService,
   ) {}
 
   // ── 1. Datos del negocio ──────────────────────────────────────────────
@@ -557,6 +564,97 @@ export class OnboardingSyncService {
       data: { tenantId, type: 'STAMPS', ...data, name },
     });
     return { ok: true, card_id: created.id, created: true };
+  }
+
+  // ── 6c. Plan de CLUB y CONVENIO (alianza) ─────────────────────────────
+  //
+  // Los dos delegan en los servicios que ya usa el panel (`ClubService`,
+  // `ConveniosService`) en vez de escribir en Prisma directo. Ahí viven las
+  // reglas que no se pueden perder: tramos que no se solapen, topes coherentes
+  // con el cupo, slug único dentro del negocio, la plantilla de billetera del
+  // convenio y el módulo encendido. Reimplementarlas aquí es cómo el panel y el
+  // sync acaban aplicando criterios distintos.
+  //
+  // El usuario sintético es el patrón de `tid(user, override)`: SUPER_ADMIN con
+  // el tenant por override. No abre nada — el token del Onboarding ya resolvió
+  // a QUÉ negocio pertenece esta llamada.
+  private usuarioDeSync(): AuthUser {
+    return { id: 'onboarding-sync', role: 'SUPER_ADMIN', tenantId: null } as any;
+  }
+
+  /**
+   * Plan de club. UPSERT por nombre, como las tarjetas de sellos.
+   *
+   * Casa por nombre y no «el primero»: un negocio puede tener varios planes, y
+   * pisar el primero borraría la configuración de otro.
+   */
+  async syncClubPlan(tenantId: string, b: any) {
+    const datos = datosDePlanDeClub(b);
+    if (!datos.name) {
+      throw new BadRequestException('Para el plan de club se requiere `name`.');
+    }
+    const user = this.usuarioDeSync();
+    const existente = await this.prisma.clubPlan.findFirst({
+      where: { tenantId, name: datos.name },
+      select: { id: true },
+    });
+    if (existente) {
+      await this.club.actualizarPlan(user, existente.id, datos as any, tenantId);
+      return { ok: true, plan_id: existente.id, created: false };
+    }
+    if (datos.beneficiosPorMes === undefined) {
+      throw new BadRequestException(
+        'Para crear el plan de club se requiere `beneficiosPorMes`.',
+      );
+    }
+    const creado = await this.club.crearPlan(user, datos as any, tenantId);
+    return { ok: true, plan_id: (creado as any)?.id ?? null, created: true };
+  }
+
+  /**
+   * Convenio (alianza). UPSERT por nombre de la empresa aliada.
+   *
+   * Los cupones se crean SOLO al crear el convenio. En un convenio que ya
+   * existe no se tocan: sus cupones llevan canjes colgando y un tope por
+   * persona ya consumido, así que rehacerlos desde el formulario le borraría
+   * al negocio el histórico sin avisar.
+   */
+  async syncConvenio(tenantId: string, b: any) {
+    const datos = datosDeConvenio(b);
+    if (!datos.name) {
+      throw new BadRequestException('Para el convenio se requiere `name`.');
+    }
+    const user = this.usuarioDeSync();
+    const existente = await this.prisma.convenio.findFirst({
+      where: { tenantId, name: datos.name },
+      select: { id: true },
+    });
+    const { cupones, ...cabecera } = datos;
+    if (existente) {
+      await this.convenios.update(user, existente.id, cabecera as any, tenantId);
+      return {
+        ok: true,
+        convenio_id: existente.id,
+        created: false,
+        cupones_ignorados: cupones?.length ?? 0,
+      };
+    }
+    // `create` acepta UN beneficio inicial; el resto se añaden después.
+    const [primero, ...resto] = cupones ?? [];
+    const creado: any = await this.convenios.create(
+      user,
+      { ...cabecera, beneficio: primero } as any,
+      tenantId,
+    );
+    const convenioId = creado?.id ?? creado?.convenio?.id ?? null;
+    let creados = primero ? 1 : 0;
+    if (convenioId) {
+      for (const c of resto) {
+        await this.convenios.crearCupon(user, convenioId, c as any, tenantId);
+        creados++;
+      }
+    }
+    return { ok: true, convenio_id: convenioId, created: true, cupones: creados };
   }
 
   // ── 6b. Varias tarjetas de sellos (upsert por nombre, no destructivo) ──
