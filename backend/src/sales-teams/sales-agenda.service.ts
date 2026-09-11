@@ -496,7 +496,16 @@ export class SalesAgendaService {
   ): Promise<string | null> {
     const phone = (body.phone ?? '').trim();
     const phoneKey = phoneKeyOf(phone);
-    if (!phoneKey && !(body.email ?? '').trim()) return null;
+    const nombre = (body.name ?? '').trim();
+    // EL NOMBRE BASTA PARA ENTRAR AL TABLERO.
+    //
+    // Antes esto exigía teléfono o correo, y el formulario público pide
+    // «nombre O teléfono». Quien escribía solo su nombre pasaba el formulario
+    // y **se perdía aquí**: `null` → cita sin lead → el vendedor veía el hueco
+    // ocupado sin saber de quién. Es el mismo fallo que ya se arregló unas
+    // líneas más abajo con las columnas del tablero, y por la misma razón: la
+    // cita queda y la persona no.
+    if (!phoneKey && !(body.email ?? '').trim() && !nombre) return null;
 
     if (phoneKey) {
       const ya = await this.prisma.salesLead.findFirst({
@@ -520,7 +529,7 @@ export class SalesAgendaService {
         salesTeamId: teamId,
         whiteLabelId,
         stageId: primera.id,
-        name: (body.name ?? '').trim() || null,
+        name: nombre || null,
         phone: phone || null,
         phoneKey,
         email: emailNormOf(body.email),
@@ -624,6 +633,34 @@ export class SalesAgendaService {
     });
     if (!team) throw new NotFoundException('Agenda no disponible');
     await this.exigirModulo(team.whiteLabelId);
+
+    // LA HORA TIENE QUE SER UNA DE LAS OFRECIDAS.
+    //
+    // Antes esto se fiaba del `startAt` que llegara en el cuerpo, y lo único
+    // que comprobaba `crearCita` era que no solapara con otra cita. O sea: con
+    // un `curl` se podía reservar un domingo a las 3 de la mañana, fuera de
+    // todo horario publicado. El calendario público es una sugerencia del
+    // navegador, no un candado; el candado va aquí.
+    //
+    // Se recalculan los huecos del día y se exige que el instante pedido sea
+    // uno de ellos. De paso cubre la carrera de manual: dos personas mirando
+    // el mismo hueco: al segundo ya no le sale.
+    const inicioPedido = new Date(body.startAt);
+    if (Number.isNaN(inicioPedido.getTime())) {
+      throw new BadRequestException('La hora de la cita no es válida.');
+    }
+    const huecosDelDia = await this.huecosDe(
+      team.id,
+      fechaEn(inicioPedido, ZONA_POR_DEFECTO),
+      body.hostUserId ?? null,
+      ZONA_POR_DEFECTO,
+      DURACION_POR_DEFECTO,
+    );
+    if (!huecosDelDia.some((h) => h.startAt.getTime() === inicioPedido.getTime())) {
+      throw new BadRequestException(
+        'Ese horario ya no está disponible. Elige otro.',
+      );
+    }
 
     // El prospecto que agenda ENTRA AL TABLERO. Si no, la cita queda huérfana:
     // el vendedor no la ve en su embudo y el recordatorio no tiene a quién

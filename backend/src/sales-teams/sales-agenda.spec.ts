@@ -456,6 +456,50 @@ describe('la agenda pública', () => {
     expect(bd.citas[0].leadId).toBe(bd.leads[0].id);
   });
 
+  it('quien pone SOLO su nombre tambien entra al tablero', async () => {
+    // El formulario publico pide «nombre O telefono», pero el backend exigia
+    // telefono o correo. Quien escribia solo su nombre pasaba el formulario y
+    // se perdia aqui: la cita quedaba y la persona no.
+    await svc.reservarPublico('norte', {
+      startAt: '2026-09-08T14:30:00Z',
+      name: 'Ana Sin Telefono',
+    });
+    expect(bd.leads).toHaveLength(1);
+    expect(bd.leads[0].name).toBe('Ana Sin Telefono');
+    expect(bd.citas[0].leadId).toBe(bd.leads[0].id);
+  });
+
+  it('una hora FUERA del horario publicado se rechaza', async () => {
+    // `crearCita` solo miraba que no solapara con otra cita, asi que con un
+    // curl se podia reservar de madrugada, fuera de todo horario. El
+    // calendario del navegador es una sugerencia; el candado va en el backend.
+    await expect(
+      svc.reservarPublico('norte', {
+        startAt: '2026-09-08T04:00:00Z',
+        name: 'Ana Ruiz',
+        phone: '3001112233',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(bd.citas).toHaveLength(0);
+    expect(bd.leads).toHaveLength(0);
+  });
+
+  it('una hora YA OCUPADA se rechaza aunque venga por la API', async () => {
+    await svc.reservarPublico('norte', {
+      startAt: '2026-09-08T14:30:00Z',
+      name: 'Primera',
+      phone: '3001112233',
+    });
+    await expect(
+      svc.reservarPublico('norte', {
+        startAt: '2026-09-08T14:30:00Z',
+        name: 'Segunda',
+        phone: '3009998877',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(bd.citas).toHaveLength(1);
+  });
+
   it('reagendar NO crea una segunda tarjeta de la misma persona', async () => {
     await svc.reservarPublico('norte', {
       startAt: '2026-09-08T14:30:00Z',
