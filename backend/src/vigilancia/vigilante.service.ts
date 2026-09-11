@@ -226,6 +226,12 @@ export class VigilanteService {
         phone: null,
         whatsappPhone: null,
         whatsappOrdersPhone: null,
+        // «Cuponera Card» (`sys-living-card`) salia todos los dias en el
+        // informe. No es un negocio: es el tenant interno que hospeda las
+        // campanas de la cuponera, y no tiene a quien avisar porque no hay
+        // nadie detras. El cron de cobros ya lo excluye con este mismo campo;
+        // el auditor no, y el ruido diario tapa los hallazgos de verdad.
+        isCampaignHost: false,
       },
       select: { id: true, name: true },
     });
