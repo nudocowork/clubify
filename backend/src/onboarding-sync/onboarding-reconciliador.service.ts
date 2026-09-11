@@ -36,14 +36,21 @@ export class OnboardingReconciliadorService {
   ) {}
 
   /**
-   * Solo negocios de los últimos 30 días.
+   * Solo negocios del ÚLTIMO DÍA.
    *
-   * Sin ventana, la primera pasada daría de alta cientos de onboardings de
-   * negocios viejos que ya trabajan y a cuyos dueños no hay que molestar. El
-   * problema que se arregla es el del alta reciente que se quedó sin
-   * formulario.
+   * Sin ventana, la primera pasada daría de alta decenas de onboardings de
+   * negocios que llevan semanas trabajando y que casi seguro ya se
+   * configuraron a mano: los implementadores verían clientes nuevos que no lo
+   * son. Con 30 días salían 6, y solo 1 era el del problema.
+   *
+   * Un día basta y sobra para lo que esto arregla: el cron pasa cada media
+   * hora, así que un alta se recoge en 30 minutos. La ventana solo tiene que
+   * cubrir una caída, no un historial.
+   *
+   * Decisión de Javier, 2026-09-11: «por ahora solo me interesa el de hoy».
+   * Para dar de alta uno viejo, se hace a mano desde el panel.
    */
-  private static readonly DIAS = 30;
+  private static readonly DIAS = 1;
   /** Pocos por pasada: cada uno es un POST a otra app. */
   private static readonly TOPE = 10;
 

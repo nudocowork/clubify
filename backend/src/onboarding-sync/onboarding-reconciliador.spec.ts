@@ -99,12 +99,15 @@ describe('OnboardingReconciliadorService', () => {
     expect(w.isCampaignHost).toBe(false);
   });
 
-  it('mira solo los ULTIMOS 30 dias, para no molestar a negocios viejos', async () => {
+  it('mira solo el ULTIMO DIA, para no molestar a negocios que ya trabajan', async () => {
+    // Con 30 dias salian 6 negocios y solo 1 era el del problema; los otros
+    // llevaban semanas trabajando. El cron pasa cada media hora, asi que un
+    // dia cubre de sobra un alta reciente.
     const c = servicio({ negocios: [], tokensVivos: [] });
     await c.srv.reconciliar();
     const desde: Date = c.verWhere().createdAt.gte;
     const dias = Math.round((Date.now() - desde.getTime()) / 86400000);
-    expect(dias).toBe(30);
+    expect(dias).toBe(1);
   });
 
   it('se limita a 10 por pasada: cada alta es un POST a otra app', async () => {
