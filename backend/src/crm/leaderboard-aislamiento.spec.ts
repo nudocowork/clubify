@@ -48,7 +48,14 @@ function servicioEspia() {
       },
     },
   };
-  return { srv: new CrmService(prisma) as any, capturado };
+  // Los otros tres colaboradores no los toca `getLeaderboard`, pero el
+  // constructor los exige y **`nest build --tsc` compila tambien los .spec.ts**:
+  // un tipo mal aqui tumba el build de produccion, no solo el test. Ya paso.
+  const nada: any = {};
+  return {
+    srv: new CrmService(prisma, nada, nada, nada) as any,
+    capturado,
+  };
 }
 
 describe('getLeaderboard · aislamiento por marca', () => {
