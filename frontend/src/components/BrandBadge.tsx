@@ -26,6 +26,9 @@ export type BrandBadgeBrand = {
   logoUrl?: string | null;
   iconUrl?: string | null;
   attribution?: { madeWith?: string } | null;
+  /** Color con el que el negocio pinta el sello. Null = automático. Lo
+   *  resuelve el backend desde el tema del storefront. */
+  badgeColor?: string | null;
 };
 
 export function BrandBadge({

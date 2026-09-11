@@ -461,7 +461,9 @@ export default function OrderStatus() {
         {/* Sin marca resuelta NO se pinta nada. Antes caía a Clubify por
             defecto: el cliente de un negocio Sellea veía «Hecho con Clubify»
             en su tarjeta. Un pie ausente no delata a nadie; uno inventado sí. */}
-        {order.brand && <BrandBadge brand={order.brand} />}
+        {order.brand && (
+          <BrandBadge brand={order.brand} color={order.brand.badgeColor ?? null} />
+        )}
       </div>
     </div>
   );

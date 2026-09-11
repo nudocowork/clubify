@@ -314,7 +314,10 @@ export function WalletPassView({
             defecto: el cliente de un negocio Sellea veía «Hecho con Clubify»
             en su tarjeta. Un pie ausente no delata a nadie; uno inventado sí. */}
         {data.brand ? (
-          <BrandBadge brand={data.brand as BrandBadgeBrand} />
+          <BrandBadge
+            brand={data.brand as BrandBadgeBrand}
+            color={(data.brand as BrandBadgeBrand).badgeColor ?? null}
+          />
         ) : null}
         <LanguageSwitcher />
       </div>

@@ -818,7 +818,9 @@ export default function EnrollPage() {
         {/* Sin marca resuelta NO se pinta nada. Antes caía a Clubify por
             defecto: el cliente de un negocio Sellea veía «Hecho con Clubify»
             en su tarjeta. Un pie ausente no delata a nadie; uno inventado sí. */}
-        {brand && <BrandBadge brand={brand} />}
+        {/* El color lo elige el negocio (tema del storefront). Sin él, gris
+            automático — que sobre una portada oscura no se lee. */}
+        {brand && <BrandBadge brand={brand} color={brand.badgeColor ?? null} />}
         {/* Sellea ofrece italiano además de los idiomas por defecto. */}
         <LanguageSwitcher
           extraLocales={

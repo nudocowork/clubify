@@ -493,14 +493,17 @@ export default function StorefrontEditor() {
                 ajustes que no necesitan migracion. */}
             <HeaderColorRow
               label="Color del «Hecho con»"
-              hint="El sello del pie de tu menu. Dejalo en automatico y se adapta al fondo; elige un color si con tu portada no se lee."
+              hint="El sello aparece en tu menu, en la tarjeta del cliente, en el pase de wallet y en el recibo del pedido. Dejalo en automatico y se adapta al fondo; elige un color si sobre alguno de esos fondos no se lee."
               value={sf.theme?.badgeColor ?? ''}
               defaultLabel="Automatico"
               defaultColor="#64748B"
               presets={[
                 { color: '#FFFFFF', label: 'Blanco' },
-                { color: '#0F172A', label: 'Negro' },
+                { color: '#F1F5F9', label: 'Hueso' },
+                { color: '#94A3B8', label: 'Gris claro' },
                 { color: '#64748B', label: 'Gris' },
+                { color: '#334155', label: 'Gris oscuro' },
+                { color: '#0F172A', label: 'Negro' },
                 { color: primaryColor, label: 'Tu color' },
               ]}
               onChange={(v) =>

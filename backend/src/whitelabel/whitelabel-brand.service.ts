@@ -22,6 +22,19 @@ export type ResolvedBrand = {
   /** Dominio público de la marca (https://…), derivado de domain/appDomain. */
   websiteUrl: string;
   attribution: { madeWith: string; createdBy: string; poweredBy: string };
+  /**
+   * Color con el que ESTE negocio pinta el sello «Hecho con …». Null =
+   * automático (claro u oscuro según el fondo).
+   *
+   * Viaja dentro de la marca porque el sello es lo único para lo que existe
+   * este objeto en las pantallas del cliente, y así lo reciben TODAS sin
+   * tocar cada endpoint: la tarjeta, el pedido y el pase lo pintaban con el
+   * gris por defecto y no había forma de cambiarlo — sobre una portada oscura
+   * no se lee. Solo el menú tenía el ajuste.
+   *
+   * Es del NEGOCIO, no de la marca: tiñe el texto, nunca el cuadrito del logo.
+   */
+  badgeColor: string | null;
 };
 
 const WL_SELECT = {
@@ -78,13 +91,21 @@ export class WhitelabelBrandService {
 
   /** Resuelve la marca de un negocio (por tenantId). */
   async resolveTenant(tenantId: string): Promise<ResolvedBrand> {
+    // El storefront viaja en la MISMA consulta: es una ruta caliente y no
+    // merece un viaje extra a la base solo por un color.
     const t = await this.prisma.tenant
       .findUnique({
         where: { id: tenantId },
-        select: { whiteLabelId: true },
+        select: { whiteLabelId: true, storefront: { select: { theme: true } } },
       })
       .catch(() => null);
-    return this.resolveByWhiteLabelId(t?.whiteLabelId ?? null);
+    const marca = await this.resolveByWhiteLabelId(t?.whiteLabelId ?? null);
+    const tema = (t?.storefront?.theme ?? null) as { badgeColor?: unknown } | null;
+    const color =
+      typeof tema?.badgeColor === 'string' && tema.badgeColor.trim()
+        ? tema.badgeColor.trim()
+        : null;
+    return { ...marca, badgeColor: color };
   }
 
   /** Normaliza un row de WhiteLabel (o null) al shape público. */
@@ -107,6 +128,9 @@ export class WhitelabelBrandService {
       initial: (wl?.initial && String(wl.initial).trim()) || name[0]?.toUpperCase() || 'C',
       websiteUrl: `https://${domain}`,
       attribution: WhitelabelBrandService.attribution(name),
+      // `normalize` solo ve la MARCA. El color es del negocio y lo pone
+      // `resolveTenant`, que sí sabe de quién se trata.
+      badgeColor: null,
     };
   }
 }
