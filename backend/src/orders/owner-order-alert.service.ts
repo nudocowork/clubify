@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+import { brandAppUrl } from '../email/brand-email-creds.util';
 import {
   brandGrowCreds,
   BRAND_GROW_SELECT,
@@ -76,7 +77,11 @@ export class OwnerOrderAlertService {
           growBusinessLocationId: true,
           growBusinessApiKey: true,
           growBusinessSwitchNumber: true,
-          whiteLabel: { select: BRAND_GROW_SELECT },
+          // `domain`/`appDomain` ADEMÁS de las credenciales: el enlace del
+          // aviso tiene que ser el del panel DE SU MARCA. Ver `texto()`.
+          whiteLabel: {
+            select: { ...BRAND_GROW_SELECT, domain: true, appDomain: true },
+          },
         },
       });
       if (!tenant?.ownerOrderAlertsEnabled) return;
@@ -221,7 +226,10 @@ export class OwnerOrderAlertService {
       tableNumber: string | null;
       customer: { fullName: string } | null;
     },
-    tenant: { currencySymbol: string | null },
+    tenant: {
+      currencySymbol: string | null;
+      whiteLabel?: { domain?: string | null; appDomain?: string | null } | null;
+    },
   ): string {
     const simbolo = tenant.currencySymbol ?? '$';
     const total = Number(order.total).toLocaleString('es-CO');
@@ -232,7 +240,20 @@ export class OwnerOrderAlertService {
           ? 'Para llevar'
           : `Mesa ${order.tableNumber ?? ''}`.trim();
     const cliente = order.customer?.fullName?.trim() || 'Cliente';
-    const url = `${process.env.APP_URL ?? 'https://app.soyclubify.com'}/app/orders`;
+    // EL ENLACE ES DEL PANEL DE SU MARCA, NUNCA EL DE CLUBIFY.
+    //
+    // Estaba fijo a `app.soyclubify.com`. WhatsApp pinta la vista previa del
+    // dominio, así que a un negocio de Sellea le llegaba su aviso de pedido
+    // con una tarjeta verde, el logo de Clubify y «El sistema operativo de tu
+    // negocio local». Reportado el 2026-09-11 por Javier.
+    //
+    // `brandAppUrl` ya existía y su comentario describe este mismo fallo: se
+    // arregló en otros mensajes y ESTE se quedó fuera. Si aparece un mensaje
+    // nuevo con un enlace al panel, va por aquí.
+    const url = `${brandAppUrl(
+      tenant.whiteLabel ?? null,
+      process.env.APP_URL ?? 'https://app.soyclubify.com',
+    )}/app/orders`;
     // Sin emojis: WhatsApp los convierte en rombos por el camino web, y en SMS
     // fuerzan codificación de 16 bits, que reduce el segmento a 67 caracteres.
     return `Nuevo pedido ${order.code} - ${cliente} - ${simbolo}${total} - ${tipo}. Detalle y direccion en tu panel: ${url}`;
