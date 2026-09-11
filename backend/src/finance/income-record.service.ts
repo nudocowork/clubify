@@ -74,6 +74,39 @@ export class IncomeRecordService {
   }
 
   /**
+   * La marca del ingreso, sacada del negocio cuando el llamador no la manda.
+   *
+   * EL FALLO (2026-09-11, Jhon): «se realizaron varios pagos hoy y no se veían
+   * en Pagos procesados». Estaban en la base, con `whiteLabelId` en null — y el
+   * dashboard filtra por marca, así que no salía ninguno. El camino de Hotmart
+   * leía el negocio con un `select` que no pedía `whiteLabelId`, y el
+   * `?? null` de aquí lo daba por «sin marca» en vez de por «no me lo dijeron».
+   *
+   * Se arregla en el ORIGEN (que el select lo pida) y también aquí: un ingreso
+   * con negocio conocido siempre puede resolver su marca, y no hay razón para
+   * guardarlo sin ella. Son 19 de 120 filas históricas las que se perdieron por
+   * esto; es una puerta que no debe quedarse abierta para el siguiente camino
+   * de cobro que se añada.
+   */
+  private async marcaDelIngreso(input: RecordIncomeInput): Promise<string | null> {
+    if (input.whiteLabelId) return input.whiteLabelId;
+    if (!input.tenantId) return null;
+    const t = await this.prisma.tenant
+      .findUnique({
+        where: { id: input.tenantId },
+        select: { whiteLabelId: true },
+      })
+      .catch(() => null);
+    if (t?.whiteLabelId) {
+      this.logger.warn(
+        `IncomeRecord sin marca: resuelta desde el negocio ${input.tenantId}. ` +
+          `El camino de ${input.gateway} debería mandarla.`,
+      );
+    }
+    return t?.whiteLabelId ?? null;
+  }
+
+  /**
    * Registra el ingreso. Best-effort e idempotente. Salta cobros de $0 (ej. el
    * día 0 de una prueba) porque no son ingreso. No lanza: captura sus errores.
    */
@@ -122,7 +155,7 @@ export class IncomeRecordService {
           gateway: input.gateway,
           externalTxId: txId,
           tenantId: input.tenantId ?? null,
-          whiteLabelId: input.whiteLabelId ?? null,
+          whiteLabelId: await this.marcaDelIngreso(input),
           brandName: input.brandName ?? null,
           planId: input.planId ?? null,
           planPeriodicity: input.planPeriodicity ?? null,
