@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { sanearPremiosIntermedios } from './premios-intermedios';
 import { CardType } from '@prisma/client';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -113,56 +113,13 @@ export class CardsService {
     'freeRewards',
   ] as const;
 
-  /** Wallet V3 — normaliza/sanea los Premios Free antes de persistir.
-   * Filtra posiciones inválidas (pos<1 o pos>stampsRequired, que nunca se
-   * dibujarían), recorta textos, valida hex, asigna id. Ilimitados: no hay tope
-   * de cantidad. Devuelve ordenado por posición. */
+  /** La regla vive en `premios-intermedios.ts` porque el Onboarding tambien
+   *  la necesita: era privada aqui y por eso el sync ni miraba el campo. */
   private sanitizeFreeRewards(
     raw: CardDto['freeRewards'] | undefined,
     stampsRequired?: number | null,
-  ): Array<{
-    id: string;
-    pos: number;
-    text: string;
-    emoji: string;
-    circleColor: string | null;
-    textColor: string | null;
-    active: boolean;
-  }> | undefined {
-    if (raw === undefined) return undefined;
-    if (!Array.isArray(raw)) return [];
-    const isHex = (v: unknown): v is string =>
-      typeof v === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v.trim());
-    const seenPos = new Set<number>();
-    const maxPos =
-      typeof stampsRequired === 'number' && stampsRequired > 0
-        ? stampsRequired
-        : Number.MAX_SAFE_INTEGER;
-    const out = raw
-      .map((r) => {
-        const pos = Math.floor(Number((r as any)?.pos));
-        // Fuera de rango (pos<1 o pos>máximo de sellos) → se descarta: un premio
-        // más allá del máximo nunca se dibuja en la grilla.
-        if (!Number.isFinite(pos) || pos < 1 || pos > maxPos) return null;
-        return {
-          id: typeof (r as any)?.id === 'string' && (r as any).id ? (r as any).id : randomUUID(),
-          pos,
-          text: String((r as any)?.text ?? '').trim().slice(0, 24),
-          emoji: String((r as any)?.emoji ?? '').trim().slice(0, 8),
-          circleColor: isHex((r as any)?.circleColor) ? (r as any).circleColor.trim() : null,
-          textColor: isHex((r as any)?.textColor) ? (r as any).textColor.trim() : null,
-          active: (r as any)?.active === undefined ? true : !!(r as any).active,
-        };
-      })
-      .filter((r): r is NonNullable<typeof r> => r !== null)
-      // Una posición no puede tener dos premios: gana el primero.
-      .filter((r) => {
-        if (seenPos.has(r.pos)) return false;
-        seenPos.add(r.pos);
-        return true;
-      })
-      .sort((a, b) => a.pos - b.pos);
-    return out;
+  ) {
+    return sanearPremiosIntermedios(raw as any, stampsRequired);
   }
 
   /** Wallet V3 — gate por MARCA. Si la marca del negocio apagó una función en

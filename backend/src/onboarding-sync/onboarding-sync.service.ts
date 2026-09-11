@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { sanearPremiosIntermedios } from '../cards/premios-intermedios';
+import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { cobrarCreditoDeActivacion } from '../common/creditos-de-marca';
 import { OnboardingWebhookService } from './onboarding-webhook.service';
 import {
@@ -97,6 +99,21 @@ export function datosDeTarjetaDeSellos(b: any): Record<string, any> {
     const url = b.stampBgImageUrl ? String(b.stampBgImageUrl) : null;
     data.stampBgImageUrl = url;
     if (url) data.stampBgType = 'IMAGE';
+  }
+  // PREMIOS INTERMEDIOS («Premios Free»): el café al sello 3, la galleta al 5.
+  //
+  // Hasta ahora este mapeo ni miraba el campo, así que el Onboarding no tenía
+  // forma de mandarlos: el cliente los configuraba y no aparecían en ningún
+  // sitio. Se sanean con la MISMA regla que el panel —posición dentro del
+  // rango, una por sello, colores hex— para que las dos puertas no diverjan.
+  //
+  // `undefined` = «no los toques» (un sync que no habla del tema no puede
+  // borrar los que el negocio ya configuró a mano). `[]` = «bórralos todos».
+  if (b?.freeRewards !== undefined) {
+    data.freeRewards = (sanearPremiosIntermedios(
+      b.freeRewards,
+      data.stampsRequired ?? null,
+    ) ?? []) as any;
   }
   return data;
 }
@@ -490,9 +507,33 @@ export class OnboardingSyncService {
   }
 
   // ── 6. Programa de sellos (la tarjeta STAMPS del negocio) ─────────────
+  /**
+   * Candado de marca para los premios intermedios.
+   *
+   * Si la marca apagó «Premios Free» en Wallet Avanzado, el Onboarding NO
+   * puede saltárselo. El panel ya tiene este mismo candado
+   * (`gateCardWalletFeatures`); sin él aquí, el sync seria la puerta de atras
+   * de un permiso que alguien decidio cerrar.
+   */
+  private async quitarPremiosSiLaMarcaNoLosPermite(
+    tenantId: string,
+    data: Record<string, any>,
+  ) {
+    if (data.freeRewards === undefined) return;
+    if (Array.isArray(data.freeRewards) && data.freeRewards.length === 0) return;
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { whiteLabel: { select: { walletAdvanced: true } } },
+    });
+    if (!resolveWalletAdvanced(t?.whiteLabel?.walletAdvanced).freeRewards) {
+      data.freeRewards = [];
+    }
+  }
+
   async syncLoyaltyCard(tenantId: string, b: any) {
     const name = str(b.name)?.trim();
     const data = datosDeTarjetaDeSellos(b);
+    await this.quitarPremiosSiLaMarcaNoLosPermite(tenantId, data);
 
     // clubPlanId/convenioId: null — las tarjetas de CLUB y de ALIANZA también
     // son type STAMPS; sin el filtro, una de ellas creada antes que la de sellos
@@ -547,6 +588,7 @@ export class OnboardingSyncService {
 
       const data = datosDeTarjetaDeSellos(b);
       data.name = name;
+      await this.quitarPremiosSiLaMarcaNoLosPermite(tenantId, data);
 
       // clubPlanId/convenioId null: las tarjetas de CLUB y de ALIANZA también
       // son type STAMPS. Sin el filtro, el branding del onboarding caería encima

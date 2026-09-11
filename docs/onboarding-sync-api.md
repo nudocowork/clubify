@@ -184,7 +184,7 @@ model OnboardingToken {
 | `PATCH /sync/contact` | `instagramUrl, facebookUrl, mapsUrl, whatsappPhone` → `Tenant.*` | `{ok, updated}` |
 | `PATCH /sync/reviews` | `googleReviewUrl` → `Tenant.googleReviewUrl` | `{ok}` |
 | `PUT /sync/location` | `address, mapsUrl, latitude, longitude, name` → la **primera `Location`** del negocio (crea si no hay; lat/lng default 0) | `{ok, location_id, created}` |
-| `PUT /sync/loyalty-card` | `name` (req. al crear), `stampsRequired, rewardText, rewardDescText, description, rewardEarnedMessage, stampEarnedMessage, stampIcon, primaryColor, secondaryColor` → la **`Card` type=STAMPS** del negocio (crea si no hay) | `{ok, card_id, created}` |
+| `PUT /sync/loyalty-card` | `name` (req. al crear), `stampsRequired, rewardText, rewardDescText, description, rewardEarnedMessage, stampEarnedMessage, stampIcon, primaryColor, secondaryColor, stampBgImageUrl` · **`freeRewards`** (premios intermedios — ver abajo) → la **`Card` type=STAMPS** del negocio (crea si no hay) | `{ok, card_id, created}` |
 | `PUT /sync/hours` | arreglo (o `{items:[...]}`) de `{weekday(0=dom…6=sáb), startMin, endMin}` (minutos-desde-medianoche) → **reemplaza** las `ServiceAvailability` a nivel negocio (providerId null) | `{ok, count}` |
 | `PATCH /sync/modules` | `digitalMenu, orders, ordersDelivery, published` → `Storefront.*Enabled`/`isPublished` · `reservations, serviceReservations` → `Tenant.*Enabled` (booleans) | `{ok}` |
 | `POST /sync/categories` | arreglo (o `{items}`) de `{name*, description, imageUrl, position}` → **`Category`** (upsert por slug, parent nivel raíz) | `{ok, categories:[{name,slug,id,created}]}` |
@@ -201,6 +201,94 @@ curl -X POST https://api.soyclubify.com/api/sync/products \
   -H "Authorization: Bearer clbf_xxxxx" -H "Content-Type: application/json" \
   -d '[{"name":"Latte","basePrice":12000,"categoryName":"Bebidas","isRecommended":true}]'
 ```
+
+### Premios intermedios de la tarjeta de sellos (`freeRewards`)
+
+Son los premios que el cliente gana **antes** del premio final: el café al
+sello 3, la galleta al 5. En la tarjeta se dibujan **dentro del círculo del
+sello** que les toca, con un badge 🎁 en la esquina.
+
+Van dentro del body de `PUT /sync/loyalty-card` (y de cada elemento de
+`PUT /sync/loyalty-cards`), en el campo **`freeRewards`**.
+
+```jsonc
+{
+  "name": "Tarjeta de sellos",
+  "stampsRequired": 10,
+  "rewardText": "Café gratis",
+  "freeRewards": [
+    { "pos": 3, "text": "Café",   "emoji": "☕", "circleColor": "#F59E0B", "textColor": "#111827" },
+    { "pos": 5, "text": "Cookie", "emoji": "🍪" },
+    { "pos": 8, "text": "2x1",    "emoji": "🎁", "active": false }
+  ]
+}
+```
+
+**Los campos de cada premio**
+
+| Campo | Tipo | Obligatorio | Qué es |
+|---|---|---|---|
+| `pos` | entero | **sí** | En qué sello se gana. `1..stampsRequired`. |
+| `text` | string | no | Texto corto dentro del círculo. Se recorta a 24 caracteres; con 1-2 palabras se lee bien. |
+| `emoji` | string | no | Un emoji. Se recorta a 8 caracteres. |
+| `circleColor` | hex | no | Color del círculo (`#F59E0B` o `#FA0`). Otra cosa → el de por defecto. |
+| `textColor` | hex | no | Color del texto. Mismas reglas. |
+| `active` | boolean | no | Por defecto `true`. `false` lo deja configurado pero apagado. |
+| `id` | string | no | Si no viene, Clubify le pone uno. Mándalo solo si quieres conservar el mismo entre sincronizaciones. |
+
+**Reglas que aplica Clubify al recibirlos** — conviene replicarlas en el
+formulario del Onboarding para que el cliente vea el error ahí y no descubra
+después que su premio desapareció:
+
+1. **`pos` fuera de `1..stampsRequired` se descarta.** Un premio en el sello 12
+   de una tarjeta de 10 no se dibuja nunca. El máximo se toma del
+   `stampsRequired` **del mismo envío**.
+2. **Una posición, un premio.** Si llegan dos en el mismo sello, gana el
+   primero de la lista: dos en el mismo círculo se pintarían encima.
+3. **Sin tope de cantidad.** Puede haber tantos como sellos.
+4. Se guardan **ordenados por posición**, llegue como llegue la lista.
+5. Un color que no sea hex se cae al de por defecto, no rompe la tarjeta.
+
+**Omitir el campo NO es lo mismo que mandarlo vacío** — y esto importa:
+
+| Lo que mandas | Lo que hace Clubify |
+|---|---|
+| `freeRewards` ausente | **No toca nada.** Los premios que el negocio ya tuviera se quedan. |
+| `"freeRewards": []` | **Los borra todos.** Es una orden explícita. |
+
+Un sync que solo cambia el color de la tarjeta **no debe mandar el campo**: si
+manda `[]`, borra los premios que el negocio haya configurado a mano en el
+panel de Clubify.
+
+**Puede estar apagado por marca.** Si la marca blanca del negocio desactivó
+«Premios Free» en Wallet Avanzado, Clubify los ignora aunque lleguen bien
+formados — y responde `{ok:true}` igual, sin error. No es un fallo del envío:
+es un permiso. Si hace falta saberlo de antemano, preguntarlo al equipo de
+Clubify para ese negocio.
+
+**Ejemplo completo**
+
+```bash
+curl -X PUT https://api.soyclubify.com/api/sync/loyalty-card \
+  -H "Authorization: Bearer clbf_xxxxx" -H "Content-Type: application/json" \
+  -d '{
+        "name": "Tarjeta de sellos",
+        "stampsRequired": 10,
+        "rewardText": "Café gratis",
+        "freeRewards": [
+          {"pos": 3, "text": "Café", "emoji": "☕"},
+          {"pos": 5, "text": "Cookie", "emoji": "🍪"}
+        ]
+      }'
+```
+
+Respuesta: `{"ok":true,"card_id":"...","created":false}`.
+
+**Cómo comprobar que quedó**: abrir en Clubify el panel del negocio →
+*Tarjetas* → la tarjeta de sellos → «Premios Free (intermedios)». Ahí tienen
+que salir en la misma posición. Y en la tarjeta del cliente, dentro del círculo
+del sello correspondiente.
+
 
 ## FASE D — Webhook de activación (LIVE)
 
