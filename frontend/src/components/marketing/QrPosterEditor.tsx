@@ -1711,43 +1711,11 @@ export default function QrPosterEditor({
           </div>
         </div>
 
-        {/* Acciones */}
+        {/* Acciones. Guardar/deshacer/rehacer YA NO viven aquí: se fueron a la
+            barra fija de arriba a la derecha. Este panel tiene scroll propio,
+            así que al bajar a las últimas secciones había que subir del todo
+            para guardar. Lo que se queda es lo que solo se lee. */}
         <div className="card card-pad space-y-2">
-          <div className="flex gap-2">
-            <button
-              onClick={() => save()}
-              disabled={saving}
-              className="btn-primary flex-1 disabled:opacity-50"
-            >
-              {saving ? 'Guardando…' : 'Guardar diseño'}
-            </button>
-            <button onClick={reset} className="btn-ghost text-xs" title="Restablecer">
-              ↺
-            </button>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={undo}
-              disabled={!canUndo}
-              className="btn-ghost flex-1 text-xs disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Deshacer (⌘Z)"
-            >
-              ← Deshacer
-            </button>
-            <button
-              onClick={redo}
-              disabled={!canRedo}
-              className="btn-ghost flex-1 text-xs disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Rehacer (⌘⇧Z)"
-            >
-              Rehacer →
-            </button>
-          </div>
-          <AutosaveStatus
-            state={autosaveState}
-            savedAt={savedAt}
-            error={saveError}
-          />
           {localBackupFailed && (
             <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 leading-relaxed">
               ⚠ El backup local está lleno (imágenes grandes). Tu auto-save
@@ -2295,6 +2263,49 @@ export default function QrPosterEditor({
       </div>
 
       {/* ─────────────────────── Canvas ─────────────────────── */}
+      <div className="flex flex-col min-w-0">
+        {/* Barra de acciones SIEMPRE a la vista.
+            El panel de la izquierda tiene su propio scroll: estando en las
+            últimas secciones, guardar obligaba a subir hasta arriba. Aquí
+            arriba a la derecha no se mueve. */}
+        <div className="sticky top-2 z-20 mb-3 flex flex-wrap items-center justify-end gap-2">
+          <AutosaveStatus
+            state={autosaveState}
+            savedAt={savedAt}
+            error={saveError}
+          />
+          <button
+            onClick={reset}
+            className="btn-ghost text-xs bg-bg/90 backdrop-blur"
+            title="Restablecer"
+          >
+            ↺
+          </button>
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            className="btn-ghost text-xs bg-bg/90 backdrop-blur disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Deshacer (⌘Z)"
+          >
+            ← Deshacer
+          </button>
+          <button
+            onClick={redo}
+            disabled={!canRedo}
+            className="btn-ghost text-xs bg-bg/90 backdrop-blur disabled:opacity-30 disabled:cursor-not-allowed"
+            title="Rehacer (⌘⇧Z)"
+          >
+            Rehacer →
+          </button>
+          <button
+            onClick={() => save()}
+            disabled={saving}
+            className="btn-primary text-sm shadow-card disabled:opacity-50"
+          >
+            {saving ? 'Guardando…' : 'Guardar diseño'}
+          </button>
+        </div>
+
       <div ref={containerRef} className="flex items-start justify-center">
         <div className="bg-bg2/40 p-4 rounded-2xl shadow-card">
           <div
@@ -2735,6 +2746,7 @@ export default function QrPosterEditor({
             {cfg.canvas.dpi ?? 300} DPI
           </div>
         </div>
+      </div>
       </div>
     </div>
   );
