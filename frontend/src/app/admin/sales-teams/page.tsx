@@ -48,15 +48,31 @@ type TeamDetail = {
 export default function SalesTeamsPage() {
   const t = useTranslations('admin_sales_teams');
   const [teams, setTeams] = useState<Team[] | null>(null);
+  /**
+   * Qué falló al cargar, si falló.
+   *
+   * Antes un error solo sacaba un toast y `teams` se quedaba en `null`, así que
+   * la pantalla seguía enseñando el esqueleto **para siempre**. Desde fuera eso
+   * se ve como «le doy clic y no hace nada» — reportado así por Javier el
+   * 2026-09-11 con el panel de Sellea. Un fallo tiene que verse y poder
+   * reintentarse, no quedarse girando.
+   */
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   async function load() {
+    setErrorCarga(null);
     try {
       const rows = await api<Team[]>('/admin/sales-teams');
       setTeams(rows);
     } catch (e: any) {
-      toast(e?.message || t('toastLoadError'), 'error');
+      const msg = e?.message || t('toastLoadError');
+      toast(msg, 'error');
+      // Se sale del esqueleto SIEMPRE: con `[]` y el error a la vista, en vez
+      // de dejar la pantalla girando sin decir nada.
+      setErrorCarga(msg);
+      setTeams([]);
     }
   }
 
@@ -82,7 +98,16 @@ export default function SalesTeamsPage() {
         </button>
       </div>
 
-      {teams.length === 0 ? (
+      {errorCarga ? (
+        <div className="card card-pad text-center py-12">
+          <div className="text-3xl mb-2">⚠️</div>
+          <div className="font-semibold mb-1">No se pudo cargar</div>
+          <div className="text-sm text-mute mb-4">{errorCarga}</div>
+          <button className="btn-ghost text-sm" onClick={load}>
+            Reintentar
+          </button>
+        </div>
+      ) : teams.length === 0 ? (
         <div className="card card-pad text-center text-mute py-12">
           <div className="text-3xl mb-2">👥</div>
           <div className="font-semibold mb-1">{t('emptyTitle')}</div>
