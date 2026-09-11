@@ -8,6 +8,81 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-10 (11) — Los 5 defectos de Equipos de Ventas, antes de que los pise un cliente
+
+Desplegado backend (`557cbb6c`) y frontend (`e9fb6082`). 134 tests del módulo en
+verde. Se hizo ahora porque **Sellea ya tiene el módulo encendido** y lo va a
+usar gente de verdad.
+
+### 1. Quien escribía SOLO su nombre desaparecía
+
+El formulario público pide «nombre **o** teléfono». El backend exigía teléfono
+o correo: `leadDeLaReservaPublica` devolvía `null` y la cita se creaba **sin
+lead**. El vendedor veía el hueco ocupado sin saber de quién.
+
+Es el **mismo fallo** que ya se había arreglado unas líneas más abajo para los
+equipos sin tablero estrenado —«la cita queda y la persona no»— y no se aplicó
+a este caso.
+
+### 2. La hora no se validaba contra el horario publicado
+
+`reservarPublico` se fiaba del `startAt` del cuerpo; lo único que miraba
+`crearCita` era el solape con otra cita. **Con un `curl` se podía reservar un
+domingo a las 3 de la mañana.** Ahora se recalculan los huecos del día y se
+exige que el instante sea uno de ellos.
+
+> El calendario que pinta el navegador es una **sugerencia**, no un candado.
+
+### 3. El chat enseñaba los 200 mensajes MÁS VIEJOS
+
+`orderBy: asc` + `take: 200`. Pasada esa cifra el vendedor veía el principio de
+la conversación y **nunca lo último**. Ahora `desc` + `reverse()`.
+
+### 4. Un lead sin teléfono QUEMABA su recordatorio
+
+`recordarCitas` sellaba `reminderSentAt` y **después** miraba el teléfono: se
+salía sin mandar nada, con el candado anti-duplicados ya puesto. Si el vendedor
+añadía el número más tarde, el aviso **no salía nunca**.
+
+El teléfono no es una carrera, es una condición previa. El reclamo sigue yendo
+antes del envío a propósito (mejor uno perdido que dos); eso no se tocó.
+
+### 5. El `manageToken` no tenía pantalla
+
+El backend devolvía el token y tenía sus dos rutas públicas, pero el formulario
+**lo tiraba**. Quien reservaba no podía cancelar. Nueva pantalla en
+**`/agenda/cita/<token>`**.
+
+> ⚠️ **`/cita/gestion/<token>` NO sirve para esto.** Esa pantalla es de
+> **Reservas de Servicios** y habla con `/public/service-reservations/...`. Son
+> dos funciones con dos APIs distintas; enlazar una desde la otra da un 404
+> silencioso. Casi lo hago.
+
+### El doble de la base que no sabía ponerse en rojo
+
+El `salesMessage.findMany` del spec del chat **ignoraba `orderBy` y `take`**:
+devolvía todo en orden de inserción, así que esa prueba pasaba hiciera lo que
+hiciera el servicio. Ahora los honra, y su `create` lleva un **reloj que
+avanza** — con `new Date()` a secas dos mensajes caían en el mismo milisegundo
+y el orden quedaba indefinido: la prueba fallaba por el empate, no por el
+código.
+
+Los 3 tests nuevos se comprobaron **en rojo** desactivando los arreglos.
+
+### Y otra vez: `tsc` cazó dos errores en mi propio spec
+
+`'cita' is possibly undefined`. Si llega a pasar, **tumba el build del backend**
+— es lo que ya pasó dos veces hoy. Correr `tsc --noEmit` antes de commitear un
+`.spec.ts` no es opcional.
+
+### Queda pendiente
+
+**Borrar un lead se lleva su conversación** (`SalesMessage.lead` es
+`onDelete: Cascade`). No se tocó: cambiarlo es una migración destructiva y una
+decisión de producto, no un bug claro.
+
+---
+
 ## 2026-09-10 (10) — Equipos de Ventas encendido en Sellea, y el `?sede=` que se comía el SCROLL
 
 ### ⚠️ ROMPÍ EL BUILD DEL BACKEND (y así se ve)
