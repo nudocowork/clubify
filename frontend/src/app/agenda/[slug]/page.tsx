@@ -41,7 +41,13 @@ export default function AgendaPublica() {
   const [elegido, setElegido] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', phone: '', notes: '' });
   const [enviando, setEnviando] = useState(false);
-  const [listo, setListo] = useState<{ startAt: string } | null>(null);
+  // Se guarda el `manageToken` que devuelve la API. Antes se tiraba: la
+  // pantalla de gestión (`/cita/gestion/<token>`) existía y **nadie recibía
+  // nunca el enlace**, así que quien reservaba no podía cancelar ni cambiar la
+  // hora. El token ES la autorización; no hace falta cuenta.
+  const [listo, setListo] = useState<{ startAt: string; manageToken?: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!slug) return;
@@ -78,10 +84,17 @@ export default function AgendaPublica() {
       if (!r.ok) {
         // 409 = alguien cogió ese hueco mientras tanto. Es lo más probable, y
         // hay que decirlo con palabras, no con un número.
+        // El backend revalida el hueco y responde con un texto ya escrito para
+        // una persona («Ese horario ya no está disponible. Elige otro.»).
+        // Enseñarlo gana al genérico, que no dice qué hacer.
+        const dicho = await r
+          .json()
+          .then((j) => (typeof j?.message === 'string' ? j.message : null))
+          .catch(() => null);
         setError(
           r.status === 409
             ? 'Esa hora acaba de ocuparse. Elige otra, por favor.'
-            : 'No se pudo reservar. Intenta de nuevo.',
+            : dicho ?? 'No se pudo reservar. Intenta de nuevo.',
         );
         setElegido(null);
         // Se recarga el calendario: el hueco que falló ya no debe verse libre.
@@ -92,7 +105,7 @@ export default function AgendaPublica() {
         return;
       }
       const datos = await r.json();
-      setListo({ startAt: datos.startAt });
+      setListo({ startAt: datos.startAt, manageToken: datos.manageToken });
     } catch {
       setError('No se pudo reservar. Intenta de nuevo.');
     } finally {
@@ -119,6 +132,16 @@ export default function AgendaPublica() {
           <p className="text-xs text-mute mt-4">
             Te escribimos un recordatorio antes de la cita.
           </p>
+          {listo.manageToken && (
+            <a
+              // `/agenda/cita/<token>`, NO `/cita/gestion/<token>`: esa
+              // segunda es de Reservas de Servicios y habla con otra API.
+              href={`/agenda/cita/${encodeURIComponent(listo.manageToken)}`}
+              className="inline-block mt-4 text-sm underline underline-offset-4"
+            >
+              Ver o cancelar mi cita
+            </a>
+          )}
         </div>
       </main>
     );
