@@ -290,6 +290,161 @@ que salir en la misma posición. Y en la tarjeta del cliente, dentro del círcul
 del sello correspondiente.
 
 
+## Tarjeta de CLUB y tarjeta de ALIANZA (convenio)
+
+> **Estado: contrato acordado, endpoints pendientes de implementar en Clubify.**
+> Esta sección define qué datos tiene que recoger el Onboarding y con qué
+> forma se enviarán. El formulario se puede construir ya; el `PUT` se conecta
+> cuando Clubify publique los endpoints. Si algo de aquí no encaja con el
+> formulario, decirlo ANTES de construirlo — cambiar el contrato después
+> cuesta mucho más.
+
+Las dos son **tarjetas de sellos por dentro** (`Card type=STAMPS`), pero no se
+parecen en nada a la de fidelización y **no se pueden crear por
+`/sync/loyalty-card`**: ese endpoint ignora a propósito las tarjetas de club y
+de alianza (filtra por `clubPlanId: null, convenioId: null`) porque si no, el
+branding de fidelización caería encima de ellas y en la alianza pisaría el logo
+del aliado.
+
+---
+
+### 1. Tarjeta de CLUB — la membresía de cupo mensual
+
+**Qué es.** El cliente paga una cuota y recibe **N beneficios al mes** que va
+consumiendo: «10 cafés al mes», «4 lavadas al mes». El cupo **se reinicia** el
+día 1; no se acumula. El cobro de la cuota es **manual y por fuera de
+Clubify** — aquí solo se configura y se descuenta.
+
+**Endpoint previsto:** `PUT /sync/club-plan`
+
+```jsonc
+{
+  "name": "Plan Café",                  // requerido
+  "description": "Un café al día, todos los días",
+  "beneficiosPorMes": 10,               // requerido. A cuánto se REINICIA cada mes
+  "unidad": "café",                     // singular: sale en el pase («te queda 1 café»)
+  "precioCents": 4900000,               // lo que paga el socio, en la unidad menor
+  "currency": "COP",
+  "periodicidad": "MENSUAL",            // MENSUAL | ANUAL — solo cambia qué significa el precio
+  "maxPorDia": 1,                       // opcional. null = sin tope diario
+  "minutosEntreConsumos": 120,          // opcional. null = sin espera
+  "tramosAlta": [                       // opcional, ver abajo
+    { "desdeDia": 1,  "hastaDia": 15, "beneficios": 10 },
+    { "desdeDia": 16, "hastaDia": 24, "beneficios": 5  },
+    { "desdeDia": 25, "hastaDia": 31, "beneficios": 3  }
+  ]
+}
+```
+
+**Los campos, uno por uno**
+
+| Campo | Req. | Qué es y qué preguntar en el formulario |
+|---|---|---|
+| `name` | **sí** | Nombre del plan, como lo ve el cliente. |
+| `beneficiosPorMes` | **sí** | «¿Cuántos ___ recibe al mes?». Entero ≥ 1. |
+| `unidad` | no | **En singular**: «café», «lavada», «clase». Sale literal en el pase. Por defecto «beneficio», que se lee mucho peor. |
+| `precioCents` | no | En la **unidad menor** de la moneda. En pesos colombianos no hay decimales: `49000` son 49.000 COP, no 490. Es informativo — Clubify no cobra esto. |
+| `currency` | no | `COP` por defecto. |
+| `periodicidad` | no | `MENSUAL` o `ANUAL`. **Solo cambia qué significa el precio.** El cupo se repone el día 1 en los dos casos: quien paga el año por adelantado recibe sus beneficios mes a mes igual. Por eso el anual se puede vender más barato. |
+| `maxPorDia` | no | «¿Cuántos como mucho en un día?». Sin esto, con 10 al mes se los puede llevar los 10 de una sentada. |
+| `minutosEntreConsumos` | no | Espera mínima entre uno y el siguiente. Es la forma de decir «uno por visita» sin definir qué es una visita. |
+| `tramosAlta` | no | Ver abajo. |
+
+**Los tramos de alta** responden a: «alguien se inscribe el día 20, ¿cuántos
+beneficios recibe ese primer mes?». El negocio parte el mes por días y le pone
+precio a cada tramo. **Es solo para el primer período**; desde el mes siguiente
+recibe el cupo completo. Sin tramos, el alta recibe el cupo entero.
+
+En el formulario: una tabla de «del día X al día Y → Z beneficios». Validar que
+los tramos **no se solapen** y que cubran del 1 al 31.
+
+**⚠️ Cuidado con encender los topes en un plan que ya tiene socios.**
+`maxPorDia` y `minutosEntreConsumos` nacen vacíos a propósito: ponerlos de
+oficio le cambia las reglas a alguien que ya pagó.
+
+---
+
+### 2. Tarjeta de ALIANZA (convenio) — el beneficio para los empleados de una empresa
+
+**Qué es.** El negocio acuerda con una **empresa aliada** (ej. una caja de
+compensación) un beneficio permanente para sus empleados, para atraerlos como
+clientes. **No hay venta, no hay saldo, no hay sellos**: es un descuento que se
+puede usar repetidamente mientras el negocio lo tenga encendido.
+
+> No confundir con la **Cuponera**, que va al revés: allí la plataforma monta la
+> campaña, los negocios son los aliados que dan el beneficio, y el miembro paga
+> una membresía. Aquí el negocio monta el convenio, el aliado es una empresa
+> cuyos empleados reciben, y es **gratis**.
+
+**Endpoint previsto:** `PUT /sync/convenio`
+
+```jsonc
+{
+  "name": "Confenalco",                 // requerido: la EMPRESA aliada
+  "logoUrl": "https://…/confenalco.png",// se muestra junto al del negocio
+  "description": "Beneficio para afiliados",
+  "contactName":  "Ana Ruiz",           // responsable EN la empresa aliada
+  "contactEmail": "ana@confenalco.com",
+  "contactPhone": "+57300…",
+  "verificacion": "CODIGO",             // ABIERTO | CODIGO | LISTA
+  "codigo": "CONFE2026",                // requerido si verificacion = CODIGO
+  "endsAt": "2026-12-31T23:59:59Z",     // opcional: se apaga solo al llegar
+  "cupones": [
+    {
+      "name": "20% en cafetería",
+      "tipo": "PERCENT_OFF",            // PERCENT_OFF | AMOUNT_OFF | FREEBIE | TWO_FOR_ONE | OTHER
+      "valor": 20,                      // % si PERCENT_OFF, importe si AMOUNT_OFF
+      "description": "Sobre el total de la cuenta",
+      "terms": "No acumulable con otras promociones",
+      "maxPorPersona": 1,               // opcional
+      "periodo": "MES"                  // SIEMPRE | DIA | SEMANA | MES | ANIO
+    }
+  ]
+}
+```
+
+**Cómo se verifica que quien activa pertenece al aliado** — es la decisión más
+importante del formulario:
+
+| `verificacion` | Cómo funciona | Cuándo usarlo |
+|---|---|---|
+| `ABIERTO` | Cualquiera con el enlace obtiene la tarjeta. | Convenios amplios o de bajo impacto. **Avisar del riesgo en el formulario**: no hay nada que impida que el enlace circule. |
+| `CODIGO` | El aliado reparte un código y se pide al activar. Requiere `codigo`. | Lo habitual. Los 4 convenios en producción usan esto. |
+| `LISTA` | Solo los documentos/correos que el aliado cargó pueden activar. | Cuando importa de verdad quién entra. La lista **no se carga por aquí**: la sube el negocio o el aliado desde su portal. |
+
+**Los cupones del convenio.** `maxPorPersona` + `periodo` son el tope: «1 por
+persona **al mes**». `periodo: SIEMPRE` = una sola vez en la vida. Sin
+`maxPorPersona` no hay tope.
+
+**Lo que NO se manda por aquí, y conviene saberlo:**
+
+- **Las sedes donde aplica.** Vacío = todas. Se eligen desde el panel.
+- **Los tokens del aliado.** Clubify genera dos: el del **informe** (solo
+  agregados, nunca datos personales de los empleados) y el del **portal**,
+  donde el aliado enciende y apaga sus beneficios y da de baja a quien salió de
+  la empresa. Van separados a propósito: el informe se reenvía por correo sin
+  pensarlo, el mando no.
+- **Las tarjetas de los empleados.** Se emiten solas cuando cada persona
+  activa; no se crean desde el Onboarding.
+
+---
+
+### Qué falta para que esto funcione
+
+Los dos endpoints (`PUT /sync/club-plan` y `PUT /sync/convenio`) **están por
+implementar en Clubify**. El formulario del Onboarding se puede construir
+contra este contrato desde ya.
+
+Cuando se implementen seguirán las mismas reglas que el resto del sync, que
+conviene tener presentes al diseñar el formulario:
+
+- **Omitir un campo ≠ mandarlo vacío.** Ausente = no se toca; `[]` o `null` =
+  se borra. Vale igual para `cupones` y `tramosAlta`.
+- **Puede estar apagado por marca.** Si la marca del negocio no tiene el módulo
+  encendido, Clubify lo ignora y responde `{ok:true}` sin error. No es un fallo
+  del envío: es un permiso.
+
+
 ## FASE D — Webhook de activación (LIVE)
 
 Cuando un negocio pasa a `ACTIVE` — vía **`POST /sync/activate`** o al **activarlo desde el panel/simulador** (Master Admin) — Clubify hace un `POST` firmado a una URL configurable:
