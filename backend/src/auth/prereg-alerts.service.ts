@@ -125,7 +125,15 @@ export class PreregAlertsService {
       const already = await this.prisma.user
         .findUnique({
           where: { id: opts.userId },
-          select: { preregAlertedAt: true },
+          // El NEGOCIO viaja en la misma consulta. Se resuelve AQUI y no se
+          // pide al llamador porque el aviso lo dispara `auth.service.ts`, y
+          // ese fichero lo tiene abierto la otra maquina: tocarlo me llevaria
+          // su trabajo sin commitear dentro de mi commit. Ademas es mas
+          // robusto — si manana lo dispara otro camino, el negocio sale igual.
+          select: {
+            preregAlertedAt: true,
+            tenant: { select: { brandName: true } },
+          },
         })
         .catch(() => null);
       if (
@@ -158,7 +166,10 @@ export class PreregAlertsService {
         return;
       }
 
-      const body = this.buildMessage(opts);
+      const body = this.buildMessage({
+        ...opts,
+        businessName: already?.tenant?.brandName ?? null,
+      });
 
       // Fan-out de envíos en paralelo. Cada uno captura su error.
       await Promise.all(
@@ -505,6 +516,10 @@ export class PreregAlertsService {
     referrerName?: string | null;
     campaignName?: string | null;
     brandName?: string | null;
+    /** El NEGOCIO que se acaba de crear («Laly.com»). Distinto de `brandName`,
+     *  que es la MARCA de la plataforma (Clubify, Sellea). Lo pidió Javier:
+     *  «Cliente nuevo: nombre, negocio, teléfono». */
+    businessName?: string | null;
   }): string {
     // Marca blanca (ej. Sellea) → su nombre; sin marca → Clubify.
     const plataforma = opts.brandName?.trim() || 'Clubify';
@@ -512,6 +527,7 @@ export class PreregAlertsService {
       `Nuevo preregistro en ${plataforma}.`,
       '',
       `Nombre: ${opts.customerName}`,
+      ...(opts.businessName ? [`Negocio: ${opts.businessName}`] : []),
       `Teléfono: ${opts.customerPhone ?? '—'}`,
       `Email: ${opts.customerEmail}`,
       `Origen: ${opts.source}`,
