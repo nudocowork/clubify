@@ -462,6 +462,16 @@ model Tenant {
   /// panel de admin: la inmensa mayoría tiene un solo menú y no debe ver la
   /// complejidad. Ver modelo `Menu`.
   multiMenuEnabled            Boolean                    @default(false)
+  /// ¿Se le ofrece imprimir el pedido (ticket de cocina / recibo del cliente)?
+  ///
+  /// Nace APAGADO. La opción estaba en todos los negocios y no funcionaba de
+  /// forma fiable: se quita de todos y se enciende solo donde se quiera
+  /// probar. Decisión de Javier, 2026-09-11 — «solo DEMO Clubify y Nudo
+  /// Cowork, de resto deshabilitar para Clubify, Sellea y cualquier marca».
+  ///
+  /// Es una columna del negocio y no una lista de slugs en el código para que
+  /// encender un tercero sea un UPDATE, no un despliegue.
+  ordersPrintEnabled          Boolean                    @default(false)
   /// Cuántas cartas EXTRA puede crear, además del menú principal.
   ///
   /// El límite lo pone el admin, no el negocio: cada carta es un catálogo

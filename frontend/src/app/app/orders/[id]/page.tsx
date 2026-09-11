@@ -137,6 +137,12 @@ export default function OrderDetail() {
   const [o, setO] = useState<Order | null>(null);
   const [busy, setBusy] = useState(false);
   const [negocio, setNegocio] = useState<string | null>(null);
+  // Imprimir nace APAGADO: no funcionaba de forma fiable y se quitó de todos
+  // los negocios (Javier, 2026-09-11). Se enciende por negocio desde la base
+  // (`Tenant.ordersPrintEnabled`). Si `/tenants/me` falla o el backend no
+  // manda el campo, se queda apagado — mejor no ofrecer algo que no funciona
+  // que ofrecerlo por accidente.
+  const [puedeImprimir, setPuedeImprimir] = useState(false);
   const [editing, setEditing] = useState(false);
   // Edición del método de pago declarado por el cliente.
   const [editPay, setEditPay] = useState(false);
@@ -224,12 +230,14 @@ export default function OrderDetail() {
     }
   }
 
-  // El nombre del negocio, para el recibo que se le entrega al cliente.
+  // El nombre del negocio (para el recibo) y si este negocio tiene impresión.
   useEffect(() => {
     let vivo = true;
-    api<{ brandName?: string }>('/tenants/me')
+    api<{ brandName?: string; ordersPrintEnabled?: boolean }>('/tenants/me')
       .then((me) => {
-        if (vivo && me?.brandName) setNegocio(me.brandName);
+        if (!vivo) return;
+        if (me?.brandName) setNegocio(me.brandName);
+        setPuedeImprimir(me?.ordersPrintEnabled === true);
       })
       .catch(() => null);
     return () => {
@@ -287,7 +295,7 @@ export default function OrderDetail() {
           >
             {t(STATUS_LABEL_KEY[o.status])}
           </span>
-          <PrintMenu onPrint={printAs} />
+          {puedeImprimir && <PrintMenu onPrint={printAs} />}
           {o.status !== 'CANCELLED' && o.status !== 'DELIVERED' && (
             <button
               className="btn-ghost"
