@@ -8,6 +8,97 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-11 (2) — Onboarding: club, alianzas, el reconciliador, y el aviso de cliente nuevo
+
+Todo desplegado y verificado contra producción.
+
+### El Onboarding solo se creaba desde el PANEL
+
+Doralis (`laly-com`) compró, se registró, y su onboarding **no existió nunca**.
+`crearClienteEnOnboarding` se llama desde UN sitio —el botón «crear negocio»—
+pero un negocio nace por **cinco caminos** y los otros cuatro no llaman a nadie.
+
+**Se resolvió con un reconciliador**, no con cuatro llamadas más: añadir la
+llamada a cada camino es exactamente cómo se llega a este bug, y el sexto
+camino que alguien añada empezaría roto. Además **repara lo ya pasado**.
+
+Ventana de **1 día** (no 30). Con 30 la primera pasada daba de alta 6 negocios
+y solo 1 era el del problema; los otros llevaban semanas trabajando.
+
+**Verificado:** `laly-com` quedó a las 20:00 UTC, en la primera pasada, con el
+token sin revocar — o sea, el alta entró de verdad en la otra app.
+
+Y un fallo latente que había que cerrar antes: **si el POST al Onboarding
+fallaba, el token quedaba creado igual**. Cualquiera que buscara «negocios sin
+token» lo vería con uno y nadie reintentaría nunca. Ahora un alta fallida
+revoca su token.
+
+### Plan de CLUB y CONVENIO desde el Onboarding
+
+`PUT /sync/club-plan` y `PUT /sync/convenio`. **Documentar no bastaba** — es la
+misma lección de los premios intermedios: sin endpoint, el formulario no tiene
+dónde mandar.
+
+**No reimplementan reglas**: llaman a `ClubService` y `ConveniosService`, los
+del panel. Ahí viven los tramos que no se solapan, los topes coherentes con el
+cupo, el slug único y la plantilla de billetera del convenio.
+
+Dos decisiones que no hay que deshacer:
+
+- **Un modo de verificación desconocido NO cae a `ABIERTO`.** Caer ahí por una
+  errata dejaría el beneficio de la alianza a disposición de cualquiera con el
+  enlace.
+- **Los cupones solo se crean al CREAR el convenio.** En uno que ya existe
+  llevan canjes y topes por persona consumidos.
+
+⚠️ **El módulo NO tenía array `imports`.** Sin añadirlo, Nest no resuelve los
+servicios y **el backend no arranca** — el mismo fallo de cableado que ya tumbó
+la cuponera y el IntegrationsModule, y que solo se ve al desplegar.
+
+**Verificado en producción:** `PUT /api/sync/club-plan` y `/convenio` dan
+**401**; una ruta inventada da 404.
+
+### El aviso de cliente nuevo dice de qué NEGOCIO se trata
+
+Pedido de Javier: que le llegue a **Samuel** (`+573154391993`). Ya está en
+`prereg.alertPhones` con `solo: ['preregistro']` — recibe el de cliente nuevo y
+no los de cobros.
+
+Faltaba el **negocio**: el aviso llevaba nombre, teléfono, correo y origen,
+pero no de quién se trata. Va justo debajo del nombre.
+
+**Cuidado con la confusión:** `brandName` es la MARCA de la plataforma
+(Clubify, Sellea) y titula el aviso; `businessName` es el negocio recién creado
+(Laly.com). Mezclarlos es como se cuelan las fugas de marca — hay un test que
+los separa.
+
+Se resuelve **dentro del servicio de avisos**, no se le pide al llamador:
+`auth.service.ts` sigue con trabajo sin commitear de la otra máquina, y así el
+dato sale igual si mañana lo dispara otro camino.
+
+### El pie «Powered by» del diseñador de QR ya se puede colorear
+
+Esa capa estaba en la lista **sin ningún control**. Su color era una decisión
+de dos salidas escrita a mano: gris si el fondo era blanco sólido, blanco
+translúcido en todo lo demás — así que sobre un fondo de color o una foto
+desaparecía. Ahora tiene su sección, en `footerColor` (JSON, sin migración).
+
+El texto ya era el de la marca (`Powered by <marca>`), no «Clubify» fijo.
+
+### Y guardar/deshacer/rehacer dejaron de perderse
+
+El panel izquierdo del diseñador tiene scroll propio, así que la tarjeta de
+acciones desaparecía al bajar. Se van a una barra **fija arriba a la derecha**,
+sobre el lienzo, que no scrollea.
+
+### ⚠️ TRES veces hoy un `.spec.ts` mío habría tumbado el build
+
+`nest build --tsc` compila los tests. La lección no es «correr `tsc`» —lo
+corrí— es **leer su salida antes de commitear**. Una vez commiteé con el error
+delante.
+
+---
+
 ## 2026-09-11 — Fuga de marca en el aviso de pedido, premios intermedios y el color del sello
 
 ### ⚠️ URGENTE, ya corregido: el aviso de pedido delataba Clubify
