@@ -4,6 +4,7 @@ import { OnboardingSyncService } from './onboarding-sync.service';
 import { OnboardingWebhookService } from './onboarding-webhook.service';
 import { OnboardingWebhookWorker } from './onboarding-webhook.worker';
 import { OnboardingTokenGuard } from './onboarding-token.guard';
+import { OnboardingReconciliadorService } from './onboarding-reconciliador.service';
 import { OnboardingConnectAdminController } from './onboarding-connect-admin.controller';
 import { OnboardingSyncController } from './onboarding-sync.controller';
 import { OnboardingWebhookAdminController } from './onboarding-webhook-admin.controller';
@@ -19,6 +20,7 @@ import { OnboardingWebhookAdminController } from './onboarding-webhook-admin.con
     OnboardingWebhookService,
     OnboardingWebhookWorker,
     OnboardingTokenGuard,
+    OnboardingReconciliadorService,
   ],
   controllers: [
     OnboardingConnectAdminController,

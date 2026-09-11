@@ -311,9 +311,11 @@ export class OnboardingWebhookService {
       // `createToken` se niega en negocios de marca blanca: el onboarding sync
       // es interno de Clubify. Que se niegue aquí es correcto, no un fallo.
       let token: string;
+      let tokenId: string;
       try {
         const cred = await this.onboarding.createToken(tenantId, 'Alta automática');
         token = cred.token;
+        tokenId = cred.id;
       } catch {
         return;
       }
@@ -345,6 +347,14 @@ export class OnboardingWebhookService {
           this.logger.warn(
             `Alta en Onboarding falló para ${tenantId}: HTTP ${res.status}`,
           );
+          // SE REVOCA EL TOKEN SI EL ALTA NO ENTRÓ.
+          //
+          // Si no, queda un token vivo de un onboarding que no existe: quien
+          // luego busque «negocios sin token» lo ve con uno y lo da por hecho,
+          // así que nadie reintenta NUNCA y el cliente se queda sin su
+          // formulario. Revocarlo deja el negocio otra vez «sin onboarding»,
+          // que es la verdad.
+          await this.onboarding.revokeToken(tenantId, tokenId).catch(() => null);
         }
       } finally {
         clearTimeout(timer);
@@ -354,5 +364,18 @@ export class OnboardingWebhookService {
         `Alta en Onboarding falló para ${tenantId}: ${e?.message || 'error'}`,
       );
     }
+  }
+
+  /**
+   * ¿Este negocio ya tiene su onboarding dado de alta?
+   *
+   * Se mira por el TOKEN vivo, que es la huella que deja el alta. Lo usa el
+   * reconciliador para no dar de alta dos veces al mismo.
+   */
+  async tieneOnboarding(tenantId: string): Promise<boolean> {
+    const n = await this.prisma.onboardingToken.count({
+      where: { tenantId, revokedAt: null },
+    });
+    return n > 0;
   }
 }
