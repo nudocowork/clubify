@@ -69,6 +69,41 @@ export interface DunningDecision {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * ¿Ese `failedPaymentCount` es un fantasma o una mora de verdad?
+ *
+ * EL CASO QUE LO PROVOCÓ (MYKOZ, 2026-09-11)
+ * ------------------------------------------
+ * La regla era: «hay fallo pero `currentPeriodEnd` está en el futuro → el
+ * contador es viejo, se borra». Nació para no mandarle «pago pendiente» a
+ * quien ya había pagado (Quipao) y la fecha se había quedado atrás.
+ *
+ * Pero MYKOZ recibió un `PURCHASE_DELAYED` REAL el 2026-09-03 con la fecha de
+ * ciclo apuntando a octubre —desincronizada por otro motivo— y el candado le
+ * borró el fallo. Resultado: **figuraba al día, no recibió ni un aviso y no se
+ * suspendió**, con su último cobro real en abril. Mora invisible.
+ *
+ * LO QUE DISTINGUE UN CASO DEL OTRO no es la fecha del ciclo, es si **pagó
+ * DESPUÉS del fallo**. Si hay un cobro posterior al fallo, el fallo está
+ * resuelto y el contador sobra. Si el fallo es más nuevo que el último cobro,
+ * es mora de verdad por muy vigente que parezca el ciclo.
+ *
+ * Sin `firstFailedAt` no se puede comparar: son datos legacy anteriores al
+ * ancla de gracia, y ahí se mantiene el comportamiento viejo — el fallo que se
+ * temía (acosar a quien ya pagó) es peor que dejar pasar uno.
+ */
+export function esMoraFantasma(t: DunningState, ahora: Date): boolean {
+  if ((t.failedPaymentCount ?? 0) <= 0) return false;
+  // Ciclo vencido: no hay nada que discutir, es mora por fecha.
+  if (!t.currentPeriodEnd || t.currentPeriodEnd.getTime() <= ahora.getTime()) {
+    return false;
+  }
+  // Sin ancla del fallo no se puede fechar: comportamiento legacy.
+  if (!t.firstFailedAt) return true;
+  // Pagó DESPUÉS del fallo → resuelto de verdad.
+  return !!t.lastChargeAt && t.lastChargeAt.getTime() > t.firstFailedAt.getTime();
+}
+
 /** Fecha en que se suspenderá = día (graceDays + 1) desde `dueSince`. */
 export function pauseDateFor(dueSince: Date, graceDays: number): Date {
   return new Date(dueSince.getTime() + (graceDays + 1) * DAY_MS);

@@ -13,6 +13,7 @@ import { AuditService } from '../audit/audit.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import {
   decideDunning,
+  esMoraFantasma,
   pauseDateFor,
   deriveRenewalState,
   type RenewalStateResult,
@@ -1286,11 +1287,11 @@ export class BillingService {
       // futuro) NO es mora — la cuenta está al día. Antes la vía "byFailure"
       // dunneaba igual y le mandaba "pago pendiente / cobro mañana" a quien ya
       // pagó (Quipao). Limpiamos el contador stale y saltamos.
-      if (
-        (t.failedPaymentCount ?? 0) > 0 &&
-        t.currentPeriodEnd &&
-        t.currentPeriodEnd.getTime() > now.getTime()
-      ) {
+      // La regla vive en `dunning.ts` (`esMoraFantasma`) y ya NO es «ciclo
+      // vigente = fantasma»: eso le borró a MYKOZ un PURCHASE_DELAYED real y lo
+      // dejó sin un solo aviso durante semanas. Lo que distingue el fantasma es
+      // haber PAGADO DESPUÉS del fallo.
+      if (esMoraFantasma(t, now)) {
         await this.prisma.tenant.update({
           where: { id: t.id },
           data: { failedPaymentCount: 0, firstFailedAt: null },
