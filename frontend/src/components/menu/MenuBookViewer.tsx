@@ -277,7 +277,9 @@ export function MenuBookViewer({
     if (!activeSlug) return;
     const targetPath = `${urlPrefix}/${slug}/${activeSlug}`;
     if (window.location.pathname === targetPath) return;
-    window.history.replaceState({}, '', targetPath);
+    // Conservar la query, igual que en el storefront: sin esto, pasar de
+    // pagina borraba `?sede=` y el menu del libro perdia la sede del QR.
+    window.history.replaceState({}, '', `${targetPath}${window.location.search}`);
   }, [activeSectionId, slugBySectionId, slug, urlPrefix]);
 
   // ── M3: trigger del popup GLOBAL del libro al cargar (con delay

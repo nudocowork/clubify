@@ -117,7 +117,12 @@ export function CategoryUrlSync({
       if (window.location.pathname === newPath) return;
       if (lastSlugRef.current === newPath) return;
       lastSlugRef.current = newPath;
-      window.history.replaceState({}, '', newPath);
+      // CONSERVAR LA QUERY. `buildStorefrontPath` devuelve SOLO el path, y este
+      // replaceState lo dispara el SCROLL: bastaba con que el cliente bajara un
+      // poco para que `?sede=` desapareciera de la barra. Los dos enlaces de
+      // sede de Slata acababan en `/m/slata-2/recomendados`, sin sede, y el
+      // pedido dejaba de ir atado a la suya.
+      window.history.replaceState({}, '', `${newPath}${window.location.search}`);
     }
 
     // Sort entries por su posición visible — la categoría con más área
