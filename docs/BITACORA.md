@@ -8,6 +8,83 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-11 — Fuga de marca en el aviso de pedido, premios intermedios y el color del sello
+
+### ⚠️ URGENTE, ya corregido: el aviso de pedido delataba Clubify
+
+Un negocio de **Sellea** recibió su aviso de pedido nuevo y **WhatsApp le pintó
+la vista previa de `soyclubify.com`**: tarjeta verde, logo de Clubify y «El
+sistema operativo de tu negocio local».
+
+`owner-order-alert.service.ts` armaba el texto con el enlace **fijo** a
+`app.soyclubify.com`. WhatsApp pinta la vista previa del dominio, así que el
+logo de la plataforma acaba dentro del mensaje de una marca blanca.
+
+**Lo que más duele: `brandAppUrl` YA existía justo para esto**, y su comentario
+describe este mismo fallo palabra por palabra. Se arregló en los otros mensajes
+—el SMS al cliente final ya lo usaba— y **este se quedó fuera**.
+
+Hizo falta además traer `domain`/`appDomain` en la consulta: el `select` del
+whiteLabel solo pedía las credenciales de envío.
+
+**Verificado contra producción**, marca por marca:
+
+```
+sellea    -> https://app.selleala.com/app/orders    (200)
+fideliso  -> https://app.fideliso.com/app/orders    (200)
+clubify   -> https://app.soyclubify.com/app/orders
+```
+
+El candado (`aviso-pedido-marca.spec.ts`) no comprueba solo que el enlace sea
+el correcto: comprueba que **en el texto no aparezca la palabra «clubify»**.
+Probado en rojo.
+
+**Queda uno sin tocar**: `hotmart.service.ts:3322` arma un aviso INTERNO
+(«cliente pagó y no completó /activar») con un enlace fijo de Clubify. No va a
+un cliente final, pero si sale por la subcuenta de una marca es lo mismo.
+
+### Premios intermedios: el Onboarding ya puede mandarlos
+
+El panel dejaba poner «Premios Free» y el Onboarding no. **Documentar no
+bastaba**: `datosDeTarjetaDeSellos` ni miraba el campo, así que lo tiraba en
+silencio.
+
+`sanitizeFreeRewards` era **privado** de `CardsService` → sale a
+`cards/premios-intermedios.ts` y lo comparten las dos puertas. Misma
+divergencia que ya costó el cobro de créditos del Onboarding.
+
+Con **candado de marca**: si la marca apagó «Premios Free» en Wallet Avanzado,
+el sync los vacía igual que el panel.
+
+**Omitir ≠ vaciar**: campo ausente = no se tocan; `[]` = se borran. Un sync que
+solo cambia el color no puede llevarse lo configurado a mano.
+
+Documentado en `docs/onboarding-sync-api.md` con las reglas que aplica Clubify,
+para que el formulario avise ahí y no después.
+
+### El color del «Hecho con» en TODAS las pantallas
+
+El ajuste existía pero solo lo leía el menú. La tarjeta, el pase de wallet y el
+recibo lo pintaban con el gris por defecto. Ahora el color viaja dentro del
+objeto de marca que resuelve `WhitelabelBrandService.resolveTenant` —lo único
+que esas tres ya recibían—, en la **misma consulta**. De 4 a 7 opciones.
+
+### La atribución de referidos se perdía
+
+Un alta llegó con «Origen: Landing principal» y venía del enlace de Nicolás
+Quintero. `laly-com` tiene **cero usos de referido**: nunca llegó.
+
+`/activar` leía el código **solo de `localStorage`**, que se pierde al cambiar
+de navegador — el enlace se abre en el de WhatsApp y el registro se completa en
+Chrome. Ahora la URL manda sobre el almacenamiento.
+
+**Pendiente**: el texto «Landing principal» sale de `auth.service.ts` cuando NO
+hay atribución — afirma algo que no sabe. No se tocó: la otra máquina tiene ese
+fichero con trabajo sin commitear. Y **Nicolás tiene DOS códigos activos**
+(`TAFMPWK5` con 64 usos, `QZ4ZYHDZ` con 0).
+
+---
+
 ## 2026-09-10 (11) — Los 5 defectos de Equipos de Ventas, antes de que los pise un cliente
 
 Desplegado backend (`557cbb6c`) y frontend (`e9fb6082`). 134 tests del módulo en
