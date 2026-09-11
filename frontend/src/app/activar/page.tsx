@@ -294,9 +294,22 @@ function ActivarInner() {
   const [refCode, setRefCode] = useState<string | null>(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    // LA URL MANDA SOBRE localStorage.
+    //
+    // Toda la atribución del referido dependía SOLO de `localStorage`, que se
+    // pierde en cuanto el navegador cambia o lo bloquea: el enlace del
+    // afiliado se abre en el navegador de WhatsApp y el registro se completa
+    // en Chrome, y la venta queda sin dueño. El aviso interno entonces dice
+    // «Origen: Landing principal», que además de perder al afiliado AFIRMA
+    // algo falso. Pasó el 2026-09-11 con una venta de Nicolás Quintero.
+    //
+    // Si el código viene en la URL, ese gana: es el dato más fresco y el único
+    // que sobrevive a un `localStorage` vacío.
     try {
-      const cachedRef = localStorage.getItem('clubify:ref');
-      if (cachedRef) setRefCode(cachedRef.toUpperCase());
+      const sp = new URLSearchParams(window.location.search);
+      const deLaUrl = sp.get('ref');
+      const cachedRef = deLaUrl || localStorage.getItem('clubify:ref');
+      if (cachedRef) setRefCode(cachedRef.trim().toUpperCase());
     } catch {}
   }, []);
 
@@ -319,8 +332,10 @@ function ActivarInner() {
     } = {};
     let quoteToken: string | undefined;
     try {
-      const via = localStorage.getItem('clubify:via');
-      if (via) attribution.viaSlug = via;
+      // Mismo criterio que el código: la URL primero, el almacenamiento después.
+      const sp = new URLSearchParams(window.location.search);
+      const via = sp.get('via') || localStorage.getItem('clubify:via');
+      if (via) attribution.viaSlug = via.trim().toLowerCase();
       const utmRaw = localStorage.getItem('clubify:utm');
       if (utmRaw) {
         const parsed = JSON.parse(utmRaw) as { source?: string; medium?: string; campaign?: string };
