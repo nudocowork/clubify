@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { sign } from 'jsonwebtoken';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -19,7 +24,7 @@ import { clubDelPase, pluralUnidad } from '../club/club-pase.util';
  * para no bloquear el flujo. En producción debe estar todo configurado.
  */
 @Injectable()
-export class WalletService {
+export class WalletService implements OnModuleDestroy {
   private logger = new Logger(WalletService.name);
   /** Caché de imágenes default cargadas desde disco una sola vez */
   private defaultImages: Record<string, Buffer> | null = null;
@@ -1851,6 +1856,50 @@ export class WalletService {
     return null;
   }
 
+  /**
+   * Conexiones APNs vivas, una por environment.
+   *
+   * EL COSTE QUE NADIE VEÍA: `pushPassUpdate` construía un `apn.Provider`
+   * nuevo por CADA pase y lo apagaba al terminar. Un Provider es una conexión
+   * HTTP/2 con Apple: abrirla cuesta un handshake TLS entero. Enviar una
+   * notificación a un negocio de 500 clientes abría y cerraba 500 conexiones,
+   * de una en una. Ese era el grueso de los minutos que tardaba un envío.
+   *
+   * `node-apn` está pensado justo al revés: un Provider que vive y multiplexa
+   * todos los envíos. Se guarda por environment porque el retry de
+   * `BadEnvironmentKeyInToken` necesita el otro, y se cierran en el apagado
+   * del proceso.
+   */
+  private apnsProviders = new Map<'production' | 'sandbox', any>();
+
+  private async apnsProvider(production: boolean) {
+    const clave = production ? 'production' : 'sandbox';
+    const ya = this.apnsProviders.get(clave);
+    if (ya) return ya;
+    const keyBuf = this.loadApnsKey();
+    const keyId = process.env.APNS_KEY_ID;
+    const teamId = process.env.APNS_TEAM_ID;
+    if (!keyBuf || !keyId || !teamId) return null;
+    const apn = await import('apn');
+    const nuevo = new apn.Provider({
+      token: { key: keyBuf.toString('utf8'), keyId, teamId },
+      production,
+    });
+    this.apnsProviders.set(clave, nuevo);
+    return nuevo;
+  }
+
+  onModuleDestroy() {
+    for (const p of this.apnsProviders.values()) {
+      try {
+        p.shutdown();
+      } catch {
+        // Apagando el proceso: si la conexión ya está cerrada da igual.
+      }
+    }
+    this.apnsProviders.clear();
+  }
+
   /** Apple consulta esto cuando push le avisa que el pase cambió. */
   async getPassMeta(serial: string, authToken: string) {
     const pass = await this.prisma.pass.findUnique({
@@ -1903,12 +1952,20 @@ export class WalletService {
       return { sent: 0, skipped: 0, google };
     }
 
-    const keyBuf = this.loadApnsKey();
     const keyId = process.env.APNS_KEY_ID;
     const teamId = process.env.APNS_TEAM_ID;
     const topic = process.env.APPLE_PASS_TYPE_ID ?? 'pass.com.clubify.loyalty';
 
-    if (!keyBuf || !keyId || !teamId) {
+    // Apple Wallet usa SIEMPRE production APNs. La .p8 Auth Key trabaja para
+    // ambos environments simultáneamente, así que no tiene sentido caer a
+    // sandbox cuando production falla — el error es de Auth Key, no de env.
+    // APNS_ENV='sandbox' permite override manual solo para tests.
+    const envOverride = process.env.APNS_ENV?.toLowerCase();
+    const startProd = envOverride !== 'sandbox';
+
+    // Conexión reutilizada, no una nueva por pase. Ver `apnsProvider`.
+    let provider = await this.apnsProvider(startProd);
+    if (!provider) {
       this.logger.warn(
         `pushPassUpdate(${passId}): APNs no configurado (${devices.length} dispositivos esperando) — skipeando`,
       );
@@ -1918,26 +1975,11 @@ export class WalletService {
 
     const apn = await import('apn');
 
-    // Apple Wallet usa SIEMPRE production APNs. La .p8 Auth Key trabaja para
-    // ambos environments simultáneamente, así que no tiene sentido caer a
-    // sandbox cuando production falla — el error es de Auth Key, no de env.
-    // APNS_ENV='sandbox' permite override manual solo para tests.
-    const envOverride = process.env.APNS_ENV?.toLowerCase();
-    const startProd = envOverride !== 'sandbox';
-
-    const buildProvider = (production: boolean) =>
-      new apn.Provider({
-        token: { key: keyBuf.toString('utf8'), keyId, teamId },
-        production,
-      });
-
     // Apple Wallet espera notificación SILENCIOSA: payload vacío, topic =
     // passTypeId. No alert, no sound, no badge — solo trigger de fetch.
     const note = new apn.Notification();
     note.topic = topic;
     note.payload = {};
-
-    let provider = buildProvider(startProd);
     let sent = 0;
     let skipped = 0;
     let purged = 0;
@@ -1976,8 +2018,10 @@ export class WalletService {
           this.logger.warn(
             `APNs env mismatch (envío fue ${startProd ? 'production' : 'sandbox'}) → retry con el otro env`,
           );
-          provider.shutdown();
-          provider = buildProvider(!startProd);
+          // NO se apaga: la conexión es compartida y otros envíos la están
+          // usando. Se pide la del otro environment, también cacheada.
+          const otro = await this.apnsProvider(!startProd);
+          if (otro) provider = otro;
           r = await provider.send(note, d.pushToken);
           dumpFailed(!startProd ? 'prod' : 'sandbox');
         }
@@ -1999,7 +2043,6 @@ export class WalletService {
         this.logger.warn(`APNs error: ${(e as Error).message}`);
       }
     }
-    provider.shutdown();
     if (purged > 0) {
       this.logger.log(
         `pushPassUpdate(${passId}): ${purged} devices stale eliminados (re-instalar el pase para re-registrar)`,

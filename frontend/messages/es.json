@@ -1552,7 +1552,9 @@
     "pushLogoRemoved": "Logo de push eliminado · vuelve al logo general",
     "couldNotSaveLogo": "No se pudo guardar el logo",
     "birthdayBroadcastWarning": "Ojo: esto se envía a TODOS. Para que llegue solo al cumpleañero, usa una automatización 🎂",
-    "templateLoaded": "Plantilla cargada · edita lo que quieras antes de enviar"
+    "templateLoaded": "Plantilla cargada · edita lo que quieras antes de enviar",
+    "sendingToDevices": "Enviando a {count} dispositivos. Puedes cerrar esta pantalla.",
+    "sendInProgress": "enviando…"
   },
   "app_cards_new": {
     "errNameRequired": "Falta el nombre de la tarjeta",

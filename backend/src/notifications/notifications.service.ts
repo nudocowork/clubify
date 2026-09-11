@@ -159,28 +159,158 @@ export class NotificationsService {
   }
 
   /**
-   * Hace el push real a Apple devices y registra la notificación con
-   * sentAt = now. Se invoca tanto desde send() (envío inmediato) como
-   * desde el cron (envío programado).
+   * Los pases a los que va este envío, con lo que hace falta para contar
+   * destinos: una sola consulta, no una por pase.
    */
-  private async dispatchNow(tid: string, dto: NotificationDto) {
-    const passes = await this.prisma.pass.findMany({
+  private async pasesDestino(f: {
+    tenantId: string;
+    cardId?: string | null;
+    customerId?: string | null;
+  }) {
+    return this.prisma.pass.findMany({
       where: {
-        tenantId: tid,
-        ...(dto.cardId ? { cardId: dto.cardId } : {}),
-        // Envío individual: solo los pases del cliente indicado.
-        ...(dto.customerId ? { customerId: dto.customerId } : {}),
+        tenantId: f.tenantId,
+        ...(f.cardId ? { cardId: f.cardId } : {}),
+        // PDF 2026-06-30: si la notificación es individual (automatizaciones:
+        // cumpleaños, bienvenida...) DEBE ir solo al pase de ESE cliente. Sin
+        // este filtro se emitiría a todos los pases del negocio.
+        ...(f.customerId ? { customerId: f.customerId } : {}),
         status: 'ACTIVE',
       },
-      include: { walletDevices: true },
+      select: {
+        id: true,
+        googleObjectId: true,
+        // Solo Apple: es a lo que se le manda APNs. Contar también los
+        // registros de Google inflaba el «destinatarios» del panel.
+        walletDevices: { where: { platform: 'APPLE' }, select: { id: true } },
+      },
+    });
+  }
+
+  /**
+   * A cuántos dispositivos llega. Apple cuenta por registro; de Google hay uno
+   * por pase.
+   *
+   * FIX 2026-08-28: los dos contadores miraban SOLO Apple, y de 5.083 pases
+   * 3.579 son de Google. El push le salía al cliente de Android y el panel
+   * informaba «0 destinatarios» — que el negocio leía como que ese cliente no
+   * tenía la tarjeta.
+   */
+  private alcanzables(p: {
+    googleObjectId: string | null;
+    walletDevices: unknown[];
+  }) {
+    return p.walletDevices.length + (p.googleObjectId ? 1 : 0);
+  }
+
+  /** De cuántos en cuántos se despacha. Ver `enTandas`. */
+  private static readonly CONCURRENCIA = 8;
+
+  /**
+   * Recorre los pases de a `CONCURRENCIA` en vez de uno detrás de otro.
+   *
+   * El push de un pase es casi todo espera de red (PATCH a Google + APNs), así
+   * que en serie el tiempo total era la SUMA de todas. Un negocio de 500
+   * clientes tardaba minutos.
+   */
+  private async enTandas<T>(items: T[], fn: (item: T) => Promise<void>) {
+    const n = NotificationsService.CONCURRENCIA;
+    for (let i = 0; i < items.length; i += n) {
+      await Promise.all(items.slice(i, i + n).map(fn));
+    }
+  }
+
+  /**
+   * Hace el push real a los pases y deja el resultado en `stats`.
+   *
+   * **No se espera desde la petición HTTP.** El envío a un negocio grande dura
+   * lo que dure aunque vaya en paralelo, y antes el POST /notifications no
+   * respondía hasta terminarlo: el panel se quedaba en «Enviando…» hasta que
+   * el navegador cortaba, y el negocio le daba otra vez — así salieron dos
+   * envíos idénticos a Fusion sushi el 2026-09-11 con 4 minutos de diferencia.
+   * Ahora la notificación se crea, se responde, y esto sigue por detrás
+   * actualizando `stats`.
+   */
+  private async despachar(n: {
+    id: string;
+    tenantId: string;
+    cardId: string | null;
+    customerId?: string | null;
+    title: string;
+    body: string;
+  }) {
+    const passes = await this.pasesDestino(n);
+    const targeted = passes.reduce((acc, p) => acc + this.alcanzables(p), 0);
+
+    // `lastActivityAt` de todos de una vez: era una escritura por pase dentro
+    // del bucle, y no aportaba nada al push.
+    await this.prisma.pass
+      .updateMany({
+        where: { id: { in: passes.map((p) => p.id) } },
+        data: { lastActivityAt: new Date() },
+      })
+      .catch(() => null);
+
+    let delivered = 0;
+    let hechos = 0;
+    await this.enTandas(passes, async (p) => {
+      try {
+        // Pasamos el texto real → Apple (lastMessage) + Google (addMessage) lo
+        // muestran, en vez del genérico de sellos.
+        const r = await this.wallet.pushPassUpdate(p.id, {
+          message: { header: n.title, body: n.body },
+        });
+        // `sent` son los de Apple; Google va aparte y solo cuenta si de verdad
+        // salió (`ok`), no si simplemente se intentó.
+        delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
+      } catch (e) {
+        this.logger.warn(
+          `Push pass ${p.id} (${n.id}) falló: ${(e as Error).message}`,
+        );
+      }
+      hechos += 1;
+      // Progreso cada varias tandas: el panel enseña por dónde va un envío
+      // largo, en vez de un cero hasta el final.
+      if (hechos % 40 === 0) {
+        await this.prisma.notification
+          .update({
+            where: { id: n.id },
+            data: { stats: { targeted, delivered, opened: 0, enCurso: true } },
+          })
+          .catch(() => null);
+      }
     });
 
-    // Crear la Notification ANTES del push (broadcast → customerId null = la ve
-    // todo el tenant). Apple lee este texto vía el backField `lastMessage` al
-    // re-fetchear el .pkpass; antes se creaba DESPUÉS del push → Apple mostraba
-    // el mensaje anterior. A Google se le pasa el texto en opts.message
-    // (addMessage TEXT_AND_NOTIFY); antes iba sin mensaje → caía al genérico
-    // "Sellos: 0/10".
+    this.logger.log(
+      `Notification "${n.title}" → ${targeted} devices targeted, ${delivered} delivered`,
+    );
+
+    return this.prisma.notification.update({
+      where: { id: n.id },
+      data: { stats: { targeted, delivered, opened: 0 } },
+    });
+  }
+
+  /**
+   * Crea la Notification y arranca el envío, sin esperarlo.
+   *
+   * La Notification se crea ANTES del push (broadcast → customerId null = la ve
+   * todo el negocio). Apple lee este texto vía el backField `lastMessage` al
+   * re-fetchear el .pkpass; antes se creaba DESPUÉS del push → Apple mostraba
+   * el mensaje anterior. A Google se le pasa el texto en opts.message
+   * (addMessage TEXT_AND_NOTIFY); antes iba sin mensaje → caía al genérico
+   * «Sellos: 0/10».
+   */
+  private async dispatchNow(tid: string, dto: NotificationDto) {
+    // Se cuenta antes para poder decirle al negocio a cuántos va ya en la
+    // respuesta. Es una consulta, no una por pase.
+    const passes = await this.pasesDestino({
+      tenantId: tid,
+      cardId: dto.cardId,
+      customerId: dto.customerId,
+    });
+    const targeted = passes.reduce((acc, p) => acc + this.alcanzables(p), 0);
+
     const notif = await this.prisma.notification.create({
       data: {
         tenantId: tid,
@@ -193,55 +323,27 @@ export class NotificationsService {
         segment: dto.segment ?? {},
         triggerType: 'MANUAL',
         sentAt: new Date(),
-        stats: { targeted: 0, delivered: 0, opened: 0 },
+        stats: { targeted, delivered: 0, opened: 0, enCurso: true },
       },
     });
 
-    let targeted = 0;
-    let delivered = 0;
-    for (const p of passes) {
-      // FIX 2026-08-28: los dos contadores miraban SOLO Apple.
-      //
-      // `walletDevices` es la tabla de registros de Apple, y `pushPassUpdate`
-      // devuelve el resultado de Google aparte, en `.google`. Así que a un
-      // cliente de Google Wallet el push SÍ le salía, pero el panel informaba
-      // «0 destinatarios» — y el negocio lo leía como que ese cliente no tenía
-      // la tarjeta.
-      //
-      // No es un caso raro: de 5.083 pases, 3.579 son de Google y 1.276 de
-      // Apple. O sea que el contador mentía para la mayoría.
-      const tieneGoogle = !!p.googleObjectId;
-      const alcanzables = p.walletDevices.length + (tieneGoogle ? 1 : 0);
-      targeted += alcanzables;
-      this.logger.log(
-        `Push to pass ${p.id} (${p.walletDevices.length} Apple + ${tieneGoogle ? 1 : 0} Google)`,
-      );
-      try {
-        await this.prisma.pass.update({
-          where: { id: p.id },
-          data: { lastActivityAt: new Date() },
-        });
-        // Pasamos el texto real → Apple (lastMessage) + Google (addMessage) lo
-        // muestran, en vez del genérico de sellos.
-        const r = await this.wallet.pushPassUpdate(p.id, {
-          message: { header: dto.title, body: dto.body },
-        });
-        // `sent` son los de Apple; Google va aparte y solo cuenta si de verdad
-        // salió (`ok`), no si simplemente se intentó.
-        delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
-      } catch (e) {
-        this.logger.warn(`Push pass ${p.id} falló: ${(e as Error).message}`);
-      }
-    }
-
-    this.logger.log(
-      `Notification "${dto.title}" → ${targeted} devices targeted, ${delivered} delivered`,
+    // Sin `await`: el panel no puede quedarse esperando a cientos de pushes. Si
+    // el proceso se reinicia a mitad, el envío queda incompleto y
+    // `stats.enCurso` se queda en true — que es justo lo que hay que ver.
+    void this.despachar({
+      id: notif.id,
+      tenantId: tid,
+      cardId: dto.cardId ?? null,
+      customerId: dto.customerId ?? null,
+      title: dto.title,
+      body: dto.body,
+    }).catch((e) =>
+      this.logger.error(
+        `Despacho ${notif.id} falló entero: ${(e as Error).message}`,
+      ),
     );
 
-    return this.prisma.notification.update({
-      where: { id: notif.id },
-      data: { stats: { targeted, delivered, opened: 0 } },
-    });
+    return notif;
   }
 
   /**
@@ -269,69 +371,12 @@ export class NotificationsService {
           where: { id: n.id },
           data: { sentAt: now },
         });
-        await this.dispatchToDevices(n);
+        await this.despachar(n);
       } catch (e) {
         this.logger.warn(
           `Despacho programado ${n.id} falló: ${(e as Error).message}`,
         );
       }
     }
-  }
-
-  /**
-   * Versión "stand-alone" del despacho a devices, usada por el cron sobre
-   * una Notification ya guardada. Actualiza stats en el registro.
-   */
-  private async dispatchToDevices(n: {
-    id: string;
-    tenantId: string;
-    cardId: string | null;
-    customerId?: string | null;
-    title: string;
-    body: string;
-  }) {
-    const passes = await this.prisma.pass.findMany({
-      where: {
-        tenantId: n.tenantId,
-        ...(n.cardId ? { cardId: n.cardId } : {}),
-        // PDF 2026-06-30: si la notificación es individual (automatizaciones:
-        // cumpleaños, bienvenida, etc.) DEBE ir solo al pase de ESE cliente.
-        // Sin este filtro, una notificación programada con customerId se
-        // emitiría a todos los pases del tenant (broadcast no deseado).
-        ...(n.customerId ? { customerId: n.customerId } : {}),
-        status: 'ACTIVE',
-      },
-      include: { walletDevices: true },
-    });
-    let targeted = 0;
-    let delivered = 0;
-    for (const p of passes) {
-      // Apple + Google. Contar solo los dispositivos de Apple decía «0
-      // destinatarios» en un envío que sí salía: el 70% de los pases están en
-      // Google, donde no hay «dispositivos» sino un objeto. El arreglo se hizo
-      // en el envío inmediato y se quedó sin aplicar en esta ruta.
-      const tieneGoogle = !!p.googleObjectId;
-      targeted += p.walletDevices.length + (tieneGoogle ? 1 : 0);
-      try {
-        await this.prisma.pass.update({
-          where: { id: p.id },
-          data: { lastActivityAt: new Date() },
-        });
-        const r = await this.wallet.pushPassUpdate(p.id, {
-          message: { header: n.title, body: n.body },
-        });
-        // `sent` son los de Apple; Google va aparte y solo cuenta si de
-        // verdad salió (`ok`), no si simplemente se intentó.
-        delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
-      } catch (e) {
-        this.logger.warn(
-          `Push pass ${p.id} (scheduled ${n.id}) falló: ${(e as Error).message}`,
-        );
-      }
-    }
-    await this.prisma.notification.update({
-      where: { id: n.id },
-      data: { stats: { targeted, delivered, opened: 0 } },
-    });
   }
 }

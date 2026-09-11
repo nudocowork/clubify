@@ -1552,7 +1552,9 @@
     "pushLogoRemoved": "Push logo removed · reverts to the general logo",
     "couldNotSaveLogo": "Could not save the logo",
     "birthdayBroadcastWarning": "Heads up: this goes to EVERYONE. To reach only the birthday person, use an automation 🎂",
-    "templateLoaded": "Template loaded · edit whatever you want before sending"
+    "templateLoaded": "Template loaded · edit whatever you want before sending",
+    "sendingToDevices": "Sending to {count} devices. You can close this screen.",
+    "sendInProgress": "sending…"
   },
   "app_cards_new": {
     "errNameRequired": "Card name is required",

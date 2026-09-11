@@ -144,6 +144,17 @@ export default function NotificationsPage() {
   // Cuando está seteado, el formulario de arriba edita ese envío vía PATCH.
   const [editingScheduledId, setEditingScheduledId] = useState<string | null>(null);
 
+  // Un envío grande tarda: el backend responde al arrancarlo y va anotando el
+  // avance en `stats`. Mientras quede alguno en curso se refresca solo, para
+  // que el negocio vea subir el contador en vez de un número congelado.
+  const hayEnvioEnCurso = history.some((n: any) => n?.stats?.enCurso);
+  useEffect(() => {
+    if (!hayEnvioEnCurso) return;
+    const id = setInterval(() => load(), 5000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hayEnvioEnCurso]);
+
   function appendEmoji(field: 'title' | 'body', emoji: string) {
     setForm((f) => ({ ...f, [field]: (f[field] || '') + emoji }));
   }
@@ -247,19 +258,25 @@ export default function NotificationsPage() {
         return;
       }
 
-      await api('/notifications', {
+      const creada = await api<any>('/notifications', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
       setForm({ cardId: '', title: '', body: '' });
       setEditingScheduledId(null);
       load();
+      // El envío sigue por detrás: el backend responde en cuanto lo arranca.
+      // Decirle a cuántos va es lo que evita que el negocio piense que no
+      // salió y le dé otra vez (así salieron envíos duplicados el 11-09-2026).
+      const destinos = Number(creada?.stats?.targeted ?? 0);
       toast(
         scheduleEnabled
           ? t('notificationScheduledFor', {
               when: new Date(scheduledAt).toLocaleString('es-CO'),
             })
-          : t('notificationSent'),
+          : destinos > 0
+            ? t('sendingToDevices', { count: destinos })
+            : t('notificationSent'),
         'success',
       );
     } catch (e: any) {
@@ -909,7 +926,9 @@ export default function NotificationsPage() {
                   <div className="font-semibold text-ink">
                     {n.stats?.targeted ?? 0}
                   </div>
-                  <div className="text-[10px]">{t('delivered')}</div>
+                  <div className="text-[10px]">
+                    {n.stats?.enCurso ? t('sendInProgress') : t('delivered')}
+                  </div>
                 </div>
               </div>
             ))
