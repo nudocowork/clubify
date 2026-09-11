@@ -286,12 +286,21 @@ export class SalesTeamsService {
     // `referralCodes.some.whiteLabelId` sobre el alcance de `resolveBrandScope`
     // — que es más preciso que el del middleware, porque la marca de un
     // afiliado vive en su código de referido, no en un negocio.
-    return TenantContext.runWithoutTenant(() =>
-      this.prisma.user.findMany({
+    // OJO AL `async` Y AL `await`: no sobran.
+    //
+    // Lo que devuelve `findMany` es una PrismaPromise PEREZOSA: no ejecuta la
+    // consulta —ni el middleware— hasta que alguien la espera. Crearla dentro
+    // del contexto y esperarla FUERA deja el bypass sin efecto, y el resultado
+    // es idéntico a no haber puesto nada. Pasó exactamente eso: el arreglo se
+    // desplegó y la lista seguía saliendo vacía.
+    return TenantContext.runWithoutTenant(async () => {
+      // El `await` va AQUÍ DENTRO, y es lo único que hace que esto funcione.
+      const filas = await this.prisma.user.findMany({
         where,
         select: { id: true, fullName: true, email: true, role: true },
         orderBy: { fullName: 'asc' },
-      }),
-    );
+      });
+      return filas;
+    });
   }
 }
