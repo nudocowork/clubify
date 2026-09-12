@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import Link from 'next/link';
 import { api, downloadFile, getUser, setSession, clearSession } from '@/lib/api';
 import { AcademyButton } from '@/components/AcademyButton';
@@ -51,27 +51,44 @@ type MainSectionMode = 'menu' | 'services' | 'catalog' | 'custom';
  *  Si necesitás agregar una, esta lista es la única fuente de verdad — el
  *  storefront usa `new Intl.NumberFormat(..., { currency: code })` que
  *  resuelve el símbolo automático sin más config. */
-const LATAM_CURRENCIES: { code: string; label: string; flag: string }[] = [
-  { code: 'COP', label: 'Peso colombiano', flag: '🇨🇴' },
-  { code: 'USD', label: 'Dólar estadounidense', flag: '🇺🇸' },
-  { code: 'MXN', label: 'Peso mexicano', flag: '🇲🇽' },
-  { code: 'ARS', label: 'Peso argentino', flag: '🇦🇷' },
-  { code: 'CLP', label: 'Peso chileno', flag: '🇨🇱' },
-  { code: 'PEN', label: 'Sol peruano', flag: '🇵🇪' },
-  { code: 'BRL', label: 'Real brasileño', flag: '🇧🇷' },
-  { code: 'UYU', label: 'Peso uruguayo', flag: '🇺🇾' },
-  { code: 'PYG', label: 'Guaraní paraguayo', flag: '🇵🇾' },
-  { code: 'BOB', label: 'Boliviano', flag: '🇧🇴' },
-  { code: 'VES', label: 'Bolívar venezolano', flag: '🇻🇪' },
-  { code: 'DOP', label: 'Peso dominicano', flag: '🇩🇴' },
-  { code: 'GTQ', label: 'Quetzal guatemalteco', flag: '🇬🇹' },
-  { code: 'HNL', label: 'Lempira hondureño', flag: '🇭🇳' },
-  { code: 'NIO', label: 'Córdoba nicaragüense', flag: '🇳🇮' },
-  { code: 'CRC', label: 'Colón costarricense', flag: '🇨🇷' },
-  { code: 'PAB', label: 'Balboa panameño', flag: '🇵🇦' },
-  { code: 'BZD', label: 'Dólar beliceño', flag: '🇧🇿' },
-  { code: 'EUR', label: 'Euro', flag: '🇪🇺' },
+const LATAM_CURRENCIES: { code: string; flag: string }[] = [
+  { code: 'COP', flag: '🇨🇴' },
+  { code: 'USD', flag: '🇺🇸' },
+  { code: 'MXN', flag: '🇲🇽' },
+  { code: 'ARS', flag: '🇦🇷' },
+  { code: 'CLP', flag: '🇨🇱' },
+  { code: 'PEN', flag: '🇵🇪' },
+  { code: 'BRL', flag: '🇧🇷' },
+  { code: 'UYU', flag: '🇺🇾' },
+  { code: 'PYG', flag: '🇵🇾' },
+  { code: 'BOB', flag: '🇧🇴' },
+  { code: 'VES', flag: '🇻🇪' },
+  { code: 'DOP', flag: '🇩🇴' },
+  { code: 'GTQ', flag: '🇬🇹' },
+  { code: 'HNL', flag: '🇭🇳' },
+  { code: 'NIO', flag: '🇳🇮' },
+  { code: 'CRC', flag: '🇨🇷' },
+  { code: 'PAB', flag: '🇵🇦' },
+  { code: 'BZD', flag: '🇧🇿' },
+  { code: 'EUR', flag: '🇪🇺' },
 ];
+
+/**
+ * El nombre de la moneda, en el idioma activo.
+ *
+ * Estaban escritos a mano en español («Dólar estadounidense», «Real
+ * brasileño»…): veinte nombres que habría que mantener en tres idiomas.
+ * `Intl.DisplayNames` ya los sabe, así que no hay nada que traducir.
+ */
+function nombreDeMoneda(code: string, locale: string) {
+  try {
+    return (
+      new Intl.DisplayNames([locale], { type: 'currency' }).of(code) ?? code
+    );
+  } catch {
+    return code;
+  }
+}
 
 /** Moneda por defecto sugerida al elegir un país. Es solo un default de
  *  conveniencia — el negocio puede cambiarla. Venezuela apunta a USD
@@ -145,6 +162,7 @@ function detectMainMode(override: string | null): {
 
 export default function SettingsPage() {
   const t = useTranslations('app_settings');
+  const locale = useLocale();
   const router = useRouter();
   const [me, setMe] = useState<Profile | null>(null);
   const [profile, setProfile] = useState({ fullName: '', email: '', phone: '' });
@@ -858,7 +876,7 @@ export default function SettingsPage() {
           >
             {LATAM_CURRENCIES.map((c) => (
               <option key={c.code} value={c.code}>
-                {c.flag} {c.code} — {c.label}
+                {c.flag} {c.code} — {nombreDeMoneda(c.code, locale)}
               </option>
             ))}
           </select>

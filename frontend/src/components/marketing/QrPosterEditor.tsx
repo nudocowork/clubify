@@ -1802,7 +1802,7 @@ export default function QrPosterEditor({
         <BackgroundSection bg={cfg.bg} onChange={patchBg} setCfg={setCfg} />
 
         {/* QR */}
-        <Section title="Código QR" icon="🔳">
+        <Section title={t('qrCode')} icon="🔳">
           <NumberRow
             label="Tamaño"
             value={cfg.qr.size}
@@ -1829,7 +1829,7 @@ export default function QrPosterEditor({
                 }))
               }
               className="btn-ghost text-[10px] py-1.5"
-              title="Centrar horizontalmente"
+              title={t('centerH')}
             >
               ↔ Centro H
             </button>
@@ -1842,7 +1842,7 @@ export default function QrPosterEditor({
                 }))
               }
               className="btn-ghost text-[10px] py-1.5"
-              title="Centrar verticalmente"
+              title={t('centerV')}
             >
               ↕ Centro V
             </button>
@@ -1859,7 +1859,7 @@ export default function QrPosterEditor({
                 }))
               }
               className="btn-ghost text-[10px] py-1.5"
-              title="Centrar en el canvas"
+              title={t('centerCanvas')}
             >
               ⊕ Centro
             </button>
@@ -1962,7 +1962,7 @@ export default function QrPosterEditor({
             ) : (
               <div className="border border-line rounded p-2 bg-bg2/30 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold">Sombra</span>
+                  <span className="text-[11px] font-semibold">{t('shadow')}</span>
                   <button
                     type="button"
                     onClick={() =>
@@ -2040,7 +2040,7 @@ export default function QrPosterEditor({
 
         {/* Textos */}
         {(['title', 'subtitle', 'cta', 'brand'] as const).map((key) => (
-          <Section key={key} title={LAYER_LABELS[key]} icon="🅣">
+          <Section key={key} title={t(LAYER_LABELS[key] as any)} icon="🅣">
             <LockRow
               locked={cfg.texts[key].locked === true}
               onToggle={() =>
@@ -2050,7 +2050,7 @@ export default function QrPosterEditor({
             <AutoResizeTextarea
               value={cfg.texts[key].text}
               onChange={(v) => patchText(key, { text: v })}
-              placeholder={LAYER_LABELS[key]}
+              placeholder={t(LAYER_LABELS[key] as any)}
             />
             <FontPicker
               value={cfg.texts[key].font}
@@ -2223,7 +2223,7 @@ export default function QrPosterEditor({
         />
 
         {/* Capas */}
-        <Section title="Capas" icon="📚">
+        <Section title={t('layers')} icon="📚">
           <div className="text-[10px] text-mute mb-1.5">
             Las capas de arriba se ven sobre las de abajo (frente → atrás).
           </div>
@@ -2231,7 +2231,7 @@ export default function QrPosterEditor({
             {[...layerOrder].reverse().map((id, displayIdx) => {
               const total = layerOrder.length;
               const realIdx = total - 1 - displayIdx;
-              const label = layerLabel(id, cfg);
+              const label = layerLabel(id, cfg, t);
               if (!label) return null;
               return (
                 <div
@@ -2245,7 +2245,7 @@ export default function QrPosterEditor({
                     onClick={() => moveLayer(id, 'up')}
                     disabled={realIdx === total - 1}
                     className="text-mute hover:text-ink disabled:opacity-20 px-1"
-                    title="Subir (al frente)"
+                    title={t('bringFront')}
                   >
                     ↑
                   </button>
@@ -2253,7 +2253,7 @@ export default function QrPosterEditor({
                     onClick={() => moveLayer(id, 'down')}
                     disabled={realIdx === 0}
                     className="text-mute hover:text-ink disabled:opacity-20 px-1"
-                    title="Bajar (al fondo)"
+                    title={t('sendBack')}
                   >
                     ↓
                   </button>
@@ -2279,7 +2279,7 @@ export default function QrPosterEditor({
           <button
             onClick={reset}
             className="btn-ghost text-xs bg-bg/90 backdrop-blur"
-            title="Restablecer"
+            title={t('reset')}
           >
             ↺
           </button>
@@ -2287,7 +2287,7 @@ export default function QrPosterEditor({
             onClick={undo}
             disabled={!canUndo}
             className="btn-ghost text-xs bg-bg/90 backdrop-blur disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Deshacer (⌘Z)"
+            title={t('undo')}
           >
             ← Deshacer
           </button>
@@ -2295,7 +2295,7 @@ export default function QrPosterEditor({
             onClick={redo}
             disabled={!canRedo}
             className="btn-ghost text-xs bg-bg/90 backdrop-blur disabled:opacity-30 disabled:cursor-not-allowed"
-            title="Rehacer (⌘⇧Z)"
+            title={t('redo')}
           >
             Rehacer →
           </button>
@@ -2822,11 +2822,12 @@ function TextAlignButtons({
   value: TextLayer['align'];
   onChange: (v: TextLayer['align']) => void;
 }) {
+  const t = useTranslations('qr_poster');
   const opts: { v: TextLayer['align']; icon: string; title: string }[] = [
-    { v: 'left', icon: '⯇', title: 'Alinear texto a la izquierda' },
-    { v: 'center', icon: '≡', title: 'Centrar texto' },
-    { v: 'right', icon: '⯈', title: 'Alinear texto a la derecha' },
-    { v: 'justify', icon: '☰', title: 'Justificar texto' },
+    { v: 'left', icon: '⯇', title: t('alignLeft') },
+    { v: 'center', icon: '≡', title: t('alignCenter') },
+    { v: 'right', icon: '⯈', title: t('alignRight') },
+    { v: 'justify', icon: '☰', title: t('alignJustify') },
   ];
   return (
     <div>
@@ -2870,6 +2871,7 @@ function PageAlignButtons<T extends TextLayer>({
   canvasH: number;
   onPatch: (patch: Partial<T>) => void;
 }) {
+  const t = useTranslations('qr_poster');
   const PAD = 40;
   function alignH(side: 'left' | 'center' | 'right'): Partial<T> {
     if (layer.boxWidth != null) {
@@ -2898,7 +2900,7 @@ function PageAlignButtons<T extends TextLayer>({
           type="button"
           onClick={() => onPatch(alignH('left'))}
           className="btn-ghost text-[10px] py-1.5"
-          title="Pegar al borde izquierdo del lienzo"
+          title={t('snapLeft')}
         >
           ⇤ Izq.
         </button>
@@ -2906,7 +2908,7 @@ function PageAlignButtons<T extends TextLayer>({
           type="button"
           onClick={() => onPatch(alignH('center'))}
           className="btn-ghost text-[10px] py-1.5"
-          title="Centrar horizontalmente en el lienzo"
+          title={t('centerHCanvas')}
         >
           ↔ Centro
         </button>
@@ -2914,7 +2916,7 @@ function PageAlignButtons<T extends TextLayer>({
           type="button"
           onClick={() => onPatch(alignH('right'))}
           className="btn-ghost text-[10px] py-1.5"
-          title="Pegar al borde derecho del lienzo"
+          title={t('snapRight')}
         >
           Der. ⇥
         </button>
@@ -2924,7 +2926,7 @@ function PageAlignButtons<T extends TextLayer>({
           type="button"
           onClick={() => onPatch(alignV('top'))}
           className="btn-ghost text-[10px] py-1.5"
-          title="Pegar al borde superior del lienzo"
+          title={t('snapTop')}
         >
           ⇡ Arriba
         </button>
@@ -2932,7 +2934,7 @@ function PageAlignButtons<T extends TextLayer>({
           type="button"
           onClick={() => onPatch(alignV('middle'))}
           className="btn-ghost text-[10px] py-1.5"
-          title="Centrar verticalmente en el lienzo"
+          title={t('centerVCanvas')}
         >
           ↕ Medio
         </button>
@@ -2940,7 +2942,7 @@ function PageAlignButtons<T extends TextLayer>({
           type="button"
           onClick={() => onPatch(alignV('bottom'))}
           className="btn-ghost text-[10px] py-1.5"
-          title="Pegar al borde inferior del lienzo"
+          title={t('snapBottom')}
         >
           ⇣ Abajo
         </button>
@@ -2949,11 +2951,12 @@ function PageAlignButtons<T extends TextLayer>({
   );
 }
 
+/** Claves del traductor: el mapa vive fuera de los componentes. */
 const LAYER_LABELS: Record<keyof QrPosterConfig['texts'], string> = {
-  title: 'Título',
-  subtitle: 'Subtítulo',
-  cta: 'CTA',
-  brand: 'Nombre del negocio',
+  title: 'layerTitle',
+  subtitle: 'layerSubtitle',
+  cta: 'layerCta',
+  brand: 'layerBusinessName',
 };
 
 function Section({
@@ -3071,15 +3074,17 @@ function NumberRow({
 function OpacityRow({
   value,
   onChange,
-  label = 'Opacidad',
+  label,
 }: {
   value: number;
   onChange: (v: number) => void;
   label?: string;
 }) {
+  const t = useTranslations('qr_poster');
+  const etiqueta = label ?? t('opacity');
   return (
     <div className="flex items-center gap-2">
-      <label className="text-xs text-mute w-[64px]">{label}</label>
+      <label className="text-xs text-mute w-[64px]">{etiqueta}</label>
       <input
         type="range"
         min={0}
@@ -3173,6 +3178,7 @@ function FontPicker({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const t = useTranslations('qr_poster');
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef<HTMLDivElement | null>(null);
@@ -3221,7 +3227,7 @@ function FontPicker({
             <input
               autoFocus
               type="text"
-              placeholder="Buscar tipografía…"
+              placeholder={t('searchFont')}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               className="input text-sm"
@@ -3363,6 +3369,7 @@ function TextShadowEditor({
   shadow: TextLayer['shadow'] | null | undefined;
   onChange: (s: TextLayer['shadow'] | null) => void;
 }) {
+  const t = useTranslations('qr_poster');
   const active = !!shadow;
   if (!active) {
     return (
@@ -3386,7 +3393,7 @@ function TextShadowEditor({
   return (
     <div className="border border-line rounded p-2 bg-bg2/30 space-y-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold">Sombra</span>
+        <span className="text-[11px] font-semibold">{t('shadow')}</span>
         <button
           type="button"
           onClick={() => onChange(null)}
@@ -3511,26 +3518,33 @@ function ExportPanel({
 }
 
 /** Label legible para cada LayerId en el panel "Capas". */
-function layerLabel(id: LayerId, cfg: QrPosterConfig): string | null {
-  if (id === 'bg') return 'Fondo';
-  if (id === 'qr') return 'Código QR';
-  if (id === 'logo') return cfg.logo ? 'Logo' : null;
-  if (id === 'footer') return 'Pie "Powered by"';
-  if (id === 'text.title') return `Título: ${cfg.texts.title.text || ''}`;
-  if (id === 'text.subtitle') return `Subtítulo: ${cfg.texts.subtitle.text || ''}`;
-  if (id === 'text.cta') return `CTA: ${cfg.texts.cta.text || ''}`;
-  if (id === 'text.brand') return `Marca: ${cfg.texts.brand.text || ''}`;
+/** El nombre de una capa en el panel lateral. Recibe el traductor: es un
+ *  helper puro, no un componente, así que no puede usar hooks. */
+function layerLabel(
+  id: LayerId,
+  cfg: QrPosterConfig,
+  t: ReturnType<typeof useTranslations<'qr_poster'>>,
+): string | null {
+  if (id === 'bg') return t('background');
+  if (id === 'qr') return t('qrCode');
+  if (id === 'logo') return cfg.logo ? t('layerLogo') : null;
+  if (id === 'footer') return t('layerFooter');
+  if (id === 'text.title') return `${t('layerTitle')}: ${cfg.texts.title.text || ''}`;
+  if (id === 'text.subtitle')
+    return `${t('layerSubtitle')}: ${cfg.texts.subtitle.text || ''}`;
+  if (id === 'text.cta') return `${t('layerCta')}: ${cfg.texts.cta.text || ''}`;
+  if (id === 'text.brand') return `${t('layerBrand')}: ${cfg.texts.brand.text || ''}`;
   if (id.startsWith('shape.')) {
     const s = cfg.shapes?.find((sh) => sh.id === id.slice(6));
     if (!s) return null;
     const meta = {
-      rect: { icon: '▭', label: 'Rectángulo' },
-      circle: { icon: '●', label: 'Círculo' },
-      roundedRect: { icon: '▢', label: 'Rect redondo' },
-      capsule: { icon: '⬭', label: 'Pill' },
-      star: { icon: '★', label: 'Estrella' },
-      burst: { icon: '✺', label: 'Sticker' },
-      blob: { icon: '🜲', label: 'Blob' },
+      rect: { icon: '▭', label: t('rectangle') },
+      circle: { icon: '●', label: t('circle') },
+      roundedRect: { icon: '▢', label: t('roundedRect') },
+      capsule: { icon: '⬭', label: t('pill') },
+      star: { icon: '★', label: t('star') },
+      burst: { icon: '✺', label: t('sticker') },
+      blob: { icon: '🜲', label: t('blob') },
     }[s.type];
     const preview = s.innerText?.text
       ? ` · "${s.innerText.text.split('\n')[0]}"`
@@ -3540,23 +3554,27 @@ function layerLabel(id: LayerId, cfg: QrPosterConfig): string | null {
   if (id.startsWith('icon.')) {
     const i = cfg.icons?.find((ic) => ic.id === id.slice(5));
     if (!i) return null;
-    return `${i.emoji} Ícono`;
+    return `${i.emoji} ${t('layerIcon')}`;
   }
   if (id.startsWith('image.')) {
     const im = cfg.images?.find((x) => x.id === id.slice(6));
     if (!im) return null;
-    return '🖼️ Imagen';
+    return `🖼️ ${t('layerImage')}`;
   }
   if (id.startsWith('pattern.')) {
     const p = cfg.patterns?.find((x) => x.id === id.slice(8));
     if (!p) return null;
-    return p.imageUrl ? '🖼️ Patrón (imagen)' : `${p.emojis.join('')} Patrón`;
+    return p.imageUrl
+      ? `🖼️ ${t('layerPatternImage')}`
+      : `${p.emojis.join('')} ${t('layerPattern')}`;
   }
   if (id.startsWith('customText.')) {
-    const t = cfg.customTexts?.find((x) => x.id === id.slice('customText.'.length));
-    if (!t) return null;
-    const preview = (t.text || '').split('\n')[0].slice(0, 32);
-    return `🅣 ${preview || 'Texto'}${t.hidden ? ' · oculto' : ''}${t.locked ? ' · 🔒' : ''}`;
+    const ct = cfg.customTexts?.find(
+      (x) => x.id === id.slice('customText.'.length),
+    );
+    if (!ct) return null;
+    const preview = (ct.text || '').split('\n')[0].slice(0, 32);
+    return `🅣 ${preview || t('layerText')}${ct.hidden ? ` · ${t('layerHidden')}` : ''}${ct.locked ? ' · 🔒' : ''}`;
   }
   return null;
 }
@@ -3574,6 +3592,7 @@ function BackgroundSection({
   onChange: (patch: Partial<BgConfig>) => void;
   setCfg: (updater: (c: QrPosterConfig) => QrPosterConfig) => void;
 }) {
+  const t = useTranslations('qr_poster');
   function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     // Reset input siempre — sin esto, si el usuario rechaza una imagen
     // grande y vuelve a elegir EL MISMO archivo, el onChange no dispara
@@ -3607,7 +3626,7 @@ function BackgroundSection({
   }
 
   return (
-    <Section title="Fondo" icon="🎨">
+    <Section title={t('background')} icon="🎨">
       <div className="grid grid-cols-3 gap-1.5">
         <Toggle
           active={bg.type === 'solid'}
@@ -3629,9 +3648,7 @@ function BackgroundSection({
               bg: { type: 'gradient', color1, color2: '#4ADE80', angle: 135 },
             }));
           }}
-        >
-          Gradiente
-        </Toggle>
+        >{t('gradient')}</Toggle>
         <Toggle
           active={bg.type === 'image'}
           onClick={() => {
@@ -3657,7 +3674,7 @@ function BackgroundSection({
             onChange={(v) => onChange({ color2: v })}
           />
           <div>
-            <label className="text-xs text-mute">Tipo de gradiente</label>
+            <label className="text-xs text-mute">{t('gradientType')}</label>
             <div className="grid grid-cols-3 gap-1.5 mt-1">
               {(
                 [
@@ -3729,7 +3746,7 @@ function BackgroundSection({
               type="button"
               onClick={() => setCfg((c) => ({ ...c, bg: { type: 'solid', color1: '#FFFFFF' } }))}
               className="btn-ghost text-xs"
-              title="Quitar imagen"
+              title={t('removeImage')}
             >
               ✕
             </button>
@@ -3757,7 +3774,7 @@ function BackgroundSection({
             onChange={(v) => onChange({ blur: v })}
           />
           <div className="pt-1 border-t border-line">
-            <div className="text-[10px] text-mute mb-1">Overlay encima de la imagen</div>
+            <div className="text-[10px] text-mute mb-1">{t('overlayOnImage')}</div>
             <ColorRow
               label="Color overlay"
               value={bg.overlayColor ?? '#000000'}
@@ -3797,6 +3814,7 @@ function CanvasSection({
   cfg: QrPosterConfig;
   setCfg: (updater: (c: QrPosterConfig) => QrPosterConfig) => void;
 }) {
+  const t = useTranslations('qr_poster');
   const [customMode, setCustomMode] = useState(false);
   const [customMmW, setCustomMmW] = useState(cfg.canvas.mm?.w ?? 210);
   const [customMmH, setCustomMmH] = useState(cfg.canvas.mm?.h ?? 297);
@@ -3891,7 +3909,7 @@ function CanvasSection({
   const isSquare = cfg.canvas.w === cfg.canvas.h;
 
   return (
-    <Section title="Tamaño y resolución" icon="📐">
+    <Section title={t('sizeAndDpi')} icon="📐">
       {/* Toggle Horizontal / Vertical — solo aplica si el canvas no
           es cuadrado/circular. Para esos casos w === h y el swap no
           hace nada, así que ocultamos para no confundir. */}
@@ -3907,7 +3925,7 @@ function CanvasSection({
                 ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
                 : 'border-line hover:border-mute'
             }`}
-            title="Lienzo vertical (portrait)"
+            title={t('canvasPortrait')}
           >
             ▯ Vertical
           </button>
@@ -3921,7 +3939,7 @@ function CanvasSection({
                 ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
                 : 'border-line hover:border-mute'
             }`}
-            title="Lienzo horizontal (landscape)"
+            title={t('canvasLandscape')}
           >
             ▭ Horizontal
           </button>
@@ -4000,10 +4018,10 @@ function CanvasSection({
           label="DPI"
           value={String(cfg.canvas.dpi ?? 300)}
           options={[
-            { label: '150 (Borrador)', value: '150' },
-            { label: '300 (Imprenta estándar)', value: '300' },
-            { label: '450 (Alta calidad)', value: '450' },
-            { label: '600 (Vinilo / fotografía)', value: '600' },
+            { label: t('dpiDraft'), value: '150' },
+            { label: t('dpiPrint'), value: '300' },
+            { label: t('dpiHigh'), value: '450' },
+            { label: t('dpiVinyl'), value: '600' },
           ]}
           onChange={(v) =>
             setCfg((c) => ({ ...c, canvas: { ...c.canvas, dpi: Number(v) } }))
@@ -4644,7 +4662,7 @@ function ImagesSection({
   ];
 
   return (
-    <Section title="Imágenes" icon="🖼️" defaultOpen={images.length > 0}>
+    <Section title={t('images')} icon="🖼️" defaultOpen={images.length > 0}>
       <div className="space-y-1.5">
         <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">
           Badges Wallet & Pay
@@ -4715,7 +4733,7 @@ function ImagesSection({
                 <button
                   onClick={() => onRemove(im.id)}
                   className="text-mute hover:text-red-500 text-xs"
-                  title="Eliminar"
+                  title={t('delete')}
                 >
                   ✕
                 </button>
@@ -4773,9 +4791,9 @@ function ImagesSection({
                   {(['cover', 'contain', 'fill'] as const).map((f) => {
                     const active = (im.fit ?? 'fill') === f;
                     const labels = {
-                      cover: { icon: '🟦', label: 'Cubrir' },
-                      contain: { icon: '🔲', label: 'Contener' },
-                      fill: { icon: '🔳', label: 'Estirar' },
+                      cover: { icon: '🟦', label: t('fitCover') },
+                      contain: { icon: '🔲', label: t('fitContain') },
+                      fill: { icon: '🔳', label: t('fitStretch') },
                     } as const;
                     return (
                       <button
@@ -4805,9 +4823,7 @@ function ImagesSection({
                   para agrandar o achicar rápido sin tocar W/H a mano. */}
               <div>
                 <div className="flex items-center justify-between text-[10px] mb-0.5">
-                  <span className="uppercase tracking-wider text-mute font-semibold">
-                    Zoom
-                  </span>
+                  <span className="uppercase tracking-wider text-mute font-semibold">{t('zoom')}</span>
                   <span className="text-mute">
                     {Math.round((im.w / Math.max(1, im.h)) * 100) / 100 ===
                     Math.round((im.w / Math.max(1, im.h)) * 100) / 100
@@ -4871,7 +4887,7 @@ function ImagesSection({
                       }
                     }}
                     className="btn-ghost text-[10px] py-1.5 flex-1"
-                    title="Ocupa el lienzo entero"
+                    title={t('fillCanvas')}
                   >
                     ⛶ Lienzo
                   </button>
@@ -4906,7 +4922,7 @@ function ImagesSection({
                       i.src = im.url;
                     }}
                     className="btn-ghost text-[10px] py-1.5 flex-1"
-                    title="Vuelve a las dimensiones naturales de la imagen"
+                    title={t('naturalSize')}
                   >
                     ↺ Original
                   </button>
@@ -4923,7 +4939,7 @@ function ImagesSection({
                     onPatch(im.id, { x: (canvasW - im.w) / 2 })
                   }
                   className="btn-ghost text-[10px] py-1.5"
-                  title="Centrar horizontalmente"
+                  title={t('centerH')}
                 >
                   ↔ H
                 </button>
@@ -4933,7 +4949,7 @@ function ImagesSection({
                     onPatch(im.id, { y: (canvasH - im.h) / 2 })
                   }
                   className="btn-ghost text-[10px] py-1.5"
-                  title="Centrar verticalmente"
+                  title={t('centerV')}
                 >
                   ↕ V
                 </button>
@@ -4946,7 +4962,7 @@ function ImagesSection({
                     })
                   }
                   className="btn-ghost text-[10px] py-1.5"
-                  title="Centrar en el canvas"
+                  title={t('centerCanvas')}
                 >
                   ⊕ Todo
                 </button>
@@ -4997,6 +5013,7 @@ function CropButton({
   image: ImageLayer;
   onApply: (crop: { x: number; y: number; width: number; height: number } | null) => void;
 }) {
+  const t = useTranslations('qr_poster');
   const [open, setOpen] = useState(false);
   const [naturalSize, setNaturalSize] = useState<{ w: number; h: number } | null>(null);
   const [crop, setCrop] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
@@ -5135,7 +5152,7 @@ function CropButton({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b border-line flex items-center justify-between">
-              <h3 className="text-sm font-semibold m-0">Recortar imagen</h3>
+              <h3 className="text-sm font-semibold m-0">{t('cropImage')}</h3>
               <button
                 onClick={() => setOpen(false)}
                 className="text-mute hover:text-ink"
@@ -5149,7 +5166,7 @@ function CropButton({
                   No se pudo cargar la imagen para recortar. Prueba eliminarla y subirla de nuevo.
                 </div>
               ) : !naturalSize || !crop ? (
-                <div className="text-sm text-mute py-8">Cargando imagen…</div>
+                <div className="text-sm text-mute py-8">{t('loadingImage')}</div>
               ) : (
                 <>
                   <div
@@ -5287,7 +5304,7 @@ function PatternsSection({
   }
 
   return (
-    <Section title="Patrones" icon="✨" defaultOpen={patterns.length > 0}>
+    <Section title={t('patterns')} icon="✨" defaultOpen={patterns.length > 0}>
       {!picking ? (
         <div className="space-y-1.5">
           <button
@@ -5334,7 +5351,7 @@ function PatternsSection({
                   key={i}
                   onClick={() => setDraftEmojis((d) => d.filter((_, idx) => idx !== i))}
                   className="text-lg hover:scale-110 transition"
-                  title="Quitar"
+                  title={t('remove')}
                 >
                   {e}
                 </button>
@@ -5391,7 +5408,7 @@ function PatternsSection({
                 <button
                   onClick={() => onRemove(p.id)}
                   className="text-mute hover:text-red-500 text-xs"
-                  title="Eliminar"
+                  title={t('delete')}
                 >
                   ✕
                 </button>
@@ -5448,6 +5465,7 @@ function EmojiQuickPick({
   onPick: (e: string) => void;
   disabled?: boolean;
 }) {
+  const t = useTranslations('qr_poster');
   const [q, setQ] = useState('');
   const results = useMemo(
     () => (q.trim() ? searchEmojis(q, 24) : EMOJI_DATA.slice(0, 24)),
@@ -5459,7 +5477,7 @@ function EmojiQuickPick({
         type="text"
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Buscar emoji…"
+        placeholder={t('searchEmoji')}
         className="input text-xs"
         disabled={disabled}
       />
@@ -5501,18 +5519,19 @@ function ShapesSection({
   onDuplicate: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
+  const t = useTranslations('qr_poster');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const SHAPE_BUTTONS: { type: ShapeType; icon: string; label: string }[] = [
     { type: 'rect', icon: '▭', label: 'Rect' },
-    { type: 'roundedRect', icon: '▢', label: 'Redondo' },
+    { type: 'roundedRect', icon: '▢', label: t('rounded') },
     { type: 'capsule', icon: '⬭', label: 'Pill' },
-    { type: 'circle', icon: '●', label: 'Círculo' },
-    { type: 'star', icon: '★', label: 'Estrella' },
+    { type: 'circle', icon: '●', label: t('circle') },
+    { type: 'star', icon: '★', label: t('star') },
     { type: 'burst', icon: '✺', label: 'Sticker' },
-    { type: 'blob', icon: '🜲', label: 'Blob' },
+    { type: 'blob', icon: '🜲', label: t('blob') },
   ];
   return (
-    <Section title="Formas" icon="⬡" defaultOpen={shapes.length > 0}>
+    <Section title={t('shapes')} icon="⬡" defaultOpen={shapes.length > 0}>
       <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
         {SHAPE_BUTTONS.map((b) => (
           <button
@@ -5561,14 +5580,14 @@ function ShapesSection({
                   <button
                     onClick={() => onDuplicate(s.id)}
                     className="text-mute hover:text-ink text-xs px-1"
-                    title="Duplicar"
+                    title={t('duplicate')}
                   >
                     ⎘
                   </button>
                   <button
                     onClick={() => onRemove(s.id)}
                     className="text-mute hover:text-red-500 text-xs px-1"
-                    title="Eliminar"
+                    title={t('delete')}
                   >
                     ✕
                   </button>
@@ -5722,6 +5741,7 @@ function ShapeGradientEditor({
   gradient: ShapeLayer['gradientFill'] | null;
   onChange: (g: ShapeLayer['gradientFill'] | null) => void;
 }) {
+  const t = useTranslations('qr_poster');
   // Cachear el último ángulo numérico para que el toggle linear → radial
   // → linear no pierda el ángulo custom (default era reset a 135 cada
   // vez). Persiste mientras el componente está montado.
@@ -5751,7 +5771,7 @@ function ShapeGradientEditor({
   return (
     <div className="border border-line rounded p-2 bg-bg2/30 space-y-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold">Gradiente</span>
+        <span className="text-[11px] font-semibold">{t('gradient')}</span>
         <button
           type="button"
           onClick={() => onChange(null)}
@@ -5826,6 +5846,7 @@ function ShapeInnerTextEditor({
   innerText: ShapeLayer['innerText'] | null;
   onChange: (it: ShapeLayer['innerText'] | null) => void;
 }) {
+  const t = useTranslations('qr_poster');
   // Cachear el último innerText conocido para preservar customizaciones
   // al toggle off→on. Sin esto el ✕ destruía text/color/size y al
   // re-abrirlo arrancaba con defaults — el cliente perdía el trabajo.
@@ -5859,7 +5880,7 @@ function ShapeInnerTextEditor({
   return (
     <div className="border border-line rounded p-2 bg-bg2/30 space-y-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold">Texto adentro</span>
+        <span className="text-[11px] font-semibold">{t('innerText')}</span>
         <button
           type="button"
           onClick={() => onChange(null)}
@@ -5871,7 +5892,7 @@ function ShapeInnerTextEditor({
       <AutoResizeTextarea
         value={innerText.text}
         onChange={(v) => onChange({ ...innerText, text: v })}
-        placeholder="10% off"
+        placeholder={t('sampleDiscount')}
       />
       <ColorRow
         label="Color"
@@ -5921,9 +5942,10 @@ function CustomTextsSection({
   onDuplicate: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
+  const t = useTranslations('qr_poster');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   return (
-    <Section title="Textos libres" icon="🅣" defaultOpen={texts.length > 0}>
+    <Section title={t('freeTexts')} icon="🅣" defaultOpen={texts.length > 0}>
       <button
         type="button"
         onClick={onAdd}
@@ -5937,150 +5959,150 @@ function CustomTextsSection({
           tamaño propios. Útil para callouts, etiquetas, decoración.
         </div>
       )}
-      {texts.map((t) => {
-        const open = expandedId === t.id;
-        const preview = (t.text || '').split('\n')[0].slice(0, 32) || 'Texto';
+      {texts.map((ct) => {
+        const open = expandedId === ct.id;
+        const preview = (ct.text || '').split('\n')[0].slice(0, 32) || 'Texto';
         return (
-          <div key={t.id} className="bg-bg2/40 rounded p-2 space-y-1.5">
+          <div key={ct.id} className="bg-bg2/40 rounded p-2 space-y-1.5">
             <div className="flex items-center gap-1.5">
               <button
-                onClick={() => setExpandedId(open ? null : t.id)}
+                onClick={() => setExpandedId(open ? null : ct.id)}
                 className="flex-1 text-left text-xs font-semibold truncate"
-                title="Editar"
+                title={t('edit')}
               >
                 <span className="text-mute mr-1">{open ? '▾' : '▸'}</span>
                 {preview}
               </button>
               <button
-                onClick={() => onPatch(t.id, { hidden: !t.hidden })}
+                onClick={() => onPatch(ct.id, { hidden: !ct.hidden })}
                 className="text-mute hover:text-ink text-xs px-1"
-                title={t.hidden ? 'Mostrar' : 'Ocultar'}
+                title={ct.hidden ? 'Mostrar' : 'Ocultar'}
               >
-                {t.hidden ? '🙈' : '👁'}
+                {ct.hidden ? '🙈' : '👁'}
               </button>
               <button
-                onClick={() => onPatch(t.id, { locked: !t.locked })}
+                onClick={() => onPatch(ct.id, { locked: !ct.locked })}
                 className="text-mute hover:text-ink text-xs px-1"
-                title={t.locked ? 'Desbloquear' : 'Bloquear'}
+                title={ct.locked ? 'Desbloquear' : 'Bloquear'}
               >
-                {t.locked ? '🔒' : '🔓'}
+                {ct.locked ? '🔒' : '🔓'}
               </button>
               <button
-                onClick={() => onDuplicate(t.id)}
+                onClick={() => onDuplicate(ct.id)}
                 className="text-mute hover:text-ink text-xs px-1"
-                title="Duplicar"
+                title={t('duplicate')}
               >
                 ⎘
               </button>
               <button
-                onClick={() => onRemove(t.id)}
+                onClick={() => onRemove(ct.id)}
                 className="text-mute hover:text-red-500 text-xs px-1"
-                title="Eliminar"
+                title={t('delete')}
               >
                 ✕
               </button>
             </div>
             {open && (
-              <div className="space-y-1.5 pt-1 border-t border-line2">
+              <div className="space-y-1.5 pt-1 border-ct border-line2">
                 <AutoResizeTextarea
-                  value={t.text}
-                  onChange={(v) => onPatch(t.id, { text: v })}
-                  placeholder="Tu texto…"
+                  value={ct.text}
+                  onChange={(v) => onPatch(ct.id, { text: v })}
+                  placeholder={t('yourText')}
                 />
                 <FontPicker
-                  value={t.font}
+                  value={ct.font}
                   onChange={(v) => {
                     const opt = FONT_OPTIONS.find((o) => o.value === v);
-                    onPatch(t.id, {
+                    onPatch(ct.id, {
                       font: v,
-                      fontLabel: opt?.label ?? t.fontLabel,
+                      fontLabel: opt?.label ?? ct.fontLabel,
                     });
                   }}
                 />
                 <div className="grid grid-cols-2 gap-1.5">
                   <NumberRow
                     label="Tamaño"
-                    value={t.size}
+                    value={ct.size}
                     min={10}
                     max={300}
                     step={2}
-                    onChange={(v) => onPatch(t.id, { size: v })}
+                    onChange={(v) => onPatch(ct.id, { size: v })}
                   />
                   <SelectRow
                     label="Peso"
-                    value={String(t.weight)}
+                    value={String(ct.weight)}
                     options={[
                       { label: 'Regular', value: '400' },
                       { label: 'Semibold', value: '600' },
                       { label: 'Bold', value: '700' },
                       { label: 'Black', value: '900' },
                     ]}
-                    onChange={(v) => onPatch(t.id, { weight: Number(v) })}
+                    onChange={(v) => onPatch(ct.id, { weight: Number(v) })}
                   />
                 </div>
                 <ColorRow
                   label="Color"
-                  value={t.color}
-                  onChange={(v) => onPatch(t.id, { color: v })}
+                  value={ct.color}
+                  onChange={(v) => onPatch(ct.id, { color: v })}
                 />
                 <PositionRow
-                  x={t.x}
-                  y={t.y}
-                  onChange={(x, y) => onPatch(t.id, { x, y })}
+                  x={ct.x}
+                  y={ct.y}
+                  onChange={(x, y) => onPatch(ct.id, { x, y })}
                 />
                 <NumberRow
                   label="Ancho caja"
-                  value={t.boxWidth ?? 0}
+                  value={ct.boxWidth ?? 0}
                   min={0}
                   max={2000}
                   step={20}
                   onChange={(v) =>
-                    onPatch(t.id, { boxWidth: v > 0 ? v : null })
+                    onPatch(ct.id, { boxWidth: v > 0 ? v : null })
                   }
                 />
                 <TextAlignButtons
-                  value={t.align}
-                  onChange={(v) => onPatch(t.id, { align: v })}
+                  value={ct.align}
+                  onChange={(v) => onPatch(ct.id, { align: v })}
                 />
                 <PageAlignButtons
-                  layer={t}
+                  layer={ct}
                   canvasW={canvasW}
                   canvasH={canvasH}
-                  onPatch={(p) => onPatch(t.id, p)}
+                  onPatch={(p) => onPatch(ct.id, p)}
                 />
                 <div className="grid grid-cols-2 gap-1.5">
                   <NumberRow
                     label="Línea"
-                    value={t.lineHeight ?? 1.2}
+                    value={ct.lineHeight ?? 1.2}
                     min={0.8}
                     max={3}
                     step={0.1}
-                    onChange={(v) => onPatch(t.id, { lineHeight: v })}
+                    onChange={(v) => onPatch(ct.id, { lineHeight: v })}
                   />
                   <NumberRow
                     label="Letra"
-                    value={t.letterSpacing ?? 0}
+                    value={ct.letterSpacing ?? 0}
                     min={-10}
                     max={50}
                     step={1}
-                    onChange={(v) => onPatch(t.id, { letterSpacing: v })}
+                    onChange={(v) => onPatch(ct.id, { letterSpacing: v })}
                   />
                 </div>
                 <NumberRow
                   label="Rotación"
-                  value={t.rotation ?? 0}
+                  value={ct.rotation ?? 0}
                   min={-180}
                   max={180}
                   step={5}
-                  onChange={(v) => onPatch(t.id, { rotation: v })}
+                  onChange={(v) => onPatch(ct.id, { rotation: v })}
                 />
                 <OpacityRow
-                  value={t.opacity ?? 1}
-                  onChange={(v) => onPatch(t.id, { opacity: v })}
+                  value={ct.opacity ?? 1}
+                  onChange={(v) => onPatch(ct.id, { opacity: v })}
                 />
                 <TextShadowEditor
-                  shadow={t.shadow ?? null}
-                  onChange={(s) => onPatch(t.id, { shadow: s })}
+                  shadow={ct.shadow ?? null}
+                  onChange={(s) => onPatch(ct.id, { shadow: s })}
                 />
               </div>
             )}
@@ -6102,6 +6124,7 @@ function EmojisSection({
   onPatch: (id: string, patch: Partial<IconLayer>) => void;
   onRemove: (id: string) => void;
 }) {
+  const t = useTranslations('qr_poster');
   const [q, setQ] = useState('');
   const [category, setCategory] = useState<EmojiCategory | 'all'>('all');
 
@@ -6112,7 +6135,7 @@ function EmojisSection({
   }, [q, category]);
 
   return (
-    <Section title="Iconos / Emojis" icon="😀" defaultOpen={icons.length > 0}>
+    <Section title={t('iconsEmojis')} icon="😀" defaultOpen={icons.length > 0}>
       <input
         type="text"
         value={q}
@@ -6177,7 +6200,7 @@ function EmojisSection({
                 step={10}
                 onChange={(e) => onPatch(i.id, { size: Number(e.target.value) })}
                 className="input text-xs w-[60px]"
-                title="Tamaño"
+                title={t('size')}
               />
               <input
                 type="range"
@@ -6187,7 +6210,7 @@ function EmojisSection({
                 value={i.opacity ?? 1}
                 onChange={(e) => onPatch(i.id, { opacity: Number(e.target.value) })}
                 className="flex-1 accent-brand"
-                title="Opacidad"
+                title={t('opacity')}
               />
               <LockButton
                 locked={i.locked === true}
@@ -6196,7 +6219,7 @@ function EmojisSection({
               <button
                 onClick={() => onRemove(i.id)}
                 className="text-mute hover:text-red-500 text-xs"
-                title="Eliminar"
+                title={t('delete')}
               >
                 ✕
               </button>
