@@ -1994,11 +1994,39 @@ export class WalletService implements OnModuleDestroy {
     let sent = 0;
     let skipped = 0;
     let purged = 0;
+    /** Fallos que NO se borran: quedan para mirarlos, no para purgarlos. */
+    let sospechosos = 0;
     let envMismatchDetected = false;
-    const STALE_REASONS = new Set([
+    /**
+     * QUÉ MOTIVOS SIGNIFICAN «este dispositivo ya no existe».
+     *
+     * SOLO `Unregistered`. Es el 410 de Apple y es el único definitivo: el
+     * pase se borró del teléfono. Borrar el registro ahí es lo correcto.
+     *
+     * EL FALLO (2026-09-12, caso Isabel Reyes en Cocoa Beauty): su tarjeta
+     * sigue INSTALADA en el móvil —hay foto— y en nuestra base tenía CERO
+     * dispositivos. Alguien borró ese registro, y el único que lo borra es
+     * este código. Sin registro, APNs no tiene a quién avisar y el pase se
+     * queda congelado como el día que se instaló: el suyo marca 0/10 desde el
+     * 17 de julio mientras el panel dice 6/10.
+     *
+     * `BadDeviceToken` y `DeviceTokenNotForTopic` son 400, y la propia
+     * documentación de Apple dice que el primero aparece también cuando el
+     * token NO CASA CON EL ENTORNO. Un token bueno mandado al entorno
+     * equivocado daba `BadDeviceToken` → lo borrábamos → el cliente perdía
+     * las actualizaciones para siempre y la única salida era reinstalar.
+     *
+     * El intercambio es asimétrico y por eso se decide así: quedarse con un
+     * token muerto cuesta un envío fallido y una línea de log. Borrar uno
+     * bueno le cuesta la tarjeta a un cliente real, y no se puede deshacer
+     * desde aquí — el token no se puede recuperar.
+     */
+    const MUERTO_DE_VERDAD = new Set(['Unregistered']);
+    /** 400 que PUEDEN ser de entorno: se reintenta, no se borra. */
+    const QUIZA_ES_EL_ENTORNO = new Set([
       'BadDeviceToken',
-      'Unregistered',
       'DeviceTokenNotForTopic',
+      'BadEnvironmentKeyInToken',
     ]);
 
     this.logger.log(
@@ -2020,9 +2048,13 @@ export class WalletService implements OnModuleDestroy {
         // Si Apple rechaza por env mismatch, regenerar provider en el OTRO
         // environment y retry una vez. Solo lo hacemos una vez por loop.
         const failedReason = r.failed[0]?.response?.reason as string | undefined;
+        // Antes esto solo miraba `BadEnvironmentKeyInToken`, así que un
+        // `BadDeviceToken` —que también es síntoma de entorno equivocado— ni
+        // se reintentaba: se borraba directamente.
         if (
           r.failed.length > 0 &&
-          failedReason === 'BadEnvironmentKeyInToken' &&
+          !!failedReason &&
+          QUIZA_ES_EL_ENTORNO.has(failedReason) &&
           !envMismatchDetected
         ) {
           envMismatchDetected = true;
@@ -2040,13 +2072,20 @@ export class WalletService implements OnModuleDestroy {
         skipped += r.failed.length;
         if (r.failed.length > 0) {
           const finalReason = r.failed[0]?.response?.reason as string | undefined;
-          // Si Apple dice que el token está muerto, lo borramos para que el
-          // re-install del .pkpass cree uno limpio sin colisionar.
-          if (finalReason && STALE_REASONS.has(finalReason)) {
+          // Solo se borra con el 410. Lo demás se deja y se avisa: un envío
+          // fallido es barato, un cliente sin tarjeta no.
+          if (finalReason && MUERTO_DE_VERDAD.has(finalReason)) {
             await this.prisma.walletDevice
               .delete({ where: { id: d.id } })
               .catch(() => null);
             purged += 1;
+          } else if (finalReason) {
+            sospechosos += 1;
+            this.logger.warn(
+              `pushPassUpdate(${passId}): device=${d.pushToken.slice(0, 12)}… ` +
+                `falló con «${finalReason}» y NO se borra (puede ser el entorno). ` +
+                `Si se repite, el cliente tiene que abrir la tarjeta y deslizar hacia abajo.`,
+            );
           }
         }
       } catch (e) {
@@ -2056,7 +2095,12 @@ export class WalletService implements OnModuleDestroy {
     }
     if (purged > 0) {
       this.logger.log(
-        `pushPassUpdate(${passId}): ${purged} devices stale eliminados (re-instalar el pase para re-registrar)`,
+        `pushPassUpdate(${passId}): ${purged} devices dados de baja por Apple (410) — el pase se borró del teléfono`,
+      );
+    }
+    if (sospechosos > 0) {
+      this.logger.warn(
+        `pushPassUpdate(${passId}): ${sospechosos} envíos fallidos SIN borrar el registro`,
       );
     }
     this.logger.log(
