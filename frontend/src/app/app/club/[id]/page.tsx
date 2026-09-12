@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { plural } from '@/lib/plural';
+import { useTranslations, useLocale } from 'next-intl';
 import { Consumos } from './Consumos';
 import { Diseno } from './Diseno';
 import {
@@ -51,12 +52,6 @@ type Miembro = {
 
 type ClienteLite = { id: string; fullName: string; email?: string | null; phone?: string | null };
 
-const ETIQUETA: Record<Estado, string> = {
-  ACTIVA: 'Al día',
-  PAUSADA: 'En pausa',
-  CANCELADA: 'De baja',
-};
-
 const COLOR: Record<Estado, string> = {
   ACTIVA: 'badge-ok',
   PAUSADA: 'badge-warn',
@@ -64,6 +59,8 @@ const COLOR: Record<Estado, string> = {
 };
 
 export default function SociosDelPlanPage() {
+  const t = useTranslations('app_club_members');
+  const locale = useLocale();
   const params = useParams<{ id: string }>();
   const planId = params?.id as string;
 
@@ -101,7 +98,7 @@ export default function SociosDelPlanPage() {
       setTotal(r.total);
     } catch (e: any) {
       if (mia !== peticionRef.current) return;
-      toast(e.message || 'No se pudieron cargar los socios.', 'error');
+      toast(e.message || t('loadError'), 'error');
     } finally {
       if (mia === peticionRef.current) setCargando(false);
     }
@@ -136,7 +133,11 @@ export default function SociosDelPlanPage() {
   }, [busqueda, estado]);
 
   async function cambiarEstado(m: Miembro, nuevo: Estado) {
-    if (nuevo === 'CANCELADA' && !confirm(`¿Dar de baja a ${m.cliente.nombre}?`)) return;
+    if (
+      nuevo === 'CANCELADA' &&
+      !confirm(t('confirmCancel', { name: m.cliente.nombre }))
+    )
+      return;
     try {
       await api(`/club/membresias/${m.id}/estado`, {
         method: 'PATCH',
@@ -144,15 +145,15 @@ export default function SociosDelPlanPage() {
       });
       toast(
         nuevo === 'ACTIVA'
-          ? 'Reactivado. Vuelve a consumir su cupo.'
+          ? t('reactivated')
           : nuevo === 'PAUSADA'
-            ? 'En pausa. No podrá consumir hasta que lo reactives.'
-            : 'Dado de baja.',
+            ? t('pausedToast')
+            : t('cancelledToast'),
         'success',
       );
       cargarMiembros();
     } catch (e: any) {
-      toast(e.message || 'No se pudo cambiar el estado.', 'error');
+      toast(e.message || t('stateError'), 'error');
     }
   }
 
@@ -160,10 +161,10 @@ export default function SociosDelPlanPage() {
   async function readmitir(m: Miembro) {
     try {
       await api(`/club/planes/${planId}/miembros/${m.cliente.id}`, { method: 'POST' });
-      toast('Vuelve a estar dentro, con el cupo que le toca por hoy.', 'success');
+      toast(t('readmitted'), 'success');
       cargarMiembros();
     } catch (e: any) {
-      toast(e.message || 'No se pudo readmitir.', 'error');
+      toast(e.message || t('readmitError'), 'error');
     }
   }
 
@@ -177,7 +178,9 @@ export default function SociosDelPlanPage() {
     const cuantos = sociosAlDia + sociosEnPausa;
     if (
       !confirm(
-        `Se va a dar de baja a ${cuantos} ${cuantos === 1 ? 'socio' : 'socios'}. Dejarán de consumir y su tarjeta lo dirá. ¿Seguimos?`,
+        cuantos === 1
+          ? t('confirmCloseOne')
+          : t('confirmCloseMany', { count: cuantos }),
       )
     ) {
       return;
@@ -188,13 +191,15 @@ export default function SociosDelPlanPage() {
         method: 'POST',
       });
       toast(
-        `${r.dadasDeBaja} ${r.dadasDeBaja === 1 ? 'socio dado' : 'socios dados'} de baja.`,
+        r.dadasDeBaja === 1
+          ? t('closedOne')
+          : t('closedMany', { count: r.dadasDeBaja }),
         'success',
       );
       cargarMiembros();
       recargarPlan();
     } catch (e: any) {
-      toast(e.message || 'No se pudo cerrar el club.', 'error');
+      toast(e.message || t('closeError'), 'error');
     } finally {
       setCerrando(false);
     }
@@ -206,23 +211,23 @@ export default function SociosDelPlanPage() {
         href="/app/club"
         className="text-xs text-mute hover:text-brand inline-flex items-center gap-1 mb-2"
       >
-        ← Planes de club
+        {t('backToPlans')}
       </Link>
 
       <div className="page-head">
         <h1 className="page-title">
-          {plan?.name ?? 'Socios'}{' '}
+          {plan?.name ?? t('members')}{' '}
           <span className="page-crumb">
-            {total === 1 ? '1 socio' : `${total} socios`}
+            {total === 1 ? t('oneMember') : t('manyMembers', { count: total })}
           </span>
         </h1>
         <button
           className="btn-primary"
           onClick={() => setDandoDeAlta(true)}
           disabled={plan ? !plan.isActive : true}
-          title={plan && !plan.isActive ? 'El plan está apagado' : undefined}
+          title={plan && !plan.isActive ? t('planOffTitle') : undefined}
         >
-          <Icon name="plus" /> Dar de alta
+          <Icon name="plus" /> {t('addMember')}
         </button>
       </div>
 
@@ -230,23 +235,29 @@ export default function SociosDelPlanPage() {
         <div className="card card-pad mb-4 flex flex-wrap items-center gap-x-8 gap-y-3">
           <Dato
             valor={String(plan.beneficiosPorMes)}
-            etiqueta={`${plural(plan.unidad, plan.beneficiosPorMes)} al mes`}
+            etiqueta={t('perMonth', {
+              unidad: plural(plan.unidad, plan.beneficiosPorMes),
+            })}
           />
           <Dato
-            valor={plan.precioCents ? `$${plan.precioCents.toLocaleString('es-CO')}` : '—'}
+            valor={
+              plan.precioCents
+                ? `$${plan.precioCents.toLocaleString(locale)}`
+                : '—'
+            }
             etiqueta={
               plan.periodicidad === 'ANUAL'
-                ? 'lo que te paga al año'
-                : 'lo que te paga al mes'
+                ? t('paysYouYearly')
+                : t('paysYouMonthly')
             }
           />
           <Dato
             valor={plan.tramos.length ? String(plan.tramos.length) : '—'}
-            etiqueta="tramos de alta"
+            etiqueta={t('tiers')}
           />
           {!plan.isActive && (
             <span className="badge badge-mute">
-              Plan apagado — no se puede dar de alta a nadie nuevo
+              {t('planOffBadge')}
             </span>
           )}
         </div>
@@ -255,7 +266,7 @@ export default function SociosDelPlanPage() {
       {entregando && (
         <EntregarTarjeta
           socio={entregando}
-          plan={plan?.name ?? 'tu club'}
+          plan={plan?.name ?? t('yourClub')}
           onCerrar={() => setEntregando(null)}
         />
       )}
@@ -279,7 +290,7 @@ export default function SociosDelPlanPage() {
       <div className="flex flex-wrap gap-2 mb-3">
         <input
           className="input flex-1 min-w-[200px]"
-          placeholder="Buscar por nombre, correo o teléfono…"
+          placeholder={t('searchPlaceholder')}
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
         />
@@ -288,10 +299,10 @@ export default function SociosDelPlanPage() {
           value={estado}
           onChange={(e) => setEstado(e.target.value as 'TODAS' | Estado)}
         >
-          <option value="TODAS">Todos</option>
-          <option value="ACTIVA">Al día</option>
-          <option value="PAUSADA">En pausa</option>
-          <option value="CANCELADA">De baja</option>
+          <option value="TODAS">{t('all')}</option>
+          <option value="ACTIVA">{t('stateActive')}</option>
+          <option value="PAUSADA">{t('statePaused')}</option>
+          <option value="CANCELADA">{t('stateCancelled')}</option>
         </select>
       </div>
 
@@ -299,13 +310,13 @@ export default function SociosDelPlanPage() {
         <div className="card card-pad text-center py-10">
           <div className="font-semibold">
             {busqueda || estado !== 'TODAS'
-              ? 'Ningún socio con ese filtro'
-              : 'Este plan todavía no tiene socios'}
+              ? t('emptyFiltered')
+              : t('emptyTitle')}
           </div>
           <p className="text-sm text-mute mt-1.5 max-w-md mx-auto">
             {busqueda || estado !== 'TODAS'
-              ? 'Prueba a quitar el filtro.'
-              : 'Cobra la suscripción por tu medio de siempre y luego da de alta al cliente aquí. Recibirá su tarjeta para la billetera del móvil.'}
+              ? t('emptyFilteredBody')
+              : t('emptyBody')}
           </p>
         </div>
       )}
@@ -315,10 +326,10 @@ export default function SociosDelPlanPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-mute border-b border-line">
-                <th className="p-3 font-medium">Socio</th>
-                <th className="p-3 font-medium">Le queda este mes</th>
-                <th className="p-3 font-medium">Estado</th>
-                <th className="p-3 font-medium">Desde</th>
+                <th className="p-3 font-medium">{t('colMember')}</th>
+                <th className="p-3 font-medium">{t('colLeft')}</th>
+                <th className="p-3 font-medium">{t('colStatus')}</th>
+                <th className="p-3 font-medium">{t('colSince')}</th>
                 <th className="p-3" />
               </tr>
             </thead>
@@ -337,27 +348,35 @@ export default function SociosDelPlanPage() {
                     </div>
                     {!m.passId ? (
                       <div className="text-xs text-warn-ink mt-0.5">
-                        Sin tarjeta emitida
+                        {t('noCardIssued')}
                       </div>
                     ) : !m.instaladaEn ? (
                       // El dato se guardaba en cada descarga del pase y no lo
                       // leía nadie: el negocio veía a todos sus socios iguales
                       // sin saber cuáles cobraron y nunca llegaron a instalar.
                       <div className="text-xs text-warn-ink mt-0.5">
-                        Aún no la ha instalado
+                        {t('notInstalledYet')}
                       </div>
                     ) : null}
                   </td>
                   <td className="p-3 tabular-nums whitespace-nowrap">
                     <strong>{m.saldo}</strong>
-                    <span className="text-mute"> de {m.cupoDelPeriodo}</span>
+                    <span className="text-mute">
+                      {t('outOf', { total: m.cupoDelPeriodo })}
+                    </span>
                     <div className="text-xs text-mute">{m.periodo}</div>
                   </td>
                   <td className="p-3">
-                    <span className={`badge ${COLOR[m.status]}`}>{ETIQUETA[m.status]}</span>
+                    <span className={`badge ${COLOR[m.status]}`}>
+                      {m.status === 'ACTIVA'
+                        ? t('stateActive')
+                        : m.status === 'PAUSADA'
+                          ? t('statePaused')
+                          : t('stateCancelled')}
+                    </span>
                   </td>
                   <td className="p-3 text-xs text-mute whitespace-nowrap">
-                    {new Date(m.altaEn).toLocaleDateString('es-CO')}
+                    {new Date(m.altaEn).toLocaleDateString(locale)}
                   </td>
                   <td className="p-3 text-right whitespace-nowrap">
                     {m.status === 'ACTIVA' && (
@@ -366,13 +385,13 @@ export default function SociosDelPlanPage() {
                           className="btn-ghost"
                           onClick={() => cambiarEstado(m, 'PAUSADA')}
                         >
-                          Pausar
+                          {t('pause')}
                         </button>
                         <button
                           className="btn-ghost"
                           onClick={() => cambiarEstado(m, 'CANCELADA')}
                         >
-                          Dar de baja
+                          {t('cancel')}
                         </button>
                       </>
                     )}
@@ -382,13 +401,13 @@ export default function SociosDelPlanPage() {
                           className="btn-ghost"
                           onClick={() => cambiarEstado(m, 'ACTIVA')}
                         >
-                          Reactivar
+                          {t('reactivate')}
                         </button>
                         <button
                           className="btn-ghost"
                           onClick={() => cambiarEstado(m, 'CANCELADA')}
                         >
-                          Dar de baja
+                          {t('cancel')}
                         </button>
                       </>
                     )}
@@ -402,17 +421,17 @@ export default function SociosDelPlanPage() {
                         title={
                           plan?.isActive
                             ? undefined
-                            : 'Enciende el plan para poder readmitir'
+                            : t('turnOnToReadmit')
                         }
                         onClick={() => readmitir(m)}
                       >
-                        Volver a dar de alta
+                        {t('readmit')}
                       </button>
                     )}
                     {m.passId && m.status !== 'CANCELADA' && (
                       <button
                         className="btn-ghost"
-                        title="Ver el QR y el enlace de su tarjeta"
+                        title={t('theirCardTitle')}
                         onClick={() =>
                           setEntregando({
                             passId: m.passId!,
@@ -421,7 +440,7 @@ export default function SociosDelPlanPage() {
                           })
                         }
                       >
-                        Su tarjeta
+                        {t('theirCard')}
                       </button>
                     )}
                   </td>
@@ -445,22 +464,16 @@ export default function SociosDelPlanPage() {
 
       {plan && (
         <div className="card card-pad mt-4">
-          <h2 className="text-base font-semibold m-0">Cerrar el club</h2>
-          <p className="text-xs text-mute mt-1 max-w-2xl">
-            Apagar el plan solo cierra las altas nuevas: a los socios que ya
-            están dentro se les sigue repartiendo su cupo cada mes, que es lo
-            correcto mientras te paguen. Si vas a cerrar el club de verdad,
-            dales de baja aquí. No se borra nada: conservan su historial y
-            puedes readmitirlos cuando quieras.
-          </p>
+          <h2 className="text-base font-semibold m-0">{t('closeClubTitle')}</h2>
+          <p className="text-xs text-mute mt-1 max-w-2xl">{t('closeClubBody')}</p>
           <button
             className="btn-ghost mt-3"
             disabled={sociosAlDia + sociosEnPausa === 0 || cerrando}
             onClick={cerrarElClub}
           >
             {cerrando
-              ? 'Dando de baja…'
-              : `Dar de baja a los ${sociosAlDia + sociosEnPausa} socios`}
+              ? t('closing')
+              : t('closeClubButton', { count: sociosAlDia + sociosEnPausa })}
           </button>
         </div>
       )}
@@ -472,17 +485,17 @@ export default function SociosDelPlanPage() {
             disabled={pagina <= 1}
             onClick={() => setPagina((p) => p - 1)}
           >
-            Anterior
+            {t('previous')}
           </button>
           <span className="text-mute tabular-nums">
-            {pagina} de {paginas}
+            {t('pageOf', { page: pagina, total: paginas })}
           </span>
           <button
             className="btn-ghost"
             disabled={pagina >= paginas}
             onClick={() => setPagina((p) => p + 1)}
           >
-            Siguiente
+            {t('next')}
           </button>
         </div>
       )}
@@ -526,6 +539,7 @@ function BuscadorDeCliente({
   onCerrar: () => void;
   onAlta: (socio: SocioParaEntregar) => void;
 }) {
+  const t = useTranslations('app_club_members');
   const [dato, setDato] = useState('');
   const [dando, setDando] = useState(false);
   const [ambiguos, setAmbiguos] = useState<ClienteLite[] | null>(null);
@@ -533,7 +547,7 @@ function BuscadorDeCliente({
   async function darDeAlta(customerId?: string, forzarNuevo = false) {
     const texto = dato.trim();
     if (!customerId && texto.length < 2) {
-      toast('Escribe el teléfono o el nombre del socio.', 'error');
+      toast(t('needIdentifier'), 'error');
       return;
     }
     setDando(true);
@@ -561,7 +575,7 @@ function BuscadorDeCliente({
         telefono: cliente?.phone ?? null,
       });
     } catch (e: any) {
-      toast(e.message || 'No se pudo dar de alta.', 'error');
+      toast(e.message || t('addError'), 'error');
     } finally {
       setDando(false);
     }
@@ -571,15 +585,11 @@ function BuscadorDeCliente({
     <div className="card card-pad mb-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold m-0">Dar de alta a un socio</h2>
-          <p className="text-xs text-mute mt-1 max-w-xl">
-            Escribe su teléfono, o su nombre si no lo tienes. Si ya es cliente
-            tuyo lo reutilizamos; si no, lo creamos. Al terminar te damos el QR
-            para que instale su tarjeta.
-          </p>
+          <h2 className="text-base font-semibold m-0">{t('addTitle')}</h2>
+          <p className="text-xs text-mute mt-1 max-w-xl">{t('addIntro')}</p>
         </div>
         <button className="btn-ghost shrink-0" onClick={onCerrar}>
-          Cerrar
+          {t('close')}
         </button>
       </div>
 
@@ -587,7 +597,7 @@ function BuscadorDeCliente({
         <input
           className="input flex-1 min-w-[220px]"
           autoFocus
-          placeholder="Teléfono o nombre del socio…"
+          placeholder={t('addPlaceholder')}
           value={dato}
           onChange={(e) => {
             setDato(e.target.value);
@@ -602,14 +612,14 @@ function BuscadorDeCliente({
           onClick={() => darDeAlta()}
           disabled={dando}
         >
-          {dando ? 'Dando de alta…' : 'Dar de alta y generar QR'}
+          {dando ? t('adding') : t('addAndQr')}
         </button>
       </div>
 
       {ambiguos && ambiguos.length > 0 && (
         <div className="mt-3">
           <div className="text-sm font-medium">
-            Tienes varios clientes que encajan. ¿Cuál es?
+            {t('whichOne')}
           </div>
           <div className="mt-2 divide-y divide-line">
             {ambiguos.map((c) => (
@@ -620,7 +630,7 @@ function BuscadorDeCliente({
                 <div className="min-w-0">
                   <div className="font-medium text-sm truncate">{c.fullName}</div>
                   <div className="text-xs text-mute truncate">
-                    {c.email || c.phone || 'Sin correo ni teléfono'}
+                    {c.email || c.phone || t('noContact')}
                   </div>
                 </div>
                 <button
@@ -628,7 +638,7 @@ function BuscadorDeCliente({
                   disabled={dando}
                   onClick={() => darDeAlta(c.id)}
                 >
-                  Es este
+                  {t('thisOne')}
                 </button>
               </div>
             ))}
@@ -642,8 +652,8 @@ function BuscadorDeCliente({
             onClick={() => darDeAlta(undefined, true)}
           >
             {dando
-              ? 'Creando…'
-              : `No es ninguno — crear a «${dato.trim()}» y darle de alta`}
+              ? t('creating')
+              : t('noneOfThem', { name: dato.trim() })}
           </button>
         </div>
       )}
