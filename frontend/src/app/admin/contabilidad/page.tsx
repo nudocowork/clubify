@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import {
@@ -96,6 +96,23 @@ export default function ContabilidadPage() {
   const [tab, setTab] = useState<Tab>('resumen');
   const [scope, setScope] = useState<'clubify' | 'all'>('clubify');
   const [loading, setLoading] = useState(true);
+  /**
+   * A qué período y alcance pertenecen las cifras que hay ahora en el estado.
+   *
+   * EL FALLO (2026-09-12, Javier: «en mayo carga los montos y luego los
+   * quita»): al elegir otro mes, React repinta con el período NUEVO y los
+   * datos VIEJOS —el efecto que dispara la carga corre DESPUÉS del render—,
+   * así que durante un frame se ven los montos de septiembre bajo el título
+   * de mayo. Con mayo, que está vacío, se lee como si el módulo cargara las
+   * cifras y luego las borrara.
+   *
+   * No se arregla con un `setLoading(true)` antes, porque el problema es el
+   * orden del render, no el de la petición: mientras esto no coincida con lo
+   * que se está mirando, no se pinta ninguna cifra.
+   */
+  const [vistaCargada, setVistaCargada] = useState<string | null>(null);
+  /** Descarta respuestas que llegan tarde: solo manda la última petición. */
+  const ultimaPeticion = useRef(0);
 
   const [resumen, setResumen] = useState<Resumen | null>(null);
   // Resumen SIN período, solo para avisar de lo que quedó pendiente en otros
@@ -158,6 +175,7 @@ export default function ContabilidadPage() {
   }, []);
 
   const load = useCallback(async () => {
+    const mia = ++ultimaPeticion.current;
     setLoading(true);
     try {
       // `q` va en TODAS: el módulo entero muestra un solo período. Las que no
@@ -182,12 +200,19 @@ export default function ContabilidadPage() {
         api<Comisiones>(`/admin/contabilidad/comisiones?period=${encodeURIComponent(periodo)}`).catch(() => null),
         api<Cobros>(`/admin/contabilidad/proximos-cobros?dias=${diasCobros}`).catch(() => null),
       ]);
+      // Una respuesta que llega después de haber cambiado de mes NO se pinta:
+      // dejaría las cifras de un período bajo el título de otro, que es el
+      // mismo error de fondo que el parpadeo de arriba.
+      if (mia !== ultimaPeticion.current) return;
       setPendienteGlobal(global); setComisiones(com); setCobros(cob);
       setResumen(r); setRows((list ?? []) as Row[]); setCats((c ?? []) as Cat[]);
       setExps((e ?? []) as Exp[]); setExpResumen(er); setRecs((rc ?? []) as Rec[]);
       setEmps((em ?? []) as PEmp[]); setRuns((ru ?? []) as PRun[]); setPRes(pr);
       setMov(mv); setPanorama(rep); setCierres((ci ?? []) as Cierre[]);
-    } finally { setLoading(false); }
+      setVistaCargada(`${scope}|${periodo}`);
+    } finally {
+      if (mia === ultimaPeticion.current) setLoading(false);
+    }
   }, [scope, movKind, periodo, diasCobros]);
   useEffect(() => { void load(); }, [load]);
 
@@ -308,7 +333,9 @@ export default function ContabilidadPage() {
         ))}
       </div>
 
-      {loading ? <div className="card card-pad text-center text-mute">Cargando…</div> : (
+      {loading || vistaCargada !== `${scope}|${periodo}` ? (
+        <div className="card card-pad text-center text-mute">Cargando…</div>
+      ) : (
         <>
           {/* ===== INGRESOS / CONCILIACIÓN ===== */}
           {(tab === 'ingresos' || tab === 'conciliacion') && (

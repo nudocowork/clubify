@@ -100,6 +100,24 @@ const COLOR_CATEGORIA: Record<string, string> = {
   OTRO: '#eb6834',
 };
 
+/**
+ * Dónde empieza el libro: el primer cobro con detalle guardado es del
+ * 14 de junio de 2026. Antes no se guardaba el payload de ningún webhook, así
+ * que mayo y la primera quincena de junio no están en NINGUNA tabla.
+ *
+ * Importa distinguirlo de un mes sin ventas: decir «no hubo movimiento» de un
+ * mes en el que sí hubo negocio es una afirmación falsa, y en contabilidad eso
+ * se convierte en una decisión equivocada.
+ */
+const EMPIEZA_EL_LIBRO = '2026-06';
+
+/** ¿El período entero cae antes de que existiera el libro? */
+function anteriorAlLibro(periodo: string): boolean {
+  const m = /^(\d{4})-(\d{2})$/.exec(periodo);
+  if (!m) return false; // un trimestre o un año ya solapan con el libro
+  return periodo < EMPIEZA_EL_LIBRO;
+}
+
 const MES_CORTO = [
   'ene', 'feb', 'mar', 'abr', 'may', 'jun',
   'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
@@ -235,7 +253,23 @@ export function PanoramaPeriodo({
 
       {!hayAlgo ? (
         <div className="card card-pad text-center text-mute">
-          No hubo movimiento en <span className="capitalize">{nombrePeriodo}</span>.
+          {anteriorAlLibro(datos.period) ? (
+            <>
+              <p className="text-ink font-medium">
+                De <span className="capitalize">{nombrePeriodo}</span> no hay
+                registros, y no se pueden recuperar.
+              </p>
+              <p className="text-sm mt-1.5 max-w-lg mx-auto">
+                El libro de ingresos empieza el <strong>14 de junio de 2026</strong>:
+                antes de esa fecha no se guardaba el detalle de ningún cobro, ni
+                en Clubify ni en las pasarelas. Hubo ventas — lo que falta es el
+                registro, no el dinero. Solo se pueden consultar en el informe de
+                ventas de Hotmart.
+              </p>
+            </>
+          ) : (
+            <>No hubo movimiento en <span className="capitalize">{nombrePeriodo}</span>.</>
+          )}
         </div>
       ) : (
         <>
