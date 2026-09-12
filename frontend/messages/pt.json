@@ -147,11 +147,13 @@
     "allLocations": "Todos os locais",
     "allScanners": "Todos os scanners",
     "anyDate": "Qualquer data",
+    "birthday": "Aniversário",
     "birthdayThisMonth": "Aniversário este mês",
     "byBirthday": "Por dia de aniversário",
     "cancel": "Cancelar",
     "clear": "Limpar",
     "close": "Fechar",
+    "clubCard": "Cartão de clube",
     "clubQuotaUsed": "Já usou toda a cota deste mês.",
     "colContact": "Contato",
     "colCustomer": "Cliente",
@@ -161,6 +163,7 @@
     "colOrders": "Pedidos",
     "colPasses": "Passes",
     "customerCreated": "Cliente criado",
+    "day": "Dia",
     "delete": "Excluir",
     "deleteConfirm": "{count, plural, one {Excluir # cliente?} other {Excluir # clientes?}}\n\nEsta ação NÃO pode ser desfeita e apaga:\n• Cartão wallet do cliente\n• Selos / saldo / nível VIP\n• Histórico de pedidos\n• Mensagens associadas\n\nDigite EXCLUIR para confirmar.",
     "deleteConfirmKeyword": "EXCLUIR",
@@ -168,6 +171,8 @@
     "deleteResultPartial": "{ok} excluídos · {fail} falharam",
     "downloadCsvTitle": "Baixar CSV da busca atual",
     "duplicatesDetected": "Detectamos possíveis clientes duplicados",
+    "editCustomer": "Editar os dados do cliente",
+    "editNameEmailBirthday": "Editar o nome, o e-mail ou o aniversário",
     "email": "Email",
     "emptyHelp": "Quando alguém fizer o primeiro pedido ou receber um cartão, aparece aqui.",
     "errCreate": "Não foi possível criar",
@@ -185,6 +190,7 @@
     "messageLabelBefore": "Mensagem (use",
     "mostRecent": "Mais recentes",
     "name": "Nome",
+    "nameRequired": "O nome não pode ficar vazio",
     "needBirthday": "Escolha o dia e o mês do aniversário (ou deixe os dois vazios)",
     "newCustomer": "Novo cliente",
     "noCard": "Sem cartão",
@@ -6837,6 +6843,7 @@
     "analytics": "Analítica",
     "automations": "Automações",
     "backToAdmin": "Voltar ao painel de administração (de lá você troca de subconta pelo seletor da barra lateral)",
+    "backToBrandPanel": "Voltar ao painel da {brand}",
     "badgeNew": "NOVO",
     "bookMenu": "Cardápio livro",
     "branding": "Branding",
@@ -6845,6 +6852,7 @@
     "cards": "Cartões",
     "clubCard": "Cartão de Clube",
     "commissions": "Comissões",
+    "controlPanel": "Painel de controle",
     "credits": "Créditos",
     "crmLeaderboard": "Ranking do CRM",
     "customers": "Clientes",
@@ -6857,7 +6865,9 @@
     "infoLink": "InfoLink",
     "internalBroadcast": "Comunicados internos",
     "labAdmin": "🧪 Lab Admin",
+    "logOut": "Sair",
     "map": "Mapa",
+    "menu": "Menu",
     "onlineBooking": "Reserva online",
     "orders": "Pedidos",
     "push": "Push",
@@ -6966,8 +6976,11 @@
     "resetCrop": "Voltar ao enquadramento original",
     "showWhole": "Mostrar a imagem inteira com margem branca",
     "smaller": "Menor (com margem)",
+    "smallerWithMargin": "Menor (com margem)",
     "upload": "Suba uma imagem",
-    "zoomIn": "Mais zoom"
+    "uploadImage": "Suba uma imagem",
+    "zoomIn": "Mais zoom",
+    "zoomInMore": "Mais zoom"
   },
   "crm_sequences": {
     "contactInDesc": "Assim que um contato é criado no seu CRM.",
@@ -7021,5 +7034,13 @@
   },
   "quick_create": {
     "newPromo": "Nova promoção"
+  },
+  "stamp_icons": {
+    "beauty": "💈 Beleza e estética",
+    "stampIcon": "Ícone do selo"
+  },
+  "phone_input": {
+    "numberWithoutPrefix": "Número sem prefixo",
+    "searchCountry": "Buscar país…"
   }
 }

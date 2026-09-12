@@ -1305,7 +1305,7 @@ export default function AppShell({
               brandTitle
             )}
           </div>
-          <div className="text-[11px] text-sidebar-mute">Panel de Control</div>
+          <div className="text-[11px] text-sidebar-mute">{tNav('controlPanel')}</div>
         </div>
         <button
           onClick={() => setNavOpen(false)}
@@ -1446,7 +1446,7 @@ export default function AppShell({
             router.push('/login');
           }}
           className="w-8 h-8 rounded-lg flex items-center justify-center text-sidebar-mute hover:bg-sidebar-hover hover:text-white transition flex-none"
-          title="Cerrar sesión"
+          title={tNav('logOut')}
         >
           <Icon name="out" size={16} />
         </button>
@@ -1478,7 +1478,7 @@ export default function AppShell({
         <button
           onClick={() => setNavOpen(true)}
           className="w-9 h-9 rounded-lg flex items-center justify-center hover:bg-sidebar-hover transition"
-          title="Menú"
+          title={tNav('menu')}
         >
           <Icon name="menu" size={20} />
         </button>
@@ -1530,7 +1530,7 @@ export default function AppShell({
                 router.push('/superadmin');
               }}
               className="ml-auto bg-emerald-900 text-emerald-100 px-3 py-1 rounded-md text-xs font-semibold hover:bg-emerald-950 transition"
-              title="Volver al panel de Fidelity"
+              title={tNav('backToBrandPanel', { brand: 'Fidelity' })}
             >
               ← Volver a Fidelity
             </button>

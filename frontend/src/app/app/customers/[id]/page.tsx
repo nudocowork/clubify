@@ -960,7 +960,7 @@ function EditCustomerModal({
   async function save() {
     const name = fullName.trim();
     if (!name) {
-      toast('El nombre no puede quedar vacío', 'error');
+      toast(t('nameRequired'), 'error');
       return;
     }
     // Día/mes: ambos o ninguno. Si solo uno está puesto, avisamos.
@@ -1270,7 +1270,7 @@ export default function CustomerDetail() {
           <button
             onClick={() => setEditing(true)}
             className="btn-ghost text-sm font-semibold px-4 py-2 inline-flex items-center gap-1.5"
-            title="Editar nombre, correo o cumpleaños"
+            title={t('editNameEmailBirthday')}
           >
             <Icon name="edit" size={14} /> Editar
           </button>

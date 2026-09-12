@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 /**
  * Selector de prefijo de país (bandera + código) + input de número.
@@ -90,6 +91,7 @@ export function PhoneInput({
    *  premium). Default 'light' = clase `input` del sistema (no cambia usos existentes). */
   variant?: 'light' | 'dark';
 }) {
+  const t = useTranslations('phone_input');
   const initial = useMemo(() => {
     if (!(value ?? '').trim() && defaultCountry) {
       const c = COUNTRIES.find((x) => x.code === defaultCountry.toUpperCase());
@@ -233,7 +235,7 @@ export function PhoneInput({
             <input
               autoFocus
               type="text"
-              placeholder="Buscar país…"
+              placeholder={t('searchCountry')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className={cx.search}

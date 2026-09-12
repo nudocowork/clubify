@@ -576,8 +576,8 @@ function CropperModal({
             disabled={!imgLoaded}
           />
           <div className="flex justify-between text-[10px] text-mute mt-0.5">
-            <span>Más chica (con margen)</span>
-            <span>Más zoom</span>
+            <span>{t('smallerWithMargin')}</span>
+            <span>{t('zoomInMore')}</span>
           </div>
         </label>
 

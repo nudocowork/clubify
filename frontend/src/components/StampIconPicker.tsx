@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { EmojiPicker } from './EmojiPicker';
 import { ImageUploader } from './ImageUploader';
 
@@ -81,6 +82,7 @@ export function StampIconPicker({
   imageUrl?: string | null;
   onImageChange?: (url: string | null) => void;
 }) {
+  const t = useTranslations('stamp_icons');
   const [showFull, setShowFull] = useState(false);
   const hasImage = !!(imageUrl && imageUrl.trim());
 
@@ -91,7 +93,7 @@ export function StampIconPicker({
         <div className="w-16 h-16 rounded-2xl border-2 border-bd bg-bg2 flex items-center justify-center text-3xl shrink-0 overflow-hidden">
           {hasImage ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={imageUrl as string} alt="Ícono de sello" className="w-full h-full object-contain" />
+            <img src={imageUrl as string} alt={t('stampIcon')} className="w-full h-full object-contain" />
           ) : (
             value || '☕'
           )}

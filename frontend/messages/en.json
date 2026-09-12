@@ -147,11 +147,13 @@
     "allLocations": "All locations",
     "allScanners": "All scanners",
     "anyDate": "Any date",
+    "birthday": "Birthday",
     "birthdayThisMonth": "Birthday this month",
     "byBirthday": "By birthday",
     "cancel": "Cancel",
     "clear": "Clear",
     "close": "Close",
+    "clubCard": "Club card",
     "clubQuotaUsed": "They already used this month's whole allowance.",
     "colContact": "Contact",
     "colCustomer": "Customer",
@@ -161,6 +163,7 @@
     "colOrders": "Orders",
     "colPasses": "Passes",
     "customerCreated": "Customer created",
+    "day": "Day",
     "delete": "Delete",
     "deleteConfirm": "{count, plural, one {Delete # customer?} other {Delete # customers?}}\n\nThis action CANNOT be undone and deletes:\n• Customer's wallet card\n• Stamps / balance / VIP level\n• Order history\n• Associated messages\n\nType DELETE to confirm.",
     "deleteConfirmKeyword": "DELETE",
@@ -168,6 +171,8 @@
     "deleteResultPartial": "{ok} deleted · {fail} failed",
     "downloadCsvTitle": "Download CSV of current search",
     "duplicatesDetected": "We detected possible duplicate customers",
+    "editCustomer": "Edit the customer's details",
+    "editNameEmailBirthday": "Edit the name, email or birthday",
     "email": "Email",
     "emptyHelp": "When someone places their first order or gets a card, they'll show up here.",
     "errCreate": "Could not create",
@@ -185,6 +190,7 @@
     "messageLabelBefore": "Message (use",
     "mostRecent": "Most recent",
     "name": "Name",
+    "nameRequired": "The name can't be empty",
     "needBirthday": "Pick the day and month of the birthday (or leave both empty)",
     "newCustomer": "New customer",
     "noCard": "No card",
@@ -6837,6 +6843,7 @@
     "analytics": "Analytics",
     "automations": "Automations",
     "backToAdmin": "Back to the admin panel (from there you can switch subaccount with the sidebar picker)",
+    "backToBrandPanel": "Back to the {brand} panel",
     "badgeNew": "NEW",
     "bookMenu": "Flipbook menu",
     "branding": "Branding",
@@ -6845,6 +6852,7 @@
     "cards": "Cards",
     "clubCard": "Club Card",
     "commissions": "Commissions",
+    "controlPanel": "Control panel",
     "credits": "Credits",
     "crmLeaderboard": "CRM leaderboard",
     "customers": "Customers",
@@ -6857,7 +6865,9 @@
     "infoLink": "InfoLink",
     "internalBroadcast": "Internal broadcast",
     "labAdmin": "🧪 Lab Admin",
+    "logOut": "Log out",
     "map": "Map",
+    "menu": "Menu",
     "onlineBooking": "Online booking",
     "orders": "Orders",
     "push": "Push",
@@ -6966,8 +6976,11 @@
     "resetCrop": "Back to the original crop",
     "showWhole": "Show the whole image with a white margin",
     "smaller": "Smaller (with margin)",
+    "smallerWithMargin": "Smaller (with margin)",
     "upload": "Upload an image",
-    "zoomIn": "Zoom in"
+    "uploadImage": "Upload an image",
+    "zoomIn": "Zoom in",
+    "zoomInMore": "Zoom in"
   },
   "crm_sequences": {
     "contactInDesc": "As soon as a contact is created in your CRM.",
@@ -7021,5 +7034,13 @@
   },
   "quick_create": {
     "newPromo": "New promotion"
+  },
+  "stamp_icons": {
+    "beauty": "💈 Beauty and grooming",
+    "stampIcon": "Stamp icon"
+  },
+  "phone_input": {
+    "numberWithoutPrefix": "Number without the country code",
+    "searchCountry": "Search country…"
   }
 }
