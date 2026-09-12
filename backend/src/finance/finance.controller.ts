@@ -14,6 +14,7 @@ import { IncomeRecordService } from './income-record.service';
 import { FinanceReportService } from './finance-report.service';
 import { rangoDe } from './where-periodo';
 import { CobrosService } from '../admin-reports/cobros.service';
+import { ConciliadorDeIngresosService } from './conciliador-de-ingresos.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 
@@ -28,10 +29,19 @@ class CerrarMesBody {
 }
 
 /**
- * CONTABILIDAD — Fase 1. Endpoints de Ingresos + Conciliación. Solo lectura +
- * conciliación manual; NO crea ingresos (eso lo hacen los webhooks). Por
- * defecto muestra los ingresos de la PLATAFORMA (Clubify, whiteLabelId null);
- * `scope=all` incluye los de las marcas blancas.
+ * CONTABILIDAD — endpoints de Ingresos, Panorama, Comisiones, Próximos cobros,
+ * Conciliación, Trazabilidad y Cierres.
+ *
+ * El módulo NO crea la realidad financiera: la consolida. Los ingresos los
+ * escriben los webhooks de cada pasarela; lo único que crea aquí es la
+ * RECUPERACIÓN de lo que esos webhooks perdieron (`conciliar-ingresos`), y lo
+ * hace pasando por el mismo dedup, así que no puede duplicar.
+ *
+ * Por defecto se ven los ingresos de la PLATAFORMA: la marca `clubify` más los
+ * registros legacy sin marca (ver `alcance-de-marca.ts`). `scope=all` incluye
+ * también los de las marcas blancas.
+ *
+ * Todo es SUPER_ADMIN: son datos financieros de la empresa.
  */
 @Controller('admin/contabilidad')
 export class FinanceController {
@@ -39,6 +49,7 @@ export class FinanceController {
     private income: IncomeRecordService,
     private report: FinanceReportService,
     private cobros: CobrosService,
+    private conciliador: ConciliadorDeIngresosService,
   ) {}
 
   @Roles('SUPER_ADMIN')
@@ -133,6 +144,38 @@ export class FinanceController {
       this.cobros.detail(null, 'proximos', ahora, { days: ventana }),
     ]);
     return { dias: ventana, resumen, filas };
+  }
+
+  /**
+   * ── Conciliación de ingresos ──────────────────────────────────────────────
+   * Revisa los eventos de cobro de todas las pasarelas y escribe lo que falte
+   * en el libro. Idempotente por el único `(gateway, externalTxId)`: correrlo
+   * dos veces no crea nada la segunda. Con `?simular=1` no escribe, solo dice
+   * qué haría — que es como se debería mirar antes de aplicarlo.
+   */
+  @Roles('SUPER_ADMIN')
+  @Post('conciliar-ingresos')
+  conciliarIngresos(
+    @Query('simular') simular?: string,
+    @Query('desde') desde?: string,
+  ) {
+    const d = desde ? new Date(desde) : undefined;
+    return this.conciliador.conciliar({
+      simular: simular === '1' || simular === 'true',
+      desde: d && !Number.isNaN(d.getTime()) ? d : undefined,
+    });
+  }
+
+  /**
+   * ── Auditoría — «¿de dónde salió este número?» ────────────────────────────
+   * La cadena completa de un ingreso: pasarela y transacción → negocio → plan →
+   * comisiones que generó. Es lo que permite justificar una línea del reporte
+   * sin abrir la base de datos.
+   */
+  @Roles('SUPER_ADMIN')
+  @Get('ingresos/:id/trazabilidad')
+  trazabilidad(@Param('id') id: string) {
+    return this.income.trazabilidad(id);
   }
 
   // ── Fase 5 — Cierres contables ─────────────────────────────────────────────

@@ -7355,6 +7355,15 @@ model IncomeRecord {
   netReceivedUsd   Decimal?          @db.Decimal(10, 2)
   /// Primer pago vs recurrencia (derivado en la captura).
   isFirstPayment   Boolean           @default(false)
+  /// Qué clase de ingreso es: NUEVA | RENOVACION | UPGRADE | OTRO. Texto y no
+  /// enum a propósito — se pedía poder añadir categorías sin rehacer el módulo.
+  /// La lista viva está en `finance/categorias-de-ingreso.ts`.
+  category         String?
+  /// Estado del dinero: PAGADO | REEMBOLSADO | CANCELADO. Solo PAGADO suma en
+  /// los totales; un reembolso deja de contarse sin borrar el histórico.
+  status           String            @default("PAGADO")
+  /// Cuándo la pasarela avisó del reembolso/contracargo.
+  refundedAt       DateTime?
   /// Periodo contable YYYY-MM (para agrupar por mes).
   periodKey        String?
   /// Fecha del cobro (evento de la pasarela).
@@ -7374,6 +7383,8 @@ model IncomeRecord {
   @@index([periodKey])
   @@index([reconStatus])
   @@index([saleDate])
+  @@index([status])
+  @@index([category])
 }
 
 enum IncomeReconStatus {

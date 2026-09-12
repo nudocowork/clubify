@@ -2,7 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { mesContable } from '../common/periodo-contable';
 import { enRango } from './where-periodo';
+import {
+  categoriaDeIngreso,
+  type CategoriaDeIngreso,
+} from './categorias-de-ingreso';
 import type { PaymentGateway } from '@prisma/client';
+import { alcanceDeMarca, combinar } from './alcance-de-marca';
 
 /** Entrada para registrar un ingreso real. `grossUsd` = lo que pagó el cliente. */
 export interface RecordIncomeInput {
@@ -23,6 +28,9 @@ export interface RecordIncomeInput {
    *  null/undefined se estiman con las tasas configurables. */
   gatewayFeeUsd?: number | null;
   taxUsd?: number | null;
+  /** Clase de ingreso. Si no viene se deduce (ver `categoriaDeIngreso`).
+   *  UPGRADE hay que mandarlo a mano: no se puede adivinar. */
+  categoria?: CategoriaDeIngreso | null;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -107,6 +115,23 @@ export class IncomeRecordService {
   }
 
   /**
+   * El plan del ingreso, sacado del negocio cuando el llamador no lo manda.
+   *
+   * Ninguno de los cinco caminos de cobro mandaba `planId`, así que la columna
+   * "Plan" del panel salía vacía en las 120 filas del histórico. Es el mismo
+   * patrón que `marcaDelIngreso`: si hay negocio, el dato se puede resolver y
+   * no hay razón para guardarlo a medias.
+   */
+  private async planDelIngreso(input: RecordIncomeInput): Promise<string | null> {
+    if (input.planId) return input.planId;
+    if (!input.tenantId) return null;
+    const t = await this.prisma.tenant
+      .findUnique({ where: { id: input.tenantId }, select: { planId: true } })
+      .catch(() => null);
+    return t?.planId ?? null;
+  }
+
+  /**
    * Registra el ingreso. Best-effort e idempotente. Salta cobros de $0 (ej. el
    * día 0 de una prueba) porque no son ingreso. No lanza: captura sus errores.
    */
@@ -157,7 +182,8 @@ export class IncomeRecordService {
           tenantId: input.tenantId ?? null,
           whiteLabelId: await this.marcaDelIngreso(input),
           brandName: input.brandName ?? null,
-          planId: input.planId ?? null,
+          planId: await this.planDelIngreso(input),
+          category: categoriaDeIngreso(input),
           planPeriodicity: input.planPeriodicity ?? null,
           productName: input.productName ?? null,
           currency: input.currency ?? 'USD',
@@ -194,11 +220,11 @@ export class IncomeRecordService {
     to?: Date;
   }) {
     const rows = await this.prisma.incomeRecord.findMany({
-      where: {
-        ...(opts.gateway ? { gateway: opts.gateway } : {}),
-        ...(opts.onlyClubify ? { whiteLabelId: null } : {}),
-        ...enRango('saleDate', { from: opts.from, to: opts.to }),
-      },
+      where: combinar(
+        opts.gateway ? { gateway: opts.gateway } : null,
+        await alcanceDeMarca(this.prisma, opts.onlyClubify),
+        enRango('saleDate', { from: opts.from, to: opts.to }),
+      ),
       orderBy: { saleDate: 'desc' },
       take: Math.min(opts.limit ?? 200, 1000),
     });
@@ -221,17 +247,10 @@ export class IncomeRecordService {
   /** Totales del rango: bruto, fee, impuesto, neto esperado/recibido, conteos. */
   async summary(opts: { from?: Date; to?: Date; onlyClubify?: boolean }) {
     const rows = await this.prisma.incomeRecord.findMany({
-      where: {
-        ...(opts.onlyClubify ? { whiteLabelId: null } : {}),
-        ...(opts.from || opts.to
-          ? {
-              saleDate: {
-                ...(opts.from ? { gte: opts.from } : {}),
-                ...(opts.to ? { lte: opts.to } : {}),
-              },
-            }
-          : {}),
-      },
+      where: combinar(
+        await alcanceDeMarca(this.prisma, opts.onlyClubify),
+        enRango('saleDate', { from: opts.from, to: opts.to }),
+      ),
       select: {
         grossUsd: true,
         gatewayFeeUsd: true,
@@ -239,29 +258,178 @@ export class IncomeRecordService {
         netExpectedUsd: true,
         netReceivedUsd: true,
         reconStatus: true,
+        status: true,
+        category: true,
       },
     });
+    // Un reembolso o una cancelación NO son dinero que entró: se separan del
+    // total en vez de borrarse, para que el histórico siga siendo auditable y
+    // se pueda ver cuánto se devolvió.
+    const cobrados = rows.filter((r) => r.status === 'PAGADO');
+    const devueltos = rows.filter((r) => r.status !== 'PAGADO');
     let gross = 0,
       fee = 0,
       tax = 0,
       netExp = 0,
       netRecv = 0;
-    for (const r of rows) {
+    const porCategoria: Record<string, { count: number; grossUsd: number }> = {};
+    for (const r of cobrados) {
       gross += Number(r.grossUsd);
       fee += Number(r.gatewayFeeUsd);
       tax += Number(r.taxUsd);
       netExp += Number(r.netExpectedUsd);
       if (r.netReceivedUsd != null) netRecv += Number(r.netReceivedUsd);
+      const k = r.category ?? 'SIN_CATEGORIA';
+      const c = porCategoria[k] ?? { count: 0, grossUsd: 0 };
+      c.count += 1;
+      c.grossUsd = round2(c.grossUsd + Number(r.grossUsd));
+      porCategoria[k] = c;
     }
     return {
-      count: rows.length,
+      count: cobrados.length,
       grossUsd: round2(gross),
       gatewayFeeUsd: round2(fee),
       taxUsd: round2(tax),
       netExpectedUsd: round2(netExp),
       netReceivedUsd: round2(netRecv),
-      pendingRecon: rows.filter((r) => r.reconStatus === 'PENDING').length,
-      inReview: rows.filter((r) => r.reconStatus === 'REVIEW').length,
+      pendingRecon: cobrados.filter((r) => r.reconStatus === 'PENDING').length,
+      inReview: cobrados.filter((r) => r.reconStatus === 'REVIEW').length,
+      /** Lo que se devolvió en el período (no suma en ninguna otra línea). */
+      refundedCount: devueltos.length,
+      refundedUsd: round2(
+        devueltos.reduce((a, r) => a + Number(r.grossUsd), 0),
+      ),
+      porCategoria,
+    };
+  }
+
+  /**
+   * Marca un cobro como devuelto (reembolso o contracargo de la pasarela).
+   *
+   * No borra la fila ni crea un ingreso negativo: cambia el estado, y los
+   * totales dejan de contarlo. Idempotente — llamarlo dos veces con el mismo
+   * evento no cambia nada, que es lo que hace falta cuando Hotmart reenvía.
+   */
+  async marcarDevuelto(
+    gateway: PaymentGateway,
+    externalTxId: string,
+    estado: 'REEMBOLSADO' | 'CANCELADO',
+    cuando: Date,
+  ): Promise<boolean> {
+    const r = await this.prisma.incomeRecord.updateMany({
+      where: { gateway, externalTxId, status: 'PAGADO' },
+      data: { status: estado, refundedAt: cuando },
+    });
+    if (r.count > 0) {
+      this.logger.log(
+        `IncomeRecord ${gateway} tx=${externalTxId} → ${estado} (deja de contar).`,
+      );
+    }
+    return r.count > 0;
+  }
+
+  /**
+   * La cadena completa detrás de un ingreso, para responder «¿de dónde salió
+   * este número?» sin abrir la base de datos.
+   *
+   *   Ingreso → transacción de la pasarela → negocio → plan → comisiones
+   *
+   * Todo sale de las tablas que ya son fuente de verdad; aquí no se guarda
+   * nada. La `referencia` es el id con el que la pasarela conoce el cobro: es
+   * el que hay que buscar en Hotmart o Stripe para cuadrar contra el extracto.
+   */
+  async trazabilidad(id: string) {
+    const r = await this.prisma.incomeRecord.findUnique({ where: { id } });
+    if (!r) return null;
+
+    const tenant = r.tenantId
+      ? await this.prisma.tenant.findUnique({
+          where: { id: r.tenantId },
+          select: {
+            id: true,
+            brandName: true,
+            email: true,
+            status: true,
+            planPeriodicity: true,
+            subscriptionPriceUsd: true,
+            currentPeriodEnd: true,
+            plan: { select: { id: true, name: true } },
+            whiteLabel: { select: { slug: true, name: true } },
+          },
+        })
+      : null;
+
+    // Las comisiones que generó este negocio en el mismo mes contable. No se
+    // atan a la transacción porque el motor de comisiones no la guarda: se
+    // acotan por negocio y período, que es la relación que sí existe.
+    const comisiones = r.tenantId
+      ? await this.prisma.commission.findMany({
+          where: {
+            referralUse: { tenantId: r.tenantId },
+            periodKey: r.periodKey ?? undefined,
+          },
+          select: {
+            id: true,
+            amount: true,
+            amountPaid: true,
+            status: true,
+            paymentStatus: true,
+            businessDate: true,
+            paidAt: true,
+            recipientCode: { select: { code: true, ownerName: true, role: true } },
+          },
+        })
+      : [];
+
+    return {
+      ingreso: {
+        id: r.id,
+        fecha: r.saleDate,
+        periodo: r.periodKey,
+        categoria: r.category,
+        estado: r.status,
+        devueltoEl: r.refundedAt,
+        bruto: Number(r.grossUsd),
+        feePasarela: Number(r.gatewayFeeUsd),
+        impuesto: Number(r.taxUsd),
+        netoEsperado: Number(r.netExpectedUsd),
+        netoRecibido: r.netReceivedUsd == null ? null : Number(r.netReceivedUsd),
+        conciliacion: r.reconStatus,
+      },
+      origen: {
+        pasarela: r.gateway,
+        referencia: r.externalTxId,
+        productoEnLaPasarela: r.productName,
+        moneda: r.currency,
+      },
+      negocio: tenant
+        ? {
+            id: tenant.id,
+            nombre: tenant.brandName,
+            correo: tenant.email,
+            estado: tenant.status,
+            marca: tenant.whiteLabel?.name ?? 'Clubify',
+            plan: tenant.plan?.name ?? null,
+            periodicidad: tenant.planPeriodicity,
+            precioPactado:
+              tenant.subscriptionPriceUsd == null
+                ? null
+                : Number(tenant.subscriptionPriceUsd),
+            proximoCobro: tenant.currentPeriodEnd,
+          }
+        : null,
+      comisiones: comisiones.map((c) => ({
+        id: c.id,
+        beneficiario: c.recipientCode?.ownerName ?? null,
+        codigo: c.recipientCode?.code ?? null,
+        rol: c.recipientCode?.role ?? null,
+        generada: Number(c.amount),
+        pagada: Number(c.amountPaid),
+        estado: c.status,
+        estadoDePago: c.paymentStatus,
+        fechaDeGeneracion: c.businessDate,
+        fechaDePago: c.paidAt,
+      })),
     };
   }
 

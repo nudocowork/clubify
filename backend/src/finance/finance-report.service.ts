@@ -12,6 +12,8 @@ import {
 import { IncomeRecordService } from './income-record.service';
 import { ExpenseService } from './expense.service';
 import { enRango, enRangoConRespaldo } from './where-periodo';
+import { SOLO_LO_COBRADO } from './categorias-de-ingreso';
+import { alcanceDeMarca, combinar } from './alcance-de-marca';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -20,10 +22,15 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * (Cierres). Cascada de utilidad, DERIVADA en lectura (no persiste nada):
  *
  *   Bruto − (Fee pasarela + Impuestos) = Neto
- *   Neto − Egresos − Nómina − Comisiones = UTILIDAD
+ *   Neto − Egresos − Nómina − Comisiones PAGADAS = UTILIDAD
  *
- * `onlyClubify` filtra por whiteLabelId null (misma convención que el resto del
- * módulo). Las comisiones no se acotan por marca (v1): son el costo de afiliados
+ * Las comisiones entran por lo PAGADO (fecha de pago), no por lo generado:
+ * una comisión aprobada y sin pagar es deuda, no un egreso ya realizado, y
+ * restarla inventaba una pérdida. Lo generado y lo pendiente se informan en
+ * sus propias líneas para que la deuda con los afiliados siga a la vista.
+ *
+ * `onlyClubify` resuelve Clubify como su marca MÁS los legacy en null (ver
+ * `alcance-de-marca.ts`). Las comisiones no se acotan por marca (v1): son el costo de afiliados
  * de la plataforma; se puede refinar después.
  */
 export interface FinancialSummary {
@@ -34,9 +41,18 @@ export interface FinancialSummary {
   netReceivedUsd: number; // neto realmente conciliado
   egresosUsd: number;
   nominaUsd: number;
+  /** Comisiones que YA SE PAGARON en el período: el dinero que salió. */
   comisionesUsd: number;
+  /** Comisiones generadas en el período pero todavía sin pagar (deuda). */
+  comisionesPendientesUsd: number;
+  /** Comisiones generadas en el período, pagadas o no. */
+  comisionesGeneradasUsd: number;
   utilidadUsd: number;
   ingresosCount: number;
+  /** Cobros devueltos en el período (no restan; se informan aparte). */
+  refundedUsd: number;
+  /** Bruto por clase de ingreso: NUEVA, RENOVACION, UPGRADE, OTRO. */
+  porCategoria: Record<string, { count: number; grossUsd: number }>;
 }
 
 @Injectable()
@@ -52,13 +68,13 @@ export class FinanceReportService {
     from?: Date,
     to?: Date,
   ): Promise<FinancialSummary> {
-    const wl = onlyClubify ? { whiteLabelId: null } : {};
+    const wl = await alcanceDeMarca(this.prisma, onlyClubify);
     const rango = { from, to };
-    const [inc, exp, runs, comms] = await Promise.all([
+    const [inc, exp, runs, comms, pagadas] = await Promise.all([
       this.income.summary({ from, to, onlyClubify }),
       this.expense.summary({ from, to, onlyClubify }),
       this.prisma.payrollRun.findMany({
-        where: { ...wl, ...enRangoConRespaldo('periodEnd', rango) },
+        where: combinar(wl, enRangoConRespaldo('periodEnd', rango)),
         select: { totalUsd: true },
       }),
       this.prisma.commission.findMany({
@@ -66,14 +82,38 @@ export class FinanceReportService {
           status: { not: 'REJECTED' },
           ...enRangoConRespaldo('businessDate', rango),
         },
-        select: { amount: true },
+        select: { amount: true, amountPaid: true, paymentStatus: true },
+      }),
+      // Lo que REALMENTE se pagó de comisiones dentro del período, por su fecha
+      // de pago. No es lo mismo que "las del período que ya están pagadas": una
+      // comisión de agosto pagada en septiembre es dinero que salió en
+      // SEPTIEMBRE, y así es como cuadra contra el banco.
+      this.prisma.commission.findMany({
+        where: {
+          status: { not: 'REJECTED' },
+          paymentStatus: 'PAID',
+          ...enRango('paidAt', rango),
+        },
+        select: { amountPaid: true },
       }),
     ]);
     const nominaUsd = round2(
       runs.reduce((a, r) => a + Number(r.totalUsd), 0),
     );
-    const comisionesUsd = round2(
+    // Generada en el período (devengo) vs pagada en el período (caja). La
+    // cascada de utilidad resta la PAGADA: una comisión pendiente todavía no
+    // es un egreso realizado — restarla inventaba una pérdida que no existe.
+    const comisionesGeneradasUsd = round2(
       comms.reduce((a, c) => a + Number(c.amount), 0),
+    );
+    const comisionesPendientesUsd = round2(
+      comms.reduce(
+        (a, c) => a + (Number(c.amount) - Number(c.amountPaid ?? 0)),
+        0,
+      ),
+    );
+    const comisionesUsd = round2(
+      pagadas.reduce((a, c) => a + Number(c.amountPaid), 0),
     );
     const utilidadUsd = round2(
       inc.netExpectedUsd - exp.totalUsd - nominaUsd - comisionesUsd,
@@ -87,8 +127,12 @@ export class FinanceReportService {
       egresosUsd: exp.totalUsd,
       nominaUsd,
       comisionesUsd,
+      comisionesPendientesUsd,
+      comisionesGeneradasUsd,
       utilidadUsd,
       ingresosCount: inc.count,
+      refundedUsd: inc.refundedUsd,
+      porCategoria: inc.porCategoria,
     };
   }
 
@@ -174,22 +218,22 @@ export class FinanceReportService {
     const desde = limitesDelMes(meses[0])!.from;
     const hasta = limitesDelMes(meses[meses.length - 1])!.to;
     const rango = { from: desde, to: hasta };
-    const wl = onlyClubify ? { whiteLabelId: null } : {};
+    const wl = await alcanceDeMarca(this.prisma, onlyClubify);
 
     const [ingresos, egresos, cortes, comisiones] = await Promise.all([
       this.prisma.incomeRecord.findMany({
-        where: { ...wl, ...enRango('saleDate', rango) },
+        where: combinar(wl, SOLO_LO_COBRADO, enRango('saleDate', rango)),
         select: {
           saleDate: true, grossUsd: true, gatewayFeeUsd: true,
           taxUsd: true, netExpectedUsd: true,
         },
       }),
       this.prisma.expense.findMany({
-        where: { ...wl, ...enRango('expenseDate', rango) },
+        where: combinar(wl, enRango('expenseDate', rango)),
         select: { expenseDate: true, amountUsd: true },
       }),
       this.prisma.payrollRun.findMany({
-        where: { ...wl, ...enRangoConRespaldo('periodEnd', rango) },
+        where: combinar(wl, enRangoConRespaldo('periodEnd', rango)),
         select: { periodEnd: true, createdAt: true, totalUsd: true },
       }),
       this.prisma.commission.findMany({
@@ -255,10 +299,11 @@ export class FinanceReportService {
   ) {
     const filas = await this.prisma.incomeRecord.groupBy({
       by: ['gateway'],
-      where: {
-        ...(onlyClubify ? { whiteLabelId: null } : {}),
-        ...enRango('saleDate', rango),
-      },
+      where: combinar(
+        await alcanceDeMarca(this.prisma, onlyClubify),
+        SOLO_LO_COBRADO,
+        enRango('saleDate', rango),
+      ),
       _sum: { grossUsd: true },
       _count: { _all: true },
     });

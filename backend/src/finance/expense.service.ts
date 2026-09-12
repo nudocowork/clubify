@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { enRango } from './where-periodo';
+import { alcanceDeMarca, combinar } from './alcance-de-marca';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -61,12 +62,12 @@ export class ExpenseService {
   // ── Egresos ─────────────────────────────────────────────────────────────
   async list(opts: { onlyClubify?: boolean; categoryId?: string; status?: string; limit?: number; from?: Date; to?: Date }) {
     const rows = await this.prisma.expense.findMany({
-      where: {
-        ...(opts.onlyClubify ? { whiteLabelId: null } : {}),
-        ...(opts.categoryId ? { categoryId: opts.categoryId } : {}),
-        ...(opts.status ? { status: opts.status as any } : {}),
-        ...enRango('expenseDate', { from: opts.from, to: opts.to }),
-      },
+      where: combinar(
+        await alcanceDeMarca(this.prisma, opts.onlyClubify),
+        opts.categoryId ? { categoryId: opts.categoryId } : null,
+        opts.status ? { status: opts.status as any } : null,
+        enRango('expenseDate', { from: opts.from, to: opts.to }),
+      ),
       orderBy: { expenseDate: 'desc' },
       take: Math.min(opts.limit ?? 300, 1000),
     });
@@ -141,12 +142,10 @@ export class ExpenseService {
 
   async summary(opts: { from?: Date; to?: Date; onlyClubify?: boolean }) {
     const rows = await this.prisma.expense.findMany({
-      where: {
-        ...(opts.onlyClubify ? { whiteLabelId: null } : {}),
-        ...(opts.from || opts.to
-          ? { expenseDate: { ...(opts.from ? { gte: opts.from } : {}), ...(opts.to ? { lte: opts.to } : {}) } }
-          : {}),
-      },
+      where: combinar(
+        await alcanceDeMarca(this.prisma, opts.onlyClubify),
+        enRango('expenseDate', { from: opts.from, to: opts.to }),
+      ),
       select: { amountUsd: true, amountPaidUsd: true, status: true, categoryId: true },
     });
     let total = 0,
@@ -169,9 +168,9 @@ export class ExpenseService {
   }
 
   // ── Gastos recurrentes ──────────────────────────────────────────────────
-  listRecurring(opts: { onlyClubify?: boolean }) {
+  async listRecurring(opts: { onlyClubify?: boolean }) {
     return this.prisma.recurringExpense.findMany({
-      where: { ...(opts.onlyClubify ? { whiteLabelId: null } : {}) },
+      where: await alcanceDeMarca(this.prisma, opts.onlyClubify),
       orderBy: [{ active: 'desc' }, { concept: 'asc' }],
     });
   }

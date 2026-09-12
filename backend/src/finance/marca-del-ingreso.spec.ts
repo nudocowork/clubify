@@ -19,7 +19,10 @@ function servicio(opts: {
   negocioExiste?: boolean;
 }) {
   let guardado: any = null;
-  let vecesQueMiroElNegocio = 0;
+  // Se cuentan por separado: desde 2026-09-12 el servicio también consulta el
+  // negocio para resolver el PLAN del ingreso, y ese viaje no dice nada sobre
+  // si la marca se resolvió sola o vino del llamador.
+  let consultasDeMarca = 0;
   const prisma: any = {
     incomeRecord: {
       findUnique: async () => null,
@@ -30,17 +33,19 @@ function servicio(opts: {
     },
     setting: { findUnique: async () => null },
     tenant: {
-      findUnique: async () => {
-        vecesQueMiroElNegocio += 1;
+      findUnique: async ({ select }: any) => {
+        if (select?.whiteLabelId) consultasDeMarca += 1;
         if (opts.negocioExiste === false) return null;
-        return { whiteLabelId: opts.marcaDelNegocio ?? null };
+        return select?.planId
+          ? { planId: 'plan-1' }
+          : { whiteLabelId: opts.marcaDelNegocio ?? null };
       },
     },
   };
   return {
     srv: new IncomeRecordService(prisma),
     verGuardado: () => guardado,
-    verConsultas: () => vecesQueMiroElNegocio,
+    verConsultasDeMarca: () => consultasDeMarca,
   };
 }
 
@@ -57,8 +62,8 @@ describe('marca de un ingreso', () => {
     const c = servicio({ marcaDelNegocio: 'wl-otra' });
     await c.srv.record({ ...COBRO, tenantId: 't1', whiteLabelId: 'wl-sellea' });
     expect(c.verGuardado().whiteLabelId).toBe('wl-sellea');
-    // Y no se consulta el negocio para nada.
-    expect(c.verConsultas()).toBe(0);
+    // Y no se pregunta por la marca del negocio: la del llamador manda.
+    expect(c.verConsultasDeMarca()).toBe(0);
   });
 
   it('si NO la manda, sale del negocio — el caso de los $668 invisibles', async () => {
@@ -81,7 +86,7 @@ describe('marca de un ingreso', () => {
     const c = servicio({});
     await c.srv.record({ ...COBRO, tenantId: null });
     expect(c.verGuardado().whiteLabelId).toBeNull();
-    expect(c.verConsultas()).toBe(0);
+    expect(c.verConsultasDeMarca()).toBe(0);
   });
 
   it('un negocio que ya no está no impide registrar el ingreso', async () => {

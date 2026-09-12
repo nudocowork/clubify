@@ -9,6 +9,7 @@ import { PayrollController } from './payroll.controller';
 import { MovementsService } from './movements.service';
 import { MovementsController } from './movements.controller';
 import { FinanceReportService } from './finance-report.service';
+import { ConciliadorDeIngresosService } from './conciliador-de-ingresos.service';
 
 /**
  * CONTABILIDAD — Fase 1. Módulo de finanzas: captura del ingreso REAL por
@@ -22,7 +23,14 @@ import { FinanceReportService } from './finance-report.service';
   // `CobrosService` ya clasifica con la misma regla que suspende negocios, y dos
   // implementaciones de "qué se cobra pronto" acabarían discrepando.
   imports: [AdminReportsModule],
-  providers: [IncomeRecordService, ExpenseService, PayrollService, MovementsService, FinanceReportService],
+  providers: [
+    IncomeRecordService,
+    ExpenseService,
+    PayrollService,
+    MovementsService,
+    FinanceReportService,
+    ConciliadorDeIngresosService,
+  ],
   controllers: [FinanceController, ExpensesController, PayrollController, MovementsController],
   exports: [IncomeRecordService, ExpenseService, PayrollService],
 })

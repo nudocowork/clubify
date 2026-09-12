@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { enRangoConRespaldo, type Rango } from './where-periodo';
+import { alcanceDeMarca, combinar } from './alcance-de-marca';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -25,7 +26,7 @@ export class PayrollService {
   // ── Colaboradores ─────────────────────────────────────────────────────────
   async listEmployees(onlyClubify: boolean) {
     const rows = await this.prisma.payrollEmployee.findMany({
-      where: { ...(onlyClubify ? { whiteLabelId: null } : {}) },
+      where: await alcanceDeMarca(this.prisma, onlyClubify),
       orderBy: [{ active: 'desc' }, { name: 'asc' }],
     });
     return rows.map((e) => ({ ...e, amountUsd: Number(e.amountUsd) }));
@@ -98,10 +99,10 @@ export class PayrollService {
 
   async listRuns(onlyClubify: boolean, rango: Rango = {}) {
     const rows = await this.prisma.payrollRun.findMany({
-      where: {
-        ...(onlyClubify ? { whiteLabelId: null } : {}),
-        ...enRangoConRespaldo('periodEnd', rango),
-      },
+      where: combinar(
+        await alcanceDeMarca(this.prisma, onlyClubify),
+        enRangoConRespaldo('periodEnd', rango),
+      ),
       orderBy: { createdAt: 'desc' },
       include: { _count: { select: { items: true } } },
     });
@@ -165,13 +166,16 @@ export class PayrollService {
   }
 
   async summary(onlyClubify: boolean, rango: Rango = {}) {
-    const where = onlyClubify ? { whiteLabelId: null } : {};
+    const where = await alcanceDeMarca(this.prisma, onlyClubify);
     const [employees, runs] = await Promise.all([
       // Los colaboradores NO se acotan por período: son las personas que hay
       // hoy, y "nómina próxima" mira hacia adelante, no al mes que se ve.
-      this.prisma.payrollEmployee.findMany({ where: { ...where, active: true }, select: { amountUsd: true } }),
+      this.prisma.payrollEmployee.findMany({
+        where: combinar(where, { active: true }),
+        select: { amountUsd: true },
+      }),
       this.prisma.payrollRun.findMany({
-        where: { ...where, ...enRangoConRespaldo('periodEnd', rango) },
+        where: combinar(where, enRangoConRespaldo('periodEnd', rango)),
         select: { totalUsd: true, amountPaidUsd: true, status: true },
       }),
     ]);

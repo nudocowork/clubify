@@ -24,8 +24,22 @@ type Row = {
   isFirstPayment: boolean; grossUsd: number; gatewayFeeUsd: number; taxUsd: number;
   netExpectedUsd: number; netReceivedUsd: number | null; differenceUsd: number | null;
   reconStatus: 'PENDING' | 'RECONCILED' | 'REVIEW'; saleDate: string; note?: string | null;
+  category: string | null; status: string; refundedAt: string | null;
+  planPeriodicity: string | null; productName: string | null; tenantId: string | null;
 };
-type Resumen = { count: number; grossUsd: number; gatewayFeeUsd: number; taxUsd: number; netExpectedUsd: number; netReceivedUsd: number; pendingRecon: number; inReview: number };
+type Resumen = {
+  count: number; grossUsd: number; gatewayFeeUsd: number; taxUsd: number;
+  netExpectedUsd: number; netReceivedUsd: number; pendingRecon: number; inReview: number;
+  refundedUsd?: number; refundedCount?: number;
+  porCategoria?: Record<string, { count: number; grossUsd: number }>;
+};
+/** La cadena completa de un ingreso: pasarela → negocio → plan → comisiones. */
+type Traza = {
+  ingreso: { id: string; fecha: string; periodo: string | null; categoria: string | null; estado: string; devueltoEl: string | null; bruto: number; feePasarela: number; impuesto: number; netoEsperado: number; netoRecibido: number | null; conciliacion: string };
+  origen: { pasarela: string; referencia: string; productoEnLaPasarela: string | null; moneda: string | null };
+  negocio: { id: string; nombre: string; correo: string; estado: string; marca: string; plan: string | null; periodicidad: string | null; precioPactado: number | null; proximoCobro: string | null } | null;
+  comisiones: Array<{ id: string; beneficiario: string | null; codigo: string | null; rol: string | null; generada: number; pagada: number; estado: string; estadoDePago: string; fechaDeGeneracion: string | null; fechaDePago: string | null }>;
+};
 type Cat = { id: string; name: string; slug: string; color: string | null; active: boolean };
 type Exp = { id: string; concept: string; categoryId: string | null; supplier: string | null; amountUsd: number; amountPaidUsd: number; outstandingUsd: number; status: string; method: string | null; expenseDate: string; pctRate: number | null; pctBase: number | null; receiptUrl: string | null };
 type ExpResumen = { count: number; totalUsd: number; paidUsd: number; outstandingUsd: number; pending: number };
@@ -41,6 +55,19 @@ const fmtDate = (s: string) => new Date(s).toLocaleDateString('es-CO', { day: '2
 
 const GATEWAY_BDG: Record<string, string> = { HOTMART: 'bg-slate-100 text-slate-700', STRIPE: 'bg-indigo-100 text-indigo-700', CROSS: 'bg-blue-100 text-blue-700', MANUAL: 'bg-amber-100 text-amber-800', MERCADOPAGO: 'bg-sky-100 text-sky-700' };
 const RECON_BDG: Record<string, { cls: string; label: string }> = { RECONCILED: { cls: 'bg-emerald-100 text-emerald-700', label: 'Conciliado' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Sin conciliar' } };
+/** Clase de ingreso. `null` es una fila anterior a que existiera la columna. */
+const CAT_BDG: Record<string, { cls: string; label: string }> = {
+  NUEVA: { cls: 'bg-violet-100 text-violet-700', label: 'Venta nueva' },
+  RENOVACION: { cls: 'bg-blue-100 text-blue-700', label: 'Renovación' },
+  UPGRADE: { cls: 'bg-amber-100 text-amber-800', label: 'Upgrade' },
+  OTRO: { cls: 'bg-slate-100 text-slate-700', label: 'Otro ingreso' },
+};
+/** Estado del dinero. Solo PAGADO suma; el resto se ve pero no cuenta. */
+const ESTADO_BDG: Record<string, { cls: string; label: string }> = {
+  PAGADO: { cls: 'bg-emerald-100 text-emerald-700', label: 'Pagado' },
+  REEMBOLSADO: { cls: 'bg-red-100 text-red-700', label: 'Reembolsado' },
+  CANCELADO: { cls: 'bg-slate-200 text-slate-600', label: 'Cancelado' },
+};
 const EXP_BDG: Record<string, { cls: string; label: string }> = { PAID: { cls: 'bg-emerald-100 text-emerald-700', label: 'Pagado' }, PARTIAL: { cls: 'bg-blue-100 text-blue-700', label: 'Parcial' }, REVIEW: { cls: 'bg-amber-100 text-amber-800', label: 'Por revisar' }, PENDING: { cls: 'bg-slate-200 text-slate-600', label: 'Pendiente' } };
 
 type Tab = 'resumen' | 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nomina' | 'comisiones' | 'cobros' | 'movimientos' | 'cierres';
@@ -52,6 +79,17 @@ type CobroProximo = { tenantId: string | null; groupId: string | null; negocio: 
 type Cobros = { dias: number; resumen: { proximos: { count: number; amountUsd: number }; procesados: { count: number; amountUsd: number }; noProcesados: { count: number; amountUsd: number } }; filas: CobroProximo[] };
 type Cierre = { id: string; period: string; scope: string; grossUsd: string | number; feeTaxUsd: string | number; netUsd: string | number; egresosUsd: string | number; nominaUsd: string | number; comisionesUsd: string | number; utilidadUsd: string | number; note: string | null; closedAt: string };
 const EXP_STATUS_LABEL: Record<string, string> = { PAID: 'Pagado', PARTIAL: 'Parcial', PENDING: 'Pendiente' };
+/** Lo que devuelve la conciliación: qué falta, qué se devolvió y qué no cuadra. */
+type InformeConciliacion = {
+  simulado: boolean;
+  revisados: number;
+  yaEstaban: number;
+  creados: Array<{ gateway: string; externalTxId: string; grossUsd: number; saleDate: string; tenant: string | null; categoria: string; fuente: string }>;
+  devueltos: Array<{ externalTxId: string; estado: string }>;
+  adoptados: Array<{ de: string; a: string; brandName: string | null }>;
+  enDisputa: string[];
+  sinResolver: Array<{ gateway: string; externalTxId: string; motivo: string; pista: string | null }>;
+};
 
 export default function ContabilidadPage() {
   // Se entra por el Resumen: las métricas del período son lo primero que se ve.
@@ -65,6 +103,17 @@ export default function ContabilidadPage() {
   const [pendienteGlobal, setPendienteGlobal] = useState<Resumen | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [edit, setEdit] = useState<{ id: string; value: string } | null>(null);
+
+  // Filtros de la pestaña Ingresos. Se aplican en memoria sobre lo que ya trajo
+  // el período: son pocos cientos de filas y así el filtro responde al instante.
+  const [filtroCat, setFiltroCat] = useState('');
+  const [filtroGw, setFiltroGw] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState('');
+  const [buscaIngreso, setBuscaIngreso] = useState('');
+  const [traza, setTraza] = useState<Traza | null>(null);
+  const [cargandoTraza, setCargandoTraza] = useState(false);
+  const [informe, setInforme] = useState<InformeConciliacion | null>(null);
+  const [conciliando, setConciliando] = useState(false);
 
   const [cats, setCats] = useState<Cat[]>([]);
   const [exps, setExps] = useState<Exp[]>([]);
@@ -161,6 +210,56 @@ export default function ContabilidadPage() {
     else toast('No se pudo conciliar');
   }
   const conciliables = rows.filter((r) => r.reconStatus !== 'RECONCILED');
+
+  // Los ingresos que pasan los filtros de la pestaña.
+  const ingresosVisibles = useMemo(() => {
+    const q = buscaIngreso.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (filtroCat && (r.category ?? '') !== filtroCat) return false;
+      if (filtroGw && r.gateway !== filtroGw) return false;
+      if (filtroEstado && (r.status || 'PAGADO') !== filtroEstado) return false;
+      if (!q) return true;
+      return (
+        (r.brandName ?? '').toLowerCase().includes(q) ||
+        (r.productName ?? '').toLowerCase().includes(q) ||
+        r.externalTxId.toLowerCase().includes(q)
+      );
+    });
+  }, [rows, filtroCat, filtroGw, filtroEstado, buscaIngreso]);
+
+  /** Abre la cadena completa de un ingreso: pasarela → negocio → comisiones. */
+  async function verTraza(id: string) {
+    setCargandoTraza(true);
+    const t = await api<Traza>(`/admin/contabilidad/ingresos/${id}/trazabilidad`).catch(() => null);
+    setCargandoTraza(false);
+    if (!t) { toast('No se pudo abrir la trazabilidad'); return; }
+    setTraza(t);
+  }
+
+  /**
+   * Pide al backend que revise las pasarelas y escriba lo que falte.
+   *
+   * Primero SIMULA y enseña qué haría: aplicar a ciegas sobre contabilidad es
+   * exactamente lo que no debe poder hacerse desde un botón.
+   */
+  async function conciliarIngresos(aplicar: boolean) {
+    setConciliando(true);
+    const r = await api<InformeConciliacion>(
+      `/admin/contabilidad/conciliar-ingresos${aplicar ? '' : '?simular=1'}`,
+      { method: 'POST' },
+    ).catch(() => null);
+    setConciliando(false);
+    if (!r) { toast('No se pudo conciliar'); return; }
+    setInforme(r);
+    if (aplicar) {
+      toast(
+        r.creados.length
+          ? `${r.creados.length} ${r.creados.length === 1 ? 'ingreso recuperado' : 'ingresos recuperados'} ✅`
+          : 'Todo estaba ya en el libro ✅',
+      );
+      void load();
+    }
+  }
   // Lo que quedó pendiente FUERA del período que se está viendo. Sin esto, un
   // cobro sin conciliar de agosto se volvería invisible en septiembre y nadie
   // volvería a por él.
@@ -222,29 +321,141 @@ export default function ContabilidadPage() {
           )}
 
           {tab === 'ingresos' && (rows.length === 0 ? <EmptyState what="ingresos" /> : (
-            <div className="card overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[1050px]">
+            <>
+            {/* Filtros de la pestaña. El período lo manda el selector de arriba;
+                aquí se afina por clase, pasarela y estado, que es como se busca
+                «cuánto vino de renovaciones por Hotmart». */}
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <select value={filtroCat} onChange={(e) => setFiltroCat(e.target.value)} className="input h-9 text-sm w-auto">
+                <option value="">Todas las clases</option>
+                {Object.entries(CAT_BDG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+              <select value={filtroGw} onChange={(e) => setFiltroGw(e.target.value)} className="input h-9 text-sm w-auto">
+                <option value="">Todas las pasarelas</option>
+                {[...new Set(rows.map((r) => r.gateway))].sort().map((g) => <option key={g} value={g}>{g}</option>)}
+              </select>
+              <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)} className="input h-9 text-sm w-auto">
+                <option value="">Todos los estados</option>
+                {Object.entries(ESTADO_BDG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+              <input value={buscaIngreso} onChange={(e) => setBuscaIngreso(e.target.value)} placeholder="Buscar negocio o referencia…" className="input h-9 text-sm w-auto flex-1 min-w-[200px]" />
+              {ingresosVisibles.length !== rows.length && (
+                <span className="text-xs text-mute">{ingresosVisibles.length} de {rows.length}</span>
+              )}
+            </div>
+            <div className="card overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[1250px]">
               <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
-                {['Fecha', 'Negocio', 'Tipo', 'Pasarela'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}
+                {['Fecha', 'Negocio', 'Clase', 'Periodicidad', 'Pasarela', 'Referencia'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}
                 {['V. bruta', 'Fee', 'Impuesto', 'Neto esp.', 'Neto recib.', 'Dif.'].map((h) => <th key={h} className="px-4 py-3 font-semibold text-right">{h}</th>)}
                 <th className="px-4 py-3 font-semibold">Estado</th>
+                <th className="px-4 py-3 font-semibold">Conciliación</th>
+                <th className="px-4 py-3" />
               </tr></thead>
-              <tbody>{rows.map((r) => (
-                <tr key={r.id} className="border-t border-line2 hover:bg-bg2/40">
-                  <td className="px-4 py-3">{fmtDate(r.saleDate)}</td>
-                  <td className="px-4 py-3 font-semibold">{r.brandName ?? '—'}</td>
-                  <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${r.isFirstPayment ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'}`}>{r.isFirstPayment ? '1er pago' : 'Recurr.'}</span></td>
-                  <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${GATEWAY_BDG[r.gateway] ?? 'bg-slate-100 text-slate-700'}`}>{r.gateway}</span></td>
-                  <td className="px-4 py-3 text-right tabular-nums">{money(r.grossUsd)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-bad">{money(-r.gatewayFeeUsd)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums text-bad">{money(-r.taxUsd)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums font-medium">{money(r.netExpectedUsd)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{money(r.netReceivedUsd)}</td>
-                  <td className={`px-4 py-3 text-right tabular-nums ${r.differenceUsd ? 'text-warn' : ''}`}>{r.differenceUsd == null ? '—' : money(r.differenceUsd)}</td>
-                  <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${RECON_BDG[r.reconStatus].cls}`}>{RECON_BDG[r.reconStatus].label}</span></td>
-                </tr>
-              ))}</tbody>
+              <tbody>{ingresosVisibles.map((r) => {
+                const devuelto = !!r.status && r.status !== 'PAGADO';
+                const cat = CAT_BDG[r.category ?? ''] ?? {
+                  cls: 'bg-slate-100 text-slate-500',
+                  label: r.isFirstPayment ? 'Venta nueva' : 'Renovación',
+                };
+                const est = ESTADO_BDG[r.status] ?? ESTADO_BDG.PAGADO;
+                return (
+                  <tr key={r.id} className={`border-t border-line2 hover:bg-bg2/40 ${devuelto ? 'opacity-60' : ''}`}>
+                    <td className="px-4 py-3">{fmtDate(r.saleDate)}</td>
+                    <td className="px-4 py-3 font-semibold">{r.brandName ?? r.productName ?? '—'}</td>
+                    <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${cat.cls}`}>{cat.label}</span></td>
+                    <td className="px-4 py-3 text-mute text-xs">{r.planPeriodicity ?? '—'}</td>
+                    <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${GATEWAY_BDG[r.gateway] ?? 'bg-slate-100 text-slate-700'}`}>{r.gateway}</span></td>
+                    <td className="px-4 py-3 text-mute2 text-[11px] font-mono">{r.externalTxId}</td>
+                    <td className={`px-4 py-3 text-right tabular-nums ${devuelto ? 'line-through' : ''}`}>{money(r.grossUsd)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-bad">{money(-r.gatewayFeeUsd)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums text-bad">{money(-r.taxUsd)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums font-medium">{money(r.netExpectedUsd)}</td>
+                    <td className="px-4 py-3 text-right tabular-nums">{money(r.netReceivedUsd)}</td>
+                    <td className={`px-4 py-3 text-right tabular-nums ${r.differenceUsd ? 'text-warn' : ''}`}>{r.differenceUsd == null ? '—' : money(r.differenceUsd)}</td>
+                    <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${est.cls}`}>{est.label}</span></td>
+                    <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${RECON_BDG[r.reconStatus].cls}`}>{RECON_BDG[r.reconStatus].label}</span></td>
+                    <td className="px-4 py-3 text-right">
+                      <button onClick={() => verTraza(r.id)} className="text-xs font-semibold text-brand hover:underline whitespace-nowrap">
+                        ¿De dónde salió?
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}</tbody>
             </table></div></div>
+            </>
           ))}
+
+          {tab === 'conciliacion' && (
+            <div className="card card-pad mb-3">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div className="font-semibold text-sm">Revisar las pasarelas contra el libro</div>
+                  <p className="text-xs text-mute mt-0.5 max-w-xl">
+                    Compara los cobros que guardan Hotmart, Stripe, Cross y los pagos
+                    manuales con lo que hay en Contabilidad, y recupera lo que falte.
+                    No puede duplicar: cada cobro entra por su referencia única.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => void conciliarIngresos(false)} disabled={conciliando} className="btn-ghost text-sm whitespace-nowrap">
+                    {conciliando ? 'Revisando…' : 'Ver qué falta'}
+                  </button>
+                  {!!informe?.simulado && informe.creados.length > 0 && (
+                    <button onClick={() => void conciliarIngresos(true)} disabled={conciliando} className="btn-primary text-sm whitespace-nowrap">
+                      Recuperar {informe.creados.length}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {informe && (
+                <div className="mt-3 pt-3 border-t border-line2 text-sm">
+                  <p className="text-xs text-mute mb-2">
+                    {informe.revisados} cobros revisados en las pasarelas · {informe.yaEstaban} ya estaban en el libro
+                    {informe.simulado && <> · <strong className="text-ink">simulación, no se ha escrito nada</strong></>}
+                  </p>
+                  {informe.creados.length === 0 ? (
+                    <p className="text-ok text-sm font-medium">Todo lo que cobraron las pasarelas está en el libro ✅</p>
+                  ) : (
+                    <ul className="flex flex-col gap-1">
+                      {informe.creados.map((c) => (
+                        <li key={`${c.gateway}-${c.externalTxId}`} className="flex items-center gap-2 text-xs">
+                          <span className="text-mute w-16">{fmtDate(c.saleDate)}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${GATEWAY_BDG[c.gateway] ?? 'bg-slate-100 text-slate-700'}`}>{c.gateway}</span>
+                          <span className="flex-1">{c.tenant ?? 'sin negocio'}</span>
+                          <span className="font-mono text-mute2 text-[10px]">{c.externalTxId}</span>
+                          <span className="tabular-nums font-medium">{money(c.grossUsd)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {informe.devueltos.length > 0 && (
+                    <p className="text-xs text-mute mt-2">
+                      {informe.devueltos.length} {informe.devueltos.length === 1 ? 'cobro devuelto' : 'cobros devueltos'} por la
+                      pasarela: dejan de sumar.
+                    </p>
+                  )}
+                  {informe.enDisputa.length > 0 && (
+                    <p className="text-xs text-warn mt-1">
+                      {informe.enDisputa.length} con una disputa abierta. Siguen contando hasta que se resuelva:{' '}
+                      <span className="font-mono">{informe.enDisputa.join(', ')}</span>
+                    </p>
+                  )}
+                  {informe.sinResolver.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-xs text-warn font-medium">No se pudieron registrar (no se inventa el importe):</p>
+                      <ul className="text-xs text-mute mt-1">
+                        {informe.sinResolver.map((x) => (
+                          <li key={x.externalTxId}>· {x.gateway} {x.externalTxId} — {x.motivo}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {tab === 'conciliacion' && sinConciliarFuera > 0 && (
             <div className="card card-pad mb-3 flex items-center justify-between gap-3 flex-wrap border-amber-300">
@@ -587,6 +798,109 @@ export default function ContabilidadPage() {
       {showGen && <GenModal emps={emps.filter((e) => e.active)} onClose={() => setShowGen(false)} onSaved={() => { setShowGen(false); void load(); }} />}
       {payRun && <PayRunModal run={payRun} onClose={() => setPayRun(null)} onSaved={() => { setPayRun(null); void load(); }} />}
       {detailRun && <RunDetailModal id={detailRun} onClose={() => setDetailRun(null)} />}
+      {traza && <TrazaModal t={traza} onClose={() => setTraza(null)} />}
+      {cargandoTraza && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/20">
+          <div className="card card-pad text-sm text-mute">Cargando…</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * «¿De dónde salió este número?» — la cadena entera de un ingreso.
+ *
+ * Cada eslabón sale de su módulo dueño: el cobro de la pasarela, el negocio y
+ * su plan del módulo de negocios, las comisiones del de comisiones.
+ * Contabilidad no guarda una copia de nada de esto: lo enlaza.
+ */
+function TrazaModal({ t, onClose }: { t: Traza; onClose: () => void }) {
+  const fecha = (v: string | null) =>
+    v ? new Date(v).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
+      <div className="card card-pad w-full max-w-2xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-lg font-bold">¿De dónde salió este número?</h3>
+            <p className="text-xs text-mute mt-0.5">
+              {money(t.ingreso.bruto)} · {fecha(t.ingreso.fecha)} · período {t.ingreso.periodo ?? '—'}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-mute hover:text-ink text-xl leading-none">×</button>
+        </div>
+
+        <ol className="flex flex-col gap-3 text-sm">
+          <li className="border-l-2 border-brand pl-3">
+            <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">1 · El cobro en la pasarela</div>
+            <div className="mt-1">
+              <strong>{t.origen.pasarela}</strong> · referencia{' '}
+              <span className="font-mono text-xs bg-bg2 px-1.5 py-0.5 rounded">{t.origen.referencia}</span>
+            </div>
+            {t.origen.productoEnLaPasarela && (
+              <div className="text-mute text-xs mt-0.5">Producto: {t.origen.productoEnLaPasarela}</div>
+            )}
+          </li>
+
+          <li className="border-l-2 border-line2 pl-3">
+            <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">2 · El negocio</div>
+            {t.negocio ? (
+              <>
+                <div className="mt-1"><strong>{t.negocio.nombre}</strong> · {t.negocio.estado} · marca {t.negocio.marca}</div>
+                <div className="text-mute text-xs mt-0.5">
+                  {t.negocio.correo} · plan {t.negocio.plan ?? '—'} {t.negocio.periodicidad ?? ''}
+                  {t.negocio.precioPactado != null && <> · precio pactado {money(t.negocio.precioPactado)}</>}
+                </div>
+                <div className="text-mute text-xs">Próximo cobro: {fecha(t.negocio.proximoCobro)}</div>
+              </>
+            ) : (
+              <div className="mt-1 text-mute">
+                Sin negocio asociado. Es un pack de créditos o una compra que nunca
+                llegó a crear cuenta.
+              </div>
+            )}
+          </li>
+
+          <li className="border-l-2 border-line2 pl-3">
+            <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">3 · El desglose</div>
+            <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              <span className="text-mute">Bruto</span><span className="tabular-nums text-right">{money(t.ingreso.bruto)}</span>
+              <span className="text-mute">− Fee de pasarela</span><span className="tabular-nums text-right text-red-600">−{money(t.ingreso.feePasarela)}</span>
+              <span className="text-mute">− Impuesto</span><span className="tabular-nums text-right text-red-600">−{money(t.ingreso.impuesto)}</span>
+              <span className="font-semibold">= Neto esperado</span><span className="tabular-nums text-right font-semibold">{money(t.ingreso.netoEsperado)}</span>
+              <span className="text-mute">Neto recibido</span><span className="tabular-nums text-right">{t.ingreso.netoRecibido == null ? 'sin conciliar' : money(t.ingreso.netoRecibido)}</span>
+            </div>
+            <div className="text-xs text-mute mt-1.5">
+              Clase: {CAT_BDG[t.ingreso.categoria ?? '']?.label ?? 'sin clasificar'} ·{' '}
+              estado: {ESTADO_BDG[t.ingreso.estado]?.label ?? t.ingreso.estado}
+              {t.ingreso.devueltoEl && <> el {fecha(t.ingreso.devueltoEl)}</>}
+            </div>
+          </li>
+
+          <li className="border-l-2 border-line2 pl-3">
+            <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">4 · Las comisiones del período</div>
+            {t.comisiones.length === 0 ? (
+              <div className="mt-1 text-mute">Este cobro no generó comisiones.</div>
+            ) : (
+              <ul className="mt-1 flex flex-col gap-1.5">
+                {t.comisiones.map((c) => (
+                  <li key={c.id} className="flex items-center gap-2 text-xs">
+                    <span className="flex-1">
+                      {c.beneficiario ?? 'sin beneficiario'}{c.codigo ? ` (${c.codigo})` : ''}
+                      <span className="text-mute"> · {c.rol ?? '—'}</span>
+                    </span>
+                    <span className="tabular-nums">{money(c.generada)}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${c.estadoDePago === 'PAID' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                      {c.estadoDePago === 'PAID' ? `pagada ${fecha(c.fechaDePago)}` : 'pendiente'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        </ol>
+      </div>
     </div>
   );
 }

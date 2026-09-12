@@ -45,9 +45,18 @@ export type Cascada = {
   netReceivedUsd: number;
   egresosUsd: number;
   nominaUsd: number;
+  /** Comisiones REALMENTE pagadas en el período: el dinero que salió. */
   comisionesUsd: number;
+  /** Generadas en el período y todavía sin pagar. Deuda, no egreso. */
+  comisionesPendientesUsd?: number;
+  /** Generadas en el período, pagadas o no. */
+  comisionesGeneradasUsd?: number;
   utilidadUsd: number;
   ingresosCount: number;
+  /** Cobros devueltos en el período. No restan: ya no suman. */
+  refundedUsd?: number;
+  /** Bruto por clase de ingreso: NUEVA, RENOVACION, UPGRADE, OTRO. */
+  porCategoria?: Record<string, { count: number; grossUsd: number }>;
 };
 
 export type Panorama = {
@@ -70,8 +79,26 @@ const COSTO = [
   { k: 'feeImp', label: 'Fee + impuestos', color: '#2a78d6' },
   { k: 'egresosUsd', label: 'Egresos', color: '#eb6834' },
   { k: 'nominaUsd', label: 'Nómina', color: '#1baf7a' },
-  { k: 'comisionesUsd', label: 'Comisiones', color: '#eda100' },
+  { k: 'comisionesUsd', label: 'Comisiones pagadas', color: '#eda100' },
 ] as const;
+
+/**
+ * Las clases de ingreso. Misma paleta categórica que los costos, para que el
+ * panel no estrene colores en cada bloque; el orden lo pone el importe, no
+ * esta lista.
+ */
+const ETIQUETA_CATEGORIA: Record<string, string> = {
+  NUEVA: 'Suscripción nueva',
+  RENOVACION: 'Renovación',
+  UPGRADE: 'Upgrade',
+  OTRO: 'Otro ingreso',
+};
+const COLOR_CATEGORIA: Record<string, string> = {
+  NUEVA: '#1baf7a',
+  RENOVACION: '#2a78d6',
+  UPGRADE: '#eda100',
+  OTRO: '#eb6834',
+};
 
 const MES_CORTO = [
   'ene', 'feb', 'mar', 'abr', 'may', 'jun',
@@ -167,6 +194,19 @@ export function PanoramaPeriodo({
   const serie = datos.serie.map((s) => ({ ...s, label: etiquetaMes(s.period) }));
   const hayAlgo = r.grossUsd > 0 || costos > 0;
 
+  // Las clases de ingreso, de mayor a menor. `SIN_CATEGORIA` es el respaldo de
+  // las filas anteriores a que existiera la columna: se enseña en vez de
+  // esconderse, porque si no cuadra con el bruto hay que poder verlo.
+  const porCategoria = Object.entries(r.porCategoria ?? {})
+    .map(([clave, v]) => ({
+      clave,
+      etiqueta: ETIQUETA_CATEGORIA[clave] ?? 'Sin clasificar',
+      color: COLOR_CATEGORIA[clave] ?? '#9aa0a6',
+      ...v,
+    }))
+    .filter((c) => c.grossUsd > 0)
+    .sort((a, b) => b.grossUsd - a.grossUsd);
+
   return (
     <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -180,7 +220,7 @@ export function PanoramaPeriodo({
         <Tarjeta label="Neto esperado" valor={money(r.netUsd)} sub="después de fee e impuestos">
           <Variacion actual={r.netUsd} previo={prev?.netUsd} contra={contra} />
         </Tarjeta>
-        <Tarjeta label="Costos del período" valor={money(costos)} sub="fee, impuestos, egresos, nómina y comisiones">
+        <Tarjeta label="Costos del período" valor={money(costos)} sub="fee, impuestos, egresos, nómina y comisiones pagadas">
           <Variacion actual={costos} previo={prev ? prev.gatewayFeeUsd + prev.taxUsd + prev.egresosUsd + prev.nominaUsd + prev.comisionesUsd : null} contra={contra} masEsMejor={false} />
         </Tarjeta>
         <Tarjeta
@@ -255,11 +295,27 @@ export function PanoramaPeriodo({
               <div className="flex justify-between py-1.5 text-sm border-t border-line2"><span className="font-semibold">= Neto</span><span className="tabular-nums font-semibold">{money(r.netUsd)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Egresos</span><span className="tabular-nums text-red-600">−{money(r.egresosUsd)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Nómina</span><span className="tabular-nums text-red-600">−{money(r.nominaUsd)}</span></div>
-              <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Comisiones afiliados</span><span className="tabular-nums text-red-600">−{money(r.comisionesUsd)}</span></div>
+              <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Comisiones pagadas</span><span className="tabular-nums text-red-600">−{money(r.comisionesUsd)}</span></div>
               <div className="flex justify-between py-2.5 mt-1 border-t-2 border-line2"><span className="font-bold">= UTILIDAD</span><span className={`tabular-nums font-bold text-lg ${r.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}`}>{money(r.utilidadUsd)}</span></div>
               <p className="text-[11px] text-mute mt-2">
                 Neto recibido y conciliado: <strong className="text-ink">{money(r.netReceivedUsd)}</strong>.
               </p>
+              {/* Una comisión aprobada y sin pagar todavía no salió de la
+                  cuenta: es deuda con el afiliado, no un costo del período.
+                  Se enseña al lado para que no desaparezca de la vista. */}
+              {!!r.comisionesPendientesUsd && (
+                <p className="text-[11px] text-mute mt-1">
+                  Comisiones generadas y <strong className="text-ink">sin pagar</strong>:{' '}
+                  <strong className="text-ink">{money(r.comisionesPendientesUsd)}</strong>
+                  {' '}(no restan de la utilidad hasta que se paguen).
+                </p>
+              )}
+              {!!r.refundedUsd && (
+                <p className="text-[11px] text-mute mt-1">
+                  Devuelto en el período: <strong className="text-ink">{money(r.refundedUsd)}</strong>{' '}
+                  (reembolsos y contracargos; ya no suman en lo bruto).
+                </p>
+              )}
             </div>
           </div>
 
@@ -313,6 +369,37 @@ export function PanoramaPeriodo({
               </ResponsiveContainer>
             </div>
           </div>
+
+          {/* ── Por qué entró: venta nueva, renovación, upgrade u otro ──
+              Responde «¿cuánto vino de renovaciones y cuánto de ventas
+              nuevas?» sin tener que abrir la pestaña de Ingresos y sumar. */}
+          {porCategoria.length > 0 && (
+            <div className="card card-pad mb-4">
+              <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">
+                Por qué entró · <span className="capitalize">{nombrePeriodo}</span>
+              </div>
+              <ul className="flex flex-col gap-2">
+                {porCategoria.map((c) => (
+                  <li key={c.clave} className="flex items-center gap-3 text-sm">
+                    <span className="w-40 shrink-0 font-medium">{c.etiqueta}</span>
+                    <span className="flex-1 h-2.5 bg-bg2 rounded-pill overflow-hidden">
+                      <span
+                        className="block h-full rounded-pill"
+                        style={{
+                          width: `${Math.max((c.grossUsd / (porCategoria[0].grossUsd || 1)) * 100, 2)}%`,
+                          background: c.color,
+                        }}
+                      />
+                    </span>
+                    <span className="tabular-nums font-medium w-24 text-right">{money(c.grossUsd)}</span>
+                    <span className="tabular-nums text-mute text-xs w-16 text-right">
+                      {c.count} {c.count === 1 ? 'cobro' : 'cobros'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* ── De dónde entró ── */}
           {datos.porPasarela.length > 0 && (

@@ -1,8 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { enRango, enRangoConRespaldo } from './where-periodo';
+import { CATEGORIAS_DE_INGRESO } from './categorias-de-ingreso';
+import { alcanceDeMarca, combinar } from './alcance-de-marca';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Nombre legible de la categoría de un ingreso, con respaldo para las
+ *  filas antiguas que aún no la tienen. */
+const ETIQUETA_CATEGORIA: Record<string, string> = CATEGORIAS_DE_INGRESO;
 
 export interface Movement {
   date: string;
@@ -18,7 +24,7 @@ export interface Movement {
   status: string;
   reference: string | null;
   hasReceipt: boolean;
-  source: 'income' | 'expense' | 'payroll';
+  source: 'income' | 'expense' | 'payroll' | 'commission';
 }
 
 /**
@@ -39,22 +45,23 @@ export class MovementsService {
     kind?: 'INGRESO' | 'EGRESO';
     limit?: number;
   }): Promise<{ movements: Movement[]; summary: { ingresosUsd: number; egresosUsd: number; saldoUsd: number; count: number } }> {
-    const wlNull = opts.onlyClubify ? { whiteLabelId: null } : {};
+    const wl = await alcanceDeMarca(this.prisma, opts.onlyClubify);
     const rango = { from: opts.from, to: opts.to };
     const dateFilter = (field: string) => enRango(field, rango);
     const dateFilterConRespaldo = (field: string) =>
       enRangoConRespaldo(field, rango);
 
-    const [incomes, expenses, cats, runs] = await Promise.all([
+    const [incomes, expenses, cats, runs, comisiones] = await Promise.all([
       this.prisma.incomeRecord.findMany({
-        where: { ...wlNull, ...dateFilter('saleDate') },
+        where: combinar(wl, dateFilter('saleDate')),
         select: {
           saleDate: true, brandName: true, gateway: true, externalTxId: true,
           grossUsd: true, netExpectedUsd: true, netReceivedUsd: true, reconStatus: true,
+          status: true, category: true,
         },
       }),
       this.prisma.expense.findMany({
-        where: { ...wlNull, ...dateFilter('expenseDate') },
+        where: combinar(wl, dateFilter('expenseDate')),
         select: {
           expenseDate: true, concept: true, supplier: true, categoryId: true,
           amountUsd: true, status: true, receiptUrl: true, id: true,
@@ -66,11 +73,26 @@ export class MovementsService {
         // permitía guardarlo sin fechas), cae al día en que se creó. Mismo
         // respaldo que `finance-report.service`, para que el libro de caja y
         // el reporte no se contradigan.
-        where: { ...wlNull, ...dateFilterConRespaldo('periodEnd') },
+        where: combinar(wl, dateFilterConRespaldo('periodEnd')),
         select: {
           createdAt: true, periodEnd: true, periodLabel: true, totalUsd: true,
           status: true, receiptUrl: true, reference: true,
           _count: { select: { items: true } },
+        },
+      }),
+      // Las comisiones NO se acotan por marca (misma decisión que la cascada:
+      // hoy son el costo de afiliados de la plataforma entera). Solo entran las
+      // PAGADAS y por su fecha de PAGO: una comisión aprobada pero sin pagar no
+      // es dinero que salió, y meterla aquí descuadraría el saldo corrido.
+      this.prisma.commission.findMany({
+        where: combinar(
+          { paymentStatus: 'PAID', status: { not: 'REJECTED' } },
+          enRango('paidAt', rango),
+        ),
+        select: {
+          id: true, paidAt: true, amountPaid: true, payoutBatchId: true,
+          recipientCode: { select: { ownerName: true, code: true } },
+          referralUse: { select: { tenant: { select: { brandName: true } } } },
         },
       }),
     ]);
@@ -80,18 +102,25 @@ export class MovementsService {
     const raw: Raw[] = [];
 
     for (const i of incomes) {
-      const credit = i.netReceivedUsd != null ? Number(i.netReceivedUsd) : Number(i.netExpectedUsd);
+      // Un cobro devuelto se sigue viendo —el histórico no se borra— pero no
+      // suma al saldo: el dinero salió otra vez.
+      const devuelto = i.status !== 'PAGADO';
+      const credit = devuelto
+        ? 0
+        : i.netReceivedUsd != null
+          ? Number(i.netReceivedUsd)
+          : Number(i.netExpectedUsd);
       raw.push({
         date: i.saleDate.toISOString(),
         kind: 'INGRESO',
-        category: 'Venta',
+        category: ETIQUETA_CATEGORIA[i.category ?? ''] ?? 'Venta',
         concept: `Cobro ${i.gateway}`,
         party: i.brandName,
         grossUsd: Number(i.grossUsd),
         debitUsd: 0,
         creditUsd: round2(credit),
         net: round2(credit),
-        status: i.reconStatus,
+        status: devuelto ? i.status : i.reconStatus,
         reference: i.externalTxId,
         hasReceipt: false,
         source: 'income',
@@ -135,6 +164,27 @@ export class MovementsService {
         reference: r.reference,
         hasReceipt: !!r.receiptUrl,
         source: 'payroll',
+      });
+    }
+
+    for (const c of comisiones) {
+      const amt = Number(c.amountPaid);
+      if (!(amt > 0) || !c.paidAt) continue;
+      raw.push({
+        date: c.paidAt.toISOString(),
+        kind: 'EGRESO',
+        category: 'Comisión',
+        concept: `Comisión a ${c.recipientCode?.ownerName ?? 'sin beneficiario'}` +
+          (c.referralUse?.tenant?.brandName ? ` · ${c.referralUse.tenant.brandName}` : ''),
+        party: c.recipientCode?.code ?? null,
+        grossUsd: null,
+        debitUsd: round2(amt),
+        creditUsd: 0,
+        net: round2(-amt),
+        status: 'PAID',
+        reference: c.payoutBatchId ?? c.id.slice(0, 8),
+        hasReceipt: false,
+        source: 'commission',
       });
     }
 
