@@ -453,9 +453,9 @@ Pedido #${o.code ?? o.id.slice(0, 6)}`))
               className="text-sm border border-line rounded-pill px-3 py-1.5 bg-white text-ink"
               value={locationId}
               onChange={(e) => setLocationId(e.target.value)}
-              title="Filtrar pedidos por sede"
+              title={t('filterByLocation')}
             >
-              <option value="">Todas las sedes</option>
+              <option value="">{t('allLocations')}</option>
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
@@ -524,7 +524,7 @@ Pedido #${o.code ?? o.id.slice(0, 6)}`))
           <Link
             href="/app/orders/history"
             className="btn-ghost text-xs"
-            title="Historial de pedidos con búsqueda por nombre y fecha"
+            title={t('historyHint')}
           >
             📋 Historial
           </Link>
@@ -575,7 +575,7 @@ Pedido #${o.code ?? o.id.slice(0, 6)}`))
             `/delivery-business/delivery-companies/${companyId}/chat`
           }
           meRole="BUSINESS"
-          title="🛵 Tu empresa de domicilios"
+          title={t('yourCourier')}
           emptyText=""
           hideWhenEmpty
         />

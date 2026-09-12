@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   DEFAULT_COVER_CONFIG,
   normalizeCoverConfig,
@@ -268,6 +269,7 @@ function ImagePanel({
   patch: (p: Partial<SectionCoverConfig>) => void;
   onUpload?: (file: File) => Promise<string>;
 }) {
+  const t = useTranslations('section_cover');
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -362,7 +364,7 @@ function ImagePanel({
       />
 
       <SelectRow
-        label="Posición"
+        label={t('position')}
         value={cfg.bgPosition}
         onChange={(v) => patch({ bgPosition: v as any })}
         options={[
@@ -390,6 +392,7 @@ function TextPanel({
   patchTitle: (p: Partial<CoverTextStyle>) => void;
   patchTagline: (p: Partial<CoverTextStyle>) => void;
 }) {
+  const t = useTranslations('section_cover');
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -402,7 +405,7 @@ function TextPanel({
         />
         <div className="grid grid-cols-2 gap-2">
           <NumberRow
-            label="Tamaño"
+            label={t('size')}
             value={cfg.title.fontSize}
             min={14}
             max={72}
@@ -427,7 +430,7 @@ function TextPanel({
           onChange={(v) => patchTitle({ color: v })}
         />
         <SelectRow
-          label="Mayúsculas"
+          label={t('caseLabel')}
           value={cfg.title.transform ?? 'none'}
           onChange={(v) => patchTitle({ transform: v as any })}
           options={[
@@ -473,7 +476,7 @@ function TextPanel({
             />
             <div className="grid grid-cols-2 gap-2">
               <NumberRow
-                label="Tamaño"
+                label={t('size')}
                 value={cfg.tagline.fontSize}
                 min={10}
                 max={28}
@@ -512,10 +515,11 @@ function LayoutPanel({
   cfg: SectionCoverConfig;
   patch: (p: Partial<SectionCoverConfig>) => void;
 }) {
+  const t = useTranslations('section_cover');
   return (
     <div className="space-y-3">
       <NumberRow
-        label="Altura del banner (px)"
+        label={t('bannerHeight')}
         value={cfg.height}
         min={140}
         max={400}
@@ -531,7 +535,7 @@ function LayoutPanel({
         onChange={(v) => patch({ borderRadius: v })}
       />
       <SelectRow
-        label="Alineación horizontal"
+        label={t('alignH')}
         value={cfg.align}
         onChange={(v) => patch({ align: v as CoverAlign })}
         options={[
@@ -541,7 +545,7 @@ function LayoutPanel({
         ]}
       />
       <SelectRow
-        label="Alineación vertical"
+        label={t('alignV')}
         value={cfg.verticalAlign}
         onChange={(v) => patch({ verticalAlign: v as CoverVerticalAlign })}
         options={[
@@ -804,10 +808,11 @@ function FontPicker({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const t = useTranslations('section_cover');
   // Agrupa fuentes por categoría con <optgroup>.
   return (
     <label className="block">
-      <span className="text-[11px] text-mute font-medium">Tipografía</span>
+      <span className="text-[11px] text-mute font-medium">{t('font')}</span>
       <select
         className="input mt-1 text-sm"
         value={value}

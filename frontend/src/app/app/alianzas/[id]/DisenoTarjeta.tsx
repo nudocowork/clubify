@@ -15,6 +15,7 @@
  * enseñaría algo que la billetera no pinta.
  */
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -62,6 +63,7 @@ export function DisenoTarjeta({
   estado: 'ACTIVO' | 'PAUSA' | 'FINALIZADO';
   beneficiosVivos: string[];
 }) {
+  const t = useTranslations('alliance_design');
   const [d, setD] = useState<Diseno | null>(null);
   const [abierto, setAbierto] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -88,7 +90,7 @@ export function DisenoTarjeta({
   if (!d.card) {
     return (
       <section className="card card-pad mt-4">
-        <h2 className="font-medium">Cómo se ve la tarjeta</h2>
+        <h2 className="font-medium">{t('title')}</h2>
         <p className="text-sm text-neutral-500 mt-2">
           Esta alianza es de antes y su tarjeta todavía no existe: se crea con el
           primer empleado que active. En cuanto haya una podrás cambiar aquí el
@@ -129,7 +131,7 @@ export function DisenoTarjeta({
     <section className="card card-pad mt-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="font-medium">Cómo se ve la tarjeta</h2>
+          <h2 className="font-medium">{t('title')}</h2>
           <p className="text-sm text-neutral-500">
             Lo que verán los empleados de {empresa} en su teléfono.
           </p>
@@ -180,7 +182,7 @@ export function DisenoTarjeta({
             </div>
 
             <div>
-              <label className="label">Título</label>
+              <label className="label">{t('titleField')}</label>
               <input
                 className="input"
                 value={b.name}

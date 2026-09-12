@@ -549,6 +549,7 @@ function Step1Templates({
  * adelanta a sus negocios.
  */
 function TarjetaAlianza() {
+  const t = useTranslations('app_cards_new');
   return (
     <Link
       href="/app/alianzas?nueva=1"
@@ -557,7 +558,7 @@ function TarjetaAlianza() {
       <div className="flex items-center gap-3">
         <span className="text-2xl shrink-0">🤝</span>
         <div className="flex-1 min-w-0">
-          <div className="font-semibold text-sm">Alianza con una empresa</div>
+          <div className="font-semibold text-sm">{t('allianceOption')}</div>
         </div>
         <span className="text-[10px] font-semibold uppercase tracking-wide rounded-full bg-violet-100 text-violet-700 px-2 py-0.5 shrink-0">
           Nuevo
@@ -581,6 +582,7 @@ function TarjetaAlianza() {
  * Su plantilla de pase se crea sola al dar de alta al primer socio.
  */
 function TarjetaClub() {
+  const t = useTranslations('app_cards_new');
   return (
     <Link
       href="/app/club?nuevo=1"
@@ -589,7 +591,7 @@ function TarjetaClub() {
       <div className="flex items-center gap-3">
         <span className="text-2xl shrink-0">🎟️</span>
         <div className="flex-1 min-w-0">
-          <div className="font-semibold text-sm">Tarjeta de club</div>
+          <div className="font-semibold text-sm">{t('clubOption')}</div>
         </div>
         <span className="text-[10px] font-semibold uppercase tracking-wide rounded-full bg-violet-100 text-violet-700 px-2 py-0.5 shrink-0">
           Nuevo
@@ -600,7 +602,7 @@ function TarjetaClub() {
         beneficios —diez cafés, cuatro lavadas— que gasta en el local y que
         vuelve a llenarse el día 1.
       </p>
-      <p className="text-xs mt-2 font-medium text-ink">Te llevamos a Tarjeta de Club →</p>
+      <p className="text-xs mt-2 font-medium text-ink">{t('goToClub')}</p>
     </Link>
   );
 }
@@ -1197,7 +1199,7 @@ function Step4Design({
 
         {isProgress && (
           <div className="pt-2 border-t border-line">
-            <label className="label">Fondo del área de sellos</label>
+            <label className="label">{t('stampAreaBackground')}</label>
             <div className="grid grid-cols-3 gap-2 mt-1">
               {([
                 { v: 'GRADIENT', label: 'Degradado', hint: 'Clásico' },

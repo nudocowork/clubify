@@ -20,6 +20,7 @@
 // premium con scroll-smooth + snap-mandatory.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { safeUrlOrNull } from '@/lib/safe-url';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
@@ -100,6 +101,7 @@ export function MenuBookViewer({
    *  `/m` cuando todavía se monte desde el storefront principal. */
   urlPrefix?: '/book' | '/m';
 }) {
+  const t = useTranslations('menu_book_viewer');
   const [data, setData] = useState<BookData | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [pageIdx, setPageIdx] = useState(0);
@@ -325,7 +327,7 @@ export function MenuBookViewer({
     return (
       <div className="max-w-2xl mx-auto px-5 py-12 text-center">
         <div className="text-3xl mb-2">📖</div>
-        <div className="font-semibold">No pudimos cargar el menú</div>
+        <div className="font-semibold">{t('loadError')}</div>
         <div className="text-xs text-mute mt-1">{loadErr}</div>
       </div>
     );
@@ -342,7 +344,7 @@ export function MenuBookViewer({
           ))}
         </div>
         <div className="w-full max-w-md aspect-[3/4] rounded-lg bg-bg2 animate-pulse shadow-sm" />
-        <div className="text-xs text-mute">Cargando menú…</div>
+        <div className="text-xs text-mute">{t('loading')}</div>
       </div>
     );
   }
@@ -350,8 +352,8 @@ export function MenuBookViewer({
     return (
       <div className="max-w-2xl mx-auto px-5 py-12 text-center">
         <div className="text-3xl mb-2">📖</div>
-        <div className="font-semibold">El menú aún se está preparando</div>
-        <div className="text-xs text-mute mt-1">Vuelve a mirar en un momento.</div>
+        <div className="font-semibold">{t('preparing')}</div>
+        <div className="text-xs text-mute mt-1">{t('comeBack')}</div>
       </div>
     );
   }

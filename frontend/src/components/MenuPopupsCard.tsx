@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { ImageUploader } from '@/components/ImageUploader';
 import type { StorefrontPopupItem } from '@/lib/storefront-popups';
@@ -34,6 +35,7 @@ export function MenuPopupsCard({
   popups: StorefrontPopupItem[];
   onChange: (popups: StorefrontPopupItem[]) => void;
 }) {
+  const t = useTranslations('menu_popups');
   const [cards, setCards] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
@@ -140,7 +142,7 @@ export function MenuPopupsCard({
               </div>
 
               <div>
-                <label className="label">Imagen del popup</label>
+                <label className="label">{t('image')}</label>
                 <ImageUploader
                   value={p.imageUrl || null}
                   onChange={(url) => patchAt(idx, { imageUrl: url || '' })}
@@ -150,7 +152,7 @@ export function MenuPopupsCard({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Al tocar (opcional)</label>
+                  <label className="label">{t('onTap')}</label>
                   <select
                     className="input"
                     value={p.cardId ?? ''}
@@ -167,7 +169,7 @@ export function MenuPopupsCard({
                   </select>
                 </div>
                 <div>
-                  <label className="label">Aparece a los (seg)</label>
+                  <label className="label">{t('showsAfter')}</label>
                   <input
                     type="number"
                     className="input"
@@ -196,7 +198,7 @@ export function MenuPopupsCard({
 
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="label mb-0">Días</label>
+                    <label className="label mb-0">{t('days')}</label>
                     <div className="flex gap-1">
                       <button
                         type="button"
@@ -253,7 +255,7 @@ export function MenuPopupsCard({
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="label">Desde (hora)</label>
+                    <label className="label">{t('fromTime')}</label>
                     <input
                       type="time"
                       className="input"
@@ -264,7 +266,7 @@ export function MenuPopupsCard({
                     />
                   </div>
                   <div>
-                    <label className="label">Hasta (hora)</label>
+                    <label className="label">{t('toTime')}</label>
                     <input
                       type="time"
                       className="input"
@@ -278,7 +280,7 @@ export function MenuPopupsCard({
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="label">Desde (fecha)</label>
+                    <label className="label">{t('fromDate')}</label>
                     <input
                       type="date"
                       className="input"
@@ -289,7 +291,7 @@ export function MenuPopupsCard({
                     />
                   </div>
                   <div>
-                    <label className="label">Hasta (fecha)</label>
+                    <label className="label">{t('toDate')}</label>
                     <input
                       type="date"
                       className="input"

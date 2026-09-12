@@ -506,7 +506,7 @@ export default function CustomersPage() {
           fecha de alta no sirve para buscar a nadie por su nombre, ni para
           saber a quien hay que felicitar esta semana. */}
       <div className="flex items-center gap-2 mb-4">
-        <span className="text-xs text-mute">Ordenar por</span>
+        <span className="text-xs text-mute">{t('sortBy')}</span>
         <select
           className="input h-8 text-sm w-auto"
           value={orden}

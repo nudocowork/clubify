@@ -489,6 +489,7 @@ function InfolinkSubscriptionPanel({
   currentPeriodEnd: string | null;
   sinCompras: boolean;
 }) {
+  const t = useTranslations('app_billing');
   const isPro = tenant?.infolinkTier === 'PRO';
   const proLink = (tenant?.whiteLabel?.paymentLinks as any[] | undefined)?.find(
     (l) => l?.productKey === 'INFOLINK_PRO',
@@ -528,8 +529,8 @@ function InfolinkSubscriptionPanel({
   return (
     <div className="max-w-3xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Tu plan InfoLink</h1>
-        <p className="text-mute mt-1">Estado de tu InfoLink y opciones para mejorar.</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t('yourInfoLinkPlan')}</h1>
+        <p className="text-mute mt-1">{t('infoLinkPlanHint')}</p>
       </div>
 
       <div className="card card-pad ring-1 ring-line">
@@ -576,7 +577,7 @@ function InfolinkSubscriptionPanel({
         >
           <span style={{ fontSize: 22 }}>⚡</span>
           <span className="flex-1">
-            <b className="text-[15px]">Mejora tu InfoLink a PRO</b>
+            <b className="text-[15px]">{t('upgradeInfoLink')}</b>
             <span className="block text-[12.5px]" style={{ color: 'rgba(255,255,255,.85)' }}>
               Botones ilimitados, sin publicidad, todas las plantillas y analítica avanzada.
             </span>

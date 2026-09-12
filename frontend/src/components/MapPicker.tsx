@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
 
 export type MapPickResult = {
@@ -86,6 +87,7 @@ export function MapPicker({
   onPick: (r: MapPickResult) => void;
   picked: MapPickResult | null;
 }) {
+  const t = useTranslations('map_picker');
   const containerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -223,7 +225,7 @@ export function MapPicker({
       <div className="text-sm font-semibold">📍 Ingresar ubicación manualmente</div>
       <input
         className="input w-full"
-        placeholder="Dirección (ej. Av. Luis Muñoz Rivera 168, San Juan)"
+        placeholder={t('addressLabel')}
         value={mAddr}
         onChange={(e) => setMAddr(e.target.value)}
       />
@@ -260,7 +262,7 @@ export function MapPicker({
     return (
       <div>
         <div className="rounded-input border border-line bg-amber-50 p-4 text-sm text-amber-900 leading-relaxed">
-          <div className="font-semibold mb-1">El mapa no se pudo cargar</div>
+          <div className="font-semibold mb-1">{t('mapError')}</div>
           <div>{loadErr}</div>
           <div className="text-xs mt-2 text-amber-800/80">
             Podés guardar tu ubicación igual con el formulario de abajo. (Si sos
@@ -281,7 +283,7 @@ export function MapPicker({
         <input
           ref={inputRef}
           className="input w-full pr-10"
-          placeholder="Escribe la dirección o nombre del negocio…"
+          placeholder={t('searchPlaceholder')}
         />
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-mute pointer-events-none">
           🔍
