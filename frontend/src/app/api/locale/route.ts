@@ -17,9 +17,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'invalid_locale' }, { status: 400 });
   }
 
-  // Si hay JWT, propagamos al backend para persistir en User.preferredLocale.
+  // Si hay sesión, propagamos al backend para persistir en User.preferredLocale.
   // Best-effort — si el backend está caído, igual seteamos el cookie local.
-  const token = req.cookies.get('jwt')?.value || req.headers.get('authorization')?.replace('Bearer ', '');
+  //
+  // La cookie se llama `clubify_token`, no `jwt`: eso lo escribe `lib/api.ts`
+  // y nunca ha existido una cookie `jwt`. Con el nombre viejo el token salía
+  // undefined SIEMPRE y este bloque no hacía nada — los 334 usuarios de
+  // producción tenían `preferredLocale` en null, sin una sola excepción, así
+  // que la preferencia de idioma no sobrevivía a cambiar de dispositivo.
+  const cookieToken = req.cookies.get('clubify_token')?.value;
+  const token =
+    (cookieToken ? decodeURIComponent(cookieToken) : null) ||
+    req.headers.get('authorization')?.replace('Bearer ', '');
   if (token) {
     const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
     fetch(`${API}/api/auth/locale`, {
