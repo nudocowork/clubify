@@ -124,12 +124,12 @@ function parsePhone(raw: string | null | undefined): {
 }
 
 const MENU_LAYOUTS: { id: MenuLayout; emoji: string; label: string; sub: string }[] = [
-  { id: 'CLASSIC', emoji: '📋', label: 'Clásico', sub: 'Foto + info, estilo Rappi/UberEats' },
-  { id: 'GRID', emoji: '🖼️', label: 'Grid', sub: 'Cuadrícula 2 columnas, fotos grandes' },
+  { id: 'CLASSIC', emoji: '📋', label: 'Clásico', sub: 'layoutClassicSub' },
+  { id: 'GRID', emoji: '🖼️', label: 'Grid', sub: 'layoutGridSub' },
   { id: 'CAROUSELS', emoji: '🎬', label: 'Carruseles', sub: 'layoutCarouselsSub' },
-  { id: 'CLEAN', emoji: '✒️', label: 'Limpio', sub: 'Sin fotos, serif elegante (boutique)' },
-  { id: 'COMPACT', emoji: '📱', label: 'Compacto', sub: 'Lista + modal con variantes (DoorDash)' },
-  { id: 'CLUVI', emoji: '🌙', label: 'Fondo oscuro', sub: 'Fondo negro + cards blancas + acentos color de marca' },
+  { id: 'CLEAN', emoji: '✒️', label: 'Limpio', sub: 'layoutCleanSub' },
+  { id: 'COMPACT', emoji: '📱', label: 'Compacto', sub: 'layoutCompactSub' },
+  { id: 'CLUVI', emoji: '🌙', label: 'Fondo oscuro', sub: 'layoutCluviSub' },
   { id: 'SECTIONS', emoji: '✨', label: 'Secciones premium', sub: 'layoutSectionsSub' },
   // FLIPBOOK ya no es un layout — el menú libro vive en su propia ruta
   // (/book/<slug>) y se administra desde /app/menu-book con su propio
@@ -494,8 +494,8 @@ export default function StorefrontEditor() {
                 unico. Vive en `theme` (JSON) y no en columna, como el resto de
                 ajustes que no necesitan migracion. */}
             <HeaderColorRow
-              label="Color del «Hecho con»"
-              hint="El sello aparece en tu menu, en la tarjeta del cliente, en el pase de wallet y en el recibo del pedido. Dejalo en automatico y se adapta al fondo; elige un color si sobre alguno de esos fondos no se lee."
+              label={t('madeWithColor')}
+              hint={t('madeWithHint')}
               value={sf.theme?.badgeColor ?? ''}
               defaultLabel="Automatico"
               defaultColor="#64748B"
@@ -506,7 +506,7 @@ export default function StorefrontEditor() {
                 { color: '#64748B', label: 'Gris' },
                 { color: '#334155', label: 'Gris oscuro' },
                 { color: '#0F172A', label: 'Negro' },
-                { color: primaryColor, label: 'Tu color' },
+                { color: primaryColor, label: t('yourColor') },
               ]}
               onChange={(v) =>
                 setSf({
@@ -1135,22 +1135,22 @@ function PopupConfig({
 
 const BACK_BTN_PRESETS: { label: string; emoji: string; cfg: BackButtonCfg }[] = [
   {
-    label: 'Negro translúcido',
+    label: 'overlayBlackSoft',
     emoji: '◼️',
     cfg: { bgColor: 'rgba(0,0,0,0.4)', iconColor: '#ffffff', shadow: 'md', size: 40 },
   },
   {
-    label: 'Blanco translúcido',
+    label: 'overlayWhiteSoft',
     emoji: '⬜',
     cfg: { bgColor: 'rgba(255,255,255,0.85)', iconColor: '#0a0a0a', shadow: 'md', size: 40 },
   },
   {
-    label: 'Negro sólido',
+    label: 'overlayBlackSolid',
     emoji: '⚫',
     cfg: { bgColor: '#0a0a0a', iconColor: '#ffffff', shadow: 'md', size: 40 },
   },
   {
-    label: 'Blanco sólido',
+    label: 'overlayWhiteSolid',
     emoji: '⚪',
     cfg: { bgColor: '#ffffff', iconColor: '#0a0a0a', shadow: 'md', size: 40 },
   },
@@ -1218,10 +1218,10 @@ function BackButtonEditor({
               type="button"
               onClick={() => onChange(p.cfg)}
               className="flex flex-col items-center gap-1 px-1 py-2 rounded-lg border-2 border-line hover:border-brand text-[10px] transition"
-              title={p.label}
+              title={t(p.label as any)}
             >
               <span className="text-base">{p.emoji}</span>
-              <span className="leading-tight text-center">{p.label}</span>
+              <span className="leading-tight text-center">{t(p.label as any)}</span>
             </button>
           ))}
         </div>

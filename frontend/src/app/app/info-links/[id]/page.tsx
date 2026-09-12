@@ -780,7 +780,7 @@ export default function InfoLinkEditor() {
               <button
                 className={`btn-ghost text-sm ${atButtonCap ? 'opacity-60' : ''}`}
                 onClick={addButton}
-                title={atButtonCap ? 'Límite del plan Gratis — mejora a PRO' : undefined}
+                title={atButtonCap ? t('freePlanCap') : undefined}
               >
                 <Icon name="plus" /> {t('button')}
               </button>
@@ -1816,6 +1816,7 @@ function PublicLinkPreview({
  *  con PRO". Solo se activa para negocios INFOLINK+FREE (freemium Sellea); el
  *  resto ve el panel normal. El upgrade real (Stripe) llega en 2D. */
 function ProLock({ active, feature, upgradeUrl, children }: { active: boolean; feature: string; upgradeUrl?: string | null; children: ReactNode }) {
+  const t = useTranslations('app_info_links_id');
   if (!active) return <>{children}</>;
   return (
     <div className="relative">
@@ -1828,7 +1829,7 @@ function ProLock({ active, feature, upgradeUrl, children }: { active: boolean; f
           // Con el Payment Link configurado (INFOLINK_PRO) llevamos directo al
           // checkout; sin él, solo avisamos (marca sin cobro PRO configurado).
           if (upgradeUrl) window.open(upgradeUrl, '_blank', 'noopener,noreferrer');
-          else alert(`${feature} está disponible con PRO. Mejora tu plan para desbloquearlo.`);
+          else alert(t('proOnly', { feature }));
         }}
         className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-xl"
         style={{ background: 'rgba(255,251,247,.62)', backdropFilter: 'blur(1px)' }}

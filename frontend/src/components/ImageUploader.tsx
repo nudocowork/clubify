@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { Icon } from './Icon';
 // getToken canónico: prioriza el overlay de impersonación por pestaña sobre la
 // cookie base. La copia cookie-only de antes daba 401 en /media/upload al subir
@@ -33,6 +34,7 @@ export function ImageUploader({
   maxSizeMb?: number;
   minDimensionWarn?: boolean;
 }) {
+  const t = useTranslations('image_uploader');
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -192,7 +194,7 @@ export function ImageUploader({
               type="button"
               className="btn-ghost text-xs"
               onClick={() => setCropSrc(value)}
-              title="Re-encuadrar la imagen actual sin volver a subir"
+              title={t('reframe')}
             >
               <Icon name="search" size={12} /> Ajustar
             </button>
@@ -269,6 +271,7 @@ function CropperModal({
   onConfirm: (blob: Blob) => void;
   onCancel: () => void;
 }) {
+  const t = useTranslations('image_uploader');
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -589,7 +592,7 @@ function CropperModal({
               }}
               disabled={!imgLoaded || exporting}
               className="text-xs text-mute hover:text-ink"
-              title="Volver al encuadre original"
+              title={t('resetCrop')}
             >
               ↺ Centrar
             </button>
@@ -602,7 +605,7 @@ function CropperModal({
               }}
               disabled={!imgLoaded || exporting}
               className="text-xs text-mute hover:text-ink"
-              title="Mostrar la imagen completa con margen blanco"
+              title={t('showWhole')}
             >
               ⤢ Encajar todo
             </button>

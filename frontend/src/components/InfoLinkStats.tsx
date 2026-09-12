@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { useTranslations } from 'next-intl';
 import { Icon } from '@/components/Icon';
 
 type Overview = {
@@ -57,6 +58,7 @@ const Kpi = ({
  *  - variant="full": KPIs + top botones + tabla por InfoLink (para /app/estadisticas).
  */
 export function InfoLinkStats({ variant }: { variant: 'dashboard' | 'full' }) {
+  const t = useTranslations('infolink_stats');
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -72,16 +74,16 @@ export function InfoLinkStats({ variant }: { variant: 'dashboard' | 'full' }) {
   return (
     <div>
       <div className="grid gap-3.5 grid-cols-2 md:grid-cols-4 mb-6">
-        <Kpi label="Visitas" value={loading ? '…' : data?.views ?? 0} sub="últimos 30 días" icon="trend-up" tone="brand" />
-        <Kpi label="Clics en botones" value={loading ? '…' : data?.clicks ?? 0} sub="últimos 30 días" icon="spark" tone="info" />
-        <Kpi label="Escaneos QR" value={loading ? '…' : data?.qrScans ?? 0} sub="últimos 30 días" icon="qr" tone="neutral" />
-        <Kpi label="WhatsApp abiertos" value={loading ? '…' : data?.whatsappClicks ?? 0} sub="últimos 30 días" icon="send" tone="ok" />
+        <Kpi label={t('visits')} value={loading ? '…' : data?.views ?? 0} sub={t('last30')} icon="trend-up" tone="brand" />
+        <Kpi label={t('buttonClicks')} value={loading ? '…' : data?.clicks ?? 0} sub={t('last30')} icon="spark" tone="info" />
+        <Kpi label={t('qrScans')} value={loading ? '…' : data?.qrScans ?? 0} sub={t('last30')} icon="qr" tone="neutral" />
+        <Kpi label={t('whatsappOpened')} value={loading ? '…' : data?.whatsappClicks ?? 0} sub={t('last30')} icon="send" tone="ok" />
       </div>
 
       <div className="grid gap-3.5 grid-cols-1 md:grid-cols-3 mb-6">
-        <Kpi label="Botón más usado" value={loading ? '…' : topLabel} sub={data?.topButton ? `${data.topButton.count} clics` : 'sin clics aún'} icon="check" tone="brand" />
-        <Kpi label="InfoLinks activas" value={loading ? '…' : `${data?.activeLinks ?? 0} / ${data?.links ?? 0}`} sub="publicadas" icon="grid" tone="neutral" />
-        <Kpi label="Visitas históricas" value={loading ? '…' : data?.totalViewsAllTime ?? 0} sub="acumulado total" icon="history" tone="info" />
+        <Kpi label={t('topButton')} value={loading ? '…' : topLabel} sub={data?.topButton ? t('clicksCount', { count: data.topButton.count }) : t('noClicksYet')} icon="check" tone="brand" />
+        <Kpi label={t('activeInfoLinks')} value={loading ? '…' : `${data?.activeLinks ?? 0} / ${data?.links ?? 0}`} sub={t('published')} icon="grid" tone="neutral" />
+        <Kpi label={t('allTimeVisits')} value={loading ? '…' : data?.totalViewsAllTime ?? 0} sub={t('allTimeTotal')} icon="history" tone="info" />
       </div>
 
       {variant === 'dashboard' && (
@@ -102,11 +104,11 @@ export function InfoLinkStats({ variant }: { variant: 'dashboard' | 'full' }) {
         <>
           {/* Top botones */}
           <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
-            Botones más usados
+            {t('topButtons')}
           </h2>
           <div className="card card-pad mb-6">
             {!data || data.topButtons.length === 0 ? (
-              <div className="text-sm text-mute">Aún no hay clics registrados en los últimos 30 días.</div>
+              <div className="text-sm text-mute">{t('noClicks')}</div>
             ) : (
               <div className="space-y-2">
                 {data.topButtons.map((b) => {
@@ -144,8 +146,10 @@ export function InfoLinkStats({ variant }: { variant: 'dashboard' | 'full' }) {
                 {(!data || data.perLink.length === 0) && (
                   <tr>
                     <td colSpan={4} className="px-4 py-6 text-center text-mute">
-                      Todavía no creaste ninguna InfoLink.{' '}
-                      <Link href="/app/info-links" className="text-brand font-semibold">Crear una →</Link>
+                      {t('noneCreated')}{' '}
+                      <Link href="/app/info-links" className="text-brand font-semibold">
+                        {t('createOne')}
+                      </Link>
                     </td>
                   </tr>
                 )}

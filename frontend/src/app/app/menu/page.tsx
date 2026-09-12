@@ -3467,6 +3467,7 @@ function NuevaCartaModal({
   onClose: () => void;
   onCreada: (id: string) => void;
 }) {
+  const t = useTranslations('app_menu');
   const [nombre, setNombre] = useState('');
   const [duplicar, setDuplicar] = useState(true);
   const [origen, setOrigen] = useState<string | null>(null);
@@ -3476,7 +3477,7 @@ function NuevaCartaModal({
 
   async function crear() {
     if (nombre.trim().length < 2) {
-      toast('Ponle un nombre a la carta.', 'error');
+      toast(t('needMenuName'), 'error');
       return;
     }
     setGuardando(true);
@@ -3529,7 +3530,7 @@ function NuevaCartaModal({
             className="mt-0.5"
           />
           <div>
-            <div className="text-sm font-semibold">Copiar un menú que ya tengo</div>
+            <div className="text-sm font-semibold">{t('copyExistingMenu')}</div>
             <div className="text-[11px] text-mute leading-snug">
               Trae categorías, productos, variantes y extras. Después ocultas o
               cambias lo que no aplique en esa sede.
