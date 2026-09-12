@@ -51,6 +51,8 @@ export interface FinancialSummary {
   ingresosCount: number;
   /** Cobros devueltos en el período (no restan; se informan aparte). */
   refundedUsd: number;
+  /** Apuntes anulados en el período: nunca fueron un cobro. */
+  canceledUsd: number;
   /** Bruto por clase de ingreso: NUEVA, RENOVACION, UPGRADE, OTRO. */
   porCategoria: Record<string, { count: number; grossUsd: number }>;
 }
@@ -132,6 +134,7 @@ export class FinanceReportService {
       utilidadUsd,
       ingresosCount: inc.count,
       refundedUsd: inc.refundedUsd,
+      canceledUsd: inc.canceledUsd,
       porCategoria: inc.porCategoria,
     };
   }

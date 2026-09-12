@@ -55,6 +55,8 @@ export type Cascada = {
   ingresosCount: number;
   /** Cobros devueltos en el período. No restan: ya no suman. */
   refundedUsd?: number;
+  /** Apuntes anulados: nunca fueron un cobro. No es lo mismo que devuelto. */
+  canceledUsd?: number;
   /** Bruto por clase de ingreso: NUEVA, RENOVACION, UPGRADE, OTRO. */
   porCategoria?: Record<string, { count: number; grossUsd: number }>;
 };
@@ -223,7 +225,8 @@ export function PanoramaPeriodo({
     costos > 0 ||
     (r.comisionesGeneradasUsd ?? 0) > 0 ||
     (r.comisionesPendientesUsd ?? 0) > 0 ||
-    (r.refundedUsd ?? 0) > 0;
+    (r.refundedUsd ?? 0) > 0 ||
+    (r.canceledUsd ?? 0) > 0;
 
   // Las clases de ingreso, de mayor a menor. `SIN_CATEGORIA` es el respaldo de
   // las filas anteriores a que existiera la columna: se enseña en vez de
@@ -246,14 +249,26 @@ export function PanoramaPeriodo({
             <strong>De <span className="capitalize">{nombrePeriodo}</span> no
             hay ningún cobro registrado.</strong>{' '}
             El primer aviso de pago que guarda el sistema es del 13 de junio de
-            2026; de antes no quedó el detalle de ninguna venta. Hubo negocio —
-            lo que falta es el registro, no el dinero, y solo se puede consultar
-            en el informe de ventas de Hotmart.
+            2026; de antes no quedó el detalle de ninguna venta.
           </p>
-          <p className="text-xs text-mute mt-1.5">
-            Lo que sí existe de estos meses —comisiones, egresos, nómina— se ve
-            abajo con normalidad.
-          </p>
+          {(r.comisionesGeneradasUsd ?? 0) > 0 ? (
+            // No es un mes sin ventas: las comisiones las prueban. Decir «no hay
+            // cobros» a secas hacía pensar que no pasó nada, y lo que falta es
+            // el apunte, no el negocio.
+            <p className="text-sm mt-1.5">
+              Pero <strong>sí hubo ventas</strong>: generaron{' '}
+              <strong>{money(r.comisionesGeneradasUsd ?? 0)}</strong> en comisiones,
+              y esas sí están registradas. Mira la pestaña Comisiones para ver de
+              qué negocios y de qué días. El dinero entró — lo que falta es el
+              apunte del cobro, y solo se puede consultar en el informe de ventas
+              de Hotmart.
+            </p>
+          ) : (
+            <p className="text-sm mt-1.5">
+              Si hubo ventas, solo se pueden consultar en el informe de ventas de
+              Hotmart.
+            </p>
+          )}
         </div>
       )}
 
@@ -372,6 +387,16 @@ export function PanoramaPeriodo({
                 <p className="text-[11px] text-mute mt-1">
                   Devuelto en el período: <strong className="text-ink">{money(r.refundedUsd)}</strong>{' '}
                   (reembolsos y contracargos; ya no suman en lo bruto).
+                </p>
+              )}
+              {/* Anulado ≠ devuelto. Un reembolso es dinero que entró y se
+                  devolvió; una anulación es un apunte que nunca fue un cobro.
+                  Con la misma etiqueta, abril decía «devuelto $150» de una
+                  venta que jamás ocurrió. */}
+              {!!r.canceledUsd && (
+                <p className="text-[11px] text-mute mt-1">
+                  Anulado en el período: <strong className="text-ink">{money(r.canceledUsd)}</strong>{' '}
+                  (apuntes sin respaldo de ninguna pasarela; no eran cobros).
                 </p>
               )}
             </div>

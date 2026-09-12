@@ -27,7 +27,7 @@ async function main() {
   const report = new FinanceReportService(prisma as never, income, expense);
   const movs = new MovementsService(prisma as never);
 
-  for (const periodo of ['2026-05', '2026-06', '2026-09', '2026-T3', 'todo']) {
+  for (const periodo of ['2026-04', '2026-05', '2026-09', 'todo']) {
     const r = limitesDelPeriodo(periodo) ?? {};
     const s = await report.summary(true, r.from, r.to);
     console.log(`\n════ ${periodo}   (${r.from?.toISOString().slice(0, 10) ?? '—'} → ${r.to?.toISOString().slice(0, 10) ?? '—'})`);

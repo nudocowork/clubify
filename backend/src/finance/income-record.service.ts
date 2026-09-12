@@ -262,11 +262,16 @@ export class IncomeRecordService {
         category: true,
       },
     });
-    // Un reembolso o una cancelación NO son dinero que entró: se separan del
-    // total en vez de borrarse, para que el histórico siga siendo auditable y
-    // se pueda ver cuánto se devolvió.
+    // Un reembolso o una anulación NO son dinero que entró: se separan del
+    // total en vez de borrarse, para que el histórico siga siendo auditable.
+    //
+    // Y se separan ENTRE SÍ: un reembolso es dinero que entró y se devolvió;
+    // una anulación es un apunte que nunca debió existir. Contarlos bajo la
+    // misma etiqueta hacía que abril dijera «devuelto $150» de un cobro que
+    // jamás ocurrió.
     const cobrados = rows.filter((r) => r.status === 'PAGADO');
-    const devueltos = rows.filter((r) => r.status !== 'PAGADO');
+    const devueltos = rows.filter((r) => r.status === 'REEMBOLSADO');
+    const anulados = rows.filter((r) => r.status === 'CANCELADO');
     let gross = 0,
       fee = 0,
       tax = 0,
@@ -294,11 +299,14 @@ export class IncomeRecordService {
       netReceivedUsd: round2(netRecv),
       pendingRecon: cobrados.filter((r) => r.reconStatus === 'PENDING').length,
       inReview: cobrados.filter((r) => r.reconStatus === 'REVIEW').length,
-      /** Lo que se devolvió en el período (no suma en ninguna otra línea). */
+      /** Dinero que entró y se devolvió (reembolso o contracargo). */
       refundedCount: devueltos.length,
       refundedUsd: round2(
         devueltos.reduce((a, r) => a + Number(r.grossUsd), 0),
       ),
+      /** Apuntes anulados: nunca fueron un cobro. No son un reembolso. */
+      canceledCount: anulados.length,
+      canceledUsd: round2(anulados.reduce((a, r) => a + Number(r.grossUsd), 0)),
       porCategoria,
     };
   }
