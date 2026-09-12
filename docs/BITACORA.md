@@ -8,6 +8,112 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-12 (2) — Contabilidad: veía 3 de 20 cobros, y restaba deuda como gasto
+
+Septiembre salía en **$0,00 de ventas y −$225,60 de utilidad** con el dinero ya
+cobrado y en la base. Eran tres fallos distintos. Todos medidos contra
+producción antes de tocar una línea.
+
+### 1. Qué significa «Clubify» — y por qué ayer se vació el módulo
+
+Contabilidad resolvía la plataforma como `whiteLabelId IS NULL`, **en 12
+sitios**. Eso era cierto cuando Clubify no tenía fila propia en `WhiteLabel`;
+hoy la tiene y todo lo que se cobra lleva SU id. El resto del backend
+(`cobros.service`, `brand-scope.util`, el reconciliador del Onboarding) ya
+resolvía Clubify como «mi id **O** legacy null». Contabilidad no.
+
+Con las dos convenciones conviviendo, el **backfill del 11-sep** —que atribuyó
+9 ingresos huérfanos a su marca real para arreglar el «Pagos procesados $0» de
+Jhon— hizo desaparecer esos mismos ingresos de Contabilidad. **Septiembre pasó
+de $1.758,50 a $62,98 sin que nadie borrara un registro.** Es una regresión
+causada aquí, el día anterior.
+
+Ahora todo pasa por `backend/src/finance/alcance-de-marca.ts`.
+
+**Trampa que aparece con el arreglo, y que hay que conocer:** el fragmento de
+marca y el `enRangoConRespaldo` de `where-periodo` usan **los dos la clave
+`OR`**. Con el `{ ...a, ...b }` de antes, el segundo borraba al primero — y
+borrar el filtro de marca es una fuga entre negocios, muda. Por eso existe
+`combinar()`: mete cada fragmento en un `AND`. **Si añades un `where` a
+finance, úsalo.**
+
+### 2. Comisión generada ≠ comisión pagada
+
+La cascada restaba TODA comisión no rechazada, estuviera pagada o no. En
+septiembre eso eran **$225,60 de deuda con afiliados contados como gasto ya
+hecho** — de ahí la utilidad negativa. Ahora resta lo **pagado**, por su fecha
+de pago (lo que salió del banco), y enseña aparte lo generado y lo pendiente.
+
+Septiembre cierra en **+$1.006,58**.
+
+### 3. Lo que nunca llegó al libro
+
+El ingreso se escribe con un `void this.incomeRecord.record(...)`: si esa
+promesa falla, o el proceso se reinicia, o el pago llegó sin cuenta y se activó
+por otro camino, **el cobro se queda en la pasarela y no avisa nadie**.
+
+`ConciliadorDeIngresosService` recorre los eventos que ya guardan Hotmart,
+Stripe, Cross y los pagos manuales, y escribe lo que falte **pasando siempre
+por el mismo `record()`** — el único `(gateway, externalTxId)` hace imposible
+duplicar. Cron diario a las 4 UTC (11 PM Bogotá, después del de cobros),
+endpoint `POST /admin/contabilidad/conciliar-ingresos?simular=1` y un botón en
+la pestaña Conciliación que **primero simula**.
+
+Aplicado el 12-sep: **2 cobros recuperados ($249,03)** y **2 reembolsos** que
+seguían sumando. Segunda pasada: 0 cambios.
+
+### Lo que se aplicó en producción
+
+- Migración aditiva `apply-income-category-migration.cjs`: `category`,
+  `status`, `refundedAt` en `IncomeRecord`. **Texto, no enum**, para poder
+  añadir clases sin migrar. 120 filas rellenadas desde lo ya guardado.
+- Conciliación: +2 ingresos, 2 marcados REEMBOLSADO, 1 referencia de relleno
+  (`backfill-last-<tenantId>`) sustituida por la factura real de Stripe.
+
+### Cifras después de todo (scope Clubify)
+
+| período | bruto | cobros | comis. pagadas | utilidad |
+|---|---|---|---|---|
+| 2026-09 | $1.817,53 | 19 | $309,30 | **$1.006,58** |
+| 2026-08 | $4.548,75 | 36 | $303,90 | $3.015,17 |
+| 2026-07 | $4.938,61 | 39 | $337,70 | $3.276,53 |
+| 2026-T3 | $11.304,89 | 94 | $950,90 | $7.298,28 |
+| todo | $14.968,18 | 115 | $1.217,40 | $9.683,99 |
+
+El trimestre da **exactamente** la suma de sus tres meses (comprobado).
+
+### Lo que NO se pudo recuperar, y por qué
+
+- **`Expense` y `PayrollRun` están vacías de verdad.** 0 filas, ninguna fuente
+  de la que reconstruirlas. Los egresos y la nómina nunca se cargaron. No es un
+  fallo del módulo: es que no hay dato. Hay 17 categorías de gasto y 3
+  colaboradores creados, esperando movimientos.
+- **13 `PendingHotmartPayment` sin consumir** = compras reales que no llegaron
+  a crear negocio. Tres son de `info@medicenache.com` (julio, agosto,
+  septiembre, ~$99 cada una). Solo la de septiembre entró al libro; **las de
+  julio y agosto siguen fuera** porque el conciliador solo mira eventos, y
+  cerrar eso es decidir si esas compras son ingreso de Clubify o hay que
+  devolverlas. **Pendiente de decisión, no de código.**
+- **5 negocios de septiembre** (Chillin, Slata, BLIC, Moa café, Oh! Cookies)
+  con `lastChargeAt` y sin ingreso: cuatro se activaron **sin pasar por
+  pasarela** (`hotmartSubscriberCode` con prefijo `wl-`, `purchasedAt` null).
+  No hay pago que registrar. El quinto, Chillin, sí pagó y ya está recuperado.
+
+### Riesgos y cabos sueltos
+
+- La **regla del importe** de un cobro recuperado: precio pactado del negocio →
+  canónico de su periodicidad → el del payload **solo si Hotmart dice USD**.
+  Sigue la política del 2026-09-03 (contabilidad refleja el PLAN, no el monto
+  FX). Chillin pagó 137,65 PAB y entra como los **$150** de su trimestral.
+- Las **comisiones no se acotan por marca** (decisión v1 que ya existía): son
+  el costo de afiliados de la plataforma entera. Si mañana una marca blanca
+  paga comisiones propias, esta línea miente. **Es territorio de Jhon.**
+- El conciliador **no toca los packs de créditos** (tienen su propio precio):
+  si algún día se cae uno, hay que recuperarlo por su camino.
+
+37 pruebas nuevas en `backend/src/finance/contabilidad.spec.ts`, una por punto
+de la lista del prompt.
+
 ## 2026-09-12 — El panel no se traducía: 20 pantallas y el menú lateral
 
 DÓNDE JEANK (`donde-jeank`) está en `en-US` y decía que el panel «le tradujo
