@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { CabeceraDeEquipo } from '@/components/ventas/CabeceraDeEquipo';
 import { toast } from '@/components/Toast';
 
 type Columna = {
@@ -195,17 +196,7 @@ export default function TableroDelEquipo() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">
-          <Link href="/admin/sales-teams" className="text-mute hover:text-ink">
-            Equipos de ventas
-          </Link>{' '}
-          <span className="page-crumb">/ {datos.team.name}</span>
-        </h1>
-        {!datos.puedeEscribir && (
-          <span className="text-xs text-mute">Tu rol aquí es de solo lectura</span>
-        )}
-      </div>
+      <CabeceraDeEquipo equipo={datos.team} soloLectura={!datos.puedeEscribir} />
 
       {datos.truncado && (
         <p className="text-xs text-amber-700 mb-3">

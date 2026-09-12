@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { SalesTeamsService } from './sales-teams.service';
 import { SalesTeamsController } from './sales-teams.controller';
 import { SalesLeadsService } from './sales-leads.service';
+import { ResumenDeEquipoService } from './resumen-de-equipo.service';
 import { SalesLeadsController } from './sales-leads.controller';
 import { SalesAgendaService } from './sales-agenda.service';
 import {
@@ -23,6 +24,7 @@ import { MarketingModule } from '../marketing/marketing.module';
   imports: [CrmModule, MarketingModule, SalesInboxModule],
   providers: [
     SalesTeamsService,
+    ResumenDeEquipoService,
     SalesLeadsService,
     SalesAgendaService,
     SalesChatService,

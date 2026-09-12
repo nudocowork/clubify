@@ -110,12 +110,14 @@ export function TarjetaDeEquipo({
         >
           {equipo.name.trim().charAt(0).toUpperCase()}
         </span>
-        <button onClick={onAbrirMiembros} className="text-left flex-1 min-w-0 hover:opacity-80 transition">
+        {/* El nombre lleva al equipo. Los miembros se gestionan desde su
+            propio botón: son dos cosas distintas y antes compartían clic. */}
+        <Link href={`/admin/sales-teams/${equipo.id}`} className="flex-1 min-w-0 hover:opacity-80 transition">
           <div className="font-semibold truncate">{equipo.name}</div>
           <div className="text-xs text-mute truncate">
             {equipo.leadUser ? equipo.leadUser.fullName : 'Sin líder asignado'}
           </div>
-        </button>
+        </Link>
         <span
           className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
             equipo.isActive === false
@@ -128,7 +130,9 @@ export function TarjetaDeEquipo({
       </div>
 
       <div className="px-4 pb-2 text-xs text-mute">
-        {equipo.memberCount === 1 ? '1 colaborador' : `${equipo.memberCount} colaboradores`}
+        <button onClick={onAbrirMiembros} className="hover:text-ink hover:underline transition">
+          {equipo.memberCount === 1 ? '1 colaborador' : `${equipo.memberCount} colaboradores`}
+        </button>
       </div>
 
       <div className="flex border-t border-line2 divide-x divide-line2">
@@ -176,13 +180,7 @@ const COLUMNAS: Columna[] = [
   { clave: 'contactos', etiqueta: 'Contactos' },
 ];
 
-export function TablaComparar({
-  equipos,
-  onAbrirMiembros,
-}: {
-  equipos: EquipoConCifras[];
-  onAbrirMiembros: (id: string) => void;
-}) {
+export function TablaComparar({ equipos }: { equipos: EquipoConCifras[] }) {
   const [orden, setOrden] = useState<Columna['clave']>('ventas');
 
   const filas = useMemo(
@@ -263,9 +261,9 @@ export function TablaComparar({
                       </td>
                     ))}
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => onAbrirMiembros(e.id)} className="text-xs font-semibold text-brand hover:underline">
+                      <Link href={`/admin/sales-teams/${e.id}`} className="text-xs font-semibold text-brand hover:underline">
                         Abrir
-                      </button>
+                      </Link>
                     </td>
                   </tr>
                 );

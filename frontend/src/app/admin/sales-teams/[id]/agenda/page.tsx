@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { CabeceraDeEquipo } from '@/components/ventas/CabeceraDeEquipo';
 import { toast } from '@/components/Toast';
 
 type Franja = {
@@ -195,17 +196,7 @@ export default function AgendaDelEquipo() {
 
   return (
     <div className="max-w-4xl">
-      <div className="page-head">
-        <h1 className="page-title">
-          <Link href="/admin/sales-teams" className="text-mute hover:text-ink">
-            Equipos de ventas
-          </Link>{' '}
-          <span className="page-crumb">/ {horario.team.name} · Agenda</span>
-        </h1>
-        <Link href={`/admin/sales-teams/${teamId}/board`} className="btn-ghost text-sm">
-          Ver tablero
-        </Link>
-      </div>
+      <CabeceraDeEquipo equipo={{ ...horario.team, id: teamId }} />
 
       {/* ── Enlace público ─────────────────────────────────────────────── */}
       <section className="card card-pad mb-4">

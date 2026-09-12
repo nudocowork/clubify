@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   IsArray,
@@ -17,6 +18,7 @@ import {
   Min,
 } from 'class-validator';
 import { SalesLeadsService } from './sales-leads.service';
+import { ResumenDeEquipoService } from './resumen-de-equipo.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import {
   CurrentUser,
@@ -75,7 +77,30 @@ class NotaBody {
 @Controller('sales-teams/:teamId')
 @Roles('PLATFORM_OWNER', 'SUPER_ADMIN', 'TENANT_OWNER', 'TENANT_STAFF')
 export class SalesLeadsController {
-  constructor(private svc: SalesLeadsService) {}
+  constructor(
+    private svc: SalesLeadsService,
+    private resumen: ResumenDeEquipoService,
+  ) {}
+
+  /**
+   * El Resumen del equipo. Cuelga de aquí y no de `admin/sales-teams` porque
+   * es una vista POR EQUIPO: los mismos roles y el mismo prefijo que el resto
+   * de pantallas del equipo, y `resolveTeamAccess` dentro.
+   */
+  @Get('resumen')
+  resumenDelEquipo(
+    @CurrentUser() user: AuthUser,
+    @Param('teamId') teamId: string,
+    @Query('desde') desde?: string,
+    @Query('hasta') hasta?: string,
+  ) {
+    const d = desde ? new Date(desde) : undefined;
+    const h = hasta ? new Date(hasta) : undefined;
+    return this.resumen.resumen(user, teamId, {
+      desde: d && !Number.isNaN(d.getTime()) ? d : undefined,
+      hasta: h && !Number.isNaN(h.getTime()) ? h : undefined,
+    });
+  }
 
   @Get('board')
   tablero(@CurrentUser() user: AuthUser, @Param('teamId') teamId: string) {
