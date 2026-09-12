@@ -8,6 +8,81 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-12 — El panel no se traducía: 20 pantallas y el menú lateral
+
+DÓNDE JEANK (`donde-jeank`) está en `en-US` y decía que el panel «le tradujo
+algunas cosas, pero no todo». Tenía razón, y la causa no era la que parecía.
+
+**Los archivos de traducción están completos**: 5.684 claves en español y las
+mismas 5.684 en inglés, cero huecos. El problema es que había **pantallas que
+nunca preguntaban por ellas** — texto escrito a mano en el JSX.
+
+### Lo que se arregló (todo desplegado)
+
+- **El menú lateral entero** (`AppShell`): 65 etiquetas y 13 secciones. No
+  importaba `useTranslations` en absoluto. **Es lo primero que se ve** y
+  explica de lleno la queja: navegación en español, pantallas en inglés.
+- **Las 20 pantallas** que no pasaban por el traductor: el inicio del panel,
+  los 5 carteles QR, club (2), alianzas (2), servicios, workflows, analítica,
+  historial de pedidos, duplicados, mensajes, historial de sellos,
+  estadísticas de InfoLink.
+- **La paleta de comandos** (Ctrl+K), el **aviso de prueba y de mora**, el
+  **panel de ayuda** con sus 18 preguntas, las **13 plantillas de mensajes**,
+  el **catálogo de insignias**, el **editor de carteles QR** (164 textos) y
+  una veintena de archivos más.
+
+### Trampas que aparecieron, por si vuelven
+
+- **Medir por tildes deja fuera media aplicación.** El primer detector solo
+  miraba acentos y por eso no vio el menú («Pedidos», «Clientes», «Eventos»).
+  El detector bueno mira la FORMA del texto:
+  `scratchpad/detector2.py` en la sesión; conviene rehacerlo si hace falta.
+- **Texto pegado a un dato.** Varios mapas guardaban la etiqueta junto al
+  valor: `STATUS_LABEL` (texto + color), el catálogo de insignias (texto que
+  se COPIA a la base al crear), los disparadores de workflows. La etiqueta
+  sale del traductor; el mapa guarda solo el tipo o el color.
+- **El color decidido por el texto.** En alianzas, la etiqueta se pintaba
+  verde comparando contra la palabra «Activa»: traducirla la habría dejado
+  gris para siempre. Ahora decide el estado.
+- **Fechas y días con `'es-CO'` clavado.** Salían «vie, 12» en un panel en
+  inglés. Y los nombres de los días del mapa de calor los manda el BACKEND en
+  español: se rehacen en el frontend con `Intl`.
+- **Nombres de moneda y de país**: `Intl.DisplayNames` los da en los tres
+  idiomas. Cero claves que mantener.
+- **Helpers que no pueden usar hooks** (`layerLabel`, `stepSummary`): reciben
+  el traductor como argumento.
+- **Colisión de nombres**: en el editor de QR, la variable de cada fila se
+  llamaba `t`, igual que el traductor.
+
+### Lo que NO está traducido (medido, no estimado)
+
+- **Panel de administración: 186 textos en 14 archivos.** `BrandWorkflowsPanel`
+  (44), `EmailMarketingWorkflows` (40), `PremiumDashboard` (21)… El negocio no
+  ve nada de esto.
+- **Otros: 149 en 15 archivos** — sobre todo `EmailTemplateEditor` (67), la
+  landing (`HeroTrio`) y el InfoLink público.
+- **Panel del negocio: quedan 51** en 11 archivos, casi todos etiquetas
+  sueltas (zonas horarias, secuencias del CRM, un par de placeholders).
+
+### Y también, del mismo día
+
+- **`/api/locale` no guardaba nunca la preferencia**: buscaba el token en una
+  cookie `jwt` que no existe (se llama `clubify_token`). Se veía sin margen de
+  duda: **334 usuarios, los 334 con `preferredLocale` en null.**
+- **Los pases de wallet** caen al idioma del negocio si el cliente no eligió
+  uno, y las **6 automatizaciones de fábrica** tienen versión en inglés.
+
+### Tres fugas de marca encontradas y NO arregladas
+
+Se avisan porque no eran del encargo:
+
+1. El pie del **panel de ayuda** lleva el WhatsApp (`573167689240`) y el correo
+   (`hola@soyclubify.com`) de Clubify escritos a mano. Un negocio de Sellea
+   que pide ayuda ahí nos escribe a nosotros.
+2. El **asistente del chat** (`SupportWidget`) se presenta como «el asistente
+   de Clubify» aunque el negocio sea de otra marca.
+3. `AppShell` tiene «Modo plataforma · Fidelity» escrito a mano.
+
 ## 2026-09-11 (3) — Imprimir, push que se colgaba, pagos invisibles, idioma
 
 Todo desplegado salvo lo que se dice.
