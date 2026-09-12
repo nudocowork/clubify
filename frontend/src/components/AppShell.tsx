@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { api, clearSession, getUser, getImpersonationBackup, stopImpersonation } from '@/lib/api';
 import { Icon } from './Icon';
+import { useTranslations } from 'next-intl';
 import { NotificationBell } from './NotificationBell';
 import { TrialBanner } from './TrialBanner';
 import { CommandPalette, CommandHint } from './CommandPalette';
@@ -139,6 +140,9 @@ export default function AppShell({
   /** Nombre de la marca resuelto en el SERVIDOR → título del panel sin flash. */
   serverBrandName?: string | null;
 }) {
+  // El menú lateral estaba escrito a mano en español: 65 etiquetas y 13
+  // secciones que no pasaban por el traductor. Es lo primero que se ve.
+  const tNav = useTranslations('app_nav');
   const router = useRouter();
   const pathname = usePathname();
   const branding = useBranding();
@@ -656,50 +660,50 @@ export default function AppShell({
       ? (() => {
           const adminGroups: NavGroup[] = [
             {
-              section: 'Principal',
+              section: tNav('secMain'),
               items: [
-                { href: '/admin', label: 'Dashboard', icon: 'grid' },
-                { href: '/admin/tenants', label: 'Negocios', icon: 'store' },
+                { href: '/admin', label: tNav('dashboard'), icon: 'grid' },
+                { href: '/admin/tenants', label: tNav('businesses'), icon: 'store' },
                 // Exclusivo Sellea: lista SOLO los negocios "Solo InfoLink"
                 // (Gratis y PRO), definidos por su plan. Freemium Sellea.
-                { href: '/admin/infolinks', label: 'InfoLink', icon: 'spark', selleaOnly: true },
-                { href: '/admin/pending-payments', label: 'Pagos sin activar', icon: 'bell', hideForMarketing: true, clubifyOnly: true },
+                { href: '/admin/infolinks', label: tNav('infoLink'), icon: 'spark', selleaOnly: true },
+                { href: '/admin/pending-payments', label: tNav('unactivatedPayments'), icon: 'bell', hideForMarketing: true, clubifyOnly: true },
                 // Cobranza manual (Nequi/efectivo/transferencia): vencidos que
                 // hay que perseguir o desconectar a mano. Vale para TODAS las
                 // marcas (el backend aísla por marca) → sin clubifyOnly.
-                { href: '/admin/pagos-manuales', label: 'Pagos por fuera', icon: 'cash', hideForMarketing: true },
-                { href: '/admin/business-groups', label: 'Grupos Empresariales', icon: 'store', hideForMarketing: true, clubifyOnly: true },
-                { href: '/admin/map', label: 'Mapa', icon: 'pin', hideForMarketing: true },
+                { href: '/admin/pagos-manuales', label: tNav('externalPayments'), icon: 'cash', hideForMarketing: true },
+                { href: '/admin/business-groups', label: tNav('businessGroups'), icon: 'store', hideForMarketing: true, clubifyOnly: true },
+                { href: '/admin/map', label: tNav('map'), icon: 'pin', hideForMarketing: true },
                 // Trials es exclusivo de Clubify: las marcas blancas no tienen
                 // periodo de prueba (se activan por créditos), así que se oculta
                 // para cualquier marca ≠ clubify (mismo gating que Branding).
-                { href: '/admin/trials', label: 'Trials', icon: 'gift', clubifyOnly: true },
+                { href: '/admin/trials', label: tNav('trials'), icon: 'gift', clubifyOnly: true },
               ],
             },
             {
-              section: 'Programa',
+              section: tNav('secProgram'),
               items: [
-                { href: '/admin/referrals', label: 'Referidos', icon: 'gift', hideForMarketing: true },
-                { href: '/admin/commissions', label: 'Comisiones', icon: 'trend-up', hideForMarketing: true },
+                { href: '/admin/referrals', label: tNav('referrals'), icon: 'gift', hideForMarketing: true },
+                { href: '/admin/commissions', label: tNav('commissions'), icon: 'trend-up', hideForMarketing: true },
                 // Auditoría de duplicados: herramienta interna del ledger de
                 // comisiones de Clubify (cruces con Hotmart, códigos
                 // sintéticos, pagos que no casan). Una marca blanca no tiene
                 // ese historial ni nada que auditar ahí.
-                { href: '/admin/commissions/audit', label: 'Auditoría duplicados', icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
-                { href: '/admin/payouts', label: 'Pagos a afiliados', icon: 'card', hideForMarketing: true },
-                { href: '/admin/reports/ambassadors', label: 'Reporte embajadores', icon: 'trend-up', hideForMarketing: true },
-                { href: '/admin/reports/vendors', label: 'Reporte vendedores', icon: 'trend-up', hideForMarketing: true },
-                { href: '/admin/rankings', label: 'Rankings', icon: 'spark', hideForMarketing: true },
-                { href: '/admin/support-materials', label: 'Material de apoyo', icon: 'spark' },
+                { href: '/admin/commissions/audit', label: tNav('duplicatesAudit'), icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
+                { href: '/admin/payouts', label: tNav('affiliatePayouts'), icon: 'card', hideForMarketing: true },
+                { href: '/admin/reports/ambassadors', label: tNav('ambassadorReport'), icon: 'trend-up', hideForMarketing: true },
+                { href: '/admin/reports/vendors', label: tNav('sellerReport'), icon: 'trend-up', hideForMarketing: true },
+                { href: '/admin/rankings', label: tNav('rankings'), icon: 'spark', hideForMarketing: true },
+                { href: '/admin/support-materials', label: tNav('salesMaterial'), icon: 'spark' },
               ],
             },
             {
               // FINANZAS (Contabilidad): centro financiero de Clubify — ingreso
               // real por transacción (bruto/fee/impuesto/neto), egresos, nómina,
               // comisiones y utilidad. Solo Clubify (su propia contabilidad).
-              section: 'Finanzas',
+              section: tNav('secFinance'),
               items: [
-                { href: '/admin/contabilidad', label: 'Contabilidad', icon: 'cash', hideForMarketing: true, clubifyOnly: true },
+                { href: '/admin/contabilidad', label: tNav('accounting'), icon: 'cash', hideForMarketing: true, clubifyOnly: true },
               ],
             },
             {
@@ -709,20 +713,20 @@ export default function AppShell({
               // abiertos a las marcas la sección se volvía visible sin
               // sentido. La sección desaparece entera al quedarse sin items
               // (`filter(g => g.items.length > 0)` más abajo).
-              section: 'Ventas',
+              section: tNav('secSales'),
               items: [
-                { href: '/admin/industries', label: 'Industrias', icon: 'grid', clubifyOnly: true },
+                { href: '/admin/industries', label: tNav('industries'), icon: 'grid', clubifyOnly: true },
                 // Equipos de ventas: deja de ser exclusivo de Clubify. Ahora
                 // lo enciende cada marca desde /superadmin/modulos, y el
                 // backend lo comprueba de verdad (`team-access.ts`) — esconder
                 // el menú no era protección.
-                { href: '/admin/sales-teams', label: 'Equipos de ventas', icon: 'users', hideForMarketing: true, requiresBrandModule: 'SALES_TEAMS' },
-                { href: '/admin/sales-leaderboard', label: 'Leaderboard CRM', icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
-                { href: '/admin/ventas/difusion', label: 'Difusión interna', icon: 'spark', hideForMarketing: true, clubifyOnly: true },
+                { href: '/admin/sales-teams', label: tNav('salesTeams'), icon: 'users', hideForMarketing: true, requiresBrandModule: 'SALES_TEAMS' },
+                { href: '/admin/sales-leaderboard', label: tNav('crmLeaderboard'), icon: 'trend-up', hideForMarketing: true, clubifyOnly: true },
+                { href: '/admin/ventas/difusion', label: tNav('internalBroadcast'), icon: 'spark', hideForMarketing: true, clubifyOnly: true },
               ],
             },
             {
-              section: 'Sistema',
+              section: tNav('secSystem'),
               items: [
                 // Fase 3 (#6/#7): sección Créditos solo para admins de marca
                 // blanca no-ilimitada (showCredits). Badge = negocios
@@ -731,7 +735,7 @@ export default function AppShell({
                   ? [
                       {
                         href: '/admin/creditos',
-                        label: 'Créditos',
+                        label: tNav('credits'),
                         icon: 'card' as const,
                         badge:
                           pendingCreditsCount > 0
@@ -741,35 +745,35 @@ export default function AppShell({
                       },
                     ]
                   : []),
-                { href: '/admin/users', label: 'Administradores', icon: 'users', hideForMarketing: true },
+                { href: '/admin/users', label: tNav('admins'), icon: 'users', hideForMarketing: true },
                 // Academia — videos-tutorial por módulo (por marca).
-                { href: '/admin/academia', label: '🎓 Academia', icon: 'spark', hideForMarketing: true },
+                { href: '/admin/academia', label: tNav('academy'), icon: 'spark', hideForMarketing: true },
                 // Automatizaciones (mensajes SMS/WhatsApp editables + carpetas).
                 // Solo si la marca tiene el módulo GROW_BUSINESS_SMS habilitado.
-                { href: '/admin/automatizaciones', label: 'Automatizaciones', icon: 'bell', hideForMarketing: true, requiresBrandModule: 'GROW_BUSINESS_SMS' },
+                { href: '/admin/automatizaciones', label: tNav('automations'), icon: 'bell', hideForMarketing: true, requiresBrandModule: 'GROW_BUSINESS_SMS' },
                 // Historial de envíos (MessageLog): qué salió, a quién y qué
                 // falló. Mismo gate que Automatizaciones — es su contracara.
-                { href: '/admin/mensajes', label: 'Mensajes enviados', icon: 'history', hideForMarketing: true, requiresBrandModule: 'GROW_BUSINESS_SMS' },
+                { href: '/admin/mensajes', label: tNav('sentMessages'), icon: 'history', hideForMarketing: true, requiresBrandModule: 'GROW_BUSINESS_SMS' },
                 // #5: Branding e Integraciones SMS son config de PLATAFORMA
                 // (landing de Clubify, tabla Setting global). Una marca blanca
                 // gestiona su identidad desde Master Admin → Marcas, no acá, así
                 // que se ocultan para marcas que no sean Clubify.
-                { href: '/admin/branding', label: 'Branding', icon: 'spark', clubifyOnly: true },
-                { href: '/admin/integrations', label: 'Integraciones SMS', icon: 'spark', clubifyOnly: true },
+                { href: '/admin/branding', label: tNav('branding'), icon: 'spark', clubifyOnly: true },
+                { href: '/admin/integrations', label: tNav('smsIntegrations'), icon: 'spark', clubifyOnly: true },
                 // #4: Categorías + IA Knowledge ocultos (no relevantes para
                 // el usuario final). #5: Mantenimiento + Audit movidos a
                 // Master Admin (/superadmin) exclusivamente.
               ],
             },
             {
-              section: 'Comunidad',
+              section: tNav('secCommunity'),
               items: [
                 // Item 13 sprint: review queue + métricas de las propuestas.
                 // Accesible a MARKETING (no requiere hideForMarketing).
                 // Comunidad/Lab se gatea por el módulo COMMUNITY de la marca
                 // (Fase 4): visible solo si la marca lo tiene habilitado.
-                { href: '/admin/lab', label: '🧪 Lab Admin', icon: 'spark' },
-                { href: '/lab', label: 'Ver Lab público', icon: 'spark' },
+                { href: '/admin/lab', label: tNav('labAdmin'), icon: 'spark' },
+                { href: '/lab', label: tNav('viewPublicLab'), icon: 'spark' },
               ],
             },
           ];
@@ -820,7 +824,7 @@ export default function AppShell({
               {
                 section: '',
                 items: [
-                  { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag' as IconName },
+                  { href: '/app/orders', label: tNav('orders'), icon: 'shopping-bag' as IconName },
                 ],
               },
             ] as NavGroup[];
@@ -832,21 +836,21 @@ export default function AppShell({
             return [
               {
                 section: '',
-                items: [{ href: '/app', label: 'Dashboard', icon: 'grid' as IconName }],
+                items: [{ href: '/app', label: tNav('dashboard'), icon: 'grid' as IconName }],
               },
               {
-                section: 'InfoLink',
+                section: tNav('infoLink'),
                 items: [
-                  { href: '/app/info-links', label: 'InfoLink', icon: 'spark' as IconName },
-                  { href: '/app/marketing/qr-infolink', label: 'QR InfoLink', icon: 'qr' as IconName },
-                  { href: '/app/estadisticas', label: 'Estadísticas', icon: 'history' as IconName },
+                  { href: '/app/info-links', label: tNav('infoLink'), icon: 'spark' as IconName },
+                  { href: '/app/marketing/qr-infolink', label: tNav('qrInfoLink'), icon: 'qr' as IconName },
+                  { href: '/app/estadisticas', label: tNav('stats'), icon: 'history' as IconName },
                 ],
               },
               {
-                section: 'Cuenta',
+                section: tNav('secAccount'),
                 items: [
-                  { href: '/app/billing', label: 'Suscripción', icon: 'card' as IconName },
-                  { href: '/app/settings', label: 'Configuraciones', icon: 'gear' as IconName },
+                  { href: '/app/billing', label: tNav('subscription'), icon: 'card' as IconName },
+                  { href: '/app/settings', label: tNav('settings'), icon: 'gear' as IconName },
                 ],
               },
             ] as NavGroup[];
@@ -870,20 +874,20 @@ export default function AppShell({
             // Dashboard standalone (sin header)
             {
               section: '',
-              items: [{ href: '/app', label: 'Dashboard', icon: 'grid' }],
+              items: [{ href: '/app', label: tNav('dashboard'), icon: 'grid' }],
             },
             {
-              section: 'Tarjetas de fidelización',
+              section: tNav('secLoyalty'),
               items: [
-                { href: '/app/cards', label: 'Tarjetas', icon: 'card', module: 'cards' },
-                { href: '/app/customers', label: 'Clientes', icon: 'users', module: 'customers' },
-                { href: '/scan', label: 'Escáner', icon: 'qr', module: 'scanner' },
+                { href: '/app/cards', label: tNav('cards'), icon: 'card', module: 'cards' },
+                { href: '/app/customers', label: tNav('customers'), icon: 'users', module: 'customers' },
+                { href: '/scan', label: tNav('scanner'), icon: 'qr', module: 'scanner' },
                 // Wallet V3 — Historial de sellos, si la marca lo permite.
                 ...(tenantInfo?.walletAdvanced?.showHistory !== false
-                  ? [{ href: '/app/historial-sellos', label: 'Historial de sellos', icon: 'clock' as const }]
+                  ? [{ href: '/app/historial-sellos', label: tNav('stampHistory'), icon: 'clock' as const }]
                   : []),
-                { href: '/app/notifications', label: 'Push', icon: 'bell', module: 'push' },
-                { href: '/app/reviews', label: 'Reseña de Google', icon: 'spark' },
+                { href: '/app/notifications', label: tNav('push'), icon: 'bell', module: 'push' },
+                { href: '/app/reviews', label: tNav('googleReview'), icon: 'spark' },
                 // Alianzas: un estilo de tarjeta propio, no un tipo dentro del
                 // asistente de tarjetas. Solo si el módulo está encendido para
                 // este negocio.
@@ -891,7 +895,7 @@ export default function AppShell({
                   ? [
                       {
                         href: '/app/alianzas',
-                        label: 'Alianzas',
+                        label: tNav('alliances'),
                         icon: 'users' as const,
                       },
                     ]
@@ -903,7 +907,7 @@ export default function AppShell({
                   ? [
                       {
                         href: '/app/club',
-                        label: 'Tarjeta de Club',
+                        label: tNav('clubCard'),
                         icon: 'card' as const,
                       },
                     ]
@@ -915,14 +919,14 @@ export default function AppShell({
             ...(tenantInfo?.reservationsEnabled
               ? [
                   {
-                    section: 'Reservas',
-                    badge: 'NUEVO',
+                    section: tNav('secReservations'),
+                    badge: tNav('badgeNew'),
                     items: [
-                      { href: '/app/reservations', label: 'Agenda del día', icon: 'calendar' as const },
-                      { href: '/app/reservations/plano', label: 'Plano de mesas', icon: 'menu' as const },
-                      { href: '/app/reservations/eventos', label: 'Eventos', icon: 'spark' as const },
-                      { href: '/app/reservations/online', label: 'Reserva online', icon: 'qr' as const },
-                      { href: '/app/reservations/reportes', label: 'Reportes', icon: 'spark' as const },
+                      { href: '/app/reservations', label: tNav('todaysAgenda'), icon: 'calendar' as const },
+                      { href: '/app/reservations/plano', label: tNav('tableMap'), icon: 'menu' as const },
+                      { href: '/app/reservations/eventos', label: tNav('events'), icon: 'spark' as const },
+                      { href: '/app/reservations/online', label: tNav('onlineBooking'), icon: 'qr' as const },
+                      { href: '/app/reservations/reportes', label: tNav('reports'), icon: 'spark' as const },
                     ],
                   },
                 ]
@@ -932,25 +936,25 @@ export default function AppShell({
             ...(tenantInfo?.serviceReservationsEnabled
               ? [
                   {
-                    section: 'Reservas de servicios',
-                    badge: 'NUEVO',
+                    section: tNav('secServices'),
+                    badge: tNav('badgeNew'),
                     items: [
-                      { href: '/app/servicios', label: 'Servicios y agenda', icon: 'calendar' as const },
+                      { href: '/app/servicios', label: tNav('servicesAgenda'), icon: 'calendar' as const },
                     ],
                   },
                 ]
               : []),
             {
-              section: 'Marketing',
+              section: tNav('secMarketing'),
               items: [
                 // QR de la sección principal — siempre visible. La categoría
                 // del negocio solo cambia el label ("Menú" / "Servicios" /
                 // "Tratamientos"), no la visibilidad del item.
                 { href: '/app/marketing/qr-menu', label: `QR ${menuLabel}` , icon: 'menu' },
-                { href: '/app/marketing/qr-counter', label: 'QR Mostrador', icon: 'card' },
-                { href: '/app/marketing/qr-discount', label: 'QR Descuento', icon: 'gift' },
-                { href: '/app/marketing/qr-reviews', label: 'QR Reseñas', icon: 'spark' },
-                { href: '/app/marketing/qr-infolink', label: 'QR Infolink', icon: 'spark' },
+                { href: '/app/marketing/qr-counter', label: tNav('qrCounter'), icon: 'card' },
+                { href: '/app/marketing/qr-discount', label: tNav('qrDiscount'), icon: 'gift' },
+                { href: '/app/marketing/qr-reviews', label: tNav('qrReviews'), icon: 'spark' },
+                { href: '/app/marketing/qr-infolink', label: tNav('qrInfoLink'), icon: 'spark' },
               ],
             },
             {
@@ -960,22 +964,22 @@ export default function AppShell({
                 // y el QR adaptan al rubro pero el módulo no se oculta por
                 // categoría (cualquier negocio puede usar el menú digital).
                 { href: '/app/menu', label: menuLabel, icon: 'menu' },
-                { href: '/app/menu-book', label: 'Menú Libro', icon: 'book' },
-                { href: '/app/translations', label: 'Traducciones', icon: 'spark' },
-                { href: '/app/orders', label: 'Pedidos', icon: 'shopping-bag', module: 'orders' },
-                { href: '/app/analytics', label: 'Analítica', icon: 'history', module: 'analytics' },
+                { href: '/app/menu-book', label: tNav('bookMenu'), icon: 'book' },
+                { href: '/app/translations', label: tNav('translations'), icon: 'spark' },
+                { href: '/app/orders', label: tNav('orders'), icon: 'shopping-bag', module: 'orders' },
+                { href: '/app/analytics', label: tNav('analytics'), icon: 'history', module: 'analytics' },
               ],
             },
             {
-              section: 'Cuenta',
+              section: tNav('secAccount'),
               items: [
-                { href: '/app/staff', label: 'Equipo de trabajo', icon: 'users', module: 'staff' },
-                { href: '/app/billing', label: 'Suscripción', icon: 'card' },
-                { href: '/app/settings', label: 'Configuraciones', icon: 'gear' },
+                { href: '/app/staff', label: tNav('staff'), icon: 'users', module: 'staff' },
+                { href: '/app/billing', label: tNav('subscription'), icon: 'card' },
+                { href: '/app/settings', label: tNav('settings'), icon: 'gear' },
                 // "Referidos" se gatea por el módulo REFERRALS de la MARCA del
                 // negocio. Si la marca lo tiene apagado (ej. Sellea) no aparece.
                 ...(tenantInfo?.referralsEnabled !== false
-                  ? [{ href: '/app/referrals', label: 'Referidos', icon: 'gift' as const }]
+                  ? [{ href: '/app/referrals', label: tNav('referrals'), icon: 'gift' as const }]
                   : []),
               ],
             },
@@ -985,7 +989,7 @@ export default function AppShell({
             ...(tenantInfo?.communityEnabled !== false
               ? [
                   {
-                    section: 'Comunidad',
+                    section: tNav('secCommunity'),
                     items: [
                       // Clubify Lab — propuestas y votación pública. Accesible a
                       // todos los roles autenticados (item 13 sprint).
@@ -1000,7 +1004,7 @@ export default function AppShell({
                         ? [
                             {
                               href: 'https://academy.soyclubify.lat/cliente',
-                              label: '🎓 Tutoriales',
+                              label: tNav('tutorials'),
                               icon: 'book' as IconName,
                               external: true,
                             },
@@ -1507,7 +1511,7 @@ export default function AppShell({
                 router.push('/admin');
               }}
               className="ml-auto bg-amber-950 text-amber-100 px-3 py-1 rounded-md text-xs font-semibold hover:bg-amber-900 transition"
-              title="Volver al admin (desde ahí puedes cambiar de subcuenta con el switcher del sidebar)"
+              title={tNav('backToAdmin')}
             >
               ← Volver al admin
             </button>
