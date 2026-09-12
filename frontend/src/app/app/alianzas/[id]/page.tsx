@@ -6,6 +6,9 @@ import { EnlaceConQr } from '@/components/EnlaceConQr';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { DisenoTarjeta } from './DisenoTarjeta';
+import { useTranslations, useLocale } from 'next-intl';
+
+type Traductor = ReturnType<typeof useTranslations<'app_alianza'>>;
 
 type Cupon = {
   id: string;
@@ -50,15 +53,25 @@ type Tarjeta = {
   createdAt: string;
 };
 
+// Solo los tipos: el texto lo pone el traductor.
 const TIPOS = [
-  { v: 'PERCENT_OFF', t: 'Porcentaje de descuento' },
-  { v: 'AMOUNT_OFF', t: 'Descuento en dinero' },
-  { v: 'FREEBIE', t: 'Algo gratis' },
-  { v: 'TWO_FOR_ONE', t: '2x1' },
-  { v: 'OTHER', t: 'Otro' },
+  'PERCENT_OFF',
+  'AMOUNT_OFF',
+  'FREEBIE',
+  'TWO_FOR_ONE',
+  'OTHER',
 ] as const;
+const TIPO_CLAVE: Record<(typeof TIPOS)[number], string> = {
+  PERCENT_OFF: 'typePercent',
+  AMOUNT_OFF: 'typeAmount',
+  FREEBIE: 'typeFreebie',
+  TWO_FOR_ONE: 'typeTwoForOne',
+  OTHER: 'typeOther',
+};
 
 export default function AlianzaDetalle() {
+  const t = useTranslations('app_alianza');
+  const locale = useLocale();
   const { id } = useParams<{ id: string }>();
   const [c, setC] = useState<Convenio | null>(null);
   const [enlaces, setEnlaces] = useState<{ activacion: string; portal: string } | null>(
@@ -91,7 +104,7 @@ export default function AlianzaDetalle() {
         setLista(await api(`/convenios/${id}/lista`));
       }
     } catch (e: any) {
-      toast(e.message || 'No pudimos cargar la alianza', 'error');
+      toast(e.message || t('loadError'), 'error');
     }
   }, [id]);
 
@@ -99,16 +112,16 @@ export default function AlianzaDetalle() {
     cargar();
   }, [cargar]);
 
-  async function patchConvenio(body: Record<string, unknown>, aviso = 'Guardado') {
+  async function patchConvenio(body: Record<string, unknown>, aviso?: string) {
     try {
       await api(`/convenios/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
       await cargar();
       // Confirmar SIEMPRE. El código se guarda al salir del campo y la vigencia
       // al elegir la fecha: sin un aviso, el dueño no tiene forma de saber si
       // quedó, y acaba tocándolo dos veces por si acaso.
-      toast(aviso, 'success');
+      toast(aviso ?? t('saved'), 'success');
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar', 'error');
+      toast(e.message || t('saveError'), 'error');
     }
   }
 
@@ -120,7 +133,7 @@ export default function AlianzaDetalle() {
       });
       await cargar();
     } catch (e: any) {
-      toast(e.message || 'No se pudo cambiar', 'error');
+      toast(e.message || t('changeError'), 'error');
     }
   }
 
@@ -142,19 +155,19 @@ export default function AlianzaDetalle() {
       setNuevo(null);
       await cargar();
     } catch (e: any) {
-      toast(e.message || 'No se pudo crear el beneficio', 'error');
+      toast(e.message || t('createBenefitError'), 'error');
     }
   }
 
-  async function bloquear(t: Tarjeta) {
+  async function bloquear(tarjeta: Tarjeta) {
     try {
-      await api(`/convenios/tarjetas/${t.id}/bloqueo`, {
+      await api(`/convenios/tarjetas/${tarjeta.id}/bloqueo`, {
         method: 'PATCH',
-        body: JSON.stringify({ bloquear: t.status !== 'BLOCKED' }),
+        body: JSON.stringify({ bloquear: tarjeta.status !== 'BLOCKED' }),
       });
       await cargar();
     } catch (e: any) {
-      toast(e.message || 'No se pudo cambiar', 'error');
+      toast(e.message || t('changeError'), 'error');
     }
   }
 
@@ -164,42 +177,36 @@ export default function AlianzaDetalle() {
    * compañero— dejaba fuera a la persona legítima para siempre. Bloquear no
    * servía: bloqueada tampoco se puede volver a activar.
    */
-  async function corregirDocumento(t: Tarjeta) {
+  async function corregirDocumento(tarjeta: Tarjeta) {
     const nuevo = prompt(
-      `Documento con el que ${t.nombre} activó su tarjeta.\n\n` +
-        'Si se equivocó al escribirlo, no puede volver a entrar: al reintentar, ' +
-        'el que teclea no coincide con este. Corrígelo y podrá.',
-      t.documento ?? '',
+      t('promptDocument', { name: tarjeta.nombre }),
+      tarjeta.documento ?? '',
     );
-    if (nuevo === null || nuevo.trim() === (t.documento ?? '')) return;
+    if (nuevo === null || nuevo.trim() === (tarjeta.documento ?? '')) return;
     try {
-      await api(`/convenios/tarjetas/${t.id}/documento`, {
+      await api(`/convenios/tarjetas/${tarjeta.id}/documento`, {
         method: 'PATCH',
         body: JSON.stringify({ documento: nuevo.trim() }),
       });
-      toast('Documento corregido', 'success');
+      toast(t('documentFixed'), 'success');
       await cargar();
     } catch (e: any) {
-      toast(e.message || 'No se pudo corregir', 'error');
+      toast(e.message || t('documentError'), 'error');
     }
   }
 
-  async function liberar(t: Tarjeta) {
+  async function liberar(tarjeta: Tarjeta) {
     if (
-      !confirm(
-        `Se borrará la tarjeta de ${t.nombre} y su pase del teléfono, y esa ` +
-          'persona podrá volver a activar desde cero con el enlace.\n\n' +
-          'Es para cuando activó quien no debía. ¿Liberar?',
-      )
+      !confirm(t('confirmRelease', { name: tarjeta.nombre }))
     ) {
       return;
     }
     try {
-      await api(`/convenios/tarjetas/${t.id}`, { method: 'DELETE' });
-      toast('Tarjeta liberada. Ya puede volver a activar.', 'success');
+      await api(`/convenios/tarjetas/${tarjeta.id}`, { method: 'DELETE' });
+      toast(t('released'), 'success');
       await cargar();
     } catch (e: any) {
-      toast(e.message || 'No se pudo liberar', 'error');
+      toast(e.message || t('releaseError'), 'error');
     }
   }
 
@@ -213,16 +220,16 @@ export default function AlianzaDetalle() {
   return (
     <div className="max-w-4xl mx-auto">
       <Link href="/app/alianzas" className="text-xs text-mute hover:underline">
-        ← Alianzas
+        {t('back')}
       </Link>
 
       <header className="mt-2 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">{c.name}</h1>
           <p className="mt-1 text-sm text-mute">
-            {c._count.tarjetas}{' '}
-            {c._count.tarjetas === 1 ? 'empleado activó' : 'empleados activaron'} su
-            tarjeta
+            {c._count.tarjetas === 1
+              ? t('oneActivated')
+              : t('manyActivated', { count: c._count.tarjetas })}
           </p>
         </div>
         {!finalizada && (
@@ -237,27 +244,23 @@ export default function AlianzaDetalle() {
                   // pero sin decirlo el dueño reanuda, ve desaparecer el aviso
                   // ámbar y se queda con los siete beneficios apagados sin
                   // ninguna pista de que falta un paso.
-                  c.status === 'PAUSED'
-                    ? 'Alianza reanudada. Enciende los beneficios que quieras volver a dar.'
-                    : 'Alianza en pausa. Se apagaron todos los beneficios.',
+                  c.status === 'PAUSED' ? t('resumed') : t('pausedToast'),
                 )
               }
             >
-              {c.status === 'PAUSED' ? 'Reanudar' : 'Pausar'}
+              {c.status === 'PAUSED' ? t('resume') : t('pause')}
             </button>
             <button
               className="btn"
               onClick={() => {
                 if (
-                  confirm(
-                    'Finalizar la alianza apaga todos los beneficios y NO se puede deshacer. Las tarjetas y el historial se conservan. ¿Seguro?',
-                  )
+                  confirm(t('confirmFinish'))
                 ) {
                   patchConvenio({ status: 'FINISHED' });
                 }
               }}
             >
-              Finalizar
+              {t('finish')}
             </button>
           </div>
         )}
@@ -265,41 +268,39 @@ export default function AlianzaDetalle() {
 
       {finalizada && (
         <p className="mt-4 rounded-input bg-bg2 px-4 py-3 text-sm text-mute">
-          Esta alianza está finalizada. No se puede reabrir: si vuelven a
-          acordarla, crea una nueva con las condiciones que pacten.
+          {t('finishedNote')}
         </p>
       )}
       {c.status === 'PAUSED' && (
         <p className="mt-4 rounded-input bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          En pausa: no se canjea nada y nadie nuevo puede activar su tarjeta.
+          {t('pausedNote')}
         </p>
       )}
 
       {/* ── Los dos enlaces ── */}
       <section className="card card-pad mt-5">
-        <h2 className="font-medium">Enlaces</h2>
+        <h2 className="font-medium">{t('links')}</h2>
         <EnlaceConQr
-          titulo="Para los empleados"
-          nota="Es el que la empresa reparte entre su gente. Se puede reenviar sin problema: quién puede activar lo decide la verificación, no el enlace."
+          titulo={t('forEmployees')}
+          nota={t('forEmployeesNote')}
           url={enlaces?.activacion}
           archivo={`alianza-${c.slug}-empleados`}
         />
         <EnlaceConQr
-          titulo="Para la empresa aliada"
-          nota="Con este enciende y apaga SUS beneficios y da de baja a quien se va. No lo repartas: pásaselo solo a quien lo maneja."
+          titulo={t('forCompany')}
+          nota={t('forCompanyNote')}
           url={enlaces?.portal}
           archivo={`alianza-${c.slug}-portal-aliado`}
           accion={
             <button
               className="text-xs text-mute hover:underline"
               onClick={async () => {
-                if (!confirm('El enlace actual dejará de funcionar. ¿Generar uno nuevo?'))
-                  return;
+                if (!confirm(t('confirmRotate'))) return;
                 setEnlaces(await api(`/convenios/${id}/enlaces/rotar`, { method: 'POST' }));
-                toast('Enlace nuevo generado', 'success');
+                toast(t('rotated'), 'success');
               }}
             >
-              Generar uno nuevo
+              {t('rotate')}
             </button>
           }
         />
@@ -321,29 +322,29 @@ export default function AlianzaDetalle() {
         // apagados haría de la vista previa una promesa falsa.
         beneficiosVivos={c.cupones
           .filter((x) => x.isActive && x.activoAliado && !x.agotado)
-          .map(resumen)}
+          .map((x) => resumen(t, locale, x))}
       />
 
       {/* ── Verificación ── */}
       <section className="card card-pad mt-4">
-        <h2 className="font-medium">Cómo se comprueba quién trabaja ahí</h2>
+        <h2 className="font-medium">{t('verificationTitle')}</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div>
-            <label className="label">Método</label>
+            <label className="label">{t('method')}</label>
             <select
               className="input"
               disabled={finalizada}
               value={c.verificacion}
               onChange={(e) => patchConvenio({ verificacion: e.target.value })}
             >
-              <option value="CODIGO">Código que reparte la empresa</option>
-              <option value="LISTA">Lista de documentos o correos</option>
-              <option value="ABIERTO">Cualquiera con el enlace</option>
+              <option value="CODIGO">{t('methodCode')}</option>
+              <option value="LISTA">{t('methodList')}</option>
+              <option value="ABIERTO">{t('methodOpen')}</option>
             </select>
           </div>
           {c.verificacion === 'CODIGO' && (
             <div>
-              <label className="label">Código vigente</label>
+              <label className="label">{t('currentCode')}</label>
               <input
                 className="input font-mono"
                 disabled={finalizada}
@@ -355,16 +356,14 @@ export default function AlianzaDetalle() {
                 }}
               />
               <p className="mt-1 text-[11px] leading-snug text-mute">
-                Cambiarlo cierra la puerta a quien lo tenga filtrado, pero no
-                echa a nadie que ya activó su tarjeta.
+                {t('codeHint')}
               </p>
             </div>
           )}
         </div>
         {c.verificacion === 'ABIERTO' && (
           <p className="mt-2 text-[11px] leading-snug text-amber-700">
-            Cualquiera que reciba el enlace obtiene el beneficio, trabaje o no en
-            la empresa.
+            {t('openWarning')}
           </p>
         )}
 
@@ -374,23 +373,23 @@ export default function AlianzaDetalle() {
         {c.verificacion === 'LISTA' && (
           <div className="mt-4 rounded-input bg-bg2 p-4">
             <div className="flex items-baseline justify-between gap-3">
-              <h3 className="text-sm font-medium">Quién puede activar</h3>
+              <h3 className="text-sm font-medium">{t('whoCanActivate')}</h3>
               <span className="text-xs text-mute">
-                {lista.length} en la lista ·{' '}
-                {lista.filter((x) => x.usedAt).length} ya activaron
+                {t('listCount', {
+                  total: lista.length,
+                  usados: lista.filter((x) => x.usedAt).length,
+                })}
               </span>
             </div>
             <p className="mt-1 text-[11px] leading-snug text-mute">
-              Pega los documentos o los correos que te pase la empresa, uno por
-              línea. Se añaden a los que ya están, no los reemplazan.
+              {t('listHint')}
             </p>
             {/* El correo no se puede comprobar: no le mandamos nada a esa
                 dirección. Quien lo conozca puede activar con cualquier
                 documento. El documento sí lo coteja el cajero contra la cédula,
                 así que es lo que conviene pedirle a la empresa. */}
             <p className="mt-1 text-[11px] leading-snug text-amber-700">
-              Mejor documentos: el correo no lo verificamos, así que quien lo
-              conozca puede activar aunque no trabaje ahí.
+              {t('listWarning')}
             </p>
             <textarea
               className="input mt-2 h-28 font-mono text-xs"
@@ -409,17 +408,22 @@ export default function AlianzaDetalle() {
                       { method: 'POST', body: JSON.stringify({ texto: pegado }) },
                     );
                     toast(
-                      `${r.agregadas} añadidos${r.yaEstaban ? `, ${r.yaEstaban} ya estaban` : ''}`,
+                      r.yaEstaban
+                        ? t('addedWithExisting', {
+                            count: r.agregadas,
+                            yaEstaban: r.yaEstaban,
+                          })
+                        : t('added', { count: r.agregadas }),
                       'success',
                     );
                     setPegado('');
                     await cargar();
                   } catch (e: any) {
-                    toast(e.message || 'No se pudo cargar', 'error');
+                    toast(e.message || t('addListError'), 'error');
                   }
                 }}
               >
-                Añadir a la lista
+                {t('addToList')}
               </button>
             </div>
             {lista.length > 0 && (
@@ -430,7 +434,7 @@ export default function AlianzaDetalle() {
                       {f.documento || f.email}
                       {f.usedAt && (
                         <span className="ml-2 font-sans text-[11px] text-mute">
-                          ya activó
+                          {t('alreadyActivated')}
                         </span>
                       )}
                     </span>
@@ -445,11 +449,11 @@ export default function AlianzaDetalle() {
                           await api(`/convenios/lista/${f.id}`, { method: 'DELETE' });
                           await cargar();
                         } catch (e: any) {
-                          toast(e.message || 'No se pudo quitar', 'error');
+                          toast(e.message || t('removeError'), 'error');
                         }
                       }}
                     >
-                      Quitar
+                      {t('removeFromList')}
                     </button>
                   </li>
                 ))}
@@ -461,7 +465,7 @@ export default function AlianzaDetalle() {
 
       {/* ── Vigencia ── */}
       <section className="card card-pad mt-4">
-        <h2 className="font-medium">Hasta cuándo dura</h2>
+        <h2 className="font-medium">{t('durationTitle')}</h2>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             className={`rounded-input px-3 py-2 text-sm transition ${
@@ -470,7 +474,7 @@ export default function AlianzaDetalle() {
             disabled={finalizada}
             onClick={() => patchConvenio({ endsAt: null })}
           >
-            Ilimitada
+            {t('unlimited')}
           </button>
           <input
             className="input w-44"
@@ -485,16 +489,16 @@ export default function AlianzaDetalle() {
         <p className="mt-2 text-[11px] leading-snug text-mute">
           {c.endsAt
             ? vencida
-              ? 'Venció: no se canjea ni puede activar nadie. Extiende la fecha o ponla en ilimitada si renovaron.'
-              : 'Al llegar ese día se apaga sola. Puedes extenderla cuando renueven.'
-            : 'No caduca: sigue activa hasta que la pauses o la finalices.'}
+              ? t('expiredNote')
+              : t('willExpireNote')
+            : t('neverExpiresNote')}
         </p>
       </section>
 
       {/* ── Beneficios ── */}
       <section className="card card-pad mt-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-medium">Beneficios</h2>
+          <h2 className="font-medium">{t('benefits')}</h2>
           {!finalizada && !nuevo && (
             <button
               className="btn btn-sm"
@@ -509,31 +513,29 @@ export default function AlianzaDetalle() {
                 })
               }
             >
-              Añadir
+              {t('add')}
             </button>
           )}
         </div>
         <p className="mt-1 text-xs text-mute">
-          Hay dos interruptores por beneficio: el tuyo y el de la empresa aliada.
-          Se tiene que usar solo si los dos están encendidos, y ninguno puede
-          encender el del otro.
+          {t('twoSwitches')}
         </p>
 
         {nuevo && (
           <form onSubmit={crearCupon} className="mt-3 grid gap-3 rounded-input bg-bg2 p-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="label">Nombre</label>
+                <label className="label">{t('name')}</label>
                 <input
                   className="input"
                   value={nuevo.name}
                   onChange={(e) => setNuevo({ ...nuevo, name: e.target.value })}
-                  placeholder="Almuerzo ejecutivo, Bebida…"
+                  placeholder={t('namePlaceholder')}
                   required
                 />
               </div>
               <div>
-                <label className="label">Tipo</label>
+                <label className="label">{t('type')}</label>
                 <select
                   className="input"
                   value={nuevo.tipo}
@@ -541,9 +543,9 @@ export default function AlianzaDetalle() {
                     setNuevo({ ...nuevo, tipo: e.target.value as Cupon['tipo'] })
                   }
                 >
-                  {TIPOS.map((t) => (
-                    <option key={t.v} value={t.v}>
-                      {t.t}
+                  {TIPOS.map((tipo) => (
+                    <option key={tipo} value={tipo}>
+                      {t(TIPO_CLAVE[tipo] as any)}
                     </option>
                   ))}
                 </select>
@@ -551,7 +553,9 @@ export default function AlianzaDetalle() {
               {(nuevo.tipo === 'PERCENT_OFF' || nuevo.tipo === 'AMOUNT_OFF') && (
                 <div>
                   <label className="label">
-                    {nuevo.tipo === 'PERCENT_OFF' ? 'Porcentaje' : 'Cuánto descuenta'}
+                    {nuevo.tipo === 'PERCENT_OFF'
+                      ? t('percentage')
+                      : t('howMuchOff')}
                   </label>
                   <input
                     className="input"
@@ -563,13 +567,13 @@ export default function AlianzaDetalle() {
                 </div>
               )}
               <div>
-                <label className="label">Cuántas veces por persona</label>
+                <label className="label">{t('timesPerPerson')}</label>
                 <div className="flex gap-2">
                   <input
                     className="input"
                     type="number"
                     min={1}
-                    placeholder="Sin tope"
+                    placeholder={t('noLimit')}
                     value={nuevo.maxPorPersona}
                     onChange={(e) =>
                       setNuevo({ ...nuevo, maxPorPersona: e.target.value })
@@ -582,21 +586,21 @@ export default function AlianzaDetalle() {
                       setNuevo({ ...nuevo, periodo: e.target.value as Cupon['periodo'] })
                     }
                   >
-                    <option value="SIEMPRE">en total</option>
-                    <option value="DIA">al día</option>
-                    <option value="SEMANA">a la semana</option>
-                    <option value="MES">al mes</option>
-                    <option value="ANIO">al año</option>
+                    <option value="SIEMPRE">{t('periodAlways')}</option>
+                    <option value="DIA">{t('periodDay')}</option>
+                    <option value="SEMANA">{t('periodWeek')}</option>
+                    <option value="MES">{t('periodMonth')}</option>
+                    <option value="ANIO">{t('periodYear')}</option>
                   </select>
                 </div>
               </div>
             </div>
             <div className="flex gap-2">
               <button className="btn btn-primary" type="submit">
-                Guardar beneficio
+                {t('saveBenefit')}
               </button>
               <button className="btn" type="button" onClick={() => setNuevo(null)}>
-                Cancelar
+                {t('cancel')}
               </button>
             </div>
           </form>
@@ -609,17 +613,19 @@ export default function AlianzaDetalle() {
               className="flex items-start justify-between gap-3 rounded-input border border-line px-4 py-3"
             >
               <div className="min-w-0">
-                <p className="text-sm font-medium">{resumen(x)}</p>
+                <p className="text-sm font-medium">{resumen(t, locale, x)}</p>
                 {x.description && (
                   <p className="mt-0.5 text-xs text-mute">{x.description}</p>
                 )}
                 <p className="mt-1 text-xs">
-                  <EstadoCupon c={x} status={c.status} />
+                  <EstadoCupon cupon={x} status={c.status} />
                   {x.topeTexto && (
                     <span className="ml-2 text-mute">{x.topeTexto}</span>
                   )}
                   <span className="ml-2 text-mute">
-                    {x.canjesCount} {x.canjesCount === 1 ? 'uso' : 'usos'}
+                    {x.canjesCount === 1
+                      ? t('oneUse', { count: x.canjesCount })
+                      : t('manyUses', { count: x.canjesCount })}
                   </span>
                 </p>
               </div>
@@ -633,14 +639,13 @@ export default function AlianzaDetalle() {
                     : 'border border-line text-mute'
                 }`}
               >
-                {x.isActive ? 'Encendido' : 'Apagado'}
+                {x.isActive ? t('on') : t('off')}
               </button>
             </li>
           ))}
           {c.cupones.length === 0 && !nuevo && (
             <li className="rounded-input bg-bg2 px-4 py-6 text-center text-sm text-mute">
-              Añade al menos un beneficio: hasta entonces el enlace no deja
-              activar a nadie.
+              {t('noBenefits')}
             </li>
           )}
         </ul>
@@ -648,48 +653,52 @@ export default function AlianzaDetalle() {
 
       {/* ── Empleados ── */}
       <section className="card card-pad mt-4">
-        <h2 className="font-medium">Empleados con tarjeta</h2>
+        <h2 className="font-medium">{t('employees')}</h2>
         {tarjetas.length === 0 ? (
           <p className="mt-3 rounded-input bg-bg2 px-4 py-6 text-center text-sm text-mute">
-            Todavía no ha activado nadie. Comparte el enlace de arriba con la
-            empresa.
+            {t('noEmployees')}
           </p>
         ) : (
           <ul className="mt-3 divide-y divide-line">
-            {tarjetas.map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-3 py-2.5">
+            {tarjetas.map((tarjeta) => (
+              <li
+                key={tarjeta.id}
+                className="flex items-center justify-between gap-3 py-2.5"
+              >
                 <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{t.nombre}</p>
+                  <p className="text-sm font-medium truncate">{tarjeta.nombre}</p>
                   <p className="text-xs text-mute">
-                    {t.telefono}
-                    {t.documento && ` · ${t.documento}`} · {t.canjes}{' '}
-                    {t.canjes === 1 ? 'uso' : 'usos'}
-                    {t.status === 'BLOCKED' &&
-                      ` · bloqueada por ${
-                        t.bloqueadaPor === 'aliado' ? 'la empresa' : 'ti'
-                      }`}
+                    {tarjeta.telefono}
+                    {tarjeta.documento && ` · ${tarjeta.documento}`} ·{' '}
+                    {tarjeta.canjes === 1
+                      ? t('oneUse', { count: tarjeta.canjes })
+                      : t('manyUses', { count: tarjeta.canjes })}
+                    {tarjeta.status === 'BLOCKED' &&
+                      (tarjeta.bloqueadaPor === 'aliado'
+                        ? t('blockedByCompany')
+                        : t('blockedByYou'))}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   <button
                     className="btn-ghost text-xs"
                     disabled={finalizada}
-                    onClick={() => corregirDocumento(t)}
-                    title="Se equivocó al teclear su cédula y ya no puede entrar"
+                    onClick={() => corregirDocumento(tarjeta)}
+                    title={t('idButtonTitle')}
                   >
-                    Cédula
+                    {t('idButton')}
                   </button>
                   {/* Liberar borra: solo tiene sentido cuando no hay nada que
                       perder. Con canjes el backend se niega, y aquí ni se
                       ofrece para no prometer un botón que va a fallar. */}
-                  {t.canjes === 0 && (
+                  {tarjeta.canjes === 0 && (
                     <button
                       className="btn-ghost text-xs"
                       disabled={finalizada}
-                      onClick={() => liberar(t)}
-                      title="Activó quien no debía: la borra para que pueda entrar el legítimo"
+                      onClick={() => liberar(tarjeta)}
+                      title={t('releaseTitle')}
                     >
-                      Liberar
+                      {t('release')}
                     </button>
                   )}
                 <button
@@ -697,28 +706,24 @@ export default function AlianzaDetalle() {
                   disabled={finalizada}
                   onClick={() => {
                     if (
-                      t.status === 'BLOCKED' &&
-                      t.bloqueadaPor === 'aliado' &&
-                      !confirm(
-                        'La bloqueó la empresa aliada, probablemente porque esa persona ya no trabaja ahí. ¿Reactivarla de todas formas?',
-                      )
+                      tarjeta.status === 'BLOCKED' &&
+                      tarjeta.bloqueadaPor === 'aliado' &&
+                      !confirm(t('confirmUnblockByCompany'))
                     ) {
                       return;
                     }
                     // Bloquear le apaga el pase a una persona real: no puede
                     // estar a un solo clic de distancia.
                     if (
-                      t.status !== 'BLOCKED' &&
-                      !confirm(
-                        `Se le apagará el beneficio a ${t.nombre}. Podrás reactivarlo después. ¿Bloquear?`,
-                      )
+                      tarjeta.status !== 'BLOCKED' &&
+                      !confirm(t('confirmBlock', { name: tarjeta.nombre }))
                     ) {
                       return;
                     }
-                    bloquear(t);
+                    bloquear(tarjeta);
                   }}
                 >
-                  {t.status === 'BLOCKED' ? 'Reactivar' : 'Bloquear'}
+                  {tarjeta.status === 'BLOCKED' ? t('reactivate') : t('block')}
                 </button>
                 </div>
               </li>
@@ -730,16 +735,19 @@ export default function AlianzaDetalle() {
   );
 }
 
-function resumen(x: Cupon) {
+function resumen(t: Traductor, locale: string, x: Cupon) {
   switch (x.tipo) {
     case 'PERCENT_OFF':
-      return `${x.valor}% de descuento — ${x.name}`;
+      return t('summaryPercent', { valor: x.valor, name: x.name });
     case 'AMOUNT_OFF':
-      return `$${x.valor.toLocaleString('es-CO')} de descuento — ${x.name}`;
+      return t('summaryAmount', {
+        valor: x.valor.toLocaleString(locale),
+        name: x.name,
+      });
     case 'FREEBIE':
-      return `${x.name} gratis`;
+      return t('summaryFreebie', { name: x.name });
     case 'TWO_FOR_ONE':
-      return `2x1 en ${x.name}`;
+      return t('summaryTwoForOne', { name: x.name });
     default:
       return x.name;
   }
@@ -750,17 +758,27 @@ function resumen(x: Cupon) {
  * aliada hay que decirlo: el dueño no puede encenderlo por ella y si solo
  * leyera «apagado» buscaría el fallo en su propio panel.
  */
-function EstadoCupon({ c, status }: { c: Cupon; status: Convenio['status'] }) {
+function EstadoCupon({
+  cupon,
+  status,
+}: {
+  cupon: Cupon;
+  status: Convenio['status'];
+}) {
+  const t = useTranslations('app_alianza');
   if (status === 'FINISHED')
-    return <span className="text-mute">Alianza finalizada</span>;
-  if (status === 'PAUSED') return <span className="text-mute">Alianza en pausa</span>;
-  if (c.apagadoPor === 'ambos')
-    return <span className="text-mute">Apagado por ti y por la empresa</span>;
-  if (c.apagadoPor === 'negocio')
-    return <span className="text-mute">Apagado por ti</span>;
-  if (c.apagadoPor === 'aliado')
-    return <span className="text-mute">Apagado por la empresa aliada</span>;
-  if (c.agotado) return <span className="text-mute">Agotado</span>;
-  return <span className="font-medium text-emerald-700">Activo</span>;
+    return <span className="text-mute">{t('statusFinished')}</span>;
+  if (status === 'PAUSED')
+    return <span className="text-mute">{t('statusPaused')}</span>;
+  if (cupon.apagadoPor === 'ambos')
+    return <span className="text-mute">{t('offByBoth')}</span>;
+  if (cupon.apagadoPor === 'negocio')
+    return <span className="text-mute">{t('offByYou')}</span>;
+  if (cupon.apagadoPor === 'aliado')
+    return <span className="text-mute">{t('offByCompany')}</span>;
+  if (cupon.agotado) return <span className="text-mute">{t('soldOut')}</span>;
+  return (
+    <span className="font-medium text-emerald-700">{t('statusActive')}</span>
+  );
 }
 
