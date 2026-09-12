@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { useTranslations } from 'next-intl';
 
 type Fila = {
   id: string;
@@ -39,6 +40,7 @@ type Respuesta = {
  * es una empresa de fuera.
  */
 export default function AlianzasPage() {
+  const t = useTranslations('app_alianzas');
   const [data, setData] = useState<Respuesta | null>(null);
   // `?nueva=1` abre el formulario de una: es por donde entra quien viene del
   // asistente de tarjetas («Nueva tarjeta → Alianza»), y llegar a una lista sin
@@ -108,12 +110,12 @@ export default function AlianzasPage() {
             : undefined,
         }),
       });
-      toast('Alianza creada', 'success');
+      toast(t('created'), 'success');
       setCreando(false);
       await cargar();
       window.location.href = `/app/alianzas/${nuevo.id}`;
     } catch (e: any) {
-      toast(e.message || 'No pudimos crearla', 'error');
+      toast(e.message || t('createError'), 'error');
     }
   }
 
@@ -125,16 +127,11 @@ export default function AlianzasPage() {
     return (
       <div className="card card-pad text-center py-12 max-w-2xl mx-auto">
         <Icon name="users" className="mx-auto mb-3 opacity-40" />
-        <h1 className="text-lg font-semibold">Alianzas con empresas</h1>
+        <h1 className="text-lg font-semibold">{t('title')}</h1>
         <p className="mt-2 text-sm text-mute max-w-md mx-auto">
-          Pacta un convenio con una empresa y sus empleados reciben un beneficio
-          permanente en tu local: un porcentaje de descuento, una bebida con el
-          almuerzo, un 2x1. Cada empresa recibe su propio enlace para repartir
-          entre su gente.
+          {t('lockedBody')}
         </p>
-        <p className="mt-4 text-sm text-mute">
-          Escríbenos y te lo activamos.
-        </p>
+        <p className="mt-4 text-sm text-mute">{t('lockedCta')}</p>
       </div>
     );
   }
@@ -143,40 +140,36 @@ export default function AlianzasPage() {
     <div className="max-w-4xl mx-auto">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold">Alianzas con empresas</h1>
-          <p className="mt-1 text-sm text-mute">
-            Sus empleados reciben beneficios en tu local. Cada empresa tiene un
-            enlace propio para repartir.
-          </p>
+          <h1 className="text-xl font-semibold">{t('title')}</h1>
+          <p className="mt-1 text-sm text-mute">{t('intro')}</p>
         </div>
         {data.cupoLibre > 0 && !creando && (
           <button className="btn btn-primary shrink-0" onClick={() => setCreando(true)}>
-            Nueva alianza
+            {t('new')}
           </button>
         )}
       </header>
 
       {data.cupoLibre === 0 && (
         <p className="mt-4 rounded-input bg-bg2 px-4 py-3 text-sm text-mute">
-          Tienes las {data.tope} alianzas que puedes tener a la vez. Cierra una o
-          escríbenos para ampliar el límite.
+          {t('quotaFull', { tope: data.tope })}
         </p>
       )}
 
       {creando && (
         <form onSubmit={crear} className="card card-pad mt-4 grid gap-3">
           <div>
-            <label className="label">Nombre de la empresa</label>
+            <label className="label">{t('companyName')}</label>
             <input
               className="input"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="Nombre de la empresa aliada"
+              placeholder={t('companyNamePlaceholder')}
               required
             />
           </div>
           <div>
-            <label className="label">¿Cómo compruebas que alguien trabaja ahí?</label>
+            <label className="label">{t('howToVerify')}</label>
             <select
               className="input"
               value={form.verificacion}
@@ -184,27 +177,26 @@ export default function AlianzasPage() {
                 setForm({ ...form, verificacion: e.target.value as Fila['verificacion'] })
               }
             >
-              <option value="CODIGO">Con un código que reparte la empresa</option>
-              <option value="LISTA">Solo quien esté en la lista que cargues</option>
-              <option value="ABIERTO">Cualquiera con el enlace</option>
+              <option value="CODIGO">{t('verifyCode')}</option>
+              <option value="LISTA">{t('verifyList')}</option>
+              <option value="ABIERTO">{t('verifyOpen')}</option>
             </select>
             {form.verificacion === 'ABIERTO' && (
               <p className="mt-1 text-[11px] leading-snug text-amber-700">
-                Cuidado: con esta opción, cualquiera que reciba el enlace obtiene
-                el beneficio, trabaje o no en la empresa.
+                {t('openWarning')}
               </p>
             )}
           </div>
           <hr className="border-line" />
 
           <div>
-            <label className="label">El beneficio</label>
+            <label className="label">{t('benefit')}</label>
             <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
               <input
                 className="input"
                 value={form.bNombre}
                 onChange={(e) => setForm({ ...form, bNombre: e.target.value })}
-                placeholder="Almuerzo ejecutivo, Bebida…"
+                placeholder={t('benefitPlaceholder')}
               />
               <select
                 className="input"
@@ -213,11 +205,11 @@ export default function AlianzasPage() {
                   setForm({ ...form, bTipo: e.target.value as typeof form.bTipo })
                 }
               >
-                <option value="PERCENT_OFF">% de descuento</option>
-                <option value="AMOUNT_OFF">Descuento en dinero</option>
-                <option value="FREEBIE">Gratis</option>
-                <option value="TWO_FOR_ONE">2x1</option>
-                <option value="OTHER">Otro</option>
+                <option value="PERCENT_OFF">{t('typePercent')}</option>
+                <option value="AMOUNT_OFF">{t('typeAmount')}</option>
+                <option value="FREEBIE">{t('typeFreebie')}</option>
+                <option value="TWO_FOR_ONE">{t('typeTwoForOne')}</option>
+                <option value="OTHER">{t('typeOther')}</option>
               </select>
               {(form.bTipo === 'PERCENT_OFF' || form.bTipo === 'AMOUNT_OFF') && (
                 <input
@@ -230,19 +222,18 @@ export default function AlianzasPage() {
               )}
             </div>
             <p className="mt-1 text-[11px] leading-snug text-mute">
-              Puedes añadir más beneficios después. Sin ninguno, el enlace no
-              deja activar a nadie.
+              {t('benefitHint')}
             </p>
           </div>
 
           <div>
-            <label className="label">¿Cuántas veces puede usarlo cada persona?</label>
+            <label className="label">{t('timesPerPerson')}</label>
             <div className="flex gap-2">
               <input
                 className="input"
                 type="number"
                 min={1}
-                placeholder="Sin tope"
+                placeholder={t('noLimit')}
                 value={form.bMax}
                 onChange={(e) => setForm({ ...form, bMax: e.target.value })}
               />
@@ -254,11 +245,11 @@ export default function AlianzasPage() {
                   setForm({ ...form, bPeriodo: e.target.value as typeof form.bPeriodo })
                 }
               >
-                <option value="SIEMPRE">en total</option>
-                <option value="DIA">al día</option>
-                <option value="SEMANA">a la semana</option>
-                <option value="MES">al mes</option>
-                <option value="ANIO">al año</option>
+                <option value="SIEMPRE">{t('periodAlways')}</option>
+                <option value="DIA">{t('periodDay')}</option>
+                <option value="SEMANA">{t('periodWeek')}</option>
+                <option value="MES">{t('periodMonth')}</option>
+                <option value="ANIO">{t('periodYear')}</option>
               </select>
             </div>
           </div>
@@ -266,14 +257,14 @@ export default function AlianzasPage() {
           <hr className="border-line" />
 
           <div>
-            <label className="label">Hasta cuándo dura</label>
+            <label className="label">{t('duration')}</label>
             <div className="flex gap-2">
               {(
                 [
-                  ['ILIMITADA', 'Ilimitada'],
-                  ['FECHA', 'Hasta una fecha'],
+                  ['ILIMITADA', t('unlimited')],
+                  ['FECHA', t('untilDate')],
                 ] as const
-              ).map(([v, t]) => (
+              ).map(([v, etiqueta]) => (
                 <button
                   key={v}
                   type="button"
@@ -284,7 +275,7 @@ export default function AlianzasPage() {
                       : 'border border-line text-mute'
                   }`}
                 >
-                  {t}
+                  {etiqueta}
                 </button>
               ))}
             </div>
@@ -297,14 +288,14 @@ export default function AlianzasPage() {
               />
             ) : (
               <p className="mt-2 text-[11px] leading-snug text-mute">
-                No caduca: seguirá activa hasta que la pauses o la finalices.
+                {t('neverExpires')}
               </p>
             )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="label">Contacto en la empresa (opcional)</label>
+              <label className="label">{t('contactName')}</label>
               <input
                 className="input"
                 value={form.contactName}
@@ -312,7 +303,7 @@ export default function AlianzasPage() {
               />
             </div>
             <div>
-              <label className="label">Su correo (opcional)</label>
+              <label className="label">{t('contactEmail')}</label>
               <input
                 className="input"
                 type="email"
@@ -323,10 +314,10 @@ export default function AlianzasPage() {
           </div>
           <div className="flex gap-2">
             <button className="btn btn-primary" type="submit">
-              Crear alianza
+              {t('create')}
             </button>
             <button className="btn" type="button" onClick={() => setCreando(false)}>
-              Cancelar
+              {t('cancel')}
             </button>
           </div>
         </form>
@@ -355,14 +346,24 @@ export default function AlianzasPage() {
                   // enlace responde «aún no está disponible». Sin decirlo aquí
                   // se queda olvidada creyéndose activa.
                   <p className="text-xs text-amber-700 mt-0.5">
-                    Sin beneficios aún — nadie puede activarla
+                    {t('noBenefitsYet')}
                   </p>
                 ) : (
                   <p className="text-xs text-mute mt-0.5">
-                    {c.tarjetas} {c.tarjetas === 1 ? 'empleado' : 'empleados'} ·{' '}
-                    {c.cuponesEncendidos} de {c.cupones}{' '}
-                    {c.cupones === 1 ? 'beneficio activo' : 'beneficios activos'} ·{' '}
-                    {c.canjesDelMes} este mes
+                    {c.tarjetas === 1
+                      ? t('oneEmployee', { count: c.tarjetas })
+                      : t('manyEmployees', { count: c.tarjetas })}{' '}
+                    ·{' '}
+                    {c.cupones === 1
+                      ? t('oneBenefitOn', {
+                          on: c.cuponesEncendidos,
+                          total: c.cupones,
+                        })
+                      : t('manyBenefitsOn', {
+                          on: c.cuponesEncendidos,
+                          total: c.cupones,
+                        })}{' '}
+                    · {t('redeemedThisMonth', { count: c.canjesDelMes })}
                   </p>
                 )}
               </div>
@@ -372,7 +373,7 @@ export default function AlianzasPage() {
         ))}
         {data.convenios.length === 0 && !creando && (
           <li className="card card-pad text-center py-10 text-sm text-mute">
-            Todavía no tienes alianzas.
+            {t('empty')}
           </li>
         )}
       </ul>
@@ -387,21 +388,24 @@ function EtiquetaEstado({
   status: Fila['status'];
   endsAt: string | null;
 }) {
+  const t = useTranslations('app_alianzas');
   // Vencido por fecha es DISTINTO de finalizado: se arregla extendiendo la
   // fecha, mientras que finalizado no tiene vuelta atrás.
   const vencido = !!endsAt && new Date(endsAt) <= new Date();
+  // El color se decide por el ESTADO, no por el texto: comparar contra la
+  // palabra «Activa» dejaba la etiqueta gris en cuanto se traducía.
+  const activa = status === 'ACTIVE' && !vencido;
   const texto =
     status === 'FINISHED'
-      ? 'Finalizada'
+      ? t('statusFinished')
       : status === 'PAUSED'
-        ? 'En pausa'
+        ? t('statusPaused')
         : vencido
-          ? 'Venció'
-          : 'Activa';
-  const color =
-    texto === 'Activa'
-      ? 'bg-emerald-100 text-emerald-800'
-      : 'bg-bg2 text-mute';
+          ? t('statusExpired')
+          : t('statusActive');
+  const color = activa
+    ? 'bg-emerald-100 text-emerald-800'
+    : 'bg-bg2 text-mute';
   return (
     <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${color}`}>
       {texto}
