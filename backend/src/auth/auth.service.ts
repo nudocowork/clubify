@@ -1596,11 +1596,7 @@ export class AuthService {
       referrerName = code?.ownerName ?? null;
       campaignName = code?.ownerOfCampaign?.name ?? null;
     }
-    const source = attributedReferralCodeId
-      ? 'Afiliado'
-      : dto.attribution?.viaSlug
-        ? `Landing (/ref/${dto.attribution.viaSlug})`
-        : 'Landing principal';
+    const source = await this.origenDelAlta(dto, attributedReferralCodeId);
     this.preregAlerts
       .alertSignup({
         userId: user.id,
@@ -2272,5 +2268,64 @@ export class AuthService {
         trialEndsAt: tenant.trialEndsAt,
       },
     };
+  }
+
+  /**
+   * De dónde vino un alta, según lo que se puede DEMOSTRAR.
+   *
+   * EL FALLO (2026-09-12, Javier): a Jhon le llegó «Origen: Landing principal»
+   * de una venta cerrada en una llamada. Medido contra producción: esa alta
+   * —Laly.com, 11 de septiembre— no tiene NINGUNA atribución guardada. Ni
+   * código de referido, ni `viaSlug`, ni UTM, ni referer. Ninguna de las seis
+   * altas de esos días la tiene.
+   *
+   * «Landing principal» era el `else` de la cadena, y un `else` se estaba
+   * reportando como un hecho. Es la misma clase de fallo que el `?? "Clubify"`
+   * de las fugas de marca: rellenar lo que no se sabe con lo más probable y
+   * enseñarlo como si se supiera. Quien lee el aviso decide con eso —a quién
+   * se le paga la venta— así que la diferencia entre «vino de la landing» y
+   * «no sabemos de dónde vino» no es un matiz.
+   *
+   * El orden va de la prueba más fuerte a la más débil, y si no hay ninguna lo
+   * dice. La cotización manda sobre todo lo demás: solo existe si un asesor la
+   * creó, o sea que hubo llamada.
+   */
+  private async origenDelAlta(
+    dto: {
+      quoteToken?: string;
+      attribution?: {
+        viaSlug?: string;
+        utmSource?: string;
+        utmMedium?: string;
+        utmCampaign?: string;
+        referer?: string;
+      };
+    },
+    attributedReferralCodeId: string | null | undefined,
+  ): Promise<string> {
+    const token = dto.quoteToken?.trim();
+    if (token) {
+      const q = await this.prisma.quote
+        .findUnique({
+          where: { publicToken: token },
+          select: { advisorName: true },
+        })
+        .catch(() => null);
+      return q?.advisorName
+        ? `Llamada de ventas — cotizó ${q.advisorName}`
+        : 'Llamada de ventas (cotización)';
+    }
+    if (attributedReferralCodeId) return 'Afiliado';
+
+    const a = dto.attribution ?? {};
+    if (a.viaSlug) return `Landing (/ref/${a.viaSlug})`;
+    if (a.utmSource) {
+      return `Campaña: ${a.utmSource}${a.utmCampaign ? ` · ${a.utmCampaign}` : ''}`;
+    }
+    if (a.referer) return `Enlace externo: ${a.referer}`;
+
+    // Sin una sola señal. NO se dice «landing»: no hay nada que lo respalde, y
+    // una venta por llamada llega exactamente así.
+    return 'No identificado (sin campaña ni afiliado; puede ser venta por llamada)';
   }
 }
