@@ -13,95 +13,34 @@ import { ImageUploader } from '@/components/ImageUploader';
 //                    Plantillas predefinidas
 // =============================================================
 
-type Template = { id: string; title: string; body: string };
-type TemplateGroup = {
-  id: 'special_days' | 'remarketing';
-  emoji: string;
-  name: string;
-  description: string;
-  items: Template[];
-};
 
-const TEMPLATE_GROUPS: TemplateGroup[] = [
+// Solo los IDENTIFICADORES: el texto lo pone el traductor. Son mensajes que el
+// negocio manda a SUS clientes, así que un negocio en inglés los necesita en
+// inglés — nadie va a traducir trece plantillas a mano antes de usarlas.
+const TEMPLATE_GROUPS: { id: string; emoji: string; items: string[] }[] = [
   {
     id: 'special_days',
     emoji: '🎉',
-    name: 'Días especiales',
-    description: 'Mensajes para fechas memorables del año.',
     items: [
-      {
-        id: 'birthday',
-        title: '🎂 ¡Feliz cumpleaños!',
-        body: 'Hoy te invitamos algo especial de la casa. Pasa cuando quieras.',
-      },
-      {
-        id: 'anniversary',
-        title: '🎉 Aniversario del local',
-        body: '¡Estamos celebrando! Hoy 30% off en todo. Gracias por acompañarnos.',
-      },
-      {
-        id: 'fathers_day',
-        title: '👨‍👧 Día del padre',
-        body: 'Trae a papá hoy y le invitamos su pedido favorito.',
-      },
-      {
-        id: 'mothers_day',
-        title: '💐 Día de la madre',
-        body: 'Postre gratis para mamá hoy. ¡Pasa con ella!',
-      },
-      {
-        id: 'black_friday',
-        title: '🛍 Black Friday',
-        body: '30% off en todo el menú solo hoy. Escanea tu tarjeta para activar.',
-      },
-      {
-        id: 'christmas',
-        title: '🎄 ¡Feliz Navidad!',
-        body: 'Hoy sumas 2 sellos extra en tu tarjeta. Felices fiestas.',
-      },
-      {
-        id: 'new_year',
-        title: '🎆 Año nuevo, sellos nuevos',
-        body: 'Empieza el año con 3 sellos de regalo en tu tarjeta de fidelidad.',
-      },
+      'birthday',
+      'anniversary',
+      'fathers_day',
+      'mothers_day',
+      'black_friday',
+      'christmas',
+      'new_year',
     ],
   },
   {
     id: 'remarketing',
     emoji: '🎯',
-    name: 'Remarketing',
-    description: 'Reactiva clientes y avisa sobre promos puntuales.',
     items: [
-      {
-        id: 'inactive_30d',
-        title: 'Te extrañamos',
-        body: 'Hace tiempo no te vemos por aquí. Vuelve esta semana y te regalamos 2 sellos extra.',
-      },
-      {
-        id: 'flash_promo',
-        title: '🔥 Solo hoy',
-        body: '2x1 en bebidas calientes hasta las 6pm. Pasa y muestra esta tarjeta.',
-      },
-      {
-        id: 'reward_ready',
-        title: '⭐ Tu recompensa te espera',
-        body: 'Llegaste al tope de sellos. Pasa a reclamar tu producto gratis.',
-      },
-      {
-        id: 'first_purchase',
-        title: '🤝 Gracias por tu primera visita',
-        body: 'Te llevas 1 sello extra de cortesía en tu próxima compra. ¡Te esperamos!',
-      },
-      {
-        id: 'monthly_reminder',
-        title: '📅 ¿Cuándo es la próxima?',
-        body: 'Te están esperando sellos nuevos. ¡Pasa cuando quieras!',
-      },
-      {
-        id: 'menu_update',
-        title: '🆕 Nuevo en el menú',
-        body: 'Sumamos productos nuevos esta semana. Ven a probarlos.',
-      },
+      'inactive_30d',
+      'flash_promo',
+      'reward_ready',
+      'first_purchase',
+      'monthly_reminder',
+      'menu_update',
     ],
   },
 ];
@@ -116,7 +55,7 @@ export default function NotificationsPage() {
   const [cards, setCards] = useState<any[]>([]);
   const [form, setForm] = useState({ cardId: '', title: '', body: '' });
   const [sending, setSending] = useState(false);
-  const [activeGroup, setActiveGroup] = useState<TemplateGroup['id']>(
+  const [activeGroup, setActiveGroup] = useState<string>(
     'special_days',
   );
   const [brandName, setBrandName] = useState<string>('Tu negocio');
@@ -376,13 +315,17 @@ export default function NotificationsPage() {
     }
   }
 
-  function applyTemplate(tpl: Template) {
-    setForm((f) => ({ ...f, title: tpl.title, body: tpl.body }));
+  function applyTemplate(id: string) {
+    setForm((f) => ({
+      ...f,
+      title: t(`tpl_${id}_title` as any),
+      body: t(`tpl_${id}_body` as any),
+    }));
     if (typeof window !== 'undefined')
       window.scrollTo({ top: 0, behavior: 'smooth' });
     // El cumpleaños es el único caso per-persona: aquí se enviaría a TODOS.
     // Avisamos para que use Automatizaciones en su lugar.
-    if (tpl.id === 'birthday') {
+    if (id === 'birthday') {
       toast(
         t('birthdayBroadcastWarning'),
         'info',
@@ -664,7 +607,10 @@ export default function NotificationsPage() {
                     : 'bg-bg2 text-ink hover:bg-line'
                 }`}
               >
-                {g.emoji} {g.name}
+                {g.emoji}{' '}
+                {g.id === 'special_days'
+                  ? t('groupSpecialDays')
+                  : t('groupRemarketing')}
               </button>
             ))}
             <button
@@ -710,28 +656,27 @@ export default function NotificationsPage() {
             <AutomationsTab />
           ) : (
             <>
-              {TEMPLATE_GROUPS.find((g) => g.id === activeGroup) && (
+              {TEMPLATE_GROUPS.some((g) => g.id === activeGroup) && (
                 <p className="text-xs text-mute mb-3">
-                  {
-                    TEMPLATE_GROUPS.find((g) => g.id === activeGroup)!
-                      .description
-                  }
+                  {activeGroup === 'special_days'
+                    ? t('groupSpecialDaysDesc')
+                    : t('groupRemarketingDesc')}
                 </p>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {TEMPLATE_GROUPS.find((g) => g.id === activeGroup)?.items.map(
-                  (t) => (
+                  (id) => (
                     <button
-                      key={t.id}
+                      key={id}
                       type="button"
-                      onClick={() => applyTemplate(t)}
+                      onClick={() => applyTemplate(id)}
                       className="text-left rounded-input border border-line bg-white hover:border-brand/40 hover:bg-brand-soft/40 p-3 transition"
                     >
                       <div className="font-semibold text-sm leading-tight">
-                        {t.title}
+                        {t(`tpl_${id}_title` as any)}
                       </div>
                       <div className="text-xs text-mute mt-1.5 leading-relaxed line-clamp-3">
-                        {t.body}
+                        {t(`tpl_${id}_body` as any)}
                       </div>
                     </button>
                   ),

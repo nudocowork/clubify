@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useHidesPurchases } from '@/lib/native';
 import { useAuthBrand } from '@/components/AuthBrand';
+import { useTranslations } from 'next-intl';
 
 type Status = {
   status: 'TRIAL' | 'ACTIVE' | 'PAST_DUE' | 'SUSPENDED' | 'EXPIRED' | 'CANCELED';
@@ -16,6 +17,7 @@ type Status = {
 };
 
 export function TrialBanner() {
+  const t = useTranslations('trial_banner');
   // En iOS el aviso se queda, pero SIN la llamada a la acción: "Activar ahora"
   // es una invitación a pagar, y Apple prohíbe dirigir a un cobro que no sea
   // el suyo (3.1.1). El enlace lleva a /app/billing, donde el botón de compra
@@ -48,7 +50,7 @@ export function TrialBanner() {
   let border = 'border-amber-200';
   let text = 'text-amber-900';
   let label = '';
-  let cta = 'Activar suscripción';
+  let cta = t('ctaActivateSubscription');
 
   // Gracia post-trial: prioridad sobre el flujo TRIAL normal — el trial
   // técnicamente ya venció pero el super admin extendió X días de margen.
@@ -59,10 +61,10 @@ export function TrialBanner() {
     text = 'text-orange-900';
     label =
       g > 1
-        ? `Tu trial venció. Tienes ${g} días de gracia restantes antes de que se suspenda tu cuenta.`
+        ? t('graceDays', { days: g })
         : g === 1
-        ? 'Tu trial venció. Te queda 1 día de gracia antes de que se suspenda tu cuenta.'
-        : 'Tu trial venció. Tu cuenta se suspende hoy si no activas la suscripción.';
+          ? t('graceOneDay')
+          : t('graceToday');
   } else if (s.status === 'TRIAL') {
     const d = s.daysLeftInTrial ?? 0;
     if (d > 0) {
@@ -71,30 +73,30 @@ export function TrialBanner() {
       text = 'text-brand-700';
       label =
         d === 1
-          ? '⏰ Tu modo prueba termina mañana. Activa tu cuenta para no perder acceso.'
-          : `🎁 Estás usando ${platform} en modo prueba. Te quedan ${d} días para activar tu cuenta.`;
-      cta = 'Activar ahora';
+          ? t('trialEndsTomorrow')
+          : t('trialDaysLeft', { platform, days: d });
+      cta = t('ctaActivateNow');
     } else {
-      label = 'Tu modo prueba está por terminar. Activa tu cuenta ahora.';
-      cta = 'Activar ahora';
+      label = t('trialEnding');
+      cta = t('ctaActivateNow');
     }
   } else if (s.status === 'PAST_DUE') {
     bg = 'bg-orange-50';
     border = 'border-orange-200';
     text = 'text-orange-900';
-    label = 'No pudimos cobrar tu suscripción. Actualiza tu método de pago para evitar la suspensión.';
-    cta = 'Actualizar pago';
+    label = t('pastDue');
+    cta = t('ctaUpdatePayment');
   } else if (s.status === 'EXPIRED') {
     bg = 'bg-red-50';
     border = 'border-red-200';
     text = 'text-red-900';
-    label = 'Tu cuenta no está activa. Completa el pago para reactivar tu negocio.';
+    label = t('expired');
   } else if (s.status === 'SUSPENDED') {
     bg = 'bg-red-50';
     border = 'border-red-200';
     text = 'text-red-900';
-    label = 'Tu cuenta está suspendida. Activa la suscripción para reactivar tu negocio.';
-    cta = 'Reactivar';
+    label = t('suspended');
+    cta = t('ctaReactivate');
   }
 
   return (
