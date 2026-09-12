@@ -5,6 +5,9 @@ import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
 import { plural } from '@/lib/plural';
+import { useTranslations, useLocale } from 'next-intl';
+
+type Traductor = ReturnType<typeof useTranslations<'app_club'>>;
 
 type Tramo = { desdeDia: number; hastaDia: number; beneficios: number };
 
@@ -58,23 +61,24 @@ const NUEVO: Borrador = {
 };
 
 /** Atajos de espera, para no obligar a nadie a calcular minutos. */
-const ESPERAS: { minutos: string; label: string }[] = [
-  { minutos: '', label: 'Sin espera' },
-  { minutos: '30', label: '30 min' },
-  { minutos: '60', label: '1 hora' },
-  { minutos: '240', label: '4 horas' },
-  { minutos: '720', label: '12 horas' },
-  { minutos: '1440', label: '1 día' },
-];
+/** Solo los minutos: la etiqueta la pone el traductor. */
+const ESPERAS = ['', '30', '60', '240', '720', '1440'] as const;
+const etiquetaDeEspera = (t: Traductor, minutos: string) =>
+  t(minutos === '' ? 'waitNone' : (`wait${minutos}` as any));
 
 /**
  * En COP no hay decimales, así que la unidad menor SON los pesos y el campo
  * del formulario se guarda tal cual. Si algún día entra una moneda con
  * céntimos hay que multiplicar aquí, no en el backend.
  */
-function precioLegible(cents: number, moneda: string) {
-  if (!cents) return 'Sin precio';
-  return `$${cents.toLocaleString('es-CO')} ${moneda}`;
+function precioLegible(
+  t: Traductor,
+  locale: string,
+  cents: number,
+  moneda: string,
+) {
+  if (!cents) return t('noPrice');
+  return `$${cents.toLocaleString(locale)} ${moneda}`;
 }
 
 /**
@@ -82,11 +86,13 @@ function precioLegible(cents: number, moneda: string) {
  * negocio tiene varios planes a la vista a la vez: sin esto, un anual de 600.000
  * al lado de un mensual de 60.000 se lee como diez veces más caro.
  */
-function cadaCuanto(periodicidad?: string) {
-  return periodicidad === 'ANUAL' ? 'al año' : 'al mes';
+function cadaCuanto(t: Traductor, periodicidad?: string) {
+  return periodicidad === 'ANUAL' ? t('perYear') : t('perMonth');
 }
 
 export default function ClubPage() {
+  const t = useTranslations('app_club');
+  const locale = useLocale();
   const [planes, setPlanes] = useState<Plan[]>([]);
   const [cargando, setCargando] = useState(true);
   const [habilitado, setHabilitado] = useState<boolean | null>(null);
@@ -98,7 +104,7 @@ export default function ClubPage() {
     try {
       setPlanes(await api('/club/planes'));
     } catch (e: any) {
-      toast(e.message || 'No se pudieron cargar los planes.', 'error');
+      toast(e.message || t('loadError'), 'error');
     } finally {
       setCargando(false);
     }
@@ -135,19 +141,18 @@ export default function ClubPage() {
     return (
       <div>
         <div className="page-head">
-          <h1 className="page-title">Tarjeta de Club</h1>
+          <h1 className="page-title">{t('title')}</h1>
         </div>
         <div className="card card-pad text-center py-12">
-          <div className="font-semibold">No pudimos cargar esta sección</div>
+          <div className="font-semibold">{t('cantLoadTitle')}</div>
           <p className="text-sm text-mute mt-1.5 max-w-md mx-auto">
-            Puede ser algo momentáneo de nuestro lado. Vuelve a intentarlo en un
-            minuto; si sigue igual, escríbenos.
+            {t('cantLoadBody')}
           </p>
           <button
             className="btn-primary mt-4 inline-flex"
             onClick={() => window.location.reload()}
           >
-            Reintentar
+            {t('retry')}
           </button>
         </div>
       </div>
@@ -161,23 +166,15 @@ export default function ClubPage() {
     return (
       <div>
         <div className="page-head">
-          <h1 className="page-title">Tarjeta de Club</h1>
+          <h1 className="page-title">{t('title')}</h1>
         </div>
         <div className="card card-pad text-center py-12">
           <div className="text-4xl mb-2">🎟️</div>
-          <div className="font-semibold">
-            La Tarjeta de Club todavía no está activa en tu cuenta
-          </div>
+          <div className="font-semibold">{t('lockedTitle')}</div>
           <p className="text-sm text-mute mt-1.5 max-w-lg mx-auto">
-            Es una suscripción que tu cliente te paga a ti: cada mes recibe un
-            cupo de beneficios —diez cafés, cuatro lavadas, ocho clases— que
-            gasta en tu local y que vuelve a llenarse el día 1, los haya usado o
-            no. Tú cobras por tu medio de siempre y activas o pausas a cada
-            socio a mano.
+            {t('lockedBody')}
           </p>
-          <p className="text-sm text-mute mt-3">
-            Escríbenos y te la activamos.
-          </p>
+          <p className="text-sm text-mute mt-3">{t('lockedCta')}</p>
         </div>
       </div>
     );
@@ -187,14 +184,16 @@ export default function ClubPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Tarjeta de Club{' '}
+          {t('title')}{' '}
           <span className="page-crumb">
-            {planes.length === 1 ? '1 plan' : `${planes.length} planes`}
+            {planes.length === 1
+              ? t('onePlan')
+              : t('manyPlans', { count: planes.length })}
           </span>
         </h1>
         {habilitado === true && planes.length > 0 && !borrador && (
           <button className="btn-primary" onClick={() => setBorrador({ ...NUEVO })}>
-            <Icon name="plus" /> Nuevo plan
+            <Icon name="plus" /> {t('newPlan')}
           </button>
         )}
       </div>
@@ -221,18 +220,15 @@ export default function ClubPage() {
       {habilitado === true && !cargando && planes.length === 0 && !borrador && (
         <div className="card card-pad text-center py-12">
           <div className="text-4xl mb-2">🎟️</div>
-          <div className="font-semibold">Todavía no tienes ningún plan de club</div>
+          <div className="font-semibold">{t('emptyTitle')}</div>
           <p className="text-sm text-mute mt-1.5 max-w-lg mx-auto">
-            Un plan de club es una suscripción que tu cliente te paga a ti. A
-            cambio recibe un cupo de beneficios cada mes —diez cafés, cuatro
-            lavadas, ocho clases— que va gastando en el local y que vuelve a
-            llenarse el día 1, los haya usado o no.
+            {t('emptyBody')}
           </p>
           <button
             className="btn-primary mt-4 inline-flex"
             onClick={() => setBorrador({ ...NUEVO })}
           >
-            <Icon name="plus" /> Crear el primer plan
+            <Icon name="plus" /> {t('createFirst')}
           </button>
         </div>
       )}
@@ -244,19 +240,21 @@ export default function ClubPage() {
               <div className="min-w-0">
                 <div className="font-semibold truncate">{p.name}</div>
                 <div className="text-xs text-mute mt-0.5">
-                  {precioLegible(p.precioCents, p.currency)}{' '}
-                  {cadaCuanto(p.periodicidad)}
+                  {precioLegible(t, locale, p.precioCents, p.currency)}{' '}
+                  {cadaCuanto(t, p.periodicidad)}
                 </div>
               </div>
               <span className={`badge ${p.isActive ? 'badge-ok' : 'badge-mute'} shrink-0`}>
-                {p.isActive ? 'Activo' : 'Apagado'}
+                {p.isActive ? t('on') : t('off')}
               </span>
             </div>
 
             <div className="mt-3 flex items-baseline gap-1.5">
               <strong className="text-2xl tabular-nums">{p.beneficiosPorMes}</strong>
               <span className="text-sm text-mute">
-                {plural(p.unidad, p.beneficiosPorMes)} al mes
+                {t('perMonthSuffix', {
+                  unidad: plural(p.unidad, p.beneficiosPorMes),
+                })}
               </span>
             </div>
 
@@ -267,25 +265,27 @@ export default function ClubPage() {
             {p.tramos.length > 0 && (
               <p className="text-xs text-mute mt-2">
                 {p.tramos.length === 1
-                  ? '1 tramo de alta configurado'
-                  : `${p.tramos.length} tramos de alta configurados`}
+                  ? t('oneTier')
+                  : t('manyTiers', { count: p.tramos.length })}
               </p>
             )}
 
             <div className="mt-3 pt-3 border-t border-line flex items-center gap-3 text-xs">
               <span className="text-ink font-medium tabular-nums">
-                {p.miembrosActivos} {p.miembrosActivos === 1 ? 'socio' : 'socios'}
+                {p.miembrosActivos === 1
+                  ? t('oneMember', { count: p.miembrosActivos })
+                  : t('manyMembers', { count: p.miembrosActivos })}
               </span>
               {p.miembrosPausados > 0 && (
                 <span className="text-mute tabular-nums">
-                  {p.miembrosPausados} en pausa
+                  {t('paused', { count: p.miembrosPausados })}
                 </span>
               )}
             </div>
 
             <div className="mt-3 flex gap-2">
               <Link href={`/app/club/${p.id}`} className="btn-ghost flex-1 justify-center">
-                Ver socios
+                {t('seeMembers')}
               </Link>
               <button
                 className="btn-ghost"
@@ -318,7 +318,7 @@ export default function ClubPage() {
                   })
                 }
               >
-                <Icon name="edit" /> Editar
+                <Icon name="edit" /> {t('edit')}
               </button>
             </div>
           </div>
@@ -343,21 +343,23 @@ function FormularioPlan({
   const [guardando, setGuardando] = useState(false);
   const editando = Boolean(f.id);
 
+  const t = useTranslations('app_club');
+
   function set<K extends keyof Borrador>(k: K, v: Borrador[K]) {
     setF((x) => ({ ...x, [k]: v }));
   }
 
   async function guardar() {
     if (!f.name.trim()) {
-      toast('Ponle nombre al plan.', 'error');
+      toast(t('needName'), 'error');
       return;
     }
     if (!f.unidad.trim()) {
-      toast('Escribe qué recibe el cliente: café, clase, lavada…', 'error');
+      toast(t('needUnit'), 'error');
       return;
     }
     if (!Number.isInteger(f.beneficiosPorMes) || f.beneficiosPorMes < 1) {
-      toast('El cupo del mes tiene que ser 1 o más.', 'error');
+      toast(t('needQuota'), 'error');
       return;
     }
     // Los tramos se revisan aquí y no solo en el backend porque el suyo
@@ -372,7 +374,7 @@ function FormularioPlan({
         t.hastaDia > 31,
     );
     if (malo) {
-      toast('En los tramos, los días van del 1 al 31.', 'error');
+      toast(t('badTierDays'), 'error');
       return;
     }
     // Vacío = sin límite, y se manda como `null` explícito para poder QUITAR
@@ -381,12 +383,12 @@ function FormularioPlan({
     const minutosEntreConsumos =
       f.minutosEntreConsumos.trim() === '' ? null : Number(f.minutosEntreConsumos);
     if (maxPorDia != null && (!Number.isInteger(maxPorDia) || maxPorDia < 1)) {
-      toast('El máximo por día tiene que ser 1 o más, o vacío.', 'error');
+      toast(t('badMaxPerDay'), 'error');
       return;
     }
     if (maxPorDia != null && maxPorDia > f.beneficiosPorMes) {
       toast(
-        `Un máximo de ${maxPorDia} al día no limita nada con un cupo de ${f.beneficiosPorMes} al mes.`,
+        t('uselessMax', { max: maxPorDia, cupo: f.beneficiosPorMes }),
         'error',
       );
       return;
@@ -410,14 +412,14 @@ function FormularioPlan({
           method: 'PATCH',
           body: JSON.stringify(cuerpo),
         });
-        toast('Plan actualizado.', 'success');
+        toast(t('updated'), 'success');
       } else {
         await api('/club/planes', { method: 'POST', body: JSON.stringify(cuerpo) });
-        toast('Plan creado. Ya puedes dar de alta a tus socios.', 'success');
+        toast(t('created'), 'success');
       }
       onGuardado();
     } catch (e: any) {
-      toast(e.message || 'No se pudo guardar el plan.', 'error');
+      toast(e.message || t('saveError'), 'error');
     } finally {
       setGuardando(false);
     }
@@ -426,28 +428,27 @@ function FormularioPlan({
   return (
     <div className="card card-pad mb-4">
       <h2 className="text-base font-semibold m-0">
-        {editando ? 'Editar el plan' : 'Nuevo plan de club'}
+        {editando ? t('editPlan') : t('newPlanTitle')}
       </h2>
       <p className="text-xs text-mute mt-1">
-        El cobro lo llevas tú por fuera. Aquí solo defines qué recibe el socio
-        cada mes; después lo das de alta y lo pausas si deja de pagarte.
+        {t('formIntro')}
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
         <div>
-          <label className="label">Nombre del plan</label>
+          <label className="label">{t('planName')}</label>
           <input
             className="input"
             value={f.name}
             maxLength={80}
-            placeholder="Club del café"
+            placeholder={t('planNamePlaceholder')}
             onChange={(e) => set('name', e.target.value)}
           />
         </div>
 
         <div>
           <label className="label">
-            Precio de la suscripción ({cadaCuanto(f.periodicidad)})
+            {t('price', { periodo: cadaCuanto(t, f.periodicidad) })}
           </label>
           <div className="flex gap-2">
             <input
@@ -468,34 +469,34 @@ function FormularioPlan({
                 )
               }
             >
-              <option value="MENSUAL">Al mes</option>
-              <option value="ANUAL">Al año</option>
+              <option value="MENSUAL">{t('monthly')}</option>
+              <option value="ANUAL">{t('yearly')}</option>
             </select>
           </div>
           <p className="text-xs text-mute mt-1">
-            Solo para tu referencia: el cobro no pasa por aquí.{' '}
-            {f.periodicidad === 'ANUAL'
-              ? 'El socio paga el año por adelantado y sigue recibiendo su cupo cada mes.'
-              : null}
+            {t('priceHint')}{' '}
+            {f.periodicidad === 'ANUAL' ? t('priceHintYearly') : null}
           </p>
         </div>
 
         <div>
-          <label className="label">¿Qué recibe? (en singular)</label>
+          <label className="label">{t('whatTheyGet')}</label>
           <input
             className="input"
             value={f.unidad}
             maxLength={30}
-            placeholder="café"
+            placeholder={t('whatTheyGetPlaceholder')}
             onChange={(e) => set('unidad', e.target.value)}
           />
           <p className="text-xs text-mute mt-1">
-            Se lo lee el cajero al escanear: «le queda 1 {f.unidad.trim() || 'café'}».
+            {t('whatTheyGetHint', {
+              unidad: f.unidad.trim() || t('whatTheyGetPlaceholder'),
+            })}
           </p>
         </div>
 
         <div>
-          <label className="label">¿Cuántos al mes?</label>
+          <label className="label">{t('howMany')}</label>
           <input
             className="input"
             type="number"
@@ -505,8 +506,7 @@ function FormularioPlan({
             onChange={(e) => set('beneficiosPorMes', Number(e.target.value))}
           />
           <p className="text-xs text-mute mt-1">
-            Vuelve a {f.beneficiosPorMes || 0} el día 1 de cada mes, los haya
-            gastado o no. No se acumulan.
+            {t('howManyHint', { count: f.beneficiosPorMes || 0 })}
           </p>
         </div>
 
@@ -514,64 +514,62 @@ function FormularioPlan({
             plan de 10 cafés al mes se agota el día 1 en una sola visita: le
             vacía el mostrador al negocio y deja al socio 29 días sin nada. */}
         <div className="md:col-span-2 rounded-xl border border-line p-3">
-          <div className="text-sm font-semibold mb-1">
-            ¿Cada cuánto puede usarlo?
-          </div>
-          <p className="text-xs text-mute mb-3">
-            Opcional. Vacío es como hasta ahora: puede gastarse el cupo del mes
-            entero de una sentada.
-          </p>
+          <div className="text-sm font-semibold mb-1">{t('rateTitle')}</div>
+          <p className="text-xs text-mute mb-3">{t('rateIntro')}</p>
           <div className="grid md:grid-cols-2 gap-4">
             <div>
-              <label className="label">Máximo al día</label>
+              <label className="label">{t('maxPerDay')}</label>
               <input
                 className="input"
                 type="number"
                 min={1}
                 max={f.beneficiosPorMes || 1000}
-                placeholder="Sin límite"
+                placeholder={t('noLimit')}
                 value={f.maxPorDia}
                 onChange={(e) => set('maxPorDia', e.target.value)}
               />
               <p className="text-xs text-mute mt-1">
                 {f.maxPorDia.trim() === ''
-                  ? `Puede llevarse ${f.beneficiosPorMes || 0} en un mismo día.`
-                  : `Como mucho ${f.maxPorDia} ${plural(
-                      f.unidad || 'café',
-                      Number(f.maxPorDia) || 1,
-                    )} por día. El resto queda para los días siguientes.`}
+                  ? t('maxPerDayNone', { count: f.beneficiosPorMes || 0 })
+                  : t('maxPerDaySet', {
+                      max: f.maxPorDia,
+                      unidad: plural(
+                        f.unidad || t('whatTheyGetPlaceholder'),
+                        Number(f.maxPorDia) || 1,
+                      ),
+                    })}
               </p>
             </div>
             <div>
-              <label className="label">Espera entre usos</label>
+              <label className="label">{t('waitBetween')}</label>
               <select
                 className="input"
                 value={f.minutosEntreConsumos}
                 onChange={(e) => set('minutosEntreConsumos', e.target.value)}
               >
-                {ESPERAS.map((o) => (
-                  <option key={o.minutos || 'sin'} value={o.minutos}>
-                    {o.label}
+                {ESPERAS.map((minutos) => (
+                  <option key={minutos || 'sin'} value={minutos}>
+                    {etiquetaDeEspera(t, minutos)}
                   </option>
                 ))}
               </select>
               <p className="text-xs text-mute mt-1">
                 {f.minutosEntreConsumos === ''
-                  ? 'Puede pedir dos seguidos en el mismo minuto.'
-                  : 'Es la forma de decir «uno por visita» sin tener que definir qué es una visita.'}
+                  ? t('waitNoneHint')
+                  : t('waitSetHint')}
               </p>
             </div>
           </div>
         </div>
 
         <div className="md:col-span-2">
-          <label className="label">Descripción (opcional)</label>
+          <label className="label">{t('description')}</label>
           <textarea
             className="input"
             rows={2}
             maxLength={500}
             value={f.description}
-            placeholder="Un café de especialidad al día, de lunes a viernes."
+            placeholder={t('descriptionPlaceholder')}
             onChange={(e) => set('description', e.target.value)}
           />
         </div>
@@ -592,24 +590,22 @@ function FormularioPlan({
             onChange={(e) => set('isActive', e.target.checked)}
           />
           <span>
-            Plan activo
-            <span className="text-mute">
-              {' '}
-              — apagado solo cierra las altas nuevas. Los socios que ya tienes
-              siguen consumiendo y se les sigue repartiendo su cupo cada mes,
-              que es lo correcto mientras te paguen. Para cerrar el club de
-              verdad, dales de baja desde la pantalla del plan.
-            </span>
+            {t('planActive')}
+            <span className="text-mute">{t('planActiveHint')}</span>
           </span>
         </label>
       )}
 
       <div className="mt-4 flex gap-2">
         <button className="btn-primary" onClick={guardar} disabled={guardando}>
-          {guardando ? 'Guardando…' : editando ? 'Guardar cambios' : 'Crear el plan'}
+          {guardando
+            ? t('saving')
+            : editando
+              ? t('saveChanges')
+              : t('createPlan')}
         </button>
         <button className="btn-ghost" onClick={onCancelar} disabled={guardando}>
-          Cancelar
+          {t('cancel')}
         </button>
       </div>
     </div>
@@ -636,6 +632,8 @@ function EditorTramos({
   cupo: number;
   onCambio: (t: Tramo[]) => void;
 }) {
+  const t = useTranslations('app_club');
+
   function editar(i: number, campo: keyof Tramo, v: number) {
     onCambio(tramos.map((t, j) => (j === i ? { ...t, [campo]: v } : t)));
   }
@@ -645,7 +643,7 @@ function EditorTramos({
     // rechaza solapes y el negocio no tiene por qué adivinar el hueco libre.
     const ultimo = tramos.reduce((m, t) => Math.max(m, t.hastaDia), 0);
     if (ultimo >= 31) {
-      toast('Los tramos ya cubren el mes entero.', 'error');
+      toast(t('tiersFull'), 'error');
       return;
     }
     onCambio([
@@ -662,42 +660,39 @@ function EditorTramos({
     <div className="mt-5 pt-4 border-t border-line">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="font-semibold text-sm">Si entra a mitad de mes</div>
+          <div className="font-semibold text-sm">{t('tiersTitle')}</div>
           <p className="text-xs text-mute mt-0.5 max-w-xl">
-            Reparte el mes por días y dile cuántos recibe quien se dé de alta en
-            cada tramo. Es solo para su primer mes: del siguiente en adelante
-            recibe los {cupo || 0} completos. Los días que no cubras dan el cupo
-            entero.
+            {t('tiersIntro', { cupo: cupo || 0 })}
           </p>
         </div>
         <button className="btn-ghost shrink-0" onClick={anadir}>
-          <Icon name="plus" /> Tramo
+          <Icon name="plus" /> {t('addTier')}
         </button>
       </div>
 
       {tramos.length > 0 && (
         <div className="mt-3 space-y-2">
-          {tramos.map((t, i) => (
+          {tramos.map((tr, i) => (
             <div key={i} className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-mute">Del día</span>
+              <span className="text-mute">{t('fromDay')}</span>
               <input
                 className="input w-16 text-center tabular-nums"
                 type="number"
                 min={1}
                 max={31}
-                value={t.desdeDia}
+                value={tr.desdeDia}
                 onChange={(e) => editar(i, 'desdeDia', Number(e.target.value))}
               />
-              <span className="text-mute">al</span>
+              <span className="text-mute">{t('toDay')}</span>
               <input
                 className="input w-16 text-center tabular-nums"
                 type="number"
                 min={1}
                 max={31}
-                value={t.hastaDia}
+                value={tr.hastaDia}
                 onChange={(e) => editar(i, 'hastaDia', Number(e.target.value))}
               />
-              <span className="text-mute">recibe</span>
+              <span className="text-mute">{t('gets')}</span>
               <input
                 className="input w-20 text-center tabular-nums"
                 type="number"
@@ -707,15 +702,15 @@ function EditorTramos({
                 // guardaba sin queja, el panel seguía diciendo 50 y el cliente
                 // recibía 10 — sin forma de enterarse de la diferencia.
                 max={cupo || undefined}
-                value={t.beneficios}
+                value={tr.beneficios}
                 onChange={(e) => editar(i, 'beneficios', Number(e.target.value))}
               />
               <span className="text-mute">
-                {plural(unidad.trim() || 'beneficio', t.beneficios)}
+                {plural(unidad.trim() || t('defaultBenefit'), tr.beneficios)}
               </span>
               <button
                 className="btn-ghost ml-auto"
-                aria-label="Quitar el tramo"
+                aria-label={t('removeTier')}
                 onClick={() => onCambio(tramos.filter((_, j) => j !== i))}
               >
                 <Icon name="trash" />
