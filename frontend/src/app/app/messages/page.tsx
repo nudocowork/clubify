@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
+import { useTranslations } from 'next-intl';
 
 type Message = {
   id: string;
@@ -23,6 +24,7 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default function MessagesPage() {
+  const t = useTranslations('app_messages');
   const [list, setList] = useState<Message[]>([]);
   const [filter, setFilter] = useState<'ALL' | 'WHATSAPP' | 'SMS' | 'PUSH'>(
     'ALL',
@@ -32,7 +34,7 @@ export default function MessagesPage() {
     try {
       setList(await api('/messages'));
     } catch (e: any) {
-      toast(e.message || 'Error cargando mensajes', 'error');
+      toast(e.message || t('loadError'), 'error');
     }
   }
   useEffect(() => {
@@ -47,7 +49,10 @@ export default function MessagesPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Mensajes <span className="page-crumb">/ {list.length} totales</span>
+          {t('title')}{' '}
+          <span className="page-crumb">
+            / {t('totalCrumb', { count: list.length })}
+          </span>
         </h1>
       </div>
 
@@ -59,7 +64,7 @@ export default function MessagesPage() {
               onClick={() => setFilter(f)}
               className={`tab ${filter === f ? 'tab-active' : ''}`}
             >
-              {f === 'ALL' ? 'Todos' : f}
+              {f === 'ALL' ? t('all') : f}
             </button>
           ))}
         </div>
@@ -71,13 +76,11 @@ export default function MessagesPage() {
             <div className="text-3xl mb-1">💬</div>
             <div className="font-semibold text-sm">
               {filter === 'ALL'
-                ? 'Sin mensajes todavía'
-                : `Sin mensajes de ${filter}`}
+                ? t('emptyAll')
+                : t('emptyFiltered', { channel: filter })}
             </div>
             <p className="text-xs text-mute mt-1 max-w-md mx-auto">
-              Las automatizaciones de WhatsApp y los mensajes manuales que
-              envíes a clientes aparecerán aquí. Cada uno trae estado de
-              entrega y enlace al cliente.
+              {t('emptyBody')}
             </p>
           </div>
         )}

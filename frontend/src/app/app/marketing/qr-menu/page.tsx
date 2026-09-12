@@ -3,11 +3,13 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
+import { useTranslations } from 'next-intl';
+import { EditorCargando } from '@/components/marketing/EditorCargando';
 import { resolveMainSectionLabel } from '@/lib/business-categories';
 
 const QrPosterEditor = dynamic(
   () => import('@/components/marketing/QrPosterEditor'),
-  { ssr: false, loading: () => <div className="text-mute py-8 text-center">Cargando editor…</div> },
+  { ssr: false, loading: () => <EditorCargando /> },
 );
 
 type MenuResumen = {
@@ -19,6 +21,7 @@ type MenuResumen = {
 };
 
 export default function QrMenuPage() {
+  const t = useTranslations('app_qr');
   const [tenant, setTenant] = useState<any>(null);
   // Mesa = QR pegado en la mesa (informativo).
   // Delivery = QR para compartir, con carrito + WhatsApp.
@@ -40,7 +43,7 @@ export default function QrMenuPage() {
       .catch(() => setMenus([]));
   }, []);
 
-  if (!tenant) return <div className="text-mute">Cargando…</div>;
+  if (!tenant) return <div className="text-mute">{t('loading')}</div>;
 
   const slug = tenant.slug ?? 'demo';
   const origin =
@@ -66,14 +69,14 @@ export default function QrMenuPage() {
       <div className="page-head">
         <h1 className="page-title">
           <Link href="/app/marketing" className="text-mute hover:text-ink">
-            Marketing
+            {t('marketing')}
           </Link>{' '}
           <span className="page-crumb">/ QR {mainLabel}</span>
         </h1>
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-3 leading-relaxed">
-        Diseñá tu cartel QR para imprimir. Elegí qué versión apunta:
+        {t('menuIntro')}
       </p>
 
       <div className="inline-flex bg-bg2 rounded-pill p-1 mb-5 text-sm font-semibold">
@@ -84,7 +87,7 @@ export default function QrMenuPage() {
             target === 'mesa' ? 'bg-white shadow-sm' : 'text-mute hover:text-ink'
           }`}
         >
-          🍽 Mesa <span className="text-[10px] text-mute">/m/</span>
+          🍽 {t('tabTable')} <span className="text-[10px] text-mute">/m/</span>
         </button>
         <button
           type="button"
@@ -93,7 +96,7 @@ export default function QrMenuPage() {
             target === 'delivery' ? 'bg-white shadow-sm' : 'text-mute hover:text-ink'
           }`}
         >
-          🛵 Delivery <span className="text-[10px] text-mute">/d/</span>
+          🛵 {t('tabDelivery')} <span className="text-[10px] text-mute">/d/</span>
         </button>
       </div>
 
@@ -102,7 +105,7 @@ export default function QrMenuPage() {
       {menus.length > 1 && (
         <div className="mb-4">
           <div className="text-xs font-semibold text-mute mb-1.5">
-            ¿De qué carta es este cartel?
+            {t('whichMenu')}
           </div>
           <div className="flex gap-2 flex-wrap">
             {menus.map((m) => (
@@ -118,28 +121,28 @@ export default function QrMenuPage() {
               >
                 <div className="text-sm font-semibold">{m.name}</div>
                 <div className="text-[11px] text-mute">
-                  {m.locationName ?? (m.esPrincipal ? 'Todas las sedes' : 'Sin sede')}
+                  {m.locationName ??
+                    (m.esPrincipal ? t('allLocations') : t('noLocation'))}
                 </div>
               </button>
             ))}
           </div>
           {cartaElegida && !cartaElegida.esPrincipal && !cartaElegida.locationId && (
             <p className="text-[11px] text-amber-700 mt-2 leading-snug">
-              ⚠️ Esta carta no tiene sede asignada. El cartel funcionará, pero
-              conviene asignársela desde el Menú para que quede claro cuál es.
+              {t('menuNoLocationWarn')}
             </p>
           )}
         </div>
       )}
 
       <p className="text-xs text-mute mb-4">
-        URL del QR: <span className="font-mono break-all">{qrUrl}</span>
+        {t('qrUrl')}: <span className="font-mono break-all">{qrUrl}</span>
       </p>
 
       <QrPosterEditor
         type="MENU"
         qrUrl={qrUrl}
-        brandName={tenant.brandName ?? 'Mi Negocio'}
+        brandName={tenant.brandName ?? t('defaultBusiness')}
         logoUrl={tenant.walletLogoUrl || tenant.logoUrl || null}
       />
     </div>

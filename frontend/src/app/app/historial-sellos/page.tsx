@@ -6,15 +6,15 @@
  * enabled:false si está apagado.
  */
 import { StampAuditTable } from '@/components/StampAuditTable';
+import { useTranslations } from 'next-intl';
 
 export default function HistorialSellosPage() {
+  const t = useTranslations('app_stamp_history');
   return (
     <div>
-      <h1 className="page-title">Historial de sellos</h1>
+      <h1 className="page-title">{t('title')}</h1>
       <p className="text-sm text-mute mb-4 max-w-2xl">
-        Registro de cada movimiento de sellos: quién lo hizo, cuándo, el motivo y
-        el cliente. Toda modificación manual (sumar o restar un sello) queda
-        auditada.
+        {t('intro')}
       </p>
       <div className="card card-pad">
         <StampAuditTable />

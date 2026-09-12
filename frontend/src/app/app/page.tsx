@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations, useLocale } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { KpiSkeleton, Skeleton } from '@/components/Skeleton';
@@ -101,6 +102,7 @@ function WalletPlatformKPI({
   google: number;
   none: number;
 }) {
+  const t = useTranslations('app_dashboard');
   const totalInstalled = apple + google;
   const appleShare = totalInstalled > 0 ? Math.round((apple / totalInstalled) * 100) : 0;
   const googleShare = totalInstalled > 0 ? 100 - appleShare : 0;
@@ -124,16 +126,20 @@ function WalletPlatformKPI({
         </div>
       </div>
       {none > 0 && (
-        <div className="kpi-sub">{none} sin instalar</div>
+        <div className="kpi-sub">{t('notInstalled', { count: none })}</div>
       )}
     </div>
   );
 }
 
 function Sparkline7d({ data }: { data: { date: string; orders: number; revenue: number }[] }) {
+  const t = useTranslations('app_dashboard');
+  // Las fechas también son texto que se lee: con 'es-CO' fijo, un negocio en
+  // inglés veía «vie, 12» en medio de una pantalla traducida.
+  const locale = useLocale();
   if (!data || data.length === 0) {
     return (
-      <div className="text-xs text-mute py-8 text-center">Sin datos en los últimos 7 días</div>
+      <div className="text-xs text-mute py-8 text-center">{t('noDataLast7')}</div>
     );
   }
   const last7 = data.slice(-7);
@@ -155,14 +161,14 @@ function Sparkline7d({ data }: { data: { date: string; orders: number; revenue: 
       <div className="flex items-end justify-between gap-2 mb-2">
         <div>
           <div className="text-xs uppercase tracking-wider text-mute font-semibold">
-            Pedidos últimos 7 días
+            {t('orders7Title')}
           </div>
           <div className="text-2xl font-bold mt-0.5">{totalOrders}</div>
         </div>
         <div className="text-right text-xs text-mute">
-          Pico:{' '}
+          {t('peak')}:{' '}
           <span className="font-medium text-ink">
-            {new Date(peak.date).toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric' })}
+            {new Date(peak.date).toLocaleDateString(locale, { weekday: 'short', day: 'numeric' })}
             {' · '}
             {peak.orders}
           </span>
@@ -197,7 +203,7 @@ function Sparkline7d({ data }: { data: { date: string; orders: number; revenue: 
       <div className="flex justify-between mt-1 text-[10px] text-mute2">
         {last7.map((d) => (
           <div key={d.date}>
-            {new Date(d.date).toLocaleDateString('es-CO', { weekday: 'narrow' })}
+            {new Date(d.date).toLocaleDateString(locale, { weekday: 'narrow' })}
           </div>
         ))}
       </div>
@@ -206,6 +212,7 @@ function Sparkline7d({ data }: { data: { date: string; orders: number; revenue: 
 }
 
 function WelcomeTour({ tenant }: { tenant: any }) {
+  const t = useTranslations('app_dashboard');
   const [step, setStep] = useState(0);
   const [open, setOpen] = useState(false);
 
@@ -231,24 +238,14 @@ function WelcomeTour({ tenant }: { tenant: any }) {
   const steps = [
     {
       emoji: '👋',
-      title: `¡Bienvenido${tenant?.brandName ? ', ' + tenant.brandName : ''}!`,
-      body: 'En 3 pantallas te muestro lo principal. Esto solo te lo enseño una vez.',
+      title: tenant?.brandName
+        ? t('tourWelcome', { brand: tenant.brandName })
+        : t('tourWelcomeNoBrand'),
+      body: t('tourWelcomeBody'),
     },
-    {
-      emoji: '💳',
-      title: 'Mi tarjeta y mis clientes',
-      body: 'En “Tarjetas” creas el programa de sellos o puntos. En “Clientes” ves quién las usa y puedes emitirles tarjetas digitales.',
-    },
-    {
-      emoji: '🍴',
-      title: 'Tu menú y los pedidos',
-      body: 'En “Menú” cargas productos y desde su header tienes acceso a “Configura tu menú” para personalizar el storefront. Los pedidos llegan al kanban de “Pedidos” y se notifican por WhatsApp.',
-    },
-    {
-      emoji: '📈',
-      title: 'Crece y mide',
-      body: 'En “Analítica” ves crecimiento. En “Push” mandas notificaciones a las tarjetas wallet. Aquí en el dashboard tienes un checklist de tareas pendientes.',
-    },
+    { emoji: '💳', title: t('tourCards'), body: t('tourCardsBody') },
+    { emoji: '🍴', title: t('tourMenu'), body: t('tourMenuBody') },
+    { emoji: '📈', title: t('tourGrow'), body: t('tourGrowBody') },
   ];
   const cur = steps[step];
   const last = step === steps.length - 1;
@@ -276,13 +273,13 @@ function WelcomeTour({ tenant }: { tenant: any }) {
 
         <div className="mt-5 flex gap-2 justify-center">
           <button onClick={close} className="btn-ghost text-sm">
-            Saltar
+            {t('skip')}
           </button>
           <button
             onClick={() => (last ? close() : setStep(step + 1))}
             className="btn-primary"
           >
-            {last ? 'Empezar' : 'Siguiente →'}
+            {last ? t('start') : t('next')}
           </button>
         </div>
       </div>
@@ -294,6 +291,8 @@ function WelcomeTour({ tenant }: { tenant: any }) {
 // compartido de @/components/OnboardingChecklist que es server-driven.)
 
 export default function TenantDashboard() {
+  const t = useTranslations('app_dashboard');
+  const locale = useLocale();
   const [m, setM] = useState<Metrics | null>(null);
   const [tenant, setTenant] = useState<any>(null);
   const [series, setSeries] = useState<{ date: string; orders: number; revenue: number }[]>([]);
@@ -315,7 +314,7 @@ export default function TenantDashboard() {
       .catch(() => null);
   }, []);
 
-  const today = new Date().toLocaleDateString('es-CO', {
+  const today = new Date().toLocaleDateString(locale, {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -327,16 +326,18 @@ export default function TenantDashboard() {
       <div>
         <div className="page-head">
           <h1 className="page-title">
-            Dashboard <span className="page-crumb">/ {today}</span>
+            {t('dashboard')} <span className="page-crumb">/ {today}</span>
           </h1>
           <div className="flex gap-2 flex-wrap">
             <Link className="btn-primary" href="/app/info-links">
-              <Icon name="edit" /> Editar mi InfoLink
+              <Icon name="edit" /> {t('editInfoLink')}
             </Link>
           </div>
         </div>
         <p className="text-sm text-mute mb-5">
-          Bienvenido{tenant?.brandName ? `, ${tenant.brandName}` : ''}. Este es el resumen de tu InfoLink.
+          {tenant?.brandName
+            ? t('infoLinkSummary', { brand: tenant.brandName })
+            : t('infoLinkSummaryNoBrand')}
         </p>
         <InfoLinkStats variant="dashboard" />
       </div>
@@ -352,14 +353,14 @@ export default function TenantDashboard() {
       <InsightsCard />
       <div className="page-head">
         <h1 className="page-title">
-          Dashboard <span className="page-crumb">/ {today}</span>
+          {t('dashboard')} <span className="page-crumb">/ {today}</span>
         </h1>
         <div className="flex gap-2 flex-wrap">
           <Link className="btn-ghost" href="/app/notifications">
-            <Icon name="bell" /> Push
+            <Icon name="bell" /> {t('push')}
           </Link>
           <Link className="btn-primary" href="/app/cards/new">
-            <Icon name="plus" /> Crear tarjeta
+            <Icon name="plus" /> {t('createCard')}
           </Link>
         </div>
       </div>
@@ -377,12 +378,10 @@ export default function TenantDashboard() {
             <div className="flex-1">
               <div className="font-semibold text-warn-ink">
                 {m.pendingOrders === 1
-                  ? 'Tienes 1 pedido pendiente de confirmar'
-                  : `Tienes ${m.pendingOrders} pedidos pendientes de confirmar`}
+                  ? t('pendingOne')
+                  : t('pendingMany', { count: m.pendingOrders })}
               </div>
-              <div className="text-xs text-warn-ink/80">
-                Ve al kanban para gestionarlos →
-              </div>
+              <div className="text-xs text-warn-ink/80">{t('goToKanban')}</div>
             </div>
             <Icon name="arrow-right" className="text-warn-ink" />
           </div>
@@ -398,7 +397,7 @@ export default function TenantDashboard() {
 
       {/* Bloque comercial */}
       <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
-        Hoy
+        {t('today')}
       </h2>
       {!m ? (
         <div className="grid gap-3.5 grid-cols-2 md:grid-cols-4 mb-6">
@@ -407,29 +406,29 @@ export default function TenantDashboard() {
       ) : (
       <div className="grid gap-3.5 grid-cols-2 md:grid-cols-4 mb-6">
         <KPI
-          label="Pedidos hoy"
+          label={t('ordersToday')}
           value={m?.ordersToday ?? '–'}
-          sub={`${m?.orders30 ?? 0} en 30d`}
+          sub={t('inLast30', { count: m?.orders30 ?? 0 })}
           icon="shopping-bag"
           tone="brand"
           href="/app/orders"
         />
         <KPI
-          label="Ingresos hoy"
+          label={t('revenueToday')}
           value={m ? fmt(m.revenueToday) : '–'}
-          sub={`${m ? fmt(m.revenue7) : '–'} en 7d`}
+          sub={t('inLast7', { amount: m ? fmt(m.revenue7) : '–' })}
           icon="cash"
           tone="ok"
         />
         <KPI
-          label="Ticket promedio"
+          label={t('avgTicket')}
           value={m ? fmt(m.avgTicket) : '–'}
-          sub="últimos 30 días"
+          sub={t('last30Days')}
           icon="trend-up"
           tone="info"
         />
         <KPI
-          label="Ingresos 30d"
+          label={t('revenue30')}
           value={m ? fmt(m.revenue30) : '–'}
           icon="cash"
           tone="ok"
@@ -439,34 +438,34 @@ export default function TenantDashboard() {
 
       {/* Bloque clientes y fidelización */}
       <h2 className="text-xs uppercase tracking-[0.18em] text-mute font-semibold mb-2.5">
-        Clientes y fidelización
+        {t('customersAndLoyalty')}
       </h2>
       <div className="grid gap-3.5 grid-cols-2 md:grid-cols-3 lg:grid-cols-6 mb-6">
         <KPI
-          label="Clientes"
+          label={t('customers')}
           value={m?.customers ?? '–'}
-          sub={`+${m?.newCustomers30 ?? 0} este mes`}
+          sub={t('newThisMonth', { count: m?.newCustomers30 ?? 0 })}
           icon="users"
           href="/app/customers"
         />
         <KPI
-          label="Recurrentes"
+          label={t('recurring')}
           value={m?.recurringCustomers30 ?? '–'}
-          sub="≥2 pedidos"
+          sub={t('twoPlusOrders')}
           icon="users"
           tone="ok"
         />
         <KPI
-          label="Tarjetas"
+          label={t('cards')}
           value={m?.cards ?? '–'}
           icon="card"
           tone="brand"
           href="/app/cards"
         />
         <KPI
-          label="Pases en Wallet"
+          label={t('passesInWallet')}
           value={m?.installed ?? '–'}
-          sub={`de ${m?.passes ?? 0} emitidos`}
+          sub={t('ofIssued', { count: m?.passes ?? 0 })}
           icon="check"
           tone="ok"
         />
@@ -476,22 +475,25 @@ export default function TenantDashboard() {
           none={m?.walletNone ?? 0}
         />
         <KPI
-          label="Sellos (30d)"
+          label={t('stamps30')}
           value={m?.stamps30 ?? '–'}
           // Si hubo correcciones se dice, para que el número no parezca un
           // error: el negocio dio 12 y quitó 2, y ve 10.
           sub={
             m?.stampsRemoved30
-              ? `${m.stampsGiven30} dados · ${m.stampsRemoved30} corregidos`
+              ? t('stampsBreakdown', {
+                  given: m.stampsGiven30 ?? 0,
+                  removed: m.stampsRemoved30,
+                })
               : undefined
           }
           icon="check"
           tone="info"
         />
         <KPI
-          label="Recompensas (30d)"
+          label={t('rewards30')}
           value={m?.redemptions30 ?? '–'}
-          sub="premios canjeados con sellos"
+          sub={t('rewardsSub')}
           icon="gift"
           tone="brand"
         />
@@ -501,15 +503,15 @@ export default function TenantDashboard() {
             Solo aparece si el negocio usa cupones. */}
         {!!m?.coupons30 && (
           <KPI
-            label="Cupones (30d)"
+            label={t('coupons30')}
             value={m.coupons30}
-            sub="cupones redimidos"
+            sub={t('couponsSub')}
             icon="gift"
             tone="warn"
           />
         )}
         <KPI
-          label="★ Calificación"
+          label={t('rating')}
           value={
             m?.avgRating != null ? (
               <span className="flex items-center gap-1">
@@ -522,8 +524,8 @@ export default function TenantDashboard() {
           }
           sub={
             m?.ratingsCount
-              ? `${m.ratingsCount} pedidos calificados`
-              : 'Aún sin calificaciones'
+              ? t('ratedOrders', { count: m.ratingsCount })
+              : t('noRatings')
           }
           icon="spark"
           tone="info"
@@ -535,9 +537,9 @@ export default function TenantDashboard() {
         {m && m.topProducts.length > 0 ? (
           <div className="card">
             <div className="card-h">
-              <h3>Top productos · 30 días</h3>
+              <h3>{t('topProducts30')}</h3>
               <Link className="btn-link" href="/app/menu">
-                Ver menú
+                {t('viewMenu')}
               </Link>
             </div>
             <div className="p-2">
@@ -575,10 +577,9 @@ export default function TenantDashboard() {
         ) : (
           <div className="card card-pad text-center py-10">
             <div className="text-3xl mb-1">🏆</div>
-            <div className="font-semibold text-sm">Top productos</div>
+            <div className="font-semibold text-sm">{t('topProducts')}</div>
             <div className="text-xs text-mute mt-1 max-w-xs mx-auto">
-              Cuando llegue el primer pedido, aquí verás tus productos más
-              vendidos.
+              {t('topProductsEmpty')}
             </div>
           </div>
         )}

@@ -3,10 +3,12 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
+import { useTranslations } from 'next-intl';
+import { EditorCargando } from '@/components/marketing/EditorCargando';
 
 const QrPosterEditor = dynamic(
   () => import('@/components/marketing/QrPosterEditor'),
-  { ssr: false, loading: () => <div className="text-mute py-8 text-center">Cargando editor…</div> },
+  { ssr: false, loading: () => <EditorCargando /> },
 );
 
 // Mini-page tipo Linktree del negocio. El QR Infolink puede apuntar a:
@@ -25,6 +27,7 @@ type InfoLink = {
 };
 
 export default function QrInfolinkPage() {
+  const t = useTranslations('app_qr');
   const [tenant, setTenant] = useState<any>(null);
   const [links, setLinks] = useState<InfoLink[] | null>(null);
   // Empty = ir a la lista completa /i/<slug>. Sino, ir directo al
@@ -48,7 +51,7 @@ export default function QrInfolinkPage() {
     [activeLinks, selectedLinkId],
   );
 
-  if (!tenant) return <div className="text-mute">Cargando…</div>;
+  if (!tenant) return <div className="text-mute">{t('loading')}</div>;
 
   const slug = tenant.slug ?? 'demo';
   const origin =
@@ -70,29 +73,29 @@ export default function QrInfolinkPage() {
       <div className="page-head">
         <h1 className="page-title">
           <Link href="/app/marketing" className="text-mute hover:text-ink">
-            Marketing
+            {t('marketing')}
           </Link>{' '}
-          <span className="page-crumb">/ QR Infolink</span>
+          <span className="page-crumb">/ {t('infolinkCrumb')}</span>
         </h1>
       </div>
 
       <p className="text-sm text-mute max-w-2xl mb-5 leading-relaxed">
-        Cartel para el mini-sitio tipo Linktree de tu negocio. Por default
-        el QR abre la lista completa de links activos. Puedes seleccionar un
-        info-link específico abajo para que el QR redirija directo a ese.
+        {t('infolinkIntro')}
       </p>
 
       {links !== null && !hasLinks && (
         <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 mb-5 text-sm">
           <div className="font-semibold text-amber-900">
-            ⚠ Todavía no tienes links activos
+            {t('noLinksTitle')}
           </div>
           <div className="text-amber-800/90 mt-1">
-            Crea tu primero desde{' '}
-            <Link href="/app/info-links" className="underline font-semibold">
-              Info Links
-            </Link>{' '}
-            para que el QR muestre algo cuando lo escaneen.
+            {t.rich('noLinksBody', {
+              link: (c) => (
+                <Link href="/app/info-links" className="underline font-semibold">
+                  {c}
+                </Link>
+              ),
+            })}
           </div>
         </div>
       )}
@@ -103,8 +106,8 @@ export default function QrInfolinkPage() {
       {hasLinks && (
         <div className="card card-pad mb-5">
           <label className="label">
-            🎯 Destino del QR{' '}
-            <span className="text-mute font-normal">— opcional</span>
+            {t('qrTarget')}{' '}
+            <span className="text-mute font-normal">{t('optional')}</span>
           </label>
           <select
             className="input"
@@ -112,7 +115,7 @@ export default function QrInfolinkPage() {
             onChange={(e) => setSelectedLinkId(e.target.value)}
           >
             <option value="">
-              — Lista completa (todos los info-links activos)
+              {t('fullList')}
             </option>
             {activeLinks.map((l) => (
               <option key={l.id} value={l.id}>
@@ -122,7 +125,7 @@ export default function QrInfolinkPage() {
             ))}
           </select>
           <div className="text-xs text-mute mt-2 font-mono break-all">
-            URL del QR: {qrUrl}
+            {t('qrUrl')}: {qrUrl}
           </div>
         </div>
       )}
@@ -130,7 +133,7 @@ export default function QrInfolinkPage() {
       <QrPosterEditor
         type="INFOLINK"
         qrUrl={qrUrl}
-        brandName={tenant.brandName ?? 'Mi Negocio'}
+        brandName={tenant.brandName ?? t('defaultBusiness')}
         logoUrl={tenant.walletLogoUrl || tenant.logoUrl || null}
       />
     </div>
