@@ -8,6 +8,100 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-11 (3) — Imprimir, push que se colgaba, pagos invisibles, idioma
+
+Todo desplegado salvo lo que se dice.
+
+### Imprimir pedidos: apagado en 123 de 125 negocios
+
+La opción no funcionaba de forma fiable. Javier: dejarla **solo en DEMO
+Clubify y Nudo Cowork**, en cualquier marca.
+
+Va por **columna** (`Tenant.ordersPrintEnabled`, nace en FALSE) y no por una
+lista de slugs en el código: encender un tercero es un UPDATE, no un
+despliegue. Migración aditiva aplicada:
+`scripts/apply-orders-print-migration.cjs`. Producción: 2 de 125.
+
+El frontend arranca con el botón oculto y solo lo enseña si `/tenants/me`
+responde `ordersPrintEnabled: true` — si la llamada falla, apagado.
+
+### El envío de push se colgaba (y salía dos veces)
+
+`POST /notifications` recorría los pases **de uno en uno** y no respondía
+hasta acabar; por cada pase abría una **conexión TLS nueva con Apple** (un
+`apn.Provider` por pase), un PATCH a Google y dos escrituras. Con 141 pases
+eso son minutos: el navegador corta, el negocio cree que no salió y le da
+otra vez. En producción quedaron **dos envíos idénticos a Fusion sushi** con
+4 minutos de diferencia.
+
+- La notificación se crea, se responde, y el despacho sigue por detrás
+  anotando el avance en `stats` (`enCurso`). La respuesta ya dice a cuántos va.
+- Los pases van **de 8 en 8** y `lastActivityAt` se marca de una sola vez.
+- **La conexión con APNs se reutiliza** (una por environment, cerrada en
+  `onModuleDestroy`). Esto acelera TODO lo que empuja al wallet: sellos,
+  canjes y automatizaciones pasaban por el mismo sitio.
+- El cron de programadas y el envío inmediato dejan de ser dos copias del
+  mismo bucle. El arreglo de «destinatarios de Google» del 28-08 estaba en
+  una de las dos y no en la otra.
+
+### «Pagos procesados» marcaba $0 con $668 cobrados
+
+Jhon. Los 5 cobros del día estaban en la base con `whiteLabelId` en **null**,
+y el dashboard filtra por marca.
+
+El origen —un `select` de Hotmart que no pedía el campo— **lo estaba
+arreglando la otra máquina** (cambios sin commitear en `hotmart.service.ts`;
+NO los toqué). Aquí se cerró por el otro lado: `IncomeRecordService` resuelve
+la marca desde el negocio cuando el llamador no la manda, y deja un WARN para
+que el camino que se la olvidó se arregle en su sitio. Son cinco caminos de
+cobro y cada uno la arma a su manera.
+
+`scripts/backfill-marca-de-ingresos.cjs` — aplicado: 9 ingresos atribuidos,
+los 10 sin negocio (packs de créditos) intactos a propósito.
+
+**«Próximos cobros» SÍ estaba bien** ($300 · 2): en 7 días vencen 5 negocios,
+pero uno es de Sellea y tres son del grupo Aldehir-Mistika, que se cobra una
+sola vez.
+
+### Idioma: un negocio en inglés repartía textos en español
+
+DÓNDE JEANK tiene `Tenant.locale = 'en-US'` y casi nadie lo miraba.
+
+- Los rótulos del pase salían del idioma del **cliente**, que solo se rellena
+  si él lo elige. Ahora el negocio es el respaldo (`localeDelPase`). Manda el
+  cliente: quien la pidió en español la conserva.
+- Las **seis automatizaciones de fábrica** estaban en español fijo, en el
+  listado y en el texto que se manda (`plantillas-en-ingles.ts`).
+
+**Queda fuera:** las plantillas de SMS de cobro y los correos de sistema
+tienen su propio motor y siguen sin idioma.
+
+### Cocoa Beauty: no había tal bug de sincronización
+
+«No se reflejan los sellos en la tarjeta, pero en el sistema sí aparecen».
+Contrastado contra la API de Google: de las 32 tarjetas realmente guardadas,
+el contador coincidía en las 32.
+
+Lo que hay son dos cosas que desde el panel se ven igual:
+
+- `walletPlatform='GOOGLE'` significa que el cliente **pulsó** el botón, no
+  que Google guardara nada. 28 de 60 no completaron.
+- Un pase de Apple instalado puede quedarse **sin `WalletDevice`** (Apple
+  devuelve `Unregistered` y lo purgamos). Sin registro no hay push y el pase
+  se congela. **304 en todo el sistema**, de 1.884 de Apple. Es el caso de la
+  clienta de la foto: 6 sellos en el panel, 0/10 en su iPhone desde julio.
+
+`scripts/diagnostico-tarjetas-mudas.cjs <slug> --detalle` lo lista por negocio.
+
+### MYKOZ — pendiente hasta las 3 AM
+
+La regla ya lo marca `suspend` (9 días de mora) y la simulación contra
+producción dice que **sería el único afectado**. Sigue ACTIVE porque el cron
+corre a las 3 AM y el arreglo de `esMoraFantasma` entró a las 08:13 de hoy.
+Javier decidió esperar al cron en vez de forzarlo, para que salgan por su
+camino el aviso al equipo, el correo y el SMS al cliente.
+**Verificar mañana** que quedó SUSPENDED y que los avisos salieron.
+
 ## 2026-09-11 (2) — Onboarding: club, alianzas, el reconciliador, y el aviso de cliente nuevo
 
 Todo desplegado y verificado contra producción.
