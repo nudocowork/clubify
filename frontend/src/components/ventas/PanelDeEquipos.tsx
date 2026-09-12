@@ -153,11 +153,23 @@ export function TarjetaDeEquipo({
         </span>
       </div>
 
+      {/* La tarjeta abre el EQUIPO, no una de sus pantallas.
+          Antes los botones eran «Tablero» y «Agenda», y «Tablero» soltaba a
+          la gente directamente en el kanban sin pasar por el resumen —
+          reportado así por Javier: «le doy clic al tablero y me lleva al CRM».
+          Dentro están las pestañas; el atajo a la agenda se queda porque es la
+          otra cosa que se abre a diario. */}
       <div className="flex gap-2 px-4 py-3 border-t border-line2 mt-auto">
-        <Link href={`/admin/sales-teams/${equipo.id}/board`} className="btn-ghost flex-1 justify-center text-sm">
-          Tablero
+        <Link
+          href={`/admin/sales-teams/${equipo.id}`}
+          className="btn-primary flex-1 justify-center text-sm"
+        >
+          Abrir equipo
         </Link>
-        <Link href={`/admin/sales-teams/${equipo.id}/agenda`} className="btn-ghost flex-1 justify-center text-sm">
+        <Link
+          href={`/admin/sales-teams/${equipo.id}/agenda`}
+          className="btn-ghost justify-center text-sm whitespace-nowrap"
+        >
           Agenda
         </Link>
       </div>

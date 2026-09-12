@@ -24,9 +24,17 @@ export type EquipoDeCabecera = {
   leadUser?: { fullName: string } | null;
 };
 
+/**
+ * El kanban se llama **CRM**, no «Tablero».
+ *
+ * Es el nombre que usa la referencia y, sobre todo, el que usó Javier al
+ * describir lo que veía: «le doy clic al tablero y me lleva al CRM». Si la
+ * pantalla se llama de una forma y la gente la llama de otra, la que está mal
+ * es la pantalla.
+ */
 const PESTANAS = [
   { sufijo: '', etiqueta: 'Resumen' },
-  { sufijo: '/board', etiqueta: 'Tablero' },
+  { sufijo: '/board', etiqueta: 'CRM' },
   { sufijo: '/agenda', etiqueta: 'Agenda' },
 ] as const;
 

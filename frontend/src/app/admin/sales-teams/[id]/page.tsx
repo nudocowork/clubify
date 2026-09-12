@@ -283,7 +283,7 @@ export default function ResumenDeEquipoPage({
                 <span>{a.texto}</span>
                 {a.tipo === 'banco' && (
                   <Link href={`/admin/sales-teams/${id}/board`} className="text-xs font-semibold text-brand hover:underline ml-auto">
-                    Ir al tablero
+                    Ir al CRM
                   </Link>
                 )}
                 {a.tipo === 'agenda' && (
