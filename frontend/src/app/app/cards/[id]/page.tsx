@@ -288,7 +288,7 @@ export default function CardDetail() {
         body: JSON.stringify({
           passId,
           action: 'REDEEM',
-          note: coupon ? 'Cupón redimido desde panel' : 'Canje desde panel',
+          note: coupon ? t('noteCouponRedeemed') : t('notePanelRedeem'),
         }),
       });
       toast(coupon ? t('couponRedeemed') : t('rewardRedeemed'), 'success');
@@ -1373,7 +1373,7 @@ function EditCardModal({
               </select>
               <div className="text-[11px] text-mute mt-1 leading-snug">
                 {!form.transformOnRedeem
-                  ? 'El cliente canjea el cupón y su tarjeta queda marcada como usada. No entra al programa de sellos ni se le crea ninguna tarjeta.'
+                  ? t('couponUsedHint')
                   : t('transformHint')}
               </div>
             </div>
@@ -1458,7 +1458,7 @@ function EditCardModal({
               transparentes que quedaban invisibles sobre la tarjeta y el
               pase. Off por defecto (no cambia tarjetas existentes). */}
           <div className="rounded-lg border border-line p-3">
-            <label className="label m-0">Fondo detrás del logo</label>
+            <label className="label m-0">{t('logoBackground')}</label>
             <div className="text-[11px] text-mute mt-0.5 leading-snug">
               Si tu logo es blanco o se ve invisible, ponle un fondo detrás. Sin
               fondo, el logo va directo sobre el color de la tarjeta.
@@ -1611,7 +1611,7 @@ function EditCardModal({
 
           {(card.type === 'STAMPS' || card.type === 'HYBRID' || card.type === 'VISITS') && (
             <div className="pt-3 border-t border-line">
-              <label className="label">Fondo del área de sellos</label>
+              <label className="label">{t('stampAreaBackground')}</label>
               <div className="grid grid-cols-3 gap-2 mt-1">
                 {([
                   { v: 'GRADIENT', label: 'Degradado', hint: 'Clásico' },

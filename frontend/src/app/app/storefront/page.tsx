@@ -126,11 +126,11 @@ function parsePhone(raw: string | null | undefined): {
 const MENU_LAYOUTS: { id: MenuLayout; emoji: string; label: string; sub: string }[] = [
   { id: 'CLASSIC', emoji: '📋', label: 'Clásico', sub: 'Foto + info, estilo Rappi/UberEats' },
   { id: 'GRID', emoji: '🖼️', label: 'Grid', sub: 'Cuadrícula 2 columnas, fotos grandes' },
-  { id: 'CAROUSELS', emoji: '🎬', label: 'Carruseles', sub: 'Hero + scroll horizontal por categoría' },
+  { id: 'CAROUSELS', emoji: '🎬', label: 'Carruseles', sub: 'layoutCarouselsSub' },
   { id: 'CLEAN', emoji: '✒️', label: 'Limpio', sub: 'Sin fotos, serif elegante (boutique)' },
   { id: 'COMPACT', emoji: '📱', label: 'Compacto', sub: 'Lista + modal con variantes (DoorDash)' },
   { id: 'CLUVI', emoji: '🌙', label: 'Fondo oscuro', sub: 'Fondo negro + cards blancas + acentos color de marca' },
-  { id: 'SECTIONS', emoji: '✨', label: 'Secciones premium', sub: 'Banners grandes por sección con portada editable (Apps premium)' },
+  { id: 'SECTIONS', emoji: '✨', label: 'Secciones premium', sub: 'layoutSectionsSub' },
   // FLIPBOOK ya no es un layout — el menú libro vive en su propia ruta
   // (/book/<slug>) y se administra desde /app/menu-book con su propio
   // toggle bookMenuEnabled. Ver F5.2.
@@ -405,7 +405,9 @@ export default function StorefrontEditor() {
                       </span>
                     )}
                   </div>
-                  <div className="text-[11px] text-mute mt-1 leading-snug">{opt.sub}</div>
+                  <div className="text-[11px] text-mute mt-1 leading-snug">
+                    {opt.sub.includes(' ') ? opt.sub : t(opt.sub as any)}
+                  </div>
                 </button>
               );
             })}

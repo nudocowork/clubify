@@ -352,7 +352,7 @@ export default function MenuBookAdminPage() {
               type="button"
               onClick={abrirQr}
               className="btn-ghost text-sm whitespace-nowrap inline-flex items-center gap-2"
-              title="Descarga el QR que lleva directo a tu menú libro"
+              title={t('downloadBookQr')}
             >
               ⬛ QR del menú
             </button>
@@ -378,13 +378,13 @@ export default function MenuBookAdminPage() {
           onClick={() => setQrOpen(false)}
           role="dialog"
           aria-modal="true"
-          aria-label="QR del menú libro"
+          aria-label={t('bookQrAria')}
         >
           <div
             className="bg-white rounded-2xl p-5 max-w-xs w-full text-center"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="font-bold text-base">QR del menú</div>
+            <div className="font-bold text-base">{t('menuQr')}</div>
             <p className="text-xs text-mute mt-1">
               Imprimílo y pégalo en la mesa: lleva directo a tu menú libro.
             </p>
@@ -404,7 +404,7 @@ export default function MenuBookAdminPage() {
               <>
                 <img
                   src={qrPng}
-                  alt="Código QR del menú libro"
+                  alt={t('bookQrAlt')}
                   className="w-full max-w-[240px] mx-auto mt-4 rounded-lg border border-line"
                 />
                 <div className="text-[11px] text-mute mt-2 break-all">{bookUrl}</div>

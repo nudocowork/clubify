@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { plural } from '@/lib/plural';
+import { useTranslations } from 'next-intl';
 
 type Consumo = {
   id: string;
@@ -62,6 +63,7 @@ export function Consumos({
   /** Cuántos socios al día tiene el plan, para el promedio por persona. */
   socios: number;
 }) {
+  const t = useTranslations('club_usage');
   const [periodo, setPeriodo] = useState(periodosRecientes()[0]);
   const [datos, setDatos] = useState<Respuesta | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -83,14 +85,14 @@ export function Consumos({
   }, [cargar]);
 
   async function anular(c: Consumo) {
-    if (!confirm(`¿Devolverle este consumo a ${c.cliente.nombre}?`)) return;
+    if (!confirm(t('confirmRefund', { name: c.cliente.nombre }))) return;
     setAnulando(c.id);
     try {
       const r = await api(`/club/caja/anular/${c.id}`, { method: 'POST' });
       toast(
         r.devuelto > 0
           ? 'Devuelto. Su tarjeta ya lo refleja.'
-          : 'Es de un mes anterior: devolverlo ahora saldría del cupo de este mes, así que no se toca.',
+          : t('oldMonth'),
         r.devuelto > 0 ? 'success' : 'error',
       );
       cargar();

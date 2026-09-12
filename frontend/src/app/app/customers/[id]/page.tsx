@@ -179,6 +179,7 @@ const isCouponLike = (type?: string) => COUPON_TYPES.includes(type ?? '');
  * estado juntos. Una llamada más por tarjeta de club, y son raras.
  */
 function FilaClub({ pass: p }: { pass: Pass }) {
+  const t = useTranslations('app_customers');
   const [d, setD] = useState<{
     membresiaId: string;
     plan: string;
@@ -301,7 +302,7 @@ function FilaClub({ pass: p }: { pass: Pass }) {
               d.status !== 'ACTIVA'
                 ? 'La membresía no está activa.'
                 : d.saldo < 1
-                  ? 'Ya usó todo su cupo de este mes.'
+                  ? t('clubQuotaUsed')
                   : undefined
             }
           >
@@ -454,7 +455,7 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
           passId: p.id,
           action: 'STAMP_REMOVE',
           amount: 1,
-          note: 'Corrección desde el panel',
+          note: t('notePanelCorrection'),
         }),
       });
       toast(isVisits ? t('visitRemoved') : t('stampRemoved'), 'success');
@@ -517,7 +518,7 @@ function PassRow({ pass: p, onChange }: { pass: Pass; onChange: () => void }) {
         body: JSON.stringify({
           passId: p.id,
           action: 'REDEEM',
-          note: 'Cupón redimido desde panel',
+          note: t('noteCouponRedeemed'),
         }),
       });
       toast(t('couponRedeemed'), 'success');
@@ -945,6 +946,7 @@ function EditCustomerModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_customers');
   const bd = customer.birthday ? new Date(customer.birthday) : null;
   const validBd = bd && !Number.isNaN(bd.getTime()) ? bd : null;
   const [fullName, setFullName] = useState(customer.fullName);
@@ -963,7 +965,7 @@ function EditCustomerModal({
     }
     // Día/mes: ambos o ninguno. Si solo uno está puesto, avisamos.
     if ((day && !month) || (!day && month)) {
-      toast('Elige día y mes del cumpleaños (o deja ambos vacíos)', 'error');
+      toast(t('needBirthday'), 'error');
       return;
     }
     const body: {
@@ -1261,7 +1263,7 @@ export default function CustomerDetail() {
           <button
             onClick={() => setPushOpen(true)}
             className="btn-ghost text-sm font-semibold px-4 py-2 inline-flex items-center gap-1.5"
-            title="Enviar notificación push a este cliente"
+            title={t('sendPushToCustomer')}
           >
             <Icon name="bell" size={14} /> Push
           </button>

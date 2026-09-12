@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { useTranslations } from 'next-intl';
 
 // #14 (2026-06-17): config de alertas de domicilio por WhatsApp (el envío usa el
 // canal SMS — wazzap.mx lo entrega como WhatsApp; en la UI decimos "WhatsApp").
@@ -37,6 +38,7 @@ export function DeliveryAlertsCard<T extends DeliveryAlertsData>({
   testPath: string;
   onSaved: (t: T) => void;
 }) {
+  const t = useTranslations('delivery_alerts');
   const [enabled, setEnabled] = useState<boolean>(false);
   const [phones, setPhones] = useState<string[]>([]);
   const [events, setEvents] = useState<string[]>(DEFAULT_EVENTS);
@@ -87,7 +89,7 @@ export function DeliveryAlertsCard<T extends DeliveryAlertsData>({
 
   async function save() {
     if (enabled && phones.length === 0) {
-      toast('Agrega al menos un teléfono o desactiva las alertas', 'error');
+      toast(t('needPhone'), 'error');
       return;
     }
     if (enabled && events.length === 0) {
@@ -126,8 +128,7 @@ export function DeliveryAlertsCard<T extends DeliveryAlertsData>({
       }>(testPath, { method: 'POST', body: JSON.stringify({ phones }) });
       if (res?.ok) {
         toast(
-          `WhatsApp aceptado por el proveedor para ${res.okCount}/${res.total} número(s). ` +
-            'Si no llega en 1-2 min, verifica que la subcuenta pueda enviar a ese país.',
+          `${t('accepted', { ok: res.okCount, total: res.total })} ${t('acceptedHint')}`,
           'success',
         );
       } else {

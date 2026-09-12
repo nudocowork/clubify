@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 /**
  * Selector de vencimiento de la tarjeta. 3 modalidades:
@@ -32,6 +33,7 @@ export function CardExpiryPicker({
   value: ExpiryValue;
   onChange: (v: ExpiryValue) => void;
 }) {
+  const t = useTranslations('card_expiry');
   const [mode, setMode] = useState<Mode>(modeOf(value));
 
   useEffect(() => {
@@ -50,22 +52,18 @@ export function CardExpiryPicker({
   }
 
   const opts: { v: Mode; label: string; hint: string }[] = [
-    { v: 'unlimited', label: 'Ilimitado', hint: 'La tarjeta nunca vence' },
-    { v: 'date', label: 'Plazo definido', hint: 'Vence en una fecha específica (ej. fin de temporada)' },
-    {
-      v: 'days_after',
-      label: 'Plazo después de la emisión',
-      hint: 'Cada cliente tiene N días desde que agrega la tarjeta',
-    },
+    { v: 'unlimited', label: t('unlimited'), hint: t('unlimitedHint') },
+    { v: 'date', label: t('fixedDate'), hint: t('fixedDateHint') },
+    { v: 'days_after', label: t('daysAfter'), hint: t('daysAfterHint') },
   ];
 
   return (
     <div className="space-y-2">
       <label className="label flex items-center gap-1">
-        Fecha de vencimiento de la tarjeta
+        {t('label')}
         <span
           className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-bg2 text-mute text-[10px] font-bold cursor-help"
-          title="Útil si quieres correr una promo temporal: la tarjeta deja de funcionar pasada la fecha."
+          title={t('help')}
         >
           i
         </span>
@@ -124,7 +122,7 @@ export function CardExpiryPicker({
               })
             }
           />
-          <span className="text-sm text-mute">días desde la emisión</span>
+          <span className="text-sm text-mute">{t('daysSinceIssued')}</span>
         </div>
       )}
     </div>
