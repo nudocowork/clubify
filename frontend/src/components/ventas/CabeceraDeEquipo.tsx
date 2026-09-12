@@ -35,6 +35,10 @@ export type EquipoDeCabecera = {
 const PESTANAS = [
   { sufijo: '', etiqueta: 'Resumen' },
   { sufijo: '/board', etiqueta: 'CRM' },
+  { sufijo: '/banco', etiqueta: 'Banco' },
+  { sufijo: '/contactos', etiqueta: 'Contactos' },
+  { sufijo: '/clientes', etiqueta: 'Clientes' },
+  { sufijo: '/seguimientos', etiqueta: 'Seguimientos' },
   { sufijo: '/agenda', etiqueta: 'Agenda' },
 ] as const;
 

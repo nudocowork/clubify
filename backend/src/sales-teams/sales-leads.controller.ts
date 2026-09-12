@@ -19,6 +19,10 @@ import {
 } from 'class-validator';
 import { SalesLeadsService } from './sales-leads.service';
 import { ResumenDeEquipoService } from './resumen-de-equipo.service';
+import {
+  ListasDeEquipoService,
+  type FiltroDeLista,
+} from './listas-de-equipo.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import {
   CurrentUser,
@@ -80,7 +84,39 @@ export class SalesLeadsController {
   constructor(
     private svc: SalesLeadsService,
     private resumen: ResumenDeEquipoService,
+    private listas: ListasDeEquipoService,
   ) {}
+
+  /** Banco · Contactos · Clientes: la misma lista con otro filtro. */
+  @Get('lista')
+  lista(
+    @CurrentUser() user: AuthUser,
+    @Param('teamId') teamId: string,
+    @Query('filtro') filtro?: string,
+    @Query('buscar') buscar?: string,
+  ) {
+    const valido: FiltroDeLista[] = ['banco', 'contactos', 'clientes'];
+    return this.listas.leads(user, teamId, {
+      filtro: valido.includes(filtro as FiltroDeLista)
+        ? (filtro as FiltroDeLista)
+        : 'contactos',
+      buscar,
+    });
+  }
+
+  @Get('seguimientos')
+  seguimientos(
+    @CurrentUser() user: AuthUser,
+    @Param('teamId') teamId: string,
+    @Query('estado') estado?: string,
+  ) {
+    const valido = ['pendientes', 'hechos', 'todos'] as const;
+    return this.listas.seguimientos(user, teamId, {
+      estado: (valido as readonly string[]).includes(estado ?? '')
+        ? (estado as 'pendientes' | 'hechos' | 'todos')
+        : 'pendientes',
+    });
+  }
 
   /**
    * El Resumen del equipo. Cuelga de aquí y no de `admin/sales-teams` porque
