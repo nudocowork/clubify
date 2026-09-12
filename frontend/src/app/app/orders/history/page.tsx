@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations, useLocale } from 'next-intl';
 import { api } from '@/lib/api';
 import { Icon } from '@/components/Icon';
 import { toast } from '@/components/Toast';
@@ -17,12 +18,12 @@ type Order = {
   customer?: { fullName: string | null; phone: string | null; email?: string | null } | null;
 };
 
-const STATUS_LABEL: Record<Order['status'], { t: string; cls: string }> = {
-  PENDING: { t: 'Pendiente', cls: 'bg-amber-100 text-amber-800' },
-  CONFIRMED: { t: 'Confirmado', cls: 'bg-blue-100 text-blue-800' },
-  READY: { t: 'Listo', cls: 'bg-indigo-100 text-indigo-800' },
-  DELIVERED: { t: 'Entregado', cls: 'bg-emerald-100 text-emerald-800' },
-  CANCELLED: { t: 'Cancelado', cls: 'bg-red-100 text-red-800' },
+const STATUS_CLS: Record<Order['status'], string> = {
+  PENDING: 'bg-amber-100 text-amber-800',
+  CONFIRMED: 'bg-blue-100 text-blue-800',
+  READY: 'bg-indigo-100 text-indigo-800',
+  DELIVERED: 'bg-emerald-100 text-emerald-800',
+  CANCELLED: 'bg-red-100 text-red-800',
 };
 
 type Location = {
@@ -31,13 +32,9 @@ type Location = {
   isActive: boolean;
 };
 
-const FULFILLMENT_LABEL: Record<string, string> = {
-  DINE_IN: 'Mesa',
-  DELIVERY: 'Domicilio',
-  PICKUP: 'Recoger',
-};
-
 export default function OrdersHistoryPage() {
+  const t = useTranslations('app_orders_history');
+  const locale = useLocale();
   const [rows, setRows] = useState<Order[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -65,7 +62,7 @@ export default function OrdersHistoryPage() {
       const data = await api<Order[]>(`/orders${qs()}`);
       setRows(data ?? []);
     } catch (e: any) {
-      toast(e?.message ?? 'Error al cargar el historial', 'error');
+      toast(e?.message ?? t('loadError'), 'error');
       setRows([]);
     } finally {
       setLoading(false);
@@ -89,13 +86,11 @@ export default function OrdersHistoryPage() {
     <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Historial de pedidos</h1>
-          <p className="text-mute text-sm mt-1">
-            Busca por nombre, teléfono o código y filtra por fecha.
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
+          <p className="text-mute text-sm mt-1">{t('intro')}</p>
         </div>
         <Link href="/app/orders" className="btn-ghost text-sm">
-          ← Volver al tablero
+          {t('backToBoard')}
         </Link>
       </div>
 
@@ -108,19 +103,19 @@ export default function OrdersHistoryPage() {
         }}
       >
         <div className="flex-1 min-w-[200px]">
-          <label className="label">Buscar (nombre · teléfono · código)</label>
+          <label className="label">{t('searchLabel')}</label>
           <div className="flex items-center gap-2 bg-white border border-line rounded-input px-3 py-2 mt-1">
             <Icon name="search" size={14} className="text-mute" />
             <input
               className="border-0 outline-none text-sm w-full bg-transparent"
-              placeholder="Ej. Juan, 3001234567, A1B2"
+              placeholder={t('searchPlaceholder')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
         </div>
         <div>
-          <label className="label">Desde</label>
+          <label className="label">{t('from')}</label>
           <input
             type="date"
             className="input mt-1"
@@ -129,7 +124,7 @@ export default function OrdersHistoryPage() {
           />
         </div>
         <div>
-          <label className="label">Hasta</label>
+          <label className="label">{t('to')}</label>
           <input
             type="date"
             className="input mt-1"
@@ -138,29 +133,29 @@ export default function OrdersHistoryPage() {
           />
         </div>
         <div>
-          <label className="label">Estado</label>
+          <label className="label">{t('status')}</label>
           <select
             className="input mt-1"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
           >
-            <option value="">Todos</option>
-            <option value="PENDING">Pendiente</option>
-            <option value="CONFIRMED">Confirmado</option>
-            <option value="READY">Listo</option>
-            <option value="DELIVERED">Entregado</option>
-            <option value="CANCELLED">Cancelado</option>
+            <option value="">{t('allStatuses')}</option>
+            <option value="PENDING">{t('statusPENDING')}</option>
+            <option value="CONFIRMED">{t('statusCONFIRMED')}</option>
+            <option value="READY">{t('statusREADY')}</option>
+            <option value="DELIVERED">{t('statusDELIVERED')}</option>
+            <option value="CANCELLED">{t('statusCANCELLED')}</option>
           </select>
         </div>
         {locations.length >= 2 && (
           <div>
-            <label className="label">Sede</label>
+            <label className="label">{t('location')}</label>
             <select
               className="input mt-1"
               value={locationId}
               onChange={(e) => setLocationId(e.target.value)}
             >
-              <option value="">Todas las sedes</option>
+              <option value="">{t('allLocations')}</option>
               {locations.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
@@ -170,16 +165,16 @@ export default function OrdersHistoryPage() {
           </div>
         )}
         <button type="submit" className="btn-primary text-sm" disabled={loading}>
-          {loading ? 'Buscando…' : 'Buscar'}
+          {loading ? t('searching') : t('search')}
         </button>
         <button
           type="button"
           className="btn-ghost text-sm"
-          title="Descargar CSV de estos resultados"
+          title={t('downloadCsv')}
           onClick={() =>
             downloadFile(
               `/orders/export.csv${qs()}`,
-              `pedidos-${new Date().toISOString().slice(0, 10)}.csv`,
+              `${t('csvFileName')}-${new Date().toISOString().slice(0, 10)}.csv`,
             )
           }
         >
@@ -190,28 +185,28 @@ export default function OrdersHistoryPage() {
       {/* Resultados */}
       <div className="card overflow-hidden">
         {rows === null ? (
-          <div className="p-8 text-center text-mute text-sm">Cargando…</div>
+          <div className="p-8 text-center text-mute text-sm">{t('loading')}</div>
         ) : rows.length === 0 ? (
           <div className="p-8 text-center text-mute text-sm">
-            No hay pedidos para estos filtros.
+            {t('noResults')}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-mute border-b border-line2">
-                  <th className="px-4 py-2.5 font-semibold">Código</th>
-                  <th className="px-4 py-2.5 font-semibold">Fecha</th>
-                  <th className="px-4 py-2.5 font-semibold">Cliente</th>
-                  <th className="px-4 py-2.5 font-semibold">Teléfono</th>
-                  <th className="px-4 py-2.5 font-semibold">Tipo</th>
-                  <th className="px-4 py-2.5 font-semibold">Estado</th>
-                  <th className="px-4 py-2.5 font-semibold text-right">Total</th>
+                  <th className="px-4 py-2.5 font-semibold">{t('colCode')}</th>
+                  <th className="px-4 py-2.5 font-semibold">{t('colDate')}</th>
+                  <th className="px-4 py-2.5 font-semibold">{t('colCustomer')}</th>
+                  <th className="px-4 py-2.5 font-semibold">{t('colPhone')}</th>
+                  <th className="px-4 py-2.5 font-semibold">{t('colType')}</th>
+                  <th className="px-4 py-2.5 font-semibold">{t('colStatus')}</th>
+                  <th className="px-4 py-2.5 font-semibold text-right">{t('colTotal')}</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((o) => {
-                  const st = STATUS_LABEL[o.status];
+                  const estadoCls = STATUS_CLS[o.status];
                   return (
                     <tr
                       key={o.id}
@@ -226,7 +221,7 @@ export default function OrdersHistoryPage() {
                         </Link>
                       </td>
                       <td className="px-4 py-2.5 text-mute whitespace-nowrap">
-                        {new Date(o.createdAt).toLocaleString('es-CO', {
+                        {new Date(o.createdAt).toLocaleString(locale, {
                           day: '2-digit',
                           month: 'short',
                           year: 'numeric',
@@ -237,11 +232,13 @@ export default function OrdersHistoryPage() {
                       <td className="px-4 py-2.5">{o.customer?.fullName ?? '—'}</td>
                       <td className="px-4 py-2.5 text-mute">{o.customer?.phone ?? '—'}</td>
                       <td className="px-4 py-2.5 text-mute">
-                        {FULFILLMENT_LABEL[o.fulfillment ?? ''] ?? o.fulfillment ?? '—'}
+                        {o.fulfillment
+                          ? t(`fulfillment${o.fulfillment}` as any)
+                          : '—'}
                       </td>
                       <td className="px-4 py-2.5">
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${st.cls}`}>
-                          {st.t}
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${estadoCls}`}>
+                          {t(`status${o.status}` as any)}
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-right font-semibold">
@@ -256,7 +253,7 @@ export default function OrdersHistoryPage() {
         )}
         {rows && rows.length >= 200 && (
           <div className="p-3 text-center text-[11px] text-mute border-t border-line2">
-            Mostrando los primeros 200 resultados — afina la búsqueda o el rango de fechas.
+            {t('capped')}
           </div>
         )}
       </div>

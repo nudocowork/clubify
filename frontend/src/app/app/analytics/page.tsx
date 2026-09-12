@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations, useLocale } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -31,6 +32,7 @@ const COP = (n: number) =>
   }).format(n);
 
 export default function AnalyticsPage() {
+  const t = useTranslations('app_analytics');
   const [days, setDays] = useState(30);
   const [orderFunnel, setOrderFunnel] = useState<Funnel | null>(null);
   const [loyaltyFunnel, setLoyaltyFunnel] = useState<Funnel | null>(null);
@@ -53,7 +55,7 @@ export default function AnalyticsPage() {
       setSeries(d);
       setHeatmap(e);
     } catch (e: any) {
-      toast(e.message || 'Error cargando analítica', 'error');
+      toast(e.message || t('loadError'), 'error');
     }
   }
   useEffect(() => {
@@ -74,8 +76,7 @@ export default function AnalyticsPage() {
     <div>
       <div className="page-head">
         <h1 className="page-title">
-          Analítica{' '}
-          <span className="page-crumb">/ funnels & series</span>
+          {t('title')} <span className="page-crumb">{t('crumb')}</span>
         </h1>
         <div className="flex gap-1">
           {[7, 30, 90].map((d) => (
@@ -95,23 +96,19 @@ export default function AnalyticsPage() {
       {noActivity && (
         <div className="card card-pad text-center py-12 mb-4">
           <div className="text-5xl mb-2">📊</div>
-          <div className="font-bold text-lg">
-            Sin datos para mostrar todavía
-          </div>
+          <div className="font-bold text-lg">{t('emptyTitle')}</div>
           <p className="text-sm text-mute mt-1.5 max-w-md mx-auto">
-            Cuando tu negocio empiece a recibir pedidos, sumar clientes y
-            otorgar sellos, verás funnels, series temporales y un heatmap de
-            picos de venta. Por ahora, lleva tu primer cliente.
+            {t('emptyBody')}
           </p>
           <div className="mt-5 flex flex-wrap justify-center gap-2">
             <Link href="/app/storefront" className="btn-primary text-sm">
-              Compartir mi sitio
+              {t('shareSite')}
             </Link>
             <Link href="/app/customers" className="btn-ghost text-sm">
-              Crear primer cliente
+              {t('firstCustomer')}
             </Link>
             <Link href="/app/cards" className="btn-ghost text-sm">
-              Configurar tarjeta
+              {t('setUpCard')}
             </Link>
           </div>
         </div>
@@ -120,31 +117,32 @@ export default function AnalyticsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {orderFunnel && (
           <FunnelCard
-            title="Funnel de pedidos"
-            subtitle={`Últimos ${days} días${
-              orderFunnel.cancelRate !== undefined
-                ? ` · ${orderFunnel.cancelRate}% cancelados`
-                : ''
-            }`}
+            title={t('orderFunnel')}
+            subtitle={
+              t('lastDays', { days }) +
+              (orderFunnel.cancelRate !== undefined
+                ? ` · ${t('cancelRate', { rate: orderFunnel.cancelRate })}`
+                : '')
+            }
             funnel={orderFunnel}
             color="#6366F1"
           />
         )}
         {loyaltyFunnel && (
           <FunnelCard
-            title="Funnel de fidelización"
-            subtitle="Acumulado total"
+            title={t('loyaltyFunnel')}
+            subtitle={t('allTime')}
             funnel={loyaltyFunnel}
             color="#10B981"
           />
         )}
         {customerFunnel && (
           <FunnelCard
-            title="Funnel de clientes"
+            title={t('customerFunnel')}
             subtitle={
               customerFunnel.repeatRate !== undefined
-                ? `Tasa recurrencia: ${customerFunnel.repeatRate}%`
-                : 'Acumulado'
+                ? t('repeatRate', { rate: customerFunnel.repeatRate })
+                : t('cumulative')
             }
             funnel={customerFunnel}
             color="#F97316"
@@ -156,14 +154,18 @@ export default function AnalyticsPage() {
         <div className="card card-pad mt-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">
-              Pedidos & ingresos por día
+              {t('ordersAndRevenue')}
               <span className="text-mute text-sm font-normal ml-2">
                 ({series.days}d)
               </span>
             </h3>
             <div className="text-sm text-mute">
-              {series.series.reduce((a, s) => a + s.count, 0)} pedidos ·{' '}
-              {COP(series.series.reduce((a, s) => a + Number(s.total), 0))}
+              {t('ordersAndTotal', {
+                count: series.series.reduce((a, s) => a + s.count, 0),
+                total: COP(
+                  series.series.reduce((a, s) => a + Number(s.total), 0),
+                ),
+              })}
             </div>
           </div>
           <Sparkline series={series.series} />
@@ -174,9 +176,9 @@ export default function AnalyticsPage() {
         <div className="card card-pad mt-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold">
-              Heatmap (cuándo te piden más)
+              {t('heatmapTitle')}
               <span className="text-mute text-sm font-normal ml-2">
-                últimos 30 días · {heatmap.total} pedidos
+                {t('heatmapSub', { count: heatmap.total })}
               </span>
             </h3>
           </div>
@@ -321,7 +323,18 @@ function Sparkline({
 }
 
 function HeatGrid({ heatmap }: { heatmap: Heatmap }) {
+  const t = useTranslations('app_analytics');
+  const locale = useLocale();
   const HOURS = Array.from({ length: 24 }, (_, h) => h);
+  // Los nombres de los días los manda el backend en español fijo
+  // («Dom», «Lun»…). Se rehacen aquí con el idioma activo: es texto que se
+  // lee, y en un negocio en inglés quedaba en medio de una tabla traducida.
+  // 2026-01-04 es domingo, que es donde empieza la semana del backend.
+  const nombreDelDia = (i: number) =>
+    new Date(Date.UTC(2026, 0, 4 + i)).toLocaleDateString(locale, {
+      weekday: 'short',
+      timeZone: 'UTC',
+    });
   return (
     <div className="overflow-x-auto">
       <table className="text-[10px] text-mute">
@@ -339,7 +352,7 @@ function HeatGrid({ heatmap }: { heatmap: Heatmap }) {
           {heatmap.cells.map((row, i) => (
             <tr key={i}>
               <td className="px-1.5 py-0.5 text-right font-medium text-ink">
-                {heatmap.days[i]}
+                {nombreDelDia(i)}
               </td>
               {row.map((v, h) => {
                 const intensity = heatmap.max === 0 ? 0 : v / heatmap.max;
@@ -347,7 +360,11 @@ function HeatGrid({ heatmap }: { heatmap: Heatmap }) {
                 return (
                   <td
                     key={h}
-                    title={`${heatmap.days[i]} ${h}:00 — ${v} pedidos`}
+                    title={t('heatCellTitle', {
+                      day: nombreDelDia(i),
+                      hour: h,
+                      count: v,
+                    })}
                     className="text-center text-[9px] text-white align-middle"
                     style={{
                       background: v ? bg : '#F4F5F7',

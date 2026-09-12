@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations, useLocale } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 
@@ -24,10 +25,7 @@ type Group = {
 
 type Resp = { total: number; groups: Group[] };
 
-const REASON_LABEL = {
-  phone: { emoji: '📞', text: 'Mismo teléfono (formatos distintos)' },
-  email: { emoji: '✉️', text: 'Mismo email (mayúsculas/minúsculas)' },
-} as const;
+const REASON_EMOJI = { phone: '📞', email: '✉️' } as const;
 
 function COP(n: number) {
   return new Intl.NumberFormat('es-CO', {
@@ -37,9 +35,9 @@ function COP(n: number) {
   }).format(Number(n) || 0);
 }
 
-function fmtDate(s: string | null) {
+function fmtDate(s: string | null, locale: string) {
   if (!s) return '—';
-  return new Date(s).toLocaleDateString('es-CO', {
+  return new Date(s).toLocaleDateString(locale, {
     day: '2-digit',
     month: 'short',
     year: '2-digit',
@@ -47,6 +45,8 @@ function fmtDate(s: string | null) {
 }
 
 export default function DuplicatesPage() {
+  const t = useTranslations('app_duplicates');
+  const locale = useLocale();
   const [data, setData] = useState<Resp | null>(null);
   const [loading, setLoading] = useState(true);
   // Por grupo: id del que se conserva (default = más antiguo)
@@ -69,7 +69,7 @@ export default function DuplicatesPage() {
       }
       setKeepers(k);
     } catch (e: any) {
-      toast(e.message || 'No se pudieron cargar los duplicados', 'error');
+      toast(e.message || t('loadError'), 'error');
     } finally {
       setLoading(false);
     }
@@ -85,10 +85,10 @@ export default function DuplicatesPage() {
     const keeper = group.customers.find((c) => c.id === keepId);
     const others = group.customers.filter((c) => c.id !== keepId);
     const ok = window.confirm(
-      `Vas a fusionar ${others.length} cliente${others.length > 1 ? 's' : ''} en "${keeper?.fullName}".\n\n` +
-        `Los pedidos, tarjetas, sellos y mensajes se moverán al cliente que conservas.\n` +
-        `Los duplicados se eliminarán de forma definitiva.\n\n` +
-        `¿Continuar?`,
+      t('confirmMerge', {
+        count: others.length,
+        keeper: keeper?.fullName ?? '',
+      }),
     );
     if (!ok) return;
 
@@ -99,12 +99,12 @@ export default function DuplicatesPage() {
         body: JSON.stringify({ keepId, mergeIds }),
       });
       toast(
-        `Fusionado · ${res.movedOrders} pedidos · ${res.movedStamps} sellos`,
+        t('merged', { orders: res.movedOrders, stamps: res.movedStamps }),
         'success',
       );
       await load();
     } catch (e: any) {
-      toast(e.message || 'No se pudo fusionar', 'error');
+      toast(e.message || t('mergeError'), 'error');
     } finally {
       setMerging(null);
     }
@@ -115,47 +115,42 @@ export default function DuplicatesPage() {
       <div className="page-head">
         <div>
           <h1 className="page-title">
-            Posibles duplicados{' '}
+            {t('title')}{' '}
             {data && (
               <span className="page-crumb">
-                / {data.total} grupo{data.total === 1 ? '' : 's'}
+                /{' '}
+                {data.total === 1
+                  ? t('groupCrumb', { count: data.total })
+                  : t('groupsCrumb', { count: data.total })}
               </span>
             )}
           </h1>
-          <p className="text-mute text-sm mt-1">
-            Detectamos clientes que probablemente son la misma persona. Elige
-            cuál conservar y fusiona el resto en un clic.
-          </p>
+          <p className="text-mute text-sm mt-1">{t('intro')}</p>
         </div>
         <div className="flex gap-2">
           <Link href="/app/customers" className="btn-ghost text-xs">
-            ← Volver a clientes
+            {t('backToCustomers')}
           </Link>
           <button onClick={load} className="btn-ghost text-xs">
-            ↻ Actualizar
+            {t('refresh')}
           </button>
         </div>
       </div>
 
       {loading && (
-        <div className="card card-pad text-mute text-sm">Buscando duplicados…</div>
+        <div className="card card-pad text-mute text-sm">{t('searching')}</div>
       )}
 
       {!loading && data && data.total === 0 && (
         <div className="card card-pad text-center py-12">
           <div className="text-5xl mb-3">✨</div>
-          <h3 className="font-semibold text-lg mb-1">
-            No encontramos duplicados
-          </h3>
-          <p className="text-mute text-sm max-w-md mx-auto">
-            Tu base de clientes está limpia. Cuando importes un CSV o se
-            generen registros con el mismo teléfono o email, los verás aquí.
-          </p>
+          <h3 className="font-semibold text-lg mb-1">{t('noneTitle')}</h3>
+          <p className="text-mute text-sm max-w-md mx-auto">{t('noneBody')}</p>
           <Link
             href="/app/customers"
             className="btn-primary mt-6 inline-flex"
           >
-            ← Volver a clientes
+            {t('backToCustomers')}
           </Link>
         </div>
       )}
@@ -163,17 +158,19 @@ export default function DuplicatesPage() {
       {!loading &&
         data &&
         data.groups.map((g) => {
-          const reason = REASON_LABEL[g.reason];
+          const emoji = REASON_EMOJI[g.reason];
           const keepId = keepers[g.key];
           const isMerging = merging === g.key;
           return (
             <div key={g.key} className="card mb-4">
               <div className="px-4 py-3 border-b border-line flex items-center justify-between bg-bg2/50">
                 <div className="flex items-center gap-2">
-                  <span className="text-lg">{reason.emoji}</span>
-                  <span className="text-sm font-medium">{reason.text}</span>
+                  <span className="text-lg">{emoji}</span>
+                  <span className="text-sm font-medium">
+                    {g.reason === 'phone' ? t('reasonPhone') : t('reasonEmail')}
+                  </span>
                   <span className="text-[10px] uppercase tracking-wide text-mute bg-white px-2 py-0.5 rounded-full border border-line">
-                    {g.customers.length} clientes
+                    {t('customersCount', { count: g.customers.length })}
                   </span>
                 </div>
                 <button
@@ -181,7 +178,7 @@ export default function DuplicatesPage() {
                   disabled={isMerging}
                   onClick={() => doMerge(g)}
                 >
-                  {isMerging ? 'Fusionando…' : 'Fusionar este grupo →'}
+                  {isMerging ? t('merging') : t('mergeGroup')}
                 </button>
               </div>
               <div className="divide-y divide-line">
@@ -214,38 +211,41 @@ export default function DuplicatesPage() {
                           </Link>
                           {isKeeper && (
                             <span className="text-[10px] font-semibold uppercase tracking-wide bg-brand text-white px-2 py-0.5 rounded-full">
-                              Conservar
+                              {t('keep')}
                             </span>
                           )}
                         </div>
                         <div className="text-xs text-mute mt-0.5 flex flex-wrap gap-x-3 gap-y-1">
                           {c.email && <span>✉️ {c.email}</span>}
                           {c.phone && <span>📞 {c.phone}</span>}
-                          <span>· Desde {fmtDate(c.createdAt)}</span>
+                          <span>{t('since', { date: fmtDate(c.createdAt, locale) })}</span>
                         </div>
                       </div>
                       <div className="text-right text-xs text-mute hidden sm:block">
                         <div>
-                          <strong className="text-ink">
-                            {c._count.orders}
-                          </strong>{' '}
-                          pedidos · {COP(c.totalOrdersAmount)}
+                          {t('ordersAndTotal', {
+                            count: c._count.orders,
+                            total: COP(c.totalOrdersAmount),
+                          })}
                         </div>
                         <div>
-                          {c._count.passes} pase
-                          {c._count.passes === 1 ? '' : 's'} ·{' '}
-                          {c._count.stamps} sello
-                          {c._count.stamps === 1 ? '' : 's'}
+                          {t('passesAndStamps', {
+                            passes: c._count.passes,
+                            stamps: c._count.stamps,
+                          })}
                         </div>
-                        <div>Último: {fmtDate(c.lastOrderAt)}</div>
+                        <div>
+                          {t('lastOrder', {
+                            date: fmtDate(c.lastOrderAt, locale),
+                          })}
+                        </div>
                       </div>
                     </label>
                   );
                 })}
               </div>
               <div className="px-4 py-2 text-[11px] text-mute bg-bg2/30 border-t border-line">
-                Sugerencia: conserva el cliente con más historial. Sus tags y
-                notas se combinarán; los demás se eliminan.
+                {t('tip')}
               </div>
             </div>
           );
