@@ -10,10 +10,14 @@
  */
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import {
+  TarjetaDeEquipo,
+  TablaComparar,
+  type EquipoConCifras,
+} from '@/components/ventas/PanelDeEquipos';
 
 type User = {
   id: string;
@@ -22,13 +26,7 @@ type User = {
   role?: string;
 };
 
-type Team = {
-  id: string;
-  name: string;
-  leadUser: User | null;
-  memberCount: number;
-  createdAt: string;
-};
+type Team = EquipoConCifras;
 
 type Member = {
   id: string;
@@ -60,6 +58,8 @@ export default function SalesTeamsPage() {
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  /** Tarjetas o tabla. Lo mismo con dos formas de mirarlo. */
+  const [vista, setVista] = useState<'equipos' | 'comparar'>('equipos');
 
   async function load() {
     setErrorCarga(null);
@@ -116,45 +116,37 @@ export default function SalesTeamsPage() {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {teams.map((team) => (
-            <div key={team.id} className="card card-pad">
-              {/* La tarjeta entera abría la ficha de miembros. Ahora hay dos
-                  destinos —quiénes son y qué están vendiendo— y el segundo es
-                  el que se usa a diario, así que va como enlace propio. */}
+        <>
+          {/* Dos formas de mirar lo mismo: tarjeta por equipo, o todos en una
+              tabla para compararlos de un vistazo. */}
+          <div className="flex items-center gap-1 mb-4 p-1 bg-bg2 rounded-pill w-fit">
+            {([['equipos', 'Equipos'], ['comparar', 'Comparar']] as const).map(([id, etiqueta]) => (
               <button
-                onClick={() => setEditingId(team.id)}
-                className="text-left w-full hover:opacity-80 transition"
+                key={id}
+                onClick={() => setVista(id)}
+                className={`px-4 py-1.5 rounded-pill text-sm font-semibold transition ${
+                  vista === id ? 'bg-white text-ink shadow-sm' : 'text-mute hover:text-ink'
+                }`}
               >
-                <div className="font-semibold mb-1">{team.name}</div>
-                <div className="text-xs text-mute">
-                  {t('memberCount', { count: team.memberCount })}
-                </div>
-                {team.leadUser ? (
-                  <div className="text-xs text-mute mt-1">
-                    {t('leadPrefix', { name: team.leadUser.fullName })}
-                  </div>
-                ) : (
-                  <div className="text-xs text-mute/60 mt-1">{t('noLead')}</div>
-                )}
+                {etiqueta}
               </button>
-              <div className="flex gap-2 mt-3">
-                <Link
-                  href={`/admin/sales-teams/${team.id}/board`}
-                  className="btn-ghost flex-1 justify-center text-sm"
-                >
-                  Tablero
-                </Link>
-                <Link
-                  href={`/admin/sales-teams/${team.id}/agenda`}
-                  className="btn-ghost flex-1 justify-center text-sm"
-                >
-                  Agenda
-                </Link>
-              </div>
+            ))}
+          </div>
+
+          {vista === 'comparar' ? (
+            <TablaComparar equipos={teams} onAbrirMiembros={setEditingId} />
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {teams.map((team) => (
+                <TarjetaDeEquipo
+                  key={team.id}
+                  equipo={team}
+                  onAbrirMiembros={() => setEditingId(team.id)}
+                />
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       {creating && (

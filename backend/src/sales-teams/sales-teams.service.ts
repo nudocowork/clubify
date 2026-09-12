@@ -7,6 +7,10 @@ import {
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { resolveBrandScope } from '../common/white-label/brand-scope.util';
+import {
+  metricasDeEquipos,
+  METRICAS_EN_CERO,
+} from './metricas-de-equipo';
 import { TenantContext } from '../common/tenant/tenant-context';
 import { normalizarRoles } from './team-access';
 
@@ -49,12 +53,23 @@ export class SalesTeamsService {
         leadUser: { select: { id: true, fullName: true, email: true } },
       },
     });
+    // Las cifras de cada equipo, en consultas agrupadas (ver
+    // `metricas-de-equipo.ts`). Sin ellas la lista solo decía el nombre y «0
+    // miembros», que no permite decidir nada.
+    const metricas = await metricasDeEquipos(
+      this.prisma,
+      teams.map((t) => t.id),
+    );
     return teams.map((t) => ({
       id: t.id,
       name: t.name,
+      slug: t.slug,
+      color: t.color,
+      isActive: t.isActive,
       leadUser: t.leadUser,
       memberCount: t._count.members,
       createdAt: t.createdAt,
+      metricas: metricas.get(t.id) ?? METRICAS_EN_CERO,
     }));
   }
 
