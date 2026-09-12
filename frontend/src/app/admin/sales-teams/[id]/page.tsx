@@ -9,8 +9,9 @@
  * deriva en lectura — aquí no se calcula nada.
  */
 
-import { use, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { CabeceraDeEquipo } from '@/components/ventas/CabeceraDeEquipo';
 
@@ -86,12 +87,13 @@ function BarrasPorDia({ datos }: { datos: Array<{ dia: string; n: number }> }) {
   );
 }
 
-export default function ResumenDeEquipoPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
+export default function ResumenDeEquipoPage() {
+  // `useParams`, no la firma con `params: Promise<>` de Next 15: este proyecto
+  // va en Next 14 y ahí `use(params)` revienta EN EJECUCIÓN — `tsc` lo da por
+  // bueno y la pantalla sale con «Algo salió mal». Mismo patrón que el CRM y
+  // la agenda, que son sus hermanas.
+  const params = useParams<{ id: string }>();
+  const id = params?.id ?? '';
   const [datos, setDatos] = useState<Resumen | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [desde, setDesde] = useState('');
