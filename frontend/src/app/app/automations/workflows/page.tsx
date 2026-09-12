@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { useTranslations } from 'next-intl';
 
 // Fase B: constructor de workflows multipaso (secuencia con esperas). El motor
 // (backend) inscribe al cliente cuando ocurre el disparador y un cron avanza los
@@ -26,48 +27,50 @@ type Workflow = {
   stats?: any;
 };
 
-const TRIGGERS: { type: string; label: string }[] = [
-  { type: 'PASS_CREATED', label: 'Se inscribe (nueva tarjeta)' },
-  { type: 'STAMP_ADDED', label: 'Suma un sello' },
-  { type: 'NEAR_REWARD', label: 'Cerca de la recompensa' },
-  { type: 'REWARD_REDEEMED', label: 'Canjea recompensa' },
-  { type: 'PASS_COMPLETED', label: 'Completa la tarjeta' },
-  { type: 'BIRTHDAY', label: 'Cumpleaños' },
-  { type: 'INACTIVITY', label: 'Inactividad' },
-  { type: 'ORDER_CREATED', label: 'Crea un pedido' },
-  { type: 'ORDER_CONFIRMED', label: 'Pedido confirmado' },
-  { type: 'ORDER_DELIVERED', label: 'Pedido entregado' },
-  { type: 'ORDER_RATED', label: 'Califica el pedido' },
-  { type: 'GEO_ENTER', label: 'Entra a la zona (geo)' },
-];
-const triggerLabel = (t: string) =>
-  TRIGGERS.find((x) => x.type === t)?.label ?? t;
-
-const STEP_LABEL: Record<StepType, string> = {
-  SEND_SMS: 'Enviar SMS',
-  SEND_WHATSAPP: 'Enviar WhatsApp',
-  SEND_PUSH: 'Enviar Push',
-  WAIT: 'Esperar',
-};
-const UNIT_LABEL: Record<string, string> = {
-  minutes: 'minutos',
-  hours: 'horas',
-  days: 'días',
-};
+// Solo los TIPOS. La etiqueta que se lee la pone el traductor: tenerla
+// pegada aquí era lo que dejaba esta pantalla entera en español.
+const TRIGGERS = [
+  'PASS_CREATED',
+  'STAMP_ADDED',
+  'NEAR_REWARD',
+  'REWARD_REDEEMED',
+  'PASS_COMPLETED',
+  'BIRTHDAY',
+  'INACTIVITY',
+  'ORDER_CREATED',
+  'ORDER_CONFIRMED',
+  'ORDER_DELIVERED',
+  'ORDER_RATED',
+  'GEO_ENTER',
+] as const;
 
 function emptyStep(type: StepType): Step {
   if (type === 'WAIT') return { type, unit: 'days', amount: 1 };
   if (type === 'SEND_PUSH') return { type, title: '', body: '' };
   return { type, body: '' } as Step;
 }
-function stepSummary(s: Step): string {
-  if (s.type === 'WAIT')
-    return `Esperar ${s.amount} ${UNIT_LABEL[s.unit] ?? s.unit}`;
-  if (s.type === 'SEND_PUSH') return `Push: ${s.title || '(sin título)'}`;
-  return `${STEP_LABEL[s.type]}: ${(s.body || '').slice(0, 40) || '(vacío)'}`;
+/** Traduce un tipo de paso: SEND_SMS → «Enviar SMS». */
+type Traductor = ReturnType<typeof useTranslations<'app_workflows'>>;
+const etiquetaDePaso = (t: Traductor, tipo: StepType) =>
+  t(`step${tipo.replace('SEND_', '')}` as any);
+
+function stepSummary(t: Traductor, s: Step): string {
+  if (s.type === 'WAIT') {
+    const unidad = t(
+      `unit${s.unit.charAt(0).toUpperCase()}${s.unit.slice(1)}` as any,
+    );
+    return t('waitSummary', { amount: s.amount, unit: unidad });
+  }
+  if (s.type === 'SEND_PUSH')
+    return t('pushSummary', { title: s.title || t('noTitle') });
+  return t('stepSummary', {
+    step: etiquetaDePaso(t, s.type),
+    body: (s.body || '').slice(0, 40) || t('emptyBody'),
+  });
 }
 
 export default function WorkflowsPage() {
+  const t = useTranslations('app_workflows');
   const [list, setList] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Workflow | null>(null);
@@ -101,11 +104,11 @@ export default function WorkflowsPage() {
   async function save() {
     if (!editing) return;
     if (!editing.name.trim()) {
-      toast('Ponle un nombre al workflow', 'error');
+      toast(t('needName'), 'error');
       return;
     }
     if (!editing.steps.length) {
-      toast('Agrega al menos un paso', 'error');
+      toast(t('needStep'), 'error');
       return;
     }
     setBusy(true);
@@ -129,11 +132,11 @@ export default function WorkflowsPage() {
           body: JSON.stringify(payload),
         });
       }
-      toast('Workflow guardado', 'success');
+      toast(t('saved'), 'success');
       setEditing(null);
       await load();
     } catch (e: any) {
-      toast(e.message ?? 'Error al guardar', 'error');
+      toast(e.message ?? t('saveError'), 'error');
     } finally {
       setBusy(false);
     }
@@ -155,7 +158,7 @@ export default function WorkflowsPage() {
   }
 
   async function remove(w: Workflow) {
-    if (!window.confirm(`¿Borrar el workflow "${w.name}"?`)) return;
+    if (!window.confirm(t('confirmDelete', { name: w.name }))) return;
     setBusy(true);
     try {
       await api(`/automations/workflows/${w.id}`, { method: 'DELETE' });
@@ -197,11 +200,11 @@ export default function WorkflowsPage() {
     <div className="max-w-3xl">
       <div className="flex items-center justify-between gap-2 mb-1">
         <div>
-          <h1 className="text-xl font-bold m-0">Workflows</h1>
+          <h1 className="text-xl font-bold m-0">{t('title')}</h1>
           <div className="text-xs" style={{ color: '#9aa4af' }}>
-            Secuencias multipaso con esperas ·{' '}
+            {t('subtitle')} ·{' '}
             <Link href="/app/automations" style={{ color: '#0ea5e9' }}>
-              ← volver a reglas simples
+              {t('backToRules')}
             </Link>
           </div>
         </div>
@@ -211,7 +214,7 @@ export default function WorkflowsPage() {
             className="text-sm font-semibold rounded-[9px] py-1.5 px-3"
             style={{ background: '#16a34a', color: 'white' }}
           >
-            + Nuevo workflow
+            {t('new')}
           </button>
         )}
       </div>
@@ -220,28 +223,24 @@ export default function WorkflowsPage() {
         className="rounded-lg p-3 text-xs mb-4"
         style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}
       >
-        Un workflow inscribe al cliente cuando ocurre el disparador y ejecuta los
-        pasos en orden: enviar un mensaje, <b>esperar</b> días/horas, enviar otro…
-        Usa <code>{'{{nombre}}'}</code> para el nombre del cliente. El SMS/WhatsApp
-        sale de la cuenta de tu negocio o de tu marca (aislado). Actívalo cuando
-        esté listo.
+        {t('help', { variable: '{{nombre}}' })}
       </div>
 
       {editing ? (
         <div className="p-3 space-y-3" style={box as any}>
           <div className="grid grid-cols-1 gap-2">
             <label className="text-xs font-semibold" style={{ color: '#475569' }}>
-              Nombre
+              {t('name')}
               <input
                 value={editing.name}
                 onChange={(e) => setEditing({ ...editing, name: e.target.value })}
-                placeholder="Ej. Bienvenida en 3 toques"
+                placeholder={t('namePlaceholder')}
                 className="w-full mt-1 text-sm rounded-[8px] p-2"
                 style={{ border: '1px solid #e5e7eb' }}
               />
             </label>
             <label className="text-xs font-semibold" style={{ color: '#475569' }}>
-              Disparador
+              {t('trigger')}
               <select
                 value={editing.triggerType}
                 onChange={(e) =>
@@ -251,8 +250,8 @@ export default function WorkflowsPage() {
                 style={{ border: '1px solid #e5e7eb' }}
               >
                 {TRIGGERS.map((tr) => (
-                  <option key={tr.type} value={tr.type}>
-                    {tr.label}
+                  <option key={tr} value={tr}>
+                    {t(`trigger_${tr}` as any)}
                   </option>
                 ))}
               </select>
@@ -260,19 +259,21 @@ export default function WorkflowsPage() {
           </div>
 
           <div className="text-xs font-bold uppercase tracking-wide" style={{ color: '#6b7280' }}>
-            Pasos
+            {t('steps')}
           </div>
           <div className="space-y-2">
             {editing.steps.map((s, i) => (
               <div key={i} className="p-2.5 rounded-[10px]" style={{ border: '1px solid #eef0f2', background: '#fbfcfd' }}>
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <span className="text-xs font-bold" style={{ color: '#334155' }}>
-                    {i + 1}. {STEP_LABEL[s.type]}
+                    {i + 1}. {etiquetaDePaso(t, s.type)}
                   </span>
                   <span className="flex items-center gap-2 text-[11px]">
                     <button onClick={() => moveStep(i, -1)} disabled={i === 0} style={{ color: '#64748b' }}>↑</button>
                     <button onClick={() => moveStep(i, 1)} disabled={i === editing.steps.length - 1} style={{ color: '#64748b' }}>↓</button>
-                    <button onClick={() => removeStep(i)} style={{ color: '#b91c1c' }}>quitar</button>
+                    <button onClick={() => removeStep(i)} style={{ color: '#b91c1c' }}>
+                      {t('remove')}
+                    </button>
                   </span>
                 </div>
                 {s.type === 'WAIT' ? (
@@ -291,9 +292,9 @@ export default function WorkflowsPage() {
                       className="text-sm rounded-[8px] p-2"
                       style={{ border: '1px solid #e5e7eb' }}
                     >
-                      <option value="minutes">minutos</option>
-                      <option value="hours">horas</option>
-                      <option value="days">días</option>
+                      <option value="minutes">{t('unitMinutes')}</option>
+                      <option value="hours">{t('unitHours')}</option>
+                      <option value="days">{t('unitDays')}</option>
                     </select>
                   </div>
                 ) : s.type === 'SEND_PUSH' ? (
@@ -301,14 +302,14 @@ export default function WorkflowsPage() {
                     <input
                       value={s.title}
                       onChange={(e) => setStep(i, { title: e.target.value } as any)}
-                      placeholder="Título del push"
+                      placeholder={t('pushTitlePlaceholder')}
                       className="w-full text-sm rounded-[8px] p-2"
                       style={{ border: '1px solid #e5e7eb' }}
                     />
                     <textarea
                       value={s.body}
                       onChange={(e) => setStep(i, { body: e.target.value } as any)}
-                      placeholder="Mensaje…"
+                      placeholder={t('messagePlaceholder')}
                       rows={2}
                       className="w-full text-sm rounded-[8px] p-2"
                       style={{ border: '1px solid #e5e7eb', resize: 'vertical' }}
@@ -318,7 +319,9 @@ export default function WorkflowsPage() {
                   <textarea
                     value={(s as any).body}
                     onChange={(e) => setStep(i, { body: e.target.value } as any)}
-                    placeholder="Mensaje… (usa {{nombre}})"
+                    placeholder={t('messageWithVarPlaceholder', {
+                      variable: '{{nombre}}',
+                    })}
                     rows={2}
                     className="w-full text-sm rounded-[8px] p-2"
                     style={{ border: '1px solid #e5e7eb', resize: 'vertical' }}
@@ -336,7 +339,7 @@ export default function WorkflowsPage() {
                 className="text-[11px] font-semibold rounded-[8px] py-1 px-2.5"
                 style={{ border: '1px dashed #cbd5e1', color: '#334155', background: 'white' }}
               >
-                + {STEP_LABEL[tp]}
+                + {etiquetaDePaso(t, tp)}
               </button>
             ))}
           </div>
@@ -348,7 +351,7 @@ export default function WorkflowsPage() {
               className="text-sm font-semibold rounded-[9px] py-2 px-4"
               style={{ background: '#16a34a', color: 'white' }}
             >
-              {busy ? 'Guardando…' : 'Guardar'}
+              {busy ? t('saving') : t('save')}
             </button>
             <label className="text-xs flex items-center gap-1.5" style={{ color: '#475569' }}>
               <input
@@ -356,22 +359,22 @@ export default function WorkflowsPage() {
                 checked={editing.isActive}
                 onChange={(e) => setEditing({ ...editing, isActive: e.target.checked })}
               />
-              Activo
+              {t('active')}
             </label>
             <button
               onClick={() => setEditing(null)}
               className="text-sm rounded-[9px] py-2 px-4 ml-auto"
               style={{ border: '1px solid #e5e7eb', color: '#475569', background: 'white' }}
             >
-              Cancelar
+              {t('cancel')}
             </button>
           </div>
         </div>
       ) : loading ? (
-        <div className="text-sm" style={{ color: '#9aa4af' }}>Cargando…</div>
+        <div className="text-sm" style={{ color: '#9aa4af' }}>{t('loading')}</div>
       ) : list.length === 0 ? (
         <div className="text-sm rounded-lg px-3 py-6 text-center" style={{ color: '#9aa4af', border: '1px dashed #e5e7eb' }}>
-          Aún no tienes workflows. Crea el primero con “+ Nuevo workflow”.
+          {t('empty')}
         </div>
       ) : (
         <div className="space-y-2">
@@ -383,7 +386,10 @@ export default function WorkflowsPage() {
                     {w.name}
                   </div>
                   <div className="text-[11px]" style={{ color: '#9aa4af' }}>
-                    Disparador: {triggerLabel(w.triggerType)} · {w.steps.length} paso(s)
+                    {t('triggerLine', {
+                      trigger: t(`trigger_${w.triggerType}` as any),
+                      count: w.steps.length,
+                    })}
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
@@ -395,7 +401,7 @@ export default function WorkflowsPage() {
                         : { background: '#f3f4f6', color: '#6b7280' }
                     }
                   >
-                    {w.isActive ? 'Activo' : 'Pausado'}
+                    {w.isActive ? t('stateActive') : t('statePaused')}
                   </span>
                 </div>
               </div>
@@ -403,7 +409,7 @@ export default function WorkflowsPage() {
                 {w.steps.map((s, i) => (
                   <span key={i}>
                     {i > 0 && ' → '}
-                    {stepSummary(s)}
+                    {stepSummary(t, s)}
                   </span>
                 ))}
               </div>
@@ -414,7 +420,7 @@ export default function WorkflowsPage() {
                   className="text-xs font-semibold rounded-[8px] py-1.5 px-3"
                   style={{ border: '1px solid #cbd5e1', color: '#334155', background: 'white' }}
                 >
-                  Editar
+                  {t('edit')}
                 </button>
                 <button
                   onClick={() => toggleActive(w)}
@@ -426,7 +432,7 @@ export default function WorkflowsPage() {
                       : { background: '#0ea5e9', color: 'white' }
                   }
                 >
-                  {w.isActive ? 'Pausar' : 'Activar'}
+                  {w.isActive ? t('pause') : t('activate')}
                 </button>
                 <button
                   onClick={() => remove(w)}
@@ -434,7 +440,7 @@ export default function WorkflowsPage() {
                   className="text-xs rounded-[8px] py-1.5 px-3 ml-auto"
                   style={{ color: '#b91c1c', border: '1px solid #fecaca', background: 'white' }}
                 >
-                  Borrar
+                  {t('delete')}
                 </button>
               </div>
             </div>
