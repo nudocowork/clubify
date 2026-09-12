@@ -32,134 +32,45 @@ type Badge = {
 
 type BadgeTemplate = {
   id: string;
-  name: string;
-  description: string;
   icon: string;
   color: string;
   criteria: Criteria;
   xpReward: number;
 };
 
+/**
+ * El catálogo de insignias que se ofrecen de fábrica.
+ *
+ * Solo el identificador: el nombre y la descripción los pone el traductor
+ * (`tpl_<id>_name` y `tpl_<id>_desc`). Estaban escritos en español dentro del
+ * array, así que un negocio en inglés creaba insignias llamadas «Súper fan».
+ */
 const TEMPLATES: BadgeTemplate[] = [
-  {
-    id: 'first-visit',
-    name: 'Primera visita',
-    description: 'Bienvenida a tu primer scan',
-    icon: '🎉',
-    color: '#22C55E',
-    criteria: { type: 'FIRST_VISIT' },
-    xpReward: 25,
-  },
-  {
-    id: 'streak-7',
-    name: 'Racha 7 días',
-    description: 'Vino 7 días seguidos',
-    icon: '🔥',
-    color: '#F97316',
-    criteria: { type: 'STREAK_DAYS', threshold: 7 },
-    xpReward: 100,
-  },
-  {
-    id: 'streak-30',
-    name: 'Racha 30 días',
-    description: 'Un mes completo de fidelidad',
-    icon: '⚡',
-    color: '#DC2626',
-    criteria: { type: 'STREAK_DAYS', threshold: 30 },
-    xpReward: 500,
-  },
-  {
-    id: 'scans-10',
-    name: 'Cliente frecuente',
-    description: '10 scans acumulados',
-    icon: '⭐',
-    color: '#FBBF24',
-    criteria: { type: 'SCANS_TOTAL', threshold: 10 },
-    xpReward: 50,
-  },
-  {
-    id: 'scans-50',
-    name: 'Súper fan',
-    description: '50 scans — uno de los nuestros',
-    icon: '🌟',
-    color: '#8B5CF6',
-    criteria: { type: 'SCANS_TOTAL', threshold: 50 },
-    xpReward: 250,
-  },
-  {
-    id: 'scans-100',
-    name: 'Leyenda',
-    description: '100 scans — eres parte de la familia',
-    icon: '👑',
-    color: '#0F172A',
-    criteria: { type: 'SCANS_TOTAL', threshold: 100 },
-    xpReward: 1000,
-  },
-  {
-    id: 'cards-1',
-    name: 'Primer cartón completo',
-    description: 'Llenó su primera tarjeta',
-    icon: '🎯',
-    color: '#10B981',
-    criteria: { type: 'CARDS_COMPLETED', threshold: 1 },
-    xpReward: 75,
-  },
-  {
-    id: 'cards-5',
-    name: 'Coleccionista',
-    description: 'Completó 5 cartones',
-    icon: '🏆',
-    color: '#F59E0B',
-    criteria: { type: 'CARDS_COMPLETED', threshold: 5 },
-    xpReward: 300,
-  },
-  {
-    id: 'cashback-50k',
-    name: 'Ahorrador',
-    description: 'Acumuló $50.000 en cashback',
-    icon: '💰',
-    color: '#0F766E',
-    criteria: { type: 'CASHBACK_EARNED', threshold: 50000 },
-    xpReward: 200,
-  },
-  {
-    id: 'cashback-200k',
-    name: 'Maestro del ahorro',
-    description: '$200.000 acumulados — rey del cashback',
-    icon: '💎',
-    color: '#06B6D4',
-    criteria: { type: 'CASHBACK_EARNED', threshold: 200000 },
-    xpReward: 750,
-  },
-  {
-    id: 'birthday',
-    name: 'Cumpleañero',
-    description: 'Felicitación automática el día del cumple',
-    icon: '🎂',
-    color: '#EC4899',
-    criteria: { type: 'BIRTHDAY' },
-    xpReward: 100,
-  },
-  {
-    id: 'custom-vip',
-    name: 'Cliente VIP',
-    description: 'Otorgada manualmente por el dueño',
-    icon: '🥂',
-    color: '#7C3AED',
-    criteria: { type: 'CUSTOM' },
-    xpReward: 500,
-  },
+  { id: 'first-visit', icon: '🎉', color: '#22C55E', criteria: { type: 'FIRST_VISIT' }, xpReward: 25 },
+  { id: 'streak-7', icon: '🔥', color: '#F97316', criteria: { type: 'STREAK_DAYS', threshold: 7 }, xpReward: 100 },
+  { id: 'streak-30', icon: '⚡', color: '#DC2626', criteria: { type: 'STREAK_DAYS', threshold: 30 }, xpReward: 500 },
+  { id: 'scans-10', icon: '⭐', color: '#FBBF24', criteria: { type: 'SCANS_TOTAL', threshold: 10 }, xpReward: 50 },
+  { id: 'scans-50', icon: '🌟', color: '#8B5CF6', criteria: { type: 'SCANS_TOTAL', threshold: 50 }, xpReward: 250 },
+  { id: 'scans-100', icon: '👑', color: '#0F172A', criteria: { type: 'SCANS_TOTAL', threshold: 100 }, xpReward: 1000 },
+  { id: 'cards-1', icon: '🎯', color: '#10B981', criteria: { type: 'CARDS_COMPLETED', threshold: 1 }, xpReward: 75 },
+  { id: 'cards-5', icon: '🏆', color: '#F59E0B', criteria: { type: 'CARDS_COMPLETED', threshold: 5 }, xpReward: 300 },
+  { id: 'cashback-50k', icon: '💰', color: '#0F766E', criteria: { type: 'CASHBACK_EARNED', threshold: 50000 }, xpReward: 200 },
+  { id: 'cashback-200k', icon: '💎', color: '#06B6D4', criteria: { type: 'CASHBACK_EARNED', threshold: 200000 }, xpReward: 750 },
+  { id: 'birthday', icon: '🎂', color: '#EC4899', criteria: { type: 'BIRTHDAY' }, xpReward: 100 },
+  { id: 'custom-vip', icon: '🥂', color: '#7C3AED', criteria: { type: 'CUSTOM' }, xpReward: 500 },
 ];
 
-const CRITERIA_LABEL: Record<Criteria['type'], string> = {
-  SCANS_TOTAL: 'Total de scans',
-  CARDS_COMPLETED: 'Cartones completos',
-  STREAK_DAYS: 'Días consecutivos',
-  CASHBACK_EARNED: 'Cashback acumulado',
-  FIRST_VISIT: 'Primera visita',
-  BIRTHDAY: 'Cumpleaños',
-  CUSTOM: 'Manual (admin la otorga)',
+/** Clave del traductor para cada tipo de criterio. */
+const CRITERIA_CLAVE: Record<Criteria['type'], string> = {
+  SCANS_TOTAL: 'critScans',
+  CARDS_COMPLETED: 'critCards',
+  STREAK_DAYS: 'critStreak',
+  CASHBACK_EARNED: 'critCashback',
+  FIRST_VISIT: 'critFirstVisit',
+  BIRTHDAY: 'critBirthday',
+  CUSTOM: 'critCustom',
 };
+
 
 export default function BadgesPage() {
   const t = useTranslations('app_badges');
@@ -205,8 +116,8 @@ export default function BadgesPage() {
       await api('/badges', {
         method: 'POST',
         body: JSON.stringify({
-          name: tpl.name,
-          description: tpl.description,
+          name: t(`tpl_${tpl.id}_name` as any),
+          description: t(`tpl_${tpl.id}_desc` as any),
           icon: tpl.icon,
           color: tpl.color,
           criteria: tpl.criteria,
@@ -214,7 +125,10 @@ export default function BadgesPage() {
           isActive: true,
         }),
       });
-      toast(t('badgeCreatedNamed', { name: tpl.name }), 'success');
+      toast(
+        t('badgeCreatedNamed', { name: t(`tpl_${tpl.id}_name` as any) }),
+        'success',
+      );
       setShowTemplates(false);
       load();
     } catch (e: any) {
@@ -311,7 +225,7 @@ export default function BadgesPage() {
                     {b.description}
                   </div>
                   <div className="text-[10px] uppercase tracking-wider text-mute mt-2 font-semibold">
-                    {CRITERIA_LABEL[b.criteria.type]}
+                    {t(CRITERIA_CLAVE[b.criteria.type] as any)}
                     {b.criteria.threshold && ` · ${b.criteria.threshold.toLocaleString('es-CO')}`}
                   </div>
                 </div>
@@ -405,7 +319,7 @@ function TemplatesModal({
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {TEMPLATES.map((tpl) => {
-            const exists = existingNames.has(tpl.name);
+            const exists = existingNames.has(t(`tpl_${tpl.id}_name` as any));
             return (
               <button
                 key={tpl.id}
@@ -425,12 +339,14 @@ function TemplatesModal({
                     {tpl.icon}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm">{tpl.name}</div>
+                    <div className="font-semibold text-sm">
+                      {t(`tpl_${tpl.id}_name` as any)}
+                    </div>
                     <div className="text-xs text-mute mt-0.5 leading-snug">
-                      {tpl.description}
+                      {t(`tpl_${tpl.id}_desc` as any)}
                     </div>
                     <div className="text-[10px] uppercase tracking-wider text-mute mt-1.5 font-semibold">
-                      +{tpl.xpReward} XP · {CRITERIA_LABEL[tpl.criteria.type]}
+                      +{tpl.xpReward} XP · {t(CRITERIA_CLAVE[tpl.criteria.type] as any)}
                     </div>
                   </div>
                 </div>
@@ -602,9 +518,9 @@ function BadgeEditModal({
               setForm({ ...form, criteriaType: e.target.value as Criteria['type'] })
             }
           >
-            {Object.entries(CRITERIA_LABEL).map(([k, v]) => (
+            {Object.entries(CRITERIA_CLAVE).map(([k, clave]) => (
               <option key={k} value={k}>
-                {v}
+                {t(clave as any)}
               </option>
             ))}
           </select>

@@ -21,6 +21,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Konva from 'konva';
 import { useAuthBrand } from '@/components/AuthBrand';
+import { useTranslations } from 'next-intl';
 import {
   Stage,
   Layer,
@@ -554,6 +555,7 @@ export default function QrPosterEditor({
   logoUrl,
   metaSlot,
 }: Props) {
+  const t = useTranslations('qr_poster');
   // Pie "Powered by X": usa el nombre de la MARCA BLANCA resuelta por host
   // (Sellea en su dominio), no "Clubify" hardcodeado. Sin marca → Clubify.
   const { brand: hostBrand } = useAuthBrand();
@@ -693,7 +695,7 @@ export default function QrPosterEditor({
               localStorage.removeItem(key);
             } else {
               const yes = window.confirm(
-                'Tienes cambios sin guardar de la sesión anterior. ¿Restaurar ahora?\n\n(Cancelar = descartar el backup local)',
+                t('restoreBackup'),
               );
               if (yes) {
                 replaceHistory(normalizeConfig(localCfgRaw, brandName));
@@ -726,7 +728,7 @@ export default function QrPosterEditor({
         if (cancelled) return;
         setEditorLoadError(
           e?.message?.toString() ||
-            'No se pudo cargar el diseño guardado. Revisa tu conexión y recarga la página.',
+            t('loadError'),
         );
       })
       .finally(() => {
@@ -901,7 +903,7 @@ export default function QrPosterEditor({
     } catch (e: any) {
       setSaveError(
         e?.message?.toString() ||
-          'No se pudo guardar. Revisa tu conexión y vuelve a intentar.',
+          t('saveError'),
       );
       setAutosaveState('error');
     } finally {
@@ -995,7 +997,7 @@ export default function QrPosterEditor({
   }, []);
 
   async function reset() {
-    if (!confirm('¿Descartar cambios y volver al diseño por defecto?')) return;
+    if (!confirm(t('confirmReset'))) return;
     // En modo id NO borramos el cartel del backend (sería destructivo
     // sin warning explícito) — solo reseteamos el config en memoria. La
     // próxima edición vuelve a guardarlo. Para borrar realmente la
@@ -1040,7 +1042,7 @@ export default function QrPosterEditor({
       // string es solo para Firefox legacy. Setear returnValue es lo
       // que dispara el modal en navegadores modernos.
       e.returnValue =
-        'Tienes cambios sin guardar en el diseño del QR. ¿Salir de todas formas?';
+        t('unsavedOnLeave');
     }
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
@@ -2788,6 +2790,7 @@ function LockRow({
   locked: boolean;
   onToggle: () => void;
 }) {
+  const t = useTranslations('qr_poster');
   return (
     <div className="flex items-center justify-between gap-2 bg-bg2/40 rounded px-2 py-1.5">
       <span className="text-[11px] text-mute">
@@ -2801,7 +2804,7 @@ function LockRow({
             ? 'border-brand bg-brand-soft text-brand-700 font-semibold'
             : 'border-line hover:border-mute'
         }`}
-        title={locked ? 'Toca para permitir mover' : 'Toca para fijar posición'}
+        title={locked ? t('unlockToMove') : t('lockPosition')}
       >
         {locked ? '🔒 Bloqueado' : '🔓 Bloquear'}
       </button>
@@ -4588,6 +4591,7 @@ function ImagesSection({
   canvasW: number;
   canvasH: number;
 }) {
+  const t = useTranslations('qr_poster');
   function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     // Reset siempre — ver comentario en BackgroundSection.handleUpload.
     const file = e.target.files?.[0];
@@ -4835,7 +4839,7 @@ function ImagesSection({
                     e.target.value = '100';
                   }}
                   className="w-full accent-brand"
-                  title="Arrastrá para escalar; el centro de la imagen se mantiene en su lugar"
+                  title={t('dragToScale')}
                 />
                 <div className="flex gap-1 mt-1">
                   <button
@@ -5253,6 +5257,7 @@ function PatternsSection({
   onPatch: (id: string, patch: Partial<PatternLayer>) => void;
   onRemove: (id: string) => void;
 }) {
+  const t = useTranslations('qr_poster');
   const [picking, setPicking] = useState(false);
   const [draftEmojis, setDraftEmojis] = useState<string[]>(['🍪', '☕']);
 
@@ -5309,7 +5314,7 @@ function PatternsSection({
       ) : (
         <div className="space-y-2 border border-line rounded p-2 bg-bg2/30">
           <div className="flex items-center justify-between">
-            <div className="text-[11px] font-semibold">Elige emojis para el patrón</div>
+            <div className="text-[11px] font-semibold">{t('pickEmojis')}</div>
             <div
               className={`text-[10px] tabular-nums ${
                 draftEmojis.length >= 8
