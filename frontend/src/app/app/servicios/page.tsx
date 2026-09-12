@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { useTranslations, useLocale } from 'next-intl';
 
 // Fase 2 (PDF245 P7): panel del negocio para Reservas de Servicios (citas).
 // Gestiona servicios, horarios/excepciones y la agenda de citas. Llama a
@@ -51,21 +52,28 @@ type Appt = {
 };
 type Slot = { startAt: string; label: string };
 
-const WEEKDAYS = [
-  { n: 1, label: 'Lunes' },
-  { n: 2, label: 'Martes' },
-  { n: 3, label: 'Miércoles' },
-  { n: 4, label: 'Jueves' },
-  { n: 5, label: 'Viernes' },
-  { n: 6, label: 'Sábado' },
-  { n: 0, label: 'Domingo' },
-];
-const APPT_STATUS: Record<string, { label: string; bg: string; fg: string }> = {
-  pending: { label: 'Pendiente', bg: '#fef9c3', fg: '#a16207' },
-  confirmed: { label: 'Confirmada', bg: '#dbeafe', fg: '#1d4ed8' },
-  completed: { label: 'Completada', bg: '#dcfce7', fg: '#15803d' },
-  cancelled: { label: 'Cancelada', bg: '#fee2e2', fg: '#b91c1c' },
-  no_show: { label: 'No asistió', bg: '#f3f4f6', fg: '#6b7280' },
+// El orden de la semana; el nombre del día lo pone `Intl` con el idioma
+// activo. Estaba escrito a mano en español, igual que el resto.
+const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0];
+/** 2026-01-04 es domingo: sumarle el número del día da ese día. */
+const nombreDelDia = (n: number, locale: string) =>
+  new Date(Date.UTC(2026, 0, 4 + n)).toLocaleDateString(locale, {
+    weekday: 'long',
+    timeZone: 'UTC',
+  });
+const APPT_COLOR: Record<string, { bg: string; fg: string }> = {
+  pending: { bg: '#fef9c3', fg: '#a16207' },
+  confirmed: { bg: '#dbeafe', fg: '#1d4ed8' },
+  completed: { bg: '#dcfce7', fg: '#15803d' },
+  cancelled: { bg: '#fee2e2', fg: '#b91c1c' },
+  no_show: { bg: '#f3f4f6', fg: '#6b7280' },
+};
+const APPT_CLAVE: Record<string, string> = {
+  pending: 'statusPending',
+  confirmed: 'statusConfirmed',
+  completed: 'statusCompleted',
+  cancelled: 'statusCancelled',
+  no_show: 'statusNoShow',
 };
 
 const inp =
@@ -84,6 +92,7 @@ const todayStr = () => {
 };
 
 export default function ServiciosPage() {
+  const t = useTranslations('app_services');
   const [tab, setTab] = useState<
     'servicios' | 'profesionales' | 'horarios' | 'agenda'
   >('servicios');
@@ -120,28 +129,28 @@ export default function ServiciosPage() {
 
   return (
     <div className="max-w-3xl">
-      <h1 className="text-xl font-bold m-0 mb-1">Reservas de servicios</h1>
+      <h1 className="text-xl font-bold m-0 mb-1">{t('title')}</h1>
       <p className="text-xs mb-3" style={{ color: '#9aa4af' }}>
-        Configura tus servicios y horarios, y gestiona la agenda de citas.
+        {t('intro')}
       </p>
       {slug && (
         <div
           className="flex flex-wrap items-center gap-2 rounded-[10px] px-3 py-2 mb-4 text-xs"
           style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af' }}
         >
-          <span>🔗 Link para tus clientes:</span>
+          <span>{t('linkForCustomers')}</span>
           <code className="font-mono">{`${typeof window !== 'undefined' ? window.location.origin : ''}/cita/${slug}`}</code>
           <button
             onClick={() => {
               navigator.clipboard
                 ?.writeText(`${window.location.origin}/cita/${slug}`)
-                .then(() => toast('Link copiado', 'success'))
+                .then(() => toast(t('linkCopied'), 'success'))
                 .catch(() => null);
             }}
             className="ml-auto font-semibold"
             style={{ color: '#1d4ed8' }}
           >
-            Copiar
+            {t('copy')}
           </button>
         </div>
       )}
@@ -149,10 +158,10 @@ export default function ServiciosPage() {
       <div className="flex gap-2 mb-4">
         {(
           [
-            ['servicios', 'Servicios'],
-            ['profesionales', 'Profesionales'],
-            ['horarios', 'Horarios'],
-            ['agenda', 'Agenda'],
+            ['servicios', t('tabServices')],
+            ['profesionales', t('tabProviders')],
+            ['horarios', t('tabSchedule')],
+            ['agenda', t('tabAgenda')],
           ] as [typeof tab, string][]
         ).map(([k, label]) => (
           <button
@@ -171,7 +180,7 @@ export default function ServiciosPage() {
       </div>
 
       {loading ? (
-        <div className="text-sm" style={{ color: '#9aa4af' }}>Cargando…</div>
+        <div className="text-sm" style={{ color: '#9aa4af' }}>{t('loading')}</div>
       ) : tab === 'servicios' ? (
         <ServicesTab services={services} onChange={loadConfig} />
       ) : tab === 'profesionales' ? (
@@ -197,6 +206,7 @@ function ServicesTab({
   services: Service[];
   onChange: () => void;
 }) {
+  const t = useTranslations('app_services');
   const [name, setName] = useState('');
   const [duration, setDuration] = useState('30');
   const [price, setPrice] = useState('');
@@ -204,7 +214,7 @@ function ServicesTab({
 
   async function add() {
     if (!name.trim()) {
-      toast('Ponle un nombre al servicio', 'error');
+      toast(t('needServiceName'), 'error');
       return;
     }
     setBusy(true);
@@ -220,10 +230,10 @@ function ServicesTab({
       setName('');
       setDuration('30');
       setPrice('');
-      toast('Servicio creado', 'success');
+      toast(t('serviceCreated'), 'success');
       onChange();
     } catch (e: any) {
-      toast(e.message ?? 'Error al crear', 'error');
+      toast(e.message ?? t('createError'), 'error');
     } finally {
       setBusy(false);
     }
@@ -240,7 +250,7 @@ function ServicesTab({
     }
   }
   async function remove(s: Service) {
-    if (!confirm(`¿Borrar el servicio "${s.name}"?`)) return;
+    if (!confirm(t('confirmDeleteService', { name: s.name }))) return;
     try {
       await api(`/service-reservations/services/${s.id}`, { method: 'DELETE' });
       onChange();
@@ -253,21 +263,21 @@ function ServicesTab({
     <div className="space-y-4">
       <div className="p-3 rounded-[12px]" style={{ background: 'white', border: '1px solid #e7e9ec' }}>
         <div className="text-xs font-bold uppercase mb-2" style={{ color: '#6b7280' }}>
-          Nuevo servicio
+          {t('newService')}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-          <input className={inp + ' sm:col-span-2'} placeholder="Nombre (ej. Corte de cabello)" value={name} onChange={(e) => setName(e.target.value)} />
-          <input className={inp} type="number" min={5} placeholder="Min" value={duration} onChange={(e) => setDuration(e.target.value)} title="Duración en minutos" />
-          <input className={inp} type="number" step="0.01" placeholder="Precio $" value={price} onChange={(e) => setPrice(e.target.value)} />
+          <input className={inp + ' sm:col-span-2'} placeholder={t('serviceNamePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} />
+          <input className={inp} type="number" min={5} placeholder={t('minutes')} value={duration} onChange={(e) => setDuration(e.target.value)} title={t('durationTitle')} />
+          <input className={inp} type="number" step="0.01" placeholder={t('pricePlaceholder')} value={price} onChange={(e) => setPrice(e.target.value)} />
         </div>
         <button onClick={add} disabled={busy} className="mt-2 text-sm font-semibold text-white rounded-[10px] py-2 px-4" style={{ background: '#16a34a', opacity: busy ? 0.6 : 1 }}>
-          {busy ? '…' : '+ Agregar servicio'}
+          {busy ? '…' : t('addService')}
         </button>
       </div>
 
       {services.length === 0 ? (
         <div className="text-sm rounded-lg px-3 py-6 text-center" style={{ color: '#9aa4af', border: '1px dashed #e5e7eb' }}>
-          Aún no tienes servicios. Crea el primero arriba.
+          {t('noServices')}
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -280,8 +290,12 @@ function ServicesTab({
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0 text-[11px] font-semibold">
-                <button onClick={() => toggle(s)} style={{ color: '#0ea5e9' }}>{s.isActive ? 'Desactivar' : 'Activar'}</button>
-                <button onClick={() => remove(s)} style={{ color: '#b91c1c' }}>Borrar</button>
+                <button onClick={() => toggle(s)} style={{ color: '#0ea5e9' }}>
+                  {s.isActive ? t('deactivate') : t('activate')}
+                </button>
+                <button onClick={() => remove(s)} style={{ color: '#b91c1c' }}>
+                  {t('delete')}
+                </button>
               </div>
             </div>
           ))}
@@ -301,6 +315,7 @@ function ProvidersTab({
   services: Service[];
   onChange: () => void;
 }) {
+  const t = useTranslations('app_services');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -328,7 +343,7 @@ function ProvidersTab({
   }
   async function add() {
     if (!name.trim()) {
-      toast('Escribe el nombre', 'error');
+      toast(t('needProviderName'), 'error');
       return;
     }
     setBusy(true);
@@ -338,7 +353,7 @@ function ProvidersTab({
         body: JSON.stringify({ name: name.trim() }),
       });
       setName('');
-      toast('Profesional agregado', 'success');
+      toast(t('providerAdded'), 'success');
       onChange();
     } catch (e: any) {
       toast(e.message ?? 'Error', 'error');
@@ -358,8 +373,7 @@ function ProvidersTab({
     }
   }
   async function remove(p: Provider) {
-    if (!confirm(`¿Quitar a ${p.name}? Se borra su horario (las citas se conservan).`))
-      return;
+    if (!confirm(t('confirmRemoveProvider', { name: p.name }))) return;
     try {
       await api(`/service-reservations/providers/${p.id}`, { method: 'DELETE' });
       onChange();
@@ -371,22 +385,21 @@ function ProvidersTab({
     <div className="space-y-4">
       <div className="p-3 rounded-[12px]" style={{ background: 'white', border: '1px solid #e7e9ec' }}>
         <div className="text-xs font-bold uppercase mb-2" style={{ color: '#6b7280' }}>
-          Nuevo profesional
+          {t('newProvider')}
         </div>
         <div className="flex gap-2">
-          <input className={inp} placeholder="Nombre (ej. Juan)" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className={inp} placeholder={t('providerNamePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} />
           <button onClick={add} disabled={busy} className="text-sm font-semibold text-white rounded-[10px] py-2 px-4 shrink-0" style={{ background: '#16a34a', opacity: busy ? 0.6 : 1 }}>
-            {busy ? '…' : '+ Agregar'}
+            {busy ? '…' : t('add')}
           </button>
         </div>
         <div className="text-[11px] mt-2" style={{ color: '#9aa4af' }}>
-          Con profesionales, cada uno tiene su propio horario y los clientes eligen
-          con quién agendar. Sin profesionales, la agenda es a nivel negocio.
+          {t('providersHint')}
         </div>
       </div>
       {providers.length === 0 ? (
         <div className="text-sm rounded-lg px-3 py-6 text-center" style={{ color: '#9aa4af', border: '1px dashed #e5e7eb' }}>
-          Sin profesionales — la agenda funciona a nivel negocio.
+          {t('noProviders')}
         </div>
       ) : (
         <div className="space-y-1.5">
@@ -397,14 +410,18 @@ function ProvidersTab({
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-sm font-semibold" style={{ color: '#16241c' }}>{p.name}</div>
                   <div className="flex items-center gap-3 text-[11px] font-semibold">
-                    <button onClick={() => toggle(p)} style={{ color: '#0ea5e9' }}>{p.isActive ? 'Desactivar' : 'Activar'}</button>
-                    <button onClick={() => remove(p)} style={{ color: '#b91c1c' }}>Quitar</button>
+                    <button onClick={() => toggle(p)} style={{ color: '#0ea5e9' }}>
+                      {p.isActive ? t('deactivate') : t('activate')}
+                    </button>
+                    <button onClick={() => remove(p)} style={{ color: '#b91c1c' }}>
+                      {t('remove')}
+                    </button>
                   </div>
                 </div>
                 {services.length > 0 && (
                   <div className="mt-2">
                     <div className="text-[11px] mb-1" style={{ color: '#9aa4af' }}>
-                      Servicios que hace{doesAll ? ' (todos)' : ''}:
+                      {doesAll ? t('servicesTheyDoAll') : t('servicesTheyDo')}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {services.map((s) => {
@@ -442,6 +459,8 @@ function ScheduleTab({
   providers: Provider[];
   onSaved: () => void;
 }) {
+  const t = useTranslations('app_services');
+  const locale = useLocale();
   const activeProviders = providers.filter((p) => p.isActive);
   // '' = horario a nivel negocio (cuando no hay profesionales).
   const [selectedProvider, setSelectedProvider] = useState<string>('');
@@ -486,7 +505,7 @@ function ScheduleTab({
 
   const byDay = useMemo(() => {
     const m: Record<number, Avail[]> = {};
-    for (const w of WEEKDAYS) m[w.n] = [];
+    for (const n of WEEKDAYS) m[n] = [];
     for (const r of rows) (m[r.weekday] ??= []).push(r);
     return m;
   }, [rows]);
@@ -508,13 +527,13 @@ function ScheduleTab({
       const copies = targets.flatMap((wd) => windows.map((w) => ({ weekday: wd, startMin: w.startMin, endMin: w.endMin })));
       return [...kept, ...copies];
     });
-    toast('Horario copiado — recuerda Guardar', 'success');
+    toast(t('scheduleCopied'), 'success');
   }
   const COPY_TARGETS: Record<string, number[]> = { all: [1, 2, 3, 4, 5, 6, 0], week: [1, 2, 3, 4, 5], weekend: [6, 0] };
   async function save() {
     const bad = rows.find((r) => r.endMin <= r.startMin);
     if (bad) {
-      toast('Revisa los horarios: la hora de fin debe ser mayor a la de inicio', 'error');
+      toast(t('badWindow'), 'error');
       return;
     }
     setSaving(true);
@@ -526,10 +545,10 @@ function ScheduleTab({
           rows: rows.map((r) => ({ weekday: r.weekday, startMin: r.startMin, endMin: r.endMin })),
         }),
       });
-      toast('Horarios guardados', 'success');
+      toast(t('scheduleSaved'), 'success');
       onSaved();
     } catch (e: any) {
-      toast(e.message ?? 'Error al guardar', 'error');
+      toast(e.message ?? t('saveError'), 'error');
     } finally {
       setSaving(false);
     }
@@ -541,7 +560,7 @@ function ScheduleTab({
         method: 'POST',
         body: JSON.stringify({ date: excDate, closed }),
       });
-      toast('Excepción guardada', 'success');
+      toast(t('exceptionSaved'), 'success');
       loadExc();
     } catch (e: any) {
       toast(e.message ?? 'Error', 'error');
@@ -561,7 +580,7 @@ function ScheduleTab({
       <div className="p-3 rounded-[12px]" style={{ background: 'white', border: '1px solid #e7e9ec' }}>
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="text-xs font-bold uppercase" style={{ color: '#6b7280' }}>
-            Horario semanal
+            {t('weeklySchedule')}
           </div>
           {activeProviders.length > 0 && (
             <select
@@ -576,36 +595,40 @@ function ScheduleTab({
           )}
         </div>
         <div className="space-y-2">
-          {WEEKDAYS.map((w) => (
-            <div key={w.n} className="flex flex-wrap items-center gap-2">
-              <div className="w-24 text-sm font-semibold" style={{ color: '#334155' }}>{w.label}</div>
+          {WEEKDAYS.map((n) => (
+            <div key={n} className="flex flex-wrap items-center gap-2">
+              <div className="w-24 text-sm font-semibold capitalize" style={{ color: '#334155' }}>
+                {nombreDelDia(n, locale)}
+              </div>
               <div className="flex flex-wrap items-center gap-2 flex-1">
-                {byDay[w.n].length === 0 && (
-                  <span className="text-[12px]" style={{ color: '#9aa4af' }}>Cerrado</span>
+                {byDay[n].length === 0 && (
+                  <span className="text-[12px]" style={{ color: '#9aa4af' }}>{t('closed')}</span>
                 )}
                 {rows.map((r, idx) =>
-                  r.weekday === w.n ? (
+                  r.weekday === n ? (
                     <span key={idx} className="inline-flex items-center gap-1">
                       <input type="time" className="rounded-[8px] border border-[#dfe3e8] px-2 py-1 text-sm" value={minToHhmm(r.startMin)} onChange={(e) => updateWindow(idx, { startMin: hhmmToMin(e.target.value) })} />
                       <span style={{ color: '#9aa4af' }}>–</span>
                       <input type="time" className="rounded-[8px] border border-[#dfe3e8] px-2 py-1 text-sm" value={minToHhmm(r.endMin)} onChange={(e) => updateWindow(idx, { endMin: hhmmToMin(e.target.value) })} />
-                      <button onClick={() => removeWindow(r)} className="text-[13px]" style={{ color: '#b91c1c' }} title="Quitar franja">×</button>
+                      <button onClick={() => removeWindow(r)} className="text-[13px]" style={{ color: '#b91c1c' }} title={t('removeWindow')}>×</button>
                     </span>
                   ) : null,
                 )}
-                <button onClick={() => addWindow(w.n)} className="text-[12px] font-semibold" style={{ color: '#0ea5e9' }}>+ franja</button>
-                {byDay[w.n].length > 0 && (
+                <button onClick={() => addWindow(n)} className="text-[12px] font-semibold" style={{ color: '#0ea5e9' }}>
+                  {t('addWindow')}
+                </button>
+                {byDay[n].length > 0 && (
                   <select
                     value=""
-                    onChange={(e) => { const v = e.target.value; if (v && COPY_TARGETS[v]) copyDayTo(w.n, COPY_TARGETS[v]); e.currentTarget.value = ''; }}
+                    onChange={(e) => { const v = e.target.value; if (v && COPY_TARGETS[v]) copyDayTo(n, COPY_TARGETS[v]); e.currentTarget.value = ''; }}
                     className="text-[12px] rounded-[8px] border border-[#dfe3e8] px-1.5 py-1"
                     style={{ color: '#0ea5e9' }}
-                    title="Duplicar este horario a otros días"
+                    title={t('copyToTitle')}
                   >
-                    <option value="">⧉ Copiar a…</option>
-                    <option value="all">Toda la semana</option>
-                    <option value="week">Lun–Vie</option>
-                    <option value="weekend">Sáb–Dom</option>
+                    <option value="">{t('copyTo')}</option>
+                    <option value="all">{t('copyAll')}</option>
+                    <option value="week">{t('copyWeek')}</option>
+                    <option value="weekend">{t('copyWeekend')}</option>
                   </select>
                 )}
               </div>
@@ -613,29 +636,31 @@ function ScheduleTab({
           ))}
         </div>
         <p className="mt-2 text-[11px]" style={{ color: '#9aa4af' }}>
-          💡 Para cerrar a mediodía, agrega dos franjas en el día (ej. 8:00–12:00 y 14:00–18:00). Usa <b>⧉ Copiar a…</b> para duplicar un día a otros.
+          {t('scheduleHint')}
         </p>
         <button onClick={save} disabled={saving} className="mt-3 text-sm font-semibold text-white rounded-[10px] py-2 px-4" style={{ background: '#16a34a', opacity: saving ? 0.6 : 1 }}>
-          {saving ? 'Guardando…' : 'Guardar horarios'}
+          {saving ? t('savingSchedule') : t('saveSchedule')}
         </button>
       </div>
 
       <div className="p-3 rounded-[12px]" style={{ background: 'white', border: '1px solid #e7e9ec' }}>
         <div className="text-xs font-bold uppercase mb-2" style={{ color: '#6b7280' }}>
-          Días cerrados / excepciones
+          {t('exceptionsTitle')}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <input type="date" className="rounded-[8px] border border-[#dfe3e8] px-2 py-1.5 text-sm" value={excDate} onChange={(e) => setExcDate(e.target.value)} />
           <button onClick={() => addException(true)} className="text-sm font-semibold rounded-[10px] py-1.5 px-3" style={{ background: '#fef2f2', color: '#ef4444' }}>
-            Marcar cerrado
+            {t('markClosed')}
           </button>
         </div>
         {exceptions.length > 0 && (
           <div className="mt-2 space-y-1">
             {exceptions.map((x) => (
               <div key={x.id} className="flex items-center justify-between text-[13px] px-2 py-1 rounded" style={{ background: '#f8fafc' }}>
-                <span>{x.date?.slice(0, 10)} · {x.closed ? 'Cerrado' : `${minToHhmm(x.startMin ?? 0)}–${minToHhmm(x.endMin ?? 0)}`}</span>
-                <button onClick={() => removeException(x.id)} style={{ color: '#b91c1c' }} className="text-[11px] font-semibold">Quitar</button>
+                <span>{x.date?.slice(0, 10)} · {x.closed ? t('closed') : `${minToHhmm(x.startMin ?? 0)}–${minToHhmm(x.endMin ?? 0)}`}</span>
+                <button onClick={() => removeException(x.id)} style={{ color: '#b91c1c' }} className="text-[11px] font-semibold">
+                  {t('remove')}
+                </button>
               </div>
             ))}
           </div>
@@ -655,6 +680,8 @@ function AgendaTab({
   providers: Provider[];
   timezone: string;
 }) {
+  const t = useTranslations('app_services');
+  const locale = useLocale();
   const providerName = (id: string | null) =>
     id ? providers.find((p) => p.id === id)?.name ?? null : null;
   const [date, setDate] = useState(todayStr());
@@ -663,7 +690,7 @@ function AgendaTab({
   const [showNew, setShowNew] = useState(false);
 
   const fmtTime = (iso: string) =>
-    new Intl.DateTimeFormat('es-CO', {
+    new Intl.DateTimeFormat(locale, {
       timeZone: timezone,
       hour: '2-digit',
       minute: '2-digit',
@@ -703,28 +730,29 @@ function AgendaTab({
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <input type="date" className="rounded-[8px] border border-[#dfe3e8] px-2 py-1.5 text-sm" value={date} onChange={(e) => setDate(e.target.value)} />
-        <button onClick={() => setShowNew(true)} disabled={services.length === 0} className="ml-auto text-sm font-semibold text-white rounded-[10px] py-1.5 px-3" style={{ background: '#16a34a', opacity: services.length === 0 ? 0.5 : 1 }} title={services.length === 0 ? 'Crea un servicio primero' : 'Agendar una cita'}>
-          + Nueva cita
+        <button onClick={() => setShowNew(true)} disabled={services.length === 0} className="ml-auto text-sm font-semibold text-white rounded-[10px] py-1.5 px-3" style={{ background: '#16a34a', opacity: services.length === 0 ? 0.5 : 1 }} title={services.length === 0 ? t('createServiceFirst') : t('scheduleAppointment')}>
+          {t('newAppointment')}
         </button>
       </div>
 
       {loading ? (
-        <div className="text-sm" style={{ color: '#9aa4af' }}>Cargando…</div>
+        <div className="text-sm" style={{ color: '#9aa4af' }}>{t('loading')}</div>
       ) : appts.length === 0 ? (
         <div className="text-sm rounded-lg px-3 py-6 text-center" style={{ color: '#9aa4af', border: '1px dashed #e5e7eb' }}>
-          No hay citas para este día.
+          {t('noAppointments')}
         </div>
       ) : (
         <div className="space-y-1.5">
           {appts.map((a) => {
-            const st = APPT_STATUS[a.status] ?? APPT_STATUS.confirmed;
+            const color = APPT_COLOR[a.status] ?? APPT_COLOR.confirmed;
             const done = a.status === 'cancelled' || a.status === 'no_show' || a.status === 'completed';
             return (
               <div key={a.id} className="p-3 rounded-[12px]" style={{ background: 'white', border: '1px solid #e7e9ec', opacity: a.status === 'cancelled' ? 0.6 : 1 }}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="text-sm font-semibold" style={{ color: '#16241c' }}>
-                      {fmtTime(a.startAt)}–{fmtTime(a.endAt)} · {a.service?.name ?? 'Servicio'}
+                      {fmtTime(a.startAt)}–{fmtTime(a.endAt)} ·{' '}
+                      {a.service?.name ?? t('service')}
                     </div>
                     <div className="text-[12.5px]" style={{ color: '#6b7785' }}>
                       {a.customerName} · {a.customerPhone}
@@ -732,16 +760,20 @@ function AgendaTab({
                     </div>
                     {a.notes && <div className="text-[11px] mt-0.5" style={{ color: '#9aa4af' }}>{a.notes}</div>}
                   </div>
-                  <span className="text-[10px] font-bold px-2 py-1 rounded-full shrink-0" style={{ background: st.bg, color: st.fg }}>{st.label}</span>
+                  <span className="text-[10px] font-bold px-2 py-1 rounded-full shrink-0" style={{ background: color.bg, color: color.fg }}>
+                    {t((APPT_CLAVE[a.status] ?? 'statusConfirmed') as any)}
+                  </span>
                 </div>
                 {!done && (
                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-semibold">
                     {a.status !== 'confirmed' && (
-                      <button onClick={() => setStatus(a.id, 'confirmed')} style={{ color: '#1d4ed8' }}>Confirmar</button>
+                      <button onClick={() => setStatus(a.id, 'confirmed')} style={{ color: '#1d4ed8' }}>{t('confirm')}</button>
                     )}
-                    <button onClick={() => setStatus(a.id, 'completed')} style={{ color: '#15803d' }}>Completar</button>
-                    <button onClick={() => setStatus(a.id, 'no_show')} style={{ color: '#6b7280' }}>No asistió</button>
-                    <button onClick={() => { if (confirm('¿Cancelar esta cita?')) setStatus(a.id, 'cancelled'); }} style={{ color: '#b91c1c' }} className="ml-auto">Cancelar</button>
+                    <button onClick={() => setStatus(a.id, 'completed')} style={{ color: '#15803d' }}>{t('complete')}</button>
+                    <button onClick={() => setStatus(a.id, 'no_show')} style={{ color: '#6b7280' }}>{t('noShow')}</button>
+                    <button onClick={() => { if (confirm(t('confirmCancelAppointment'))) setStatus(a.id, 'cancelled'); }} style={{ color: '#b91c1c' }} className="ml-auto">
+                      {t('cancel')}
+                    </button>
                   </div>
                 )}
               </div>
@@ -779,6 +811,7 @@ function NewAppointmentModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const t = useTranslations('app_services');
   const [serviceId, setServiceId] = useState(services[0]?.id ?? '');
   const [providerId, setProviderId] = useState(providers[0]?.id ?? '');
   const [date, setDate] = useState(defaultDate);
@@ -829,15 +862,15 @@ function NewAppointmentModal({
 
   async function create() {
     if (!serviceId || !slot) {
-      toast('Elige servicio y horario', 'error');
+      toast(t('needServiceAndTime'), 'error');
       return;
     }
     if (providersForService.length > 0 && !providerId) {
-      toast('Elige un profesional', 'error');
+      toast(t('needProvider'), 'error');
       return;
     }
     if (!name.trim() || phone.trim().length < 6) {
-      toast('Nombre y teléfono del cliente', 'error');
+      toast(t('needCustomer'), 'error');
       return;
     }
     setBusy(true);
@@ -852,10 +885,10 @@ function NewAppointmentModal({
           customerPhone: phone.trim(),
         }),
       });
-      toast('Cita agendada', 'success');
+      toast(t('booked'), 'success');
       onCreated();
     } catch (e: any) {
-      toast(e.message ?? 'Error al agendar', 'error');
+      toast(e.message ?? t('bookError'), 'error');
     } finally {
       setBusy(false);
     }
@@ -864,8 +897,8 @@ function NewAppointmentModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
       <div className="bg-white rounded-2xl p-4 w-full max-w-sm shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="font-semibold text-sm mb-3">Nueva cita</div>
-        <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>Servicio</label>
+        <div className="font-semibold text-sm mb-3">{t('modalTitle')}</div>
+        <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>{t('service')}</label>
         <select className={inp + ' mb-2'} value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
           {services.map((s) => (
             <option key={s.id} value={s.id}>{s.name} ({s.durationMin} min)</option>
@@ -873,7 +906,7 @@ function NewAppointmentModal({
         </select>
         {providersForService.length > 0 && (
           <>
-            <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>Profesional</label>
+            <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>{t('provider')}</label>
             <select className={inp + ' mb-2'} value={providerId} onChange={(e) => setProviderId(e.target.value)}>
               {providersForService.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
@@ -883,16 +916,16 @@ function NewAppointmentModal({
         )}
         {providers.length > 0 && providersForService.length === 0 && (
           <div className="text-[12px] rounded-[10px] px-2 py-1.5 mb-2" style={{ color: '#a16207', background: '#fef9c3' }}>
-            Ningún profesional realiza este servicio. Asígnalo en la pestaña Profesionales.
+            {t('noProviderForService')}
           </div>
         )}
-        <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>Fecha</label>
+        <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>{t('date')}</label>
         <input type="date" className={inp + ' mb-2'} value={date} onChange={(e) => setDate(e.target.value)} />
-        <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>Horario</label>
+        <label className="block text-[11px] font-semibold mb-1" style={{ color: '#64748b' }}>{t('time')}</label>
         {loadingSlots ? (
-          <div className="text-[12px] mb-2" style={{ color: '#9aa4af' }}>Buscando horarios…</div>
+          <div className="text-[12px] mb-2" style={{ color: '#9aa4af' }}>{t('loadingSlots')}</div>
         ) : slots.length === 0 ? (
-          <div className="text-[12px] mb-2" style={{ color: '#a16207' }}>Sin horarios disponibles ese día.</div>
+          <div className="text-[12px] mb-2" style={{ color: '#a16207' }}>{t('noSlots')}</div>
         ) : (
           <div className="flex flex-wrap gap-1.5 mb-2 max-h-32 overflow-auto">
             {slots.map((s) => (
@@ -902,12 +935,12 @@ function NewAppointmentModal({
             ))}
           </div>
         )}
-        <input className={inp + ' mb-2'} placeholder="Nombre del cliente" value={name} onChange={(e) => setName(e.target.value)} />
-        <input className={inp + ' mb-3'} placeholder="Teléfono" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        <input className={inp + ' mb-2'} placeholder={t('customerNamePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} />
+        <input className={inp + ' mb-3'} placeholder={t('phonePlaceholder')} value={phone} onChange={(e) => setPhone(e.target.value)} />
         <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 text-sm font-semibold rounded-[10px] py-2" style={{ border: '1px solid #e5e7eb', color: '#475569' }}>Cancelar</button>
+          <button onClick={onClose} className="flex-1 text-sm font-semibold rounded-[10px] py-2" style={{ border: '1px solid #e5e7eb', color: '#475569' }}>{t('cancel')}</button>
           <button onClick={create} disabled={busy || !slot} className="flex-1 text-sm font-semibold text-white rounded-[10px] py-2" style={{ background: '#16a34a', opacity: busy || !slot ? 0.6 : 1 }}>
-            {busy ? '…' : 'Agendar'}
+            {busy ? '…' : t('book')}
           </button>
         </div>
       </div>
