@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import { createHash } from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
-import { passLabels } from './pass-labels';
+import { passLabels, localeDelPase } from './pass-labels';
 import { nextRewardLabel } from './free-rewards.util';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
 import { alianzaDelPase } from '../convenios/alianzas-pase.util';
@@ -91,7 +91,7 @@ export class GoogleWalletService {
   /** Header field equivalente al de Apple — varía por tipo de tarjeta. */
   private buildBalance(pass: any): { balance: { string?: string; int?: number }; label: string } {
     const t = pass.card.type;
-    const L = passLabels(pass.customer?.locale);
+    const L = passLabels(localeDelPase(pass));
     if (t === 'CASHBACK') {
       const v = Math.round(Number(pass.cashbackBalance ?? 0));
       return {
@@ -231,7 +231,7 @@ export class GoogleWalletService {
   /** Construye el LoyaltyObject para inline JWT o REST API. */
   private buildObject(pass: any, classId: string, objectId: string) {
     const card = pass.card;
-    const L = passLabels(pass.customer?.locale);
+    const L = passLabels(localeDelPase(pass));
     const balance = this.buildBalance(pass);
 
     // textModulesData: equivalente a backFields del .pkpass.
@@ -678,7 +678,7 @@ export class GoogleWalletService {
    */
   private buildNotificationText(pass: any): { header: string; body: string } {
     const t = pass.card.type;
-    const L = passLabels(pass.customer?.locale);
+    const L = passLabels(localeDelPase(pass));
     const fill = (tmpl: string, v: string) => tmpl.replace('%@', v);
     const brand =
       pass.card.walletBrandName?.trim() ||

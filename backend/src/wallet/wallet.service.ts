@@ -14,7 +14,12 @@ import { removeBorderConnectedWhite } from './logo-chroma';
 import { nextRewardLabel } from './free-rewards.util';
 import { resolveWalletAdvanced, WalletAdvancedFlags } from '../common/white-label/wallet-advanced.util';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
-import { passLabels, type PassLocale, normalizePassLocale } from './pass-labels';
+import {
+  passLabels,
+  localeDelPase,
+  type PassLocale,
+  normalizePassLocale,
+} from './pass-labels';
 import { alianzaDelPase } from '../convenios/alianzas-pase.util';
 import { clubDelPase, pluralUnidad } from '../club/club-pase.util';
 
@@ -155,9 +160,10 @@ export class WalletService implements OnModuleDestroy {
       : null;
     const passBrandHref = passBrand.websiteUrl;
     const passBrandDomain = passBrand.websiteUrl.replace(/^https?:\/\//, '');
-    // Idioma del cliente (persistido al enrolarse). Localiza TODOS los labels
-    // del pase (Apple). Default 'es' para clientes sin locale. (PDF 854)
-    const L = passLabels(pass.customer?.locale);
+    // Idioma del pase: el del cliente (persistido al enrolarse) y, si no
+    // eligió ninguno, el del NEGOCIO. Localiza todos los labels del pase
+    // (Apple). (PDF 854; el respaldo al negocio, 2026-09-11.)
+    const L = passLabels(localeDelPase(pass));
     const cardName = (pass.card.name || L.loyalty_card).trim() || L.loyalty_card;
     const description = cardName;
 
@@ -697,10 +703,15 @@ export class WalletService implements OnModuleDestroy {
     const sharp = (await import('sharp')).default;
     const pass = await this.prisma.pass.findUnique({
       where: { id: passId },
-      include: { card: true, customer: { select: { locale: true } } },
+      include: {
+        card: true,
+        customer: { select: { locale: true } },
+        // El negocio es el respaldo del idioma cuando el cliente no eligió.
+        tenant: { select: { locale: true } },
+      },
     });
     if (!pass) return null;
-    const L = passLabels(pass.customer?.locale);
+    const L = passLabels(localeDelPase(pass));
     const t = pass.card.type;
     if (t !== 'STAMPS' && t !== 'HYBRID' && t !== 'VISITS') return null;
     // Una ALIANZA no lleva hero. Es lo más grande del pase en Android y aquí

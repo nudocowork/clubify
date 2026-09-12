@@ -8,6 +8,25 @@
 
 export type PassLocale = 'es' | 'en' | 'pt' | 'it';
 
+/**
+ * El idioma de un pase: el del cliente, y si no tiene, **el del negocio**.
+ *
+ * Antes caía directo a español. Un negocio de Estados Unidos configurado en
+ * inglés (DÓNDE JEANK, `Tenant.locale = 'en-US'`) repartía pases que decían
+ * «SELLOS» y «CLIENTE» a clientes que no hablan español: el idioma del negocio
+ * no lo miraba nadie, y el del cliente solo se rellena si él lo elige al
+ * enrolarse.
+ *
+ * El orden importa y es este: manda el cliente. Alguien que pidió su tarjeta en
+ * español la sigue teniendo en español aunque el negocio esté en inglés.
+ */
+export function localeDelPase(pass?: {
+  customer?: { locale?: string | null } | null;
+  tenant?: { locale?: string | null } | null;
+}): PassLocale {
+  return normalizePassLocale(pass?.customer?.locale ?? pass?.tenant?.locale);
+}
+
 export function normalizePassLocale(raw?: string | null): PassLocale {
   const l = (raw || 'es').toLowerCase();
   if (l.startsWith('en')) return 'en';

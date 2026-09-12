@@ -16,7 +16,7 @@ import {
   IsOptional,
   IsString,
 } from 'class-validator';
-import { AutomationsService, AUTOMATION_TEMPLATES } from './automations.service';
+import { AutomationsService } from './automations.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 
@@ -44,8 +44,11 @@ export class AutomationsController {
   constructor(private svc: AutomationsService) {}
 
   @Get('templates')
-  templates() {
-    return AUTOMATION_TEMPLATES;
+  templates(
+    @CurrentUser() user: AuthUser,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.plantillas(user, tenantId);
   }
 
   @Post('from-template/:id')

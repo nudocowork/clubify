@@ -15,6 +15,7 @@ import {
   brandGrowCreds,
   BRAND_GROW_SELECT,
 } from '../integrations/brand-sms-creds.util';
+import { plantillaEnIdioma } from './plantillas-en-ingles';
 
 export type AutomationEvent =
   | 'STAMP_ADDED'
@@ -761,6 +762,22 @@ export class AutomationsService {
   // ========== Plantillas pre-armadas ==========
 
   /**
+   * Las recetas tal como las tiene que ver ESTE negocio.
+   *
+   * El listado salía siempre en español, así que el dueño de un negocio en
+   * inglés elegía entre seis tarjetas que no entendía y que además iban a
+   * mandarle a sus clientes un texto en otro idioma.
+   */
+  async plantillas(user: AuthUser, tenantIdOverride?: string) {
+    const tid = this.tid(user, tenantIdOverride);
+    const negocio = await this.prisma.tenant.findUnique({
+      where: { id: tid },
+      select: { locale: true },
+    });
+    return AUTOMATION_TEMPLATES.map((t) => plantillaEnIdioma(t, negocio?.locale));
+  }
+
+  /**
    * Crea una regla a partir de una plantilla. La plantilla solo
    * provee defaults — el dueño puede después editar el body en
    * /app/automations.
@@ -772,8 +789,16 @@ export class AutomationsService {
     tenantIdOverride?: string,
   ) {
     const tid = this.tid(user, tenantIdOverride);
-    const tpl = AUTOMATION_TEMPLATES.find((t) => t.id === templateId);
-    if (!tpl) throw new NotFoundException('Template');
+    const base = AUTOMATION_TEMPLATES.find((t) => t.id === templateId);
+    if (!base) throw new NotFoundException('Template');
+    // En el idioma del NEGOCIO. Un negocio de Estados Unidos activaba la
+    // bienvenida y sus clientes recibían el saludo en español; el texto es
+    // editable, pero nadie edita lo que da por hecho que ya está bien.
+    const negocio = await this.prisma.tenant.findUnique({
+      where: { id: tid },
+      select: { locale: true },
+    });
+    const tpl = plantillaEnIdioma(base, negocio?.locale);
     return this.prisma.automationRule.create({
       data: {
         tenantId: tid,
