@@ -236,12 +236,18 @@ export class FinanceReportService {
         where: combinar(wl, enRangoConRespaldo('periodEnd', rango)),
         select: { periodEnd: true, createdAt: true, totalUsd: true },
       }),
+      // Por fecha de PAGO y con lo PAGADO, igual que `summary()`. Antes esta
+      // consulta repartía por fecha de NEGOCIO y sumaba lo generado: la barra
+      // «Comisiones pagadas» de un mes no daba lo mismo que la línea con ese
+      // nombre en la cascada del mismo mes. Un módulo que se contradice consigo
+      // mismo no se puede cuadrar.
       this.prisma.commission.findMany({
         where: {
           status: { not: 'REJECTED' },
-          ...enRangoConRespaldo('businessDate', rango),
+          paymentStatus: 'PAID',
+          ...enRango('paidAt', rango),
         },
-        select: { businessDate: true, createdAt: true, amount: true },
+        select: { paidAt: true, amountPaid: true },
       }),
     ]);
 
@@ -269,8 +275,9 @@ export class FinanceReportService {
       if (c) c.nominaUsd += Number(r.totalUsd);
     }
     for (const k of comisiones) {
-      const c = cubo(k.businessDate ?? k.createdAt);
-      if (c) c.comisionesUsd += Number(k.amount);
+      if (!k.paidAt) continue;
+      const c = cubo(k.paidAt);
+      if (c) c.comisionesUsd += Number(k.amountPaid);
     }
 
     return meses.map((period) => {

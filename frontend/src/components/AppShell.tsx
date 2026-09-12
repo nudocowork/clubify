@@ -515,7 +515,6 @@ export default function AppShell({
       // auditoría de duplicados su ledger interno.
       '/admin/commissions/audit',
       '/admin/industries',
-      '/admin/sales-teams',
       '/admin/sales-leaderboard',
       '/admin/ventas',
     ];
@@ -524,8 +523,34 @@ export default function AppShell({
       : pathname;
     if (clubifyOnlyRoutes.some((p) => here === p || here.startsWith(p + '/'))) {
       router.replace(urlSlug ? `/admin/${urlSlug}` : '/admin');
+      return;
     }
-  }, [pathname, user, variant, router]);
+
+    // EQUIPOS DE VENTAS — se gatea por MÓDULO, no por marca.
+    //
+    // EL FALLO (2026-09-12, Javier en el panel de Sellea: «le doy clic y me
+    // regresa al dashboard»): cuando Equipos de Ventas dejó de ser exclusivo de
+    // Clubify, el MENÚ pasó a mostrarse por módulo (`requiresBrandModule`) pero
+    // esta lista se quedó con `/admin/sales-teams` dentro. Resultado: a Sellea
+    // —que tiene el módulo encendido— el menú le ofrecía la pantalla y esta
+    // guarda la devolvía al panel medio segundo después. El backend ya hacía lo
+    // correcto; el rebote era solo de aquí.
+    //
+    // `undefined` = los módulos todavía no han llegado. NO se redirige en ese
+    // caso: echaría a una marca que sí lo tiene, por llegar antes el efecto que
+    // la respuesta. Es el mismo error de fondo que el parpadeo del menú.
+    const modulosDeLaMarca: string[] | null | undefined =
+      brandFetched?.modules ?? (brandCargando ? undefined : null);
+    const esDeEquipos =
+      here === '/admin/sales-teams' || here.startsWith('/admin/sales-teams/');
+    if (
+      esDeEquipos &&
+      Array.isArray(modulosDeLaMarca) &&
+      !modulosDeLaMarca.includes('SALES_TEAMS')
+    ) {
+      router.replace(urlSlug ? `/admin/${urlSlug}` : '/admin');
+    }
+  }, [pathname, user, variant, router, brandFetched, brandCargando]);
 
   // Cargar plan del tenant para mostrar badges Pro en sidebar y detectar
   // si todavía falta verificar la tarjeta en Hotmart (lockscreen).

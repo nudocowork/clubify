@@ -210,7 +210,15 @@ export function PanoramaPeriodo({
   const totalBarra = partes.reduce((a, p) => a + p.valor, 0);
 
   const serie = datos.serie.map((s) => ({ ...s, label: etiquetaMes(s.period) }));
-  const hayAlgo = r.grossUsd > 0 || costos > 0;
+  // Un período «sin movimiento» es uno en el que no pasó NADA. Mirando solo
+  // ventas y comisiones pagadas, mayo de 2026 —tres comisiones generadas ese
+  // mes y pagadas el 30 de junio— salía en blanco y se tragaba $23,50.
+  const hayAlgo =
+    r.grossUsd > 0 ||
+    costos > 0 ||
+    (r.comisionesGeneradasUsd ?? 0) > 0 ||
+    (r.comisionesPendientesUsd ?? 0) > 0 ||
+    (r.refundedUsd ?? 0) > 0;
 
   // Las clases de ingreso, de mayor a menor. `SIN_CATEGORIA` es el respaldo de
   // las filas anteriores a que existiera la columna: se enseña en vez de
@@ -227,6 +235,23 @@ export function PanoramaPeriodo({
 
   return (
     <>
+      {anteriorAlLibro(datos.period) && r.grossUsd === 0 && (
+        <div className="card card-pad mb-4 border-amber-300">
+          <p className="text-sm">
+            <strong>De <span className="capitalize">{nombrePeriodo}</span> no
+            hay ingresos registrados, y no se pueden recuperar.</strong>{' '}
+            El libro de cobros empieza el 14 de junio de 2026: antes no se
+            guardaba el detalle de ninguna venta, ni aquí ni en las pasarelas.
+            Hubo ventas — lo que falta es el registro, no el dinero; están en el
+            informe de ventas de Hotmart.
+          </p>
+          <p className="text-xs text-mute mt-1.5">
+            Lo que sí existe de estos meses —comisiones, egresos, nómina— se ve
+            abajo con normalidad.
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <Tarjeta
           label="Ventas brutas"
@@ -253,23 +278,7 @@ export function PanoramaPeriodo({
 
       {!hayAlgo ? (
         <div className="card card-pad text-center text-mute">
-          {anteriorAlLibro(datos.period) ? (
-            <>
-              <p className="text-ink font-medium">
-                De <span className="capitalize">{nombrePeriodo}</span> no hay
-                registros, y no se pueden recuperar.
-              </p>
-              <p className="text-sm mt-1.5 max-w-lg mx-auto">
-                El libro de ingresos empieza el <strong>14 de junio de 2026</strong>:
-                antes de esa fecha no se guardaba el detalle de ningún cobro, ni
-                en Clubify ni en las pasarelas. Hubo ventas — lo que falta es el
-                registro, no el dinero. Solo se pueden consultar en el informe de
-                ventas de Hotmart.
-              </p>
-            </>
-          ) : (
-            <>No hubo movimiento en <span className="capitalize">{nombrePeriodo}</span>.</>
-          )}
+          <>No hubo movimiento en <span className="capitalize">{nombrePeriodo}</span>.</>
         </div>
       ) : (
         <>
@@ -334,14 +343,24 @@ export function PanoramaPeriodo({
               <p className="text-[11px] text-mute mt-2">
                 Neto recibido y conciliado: <strong className="text-ink">{money(r.netReceivedUsd)}</strong>.
               </p>
-              {/* Una comisión aprobada y sin pagar todavía no salió de la
-                  cuenta: es deuda con el afiliado, no un costo del período.
-                  Se enseña al lado para que no desaparezca de la vista. */}
-              {!!r.comisionesPendientesUsd && (
+              {/* La cascada resta lo que salió del banco DENTRO del período. Lo
+                  generado en el período es otra cosa —puede pagarse meses
+                  después— y sin esta nota desaparecía: las tres comisiones de
+                  mayo de 2026 se pagaron el 30 de junio, así que mayo no
+                  enseñaba ni un peso de los $23,50 que generó. */}
+              {(!!r.comisionesGeneradasUsd || !!r.comisionesPendientesUsd) && (
                 <p className="text-[11px] text-mute mt-1">
-                  Comisiones generadas y <strong className="text-ink">sin pagar</strong>:{' '}
-                  <strong className="text-ink">{money(r.comisionesPendientesUsd)}</strong>
-                  {' '}(no restan de la utilidad hasta que se paguen).
+                  Comisiones <strong className="text-ink">generadas</strong> en{' '}
+                  <span className="capitalize">{nombrePeriodo}</span>:{' '}
+                  <strong className="text-ink">{money(r.comisionesGeneradasUsd ?? 0)}</strong>
+                  {' · '}ya pagadas{' '}
+                  <strong className="text-ink">
+                    {money((r.comisionesGeneradasUsd ?? 0) - (r.comisionesPendientesUsd ?? 0))}
+                  </strong>
+                  {' · '}pendientes{' '}
+                  <strong className="text-ink">{money(r.comisionesPendientesUsd ?? 0)}</strong>.
+                  {' '}El pago puede caer en otro mes; arriba se resta solo lo que
+                  salió dentro de este.
                 </p>
               )}
               {!!r.refundedUsd && (

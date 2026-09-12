@@ -337,6 +337,28 @@ describe('comisiones en la cascada', () => {
     expect(r.comisionesUsd).toBe(135);
     expect(r.utilidadUsd).toBe(865);
   });
+
+  it('el mes que la GENERÓ la sigue informando aunque se pagara después', async () => {
+    // EL FALLO (2026-09-12, Javier): las tres comisiones de mayo de 2026
+    // —$23,50— se generaron en mayo y se pagaron el 30 de junio. Como la
+    // cascada resta por fecha de pago, mayo daba $0 en todo y el panel lo
+    // trataba como un mes sin movimiento: los $23,50 desaparecían de la vista
+    // mientras el módulo de comisiones los enseñaba sin problema.
+    //
+    // Pagadas del todo, así que «pendiente» es 0: el único sitio donde ese
+    // dinero sigue existiendo para mayo es `comisionesGeneradasUsd`.
+    const r = await reporte(
+      [
+        { amount: 13.5, amountPaid: 13.5, paymentStatus: 'PAID' },
+        { amount: 5, amountPaid: 5, paymentStatus: 'PAID' },
+        { amount: 5, amountPaid: 5, paymentStatus: 'PAID' },
+      ],
+      [], // ninguna PAGADA dentro de mayo
+    ).summary(true);
+    expect(r.comisionesGeneradasUsd).toBe(23.5);
+    expect(r.comisionesPendientesUsd).toBe(0);
+    expect(r.comisionesUsd).toBe(0);
+  });
 });
 
 // ── 5. Filtros de tiempo ────────────────────────────────────────────────────
