@@ -89,6 +89,8 @@ type InformeConciliacion = {
   adoptados: Array<{ de: string; a: string; brandName: string | null }>;
   enDisputa: string[];
   sinResolver: Array<{ gateway: string; externalTxId: string; motivo: string; pista: string | null }>;
+  /** Apuntes del libro que ninguna pasarela respalda. */
+  sinRespaldo: Array<{ gateway: string; externalTxId: string; grossUsd: number; saleDate: string; brandName: string | null; nota: string | null }>;
 };
 
 export default function ContabilidadPage() {
@@ -468,6 +470,28 @@ export default function ContabilidadPage() {
                       {informe.enDisputa.length} con una disputa abierta. Siguen contando hasta que se resuelva:{' '}
                       <span className="font-mono">{informe.enDisputa.join(', ')}</span>
                     </p>
+                  )}
+                  {informe.sinRespaldo.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-line2">
+                      <p className="text-xs font-medium text-warn">
+                        Apuntados en el libro sin respaldo de ninguna pasarela ({informe.sinRespaldo.length}):
+                      </p>
+                      <p className="text-[11px] text-mute mt-0.5 mb-1.5">
+                        No es dinero que falte — es dinero apuntado que no se puede
+                        demostrar. Vienen de reconstrucciones hechas a partir de la
+                        fecha del último cobro del negocio y el precio de su plan.
+                      </p>
+                      <ul className="text-xs text-mute flex flex-col gap-1">
+                        {informe.sinRespaldo.map((x) => (
+                          <li key={`${x.gateway}-${x.externalTxId}`} className="flex items-center gap-2">
+                            <span className="text-mute w-16">{fmtDate(x.saleDate)}</span>
+                            <span className="flex-1">{x.brandName ?? '—'}</span>
+                            <span className="font-mono text-[10px]">{x.externalTxId}</span>
+                            <span className="tabular-nums font-medium">{money(x.grossUsd)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   )}
                   {informe.sinResolver.length > 0 && (
                     <div className="mt-2">

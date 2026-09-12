@@ -63,6 +63,17 @@ async function main() {
     console.log(`  ${d.externalTxId} → ${d.estado}`);
   }
 
+  console.log(
+    `\nAPUNTADOS SIN RESPALDO DE NINGUNA PASARELA: ${informe.sinRespaldo.length}`,
+  );
+  for (const x of informe.sinRespaldo) {
+    console.log(
+      `  ${x.saleDate.slice(0, 10)} ${x.gateway} ${usd(x.grossUsd)} ` +
+        `${x.brandName ?? '-'} tx=${x.externalTxId}`,
+    );
+    console.log(`      nota: ${x.nota ?? '(sin nota)'}`);
+  }
+
   console.log(`\nSIN RESOLVER: ${informe.sinResolver.length}`);
   for (const s of informe.sinResolver) {
     console.log(`  ${s.gateway} tx=${s.externalTxId} — ${s.motivo} (${s.pista ?? '—'})`);

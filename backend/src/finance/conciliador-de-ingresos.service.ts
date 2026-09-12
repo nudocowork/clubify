@@ -75,6 +75,28 @@ export interface InformeDeConciliacion {
   /** Cobros con una disputa ABIERTA: siguen contando, pero hay que mirarlos. */
   enDisputa: string[];
   sinResolver: SinResolver[];
+  /**
+   * Ingresos del libro que NINGUNA pasarela respalda.
+   *
+   * Al revés que todo lo demás: no es dinero que falte, es dinero apuntado que
+   * no se puede demostrar. Salen de los backfills que reconstruyeron cobros a
+   * partir del `lastChargeAt` del negocio y del precio de su plan — una
+   * ESTIMACIÓN, no una transacción. Medido el 2026-09-12: 1 de 122 filas, los
+   * $150 de abril, cuyo negocio ni siquiera existía en Clubify en esa fecha.
+   *
+   * No se borran solos: el libro no se toca sin que alguien lo decida. Lo que
+   * hace falta es que dejen de parecer un cobro verificado.
+   */
+  sinRespaldo: SinRespaldo[];
+}
+
+export interface SinRespaldo {
+  gateway: PaymentGateway;
+  externalTxId: string;
+  grossUsd: number;
+  saleDate: string;
+  brandName: string | null;
+  nota: string | null;
 }
 
 /**
@@ -176,11 +198,16 @@ export class ConciliadorDeIngresosService {
   @Cron(CronExpression.EVERY_DAY_AT_4AM)
   async cronDiario() {
     const informe = await this.conciliar({ simular: false });
-    if (informe.creados.length || informe.sinResolver.length) {
+    if (
+      informe.creados.length ||
+      informe.sinResolver.length ||
+      informe.sinRespaldo.length
+    ) {
       this.logger.warn(
         `Conciliación: ${informe.creados.length} ingresos recuperados, ` +
           `${informe.devueltos.length} marcados devueltos, ` +
-          `${informe.sinResolver.length} sin resolver.`,
+          `${informe.sinResolver.length} sin resolver, ` +
+          `${informe.sinRespaldo.length} apuntados sin respaldo de pasarela.`,
       );
     }
   }
@@ -221,14 +248,73 @@ export class ConciliadorDeIngresosService {
       adoptados: [],
       enDisputa: [],
       sinResolver: [],
+      sinRespaldo: [],
     };
 
     await this.hotmart(informe, enLibro, opts.desde, simular);
     await this.stripe(informe, enLibro, opts.desde, simular);
     await this.cross(informe, enLibro, opts.desde, simular);
     await this.manuales(informe, enLibro, opts.desde, simular);
+    await this.auditarRespaldo(informe);
 
     return informe;
+  }
+
+  /**
+   * La comprobación al revés: ¿hay una fuente detrás de cada fila del libro?
+   *
+   * El resto del conciliador busca cobros que falten. Este busca lo contrario
+   * —apuntes que nadie respalda— porque un número inventado en contabilidad
+   * hace más daño que un hueco: el hueco se ve, el número no.
+   */
+  private async auditarRespaldo(informe: InformeDeConciliacion): Promise<void> {
+    const [filas, hotmart, stripe, manuales, packs] = await Promise.all([
+      this.prisma.incomeRecord.findMany({
+        select: {
+          gateway: true, externalTxId: true, grossUsd: true,
+          saleDate: true, brandName: true, note: true,
+        },
+        orderBy: { saleDate: 'asc' },
+      }),
+      this.prisma.hotmartWebhookEvent.findMany({ select: { payload: true } }),
+      this.prisma.stripeWebhookEvent.findMany({ select: { payload: true } }),
+      this.prisma.manualPayment.findMany({ select: { id: true } }),
+      this.prisma.hotmartCreditPurchase.findMany({ select: { transactionId: true } }),
+    ]);
+
+    const txHotmart = new Set<string>([
+      ...hotmart
+        .map((e) => (e.payload as any)?.data?.purchase?.transaction)
+        .filter((t: unknown): t is string => typeof t === 'string'),
+      ...packs.map((p) => p.transactionId),
+    ]);
+    const txStripe = new Set<string>(
+      stripe
+        .map((e) => (e.payload as any)?.data?.object?.id)
+        .filter((t: unknown): t is string => typeof t === 'string'),
+    );
+    const idsManuales = new Set(manuales.map((m) => m.id));
+
+    for (const r of filas) {
+      const respaldada =
+        r.gateway === 'HOTMART'
+          ? txHotmart.has(r.externalTxId)
+          : r.gateway === 'STRIPE'
+            ? txStripe.has(r.externalTxId)
+            : r.gateway === 'MANUAL'
+              ? idsManuales.has(r.externalTxId)
+              : // CROSS todavía no guarda eventos: no se puede afirmar nada.
+                true;
+      if (respaldada) continue;
+      informe.sinRespaldo.push({
+        gateway: r.gateway,
+        externalTxId: r.externalTxId,
+        grossUsd: Number(r.grossUsd),
+        saleDate: r.saleDate.toISOString(),
+        brandName: r.brandName,
+        nota: r.note,
+      });
+    }
   }
 
   // ── Hotmart ────────────────────────────────────────────────────────────────

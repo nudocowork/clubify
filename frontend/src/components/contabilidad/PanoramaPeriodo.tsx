@@ -101,13 +101,18 @@ const COLOR_CATEGORIA: Record<string, string> = {
 };
 
 /**
- * Dónde empieza el libro: el primer cobro con detalle guardado es del
- * 14 de junio de 2026. Antes no se guardaba el payload de ningún webhook, así
- * que mayo y la primera quincena de junio no están en NINGUNA tabla.
+ * Dónde empieza el rastro de pagos: el primer aviso de una pasarela que el
+ * sistema guarda es del 13 de junio de 2026.
  *
- * Importa distinguirlo de un mes sin ventas: decir «no hubo movimiento» de un
- * mes en el que sí hubo negocio es una afirmación falsa, y en contabilidad eso
- * se convierte en una decisión equivocada.
+ * OJO CON LO QUE AFIRMA ESTA NOTA. La primera versión decía que antes de esa
+ * fecha «no hay registros» — y abril de 2026 enseña una venta de $150, así que
+ * era falso de cara al usuario. Esa fila la reconstruyó un backfill desde el
+ * `lastChargeAt` del negocio; ninguna pasarela la respalda, y el negocio ni
+ * siquiera existía en Clubify en esa fecha.
+ *
+ * Lo que sí es cierto y es lo único que se afirma ahora: de esos meses no hay
+ * COBROS registrados, y lo que aparezca es una reconstrucción. Las comisiones,
+ * los egresos y la nómina de esos meses sí existen y se ven con normalidad.
  */
 const EMPIEZA_EL_LIBRO = '2026-06';
 
@@ -239,11 +244,11 @@ export function PanoramaPeriodo({
         <div className="card card-pad mb-4 border-amber-300">
           <p className="text-sm">
             <strong>De <span className="capitalize">{nombrePeriodo}</span> no
-            hay ingresos registrados, y no se pueden recuperar.</strong>{' '}
-            El libro de cobros empieza el 14 de junio de 2026: antes no se
-            guardaba el detalle de ninguna venta, ni aquí ni en las pasarelas.
-            Hubo ventas — lo que falta es el registro, no el dinero; están en el
-            informe de ventas de Hotmart.
+            hay ningún cobro registrado.</strong>{' '}
+            El primer aviso de pago que guarda el sistema es del 13 de junio de
+            2026; de antes no quedó el detalle de ninguna venta. Hubo negocio —
+            lo que falta es el registro, no el dinero, y solo se puede consultar
+            en el informe de ventas de Hotmart.
           </p>
           <p className="text-xs text-mute mt-1.5">
             Lo que sí existe de estos meses —comisiones, egresos, nómina— se ve
