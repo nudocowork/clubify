@@ -17,7 +17,22 @@ const QR_RESERVATION_PROTOCOL = 'clubify-reservation:';
  * caja sin adivinar por la forma del payload: adivinar terminaba en pantalla
  * en blanco cuando llegaba un convenio o un club, que no traen `pass`.
  */
-export type ScanKind = 'sellos' | 'cupon' | 'club' | 'convenio' | 'cuponera';
+/**
+ * Qué clase de cosa acaba de leer el escáner.
+ *
+ * `reserva` se añade el 2026-09-13: el QR de una reserva YA se atendía —se
+ * confirma la asistencia— pero se devolvía SIN `kind`, así que el frontend no
+ * tenía forma de saber qué estaba mirando y caía en su red de seguridad
+ * («esta versión del escáner no sabe mostrar este tipo de tarjeta»). Reportado
+ * por Ricuras Paisas: la reserva se confirmaba y el cajero veía un error.
+ */
+export type ScanKind =
+  | 'sellos'
+  | 'cupon'
+  | 'club'
+  | 'convenio'
+  | 'cuponera'
+  | 'reserva';
 
 @Injectable()
 export class ScannerService {

@@ -29,7 +29,13 @@ function isCouponLike(type: string | null | undefined): boolean {
 // backend/src/scanner/scanner.service.ts — espejo a mano porque el frontend
 // no importa código del backend). Antes esta pantalla asumía que TODO traía
 // `data.pass` y un convenio o un club, que no lo traen, la dejaba en blanco.
-type ScanKind = 'sellos' | 'cupon' | 'club' | 'convenio' | 'cuponera';
+type ScanKind =
+  | 'sellos'
+  | 'cupon'
+  | 'club'
+  | 'convenio'
+  | 'cuponera'
+  | 'reserva';
 
 // `unidad` viene en SINGULAR del plan del club («café», «clase», «lavada»).
 // Pluralización mínima vocal→+s / consonante→+es: alcanza para las unidades
@@ -916,10 +922,20 @@ export default function ScanPage() {
   // por verify()) y un backend desplegado antes que este frontend.
   const kind: ScanKind | undefined = data?.kind;
   const esPantallaDePase =
-    !!data && (kind === 'sellos' || kind === 'cupon' || (kind == null && !!data.pass));
+    !!data &&
+    (kind === 'sellos' ||
+      kind === 'cupon' ||
+      // Una reserva CON tarjeta se pinta como cualquier pase: la cabecera de
+      // la reserva va encima para que el cajero vea que acaba de confirmar la
+      // asistencia. Sin tarjeta tiene su propia pantalla, más abajo.
+      (kind === 'reserva' && !!data.pass) ||
+      (kind == null && !!data.pass));
+  /** Reserva confirmada de alguien que todavía no tiene tarjeta. */
+  const esReservaSinTarjeta = !!data && kind === 'reserva' && !data.pass;
   const esKindDesconocido =
     !!data &&
     !esPantallaDePase &&
+    !esReservaSinTarjeta &&
     kind !== 'club' &&
     kind !== 'convenio' &&
     kind !== 'cuponera';
@@ -1880,10 +1896,47 @@ export default function ScanPage() {
           </div>
         )}
 
+        {/* RESERVA CONFIRMADA, SIN TARJETA.
+            Antes esto caía en la red de seguridad de abajo y el cajero leía
+            «esta versión del escáner no sabe mostrar este tipo de tarjeta» —
+            que suena a que el escáner está roto cuando lo que pasa es que la
+            persona aún no tiene tarjeta. Reportado por Ricuras Paisas el
+            2026-09-13. Escanear una reserva NO crea tarjeta ni da sellos (así
+            se decidió el 2026-06-30): esto solo lo explica bien. */}
+        {esReservaSinTarjeta && (
+          <div className="card card-pad mt-3 text-center">
+            <div className="text-3xl mb-2">✅</div>
+            <div className="font-semibold">Reserva confirmada</div>
+            {data?.reservation && (
+              <div className="text-sm mt-2 leading-relaxed">
+                <div className="font-medium">{data.reservation.customerName}</div>
+                <div className="text-mute">
+                  {data.reservation.party
+                    ? `${data.reservation.party} ${data.reservation.party === 1 ? 'persona' : 'personas'}`
+                    : null}
+                  {data.reservation.time ? ` · ${data.reservation.time}` : null}
+                  {data.reservation.tableNumber
+                    ? ` · mesa ${data.reservation.tableNumber}`
+                    : null}
+                  {data.reservation.zoneName ? ` · ${data.reservation.zoneName}` : null}
+                </div>
+              </div>
+            )}
+            {typeof data?.message === 'string' && data.message && (
+              <div className="text-sm text-mute mt-3 leading-relaxed">{data.message}</div>
+            )}
+            <button
+              className="btn-link mt-4 w-full justify-center text-sm"
+              onClick={scanAnother}
+            >
+              📷 Escanear otro
+            </button>
+          </div>
+        )}
+
         {/* Red de seguridad: un `kind` que este frontend no conoce (backend
-            más nuevo) o una respuesta sin pase (reserva confirmada sin tarjeta
-            de sellos) muestra un aviso legible en vez de dejar la pantalla en
-            blanco por un TypeError. */}
+            más nuevo) o una respuesta sin pase muestra un aviso legible en vez
+            de dejar la pantalla en blanco por un TypeError. */}
         {esKindDesconocido && (
           <div className="card card-pad mt-3 text-center">
             <div className="text-3xl mb-2">🤔</div>

@@ -1641,6 +1641,7 @@ export class ReservationsService {
     // STAMPS card configurada — devolvemos respuesta especial).
     if (!r.customerId) {
       return {
+        kind: 'reserva' as const,
         reservation: {
           id: r.id,
           customerName: r.customerName,
@@ -1652,7 +1653,7 @@ export class ReservationsService {
         },
         pass: null,
         recent: [],
-        message: 'Reserva confirmada — el cliente no tiene Customer asociado.',
+        message: 'Reserva confirmada. Este cliente no está registrado como cliente del negocio.',
       };
     }
 
@@ -1672,6 +1673,7 @@ export class ReservationsService {
     });
     if (!stampsCard) {
       return {
+        kind: 'reserva' as const,
         reservation: {
           id: r.id,
           customerName: r.customerName,
@@ -1683,7 +1685,7 @@ export class ReservationsService {
         },
         pass: null,
         recent: [],
-        message: 'Reserva confirmada — el negocio aún no tiene tarjeta de fidelización.',
+        message: 'Reserva confirmada. Este negocio todavía no tiene tarjeta de fidelización configurada.',
       };
     }
 
@@ -1697,6 +1699,7 @@ export class ReservationsService {
     });
     if (!pass) {
       return {
+        kind: 'reserva' as const,
         reservation: {
           id: r.id,
           customerName: r.customerName,
@@ -1708,6 +1711,14 @@ export class ReservationsService {
         },
         pass: null,
         recent: [],
+        // ESTE era el que faltaba (2026-09-13, Ricuras Paisas): sin `message`
+        // el escáner no tenía nada que enseñar y caía en su texto genérico,
+        // «esta versión del escáner no sabe mostrar este tipo de tarjeta» —
+        // que suena a que el escáner está roto cuando lo que pasa es que la
+        // persona no tiene tarjeta todavía.
+        message:
+          `Reserva confirmada. ${r.customerName} todavía no tiene la tarjeta de ` +
+          `fidelización del negocio: entregásela para que empiece a sumar sellos.`,
       };
     }
 
@@ -1717,7 +1728,23 @@ export class ReservationsService {
       take: 10,
     });
 
-    return { pass, recent };
+    // Con pase SÍ hay tarjeta que enseñar, pero sigue siendo una reserva: el
+    // cajero tiene que ver que acaba de confirmar la asistencia, no solo la
+    // tarjeta suelta.
+    return {
+      kind: 'reserva' as const,
+      reservation: {
+        id: r.id,
+        customerName: r.customerName,
+        party: r.party,
+        date: r.date,
+        time: r.time,
+        tableNumber: r.table?.number ?? null,
+        zoneName: r.zone?.name ?? null,
+      },
+      pass,
+      recent,
+    };
   }
 
   /**
