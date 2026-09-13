@@ -486,6 +486,67 @@ export class GoogleWalletService {
   }
 
   /**
+   * Deja el objeto CREADO en Google antes de entregar el enlace de guardado.
+   *
+   * Devuelve `true` si el objeto existe al terminar. `false` significa «no se
+   * pudo», y quien llama tiene que seguir con el enlace de siempre: un fallo
+   * aquí no puede dejar a un cliente sin poder guardar su tarjeta.
+   *
+   * Crear un objeto que la persona quizá nunca guarde no molesta a nadie: se
+   * queda ahí y no se le enseña a nadie hasta que lo guarde. Lo que sí molesta
+   * —y mucho— es lo contrario: sellos que se pierden porque el objeto no
+   * existía cuando se dieron.
+   */
+  private async asegurarObjeto(
+    sa: { client_email: string; private_key: string },
+    classId: string,
+    objectId: string,
+    classBody: unknown,
+    objectBody: unknown,
+  ): Promise<boolean> {
+    try {
+      const { google } = await import('googleapis');
+      const auth = new google.auth.JWT({
+        email: sa.client_email,
+        key: sa.private_key,
+        scopes: ['https://www.googleapis.com/auth/wallet_object.issuer'],
+      });
+      const wallet = google.walletobjects({ version: 'v1', auth });
+
+      // La clase primero: insertar un objeto contra una clase que no existe
+      // devuelve un 404 que se lee como «el objeto no existe».
+      if (!(await this.asegurarClase(wallet, classId, classBody))) return false;
+
+      try {
+        await wallet.loyaltyobject.get({ resourceId: objectId });
+        return true; // ya estaba
+      } catch (e: any) {
+        const code = e?.code ?? e?.response?.status;
+        if (code !== 404) {
+          this.logger.warn(
+            `Google Wallet: no se pudo comprobar el objeto ${objectId}: ${e?.message ?? e}`,
+          );
+          return false;
+        }
+      }
+
+      await wallet.loyaltyobject.insert({ requestBody: objectBody as any });
+      this.logger.log(`Google Wallet objeto CREADO: ${objectId}`);
+      return true;
+    } catch (e: any) {
+      // 409 = otra petición lo creó entre el get y el insert. Es el resultado
+      // que queríamos, no un error.
+      const code = e?.code ?? e?.response?.status;
+      if (code === 409) return true;
+      this.logger.warn(
+        `Google Wallet: no se pudo crear el objeto ${objectId} (${code ?? '?'}): ` +
+          `${e?.message ?? e}. Se entrega el enlace con el objeto dentro.`,
+      );
+      return false;
+    }
+  }
+
+  /**
    * Deja la clase lista para usar: la crea si no existe, la actualiza si sí.
    *
    * Google no tiene `upsert`, así que se intenta el patch y solo ante un 404
@@ -609,18 +670,38 @@ export class GoogleWalletService {
     const loyaltyClass = this.buildClass(pass, ids.classId, logoUri);
     const loyaltyObject = this.buildObject(pass, ids.classId, ids.objectId);
 
-    // Inline payload — Google crea LoyaltyClass on-the-fly al primer save.
-    // Para producción real conviene pre-crear vía REST (más eficiente) pero
-    // el inline funciona out-of-the-box sin setup adicional.
+    // EL OBJETO SE CREA AQUÍ, NO AL GUARDAR.
+    //
+    // EL FALLO (2026-09-12, Isabel Reyes en Cocoa Beauty): panel 6/10, teléfono
+    // 0/10. El enlace llevaba el objeto DENTRO («JWT gordo») y Google solo lo
+    // crea cuando la persona completa el guardado. Si no lo completa —o el
+    // guardado falla— no existe objeto, y **todo lo que mandemos después se
+    // tira en silencio**: sus 6 sellos son posteriores al guardado fallido.
+    //
+    // Medido en Cocoa: 136 pases marcados como GOOGLE y solo 79 objetos reales.
+    // Unos 57 clientes con la tarjeta muerta sin que nadie se enterara.
+    //
+    // Creándolo nosotros, el objeto existe desde el minuto cero: los sellos se
+    // aplican pase lo que pase con el guardado, y el día que la persona guarde
+    // ve su cuenta real. Si la creación falla (Google caído, permisos), NO se
+    // bloquea al cliente: se cae al JWT gordo de siempre.
+    const creado = await this.asegurarObjeto(
+      sa,
+      ids.classId,
+      ids.objectId,
+      loyaltyClass,
+      loyaltyObject,
+    );
+
     const claims = {
       iss: sa.client_email,
       aud: 'google',
       typ: 'savetowallet',
       iat: Math.floor(Date.now() / 1000),
-      payload: {
-        loyaltyClasses: [loyaltyClass],
-        loyaltyObjects: [loyaltyObject],
-      },
+      payload: creado
+        ? // «JWT flaco»: el objeto ya existe, el enlace solo lo referencia.
+          { loyaltyObjects: [{ id: ids.objectId, classId: ids.classId }] }
+        : { loyaltyClasses: [loyaltyClass], loyaltyObjects: [loyaltyObject] },
     };
     const token = sign(claims, sa.private_key, { algorithm: 'RS256' });
     const url = `https://pay.google.com/gp/v/save/${token}`;

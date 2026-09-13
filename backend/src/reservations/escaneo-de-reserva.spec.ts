@@ -91,7 +91,7 @@ function servicio(hay: {
   const nada: any = {};
   return new ReservationsService(
     prisma,
-    nada, nada, nada, nada, nada, nada, nada, nada, nada,
+    nada, nada, nada, nada, nada,
   );
 }
 
