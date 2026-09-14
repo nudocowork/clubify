@@ -341,7 +341,7 @@ export class BancoDeEquipoService {
     const acceso = await resolveTeamAccess(this.prisma, user, teamId);
     exigirEscritura(acceso);
     if (!this.puedeAsignar(acceso)) {
-      throw new ForbiddenException('Solo el líder del equipo puede repartir las citas');
+      throw new ForbiddenException('Solo el líder del equipo o un admin de la marca pueden repartir las citas');
     }
     const closers = await this.closersDelEquipo(teamId);
     const closer = closers.find((c) => c.id === hostUserId);

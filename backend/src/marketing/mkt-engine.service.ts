@@ -314,27 +314,36 @@ export class MktEngineService {
   }
 
   // ── API pública ──
-  async enroll(workflowId: string, contactId: string): Promise<void> {
+  /**
+   * Inscribe un contacto en un flujo publicado.
+   *
+   * Devuelve qué pasó, en vez de `void`: descarta EN SILENCIO al contacto que ya
+   * estaba inscrito, que pidió no recibir mensajes o que fue borrado, y quien
+   * inscribe a mano (Contactos → «Inscribir») necesita distinguir eso de una
+   * inscripción real para no enseñar «500 inscritos» cuando no pasó nada
+   * (Fable, 2026-09-14). Los llamadores que ya existían ignoran el valor.
+   */
+  async enroll(workflowId: string, contactId: string): Promise<'inscrito' | 'omitido' | 'fallo'> {
     try {
       const wf = await this.prisma.mktWorkflow.findUnique({ where: { id: workflowId } });
-      if (!wf || wf.status !== 'published' || !wf.rootId) return;
+      if (!wf || wf.status !== 'published' || !wf.rootId) return 'omitido';
       const contact = await this.prisma.mktContact.findUnique({
         where: { id: contactId },
         select: { deleted: true, optOut: true },
       });
-      if (!contact || contact.deleted || contact.optOut) return;
+      if (!contact || contact.deleted || contact.optOut) return 'omitido';
       if (!wf.reentry) {
         const existing = await this.prisma.mktEnrollment.findFirst({
           where: { workflowId, contactId },
           select: { id: true },
         });
-        if (existing) return;
+        if (existing) return 'omitido';
       } else {
         const active = await this.prisma.mktEnrollment.findFirst({
           where: { workflowId, contactId, status: { in: ['active', 'waiting'] } },
           select: { id: true },
         });
-        if (active) return;
+        if (active) return 'omitido';
       }
       const enr = await this.prisma.mktEnrollment.create({
         data: {
@@ -347,8 +356,10 @@ export class MktEngineService {
         },
       });
       await this.advance(enr);
+      return 'inscrito';
     } catch (e) {
       this.log.warn(`mkt enroll falló: ${(e as Error).message}`);
+      return 'fallo';
     }
   }
 

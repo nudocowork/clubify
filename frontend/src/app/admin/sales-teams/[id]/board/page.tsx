@@ -101,6 +101,14 @@ export default function TableroDelEquipo() {
   const [sobre, setSobre] = useState<string | null>(null);
   const [nuevoEn, setNuevoEn] = useState<string | null>(null);
   const [abierto, setAbierto] = useState<string | null>(null);
+  // Abrir la ficha de un lead desde otra pestaña: Contactos y Banco enlazan a
+  // `/board?lead=<id>`, y hasta ahora el CRM ignoraba el parámetro — se llegaba
+  // al tablero y la ficha no se abría. Se lee de `window.location` en un efecto
+  // y no con `useSearchParams`, que en Next 14 exige un límite de Suspense.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('lead');
+    if (id) setAbierto(id);
+  }, []);
   // En móvil las columnas no caben en fila: se ven de una en una.
   const [columnaMovil, setColumnaMovil] = useState(0);
 

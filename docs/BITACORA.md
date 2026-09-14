@@ -8,6 +8,74 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-14 (8) — Equipos de Ventas (Sellea): «Contactos» ya se trabaja en lote
+
+Tercer apartado del brief. Referencia leída en TeamClubify:
+`contactos/_components/ContactsTable.tsx`, `app/actions/contacts.ts`,
+`checkContactDuplicate` (`app/actions/sales-teams.ts`) y `ContactSavedView`.
+
+**Lo que había:** la lista plana de leads con un buscador.
+**Lo que hay:**
+
+- **Filtros** por etiqueta (con «— Sin etiqueta —»), columna del CRM y origen,
+  más búsqueda por nombre, empresa, correo y dígitos del teléfono. El «estado»
+  de TeamClubify aquí es la **columna del CRM**: `SalesLead` no tiene `status`.
+- **Listas guardadas:** tabla nueva `SalesSavedView`, **ya aplicada en
+  producción** con `scripts/apply-sales-saved-views-migration.cjs`. De UN
+  equipo (en TeamClubify es opcional por vistas históricas; aquí no hay
+  historia). Los filtros se guardan limpios: solo cuatro claves conocidas.
+- **Selección** de la página o de **todos los del filtro** (tope 20.000) y
+  **acciones en lote**:
+  - etiquetar: un solo `UPDATE … array_append … WHERE NOT etiqueta = ANY(tags)`,
+    atómico — dos personas etiquetando a la vez no duplican la etiqueta;
+  - inscribir en un flujo de marketing **publicado y de la misma marca**, lead a
+    lead y en serie (en paralelo, dos leads de la misma persona crearían dos
+    contactos). Cuenta aparte los que no tienen teléfono ni correo;
+  - eliminar: **solo líder o admin**, y se salta los que tienen venta cerrada.
+    Se llevan su actividad, seguimientos y mensajes; sus citas e implementación
+    quedan sin lead.
+- **«+ Nuevo» con aviso de duplicado:** antes de crear pregunta si **otro
+  equipo de la MISMA marca** ya tiene a esa persona. Nunca mira en otras marcas
+  (le diría a Sellea quién es cliente de otra empresa). `phoneKey` es solo un
+  cubo de candidatos; quien decide es `samePhone`, como en el resto.
+- Nuevo método público `SalesAutomationsService.inscribir`, por el mismo camino
+  de identidad que usan los disparadores.
+- El CRM ahora **abre la ficha que llega en `?lead=`**. Contactos y Banco
+  enlazaban así y el tablero ignoraba el parámetro.
+
+### Diferencias con TeamClubify
+
+- **Sin «traer el contacto» ni «pedir la transferencia»** desde el aviso de
+  duplicado: mover un lead entre equipos con todo su rastro es un flujo propio
+  (permisos del equipo de origen, avisos al líder). El aviso deja cancelar o
+  crearlo aquí sabiendo que dos equipos podrían escribirle.
+- Sin cajón lateral de ficha: la fila lleva al CRM, que ya tiene la ficha.
+
+### Revisión de Fable antes de desplegar: nada bloquea
+
+Aislamiento, SQL crudo, borrado y migración: comprobados contra el código real.
+Se aplicó lo que encontró:
+
+- **Inscribir en lote podía tardar decenas de minutos en UNA petición** (cada
+  lead puede disparar un envío en línea a GHL). El proxy la corta, la persona
+  reintenta, y un segundo bucle en paralelo duplica inscripciones. Ahora la
+  pantalla **trocea** (inscribir de 100 en 100, etiquetar y eliminar de 5.000
+  en 5.000), enseña el progreso y **bloquea los botones** mientras corre. El
+  servidor rechaza más de 200 por inscripción.
+- «Seleccionar los N del filtro» dejaba 20.000 y cada acción rechazaba más de
+  5.000 con un error en inglés: el troceo lo resuelve.
+- **La búsqueda por teléfono no encontraba los guardados con espacios**
+  («+57 300 111 2233»). Ahora busca en `phoneKey`. La prueba anterior fijaba
+  justo ese fallo; se reescribió.
+- `MktEngineService.enroll` devuelve **`inscrito | omitido | fallo`** en vez de
+  `void`: descartaba en silencio a quien ya estaba o pidió no recibir mensajes,
+  y la pantalla contaba «500 inscritos» sin que pasara nada. Los llamadores que
+  ya existían ignoran el valor.
+- La selección sobrevive a la paginación; los avisos se ven encima de los
+  modales; el aviso de duplicado tiene «Volver a editar»; una lista guardada
+  guarda los filtros aplicados, no lo escrito sin pulsar Enter; y los mensajes
+  de permiso dicen «líder o admin de la marca».
+
 ## 2026-09-14 (7) — Equipos de Ventas (Sellea): «Banco» ya es la cola de citas
 
 Segundo apartado del brief. Referencia leída en TeamClubify:

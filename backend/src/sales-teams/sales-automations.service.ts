@@ -115,6 +115,50 @@ export class SalesAutomationsService {
     return c.id;
   }
 
+  /**
+   * Inscribe un lead en un flujo de marketing, a mano (Contactos → «Inscribir»).
+   *
+   * El motor inscribe CONTACTOS, no leads: se resuelve —o se crea— su contacto
+   * igual que al disparar un evento, por el mismo camino de identidad. Sin
+   * teléfono ni correo no hay a quién escribirle y se devuelve `sin_contacto`,
+   * que la pantalla cuenta aparte en vez de decir «inscrito».
+   *
+   * Nunca lanza: en una inscripción de 3.000 leads, uno que falla no puede
+   * cortar a los otros 2.999.
+   */
+  async inscribir(
+    leadId: string,
+    workflowId: string,
+  ): Promise<'inscrito' | 'omitido' | 'sin_contacto' | 'fallo'> {
+    try {
+      const lead = await this.prisma.salesLead.findUnique({
+        where: { id: leadId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          company: true,
+          whiteLabelId: true,
+          mktContactId: true,
+        },
+      });
+      if (!lead?.whiteLabelId) return 'sin_contacto';
+      const contactId = await this.contactoDe(lead);
+      if (!contactId) return 'sin_contacto';
+      // `enroll` descarta en silencio a quien ya estaba, pidió no recibir
+      // mensajes o fue borrado. Contarlo como «inscrito» mentía (Fable). Un
+      // error de base es otra cosa: se cuenta como fallo, no como omitido.
+      const r = await this.engine.enroll(workflowId, contactId);
+      return r === 'inscrito' ? 'inscrito' : r === 'fallo' ? 'fallo' : 'omitido';
+    } catch (e) {
+      this.logger.warn(
+        `[VENTAS] inscribir el lead ${leadId} en ${workflowId} falló: ${(e as Error).message}`,
+      );
+      return 'fallo';
+    }
+  }
+
   /** Los campos de ventas que puede mirar la condición del disparador. */
   private async contexto(lead: {
     salesTeamId: string;

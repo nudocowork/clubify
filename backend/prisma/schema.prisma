@@ -4453,6 +4453,7 @@ model SalesTeam {
   availability  SalesAvailability[]
 
   implementations SalesImplementation[]
+  savedViews      SalesSavedView[]
   @@index([leadUserId])
   @@index([whiteLabelId])
 }
@@ -4735,6 +4736,29 @@ model SalesImplementationItem {
   createdAt    DateTime  @default(now())
 
   @@index([implementationId, position])
+}
+
+/// Una lista guardada de «Contactos» del equipo: un filtro con nombre.
+///
+/// Es `ContactSavedView` de TeamClubify. Convierte una tabla de miles de
+/// personas en listas de trabajo («sin etiqueta», «vinieron de Instagram»).
+///
+/// De UN equipo (`salesTeamId` obligatorio): una lista de Sellea no puede
+/// aparecerle a otro equipo, y menos a otra marca. Sin `tenantId`, como el
+/// resto de `Sales*`. `filters` se guarda ya limpio (`normalizarFiltros`):
+/// solo `q`, `etiqueta`, `columna` y `origen`.
+model SalesSavedView {
+  id           String    @id @default(uuid())
+  salesTeamId  String
+  team         SalesTeam @relation(fields: [salesTeamId], references: [id], onDelete: Cascade)
+  /// Desnormalizado a propósito, como en `SalesLead`.
+  whiteLabelId String?
+  name         String
+  filters      Json      @default("{}")
+  createdByUserId String?
+  createdAt    DateTime  @default(now())
+
+  @@index([salesTeamId, createdAt])
 }
 
 // Canal de envío del botón automático del CRM (C5).
