@@ -39,6 +39,8 @@ type Order = {
   total: number;
   appliedPromos: any[];
   customerNote: string | null;
+  customerBusinessName: string | null;
+  customerTaxInfo: string | null;
   rating: number | null;
   ratingComment: string | null;
   ratedAt: string | null;
@@ -441,6 +443,26 @@ export default function OrderDetail() {
             <div className="card card-pad">
               <h3 className="font-semibold mb-2">{t('customerNoteTitle')}</h3>
               <p className="text-sm text-mute italic">"{o.customerNote}"</p>
+            </div>
+          )}
+
+          {/* Facturación. Solo aparece si el cliente la pidió: un bloque
+              vacío en cada pedido sería ruido en la pantalla que más se mira. */}
+          {(o.customerBusinessName || o.customerTaxInfo) && (
+            <div className="card card-pad">
+              <h3 className="font-semibold mb-2">{t('billingTitle')}</h3>
+              {o.customerBusinessName && (
+                <p className="text-sm">
+                  <span className="text-mute">{t('billingBusiness')}: </span>
+                  {o.customerBusinessName}
+                </p>
+              )}
+              {o.customerTaxInfo && (
+                <p className="text-sm mt-1 whitespace-pre-wrap">
+                  <span className="text-mute">{t('billingTax')}: </span>
+                  {o.customerTaxInfo}
+                </p>
+              )}
             </div>
           )}
 

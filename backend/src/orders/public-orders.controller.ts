@@ -66,6 +66,11 @@ class PublicOrderBody {
   @IsOptional() @IsString() tableNumber?: string;
   @IsOptional() @IsObject() deliveryAddress?: any;
   @IsOptional() @IsString() customerNote?: string;
+  // Facturación. Los dos OPCIONALES: solo se piden en las marcas que los
+  // activan, y un pedido sin ellos es tan válido como antes. Se acotan para
+  // que un formulario público no pueda meter un texto de 10 KB en la base.
+  @IsOptional() @IsString() @MaxLength(160) customerBusinessName?: string;
+  @IsOptional() @IsString() @MaxLength(300) customerTaxInfo?: string;
   @IsOptional() @IsString() locationId?: string;
   // Menú público de origen: 'MESA' o 'DELIVERY'. Redundante con
   // `fulfillment`/`deliveryAddress` pero el frontend lo manda explícito

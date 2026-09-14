@@ -407,7 +407,16 @@ export class OrdersService {
             order.customerPaymentOther,
             order.paymentStatus,
           ),
-          noteLine: order.customerNote ? `\nNota: ${order.customerNote}` : '',
+          noteLine:
+            (order.customerNote ? `\nNota: ${order.customerNote}` : '') +
+            // Si el cliente pidió factura, el negocio tiene que verlo en el
+            // mismo mensaje: es lo que necesita ANTES de preparar el pedido.
+            (order.customerBusinessName
+              ? `\nFacturar a: ${order.customerBusinessName}`
+              : '') +
+            (order.customerTaxInfo
+              ? `\nDatos fiscales: ${order.customerTaxInfo}`
+              : ''),
         },
       });
 
@@ -958,6 +967,8 @@ export class OrdersService {
       fulfillment?: Fulfillment;
       tableNumber?: string;
       customerNote?: string;
+      customerBusinessName?: string;
+      customerTaxInfo?: string;
       locationId?: string;
       status?: OrderStatus;
       paymentStatus?: PaymentStatus;
@@ -1059,6 +1070,10 @@ export class OrdersService {
         fulfillment: dto.fulfillment ?? 'PICKUP',
         tableNumber: dto.tableNumber,
         customerNote: dto.customerNote,
+        // Vacío se guarda como null, no como cadena vacía: así el panel puede
+        // preguntar «¿lo pidió?» con un `!= null` y no con dos condiciones.
+        customerBusinessName: dto.customerBusinessName?.trim() || null,
+        customerTaxInfo: dto.customerTaxInfo?.trim() || null,
         locationId: dto.locationId,
         status,
         paymentStatus: paymentStatus as any,

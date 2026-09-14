@@ -2349,6 +2349,11 @@ model Order {
   tableNumber     String?
   deliveryAddress Json?
   customerNote    String?
+  /// Datos de facturación que el cliente escribe al pedir. Los dos OPCIONALES
+  /// y solo se piden en las marcas que los tienen activados (hoy Sellea):
+  /// hay negocios que facturan a empresas y necesitan a nombre de quién.
+  customerBusinessName String?
+  customerTaxInfo      String?
   locationId      String?
   location        Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
   appliedPromos   Json      @default("[]")

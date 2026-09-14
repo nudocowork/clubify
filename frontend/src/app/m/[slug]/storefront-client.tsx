@@ -71,6 +71,17 @@ type BackButtonConfig = {
   size?: number;          // px, default 40
 };
 
+/**
+ * Marcas que piden datos de facturación en el pedido.
+ *
+ * Lo pidió Humberto para Sellea (2026-09-14). Va por lista y no por un flag en
+ * la base a propósito: es UNA marca y añadir una columna, su migración y su
+ * pantalla de configuración para un booleano que hoy solo usa una marca es
+ * más sitio donde equivocarse. Cuando lo pida la segunda, esto se convierte en
+ * un módulo de marca como los demás.
+ */
+const MARCAS_CON_FACTURACION = new Set(['sellea']);
+
 type StorefrontBrand = {
   name: string;
   slug: string;
@@ -1122,6 +1133,7 @@ function StorefrontPublicInner() {
         <CheckoutSheet
           items={cart}
           slug={slug}
+          brandSlug={s.brand?.slug ?? null}
           sedeDelQr={sedeDelQr}
           primary={primary}
           currency={s.currency}
@@ -1819,6 +1831,7 @@ function telefonoValido(valor: string): boolean {
 function CheckoutSheet({
   items,
   slug,
+  brandSlug,
   primary,
   currency,
   country,
@@ -1831,6 +1844,8 @@ function CheckoutSheet({
 }: {
   items: CartItem[];
   slug: string;
+  /** Marca del negocio. Decide si se piden datos de facturación. */
+  brandSlug: string | null;
   /**
    * Sede del QR por el que entro el cliente. MANDA sobre la que se deduce de
    * su direccion: el QR sabe donde esta, la direccion solo lo aproxima.
@@ -1893,6 +1908,11 @@ function CheckoutSheet({
     fulfillment: defaultFulfillment as 'DINE_IN' | 'PICKUP' | 'DELIVERY',
     tableNumber: tableFromQr,
     customerNote: '',
+    // Facturación. Los dos OPCIONALES y solo se piden en las marcas que los
+    // activan (hoy Sellea): hay negocios que facturan a empresas y necesitan
+    // saber a nombre de quién.
+    customerBusinessName: '',
+    customerTaxInfo: '',
     // Método de pago que declara el cliente (informativo). '' = no eligió.
     paymentMethod: '' as '' | 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA' | 'OTRO',
     paymentOther: '',
@@ -1904,6 +1924,8 @@ function CheckoutSheet({
   });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  /** ¿Esta marca pide datos de facturación al pedir? */
+  const pideFacturacion = MARCAS_CON_FACTURACION.has(brandSlug ?? '');
 
   // Sedes por estado: ruteo del pedido a la sede del estado del cliente con
   // confirmación. Si el negocio tiene 0/1 sede, no se muestra nada (compat).
@@ -2067,6 +2089,13 @@ function CheckoutSheet({
           tableNumber: form.tableNumber || undefined,
           deliveryAddress,
           customerNote: form.customerNote || undefined,
+          // Solo se mandan si la marca los pide Y el cliente escribió algo.
+          customerBusinessName: pideFacturacion
+            ? form.customerBusinessName.trim() || undefined
+            : undefined,
+          customerTaxInfo: pideFacturacion
+            ? form.customerTaxInfo.trim() || undefined
+            : undefined,
           // Método de pago declarado por el cliente (informativo).
           customerPaymentMethod: form.paymentMethod || undefined,
           customerPaymentOther:
@@ -2488,6 +2517,47 @@ function CheckoutSheet({
                 }
               />
             </div>
+
+            {/* Facturación. Los DOS opcionales: quien no factura no tiene que
+                escribir nada, y el pedido sale igual. Se enseñan solo en las
+                marcas que los piden (ver MARCAS_CON_FACTURACION). */}
+            {pideFacturacion && (
+              <div className="grid gap-2">
+                <div>
+                  <label className="label">
+                    {tt('checkout.business_name')}{' '}
+                    <span className="opacity-60 font-normal">
+                      {tt('checkout.optional')}
+                    </span>
+                  </label>
+                  <input
+                    className="input"
+                    value={form.customerBusinessName}
+                    onChange={(e) =>
+                      setForm({ ...form, customerBusinessName: e.target.value })
+                    }
+                    maxLength={160}
+                  />
+                </div>
+                <div>
+                  <label className="label">
+                    {tt('checkout.tax_info')}{' '}
+                    <span className="opacity-60 font-normal">
+                      {tt('checkout.optional')}
+                    </span>
+                  </label>
+                  <textarea
+                    className="input"
+                    rows={2}
+                    value={form.customerTaxInfo}
+                    onChange={(e) =>
+                      setForm({ ...form, customerTaxInfo: e.target.value })
+                    }
+                    maxLength={300}
+                  />
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="label">{tt('checkout.payment')}</label>
