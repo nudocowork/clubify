@@ -875,9 +875,17 @@ export class StripeService {
     // periodicidad del link de pago que matchea el priceId. En prueba NO usamos
     // el fallback mensual: la fecha que vale es el fin de la prueba (7 días).
     let nextCharge = ctx.nextCharge;
+    // La periodicidad del link que casa con el precio pagado. Se resuelve
+    // SIEMPRE, no solo cuando hace falta para calcular la fecha: también hay
+    // que GUARDARLA (ver más abajo).
+    const periodicidadDelPago = await this.resolvePeriodicity(
+      whiteLabelId,
+      ctx.priceId,
+      tenant.planPeriodicity,
+      ctx.amountUsd,
+    );
     if (!inTrial && !nextCharge && !tenant.currentPeriodEnd) {
-      const periodicity = await this.resolvePeriodicity(whiteLabelId, ctx.priceId, tenant.planPeriodicity);
-      nextCharge = addPlanPeriod(now, periodicity);
+      nextCharge = addPlanPeriod(now, periodicidadDelPago);
     }
     // En prueba, la fecha que se muestra y se guarda es el fin de la prueba
     // (cuándo llega el primer cobro), no un período mensual.
@@ -936,6 +944,21 @@ export class StripeService {
         // prueba no hubo cobro (monto $0), así que no tocamos el último monto.
         ...(!inTrial && ctx.amountUsd != null ? { lastPaymentAmountUsd: ctx.amountUsd } : {}),
         ...(periodEnd ? { currentPeriodEnd: periodEnd } : {}),
+        // LA PERIODICIDAD SE GUARDA (2026-09-14, Humberto: «cuando voy a
+        // asignarle plan a alguien no le carga»).
+        //
+        // `resolvePeriodicity` ya la sacaba del link de pago que casa con el
+        // precio cobrado… y solo la usaba para calcular la fecha del próximo
+        // cobro. Se tiraba. El negocio quedaba con `planPeriodicity` en null y
+        // el panel decía «Plan: Sin definir» con el cliente ya pagando —
+        // medido en Smart Solutions, que pagó $80 por Stripe el 9 de
+        // septiembre y sigue sin plan.
+        //
+        // Solo se escribe si el negocio NO tenía una: una periodicidad puesta
+        // a mano por un admin manda sobre lo que deduzcamos del pago.
+        ...(!tenant.planPeriodicity && periodicidadDelPago
+          ? { planPeriodicity: periodicidadDelPago }
+          : {}),
         // Solo hay cobro real fuera de la prueba. Durante la prueba la tarjeta
         // está anclada pero no se cobró → no marcamos lastChargeAt.
         ...(inTrial ? {} : { lastChargeAt: now }),
@@ -973,7 +996,10 @@ export class StripeService {
       tenantId: tenant.id,
       whiteLabelId,
       brandName: tenant.brandName,
-      planPeriodicity: tenant.planPeriodicity,
+      // La del pago, no la que el negocio tenía antes: si acaba de llegar sin
+      // periodicidad, el ingreso se guardaba sin ella y la columna
+      // «Periodicidad» de Contabilidad salía vacía.
+      planPeriodicity: periodicidadDelPago ?? tenant.planPeriodicity,
       currency: 'USD',
       grossUsd: ctx.amountUsd,
       isFirstPayment: !tenant.stripeSubscriptionId,
@@ -1271,13 +1297,46 @@ export class StripeService {
   }
 
   /** Periodicidad del plan que matchea el priceId (link de pago de la marca). */
-  private async resolvePeriodicity(whiteLabelId: string, priceId: string | null, fallback: string | null): Promise<string | null> {
+  /**
+   * Qué periodicidad compró el cliente.
+   *
+   * Dos caminos, y el orden importa:
+   *
+   *  1. **Por `stripePriceId`** — exacto, es el que identifica el producto.
+   *  2. **Por IMPORTE**, entre los links de PLAN de la marca (sin
+   *     `productKey`: un añadido como InfoLink PRO no es un plan) y solo si
+   *     casa UNO. Hace falta porque los links reales de Sellea —Mensual $80 y
+   *     Anual $799— **no tienen `stripePriceId` guardado**: el único que lo
+   *     tiene es el añadido. Sin este segundo camino, un negocio que paga $80
+   *     no resuelve nada y se queda «Sin definir» para siempre.
+   *
+   * Si casan dos links con el mismo importe NO se elige: adivinar entre dos
+   * planes es peor que dejarlo sin resolver, porque el error queda escrito.
+   */
+  private async resolvePeriodicity(
+    whiteLabelId: string,
+    priceId: string | null,
+    fallback: string | null,
+    amountUsd?: number | null,
+  ): Promise<string | null> {
     if (priceId) {
       const link = await this.prisma.whiteLabelPaymentLink.findFirst({
         where: { whiteLabelId, stripePriceId: priceId },
         select: { periodicity: true },
       });
       if (link) return link.periodicity;
+    }
+    if (amountUsd != null && amountUsd > 0) {
+      const porImporte = await this.prisma.whiteLabelPaymentLink.findMany({
+        where: {
+          whiteLabelId,
+          active: true,
+          productKey: null,
+          amountUsd: amountUsd,
+        },
+        select: { periodicity: true },
+      });
+      if (porImporte.length === 1) return porImporte[0].periodicity;
     }
     return fallback;
   }
