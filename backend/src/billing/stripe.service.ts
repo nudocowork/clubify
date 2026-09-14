@@ -10,6 +10,7 @@ import { fmtEmailDate } from '../email/brand-email-templates';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { addPlanPeriod } from '../common/plan-period';
 import { cycleCreditCostForTenant } from '../common/business-types';
+import { cobrarCreditoDeActivacion } from '../common/creditos-de-marca';
 import { fmtSmsDate } from './sms-templates';
 import { decryptSecret } from '../common/crypto/secret-box';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
@@ -405,6 +406,7 @@ export class StripeService {
         priceId = sub.items?.data?.[0]?.price?.id ?? priceId;
         if (!customerId && typeof sub.customer === 'string') customerId = sub.customer;
       } catch (e) {
+        this.avisarSiLaClaveEstaMal(brand, e);
         this.logger.warn(`retrieve subscription ${subscriptionId} falló: ${(e as Error).message}`);
       }
     }
@@ -425,11 +427,16 @@ export class StripeService {
       return { ok: true, action: 'tenant_not_found' };
     }
     await this.activate(tenant, ctx, brand.whiteLabelId);
-    // Enlace de PRUEBA de 7 días: el crédito de la marca se consume cuando Stripe
-    // COBRA la tarjeta (día 7), no al anclarla. Solo en el cobro real (invoice.*,
-    // no checkout.session), y solo si la suscripción tuvo prueba. Best-effort: si
-    // falla, el negocio queda activo igual y se puede reconciliar. La compra
-    // directa (sin prueba) no entra acá → su crédito sigue por la vía de siempre.
+    // RED DE SEGURIDAD, ya no el camino principal (2026-09-14). El crédito de la
+    // marca lo cobra `activate` cuando el negocio pasa a ACTIVE — trial incluido,
+    // porque el cobro del día 7 es justamente esa transición. Esto queda para el
+    // hueco que aquello no cubre: un negocio que ya estaba ACTIVE cuando llegó su
+    // primer cobro real (lo activó alguien a mano durante la prueba). Si el panel
+    // ya le cobró, el guard `yaConsumido` lo detecta y no recobra.
+    //
+    // No sirve como camino principal porque su primera condición es saber que la
+    // suscripción tuvo prueba, y eso se le pregunta a Stripe: con la clave de la
+    // marca inválida la pregunta falla en silencio y no cobraba nada nunca.
     if (event.type === 'invoice.paid' || event.type === 'invoice.payment_succeeded') {
       await this.consumeTrialConversionCredit(tenant.id, ctx, brand.whiteLabelId).catch((e) =>
         this.logger.warn(`consumeTrialConversionCredit falló: ${(e as Error).message}`),
@@ -486,6 +493,9 @@ export class StripeService {
     });
     if (!trialCfg || !(trialCfg.value ?? '').trim()) return;
     const cost = cycleCreditCostForTenant(t.businessType, t.infolinkTier, t.planPeriodicity);
+    // InfoLink FREE cuesta 0: sin esto se escribía un CONSUME de -0 que no
+    // consume nada y ensucia el historial de la marca.
+    if (cost <= 0) return;
     const debit = await this.prisma.whiteLabel.updateMany({
       where: { id: wl.id, creditsAvailable: { gte: cost } },
       data: { creditsAvailable: { decrement: cost }, creditsUsed: { increment: cost } },
@@ -754,6 +764,7 @@ export class StripeService {
       charge = await brand.client.charges
         .retrieve(chargeId)
         .catch((e: Error) => {
+          this.avisarSiLaClaveEstaMal(brand, e);
           this.logger.warn(`retrieve charge ${chargeId} falló: ${e.message}`);
           return null;
         });
@@ -858,7 +869,18 @@ export class StripeService {
   // ── Activación ──────────────────────────────────────────────────────────
 
   private async activate(
-    tenant: { id: string; brandName: string; status: string; planPeriodicity: string | null; stripeCustomerId: string | null; stripeSubscriptionId: string | null; currentPeriodEnd: Date | null },
+    tenant: {
+      id: string;
+      brandName: string;
+      status: string;
+      planPeriodicity: string | null;
+      stripeCustomerId: string | null;
+      stripeSubscriptionId: string | null;
+      currentPeriodEnd: Date | null;
+      whiteLabelId?: string | null;
+      businessType?: string | null;
+      infolinkTier?: string | null;
+    },
     ctx: StripeCtx,
     whiteLabelId: string,
   ) {
@@ -933,6 +955,70 @@ export class StripeService {
     // cliente). INFOLINK_PRO → tier=PRO; FULL → Negocio Completo. Pagos normales
     // (sin productKey) no cambian tipo/nivel. Ver project_sellea_infolinks_freemium.
     const entitlement = await this.resolveEntitlementPatch(whiteLabelId, ctx.priceId);
+
+    // EL CRÉDITO DE LA MARCA (2026-09-14, Humberto: «no se descuenta el crédito
+    // en las cuentas demo al pasar de prueba a plan pagado»).
+    //
+    // Un cobro que ACTIVA el negocio consume crédito de la marca, igual que
+    // activarlo desde el panel o desde el Onboarding. Antes acá no se cobraba:
+    // la única regla que miraba este camino era `consumeTrialConversionCredit`,
+    // y su primera condición es haber sabido que la suscripción tuvo prueba —
+    // dato que sale de preguntarle a Stripe por la suscripción. Con la
+    // `secretKey` de Sellea inválida en producción esa pregunta da 401, se traga
+    // con un `warn`, y el crédito no se cobraba NUNCA. Medido: «demo demo» pagó
+    // $80 el 6-sep y Sellea no gastó nada.
+    //
+    // El disparador ahora es el mismo que en las otras dos puertas —el negocio
+    // pasa a ACTIVE—, que es un hecho de nuestra base y no depende de que la
+    // pasarela conteste. Durante la PRUEBA no se cobra (el negocio queda TRIAL);
+    // el cobro real del día 7 entra por acá con `inTrial=false`.
+    //
+    // `noBloquear`: el cliente ya pagó. Si la marca se quedó sin créditos el
+    // negocio se activa igual y queda anotado lo que debe.
+    //
+    // La transición se RECLAMA con un UPDATE condicional antes de cobrar, por
+    // lo mismo que el período de arriba: una sola compra dispara tres eventos
+    // que caen acá en el mismo segundo. Si el cobro mirara el estado que
+    // leímos en memoria, los tres se creerían los que activan y la marca
+    // pagaría tres créditos por el mismo negocio. Solo el que se lleva el
+    // `count: 1` cobra. Ver [[clubify-leer-decidir-escribir]].
+    const laActivaEstePago =
+      !inTrial && tenant.status !== 'ACTIVE'
+        ? (
+            await this.prisma.tenant.updateMany({
+              where: { id: tenant.id, status: { not: 'ACTIVE' } },
+              data: { status: 'ACTIVE' },
+            })
+          ).count === 1
+        : false;
+    const cobro =
+      laActivaEstePago && tenant.whiteLabelId
+        ? await cobrarCreditoDeActivacion(
+            this.prisma,
+            {
+              id: tenant.id,
+              whiteLabelId: tenant.whiteLabelId,
+              status: tenant.status,
+              brandName: tenant.brandName,
+              businessType: tenant.businessType,
+              infolinkTier: tenant.infolinkTier,
+              // La del pago: un anual cuesta 12 créditos, no 1. Si el negocio
+              // llega sin periodicidad (el caso Smart Solutions), la del link
+              // que casó con el importe cobrado.
+              planPeriodicity: periodicidadDelPago ?? tenant.planPeriodicity,
+            },
+            'pago Stripe',
+            { noBloquear: true },
+          ).catch((e) => {
+            // Nada del cobro de crédito puede tumbar un webhook de pago: el
+            // dinero ya entró y el negocio tiene que quedar activo.
+            this.logger.error(
+              `crédito de activación tenant=${tenant.id}: ${(e as Error).message}`,
+            );
+            return null;
+          })
+        : null;
+
     await this.prisma.tenant.update({
       where: { id: tenant.id },
       data: {
@@ -986,6 +1072,23 @@ export class StripeService {
         preReminderTodaySentFor: null,
       },
     });
+
+    // La activación ya es un hecho → el movimiento de crédito se anota. Si la
+    // marca quedó a deber, queda dicho en el log además del movimiento.
+    if (cobro) {
+      await cobro.commit();
+      if (cobro.cobrado > 0) {
+        this.logger.log(
+          `crédito de activación: -${cobro.cobrado} a la marca por ${tenant.brandName} (${tenant.id})`,
+        );
+      }
+      if (cobro.faltanCreditos > 0) {
+        this.logger.warn(
+          `${tenant.brandName} (${tenant.id}) se activó por pago SIN créditos en la marca: ` +
+            `quedan a deber ${cobro.faltanCreditos}`,
+        );
+      }
+    }
 
     // CONTABILIDAD (Fase 1): registrar el ingreso real de este cobro con su
     // desglose bruto/fee/impuesto/neto (histórico). El servicio salta los $0
@@ -1113,7 +1216,19 @@ export class StripeService {
   async activateForTenant(tenantId: string, event: Stripe.Event, brand: BrandCtx) {
     const tenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { id: true, brandName: true, status: true, planPeriodicity: true, stripeCustomerId: true, stripeSubscriptionId: true, currentPeriodEnd: true },
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        planPeriodicity: true,
+        stripeCustomerId: true,
+        stripeSubscriptionId: true,
+        currentPeriodEnd: true,
+        // Para el cobro del crédito de la marca en `activate`.
+        whiteLabelId: true,
+        businessType: true,
+        infolinkTier: true,
+      },
     });
     if (!tenant) return false;
     const ctx = await this.extractCtx(brand, event);
@@ -1394,6 +1509,12 @@ export class StripeService {
       stripeSubscriptionId: true,
       currentPeriodEnd: true,
       firstFailedAt: true,
+      // Los tres de abajo son para COBRARLE EL CRÉDITO A LA MARCA al activar
+      // (ver `activate`): sin ellos no se sabe de quién es el negocio ni cuánto
+      // cuesta su ciclo.
+      whiteLabelId: true,
+      businessType: true,
+      infolinkTier: true,
     };
     if (ctx.subscriptionId) {
       const t = await this.prisma.tenant.findFirst({
@@ -1427,6 +1548,37 @@ export class StripeService {
   }
 
   /** SMS best-effort al dueño (mismo resolver de billing que Hotmart). */
+  /**
+   * Una llamada a Stripe que falla por AUTENTICACIÓN no es un tropiezo de red:
+   * la marca tiene mal guardada su Secret Key y TODO lo que dependa de
+   * preguntarle algo a Stripe va a fallar igual, en silencio.
+   *
+   * Pasó con Sellea: en `secretKey` había un Destination ID de webhook
+   * (`ed_…`) en vez de una `sk_live_…`. Los cobros entraban (el webhook se
+   * valida con otro secreto), el panel la enseñaba enmascarada como si nada, y
+   * lo único que se rompía era saber si la suscripción tuvo prueba — con lo que
+   * el crédito de la marca no se cobraba nunca. Se descubrió a mano, un mes
+   * después. Por eso esto sube a ERROR y queda auditado: para que la próxima se
+   * vea sin tener que ir a buscarla.
+   *
+   * Comprobarlas todas a mano: `node scripts/verificar-claves-de-pasarela.cjs`.
+   */
+  private avisarSiLaClaveEstaMal(brand: BrandCtx, e: unknown) {
+    const err = e as { type?: string; statusCode?: number; message?: string };
+    if (err?.statusCode !== 401 && err?.type !== 'StripeAuthenticationError') return;
+    this.logger.error(
+      `La Secret Key de Stripe de la marca "${brand.slug}" NO sirve (401: ${err?.message ?? ''}). ` +
+        'Los cobros siguen entrando, pero todo lo que consulte a Stripe falla: ' +
+        'periodicidad del plan, prueba de 7 días y crédito de la marca. ' +
+        'Hay que pegar la sk_live_… real en el panel de la marca.',
+    );
+    void this.billing.auditLifecycle('payment.gateway_key_invalid', null, {
+      brand: brand.slug,
+      gateway: 'STRIPE',
+      message: err?.message ?? null,
+    });
+  }
+
   private async notifyOwner(tenantId: string, brandName: string, message: string) {
     const target = await this.billing.resolveBillingTarget(tenantId);
     if (!target) return;

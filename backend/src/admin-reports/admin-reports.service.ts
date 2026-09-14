@@ -2054,6 +2054,24 @@ export class AdminReportsService {
     }
 
     const now = new Date();
+    // YA ESTÁ ACTIVO Y CON PERÍODO VIGENTE → no se cobra otra vez.
+    //
+    // Esta función leía el estado y no lo miraba: activar un negocio que ya
+    // estaba activo descontaba OTRO crédito y le empujaba el vencimiento un
+    // ciclo más. Bastaba con que la petición se reintentara (un toque doble, la
+    // pestaña abierta dos veces, un timeout del móvil) para que a la marca le
+    // costara el doble el mismo negocio. Renovar SÍ tiene que poder: por eso la
+    // condición mira el vencimiento y no solo el estado — un ACTIVE vencido es
+    // exactamente lo que la lista de pendientes ofrece renovar.
+    if (tenant.status === 'ACTIVE' && tenant.currentPeriodEnd && tenant.currentPeriodEnd > now) {
+      return {
+        ok: true,
+        consumed: 0,
+        yaEstabaActivo: true,
+        creditsAvailable: wl.creditsAvailable,
+        currentPeriodEnd: tenant.currentPeriodEnd,
+      };
+    }
     // El próximo cobro se ancla a la ACTIVACIÓN (cuándo se activa el crédito),
     // NO al currentPeriodEnd previo. Antes se extendía "desde el fin de periodo
     // si aún es futuro", pero ese futuro solía ser tiempo de PRUEBA / ventana

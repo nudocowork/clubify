@@ -2,7 +2,6 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  ForbiddenException,
   UnauthorizedException,
   Inject,
   forwardRef,
@@ -1305,63 +1304,28 @@ export class TenantsService {
     }
 
     // Activar un negocio de una MARCA BLANCA (no ilimitada) por el simulador de
-    // facturación TAMBIÉN descuenta 1 crédito. Antes esta vía (paid/free) ponía
+    // facturación TAMBIÉN descuenta crédito. Antes esta vía (paid/free) ponía
     // el negocio ACTIVE GRATIS, bypaseando el popup de créditos → la marca
-    // terminaba con negocios activos sin consumo (bug Sellea 2026-06-25). Solo
-    // al pasar a ACTIVE (no si ya estaba activo, para no recobrar en ediciones)
-    // y solo marcas no-Clubify no-ilimitadas. Clubify (Hotmart) no usa créditos.
-    let consumedBrandCredit = false;
-    // Costo del ciclo según tipo de negocio × periodicidad (InfoLink mensual=0.25).
-    const activationCost = cycleCreditCostForTenant(previous.businessType, previous.infolinkTier, previous.planPeriodicity);
+    // terminaba con negocios activos sin consumo (bug Sellea 2026-06-25).
+    //
+    // 2026-09-14: esto era una COPIA de la regla (débito, guarda, rollback y
+    // movimiento, escritos otra vez acá). Ahora usa la misma función que el
+    // resto de las puertas — que además no cobra cuando el coste es 0 (un
+    // InfoLink FREE anotaba un consumo de -0 que no consumía nada).
     const activatesNow =
       (dto.mode === 'free' || dto.mode === 'paid') && previous.status !== 'ACTIVE';
-    if (activatesNow && previous.whiteLabelId) {
-      const wl = await this.prisma.whiteLabel.findUnique({
-        where: { id: previous.whiteLabelId },
-        select: { id: true, slug: true, creditsUnlimited: true },
-      });
-      if (wl && wl.slug !== 'clubify' && !wl.creditsUnlimited) {
-        const debit = await this.prisma.whiteLabel.updateMany({
-          where: { id: wl.id, creditsAvailable: { gte: activationCost } },
-          data: { creditsAvailable: { decrement: activationCost }, creditsUsed: { increment: activationCost } },
-        });
-        if (debit.count === 0) {
-          throw new ForbiddenException(
-            'La marca no tiene créditos disponibles. Compra un pack para activar este negocio.',
-          );
-        }
-        consumedBrandCredit = true;
-      }
-    }
+    const credit = activatesNow
+      ? await this.chargeBrandCreditForActivation(previous, `simulador ${dto.mode}`)
+      : null;
 
     let updated;
     try {
       updated = await this.prisma.tenant.update({ where: { id }, data });
     } catch (e) {
-      // Rollback del crédito si la activación falló.
-      if (consumedBrandCredit && previous.whiteLabelId) {
-        await this.prisma.whiteLabel
-          .update({
-            where: { id: previous.whiteLabelId },
-            data: { creditsAvailable: { increment: activationCost }, creditsUsed: { decrement: activationCost } },
-          })
-          .catch(() => undefined);
-      }
+      await credit?.rollback();
       throw e;
     }
-    if (consumedBrandCredit && previous.whiteLabelId) {
-      await this.prisma.creditTransaction
-        .create({
-          data: {
-            whiteLabelId: previous.whiteLabelId,
-            type: 'CONSUME',
-            amount: -activationCost,
-            tenantId: id,
-            note: `Activación (simulador ${dto.mode}) · ${previous.brandName} · ${activationCost} créd`,
-          },
-        })
-        .catch(() => undefined);
-    }
+    await credit?.commit();
     // Invalidamos el cache del TenantStatusGuard — sino las escrituras de este
     // tenant siguen 402 hasta 30s después del switch a TRIAL/ACTIVE/free.
     invalidateTenantStatusCache(id);

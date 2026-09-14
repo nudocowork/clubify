@@ -228,4 +228,72 @@ describe('cobrarCreditoDeActivacion', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(estado.creditsAvailable).toBe(11);
   });
+
+  /**
+   * El cobro de una pasarela no puede negar el servicio: el cliente YA PAGÓ.
+   * Se activa igual y la marca queda a deber, con el movimiento de auditoría.
+   */
+  describe('cobro de un pago (noBloquear)', () => {
+    it('sin créditos NO lanza: activa y deja anotado lo que se debe', async () => {
+      const { p, estado, movimientos } = prismaFalso({
+        id: 'wl1',
+        slug: 'sellea',
+        creditsUnlimited: false,
+        creditsAvailable: 0,
+      });
+      const cobro = await cobrarCreditoDeActivacion(p, NEGOCIO, 'pago Stripe', {
+        noBloquear: true,
+      });
+      expect(cobro.cobrado).toBe(0);
+      expect(cobro.faltanCreditos).toBe(1);
+      await cobro.commit();
+      // El saldo NO se toca: un negativo enseñaría créditos que nadie compró.
+      expect(estado.creditsAvailable).toBe(0);
+      expect(estado.creditsUsed).toBe(0);
+      expect(movimientos).toHaveLength(1);
+      expect(movimientos[0].type).toBe('ADJUSTMENT');
+      expect(movimientos[0].amount).toBe(0);
+      expect(movimientos[0].tenantId).toBe('t1');
+      expect(movimientos[0].note).toContain('SIN CRÉDITOS');
+      expect(movimientos[0].note).toContain('1 créd');
+    });
+
+    it('con saldo cobra igual que siempre', async () => {
+      const { p, estado, movimientos } = prismaFalso({
+        id: 'wl1',
+        slug: 'sellea',
+        creditsUnlimited: false,
+        creditsAvailable: 4,
+      });
+      const cobro = await cobrarCreditoDeActivacion(p, NEGOCIO, 'pago Stripe', {
+        noBloquear: true,
+      });
+      await cobro.commit();
+      expect(cobro.cobrado).toBe(1);
+      expect(cobro.faltanCreditos).toBe(0);
+      expect(estado.creditsAvailable).toBe(3);
+      expect(movimientos[0].type).toBe('CONSUME');
+      expect(movimientos[0].amount).toBe(-1);
+    });
+
+    it('un negocio que YA estaba activo no se recobra aunque venga un pago', async () => {
+      const { p, estado, movimientos } = prismaFalso({
+        id: 'wl1',
+        slug: 'sellea',
+        creditsUnlimited: false,
+        creditsAvailable: 4,
+      });
+      const cobro = await cobrarCreditoDeActivacion(
+        p,
+        { ...NEGOCIO, status: 'ACTIVE' },
+        'pago Stripe',
+        { noBloquear: true },
+      );
+      await cobro.commit();
+      expect(cobro.cobrado).toBe(0);
+      expect(cobro.faltanCreditos).toBe(0);
+      expect(estado.creditsAvailable).toBe(4);
+      expect(movimientos).toHaveLength(0);
+    });
+  });
 });

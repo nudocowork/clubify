@@ -23,6 +23,22 @@ import type { PrismaService } from './prisma/prisma.service';
  * NO cobra cuando: el negocio YA estaba activo (no se recobra al editar), no
  * tiene marca, la marca es Clubify (va por Hotmart, no por créditos), la marca
  * es ilimitada, o el coste sale 0 (InfoLink FREE es de captación).
+ *
+ * LA TERCERA PUERTA: EL COBRO DE LA PASARELA (2026-09-14)
+ * ------------------------------------------------------
+ * Tampoco cobraba nada cuando al negocio lo activa un PAGO (webhook de Stripe).
+ * Ahí vivía otra regla aparte —`consumeTrialConversionCredit`— que solo entraba
+ * si la suscripción había tenido prueba, y para saberlo le preguntaba a Stripe
+ * por la suscripción. En Sellea esa pregunta devuelve 401 desde siempre (su
+ * `secretKey` guardada es un Destination ID `ed_…`, no una `sk_live_…`), el
+ * error se tragaba con un `warn`, y la conversión de prueba a plan pagado NUNCA
+ * consumió un crédito. Es el caso «demo demo»: pagó $80 el 6 de septiembre y a
+ * Sellea no se le descontó nada.
+ *
+ * Por eso el cobro por pago se hace ACÁ y con el mismo disparador que las otras
+ * dos puertas —el negocio pasa a ACTIVE—, que es un hecho de nuestra base y no
+ * depende de que la pasarela conteste. Con `noBloquear`, que es la única
+ * diferencia: al que ya pagó no se le puede negar el servicio.
  */
 
 export type NegocioParaCobro = {
@@ -38,14 +54,34 @@ export type NegocioParaCobro = {
 export type CobroDeActivacion = {
   /** Créditos descontados. 0 = no había nada que cobrar. */
   cobrado: number;
+  /**
+   * Créditos que la marca QUEDÓ A DEBER: el negocio se activó y no había saldo.
+   * Solo puede salir >0 con `noBloquear` (el cobro de una pasarela). 0 en el
+   * resto de los casos, porque ahí la falta de crédito corta la activación.
+   */
+  faltanCreditos: number;
   /** Devuelve el crédito. Llamar si la activación falla DESPUÉS del cobro. */
   rollback: () => Promise<void>;
   /** Deja el movimiento anotado. Llamar cuando la activación ya es un hecho. */
   commit: () => Promise<void>;
 };
 
+export type OpcionesDeCobro = {
+  /**
+   * El cobro NO puede impedir la activación.
+   *
+   * Es para los webhooks de las pasarelas: el cliente YA PAGÓ. Negarle el
+   * servicio porque su marca se quedó sin créditos sería cobrarle y no
+   * entregarle. Sin saldo, el negocio se activa igual y queda un movimiento de
+   * AJUSTE (importe 0, no mueve el saldo) diciendo cuánto quedó a deber, para
+   * que se vea en el historial de la marca y se pueda regularizar.
+   */
+  noBloquear?: boolean;
+};
+
 const SIN_COBRO: CobroDeActivacion = {
   cobrado: 0,
+  faltanCreditos: 0,
   rollback: async () => {},
   commit: async () => {},
 };
@@ -54,6 +90,7 @@ export async function cobrarCreditoDeActivacion(
   prisma: PrismaService,
   negocio: NegocioParaCobro,
   origen: string,
+  opciones: OpcionesDeCobro = {},
 ): Promise<CobroDeActivacion> {
   // Solo al PASAR a ACTIVE. Si ya lo estaba, editar el negocio no vuelve a
   // cobrar — es lo que evita que guardar dos veces cueste dos créditos.
@@ -83,13 +120,40 @@ export async function cobrarCreditoDeActivacion(
     },
   });
   if (debito.count === 0) {
-    throw new ForbiddenException(
-      'La marca no tiene créditos disponibles. Compra un pack para activar este negocio.',
-    );
+    if (!opciones.noBloquear) {
+      throw new ForbiddenException(
+        'La marca no tiene créditos disponibles. Compra un pack para activar este negocio.',
+      );
+    }
+    // Pagó y no hay saldo: se activa igual y queda anotado lo que falta. El
+    // importe va en 0 a propósito — el saldo NO se toca, esto es una nota de
+    // auditoría, no un consumo. Si fuera negativo, el panel de la marca
+    // enseñaría créditos que nunca compró.
+    return {
+      cobrado: 0,
+      faltanCreditos: coste,
+      rollback: async () => {},
+      commit: async () => {
+        await prisma.creditTransaction
+          .create({
+            data: {
+              whiteLabelId: marca.id,
+              type: 'ADJUSTMENT',
+              amount: 0,
+              tenantId: negocio.id,
+              note:
+                `Activación (${origen}) SIN CRÉDITOS · ${negocio.brandName} · ` +
+                `quedan a deber ${coste} créd`,
+            },
+          })
+          .catch(() => undefined);
+      },
+    };
   }
 
   return {
     cobrado: coste,
+    faltanCreditos: 0,
     rollback: async () => {
       await prisma.whiteLabel
         .update({
