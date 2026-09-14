@@ -43,14 +43,17 @@ describe('datosDeLaPlantilla', () => {
     expect(d.primaryColor).not.toBe('#22C55E');
   });
 
-  it('el logo del ALIADO manda; el del negocio es el respaldo', () => {
+  it('el hueco del logo es del ALIADO, y de nadie más', () => {
     expect(datosDeLaPlantilla('t1', ALIANZA, NEGOCIO).logoUrl).toBe(
       'https://cdn/eco.png',
     );
+    // Sin logo del aliado NO se cuela el del negocio (2026-09-14, Altieri): el
+    // negocio ya tiene el suyo en la cabecera del pase, y este hueco es el que
+    // pinta el centro de la franja. Vacío, el centro cae a las iniciales de la
+    // empresa. Nunca un logo de la plataforma.
     expect(
       datosDeLaPlantilla('t1', { ...ALIANZA, logoUrl: null }, NEGOCIO).logoUrl,
-    ).toBe('https://cdn/negocio.png');
-    // Sin ninguno de los dos: null. Nunca un logo de la plataforma.
+    ).toBeNull();
     expect(
       datosDeLaPlantilla(
         't1',

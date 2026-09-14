@@ -8,6 +8,45 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-14 (4) — En las tarjetas de alianza faltaba el logo del negocio
+
+Javier, mirando las de **Altieri**: *«no aparece el logo de ellos en la parte de
+arriba, solo el de la empresa con la que tienen alianza, en el centro»*.
+
+`Card.logoUrl` de una tarjeta de alianza guarda el logo del **ALIADO** — es el
+que pinta la franja del centro (`generateAllianceStrip`). Y la cabecera del pase
+toma `card.logoUrl` como primer candidato, en Apple y en Google. Así que el
+aliado salía arriba **y** en el centro, y el negocio que emite la tarjeta, en
+ningún sitio.
+
+**Arriba va la casa; el aliado, el centro.** General, no solo Altieri:
+
+- `wallet.service.ts` (Apple): con alianza, `card.logoUrl` sale de la lista de
+  candidatos de `logo.png`. Queda walletLogoUrl → logoUrl → logo de la marca.
+- `google-wallet.service.ts` (`resolveLogoUri`): lo mismo para `programLogo`.
+- `alianzas-plantilla.ts`: el hueco del logo de la tarjeta **ya no cae al logo
+  del negocio** si el aliado no cargó ninguno. Vacío, el centro pinta las
+  iniciales de la empresa, que dicen de quién es el convenio. Solo afecta a las
+  alianzas NUEVAS.
+
+Pruebas: `src/wallet/logo-de-alianza.spec.ts` (4) + la de la plantilla
+actualizada. 208 tests de convenios+wallet en verde.
+
+### Los pases ya instalados
+
+Un pase guardado no se entera solo. `backend/scripts/refrescar-pases-de-alianza.cjs`
+—ensayo por defecto, `--aplicar` para encolar— **solo encola en Redis**, sin
+arrancar la aplicación: lo ejecuta el backend desplegado, que es el que tiene el
+código nuevo. Si lo procesara la máquina de turno, repintaría con el `dist/` que
+tuviera en disco. Envío silencioso: al cliente no le llega notificación.
+
+En producción hay **7 pases de alianza** (6 de Altieri, 1 de demo-clubify).
+
+**Star5 (Altieri) se queda como está**: su alianza no tiene logo propio, así que
+en su día se le guardó el del negocio y ahora sale arriba y en el centro. Es
+cosmético y es dato viejo, no código. Se arregla solo si Altieri le sube un logo
+a esa alianza desde el panel.
+
 ## 2026-09-14 (3) — Mayo ya está en Contabilidad: 11 cobros reconstruidos
 
 Sara: *«en mayo no hay data de pago»*, pero Comisiones sí enseña los negocios

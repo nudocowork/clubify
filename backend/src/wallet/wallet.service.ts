@@ -458,7 +458,14 @@ export class WalletService implements OnModuleDestroy {
       typeof u === 'string' && u.trim() ? u.trim() : null;
     const candidates = [
       // Nivel 1: logo propio del negocio (tarjeta > wallet > general).
-      normalize((pass.card as any).logoUrl),
+      //
+      // EN UNA ALIANZA, EL DE ARRIBA ES EL DEL NEGOCIO (2026-09-14, Altieri).
+      // `card.logoUrl` de una tarjeta de alianza guarda el logo del ALIADO, y
+      // ese ya ocupa el centro de la franja. Usándolo también arriba, la
+      // tarjeta enseñaba dos veces al aliado y ni una vez a quien la emite —
+      // que es el negocio donde la persona va a usar el beneficio. Arriba va
+      // siempre la casa; el aliado, en el centro.
+      alianza ? null : normalize((pass.card as any).logoUrl),
       normalize((pass.tenant as any).walletLogoUrl),
       normalize(pass.tenant.logoUrl),
       // Nivel 2: logo de la MARCA BLANCA propietaria (Sellea→Sellea). passBrand

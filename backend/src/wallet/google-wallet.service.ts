@@ -620,8 +620,14 @@ export class GoogleWalletService {
     // del tenant. NUEVO 2026-06-23: si el negocio no tiene logo, hereda el logo
     // de la MARCA BLANCA (Sellea→Sellea) antes que el genérico — NUNCA Clubify
     // para otra marca (brand.logoUrl viene de resolveTenant, marca propietaria).
+    // EN UNA ALIANZA, ARRIBA VA EL LOGO DEL NEGOCIO (2026-09-14, Altieri).
+    // `card.logoUrl` de una tarjeta de alianza es el logo del ALIADO, y ese ya
+    // es el que pinta la franja del centro (`strip.png`). Poniéndolo también
+    // de `programLogo`, la tarjeta enseñaba dos veces al aliado y ninguna al
+    // negocio que la emite. El del aliado no se pierde: sigue en el centro.
+    const esAlianza = !!pass.card?.convenioId;
     const base =
-      pass.card?.logoUrl ||
+      (esAlianza ? null : pass.card?.logoUrl) ||
       pass.tenant.walletLogoUrl ||
       pass.tenant.logoUrl ||
       brand?.logoUrl ||

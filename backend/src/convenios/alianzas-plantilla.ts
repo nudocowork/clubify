@@ -110,9 +110,13 @@ export function datosDeLaPlantilla(
     stampsRequired: 1,
     rewardText: textoPorDefecto(convenio.name),
     businessName: negocio?.brandName ?? '',
-    // El logo del ALIADO manda en su tarjeta; si no cargó ninguno, el del
-    // negocio. Nunca uno de la plataforma.
-    logoUrl: convenio.logoUrl ?? negocio?.logoUrl ?? null,
+    // `Card.logoUrl` de una alianza es el hueco DEL ALIADO: es el logo que
+    // pinta la franja del centro del pase. El del negocio ya no cabe aquí
+    // (2026-09-14) porque tiene el suyo propio arriba, en la cabecera; ponerlo
+    // también en el centro enseñaba dos veces lo mismo y dejaba al aliado sin
+    // sitio. Si el aliado no cargó logo, el centro cae a sus iniciales — que
+    // dicen de quién es el convenio, cosa que el logo del negocio no hace.
+    logoUrl: convenio.logoUrl ?? null,
     isActive: true,
   };
 }
