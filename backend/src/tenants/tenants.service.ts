@@ -39,6 +39,27 @@ import {
   DEFAULT_CATEGORY_SLUG,
 } from '../common/business-categories';
 
+/**
+ * Qué enlaces de pago de una marca son PLANES que se pueden asignar.
+ *
+ * EL FALLO (2026-09-14, Humberto en Sellea): al cambiar de plan salía
+ * «Mensual $14,99» cuando el plan de Sellea es de **$80**. Sellea tiene DOS
+ * enlaces mensuales —el plan real de $80 y el añadido «InfoLink PRO» de
+ * $14,99— y el mapa del panel se construye por periodicidad, así que el último
+ * en llegar pisaba al primero. Con `sortOrder` 3, siempre ganaba el añadido.
+ *
+ * Un añadido no es un plan: `productKey` lo dice (`INFOLINK_PRO`, `FULL`).
+ * Solo los enlaces SIN `productKey` son la suscripción del negocio.
+ *
+ * Y los enlaces APAGADOS tampoco: «Plan Promocional» sigue en la base,
+ * desactivado, y no debe poder asignarse.
+ */
+const esPlanAsignable = (l: {
+  active?: boolean;
+  productKey?: string | null;
+}) => l.active !== false && !l.productKey;
+
+
 export type CreateTenantDto = {
   brandName: string;
   email: string;
@@ -775,7 +796,7 @@ export class TenantsService {
             paymentLinks: {
               where: { active: true },
               orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-              select: { periodicity: true, amountUsd: true, url: true, gateway: true },
+              select: { periodicity: true, amountUsd: true, url: true, gateway: true, productKey: true },
             },
           },
         },
@@ -792,7 +813,10 @@ export class TenantsService {
     const brandGateway = tenant.whiteLabel?.paymentGateway ?? null;
     const brandPlans =
       tenant.whiteLabel?.paymentLinks
-        ?.filter((l) => !brandGateway || l.gateway === brandGateway)
+        ?.filter(
+          (l) =>
+            (!brandGateway || l.gateway === brandGateway) && esPlanAsignable(l),
+        )
         .map((l) => ({
           periodicity: l.periodicity,
           amountUsd: l.amountUsd != null ? Number(l.amountUsd) : null,
@@ -2540,7 +2564,10 @@ export class TenantsService {
       brandPlans:
         t.whiteLabel?.paymentLinks
           ?.filter(
-            (l) => !t.whiteLabel?.paymentGateway || l.gateway === t.whiteLabel.paymentGateway,
+            (l) =>
+              (!t.whiteLabel?.paymentGateway ||
+                l.gateway === t.whiteLabel.paymentGateway) &&
+              esPlanAsignable(l),
           )
           .map((l) => ({
             periodicity: l.periodicity,

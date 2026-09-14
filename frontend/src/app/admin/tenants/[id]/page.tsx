@@ -3299,6 +3299,26 @@ type PeriodId = 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL';
 type LandingPlanCfg = { price: number; checkoutUrl: string | null };
 type LandingPlansResp = Partial<Record<'mensual' | 'trimestral' | 'semestral' | 'anual', LandingPlanCfg>>;
 
+/**
+ * Cómo se llama la pasarela de esta marca, para los textos.
+ *
+ * EL FALLO (2026-09-14, Humberto): el modal de cambiar plan decía «Hotmart»
+ * por todos lados en el panel de Sellea, que cobra por **Stripe**. El dato ya
+ * viajaba al frontend (`tenant.brandGateway`) —hay hasta un comentario en el
+ * backend explicando que viaja justo para esto— y nadie lo usaba.
+ *
+ * Sin marca o sin pasarela resuelta NO se inventa un nombre: se dice «la
+ * pasarela de pagos». Poner «Hotmart» por defecto es exactamente cómo se
+ * llegó a esto.
+ */
+const NOMBRE_DE_PASARELA: Record<string, string> = {
+  HOTMART: 'Hotmart',
+  STRIPE: 'Stripe',
+  CROSS: 'Cross',
+  MERCADOPAGO: 'Mercado Pago',
+  MANUAL: 'cobro manual',
+};
+
 const PERIOD_LABEL: Record<PeriodId, string> = {
   MENSUAL: 'Mensual',
   TRIMESTRAL: 'Trimestral',
@@ -3379,6 +3399,9 @@ function PlanCurrentCard({
 
   const currentPeriod = (tenant?.planPeriodicity as PeriodId | null) ?? null;
   const currentPrice = currentPeriod ? priceFor(currentPeriod) : null;
+  const pasarela =
+    NOMBRE_DE_PASARELA[String(tenant?.brandGateway ?? '')] ??
+    t('gatewayFallback');
 
   return (
     <div className="card card-pad">
@@ -3386,7 +3409,7 @@ function PlanCurrentCard({
         <div>
           <h2 className="text-base font-semibold m-0">{t('currentPlan')}</h2>
           <p className="text-xs text-mute mt-1">
-            {t('currentPlanDesc')}
+            {t('currentPlanDesc', { pasarela })}
           </p>
         </div>
         {isSuperAdmin && (
@@ -3486,6 +3509,9 @@ function ChangePlanPeriodModal({
   onSaved: () => void;
 }) {
   const t = useTranslations('admin_tenants_id');
+  const pasarela =
+    NOMBRE_DE_PASARELA[String(tenant?.brandGateway ?? '')] ??
+    t('gatewayFallback');
   const [selected, setSelected] = useState<PeriodId | null>(currentPeriod);
   const [check1, setCheck1] = useState(false);
   const [check2, setCheck2] = useState(false);
@@ -3540,11 +3566,12 @@ function ChangePlanPeriodModal({
             <div className="font-semibold mb-1.5">
               {t('changeWarningTitle')}
             </div>
-            {t('changeWarningIntro')}
+            {t('changeWarningIntro', { pasarela })}
             <ol className="list-decimal list-inside mt-1.5 space-y-0.5">
-              <li>{t('changeWarningStep1')}</li>
+              <li>{t('changeWarningStep1', { pasarela })}</li>
               <li>
                 {t.rich('changeWarningStep2', {
+                  pasarela,
                   link: (chunks) => (
                     <Link href="/admin/branding" className="underline font-semibold">
                       {chunks}
@@ -3622,7 +3649,7 @@ function ChangePlanPeriodModal({
                   onChange={(e) => setCheck1(e.target.checked)}
                   className="accent-brand mt-0.5"
                 />
-                <span>{t('check1')}</span>
+                <span>{t('check1', { pasarela })}</span>
               </label>
               <label className="flex items-start gap-2.5 cursor-pointer touch-manipulation select-none">
                 <input
@@ -3641,7 +3668,7 @@ function ChangePlanPeriodModal({
                   className="accent-brand mt-0.5"
                 />
                 <span>
-                  {t('check3')}
+                  {t('check3', { pasarela })}
                 </span>
               </label>
             </div>

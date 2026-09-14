@@ -2314,6 +2314,22 @@ function ProductDrawer({
 }) {
   const t = useTranslations('app_menu');
   const [form, setForm] = useState<Partial<Product>>(value);
+  /**
+   * El TEXTO de las etiquetas mientras se escribe.
+   *
+   * EL FALLO (2026-09-14, Humberto): «en etiquetas separadas por coma no deja
+   * poner la coma». El input pintaba `tags.join(', ')` y en cada tecla
+   * reconstruía el array con `.filter(Boolean)`. Al escribir la coma, el
+   * `split` daba `['NEW','']`, el filtro tiraba el hueco y el valor volvía a
+   * pintarse como «NEW» — la coma desaparecía en el mismo momento de
+   * escribirla, y nunca se llegaba a la segunda etiqueta.
+   *
+   * Se separa lo que se ESCRIBE de lo que se GUARDA: el input enseña el texto
+   * tal cual, y `form.tags` sigue recibiendo el array ya limpio para guardar.
+   */
+  const [tagsTexto, setTagsTexto] = useState<string>(
+    (value.tags ?? []).join(', '),
+  );
 
   const [sincronizando, setSincronizando] = useState(false);
 
@@ -2558,16 +2574,22 @@ function ProductDrawer({
             <label className="label">{t('tagsLabel')}</label>
             <input
               className="input"
-              value={(form.tags ?? []).join(', ')}
-              onChange={(e) =>
+              value={tagsTexto}
+              onChange={(e) => {
+                // Lo escrito se conserva tal cual —comas y espacios incluidos—
+                // y en paralelo se guarda el array ya limpio.
+                setTagsTexto(e.target.value);
                 update(
                   'tags',
                   e.target.value
                     .split(',')
                     .map((tag) => tag.trim())
                     .filter(Boolean),
-                )
-              }
+                );
+              }}
+              // Al salir del campo se ordena lo escrito: sin comas de más ni
+              // espacios sueltos. Durante la escritura no se toca nada.
+              onBlur={() => setTagsTexto((form.tags ?? []).join(', '))}
               placeholder={t('tagsPlaceholder')}
             />
           </div>
