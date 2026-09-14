@@ -57,6 +57,13 @@ optimice campañas por ese evento.
 Pendiente: que Hugo (trafficker) mande el **id del píxel**. No se le da acceso
 al panel — el id lo carga Clubify.
 
+**Añadido el mismo día: `ViewContent`** al abrir un producto o una promoción
+(el «clic en producto» que pidió la agencia). Las promociones usan el mismo id
+que el carrito (`promo:<id>`) para que Meta una la vista con el AddToCart y el
+Purchase de esa promo. No hace falta nada más del cliente: el mismo píxel lo
+cubre. Se manda al ABRIR, no al cambiar variante o cantidad dentro de la ficha,
+que inflaría el conteo.
+
 ## 2026-09-14 (4) — En las tarjetas de alianza faltaba el logo del negocio
 
 Javier, mirando las de **Altieri**: *«no aparece el logo de ellos en la parte de

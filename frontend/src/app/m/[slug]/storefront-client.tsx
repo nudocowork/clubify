@@ -1214,6 +1214,18 @@ function ProductModal({
   mode: StorefrontMode;
 }) {
   const tt = useT();
+  // ViewContent: abrir la ficha ES el clic en el producto. Se manda al montar,
+  // una vez por apertura — no al cambiar variante o cantidad dentro de ella,
+  // que inflaría el conteo de «vieron este producto».
+  useEffect(() => {
+    eventoDelNegocio('ViewContent', {
+      content_type: 'product',
+      content_ids: [product.id],
+      content_name: product.name,
+      value: Number(product.basePrice) || 0,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product.id]);
   const defaultVar = product.variants.find((v) => v.isDefault) ?? product.variants[0];
   // Multi-seleccion de variantes: solo si el negocio subio el tope Y las
   // opciones SUMAN al precio base. Con precio propio por opcion, sumar dos
@@ -1546,6 +1558,18 @@ function PromoModal({
   onClose: () => void;
 }) {
   const tt = useT();
+  // ViewContent también para las promociones: para quien paga anuncios, abrir
+  // una promo es un clic en producto igual que abrir una ficha. Mismo id que
+  // usa el carrito (`promo:<id>`), para que Meta una la vista con el
+  // AddToCart y el Purchase de esa misma promo.
+  useEffect(() => {
+    eventoDelNegocio('ViewContent', {
+      content_type: 'product',
+      content_ids: [`promo:${promo.id}`],
+      content_name: promo.name,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promo.id]);
   // Lock body scroll mientras está abierto + ESC para cerrar.
   useEffect(() => {
     const prev = document.body.style.overflow;
