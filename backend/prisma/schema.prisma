@@ -4615,11 +4615,27 @@ model SalesMeeting {
   /// Marca de recordatorio enviado. Sirve de candado: se pone con un UPDATE
   /// condicional para que dos ciclos del cron no avisen dos veces.
   reminderSentAt DateTime?
+  /// El BANCO del equipo (2026-09-14). Quién asignó la cita y cuándo:
+  /// `hostUserId` dice a quién le toca; esto dice que alguien lo decidió.
+  assignedAt       DateTime?
+  assignedByUserId String?
+  /// Confirmación a mano del cliente. Cuenta como las dos ventanas.
+  confirmedAt       DateTime?
+  confirmedByUserId String?
+  /// Los dos recordatorios. Pintan el semáforo y ordenan la cola del banco:
+  /// a la misma hora, antes la cita con más confirmaciones. Booleano y no solo
+  /// fecha porque la pantalla pregunta «¿confirmó?» cien veces; la fecha es
+  /// para saber cuándo.
+  conf1h      Boolean   @default(false)
+  conf1hAt    DateTime?
+  conf30min   Boolean   @default(false)
+  conf30minAt DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @default(now()) @updatedAt
 
   @@index([salesTeamId, startAt])
   @@index([hostUserId, startAt])
+  @@index([salesTeamId, status, startAt])
 }
 
 /// Cuándo atiende el equipo, o una persona concreta. `userId` null = el equipo.

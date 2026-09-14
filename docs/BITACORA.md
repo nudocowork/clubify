@@ -8,6 +8,74 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-14 (7) — Equipos de Ventas (Sellea): «Banco» ya es la cola de citas
+
+Segundo apartado del brief. Referencia leída en TeamClubify:
+`closers/_components/BankPanel.tsx`, `getStefanyBank` (`lib/server/closers-data.ts`),
+las acciones `assignCloser` / `confirmMeeting` / `setMeetingConfirmation` /
+`markNoShow` / `cancelMeeting` y las constantes de `lib/closers.ts`.
+
+**Lo que había:** `ListaDeLeads filtro="banco"` — leads sin vendedor.
+**Lo que hay:** la cola de CITAS (`SalesMeeting`) donde quien coordina reparte
+entre closers y persigue la confirmación.
+
+- **Columnas nuevas en `SalesMeeting`, ya aplicadas en producción** con
+  `scripts/apply-sales-bank-migration.cjs`: `assignedAt`, `assignedByUserId`,
+  `confirmedAt`, `confirmedByUserId`, `conf1h`/`conf1hAt`,
+  `conf30min`/`conf30minAt` + índice `(salesTeamId, status, startAt)`.
+- `banco-de-equipo.service.ts` + controlador propio en
+  `sales-teams/:teamId/banco` (no más rutas en el de leads: el banco trabaja
+  sobre citas, y mezclarlos es como la pestaña acabó enseñando leads).
+- Pestañas: por asignar (PENDIENTE sin closer) · por confirmar (PENDIENTE con
+  closer) · seguimiento · no asistió · canceladas · ganadas · perdidas.
+  CONFIRMADA sale del banco: ya no hay nada que resolver, vive en la Agenda.
+- **Reglas copiadas con sus números** (puras y probadas, 16 pruebas): la
+  ventana de «1 h» vence a los **45 min** de la cita, la de «30 min» a los
+  **20**; «hay que perseguir» = vencidas las dos y faltan más de **−15 min**
+  (llegar tarde no es no venir). Closer sugerido = menos cargado hoy, luego en la
+  semana. Cola por hora y, a la misma hora, más confirmaciones primero.
+- Asignar lo hace el **líder o un admin de la marca**, y solo a un closer
+  ACTIVO de ese equipo (si no, conociendo un id se le colgaría una cita a otra
+  marca). «No asistió» solo si la cita ya pasó, **atómico** (`updateMany` sobre
+  las abiertas: dos clics no crean dos seguimientos) y crea el seguimiento para
+  reagendar + dispara `sales_meeting_no_show`, el mismo evento de la Agenda.
+
+### Diferencias con TeamClubify, a propósito
+
+- **Sin pestaña «Reagendadas»:** Clubify PRO no tiene flujo de reagendar que
+  deje una cita en ese estado. Una pestaña que nunca se llena sería mentir.
+- **Sin Lead Score** en el orden de la cola: `SalesLead` no tiene score. Solo
+  confirmaciones.
+- Sin campos configurables del desplegable ni etiquetas renombrables (en
+  TeamClubify vienen de `closersConfig`): el desplegable enseña datos fijos.
+- **Permisos algo más abiertos:** en TeamClubify confirmar, marcar los
+  recordatorios y cancelar lo hace el coordinador o el closer asignado; aquí
+  basta con poder escribir en el equipo (un setter puede). Tiene sentido para
+  quien persigue confirmaciones. Asignar sí queda para líder o admin, igual que
+  la referencia.
+
+### Revisión de Fable antes de desplegar: nada bloquea
+
+Aplicado de lo que encontró:
+
+- **La «semana» de la carga estaba corrida 5 horas:** `setUTCHours(0)` es
+  medianoche UTC = 19:00 del día anterior en Bogotá. A las 20:00 de Bogotá la
+  semana perdía un día laboral entero. Ahora las 00:00 se calculan en Bogotá
+  (`minutosLocalesAUtc(fechaEn(...))`, el patrón de la Agenda).
+- **Confirmar exige closer:** una cita sin asignar podía confirmarse por API y
+  salir del banco y de la alerta sin que nadie la tuviera.
+- **Ganadas / Perdidas / Seguimiento** tenían UNA consulta de 300 leads
+  filtrada en memoria: con más de 300, se veía un trozo sin aviso. Ahora una
+  consulta por pestaña y los totales reales aparte.
+- Las acciones del banco dejan rastro en el historial del lead.
+- Frontend: una respuesta vieja del refresco de 60 s ya no pisa a una nueva, y
+  los chips de confirmación no se desmontan en cada render.
+
+Queda como deuda menor: el filtro `'banco'` de `ListaDeLeads` y de
+`GET …/lista` ya no lo usa ninguna pantalla.
+
+Sin navegador en la sesión: el acabado visual en selleala.com hay que mirarlo.
+
 ## 2026-09-14 (6) — Equipos de Ventas (Sellea): «Clientes» ya es la implementación
 
 Primer apartado del brief de paridad con TeamClubify (orden: Clientes → Banco →

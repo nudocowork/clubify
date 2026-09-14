@@ -5,6 +5,8 @@ import { SalesLeadsService } from './sales-leads.service';
 import { ResumenDeEquipoService } from './resumen-de-equipo.service';
 import { ListasDeEquipoService } from './listas-de-equipo.service';
 import { ImplementacionesDeEquipoService } from './implementaciones-de-equipo.service';
+import { BancoDeEquipoService } from './banco-de-equipo.service';
+import { BancoDeEquipoController } from './banco-de-equipo.controller';
 import { SalesLeadsController } from './sales-leads.controller';
 import { SalesAgendaService } from './sales-agenda.service';
 import {
@@ -29,6 +31,7 @@ import { MarketingModule } from '../marketing/marketing.module';
     ResumenDeEquipoService,
     ListasDeEquipoService,
     ImplementacionesDeEquipoService,
+    BancoDeEquipoService,
     SalesLeadsService,
     SalesAgendaService,
     SalesChatService,
@@ -38,6 +41,7 @@ import { MarketingModule } from '../marketing/marketing.module';
   controllers: [
     SalesTeamsController,
     SalesLeadsController,
+    BancoDeEquipoController,
     SalesAgendaController,
     PublicSalesAgendaController,
     SalesChatController,
