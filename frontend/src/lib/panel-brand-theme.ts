@@ -94,6 +94,7 @@ export function panelBrandCss(color: string, sidebarBg?: string | null): string 
 .brand-panel [class*="bg-brand-soft"]{background-color:${soft}!important}
 .brand-panel [class*="text-brand"]{color:${c}!important}
 .brand-panel [class*="border-brand"]{border-color:${c}!important}
+.brand-panel [class*="accent-brand"]{accent-color:${c}!important}
 .brand-panel .tab-active{background-color:${c}!important}
 .brand-panel .hover\\:bg-brand-700:hover,.brand-panel .hover\\:border-brand-700:hover{background-color:${c}!important;border-color:${c}!important}
 .brand-panel [class~="text-ok"]{color:${c}!important}

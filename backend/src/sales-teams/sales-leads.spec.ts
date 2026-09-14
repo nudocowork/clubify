@@ -170,13 +170,29 @@ const VENDEDOR: AuthUser = {
 let svc: SalesLeadsService;
 let bd: ReturnType<typeof baseFalsa>['bd'];
 let disparos: ReturnType<typeof automatizacionesFalsas>['disparos'];
+/** Cada vez que `moverLead` arranca una implementación («Clientes»). */
+let arranques: Array<{ leadId: string; cliente: string }> = [];
 
 function abrir(opts: Parameters<typeof baseFalsa>[0] = {}) {
   const f = baseFalsa(opts);
   bd = f.bd;
   const autos = automatizacionesFalsas();
   disparos = autos.disparos;
-  svc = new SalesLeadsService(f.prisma as unknown as PrismaService, autos.svc);
+  // El arranque de la implementación al cerrar una venta tiene sus propias
+  // pruebas (implementaciones-de-equipo.spec.ts). Aquí basta un doble que no
+  // haga nada: el cierre no puede depender de que eso funcione.
+  arranques = [];
+  const implementaciones = {
+    asegurarParaLead: async (input: { leadId: string; cliente: string }) => {
+      arranques.push(input);
+      return { id: 'impl', nueva: true };
+    },
+  };
+  svc = new SalesLeadsService(
+    f.prisma as unknown as PrismaService,
+    autos.svc,
+    implementaciones as any,
+  );
   return f;
 }
 
@@ -446,6 +462,12 @@ describe('los disparadores de ventas', () => {
     expect(eventos).toContain('sales_stage_changed');
     expect(eventos).toContain('sales_lead_won');
     expect(eventos).not.toContain('sales_lead_lost');
+    // Y arranca su implementación en «Clientes», una sola vez y del lead movido.
+    // La regla de la implementación tiene sus pruebas; esto prueba que alguien
+    // la LLAMA al cerrar la venta, que es lo que un doble sin afirmar no veía.
+    expect(arranques).toHaveLength(1);
+    expect(arranques[0].leadId).toBe(lead.id);
+    expect(arranques[0].cliente).toBe('Ana');
   });
 
   it('mover a No interesados dispara «perdido», no «ganado»', async () => {
@@ -453,6 +475,8 @@ describe('los disparadores de ventas', () => {
     const lead = await svc.crearLead(VENDEDOR, 't1', { name: 'Ana' });
     const perdidos = t.columnas.find((c: any) => c.kind === 'NOT_INTERESTED')!;
     await svc.moverLead(VENDEDOR, 't1', lead.id, perdidos.id);
+    // Perder una venta no abre ninguna implementación.
+    expect(arranques).toHaveLength(0);
     const eventos = disparos.map((d) => d.evento);
     expect(eventos).toContain('sales_lead_lost');
     expect(eventos).not.toContain('sales_lead_won');

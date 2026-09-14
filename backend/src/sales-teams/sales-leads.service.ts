@@ -18,6 +18,7 @@ import {
 } from './team-access';
 import { asegurarColumnas } from './sales-columnas';
 import { SalesAutomationsService } from './sales-automations.service';
+import { ImplementacionesDeEquipoService } from './implementaciones-de-equipo.service';
 
 /**
  * El CRM de un equipo de ventas de marca — fase 3.
@@ -74,6 +75,7 @@ export class SalesLeadsService {
   constructor(
     private prisma: PrismaService,
     private automations: SalesAutomationsService,
+    private implementaciones: ImplementacionesDeEquipoService,
   ) {}
 
   // ── Columnas ────────────────────────────────────────────────────────────
@@ -501,10 +503,43 @@ export class SalesLeadsService {
     void this.automations.disparar(leadId, 'sales_stage_changed', ctx);
     if (destino.kind === 'CLIENT') {
       void this.automations.disparar(leadId, 'sales_lead_won', ctx);
+      // Cerrar la venta arranca su implementación («Clientes»). Best-effort y
+      // sin esperar: un fallo aquí no puede deshacer el cierre, que ya quedó
+      // escrito arriba. Idempotente por el índice único de `leadId`, así que
+      // mover la tarjeta dos veces no crea dos.
+      void this.arrancarImplementacion(teamId, antes, user.id);
     } else if (destino.kind === 'NOT_INTERESTED') {
       void this.automations.disparar(leadId, 'sales_lead_lost', ctx);
     }
     return this.paraElPanel(await this.leadDelEquipo(teamId, leadId));
+  }
+
+  /**
+   * Ver `moverLead`. Nunca lanza: lo que falle se anota y se sigue.
+   *
+   * Recibe el lead que `moverLead` ya cargó en vez de volver a pedirlo: ahorra
+   * una consulta, y así la prueba de `moverLead` llega de verdad hasta aquí
+   * (antes el doble de Prisma no tenía `findUnique` y el arranque fallaba en
+   * silencio en cada prueba, sin que ninguna comprobara que ocurría).
+   */
+  private async arrancarImplementacion(
+    teamId: string,
+    lead: { id: string; name: string | null; company: string | null; whiteLabelId: string | null },
+    userId: string,
+  ) {
+    try {
+      await this.implementaciones.asegurarParaLead({
+        teamId,
+        whiteLabelId: lead.whiteLabelId,
+        leadId: lead.id,
+        // Lo que el equipo reconoce del cliente: la empresa si la hay, si no
+        // la persona. Nunca vacío — «Implementación: » no dice de quién es.
+        cliente: lead.company?.trim() || lead.name?.trim() || 'Cliente sin nombre',
+        creadaPor: userId,
+      });
+    } catch (e) {
+      this.logger.warn(`implementación de lead=${lead.id}: ${(e as Error).message}`);
+    }
   }
 
   async borrarLead(user: AuthUser, teamId: string, leadId: string) {

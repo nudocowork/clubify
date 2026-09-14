@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import {
   IsArray,
+  IsBoolean,
   IsInt,
   IsNumber,
   IsOptional,
@@ -18,6 +19,7 @@ import {
   Min,
 } from 'class-validator';
 import { SalesLeadsService } from './sales-leads.service';
+import { ImplementacionesDeEquipoService } from './implementaciones-de-equipo.service';
 import { ResumenDeEquipoService } from './resumen-de-equipo.service';
 import {
   ListasDeEquipoService,
@@ -55,6 +57,15 @@ class LeadBody {
   @IsOptional() @IsString() @MaxLength(200) lostReason?: string | null;
 }
 
+class MarcarPasoBody {
+  @IsBoolean() hecho!: boolean;
+}
+
+class EstadoDeImplementacionBody {
+  // La lista válida la comprueba el servicio: una sola fuente de estados.
+  @IsString() @MaxLength(20) estado!: string;
+}
+
 class MoverBody {
   @IsString() stageId!: string;
   /** La columna en la que el vendedor CREÍA que estaba, para no pisar a otro. */
@@ -85,7 +96,40 @@ export class SalesLeadsController {
     private svc: SalesLeadsService,
     private resumen: ResumenDeEquipoService,
     private listas: ListasDeEquipoService,
+    private implementaciones: ImplementacionesDeEquipoService,
   ) {}
+
+  // ── Clientes: implementación de cada venta cerrada ──────────────────────
+
+  /** La pestaña «Clientes». `estado` filtra la lista; los KPIs son del equipo. */
+  @Get('implementaciones')
+  listarImplementaciones(
+    @CurrentUser() user: AuthUser,
+    @Param('teamId') teamId: string,
+    @Query('estado') estado?: string,
+  ) {
+    return this.implementaciones.listar(user, teamId, { estado });
+  }
+
+  @Patch('implementaciones/pasos/:itemId')
+  marcarPasoDeImplementacion(
+    @CurrentUser() user: AuthUser,
+    @Param('teamId') teamId: string,
+    @Param('itemId') itemId: string,
+    @Body() body: MarcarPasoBody,
+  ) {
+    return this.implementaciones.marcarPaso(user, teamId, itemId, body.hecho);
+  }
+
+  @Patch('implementaciones/:implId/estado')
+  cambiarEstadoDeImplementacion(
+    @CurrentUser() user: AuthUser,
+    @Param('teamId') teamId: string,
+    @Param('implId') implId: string,
+    @Body() body: EstadoDeImplementacionBody,
+  ) {
+    return this.implementaciones.cambiarEstado(user, teamId, implId, body.estado);
+  }
 
   /** Banco · Contactos · Clientes: la misma lista con otro filtro. */
   @Get('lista')

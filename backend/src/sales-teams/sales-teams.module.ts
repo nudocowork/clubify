@@ -4,6 +4,7 @@ import { SalesTeamsController } from './sales-teams.controller';
 import { SalesLeadsService } from './sales-leads.service';
 import { ResumenDeEquipoService } from './resumen-de-equipo.service';
 import { ListasDeEquipoService } from './listas-de-equipo.service';
+import { ImplementacionesDeEquipoService } from './implementaciones-de-equipo.service';
 import { SalesLeadsController } from './sales-leads.controller';
 import { SalesAgendaService } from './sales-agenda.service';
 import {
@@ -27,6 +28,7 @@ import { MarketingModule } from '../marketing/marketing.module';
     SalesTeamsService,
     ResumenDeEquipoService,
     ListasDeEquipoService,
+    ImplementacionesDeEquipoService,
     SalesLeadsService,
     SalesAgendaService,
     SalesChatService,

@@ -4452,6 +4452,7 @@ model SalesTeam {
   meetings      SalesMeeting[]
   availability  SalesAvailability[]
 
+  implementations SalesImplementation[]
   @@index([leadUserId])
   @@index([whiteLabelId])
 }
@@ -4548,6 +4549,7 @@ model SalesLead {
   meetings   SalesMeeting[]
   messages   SalesMessage[]
 
+  implementation SalesImplementation?
   @@index([salesTeamId, stageId])
   @@index([salesTeamId, assignedUserId])
   @@index([whiteLabelId, phoneKey])
@@ -4654,6 +4656,69 @@ model SalesMessage {
 
   @@index([leadId, createdAt])
   @@index([providerMessageId])
+}
+
+/// La implementación (onboarding) de un cliente que acaba de cerrar.
+///
+/// Es la pestaña «Clientes» del equipo. Hasta ahora esa pestaña enseñaba los
+/// leads con `wonAt` — o sea, la MISMA lista de leads con otro filtro, que no
+/// dice lo único que hace falta saber después de vender: por dónde va la puesta
+/// en marcha y qué falta. Esto lo convierte en una lista de comprobación.
+///
+/// Sin `tenantId` a propósito, como el resto del módulo: ese nombre de campo
+/// hace que `prisma-tenant-middleware.ts` filtre por negocio, y una
+/// implementación de un equipo de marca no tiene negocio — quedaría escondida.
+/// El aislamiento va por `salesTeamId` + `whiteLabelId`, como en `SalesLead`.
+model SalesImplementation {
+  id           String    @id @default(uuid())
+  salesTeamId  String
+  team         SalesTeam @relation(fields: [salesTeamId], references: [id], onDelete: Cascade)
+  /// Desnormalizado a propósito: evita un join en cada consulta de marca.
+  whiteLabelId String?
+
+  /// El lead que cerró. ÚNICO: es lo que hace idempotente el arranque
+  /// automático — mover la tarjeta a «Cliente» dos veces no crea dos
+  /// implementaciones. SetNull: borrar el lead no borra el historial de la
+  /// puesta en marcha, que es trabajo ya hecho.
+  leadId String?    @unique
+  lead   SalesLead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  name       String
+  clientName String?
+  plan       String?
+  /// pendiente · en_progreso · completada · cancelada.
+  /// Texto y no enum, igual que `IncomeRecord.status`: añadir un estado no
+  /// debería costar una migración.
+  status     String  @default("pendiente")
+
+  startDate DateTime?
+  dueDate   DateTime?
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now()) @updatedAt
+
+  items SalesImplementationItem[]
+
+  @@index([salesTeamId, status])
+  @@index([whiteLabelId])
+}
+
+/// Un paso de la lista de comprobación de una implementación.
+model SalesImplementationItem {
+  id               String              @id @default(uuid())
+  implementationId String
+  implementation   SalesImplementation @relation(fields: [implementationId], references: [id], onDelete: Cascade)
+
+  title    String
+  position Int     @default(0)
+  done     Boolean @default(false)
+
+  doneAt       DateTime?
+  doneByUserId String?
+  createdAt    DateTime  @default(now())
+
+  @@index([implementationId, position])
 }
 
 // Canal de envío del botón automático del CRM (C5).

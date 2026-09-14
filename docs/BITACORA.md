@@ -8,6 +8,73 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-14 (6) — Equipos de Ventas (Sellea): «Clientes» ya es la implementación
+
+Primer apartado del brief de paridad con TeamClubify (orden: Clientes → Banco →
+Contactos → Agenda → Seguimientos → CRM).
+
+**Lo que había:** la pestaña «Clientes» era `ListaDeLeads filtro="clientes"` —
+los leads con `wonAt`, la misma tabla que Contactos con otro filtro.
+
+**Lo que hay:** una lista de comprobación de la puesta en marcha por cliente,
+igual que la de TeamClubify (se leyó su código: `ImplementationsView.tsx` y
+`app/actions/implementations.ts`).
+
+- Tablas nuevas **ya aplicadas en producción** con
+  `scripts/apply-sales-implementations-migration.cjs` (aditiva, idempotente):
+  `SalesImplementation` y `SalesImplementationItem`. Sin `tenantId`, como el
+  resto de `Sales*`.
+- Nace sola al mover un lead a la columna `CLIENT` del CRM (`moverLead`), con
+  los **6 pasos** de TeamClubify y 7 días de plazo. Best-effort: un fallo no
+  deshace el cierre de la venta.
+- **Idempotente por el índice único de `leadId`**, no por «leer y luego crear»:
+  dos movimientos a la vez no crean dos implementaciones (el segundo choca con
+  P2002 y devuelve la que ya estaba).
+- Pantalla: KPIs Activas/Completadas/Total (del equipo entero, no del filtro),
+  filtro por estado, tarjeta con barra de progreso y casillas. Colores por
+  tokens: bajo `.brand-panel` Sellea pone su coral sola.
+- Regla de estado (pura y probada): todos los pasos → `completada`; el primero
+  de una `pendiente` → `en_progreso`. **No** revive una `cancelada` ni devuelve
+  a progreso una `completada` al desmarcar: eso lo decide una persona.
+
+Endpoints: `GET sales-teams/:teamId/implementaciones?estado=`,
+`PATCH …/implementaciones/pasos/:itemId`, `PATCH …/implementaciones/:implId/estado`.
+
+Pruebas: `implementaciones-de-equipo.spec.ts` (9). Ojo: `sales-leads.spec.ts`
+construía el servicio con 2 argumentos y ahora son 3 — se arregló; sin eso el
+build del despliegue se caía.
+
+**No se pudo validar en navegador**: Claude in Chrome no estaba conectado en la
+sesión. La paridad se sacó del código de TeamClubify; el acabado visual en
+selleala.com hay que mirarlo a ojo.
+
+### Revisión de Fable antes de desplegar: nada bloquea
+
+Aislamiento entre marcas, middleware de `tenantId`, idempotencia, best-effort
+del enganche y migración vs. schema: comprobados contra el código real. Se
+aplicaron sus mejoras baratas:
+
+- Aviso (`toast`) si falla guardar un paso o el estado: antes la casilla se
+  desmarcaba sola en silencio.
+- Orden `status desc`: lo activo arriba (el `asc` de TeamClubify lo dejaba al
+  final).
+- `arrancarImplementacion` recibe el lead que `moverLead` ya cargó. Además de
+  ahorrar una consulta, **la prueba de `moverLead` ahora llega hasta aquí**: el
+  doble de Prisma no tenía `findUnique` y el arranque fallaba en silencio en
+  cada prueba sin que ninguna lo notara. Ahora se afirma que se llama al ganar
+  y que NO al perder.
+- `hover:border-brand/40` → `hover:border-mute2` en las píldoras inactivas.
+  **Ojo, trampa general:** `.brand-panel [class*="border-brand"]` casa por
+  SUBCADENA, así que cualquier `hover:border-brand…` pinta el borde de marca
+  SIEMPRE, no solo al pasar el ratón. Pasa también en `admin/tenants/**` y en
+  `sales-teams/[id]/board`. El arreglo de raíz es cambiar ese selector a
+  `[class~="border-brand"]`; no se tocó (afecta a todo el panel).
+- `.brand-panel [class*="accent-brand"]` añadido al tema: las casillas marcadas
+  salían verde Clubify bajo Sellea (le pasaba también a otras pantallas).
+
+Descartado con dato: el backfill de clientes ya cerrados. **Producción tiene 0
+leads**, así que no hay ninguno que se pierda al cambiar la pestaña.
+
 ## 2026-09-14 (5) — Píxel de Meta POR NEGOCIO en el menú público
 
 Lo pidió la agencia de Quipao (Click Productions): quieren mandar tráfico de
