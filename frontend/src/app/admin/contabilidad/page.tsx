@@ -91,6 +91,9 @@ type InformeConciliacion = {
   sinResolver: Array<{ gateway: string; externalTxId: string; motivo: string; pista: string | null }>;
   /** Apuntes del libro que ninguna pasarela respalda. */
   sinRespaldo: Array<{ gateway: string; externalTxId: string; grossUsd: number; saleDate: string; brandName: string | null; nota: string | null }>;
+  /** Cobros reconstruidos a mano (mayo/junio): no hay evento de pasarela de esa
+   *  época, así que no son un descuadre. Van aparte del aviso de arriba. */
+  reconstruidos?: Array<{ gateway: string; externalTxId: string; grossUsd: number; saleDate: string; brandName: string | null; nota: string | null }>;
 };
 
 export default function ContabilidadPage() {
@@ -487,6 +490,30 @@ export default function ContabilidadPage() {
                             <span className="text-mute w-16">{fmtDate(x.saleDate)}</span>
                             <span className="flex-1">{x.brandName ?? '—'}</span>
                             <span className="font-mono text-[10px]">{x.externalTxId}</span>
+                            <span className="tabular-nums font-medium">{money(x.grossUsd)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {(informe.reconstruidos?.length ?? 0) > 0 && (
+                    <div className="mt-3 pt-3 border-t border-line2">
+                      <p className="text-xs font-medium">
+                        Cobros reconstruidos a mano ({informe.reconstruidos!.length}):
+                      </p>
+                      <p className="text-[11px] text-mute mt-0.5 mb-1.5">
+                        De mayo y la primera quincena de junio no se guardaba el
+                        aviso de la pasarela, así que estos cobros se reconstruyeron
+                        desde la fecha que enseña Comisiones y el precio del plan de
+                        cada negocio. Son ventas reales; lo que no existe es el
+                        comprobante de la pasarela. Cada fila lleva escrito de dónde
+                        salió su fecha y su importe.
+                      </p>
+                      <ul className="text-xs text-mute flex flex-col gap-1">
+                        {informe.reconstruidos!.map((x) => (
+                          <li key={`${x.gateway}-${x.externalTxId}`} className="flex items-center gap-2">
+                            <span className="text-mute w-16">{fmtDate(x.saleDate)}</span>
+                            <span className="flex-1">{x.brandName ?? '—'}</span>
                             <span className="tabular-nums font-medium">{money(x.grossUsd)}</span>
                           </li>
                         ))}

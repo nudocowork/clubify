@@ -88,6 +88,18 @@ export interface InformeDeConciliacion {
    * hace falta es que dejen de parecer un cobro verificado.
    */
   sinRespaldo: SinRespaldo[];
+  /**
+   * Cobros que SÍ existieron pero que se reconstruyeron a mano, porque de esa
+   * época no hay evento de pasarela que guardar.
+   *
+   * Antes caían en `sinRespaldo` y el panel los pintaba como aviso. No lo son:
+   * un relleno declarado —clave `backfill-…` y una nota que dice de dónde salió
+   * cada dato— es lo contrario de una fila que no se sabe de dónde vino. Se
+   * separan para que el aviso siga queriendo decir algo: mayo y la primera
+   * quincena de junio son 11 filas, y si se mezclaran, un descuadre de verdad
+   * quedaría escondido entre ellas.
+   */
+  reconstruidos: SinRespaldo[];
 }
 
 export interface SinRespaldo {
@@ -249,6 +261,7 @@ export class ConciliadorDeIngresosService {
       enDisputa: [],
       sinResolver: [],
       sinRespaldo: [],
+      reconstruidos: [],
     };
 
     await this.hotmart(informe, enLibro, opts.desde, simular);
@@ -306,7 +319,12 @@ export class ConciliadorDeIngresosService {
               : // CROSS todavía no guarda eventos: no se puede afirmar nada.
                 true;
       if (respaldada) continue;
-      informe.sinRespaldo.push({
+      // Un relleno declarado no es un descuadre: se sabe qué es y por qué no
+      // tiene evento. Va a su propia lista.
+      (ES_DE_RELLENO.test(r.externalTxId)
+        ? informe.reconstruidos
+        : informe.sinRespaldo
+      ).push({
         gateway: r.gateway,
         externalTxId: r.externalTxId,
         grossUsd: Number(r.grossUsd),

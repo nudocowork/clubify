@@ -8,6 +8,73 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-14 (3) — Mayo ya está en Contabilidad: 11 cobros reconstruidos
+
+Sara: *«en mayo no hay data de pago»*, pero Comisiones sí enseña los negocios
+que entraron en mayo y a primeros de junio. Las dos cosas eran ciertas.
+
+**Por qué faltaba:** `HotmartWebhookEvent` (el crudo) empieza el **14-jun** y
+`PendingHotmartPayment` el 11-jun. Todo cobro anterior se procesó sin guardar el
+payload, así que ningún conciliador puede recuperarlo por transacción. Lo único
+que quedó de esos cobros es su derivado: **la comisión**.
+
+La bitácora del 7-sep decía «mayo no se puede reconstruir». Era verdad **por
+transacción**; por NEGOCIO sí se puede.
+
+### Lo aplicado en producción (2026-09-14)
+
+`backend/scripts/backfill-ingresos-mayo-junio.cjs --aplicar` → **11 filas,
+$1.190,00**. El libro pasa de 119 a **130 cobros / $16.438,18**:
+
+- **mayo: 3 cobros / $235** — Wok Explosivo 26-may $50, Konys 30-may $50,
+  Café 1550 de Altitud 30-may $135.
+- **junio: 8 cobros / $955** (junio pasa de 20/$3.513,29 a 28/$4.468,29).
+
+De dónde sale cada dato, que es lo que hay que poder defender:
+
+- **La fecha** es el `businessDate` de la primera comisión —lo que Sara ya ve en
+  Comisiones—, **contrastado con el ciclo de renovación que SÍ está en el
+  crudo**: un mensual comprado el 26-may tiene su cobro siguiente el 26-jun; un
+  trimestral del 30-may renueva el 31-ago. **Cuadra en 9 de 11.** Los otros dos
+  (Birria Leon semestral, BUENOS DIAZ suspendido) no tienen renovación con la
+  que contrastar.
+- **El importe** es el precio del plan (pactado del negocio, o el canónico de su
+  periodicidad), la misma política del resto del libro desde el 3-sep. Se cruzó
+  con la comisión: en las 11 la comisión es un porcentaje redondo del importe
+  ($5 = 10 % de $50; $12,50 + $62,50 = 5 % + 25 % de $250).
+- **Una excepción documentada**: AutoTech Services. Su `businessDate` (13-jun)
+  es el `createdAt` del lote, no una fecha real; alta el 2-jun, `lastChargeAt`
+  1-jun y Hotmart reclamando el 1-jul → se fija en el **1-jun**.
+
+Cada fila lleva `externalTxId = backfill-mayo-<tenantId>` y una `note` que dice
+de dónde salió su fecha y su importe. **Idempotente**: correrlo otra vez crea 0.
+Si algún día apareciera la transacción real, `adoptarRelleno()` le pone encima
+la referencia de Hotmart en vez de duplicar el cobro.
+
+### Cambio de código que lo acompaña
+
+La auditoría inversa metía estas filas en **«sin respaldo»**, que es el aviso de
+*dinero apuntado que no se puede demostrar*. Un relleno declarado no es eso.
+Ahora el informe tiene **`reconstruidos`** aparte, y el panel lo pinta en
+neutro, explicando por qué no hay comprobante. Así el aviso de «sin respaldo»
+vuelve a querer decir algo — si no, un descuadre de verdad quedaría escondido
+entre once filas conocidas.
+
+### Lo que NO se puede reconstruir, y hay que decirlo
+
+- Una venta de mayo/junio de un negocio **sin comisión y sin cuenta activada**
+  no deja rastro en la base. Solo el informe de ventas de Hotmart la sabría.
+- El **monto real cobrado** (con su cambio de moneda) y la transacción `HP…` de
+  estas 11: no existen aquí.
+- `Commission` no se tocó: es territorio de Jhon. Solo lectura.
+
+### Una para confirmar con Javier
+
+**La primera venta con rastro es Wok Explosivo el 26-may**, no el 30. Alta el
+26-may, referido convertido el 27-may y Hotmart reclamando su mensualidad el
+26-jun. Javier recordaba el 30-may (que es Café 1550 y Konys). Si Wok no fue
+venta real, se anula esa fila y mayo queda en 2 cobros / $185.
+
 ## 2026-09-14 (2) — El crédito de la marca no se cobraba en los pagos, y por qué
 
 Del resumen de la reunión con Humberto: *«investigar y corregir bug de crédito
