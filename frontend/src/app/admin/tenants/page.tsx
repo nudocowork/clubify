@@ -10,6 +10,7 @@ import { toast } from '@/components/Toast';
 import { DuplicateBusinessModal } from '@/components/DuplicateBusinessModal';
 import { ManageTrialModal } from '@/components/ManageTrialModal';
 import { periodLabel, planDisplayName, type PlanPeriodicity } from '@/lib/plan-format';
+import { tipoDeNegocioEtiqueta } from '@/lib/infolink-tier';
 
 function avatarClass(seed: string) {
   const sum = seed.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
@@ -75,6 +76,10 @@ function searchHaystack(t: any): string {
     // Tipo de negocio para que "infolink" / "completo" matcheen en la búsqueda.
     t.businessType,
     t.businessType === 'INFOLINK' ? 'solo infolink' : 'negocio completo',
+    // …y el NIVEL, para poder listar los InfoLink gratis de un vistazo
+    // ("free" / "pro"). Es la diferencia entre una cuenta que paga y una de
+    // captación, y desde la tabla no se veía.
+    tipoDeNegocioEtiqueta(t.businessType, t.infolinkTier).texto,
     t.attributionInfluencer?.ownerName,
     t.attributionAmbassador?.ownerName,
     t.attributionVendor?.ownerName,
@@ -446,16 +451,32 @@ export default function TenantsPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3.5">
-                  {tn.businessType === 'INFOLINK' ? (
-                    <span
-                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                      style={{ background: 'rgba(37,99,235,.12)', color: '#2563eb' }}
-                    >
-                      Solo InfoLink
-                    </span>
-                  ) : (
-                    <span className="text-[11px] text-mute">Completo</span>
-                  )}
+                  {(() => {
+                    // El tipo dice también SI PAGA: un InfoLink Free es de
+                    // captación (0 créditos) y uno PRO es un cliente. Con la
+                    // etiqueta a secas no se podían distinguir.
+                    const tipo = tipoDeNegocioEtiqueta(tn.businessType, tn.infolinkTier);
+                    if (!tipo.infolink) {
+                      return <span className="text-[11px] text-mute">{tipo.texto}</span>;
+                    }
+                    return (
+                      <span
+                        className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                        style={
+                          tipo.gratis
+                            ? { background: 'rgba(100,116,139,.14)', color: '#475569' }
+                            : { background: 'rgba(37,99,235,.12)', color: '#2563eb' }
+                        }
+                        title={
+                          tipo.gratis
+                            ? 'InfoLink gratuito (captación): no consume créditos de la marca'
+                            : 'InfoLink de pago: consume 0,1 créditos al mes'
+                        }
+                      >
+                        {tipo.texto}
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td className="px-4 py-3.5">
                   <div className="font-medium">

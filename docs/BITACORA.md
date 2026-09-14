@@ -8,6 +8,80 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-14 (2) — El crédito de la marca no se cobraba en los pagos, y por qué
+
+Del resumen de la reunión con Humberto: *«investigar y corregir bug de crédito
+no descontado en cuentas demo tras conversión de trial a plan pagado»*.
+
+### Lo que pasaba
+
+`cobrarCreditoDeActivacion` tiene dos puertas (panel y Onboarding). **La
+pasarela no era ninguna de las dos.** El único cobro de ese camino vivía en
+`consumeTrialConversionCredit` (stripe.service), y su primera condición es
+saber que la suscripción tuvo prueba — dato que sale de **preguntarle a
+Stripe** por la suscripción.
+
+**La `secretKey` que Sellea tiene guardada no es una clave: es el Destination
+ID del webhook (`ed_61V15…`).** Stripe contesta `401 Invalid API Key`. Ese
+error se traga con un `warn`, así que:
+
+- `ctx.trialEnd` llega siempre en null → el crédito no se cobraba **nunca**;
+- el `priceId` real no se resuelve en `checkout.session.completed`;
+- los cobros SIGUEN ENTRANDO (el webhook se valida con otro secreto), y el
+  panel enseña la clave enmascarada como si estuviera bien.
+
+Medido: **«demo demo» (Sellea) pagó $80 el 6-sep y a Sellea no se le descontó
+nada.** Es la cuenta demo de la que hablaba Humberto.
+
+### Lo que se hizo
+
+1. **El cobro se movió a la transición a ACTIVE**, dentro de `activate()`, con
+   la misma función que el panel y el Onboarding. Es un hecho de nuestra base:
+   no depende de que la pasarela conteste. El cobro del día 7 de la prueba ES
+   esa transición, así que la conversión queda cubierta.
+2. La transición **se reclama con un `updateMany` condicional** antes de
+   cobrar: una compra dispara TRES eventos en el mismo segundo y no puede
+   costar tres créditos (ver `clubify-leer-decidir-escribir`).
+3. `cobrarCreditoDeActivacion` acepta `noBloquear`: **a quien ya pagó no se le
+   niega el servicio**. Sin saldo se activa igual y queda un `ADJUSTMENT` de
+   importe 0 diciendo cuánto se debe (el saldo NO se pone negativo).
+4. `consumeTrialConversionCredit` queda de red de seguridad (para el negocio
+   que ya estaba ACTIVE cuando llegó su primer cobro) y ya no anota consumos
+   de −0.
+5. Un 401 de Stripe ahora sube a **ERROR** y queda auditado
+   (`payment.gateway_key_invalid`). Nuevo script:
+   `node scripts/verificar-claves-de-pasarela.cjs` (con `railway run`, necesita
+   `dist/`) — prueba las claves guardadas contra la pasarela de verdad.
+6. Panel: `activateTenant` (botón «activar con crédito») **no vuelve a cobrar
+   si el negocio ya está ACTIVE con período vigente** — un reintento costaba
+   otro crédito. Y el simulador de facturación dejó de tener su propia copia de
+   la regla: usa la función común.
+
+Pruebas: `src/billing/credito-de-activacion-stripe.spec.ts` (8) y 3 casos
+nuevos en `creditos-de-marca.spec.ts`.
+
+### PENDIENTE, y es de producción
+
+**Que Humberto pegue la `sk_live_…` real de Sellea** en el panel de la marca.
+Mientras siga el `ed_…`, todo lo que consulte a Stripe falla en silencio. El
+arreglo de arriba hace que el crédito ya no dependa de eso, pero la
+periodicidad por `priceId` y cualquier consulta futura sí.
+
+Sin decidir: si se le cobra retroactivamente a Sellea el crédito de «demo
+demo» (hoy suspendida). Los créditos de Sellea: 3 disponibles.
+
+### Etiqueta del tipo de negocio (mismo día, pedido de Javier)
+
+La columna **Tipo** decía «Solo InfoLink» sin decir si esa cuenta paga. Ahora
+dice **InfoLink Free** o **InfoLink PRO** (y entra en el buscador); en la ficha
+del negocio se ve el nivel y lo que cuesta. De paso, el espejo del frontend
+seguía diciendo que un InfoLink cuesta **0,25 créditos/mes** cuando el backend
+cobra **0,1** desde el 24-ago: el popup de activación pedía de más y podía
+apagar el botón con saldo suficiente.
+
+En producción: Corks Arts, Sellea Col y Fressh son InfoLink **Free** (0
+créditos, correcto). Level Up Off Road es de pago y sí consumió.
+
 ## 2026-09-12 (2) — Contabilidad: veía 3 de 20 cobros, y restaba deuda como gasto
 
 Septiembre salía en **$0,00 de ventas y −$225,60 de utilidad** con el dinero ya

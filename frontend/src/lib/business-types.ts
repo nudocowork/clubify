@@ -16,7 +16,11 @@ export interface BusinessTypeDef {
 
 export const BUSINESS_TYPES: Record<BusinessType, BusinessTypeDef> = {
   FULL: { key: 'FULL', label: 'Negocio Completo', shortLabel: 'Completo', creditCost: 1 },
-  INFOLINK: { key: 'INFOLINK', label: 'Solo InfoLink', shortLabel: 'InfoLink', creditCost: 0.25 },
+  // 0.1, no 0.25: el costo del InfoLink bajó el 2026-08-24 en el backend y
+  // este espejo se quedó atrás. El panel de créditos le decía al admin que la
+  // activación costaba 0.25 (y le apagaba el botón si tenía menos), mientras
+  // el backend descontaba 0.1.
+  INFOLINK: { key: 'INFOLINK', label: 'Solo InfoLink', shortLabel: 'InfoLink', creditCost: 0.1 },
 };
 
 export const DEFAULT_BUSINESS_TYPE: BusinessType = 'FULL';

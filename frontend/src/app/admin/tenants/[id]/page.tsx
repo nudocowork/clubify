@@ -1792,7 +1792,8 @@ function AcademyTogglesCard({
         <div className="grid grid-cols-2 gap-2">
           {[
             { key: 'FULL', label: 'Negocio Completo', hint: 'Todos los módulos · 1 créd/mes' },
-            { key: 'INFOLINK', label: 'Solo InfoLink', hint: 'Solo InfoLink · 0.25 créd/mes' },
+            // 0,1 créd/mes desde el 2026-08-24 (acá seguía diciendo 0.25).
+            { key: 'INFOLINK', label: 'Solo InfoLink', hint: 'Solo InfoLink · 0,1 créd/mes' },
           ].map((bt) => {
             const active = businessType === bt.key;
             return (
@@ -1811,8 +1812,24 @@ function AcademyTogglesCard({
           })}
         </div>
         {businessType === 'INFOLINK' && (
-          <div className="text-[11px] text-warn-ink mt-1.5 leading-snug">
-            Este negocio solo verá el módulo InfoLink; el backend bloquea el resto.
+          <div className="text-[11px] mt-1.5 leading-snug">
+            <div className="text-warn-ink">
+              Este negocio solo verá el módulo InfoLink; el backend bloquea el resto.
+            </div>
+            {/* El NIVEL es lo que decide si la cuenta cuesta o no: Free es de
+                captación y no consume créditos de la marca. Lo pone el
+                auto-registro (Free) o el pago por Stripe (PRO); un InfoLink
+                antiguo sin nivel guardado cuenta como PRO. */}
+            <div className="text-mute mt-1">
+              Nivel:{' '}
+              <strong>
+                {tenant.infolinkTier === 'FREE' ? 'Free (gratuito)' : 'PRO (de pago)'}
+              </strong>{' '}
+              ·{' '}
+              {tenant.infolinkTier === 'FREE'
+                ? 'no consume créditos de la marca'
+                : 'consume 0,1 créditos al mes'}
+            </div>
           </div>
         )}
       </div>
