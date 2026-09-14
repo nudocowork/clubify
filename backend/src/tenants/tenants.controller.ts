@@ -1,5 +1,7 @@
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UnauthorizedException } from '@nestjs/common';
-import { IsArray, IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsDateString, IsEmail, IsHexColor, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength,
+  Matches,
+} from 'class-validator';
 import { TenantsService } from './tenants.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
@@ -111,6 +113,17 @@ class UpdateTenantBody {
   // Precio real pagado en Hotmart (base de comisiones). null limpia el
   // override y vuelve al precio canónico del bundle.
   @IsOptional() @IsNumber() @Min(0) subscriptionPriceUsd?: number | null;
+  /**
+   * Píxel de Meta DEL NEGOCIO (solo el id, 6-20 dígitos).
+   *
+   * Se valida el formato aquí porque el error típico es pegar la URL entera
+   * del administrador de eventos o el id con espacios: guardado así, el menú
+   * no carga nada y el negocio cree que está midiendo. null o vacío lo borra.
+   */
+  @IsOptional() @Matches(/^\d{6,20}$|^$/, {
+    message: 'El píxel de Meta es solo el id numérico (6-20 dígitos).',
+  })
+  metaPixelId?: string | null;
   @IsOptional() @IsInt() @Min(1) maxLocationsOverride?: number;
   @IsOptional() @IsInt() @Min(0) gracePeriodDays?: number;
   // Asignar subcuenta global de Grow Business para alertas SMS de

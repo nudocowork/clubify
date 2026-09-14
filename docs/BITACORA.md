@@ -8,6 +8,55 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-14 (5) — Píxel de Meta POR NEGOCIO en el menú público
+
+Lo pidió la agencia de Quipao (Click Productions): quieren mandar tráfico de
+conversión al menú de sus 3 sedes. Preguntaban dos cosas y las dos respuestas
+eran «hoy no»:
+
+- **No había píxel por negocio.** `metaPixelId` existía solo en `WhiteLabel`
+  —la landing de Sellea/Clubify— y en el menú de un cliente no se cargaba nada.
+- **El botón «Enviar pedido por WhatsApp» no disparaba ningún evento.** Ni
+  `Purchase`, ni `Lead`: no había una sola llamada a `fbq` en el flujo.
+
+### Lo que se construyó (general, no solo Quipao)
+
+- `Tenant.metaPixelId` — columna ya aplicada en producción con
+  `scripts/apply-tenant-meta-pixel-migration.cjs` (aditiva e idempotente).
+  **Se aplicó ANTES de desplegar**: el menú público usa `include`, así que el
+  código nuevo pidiendo una columna que no existe tumba el menú entero.
+- Se configura en `/admin/tenants/<id>` → «Píxel de Meta del negocio». Solo el
+  id numérico; el DTO rechaza pegar la URL del administrador de eventos, que es
+  el error típico y deja al negocio creyendo que mide.
+- `frontend/src/lib/pixel-del-negocio.ts` carga el píxel en el menú y manda:
+  `PageView` · `AddToCart` · `InitiateCheckout` · `Purchase` (con `value`,
+  `currency`, `content_ids` y la **sede** en `content_category`).
+
+### Dos decisiones que no hay que deshacer
+
+1. **Todo sale por `trackSingle`, nunca `fbq('track', …)`.** Con `track` a
+   secas, Meta reparte el evento a **todos** los píxeles de la página: en
+   `app.selleala.com` un pedido del restaurante contaría como conversión de
+   Sellea y las audiencias de las dos cuentas quedarían mezcladas sin que nadie
+   lo note.
+2. **`AddToCart` se dispara dentro de `lib/cart.ts`**, no en las pantallas. Es
+   el único sitio por el que entra algo al carrito (ficha de producto,
+   promociones, lo que venga); puesto arriba se olvida en el siguiente
+   componente y el evento deja de mandarse en silencio.
+
+Y una regla de Meta que se paga cara: un evento con `value` y **sin
+`currency`** se descarta sin avisar. Por eso la moneda se guarda al configurar
+el píxel y se añade sola a todo importe. Quipao factura en **USD**.
+
+### Lo que falta y es de negocio, no de código
+
+El `Purchase` es **«pedido enviado», no «pedido pagado»**: el cobro ocurre
+fuera, por WhatsApp o en caja. Hay que decírselo a la agencia antes de que
+optimice campañas por ese evento.
+
+Pendiente: que Hugo (trafficker) mande el **id del píxel**. No se le da acceso
+al panel — el id lo carga Clubify.
+
 ## 2026-09-14 (4) — En las tarjetas de alianza faltaba el logo del negocio
 
 Javier, mirando las de **Altieri**: *«no aparece el logo de ellos en la parte de

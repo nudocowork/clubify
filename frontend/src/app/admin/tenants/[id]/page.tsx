@@ -36,7 +36,7 @@ export default function TenantDetail() {
   const [brandSaving, setBrandSaving] = useState(false);
   // PDF 925: editar info del negocio (email/WhatsApp/slug) desde el detalle.
   const [infoEditing, setInfoEditing] = useState(false);
-  const [infoDraft, setInfoDraft] = useState({ email: '', whatsappPhone: '', slug: '', customDomain: '' });
+  const [infoDraft, setInfoDraft] = useState({ email: '', whatsappPhone: '', slug: '', customDomain: '', metaPixelId: '' });
   const [infoSaving, setInfoSaving] = useState(false);
   // Notas internas del negocio — SOLO Clubify (2026-08-17).
   const [notesDraft, setNotesDraft] = useState('');
@@ -130,6 +130,7 @@ export default function TenantDetail() {
       whatsappPhone: t?.whatsappPhone ?? '',
       slug: t?.slug ?? '',
       customDomain: sfDomain ?? '',
+      metaPixelId: t?.metaPixelId ?? '',
     });
     setInfoEditing(true);
   }
@@ -142,6 +143,11 @@ export default function TenantDetail() {
     if (email && email !== (t?.email ?? '')) payload.email = email;
     if (whatsappPhone !== (t?.whatsappPhone ?? '')) payload.whatsappPhone = whatsappPhone;
     if (slug && slug !== (t?.slug ?? '')) payload.slug = slug;
+    // Vacío se manda igual (el backend lo traduce a null): borrar el píxel es
+    // una acción tan válida como ponerlo, y con un `if (valor)` no habría forma
+    // de quitarlo desde el panel.
+    const pixel = infoDraft.metaPixelId.trim();
+    if (pixel !== (t?.metaPixelId ?? '')) payload.metaPixelId = pixel;
     // Dominio personalizado → Storefront.customDomain (PDF123). Se guarda por el
     // endpoint de storefront con ?tenantId (SUPER_ADMIN puede cross-tenant).
     const domain = infoDraft.customDomain.trim().toLowerCase();
@@ -776,6 +782,24 @@ export default function TenantDetail() {
                   Dominio propio del negocio (ej: birrialeon.com). Debe apuntar por
                   DNS a Vercel y agregarse al proyecto. Vacío = usa el enlace /m/ por
                   defecto.
+                </p>
+              </div>
+              <div>
+                <label className="label">Píxel de Meta del negocio</label>
+                <input
+                  className="input font-mono text-xs"
+                  value={infoDraft.metaPixelId}
+                  placeholder="1393034506278228"
+                  inputMode="numeric"
+                  onChange={(e) =>
+                    setInfoDraft((d) => ({ ...d, metaPixelId: e.target.value }))
+                  }
+                />
+                <p className="text-[11px] text-mute mt-1 leading-snug">
+                  Solo el id numérico que da su agencia (no la URL ni el token).
+                  Mide el menú público de ESTE negocio: PageView, añadir al
+                  carrito, iniciar pedido y Purchase al enviarlo por WhatsApp.
+                  Vacío = el negocio no mide y no se carga nada de Meta.
                 </p>
               </div>
               <div className="flex gap-2 pt-1">

@@ -108,6 +108,8 @@ export type CreateTenantDto = {
 };
 
 export type UpdateTenantDto = Partial<{
+  /** Píxel de Meta del negocio (solo el id). null o '' lo borra. */
+  metaPixelId: string | null;
   brandName: string;
   slug: string;
   email: string;
@@ -1125,6 +1127,12 @@ export class TenantsService {
           : await this.ensureUniqueSlug(normalized, id);
     } else {
       delete data.slug;
+    }
+    // El píxel se guarda en limpio o no se guarda: una cadena vacía es «lo
+    // borré», no «mide con el id ''». Sin esto, el menú intentaría cargar un
+    // píxel inexistente y el negocio vería el campo «puesto» sin medir nada.
+    if (dto.metaPixelId !== undefined) {
+      data.metaPixelId = (dto.metaPixelId ?? '').trim() || null;
     }
     const updated = await this.prisma.tenant.update({
       where: { id },

@@ -6,6 +6,8 @@
 // un carrito limpio. Sin esto, items con disponibilidad parcial leakean
 // entre menús.
 
+import { eventoDelNegocio } from './pixel-del-negocio';
+
 export type CartItem = {
   productId: string;
   variantId?: string;
@@ -84,6 +86,20 @@ export function addToCart(slug: string, item: CartItem, mode: CartMode = 'mesa')
     items.push(item);
   }
   writeCart(slug, items, mode);
+
+  // AddToCart para el píxel del negocio. Va AQUÍ y no en cada pantalla porque
+  // este es el único sitio por el que entra algo al carrito: la ficha del
+  // producto, las promociones y lo que se añada mañana pasan por acá. Puesto
+  // arriba, en los componentes, se olvida en el siguiente que alguien escriba
+  // y el evento deja de mandarse sin que nadie se entere. Sin píxel
+  // configurado no hace nada.
+  eventoDelNegocio('AddToCart', {
+    value: Number(item.unitPrice) * item.qty,
+    content_type: 'product',
+    content_ids: [item.productId],
+    contents: [{ id: item.productId, quantity: item.qty }],
+    content_name: item.name,
+  });
 }
 
 export function updateQty(

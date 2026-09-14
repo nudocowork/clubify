@@ -39,6 +39,10 @@ import {
   resolveActiveMenuPopup,
 } from '@/lib/storefront-popups';
 import { useLocale, useT, configureTenantLocale } from '@/lib/i18n';
+import {
+  configurarPixelDelNegocio,
+  eventoDelNegocio,
+} from '@/lib/pixel-del-negocio';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
 import { MenuBookViewer } from '@/components/menu/MenuBookViewer';
 import {
@@ -109,6 +113,8 @@ type Storefront = {
   instagramUrl: string | null;
   mapsUrl: string | null;
   currency: string;
+  /** Píxel de Meta del NEGOCIO (no el de la marca). null = no mide. */
+  metaPixelId?: string | null;
   /** Símbolo override opcional. Si está, reemplaza el símbolo automático
    *  de Intl en todos los precios mostrados. */
   currencySymbol?: string | null;
@@ -492,6 +498,9 @@ function StorefrontPublicInner() {
             // slug y usa el idioma del negocio como default. Si el cliente ya
             // eligió uno para ESTE negocio, se respeta (clave namespaced).
             configureTenantLocale(slug, data?.locale);
+            // El píxel del NEGOCIO (si su dueño puso uno): se carga acá, con
+            // el menú, y manda su PageView. Sin id no se carga nada de Meta.
+            configurarPixelDelNegocio(data?.metaPixelId, data?.currency);
           }
         })
         .catch((e: Error) => {
@@ -1862,6 +1871,17 @@ function CheckoutSheet({
   onClose: () => void;
 }) {
   const tt = useT();
+  // InitiateCheckout: abrir la hoja de pedido ES el inicio del checkout. Una
+  // sola vez por apertura (el array vacío), no en cada tecla del formulario.
+  useEffect(() => {
+    eventoDelNegocio('InitiateCheckout', {
+      value: cartTotals(items).subtotal,
+      num_items: items.reduce((n, i) => n + i.qty, 0),
+      content_type: 'product',
+      content_ids: items.map((i) => i.productId),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Tras la separación 2026-06-06, el carrito solo abre en DELIVERY
   // (`ordersAllowed` corta el flujo en MESA). Igual mantenemos defaults
   // consistentes con el modo por si en el futuro habilitamos mesa con
@@ -2113,6 +2133,29 @@ function CheckoutSheet({
         throw new Error(j.message ?? 'No se pudo enviar el pedido');
       }
       const order = await res.json();
+
+      // Purchase para el píxel del negocio. Es «pedido enviado», no «pedido
+      // cobrado»: el pago ocurre fuera —por WhatsApp o en caja—, así que es lo
+      // más cerca de una venta que este menú puede afirmar. Va DESPUÉS de que
+      // el backend confirme el pedido, nunca al pulsar el botón: si el envío
+      // falla, no hubo venta que contar.
+      //
+      // `event_id` = el código del pedido: si algún día se manda el mismo
+      // evento desde el servidor (API de Conversiones), Meta los une en vez de
+      // contar dos compras.
+      eventoDelNegocio('Purchase', {
+        value: cartTotals(items).subtotal,
+        content_type: 'product',
+        content_ids: items.map((i) => i.productId),
+        contents: items.map((i) => ({ id: i.productId, quantity: i.qty })),
+        num_items: items.reduce((n, i) => n + i.qty, 0),
+        order_id: order?.code ?? undefined,
+        event_id: order?.code ?? undefined,
+        // La sede a la que entró el pedido: es lo único que distingue las tres
+        // sucursales de un negocio que comparte un solo menú.
+        content_category: effectiveSedeId || undefined,
+      });
+
       clearCart(slug, mode);
 
       // El teléfono con el que acaba de pedir, para que «Mis pedidos» no se lo

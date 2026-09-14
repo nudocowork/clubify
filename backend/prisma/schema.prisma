@@ -650,6 +650,16 @@ model Tenant {
   // posible vía DELETE (cascade) eligiendo "eliminar todo" en el modal.
   deletedAt                   DateTime?
   referredByCode              String?
+  /// Píxel de Meta DEL NEGOCIO (solo el id). null = el negocio no mide.
+  ///
+  /// Distinto del de la marca (`WhiteLabel.metaPixelId`, que mide la landing de
+  /// Sellea o de Clubify): este se dispara en el MENÚ PÚBLICO del negocio, que
+  /// es donde su agencia manda el tráfico de sus campañas. Uno por negocio: el
+  /// id vive en la cuenta publicitaria del cliente y mezclarlos mandaría las
+  /// conversiones de un restaurante a la cuenta de otro.
+  ///
+  /// Lo pidió la agencia de Quipao el 2026-09-14 (3 sedes, un solo menú).
+  metaPixelId                 String?
   currency                    String                     @default("COP")
   /// Override opcional del símbolo monetario. Si está null, se usa el
   /// símbolo automático de Intl según la moneda (COP → "$", EUR → "€").

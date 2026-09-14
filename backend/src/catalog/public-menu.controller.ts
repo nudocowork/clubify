@@ -230,6 +230,12 @@ export class PublicMenuController {
       mapsUrl: t.mapsUrl,
       currency: t.currency,
       currencySymbol: t.currencySymbol ?? null,
+      // Píxel de Meta DEL NEGOCIO, para que su agencia mida las campañas que
+      // traen tráfico a este menú. Es público a propósito —un píxel se ve en el
+      // HTML de cualquier web que lo use— y no lleva token ni nada con lo que
+      // se pueda escribir en su cuenta. Null = el negocio no mide y no se
+      // carga nada de Meta.
+      metaPixelId: t.metaPixelId ?? null,
       country: t.country ?? 'CO',
       // Idioma del negocio (PDF 1254): el storefront lo usa como default para
       // los clientes de ESTE negocio (independiente de otros negocios).
