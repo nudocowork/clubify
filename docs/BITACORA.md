@@ -8,6 +8,99 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-14 (9) — Equipos de Ventas (Sellea): Agenda del día y Seguimientos por resultado
+
+Siguen al orden del brief (Clientes → Banco → Contactos → **Agenda →
+Seguimientos** → CRM). Van en el mismo commit porque comparten despliegue.
+
+### Agenda: la rejilla del día
+
+La Agenda tenía el enlace público, el horario y una lista de próximas citas.
+Ahora, encima de todo, está la **rejilla de TeamClubify**: closers en columnas,
+franjas de 30 minutos en filas, y cada cita en su celda con un **semáforo**
+(verde = confirmó o ya se hizo · rojo = canceló o no asistió · gris = sin
+confirmar). Con flechas de día y «Hoy».
+
+- `GET sales-teams/:teamId/agenda/dia?fecha=AAAA-MM-DD` (`SalesAgendaService.dia`).
+- Las franjas salen del **horario del equipo para ese día de la semana**; si
+  ese día no tiene horario, de 9:00 a 18:00 como la referencia. Una cita fuera
+  de rango añade su franja: nunca se esconde.
+- Dos citas en la misma franja se apilan en la celda, y la cita de alguien que
+  no es closer activo (otro rol, o un closer dado de baja) abre su propia
+  columna marcada «no es closer activo».
+- El día y las horas son de **Bogotá** (`fechaEn`/`minutosLocalesAUtc`), no
+  medianoche UTC.
+- El semáforo lo calcula el servidor, como el del Banco.
+- «Quiénes son los closers» vive ahora en `closers-del-equipo.ts` y lo usan
+  la Agenda y el Banco: si cada pantalla lo calculara a su manera, alguien
+  saldría en la rejilla y no aparecería para asignarle citas.
+- Reglas puras en `agenda-del-dia.ts` (13 pruebas).
+
+### Seguimientos: por grupos, y cada paso se cierra con un resultado
+
+Era una tabla plana con un filtro de estado y ninguna forma de decir qué pasó.
+Ahora:
+
+- **Grupos por día de Bogotá**: vencidos (días anteriores), para hoy,
+  programados; y una pestaña de hechos. Uno de hoy a las 08:00 sigue «para
+  hoy» a las 15:00, como en la referencia.
+- Cada paso muestra **paso N · intento M** y **quién atendió** (el closer de
+  la última cita realizada; si no hay, el responsable del paso).
+- **Registrar resultado**: compró · respondió y desea continuar · pidió más
+  tiempo · no respondió · no calificado (con motivo).
+  - «Compró» y «no calificado» mueven el lead por **`moverLead`**, la misma
+    puerta del CRM: sella la venta, dispara eventos y arranca la implementación
+    de «Clientes». No hay una segunda copia de esa regla.
+  - «Continuar» y «más tiempo» piden la fecha del siguiente paso. «No
+    respondió» sin fecha **se reprograma solo** a las 9:00 con la cadencia por
+    defecto de TeamClubify (primer reintento a los 3 días, luego 7, luego
+    cada 14).
+  - Todo queda como nota en la actividad del lead.
+- El cierre es **atómico** (`updateMany` sobre los abiertos) y va en una
+  **transacción** con el siguiente paso y el motivo: dos personas registrando
+  el mismo paso no crean dos pasos siguientes. Si después falla mover el lead,
+  el paso se reabre para que el reintento lo termine.
+- Eliminar un paso: solo abiertos, solo líder o admin de la marca.
+- Los pasos pendientes de un lead que ya compró o se perdió no salen: no son
+  trabajo.
+- Rutas en controlador propio: `GET …/seguimientos/agrupados`,
+  `PATCH …/seguimientos/:id/resultado`, `DELETE …/seguimientos/:id`. El
+  `GET …/seguimientos` plano que ya existía se queda.
+- Reglas puras en `seguimientos-de-equipo.ts` (14 pruebas).
+
+### Lo que NO se trajo de la referencia (a propósito)
+
+- **Paso e intento no se guardan**: `SalesFollowup` no tiene `seq`/`attempt`;
+  se deducen de la historia del lead (intento = 1 + pasos seguidos que acabaron
+  en «no respondió»). Sin migración.
+- **Sin «Seguimiento olvido»**: TeamClubify aparta el lead tras 4 intentos sin
+  respuesta; aquí sigue reprogramándose, y el «intento N» a la vista deja
+  decidir cuándo darlo por no calificado.
+- **«Abrir chat» lleva a la ficha del lead en el CRM**, que ya tiene la
+  conversación, en vez de abrir otra ventana de chat.
+- Tope de 300 pasos por lista; si hay más, la pantalla lo avisa.
+
+### Revisión de Fable antes de desplegar: 4 importantes y 2 menores, aplicados
+
+Comprobados uno a uno contra el código antes de tocar:
+
+1. Citas **invisibles** en la rejilla cuando quien atiende no es closer activo.
+2. Dos citas en la misma celda: **solo se pintaba una** (`find`).
+3. «No respondió» sin fecha cerraba el paso y **el lead salía de la lista para
+   siempre**.
+4. Un fallo a medias al registrar el resultado dejaba el paso cerrado **sin
+   salida** (el reintento recibía «ya tenía un resultado»).
+5. El tope de 300 se aplicaba **antes** de quitar los leads ganados o perdidos:
+   con volumen, pasos vivos quedaban fuera sin aviso. Ahora se filtra en la
+   consulta.
+6. Dos escrituras de `SalesLead` sin acotar por equipo (sin fuga real, pero
+   rompían el patrón): ahora `updateMany` con `salesTeamId`.
+
+En el 4 **no** se siguió la propuesta literal (mover el lead antes de cerrar el
+paso): abría otra carrera, porque dos resultados opuestos registrados a la vez
+dejaban el lead en la columna de quien perdía el cierre. Se hizo con
+transacción + reabrir el paso si falla el movimiento.
+
 ## 2026-09-14 (8) — Equipos de Ventas (Sellea): «Contactos» ya se trabaja en lote
 
 Tercer apartado del brief. Referencia leída en TeamClubify:

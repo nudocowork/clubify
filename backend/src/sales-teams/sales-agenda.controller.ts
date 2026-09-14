@@ -107,6 +107,16 @@ export class SalesAgendaController {
     });
   }
 
+  /** La rejilla del día: closers en columnas, franjas en filas, semáforo por cita. */
+  @Get('dia')
+  dia(
+    @CurrentUser() user: AuthUser,
+    @Param('teamId') teamId: string,
+    @Query('fecha') fecha?: string,
+  ) {
+    return this.svc.dia(user, teamId, fecha);
+  }
+
   @Get('citas')
   listar(
     @CurrentUser() user: AuthUser,

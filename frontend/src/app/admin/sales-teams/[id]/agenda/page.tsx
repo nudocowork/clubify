@@ -17,6 +17,7 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { CabeceraDeEquipo } from '@/components/ventas/CabeceraDeEquipo';
 import { toast } from '@/components/Toast';
+import { AgendaDelDia } from '@/components/ventas/AgendaDelDia';
 
 type Franja = {
   id: string;
@@ -197,6 +198,10 @@ export default function AgendaDelEquipo() {
   return (
     <div className="max-w-4xl">
       <CabeceraDeEquipo equipo={{ ...horario.team, id: teamId }} />
+
+      {/* La rejilla del día va primero: es lo que se mira cada mañana. El
+          enlace y el horario se tocan una vez y se quedan debajo. */}
+      <AgendaDelDia teamId={teamId} />
 
       {/* ── Enlace público ─────────────────────────────────────────────── */}
       <section className="card card-pad mb-4">

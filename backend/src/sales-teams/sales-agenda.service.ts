@@ -22,6 +22,8 @@ import { MktProviderService } from '../marketing/provider/mkt-provider.service';
 import { exigirEscritura, resolveTeamAccess } from './team-access';
 import { asegurarColumnas } from './sales-columnas';
 import { SalesAutomationsService } from './sales-automations.service';
+import { closersActivosDelEquipo } from './closers-del-equipo';
+import { franjaDeHora, franjasDelDia, horaEnZona, semaforoDeCita } from './agenda-del-dia';
 
 /**
  * La agenda del equipo de ventas — fase 4.
@@ -329,6 +331,95 @@ export class SalesAgendaService {
       puedeEscribir: acceso.puedeEscribir,
       zona: ZONA_POR_DEFECTO,
       citas: citas.map((c) => this.paraElPanel(c)),
+    };
+  }
+
+  /**
+   * La rejilla de UN día: closers en columnas, franjas en filas y el semáforo de
+   * cada cita. Las franjas salen del horario del equipo para ese día de la
+   * semana, estiradas para que quepa cualquier cita que caiga fuera.
+   *
+   * Las canceladas no ocupan celda: liberaron su hora. Un «no asistió» sí, en
+   * rojo, porque esa hora se perdió y hay que verlo.
+   */
+  async dia(user: AuthUser, teamId: string, fecha?: string) {
+    const acceso = await resolveTeamAccess(this.prisma, user, teamId);
+    const zona = ZONA_POR_DEFECTO;
+    const elDia = fecha && fechaValida(fecha) ? fecha : fechaEn(new Date(), zona);
+    const desde = minutosLocalesAUtc(elDia, 0, zona);
+    const hasta = minutosLocalesAUtc(elDia, 24 * 60, zona);
+
+    const [closers, citas, horario] = await Promise.all([
+      closersActivosDelEquipo(this.prisma, teamId),
+      this.prisma.salesMeeting.findMany({
+        where: {
+          salesTeamId: teamId,
+          startAt: { gte: desde, lt: hasta },
+          status: { not: 'CANCELADA' },
+        },
+        orderBy: { startAt: 'asc' },
+        take: 500,
+        include: { lead: { select: { id: true, name: true, company: true } } },
+      }),
+      this.prisma.salesAvailability.findMany({
+        where: { salesTeamId: teamId, weekday: diaDeLaSemanaEn(elDia, zona) },
+        select: { startMin: true, endMin: true },
+      }),
+    ]);
+
+    // Una cita cuyo anfitrión no es closer activo —un miembro con otro rol, o un
+    // closer dado de baja con citas ya puestas— no caía en ninguna columna: se
+    // perdía de la rejilla que se mira cada mañana (Fable, 2026-09-14). Se le
+    // abre su columna, marcada, para que se vea y se pueda reasignar.
+    const activos = new Set(closers.map((c) => c.id));
+    const ajenos = [
+      ...new Set(citas.map((c) => c.hostUserId).filter((id): id is string => !!id && !activos.has(id))),
+    ];
+    const columnas: Array<{ id: string; nombre: string; activo: boolean }> = closers.map((c) => ({
+      ...c,
+      activo: true,
+    }));
+    if (ajenos.length) {
+      // Por la membresía y por el líder, no por `User`: `User` pasa por el filtro
+      // de negocio y en el panel de una marca saldría sin nombre.
+      const [miembros, equipo] = await Promise.all([
+        this.prisma.salesTeamMember.findMany({
+          where: { teamId, userId: { in: ajenos } },
+          select: { userId: true, user: { select: { fullName: true } } },
+        }),
+        this.prisma.salesTeam.findUnique({
+          where: { id: teamId },
+          select: { leadUserId: true, leadUser: { select: { fullName: true } } },
+        }),
+      ]);
+      const nombre = new Map(miembros.map((m) => [m.userId, m.user?.fullName ?? null]));
+      if (equipo?.leadUserId && equipo.leadUser?.fullName && !nombre.get(equipo.leadUserId)) {
+        nombre.set(equipo.leadUserId, equipo.leadUser.fullName);
+      }
+      for (const id of ajenos) {
+        columnas.push({ id, nombre: nombre.get(id) ?? 'Fuera del equipo', activo: false });
+      }
+    }
+
+    const horas = citas.map((c) => horaEnZona(c.startAt, zona));
+    return {
+      team: acceso.team,
+      puedeEscribir: acceso.puedeEscribir,
+      fecha: elDia,
+      zona,
+      closers: columnas,
+      franjas: franjasDelDia(horario, horas),
+      citas: citas.map((c, i) => ({
+        id: c.id,
+        hostUserId: c.hostUserId,
+        startAt: c.startAt,
+        hora: horas[i],
+        franja: franjaDeHora(horas[i]),
+        durationMin: c.durationMin,
+        status: c.status,
+        semaforo: semaforoDeCita(c),
+        lead: c.lead ? { id: c.lead.id, nombre: c.lead.name, empresa: c.lead.company } : null,
+      })),
     };
   }
 

@@ -9,10 +9,10 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { fechaEn, minutosLocalesAUtc } from '../common/franjas-horarias';
 import {
   exigirEscritura,
-  normalizarRoles,
   resolveTeamAccess,
   type AccesoAlEquipo,
 } from './team-access';
+import { closersActivosDelEquipo } from './closers-del-equipo';
 import { SalesAutomationsService } from './sales-automations.service';
 
 /**
@@ -169,16 +169,13 @@ export class BancoDeEquipoService {
     return acceso.esAdminDeMarca || acceso.roles.includes('lider');
   }
 
-  /** Los closers activos del equipo. `SalesTeamMember` no tiene `tenantId`: el middleware no lo filtra. */
-  private async closersDelEquipo(teamId: string) {
-    const miembros = await this.prisma.salesTeamMember.findMany({
-      where: { teamId, isActive: true },
-      select: { userId: true, roles: true, user: { select: { id: true, fullName: true } } },
-    });
-    return miembros
-      .filter((m) => normalizarRoles(m.roles).includes('closer'))
-      .map((m) => ({ id: m.userId, nombre: m.user?.fullName ?? 'Sin nombre' }))
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+  /**
+   * Los closers activos del equipo. La regla vive en `closers-del-equipo.ts` y
+   * la comparte la Agenda: si cada pantalla la calculara a su manera, alguien
+   * saldría en la rejilla y no aparecería para asignarle citas.
+   */
+  private closersDelEquipo(teamId: string) {
+    return closersActivosDelEquipo(this.prisma, teamId);
   }
 
   async banco(user: AuthUser, teamId: string) {

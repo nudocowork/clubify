@@ -9,6 +9,8 @@ import { BancoDeEquipoService } from './banco-de-equipo.service';
 import { BancoDeEquipoController } from './banco-de-equipo.controller';
 import { ContactosDeEquipoService } from './contactos-de-equipo.service';
 import { ContactosDeEquipoController } from './contactos-de-equipo.controller';
+import { SeguimientosDeEquipoService } from './seguimientos-de-equipo.service';
+import { SeguimientosDeEquipoController } from './seguimientos-de-equipo.controller';
 import { SalesLeadsController } from './sales-leads.controller';
 import { SalesAgendaService } from './sales-agenda.service';
 import {
@@ -35,6 +37,7 @@ import { MarketingModule } from '../marketing/marketing.module';
     ImplementacionesDeEquipoService,
     BancoDeEquipoService,
     ContactosDeEquipoService,
+    SeguimientosDeEquipoService,
     SalesLeadsService,
     SalesAgendaService,
     SalesChatService,
@@ -46,6 +49,7 @@ import { MarketingModule } from '../marketing/marketing.module';
     SalesLeadsController,
     BancoDeEquipoController,
     ContactosDeEquipoController,
+    SeguimientosDeEquipoController,
     SalesAgendaController,
     PublicSalesAgendaController,
     SalesChatController,
