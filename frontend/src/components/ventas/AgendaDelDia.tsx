@@ -522,7 +522,7 @@ function DetalleDeCita({
         <div className="flex flex-wrap justify-end gap-2">
           {cita.lead && (
             <Link href={`/admin/sales-teams/${teamId}/board?lead=${cita.lead.id}`} className="btn-ghost text-sm">
-              Abrir ficha en el CRM →
+              Abrir ficha del lead →
             </Link>
           )}
           <button onClick={onCerrar} className="btn-primary text-sm">

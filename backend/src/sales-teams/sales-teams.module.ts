@@ -11,6 +11,8 @@ import { ContactosDeEquipoService } from './contactos-de-equipo.service';
 import { ContactosDeEquipoController } from './contactos-de-equipo.controller';
 import { SeguimientosDeEquipoService } from './seguimientos-de-equipo.service';
 import { SeguimientosDeEquipoController } from './seguimientos-de-equipo.controller';
+import { CrmDeEquipoService } from './crm-de-equipo.service';
+import { CrmDeEquipoController } from './crm-de-equipo.controller';
 import { SalesLeadsController } from './sales-leads.controller';
 import { SalesAgendaService } from './sales-agenda.service';
 import {
@@ -38,6 +40,7 @@ import { MarketingModule } from '../marketing/marketing.module';
     BancoDeEquipoService,
     ContactosDeEquipoService,
     SeguimientosDeEquipoService,
+    CrmDeEquipoService,
     SalesLeadsService,
     SalesAgendaService,
     SalesChatService,
@@ -50,6 +53,7 @@ import { MarketingModule } from '../marketing/marketing.module';
     BancoDeEquipoController,
     ContactosDeEquipoController,
     SeguimientosDeEquipoController,
+    CrmDeEquipoController,
     SalesAgendaController,
     PublicSalesAgendaController,
     SalesChatController,

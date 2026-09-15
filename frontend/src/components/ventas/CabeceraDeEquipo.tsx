@@ -25,21 +25,28 @@ export type EquipoDeCabecera = {
 };
 
 /**
- * El kanban se llama **CRM**, no «Tablero».
+ * Las pestañas, en el ORDEN de la referencia (TeamClubify, `TEAM_TABS`).
  *
- * Es el nombre que usa la referencia y, sobre todo, el que usó Javier al
- * describir lo que veía: «le doy clic al tablero y me lleva al CRM». Si la
- * pantalla se llama de una forma y la gente la llama de otra, la que está mal
- * es la pantalla.
+ * «CRM» son los embudos de oportunidades y «Leads» el tablero de leads. Hasta
+ * el 2026-09-14 el tablero de leads se llamaba «CRM», porque así lo llamó
+ * Javier («le doy clic al tablero y me lleva al CRM»); al traer el CRM de
+ * oportunidades de la referencia, Javier eligió que el nombre pasara a las
+ * oportunidades. La referencia no tiene tablero de leads: va justo después del
+ * CRM, que es su vecino natural.
+ *
+ * Solo pestañas con pantalla: Conversaciones, Colaboradores, Tareas del CRM,
+ * Formularios y Configuración entran cuando existan. Una pestaña que devuelve
+ * al escritorio es el fallo que ya tuvo el menú de Sellea.
  */
 const PESTANAS = [
   { sufijo: '', etiqueta: 'Resumen' },
-  { sufijo: '/board', etiqueta: 'CRM' },
+  { sufijo: '/agenda', etiqueta: 'Agenda' },
   { sufijo: '/banco', etiqueta: 'Banco' },
   { sufijo: '/contactos', etiqueta: 'Contactos' },
-  { sufijo: '/clientes', etiqueta: 'Clientes' },
+  { sufijo: '/crm', etiqueta: 'CRM' },
+  { sufijo: '/board', etiqueta: 'Leads' },
   { sufijo: '/seguimientos', etiqueta: 'Seguimientos' },
-  { sufijo: '/agenda', etiqueta: 'Agenda' },
+  { sufijo: '/clientes', etiqueta: 'Clientes' },
 ] as const;
 
 export function CabeceraDeEquipo({

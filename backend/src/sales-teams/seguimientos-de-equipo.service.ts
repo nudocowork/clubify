@@ -67,7 +67,19 @@ export class SeguimientosDeEquipoService {
         // trabajo: no se le va a volver a escribir. Se filtra EN LA CONSULTA:
         // filtrarlo después del `take` dejaba fuera pasos vivos, sin avisar, en
         // cuanto hubiera más de 300 (Fable, 2026-09-14).
-        ...(hechos ? {} : { lead: { wonAt: null, stage: { kind: { not: 'NOT_INTERESTED' as const } } } }),
+        //
+        // `kind` admite NULL (hoy toda columna nace con tipo, `CUSTOM` las que se
+        // crean a mano, pero la columna no lo exige), y en SQL
+        // `kind <> 'NOT_INTERESTED'` es NULL para esas filas, no «verdadero»: el
+        // `OR` evita que un lead en una columna sin tipo pierda sus pasos.
+        ...(hechos
+          ? {}
+          : {
+              lead: {
+                wonAt: null,
+                stage: { OR: [{ kind: null }, { kind: { not: 'NOT_INTERESTED' } }] },
+              },
+            }),
       },
       orderBy: hechos ? { doneAt: 'desc' } : { dueAt: 'asc' },
       take: TOPE,

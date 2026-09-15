@@ -167,7 +167,7 @@ export function ImplementacionesDelEquipo() {
         <div className="font-semibold">Clientes</div>
         <p className="text-xs text-mute mt-0.5">
           La implementación de cada venta cerrada. Nace sola al mover un lead a la
-          columna de clientes del CRM.
+          columna de clientes de Leads.
         </p>
       </div>
 

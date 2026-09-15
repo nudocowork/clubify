@@ -4454,6 +4454,7 @@ model SalesTeam {
 
   implementations SalesImplementation[]
   savedViews      SalesSavedView[]
+  pipelines       SalesPipeline[]
   @@index([leadUserId])
   @@index([whiteLabelId])
 }
@@ -4551,6 +4552,7 @@ model SalesLead {
   messages   SalesMessage[]
 
   implementation SalesImplementation?
+  opportunities  SalesOpportunity[]
   @@index([salesTeamId, stageId])
   @@index([salesTeamId, assignedUserId])
   @@index([whiteLabelId, phoneKey])
@@ -4759,6 +4761,79 @@ model SalesSavedView {
   createdAt    DateTime  @default(now())
 
   @@index([salesTeamId, createdAt])
+}
+
+/// CRM del equipo: EMBUDOS de oportunidades, como en TeamClubify.
+///
+/// Aparte del tablero de leads (`SalesStage`) a propósito: allí vive el ciclo
+/// del lead —Banco, Seguimientos, Clientes y la reserva pública dependen de sus
+/// columnas— y aquí cada NEGOCIO que se le abre a un contacto. Un contacto puede
+/// tener varias oportunidades, en embudos distintos.
+model SalesPipeline {
+  id           String    @id @default(uuid())
+  salesTeamId  String
+  team         SalesTeam @relation(fields: [salesTeamId], references: [id], onDelete: Cascade)
+  /// Desnormalizado a propósito, como en `SalesLead`.
+  whiteLabelId String?
+  name         String
+  position     Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @default(now()) @updatedAt
+
+  stages        SalesPipelineStage[]
+  opportunities SalesOpportunity[]
+
+  @@index([salesTeamId, position])
+}
+
+model SalesPipelineStage {
+  id          String        @id @default(uuid())
+  pipelineId  String
+  pipeline    SalesPipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  /// Desnormalizado: toda consulta del módulo acota por equipo.
+  salesTeamId String
+  name        String
+  position    Int           @default(0)
+  color       String?
+  createdAt   DateTime      @default(now())
+
+  opportunities SalesOpportunity[]
+
+  @@index([pipelineId, position])
+}
+
+model SalesOpportunity {
+  id           String             @id @default(uuid())
+  salesTeamId  String
+  whiteLabelId String?
+  pipelineId   String
+  pipeline     SalesPipeline      @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  /// NoAction y no Restrict: borrar una etapa con oportunidades se niega, pero
+  /// borrar el embudo entero (que se lleva etapas y oportunidades en cascada)
+  /// no choca con la comprobación a mitad de la sentencia.
+  stageId      String
+  stage        SalesPipelineStage @relation(fields: [stageId], references: [id], onDelete: NoAction)
+  leadId       String
+  lead         SalesLead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  name         String
+  value        Decimal            @default(0) @db.Decimal(12, 2)
+  /// abierta · ganada · perdida · abandonada
+  status       String             @default("abierta")
+  source       String?
+  /// Sin relación con `User`: añadirla obliga a tocar ese modelo, y los nombres
+  /// salen de la membresía del equipo, que no pasa por el filtro de negocio.
+  assignedUserId  String?
+  lostReason      String?
+  position        Int       @default(0)
+  createdByUserId String?
+  wonAt           DateTime?
+  lostAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  @@index([pipelineId, stageId, position])
+  @@index([salesTeamId, status])
+  @@index([leadId])
 }
 
 // Canal de envío del botón automático del CRM (C5).

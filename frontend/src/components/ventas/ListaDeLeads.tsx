@@ -46,7 +46,7 @@ type Respuesta = {
 const TEXTOS: Record<FiltroDeLista, { titulo: string; pie: string; vacio: string }> = {
   banco: {
     titulo: 'Banco',
-    pie: 'Leads que todavía no tiene nadie. Repártelos desde el CRM.',
+    pie: 'Leads que todavía no tiene nadie. Repártelos desde Leads.',
     vacio: 'No hay nada sin repartir: todos los leads tienen vendedor.',
   },
   contactos: {
@@ -231,7 +231,7 @@ export function ListaDeLeads({ filtro }: { filtro: FiltroDeLista }) {
               <>
                 {' '}
                 <Link href={`/admin/sales-teams/${teamId}/board`} className="font-semibold text-brand hover:underline">
-                  Repartirlos en el CRM →
+                  Repartirlos en Leads →
                 </Link>
               </>
             )}

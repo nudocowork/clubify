@@ -8,6 +8,74 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-14 (10) — Equipos de Ventas (Sellea): «CRM» ya son embudos de oportunidades
+
+Javier eligió traer el CRM de TeamClubify **tal cual**: oportunidades APARTE
+del tablero de leads, en vez de partir ese tablero en varios embudos. Motivo:
+Banco, Seguimientos, Clientes y la reserva pública dependen de las columnas del
+tablero de leads, y esto no las toca.
+
+### Qué hay
+
+- Tablas nuevas `SalesPipeline`, `SalesPipelineStage` y `SalesOpportunity`
+  (`backend/scripts/apply-sales-crm-migration.cjs`, aditiva: tablas vacías,
+  índices y claves; ninguna fila existente se toca).
+- Pestaña **CRM** (`/admin/sales-teams/<id>/crm`):
+  - selector de embudo, que recuerda el último abierto **por equipo**;
+  - total abierto, filtros por responsable, estado y búsqueda;
+  - columnas con cuántas oportunidades y cuánto suman, **calculado en la base**
+    (con el tope de 1.000 tarjetas, sumar lo cargado daría cifras falsas);
+  - arrastrar entre etapas y dentro de la columna, sin pisar a quien la movió
+    antes (se manda la etapa en la que se creía que estaba);
+  - alta con contacto existente o nuevo — el nuevo entra por `crearLead`, que
+    deduplica por teléfono;
+  - ficha con nombre, valor, etapa y responsable; Ganar / Perder / Abandonar /
+    Reabrir, con motivo; eliminar (líder o admin).
+- **⚙ Embudos** (líder o admin de la marca): crear, renombrar y eliminar
+  embudos (con sus oportunidades; nunca el último) y etapas (añadir, renombrar,
+  color, subir/bajar, eliminar — se niega si tiene oportunidades dentro o es la
+  única).
+- La primera visita **siembra** los embudos de la referencia («Chat general» y
+  «Closers») con un candado de Postgres: dos primeras visitas a la vez no
+  duplican.
+- **Ganar = venta.** El lead lleva el valor y pasa a su columna de clientes por
+  `moverLead` (sella la venta, dispara `sales_lead_won`, arranca la
+  implementación). Si eso falla, la oportunidad vuelve a su estado anterior.
+  Reabrirla NO deshace la venta del lead: la fecha en que se cerró es un hecho.
+- Estados con compare-and-set: dos personas a la vez no se pisan.
+- Todo deja nota en la ficha del lead.
+- El tablero de leads pasa a llamarse **Leads**, y las pestañas siguen el orden
+  de la referencia (Resumen · Agenda · Banco · Contactos · CRM · Leads ·
+  Seguimientos · Clientes).
+
+### Lo que NO se trajo (a propósito)
+
+- Los disparadores de flujo `opportunity_*` de la referencia: los flujos de
+  ventas siguen con los 6 del lead.
+- Un contacto con dos oportunidades ganadas: el lead guarda el valor de la
+  última (igual que `sale_value` en la referencia). «Ventas del mes» cuenta
+  leads, no oportunidades.
+- El origen no se edita: todas nacen «manual».
+
+### Revisión de Fable antes de desplegar: se puede desplegar
+
+Aislamiento, candado de siembra, `unnest`, `groupBy` con filtro por relación,
+compare-and-set, claves foráneas y migración = esquema: comprobados. Se aplicó:
+
+- **Soltar una tarjeta sobre sí misma la mandaba al final** de la columna, con
+  cualquier arrastre de dos píxeles. Ahora no hace nada.
+- **Con un filtro puesto, la tarjeta caía en otro sitio**: la pantalla mandaba
+  un índice sobre la parte visible de la columna. Ahora manda «antes de qué
+  tarjeta» y la posición la calcula el servidor sobre la columna entera.
+- **Ganar sin columna de clientes** en el tablero de Leads (se puede borrar)
+  dejaba la oportunidad «ganada» sin venta. Ahora se avisa y el estado vuelve.
+- **Firefox no arrastraba** sin datos en `dataTransfer`: arreglado aquí y en el
+  tablero de Leads, que ya tenía el mismo fallo.
+
+Quedan a sabiendas: dos altas a la vez pueden compartir posición (el orden
+sigue siendo estable por fecha), y dos borrados simultáneos de los dos últimos
+embudos harían que la siguiente visita vuelva a sembrar los de la referencia.
+
 ## 2026-09-14 (9) — Equipos de Ventas (Sellea): Agenda del día y Seguimientos por resultado
 
 Siguen al orden del brief (Clientes → Banco → Contactos → **Agenda →

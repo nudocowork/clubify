@@ -270,7 +270,12 @@ export default function TableroDelEquipo() {
                   <article
                     key={l.id}
                     draggable={datos.puedeEscribir}
-                    onDragStart={() => setArrastrando(l.id)}
+                    onDragStart={(e) => {
+                      // Firefox no empieza a arrastrar sin datos en `dataTransfer`.
+                      e.dataTransfer.setData('text/plain', l.id);
+                      e.dataTransfer.effectAllowed = 'move';
+                      setArrastrando(l.id);
+                    }}
                     onDragEnd={() => setArrastrando(null)}
                     onClick={() => setAbierto(l.id)}
                     className={`rounded-lg border border-line bg-bg p-2.5 cursor-pointer hover:border-brand transition ${

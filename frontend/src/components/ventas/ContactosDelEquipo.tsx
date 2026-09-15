@@ -363,7 +363,7 @@ export function ContactosDelEquipo() {
           value={filtros.columna ?? ''}
           onChange={(e) => aplicar({ columna: e.target.value || undefined })}
           className="input h-9 text-sm w-auto"
-          aria-label="Filtrar por columna del CRM"
+          aria-label="Filtrar por columna de Leads"
         >
           <option value="">Todas las columnas</option>
           {datos.columnas.map((c) => (
