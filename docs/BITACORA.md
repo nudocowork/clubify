@@ -8,6 +8,77 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (14) — Equipos de Ventas (Sellea): «Formularios»
+
+La pestaña 11 de las 12 de TeamClubify. Hasta hoy la agenda pública pedía
+nombre y teléfono y nada más: el closer llegaba a la llamada sin saber a qué se
+dedica el prospecto ni si piensa invertir.
+
+- **Pestaña `/formularios`** (también en el panel del afiliado). A la izquierda
+  los formularios del equipo, con «Agenda», «Inactivo», preguntas y respuestas;
+  a la derecha el que se edita: nombre, descripción, activo, «Al terminar,
+  seguir por WhatsApp» (número y texto) y las preguntas. «Probar» lo enseña como
+  lo verá quien lo rellena.
+- **Preguntas:** 13 tipos (texto corto y largo, número, correo, WhatsApp,
+  enlace, Instagram, lista, botones, varias opciones, casilla, fecha, hora),
+  ayuda, sección, a qué dato del lead va, obligatoria, puntaje (por pregunta o
+  por opción, tope 100) y «Mostrar solo si…», que solo puede depender de una
+  pregunta anterior y va en cascada.
+- **«Desde la plantilla de agenda»:** las preguntas de agendamiento de la
+  referencia (nombre, apellidos, WhatsApp, Instagram, negocio, facturación,
+  ¿invertir? y el motivo si no).
+- **«Usar en la agenda»:** `/agenda/<slug>` pide ese formulario en lugar de
+  nombre y teléfono. Lo contestado se limpia y valida en el servidor; lo que va
+  al lead (nombre, WhatsApp, correo, empresa, Instagram) pasa a su ficha sin
+  pisar la empresa o el Instagram que ya tuviera; las notas de la cita llevan el
+  resumen de respuestas; la respuesta entera y su puntaje quedan en
+  `SalesFormResponse`; y si el formulario tiene WhatsApp de salida, la
+  confirmación enseña «Seguir por WhatsApp».
+- Tablas `SalesForm` y `SalesFormResponse`
+  (`apply-sales-forms-migration.cjs`, **aplicada**). Un formulario con
+  respuestas no se borra, se desactiva; el de la agenda no se borra ni se
+  desactiva sin quitarlo antes de la agenda.
+- Cambian formularios el líder o un admin de la marca; el resto del equipo los
+  ve.
+- **Una regla que la referencia no tiene:** la agenda solo acepta un formulario
+  con una pregunta obligatoria, que se vea siempre, que pase al lead el nombre,
+  o un WhatsApp o un correo con ese tipo de pregunta. Sin ella la reserva podía
+  crear la cita sin lead. Si aun así llega uno que no la cumple, la agenda
+  pública lo ignora y pide nombre y teléfono.
+
+Fuera por ahora: preguntas de archivo e imagen (necesitan dónde guardar lo que
+se sube) y disparar automatizaciones por respuesta.
+
+### Revisión de Fable antes de desplegar: se puede desplegar tras los arreglos
+
+Migración = esquema (tipos, índices, claves y ON DELETE), aislamiento entre
+equipos, permisos, abuso del cuerpo público y orden de la reserva: comprobados.
+Se aplicó:
+
+- **Una reserva podía crear la cita sin lead.** Si el equipo quitaba o
+  desactivaba el formulario de la agenda mientras alguien lo rellenaba, o con
+  una llamada directa a la API sin datos, la cita salía con el lead vacío y la
+  persona veía «Listo». Ahora, sin nombre, WhatsApp de 7 dígitos o más, o correo
+  con «@», no hay reserva.
+- Un correo sin «@», o un texto libre apuntado a WhatsApp, contaba como dato de
+  contacto y dejaba un lead en blanco. Ya no cuenta, ni para la regla de la
+  agenda ni al pasar al lead.
+- Si el equipo elegía formulario mientras alguien reservaba con nombre y
+  teléfono, la página se quedaba en «Revisa las preguntas marcadas» sin nada
+  marcado. Ahora recarga, conserva la hora y enseña las preguntas.
+- Se podía desactivar el formulario de la agenda, y la agenda volvía a nombre y
+  teléfono sin que nadie lo viera.
+- El constructor perdía lo no guardado al cambiar de formulario, sin preguntar.
+- Subir una pregunta por encima de la que la condiciona, o cambiar esa clave,
+  dejaba la condición colgando y el servidor no dejaba guardar.
+- La clave `__proto__` se tragaba la respuesta.
+- Un fallo al guardar la respuesta no dejaba rastro en los logs.
+- La agenda pública enseñaba el puntaje de cada opción y a qué dato del lead va
+  cada pregunta (la referencia también lo enseña).
+
+Queda a sabiendas: si dos personas eligen a la vez el formulario de la agenda,
+gana la última. Hoy nada más escribe ese ajuste.
+
 ## 2026-09-14 (13) — Equipos de Ventas (Sellea): «Tareas del CRM»
 
 La pestaña 10 de las 12 de TeamClubify. Lo que hay que hacer con un contacto,

@@ -13,6 +13,7 @@ import {
   IsIn,
   IsInt,
   IsISO8601,
+  IsObject,
   IsOptional,
   IsString,
   Max,
@@ -63,6 +64,8 @@ class ReservaPublicaBody {
   @IsOptional() @IsString() @MaxLength(40) phone?: string | null;
   @IsOptional() @IsString() @MaxLength(160) email?: string | null;
   @IsOptional() @IsString() @MaxLength(500) notes?: string | null;
+  /** Las respuestas al formulario de la agenda, si el equipo eligió uno. Las limpia el servicio. */
+  @IsOptional() @IsObject() respuestas?: Record<string, unknown> | null;
 }
 
 /** La agenda vista desde dentro: el vendedor y quien manda en la marca. */

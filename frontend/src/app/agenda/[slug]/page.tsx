@@ -14,10 +14,18 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { CamposDelFormulario } from '@/components/formularios/CamposDelFormulario';
+import { camposQueFaltan, type CampoDeFormulario, type Respuestas } from '@/lib/formularios';
 
 type Hueco = { startAt: string; label: string };
 type Dia = { fecha: string; huecos: Hueco[] };
-type Calendario = { team: { name: string }; zona: string; dias: Dia[] };
+type Calendario = {
+  team: { name: string };
+  zona: string;
+  dias: Dia[];
+  /** El formulario que el equipo eligió para su agenda. Sin él, nombre y teléfono. */
+  formulario: { nombre: string; descripcion: string | null; campos: CampoDeFormulario[] } | null;
+};
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -40,14 +48,18 @@ export default function AgendaPublica() {
   const [error, setError] = useState<string | null>(null);
   const [elegido, setElegido] = useState<string | null>(null);
   const [form, setForm] = useState({ name: '', phone: '', notes: '' });
+  const [respuestas, setRespuestas] = useState<Respuestas>({});
+  const [faltan, setFaltan] = useState<Set<string>>(new Set());
   const [enviando, setEnviando] = useState(false);
   // Se guarda el `manageToken` que devuelve la API. Antes se tiraba: la
   // pantalla de gestión (`/cita/gestion/<token>`) existía y **nadie recibía
   // nunca el enlace**, así que quien reservaba no podía cancelar ni cambiar la
   // hora. El token ES la autorización; no hace falta cuenta.
-  const [listo, setListo] = useState<{ startAt: string; manageToken?: string } | null>(
-    null,
-  );
+  const [listo, setListo] = useState<{
+    startAt: string;
+    manageToken?: string;
+    whatsapp?: { numero: string; mensaje: string } | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!slug) return;
@@ -66,7 +78,15 @@ export default function AgendaPublica() {
 
   async function reservar() {
     if (!elegido) return;
-    if (!form.name.trim() && !form.phone.trim()) {
+    if (cal?.formulario) {
+      // Lo mismo que exigirá el servidor, para marcarlo antes de enviar.
+      const sinContestar = camposQueFaltan(cal.formulario.campos, respuestas);
+      if (sinContestar.length) {
+        setFaltan(new Set(sinContestar));
+        setError('Contesta las preguntas marcadas.');
+        return;
+      }
+    } else if (!form.name.trim() && !form.phone.trim()) {
       setError('Déjanos al menos tu nombre o tu teléfono.');
       return;
     }
@@ -78,7 +98,9 @@ export default function AgendaPublica() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ startAt: elegido, ...form }),
+          body: JSON.stringify(
+            cal?.formulario ? { startAt: elegido, respuestas } : { startAt: elegido, ...form },
+          ),
         },
       );
       if (!r.ok) {
@@ -87,16 +109,28 @@ export default function AgendaPublica() {
         // El backend revalida el hueco y responde con un texto ya escrito para
         // una persona («Ese horario ya no está disponible. Elige otro.»).
         // Enseñarlo gana al genérico, que no dice qué hacer.
-        const dicho = await r
-          .json()
-          .then((j) => (typeof j?.message === 'string' ? j.message : null))
-          .catch(() => null);
+        const cuerpo = await r.json().catch(() => null);
+        const dicho = typeof cuerpo?.message === 'string' ? cuerpo.message : null;
         setError(
           r.status === 409
             ? 'Esa hora acaba de ocuparse. Elige otra, por favor.'
             : dicho ?? 'No se pudo reservar. Intenta de nuevo.',
         );
-        setElegido(null);
+        // Si lo que falló es el formulario, se marcan las preguntas y se conserva
+        // la hora elegida: volver a elegirla sería castigar a quien casi termina.
+        if (Array.isArray(cuerpo?.campos) && cal?.formulario) {
+          setFaltan(new Set(cuerpo.campos as string[]));
+          return;
+        }
+        if (Array.isArray(cuerpo?.campos)) {
+          // La página no tenía formulario y el servidor pide uno: el equipo lo
+          // eligió mientras tanto. Se recarga CONSERVANDO la hora y aparecen las
+          // preguntas; antes se quedaba en «Revisa las preguntas marcadas» sin
+          // nada marcado (Fable, 2026-09-15).
+          setError('Esta agenda ahora pide unas preguntas. Contéstalas para confirmar tu hora.');
+        } else {
+          setElegido(null);
+        }
         // Se recarga el calendario: el hueco que falló ya no debe verse libre.
         fetch(`${API}/api/public/agenda/${encodeURIComponent(slug)}`)
           .then((x) => x.json())
@@ -105,7 +139,7 @@ export default function AgendaPublica() {
         return;
       }
       const datos = await r.json();
-      setListo({ startAt: datos.startAt, manageToken: datos.manageToken });
+      setListo({ startAt: datos.startAt, manageToken: datos.manageToken, whatsapp: datos.whatsapp ?? null });
     } catch {
       setError('No se pudo reservar. Intenta de nuevo.');
     } finally {
@@ -140,6 +174,18 @@ export default function AgendaPublica() {
               className="inline-block mt-4 text-sm underline underline-offset-4"
             >
               Ver o cancelar mi cita
+            </a>
+          )}
+          {listo.whatsapp && (
+            <a
+              href={`https://wa.me/${encodeURIComponent(listo.whatsapp.numero)}${
+                listo.whatsapp.mensaje ? `?text=${encodeURIComponent(listo.whatsapp.mensaje)}` : ''
+              }`}
+              target="_blank"
+              rel="noreferrer"
+              className="btn mt-4 inline-flex"
+            >
+              Seguir por WhatsApp
             </a>
           )}
         </div>
@@ -209,29 +255,49 @@ export default function AgendaPublica() {
               }).format(new Date(elegido))}
             </strong>
           </p>
-          <div className="flex flex-col gap-3">
-            <input
-              className="input"
-              placeholder="Tu nombre"
-              autoFocus
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-            <input
-              className="input"
-              placeholder="Tu teléfono"
-              inputMode="tel"
-              value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            />
-            <textarea
-              className="input"
-              rows={2}
-              placeholder="¿Algo que debamos saber? (opcional)"
-              value={form.notes}
-              onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            />
-          </div>
+          {cal.formulario ? (
+            <>
+              {cal.formulario.descripcion && <p className="mb-3 mt-0 text-sm text-mute">{cal.formulario.descripcion}</p>}
+              <CamposDelFormulario
+                campos={cal.formulario.campos}
+                respuestas={respuestas}
+                errores={faltan}
+                onCambio={(clave, valor) => {
+                  setRespuestas((p) => ({ ...p, [clave]: valor }));
+                  setFaltan((f) => {
+                    if (!f.has(clave)) return f;
+                    const n = new Set(f);
+                    n.delete(clave);
+                    return n;
+                  });
+                }}
+              />
+            </>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <input
+                className="input"
+                placeholder="Tu nombre"
+                autoFocus
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+              <input
+                className="input"
+                placeholder="Tu teléfono"
+                inputMode="tel"
+                value={form.phone}
+                onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              />
+              <textarea
+                className="input"
+                rows={2}
+                placeholder="¿Algo que debamos saber? (opcional)"
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              />
+            </div>
+          )}
           {error && <p className="text-sm text-rose-600 mt-3">{error}</p>}
           <div className="flex gap-2 mt-4">
             <button className="btn-ghost flex-1" onClick={() => setElegido(null)}>

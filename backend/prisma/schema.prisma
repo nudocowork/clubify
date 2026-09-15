@@ -4456,6 +4456,8 @@ model SalesTeam {
   savedViews      SalesSavedView[]
   pipelines       SalesPipeline[]
   taskActions     SalesTaskAction[]
+  forms           SalesForm[]
+  formResponses   SalesFormResponse[]
   @@index([leadUserId])
   @@index([whiteLabelId])
 }
@@ -4559,6 +4561,7 @@ model SalesLead {
   implementation SalesImplementation?
   opportunities  SalesOpportunity[]
   tasks          SalesTask[]
+  formResponses  SalesFormResponse[]
   @@index([salesTeamId, stageId])
   @@index([salesTeamId, assignedUserId])
   @@index([whiteLabelId, phoneKey])
@@ -4881,6 +4884,50 @@ model SalesTaskAction {
 
   @@unique([salesTeamId, name])
   @@index([salesTeamId, position])
+}
+
+/// «Formularios» del equipo: el constructor de TeamClubify. Las preguntas van en
+/// JSON, ya limpias por `normalizarCampos` (`formularios-de-equipo.ts`). El que
+/// el equipo elige es lo que rellena quien reserva en su agenda pública.
+model SalesForm {
+  id               String    @id @default(uuid())
+  salesTeamId      String
+  team             SalesTeam @relation(fields: [salesTeamId], references: [id], onDelete: Cascade)
+  whiteLabelId     String?
+  name             String
+  description      String?
+  fields           Json      @default("[]")
+  /// Al terminar, a qué WhatsApp se manda a la persona y con qué texto.
+  redirectWhatsapp String?
+  redirectMessage  String?
+  isActive         Boolean   @default(true)
+  createdByUserId  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now()) @updatedAt
+
+  responses SalesFormResponse[]
+
+  @@index([salesTeamId, createdAt])
+}
+
+/// Lo que contestó alguien. Guarda TODAS las respuestas, también las que no
+/// tienen columna en el lead (facturación, «¿invertir?»).
+model SalesFormResponse {
+  id          String     @id @default(uuid())
+  salesTeamId String
+  team        SalesTeam  @relation(fields: [salesTeamId], references: [id], onDelete: Cascade)
+  /// NoAction: un formulario con respuestas no se borra, se desactiva.
+  formId      String
+  form        SalesForm  @relation(fields: [formId], references: [id], onDelete: NoAction)
+  leadId      String?
+  lead        SalesLead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  meetingId   String?
+  answers     Json       @default("{}")
+  score       Int        @default(0)
+  createdAt   DateTime   @default(now())
+
+  @@index([formId, createdAt])
+  @@index([leadId])
 }
 
 // Canal de envío del botón automático del CRM (C5).

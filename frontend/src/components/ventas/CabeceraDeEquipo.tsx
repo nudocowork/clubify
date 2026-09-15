@@ -35,8 +35,7 @@ export type EquipoDeCabecera = {
  * oportunidades. La referencia no tiene tablero de leads: va justo después del
  * CRM, que es su vecino natural.
  *
- * Solo pestañas con pantalla: Formularios y Configuración entran cuando
- * existan. Una pestaña que devuelve
+ * Solo pestañas con pantalla: Configuración entra cuando exista. Una pestaña que devuelve
  * al escritorio es el fallo que ya tuvo el menú de Sellea.
  */
 const PESTANAS = [
@@ -51,6 +50,7 @@ const PESTANAS = [
   { sufijo: '/clientes', etiqueta: 'Clientes' },
   { sufijo: '/colaboradores', etiqueta: 'Colaboradores' },
   { sufijo: '/tareas', etiqueta: 'Tareas' },
+  { sufijo: '/formularios', etiqueta: 'Formularios' },
 ] as const;
 
 export function CabeceraDeEquipo({

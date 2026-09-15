@@ -24,6 +24,18 @@ import { asegurarColumnas } from './sales-columnas';
 import { SalesAutomationsService } from './sales-automations.service';
 import { closersActivosDelEquipo } from './closers-del-equipo';
 import { franjaDeHora, franjasDelDia, horaEnZona, semaforoDeCita } from './agenda-del-dia';
+import type { Prisma } from '@prisma/client';
+import {
+  camposGuardados,
+  camposParaElPublico,
+  camposQueFaltan,
+  datosDelLead,
+  formularioDeAgendaDe,
+  limpiarRespuestas,
+  pideDatoDeContacto,
+  puntajeDelFormulario,
+  resumenDeRespuestas,
+} from './formularios-de-equipo';
 
 /**
  * La agenda del equipo de ventas — fase 4.
@@ -674,6 +686,20 @@ export class SalesAgendaService {
   // ── Público: el prospecto, sin cuenta ───────────────────────────────────
 
   /**
+   * El formulario que pide la agenda pública del equipo, o null (nombre y teléfono).
+   *
+   * Solo si está activo y asegura un dato de contacto. Las pantallas ya impiden
+   * elegir uno sin él, pero una edición a la vez que otro lo elige podía colarlo,
+   * y sin ese dato la cita saldría sin lead: mejor el formulario de siempre.
+   */
+  private async formularioDeLaAgenda(teamId: string, bookingConfig: Prisma.JsonValue) {
+    const id = formularioDeAgendaDe(bookingConfig);
+    if (!id) return null;
+    const f = await this.prisma.salesForm.findFirst({ where: { id, salesTeamId: teamId, isActive: true } });
+    return f && pideDatoDeContacto(camposGuardados(f.fields)) ? f : null;
+  }
+
+  /**
    * El calendario que ve el prospecto.
    *
    * Comprueba el módulo igual que el resto: si la marca lo tiene apagado, este
@@ -683,7 +709,7 @@ export class SalesAgendaService {
   async calendarioPublico(teamSlug: string, hostUserId?: string | null) {
     const team = await this.prisma.salesTeam.findFirst({
       where: { slug: teamSlug, isActive: true },
-      select: { id: true, name: true, whiteLabelId: true },
+      select: { id: true, name: true, whiteLabelId: true, bookingConfig: true },
     });
     if (!team) throw new NotFoundException('Agenda no disponible');
     await this.exigirModulo(team.whiteLabelId);
@@ -704,7 +730,21 @@ export class SalesAgendaService {
       );
       if (huecos.length) dias.push({ fecha, huecos });
     }
-    return { team: { name: team.name }, zona: ZONA_POR_DEFECTO, dias };
+    // El formulario que el equipo eligió para su agenda, si está activo. Sin él,
+    // la página pide lo de siempre: nombre y teléfono.
+    const formulario = await this.formularioDeLaAgenda(team.id, team.bookingConfig);
+    return {
+      team: { name: team.name },
+      zona: ZONA_POR_DEFECTO,
+      dias,
+      formulario: formulario
+        ? {
+            nombre: formulario.name,
+            descripcion: formulario.description,
+            campos: camposParaElPublico(camposGuardados(formulario.fields)),
+          }
+        : null,
+    };
   }
 
   async reservarPublico(
@@ -716,14 +756,48 @@ export class SalesAgendaService {
       phone?: string | null;
       email?: string | null;
       notes?: string | null;
+      respuestas?: Record<string, unknown> | null;
     },
   ) {
     const team = await this.prisma.salesTeam.findFirst({
       where: { slug: teamSlug, isActive: true },
-      select: { id: true, whiteLabelId: true },
+      select: { id: true, whiteLabelId: true, bookingConfig: true },
     });
     if (!team) throw new NotFoundException('Agenda no disponible');
     await this.exigirModulo(team.whiteLabelId);
+
+    // EL FORMULARIO, ANTES QUE LA HORA. Si la agenda pide uno, lo que llega se
+    // limpia (solo sus preguntas, cada una con su tipo) y se exige lo
+    // obligatorio que la persona tuvo delante. Lo que el formulario dice del
+    // lead manda sobre los campos sueltos del cuerpo.
+    const formulario = await this.formularioDeLaAgenda(team.id, team.bookingConfig);
+    const campos = formulario ? camposGuardados(formulario.fields) : [];
+    const respuestas = formulario ? limpiarRespuestas(campos, body.respuestas) : null;
+    if (respuestas) {
+      const faltan = camposQueFaltan(campos, respuestas);
+      if (faltan.length) {
+        throw new BadRequestException({ message: 'Revisa las preguntas marcadas: faltan por contestar o no son válidas.', campos: faltan });
+      }
+    }
+    const delFormulario = respuestas ? datosDelLead(campos, respuestas) : {};
+    const datosDeContacto = {
+      name: delFormulario.name ?? body.name,
+      phone: delFormulario.phone ?? body.phone,
+      email: delFormulario.email ?? body.email,
+    };
+    // SIN UN DATO DE CONTACTO NO HAY RESERVA. `leadDeLaReservaPublica` devolvía
+    // null en silencio y la cita salía sin lead: el closer veía el hueco ocupado
+    // sin saber de quién. Lo exigía solo la página; un `curl`, o una página
+    // cargada CON formulario cuando el equipo lo quitaba antes de enviar, pasaba
+    // (Fable, 2026-09-15). Mismo criterio que usa el lead, así que lo que pasa
+    // aquí crea lead seguro.
+    if (
+      !(datosDeContacto.name ?? '').trim() &&
+      !phoneKeyOf(datosDeContacto.phone) &&
+      !emailNormOf(datosDeContacto.email)
+    ) {
+      throw new BadRequestException('Déjanos al menos tu nombre, tu WhatsApp o tu correo.');
+    }
 
     // LA HORA TIENE QUE SER UNA DE LAS OFRECIDAS.
     //
@@ -756,16 +830,57 @@ export class SalesAgendaService {
     // El prospecto que agenda ENTRA AL TABLERO. Si no, la cita queda huérfana:
     // el vendedor no la ve en su embudo y el recordatorio no tiene a quién
     // avisar, porque el teléfono se habría quedado dentro de una nota.
-    const leadId = await this.leadDeLaReservaPublica(team.id, team.whiteLabelId, body);
+    const leadId = await this.leadDeLaReservaPublica(team.id, team.whiteLabelId, datosDeContacto);
+    // Lo que el formulario sabe del lead y el lead no tenía (empresa, Instagram)
+    // se completa, sin pisar lo que ya había.
+    if (leadId && delFormulario.company) {
+      await this.prisma.salesLead.updateMany({
+        where: { id: leadId, salesTeamId: team.id, company: null },
+        data: { company: delFormulario.company },
+      });
+    }
+    if (leadId && delFormulario.instagram) {
+      await this.prisma.salesLead.updateMany({
+        where: { id: leadId, salesTeamId: team.id, instagram: null },
+        data: { instagram: delFormulario.instagram },
+      });
+    }
 
     const cita = await this.crearCita(team.id, {
       leadId,
       hostUserId: body.hostUserId ?? null,
       startAt: body.startAt,
-      notes: (body.notes ?? '').trim() || null,
+      // Con formulario, las notas de la cita llevan sus respuestas: el closer
+      // las lee sin abrir nada más.
+      notes: (body.notes ?? '').trim() || (respuestas ? resumenDeRespuestas(campos, respuestas) : '') || null,
     });
+    if (formulario && respuestas) {
+      // La respuesta entera se guarda, también lo que no tiene columna en el
+      // lead. Nunca tumba la reserva: la cita ya está hecha y sus notas llevan
+      // el resumen.
+      await this.prisma.salesFormResponse
+        .create({
+          data: {
+            salesTeamId: team.id,
+            formId: formulario.id,
+            leadId: leadId ?? null,
+            meetingId: cita.id,
+            answers: respuestas as unknown as Prisma.InputJsonValue,
+            score: puntajeDelFormulario(campos, respuestas),
+          },
+        })
+        .catch((e) => this.logger.warn(`no se guardó la respuesta del formulario: ${(e as Error).message}`));
+    }
     // Solo el token: el id de la cita no sale nunca de aquí.
-    return { ok: true, manageToken: cita.manageToken, startAt: cita.startAt };
+    return {
+      ok: true,
+      manageToken: cita.manageToken,
+      startAt: cita.startAt,
+      // A qué WhatsApp seguir al terminar, si el formulario lo pide.
+      whatsapp: formulario?.redirectWhatsapp
+        ? { numero: formulario.redirectWhatsapp, mensaje: formulario.redirectMessage ?? '' }
+        : null,
+    };
   }
 
   /** La cita desde su enlace. El token ES la autorización. */
