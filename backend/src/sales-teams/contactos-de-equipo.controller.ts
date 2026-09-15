@@ -1,3 +1,4 @@
+import { ROLES_DE_EQUIPO } from './team-access';
 import {
   Body,
   Controller,
@@ -45,7 +46,7 @@ class VistaBody {
 }
 
 @Controller('sales-teams/:teamId/contactos')
-@Roles('PLATFORM_OWNER', 'SUPER_ADMIN', 'TENANT_OWNER', 'TENANT_STAFF')
+@Roles(...ROLES_DE_EQUIPO)
 export class ContactosDeEquipoController {
   constructor(private contactos: ContactosDeEquipoService) {}
 

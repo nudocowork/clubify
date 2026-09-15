@@ -41,6 +41,9 @@ export function authBrandCss(color: string): string {
 .brand-auth [class*="bg-brand-soft"]{background-color:${c}1f!important}
 .brand-auth [class*="border-brand"]{border-color:${c}!important}
 .brand-auth .text-ok,.brand-auth [class*="text-ok"]{color:${c}!important}
+.brand-auth [class~="bg-ok"]:not([class*="bg-ok-soft"]){background-color:${c}!important}
+.brand-auth [class*="bg-ok-soft"]{background-color:${c}1f!important}
+.brand-auth [class~="border-ok"]{border-color:${c}!important}
 .brand-auth .btn-primary{background-color:${c}!important;border-color:${c}!important}
 .brand-auth .btn-primary:hover{background-color:${hover}!important;border-color:${hover}!important}
 .brand-auth .tab-active{background-color:${c}!important}

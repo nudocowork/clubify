@@ -1,3 +1,4 @@
+import { ROLES_DE_EQUIPO } from './team-access';
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { SalesChatService } from './sales-chat.service';
@@ -24,7 +25,7 @@ class NotaBody {
  * rol que no sea de solo lectura.
  */
 @Controller('sales-teams/:teamId/leads/:leadId/chat')
-@Roles('PLATFORM_OWNER', 'SUPER_ADMIN', 'TENANT_OWNER', 'TENANT_STAFF')
+@Roles(...ROLES_DE_EQUIPO)
 export class SalesChatController {
   constructor(private svc: SalesChatService) {}
 

@@ -1,3 +1,4 @@
+import { ROLES_DE_EQUIPO } from './team-access';
 import { Body, Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common';
 import { IsIn, IsISO8601, IsOptional, IsString, MaxLength } from 'class-validator';
 import { SeguimientosDeEquipoService } from './seguimientos-de-equipo.service';
@@ -21,7 +22,7 @@ class ResultadoBody {
 }
 
 @Controller('sales-teams/:teamId/seguimientos')
-@Roles('PLATFORM_OWNER', 'SUPER_ADMIN', 'TENANT_OWNER', 'TENANT_STAFF')
+@Roles(...ROLES_DE_EQUIPO)
 export class SeguimientosDeEquipoController {
   constructor(private seguimientos: SeguimientosDeEquipoService) {}
 

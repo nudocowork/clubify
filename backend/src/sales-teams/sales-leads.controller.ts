@@ -1,3 +1,4 @@
+import { ROLES_DE_EQUIPO } from './team-access';
 import {
   Body,
   Controller,
@@ -90,7 +91,7 @@ class NotaBody {
 }
 
 @Controller('sales-teams/:teamId')
-@Roles('PLATFORM_OWNER', 'SUPER_ADMIN', 'TENANT_OWNER', 'TENANT_STAFF')
+@Roles(...ROLES_DE_EQUIPO)
 export class SalesLeadsController {
   constructor(
     private svc: SalesLeadsService,

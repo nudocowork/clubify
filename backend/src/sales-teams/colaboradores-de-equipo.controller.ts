@@ -1,3 +1,4 @@
+import { ROLES_DE_EQUIPO } from './team-access';
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { ArrayMaxSize, IsArray, IsOptional, IsString } from 'class-validator';
 import { ColaboradoresDeEquipoService } from './colaboradores-de-equipo.service';
@@ -21,7 +22,7 @@ class RolesBody {
 }
 
 @Controller('sales-teams/:teamId/colaboradores')
-@Roles('PLATFORM_OWNER', 'SUPER_ADMIN', 'TENANT_OWNER', 'TENANT_STAFF')
+@Roles(...ROLES_DE_EQUIPO)
 export class ColaboradoresDeEquipoController {
   constructor(private colaboradores: ColaboradoresDeEquipoService) {}
 

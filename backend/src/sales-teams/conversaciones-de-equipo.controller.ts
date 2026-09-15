@@ -1,3 +1,4 @@
+import { ROLES_DE_EQUIPO } from './team-access';
 import { Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ConversacionesDeEquipoService } from './conversaciones-de-equipo.service';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -12,7 +13,7 @@ import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorat
  * `conversaciones`.
  */
 @Controller('sales-teams/:teamId/conversaciones')
-@Roles('PLATFORM_OWNER', 'SUPER_ADMIN', 'TENANT_OWNER', 'TENANT_STAFF')
+@Roles(...ROLES_DE_EQUIPO)
 export class ConversacionesDeEquipoController {
   constructor(private conversaciones: ConversacionesDeEquipoService) {}
 

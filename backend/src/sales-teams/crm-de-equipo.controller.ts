@@ -1,3 +1,4 @@
+import { ROLES_DE_EQUIPO } from './team-access';
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import {
   ArrayMaxSize,
@@ -74,7 +75,7 @@ class EstadoBody {
 }
 
 @Controller('sales-teams/:teamId/crm')
-@Roles('PLATFORM_OWNER', 'SUPER_ADMIN', 'TENANT_OWNER', 'TENANT_STAFF')
+@Roles(...ROLES_DE_EQUIPO)
 export class CrmDeEquipoController {
   constructor(private crm: CrmDeEquipoService) {}
 

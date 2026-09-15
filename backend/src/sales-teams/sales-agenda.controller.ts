@@ -1,3 +1,4 @@
+import { ROLES_DE_EQUIPO } from './team-access';
 import {
   Body,
   Controller,
@@ -66,7 +67,7 @@ class ReservaPublicaBody {
 
 /** La agenda vista desde dentro: el vendedor y quien manda en la marca. */
 @Controller('sales-teams/:teamId/agenda')
-@Roles('PLATFORM_OWNER', 'SUPER_ADMIN', 'TENANT_OWNER', 'TENANT_STAFF')
+@Roles(...ROLES_DE_EQUIPO)
 export class SalesAgendaController {
   constructor(private svc: SalesAgendaService) {}
 

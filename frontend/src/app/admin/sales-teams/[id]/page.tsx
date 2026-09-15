@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -88,6 +89,7 @@ function BarrasPorDia({ datos }: { datos: Array<{ dia: string; n: number }> }) {
 }
 
 export default function ResumenDeEquipoPage() {
+  const rutaEquipos = useBaseDeEquipos();
   // `useParams`, no la firma con `params: Promise<>` de Next 15: este proyecto
   // va en Next 14 y ahí `use(params)` revienta EN EJECUCIÓN — `tsc` lo da por
   // bueno y la pantalla sale con «Algo salió mal». Mismo patrón que el CRM y
@@ -132,7 +134,7 @@ export default function ResumenDeEquipoPage() {
         <div className="text-3xl mb-2">⚠️</div>
         <div className="font-semibold mb-1">No se pudo cargar</div>
         <div className="text-sm text-mute mb-4">{error}</div>
-        <Link href="/admin/sales-teams" className="btn-ghost text-sm inline-flex">
+        <Link href={rutaEquipos} className="btn-ghost text-sm inline-flex">
           Volver a los equipos
         </Link>
       </div>
@@ -267,7 +269,7 @@ export default function ResumenDeEquipoPage() {
           </div>
         )}
         <div className="px-4 py-2.5 border-t border-line2">
-          <Link href={`/admin/sales-teams/${id}/colaboradores`} className="text-xs font-semibold text-brand hover:underline">
+          <Link href={`${rutaEquipos}/${id}/colaboradores`} className="text-xs font-semibold text-brand hover:underline">
             Poner y quitar colaboradores →
           </Link>
         </div>
@@ -284,12 +286,12 @@ export default function ResumenDeEquipoPage() {
                 <span className="w-2 h-2 rounded-full bg-warn shrink-0" />
                 <span>{a.texto}</span>
                 {a.tipo === 'banco' && (
-                  <Link href={`/admin/sales-teams/${id}/board`} className="text-xs font-semibold text-brand hover:underline ml-auto">
+                  <Link href={`${rutaEquipos}/${id}/board`} className="text-xs font-semibold text-brand hover:underline ml-auto">
                     Repartirlos en Leads
                   </Link>
                 )}
                 {a.tipo === 'agenda' && (
-                  <Link href={`/admin/sales-teams/${id}/agenda`} className="text-xs font-semibold text-brand hover:underline ml-auto">
+                  <Link href={`${rutaEquipos}/${id}/agenda`} className="text-xs font-semibold text-brand hover:underline ml-auto">
                     Crear el enlace
                   </Link>
                 )}

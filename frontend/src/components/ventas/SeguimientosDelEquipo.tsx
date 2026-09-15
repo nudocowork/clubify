@@ -15,6 +15,7 @@
  */
 
 import Link from 'next/link';
+import { useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -71,6 +72,7 @@ const hoyBogota = () =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
 
 export function SeguimientosDelEquipo() {
+  const rutaEquipos = useBaseDeEquipos();
   const params = useParams<{ id: string }>();
   const teamId = params?.id ?? '';
   const [estado, setEstado] = useState<'pendientes' | 'hechos'>('pendientes');
@@ -128,7 +130,7 @@ export function SeguimientosDelEquipo() {
         <div className="text-3xl mb-2">⚠️</div>
         <div className="font-semibold mb-1">No se pudo cargar</div>
         <div className="text-sm text-mute mb-4">{error}</div>
-        <Link href="/admin/sales-teams" className="btn-ghost text-sm inline-flex">
+        <Link href={rutaEquipos} className="btn-ghost text-sm inline-flex">
           Volver a los equipos
         </Link>
       </div>
@@ -254,6 +256,7 @@ function Grupo({
   onResultado: (it: Item) => void;
   onEliminar: (it: Item) => void;
 }) {
+  const rutaEquipos = useBaseDeEquipos();
   if (!items.length) return null;
   const pasoDe = (it: Item) =>
     `Paso ${it.paso}${it.channel ? ` · ${it.channel}` : ''}${it.intento > 1 ? ` · intento ${it.intento}` : ''}`;
@@ -297,7 +300,7 @@ function Grupo({
                   <td className="px-3 py-2.5 text-right">
                     <div className="flex flex-col items-end gap-1.5 sm:flex-row sm:justify-end">
                       {it.lead && (
-                        <Link href={`/admin/sales-teams/${teamId}/board?lead=${it.lead.id}`} className="btn-ghost px-2.5 py-1 text-xs">
+                        <Link href={`${rutaEquipos}/${teamId}/board?lead=${it.lead.id}`} className="btn-ghost px-2.5 py-1 text-xs">
                           Abrir chat
                         </Link>
                       )}

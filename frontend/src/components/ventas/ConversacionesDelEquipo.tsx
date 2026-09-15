@@ -16,6 +16,7 @@
  */
 
 import Link from 'next/link';
+import { useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -75,6 +76,7 @@ const nombreDe = (h: { nombre: string | null; telefono: string | null } | null |
   h?.nombre || h?.telefono || 'Sin nombre';
 
 export function ConversacionesDelEquipo() {
+  const rutaEquipos = useBaseDeEquipos();
   const params = useParams<{ id: string }>();
   const teamId = params?.id ?? '';
   const [bandeja, setBandeja] = useState<Bandeja | null>(null);
@@ -290,7 +292,7 @@ export function ConversacionesDelEquipo() {
         <div className="text-3xl mb-2">⚠️</div>
         <div className="font-semibold mb-1">No se pudo cargar</div>
         <div className="text-sm text-mute mb-4">{error}</div>
-        <Link href="/admin/sales-teams" className="btn-ghost text-sm inline-flex">
+        <Link href={rutaEquipos} className="btn-ghost text-sm inline-flex">
           Volver a los equipos
         </Link>
       </div>
@@ -413,7 +415,7 @@ export function ConversacionesDelEquipo() {
                   </p>
                 </div>
                 <Link
-                  href={`/admin/sales-teams/${teamId}/board?lead=${sel}`}
+                  href={`${rutaEquipos}/${teamId}/board?lead=${sel}`}
                   className="shrink-0 rounded-lg border border-line px-2.5 py-1 text-xs text-mute hover:bg-bg2"
                 >
                   Ver ficha

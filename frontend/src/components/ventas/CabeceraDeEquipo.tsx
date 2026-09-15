@@ -14,6 +14,7 @@
  */
 
 import Link from 'next/link';
+import { useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
 import { usePathname } from 'next/navigation';
 
 export type EquipoDeCabecera = {
@@ -58,8 +59,9 @@ export function CabeceraDeEquipo({
   equipo: EquipoDeCabecera;
   soloLectura?: boolean;
 }) {
+  const rutaEquipos = useBaseDeEquipos();
   const pathname = usePathname();
-  const base = `/admin/sales-teams/${equipo.id}`;
+  const base = `${rutaEquipos}/${equipo.id}`;
   // El pathname puede venir con el prefijo de marca (/admin/<slug>/...): lo que
   // decide la pestaña activa es lo que hay DESPUÉS del id del equipo.
   const i = pathname.indexOf(base);
@@ -84,7 +86,7 @@ export function CabeceraDeEquipo({
           <span className="text-[11px] text-white/80">Tu rol aquí es de solo lectura</span>
         )}
         <Link
-          href="/admin/sales-teams"
+          href={rutaEquipos}
           className="ml-auto text-sm font-semibold bg-white/20 hover:bg-white/30 transition rounded-pill px-3 py-1.5 whitespace-nowrap"
         >
           ← Todos los equipos

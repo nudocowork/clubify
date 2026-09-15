@@ -22,6 +22,7 @@
  */
 
 import Link from 'next/link';
+import { useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -125,6 +126,7 @@ const dinero = (n: number) =>
   '$' + n.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
 export function BancoDelEquipo() {
+  const rutaEquipos = useBaseDeEquipos();
   const params = useParams<{ id: string }>();
   const teamId = params?.id ?? '';
   const [banco, setBanco] = useState<Banco | null>(null);
@@ -187,7 +189,7 @@ export function BancoDelEquipo() {
         <div className="text-3xl mb-2">⚠️</div>
         <div className="font-semibold mb-1">No se pudo cargar</div>
         <div className="text-sm text-mute mb-4">{error}</div>
-        <Link href="/admin/sales-teams" className="btn-ghost text-sm inline-flex">
+        <Link href={rutaEquipos} className="btn-ghost text-sm inline-flex">
           Volver a los equipos
         </Link>
       </div>
@@ -571,13 +573,14 @@ function ListaSimpleDeCitas({ filas, nombreDe }: { filas: Cita[]; nombreDe: (id:
 }
 
 function ListaDeLeadsDelBanco({ filas, teamId }: { filas: LeadDelBanco[]; teamId: string }) {
+  const rutaEquipos = useBaseDeEquipos();
   if (!filas.length) return <Vacio texto="Sin registros." />;
   return (
     <div className="flex flex-col gap-1.5">
       {filas.map((l) => (
         <Link
           key={l.id}
-          href={`/admin/sales-teams/${teamId}/board?lead=${l.id}`}
+          href={`${rutaEquipos}/${teamId}/board?lead=${l.id}`}
           className="card flex items-center gap-3 px-3 py-2.5 text-sm hover:border-mute2"
         >
           <span className="flex-1 truncate font-medium text-ink">

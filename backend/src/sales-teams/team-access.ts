@@ -1,3 +1,4 @@
+import type { Role } from '@prisma/client';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -24,6 +25,28 @@ import { resolveBrandScope } from '../common/white-label/brand-scope.util';
  */
 
 export type RolDeEquipo = 'lider' | 'closer' | 'setter' | 'lectura';
+
+/**
+ * Los roles de sesión que pueden llegar a una ruta POR EQUIPO.
+ *
+ * Es la primera puerta, no la de verdad: la de verdad es `resolveTeamAccess`
+ * (miembro activo del equipo, o admin de SU marca, y el módulo encendido). Sin
+ * los afiliados en esta lista, los colaboradores de un equipo —que son
+ * afiliados— recibían 403 en todas las pestañas antes de llegar a esa puerta
+ * (Fable, 2026-09-14). Javier eligió que trabajen su equipo desde su panel de
+ * afiliado. Una sola lista para los controladores, para que ninguno se quede
+ * atrás.
+ */
+export const ROLES_DE_EQUIPO: Role[] = [
+  'PLATFORM_OWNER',
+  'SUPER_ADMIN',
+  'TENANT_OWNER',
+  'TENANT_STAFF',
+  'AFFILIATE_INFLUENCER',
+  'AFFILIATE_AMBASSADOR',
+  'AFFILIATE_VENDOR',
+  'AFFILIATE_SOCIO',
+];
 
 export type AccesoAlEquipo = {
   team: {

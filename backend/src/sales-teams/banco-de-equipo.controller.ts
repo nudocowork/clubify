@@ -1,3 +1,4 @@
+import { ROLES_DE_EQUIPO } from './team-access';
 import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
 import { IsBoolean, IsIn, IsString, MaxLength } from 'class-validator';
 import { BancoDeEquipoService } from './banco-de-equipo.service';
@@ -27,7 +28,7 @@ class ConfirmacionBody {
 }
 
 @Controller('sales-teams/:teamId/banco')
-@Roles('PLATFORM_OWNER', 'SUPER_ADMIN', 'TENANT_OWNER', 'TENANT_STAFF')
+@Roles(...ROLES_DE_EQUIPO)
 export class BancoDeEquipoController {
   constructor(private banco: BancoDeEquipoService) {}
 

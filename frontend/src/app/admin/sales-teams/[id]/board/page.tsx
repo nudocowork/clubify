@@ -17,6 +17,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -91,6 +92,7 @@ function desdeHace(iso: string): string {
 }
 
 export default function TableroDelEquipo() {
+  const rutaEquipos = useBaseDeEquipos();
   const params = useParams<{ id: string }>();
   const teamId = params?.id ?? '';
 
@@ -192,7 +194,7 @@ export default function TableroDelEquipo() {
     return (
       <div className="card p-6">
         <p className="text-sm">{error}</p>
-        <Link href="/admin/sales-teams" className="btn-ghost mt-4 inline-flex">
+        <Link href={rutaEquipos} className="btn-ghost mt-4 inline-flex">
           Volver a los equipos
         </Link>
       </div>

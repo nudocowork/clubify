@@ -16,6 +16,7 @@
  */
 
 import Link from 'next/link';
+import { useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
@@ -84,6 +85,7 @@ function titulo(fecha: string): string {
 }
 
 export function AgendaDelDia({ teamId }: { teamId: string }) {
+  const rutaEquipos = useBaseDeEquipos();
   const [fecha, setFecha] = useState<string | null>(null);
   const [dia, setDia] = useState<Dia | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -164,7 +166,7 @@ export function AgendaDelDia({ teamId }: { teamId: string }) {
         <div className="mb-3 rounded-lg border border-line bg-warn-soft px-3 py-2 text-xs text-warn-ink">
           {sinCloser.length} cita(s) de este día sin closer:{' '}
           {sinCloser.map((c) => `${hora12(c.hora)} ${c.lead?.nombre ?? 'Lead'}`).join(' · ')}.{' '}
-          <Link href={`/admin/sales-teams/${teamId}/banco`} className="font-semibold underline">
+          <Link href={`${rutaEquipos}/${teamId}/banco`} className="font-semibold underline">
             Asignarlas en el Banco →
           </Link>
         </div>
@@ -477,6 +479,7 @@ function DetalleDeCita({
   puedeEscribir: boolean;
   onCerrar: () => void;
 }) {
+  const rutaEquipos = useBaseDeEquipos();
   const [estado, setEstado] = useState(cita.status);
   const [guardando, setGuardando] = useState(false);
 
@@ -521,7 +524,7 @@ function DetalleDeCita({
         )}
         <div className="flex flex-wrap justify-end gap-2">
           {cita.lead && (
-            <Link href={`/admin/sales-teams/${teamId}/board?lead=${cita.lead.id}`} className="btn-ghost text-sm">
+            <Link href={`${rutaEquipos}/${teamId}/board?lead=${cita.lead.id}`} className="btn-ghost text-sm">
               Abrir ficha del lead →
             </Link>
           )}

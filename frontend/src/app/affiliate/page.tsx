@@ -161,6 +161,8 @@ export default function AffiliatePanel() {
   const [editandoRuta, setEditandoRuta] = useState(false);
   const [nuevaRuta, setNuevaRuta] = useState('');
   const [guardandoRuta, setGuardandoRuta] = useState(false);
+  // En cuántos equipos de ventas colabora. La pestaña solo sale si es alguno.
+  const [misEquipos, setMisEquipos] = useState(0);
 
   useEffect(() => {
     api<Me>('/affiliate/me')
@@ -168,6 +170,12 @@ export default function AffiliatePanel() {
       .catch(() => router.push('/login'))
       .finally(() => setLoading(false));
     setImpersonation(getImpersonationBackup());
+    // «Equipos de ventas» (2026-09-14): los colaboradores de un equipo son
+    // afiliados y trabajan su equipo desde aquí. Un fallo de esta consulta no
+    // puede tumbar el panel: la pestaña simplemente no sale.
+    api<{ equipos: unknown[] }>('/sales-teams/mios')
+      .then((r) => setMisEquipos(r.equipos.length))
+      .catch(() => setMisEquipos(0));
   }, [router]);
 
   function logout() {
@@ -537,6 +545,13 @@ export default function AffiliatePanel() {
             me.role === 'AFFILIATE_INFLUENCER') && (
             <Link href="/affiliate/team" className="tab">
               👥 Mi equipo
+            </Link>
+          )}
+          {/* «Equipos de ventas»: distinto de «Mi equipo» (los vendedores del
+              embajador). Son los equipos de la marca en los que colabora. */}
+          {misEquipos > 0 && (
+            <Link href="/affiliate/equipos" className="tab">
+              🗂️ Equipos de ventas
             </Link>
           )}
           <button

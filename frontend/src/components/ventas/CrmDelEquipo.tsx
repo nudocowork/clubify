@@ -14,6 +14,7 @@
  */
 
 import Link from 'next/link';
+import { useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -91,6 +92,7 @@ function recordarEmbudo(teamId: string, id: string) {
 }
 
 export function CrmDelEquipo() {
+  const rutaEquipos = useBaseDeEquipos();
   const params = useParams<{ id: string }>();
   const teamId = params?.id ?? '';
   const [datos, setDatos] = useState<Tablero | null>(null);
@@ -218,7 +220,7 @@ export function CrmDelEquipo() {
         <div className="text-3xl mb-2">⚠️</div>
         <div className="font-semibold mb-1">No se pudo cargar</div>
         <div className="text-sm text-mute mb-4">{error}</div>
-        <Link href="/admin/sales-teams" className="btn-ghost text-sm inline-flex">
+        <Link href={rutaEquipos} className="btn-ghost text-sm inline-flex">
           Volver a los equipos
         </Link>
       </div>
@@ -468,6 +470,7 @@ function ModalDeOportunidad({
   onCerrar: () => void;
   onGuardado: () => void;
 }) {
+  const rutaEquipos = useBaseDeEquipos();
   const creando = !oportunidad;
   const soloLectura = !datos.puedeEscribir;
   const [nombre, setNombre] = useState(oportunidad?.nombre ?? '');
@@ -727,7 +730,7 @@ function ModalDeOportunidad({
               {oportunidad.lead.nombre || oportunidad.lead.telefono || 'Sin nombre'}
             </span>{' '}
             ·{' '}
-            <Link href={`/admin/sales-teams/${teamId}/board?lead=${oportunidad.lead.id}`} className="underline">
+            <Link href={`${rutaEquipos}/${teamId}/board?lead=${oportunidad.lead.id}`} className="underline">
               Abrir ficha del lead →
             </Link>
           </p>

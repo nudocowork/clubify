@@ -8,6 +8,62 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-14 (12) — Equipos de Ventas (Sellea): los colaboradores trabajan su equipo desde el panel del afiliado
+
+### El problema
+
+Los colaboradores de un equipo son **afiliados** (`AFFILIATE_*`) y no entraban a
+NADA del módulo, desde que existe:
+
+- `/admin` solo admite SUPER_ADMIN y MARKETING (`AppShell.tsx`); a los demás los
+  manda a `/app`;
+- todas las rutas `sales-teams/:teamId/…` tenían `@Roles` sin afiliados: 403
+  antes de llegar a `resolveTeamAccess`.
+
+En la práctica el módulo solo lo usaban los admins de la marca. Nadie lo vio
+porque los equipos no tenían miembros.
+
+### Lo que decidió Javier y lo que se hizo
+
+Que trabajen desde SU panel de afiliado:
+
+- **Backend:** `ROLES_DE_EQUIPO` (en `team-access.ts`) en los 9 controladores
+  por equipo: los 4 roles de siempre más los 4 de afiliado. La puerta de verdad
+  sigue siendo `resolveTeamAccess` (miembro activo del equipo, o admin de su
+  marca, y el módulo encendido). El controlador de admin (`admin/sales-teams`)
+  sigue solo para SUPER_ADMIN.
+- `GET /sales-teams/mios`: los equipos activos donde la persona es miembro
+  activo, de marcas con el módulo encendido.
+- **Panel del afiliado:** pestaña «Equipos de ventas» (solo si está en alguno)
+  → `/affiliate/equipos` (lista) → `/affiliate/equipos/<id>` con LAS MISMAS
+  pantallas que el admin (las páginas re-exportan las de
+  `/admin/sales-teams/[id]`).
+- `useBaseDeEquipos()`: los enlaces internos (pestañas, «Abrir ficha»,
+  «Volver») se quedan en el panel desde el que se abrió. Eran 24 rutas `/admin/…`
+  escritas a mano: un afiliado que pulsaba «Abrir ficha» caía en `/admin` y lo
+  echaban. El listado de equipos del admin (`PanelDeEquipos`) no cambia.
+- Guardias globales comprobados: `TenantStatusGuard` y `TenantLockGuard` dejan
+  pasar a quien no tiene negocio; `InfoLinkOnlyGuard` solo mira a los roles de
+  negocio.
+
+### Revisión de Fable antes de desplegar: se puede desplegar
+
+- **Superficie abierta**, comprobada handler por handler en los 9
+  controladores: todos pasan por `resolveTeamAccess` (y `exigirEscritura` al
+  escribir). La única decisión por rol de sesión sigue siendo «admin =
+  PLATFORM_OWNER o SUPER_ADMIN»: un afiliado nunca queda como admin.
+- **Filtro de negocio:** para un afiliado el middleware no actúa (sin
+  `tenantId` no hay alcance), y de los modelos que toca el módulo solo `User`
+  tiene `tenantId`, que se lee por id o anidado. Nada devuelve vacío ni 403.
+- **Aplicado:** el tema de marca del panel del afiliado (`.brand-auth`)
+  recoloreaba el texto «ok» pero no sus fondos ni bordes; una insignia de
+  «confirmada» salía coral sobre verde. Ahora tiene las mismas reglas que
+  `.brand-panel`.
+- **Queda a sabiendas:** `AFFILIATE_VENDOR` pasa los roles pero no está entre
+  los candidatos a colaborador (`listEligibleUsers`), así que hoy un vendedor
+  no puede entrar a un equipo. Si Javier quiere vendedores en los equipos, se
+  añade ahí.
+
 ## 2026-09-14 (11) — Equipos de Ventas (Sellea): Colaboradores y Conversaciones
 
 Javier pidió replicar la estructura COMPLETA del equipo de TeamClubify
