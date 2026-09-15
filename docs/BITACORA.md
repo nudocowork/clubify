@@ -8,6 +8,30 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (16) — Panel de la marca: fuera el «mapa», y Tendencia, Comisiones y Estado de clientes en una fila
+
+Javier: «el mapa del panel sigue sin verse bien, optimízalo, o lo quitamos, ya
+que existe el apartado de Mapa», y luego «se coloca Tendencia, Comisiones y
+Estado de cliente en una sola línea».
+
+- El «mapa» del panel no era un mapa: un SVG que proyectaba cada sede sobre una
+  cuadrícula en blanco, sin calles ni países. Se quitó; el mapa de verdad es el
+  apartado «Mapa» del menú.
+- No se cambió por un Google Maps, a propósito: cargarlo también en el panel
+  gastaría la API en cada visita, y su cuota ya está bajo sospecha (sedes
+  guardadas sin coordenadas desde finales de julio; nota «Pendiente - Mapa de
+  Google no carga»).
+- Tendencia de recurrencia, Comisiones y Estado de clientes van en una sola
+  fila desde 1280 px de ancho. Por debajo no caben a un tercio (la cabecera del
+  MRR se partía y las barras quedaban de 23 px): ahí van las dos gráficas arriba
+  y el estado debajo, a lo ancho.
+- El backend sigue calculando `mapPoints` (hasta 200 sedes) en cada carga del
+  panel aunque ya no se pinta. Quitarlo toca el cálculo de métricas del panel;
+  queda para cuando se revise ese servicio.
+
+Revisión de Fable: sin restos del mapa ni imports huérfanos; lo del ancho entre
+1024 y 1280 px es el ajuste de arriba.
+
 ## 2026-09-15 (15) — Equipos de Ventas (Sellea): «Configuración», y el Resumen como en la referencia
 
 La pestaña 12 de las 12 de TeamClubify: con esta, el equipo las tiene todas.

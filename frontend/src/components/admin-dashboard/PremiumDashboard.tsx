@@ -7,8 +7,8 @@
  * plan + clientes nuevos del mes con variación. Toggle 👁 para ocultar
  * montos (#17). Debajo: 3 KPIs (MRR, Tasa de cancelación, Comisiones
  * pendientes), 2 charts con datos REALES de 6 meses (Tendencia de
- * recurrencia + Comisiones pagadas vs pendientes), bloque Estado de
- * clientes con mini mapa y Últimos ingresos.
+ * recurrencia + Comisiones pagadas vs pendientes) y Estado de clientes, los
+ * tres en una fila, y Últimos ingresos. El mapa vive en su apartado, «Mapa».
  *
  * Endpoint: /admin/dashboard/metrics-v2?range=X[&from=&to=]
  */
@@ -614,8 +614,14 @@ export function PremiumDashboard() {
         />
       )}
 
-      {/* 2 charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
+      {/* Tendencia, comisiones y estado de clientes, en una fila desde 1280 px.
+          Por debajo, a un tercio no caben (la cabecera del MRR se partía y
+          las barras quedaban en 23 px): las dos gráficas arriba y el estado
+          debajo, a lo ancho (Fable, 2026-09-15). El estado
+          compartía fila con un «mini mapa» que proyectaba las sedes sobre una
+          cuadrícula en blanco; el mapa de verdad está en «Mapa», y un Google
+          Maps aquí gastaría su cuota en cada visita al panel. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-5">
         <div className="rounded-2xl backdrop-blur bg-white/80 border border-white/60 shadow-md2 p-5">
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -695,11 +701,8 @@ export function PremiumDashboard() {
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
 
-      {/* Estado de clientes + Mini mapa */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
-        <div className="lg:col-span-1 rounded-2xl backdrop-blur bg-white/80 border border-white/60 shadow-md2 p-5">
+        <div className="md:col-span-2 xl:col-span-1 rounded-2xl backdrop-blur bg-white/80 border border-white/60 shadow-md2 p-5">
           <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
             Estado de clientes
           </div>
@@ -736,18 +739,6 @@ export function PremiumDashboard() {
             color="#71717A"
             total={totalClients(data)}
           />
-        </div>
-
-        <div className="lg:col-span-2 rounded-2xl backdrop-blur bg-white/80 border border-white/60 shadow-md2 p-5">
-          <div className="mb-3">
-            <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">
-              Mapa
-            </div>
-            <div className="text-base font-bold text-ink mt-0.5">
-              Ubicaciones activas ({data.mapPoints.length})
-            </div>
-          </div>
-          <MiniMap points={data.mapPoints} />
         </div>
       </div>
 
@@ -1166,86 +1157,5 @@ function IncomeKindBadge({
     >
       {c.emoji}
     </div>
-  );
-}
-
-/**
- * Mini mapa SVG simple: proyección lineal de lat/lng a un viewBox.
- * Para el dashboard inline. Si querés mapa interactivo con zoom/pan
- * usá `/admin/business-map` (cuando esté implementado).
- */
-function MiniMap({
-  points,
-}: {
-  points: DashboardResp['mapPoints'];
-}) {
-  if (points.length === 0) {
-    return (
-      <div className="h-[200px] flex items-center justify-center text-mute text-xs">
-        Sin ubicaciones registradas.
-      </div>
-    );
-  }
-  const lats = points.map((p) => p.latitude);
-  const lngs = points.map((p) => p.longitude);
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs);
-  const maxLng = Math.max(...lngs);
-  const padLat = Math.max(1, (maxLat - minLat) * 0.1);
-  const padLng = Math.max(1, (maxLng - minLng) * 0.1);
-  const w = 600;
-  const h = 200;
-  const project = (lat: number, lng: number) => {
-    const x =
-      ((lng - (minLng - padLng)) / (maxLng + padLng - (minLng - padLng))) * w;
-    const y =
-      h -
-      ((lat - (minLat - padLat)) / (maxLat + padLat - (minLat - padLat))) * h;
-    return [x, y];
-  };
-  return (
-    <svg
-      viewBox={`0 0 ${w} ${h}`}
-      className="w-full rounded-lg bg-slate-50 border border-slate-100"
-      style={{ height: 200 }}
-    >
-      {/* Grilla sutil */}
-      <defs>
-        <pattern
-          id="grid"
-          width="40"
-          height="40"
-          patternUnits="userSpaceOnUse"
-        >
-          <path
-            d="M 40 0 L 0 0 0 40"
-            fill="none"
-            stroke="#E5E7EB"
-            strokeWidth="0.5"
-          />
-        </pattern>
-      </defs>
-      <rect width={w} height={h} fill="url(#grid)" />
-      {points.map((p) => {
-        const [x, y] = project(p.latitude, p.longitude);
-        const color =
-          p.status === 'ACTIVE'
-            ? '#22C55E'
-            : p.status === 'TRIAL'
-            ? '#F59E0B'
-            : '#EF4444';
-        return (
-          <g key={p.id}>
-            <circle cx={x} cy={y} r="6" fill={color} opacity="0.25" />
-            <circle cx={x} cy={y} r="3" fill={color}>
-              <title>
-                {p.brandName} — {p.locationName}
-              </title>
-            </circle>
-          </g>
-        );
-      })}
-    </svg>
   );
 }
