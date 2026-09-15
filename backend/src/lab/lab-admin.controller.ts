@@ -46,6 +46,14 @@ class ListAdminQuery {
   @IsOptional() @IsString() @MaxLength(120)
   q?: string;
 
+  /** Id de una marca, o 'plataforma' para Clubify y las propuestas sin marca. */
+  @IsOptional() @IsString() @MaxLength(64)
+  whiteLabelId?: string;
+
+  /** Ranking por votos de todas las marcas, para la pestaña «Top votadas». */
+  @IsOptional() @IsEnum(['top', 'topMonth'])
+  sortBy?: 'top' | 'topMonth';
+
   @IsOptional() @Type(() => Number) @IsInt() @Min(0)
   page?: number;
 }
@@ -67,7 +75,9 @@ class SetStatusDto {
 }
 
 // ───────────── Controller admin ─────────────
-
+//
+// Un admin de marca blanca es SUPER_ADMIN y pasa este @Roles. El candado que lo
+// deja fuera de la moderación (que ve todas las marcas) está en el servicio.
 @Controller('admin/lab')
 @Roles('SUPER_ADMIN', 'MARKETING')
 export class LabAdminController {
@@ -76,12 +86,14 @@ export class LabAdminController {
   constructor(private svc: LabService) {}
 
   @Get('proposals')
-  list(@Query() q: ListAdminQuery) {
+  list(@CurrentUser() user: AuthUser, @Query() q: ListAdminQuery) {
     const page = q.page ?? 0;
-    return this.svc.listAdmin({
+    return this.svc.listAdmin(user, {
       category: q.category,
       status: q.status,
       q: q.q,
+      whiteLabelId: q.whiteLabelId,
+      sortBy: q.sortBy,
       take: LabAdminController.PAGE_SIZE,
       skip: page * LabAdminController.PAGE_SIZE,
     });
@@ -93,7 +105,7 @@ export class LabAdminController {
     @Param('id') id: string,
     @Body() body: SetStatusDto,
   ) {
-    return this.svc.setStatus(id, body.status, user.id, body.reason ?? null);
+    return this.svc.setStatus(id, body.status, user, body.reason ?? null);
   }
 
   @Post('proposals/:src/merge-into/:dst')
@@ -102,16 +114,16 @@ export class LabAdminController {
     @Param('src') src: string,
     @Param('dst') dst: string,
   ) {
-    return this.svc.mergeProposals(src, dst, user.id);
+    return this.svc.mergeProposals(src, dst, user);
   }
 
   @Delete('proposals/:id')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.svc.deleteProposal(id, user.id);
+    return this.svc.deleteProposal(id, user);
   }
 
   @Get('metrics')
-  metrics() {
-    return this.svc.metrics();
+  metrics(@CurrentUser() user: AuthUser) {
+    return this.svc.metrics(user);
   }
 }

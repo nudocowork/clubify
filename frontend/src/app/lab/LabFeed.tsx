@@ -1,13 +1,13 @@
 'use client';
 /**
- * Feed de propuestas del Clubify Lab. Componente standalone que se
- * monta tanto en la ruta dedicada `/lab` como dentro del panel del
- * embajador `/affiliate` (tab "Clubify Lab"), para que el embajador
- * no salga del panel para votar/proponer.
+ * Feed de propuestas del Lab. Lo montan `/lab` (página propia), la pestaña
+ * «Lab» del panel de afiliado de Clubify y `/admin/lab`, donde el
+ * administrador general de una marca blanca tiene el Lab de su marca.
  *
- * Toda la lógica de carga/filter/sort/crear vive acá. La página `/lab`
- * solo renderiza este componente con el layout standalone, y el panel
- * de embajadores lo renderiza dentro del wrapper de tabs.
+ * El nombre y el color salen de `GET /lab/me`, nunca del código: el feed decía
+ * «Clubify Lab» escrito a mano y así se lo encontraba un afiliado de Sellea.
+ * Sin marca resuelta, textos neutros. Toda la lógica de carga, filtros y
+ * creación vive acá.
  */
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -17,12 +17,14 @@ import {
   CATEGORY_META,
   STATUS_META,
   PRIORITY_META,
+  colorDeMarca,
   formatRelative,
   type LabCategory,
   type LabPriority,
   type LabStatus,
   type Proposal,
 } from './_shared';
+import { useLabContexto } from './useLabContexto';
 
 type SortBy = 'top' | 'newest' | 'topMonth';
 
@@ -41,7 +43,23 @@ const STATUS_FILTERS: Array<{ value: LabStatus | 'ALL'; label: string }> = [
   { value: 'IMPLEMENTED', label: 'Implementadas' },
 ];
 
-export function LabFeed() {
+function bienvenida(nombre: string | null): string {
+  const cuerpo =
+    'Acá tú propones mejoras, votas las ideas de la comunidad y comentas. ' +
+    'Las más votadas entran al roadmap real del producto.';
+  return nombre
+    ? `Bienvenido al laboratorio de ${nombre}. ${cuerpo} ¡Tu voz construye ${nombre}!`
+    : `Bienvenido al laboratorio. ${cuerpo} ¡Tu voz construye el producto!`;
+}
+
+export function LabFeed({
+  detalleHref = (id: string) => `/lab/${id}`,
+}: {
+  /** A dónde lleva cada propuesta: `/lab/<id>` o el detalle dentro del panel. */
+  detalleHref?: (id: string) => string;
+}) {
+  const lab = useLabContexto();
+  const contexto = lab.estado === 'listo' ? lab.contexto : null;
   const [category, setCategory] = useState<LabCategory>('CLIENTS');
   const [sortBy, setSortBy] = useState<SortBy>('top');
   const [status, setStatus] = useState<LabStatus | 'ALL'>('ALL');
@@ -68,20 +86,48 @@ export function LabFeed() {
   }
 
   useEffect(() => {
+    // Hasta saber quién mira no se pide nada: si no tiene acceso, el listado
+    // solo repetiría el 403 en un toast.
+    if (!contexto) return;
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, sortBy, status]);
+  }, [contexto, category, sortBy, status]);
+
+  if (lab.estado === 'cargando') {
+    return <p className="text-mute text-sm">Cargando...</p>;
+  }
+  if (lab.estado === 'error') {
+    return (
+      <div className="card card-pad text-center text-mute">{lab.mensaje}</div>
+    );
+  }
+
+  const nombre = lab.contexto.marca?.name?.trim() || null;
+  const deMarca = lab.contexto.alcance === 'MARCA_ADMIN';
+  // En una marca blanca la cabecera va con SU color. El tema del panel voltea
+  // colores de fondo, no los stops de un degradado `from-brand`, que se quedaba
+  // en el verde de Clubify: por eso el color de la marca va directo.
+  const colorMarca = deMarca ? colorDeMarca(lab.contexto.marca?.primaryColor) : null;
+  // Las propuestas las revisa el equipo de la plataforma. A una marca blanca no
+  // se le nombra a nadie: le diría quién está detrás.
+  const avisoEnviada =
+    !deMarca && nombre
+      ? `Propuesta enviada. El equipo de ${nombre} la revisará pronto.`
+      : 'Propuesta enviada. Aparecerá en el Lab cuando pase la revisión.';
 
   return (
     <div>
-      <section className="bg-gradient-to-br from-brand to-brand-strong text-white rounded-2xl p-6 sm:p-8 mb-6">
+      <section
+        className={`${
+          colorMarca ? '' : 'bg-gradient-to-br from-brand to-brand-strong'
+        } text-white rounded-2xl p-6 sm:p-8 mb-6`}
+        style={colorMarca ? { backgroundColor: colorMarca } : undefined}
+      >
         <h1 className="text-2xl sm:text-3xl font-bold m-0">
-          🧪 Clubify Lab
+          🧪 {nombre ? `${nombre} Lab` : 'Lab'}
         </h1>
         <p className="text-white/90 mt-2 text-sm sm:text-base max-w-2xl">
-          Bienvenido al laboratorio de Clubify. Acá tú propones mejoras, votas
-          las ideas de la comunidad y comentas. Las más votadas entran al
-          roadmap real del producto. ¡Tu voz construye Clubify!
+          {bienvenida(nombre)}
         </p>
       </section>
 
@@ -123,13 +169,17 @@ export function LabFeed() {
         <button className="btn-ghost" onClick={load} type="button">
           Buscar
         </button>
-        <button
-          className="btn-primary ml-auto"
-          onClick={() => setShowCreate(true)}
-          type="button"
-        >
-          ➕ Crear propuesta
-        </button>
+        {/* Sesión suplantada desde el panel maestro: la propuesta saldría a
+            nombre del administrador real de la marca. */}
+        {!lab.contexto.soloLectura && (
+          <button
+            className="btn-primary ml-auto"
+            onClick={() => setShowCreate(true)}
+            type="button"
+          >
+            ➕ Crear propuesta
+          </button>
+        )}
       </div>
 
       <div className="flex gap-2 mb-4 flex-wrap">
@@ -159,7 +209,7 @@ export function LabFeed() {
 
       <div className="grid gap-3 sm:grid-cols-2">
         {items?.map((p) => (
-          <ProposalCard key={p.id} proposal={p} />
+          <ProposalCard key={p.id} proposal={p} href={detalleHref(p.id)} />
         ))}
       </div>
 
@@ -169,10 +219,7 @@ export function LabFeed() {
           onClose={() => setShowCreate(false)}
           onCreated={() => {
             setShowCreate(false);
-            toast(
-              'Propuesta enviada. El equipo de Clubify la revisará pronto.',
-              'success',
-            );
+            toast(avisoEnviada, 'success');
             load();
           }}
         />
@@ -181,12 +228,12 @@ export function LabFeed() {
   );
 }
 
-function ProposalCard({ proposal }: { proposal: Proposal }) {
+function ProposalCard({ proposal, href }: { proposal: Proposal; href: string }) {
   const meta = STATUS_META[proposal.status];
   const cat = CATEGORY_META[proposal.category];
   return (
     <Link
-      href={`/lab/${proposal.id}`}
+      href={href}
       className="card card-pad block hover:border-brand transition no-underline"
     >
       <div className="flex items-start gap-3">

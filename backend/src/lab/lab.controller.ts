@@ -92,7 +92,10 @@ class CommentsQuery {
 }
 
 // ───────────── Controller público (autenticado) ─────────────
-
+//
+// El @Roles solo dice quién PUEDE llegar. Quién entra de verdad lo decide
+// `LabService.visorDe`: en una marca blanca solo su administrador general; sus
+// afiliados y negocios reciben 403 aunque su rol esté en la lista.
 @Controller('lab')
 @Roles(
   'SUPER_ADMIN',
@@ -108,14 +111,18 @@ export class LabController {
 
   constructor(private svc: LabService) {}
 
+  /** Alcance y marca de quien mira: el front pinta con esto el nombre y los colores. */
+  @Get('me')
+  me(@CurrentUser() user: AuthUser) {
+    return this.svc.contexto(user);
+  }
+
   @Get('proposals')
-  async list(@CurrentUser() user: AuthUser, @Query() q: ListProposalsQuery) {
+  list(@CurrentUser() user: AuthUser, @Query() q: ListProposalsQuery) {
     const page = q.page ?? 0;
     // La marca sale del USUARIO, no de un parametro: si no, cualquiera pedia
     // el feed de otra marca cambiando la query.
-    const whiteLabelId = await this.svc.marcaDeUsuario(user.id);
-    return this.svc.listPublic(q.category, {
-      whiteLabelId,
+    return this.svc.listPublic(user, q.category, {
       status: q.status,
       sortBy: q.sortBy,
       q: q.q,
@@ -126,12 +133,12 @@ export class LabController {
 
   @Get('proposals/:id')
   get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.svc.getById(id, user.id);
+    return this.svc.getById(id, user);
   }
 
   @Post('proposals')
   create(@CurrentUser() user: AuthUser, @Body() body: CreateProposalDto) {
-    return this.svc.createProposal(user.id, body);
+    return this.svc.createProposal(user, body);
   }
 
   @Post('proposals/:id/vote')
@@ -140,12 +147,12 @@ export class LabController {
     @Param('id') id: string,
     @Body() body: VoteDto,
   ) {
-    return this.svc.vote(id, user.id, body.kind);
+    return this.svc.vote(id, user, body.kind);
   }
 
   @Delete('proposals/:id/vote')
   removeVote(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.svc.removeVote(id, user.id);
+    return this.svc.removeVote(id, user);
   }
 
   @Post('proposals/:id/comments')
@@ -154,12 +161,16 @@ export class LabController {
     @Param('id') id: string,
     @Body() body: CommentDto,
   ) {
-    return this.svc.comment(id, user.id, body.body);
+    return this.svc.comment(id, user, body.body);
   }
 
   @Get('proposals/:id/comments')
-  comments(@Param('id') id: string, @Query() q: CommentsQuery) {
+  comments(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query() q: CommentsQuery,
+  ) {
     const page = q.page ?? 0;
-    return this.svc.listComments(id, 50, page * 50);
+    return this.svc.listComments(id, user, 50, page * 50);
   }
 }

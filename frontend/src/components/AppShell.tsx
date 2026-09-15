@@ -779,6 +779,14 @@ export default function AppShell({
                 // Historial de envíos (MessageLog): qué salió, a quién y qué
                 // falló. Mismo gate que Automatizaciones — es su contracara.
                 { href: '/admin/mensajes', label: tNav('sentMessages'), icon: 'history', hideForMarketing: true, requiresBrandModule: 'GROW_BUSINESS_SMS' },
+                // «<Marca> Lab»: en una marca blanca el Lab es de su administrador
+                // general (Javier, 2026-09-15), no de sus afiliados ni negocios.
+                // /admin/lab le enseña el feed de SU marca —qué ve lo decide el
+                // backend, `lab/lab-access.ts`—; la moderación sigue en Clubify.
+                // Sin nombre de marca resuelto no se pinta: nunca «Clubify Lab».
+                ...(brandSlug && brandSlug !== 'clubify' && (impersonation?.tenant?.brandName?.trim() || brandFetched?.name)
+                  ? [{ href: '/admin/lab', label: `${impersonation?.tenant?.brandName?.trim() || brandFetched?.name} Lab`, icon: 'spark' as const, hideForMarketing: true }]
+                  : []),
                 // #5: Branding e Integraciones SMS son config de PLATAFORMA
                 // (landing de Clubify, tabla Setting global). Una marca blanca
                 // gestiona su identidad desde Master Admin → Marcas, no acá, así
@@ -1016,12 +1024,15 @@ export default function AppShell({
                   {
                     section: tNav('secCommunity'),
                     items: [
-                      // Clubify Lab — propuestas y votación pública. Accesible a
-                      // todos los roles autenticados (item 13 sprint).
-                      // Nombre de plataforma dinámico: marca blanca → su nombre,
-                      // Clubify → "Clubify". No hardcodear "Clubify" (fuga si una
-                      // marca habilita el módulo COMMUNITY).
-                      { href: '/lab', label: `🧪 ${tenantInfo?.whiteLabelName || 'Clubify'} Lab`, icon: 'spark' as IconName },
+                      // Lab — propuestas y votación pública (item 13 sprint).
+                      // Solo negocios de Clubify o sin marca: en una marca blanca
+                      // el Lab es de su administrador general (Javier, 2026-09-15)
+                      // y el backend les responde 403. Con la marca sin resolver
+                      // no se pinta, para no ofrecerlo y quitarlo al cargar; y sin
+                      // nombre, «Lab» a secas (nunca «Clubify» por defecto).
+                      ...(tenantInfo && (!tenantInfo.whiteLabelSlug || tenantInfo.whiteLabelSlug === 'clubify')
+                        ? [{ href: '/lab', label: tenantInfo.whiteLabelName ? `🧪 ${tenantInfo.whiteLabelName} Lab` : '🧪 Lab', icon: 'spark' as IconName }]
+                        : []),
                       // Tutoriales — link externo a la academia (Bloque 2 2026-06-12).
                       // SUPER_ADMIN puede ocultarlo per-tenant desde
                       // /admin/tenants/[id] vía Tenant.tutorialsEnabled.

@@ -1,4 +1,4 @@
-// Shared types + constants para las pages de Clubify Lab. No es route
+// Shared types + constants para las pages del Lab. No es route
 // (filename empieza con _ → ignorado por Next).
 
 export type LabCategory = 'CLIENTS' | 'AFFILIATES';
@@ -12,6 +12,36 @@ export type LabStatus =
   | 'IN_TESTING'
   | 'IMPLEMENTED';
 export type LabVoteKind = 'LIKE' | 'NEED' | 'HIGH_PRIORITY' | 'DISLIKE';
+
+/**
+ * Quién mira el Lab. Lo decide el backend (`lab-access.ts`), no la URL: el
+ * equipo de la plataforma modera todas las marcas, y en una marca blanca solo
+ * entra su administrador general.
+ */
+export type LabAlcance = 'PLATAFORMA_EQUIPO' | 'PLATAFORMA_MIEMBRO' | 'MARCA_ADMIN';
+
+/** Marca de una propuesta, para la etiqueta de la moderación. */
+export type EtiquetaMarca = {
+  id: string;
+  name: string;
+  primaryColor: string | null;
+};
+
+export type LabContexto = {
+  alcance: LabAlcance;
+  /**
+   * Sesión suplantada desde el panel maestro: se ve el Lab, pero no se propone,
+   * vota ni comenta, porque saldría a nombre del administrador real.
+   */
+  soloLectura?: boolean;
+  /** null = marca sin resolver: textos neutros, nunca un nombre inventado. */
+  marca: {
+    name: string;
+    slug: string;
+    primaryColor: string | null;
+    logoUrl: string | null;
+  } | null;
+};
 
 export type Proposal = {
   id: string;
@@ -31,6 +61,8 @@ export type Proposal = {
   lastStatusChangedBy?: { id: string; fullName: string } | null;
   author: { id: string; fullName: string; role: string; email?: string };
   createdAt: string;
+  /** Solo en la moderación: la marca blanca de la propuesta. null = Clubify o sin marca. */
+  brand?: EtiquetaMarca | null;
 };
 
 export type ProposalDetail = Proposal & {
@@ -42,6 +74,8 @@ export type ProposalDetail = Proposal & {
     author: { id: string; fullName: string; role: string };
   }>;
   voteBreakdown: Record<LabVoteKind, number>;
+  /** false = propuesta de otra marca: se ve, pero no se vota ni se comenta. */
+  canParticipate?: boolean;
 };
 
 export const STATUS_META: Record<
@@ -81,6 +115,16 @@ export const VOTE_META: Record<
   HIGH_PRIORITY: { label: 'Alta prioridad', emoji: '🔥', description: '+5' },
   DISLIKE: { label: 'No la necesito', emoji: '👎', description: '−2' },
 };
+
+/**
+ * El color de una marca, solo si es un hex válido. Viene de la base y se pinta
+ * en `style`: un valor raro no debe colarse en el CSS.
+ */
+export function colorDeMarca(color: string | null | undefined): string | null {
+  return color && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color)
+    ? color
+    : null;
+}
 
 export function formatRelative(iso: string): string {
   const d = new Date(iso);

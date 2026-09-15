@@ -8,6 +8,61 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (24) — El Lab de una marca blanca es de su admin general y lleva su marca; Clubify modera todos con etiqueta
+
+Javier: «En Sellea, el Lab va en el negocio general, y en Clubify vemos las
+propuestas que deje Humberto marcadas con el color de Sellea y una etiqueta…
+En Sellea todo con su branding e información… Y SelleaLAB hay que quitarlo de
+los influencers, embajadores, etc.: solo para la marca blanca general.»
+
+### Antes
+
+- La pestaña «Sellea Lab» del panel de afiliado enseñaba «🧪 Clubify Lab —
+  Bienvenido al laboratorio de Clubify…» en verde.
+- Leer una propuesta por id, votarla o comentarla no miraba la marca, y la
+  moderación `/admin/lab` la abría cualquier SUPER_ADMIN, también el de una
+  marca, viendo las propuestas de todas.
+
+### Ahora
+
+- **Quién es quién** (`backend/src/lab/lab-access.ts`): SUPER_ADMIN o MARKETING
+  con marca de sesión null o Clubify = plataforma; SUPER_ADMIN de otra marca =
+  admin de esa marca; MARKETING de marca blanca, afiliados y dueños de negocio
+  de marca blanca = 403. Manda la marca de la SESIÓN: el dueño de la plataforma
+  entra a una marca con esa marca en la sesión.
+- **Admin de marca**: «{Marca} Lab» en SISTEMA → el feed de su marca dentro del
+  panel (proponer, votar, comentar) con su nombre, logo y color (`GET /lab/me`).
+- **Aislamiento**: una propuesta de otra marca da 404 al leerla, votarla o
+  comentarla.
+- **Moderación** solo para la plataforma: etiqueta con el nombre y el
+  `primaryColor` de la marca, filtro por marca y sin fusionar entre marcas. El
+  SMS al equipo dice «Lab de Sellea: …».
+- **Afiliados**: la pestaña solo para Clubify; los afiliados y negocios de
+  Clubify no ven ningún cambio.
+
+### Revisión de Fable
+
+Sin bypass de marca. Tres arreglos antes de desplegar:
+
+- **Suplantación**: al entrar a Sellea desde el panel maestro, la sesión lleva
+  el id del primer admin de la marca (Humberto). Proponer, votar o comentar
+  habría salido «Por Humberto» y pisado su voto. Ahora una sesión suplantada ve
+  el Lab en solo lectura (403 claro al escribir).
+- **Correo al autor**: ya no sale para propuestas de una marca blanca (enlace
+  fijo a `app.soyclubify.com` y firma de la plataforma: fuga de marca).
+- **Menú del negocio**: el ítem Lab solo para negocios de Clubify o sin marca;
+  fuera el `|| 'Clubify'`.
+
+Hay que desplegar el backend ANTES que el frontend: el front nuevo pide
+`GET /lab/me` y sin él el Lab no pinta nada.
+
+### Visto y sin tocar
+
+- La misma suplantación («actuar con el id de otro») existe fuera del Lab:
+  el equipo que entra a Clubify desde el panel maestro y un admin que entra a
+  un negocio. No es de este bloque.
+- Las métricas de la moderación suman todas las marcas.
+
 ## 2026-09-15 (23) — Nudo Cowork: un menú de pedido por oficina, con la oficina en el pedido y en el WhatsApp
 
 Javier: «En Nudo Cowork tienen varias oficinas y la idea es colocar un menú en

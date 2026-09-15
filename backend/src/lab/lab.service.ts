@@ -15,6 +15,22 @@ import {
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { EmailService } from '../email/email.service';
+import { AuthUser } from '../common/decorators/current-user.decorator';
+import { resolveBrandScope } from '../common/white-label/brand-scope.util';
+import {
+  EtiquetaMarca,
+  LabVisor,
+  conEtiquetaDeMarca,
+  esDeLaPlataforma,
+  exigirModeracion,
+  exigirParticipacion,
+  filtroAdminPorMarca,
+  filtroDeMarca,
+  mismaMarca,
+  puedeParticipar,
+  puedeVerPropuesta,
+  resolverVisorLab,
+} from './lab-access';
 
 // Pesos del voting widget. NEED/HIGH_PRIORITY pesan más que un LIKE normal
 // para que "lo necesito YA" mueva la aguja del ranking más que un like
@@ -51,6 +67,8 @@ const ALLOWED_STATUS_TRANSITIONS: Record<LabStatus, LabStatus[]> = {
   REJECTED: ['PENDING', 'EVALUATING'],
 };
 
+const NO_ENCONTRADA = 'Propuesta no encontrada.';
+
 export interface CreateProposalInput {
   title: string;
   description: string;
@@ -62,13 +80,6 @@ export interface CreateProposalInput {
 }
 
 export interface ListPublicOptions {
-  /**
-   * Marca de quien mira. Cada marca ve SU Lab; null/ausente = la plataforma
-   * (y las propuestas historicas sin marca). Lo resuelve el controlador desde
-   * el usuario, nunca lo manda el cliente: si no, cualquiera pedia el feed de
-   * otra marca cambiando un parametro.
-   */
-  whiteLabelId?: string | null;
   status?: LabStatus;
   sortBy?: 'top' | 'newest' | 'topMonth';
   q?: string;
@@ -80,8 +91,38 @@ export interface ListAdminOptions {
   category?: LabCategory;
   status?: LabStatus;
   q?: string;
+  /** Id de una marca, o `FILTRO_PLATAFORMA` para Clubify y las históricas sin marca. */
+  whiteLabelId?: string;
+  /** Ranking por votos (solo lo que ya salió a votación), para «Top votadas». */
+  sortBy?: 'top' | 'topMonth';
   take?: number;
   skip?: number;
+}
+
+/**
+ * SMS al equipo cuando una propuesta cambia de estado. El equipo modera las
+ * propuestas de todas las marcas: sin la marca en el texto no sabe de quién es.
+ */
+export function textoAvisoEquipoLab(p: {
+  marca: string | null;
+  titulo: string;
+  estado: LabStatus;
+  motivo: string | null;
+}): string {
+  const lab = p.marca ? `Lab de ${p.marca}` : 'Lab (marca sin resolver)';
+  return (
+    `${lab}: la propuesta "${p.titulo}" cambió a ${p.estado}` +
+    (p.motivo ? ` (motivo: ${p.motivo})` : '')
+  );
+}
+
+function busqueda(q: string): Prisma.LabProposalWhereInput {
+  return {
+    OR: [
+      { title: { contains: q, mode: 'insensitive' } },
+      { description: { contains: q, mode: 'insensitive' } },
+    ],
+  };
 }
 
 @Injectable()
@@ -95,35 +136,83 @@ export class LabService {
   ) {}
 
   // =============================================================
-  //                     PROPOSALS — públicas
+  //                     QUIÉN MIRA
   // =============================================================
 
   /**
-   * La marca de un usuario del Lab.
+   * Quién mira el Lab y con qué marca (reglas en `lab-access.ts`). Lanza 403
+   * si es de una marca blanca y no es su administrador general.
    *
-   * Un afiliado NO tiene `tenantId`: su marca vive en el `ReferralCode`. Un
-   * admin de marca la lleva en `User.whiteLabelId`. Miramos las dos, en ese
-   * orden. null = plataforma.
+   * Cada rol lleva la marca en un sitio distinto: el admin en la sesión, el
+   * dueño en su negocio y el afiliado —que no tiene `tenantId`— en su
+   * `ReferralCode`. Sin `.catch` a propósito: si la base falla, mejor un 500
+   * que tratar a un afiliado de otra marca como uno de la plataforma.
    */
-  private async marcaDe(userId: string): Promise<string | null> {
-    const u = await this.prisma.user
-      .findUnique({
-        where: { id: userId },
+  async visorDe(user: AuthUser): Promise<LabVisor> {
+    const [{ clubifyId }, u] = await Promise.all([
+      resolveBrandScope(this.prisma, null),
+      this.prisma.user.findUnique({
+        where: { id: user.id },
         select: {
           whiteLabelId: true,
+          tenantId: true,
           referralCodes: { select: { whiteLabelId: true }, take: 1 },
         },
-      })
-      .catch(() => null);
-    return u?.referralCodes?.[0]?.whiteLabelId ?? u?.whiteLabelId ?? null;
+      }),
+    ]);
+    // El negocio sale de la sesión antes que de la base: un admin que entra a
+    // un negocio lleva ese `tenantId` en el token, no en su usuario.
+    const tenantId = user.tenantId ?? u?.tenantId ?? null;
+    const negocio =
+      user.role === 'TENANT_OWNER' && tenantId
+        ? await this.prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { whiteLabelId: true },
+          })
+        : null;
+    return resolverVisorLab({
+      role: user.role,
+      sesionWhiteLabelId: user.whiteLabelId ?? null,
+      // Entrar a una marca desde el panel maestro firma el token con el `sub`
+      // de su administrador real: sin esto, lo escrito saldría a su nombre.
+      suplantadoPor: user.impersonatedBy ?? null,
+      usuarioWhiteLabelId: u?.whiteLabelId ?? null,
+      negocioWhiteLabelId: negocio?.whiteLabelId ?? null,
+      codigoWhiteLabelId: u?.referralCodes?.[0]?.whiteLabelId ?? null,
+      clubifyId,
+    });
   }
 
-  /** La marca de quien mira, para acotar el feed. Ver `marcaDe`. */
-  async marcaDeUsuario(userId: string): Promise<string | null> {
-    return this.marcaDe(userId);
+  /**
+   * Lo que el front necesita para pintar el Lab: el alcance y el nombre y
+   * colores de la marca. A la plataforma le devuelve la fila Clubify; si no
+   * existe (dev), `marca: null` y el front usa textos neutros en vez de
+   * inventarse un nombre. `soloLectura` esconde «Crear propuesta».
+   */
+  async contexto(user: AuthUser) {
+    const visor = await this.visorDe(user);
+    const id =
+      visor.alcance === 'MARCA_ADMIN' ? visor.whiteLabelId : visor.clubifyId;
+    const marca = id
+      ? await this.prisma.whiteLabel.findUnique({
+          where: { id },
+          select: { name: true, slug: true, primaryColor: true, logoUrl: true },
+        })
+      : null;
+    return {
+      alcance: visor.alcance,
+      soloLectura: visor.soloLectura,
+      marca: marca ?? null,
+    };
   }
 
-  async createProposal(userId: string, dto: CreateProposalInput) {
+  // =============================================================
+  //                     PROPOSALS — públicas
+  // =============================================================
+
+  async createProposal(user: AuthUser, dto: CreateProposalInput) {
+    const visor = await this.visorDe(user);
+    exigirParticipacion(visor);
     const title = (dto.title ?? '').trim();
     const description = (dto.description ?? '').trim();
     if (title.length < 5) {
@@ -146,33 +235,31 @@ export class LabService {
         expectedBenefit: dto.expectedBenefit?.trim() || null,
         attachmentUrl: dto.attachmentUrl || null,
         attachmentKind: dto.attachmentKind || null,
-        authorId: userId,
-        // El Lab de cada marca es SUYO: la propuesta nace con la marca de
-        // quien la escribe, para que no aparezca en el feed de otra.
-        whiteLabelId: await this.marcaDe(userId),
+        authorId: user.id,
+        // La propuesta nace con la marca de quien la escribe: así sale en el
+        // Lab de esa marca y, en la moderación, con su etiqueta.
+        whiteLabelId: visor.whiteLabelId,
       },
     });
   }
 
-  async listPublic(category: LabCategory, options: ListPublicOptions = {}) {
+  async listPublic(
+    user: AuthUser,
+    category: LabCategory,
+    options: ListPublicOptions = {},
+  ) {
+    const visor = await this.visorDe(user);
     const take = Math.min(options.take ?? 20, 50);
     const skip = options.skip ?? 0;
+    // Cada marca ve SU Lab; la plataforma junta Clubify y las históricas sin
+    // marca. Va dentro de AND para no pisar el OR de la búsqueda.
+    const and: Prisma.LabProposalWhereInput[] = [filtroDeMarca(visor)];
+    if (options.q && options.q.trim()) and.push(busqueda(options.q.trim()));
     const where: Prisma.LabProposalWhereInput = {
       category,
       status: options.status ?? { in: PUBLIC_STATUSES },
-      // Cada marca ve SU Lab. Las historicas sin marca (null) se tratan como
-      // de la plataforma, asi que solo las ve Clubify.
-      ...(options.whiteLabelId
-        ? { whiteLabelId: options.whiteLabelId }
-        : { whiteLabelId: null }),
+      AND: and,
     };
-    if (options.q && options.q.trim()) {
-      const q = options.q.trim();
-      where.OR = [
-        { title: { contains: q, mode: 'insensitive' } },
-        { description: { contains: q, mode: 'insensitive' } },
-      ];
-    }
 
     let orderBy: Prisma.LabProposalOrderByWithRelationInput
       | Prisma.LabProposalOrderByWithRelationInput[] = { createdAt: 'desc' };
@@ -201,7 +288,30 @@ export class LabService {
     return { items, total, take, skip };
   }
 
-  async getById(id: string, userId: string) {
+  /**
+   * Una propuesta de otra marca da 404 (no 403, para no confirmar que el id
+   * existe). PENDING o REJECTED: solo el autor y el equipo de la plataforma,
+   * que es quien las revisa y la moderación enlaza al detalle.
+   */
+  private exigirVisible(
+    visor: LabVisor,
+    proposal: { status: LabStatus; authorId: string; whiteLabelId: string | null } | null,
+    userId: string,
+  ) {
+    if (!proposal || !puedeVerPropuesta(visor, proposal.whiteLabelId)) {
+      throw new NotFoundException(NO_ENCONTRADA);
+    }
+    if (
+      !PUBLIC_STATUSES.includes(proposal.status) &&
+      proposal.authorId !== userId &&
+      visor.alcance !== 'PLATAFORMA_EQUIPO'
+    ) {
+      throw new NotFoundException(NO_ENCONTRADA);
+    }
+  }
+
+  async getById(id: string, user: AuthUser) {
+    const visor = await this.visorDe(user);
     const proposal = await this.prisma.labProposal.findUnique({
       where: { id },
       include: {
@@ -211,18 +321,13 @@ export class LabService {
         lastStatusChangedBy: { select: { id: true, fullName: true } },
       },
     });
-    if (!proposal) throw new NotFoundException('Propuesta no encontrada.');
+    this.exigirVisible(visor, proposal, user.id);
+    const p = proposal!;
+    const esEquipo = visor.alcance === 'PLATAFORMA_EQUIPO';
 
-    // Si está PENDING o REJECTED, solo la ve el autor (o admin via /admin/lab).
-    if (!PUBLIC_STATUSES.includes(proposal.status)) {
-      if (proposal.authorId !== userId) {
-        throw new NotFoundException('Propuesta no encontrada.');
-      }
-    }
-
-    const [myVote, comments, voteBreakdown] = await Promise.all([
+    const [myVote, comments, voteBreakdown, etiquetas] = await Promise.all([
       this.prisma.labVote.findUnique({
-        where: { proposalId_userId: { proposalId: id, userId } },
+        where: { proposalId_userId: { proposalId: id, userId: user.id } },
       }),
       this.prisma.labComment.findMany({
         where: { proposalId: id },
@@ -237,6 +342,9 @@ export class LabService {
         where: { proposalId: id },
         _count: { _all: true },
       }),
+      esEquipo
+        ? this.etiquetasDeMarca([p.whiteLabelId], visor.clubifyId)
+        : Promise.resolve(new Map<string, EtiquetaMarca>()),
     ]);
 
     const breakdown: Record<LabVoteKind, number> = {
@@ -249,18 +357,49 @@ export class LabService {
       breakdown[row.kind] = row._count._all;
     }
 
-    return { ...proposal, myVote, comments, voteBreakdown: breakdown };
+    return {
+      ...p,
+      // La etiqueta es cosa de la moderación: dentro de una marca todas las
+      // propuestas son suyas y ponerle su propio nombre no dice nada.
+      brand: esEquipo
+        ? conEtiquetaDeMarca([p], etiquetas, visor.clubifyId)[0].brand
+        : null,
+      canParticipate: puedeParticipar(visor, p.whiteLabelId),
+      myVote,
+      comments,
+      voteBreakdown: breakdown,
+    };
   }
 
-  async vote(proposalId: string, userId: string, kind: LabVoteKind) {
+  /**
+   * La propuesta sobre la que alguien vota o comenta, ya comprobada. Si es de
+   * otra marca, 404. El equipo de la plataforma la ve pero no participa.
+   */
+  private async propuestaParaParticipar(proposalId: string, user: AuthUser) {
+    const visor = await this.visorDe(user);
+    const proposal = await this.prisma.labProposal.findUnique({
+      where: { id: proposalId },
+      select: { id: true, status: true, authorId: true, whiteLabelId: true },
+    });
+    if (!proposal || !puedeVerPropuesta(visor, proposal.whiteLabelId)) {
+      throw new NotFoundException(NO_ENCONTRADA);
+    }
+    // Antes que el chequeo de marca, para que la sesión suplantada reciba su
+    // motivo y no el de «otra marca».
+    exigirParticipacion(visor);
+    if (!puedeParticipar(visor, proposal.whiteLabelId)) {
+      throw new ForbiddenException(
+        'Esta propuesta es del Lab de otra marca: puedes verla, pero no votar ni comentar.',
+      );
+    }
+    return proposal;
+  }
+
+  async vote(proposalId: string, user: AuthUser, kind: LabVoteKind) {
     if (!VOTE_WEIGHTS[kind]) {
       throw new BadRequestException('Tipo de voto inválido.');
     }
-    const proposal = await this.prisma.labProposal.findUnique({
-      where: { id: proposalId },
-      select: { id: true, status: true, authorId: true },
-    });
-    if (!proposal) throw new NotFoundException('Propuesta no encontrada.');
+    const proposal = await this.propuestaParaParticipar(proposalId, user);
     // Solo se vota sobre propuestas públicas (el autor puede ver pero no
     // votar sobre PENDING/REJECTED — no tendría sentido).
     if (!PUBLIC_STATUSES.includes(proposal.status)) {
@@ -268,21 +407,22 @@ export class LabService {
     }
 
     await this.prisma.labVote.upsert({
-      where: { proposalId_userId: { proposalId, userId } },
-      create: { proposalId, userId, kind },
+      where: { proposalId_userId: { proposalId, userId: user.id } },
+      create: { proposalId, userId: user.id, kind },
       update: { kind },
     });
     return this.recalcVotes(proposalId);
   }
 
-  async removeVote(proposalId: string, userId: string) {
+  async removeVote(proposalId: string, user: AuthUser) {
+    await this.propuestaParaParticipar(proposalId, user);
     await this.prisma.labVote
-      .delete({ where: { proposalId_userId: { proposalId, userId } } })
+      .delete({ where: { proposalId_userId: { proposalId, userId: user.id } } })
       .catch(() => null);
     return this.recalcVotes(proposalId);
   }
 
-  async comment(proposalId: string, userId: string, body: string) {
+  async comment(proposalId: string, user: AuthUser, body: string) {
     const text = (body ?? '').trim();
     if (text.length < 2) {
       throw new BadRequestException('El comentario está vacío.');
@@ -290,20 +430,16 @@ export class LabService {
     if (text.length > 2000) {
       throw new BadRequestException('El comentario es demasiado largo.');
     }
-    const proposal = await this.prisma.labProposal.findUnique({
-      where: { id: proposalId },
-      select: { id: true, status: true, authorId: true },
-    });
-    if (!proposal) throw new NotFoundException('Propuesta no encontrada.');
+    const proposal = await this.propuestaParaParticipar(proposalId, user);
     if (
       !PUBLIC_STATUSES.includes(proposal.status) &&
-      proposal.authorId !== userId
+      proposal.authorId !== user.id
     ) {
       throw new ForbiddenException('No puedes comentar esta propuesta.');
     }
 
     const comment = await this.prisma.labComment.create({
-      data: { proposalId, authorId: userId, body: text },
+      data: { proposalId, authorId: user.id, body: text },
       include: {
         author: { select: { id: true, fullName: true, role: true } },
       },
@@ -315,7 +451,13 @@ export class LabService {
     return comment;
   }
 
-  async listComments(proposalId: string, take = 50, skip = 0) {
+  async listComments(proposalId: string, user: AuthUser, take = 50, skip = 0) {
+    const visor = await this.visorDe(user);
+    const proposal = await this.prisma.labProposal.findUnique({
+      where: { id: proposalId },
+      select: { status: true, authorId: true, whiteLabelId: true },
+    });
+    this.exigirVisible(visor, proposal, user.id);
     return this.prisma.labComment.findMany({
       where: { proposalId },
       orderBy: { createdAt: 'asc' },
@@ -330,25 +472,43 @@ export class LabService {
   // =============================================================
   //                     ADMIN — review / status
   // =============================================================
+  //
+  // La moderación es del equipo de la plataforma y ve TODAS las marcas. Un
+  // admin de marca blanca pasa el @Roles del controlador (es SUPER_ADMIN), así
+  // que el candado de verdad es `exigirModeracion` en cada método.
 
-  async listAdmin(options: ListAdminOptions = {}) {
+  async listAdmin(user: AuthUser, options: ListAdminOptions = {}) {
+    const visor = await this.visorDe(user);
+    exigirModeracion(visor);
     const take = Math.min(options.take ?? 30, 100);
     const skip = options.skip ?? 0;
     const where: Prisma.LabProposalWhereInput = {};
     if (options.category) where.category = options.category;
     if (options.status) where.status = options.status;
-    if (options.q && options.q.trim()) {
-      const q = options.q.trim();
-      where.OR = [
-        { title: { contains: q, mode: 'insensitive' } },
-        { description: { contains: q, mode: 'insensitive' } },
-      ];
+    const and: Prisma.LabProposalWhereInput[] = [];
+    const porMarca = filtroAdminPorMarca(options.whiteLabelId, visor.clubifyId);
+    if (porMarca) and.push(porMarca);
+    if (options.q && options.q.trim()) and.push(busqueda(options.q.trim()));
+    if (and.length) where.AND = and;
+
+    let orderBy: Prisma.LabProposalOrderByWithRelationInput[] = [
+      { createdAt: 'desc' },
+    ];
+    if (options.sortBy) {
+      // Igual que el top del feed: solo lo que ya salió a votación.
+      if (!options.status) where.status = { in: PUBLIC_STATUSES };
+      if (options.sortBy === 'topMonth') {
+        const since = new Date();
+        since.setDate(since.getDate() - 30);
+        where.createdAt = { gte: since };
+      }
+      orderBy = [{ votesScore: 'desc' }, { createdAt: 'desc' }];
     }
 
-    const [items, total] = await Promise.all([
+    const [items, total, marcas] = await Promise.all([
       this.prisma.labProposal.findMany({
         where,
-        orderBy: [{ createdAt: 'desc' }],
+        orderBy,
         take,
         skip,
         include: {
@@ -359,23 +519,34 @@ export class LabService {
         },
       }),
       this.prisma.labProposal.count({ where }),
+      this.marcasConPropuestas(visor.clubifyId),
     ]);
-    return { items, total, take, skip };
+    return {
+      items: conEtiquetaDeMarca(items, marcas, visor.clubifyId),
+      total,
+      take,
+      skip,
+      // Opciones del filtro por marca: solo las marcas blancas con propuestas.
+      marcas: [...marcas.values()].sort((a, b) =>
+        a.name.localeCompare(b.name, 'es'),
+      ),
+    };
   }
 
   async setStatus(
     id: string,
     status: LabStatus,
-    adminUserId: string,
+    user: AuthUser,
     reason?: string | null,
   ) {
+    exigirModeracion(await this.visorDe(user));
     const proposal = await this.prisma.labProposal.findUnique({
       where: { id },
       include: {
         author: { select: { id: true, fullName: true, email: true } },
       },
     });
-    if (!proposal) throw new NotFoundException('Propuesta no encontrada.');
+    if (!proposal) throw new NotFoundException(NO_ENCONTRADA);
 
     if (proposal.status !== status) {
       const allowed = ALLOWED_STATUS_TRANSITIONS[proposal.status] ?? [];
@@ -391,7 +562,7 @@ export class LabService {
       data: {
         status,
         rejectionReason: status === 'REJECTED' ? reason ?? null : null,
-        lastStatusChangedById: adminUserId,
+        lastStatusChangedById: user.id,
         lastStatusChangedAt: new Date(),
       },
     });
@@ -404,7 +575,9 @@ export class LabService {
     return updated;
   }
 
-  async mergeProposals(srcId: string, dstId: string, adminUserId: string) {
+  async mergeProposals(srcId: string, dstId: string, user: AuthUser) {
+    const visor = await this.visorDe(user);
+    exigirModeracion(visor);
     if (srcId === dstId) {
       throw new BadRequestException('Origen y destino no pueden ser iguales.');
     }
@@ -414,6 +587,13 @@ export class LabService {
     ]);
     if (!src) throw new NotFoundException('Propuesta origen no encontrada.');
     if (!dst) throw new NotFoundException('Propuesta destino no encontrada.');
+    // Fusionar mueve comentarios y votos. Entre marcas distintas, lo escrito
+    // en el Lab de una aparecería en el de la otra.
+    if (!mismaMarca(src.whiteLabelId, dst.whiteLabelId, visor.clubifyId)) {
+      throw new BadRequestException(
+        'No se pueden fusionar propuestas de marcas distintas.',
+      );
+    }
 
     // Transferir comentarios y votos. Los votos pueden colisionar si el user
     // ya votó en dst — en ese caso mantenemos el voto existente de dst.
@@ -448,7 +628,7 @@ export class LabService {
         data: {
           status: 'REJECTED',
           rejectionReason: `Fusionada con #${dstId}`,
-          lastStatusChangedById: adminUserId,
+          lastStatusChangedById: user.id,
           lastStatusChangedAt: new Date(),
         },
       });
@@ -459,20 +639,23 @@ export class LabService {
     return { ok: true, srcId, dstId };
   }
 
-  async deleteProposal(id: string, adminUserId: string) {
+  async deleteProposal(id: string, user: AuthUser) {
+    exigirModeracion(await this.visorDe(user));
     const existing = await this.prisma.labProposal.findUnique({
       where: { id },
       select: { id: true, title: true },
     });
-    if (!existing) throw new NotFoundException('Propuesta no encontrada.');
+    if (!existing) throw new NotFoundException(NO_ENCONTRADA);
     await this.prisma.labProposal.delete({ where: { id } });
     this.logger.log(
-      `LabProposal "${existing.title}" (${id}) eliminada por ${adminUserId}`,
+      `LabProposal "${existing.title}" (${id}) eliminada por ${user.id}`,
     );
     return { ok: true };
   }
 
-  async metrics() {
+  async metrics(user: AuthUser) {
+    const visor = await this.visorDe(user);
+    exigirModeracion(visor);
     const [byStatus, byCategory, topContributors, topVoted] =
       await Promise.all([
         this.prisma.labProposal.groupBy({
@@ -507,12 +690,18 @@ export class LabService {
     // Resolver nombres de los contribuidores. groupBy no permite include
     // → hacemos una query extra puntual.
     const authorIds = topContributors.map((r) => r.authorId);
-    const authors = authorIds.length
-      ? await this.prisma.user.findMany({
-          where: { id: { in: authorIds } },
-          select: { id: true, fullName: true, role: true },
-        })
-      : [];
+    const [authors, etiquetas] = await Promise.all([
+      authorIds.length
+        ? this.prisma.user.findMany({
+            where: { id: { in: authorIds } },
+            select: { id: true, fullName: true, role: true },
+          })
+        : Promise.resolve([]),
+      this.etiquetasDeMarca(
+        topVoted.map((p) => p.whiteLabelId),
+        visor.clubifyId,
+      ),
+    ]);
     const authorById = new Map(authors.map((a) => [a.id, a]));
     const topContributorsResolved = topContributors.map((r) => ({
       userId: r.authorId,
@@ -546,13 +735,62 @@ export class LabService {
       byCategory: categoryCounts,
       mostActiveCategory,
       topContributors: topContributorsResolved,
-      topVoted,
+      topVoted: conEtiquetaDeMarca(topVoted, etiquetas, visor.clubifyId),
     };
   }
 
   // =============================================================
   //                     INTERNALS
   // =============================================================
+
+  /** Nombre y color de las marcas blancas de estas propuestas (sin la plataforma). */
+  private async etiquetasDeMarca(
+    ids: Array<string | null>,
+    clubifyId: string | null,
+  ): Promise<Map<string, EtiquetaMarca>> {
+    const unicos = [
+      ...new Set(
+        ids.filter(
+          (id): id is string => !!id && !esDeLaPlataforma(id, clubifyId),
+        ),
+      ),
+    ];
+    if (unicos.length === 0) return new Map();
+    const rows = await this.prisma.whiteLabel.findMany({
+      where: { id: { in: unicos } },
+      select: { id: true, name: true, primaryColor: true },
+    });
+    return new Map(
+      rows.map((r) => [
+        r.id,
+        { id: r.id, name: r.name, primaryColor: r.primaryColor ?? null },
+      ]),
+    );
+  }
+
+  /** Las marcas blancas que tienen alguna propuesta: etiquetas y filtro de la moderación. */
+  private async marcasConPropuestas(clubifyId: string | null) {
+    const grupos = await this.prisma.labProposal.groupBy({
+      by: ['whiteLabelId'],
+      _count: { _all: true },
+    });
+    return this.etiquetasDeMarca(
+      grupos.map((g) => g.whiteLabelId),
+      clubifyId,
+    );
+  }
+
+  /** Nombre de la marca de una propuesta; las de la plataforma, el de la fila Clubify. */
+  private async nombreDeMarca(whiteLabelId: string | null): Promise<string | null> {
+    const { clubifyId } = await resolveBrandScope(this.prisma, null);
+    const id = esDeLaPlataforma(whiteLabelId, clubifyId) ? clubifyId : whiteLabelId;
+    if (!id) return null;
+    const wl = await this.prisma.whiteLabel.findUnique({
+      where: { id },
+      select: { name: true },
+    });
+    return wl?.name ?? null;
+  }
 
   private async recalcVotes(proposalId: string) {
     const votes = await this.prisma.labVote.findMany({
@@ -582,15 +820,26 @@ export class LabService {
    * Cualquier fallo se loguea pero no rompe el setStatus.
    */
   private async notifyStatusChange(
-    proposal: { id: string; title: string; author: { fullName: string; email: string } | null },
+    proposal: {
+      id: string;
+      title: string;
+      whiteLabelId: string | null;
+      author: { fullName: string; email: string } | null;
+    },
     newStatus: LabStatus,
     reason: string | null,
   ) {
-    const teamBody =
-      `Clubify Lab: la propuesta "${proposal.title}" cambió a ${newStatus}` +
-      (reason ? ` (motivo: ${reason})` : '');
     try {
-      await this.alerts.sendTeamAlert(teamBody, 'lab');
+      const marca = await this.nombreDeMarca(proposal.whiteLabelId);
+      await this.alerts.sendTeamAlert(
+        textoAvisoEquipoLab({
+          marca,
+          titulo: proposal.title,
+          estado: newStatus,
+          motivo: reason,
+        }),
+        'lab',
+      );
     } catch (e) {
       this.logger.warn(
         `Lab team alert falló: ${(e as Error)?.message ?? e}`,
@@ -599,9 +848,14 @@ export class LabService {
 
     if (!proposal.author?.email) return;
     try {
+      // Solo propuestas de la plataforma. Ahora el autor puede ser el
+      // administrador de una marca blanca, y este correo lleva un enlace fijo a
+      // app.soyclubify.com y la firma genérica de la plataforma: fuga de marca.
+      // (Hoy además no sale para nadie: sin RESEND_API_KEY, EmailService cae a
+      // la consola.)
+      const { clubifyId } = await resolveBrandScope(this.prisma, null);
+      if (!esDeLaPlataforma(proposal.whiteLabelId, clubifyId)) return;
       await this.email.send({
-        // Correo al AUTOR: neutro de marca (el Lab/COMMUNITY podría habilitarse
-        // en una marca blanca; nombrar "Clubify" delataría la plataforma).
         to: proposal.author.email,
         subject: `Tu propuesta en el Lab cambió de estado`,
         html: `

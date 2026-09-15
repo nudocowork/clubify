@@ -251,9 +251,11 @@ export class AffiliateService {
             // Dominio de marketing de la marca: los enlaces de prueba que
             // comparte el afiliado tenian soyclubify.com escrito a mano.
             baseUrl: wl.domain ? `https://${wl.domain.replace(/^https?:\/\//, '')}` : null,
-            // El Lab ya esta acotado por marca (`LabProposal.whiteLabelId`),
-            // asi que cada marca ve el suyo y se muestra a todas.
-            labEnabled: true,
+            // El Lab de una marca blanca es solo de su administrador general
+            // (Javier, 2026-09-15): sus afiliados ya no lo ven. El backend del
+            // Lab también les responde 403 (`lab/lab-access.ts`); esto esconde
+            // la pestaña para no ofrecer algo que no abre.
+            labEnabled: wl.slug === 'clubify',
           }
         : null,
       myCode: myCode

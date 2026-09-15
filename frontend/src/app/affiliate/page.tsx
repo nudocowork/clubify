@@ -584,8 +584,9 @@ export default function AffiliatePanel() {
               para que el embajador no salga del panel. La ruta /lab
               standalone sigue funcionando, ambas montan el mismo
               componente LabFeed. */}
-          {/* Cada marca ve SU Lab: las propuestas se sellan con la marca de
-              quien las escribe y el feed filtra por la de quien mira. */}
+          {/* Solo afiliados de Clubify: en una marca blanca el Lab es de su
+              administrador general, no de sus afiliados (Javier, 2026-09-15).
+              `labEnabled` lo decide el backend según la marca. */}
           {me.brand?.labEnabled !== false && (
             <button
               className={`tab ${tab === 'lab' ? 'tab-active' : ''}`}

@@ -1,19 +1,30 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { marcaDeLaRuta } from '@/lib/brand-from-path';
 import {
   CATEGORY_META,
   STATUS_META,
   formatRelative,
+  type EtiquetaMarca,
   type LabCategory,
   type LabStatus,
   type Proposal,
 } from '../../lab/_shared';
+import { LabFeed } from '../../lab/LabFeed';
+import { MarcaEtiqueta } from '../../lab/MarcaEtiqueta';
+import { useLabContexto } from '../../lab/useLabContexto';
 
 type Tab = 'pending' | 'all' | 'metrics' | 'topVoted';
+
+/** Filtro de marca para Clubify + las propuestas sin marca (espejo de `FILTRO_PLATAFORMA` del backend). */
+const FILTRO_PLATAFORMA = 'plataforma';
+
+type ListadoAdmin = { items: Proposal[]; marcas?: EtiquetaMarca[] };
 
 type Metrics = {
   totals: {
@@ -47,13 +58,49 @@ const STATUS_OPTIONS: LabStatus[] = [
   'REJECTED',
 ];
 
+/**
+ * /admin/lab sirve a dos personas distintas, y lo decide el backend
+ * (`/lab/me`), no la URL:
+ *  - El equipo de la plataforma: la moderación de las propuestas de TODAS las
+ *    marcas, con la etiqueta de la marca en las que no son de Clubify.
+ *  - El administrador general de una marca blanca: el Lab de SU marca dentro de
+ *    su panel (entra por «<Marca> Lab» en Sistema). Nunca la moderación: vería
+ *    y cambiaría propuestas de Clubify y de las demás marcas.
+ */
 export default function AdminLabPage() {
+  const t = useTranslations('admin_lab');
+  const pathname = usePathname();
+  const lab = useLabContexto();
+
+  if (lab.estado === 'cargando') {
+    return <p className="text-mute">{t('loading')}</p>;
+  }
+  if (lab.estado === 'error') {
+    return <div className="card card-pad text-mute max-w-2xl">{lab.mensaje}</div>;
+  }
+  if (lab.contexto.alcance === 'MARCA_ADMIN') {
+    // Con /admin/<marca>/lab en la URL, el detalle conserva el slug: sin él el
+    // panel deja de saber qué marca está viendo.
+    const marca = marcaDeLaRuta(pathname);
+    const base = marca ? `/admin/${marca}/lab` : '/admin/lab';
+    return (
+      <div className="max-w-6xl">
+        <LabFeed detalleHref={(id) => `${base}/${id}`} />
+      </div>
+    );
+  }
+  return <ModeracionLab plataforma={lab.contexto.marca?.name ?? null} />;
+}
+
+function ModeracionLab({ plataforma }: { plataforma: string | null }) {
   const t = useTranslations('admin_lab');
   const [tab, setTab] = useState<Tab>('pending');
   const [pending, setPending] = useState<Proposal[] | null>(null);
   const [all, setAll] = useState<Proposal[] | null>(null);
+  const [marcas, setMarcas] = useState<EtiquetaMarca[]>([]);
   const [filterStatus, setFilterStatus] = useState<LabStatus | 'ALL'>('ALL');
   const [filterCategory, setFilterCategory] = useState<LabCategory | 'ALL'>('ALL');
+  const [filterBrand, setFilterBrand] = useState<string>('ALL');
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [topVoted, setTopVoted] = useState<Proposal[] | null>(null);
   const [topVotedScope, setTopVotedScope] = useState<'top' | 'topMonth'>('top');
@@ -63,7 +110,7 @@ export default function AdminLabPage() {
   async function loadPending() {
     setPending(null);
     try {
-      const r = await api<{ items: Proposal[] }>(
+      const r = await api<ListadoAdmin>(
         '/admin/lab/proposals?status=PENDING',
       );
       setPending(r.items);
@@ -79,10 +126,12 @@ export default function AdminLabPage() {
       const p = new URLSearchParams();
       if (filterStatus !== 'ALL') p.set('status', filterStatus);
       if (filterCategory !== 'ALL') p.set('category', filterCategory);
-      const r = await api<{ items: Proposal[] }>(
+      if (filterBrand !== 'ALL') p.set('whiteLabelId', filterBrand);
+      const r = await api<ListadoAdmin>(
         `/admin/lab/proposals?${p.toString()}`,
       );
       setAll(r.items);
+      setMarcas(r.marcas ?? []);
     } catch (e: any) {
       toast(e?.message ?? t('error'), 'error');
       setAll([]);
@@ -101,13 +150,14 @@ export default function AdminLabPage() {
   async function loadTopVoted() {
     setTopVoted(null);
     try {
-      // Reusamos /lab/proposals con sortBy. Categoría CLIENTS por default —
-      // el toggle permite cambiar.
+      // Antes salía de /lab/proposals, que es el feed de quien mira: solo
+      // Clubify. La moderación ve el top de todas las marcas, con etiqueta.
+      // Categoría CLIENTS por default, como antes.
       const params = new URLSearchParams();
       params.set('category', 'CLIENTS');
       params.set('sortBy', topVotedScope);
-      const r = await api<{ items: Proposal[] }>(
-        `/lab/proposals?${params.toString()}`,
+      const r = await api<ListadoAdmin>(
+        `/admin/lab/proposals?${params.toString()}`,
       );
       setTopVoted(r.items.slice(0, 20));
     } catch (e: any) {
@@ -122,7 +172,7 @@ export default function AdminLabPage() {
     if (tab === 'metrics') loadMetrics();
     if (tab === 'topVoted') loadTopVoted();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, filterStatus, filterCategory, topVotedScope]);
+  }, [tab, filterStatus, filterCategory, filterBrand, topVotedScope]);
 
   async function setStatus(
     id: string,
@@ -204,10 +254,14 @@ export default function AdminLabPage() {
       {tab === 'all' && (
         <AllTab
           items={all}
+          marcas={marcas}
+          plataforma={plataforma}
           filterStatus={filterStatus}
           setFilterStatus={setFilterStatus}
           filterCategory={filterCategory}
           setFilterCategory={setFilterCategory}
+          filterBrand={filterBrand}
+          setFilterBrand={setFilterBrand}
           onChangeStatus={(p) => setStatusModal(p)}
           onMerge={(p) => setMergeModal(p)}
           onDelete={(p) => deleteProposal(p.id)}
@@ -265,6 +319,7 @@ function ProposalRow({
       <div className="flex items-start gap-3 flex-wrap">
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap gap-1.5 items-center mb-1.5">
+            <MarcaEtiqueta marca={proposal.brand} />
             <span className={`badge ${meta.badge}`}>{meta.label}</span>
             <span className="badge badge-mute">
               {cat.emoji} {cat.label}
@@ -368,19 +423,29 @@ function PendingTab({
 
 function AllTab({
   items,
+  marcas,
+  plataforma,
   filterStatus,
   setFilterStatus,
   filterCategory,
   setFilterCategory,
+  filterBrand,
+  setFilterBrand,
   onChangeStatus,
   onMerge,
   onDelete,
 }: {
   items: Proposal[] | null;
+  /** Marcas blancas con propuestas (sin Clubify). Sin ninguna, no hay filtro. */
+  marcas: EtiquetaMarca[];
+  /** Nombre de la plataforma según la base; null → texto neutro. */
+  plataforma: string | null;
   filterStatus: LabStatus | 'ALL';
   setFilterStatus: (v: LabStatus | 'ALL') => void;
   filterCategory: LabCategory | 'ALL';
   setFilterCategory: (v: LabCategory | 'ALL') => void;
+  filterBrand: string;
+  setFilterBrand: (v: string) => void;
   onChangeStatus: (p: Proposal) => void;
   onMerge: (p: Proposal) => void;
   onDelete: (p: Proposal) => void;
@@ -412,6 +477,23 @@ function AllTab({
           <option value="CLIENTS">🏢 {t('categoryBusinesses')}</option>
           <option value="AFFILIATES">👥 {t('categoryAmbassadors')}</option>
         </select>
+        {(marcas.length > 0 || filterBrand !== 'ALL') && (
+          <select
+            className="input max-w-[200px]"
+            value={filterBrand}
+            onChange={(e) => setFilterBrand(e.target.value)}
+          >
+            <option value="ALL">{t('filterAllBrands')}</option>
+            <option value={FILTRO_PLATAFORMA}>
+              {plataforma ?? t('filterPlatform')}
+            </option>
+            {marcas.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
       {items === null && <p className="text-mute">{t('loading')}</p>}
       {items && items.length === 0 && (
@@ -574,9 +656,12 @@ function TopVotedTab({
                 })}
               </div>
             </div>
-            <span className={`badge ${STATUS_META[p.status].badge}`}>
-              {STATUS_META[p.status].label}
-            </span>
+            <div className="flex flex-wrap gap-1.5 justify-end">
+              <MarcaEtiqueta marca={p.brand} />
+              <span className={`badge ${STATUS_META[p.status].badge}`}>
+                {STATUS_META[p.status].label}
+              </span>
+            </div>
           </li>
         ))}
       </ol>
@@ -667,14 +752,17 @@ function MergeModal({
   const [candidates, setCandidates] = useState<Proposal[] | null>(null);
   const [dstId, setDstId] = useState<string>('');
   const [busy, setBusy] = useState(false);
+  // Solo candidatas de la misma marca: el backend no fusiona entre marcas,
+  // porque los comentarios de una acabarían en el Lab de la otra.
+  const marcaOrigen = src.brand?.id ?? FILTRO_PLATAFORMA;
 
   useEffect(() => {
-    api<{ items: Proposal[] }>(
-      `/admin/lab/proposals?category=${src.category}`,
+    api<ListadoAdmin>(
+      `/admin/lab/proposals?category=${src.category}&whiteLabelId=${encodeURIComponent(marcaOrigen)}`,
     )
       .then((r) => setCandidates(r.items.filter((p) => p.id !== src.id)))
       .catch(() => setCandidates([]));
-  }, [src.category, src.id]);
+  }, [src.category, src.id, marcaOrigen]);
 
   async function submit() {
     if (!dstId) return;
