@@ -8,6 +8,49 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-14 (13) — Equipos de Ventas (Sellea): «Tareas del CRM»
+
+La pestaña 10 de las 12 de TeamClubify. Lo que hay que hacer con un contacto,
+con fecha y responsable: antes vivía en una nota del lead y nadie lo veía vencer.
+
+- **Pestaña `/tareas`** (también en el panel del afiliado): Pendientes /
+  Vencidas / Hoy / Mías / Completadas y «N pendientes en total». Cada tarea se
+  marca hecha, se abre (acción, descripción, fecha, responsable), tiene «Abrir
+  chat» (lleva a Conversaciones) y se elimina.
+- **«+ Nueva tarea»:** contacto (buscador), acción del catálogo del equipo (con
+  «+» se añade una), descripción, fecha y responsable.
+- **En la ficha del lead** (pestaña Leads), una sección «Tareas» con lo mismo
+  para ese contacto; al crear una, el historial de la ficha se relee.
+- Tablas `SalesTask` y `SalesTaskAction`
+  (`apply-sales-tasks-migration.cjs`, **aplicada**). El catálogo es **por
+  equipo** (en la referencia es global) y arranca con «Seguimiento»; un índice
+  único (equipo, nombre) impide sembrarlo dos veces.
+- Fechas `AAAA-MM-DD` del día de Bogotá; vencida = abierta con fecha anterior a
+  hoy.
+- Borra una tarea quien la creó, el líder o un admin de la marca (en la
+  referencia, cualquiera que escriba); quitar una acción del catálogo, el líder
+  o un admin. Quitarla no toca las tareas ya creadas.
+
+### Revisión de Fable antes de desplegar: se puede desplegar
+
+Aislamiento (`?lead=` de otro equipo, ids del cuerpo), permisos, `marcar`
+condicional, fechas, contrato pantalla↔servidor, rutas y migración = esquema:
+comprobados. Se aplicó:
+
+- **La migración solo creaba los índices junto con la tabla.** Si una pasada
+  se cortaba tras crear `SalesTaskAction`, la siguiente decía «nada que hacer»
+  y producción se quedaba sin el índice único que impide sembrar «Seguimiento»
+  dos veces. Ahora cada índice se comprueba por su nombre.
+- Crear una tarea desde la ficha no refrescaba el historial de la ficha.
+- Si lo guardado entraba pero fallaba la recarga, la sección avisaba «no se
+  pudo guardar».
+- El detalle de una tarea no dejaba cambiar la acción (el servidor sí lo
+  admitía).
+
+Queda a sabiendas: dos personas creando «Llamar» y «llamar» en el mismo
+instante dejan las dos en el catálogo (el índice único distingue mayúsculas).
+La referencia tiene la misma carrera.
+
 ## 2026-09-14 (12) — Equipos de Ventas (Sellea): los colaboradores trabajan su equipo desde el panel del afiliado
 
 ### El problema

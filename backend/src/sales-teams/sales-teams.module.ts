@@ -19,6 +19,8 @@ import { ConversacionesDeEquipoService } from './conversaciones-de-equipo.servic
 import { ConversacionesDeEquipoController } from './conversaciones-de-equipo.controller';
 import { MisEquiposService } from './mis-equipos.service';
 import { MisEquiposController } from './mis-equipos.controller';
+import { TareasDeEquipoService } from './tareas-de-equipo.service';
+import { TareasDeEquipoController } from './tareas-de-equipo.controller';
 import { SalesLeadsController } from './sales-leads.controller';
 import { SalesAgendaService } from './sales-agenda.service';
 import {
@@ -50,6 +52,7 @@ import { MarketingModule } from '../marketing/marketing.module';
     ColaboradoresDeEquipoService,
     ConversacionesDeEquipoService,
     MisEquiposService,
+    TareasDeEquipoService,
     SalesLeadsService,
     SalesAgendaService,
     SalesChatService,
@@ -66,6 +69,7 @@ import { MarketingModule } from '../marketing/marketing.module';
     ColaboradoresDeEquipoController,
     ConversacionesDeEquipoController,
     MisEquiposController,
+    TareasDeEquipoController,
     SalesAgendaController,
     PublicSalesAgendaController,
     SalesChatController,

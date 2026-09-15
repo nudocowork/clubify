@@ -4455,6 +4455,7 @@ model SalesTeam {
   implementations SalesImplementation[]
   savedViews      SalesSavedView[]
   pipelines       SalesPipeline[]
+  taskActions     SalesTaskAction[]
   @@index([leadUserId])
   @@index([whiteLabelId])
 }
@@ -4557,6 +4558,7 @@ model SalesLead {
 
   implementation SalesImplementation?
   opportunities  SalesOpportunity[]
+  tasks          SalesTask[]
   @@index([salesTeamId, stageId])
   @@index([salesTeamId, assignedUserId])
   @@index([whiteLabelId, phoneKey])
@@ -4839,6 +4841,46 @@ model SalesOpportunity {
   @@index([pipelineId, stageId, position])
   @@index([salesTeamId, status])
   @@index([leadId])
+}
+
+/// «Tareas del CRM» del equipo: lo que hay que hacer con un contacto, con fecha
+/// y responsable. Es `ContactTask` de TeamClubify.
+model SalesTask {
+  id              String    @id @default(uuid())
+  salesTeamId     String
+  leadId          String
+  lead            SalesLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  /// La acción: un título corto del catálogo del equipo («Seguimiento», «Llamar»).
+  title           String
+  /// Qué pasó y qué sigue. El título solo no dice nada dentro de un mes.
+  body            String?   @db.Text
+  /// AAAA-MM-DD, día de Bogotá. Sin hora, como en la referencia.
+  dueDate         String?
+  /// Sin relación con `User`: añadirla obliga a tocar ese modelo.
+  assignedUserId  String?
+  done            Boolean   @default(false)
+  doneAt          DateTime?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
+
+  @@index([salesTeamId, done, dueDate])
+  @@index([leadId, done])
+  @@index([salesTeamId, assignedUserId, done])
+}
+
+/// El catálogo de acciones de tarea de UN equipo. Se siembra con «Seguimiento»;
+/// el equipo añade las suyas desde la propia tarea.
+model SalesTaskAction {
+  id          String    @id @default(uuid())
+  salesTeamId String
+  team        SalesTeam @relation(fields: [salesTeamId], references: [id], onDelete: Cascade)
+  name        String
+  position    Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  @@unique([salesTeamId, name])
+  @@index([salesTeamId, position])
 }
 
 // Canal de envío del botón automático del CRM (C5).

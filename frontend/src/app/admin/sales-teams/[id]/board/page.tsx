@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
+import { TareasDelLead } from '@/components/ventas/TareasDelLead';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -568,6 +569,15 @@ function FichaDelLead({
                 </button>
               </div>
             )}
+
+            <TareasDelLead
+              teamId={teamId}
+              leadId={leadId}
+              onCambio={() => {
+                void cargar();
+                onCambio();
+              }}
+            />
 
             <Conversacion teamId={teamId} leadId={leadId} onCambio={onCambio} />
 
