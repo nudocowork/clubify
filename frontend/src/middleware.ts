@@ -365,6 +365,11 @@ export async function middleware(req: NextRequest) {
     url.pathname === '/sw.js' ||
     url.pathname.startsWith('/admin') ||
     url.pathname === '/login' ||
+    // El escáner habla con la API directamente: si la API está en
+    // mantenimiento ya falla por sí solo. Reescrito a /maintenance, en cambio,
+    // el service worker guardaba esa página (200) como pantalla de arranque del
+    // escáner y la seguía sirviendo sin red (Fable, 2026-09-15).
+    url.pathname.startsWith('/scan') ||
     url.pathname.startsWith('/manifest');
 
   if (!isMaintenanceBypass) {

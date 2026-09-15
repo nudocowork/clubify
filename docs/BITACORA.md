@@ -8,6 +8,55 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (20) — Wok Explosivo no podía abrir el escáner: regla en Vercel y el service worker que guardaba errores
+
+Wok Explosivo llevaba días sin poder abrir el escáner: la ventana mostraba
+«Esta solicitud fue bloqueada · 403 Prohibido» con un id `iad1::…`, que es la
+pantalla del BORDE de Vercel, no de nuestra aplicación. Con el wifi de la casa
+fallaba; con los datos del teléfono entraba.
+
+### Lo que NO era (comprobado, no supuesto)
+
+- El proyecto en Vercel **no tenía cortafuegos configurado**: sin reglas, sin
+  IPs bloqueadas, sin excepciones (`{"active":null,"draft":null,"versions":[]}`).
+- Sin protección por contraseña, sin SSO, sin lista de IPs de confianza.
+- `/scan` responde 200 desde fuera, también con un agente de usuario como el de
+  la app (Electron). No es el user agent.
+- El escáner no machaca a Vercel: sus `setTimeout` son del lector de cámara, y
+  su API va directa a `api.soyclubify.com`, no por el borde.
+
+### Lo que era
+
+1. **La mitigación automática de Vercel sobre la IP de esa casa.** Es de la
+   plataforma, no aparece en la configuración del proyecto y no se puede
+   consultar por la API. Explica el 403 VIVO en cada arranque desde ese wifi.
+2. **Un fallo nuestro que lo agravaba:** el service worker guardaba CUALQUIER
+   respuesta de navegación, incluido un 403, como pantalla de arranque de
+   `/scan` y respaldo sin red. Un corte de un minuto podía quedarse pegado.
+
+Nota de honestidad: primero se dijo que el service worker era toda la causa y
+que la máquina se curaba sola con el arreglo. La revisión de Fable lo corrigió:
+la navegación es *network-first*, así que un 403 vivo no pasa por la copia
+guardada. El arreglo del service worker es necesario, pero no suficiente.
+
+### El arreglo
+
+- **Regla en el cortafuegos de Vercel** (`waf_WBsHYqw8ANxn`, aprobada por
+  Javier): «Escaner sin mitigacion automatica», acción *bypass* para `/scan`,
+  los `/_next/` e `/icons/` que pide el escáner (Referer con `/scan`), `/sw.js`
+  y `/manifest.webmanifest`. El resto de la app sigue con la protección de
+  siempre.
+- **Service worker v58:** solo guarda lo que respondió bien, nunca sirve un
+  error ni una respuesta redirigida guardados, el respaldo de `/scan` es solo
+  para `/scan`, y la pantalla de «Sin conexión» (sin marca) se recarga sola al
+  volver la red y cada 15 s. `/hub`, `/onboarding`, `/activar`, `/entrar` y
+  `/reset` pasan a ir siempre desde red, como `/login`.
+- **Middleware:** `/scan` no se reescribe a `/maintenance`, que el service worker
+  habría guardado como pantalla del escáner.
+
+Si vuelve a pasar con otro cliente y la regla no alcanza, la siguiente palanca
+es soporte de Vercel con el id `iad1::…` del error.
+
 ## 2026-09-15 (19) — Quipao ya tiene su píxel de Meta puesto
 
 Javier pasó el píxel de la agencia de Quipao. Es un cambio de DATO, no de

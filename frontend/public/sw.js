@@ -9,7 +9,7 @@
 // importantes que necesitan invalidar TODA la cache de los clientes.
 // Cada vez que cambia, el SW activate purga las caches viejas y los clientes
 // vuelven a descargar todo fresh.
-const VERSION = 'v57-2026-09-05-sin-navigate';
+const VERSION = 'v58-2026-09-15-sin-cachear-errores';
 const SHELL_CACHE = `clubify-shell-${VERSION}`;
 const ASSET_CACHE = `clubify-assets-${VERSION}`;
 
@@ -72,6 +72,30 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/**
+ * Lo que se ve si no hay red y no hay nada bueno guardado.
+ *
+ * Se reintenta SOLA: al volver la red (`online`) y probando cada 15 s. En un
+ * kiosco sin barra de direcciones ni F5 —el escáner en Electron— una pantalla
+ * que no se recarga es una avería hasta reiniciar la app, justo el síntoma que
+ * se quería quitar (Fable, 2026-09-15). Sin nombre de marca: la ve el cliente
+ * de cualquier marca blanca.
+ */
+const SIN_CONEXION = '<!doctype html><html lang="es"><meta charset="utf-8">' +
+  '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+  '<title>Sin conexión</title>' +
+  '<body style="margin:0;display:grid;place-items:center;min-height:100vh;font:16px system-ui,sans-serif;color:#111">' +
+  '<div style="text-align:center;padding:24px;max-width:22rem">' +
+  '<p style="font-size:2rem;margin:0 0 .5rem">📶</p>' +
+  '<p style="font-weight:600;margin:0 0 .25rem">Sin conexión</p>' +
+  '<p style="margin:0 0 1rem;color:#666">Revisa el internet. Esta pantalla vuelve sola en cuanto haya conexión.</p>' +
+  '<button onclick="location.reload()" style="font:inherit;padding:.6rem 1.2rem;border-radius:.6rem;border:1px solid #ccc;background:#fff;cursor:pointer">Reintentar</button>' +
+  '</div>' +
+  '<script>' +
+  'addEventListener("online",function(){location.reload()});' +
+  'setInterval(function(){fetch(location.href,{method:"HEAD",cache:"no-store"}).then(function(r){if(r.ok)location.reload()}).catch(function(){})},15000);' +
+  '</script></body></html>';
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -121,7 +145,16 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/superadmin/') ||
     url.pathname === '/forgot' ||
     url.pathname.startsWith('/forgot/') ||
-    url.pathname.startsWith('/_next/data/')
+    url.pathname.startsWith('/_next/data/') ||
+    // Igual que /login (v16): el lanzador y las páginas con token en la URL
+    // no pueden servirse desde una copia vieja que apunta a chunks muertos,
+    // ni dejar ese token guardado en la cache (Fable, 2026-09-15).
+    url.pathname === '/hub' ||
+    url.pathname.startsWith('/hub/') ||
+    url.pathname.startsWith('/onboarding') ||
+    url.pathname.startsWith('/activar') ||
+    url.pathname.startsWith('/entrar') ||
+    url.pathname.startsWith('/reset')
   ) {
     return;
   }
@@ -131,11 +164,41 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(SHELL_CACHE).then((c) => c.put(req, copy));
+          // SOLO SE GUARDA LO QUE SALIÓ BIEN.
+          //
+          // Antes se guardaba la respuesta fuera cual fuera. Un 403 del borde
+          // —Vercel mitigando una IP, un portal cautivo del wifi, el router de
+          // una casa— se quedaba cacheado como la pantalla de arranque de
+          // `/scan`, y a partir de ahí CADA arranque sin red servía esa
+          // pantalla de «esta solicitud fue bloqueada» aunque el servidor ya
+          // contestara bien. Convertía un corte de un minuto en una avería
+          // permanente en esa máquina: le pasó a Wok Explosivo, que con los
+          // datos del teléfono entraba y con su wifi no (2026-09-15).
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(SHELL_CACHE).then((c) => c.put(req, copy));
+          }
           return res;
         })
-        .catch(() => caches.match(req).then((r) => r || caches.match('/scan'))),
+        .catch(async () => {
+          // Al caer a la cache tampoco se sirve un error guardado, ni una
+          // respuesta redirigida: a una navegación el navegador la rechaza y
+          // el respaldo se convertiría en una pantalla de error.
+          const sirve = (r) => r && r.ok && !r.redirected;
+          const guardada = await caches.match(req);
+          if (sirve(guardada)) return guardada;
+          // La pantalla del escáner es respaldo SOLO del escáner: antes, un
+          // cliente que abría su tarjeta o una alianza sin red recibía el login
+          // del personal (Fable, 2026-09-15).
+          if (url.pathname.startsWith('/scan')) {
+            const shell = await caches.match('/scan');
+            if (sirve(shell)) return shell;
+          }
+          return new Response(SIN_CONEXION, {
+            status: 503,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          });
+        }),
     );
     return;
   }
