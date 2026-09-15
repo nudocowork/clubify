@@ -8,6 +8,75 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (21) — Una cancelación que no avisó, una renovación tomada por compra nueva y avisos de afiliados que se perdían
+
+Lo que pasó hacia las 9 de la mañana (hora de Bogotá), comprobado en la base:
+
+- **08:59 · VALMONT BARBERIA canceló** después de dos cobros fallidos (14 y
+  15-09). El webhook solo puso `canceledAt` (regla del 10-09: no cortar
+  mientras queden días pagados) y su `currentPeriodEnd` decía 13-10, así que
+  seguía ACTIVO sin haber pagado ese período. **Nadie del equipo recibió
+  aviso**: ese camino no llamaba a `notifyBillingTeam`. El «⛔ Cliente
+  cancelado» de la cadena de atribución fue al número roto de Nico (abajo).
+- **09:01 · Essentrix pagó su 2º cobro** (`recurrence_number: 2`). Como su
+  primer pago no dejó `hotmartTransactionId`, se tomó por primera compra:
+  «🎉 Nueva compra» a Javier, «✅ Pago procesado» **sin «(renovación)»** a los
+  3 números y el correo de BIENVENIDA al cliente en vez del de pago confirmado.
+  Los SMS sí salieron (MessageLog `sent`, 14:01 UTC); lo que estaba mal era qué
+  decían.
+- **Avisos a afiliados**: el de Essentrix a Nico salió a `31816669999` —el
+  número de Jhon con un 9 de más, guardado en el código TAFMPWK5— y quedó como
+  `ok: true` porque Grow Business lo aceptó. Once avisos en diez días así.
+  Además, en una venta repartida el SMS iba al dueño del ENLACE por cada
+  comisión: en Urban Café (11-09) Juan Camilo recibió los dos y Nico ninguno.
+
+### Arreglos (backend)
+
+- `esPrimeraCompraHotmart`: una recurrencia 2+ nunca es primera compra. La 1 y
+  los eventos sin ese dato miran la transacción, como antes.
+- Cancelación (`desconectaAlCancelar`): un negocio ACTIVO sin días pagados
+  (último cobro fallido, período vencido o sin período) se desconecta en el
+  acto. Con días pagados sigue la regla del 10-09, que Javier volvió a
+  confirmar hoy. Los ya suspendidos y los que están en prueba no se tocan.
+  Reembolso y contracargo, como siempre.
+- `notifyBillingTeam('cancelado')` a los 3 números en cancelación, reembolso y
+  contracargo; dice si ya se desconectó o hasta qué fecha sigue.
+- Cron de las 3 a. m. (`suspendCanceledAtPeriodEnd`): apaga también al
+  cancelado cuyo último cobro falló.
+- Un pago NUEVO limpia `canceledAt`; el re-aviso del mismo pago no.
+- `AffiliateSaleAlertsService`: SMS a quien cobra la comisión
+  (`recipientCode`, con respaldo al dueño del enlace); `telefonoDeAviso` no
+  adivina y un número imposible queda `ok: false` con el motivo; renovación =
+  hay comisión anterior del mismo enlace en OTRO periodo; se ignoran los
+  ajustes negativos de un reembolso; primero se descartan las ya avisadas y
+  luego se corta a 50; copia por venta a los números del Setting
+  `afiliados.avisoVentas.copias`, por marca (sin marca = Clubify).
+
+### Datos cambiados en producción (con Javier)
+
+- `ReferralCode` TAFMPWK5 (Nicolas Quintero, influencer): `ownerWhatsapp`
+  `31816669999` → `+573124412708`, su personal, confirmado por Javier.
+- Setting `afiliados.avisoVentas.copias` = Javier y Jhon, solo marca Clubify.
+- VALMONT BARBERIA suspendido con
+  `backend/scripts/desconectar-cancelados-sin-pago.cjs --aplicar` (1 negocio).
+
+### Revisión de Fable
+
+Cinco hallazgos corregidos antes de desplegar: `canceledAt` que no se limpiaba
+al volver a pagar, reembolsos avisados como renovación, pasada llena que dejaba
+fuera las comisiones nuevas, negocios sin marca sin copia, y cancelación que
+suspendía a ya suspendidos o en prueba. Queda uno menor a la vista: si llega un
+cobro fallido después de cancelar con días pagados, el equipo lee «entró en
+gracia» y el cron lo apaga de madrugada sin SMS.
+
+### Para la otra máquina
+
+- Comisiones y afiliados son de Jhon: aquí solo se tocó a QUIÉN y CÓMO se avisa,
+  no cómo se calculan ni se crean las comisiones.
+- Los SMS que Claude manda por el MCP de Master Creativo salen por la «WhatsApp
+  Gateway» conectada a esa subcuenta, no por la línea de soporte de Clubify:
+  le llegan a Javier, pero él reportó que el aviso «llegó a Jhon».
+
 ## 2026-09-15 (20) — Wok Explosivo no podía abrir el escáner: regla en Vercel y el service worker que guardaba errores
 
 Wok Explosivo llevaba días sin poder abrir el escáner: la ventana mostraba

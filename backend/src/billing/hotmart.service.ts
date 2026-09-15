@@ -1423,26 +1423,52 @@ export class HotmartService {
         // Un reembolso o un contracargo SÍ suspenden en el acto — ahí el dinero
         // volvió— y por eso siguen cayendo en el `default` de abajo.
         const soloCancelacion = event === 'SUBSCRIPTION_CANCELLATION';
+        const now = new Date();
+        // …pero eso protege días PAGADOS. Si no queda ninguno —el último cobro
+        // falló o el período venció— la cancelación desconecta ya. Ver
+        // `desconectaAlCancelar` (VALMONT BARBERIA, 15-09-2026).
+        const desconectarYa =
+          !soloCancelacion || desconectaAlCancelar(tenant, now);
         await this.prisma.tenant.update({
           where: { id: tenant.id },
-          data: soloCancelacion
-            ? { canceledAt: new Date() }
-            : { status: 'SUSPENDED', suspendedAt: new Date() },
+          data: {
+            ...(soloCancelacion ? { canceledAt: now } : {}),
+            ...(desconectarYa
+              ? { status: 'SUSPENDED' as const, suspendedAt: now }
+              : {}),
+          },
         });
         // El crédito de la marca se libera cuando el negocio DEJA de ocupar
-        // plaza, no cuando avisa de que se va: hasta el fin del período sigue
-        // usando el servicio. En una cancelación lo hace el cron al vencer.
-        if (!soloCancelacion) {
+        // plaza, no cuando avisa de que se va: si aún le quedan días pagados,
+        // lo hace el cron al vencer.
+        if (desconectarYa) {
           await this.billing
             .releaseBrandCreditOnSuspend(tenant.id, `hotmart_${event.toLowerCase()}`)
             .catch(() => null);
         }
         await this.billing
           .auditLifecycle(
-            soloCancelacion ? 'subscription.canceled' : 'subscription.suspended',
+            desconectarYa ? 'subscription.suspended' : 'subscription.canceled',
             tenant.id,
             { gateway: 'HOTMART', reason: event },
           )
+          .catch(() => null);
+        // Aviso al EQUIPO (los 3 números). Hasta el 15-09-2026 una cancelación
+        // no le avisaba a nadie de dentro: había que verla en el correo de
+        // Hotmart. Dice si ya se desconectó o hasta cuándo sigue.
+        await this.billing
+          .notifyBillingTeam('cancelado', tenant.brandName, {
+            motivo:
+              event === 'PURCHASE_REFUNDED'
+                ? 'reembolso'
+                : event === 'PURCHASE_CHARGEBACK'
+                  ? 'contracargo'
+                  : 'cancelacion',
+            desconectado: desconectarYa || tenant.status === 'SUSPENDED',
+            // Solo un negocio activo «sigue hasta» una fecha: el cron de
+            // cancelados no toca los que están en prueba.
+            hasta: tenant.status === 'ACTIVE' ? (tenant.currentPeriodEnd ?? null) : null,
+          })
           .catch(() => null);
         // Reflejar el cambio en el referido. CHURNED frena nuevas comisiones
         // recurrentes. Si fue refund/chargeback, además rechazamos la última
@@ -1559,7 +1585,10 @@ export class HotmartService {
     // los negocios que se crean ACTIVE (activación por créditos) ANTES de su
     // primer cobro quedaban marcados como renovación y la alerta de la venta
     // nueva NO se enviaba. hotmartTransactionId sí distingue bien.
-    const isFirstHotmartPurchase = !tenant.hotmartTransactionId;
+    //
+    // FIX 2026-09-15: una recurrencia 2+ nunca es primera compra, tenga o no
+    // transacción guardada. Ver `esPrimeraCompraHotmart` (Essentrix).
+    const isFirstHotmartPurchase = esPrimeraCompraHotmart(payload, tenant);
     const subscriberCode = codigoDeSuscriptor(payload);
     const transactionId = payload.data?.purchase?.transaction;
     // FIX PDF123 (cobro duplicado): Hotmart dispara PURCHASE_APPROVED y — días
@@ -1714,6 +1743,12 @@ export class HotmartService {
         firstFailedAt: null,
         lastPaymentAttemptAt: new Date(),
         suspendedAt: null,
+        // Un pago NUEVO deshace una cancelación anterior: quien vuelve a pagar
+        // ya no está cancelado. Sin esto seguía fuera de los recordatorios y el
+        // cron de cancelados lo apagaba con el primer cobro fallido, sin gracia.
+        // El re-aviso del MISMO pago (PURCHASE_COMPLETE) no la deshace
+        // (Fable, 15-09-2026).
+        ...(alreadyConfirmedTx ? {} : { canceledAt: null }),
         // 2026-06-06: el trial termina cuando hay pago confirmado. Limpiamos
         // trialEndsAt para que el dashboard no muestre "Trial: X días
         // restantes" junto con el plan pagado. trialStartedAt y trialSource
@@ -2279,6 +2314,7 @@ export class HotmartService {
           hotmartTransactionId: true,
           currentPeriodEnd: true,
           firstFailedAt: true,
+          failedPaymentCount: true,
         },
       });
       if (t) return t;
@@ -2330,6 +2366,7 @@ export class HotmartService {
             hotmartTransactionId: true,
             currentPeriodEnd: true,
             firstFailedAt: true,
+            failedPaymentCount: true,
           },
         });
       }
@@ -3421,4 +3458,57 @@ function formatElapsed(totalMinutes: number): string {
   const days = Math.floor(hours / 24);
   const remainingHours = hours % 24;
   return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+}
+
+/**
+ * ¿Es el PRIMER cobro de esta suscripción?
+ *
+ * Una recurrencia 2 o más (`purchase.recurrence_number`, Hotmart diciendo qué
+ * cobro es) NUNCA es primera compra, tenga o no transacción guardada. La 1 y
+ * los eventos sin ese dato siguen mirando la transacción, como siempre: una
+ * resuscripción o un cambio de plan también empiezan en 1 y no son un cliente
+ * nuevo.
+ *
+ * Mirar solo la transacción falló con Essentrix el 15-09-2026: su primer pago
+ * entró por otro camino y no dejó transacción, así que su 2º cobro salió como
+ * «🎉 Nueva compra», el SMS al equipo sin «(renovación)» y al cliente le llegó
+ * el correo de bienvenida en vez del de pago confirmado.
+ */
+export function esPrimeraCompraHotmart(
+  payload: HotmartWebhookPayload,
+  tenant: { hotmartTransactionId: string | null },
+): boolean {
+  const compra = payload.data?.purchase as unknown as
+    | { recurrence_number?: unknown }
+    | undefined;
+  const recurrencia = Number(compra?.recurrence_number);
+  if (Number.isInteger(recurrencia) && recurrencia > 1) return false;
+  return !tenant.hotmartTransactionId;
+}
+
+/**
+ * ¿Una cancelación desconecta el servicio en el acto?
+ *
+ * La regla de fondo es la decisión de Javier del 2026-09-10: quien pagó hasta
+ * el 25 y avisa el 10 sigue hasta el 25. Pero eso protege días PAGADOS: si el
+ * último cobro falló (`failedPaymentCount` > 0) o el período ya venció, no
+ * queda nada que respetar y se desconecta ya.
+ *
+ * VALMONT BARBERIA (15-09-2026) canceló después de dos cobros fallidos y se
+ * quedaba activo hasta el 13-10 sin haber pagado ese período.
+ */
+export function desconectaAlCancelar(
+  tenant: {
+    status?: string | null;
+    failedPaymentCount?: number | null;
+    currentPeriodEnd?: Date | null;
+  },
+  ahora: Date,
+): boolean {
+  // Solo un negocio ACTIVO se desconecta aquí. Uno ya suspendido por mora no
+  // necesita otra suspensión (se le pisaría la fecha), y uno en prueba que
+  // nunca pagó sigue como antes (Fable, 15-09-2026).
+  if (tenant.status && tenant.status !== 'ACTIVE') return false;
+  if ((tenant.failedPaymentCount ?? 0) > 0) return true;
+  return !tenant.currentPeriodEnd || tenant.currentPeriodEnd <= ahora;
 }

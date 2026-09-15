@@ -29,6 +29,37 @@ const BILLING_ALERT_PHONES = [
   '+573248088401',
 ];
 
+export type MotivoDeBaja = 'cancelacion' | 'reembolso' | 'contracargo';
+
+/**
+ * El SMS al equipo cuando un negocio se va. Hasta el 15-09-2026 una
+ * cancelación no le avisaba a nadie de dentro. Dice si ya se desconectó o
+ * hasta cuándo sigue, que es lo primero que se pregunta al leerlo.
+ */
+export function textoDeCancelacion(
+  brandName: string,
+  motivo: MotivoDeBaja,
+  estado: { desconectado: boolean; hasta: Date | null },
+): string {
+  const que =
+    motivo === 'reembolso'
+      ? '💸 REEMBOLSO'
+      : motivo === 'contracargo'
+        ? '💸 CONTRACARGO'
+        : '🚫 CANCELÓ la suscripción';
+  const cuando = estado.desconectado
+    ? ' Servicio desconectado.'
+    : estado.hasta
+      ? ` Pagó hasta el ${estado.hasta.toLocaleDateString('es-CO', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          timeZone: 'America/Bogota',
+        })}: ese día se desconecta solo.`
+      : '';
+  return `${que}: ${brandName}.${cuando} (Clubify)`;
+}
+
 // Secuencia de mora (PDF 2026-07-01, P4). Día 0 = 1er cobro fallido o fecha
 // de cobro vencida (lo que ocurra). El cron diario cuenta días calendario:
 //   D+1 → recordatorio · D+2 → último aviso "mañana se pausa".
@@ -85,7 +116,8 @@ export class BillingService {
 
   /**
    * Fase 3 — alerta interna de cobro al equipo (los 3 números). `kind`:
-   * 'renovacion_fallida' (1er cobro fallido) o 'suspendido' (auto-suspensión).
+   * 'renovacion_fallida' (1er cobro fallido), 'suspendido' (auto-suspensión),
+   * 'cancelado' (canceló, reembolso o contracargo; ver `textoDeCancelacion`).
    * Best-effort, no bloquea. Enviado por la subcuenta del equipo.
    */
   async notifyBillingTeam(
@@ -93,12 +125,28 @@ export class BillingService {
       | 'renovacion_fallida'
       | 'suspendido'
       | 'pago_procesado'
-      | 'autoreactivado',
+      | 'autoreactivado'
+      | 'cancelado',
     brandName: string,
-    opts?: { amountUsd?: number | null; renewal?: boolean; dias?: number },
+    opts?: {
+      amountUsd?: number | null;
+      renewal?: boolean;
+      dias?: number;
+      /** Solo en 'cancelado': por qué se va. */
+      motivo?: MotivoDeBaja;
+      /** Solo en 'cancelado': ya quedó desconectado (ahora o antes). */
+      desconectado?: boolean;
+      /** Solo en 'cancelado': hasta cuándo sigue activo, si no se desconectó. */
+      hasta?: Date | null;
+    },
   ): Promise<void> {
     const body =
-      kind === 'renovacion_fallida'
+      kind === 'cancelado'
+        ? textoDeCancelacion(brandName, opts?.motivo ?? 'cancelacion', {
+            desconectado: opts?.desconectado ?? false,
+            hasta: opts?.hasta ?? null,
+          })
+        : kind === 'renovacion_fallida'
         ? `⚠️ Cobro FALLIDO: ${brandName}. Entró en gracia (5 días). Revisar en Clubify.`
         : kind === 'suspendido'
           ? `🔴 SUSPENDIDO por falta de pago: ${brandName}. Revisar en Clubify.`
@@ -621,7 +669,10 @@ export class BillingService {
       where: {
         status: 'ACTIVE',
         canceledAt: { not: null },
-        currentPeriodEnd: { lte: now },
+        // Venció lo pagado, o el último cobro falló: en los dos casos no queda
+        // nada que respetar. Lo segundo pasa cuando Hotmart avisa del cobro
+        // fallido junto a la cancelación (VALMONT BARBERIA, 15-09-2026).
+        OR: [{ currentPeriodEnd: { lte: now } }, { failedPaymentCount: { gt: 0 } }],
       },
       select: { id: true, brandName: true, currentPeriodEnd: true },
     });
