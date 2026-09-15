@@ -11,8 +11,9 @@ import type { Prisma } from '@prisma/client';
  * · El mensaje por defecto no nombra ninguna marca. El de la referencia decía
  *   «del equipo de Clubify», y en un equipo de Sellea eso es la fuga de marca
  *   que más se repite en este producto. Aquí dice el nombre del EQUIPO.
- * · Las pestañas del Banco son las siete que tiene el Banco de aquí (la
- *   referencia tiene además «Reagendadas»).
+ * · Las pestañas del Banco son las siete que tiene el Banco de aquí. La
+ *   referencia tiene además «Reagendadas», y aquí una cita no tiene ese estado
+ *   (`SalesMeeting.status`): una pestaña que no existe no se puede renombrar.
  */
 
 // ── Estado ──────────────────────────────────────────────────────────────────
@@ -90,15 +91,20 @@ export function mensajeDeWhatsapp(
 
 // ── Banco ───────────────────────────────────────────────────────────────────
 
-/** Las pestañas del Banco, en el orden en que salen allí. `etiqueta` = el nombre de siempre. */
+/**
+ * Las pestañas del Banco, en el orden en que salen allí. `etiqueta` = el nombre
+ * de siempre; `icono` y `ayuda` son los de la referencia (`BANK_TABS` y
+ * `BANK_LABEL_HINT`). El icono es el mismo que pinta el Banco: con otro, no se
+ * reconocería qué pestaña se está renombrando.
+ */
 export const PESTANAS_DEL_BANCO = [
-  { clave: 'por_asignar', etiqueta: 'Por asignar', ayuda: 'Recién agendada, sin closer' },
-  { clave: 'por_confirmar', etiqueta: 'Por confirmar', ayuda: 'Con closer asignado' },
-  { clave: 'seguimiento', etiqueta: 'Seguimiento', ayuda: 'En seguimiento' },
-  { clave: 'no_show', etiqueta: 'No asistió', ayuda: 'No asistió' },
-  { clave: 'canceladas', etiqueta: 'Canceladas', ayuda: 'Cancelada' },
-  { clave: 'ganadas', etiqueta: 'Ganadas', ayuda: 'Ganada (venta cerrada)' },
-  { clave: 'perdidas', etiqueta: 'Perdidas', ayuda: 'Perdida' },
+  { clave: 'por_asignar', etiqueta: 'Por asignar', icono: '📥', ayuda: 'Inicial (recién agendada)' },
+  { clave: 'por_confirmar', etiqueta: 'Por confirmar', icono: '🕓', ayuda: 'Con closer asignado' },
+  { clave: 'seguimiento', etiqueta: 'Seguimiento', icono: '🔁', ayuda: 'En seguimiento' },
+  { clave: 'no_show', etiqueta: 'No asistió', icono: '🚫', ayuda: 'No asistió' },
+  { clave: 'canceladas', etiqueta: 'Canceladas', icono: '✖️', ayuda: 'Cancelada' },
+  { clave: 'ganadas', etiqueta: 'Ganadas', icono: '🏆', ayuda: 'Ganada (venta cerrada)' },
+  { clave: 'perdidas', etiqueta: 'Perdidas', icono: '💔', ayuda: 'Perdida' },
 ] as const;
 export type PestanaDelBanco = (typeof PESTANAS_DEL_BANCO)[number]['clave'];
 export type EtiquetasDelBanco = Partial<Record<PestanaDelBanco, string>>;
@@ -124,13 +130,33 @@ export function normalizarEtiquetas(raw: unknown): EtiquetasDelBanco | { error: 
   return out;
 }
 
-/** Lo que se ve al desplegar una cita en el Banco, antes de asignarle closer. */
+/**
+ * Lo que se ve al desplegar una cita en el Banco, antes de asignarle closer.
+ *
+ * En el orden y con los nombres de la referencia (`BANK_FIELDS`), pero SOLO los
+ * que tienen un dato detrás aquí: una casilla que siempre enseña «—» hace creer
+ * que el dato existe y nadie lo rellenó. No están Producto / servicio,
+ * Facturación, ¿Invertir?, Origen (agenda web o a mano), Servicio de interés,
+ * Nivel de interés, Prioridad ni Cumpleaños: ni `SalesLead` ni `SalesMeeting`
+ * los guardan. Facturación e «¿invertir?» llegan como respuestas del
+ * formulario; por eso se quedan «Respuestas del formulario» y «Duración», que la
+ * referencia no tiene.
+ *
+ * Las claves no cambian con la etiqueta: están guardadas en los equipos que ya
+ * eligieron. `origen` es el `source` del lead, que allá se llama «Fuente del
+ * lead»; «Lead Score» es el puntaje del formulario de la cita, y «Próxima
+ * acción» y «Nota de seguimiento» salen del siguiente seguimiento pendiente.
+ */
 export const CAMPOS_DEL_BANCO = [
   { clave: 'whatsapp', etiqueta: 'WhatsApp' },
-  { clave: 'email', etiqueta: 'Correo' },
+  { clave: 'email', etiqueta: 'Email' },
   { clave: 'empresa', etiqueta: 'Empresa' },
-  { clave: 'origen', etiqueta: 'Origen' },
-  { clave: 'closer', etiqueta: 'Closer' },
+  { clave: 'instagram', etiqueta: 'Sitio web / Instagram' },
+  { clave: 'origen', etiqueta: 'Fuente del lead' },
+  { clave: 'puntaje', etiqueta: 'Lead Score' },
+  { clave: 'proxima_accion', etiqueta: 'Próxima acción' },
+  { clave: 'nota_seguimiento', etiqueta: 'Nota de seguimiento' },
+  { clave: 'closer', etiqueta: 'Closer asignado' },
   { clave: 'duracion', etiqueta: 'Duración' },
   { clave: 'respuestas', etiqueta: 'Respuestas del formulario' },
 ] as const;

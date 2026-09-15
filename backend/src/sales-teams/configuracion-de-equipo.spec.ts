@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CAMPOS_DEL_BANCO,
   CAMPOS_DEL_BANCO_POR_DEFECTO,
   MAX_ETIQUETA,
   MENSAJE_POR_DEFECTO,
+  PESTANAS_DEL_BANCO,
   activoSegunEstado,
   estadoDeEquipo,
   leerAjustes,
@@ -65,6 +67,47 @@ describe('mensajeDeWhatsapp', () => {
   });
 });
 
+describe('la configuración del Banco, contra la referencia', () => {
+  it('las pestañas llevan el icono y el texto de TeamClubify, en el orden del Banco y sin «Reagendada»', () => {
+    expect(PESTANAS_DEL_BANCO.map((p) => `${p.icono} ${p.ayuda}`)).toEqual([
+      '📥 Inicial (recién agendada)',
+      '🕓 Con closer asignado',
+      '🔁 En seguimiento',
+      '🚫 No asistió',
+      '✖️ Cancelada',
+      '🏆 Ganada (venta cerrada)',
+      '💔 Perdida',
+    ]);
+  });
+
+  it('los campos van con los nombres y en el orden de la referencia; los que solo hay aquí, al final', () => {
+    expect(CAMPOS_DEL_BANCO.map((c) => c.etiqueta)).toEqual([
+      'WhatsApp',
+      'Email',
+      'Empresa',
+      'Sitio web / Instagram',
+      'Fuente del lead',
+      'Lead Score',
+      'Próxima acción',
+      'Nota de seguimiento',
+      'Closer asignado',
+      'Duración',
+      'Respuestas del formulario',
+    ]);
+  });
+
+  it('las claves ya guardadas siguen valiendo aunque cambie el nombre que se enseña', () => {
+    expect(normalizarCamposDelBanco(CAMPOS_DEL_BANCO_POR_DEFECTO)).toEqual([
+      'whatsapp',
+      'email',
+      'empresa',
+      'origen',
+      'closer',
+      'duracion',
+    ]);
+  });
+});
+
 describe('normalizarEtiquetas', () => {
   it('solo guarda lo que cambia, recortado', () => {
     expect(normalizarEtiquetas({ por_asignar: ' Nuevas ', por_confirmar: 'Por confirmar', seguimiento: '', raro: 'x' })).toEqual({
@@ -83,6 +126,16 @@ describe('normalizarEtiquetas', () => {
 describe('normalizarCamposDelBanco', () => {
   it('en el orden del catálogo y sin repetir', () => {
     expect(normalizarCamposDelBanco(['duracion', 'whatsapp', 'whatsapp'])).toEqual(['whatsapp', 'duracion']);
+  });
+
+  it('acepta los campos nuevos y los ordena como el catálogo', () => {
+    expect(normalizarCamposDelBanco(['nota_seguimiento', 'closer', 'instagram', 'proxima_accion', 'puntaje'])).toEqual([
+      'instagram',
+      'puntaje',
+      'proxima_accion',
+      'nota_seguimiento',
+      'closer',
+    ]);
   });
 
   it('rechaza un campo que no existe', () => {
@@ -115,5 +168,12 @@ describe('leerAjustes', () => {
       camposDelBanco: ['whatsapp', 'respuestas'],
       recibeDesconocidos: false,
     });
+  });
+
+  it('lee los campos nuevos guardados, en el orden del catálogo', () => {
+    expect(leerAjustes({ camposDelBanco: ['proxima_accion', 'instagram'] }).camposDelBanco).toEqual([
+      'instagram',
+      'proxima_accion',
+    ]);
   });
 });

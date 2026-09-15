@@ -4,6 +4,7 @@ import {
   grupoDeCita,
   minutosHasta,
   ordenarCola,
+  proximoPasoPorLead,
   sugerirCloser,
   VENTANA_1H_CIERRA,
   VENTANA_30MIN_CIERRA,
@@ -118,5 +119,20 @@ describe('minutos hasta la cita', () => {
     const ahora = new Date('2026-09-15T10:00:00Z');
     expect(minutosHasta(new Date('2026-09-15T10:30:00Z'), ahora)).toBe(30);
     expect(minutosHasta(new Date('2026-09-15T09:50:00Z'), ahora)).toBe(-10);
+  });
+});
+
+describe('«Próxima acción» y «Nota de seguimiento» de una cita', () => {
+  const dia = (d: string) => new Date(`2026-09-${d}T15:00:00Z`);
+
+  it('manda el paso que vence antes, no el último que se creó', () => {
+    const pasos = proximoPasoPorLead([
+      { leadId: 'a', dueAt: dia('20'), note: 'tarde' },
+      { leadId: 'a', dueAt: dia('16'), note: 'pronto' },
+      { leadId: 'b', dueAt: dia('18'), note: 'el único' },
+    ]);
+    expect(pasos.get('a')?.note).toBe('pronto');
+    expect(pasos.get('b')?.note).toBe('el único');
+    expect(pasos.has('c')).toBe(false);
   });
 });

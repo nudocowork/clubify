@@ -51,9 +51,14 @@ type Cita = {
     telefono: string | null;
     email: string | null;
     origen: string | null;
+    instagram?: string | null;
   } | null;
   /** «Pregunta: respuesta» del formulario de la agenda, si el equipo las enseña. */
   respuestas: string[] | null;
+  /** Puntaje del formulario de la cita («Lead Score»), si el equipo lo enseña. */
+  puntaje?: number | null;
+  /** El siguiente seguimiento pendiente del lead: «Próxima acción» y «Nota de seguimiento». */
+  proximoPaso?: { cuando: string; canal: string | null; nota: string | null } | null;
 };
 
 type LeadDelBanco = {
@@ -559,12 +564,31 @@ function TarjetaDeCita({
 
       {abierta && (
         <div className="mt-3 grid grid-cols-2 gap-2 border-t border-line pt-3 text-xs sm:grid-cols-3">
-          {/* Lo que el equipo eligió en «Configuración», en el orden del catálogo. */}
+          {/* Lo que el equipo eligió en «Configuración», en el orden y con los
+              nombres del catálogo (`CAMPOS_DEL_BANCO`): con otro nombre aquí no
+              se sabría qué casilla enseña qué. */}
           {campos.includes('whatsapp') && <Dato etiqueta="WhatsApp" valor={c.lead?.telefono} />}
-          {campos.includes('email') && <Dato etiqueta="Correo" valor={c.lead?.email} />}
+          {campos.includes('email') && <Dato etiqueta="Email" valor={c.lead?.email} />}
           {campos.includes('empresa') && <Dato etiqueta="Empresa" valor={c.lead?.empresa} />}
-          {campos.includes('origen') && <Dato etiqueta="Origen" valor={c.lead?.origen} />}
-          {campos.includes('closer') && <Dato etiqueta="Closer" valor={c.host?.nombre} />}
+          {campos.includes('instagram') && <Dato etiqueta="Sitio web / Instagram" valor={c.lead?.instagram} />}
+          {campos.includes('origen') && <Dato etiqueta="Fuente del lead" valor={c.lead?.origen} />}
+          {campos.includes('puntaje') && (
+            // 0 es lo que guarda un formulario que no puntúa: pintarlo parecería
+            // un lead malo en todas las tarjetas, así que se lee como «sin puntaje».
+            <Dato etiqueta="Lead Score" valor={c.puntaje ? String(c.puntaje) : null} />
+          )}
+          {campos.includes('proxima_accion') && (
+            <Dato
+              etiqueta="Próxima acción"
+              valor={
+                c.proximoPaso
+                  ? `${c.proximoPaso.canal || 'Seguimiento'} · ${dia(c.proximoPaso.cuando)} · ${hora(c.proximoPaso.cuando)}`
+                  : null
+              }
+            />
+          )}
+          {campos.includes('nota_seguimiento') && <Dato etiqueta="Nota de seguimiento" valor={c.proximoPaso?.nota} />}
+          {campos.includes('closer') && <Dato etiqueta="Closer asignado" valor={c.host?.nombre} />}
           {campos.includes('duracion') && <Dato etiqueta="Duración" valor={`${c.durationMin} min`} />}
           {campos.includes('respuestas') && (
             <div className="col-span-2 sm:col-span-3">
@@ -590,7 +614,10 @@ function Dato({ etiqueta, valor }: { etiqueta: string; valor?: string | null }) 
   return (
     <div>
       <p className="text-[10px] uppercase tracking-wide text-mute">{etiqueta}</p>
-      <p className="truncate text-ink">{valor || '—'}</p>
+      {/* Una nota larga se corta a una línea; el texto entero queda al pasar el ratón. */}
+      <p className="truncate text-ink" title={valor || undefined}>
+        {valor || '—'}
+      </p>
     </div>
   );
 }

@@ -8,6 +8,60 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (22) — Configuración del equipo en Sellea, con el orden y los textos de TeamClubify
+
+Javier: «En configuración de lo que debías duplicar de TeamClubify a Sellea de
+equipo de ventas veo que faltan cosas.» Se comparó sección por sección en el
+navegador contra la Configuración de un equipo en `team.soyclubify.com`.
+
+### Lo que queda igual a la referencia
+
+- **Orden**: Identidad y Mensaje del closer → «Todavía común a todos los
+  equipos» → «Colaboradores» → Agendas de reserva (bloque aparte) → «Estados
+  del Banco de Agendamientos» → «Información visible en el Banco». Fuera «Lo
+  demás del equipo».
+- **Estados del Banco**: texto e iconos de la referencia. Las claves guardadas
+  no cambian.
+- **Información visible en el Banco**: nombres y orden de la referencia, y
+  cuatro campos nuevos que sí tienen dato: Sitio web / Instagram
+  (`lead.instagram`), Lead Score (puntaje del formulario de la cita), Próxima
+  acción y Nota de seguimiento (el siguiente seguimiento pendiente). Cada
+  consulta corre solo si el campo está marcado.
+- **Todavía común**: Biblioteca de material de venta → Material de apoyo;
+  Automatizaciones y workflows → Automatizaciones, solo si la marca tiene el
+  módulo (misma regla que el menú lateral). Solo en el panel de admin: un
+  colaborador que abre `/admin` rebota.
+
+### Lo que NO está, y por qué (para decidir con Javier)
+
+1. **Conexión de WhatsApp por equipo**: una marca tiene una sola subcuenta de
+   Grow Business, el webhook entrante es uno por marca y no dice a qué número
+   se escribió, y la salida por WhatsApp del módulo está cerrada. Haría falta:
+   líneas por marca, pantalla de integraciones de la marca con QR y token,
+   webhook por línea y envío por esa línea.
+2. **Comisión del equipo**: no se tocó (comisiones = Jhon).
+3. **Calendario / Correo de Google (Meet)**: no hay OAuth de Calendar;
+   `GOOGLE_CLIENT_ID` solo verifica el login con Google. Haría falta un cliente
+   OAuth en Google Cloud con `calendar.events` (Google lo verifica), variables
+   en Railway, tokens por equipo y crear el evento al reservar.
+4. **Todavía común**: no se pusieron Horarios (en Sellea ya son de cada
+   equipo), Estados de resultado (fijos), Estrategia de seguimiento (cadencia
+   fija) ni Plantillas de SMS al equipo (el módulo solo le escribe al lead).
+5. **«Reagendada»**: la cita no tiene ese estado ni el Banco esa pestaña.
+6. **Campos sin dato en Sellea**: Producto / servicio, Facturación, ¿Invertir?,
+   Servicio de interés, Nivel de interés, Prioridad, Cumpleaños y el origen de
+   la cita.
+
+### Revisión de Fable
+
+Nada que bloqueara. Se arreglaron antes de desplegar: los seguimientos
+pendientes sin orden fijo (con dos a la misma hora, la nota del Banco cambiaba
+entre recargas), «Lead Score: 0» en todas las citas de un formulario que no
+puntúa (ahora «—»), y el texto «Cuando las separemos por equipo, aparecerán
+aquí», que era hoja de ruta interna a la vista del cliente. Queda a la vista:
+la regla de Automatizaciones trata el slug `clubify` como «siempre sí» en vez de
+mirar su lista de módulos (en Sellea coincide con el menú).
+
 ## 2026-09-15 (21) — Una cancelación que no avisó, una renovación tomada por compra nueva y avisos de afiliados que se perdían
 
 Lo que pasó hacia las 9 de la mañana (hora de Bogotá), comprobado en la base:

@@ -137,6 +137,23 @@ export function ordenarCola<T extends { startAt: Date; conf1h: boolean; conf30mi
   );
 }
 
+/**
+ * El siguiente paso pendiente de cada lead: el que vence antes.
+ *
+ * Es lo que en la referencia son «Próxima acción» y «Nota de seguimiento»,
+ * columnas del lead allá; aquí el próximo paso vive en `SalesFollowup`. Con dos
+ * pasos pendientes manda el más cercano, no el último que se creó: el Banco
+ * tiene que decir qué toca AHORA.
+ */
+export function proximoPasoPorLead<T extends { leadId: string; dueAt: Date }>(pasos: T[]): Map<string, T> {
+  const porLead = new Map<string, T>();
+  for (const p of pasos) {
+    const ya = porLead.get(p.leadId);
+    if (!ya || p.dueAt.getTime() < ya.dueAt.getTime()) porLead.set(p.leadId, p);
+  }
+  return porLead;
+}
+
 @Injectable()
 export class BancoDeEquipoService {
   constructor(
@@ -212,7 +229,7 @@ export class BancoDeEquipoService {
         orderBy: { startAt: 'asc' },
         take: 500,
         include: {
-          lead: { select: { id: true, name: true, company: true, phone: true, email: true, source: true } },
+          lead: { select: { id: true, name: true, company: true, phone: true, email: true, source: true, instagram: true } },
         },
       }),
       // La carga cuenta lo que el closer TIENE que atender: sus citas vivas.
@@ -260,22 +277,43 @@ export class BancoDeEquipoService {
     // «Configuración»: nombres de las pestañas, qué enseña una cita y el texto
     // con el que se abre WhatsApp.
     const ajustes = leerAjustes(equipo?.settings);
-    // Las respuestas al formulario de la agenda, solo si el equipo las quiere ver
-    // aquí: el Banco se recarga cada minuto y no hay por qué leerlas siempre.
+    // Las respuestas al formulario de la agenda y su puntaje («Lead Score»), solo
+    // si el equipo los quiere ver aquí: el Banco se recarga cada minuto y no hay
+    // por qué leerlos siempre.
+    const campos = ajustes.camposDelBanco;
     const respuestasPorCita = new Map<string, string[]>();
-    if (ajustes.camposDelBanco.includes('respuestas') && citas.length) {
+    const puntajePorCita = new Map<string, number>();
+    if ((campos.includes('respuestas') || campos.includes('puntaje')) && citas.length) {
       const filas = await this.prisma.salesFormResponse.findMany({
         where: { salesTeamId: teamId, meetingId: { in: citas.map((c) => c.id) } },
         orderBy: { createdAt: 'asc' },
-        select: { meetingId: true, answers: true, form: { select: { fields: true } } },
+        select: { meetingId: true, answers: true, score: true, form: { select: { fields: true } } },
       });
       for (const f of filas) {
         if (!f.meetingId) continue;
+        puntajePorCita.set(f.meetingId, f.score);
         const r = f.answers && typeof f.answers === 'object' && !Array.isArray(f.answers) ? (f.answers as Respuestas) : {};
         const texto = resumenDeRespuestas(camposGuardados(f.form.fields), r, 600);
         if (texto) respuestasPorCita.set(f.meetingId, texto.split('\n'));
       }
     }
+
+    // «Próxima acción» y «Nota de seguimiento»: el siguiente paso pendiente del
+    // lead de cada cita. Igual que las respuestas, solo si se eligieron.
+    const leadsDeLasCitas = [...new Set(citas.map((c) => c.leadId).filter((id): id is string => !!id))];
+    const pasoPorLead =
+      (campos.includes('proxima_accion') || campos.includes('nota_seguimiento')) && leadsDeLasCitas.length
+        ? proximoPasoPorLead(
+            await this.prisma.salesFollowup.findMany({
+              where: { salesTeamId: teamId, leadId: { in: leadsDeLasCitas }, done: false },
+              // Orden fijo: con dos pasos a la misma hora, sin él Postgres devuelve
+              // cualquiera y la nota del Banco cambiaba de una recarga a otra
+              // (Fable, 15-09-2026).
+              orderBy: [{ dueAt: 'asc' }, { createdAt: 'asc' }],
+              select: { leadId: true, dueAt: true, channel: true, note: true },
+            }),
+          )
+        : new Map<string, { leadId: string; dueAt: Date; channel: string | null; note: string | null }>();
 
     const nombreDe = new Map(closers.map((c) => [c.id, c.nombre]));
     const carga = closers.map((c) => {
@@ -290,6 +328,7 @@ export class BancoDeEquipoService {
 
     const paraElPanel = (c: (typeof citas)[number]) => {
       const minutos = minutosHasta(c.startAt, ahora);
+      const paso = c.leadId ? pasoPorLead.get(c.leadId) : undefined;
       return {
         id: c.id,
         startAt: c.startAt,
@@ -310,9 +349,12 @@ export class BancoDeEquipoService {
               telefono: c.lead.phone,
               email: c.lead.email,
               origen: c.lead.source,
+              instagram: c.lead.instagram,
             }
           : null,
         respuestas: respuestasPorCita.get(c.id) ?? null,
+        puntaje: puntajePorCita.get(c.id) ?? null,
+        proximoPaso: paso ? { cuando: paso.dueAt, canal: paso.channel, nota: paso.note } : null,
       };
     };
 

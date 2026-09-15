@@ -40,8 +40,11 @@ import {
  *   equipo deja de verlo en su panel y ya no podría deshacerlo.
  *
  * Lo que la referencia tiene aquí y NO está: la comisión del equipo (las
- * comisiones son de Jhon) y la línea de WhatsApp propia del equipo (no hay
- * líneas por equipo en Clubify PRO).
+ * comisiones son de Jhon), la línea de WhatsApp propia del equipo (una marca
+ * tiene UNA subcuenta de Grow Business y el webhook entrante no dice por qué
+ * número llegó el mensaje) y la conexión con Google Calendar (no hay OAuth de
+ * Google con permiso de calendario: `GOOGLE_CLIENT_ID` solo verifica el inicio
+ * de sesión).
  */
 
 const texto = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -60,9 +63,29 @@ export class ConfiguracionDeEquipoService {
     }
   }
 
+  /**
+   * ¿La marca tiene «Automatizaciones» en su menú? La misma regla que el menú
+   * (`AppShell`, `requiresBrandModule: 'GROW_BUSINESS_SMS'`): Clubify y lo que no
+   * tiene marca lo ven siempre; otra marca, solo con el módulo encendido. Un
+   * «Abrir» hacia una pantalla que la marca no tiene en su menú es el mismo
+   * fallo que tuvo el menú de Sellea con «Equipos de ventas».
+   */
+  private async automatizacionesEnElMenu(whiteLabelId: string | null): Promise<boolean> {
+    if (!whiteLabelId) return true;
+    const [marca, modulo] = await Promise.all([
+      this.prisma.whiteLabel.findUnique({ where: { id: whiteLabelId }, select: { slug: true } }),
+      this.prisma.whiteLabelModule.findUnique({
+        where: { whiteLabelId_module: { whiteLabelId, module: 'GROW_BUSINESS_SMS' } },
+        select: { enabled: true },
+      }),
+    ]);
+    if (!marca) return false;
+    return marca.slug === 'clubify' || !!modulo?.enabled;
+  }
+
   async ver(user: AuthUser, teamId: string) {
     const acceso = await resolveTeamAccess(this.prisma, user, teamId);
-    const [team, miembros] = await Promise.all([
+    const [team, miembros, automatizaciones] = await Promise.all([
       this.prisma.salesTeam.findUnique({
         where: { id: teamId },
         select: {
@@ -82,6 +105,7 @@ export class ConfiguracionDeEquipoService {
         orderBy: { joinedAt: 'asc' },
         select: { userId: true, user: { select: { fullName: true, email: true } } },
       }),
+      this.automatizacionesEnElMenu(acceso.team.whiteLabelId),
     ]);
     if (!team) throw new NotFoundException('Equipo no encontrado');
     const ajustes = leerAjustes(team.settings);
@@ -115,6 +139,9 @@ export class ConfiguracionDeEquipoService {
       mensajeWhatsapp: ajustes.mensajeWhatsapp ?? '',
       mensajePorDefecto: MENSAJE_POR_DEFECTO,
       recibeDesconocidos: ajustes.recibeDesconocidos,
+      // «Todavía común a todos los equipos» enlaza Automatizaciones solo si la
+      // marca la tiene en su menú.
+      automatizacionesDeLaMarca: automatizaciones,
       banco: { etiquetas: ajustes.etiquetasDelBanco, campos: ajustes.camposDelBanco },
       catalogos: {
         estados: ESTADOS_DE_EQUIPO,

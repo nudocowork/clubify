@@ -2,12 +2,17 @@
 
 /**
  * «Configuración» del equipo: la pestaña de TeamClubify (`TeamSettings` y la
- * configuración del Banco por equipo).
+ * configuración del Banco por equipo), en su orden y con sus textos.
  *
- * Cuatro tarjetas y cada una guarda lo suyo: identidad, el mensaje de WhatsApp
- * del closer, los nombres de las pestañas del Banco y qué enseña una cita en el
- * Banco. Debajo, dónde vive lo demás (horario y formulario de la agenda,
- * colaboradores).
+ * Arriba identidad y mensaje del closer; debajo lo que sigue siendo común a
+ * todos los equipos, los colaboradores, las agendas de reserva y el Banco
+ * (nombres de las pestañas y qué enseña una cita). Cada tarjeta guarda lo suyo.
+ *
+ * Lo que la referencia tiene y aquí NO se pinta, a propósito: la línea de
+ * WhatsApp del equipo (una marca tiene una sola subcuenta y lo que entra no dice
+ * por qué número llegó), la comisión del equipo (terreno de Jhon) y la conexión
+ * con Google Calendar (no hay OAuth de calendario). Pintarlas sin nada detrás
+ * sería un formulario que no guarda nada.
  *
  * Cambiarla es del líder o un admin de la marca; el responsable y desactivar el
  * equipo, solo un admin. El resto del equipo la ve en solo lectura.
@@ -21,10 +26,10 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { CabeceraDeEquipo, type EquipoDeCabecera } from '@/components/ventas/CabeceraDeEquipo';
-import { useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
+import { BASE_AFILIADO, useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
 import { mensajeDeWhatsapp } from '@/lib/whatsapp-del-equipo';
 
-type Opcion = { clave: string; etiqueta: string; ayuda?: string };
+type Opcion = { clave: string; etiqueta: string; icono?: string; ayuda?: string };
 
 type Datos = {
   team: EquipoDeCabecera;
@@ -45,6 +50,8 @@ type Datos = {
   mensajePorDefecto: string;
   /** Este equipo recibe a quien escribe sin estar en el tablero. */
   recibeDesconocidos: boolean;
+  /** La marca tiene «Automatizaciones» en su menú. */
+  automatizacionesDeLaMarca?: boolean;
   banco: { etiquetas: Record<string, string>; campos: string[] };
   catalogos: { estados: Opcion[]; colores: string[]; pestanasDelBanco: Opcion[]; camposDelBanco: Opcion[] };
 };
@@ -108,6 +115,23 @@ export function ConfiguracionDelEquipo() {
   const base = `${rutaEquipos}/${teamId}`;
   const ro = !datos.puedeConfigurar;
 
+  /**
+   * «Todavía común»: solo lo que es de la marca y no del equipo, y tiene
+   * pantalla en su panel. Horarios, estados de resultado de las reuniones,
+   * cadencia de seguimiento y plantillas de SMS al equipo no están: los horarios
+   * aquí ya son de cada equipo (su Agenda) y lo demás no tiene pantalla.
+   *
+   * Solo en el panel de admin: son pantallas de `/admin`, y un colaborador
+   * (afiliado) que abre una rebota a `/app` (`AppShell`).
+   */
+  const comunes: { titulo: string; href: string }[] = [];
+  if (rutaEquipos !== BASE_AFILIADO) {
+    comunes.push({ titulo: 'Biblioteca de material de venta', href: '/admin/support-materials' });
+    if (datos.automatizacionesDeLaMarca) {
+      comunes.push({ titulo: 'Automatizaciones y workflows', href: '/admin/automatizaciones' });
+    }
+  }
+
   return (
     <div>
       <CabeceraDeEquipo equipo={datos.team} soloLectura={!datos.puedeEscribir} />
@@ -120,29 +144,41 @@ export function ConfiguracionDelEquipo() {
 
       {/* Cada tarjeta se vuelve a montar solo cuando cambia LO SUYO en el
           servidor: guardar una no borra lo que se estaba escribiendo en otra. */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Identidad key={JSON.stringify(datos.identidad)} teamId={teamId} datos={datos} ro={ro} alGuardar={releer} />
-        <MensajeDelCloser key={datos.mensajeWhatsapp} teamId={teamId} datos={datos} ro={ro} alGuardar={releer} />
+      <div className="flex flex-col gap-4">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Identidad key={JSON.stringify(datos.identidad)} teamId={teamId} datos={datos} ro={ro} alGuardar={releer} />
+          <MensajeDelCloser key={datos.mensajeWhatsapp} teamId={teamId} datos={datos} ro={ro} alGuardar={releer} />
+        </div>
+
+        {comunes.length > 0 && (
+          <Tarjeta
+            titulo="Todavía común a todos los equipos"
+            ayuda="Estas piezas se comparten entre todos los equipos de la marca."
+          >
+            <ul className="m-0 flex list-none flex-col p-0 text-sm">
+              {comunes.map((c) => (
+                <li key={c.href} className="flex items-center justify-between gap-3 border-b border-line2 py-2 last:border-0">
+                  <span className="text-mute">{c.titulo}</span>
+                  <Link href={c.href} className="shrink-0 text-xs font-semibold text-brand hover:underline">
+                    Abrir
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Tarjeta>
+        )}
+
+        <Tarjeta titulo="Colaboradores" ayuda="Quién ve y trabaja este equipo.">
+          <Link href={`${base}/colaboradores`} className="btn-ghost inline-flex text-sm">
+            Poner y quitar colaboradores
+          </Link>
+        </Tarjeta>
+
+        {/* AgendasDeReserva: lo monta el bloque de agendas */}
+
         <EstadosDelBanco key={JSON.stringify(datos.banco.etiquetas)} teamId={teamId} datos={datos} ro={ro} alGuardar={releer} />
         <CamposDelBanco key={datos.banco.campos.join(',')} teamId={teamId} datos={datos} ro={ro} alGuardar={releer} />
       </div>
-
-      <Tarjeta titulo="Lo demás del equipo" ayuda="Tiene su propia pestaña." className="mt-4">
-        <ul className="m-0 flex list-none flex-col p-0 text-sm">
-          {[
-            ['Horario de la agenda y enlace público', `${base}/agenda`],
-            ['Formulario que pide la agenda pública', `${base}/formularios`],
-            ['Colaboradores y sus roles', `${base}/colaboradores`],
-          ].map(([t, href]) => (
-            <li key={href} className="flex items-center justify-between gap-3 border-b border-line2 py-2 last:border-0">
-              <span className="text-mute">{t}</span>
-              <Link href={href} className="shrink-0 text-xs font-semibold text-brand hover:underline">
-                Abrir
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </Tarjeta>
     </div>
   );
 }
@@ -324,7 +360,7 @@ function MensajeDelCloser({ teamId, datos, ro, alGuardar }: PropsDeTarjeta) {
   return (
     <Tarjeta
       titulo="Mensaje de WhatsApp del closer"
-      ayuda="El texto que se prellena al pulsar «WhatsApp» en el Banco y en Seguimientos. Admite {{nombre}}, {{closer}} y {{equipo}}."
+      ayuda="El texto que se prellena al escribirle a un contacto. Admite {{nombre}}, {{closer}} y {{equipo}}."
     >
       <div className="flex flex-col gap-2">
         <textarea
@@ -392,13 +428,14 @@ function EstadosDelBanco({ teamId, datos, ro, alGuardar }: PropsDeTarjeta) {
 
   return (
     <Tarjeta
-      titulo="Estados del Banco"
-      ayuda="Renombra las pestañas del Banco de este equipo. Están todas, en el orden en que salen allí. Vacío = el nombre de siempre."
+      titulo="Estados del Banco de Agendamientos"
+      ayuda="Renombra las pestañas del Banco. Están todas y en el mismo orden en que aparecen allá. Estos nombres son solo de este equipo de ventas."
     >
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {pestanas.map((p) => (
           <div key={p.clave}>
             <label className="mb-1 block text-[11px] text-mute" htmlFor={`pestana-${p.clave}`}>
+              {p.icono ? `${p.icono} ` : ''}
               {p.ayuda ?? p.etiqueta}
             </label>
             <input
@@ -435,7 +472,7 @@ function CamposDelBanco({ teamId, datos, ro, alGuardar }: PropsDeTarjeta) {
   return (
     <Tarjeta
       titulo="Información visible en el Banco"
-      ayuda="Lo que aparece al desplegar una cita, antes de asignarle closer. Marca al menos uno."
+      ayuda="Campos que aparecen al desplegar una agenda, antes de asignarle closer. Marca al menos uno."
     >
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
         {datos.catalogos.camposDelBanco.map((c) => (
