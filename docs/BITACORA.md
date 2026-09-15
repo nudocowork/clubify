@@ -8,6 +8,24 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (19) — Quipao ya tiene su píxel de Meta puesto
+
+Javier pasó el píxel de la agencia de Quipao. Es un cambio de DATO, no de
+código: el campo `Tenant.metaPixelId` y su disparo en el menú público ya
+estaban (los pidió esa misma agencia el 2026-09-14).
+
+- Negocio «Quipao Bubble Tea» (`quipao-bubble-tea`), píxel `1556416352350398`.
+  Escrito en producción con `updateMany` acotado por id **y** nombre; ningún
+  otro negocio tiene ese píxel.
+- Comprobado en vivo: `GET /api/public/m/quipao-bubble-tea` ya devuelve
+  `metaPixelId`, y las dos puertas del menú (`/m/…` y `/d/…`, que comparten
+  pantalla) responden 200. El menú se cachea 180 s en el borde, así que un
+  navegador puede tardar ese rato en verlo.
+- Los eventos del negocio salen por `trackSingle` a ESE píxel: no se mezclan
+  con el de la marca (`WhiteLabel.metaPixelId`), que mide la landing.
+- Se cambia desde el panel, en la ficha del negocio; no hace falta desplegar
+  nada para tocarlo.
+
 ## 2026-09-15 (18) — Equipos de Ventas (Sellea): los desconocidos entran, la agenda redirige, y el arqueo del módulo
 
 Javier pidió tres cosas tras mirar el módulo en producción: el tiempo de
