@@ -60,6 +60,7 @@ function baseFalsa(opts: { modulo?: boolean; whiteLabelId?: string | null } = {}
       },
     },
     salesStage: {
+      count: async ({ where }: any) => bd.stages.filter((s) => casa(s, where)).length,
       findMany: async ({ where }: any) =>
         bd.stages
           .filter((s) => casa(s, where))
@@ -144,6 +145,9 @@ function baseFalsa(opts: { modulo?: boolean; whiteLabelId?: string | null } = {}
       findMany: async () => bd.contactos.map((c) => ({ ...c })),
     },
     $transaction: async (fn: any) => fn(prisma),
+    // Las columnas se siembran con candado (`asegurarColumnas`): el doble tiene
+    // que conocer `pg_advisory_xact_lock`, aunque aquí no bloquee nada.
+    $executeRawUnsafe: async () => 0,
   };
   return { prisma, bd };
 }

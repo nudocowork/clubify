@@ -8,6 +8,87 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (18) — Equipos de Ventas (Sellea): los desconocidos entran, la agenda redirige, y el arqueo del módulo
+
+Javier pidió tres cosas tras mirar el módulo en producción: el tiempo de
+redirección del enlace de la agenda, un arqueo con prueba de lógica, y saber de
+dónde van a llegar los contactos.
+
+### Lo que se hizo
+
+- **Tiempo de redirección de la agenda.** En «Cómo se ve y cuándo se reserva»,
+  junto a «Volver al sitio», se elige si la página lleva sola a ese sitio y a
+  los cuántos segundos (3, 5, 10, 15 o 30; o solo el enlace). La página pública
+  enseña la cuenta atrás y deja el enlace para ir antes. **No está en la
+  referencia**: TeamClubify solo pone el enlace.
+- **Quien escribe sin estar en el tablero entra como contacto.** Hasta hoy, un
+  mensaje entrante solo se guardaba si ya existía un contacto con ese teléfono;
+  si escribía un desconocido, se descartaba y el equipo no se enteraba. Ahora se
+  crea el contacto con su teléfono, en la primera columna y con origen `chat`.
+  A qué equipo entra: al marcado como bandeja en «Configuración»; si no hay
+  ninguno marcado y la marca tiene un solo equipo, a ese; con varios y ninguno
+  marcado no se adivina —repartir mal un contacto es peor que no crearlo— y
+  queda el aviso en los logs. Dos mensajes a la vez no crean dos fichas: candado
+  de Postgres y recomprobación dentro de la transacción.
+- **Fuera «Instagram»** de los datos configurables del Banco, a petición de
+  Javier.
+- **El canal «WhatsApp» del chat decía una mentira.** La API lo aceptaba y el
+  mensaje quedaba etiquetado como WhatsApp, pero el proveedor de la marca solo
+  manda SMS: al cliente le llegaba un SMS. Ahora se rechaza con un texto claro y
+  lo enviado se guarda como SMS. La pantalla nunca ofreció ese canal.
+
+### Arqueo del módulo en producción (2026-09-15)
+
+- Tres equipos. El de Sellea es «Prueba Team», activo, con responsable y enlace
+  `/agenda/prueba-team`.
+- **0 contactos, 0 citas, 0 mensajes, 0 seguimientos, 0 tareas, 0 formularios,
+  0 oportunidades.** Solo las 5 columnas que se siembran solas.
+- **0 colaboradores y 0 horarios**, que es lo que explica todo lo anterior: sin
+  closers y sin horario, la agenda pública no ofrece ni una hora, así que por
+  ahí no entra nadie, y el Banco no tiene a quién asignar.
+- Para que un equipo opere: añadir colaboradores con rol closer → ponerles el
+  horario en «Agenda» → repartir el enlace. Lo demás ya está probado.
+
+### De dónde llegan los contactos
+
+Tres puertas, después de este cambio: el enlace público de la agenda, el alta a
+mano, y ahora el WhatsApp o SMS entrante de un desconocido. Lo que **no** hay es
+sincronización con un WhatsApp conectado: no existen líneas por equipo (eso se
+dejó fuera a propósito) y las conversaciones anteriores no se importan. Lo que
+entra es lo que llega por el webhook de Grow Business de la marca, de aquí en
+adelante.
+
+### Revisión de Fable antes de desplegar: se puede desplegar tras los arreglos
+
+Sin ciclo de módulos, la marca y el equipo correctos, el candado del contacto
+nuevo, la redirección sin enlaces peligrosos y que quitar «Instagram» no rompa
+lo guardado: comprobados. Se aplicó:
+
+- **El webhook es público y sin firma, así que cualquiera podía llenar el
+  tablero.** Con el slug de la marca —que va en la URL— un bucle de números
+  inventados creaba una ficha por cada uno. Ahora hay un tope de 30 contactos
+  nuevos por marca y hora; pasado el tope se siguen guardando los mensajes de
+  quien ya está en el tablero.
+- **Responder a una campaña de correo creaba un contacto de ventas.** El
+  webhook ya sabe qué corresponde a un envío nuestro; eso no abre ficha.
+- **Quien se dio de baja volvía al tablero por escribir.** Ahora no entra.
+- **Sembrar las columnas del tablero no tenía candado**, y dos puertas públicas
+  a la vez podían dejar dos juegos de columnas con los leads repartidos. Ahora
+  se siembra con candado, como los embudos del CRM.
+- Con dos equipos marcados como bandeja ganaba el más antiguo, en silencio;
+  ahora marcar uno se lo quita a los demás de la marca.
+- El teléfono que llega en el payload ajeno se guarda acotado a 40 caracteres.
+- La tarjeta de ajustes de la agenda aguanta un backend anterior; aun así se
+  despliega backend primero.
+- Las pruebas del enrutado no sabían ponerse en rojo si alguien quitaba la
+  comprobación del módulo o del equipo activo: el doble de la base respeta
+  ahora los filtros, y hay pruebas del módulo apagado, del equipo desactivado,
+  de la baja, de la respuesta a campaña y del tope.
+
+Sigue pendiente, y no es de este bloque: el webhook no verifica la firma del
+proveedor (`TODO(hardening)`), y con `TRUST_PROXY` en 0 los topes por IP no
+distinguen a nadie.
+
 ## 2026-09-15 (17) — Equipos de Ventas (Sellea): la agenda pública se configura por equipo
 
 En TeamClubify cada equipo configura su agenda pública: título, duración, días

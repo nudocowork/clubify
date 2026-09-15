@@ -43,6 +43,8 @@ type Datos = {
   /** '' = el mensaje de siempre. */
   mensajeWhatsapp: string;
   mensajePorDefecto: string;
+  /** Este equipo recibe a quien escribe sin estar en el tablero. */
+  recibeDesconocidos: boolean;
   banco: { etiquetas: Record<string, string>; campos: string[] };
   catalogos: { estados: Opcion[]; colores: string[]; pestanasDelBanco: Opcion[]; camposDelBanco: Opcion[] };
 };
@@ -311,6 +313,7 @@ function Identidad({ teamId, datos, ro, alGuardar }: PropsDeTarjeta) {
 
 function MensajeDelCloser({ teamId, datos, ro, alGuardar }: PropsDeTarjeta) {
   const [mensaje, setMensaje] = useState(datos.mensajeWhatsapp || datos.mensajePorDefecto);
+  const [recibe, setRecibe] = useState(datos.recibeDesconocidos);
   const { guardando, guardar } = useGuardar(teamId, alGuardar);
   const vista = mensajeDeWhatsapp(mensaje.trim() || datos.mensajePorDefecto, {
     nombre: 'Ana',
@@ -335,13 +338,36 @@ function MensajeDelCloser({ teamId, datos, ro, alGuardar }: PropsDeTarjeta) {
           <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-mute">Así le llega a «Ana»</span>
           <span className="whitespace-pre-wrap">{vista}</span>
         </div>
+        <label className="flex cursor-pointer items-start gap-2 text-sm text-ink">
+          <input
+            type="checkbox"
+            className="mt-0.5 accent-brand"
+            checked={recibe}
+            disabled={ro}
+            onChange={(e) => setRecibe(e.target.checked)}
+          />
+          <span>
+            Recibir aquí los mensajes de números desconocidos
+            <span className="block text-xs text-mute">
+              Quien escriba por WhatsApp o SMS sin estar en el tablero entra como contacto nuevo de este equipo. Si la
+              marca tiene un solo equipo ya entra aquí, aunque no lo marques.
+            </span>
+          </span>
+        </label>
         {!ro && (
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               className="btn-primary text-sm"
               disabled={guardando}
-              onClick={() => void guardar('/mensaje', 'PUT', { mensaje: mensaje.trim() || null }, 'Mensaje guardado.')}
+              onClick={() =>
+                void guardar(
+                  '/mensaje',
+                  'PUT',
+                  { mensaje: mensaje.trim() || null, recibeDesconocidos: recibe },
+                  'Mensaje guardado.',
+                )
+              }
             >
               {guardando ? 'Guardando…' : 'Guardar mensaje'}
             </button>

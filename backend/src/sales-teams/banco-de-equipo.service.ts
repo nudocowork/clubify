@@ -212,7 +212,7 @@ export class BancoDeEquipoService {
         orderBy: { startAt: 'asc' },
         take: 500,
         include: {
-          lead: { select: { id: true, name: true, company: true, phone: true, email: true, source: true, instagram: true } },
+          lead: { select: { id: true, name: true, company: true, phone: true, email: true, source: true } },
         },
       }),
       // La carga cuenta lo que el closer TIENE que atender: sus citas vivas.
@@ -310,7 +310,6 @@ export class BancoDeEquipoService {
               telefono: c.lead.phone,
               email: c.lead.email,
               origen: c.lead.source,
-              instagram: c.lead.instagram,
             }
           : null,
         respuestas: respuestasPorCita.get(c.id) ?? null,

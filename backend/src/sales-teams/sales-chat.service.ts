@@ -8,7 +8,9 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { phoneKeyOf } from '../marketing/identity';
 import { MktProviderService } from '../marketing/provider/mkt-provider.service';
-import { exigirEscritura, resolveTeamAccess } from './team-access';
+import { exigirEscritura, moduloEncendido, resolveTeamAccess } from './team-access';
+import { asegurarColumnas } from './sales-columnas';
+import { leerAjustes } from './configuracion-de-equipo';
 
 /**
  * La conversación con un lead — fase 5.
@@ -42,6 +44,12 @@ const TOPE_HISTORIAL = 200;
 /** Un SMS de verdad no llega a esto; el tope evita un cuerpo absurdo. */
 const MAX_SMS = 1200;
 
+/** Contactos NUEVOS que el webhook puede crear por marca y hora. */
+const TOPE_DESCONOCIDOS_POR_HORA = 30;
+
+/** Lo que se guarda del teléfono que llega en un payload ajeno. */
+const MAX_TELEFONO = 40;
+
 /**
  * Lo que ENTRA por el webhook.
  *
@@ -72,6 +80,8 @@ export class SalesInboxService {
     body?: string | null;
     providerMessageId?: string | null;
     canal?: string;
+    /** false = solo se guarda en quien ya está en el tablero; no se crea ficha. */
+    puedeCrear?: boolean;
   }): Promise<number> {
     try {
       const phoneKey = phoneKeyOf(entrada.phone);
@@ -80,12 +90,21 @@ export class SalesInboxService {
       // enseñar: un «respondió» vacío ya lo cuenta la actividad del lead.
       if (!phoneKey || !texto) return 0;
 
-      const leads = await this.prisma.salesLead.findMany({
+      let leads = await this.prisma.salesLead.findMany({
         where: { whiteLabelId: entrada.whiteLabelId, phoneKey },
         select: { id: true, salesTeamId: true },
         take: 20,
       });
-      if (!leads.length) return 0;
+      if (!leads.length) {
+        // QUIEN ESCRIBE SIN ESTAR EN EL TABLERO ENTRA COMO CONTACTO NUEVO.
+        // Antes el mensaje se descartaba y el equipo no se enteraba de que
+        // alguien había escrito: el contacto solo podía llegar reservando en la
+        // agenda o a mano (decisión de Javier, 2026-09-15).
+        if (entrada.puedeCrear === false) return 0;
+        const creado = await this.crearDesconocido(entrada.whiteLabelId, phoneKey, entrada.phone);
+        if (!creado) return 0;
+        leads = [creado];
+      }
 
       const providerMessageId = (entrada.providerMessageId ?? '').trim() || null;
       let guardados = 0;
@@ -127,6 +146,112 @@ export class SalesInboxService {
       this.logger.warn(`[CHAT] no se pudo guardar el entrante: ${(e as Error).message}`);
       return 0;
     }
+  }
+
+  /**
+   * A qué equipo entra un desconocido que escribe.
+   *
+   * Manda el equipo marcado como bandeja en «Configuración». Si no hay ninguno
+   * marcado y la marca tiene UN solo equipo activo, entra ahí: es lo que espera
+   * cualquiera con un equipo. Con varios y ninguno marcado no se adivina
+   * —repartir mal un contacto es peor que no crearlo— y queda el aviso en los
+   * logs. Con el módulo apagado, nada: esa marca no usa equipos de ventas.
+   */
+  private async equipoQueRecibe(whiteLabelId: string): Promise<string | null> {
+    if (!(await moduloEncendido(this.prisma, whiteLabelId))) return null;
+    const equipos = await this.prisma.salesTeam.findMany({
+      where: { whiteLabelId, isActive: true },
+      select: { id: true, settings: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const marcado = equipos.find((e) => leerAjustes(e.settings).recibeDesconocidos);
+    if (marcado) return marcado.id;
+    if (equipos.length === 1) return equipos[0].id;
+    if (equipos.length > 1) {
+      this.logger.warn(
+        `[CHAT] la marca ${whiteLabelId} tiene ${equipos.length} equipos y ninguno marcado como bandeja: el desconocido no entra`,
+      );
+    }
+    return null;
+  }
+
+  /**
+   * Contactos creados por marca y hora. En memoria a propósito, como el tope del
+   * webhook de marketing: es una mitigación, no contabilidad.
+   *
+   * Ese webhook es PÚBLICO y no verifica la firma del proveedor: con el slug de
+   * la marca —que va en la URL y no es secreto— cualquiera podría crear fichas a
+   * mansalva con números inventados (Fable, 2026-09-15). Pasado el tope se
+   * siguen guardando los mensajes de quien YA está en el tablero; solo se deja
+   * de crear.
+   */
+  private readonly creados = new Map<string, { veces: number; hasta: number }>();
+
+  private demasiadosDesconocidos(whiteLabelId: string): boolean {
+    const marca = this.creados.get(whiteLabelId);
+    const ahora = Date.now();
+    if (!marca || marca.hasta < ahora) {
+      this.creados.set(whiteLabelId, { veces: 1, hasta: ahora + 60 * 60 * 1000 });
+      return false;
+    }
+    marca.veces += 1;
+    if (marca.veces > TOPE_DESCONOCIDOS_POR_HORA) {
+      this.logger.warn(
+        `[CHAT] marca ${whiteLabelId}: ${marca.veces} desconocidos en una hora. No se crean más fichas; ` +
+          'lo de quien ya está en el tablero sigue entrando.',
+      );
+      return true;
+    }
+    return false;
+  }
+
+  /** Quien se dio de baja de los mensajes de la marca NO entra como contacto. */
+  private async estaDeBajaEnLaMarca(whiteLabelId: string, phoneKey: string): Promise<boolean> {
+    const c = await this.prisma.mktContact.findFirst({
+      where: { whiteLabelId, phoneKey, deleted: false, optOut: true },
+      select: { id: true },
+    });
+    return !!c;
+  }
+
+  /** El contacto nuevo de quien escribió sin estar en ningún tablero. */
+  private async crearDesconocido(
+    whiteLabelId: string,
+    phoneKey: string,
+    phone?: string | null,
+  ): Promise<{ id: string; salesTeamId: string } | null> {
+    const teamId = await this.equipoQueRecibe(whiteLabelId);
+    if (!teamId) return null;
+    // La baja es de la persona, no del canal: si se dio de baja, su número no
+    // vuelve al tablero por haber escrito (Fable, 2026-09-15).
+    if (await this.estaDeBajaEnLaMarca(whiteLabelId, phoneKey)) return null;
+    if (this.demasiadosDesconocidos(whiteLabelId)) return null;
+    const columnas = await asegurarColumnas(this.prisma, teamId);
+    const primera = columnas[0];
+    if (!primera) return null;
+    return this.prisma.$transaction(async (tx) => {
+      // Dos mensajes a la vez del mismo desconocido crearían dos fichas: el
+      // candado los pone en fila, igual que al sembrar las columnas.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${teamId}:${phoneKey}`}))`;
+      const ya = await tx.salesLead.findFirst({
+        where: { salesTeamId: teamId, phoneKey },
+        select: { id: true, salesTeamId: true },
+      });
+      if (ya) return ya;
+      return tx.salesLead.create({
+        data: {
+          salesTeamId: teamId,
+          whiteLabelId,
+          stageId: primera.id,
+          // Acotado: el teléfono viene de un payload ajeno y sin tope.
+          phone: (phone ?? '').trim().slice(0, MAX_TELEFONO) || null,
+          phoneKey,
+          source: 'chat',
+          lastActivityAt: new Date(),
+        },
+        select: { id: true, salesTeamId: true },
+      });
+    });
   }
 
 }
@@ -248,6 +373,18 @@ export class SalesChatService {
       );
     }
 
+    // EL CANAL «WHATSAPP» NO EXISTE TODAVÍA.
+    //
+    // La API lo aceptaba y el mensaje se guardaba etiquetado como WhatsApp,
+    // pero el proveedor de la marca solo sabe mandar SMS (`MktProviderService`
+    // no tiene envío de WhatsApp): al cliente le llegaba un SMS y en el hilo
+    // ponía WhatsApp. Mejor decirlo que fingirlo (arqueo del 2026-09-15).
+    if (body.channel === 'whatsapp') {
+      throw new BadRequestException(
+        'Por ahora solo se puede escribir por SMS: la marca no tiene WhatsApp conectado para enviar.',
+      );
+    }
+
     const r = await this.mkt.sendSms({
       whiteLabelId: acceso.team.whiteLabelId,
       toPhone: lead.phone,
@@ -268,7 +405,7 @@ export class SalesChatService {
         salesTeamId: teamId,
         leadId,
         direction: 'out',
-        channel: body.channel === 'whatsapp' ? 'whatsapp' : 'sms',
+        channel: 'sms',
         body: texto,
         userId: user.id,
         providerMessageId: r.messageId ?? null,

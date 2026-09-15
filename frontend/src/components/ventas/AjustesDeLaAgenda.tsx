@@ -25,13 +25,14 @@ type Ajustes = {
   antelacionMin: number;
   fechasBloqueadas: string[];
   volverAlSitio: string | null;
+  redirigirEnSegundos: number;
 };
 
 type Datos = {
   puedeConfigurar: boolean;
   nombreDelEquipo: string;
   ajustes: Ajustes;
-  opciones: { duraciones: number[]; antelaciones: number[]; maxDias: number };
+  opciones: { duraciones: number[]; antelaciones: number[]; maxDias: number; redirecciones: number[] };
 };
 
 function antelacionLegible(min: number): string {
@@ -206,6 +207,27 @@ export function AjustesDeLaAgenda({ teamId }: { teamId: string }) {
             onChange={(e) => cambiar({ volverAlSitio: e.target.value })}
           />
           <p className="m-0 mt-1 text-[11px] text-mute">Tras reservar, un enlace para volver a tu página.</p>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor="agenda-redireccion">Llevar solo a ese sitio</label>
+          <select
+            id="agenda-redireccion"
+            className="input"
+            value={a.redirigirEnSegundos}
+            // Sin sitio al que volver no hay a dónde llevar a nadie.
+            disabled={ro || !a.volverAlSitio?.trim()}
+            onChange={(e) => cambiar({ redirigirEnSegundos: Number(e.target.value) })}
+          >
+            {/* Con un backend anterior no viene la lista: mejor sin opciones que roto. */}
+            {(datos.opciones.redirecciones ?? [0]).map((n) => (
+              <option key={n} value={n}>
+                {n === 0 ? 'No, solo el enlace' : `Sí, a los ${n} segundos`}
+              </option>
+            ))}
+          </select>
+          <p className="m-0 mt-1 text-[11px] text-mute">
+            Con la cita ya reservada, la página lleva sola a tu sitio pasado ese tiempo. Quien quiera, puede ir antes.
+          </p>
         </div>
         <div className="sm:col-span-2">
           <span className="label">Fechas bloqueadas</span>

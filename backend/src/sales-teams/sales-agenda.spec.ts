@@ -149,6 +149,7 @@ function baseFalsa(opts: { modulo?: boolean; slug?: string | null } = {}) {
       },
     },
     salesStage: {
+      count: async ({ where }: any) => bd.stages.filter((s) => casa(s, where)).length,
       findFirst: async ({ where }: any) => bd.stages.find((s) => casa(s, where)) ?? null,
       findMany: async ({ where }: any) =>
         bd.stages.filter((s) => casa(s, where)).sort((a, b) => a.position - b.position),
@@ -165,6 +166,9 @@ function baseFalsa(opts: { modulo?: boolean; slug?: string | null } = {}) {
       },
     },
     $transaction: async (fn: any) => fn(prisma),
+    // Las columnas se siembran con candado (`asegurarColumnas`): el doble tiene
+    // que conocer `pg_advisory_xact_lock`, aunque aquí no bloquee nada.
+    $executeRawUnsafe: async () => 0,
   };
 
   const mkt: any = {

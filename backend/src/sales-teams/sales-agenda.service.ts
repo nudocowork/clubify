@@ -41,6 +41,7 @@ import {
   ANTELACIONES,
   DURACIONES,
   MAX_DIAS_HACIA_ADELANTE,
+  SEGUNDOS_DE_REDIRECCION,
   leerAjustesDeAgenda,
   normalizarAjustesDeAgenda,
 } from './ajustes-de-agenda';
@@ -247,7 +248,12 @@ export class SalesAgendaService {
       puedeConfigurar: acceso.puedeEscribir && (acceso.esAdminDeMarca || acceso.roles.includes('lider')),
       nombreDelEquipo: acceso.team.name,
       ajustes: leerAjustesDeAgenda(equipo?.bookingConfig),
-      opciones: { duraciones: DURACIONES, antelaciones: ANTELACIONES, maxDias: MAX_DIAS_HACIA_ADELANTE },
+      opciones: {
+        duraciones: DURACIONES,
+        antelaciones: ANTELACIONES,
+        maxDias: MAX_DIAS_HACIA_ADELANTE,
+        redirecciones: SEGUNDOS_DE_REDIRECCION,
+      },
     };
   }
 
@@ -874,6 +880,7 @@ export class SalesAgendaService {
       titulo: ajustes.titulo,
       subtitulo: ajustes.subtitulo,
       volverAlSitio: ajustes.volverAlSitio,
+      redirigirEnSegundos: ajustes.redirigirEnSegundos,
       duracionMin: ajustes.duracionMin,
       dias,
       formulario: formulario

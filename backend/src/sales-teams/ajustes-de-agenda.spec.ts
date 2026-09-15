@@ -57,6 +57,12 @@ describe('normalizarAjustesDeAgenda', () => {
     expect(normalizarAjustesDeAgenda({ antelacionMin: 45 })).toHaveProperty('error');
   });
 
+  it('el tiempo de redirección solo entre los que se ofrecen', () => {
+    expect(normalizarAjustesDeAgenda({ redirigirEnSegundos: 5 })).toEqual({ redirigirEnSegundos: 5 });
+    expect(normalizarAjustesDeAgenda({ redirigirEnSegundos: 0 })).toEqual({ redirigirEnSegundos: 0 });
+    expect(normalizarAjustesDeAgenda({ redirigirEnSegundos: 7 })).toHaveProperty('error');
+  });
+
   it('«Volver al sitio» solo con http(s)', () => {
     expect(normalizarAjustesDeAgenda({ volverAlSitio: 'https://sellea.co' })).toEqual({ volverAlSitio: 'https://sellea.co/' });
     expect(normalizarAjustesDeAgenda({ volverAlSitio: 'javascript:alert(1)' })).toHaveProperty('error');
@@ -74,6 +80,13 @@ describe('leerAjustesDeAgenda', () => {
     expect(leerAjustesDeAgenda({})).toEqual(AJUSTES_DE_AGENDA_POR_DEFECTO);
     expect(leerAjustesDeAgenda({ formularioId: 'f1' })).toEqual(AJUSTES_DE_AGENDA_POR_DEFECTO);
     expect(leerAjustesDeAgenda(null)).toEqual(AJUSTES_DE_AGENDA_POR_DEFECTO);
+  });
+
+  it('sin sitio al que volver no se redirige, aunque lo guardado diga otra cosa', () => {
+    expect(leerAjustesDeAgenda({ redirigirEnSegundos: 10 }).redirigirEnSegundos).toBe(0);
+    expect(
+      leerAjustesDeAgenda({ volverAlSitio: 'https://sellea.co', redirigirEnSegundos: 10 }).redirigirEnSegundos,
+    ).toBe(10);
   });
 
   it('lo roto vuelve al valor por defecto, campo a campo', () => {

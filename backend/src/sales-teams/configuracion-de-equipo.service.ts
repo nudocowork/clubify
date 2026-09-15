@@ -114,6 +114,7 @@ export class ConfiguracionDeEquipoService {
       })),
       mensajeWhatsapp: ajustes.mensajeWhatsapp ?? '',
       mensajePorDefecto: MENSAJE_POR_DEFECTO,
+      recibeDesconocidos: ajustes.recibeDesconocidos,
       banco: { etiquetas: ajustes.etiquetasDelBanco, campos: ajustes.camposDelBanco },
       catalogos: {
         estados: ESTADOS_DE_EQUIPO,
@@ -209,12 +210,28 @@ export class ConfiguracionDeEquipoService {
     return { ok: true };
   }
 
-  async guardarMensaje(user: AuthUser, teamId: string, body: { mensaje?: string | null }) {
+  async guardarMensaje(
+    user: AuthUser,
+    teamId: string,
+    body: { mensaje?: string | null; recibeDesconocidos?: boolean },
+  ) {
     const acceso = await resolveTeamAccess(this.prisma, user, teamId);
     this.exigirConfigurar(acceso);
     const m = texto(body.mensaje, MAX_MENSAJE);
     // Vacío o igual al de siempre se guarda como «el de siempre».
-    await this.fusionarAjustes(teamId, { mensajeWhatsapp: m && m !== MENSAJE_POR_DEFECTO ? m : null });
+    const parche: Record<string, unknown> = { mensajeWhatsapp: m && m !== MENSAJE_POR_DEFECTO ? m : null };
+    if (body.recibeDesconocidos !== undefined) parche.recibeDesconocidos = !!body.recibeDesconocidos;
+    await this.fusionarAjustes(teamId, parche);
+    if (body.recibeDesconocidos === true && acceso.team.whiteLabelId) {
+      // Una sola bandeja por marca. Con dos marcadas ganaba el equipo más
+      // antiguo, y el que acababa de marcarlo no recibía nada ni se enteraba
+      // (Fable, 2026-09-15).
+      await this.prisma.$executeRaw`
+        UPDATE "SalesTeam"
+           SET "settings" = COALESCE("settings", '{}'::jsonb) - 'recibeDesconocidos'
+         WHERE "whiteLabelId" = ${acceso.team.whiteLabelId}
+           AND "id" <> ${teamId}`;
+    }
     return { ok: true };
   }
 

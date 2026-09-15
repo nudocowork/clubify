@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Put } from '@nestjs/common';
-import { IsArray, IsIn, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ConfiguracionDeEquipoService } from './configuracion-de-equipo.service';
 import { ROLES_DE_EQUIPO } from './team-access';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -20,6 +20,8 @@ class IdentidadBody {
 
 class MensajeBody {
   @IsOptional() @IsString() @MaxLength(1000) mensaje?: string | null;
+  /** Este equipo es la bandeja de los números que escriben sin estar en el tablero. */
+  @IsOptional() @IsBoolean() recibeDesconocidos?: boolean;
 }
 
 class BancoBody {

@@ -27,6 +27,8 @@ type Calendario = {
   titulo?: string | null;
   subtitulo?: string | null;
   volverAlSitio?: string | null;
+  /** 0 = solo el enlace; si no, segundos hasta llevar solo a ese sitio. */
+  redirigirEnSegundos?: number;
   /** El formulario que el equipo eligió para su agenda. Sin él, nombre y teléfono. */
   formulario: { nombre: string; descripcion: string | null; campos: CampoDeFormulario[] } | null;
 };
@@ -54,6 +56,7 @@ export default function AgendaPublica() {
   const [form, setForm] = useState({ name: '', phone: '', notes: '' });
   const [respuestas, setRespuestas] = useState<Respuestas>({});
   const [faltan, setFaltan] = useState<Set<string>>(new Set());
+  const [restan, setRestan] = useState<number | null>(null);
   const [enviando, setEnviando] = useState(false);
   // Se guarda el `manageToken` que devuelve la API. Antes se tiraba: la
   // pantalla de gestión (`/cita/gestion/<token>`) existía y **nadie recibía
@@ -79,6 +82,26 @@ export default function AgendaPublica() {
         ),
       );
   }, [slug]);
+
+  /**
+   * Con la cita hecha, llevar solo al sitio del equipo si lo pidieron. Se
+   * enseña la cuenta atrás y el enlace para ir antes: una redirección que
+   * ocurre sin avisar parece que la página se rompió.
+   */
+  useEffect(() => {
+    const destino = cal?.volverAlSitio;
+    const segundos = cal?.redirigirEnSegundos ?? 0;
+    if (!listo || !destino || segundos <= 0) return;
+    setRestan(segundos);
+    const cuenta = setInterval(() => setRestan((s) => (s !== null && s > 0 ? s - 1 : 0)), 1000);
+    const salto = setTimeout(() => {
+      window.location.href = destino;
+    }, segundos * 1000);
+    return () => {
+      clearInterval(cuenta);
+      clearTimeout(salto);
+    };
+  }, [listo, cal?.volverAlSitio, cal?.redirigirEnSegundos]);
 
   async function reservar() {
     if (!elegido) return;
@@ -193,9 +216,16 @@ export default function AgendaPublica() {
             </a>
           )}
           {cal?.volverAlSitio && (
-            <a href={cal.volverAlSitio} className="mt-4 block text-sm underline underline-offset-4">
-              Volver al sitio
-            </a>
+            <>
+              <a href={cal.volverAlSitio} className="mt-4 block text-sm underline underline-offset-4">
+                Volver al sitio
+              </a>
+              {restan !== null && (
+                <p className="mt-1 text-xs text-mute" aria-live="polite">
+                  {restan > 0 ? `Te llevamos allí en ${restan} s…` : 'Llevándote…'}
+                </p>
+              )}
+            </>
           )}
         </div>
       </main>

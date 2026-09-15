@@ -43,23 +43,27 @@ export async function asegurarColumnas(
   prisma: PrismaService,
   salesTeamId: string,
 ) {
-  const hay = await prisma.salesStage.findMany({
-    where: { salesTeamId },
-    orderBy: { position: 'asc' },
-  });
+  const leer = () =>
+    prisma.salesStage.findMany({ where: { salesTeamId }, orderBy: { position: 'asc' } });
+  const hay = await leer();
   if (hay.length) return hay;
 
-  await prisma.salesStage.createMany({
-    data: COLUMNAS_INICIALES.map((c, i) => ({
-      salesTeamId,
-      name: c.name,
-      kind: c.kind,
-      color: c.color,
-      position: i,
-    })),
+  // CON CANDADO, como los embudos del CRM (`asegurarEmbudos`). Leer, sembrar y
+  // releer no basta: dos puertas públicas —la agenda y, desde hoy, el WhatsApp
+  // de un desconocido— pueden sembrar a la vez y dejar DOS juegos de columnas,
+  // con los leads repartidos entre ellos (Fable, 2026-09-15).
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1))`, `columnas:${salesTeamId}`);
+    if (await tx.salesStage.count({ where: { salesTeamId } })) return;
+    await tx.salesStage.createMany({
+      data: COLUMNAS_INICIALES.map((c, i) => ({
+        salesTeamId,
+        name: c.name,
+        kind: c.kind,
+        color: c.color,
+        position: i,
+      })),
+    });
   });
-  return prisma.salesStage.findMany({
-    where: { salesTeamId },
-    orderBy: { position: 'asc' },
-  });
+  return leer();
 }

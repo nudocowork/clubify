@@ -28,6 +28,8 @@ export type AjustesDeAgenda = {
   fechasBloqueadas: string[];
   /** «Volver al sitio» al terminar. Solo http(s). */
   volverAlSitio: string | null;
+  /** Segundos hasta llevar solo a ese sitio. 0 = solo el enlace, sin llevar a nadie. */
+  redirigirEnSegundos: number;
 };
 
 export const AJUSTES_DE_AGENDA_POR_DEFECTO: AjustesDeAgenda = {
@@ -38,6 +40,7 @@ export const AJUSTES_DE_AGENDA_POR_DEFECTO: AjustesDeAgenda = {
   antelacionMin: 30,
   fechasBloqueadas: [],
   volverAlSitio: null,
+  redirigirEnSegundos: 0,
 };
 
 export const DURACIONES = [15, 20, 30, 45, 60, 90, 120] as const;
@@ -45,6 +48,8 @@ export const DURACIONES = [15, 20, 30, 45, 60, 90, 120] as const;
 export const ANTELACIONES = [0, 30, 60, 120, 240, 720, 1440, 2880] as const;
 /** Cada día ofrecido cuesta consultas al abrir la agenda pública: dos meses basta. */
 export const MAX_DIAS_HACIA_ADELANTE = 60;
+/** Cuánto se espera antes de llevar al sitio. 0 = no se lleva a nadie. */
+export const SEGUNDOS_DE_REDIRECCION = [0, 3, 5, 10, 15, 30] as const;
 export const MAX_FECHAS_BLOQUEADAS = 120;
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
@@ -118,6 +123,12 @@ export function normalizarAjustesDeAgenda(
     if (fechas.length > MAX_FECHAS_BLOQUEADAS) return { error: `Como mucho ${MAX_FECHAS_BLOQUEADAS} fechas bloqueadas` };
     out.fechasBloqueadas = fechas;
   }
+  if (e.redirigirEnSegundos !== undefined) {
+    if (!(SEGUNDOS_DE_REDIRECCION as readonly number[]).includes(Number(e.redirigirEnSegundos))) {
+      return { error: 'Ese tiempo de redirección no está entre los que se ofrecen' };
+    }
+    out.redirigirEnSegundos = Number(e.redirigirEnSegundos);
+  }
   if (e.volverAlSitio !== undefined) {
     const t = texto(e.volverAlSitio, 300);
     const u = enlaceSeguro(t);
@@ -147,5 +158,10 @@ export function leerAjustesDeAgenda(json: Prisma.JsonValue | null | undefined, h
       ? [...new Set(o.fechasBloqueadas.filter(esFecha))].filter((f) => f >= hoy).sort().slice(0, MAX_FECHAS_BLOQUEADAS)
       : [],
     volverAlSitio: enlaceSeguro(o.volverAlSitio),
+    // Sin sitio al que volver no se lleva a nadie, diga lo que diga lo guardado.
+    redirigirEnSegundos:
+      enlaceSeguro(o.volverAlSitio) && (SEGUNDOS_DE_REDIRECCION as readonly number[]).includes(Number(o.redirigirEnSegundos))
+        ? Number(o.redirigirEnSegundos)
+        : d.redirigirEnSegundos,
   };
 }

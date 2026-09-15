@@ -57,19 +57,6 @@ export class MktWebhookController {
           `email=${email ?? '—'} tel=${phone ? '✓' : '—'}`,
       );
 
-      // El chat del equipo de ventas. Va ANTES del resto y sin `await` sobre
-      // el resultado: guardar la conversación no puede retrasar ni tumbar la
-      // reanudación de las automatizaciones, que es para lo que nació esta
-      // ruta. El servicio no lanza nunca.
-      if (kind === 'reply') {
-        void this.inbox.guardarEntrante({
-          whiteLabelId: wl.id,
-          phone,
-          body: extractBody(body),
-          providerMessageId: messageId,
-        });
-      }
-
       // Sella el evento en su envío (por messageId; respaldo por email).
       const { contactId, correlacionado } = await this.actions.stampEvent({
         whiteLabelId: wl.id,
@@ -77,6 +64,26 @@ export class MktWebhookController {
         email,
         kind,
       });
+
+      // El chat del equipo de ventas, sin `await` sobre el resultado: guardar la
+      // conversación no puede retrasar ni tumbar la reanudación de las
+      // automatizaciones, que es para lo que nació esta ruta. El servicio no
+      // lanza nunca.
+      //
+      // Va DESPUÉS del sellado para saber si el mensaje corresponde a un envío
+      // NUESTRO: responder «gracias» a una campaña de correo no es «alguien que
+      // escribió de la nada», y crear una ficha por cada respuesta llenaría el
+      // tablero del equipo (Fable, 2026-09-15). Esos mensajes se siguen
+      // guardando en quien ya está en el tablero.
+      if (kind === 'reply') {
+        void this.inbox.guardarEntrante({
+          whiteLabelId: wl.id,
+          phone,
+          body: extractBody(body),
+          providerMessageId: messageId,
+          puedeCrear: !correlacionado,
+        });
+      }
 
       // Baja: detiene todo para ese contacto.
       if (kind === 'unsubscribe') {

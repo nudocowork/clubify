@@ -51,7 +51,6 @@ type Cita = {
     telefono: string | null;
     email: string | null;
     origen: string | null;
-    instagram: string | null;
   } | null;
   /** «Pregunta: respuesta» del formulario de la agenda, si el equipo las enseña. */
   respuestas: string[] | null;
@@ -564,7 +563,6 @@ function TarjetaDeCita({
           {campos.includes('whatsapp') && <Dato etiqueta="WhatsApp" valor={c.lead?.telefono} />}
           {campos.includes('email') && <Dato etiqueta="Correo" valor={c.lead?.email} />}
           {campos.includes('empresa') && <Dato etiqueta="Empresa" valor={c.lead?.empresa} />}
-          {campos.includes('instagram') && <Dato etiqueta="Instagram" valor={c.lead?.instagram} />}
           {campos.includes('origen') && <Dato etiqueta="Origen" valor={c.lead?.origen} />}
           {campos.includes('closer') && <Dato etiqueta="Closer" valor={c.host?.nombre} />}
           {campos.includes('duracion') && <Dato etiqueta="Duración" valor={`${c.durationMin} min`} />}

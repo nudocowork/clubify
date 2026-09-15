@@ -78,6 +78,7 @@ class AjustesDeAgendaBody {
   @IsOptional() @IsInt() antelacionMin?: number;
   @IsOptional() @IsArray() @IsString({ each: true }) fechasBloqueadas?: string[];
   @IsOptional() @IsString() @MaxLength(300) volverAlSitio?: string | null;
+  @IsOptional() @IsInt() redirigirEnSegundos?: number;
 }
 
 /** La agenda vista desde dentro: el vendedor y quien manda en la marca. */

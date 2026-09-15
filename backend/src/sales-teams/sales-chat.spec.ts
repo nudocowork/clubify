@@ -20,6 +20,9 @@ type Fila = Record<string, any>;
 function baseFalsa(opts: { envio?: { ok: boolean; error?: string; messageId?: string } } = {}) {
   const bd = {
     leads: [] as Fila[],
+    equipos: [{ id: 't1', whiteLabelId: SELLEA, isActive: true, settings: {} }] as Fila[],
+    moduloEncendido: true,
+    columnas: [{ id: 'st1', salesTeamId: 't1', position: 0 }] as Fila[],
     mensajes: [] as Fila[],
     actividades: [] as Fila[],
     contactos: [] as Fila[],
@@ -41,8 +44,17 @@ function baseFalsa(opts: { envio?: { ok: boolean; error?: string; messageId?: st
         whiteLabelId: SELLEA,
         isActive: true,
       }),
+      // Con `where`: así se prueba de verdad que solo entran los equipos de la
+      // marca y activos.
+      findMany: async ({ where }: any) => bd.equipos.filter((e: Fila) => casa(e, where)),
     },
-    whiteLabelModule: { findUnique: async () => ({ enabled: true }) },
+    salesStage: {
+      findMany: async ({ where }: any) => bd.columnas.filter((c: Fila) => casa(c, where)),
+      count: async ({ where }: any) => bd.columnas.filter((c: Fila) => casa(c, where)).length,
+    },
+    // El doble HONRA el módulo de la marca: si alguien quita la comprobación,
+    // la prueba del módulo apagado se pone en rojo.
+    whiteLabelModule: { findUnique: async () => ({ enabled: bd.moduloEncendido }) },
     whiteLabel: { findFirst: async () => ({ id: SELLEA }) },
     salesTeamMember: {
       findUnique: async ({ where }: any) => {
@@ -53,6 +65,11 @@ function baseFalsa(opts: { envio?: { ok: boolean; error?: string; messageId?: st
     salesLead: {
       findMany: async ({ where }: any) => bd.leads.filter((l) => casa(l, where)),
       findFirst: async ({ where }: any) => bd.leads.find((l) => casa(l, where)) ?? null,
+      create: async ({ data }: any) => {
+        const l = { id: id('nuevo'), ...data };
+        bd.leads.push(l);
+        return { ...l };
+      },
       update: async ({ where, data }: any) => {
         const l = bd.leads.find((x) => x.id === where.id)!;
         Object.assign(l, data);
@@ -95,6 +112,10 @@ function baseFalsa(opts: { envio?: { ok: boolean; error?: string; messageId?: st
     mktContact: {
       findFirst: async ({ where }: any) => bd.contactos.find((c) => casa(c, where)) ?? null,
     },
+    // El candado y la transacción no son lo que se prueba aquí: lo que importa
+    // es a qué equipo entra el desconocido, y que no entre si no se puede saber.
+    $transaction: async (fn: any) => fn(prisma),
+    $executeRaw: async () => 0,
   };
 
   const enviados: any[] = [];
@@ -206,10 +227,18 @@ describe('lo que entra por el webhook', () => {
   });
 
   it('un lead de OTRA marca no recibe nada', async () => {
-    bd.leads.push(lead({ whiteLabelId: 'wl-otra' }));
-    expect(
-      await inbox.guardarEntrante({ whiteLabelId: SELLEA, phone: '3001112233', body: 'hola' }),
-    ).toBe(0);
+    // De otra marca es de OTRO equipo: un lead de la marca de al lado colgado
+    // del mismo equipo no existe (`whiteLabelId` se copia del equipo).
+    bd.leads.push(lead({ whiteLabelId: 'wl-otra', salesTeamId: 't9' }));
+    const n = await inbox.guardarEntrante({ whiteLabelId: SELLEA, phone: '3001112233', body: 'hola' });
+    // El de la otra marca no se toca. En la marca que sí recibe entra un
+    // contacto nuevo, que es lo que se pidió (Javier, 2026-09-15).
+    expect(n).toBe(1);
+    expect(bd.mensajes).toHaveLength(1);
+    expect(bd.leads).toHaveLength(2);
+    expect(bd.leads[1]).toMatchObject({ whiteLabelId: SELLEA, salesTeamId: 't1' });
+    expect(bd.mensajes[0].leadId).toBe(bd.leads[1].id);
+    expect(bd.mensajes[0].leadId).not.toBe('lead-1');
   });
 
   it('sin teléfono o sin texto no se guarda nada', async () => {
@@ -219,10 +248,76 @@ describe('lo que entra por el webhook', () => {
     expect(bd.mensajes).toHaveLength(0);
   });
 
-  it('un teléfono desconocido no revienta ni inventa un lead', async () => {
+  it('quien escribe sin estar en el tablero entra como contacto nuevo', async () => {
+    // Antes se descartaba el mensaje y el equipo no se enteraba de que alguien
+    // había escrito. Ahora entra, con su teléfono y en la primera columna.
+    const n = await inbox.guardarEntrante({
+      whiteLabelId: SELLEA,
+      phone: '3009998877',
+      body: 'Hola, vi su anuncio',
+    });
+    expect(n).toBe(1);
+    expect(bd.leads).toHaveLength(1);
+    expect(bd.leads[0]).toMatchObject({
+      salesTeamId: 't1',
+      stageId: 'st1',
+      phoneKey: '3009998877',
+      source: 'chat',
+    });
+    expect(bd.mensajes[0]).toMatchObject({ leadId: bd.leads[0].id, direction: 'in' });
+  });
+
+  it('con varios equipos y ninguno marcado como bandeja, no se adivina', async () => {
+    // Repartir mal un contacto es peor que no crearlo.
+    bd.equipos.push({ id: 't2', whiteLabelId: SELLEA, isActive: true, settings: {} });
+    const n = await inbox.guardarEntrante({ whiteLabelId: SELLEA, phone: '3009998877', body: 'hola' });
+    expect(n).toBe(0);
+    expect(bd.leads).toHaveLength(0);
+  });
+
+  it('con el módulo apagado en la marca, no entra nadie', async () => {
+    bd.moduloEncendido = false;
+    expect(await inbox.guardarEntrante({ whiteLabelId: SELLEA, phone: '3009998877', body: 'hola' })).toBe(0);
+    expect(bd.leads).toHaveLength(0);
+  });
+
+  it('un equipo desactivado no recibe desconocidos', async () => {
+    bd.equipos[0].isActive = false;
+    expect(await inbox.guardarEntrante({ whiteLabelId: SELLEA, phone: '3009998877', body: 'hola' })).toBe(0);
+  });
+
+  it('quien se dio de baja no vuelve al tablero por escribir', async () => {
+    bd.contactos.push({ id: 'c1', whiteLabelId: SELLEA, phoneKey: '3009998877', deleted: false, optOut: true });
+    expect(await inbox.guardarEntrante({ whiteLabelId: SELLEA, phone: '3009998877', body: 'hola' })).toBe(0);
+    expect(bd.leads).toHaveLength(0);
+  });
+
+  it('una respuesta a una campaña nuestra no crea ficha', async () => {
+    // El webhook lo marca: lo que correlaciona con un envío nuestro se guarda
+    // en quien ya está, pero no abre contacto nuevo.
     expect(
-      await inbox.guardarEntrante({ whiteLabelId: SELLEA, phone: '3009998877', body: 'hola' }),
+      await inbox.guardarEntrante({ whiteLabelId: SELLEA, phone: '3009998877', body: 'gracias', puedeCrear: false }),
     ).toBe(0);
+    expect(bd.leads).toHaveLength(0);
+  });
+
+  it('pasado el tope por marca y hora, deja de crear fichas', async () => {
+    // El webhook es público y sin firma: el tope es lo que evita que alguien
+    // llene el tablero con números inventados.
+    for (let i = 0; i < 30; i++) {
+      await inbox.guardarEntrante({ whiteLabelId: SELLEA, phone: `30099988${String(i).padStart(2, '0')}`, body: 'hola' });
+    }
+    expect(bd.leads).toHaveLength(30);
+    expect(await inbox.guardarEntrante({ whiteLabelId: SELLEA, phone: '3001234567', body: 'hola' })).toBe(0);
+    expect(bd.leads).toHaveLength(30);
+  });
+
+  it('con varios equipos, entra en el que recibe desconocidos', async () => {
+    bd.equipos.push({ id: 't2', whiteLabelId: SELLEA, isActive: true, settings: { recibeDesconocidos: true } });
+    bd.columnas.push({ id: 'st2', salesTeamId: 't2', position: 0 });
+    const n = await inbox.guardarEntrante({ whiteLabelId: SELLEA, phone: '3009998877', body: 'hola' });
+    expect(n).toBe(1);
+    expect(bd.leads[0]).toMatchObject({ salesTeamId: 't2', stageId: 'st2' });
   });
 
   it('si la base falla, devuelve 0 y NO lanza: el webhook sigue su camino', async () => {

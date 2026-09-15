@@ -129,7 +129,6 @@ export const CAMPOS_DEL_BANCO = [
   { clave: 'whatsapp', etiqueta: 'WhatsApp' },
   { clave: 'email', etiqueta: 'Correo' },
   { clave: 'empresa', etiqueta: 'Empresa' },
-  { clave: 'instagram', etiqueta: 'Instagram' },
   { clave: 'origen', etiqueta: 'Origen' },
   { clave: 'closer', etiqueta: 'Closer' },
   { clave: 'duracion', etiqueta: 'Duración' },
@@ -160,6 +159,8 @@ export type AjustesDeEquipo = {
   mensajeWhatsapp: string | null;
   etiquetasDelBanco: EtiquetasDelBanco;
   camposDelBanco: CampoDelBanco[];
+  /** Este equipo recibe como contactos nuevos a los números que escriben sin estar en ningún tablero. */
+  recibeDesconocidos: boolean;
 };
 
 /**
@@ -179,5 +180,6 @@ export function leerAjustes(json: Prisma.JsonValue | null | undefined): AjustesD
     etiquetasDelBanco: 'error' in etiquetas ? {} : etiquetas,
     // Vacío = los de siempre; nunca una ficha en blanco.
     camposDelBanco: campos.length ? campos : [...CAMPOS_DEL_BANCO_POR_DEFECTO],
+    recibeDesconocidos: o.recibeDesconocidos === true,
   };
 }

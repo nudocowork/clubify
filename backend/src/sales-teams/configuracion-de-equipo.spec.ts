@@ -99,6 +99,7 @@ describe('leerAjustes', () => {
       expect(a.camposDelBanco).toEqual(CAMPOS_DEL_BANCO_POR_DEFECTO);
       expect(a.etiquetasDelBanco).toEqual({});
       expect(a.mensajeWhatsapp).toBeNull();
+      expect(a.recibeDesconocidos).toBe(false);
     }
   });
 
@@ -112,6 +113,7 @@ describe('leerAjustes', () => {
       mensajeWhatsapp: 'Hola {{nombre}}',
       etiquetasDelBanco: { ganadas: 'Cerradas' },
       camposDelBanco: ['whatsapp', 'respuestas'],
+      recibeDesconocidos: false,
     });
   });
 });
