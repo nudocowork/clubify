@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { nanoid } from 'nanoid';
@@ -36,6 +37,13 @@ import {
   puntajeDelFormulario,
   resumenDeRespuestas,
 } from './formularios-de-equipo';
+import {
+  ANTELACIONES,
+  DURACIONES,
+  MAX_DIAS_HACIA_ADELANTE,
+  leerAjustesDeAgenda,
+  normalizarAjustesDeAgenda,
+} from './ajustes-de-agenda';
 
 /**
  * La agenda del equipo de ventas — fase 4.
@@ -65,8 +73,6 @@ import {
 /** Por defecto, y lo que casi nadie va a cambiar. */
 const ZONA_POR_DEFECTO = 'America/Bogota';
 const DURACION_POR_DEFECTO = 30;
-/** Cuánto se mira hacia delante en el calendario público. */
-const DIAS_QUE_SE_OFRECEN = 21;
 /** No se ofrece un hueco a menos de esto: el vendedor no llegaría. */
 const ANTELACION_MIN = 30;
 
@@ -226,6 +232,50 @@ export class SalesAgendaService {
     return this.verHorario(user, teamId);
   }
 
+  /**
+   * «Cómo se ve y cuándo se reserva»: los ajustes de la agenda pública. Los ve
+   * cualquiera del equipo; los cambia el líder o un admin de la marca, como la
+   * configuración de la agenda en la referencia.
+   */
+  async verAjustes(user: AuthUser, teamId: string) {
+    const acceso = await resolveTeamAccess(this.prisma, user, teamId);
+    const equipo = await this.prisma.salesTeam.findUnique({
+      where: { id: teamId },
+      select: { bookingConfig: true },
+    });
+    return {
+      puedeConfigurar: acceso.puedeEscribir && (acceso.esAdminDeMarca || acceso.roles.includes('lider')),
+      nombreDelEquipo: acceso.team.name,
+      ajustes: leerAjustesDeAgenda(equipo?.bookingConfig),
+      opciones: { duraciones: DURACIONES, antelaciones: ANTELACIONES, maxDias: MAX_DIAS_HACIA_ADELANTE },
+    };
+  }
+
+  async guardarAjustes(user: AuthUser, teamId: string, body: unknown) {
+    const acceso = await resolveTeamAccess(this.prisma, user, teamId);
+    if (!(acceso.puedeEscribir && (acceso.esAdminDeMarca || acceso.roles.includes('lider')))) {
+      throw new ForbiddenException('Solo el líder del equipo o un admin de la marca pueden cambiar la agenda pública');
+    }
+    const parche = normalizarAjustesDeAgenda(body);
+    if ('error' in parche && typeof parche.error === 'string') throw new BadRequestException(parche.error);
+    // En UNA sentencia: `bookingConfig` guarda también el formulario de la
+    // agenda, y leer-mezclar-escribir pisaba lo que se guardara a la vez desde
+    // «Formularios».
+    const filas = await this.prisma.$executeRaw`
+      UPDATE "SalesTeam"
+         SET "bookingConfig" = COALESCE("bookingConfig", '{}'::jsonb) || ${JSON.stringify(parche)}::jsonb,
+             "updatedAt" = NOW()
+       WHERE "id" = ${teamId}
+         AND ("isActive" = true OR ${acceso.esAdminDeMarca}::boolean)`;
+    // Condicional, como en «Configuración»: si un admin desactivó el equipo entre
+    // la comprobación de permisos y esta escritura, el líder ya no escribe
+    // (Fable, 2026-09-15).
+    if (filas === 0) {
+      throw new ForbiddenException('El equipo acaba de desactivarse: ya no se puede cambiar su configuración');
+    }
+    return this.verAjustes(user, teamId);
+  }
+
   private async exigirDelEquipo(teamId: string, userId: string) {
     const m = await this.prisma.salesTeamMember.findUnique({
       where: { teamId_userId: { teamId, userId } },
@@ -251,6 +301,8 @@ export class SalesAgendaService {
     hostUserId: string | null,
     zona: string,
     duracionMin: number,
+    /** La de la agenda pública del equipo; desde dentro, la de siempre. */
+    antelacionMin = ANTELACION_MIN,
   ) {
     if (!fechaValida(fecha)) {
       throw new BadRequestException('La fecha tiene que ser YYYY-MM-DD.');
@@ -291,8 +343,74 @@ export class SalesAgendaService {
         endAt: new Date(c.startAt.getTime() + c.durationMin * 60_000),
       })),
       duracionMin,
-      antelacionMin: ANTELACION_MIN,
+      antelacionMin,
     });
+  }
+
+  /**
+   * Los huecos de varios días con DOS consultas —franjas y citas— en vez de dos
+   * o tres por día. El calendario público llega a pedir 60 días desde un enlace
+   * sin sesión: día a día eran hasta 180 consultas por visita (Fable,
+   * 2026-09-15). La regla es la de `huecosDe`: el horario propio del vendedor
+   * si lo tiene ese día, si no el del equipo; con vendedor, solo bloquean sus
+   * citas.
+   */
+  private async huecosDelRango(
+    teamId: string,
+    fechas: string[],
+    hostUserId: string | null,
+    zona: string,
+    duracionMin: number,
+    antelacionMin: number,
+  ): Promise<Map<string, ReturnType<typeof huecosDelDia>>> {
+    const porFecha = new Map<string, ReturnType<typeof huecosDelDia>>();
+    if (!fechas.length) return porFecha;
+    const [franjas, citas] = await Promise.all([
+      this.prisma.salesAvailability.findMany({
+        where: {
+          salesTeamId: teamId,
+          OR: hostUserId ? [{ userId: null }, { userId: hostUserId }] : [{ userId: null }],
+        },
+        select: { userId: true, weekday: true, startMin: true, endMin: true },
+      }),
+      this.prisma.salesMeeting.findMany({
+        where: {
+          salesTeamId: teamId,
+          status: { in: OCUPAN },
+          startAt: {
+            gte: minutosLocalesAUtc(fechas[0], 0, zona),
+            lt: minutosLocalesAUtc(fechas[fechas.length - 1], 24 * 60, zona),
+          },
+          ...(hostUserId ? { hostUserId } : {}),
+        },
+        select: { startAt: true, durationMin: true },
+      }),
+    ]);
+    for (const fecha of fechas) {
+      const weekday = diaDeLaSemanaEn(fecha, zona);
+      const propias = hostUserId ? franjas.filter((f) => f.userId === hostUserId && f.weekday === weekday) : [];
+      const delDia = propias.length ? propias : franjas.filter((f) => f.userId === null && f.weekday === weekday);
+      if (!delDia.length) {
+        porFecha.set(fecha, []);
+        continue;
+      }
+      const desde = minutosLocalesAUtc(fecha, 0, zona).getTime();
+      const hasta = minutosLocalesAUtc(fecha, 24 * 60, zona).getTime();
+      porFecha.set(
+        fecha,
+        huecosDelDia({
+          fecha,
+          zona,
+          franjas: delDia.map((f) => ({ startMin: f.startMin, endMin: f.endMin })),
+          ocupado: citas
+            .filter((c) => c.startAt.getTime() >= desde && c.startAt.getTime() < hasta)
+            .map((c) => ({ startAt: c.startAt, endAt: new Date(c.startAt.getTime() + c.durationMin * 60_000) })),
+          duracionMin,
+          antelacionMin,
+        }),
+      );
+    }
+    return porFecha;
   }
 
   async huecos(
@@ -361,7 +479,7 @@ export class SalesAgendaService {
     const desde = minutosLocalesAUtc(elDia, 0, zona);
     const hasta = minutosLocalesAUtc(elDia, 24 * 60, zona);
 
-    const [closers, citas, horario] = await Promise.all([
+    const [closers, citas, horario, ajustesDelEquipo] = await Promise.all([
       closersActivosDelEquipo(this.prisma, teamId),
       this.prisma.salesMeeting.findMany({
         where: {
@@ -377,6 +495,7 @@ export class SalesAgendaService {
         where: { salesTeamId: teamId, weekday: diaDeLaSemanaEn(elDia, zona) },
         select: { startMin: true, endMin: true },
       }),
+      this.prisma.salesTeam.findUnique({ where: { id: teamId }, select: { bookingConfig: true } }),
     ]);
 
     // Una cita cuyo anfitrión no es closer activo —un miembro con otro rol, o un
@@ -419,6 +538,9 @@ export class SalesAgendaService {
       puedeEscribir: acceso.puedeEscribir,
       fecha: elDia,
       zona,
+      // La duración de «Cómo se ve y cuándo se reserva»: la cita que se agenda
+      // desde aquí arranca con ella, no con 30 fijos (Fable, 2026-09-15).
+      duracionMin: leerAjustesDeAgenda(ajustesDelEquipo?.bookingConfig).duracionMin,
       closers: columnas,
       franjas: franjasDelDia(horario, horas),
       citas: citas.map((c, i) => ({
@@ -717,20 +839,30 @@ export class SalesAgendaService {
     if (!team) throw new NotFoundException('Agenda no disponible');
     await this.exigirModulo(team.whiteLabelId);
 
+    // «Cómo se ve y cuándo se reserva»: cuántos días se ofrecen, qué duración,
+    // con cuánta antelación y qué fechas no.
+    const ajustes = leerAjustesDeAgenda(team.bookingConfig);
+    const bloqueadas = new Set(ajustes.fechasBloqueadas);
     const hoy = fechaEn(new Date(), ZONA_POR_DEFECTO);
-    const dias: Array<{ fecha: string; huecos: { startAt: Date; label: string }[] }> = [];
-    for (let i = 0; i < DIAS_QUE_SE_OFRECEN; i++) {
+    const fechas: string[] = [];
+    for (let i = 0; i < ajustes.diasHaciaAdelante; i++) {
       const d = new Date(
         minutosLocalesAUtc(hoy, 0, ZONA_POR_DEFECTO).getTime() + i * 24 * 3600_000,
       );
       const fecha = fechaEn(d, ZONA_POR_DEFECTO);
-      const huecos = await this.huecosDe(
-        team.id,
-        fecha,
-        hostUserId ?? null,
-        ZONA_POR_DEFECTO,
-        DURACION_POR_DEFECTO,
-      );
+      if (!bloqueadas.has(fecha)) fechas.push(fecha);
+    }
+    const huecosPorFecha = await this.huecosDelRango(
+      team.id,
+      fechas,
+      hostUserId ?? null,
+      ZONA_POR_DEFECTO,
+      ajustes.duracionMin,
+      ajustes.antelacionMin,
+    );
+    const dias: Array<{ fecha: string; huecos: { startAt: Date; label: string }[] }> = [];
+    for (const fecha of fechas) {
+      const huecos = huecosPorFecha.get(fecha) ?? [];
       if (huecos.length) dias.push({ fecha, huecos });
     }
     // El formulario que el equipo eligió para su agenda, si está activo. Sin él,
@@ -739,6 +871,10 @@ export class SalesAgendaService {
     return {
       team: { name: team.name },
       zona: ZONA_POR_DEFECTO,
+      titulo: ajustes.titulo,
+      subtitulo: ajustes.subtitulo,
+      volverAlSitio: ajustes.volverAlSitio,
+      duracionMin: ajustes.duracionMin,
       dias,
       formulario: formulario
         ? {
@@ -817,13 +953,30 @@ export class SalesAgendaService {
     if (Number.isNaN(inicioPedido.getTime())) {
       throw new BadRequestException('La hora de la cita no es válida.');
     }
-    const huecosDelDia = await this.huecosDe(
-      team.id,
-      fechaEn(inicioPedido, ZONA_POR_DEFECTO),
-      body.hostUserId ?? null,
+    // Lo mismo que ofrece el calendario, con los ajustes del equipo: una fecha
+    // bloqueada o más allá de los días que se ofrecen no se reserva escribiendo
+    // la hora a mano.
+    const ajustes = leerAjustesDeAgenda(team.bookingConfig);
+    const fechaPedida = fechaEn(inicioPedido, ZONA_POR_DEFECTO);
+    const hoyEnLaZona = fechaEn(new Date(), ZONA_POR_DEFECTO);
+    const ultimoDia = fechaEn(
+      new Date(
+        minutosLocalesAUtc(hoyEnLaZona, 0, ZONA_POR_DEFECTO).getTime() +
+          (ajustes.diasHaciaAdelante - 1) * 24 * 3600_000,
+      ),
       ZONA_POR_DEFECTO,
-      DURACION_POR_DEFECTO,
     );
+    const huecosDelDia =
+      ajustes.fechasBloqueadas.includes(fechaPedida) || fechaPedida > ultimoDia
+        ? []
+        : await this.huecosDe(
+            team.id,
+            fechaPedida,
+            body.hostUserId ?? null,
+            ZONA_POR_DEFECTO,
+            ajustes.duracionMin,
+            ajustes.antelacionMin,
+          );
     if (!huecosDelDia.some((h) => h.startAt.getTime() === inicioPedido.getTime())) {
       throw new BadRequestException(
         'Ese horario ya no está disponible. Elige otro.',
@@ -853,6 +1006,7 @@ export class SalesAgendaService {
       leadId,
       hostUserId: body.hostUserId ?? null,
       startAt: body.startAt,
+      durationMin: ajustes.duracionMin,
       // Con formulario, las notas de la cita llevan sus respuestas: el closer
       // las lee sin abrir nada más.
       notes: (body.notes ?? '').trim() || (respuestas ? resumenDeRespuestas(campos, respuestas) : '') || null,

@@ -225,9 +225,19 @@ export function BancoDelEquipo() {
     <div className="flex flex-col gap-4">
       <CabeceraDeEquipo equipo={banco.team} soloLectura={!banco.puedeEscribir} />
 
-      <p className="text-sm text-mute">
-        Banco de agendamientos: reparte las citas y asegura que el cliente confirme antes de la llamada.
-      </p>
+      {/* Los accesos de la referencia: desde el Banco se llega a lo que decide
+          cómo se ve (Configuración) y qué pregunta la agenda (Formularios). */}
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="m-0 flex-1 text-sm text-mute">
+          Banco de agendamientos: reparte las citas y asegura que el cliente confirme antes de la llamada.
+        </p>
+        <Link href={`${rutaEquipos}/${teamId}/configuracion`} className="btn-ghost text-sm">
+          ⚙ Configurar
+        </Link>
+        <Link href={`${rutaEquipos}/${teamId}/formularios`} className="btn-ghost text-sm">
+          📝 Formularios
+        </Link>
+      </div>
 
       {banco.sinAsignarPronto.length > 0 && (
         <div className="rounded-card border border-bad/40 bg-bad-soft p-4" role="alert">

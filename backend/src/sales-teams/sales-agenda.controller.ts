@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  Put,
 } from '@nestjs/common';
 import {
   IsArray,
@@ -68,6 +69,17 @@ class ReservaPublicaBody {
   @IsOptional() @IsObject() respuestas?: Record<string, unknown> | null;
 }
 
+/** «Cómo se ve y cuándo se reserva». Los valores permitidos los comprueba el servicio. */
+class AjustesDeAgendaBody {
+  @IsOptional() @IsString() @MaxLength(80) titulo?: string | null;
+  @IsOptional() @IsString() @MaxLength(200) subtitulo?: string | null;
+  @IsOptional() @IsInt() duracionMin?: number;
+  @IsOptional() @IsInt() diasHaciaAdelante?: number;
+  @IsOptional() @IsInt() antelacionMin?: number;
+  @IsOptional() @IsArray() @IsString({ each: true }) fechasBloqueadas?: string[];
+  @IsOptional() @IsString() @MaxLength(300) volverAlSitio?: string | null;
+}
+
 /** La agenda vista desde dentro: el vendedor y quien manda en la marca. */
 @Controller('sales-teams/:teamId/agenda')
 @Roles(...ROLES_DE_EQUIPO)
@@ -77,6 +89,20 @@ export class SalesAgendaController {
   @Get('horario')
   verHorario(@CurrentUser() user: AuthUser, @Param('teamId') teamId: string) {
     return this.svc.verHorario(user, teamId);
+  }
+
+  @Get('ajustes')
+  verAjustes(@CurrentUser() user: AuthUser, @Param('teamId') teamId: string) {
+    return this.svc.verAjustes(user, teamId);
+  }
+
+  @Put('ajustes')
+  guardarAjustes(
+    @CurrentUser() user: AuthUser,
+    @Param('teamId') teamId: string,
+    @Body() body: AjustesDeAgendaBody,
+  ) {
+    return this.svc.guardarAjustes(user, teamId, body);
   }
 
   @Post('enlace')

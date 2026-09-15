@@ -17,6 +17,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { CabeceraDeEquipo } from '@/components/ventas/CabeceraDeEquipo';
+import { AjustesDeLaAgenda } from '@/components/ventas/AjustesDeLaAgenda';
 import { toast } from '@/components/Toast';
 import { AgendaDelDia } from '@/components/ventas/AgendaDelDia';
 
@@ -297,6 +298,8 @@ export default function AgendaDelEquipo() {
           </button>
         )}
       </section>
+
+      <AjustesDeLaAgenda teamId={teamId} />
 
       {/* ── Citas ──────────────────────────────────────────────────────── */}
       <section className="card card-pad">

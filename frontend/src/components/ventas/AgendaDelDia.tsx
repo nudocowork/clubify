@@ -43,6 +43,8 @@ type Dia = {
   closers: { id: string; nombre: string; activo?: boolean }[];
   franjas: string[];
   citas: Cita[];
+  /** La duración que el equipo puso a sus citas («Cómo se ve y cuándo se reserva»). */
+  duracionMin?: number;
 };
 
 const PUNTO: Record<Semaforo, string> = { verde: '🟢', rojo: '🔴', gris: '⚪' };
@@ -279,6 +281,7 @@ export function AgendaDelDia({ teamId }: { teamId: string }) {
           fecha={fecha}
           closers={dia.closers.filter((c) => c.activo !== false)}
           preset={crearEn}
+          duracionInicial={dia.duracionMin ?? 30}
           onCerrar={() => setCrearEn(null)}
           onCreada={() => {
             setCrearEn(null);
@@ -321,6 +324,7 @@ function AgendarCita({
   fecha,
   closers,
   preset,
+  duracionInicial,
   onCerrar,
   onCreada,
 }: {
@@ -328,6 +332,7 @@ function AgendarCita({
   fecha: string;
   closers: { id: string; nombre: string }[];
   preset: { hostUserId: string; hora: string };
+  duracionInicial: number;
   onCerrar: () => void;
   onCreada: () => void;
 }) {
@@ -336,7 +341,7 @@ function AgendarCita({
   const [leadId, setLeadId] = useState<string | null>(null);
   const [hostUserId, setHostUserId] = useState(preset.hostUserId);
   const [hora, setHora] = useState(preset.hora);
-  const [duracion, setDuracion] = useState(30);
+  const [duracion, setDuracion] = useState(duracionInicial);
   const [notas, setNotas] = useState('');
   const [guardando, setGuardando] = useState(false);
 
@@ -439,7 +444,7 @@ function AgendarCita({
         <div>
           <label className="label">Duración</label>
           <select value={duracion} onChange={(e) => setDuracion(Number(e.target.value))} className="input">
-            {[15, 30, 45, 60, 90].map((m) => (
+            {[15, 20, 30, 45, 60, 90, 120].map((m) => (
               <option key={m} value={m}>
                 {m} min
               </option>

@@ -8,6 +8,59 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (17) — Equipos de Ventas (Sellea): la agenda pública se configura por equipo
+
+En TeamClubify cada equipo configura su agenda pública: título, duración, días
+hacia adelante, antelación y fechas bloqueadas. Aquí todo eso era fijo (30
+minutos, 21 días, 30 minutos de antelación) y la página decía siempre «Agenda
+una cita».
+
+- **«Cómo se ve y cuándo se reserva»**, tarjeta nueva en la pestaña Agenda,
+  debajo del horario: título y subtítulo de la página pública, duración de la
+  cita (15 a 120 minutos), días hacia adelante (hasta 60), antelación mínima (de
+  ninguna a dos días), fechas bloqueadas (festivos; las que ya pasaron se
+  descartan solas) y «Volver al sitio» después de reservar.
+- La agenda pública los respeta al ofrecer horas **y al reservar**: una fecha
+  bloqueada, o más allá de los días ofrecidos, no se reserva escribiendo la hora
+  a mano, y la cita dura lo que dice el ajuste. La cita que se agenda desde
+  «Agenda del día» también arranca con esa duración.
+- Los cambia el líder o un admin de la marca; el resto del equipo los ve.
+- **El Banco** tiene arriba, como en la referencia, «⚙ Configurar» y
+  «📝 Formularios»: lo que decide cómo se ve y qué pregunta la agenda, a un clic.
+- Sin migración: viven en `SalesTeam.bookingConfig`, junto al formulario de la
+  agenda. Guardar cualquiera de los dos mezcla ahora su clave en una sola
+  sentencia. Antes «Formularios» leía el JSON y lo reescribía entero, y con dos
+  tarjetas escribiéndolo, una pisaba a la otra.
+
+No está, a propósito: cambiar el enlace (uno repartido que deja de funcionar es
+peor que uno feo), la zona horaria (toda la agenda cuenta en hora de Bogotá, y
+cambiarla solo aquí descuadraría el Banco y los recordatorios), el logo y los
+cupos por horario (aquí cada hueco es de un closer).
+
+### Revisión de Fable antes de desplegar: se puede desplegar tras los arreglos
+
+SQL parametrizado, permisos (lectura, closer, setter y el líder de un equipo
+desactivado no cambian nada), «Volver al sitio» solo con http(s) también al
+leer, lo que devuelve la agenda pública, el DTO frente a lo que manda la
+pantalla, el horizonte de días (idéntico al ofrecer y al reservar) y que las
+citas ya reservadas conservan su duración: comprobados. Se aplicó:
+
+- **El calendario público consultaba la base día a día**: con 60 días, hasta
+  180 consultas por cada visita a un enlace abierto a cualquiera. Ahora son dos
+  (horarios y citas de todo el rango) y los huecos se calculan en memoria.
+- Guardar los ajustes, o el formulario de la agenda, no comprobaba que el
+  equipo siguiera activo en el momento de escribir, como ya hace
+  «Configuración». Ahora sí.
+- La cita agendada desde «Agenda del día» empezaba siempre en 30 minutos aunque
+  el equipo hubiera puesto otra duración. Ahora arranca con la del equipo, y el
+  selector ofrece las mismas duraciones.
+- «Días hacia adelante» vaciado saltaba a 0 y no se podía reescribir.
+- El aviso de «Volver al sitio» pedía https:// y se aceptaba http://.
+- Las fechas bloqueadas que ya pasaron se acumulaban hasta el tope.
+
+Queda a sabiendas: bloquear una fecha no toca las citas ya reservadas ese día
+(siguen en el Banco, con su recordatorio), igual que en la referencia.
+
 ## 2026-09-15 (16) — Panel de la marca: fuera el «mapa», y Tendencia, Comisiones y Estado de clientes en una fila
 
 Javier: «el mapa del panel sigue sin verse bien, optimízalo, o lo quitamos, ya

@@ -23,6 +23,10 @@ type Calendario = {
   team: { name: string };
   zona: string;
   dias: Dia[];
+  /** «Cómo se ve y cuándo se reserva». Sin ellos, los textos de siempre. */
+  titulo?: string | null;
+  subtitulo?: string | null;
+  volverAlSitio?: string | null;
   /** El formulario que el equipo eligió para su agenda. Sin él, nombre y teléfono. */
   formulario: { nombre: string; descripcion: string | null; campos: CampoDeFormulario[] } | null;
 };
@@ -188,6 +192,11 @@ export default function AgendaPublica() {
               Seguir por WhatsApp
             </a>
           )}
+          {cal?.volverAlSitio && (
+            <a href={cal.volverAlSitio} className="mt-4 block text-sm underline underline-offset-4">
+              Volver al sitio
+            </a>
+          )}
         </div>
       </main>
     );
@@ -211,8 +220,8 @@ export default function AgendaPublica() {
 
   return (
     <main className="min-h-screen p-5 max-w-lg mx-auto">
-      <h1 className="text-xl font-semibold">Agenda una cita</h1>
-      <p className="text-sm text-mute mb-5">con {cal.team.name}</p>
+      <h1 className="text-xl font-semibold">{cal.titulo || 'Agenda una cita'}</h1>
+      <p className="text-sm text-mute mb-5">{cal.subtitulo || `con ${cal.team.name}`}</p>
 
       {!cal.dias.length && (
         <p className="text-sm text-mute">

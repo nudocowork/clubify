@@ -11,7 +11,6 @@ import { resolveTeamAccess, type AccesoAlEquipo } from './team-access';
 import {
   CAMPOS_DE_AGENDA,
   camposGuardados,
-  configDeAgenda,
   formularioDeAgendaDe,
   normalizarCampos,
   pideDatoDeContacto,
@@ -186,15 +185,20 @@ export class FormulariosDeEquipoService {
       if (!f.isActive) throw new BadRequestException('Activa el formulario antes de usarlo en la agenda');
       if (!pideDatoDeContacto(camposGuardados(f.fields))) throw new BadRequestException(SIN_CONTACTO);
     }
-    // Se lee y se reescribe el JSON del equipo tocando solo esta clave: nada más
-    // lo usa hoy, y lo que hubiera se conserva.
-    const equipo = await this.prisma.salesTeam.findUnique({ where: { id: teamId }, select: { bookingConfig: true } });
-    await this.prisma.salesTeam.update({
-      where: { id: teamId },
-      data: {
-        bookingConfig: { ...configDeAgenda(equipo?.bookingConfig), formularioId } as Prisma.InputJsonValue,
-      },
-    });
+    // En UNA sentencia: `bookingConfig` guarda también los ajustes de la agenda
+    // («Cómo se ve y cuándo se reserva»), y leer-mezclar-escribir pisaba lo que
+    // se guardara a la vez desde esa tarjeta.
+    const filas = await this.prisma.$executeRaw`
+      UPDATE "SalesTeam"
+         SET "bookingConfig" = COALESCE("bookingConfig", '{}'::jsonb) || ${JSON.stringify({ formularioId })}::jsonb,
+             "updatedAt" = NOW()
+       WHERE "id" = ${teamId}
+         AND ("isActive" = true OR ${acceso.esAdminDeMarca}::boolean)`;
+    // Condicional: un equipo desactivado entre la comprobación y la escritura ya
+    // no cambia, igual que en «Configuración» (Fable, 2026-09-15).
+    if (filas === 0) {
+      throw new ForbiddenException('El equipo acaba de desactivarse: ya no se puede cambiar su configuración');
+    }
     return { ok: true, formularioDeAgenda: formularioId };
   }
 
