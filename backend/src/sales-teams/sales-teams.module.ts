@@ -13,6 +13,10 @@ import { SeguimientosDeEquipoService } from './seguimientos-de-equipo.service';
 import { SeguimientosDeEquipoController } from './seguimientos-de-equipo.controller';
 import { CrmDeEquipoService } from './crm-de-equipo.service';
 import { CrmDeEquipoController } from './crm-de-equipo.controller';
+import { ColaboradoresDeEquipoService } from './colaboradores-de-equipo.service';
+import { ColaboradoresDeEquipoController } from './colaboradores-de-equipo.controller';
+import { ConversacionesDeEquipoService } from './conversaciones-de-equipo.service';
+import { ConversacionesDeEquipoController } from './conversaciones-de-equipo.controller';
 import { SalesLeadsController } from './sales-leads.controller';
 import { SalesAgendaService } from './sales-agenda.service';
 import {
@@ -41,6 +45,8 @@ import { MarketingModule } from '../marketing/marketing.module';
     ContactosDeEquipoService,
     SeguimientosDeEquipoService,
     CrmDeEquipoService,
+    ColaboradoresDeEquipoService,
+    ConversacionesDeEquipoService,
     SalesLeadsService,
     SalesAgendaService,
     SalesChatService,
@@ -54,6 +60,8 @@ import { MarketingModule } from '../marketing/marketing.module';
     ContactosDeEquipoController,
     SeguimientosDeEquipoController,
     CrmDeEquipoController,
+    ColaboradoresDeEquipoController,
+    ConversacionesDeEquipoController,
     SalesAgendaController,
     PublicSalesAgendaController,
     SalesChatController,

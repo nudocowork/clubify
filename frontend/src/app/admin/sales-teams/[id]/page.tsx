@@ -267,7 +267,7 @@ export default function ResumenDeEquipoPage() {
           </div>
         )}
         <div className="px-4 py-2.5 border-t border-line2">
-          <Link href="/admin/sales-teams" className="text-xs font-semibold text-brand hover:underline">
+          <Link href={`/admin/sales-teams/${id}/colaboradores`} className="text-xs font-semibold text-brand hover:underline">
             Poner y quitar colaboradores →
           </Link>
         </div>

@@ -4541,6 +4541,10 @@ model SalesLead {
   tags       String[] @default([])
   lostReason String?
   wonAt      DateTime?
+  /// Hasta cuándo se leyó su conversación en «Conversaciones»: lo que entró
+  /// después cuenta como no leído. Una marca por lead y no por persona, como en
+  /// la referencia: la bandeja es del equipo.
+  chatReadAt DateTime?
 
   lastActivityAt DateTime @default(now())
   createdAt      DateTime @default(now())
@@ -4675,6 +4679,7 @@ model SalesMessage {
 
   @@index([leadId, createdAt])
   @@index([providerMessageId])
+  @@index([salesTeamId, leadId, createdAt])
 }
 
 /// La implementación (onboarding) de un cliente que acaba de cerrar.

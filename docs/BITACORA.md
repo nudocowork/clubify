@@ -8,6 +8,89 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-14 (11) — Equipos de Ventas (Sellea): Colaboradores y Conversaciones
+
+Javier pidió replicar la estructura COMPLETA del equipo de TeamClubify
+(`team.soyclubify.com/comercial/<id>`), no solo los huecos del brief.
+
+### Inventario contra la referencia
+
+TeamClubify tiene 12 pestañas (`TEAM_TABS`): Resumen · Agenda · Banco ·
+Conversaciones · Contactos · CRM · Seguimientos · Clientes · Colaboradores ·
+Tareas del CRM · Formularios · Configuración. Con este bloque faltan:
+
+- **Tareas del CRM**, **Formularios** y **Configuración**.
+- Resumen: el aviso «banco» cuenta leads sin vendedor, pero el Banco ya son
+  CITAS sin closer; faltan «chats esperan respuesta» y los periodos rápidos
+  (Hoy, Ayer, Esta semana, Este mes, Este año).
+- Banco: accesos ⚙ Configurar y 📝 Formularios, «Abrir lead completo».
+- Agenda: varias agendas de reserva por equipo.
+
+No aplica tal cual: la línea de WhatsApp por equipo (aquí todo sale por la
+subcuenta de la marca), el % de comisión del equipo (terreno de Jhon: señalado,
+no tocado), el Lead Score y «Ejemplos de negocios» (no existen en Clubify PRO).
+
+### Colaboradores
+
+- Pestaña `/colaboradores`: miembros con sus roles (varios a la vez; «solo
+  lectura» excluye a los demás), desde cuándo, inactivos; agregar desde los
+  candidatos de la marca (con «ya está en…») y quitar con confirmación.
+- «Qué puede hacer cada rol» describe lo que Clubify PRO hace DE VERDAD, no la
+  ayuda de la referencia: aquí un closer también escribe, y lo que lo separa del
+  setter es tener columna en la Agenda y recibir citas del Banco.
+- Puerta por equipo `sales-teams/:teamId/colaboradores`: gestiona el **líder** o
+  un admin de la marca (antes solo el admin, desde el listado). Las reglas de
+  alta, roles y baja siguen en `SalesTeamsService`, sin copia.
+- Límites del líder: no da ni quita el rol de líder, no quita a un líder, no se
+  quita a sí mismo, y solo agrega a quien sale entre los candidatos.
+
+### Conversaciones
+
+- Pestaña `/conversaciones`: bandeja del equipo, un hilo por lead con el último
+  mensaje arriba; Todos / No leídos; búsqueda por nombre, empresa, teléfono o
+  texto; «Cargar más»; y el hilo con respuesta por SMS o nota interna. Se
+  actualiza sola (la lista cada 10 s, el chat abierto cada 6 s) y se pausa con
+  la pestaña en segundo plano. Enlace directo `?lead=<id>`.
+- `SalesLead.chatReadAt` + índice `SalesMessage(salesTeamId, leadId, createdAt)`
+  (`apply-sales-conversations-migration.cjs`, **aplicada**): lo que entró
+  después de esa marca cuenta como no leído. La marca es del equipo, no de la
+  persona, como en la referencia.
+- El hilo y el envío son los de `SalesChatService` (baja del contacto, subcuenta
+  de la marca, notas internas): la bandeja no lee ni envía por su cuenta.
+- En producción `SalesMessage` tiene **0 filas**: la bandeja estará vacía hasta
+  que un lead responda por SMS con el webhook de la marca configurado.
+
+### Lo que NO se trajo
+
+- «Sincronizar chats de WhatsApp» y adjuntos: la referencia importa de la línea
+  de WhatsApp del equipo, que aquí no existe.
+- Respuestas rápidas.
+
+### Revisión de Fable antes de desplegar: se puede desplegar
+
+- **Los colaboradores afiliados no pueden entrar a NINGUNA pestaña del
+  módulo.** Todas las rutas `sales-teams/:teamId/…` llevan
+  `@Roles('PLATFORM_OWNER','SUPER_ADMIN','TENANT_OWNER','TENANT_STAFF')`, y a un
+  equipo solo se pueden agregar afiliados (`AFFILIATE_*`): reciben 403 antes de
+  llegar a `resolveTeamAccess`. No es de este bloque —pasa en todas las
+  pestañas—: hoy el módulo, en la práctica, solo lo usan los admins de la
+  marca. Javier eligió llevar el equipo al **panel del afiliado**
+  (`/affiliate/equipos/<id>`), con la API abierta a afiliados y
+  `resolveTeamAccess` como puerta real: es el bloque siguiente.
+- Aplicado:
+  - un líder que no es admin veía candidatos de OTRA marca (la marca salía de
+    `user.whiteLabelId`, que solo lleva un admin) y agregar/quitar le daba 404:
+    ahora se usa la marca del equipo;
+  - la ayuda decía que el líder «manda aunque no esté en la lista»: falso, sin
+    membresía no entra;
+  - «Cargar más» se saltaba páginas tras el sondeo; una respuesta del sondeo
+    pisaba el filtro recién elegido; el total bajo «No leídos» contaba todos;
+    pulsar un filtro pedía la bandeja dos veces;
+  - «Poner y quitar colaboradores» del Resumen llevaba al listado de admin, no
+    a la pestaña.
+- Queda a sabiendas: los no leídos se cuentan con una subconsulta por hilo.
+  Con decenas de miles de leads habrá que contar solo la página.
+
 ## 2026-09-14 (10) — Equipos de Ventas (Sellea): «CRM» ya son embudos de oportunidades
 
 Javier eligió traer el CRM de TeamClubify **tal cual**: oportunidades APARTE
