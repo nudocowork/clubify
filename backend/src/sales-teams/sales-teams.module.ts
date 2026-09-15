@@ -23,6 +23,8 @@ import { TareasDeEquipoService } from './tareas-de-equipo.service';
 import { TareasDeEquipoController } from './tareas-de-equipo.controller';
 import { FormulariosDeEquipoService } from './formularios-de-equipo.service';
 import { FormulariosDeEquipoController } from './formularios-de-equipo.controller';
+import { ConfiguracionDeEquipoService } from './configuracion-de-equipo.service';
+import { ConfiguracionDeEquipoController } from './configuracion-de-equipo.controller';
 import { SalesLeadsController } from './sales-leads.controller';
 import { SalesAgendaService } from './sales-agenda.service';
 import {
@@ -56,6 +58,7 @@ import { MarketingModule } from '../marketing/marketing.module';
     MisEquiposService,
     TareasDeEquipoService,
     FormulariosDeEquipoService,
+    ConfiguracionDeEquipoService,
     SalesLeadsService,
     SalesAgendaService,
     SalesChatService,
@@ -74,6 +77,7 @@ import { MarketingModule } from '../marketing/marketing.module';
     MisEquiposController,
     TareasDeEquipoController,
     FormulariosDeEquipoController,
+    ConfiguracionDeEquipoController,
     SalesAgendaController,
     PublicSalesAgendaController,
     SalesChatController,

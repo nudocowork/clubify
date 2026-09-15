@@ -21,6 +21,7 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { CabeceraDeEquipo } from '@/components/ventas/CabeceraDeEquipo';
+import { BotonDeWhatsapp } from '@/components/ventas/BotonDeWhatsapp';
 
 type Item = {
   id: string;
@@ -44,6 +45,10 @@ type Respuesta = {
   /** Hay más de 300: la lista enseña los primeros. */
   truncado?: boolean;
   hechos?: Item[];
+  /** El texto con el que se abre WhatsApp («Configuración» del equipo). */
+  mensajeWhatsapp?: string;
+  /** Quien usa la pantalla: firma el WhatsApp. */
+  yo?: { nombre: string | null };
 };
 
 const RESULTADOS = [
@@ -304,6 +309,14 @@ function Grupo({
                           Abrir chat
                         </Link>
                       )}
+                      <BotonDeWhatsapp
+                        telefono={it.lead?.telefono}
+                        plantilla={datos.mensajeWhatsapp}
+                        nombre={it.lead?.nombre}
+                        closer={datos.yo?.nombre || it.closer}
+                        equipo={datos.team.name}
+                        className="btn-ghost px-2.5 py-1 text-xs"
+                      />
                       {datos.puedeEscribir && (
                         <button onClick={() => onResultado(it)} className="btn-primary px-2.5 py-1 text-xs">
                           Resultado

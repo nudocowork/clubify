@@ -705,10 +705,13 @@ export class SalesAgendaService {
    * Comprueba el módulo igual que el resto: si la marca lo tiene apagado, este
    * enlace deja de existir. Sin eso, apagar el módulo escondería el menú del
    * equipo y dejaría el enlace público sirviendo citas.
+   *
+   * Un equipo PAUSADO («Configuración») tampoco la ofrece: pausado es justo «no
+   * recibe citas nuevas». Las ya reservadas se siguen gestionando por su enlace.
    */
   async calendarioPublico(teamSlug: string, hostUserId?: string | null) {
     const team = await this.prisma.salesTeam.findFirst({
-      where: { slug: teamSlug, isActive: true },
+      where: { slug: teamSlug, isActive: true, status: { not: 'pausado' } },
       select: { id: true, name: true, whiteLabelId: true, bookingConfig: true },
     });
     if (!team) throw new NotFoundException('Agenda no disponible');
@@ -760,7 +763,7 @@ export class SalesAgendaService {
     },
   ) {
     const team = await this.prisma.salesTeam.findFirst({
-      where: { slug: teamSlug, isActive: true },
+      where: { slug: teamSlug, isActive: true, status: { not: 'pausado' } },
       select: { id: true, whiteLabelId: true, bookingConfig: true },
     });
     if (!team) throw new NotFoundException('Agenda no disponible');

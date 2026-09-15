@@ -23,7 +23,7 @@ type Resumen = {
   } | null;
   puedeEscribir: boolean;
   kpis: {
-    citasHoy: number; banco: number; chatsAbiertos: number;
+    citasHoy: number; banco: number; chatsAbiertos: number; chatsEsperan: number;
     seguimientos: number; seguimientosVencidos: number;
     ventasMes: number; ventasMesUsd: number; contactos: number; leads: number;
   };
@@ -43,7 +43,12 @@ type Resumen = {
 const dinero = (n: number) =>
   '$' + n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const numero = (n: number) => n.toLocaleString('es-CO');
-const soloDia = (iso: string) => iso.slice(0, 10);
+/**
+ * El día EN BOGOTÁ de un instante. `iso.slice(0, 10)` es el día en UTC: el
+ * final del mes (23:59 de Bogotá) salía como el día 1 del mes siguiente.
+ */
+const soloDia = (iso: string) =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date(iso));
 
 function Kpi({
   etiqueta, valor, pie, tono,
@@ -63,6 +68,41 @@ function Kpi({
       {pie && <div className="text-[11px] text-mute mt-0.5">{pie}</div>}
     </div>
   );
+}
+
+const PERIODOS = [
+  { clave: 'hoy', etiqueta: 'Hoy' },
+  { clave: 'ayer', etiqueta: 'Ayer' },
+  { clave: 'semana', etiqueta: 'Esta semana' },
+  { clave: 'mes', etiqueta: 'Este mes' },
+  { clave: 'anio', etiqueta: 'Este año' },
+] as const;
+
+/**
+ * Desde y hasta (AAAA-MM-DD) de cada período, en días de Bogotá: con el reloj
+ * del navegador, alguien en otro huso vería «hoy» corrido un día.
+ */
+function rangoDe(clave: (typeof PERIODOS)[number]['clave']): [string, string] {
+  const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+  const [y, m, d] = hoy.split('-').map(Number);
+  const dia = (yy: number, mm: number, dd: number) => new Date(Date.UTC(yy, mm - 1, dd)).toISOString().slice(0, 10);
+  switch (clave) {
+    case 'hoy':
+      return [hoy, hoy];
+    case 'ayer': {
+      const a = dia(y, m, d - 1);
+      return [a, a];
+    }
+    case 'semana': {
+      // La semana empieza el lunes.
+      const desdeElLunes = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
+      return [dia(y, m, d - desdeElLunes), hoy];
+    }
+    case 'mes':
+      return [dia(y, m, 1), hoy];
+    case 'anio':
+      return [dia(y, 1, 1), hoy];
+  }
 }
 
 /** Barras por día. Se dibujan con divs: son una serie corta y sin ejes. */
@@ -104,7 +144,10 @@ export default function ResumenDeEquipoPage() {
   const cargar = useCallback(async () => {
     setError(null);
     try {
-      const q = desde && hasta ? `?desde=${desde}&hasta=${hasta}T23:59:59` : '';
+      // Con el desfase de Bogotá escrito. Sin él, el servidor leía «2026-09-15»
+      // como medianoche UTC y «Hoy» se corría cinco horas: un lead de ayer a las
+      // 20:30 salía hoy (Fable, 2026-09-15).
+      const q = desde && hasta ? `?desde=${desde}T00:00:00-05:00&hasta=${hasta}T23:59:59.999-05:00` : '';
       setDatos(await api<Resumen>(`/sales-teams/${id}/resumen${q}`));
     } catch (e: any) {
       // Un fallo tiene que verse y poder reintentarse, no dejar la pantalla
@@ -162,10 +205,15 @@ export default function ResumenDeEquipoPage() {
         <Kpi
           etiqueta="En el banco"
           valor={numero(k.banco)}
-          pie="sin vendedor asignado"
+          pie="citas sin closer asignado"
           tono={k.banco > 0 ? 'alerta' : undefined}
         />
-        <Kpi etiqueta="Chats abiertos" valor={numero(k.chatsAbiertos)} pie="leads con conversación" />
+        <Kpi
+          etiqueta="Chats abiertos"
+          valor={numero(k.chatsAbiertos)}
+          pie={`${numero(k.chatsEsperan ?? 0)} esperan respuesta`}
+          tono={(k.chatsEsperan ?? 0) > 0 ? 'alerta' : undefined}
+        />
         <Kpi
           etiqueta="Seguimientos"
           valor={numero(k.seguimientos)}
@@ -191,6 +239,28 @@ export default function ResumenDeEquipoPage() {
             </p>
           </div>
           <div className="flex items-end gap-2 flex-wrap">
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Período">
+              {PERIODOS.map((p) => {
+                const [d, h] = rangoDe(p.clave);
+                const activo = desde === d && hasta === h;
+                return (
+                  <button
+                    key={p.clave}
+                    type="button"
+                    aria-pressed={activo}
+                    onClick={() => {
+                      setDesde(d);
+                      setHasta(h);
+                    }}
+                    className={`rounded-pill px-2.5 py-1 text-xs font-medium transition ${
+                      activo ? 'bg-brand text-white' : 'bg-bg2 text-mute hover:text-ink'
+                    }`}
+                  >
+                    {p.etiqueta}
+                  </button>
+                );
+              })}
+            </div>
             <label className="text-xs text-mute">
               Desde
               <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="input h-9 text-sm ml-1.5 w-auto" />
@@ -286,8 +356,18 @@ export default function ResumenDeEquipoPage() {
                 <span className="w-2 h-2 rounded-full bg-warn shrink-0" />
                 <span>{a.texto}</span>
                 {a.tipo === 'banco' && (
-                  <Link href={`${rutaEquipos}/${id}/board`} className="text-xs font-semibold text-brand hover:underline ml-auto">
-                    Repartirlos en Leads
+                  <Link href={`${rutaEquipos}/${id}/banco`} className="text-xs font-semibold text-brand hover:underline ml-auto">
+                    Asignar closer
+                  </Link>
+                )}
+                {a.tipo === 'seguimientos' && (
+                  <Link href={`${rutaEquipos}/${id}/seguimientos`} className="text-xs font-semibold text-brand hover:underline ml-auto">
+                    Ver seguimientos
+                  </Link>
+                )}
+                {a.tipo === 'chats' && (
+                  <Link href={`${rutaEquipos}/${id}/conversaciones`} className="text-xs font-semibold text-brand hover:underline ml-auto">
+                    Responder
                   </Link>
                 )}
                 {a.tipo === 'agenda' && (

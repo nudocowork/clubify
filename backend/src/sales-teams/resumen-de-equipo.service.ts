@@ -82,11 +82,13 @@ export class ResumenDeEquipoService {
       citasDelMes,
       seguimientos,
       hilos,
+      citasSinCloser,
+      chatsEsperan,
     ] = await Promise.all([
       this.prisma.salesTeam.findUnique({
         where: { id: teamId },
         select: {
-          id: true, name: true, slug: true, color: true, isActive: true,
+          id: true, name: true, slug: true, color: true, isActive: true, status: true,
           leadUser: { select: { id: true, fullName: true, email: true } },
         },
       }),
@@ -128,10 +130,32 @@ export class ResumenDeEquipoService {
         where: delEquipo,
         _count: { _all: true },
       }),
+      // «En el banco» es lo que el Banco enseña en «Por asignar»: citas
+      // pendientes sin closer. Antes contaba leads sin vendedor, que dejó de ser
+      // «el banco» cuando el Banco pasó a ser la cola de citas, como en la
+      // referencia.
+      this.prisma.salesMeeting.count({
+        where: { ...delEquipo, status: 'PENDIENTE', hostUserId: null },
+      }),
+      // Chats que esperan respuesta: el último mensaje es del cliente y llegó
+      // después de la última vez que alguien abrió ese chat.
+      this.prisma.$queryRaw<Array<{ n: number }>>`
+        WITH ultimos AS (
+          SELECT DISTINCT ON (m."leadId") m."leadId", m."direction", m."createdAt"
+            FROM "SalesMessage" m
+           WHERE m."salesTeamId" = ${teamId}
+             AND m."direction" IN ('in', 'out')
+           ORDER BY m."leadId", m."createdAt" DESC
+        )
+        SELECT COUNT(*)::int AS "n"
+          FROM ultimos u
+          JOIN "SalesLead" l ON l."id" = u."leadId" AND l."salesTeamId" = ${teamId}
+         WHERE u."direction" = 'in'
+           AND (l."chatReadAt" IS NULL OR u."createdAt" > l."chatReadAt")`.then((r) => r[0]?.n ?? 0),
     ]);
 
     // ── Lo de hoy ──────────────────────────────────────────────────────────
-    const banco = leads.filter((l) => !l.assignedUserId).length;
+    const banco = citasSinCloser;
     const contactos = leads.filter((l) => l.mktContactId).length;
     const ganadosDelMes = leads.filter(
       (l) => l.wonAt && l.wonAt >= mes.from && l.wonAt <= mes.to,
@@ -192,7 +216,7 @@ export class ResumenDeEquipoService {
       atencion.push({
         tipo: 'banco',
         n: banco,
-        texto: `${banco} ${banco === 1 ? 'lead espera' : 'leads esperan'} vendedor asignado`,
+        texto: `${banco} ${banco === 1 ? 'cita espera' : 'citas esperan'} closer`,
       });
     }
     if (vencidos > 0) {
@@ -200,6 +224,13 @@ export class ResumenDeEquipoService {
         tipo: 'seguimientos',
         n: vencidos,
         texto: `${vencidos} ${vencidos === 1 ? 'seguimiento vencido' : 'seguimientos vencidos'}`,
+      });
+    }
+    if (chatsEsperan > 0) {
+      atencion.push({
+        tipo: 'chats',
+        n: chatsEsperan,
+        texto: `${chatsEsperan} ${chatsEsperan === 1 ? 'chat espera' : 'chats esperan'} respuesta`,
       });
     }
     const sinLider = !equipo?.leadUser;
@@ -226,6 +257,7 @@ export class ResumenDeEquipoService {
         citasHoy,
         banco,
         chatsAbiertos: hilos.length,
+        chatsEsperan,
         seguimientos: seguimientos.length,
         seguimientosVencidos: vencidos,
         ventasMes: ganadosDelMes.length,

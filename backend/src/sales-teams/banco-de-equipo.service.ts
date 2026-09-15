@@ -12,8 +12,10 @@ import {
   resolveTeamAccess,
   type AccesoAlEquipo,
 } from './team-access';
-import { closersActivosDelEquipo } from './closers-del-equipo';
+import { closersActivosDelEquipo, nombreDeQuienUsa } from './closers-del-equipo';
 import { SalesAutomationsService } from './sales-automations.service';
+import { MENSAJE_POR_DEFECTO, leerAjustes } from './configuracion-de-equipo';
+import { camposGuardados, resumenDeRespuestas, type Respuestas } from './formularios-de-equipo';
 
 /**
  * «Banco» del equipo: la cola de CITAS antes de la llamada.
@@ -198,7 +200,7 @@ export class BancoDeEquipoService {
 
     const closers = await this.closersDelEquipo(teamId);
 
-    const [citas, ocupadas, seguimiento, ganadas, perdidas, totales] = await Promise.all([
+    const [citas, ocupadas, seguimiento, ganadas, perdidas, totales, equipo, yo] = await Promise.all([
       this.prisma.salesMeeting.findMany({
         where: {
           salesTeamId: teamId,
@@ -210,7 +212,7 @@ export class BancoDeEquipoService {
         orderBy: { startAt: 'asc' },
         take: 500,
         include: {
-          lead: { select: { id: true, name: true, company: true, phone: true, email: true, source: true } },
+          lead: { select: { id: true, name: true, company: true, phone: true, email: true, source: true, instagram: true } },
         },
       }),
       // La carga cuenta lo que el closer TIENE que atender: sus citas vivas.
@@ -251,7 +253,29 @@ export class BancoDeEquipoService {
         this.prisma.salesLead.count({ where: { salesTeamId: teamId, ...GANADO } }),
         this.prisma.salesLead.count({ where: { salesTeamId: teamId, ...PERDIDO } }),
       ]).then(([seg, gan, per]) => ({ seguimiento: seg, ganadas: gan, perdidas: per })),
+      this.prisma.salesTeam.findUnique({ where: { id: teamId }, select: { settings: true } }),
+      nombreDeQuienUsa(this.prisma, teamId, user.id),
     ]);
+
+    // «Configuración»: nombres de las pestañas, qué enseña una cita y el texto
+    // con el que se abre WhatsApp.
+    const ajustes = leerAjustes(equipo?.settings);
+    // Las respuestas al formulario de la agenda, solo si el equipo las quiere ver
+    // aquí: el Banco se recarga cada minuto y no hay por qué leerlas siempre.
+    const respuestasPorCita = new Map<string, string[]>();
+    if (ajustes.camposDelBanco.includes('respuestas') && citas.length) {
+      const filas = await this.prisma.salesFormResponse.findMany({
+        where: { salesTeamId: teamId, meetingId: { in: citas.map((c) => c.id) } },
+        orderBy: { createdAt: 'asc' },
+        select: { meetingId: true, answers: true, form: { select: { fields: true } } },
+      });
+      for (const f of filas) {
+        if (!f.meetingId) continue;
+        const r = f.answers && typeof f.answers === 'object' && !Array.isArray(f.answers) ? (f.answers as Respuestas) : {};
+        const texto = resumenDeRespuestas(camposGuardados(f.form.fields), r, 600);
+        if (texto) respuestasPorCita.set(f.meetingId, texto.split('\n'));
+      }
+    }
 
     const nombreDe = new Map(closers.map((c) => [c.id, c.nombre]));
     const carga = closers.map((c) => {
@@ -286,8 +310,10 @@ export class BancoDeEquipoService {
               telefono: c.lead.phone,
               email: c.lead.email,
               origen: c.lead.source,
+              instagram: c.lead.instagram,
             }
           : null,
+        respuestas: respuestasPorCita.get(c.id) ?? null,
       };
     };
 
@@ -323,6 +349,11 @@ export class BancoDeEquipoService {
       ganadas: ganadas.map(leadParaElPanel),
       perdidas: perdidas.map(leadParaElPanel),
       totales,
+      etiquetas: ajustes.etiquetasDelBanco,
+      campos: ajustes.camposDelBanco,
+      mensajeWhatsapp: ajustes.mensajeWhatsapp ?? MENSAJE_POR_DEFECTO,
+      // Quien firma el WhatsApp: la persona en sesión, como en la referencia.
+      yo: { nombre: yo },
     };
   }
 

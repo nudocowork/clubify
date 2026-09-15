@@ -163,6 +163,26 @@ describe('acceso al equipo · los miembros', () => {
     expect(a.roles).toEqual(['setter', 'closer']);
     expect(a.puedeEscribir).toBe(true);
   });
+
+  it('en un equipo desactivado el equipo solo mira; el admin sí escribe, para poder reactivarlo', async () => {
+    const miembro = await resolveTeamAccess(
+      prismaFalso({
+        team: { ...equipo(SELLEA), isActive: false },
+        moduloEncendido: true,
+        miembro: { roles: ['lider'], isActive: true },
+      }),
+      usuario('AFFILIATE_VENDOR', SELLEA),
+      't1',
+    );
+    expect(miembro.puedeEscribir).toBe(false);
+
+    const admin = await resolveTeamAccess(
+      prismaFalso({ team: { ...equipo(SELLEA), isActive: false }, moduloEncendido: true }),
+      usuario('SUPER_ADMIN', SELLEA),
+      't1',
+    );
+    expect(admin.puedeEscribir).toBe(true);
+  });
 });
 
 describe('los roles', () => {

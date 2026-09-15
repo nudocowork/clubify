@@ -14,6 +14,7 @@ import {
 } from './team-access';
 import { asegurarColumnas } from './sales-columnas';
 import { SalesLeadsService } from './sales-leads.service';
+import { MENSAJE_POR_DEFECTO, leerAjustes } from './configuracion-de-equipo';
 import {
   fechaDelReintento,
   grupoDeSeguimiento,
@@ -21,6 +22,7 @@ import {
   validarResultado,
   type Resultado,
 } from './seguimientos-de-equipo';
+import { nombreDeQuienUsa } from './closers-del-equipo';
 
 /**
  * «Seguimientos» del equipo: la lista de trabajo diaria.
@@ -154,10 +156,18 @@ export class SeguimientosDeEquipoService {
       };
     };
 
+    const [equipo, yo] = await Promise.all([
+      this.prisma.salesTeam.findUnique({ where: { id: teamId }, select: { settings: true } }),
+      nombreDeQuienUsa(this.prisma, teamId, user.id),
+    ]);
     const base = {
       team: acceso.team,
       puedeEscribir: acceso.puedeEscribir,
       puedeBorrar: this.puedeBorrar(acceso),
+      // El texto con el que se abre WhatsApp («Configuración» del equipo).
+      mensajeWhatsapp: leerAjustes(equipo?.settings).mensajeWhatsapp ?? MENSAJE_POR_DEFECTO,
+      // Quien firma el WhatsApp: la persona en sesión, como en la referencia.
+      yo: { nombre: yo },
       estado,
       // Hay más de los que se enseñan: la pantalla lo dice en vez de callarlo.
       truncado: filas.length === TOPE,

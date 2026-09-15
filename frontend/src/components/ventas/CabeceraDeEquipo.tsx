@@ -22,6 +22,8 @@ export type EquipoDeCabecera = {
   name: string;
   color?: string | null;
   isActive?: boolean;
+  /** activo · pausado · desactivado («Configuración»). */
+  status?: string;
   leadUser?: { fullName: string } | null;
 };
 
@@ -35,8 +37,9 @@ export type EquipoDeCabecera = {
  * oportunidades. La referencia no tiene tablero de leads: va justo después del
  * CRM, que es su vecino natural.
  *
- * Solo pestañas con pantalla: Configuración entra cuando exista. Una pestaña que devuelve
- * al escritorio es el fallo que ya tuvo el menú de Sellea.
+ * Están las 12 de la referencia. Si alguna vez se quita una pantalla, se quita
+ * aquí: una pestaña que devuelve al escritorio es el fallo que ya tuvo el menú de
+ * Sellea.
  */
 const PESTANAS = [
   { sufijo: '', etiqueta: 'Resumen' },
@@ -51,6 +54,7 @@ const PESTANAS = [
   { sufijo: '/colaboradores', etiqueta: 'Colaboradores' },
   { sufijo: '/tareas', etiqueta: 'Tareas' },
   { sufijo: '/formularios', etiqueta: 'Formularios' },
+  { sufijo: '/configuracion', etiqueta: 'Configuración' },
 ] as const;
 
 export function CabeceraDeEquipo({
@@ -78,9 +82,11 @@ export function CabeceraDeEquipo({
         {equipo.leadUser && (
           <span className="text-white/80 text-sm">· {equipo.leadUser.fullName}</span>
         )}
-        {equipo.isActive === false && (
+        {/* Antes decía «Pausado» a todo equipo inactivo. Ahora hay dos estados:
+            pausado (no recibe citas nuevas) y desactivado (solo lectura). */}
+        {(equipo.isActive === false || equipo.status === 'pausado') && (
           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/25">
-            Pausado
+            {equipo.isActive === false ? 'Desactivado' : 'Pausado'}
           </span>
         )}
         {soloLectura && (

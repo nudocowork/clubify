@@ -54,6 +54,8 @@ export type AccesoAlEquipo = {
     name: string;
     whiteLabelId: string | null;
     isActive: boolean;
+    /** activo · pausado · desactivado («Configuración»). */
+    status: string;
   };
   /** Manda sobre toda la marca: puede crear equipos y entrar a cualquiera. */
   esAdminDeMarca: boolean;
@@ -101,7 +103,7 @@ export async function resolveTeamAccess(
 ): Promise<AccesoAlEquipo> {
   const team = await prisma.salesTeam.findUnique({
     where: { id: teamId },
-    select: { id: true, name: true, whiteLabelId: true, isActive: true },
+    select: { id: true, name: true, whiteLabelId: true, isActive: true, status: true },
   });
   // El equipo no existe, o es de otra marca: la misma respuesta para los dos.
   if (!team) throw new NotFoundException('Equipo no encontrado');
@@ -143,8 +145,10 @@ export async function resolveTeamAccess(
     team,
     esAdminDeMarca: false,
     roles,
-    // «lectura» a secas mira y no toca. Con cualquier otro rol, escribe.
-    puedeEscribir: roles.some((r) => r !== 'lectura'),
+    // «lectura» a secas mira y no toca. Con cualquier otro rol, escribe. En un
+    // equipo DESACTIVADO nadie del equipo escribe: es «solo lectura, conserva el
+    // historial», como en la referencia. Un admin sí, para poder reactivarlo.
+    puedeEscribir: team.isActive && roles.some((r) => r !== 'lectura'),
   };
 }
 

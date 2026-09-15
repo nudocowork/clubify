@@ -28,6 +28,7 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { CabeceraDeEquipo } from '@/components/ventas/CabeceraDeEquipo';
+import { BotonDeWhatsapp } from '@/components/ventas/BotonDeWhatsapp';
 
 type EstadoDeVentana = 'confirmada' | 'vencida' | 'pendiente';
 
@@ -50,7 +51,10 @@ type Cita = {
     telefono: string | null;
     email: string | null;
     origen: string | null;
+    instagram: string | null;
   } | null;
+  /** «Pregunta: respuesta» del formulario de la agenda, si el equipo las enseña. */
+  respuestas: string[] | null;
 };
 
 type LeadDelBanco = {
@@ -78,6 +82,12 @@ type Banco = {
   perdidas: LeadDelBanco[];
   /** Totales reales: las listas se cortan en 500, los contadores no. */
   totales: { seguimiento: number; ganadas: number; perdidas: number };
+  /** «Configuración» del equipo: nombres de las pestañas, datos de la ficha y mensaje de WhatsApp. */
+  etiquetas: Record<string, string>;
+  campos: string[];
+  mensajeWhatsapp: string;
+  /** Quien usa la pantalla: firma el WhatsApp. */
+  yo?: { nombre: string | null };
 };
 
 const PESTANAS = [
@@ -256,7 +266,7 @@ export function BancoDelEquipo() {
         <h3 className="mb-3 text-sm font-semibold">Disponibilidad de closers</h3>
         {banco.carga.length === 0 ? (
           <p className="py-2 text-center text-sm text-mute">
-            Este equipo no tiene closers activos. Añádelos en la configuración del equipo.
+            Este equipo no tiene closers activos. Añádelos en «Colaboradores».
           </p>
         ) : (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -298,7 +308,7 @@ export function BancoDelEquipo() {
               pestana === p.key ? 'bg-brand text-white' : 'text-mute hover:text-ink'
             }`}
           >
-            {p.icono} {p.etiqueta}{' '}
+            {p.icono} {banco.etiquetas?.[p.key] || p.etiqueta}{' '}
             <span className={`tabular-nums ${pestana === p.key ? 'text-white/80' : 'text-mute'}`}>
               {cuenta[p.key]}
             </span>
@@ -386,6 +396,8 @@ function TarjetaDeCita({
   const [abierta, setAbierta] = useState(false);
   const pronto = c.minutosParaEmpezar <= 10 && c.minutosParaEmpezar >= -5;
   const dos = c.conf1h && c.conf30min;
+  // Sin «Configuración» guardada (o con un backend anterior), los de siempre.
+  const campos = banco.campos?.length ? banco.campos : ['whatsapp', 'email', 'empresa', 'origen', 'closer', 'duracion'];
 
   /**
    * Tres estados y no dos: confirmado, todavía puede confirmar, y VENCIDO (se le
@@ -498,6 +510,16 @@ function TarjetaDeCita({
               No asistió
             </button>
           )}
+          <BotonDeWhatsapp
+            telefono={c.lead?.telefono}
+            plantilla={banco.mensajeWhatsapp}
+            nombre={c.lead?.nombre}
+            // {{closer}} es quien escribe (la persona en sesión), como en la
+            // referencia; si no se sabe su nombre, el closer de la cita.
+            closer={banco.yo?.nombre || c.host?.nombre}
+            equipo={banco.team.name}
+            className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-ok-ink hover:bg-ok-soft"
+          />
           {banco.puedeEscribir && (
             <button
               onClick={() => {
@@ -528,12 +550,28 @@ function TarjetaDeCita({
 
       {abierta && (
         <div className="mt-3 grid grid-cols-2 gap-2 border-t border-line pt-3 text-xs sm:grid-cols-3">
-          <Dato etiqueta="WhatsApp" valor={c.lead?.telefono} />
-          <Dato etiqueta="Correo" valor={c.lead?.email} />
-          <Dato etiqueta="Empresa" valor={c.lead?.empresa} />
-          <Dato etiqueta="Origen" valor={c.lead?.origen} />
-          <Dato etiqueta="Closer" valor={c.host?.nombre} />
-          <Dato etiqueta="Duración" valor={`${c.durationMin} min`} />
+          {/* Lo que el equipo eligió en «Configuración», en el orden del catálogo. */}
+          {campos.includes('whatsapp') && <Dato etiqueta="WhatsApp" valor={c.lead?.telefono} />}
+          {campos.includes('email') && <Dato etiqueta="Correo" valor={c.lead?.email} />}
+          {campos.includes('empresa') && <Dato etiqueta="Empresa" valor={c.lead?.empresa} />}
+          {campos.includes('instagram') && <Dato etiqueta="Instagram" valor={c.lead?.instagram} />}
+          {campos.includes('origen') && <Dato etiqueta="Origen" valor={c.lead?.origen} />}
+          {campos.includes('closer') && <Dato etiqueta="Closer" valor={c.host?.nombre} />}
+          {campos.includes('duracion') && <Dato etiqueta="Duración" valor={`${c.durationMin} min`} />}
+          {campos.includes('respuestas') && (
+            <div className="col-span-2 sm:col-span-3">
+              <p className="text-[10px] uppercase tracking-wide text-mute">Respuestas del formulario</p>
+              {c.respuestas?.length ? (
+                <ul className="m-0 list-none p-0 text-ink">
+                  {c.respuestas.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-ink">—</p>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

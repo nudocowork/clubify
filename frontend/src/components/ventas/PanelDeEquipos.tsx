@@ -38,6 +38,8 @@ export type EquipoConCifras = {
   slug?: string | null;
   color?: string | null;
   isActive?: boolean;
+  /** activo · pausado · desactivado («Configuración»). */
+  status?: string;
   leadUser: { id: string; fullName: string; email: string } | null;
   memberCount: number;
   createdAt: string;
@@ -118,14 +120,19 @@ export function TarjetaDeEquipo({
             {equipo.leadUser ? equipo.leadUser.fullName : 'Sin líder asignado'}
           </div>
         </Link>
+        {/* La misma regla que la cabecera del equipo. Antes esta etiqueta llamaba
+            «Pausado» a todo equipo inactivo, y con los estados de «Configuración»
+            decía «Activo» de uno pausado (Fable, 2026-09-15). */}
         <span
           className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
             equipo.isActive === false
-              ? 'bg-slate-200 text-slate-600'
-              : 'bg-emerald-100 text-emerald-700'
+              ? 'bg-bg2 text-mute'
+              : equipo.status === 'pausado'
+                ? 'bg-warn-soft text-warn-ink'
+                : 'bg-ok-soft text-ok-ink'
           }`}
         >
-          {equipo.isActive === false ? 'Pausado' : 'Activo'}
+          {equipo.isActive === false ? 'Desactivado' : equipo.status === 'pausado' ? 'Pausado' : 'Activo'}
         </span>
       </div>
 

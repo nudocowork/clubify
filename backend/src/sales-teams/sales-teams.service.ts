@@ -66,6 +66,7 @@ export class SalesTeamsService {
       slug: t.slug,
       color: t.color,
       isActive: t.isActive,
+      status: t.status,
       leadUser: t.leadUser,
       memberCount: t._count.members,
       createdAt: t.createdAt,
@@ -170,7 +171,7 @@ export class SalesTeamsService {
       });
       if (!lead) throw new BadRequestException('Lead user no existe');
     }
-    return this.prisma.salesTeam.update({
+    const actualizado = await this.prisma.salesTeam.update({
       where: { id },
       data: {
         name:
@@ -184,6 +185,23 @@ export class SalesTeamsService {
         leadUser: { select: { id: true, fullName: true, email: true } },
       },
     });
+    // El responsable queda como líder si ya está en el equipo, igual que desde
+    // «Configuración». Nombrado desde aquí era responsable sin poder gestionar
+    // nada (Fable, 2026-09-15). Si no es miembro, se le añade en «Colaboradores».
+    if (body.leadUserId) {
+      const miembro = await this.prisma.salesTeamMember.findUnique({
+        where: { teamId_userId: { teamId: id, userId: body.leadUserId } },
+        select: { roles: true, isActive: true },
+      });
+      const roles = normalizarRoles(miembro?.roles);
+      if (miembro?.isActive && !roles.includes('lider')) {
+        await this.prisma.salesTeamMember.update({
+          where: { teamId_userId: { teamId: id, userId: body.leadUserId } },
+          data: { roles: [...roles.filter((r) => r !== 'lectura'), 'lider'] },
+        });
+      }
+    }
+    return actualizado;
   }
 
   async remove(id: string, user: AuthUser) {

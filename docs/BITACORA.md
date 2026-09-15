@@ -8,6 +8,72 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (15) — Equipos de Ventas (Sellea): «Configuración», y el Resumen como en la referencia
+
+La pestaña 12 de las 12 de TeamClubify: con esta, el equipo las tiene todas.
+
+- **Pestaña `/configuracion`** (también en el panel del afiliado). Cuatro
+  tarjetas y cada una guarda lo suyo:
+  - **Identidad del equipo:** nombre, descripción, responsable, estado y color.
+    El responsable sale de quienes ya están en el equipo y queda como líder.
+  - **Mensaje de WhatsApp del closer:** el texto que se prellena al pulsar
+    «WhatsApp» en el Banco y en Seguimientos, con vista previa. Admite
+    {{nombre}}, {{closer}} y {{equipo}}; {{closer}} es quien lo envía. El de
+    siempre no nombra ninguna marca (el de la referencia decía «del equipo de
+    Clubify»).
+  - **Estados del Banco:** el nombre de cada una de sus siete pestañas.
+  - **Información visible en el Banco:** qué enseña una cita al desplegarla
+    (WhatsApp, correo, empresa, Instagram, origen, closer, duración y, nuevo,
+    las respuestas del formulario de la agenda).
+- **Estados del equipo:** activo · pausado (la agenda pública deja de ofrecer
+  horas; las citas ya reservadas siguen) · desactivado (sale de «Mis equipos»
+  de los colaboradores y, si entran por el enlace, solo miran). Cambiar el
+  responsable, y desactivar o reactivar, solo un admin de la marca; lo demás
+  también el líder. `isActive` se queda y sigue al estado. La lista de equipos
+  y la cabecera dicen lo mismo.
+- **Botón «WhatsApp»** en cada cita del Banco y en cada seguimiento, con el
+  mensaje del equipo ya escrito.
+- **Resumen:** «En el banco» cuenta ahora las citas sin closer (lo que el Banco
+  enseña en «Por asignar»), no los leads sin vendedor. «Chats abiertos» dice
+  cuántos esperan respuesta, y eso sale en «Requiere atención» con enlace a
+  Conversaciones. «Leads que llegaron» tiene Hoy · Ayer · Esta semana · Este
+  mes · Este año.
+- Columnas `SalesTeam.description`, `status` y `settings`, e índice de
+  `SalesFormResponse.meetingId` (`apply-sales-team-settings-migration.cjs`,
+  **aplicada**). Los equipos que ya estaban inactivos entraron como
+  «desactivado».
+
+No está, a propósito: la comisión del equipo (las comisiones son de Jhon) y la
+línea de WhatsApp propia del equipo (en Clubify PRO no hay líneas por equipo).
+La cadencia de seguimientos sigue fija (1, 3, 7 y 14 días): en la referencia
+también es común a todos los equipos.
+
+### Revisión de Fable antes de desplegar: se puede desplegar tras los arreglos
+
+Permisos (el líder no se nombra responsable ni desactiva o reactiva; nadie del
+equipo escribe en uno desactivado), rutas y validación, el orden migración →
+código, la mezcla del JSON en una sentencia, la agenda pausada, los números del
+Resumen frente a sus pestañas y la marca: comprobados. Se aplicó:
+
+- **«Hoy», «Ayer» y los demás períodos se corrían cinco horas.** La pantalla
+  mandaba la fecha sin zona y el servidor la leía en UTC: un lead de ayer a las
+  20:30 salía en «Hoy». Ahora va con el desfase de Bogotá. De paso, el «hasta»
+  por defecto ya no sale como el día 1 del mes siguiente.
+- **El WhatsApp se firmaba con el closer de la cita**, y en «Por asignar», que
+  es donde más se usa, salía «Te habla, del equipo…». Ahora firma quien lo
+  envía, como en la referencia.
+- La lista de equipos llamaba «Pausado» a los desactivados y «Activo» a los
+  pausados. Ahora sigue la regla de la cabecera.
+- Un líder podía reactivar el equipo si un admin lo desactivaba justo mientras
+  él guardaba. Ahora la escritura del líder es condicional.
+- Nombrado desde la lista de equipos, el responsable no quedaba como líder
+  (desde Configuración sí). Ahora sí, si ya está en el equipo.
+- Guardar «Información visible» sin marcar nada dejaba la tarjeta en «0 campos»
+  mientras el Banco enseñaba seis. Ahora pide al menos uno.
+
+Queda a sabiendas: al cambiar de responsable, el anterior conserva su rol de
+líder, como en la referencia; se le quita en «Colaboradores».
+
 ## 2026-09-15 (14) — Equipos de Ventas (Sellea): «Formularios»
 
 La pestaña 11 de las 12 de TeamClubify. Hasta hoy la agenda pública pedía

@@ -4441,6 +4441,16 @@ model SalesTeam {
   isActive Boolean @default(true)
   color    String?
 
+  /// «Configuración» del equipo. `status`: activo · pausado · desactivado.
+  /// `isActive` se queda y lo sigue (desactivado = isActive false): lo leen la
+  /// agenda pública, «Mis equipos» y la cabecera. Pausado = la agenda pública
+  /// no recibe citas nuevas.
+  description String?
+  status      String  @default("activo")
+  /// El mensaje de WhatsApp del closer y cómo se ve el Banco. En JSON por lo
+  /// mismo que `bookingConfig`; se lee con `leerAjustes`.
+  settings    Json    @default("{}")
+
   /// Ajustes de la agenda (duración, margen, zona horaria, título público).
   /// En JSON y no en columnas: son preferencias de presentación que cambian
   /// más que el esquema, igual que `WhiteLabel.walletAdvanced`.
@@ -4928,6 +4938,7 @@ model SalesFormResponse {
 
   @@index([formId, createdAt])
   @@index([leadId])
+  @@index([meetingId])
 }
 
 // Canal de envío del botón automático del CRM (C5).
