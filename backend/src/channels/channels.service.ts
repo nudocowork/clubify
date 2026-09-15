@@ -3,6 +3,7 @@ import { ChannelType, MessageDirection, Order, Tenant, Customer, Location } from
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { customerPaymentLabel } from '../common/customer-payment';
+import { oficinaDelPedido } from '../orders/pedido-en-oficina';
 
 /**
  * Adapter de canales. En MVP soporta:
@@ -81,8 +82,17 @@ export class ChannelsService {
           direccion?: string;
         }
       | null;
+    // Pedido a una OFICINA (`?oficina=`): la oficina es el destino y no hay
+    // dirección de calle. Va arriba, junto al número del pedido, porque es lo
+    // primero que necesita quien lo prepara: a dónde llevarlo. Y sin el bloque
+    // de dirección, que repetiría nombre y teléfono y pintaría la oficina como
+    // si fuera una calle. Sin oficina, el mensaje es exactamente el de antes.
+    const oficina =
+      order.fulfillment === 'DELIVERY'
+        ? oficinaDelPedido(order.deliveryAddress)
+        : null;
     const addressBlock =
-      order.fulfillment === 'DELIVERY' && addr
+      order.fulfillment === 'DELIVERY' && addr && !oficina
         ? [
             '',
             '*▸ Dirección de envío:*',
@@ -111,6 +121,7 @@ export class ChannelsService {
     const lines = [
       `★ *Pedido #${order.code}*`,
       sedeLine,
+      oficina ? `▸ Oficina: ${oficina.nombre}` : '',
       [customer.fullName, customer.phone].filter(Boolean).join(' · '),
       '',
       items,
@@ -121,7 +132,7 @@ export class ChannelsService {
         : '',
       `*Total: ${formatMoney(Number(order.total), tenant.currency, tenant.currencySymbol)}*`,
       '',
-      fulfillment,
+      oficina ? '▸ Entrega en la oficina' : fulfillment,
       payLabel ? `▸ Pago: ${payLabel}` : '',
       ...addressBlock,
       order.customerNote ? `✎ ${order.customerNote}` : '',

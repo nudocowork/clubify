@@ -134,6 +134,8 @@ export const messages = {
     'checkout.confirm_location': 'Confirma la sede de tu pedido',
     'checkout.no_location_state': 'No hay sede en tu estado — elige dónde pedir',
     'checkout.select_location': 'Elegir sede…',
+    'checkout.office_title': '🏢 Entrega en la oficina',
+    'checkout.office_note': 'Te lo llevamos a esta oficina: no hace falta dirección.',
     'checkout.error_address':
       'Completa departamento, municipio y dirección para entregar a domicilio.',
     'checkout.error_phone':
@@ -367,6 +369,8 @@ export const messages = {
     'checkout.confirm_location': 'Confirm your order location',
     'checkout.no_location_state': 'No location in your state — choose where to order',
     'checkout.select_location': 'Choose location…',
+    'checkout.office_title': '🏢 Delivered to the office',
+    'checkout.office_note': 'We bring it to this office — no address needed.',
     'checkout.error_address':
       'Fill in state, city and address for delivery.',
     'checkout.error_phone':
@@ -599,6 +603,8 @@ export const messages = {
     'checkout.confirm_location': 'Confirme a unidade do pedido',
     'checkout.no_location_state': 'Sem unidade no seu estado — escolha onde pedir',
     'checkout.select_location': 'Escolher unidade…',
+    'checkout.office_title': '🏢 Entrega no escritório',
+    'checkout.office_note': 'Levamos até este escritório: não precisa de endereço.',
     'checkout.error_address':
       'Preencha estado, cidade e endereço para entrega.',
     'checkout.error_phone':
@@ -831,6 +837,8 @@ export const messages = {
     'checkout.confirm_location': 'Conferma la sede del tuo ordine',
     'checkout.no_location_state': 'Nessuna sede nella tua regione — scegli dove ordinare',
     'checkout.select_location': 'Scegli sede…',
+    'checkout.office_title': '🏢 Consegna in ufficio',
+    'checkout.office_note': 'Te lo portiamo in questo ufficio: nessun indirizzo necessario.',
     'checkout.error_address':
       'Compila provincia, città e indirizzo per la consegna a domicilio.',
     'checkout.error_phone':

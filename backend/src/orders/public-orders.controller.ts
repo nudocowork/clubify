@@ -77,6 +77,12 @@ class PublicOrderBody {
   // según la ruta (`/m/<slug>` vs `/m/<slug>/delivery`) y lo guardamos
   // para reportes y para futuras reglas de negocio per-canal.
   @IsOptional() @IsIn(['MESA', 'DELIVERY']) mode?: 'MESA' | 'DELIVERY';
+  // Carta de la oficina desde cuyo enlace se pide (`/d/<slug>?oficina=<id>`).
+  // Opcional: sin ella el pedido es el de siempre. El servicio la resuelve
+  // contra las cartas del negocio; aquí solo se acota. Tiene que estar
+  // declarada: con `forbidNonWhitelisted` un campo desconocido tumba el
+  // pedido entero.
+  @IsOptional() @IsString() @MaxLength(64) oficinaId?: string;
   // Método de pago declarado por el cliente (informativo). PDF 2026-07-25.
   @IsOptional()
   @IsIn(['EFECTIVO', 'TARJETA', 'TRANSFERENCIA', 'OTRO'])

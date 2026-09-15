@@ -42,6 +42,7 @@ import {
   resolverEnSede,
   seVendeEn,
 } from '../catalog/producto-en-sede';
+import { direccionDeOficina, type OficinaDelPedido } from './pedido-en-oficina';
 import {
   orderConfirmedTemplate,
   orderCreatedTemplate,
@@ -165,6 +166,10 @@ export type CreateOrderDto = {
   // Menú público de origen ('MESA' | 'DELIVERY'). Lo manda el frontend
   // según la ruta. Se persiste como discriminator redundante para reportes.
   mode?: 'MESA' | 'DELIVERY';
+  // Carta de la OFICINA desde cuyo enlace se pide (`?oficina=`). Con ella la
+  // oficina es el destino y el cliente no escribe dirección. Ver
+  // `pedido-en-oficina.ts`.
+  oficinaId?: string;
   // Método de pago declarado por el cliente (informativo). PDF 2026-07-25.
   customerPaymentMethod?: string;
   customerPaymentOther?: string;
@@ -553,6 +558,25 @@ export class OrdersService {
           : null;
     // Para PICKUP/otros sin fulfillment explícito, cae a dto.mode (o null).
     const effectiveMode = derivedMode ?? dto.mode ?? null;
+    // PEDIDO A UNA OFICINA (`/d/<slug>?oficina=<id de la carta>`). El destino
+    // lo pone el servidor con el nombre de la carta: la oficina ES la
+    // dirección, y no se usa la que mande el cliente —cualquiera podría
+    // escribir otra oficina, o una calle—. Solo a domicilio: sin `oficinaId`,
+    // o para recoger o en mesa, todo sigue exactamente como antes.
+    const oficina =
+      derivedMode === 'DELIVERY' && dto.oficinaId
+        ? await this.oficinaDeLaCarta(tenant.id, dto.oficinaId)
+        : null;
+    if (derivedMode === 'DELIVERY' && dto.oficinaId && !oficina) {
+      // Carta borrada, apagada o de otro negocio. Mejor decirlo que dejar
+      // entrar un pedido sin destino: nadie sabría a dónde llevarlo.
+      throw new BadRequestException(
+        'Esta oficina ya no recibe pedidos por este enlace. Pídele al negocio el enlace actualizado.',
+      );
+    }
+    const direccionPedida = oficina
+      ? direccionDeOficina(oficina, dto.customer)
+      : dto.deliveryAddress;
     // Si fulfillment es DELIVERY pero NO viene deliveryAddress, rechazar.
     // Fix 2026-06-08: aceptar string ("Cra. 1 con 23") O objeto
     // ({departamento, municipio, direccion, ...}). Antes solo string —
@@ -560,7 +584,7 @@ export class OrdersService {
     // "Falta dirección" aunque el cliente había completado el form.
     if (
       derivedMode === 'DELIVERY' &&
-      !hasValidDeliveryAddress(dto.deliveryAddress)
+      !hasValidDeliveryAddress(direccionPedida)
     ) {
       throw new BadRequestException(
         'Falta dirección de entrega para fulfillment DELIVERY',
@@ -573,7 +597,7 @@ export class OrdersService {
     const cleanTableNumber =
       derivedMode === 'DELIVERY' ? null : dto.tableNumber ?? null;
     const cleanDeliveryAddress =
-      derivedMode === 'MESA' ? null : dto.deliveryAddress ?? null;
+      derivedMode === 'MESA' ? null : direccionPedida ?? null;
     // PDF1145: el filtro de disponibilidad debe coincidir con el MENÚ que el
     // cliente NAVEGÓ (la RUTA = dto.mode), no con el fulfillment. En la ruta
     // delivery (/d) el cliente pudo elegir Pick Up o Mesa sobre un menú ya
@@ -611,7 +635,10 @@ export class OrdersService {
     });
     const map = new Map(products.map((p) => [p.id, p]));
     // El precio de la sede desde la que se pide.
-    const sede = await this.filasDeSede(tenant.id, dto.locationId);
+    // Un pedido a una OFICINA no es de ninguna sede: la sede que mande el
+    // checkout (con una sola sede la manda sola) no puede cambiarle el precio
+    // ni desviarlo al WhatsApp de esa sede (Fable, 15-09-2026).
+    const sede = await this.filasDeSede(tenant.id, oficina ? undefined : dto.locationId);
     const sedeIdx = indexarFilas(sede.filas);
     const promos = promoIds.length
       ? await this.prisma.promotion.findMany({
@@ -785,7 +812,7 @@ export class OrdersService {
             tableNumber: cleanTableNumber,
             deliveryAddress: cleanDeliveryAddress,
             customerNote: dto.customerNote,
-            locationId: dto.locationId,
+            locationId: oficina ? null : dto.locationId,
             // Método de pago declarado por el cliente (informativo). Si eligió
             // OTRO guardamos también el texto libre.
             customerPaymentMethod: dto.customerPaymentMethod || null,
@@ -1468,6 +1495,26 @@ export class OrdersService {
       },
     });
     return { locationId: locationId as string | null, filas };
+  }
+
+  /**
+   * La carta que hace de oficina, si es de ESTE negocio y está activa.
+   *
+   * Acotada por `tenantId`: el id viaja en un enlace público, y una carta de
+   * otro negocio no puede poner su nombre en un pedido de este.
+   */
+  private async oficinaDeLaCarta(
+    tenantId: string,
+    menuId: string,
+  ): Promise<OficinaDelPedido | null> {
+    const carta = await this.prisma.menu.findFirst({
+      // Sin sede: una carta CON sede es la de esa sede, no una oficina. Sin
+      // esto, cambiar `?sede=` por `?oficina=` en un negocio con cartas por sede
+      // dejaba pedir a domicilio sin dirección (Fable, 15-09-2026).
+      where: { id: menuId, tenantId, isActive: true, locationId: null },
+      select: { id: true, name: true },
+    });
+    return carta ? { id: carta.id, nombre: carta.name } : null;
   }
 
   private async sedeDeSoloPedidos(user: AuthUser): Promise<string | null> {

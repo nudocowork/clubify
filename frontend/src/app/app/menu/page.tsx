@@ -776,9 +776,12 @@ export default function MenuEditor() {
                   </option>
                 ))}
               </select>
+              {/* Decía «Sin sede, ningún QR abre esta carta», y ahora sería
+                  falso: una carta sin sede es la de una oficina y tiene su
+                  enlace y su QR en la tarjeta de enlaces. */}
               {!cartaActual.locationId && (
-                <span className="text-[11px] text-amber-700">
-                  ⚠️ Sin sede, ningún QR abre esta carta.
+                <span className="text-[11px] text-mute">
+                  {t('officeWithoutLocation')}
                 </span>
               )}
             </div>
@@ -970,6 +973,7 @@ export default function MenuEditor() {
           mainLabel={mainLabel}
           carta={cartaActual}
           sedes={sedes}
+          cartas={menus?.habilitado ? menus.menus : []}
         />
       )}
 
@@ -3240,6 +3244,7 @@ function PublicMenuLinks({
   mainLabel,
   carta,
   sedes = [],
+  cartas = [],
 }: {
   slug: string;
   mainLabel: string;
@@ -3247,6 +3252,9 @@ function PublicMenuLinks({
   carta?: { id: string | null; name: string; locationId: string | null } | null;
   /** Sedes del negocio. */
   sedes?: Array<{ id: string; name: string; address?: string | null; isActive?: boolean }>;
+  /** Cartas del negocio; vacío si no tiene la función. Las que no tienen sede
+   *  son las oficinas. */
+  cartas?: MenuResumen[];
 }) {
   const t = useTranslations('app_menu');
   const [origin, setOrigin] = useState<string>('');
@@ -3286,6 +3294,23 @@ function PublicMenuLinks({
   // esconder de salida algo que antes se veía.
   const [abierto, setAbierto] = useState(true);
   const [abiertoSedes, setAbiertoSedes] = useState(true);
+  const [abiertoOficinas, setAbiertoOficinas] = useState(true);
+
+  /**
+   * Oficinas = cartas SIN sede.
+   *
+   * Una carta con sede ya sale por su sede. Una sin sede no tenía ningún
+   * enlace que atara el pedido a nada, y es justo lo que un coworking crea
+   * para cada oficina (Nudo Estudio). Cada una lleva `?oficina=`: abre su carta
+   * con carrito, no pide dirección y el pedido llega con su nombre.
+   *
+   * Todas a la vista, no solo la carta activa: quien reparte un QR por oficina
+   * los necesita juntos, sin ir cambiando de carta para sacar cada uno.
+   */
+  const oficinas = cartas.filter(
+    (c): c is MenuResumen & { id: string } =>
+      !c.esPrincipal && !!c.id && !c.locationId,
+  );
 
   async function copy(url: string, label: string) {
     try {
@@ -3461,6 +3486,79 @@ function PublicMenuLinks({
                         </div>
                       </div>
                     ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {oficinas.length > 0 && (
+        <div className="mt-5 border-t border-line2 pt-4">
+          <button
+            type="button"
+            onClick={() => setAbiertoOficinas((v) => !v)}
+            aria-expanded={abiertoOficinas}
+            className="w-full flex items-center gap-2 text-left"
+          >
+            <h3 className="text-sm font-semibold m-0 flex items-center gap-2">
+              🏢 {t('officeLinksTitle')}
+              <span className="text-[10px] font-bold uppercase tracking-wider bg-bg2 text-mute px-1.5 py-0.5 rounded">
+                {oficinas.length}
+              </span>
+            </h3>
+            <span className="ml-auto text-mute text-sm select-none" aria-hidden>
+              {abiertoOficinas ? '▾' : '▸'}
+            </span>
+          </button>
+          {abiertoOficinas && (
+          <p className="text-[11px] text-mute mt-1 leading-snug">
+            {t('officeLinksIntro')}
+          </p>
+          )}
+          <div className={`mt-3 grid md:grid-cols-2 gap-2 ${abiertoOficinas ? '' : 'hidden'}`}>
+            {oficinas.map((oficina) => {
+              const ruta = `/d/${slug}?oficina=${encodeURIComponent(oficina.id)}`;
+              const url = `${origin}${ruta}`;
+              return (
+                <div
+                  key={oficina.id}
+                  className="rounded-input border border-line2 bg-bg2/30 p-3"
+                >
+                  <div className="text-sm font-semibold flex items-center gap-1.5">
+                    <span>🛵</span>
+                    <span>{oficina.name}</span>
+                  </div>
+                  <div className="mt-1.5 rounded-input bg-white border border-line px-2 py-1.5 text-[10px] font-mono break-all">
+                    {origin ? url : '—'}
+                  </div>
+                  <div className="mt-1.5 flex gap-1.5">
+                    <button
+                      type="button"
+                      className="btn-ghost text-[11px] flex-1 justify-center"
+                      onClick={() => copy(url, oficina.name)}
+                      disabled={!origin}
+                    >
+                      📋 {t('copy')}
+                    </button>
+                    <Link
+                      href={ruta}
+                      target="_blank"
+                      className="btn-ghost text-[11px] flex-1 justify-center"
+                    >
+                      ↗ {t('open')}
+                    </Link>
+                    {/* El cartel sale ya elegido: esta oficina y en modo
+                        oficina. Sin eso habría que buscar la carta y acordarse
+                        de marcarlo, y un cartel de delivery normal pediría
+                        dirección. */}
+                    <Link
+                      href={`/app/marketing/qr-menu?oficina=${encodeURIComponent(oficina.id)}`}
+                      className="btn-ghost text-[11px] flex-1 justify-center"
+                    >
+                      ▦ {t('officeQr')}
+                    </Link>
                   </div>
                 </div>
               );

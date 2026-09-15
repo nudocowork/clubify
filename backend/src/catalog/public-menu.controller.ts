@@ -84,6 +84,9 @@ export class PublicMenuController {
   async storefront(
     @Param('slug') slug: string,
     @Query('locale') localeRaw?: string,
+    // Id de la carta de la OFICINA del enlace (`/d/<slug>?oficina=<id>`).
+    // Sin él, la respuesta es la de siempre con `oficina: null`.
+    @Query('oficina') oficinaRaw?: string,
   ) {
     const locale = normalizeLocale(localeRaw);
     const t = await this.prisma.tenant.findUnique({
@@ -96,6 +99,23 @@ export class PublicMenuController {
     // Marca blanca del negocio (fuente única). Hereda atribución/logo/favicon
     // /web de SU marca — nunca de otra ni de Clubify por defecto.
     const brand = await this.brand.resolveByWhiteLabelId(t.whiteLabelId);
+
+    // La oficina del enlace. Solo su nombre: el checkout se lo enseña al
+    // cliente como destino en vez de pedirle una dirección de calle. Carta
+    // borrada, apagada o de otro negocio → null, y el checkout es el de
+    // siempre. La respuesta se cachea por URL, así que cada oficina tiene su
+    // propia entrada y no se mezclan.
+    const oficinaId = (oficinaRaw ?? '').trim();
+    const cartaOficina = oficinaId
+      ? await this.prisma.menu.findFirst({
+          // Solo cartas sin sede: la de una sede no es una oficina (Fable, 15-09-2026).
+          where: { id: oficinaId, tenantId: t.id, isActive: true, locationId: null },
+          select: { id: true, name: true },
+        })
+      : null;
+    const oficina = cartaOficina
+      ? { id: cartaOficina.id, nombre: cartaOficina.name }
+      : null;
 
     const promotions = await this.prisma.promotion.findMany({
       where: {
@@ -179,11 +199,11 @@ export class PublicMenuController {
           if (p.description)
             p.description = get('promotion', p.id, 'description', p.description);
         }
-        return this.buildStorefrontResponse(t, newDescription, locations, promotionsOut, brand);
+        return this.buildStorefrontResponse(t, newDescription, locations, promotionsOut, brand, oficina);
       }
     }
 
-    return this.buildStorefrontResponse(t, description, locations, promotionsOut, brand);
+    return this.buildStorefrontResponse(t, description, locations, promotionsOut, brand, oficina);
   }
 
   private buildStorefrontResponse(
@@ -192,6 +212,7 @@ export class PublicMenuController {
     locations: PublicLocation[],
     promotions: PublicPromotion[],
     brand: ResolvedBrand,
+    oficina: { id: string; nombre: string } | null,
   ) {
     return {
       id: t.id,
@@ -317,6 +338,9 @@ export class PublicMenuController {
       ),
       locations,
       promotions,
+      // Oficina del enlace (`?oficina=`), o null. Con ella el checkout entrega
+      // en la oficina y no pide dirección.
+      oficina,
     };
   }
 

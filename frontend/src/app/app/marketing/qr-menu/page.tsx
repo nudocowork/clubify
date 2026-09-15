@@ -33,8 +33,21 @@ export default function QrMenuPage() {
   // demas sedes se quedaban sin QR aunque tuvieran su propia carta.
   const [carta, setCarta] = useState<string | null>(null);
   const [menus, setMenus] = useState<MenuResumen[]>([]);
+  // Cartel de una OFICINA: `/d/<slug>?oficina=<id>` en vez de `?sede=`. Es
+  // opt-in porque cambia lo que pasa al pedir (no se pide dirección): el
+  // cartel de delivery de siempre no puede cambiar solo.
+  const [paraOficina, setParaOficina] = useState(false);
 
   useEffect(() => {
+    // Viene del botón «QR» de una oficina en el Menú: el cartel sale ya
+    // elegido. Se lee de `window` y no con `useSearchParams`, que obligaría a
+    // envolver la página en Suspense para poder compilarla.
+    const oficina = new URLSearchParams(window.location.search).get('oficina');
+    if (oficina) {
+      setCarta(oficina);
+      setTarget('delivery');
+      setParaOficina(true);
+    }
     api<any>('/tenants/me').then(setTenant).catch(() => null);
     api<{ habilitado: boolean; menus: MenuResumen[] }>('/catalog/menus')
       // Solo se ofrecen las cartas cuando la funcion esta habilitada; si no,
@@ -51,9 +64,16 @@ export default function QrMenuPage() {
   const cartaElegida = menus.find((m) => m.id === carta) ?? null;
   // El menu principal va SIN parametro: los carteles ya impresos siguen
   // funcionando exactamente igual.
+  // Solo una carta SIN sede es la de una oficina, y solo en delivery: la de
+  // mesa no deja pedir.
+  const cartaSinSede =
+    !!cartaElegida && !cartaElegida.esPrincipal && !cartaElegida.locationId;
+  const esOficina = paraOficina && target === 'delivery' && cartaSinSede;
   const sedeQ =
     cartaElegida && cartaElegida.id
-      ? `?sede=${encodeURIComponent(cartaElegida.locationId ?? cartaElegida.id)}`
+      ? esOficina
+        ? `?oficina=${encodeURIComponent(cartaElegida.id)}`
+        : `?sede=${encodeURIComponent(cartaElegida.locationId ?? cartaElegida.id)}`
       : '';
   const qrUrl =
     target === 'delivery'
@@ -127,7 +147,23 @@ export default function QrMenuPage() {
               </button>
             ))}
           </div>
-          {cartaElegida && !cartaElegida.esPrincipal && !cartaElegida.locationId && (
+          {target === 'delivery' && cartaSinSede && (
+            <label className="flex items-start gap-2 cursor-pointer mt-3">
+              <input
+                type="checkbox"
+                checked={paraOficina}
+                onChange={(e) => setParaOficina(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="text-sm font-semibold block">{t('forOffice')}</span>
+                <span className="text-[11px] text-mute leading-snug block">
+                  {t('forOfficeHint')}
+                </span>
+              </span>
+            </label>
+          )}
+          {cartaSinSede && !esOficina && (
             <p className="text-[11px] text-amber-700 mt-2 leading-snug">
               {t('menuNoLocationWarn')}
             </p>

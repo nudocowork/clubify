@@ -132,6 +132,9 @@ type Storefront = {
    *  domicilio (gateado); pickup = recoger en tienda; dineIn = pedido en mesa.
    *  Ausente en payloads viejos → se cae a solo-domicilio. */
   fulfillment?: { delivery: boolean; pickup: boolean; dineIn: boolean };
+  /** Oficina del enlace (`?oficina=<id de la carta>`), resuelta por el
+   *  backend. null o ausente = el menú de siempre. */
+  oficina?: { id: string; nombre: string } | null;
   /** Métodos de pago que el negocio acepta en el checkout (EFECTIVO/TARJETA/
    *  TRANSFERENCIA/OTRO). Ausente en payloads viejos/cacheados → se ofrecen
    *  todos, igual que siempre — que nadie pierda opciones por caché. */
@@ -419,6 +422,15 @@ function StorefrontPublicInner() {
    * principal.
    */
   const sedeDelQr = (searchParams?.get('sede') ?? '').trim();
+  /**
+   * Oficina del enlace (`?oficina=<id de la carta>`).
+   *
+   * Abre la carta de esa oficina igual que `?sede=`, pero además el pedido se
+   * entrega EN la oficina: el checkout no pide dirección y el mensaje la
+   * nombra. Es otro parámetro a propósito: los `?sede=` ya impresos siguen
+   * pidiendo dirección como siempre.
+   */
+  const oficinaDelQr = (searchParams?.get('oficina') ?? '').trim();
   const [s, setS] = useState<Storefront | null>(null);
   const [menu, setMenu] = useState<Category[]>([]);
   const [tab, setTab] = useState<'menu' | 'promos'>('menu');
@@ -483,7 +495,10 @@ function StorefrontPublicInner() {
     };
 
     Promise.all([
-      fetch(`${API}/api/public/m/${slug}?locale=${locale}`)
+      fetch(
+        `${API}/api/public/m/${slug}?locale=${locale}` +
+          (oficinaDelQr ? `&oficina=${encodeURIComponent(oficinaDelQr)}` : ''),
+      )
         .then(async (r) => {
           if (!r.ok) {
             const j = await r.json().catch(() => ({}));
@@ -508,7 +523,11 @@ function StorefrontPublicInner() {
         }),
       fetch(
         `${API}/api/public/m/${slug}/menu?locale=${locale}&mode=${mode}` +
-          (sedeDelQr ? `&sede=${encodeURIComponent(sedeDelQr)}` : ''),
+          // La carta de la oficina se sirve por el mismo `sede`, que ya acepta
+          // el id de una carta. Si llegaran los dos, manda la sede.
+          (sedeDelQr || oficinaDelQr
+            ? `&sede=${encodeURIComponent(sedeDelQr || oficinaDelQr)}`
+            : ''),
       )
         .then(async (r) => (r.ok ? r.json() : []))
         .then((data) => {
@@ -1144,6 +1163,7 @@ function StorefrontPublicInner() {
           slug={slug}
           brandSlug={s.brand?.slug ?? null}
           sedeDelQr={sedeDelQr}
+          oficina={s.oficina ?? null}
           primary={primary}
           currency={s.currency}
           country={s.country ?? 'CO'}
@@ -1873,6 +1893,7 @@ function CheckoutSheet({
   fulfillment,
   acceptedPaymentMethods,
   sedeDelQr,
+  oficina,
   onClose,
 }: {
   items: CartItem[];
@@ -1884,6 +1905,8 @@ function CheckoutSheet({
    * su direccion: el QR sabe donde esta, la direccion solo lo aproxima.
    */
   sedeDelQr?: string;
+  /** Oficina del enlace. Con ella el pedido se entrega ahí y no se pide dirección. */
+  oficina?: { id: string; nombre: string } | null;
   primary: string;
   currency: string;
   country: string;
@@ -1925,8 +1948,21 @@ function CheckoutSheet({
     ff.pickup && { v: 'PICKUP' as const, l: tt('checkout.fulfillment_pickup') },
     ff.dineIn && { v: 'DINE_IN' as const, l: tt('checkout.fulfillment_dinein') },
   ].filter(Boolean) as { v: 'DELIVERY' | 'PICKUP' | 'DINE_IN'; l: string }[];
+  /**
+   * Pedido desde el enlace de una OFICINA: se entrega ahí.
+   *
+   * Solo en la ruta de domicilio y con el domicilio encendido: es un domicilio
+   * cuyo destino ya se sabe. Por eso no se pregunta cómo lo quiere, no se piden
+   * departamento, municipio ni dirección —quien está en NUDO ESTUDIO no tiene
+   * una calle que dar— y no se le hace elegir sede.
+   */
+  const enOficina = !!oficina && mode === 'delivery' && ff.delivery;
   const defaultFulfillment: 'DINE_IN' | 'PICKUP' | 'DELIVERY' =
-    mode === 'mesa' ? 'DINE_IN' : fulfillmentChoices[0]?.v ?? 'DELIVERY';
+    mode === 'mesa'
+      ? 'DINE_IN'
+      : enOficina
+        ? 'DELIVERY'
+        : fulfillmentChoices[0]?.v ?? 'DELIVERY';
 
   // Métodos de pago a ofrecer: solo los que el negocio aceptó en su panel
   // (ej.: sin datáfono → «Tarjeta» no aparece). Sin lista (payload viejo o
@@ -2076,7 +2112,10 @@ function CheckoutSheet({
     }
 
     // Validación adicional para delivery: dirección obligatoria
-    if (form.fulfillment === 'DELIVERY') {
+    if (enOficina) {
+      // La oficina es el destino: ni dirección ni sede que elegir. Sin esta
+      // rama caería al `else if` de abajo y, con dos sedes, le exigiría una.
+    } else if (form.fulfillment === 'DELIVERY') {
       if (!form.departamento || !municipioFinal || !form.direccion.trim()) {
         setErr(tt('checkout.error_address'));
         return;
@@ -2098,8 +2137,10 @@ function CheckoutSheet({
     setSubmitting(true);
     try {
       const fullName = `${form.firstName.trim()} ${form.lastName.trim()}`.trim();
+      // En la oficina la dirección la pone el servidor con el nombre de la
+      // carta: aquí no hay nada que mandar.
       const deliveryAddress =
-        form.fulfillment === 'DELIVERY'
+        form.fulfillment === 'DELIVERY' && !enOficina
           ? {
               firstName: form.firstName.trim(),
               lastName: form.lastName.trim(),
@@ -2150,6 +2191,7 @@ function CheckoutSheet({
           // negocio (fallback). Para 1 sola sede igual se manda (rutea a ella).
           locationId: effectiveSedeId || undefined,
           mode: orderModeFor(mode),
+          oficinaId: enOficina && oficina ? oficina.id : undefined,
         }),
       });
       if (!res.ok) {
@@ -2296,7 +2338,7 @@ function CheckoutSheet({
                 onChange={(v) => setForm({ ...form, phone: v })}
               />
             </div>
-            {!lockedTable && fulfillmentChoices.length > 1 && (
+            {!lockedTable && !enOficina && fulfillmentChoices.length > 1 && (
               <div>
                 <label className="label">{tt('checkout.fulfillment_q')}</label>
                 <div
@@ -2334,7 +2376,21 @@ function CheckoutSheet({
               </div>
             )}
 
-            {form.fulfillment === 'DELIVERY' && (
+            {/* Entrega en la oficina del enlace: el destino, fijo, en lugar
+                del formulario de dirección. */}
+            {form.fulfillment === 'DELIVERY' && enOficina && oficina && (
+              <div className="rounded-lg border border-line bg-bg2/30 p-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="text-xs uppercase tracking-wider text-mute font-semibold">
+                  {tt('checkout.office_title')}
+                </div>
+                <div className="text-base font-semibold mt-1">{oficina.nombre}</div>
+                <div className="text-[11px] text-mute mt-0.5 leading-snug">
+                  {tt('checkout.office_note')}
+                </div>
+              </div>
+            )}
+
+            {form.fulfillment === 'DELIVERY' && !enOficina && (
               <div className="rounded-lg border border-line bg-bg2/30 p-3 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
                 <div className="text-xs uppercase tracking-wider text-mute font-semibold">
                   {tt('checkout.shipping_title')}

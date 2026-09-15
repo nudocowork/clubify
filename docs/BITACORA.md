@@ -8,6 +8,62 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (23) — Nudo Cowork: un menú de pedido por oficina, con la oficina en el pedido y en el WhatsApp
+
+Javier: «En Nudo Cowork tienen varias oficinas y la idea es colocar un menú en
+cada una… cuando le den a finalizar pedido el mensaje lleve el pedido y la
+oficina correspondiente… Debo poder generar varios para varias oficinas.»
+
+### Cómo estaba
+
+«Nudo Estudio» es una CARTA sin sede. Su enlace del panel era
+`/d/nudocowork?sede=<id de la carta>`: enseñaba la carta, pero el checkout
+buscaba ese id entre las SEDES, no lo encontraba y pedía departamento,
+municipio, dirección y elegir entre las dos sedes «Nudo Cowork & Coffee»
+(duplicadas). Ni el pedido ni el WhatsApp nombraban la oficina, y el panel
+decía «Sin sede, ningún QR abre esta carta», que era falso.
+
+### Cómo queda
+
+- Enlace por oficina `/d/<slug>?oficina=<id de la carta>`: la carta de esa
+  oficina con carrito. El checkout no pide dirección ni sede, enseña «🏢 Entrega
+  en la oficina · Nudo Estudio» y conserva nombre, teléfono, notas y pago.
+- El servidor arma el destino con la oficina e ignora la dirección que mande el
+  cliente (carta inválida = 400). Va al WhatsApp de pedidos del negocio y el
+  mensaje dice «▸ Oficina: …» y «▸ Entrega en la oficina». En Pedidos, al
+  domiciliario y a la empresa de domicilios la oficina sale como dirección.
+- Panel → Menú: bloque «🏢 Enlaces por oficina» con todas las cartas sin sede
+  (copiar, abrir, QR) y `qr-menu?oficina=` con «Cartel para una oficina».
+- Sin `?oficina=` todo sigue igual: el spec compara el mensaje contra el del
+  código anterior. Sin esquema ni migración.
+
+### Para usarlo en Nudo
+
+- «Nudo Estudio» ya está activa, con 77 productos, y el menú público tiene el
+  domicilio encendido.
+- Cada oficina nueva: Menú → «+ Nueva carta» con sede «Sin asignar». **No
+  asignarles sede**: con sede deja de ser oficina.
+- Los enlaces `?sede=<id de la carta>` que ya se hayan repartido siguen pidiendo
+  dirección: cambiarlos por los de «Enlaces por oficina».
+
+### Revisión de Fable
+
+Corregido antes de desplegar: una carta CON sede se aceptaba como oficina
+(cambiando `?sede=` por `?oficina=` se podía pedir a domicilio sin dirección en
+cualquier negocio con cartas por sede), y un pedido de oficina tomaba la sede
+que mandara el checkout —con una sola sede la manda sola—, con el precio y el
+WhatsApp de esa sede. Ahora la oficina exige carta sin sede y el pedido no lleva
+sede.
+
+### Pendiente
+
+- El carrito se comparte entre las oficinas de un negocio: quien cambia de
+  oficina con el carrito lleno pide productos de la carta anterior (ya pasaba
+  con `?sede=`).
+- Un WhatsApp distinto por oficina necesitaría esquema: hoy van al de pedidos
+  del negocio.
+- En la lista de Pedidos no hay filtro ni columna por oficina (sí en el detalle).
+
 ## 2026-09-15 (22) — Configuración del equipo en Sellea, con el orden y los textos de TeamClubify
 
 Javier: «En configuración de lo que debías duplicar de TeamClubify a Sellea de
