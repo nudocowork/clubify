@@ -2824,8 +2824,13 @@ export class ReferralsService {
    * Skip si:
    * - El tenant no tiene plan o priceMonthly <= 0
    * - El tenant no tiene currentPeriodEnd o ya venció (no está pagando)
-   * - Ya existe una Commission del último ciclo (<25 días) para este use
-   *   (defensa contra doble asignación si el admin re-asigna mismo code)
+   * - Ya existe una comisión del CICLO del cobro vigente para este use
+   *   (defensa contra doble asignación si el admin re-asigna mismo code, o
+   *   registra el pago y después asigna)
+   *
+   * La comisión lleva la fecha del COBRO (`Tenant.lastChargeAt`), no la de hoy,
+   * y respeta la excepción de % del negocio. Ver
+   * comision-retroactiva-fecha-del-cobro.spec.ts (caso La Gloriosa).
    */
   private async backfillCommissionForAssignment(
     useId: string,
@@ -2845,6 +2850,9 @@ export class ReferralsService {
         // Sin ella la comisión nace sin recibo y la dedup por transacción no
         // puede verla — ver el comentario del branch VENDOR más abajo.
         hotmartTransactionId: true,
+        // La fecha de ese mismo cobro: de ella salen businessDate, periodKey y
+        // availableAt. Pago manual y «marcar pagado» la escriben antes de llamar.
+        lastChargeAt: true,
         plan: { select: { priceMonthly: true } },
       },
     });
@@ -2876,15 +2884,86 @@ export class ReferralsService {
     )
       return;
 
-    // Defensa: si ya hay commission reciente para este use, skip.
-    const last = await this.prisma.commission.findFirst({
-      where: { referralUseId: useId },
-      orderBy: { createdAt: 'desc' },
+    // FECHA DEL COBRO que esta comisión paga: la misma verdad que usan el
+    // webhook (`generateCommissionsForPayment`) y el reconciliador. Antes esta
+    // ruta estampaba `periodKey = monthKey()` —el mes de HOY— y no escribía ni
+    // `businessDate` ni `availableAt`, así que una atribución o un pago manual
+    // registrados tarde nacían con la fecha equivocada: La Gloriosa pagó el
+    // 24-jul, se le asignó afiliado el 31-ago y su comisión salió en agosto,
+    // pintada el 31-ago en los dos paneles y con desbloqueo el 15-sep.
+    //
+    // Pero solo si ese cobro es del CICLO VIGENTE. Un `lastChargeAt` viejo (un
+    // webhook perdido, un ciclo movido a mano) es de un ciclo ya cerrado: usarlo
+    // fecharía la comisión allí y la dejaría disponible al instante, directa al
+    // corte abierto de hoy. Caso real: Birria León, cobro del 1-ene y ciclo
+    // semestral hasta el 12-ene-2027. Inicio del ciclo = fin menos los meses del
+    // plan, con los 2 días de margen de `reconcileRecurringCommissions`. Sin fin
+    // de ciclo no hay contra qué validarlo: una activación «free» deja
+    // `currentPeriodEnd` null con el `lastChargeAt` de ese día, y meses después
+    // «Generar comisión ahora» (con `force`) la fecharía entonces y la mandaría
+    // al corte sin los 15 días. En los dos casos se vuelve a lo de antes —fecha
+    // de hoy y 25 días contados desde hoy—, también en la rama VENDOR, que
+    // recibe esta misma fecha. El pago manual no cae aquí: su ciclo arranca en
+    // la fecha de pago.
+    let fechaDelCobro = tenant.lastChargeAt ? new Date(tenant.lastChargeAt) : null;
+    if (!tenant.currentPeriodEnd) {
+      fechaDelCobro = null;
+    } else if (fechaDelCobro) {
+      // Fin del ciclo menos sus meses, acotando el día como `addPlanPeriod`
+      // (en UTC): 28-feb menos 1 mes = 28-ene, sin desbordar de mes.
+      const fin = new Date(tenant.currentPeriodEnd);
+      const inicioDelCiclo = new Date(fin.getTime());
+      inicioDelCiclo.setUTCDate(1);
+      inicioDelCiclo.setUTCMonth(
+        inicioDelCiclo.getUTCMonth() - bundleMonths(tenant.planPeriodicity ?? null),
+      );
+      const ultimoDia = new Date(
+        Date.UTC(inicioDelCiclo.getUTCFullYear(), inicioDelCiclo.getUTCMonth() + 1, 0),
+      ).getUTCDate();
+      inicioDelCiclo.setUTCDate(Math.min(fin.getUTCDate(), ultimoDia));
+      if (fechaDelCobro.getTime() < inicioDelCiclo.getTime() - 2 * 86400_000) {
+        fechaDelCobro = null;
+      }
+    }
+    const businessDate = fechaDelCobro ?? new Date();
+    const periodKey = monthKey(businessDate);
+    const availableAt = holdReleaseFrom(fechaDelCobro);
+
+    // Defensa contra devengar dos veces el MISMO cobro. La ventana se ancla a la
+    // fecha del COBRO, no al reloj: el viejo «hay una comisión creada hace <25
+    // días» contaba desde hoy y dejaba pasar un duplicado al día 26 (con otro
+    // periodKey la UNIQUE no lo frena). Cuenta cualquier comisión del use
+    // fechada desde 25 días ANTES del cobro. Un margen corto no basta porque
+    // «Marcar pagado» escribe `lastChargeAt = ahora` sin prueba de un cobro
+    // nuevo: con un cobro de Hotmart del 28-ago ya devengado, marcarlo pagado el
+    // 15-sep no debe crear otra comisión en 2026-09. Coste: un plan mensual
+    // pagado unos 5 días o más antes de tiempo se salta y hay que generarlo a
+    // mano.
+    // Una fila SIN fecha (legacy) no dice de qué ciclo es: se cuenta si se creó
+    // dentro de esa misma ventana. Sesga a no duplicar, con otro coste: si la
+    // comisión del ciclo ANTERIOR se insertó tarde y sin fecha dentro de la
+    // ventana, el cobro nuevo se salta. Si lleva fecha —como las crea hoy el
+    // código— y es de hace más de 25 días, el cobro nuevo sí devenga.
+    // Sin cobro del ciclo vigente no hay ancla: 25 días contados desde hoy.
+    const desde = fechaDelCobro
+      ? new Date(fechaDelCobro.getTime() - 25 * 86400_000)
+      : null;
+    const yaCubierto = await this.prisma.commission.findFirst({
+      where: desde
+        ? {
+            referralUseId: useId,
+            OR: [
+              { businessDate: { gte: desde } },
+              { businessDate: null, createdAt: { gte: desde } },
+            ],
+          }
+        : {
+            referralUseId: useId,
+            createdAt: { gte: new Date(Date.now() - 25 * 86400_000) },
+          },
+      select: { id: true },
     });
-    const recent =
-      last &&
-      (Date.now() - new Date(last.createdAt).getTime()) / 86400_000 < 25;
-    if (recent) return;
+    if (yaCubierto) return;
 
     // FIXED_ONCE (EXCLUSIVO Sellea): el backfill de una reasignación/atribución
     // manual también debe pagar MONTO FIJO, UNA sola vez — nunca % ni 3-way.
@@ -2942,12 +3021,25 @@ export class ReferralsService {
         tenantId,
         paymentAmountUsd: price,
         hotmartTransactionId: tenant.hotmartTransactionId ?? null,
+        // La fecha ya validada contra el ciclo vigente (arriba). Sin ella el
+        // generador fecha con el `lastChargeAt` crudo: con un cobro viejo, las
+        // filas del split nacerían en un ciclo cerrado y disponibles al instante.
+        businessDate,
       });
       return;
     }
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
-    const pct = Number(code.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct);
+    // La excepción de % por negocio (`CommissionException`) gana, igual que en
+    // el webhook, el reconciliador y el arqueo (`computeExpectedCommissionRows`).
+    // Esta ruta era la única que la ignoraba, y es la que dispara el pago
+    // manual: con una excepción al 20% el cobro por fuera devengaba el % del
+    // código (25%) y el arqueo lo marcaba después como monto incorrecto.
+    const pct = await this.resolveExceptionPercent(
+      tenantId,
+      code.id,
+      Number(code.commissionPercent ?? COMMISSION_DEFAULTS.ambassadorPct),
+    );
     const direct = round2((price * pct) / 100);
 
     await this.prisma.commission
@@ -2957,7 +3049,13 @@ export class ReferralsService {
           amount: direct,
           status: 'PENDING',
           recipientCodeId: code.id,
-          periodKey: monthKey(),
+          periodKey,
+          businessDate,
+          availableAt,
+          // Snapshot contable: con qué base y qué % se calculó. Sin él, el
+          // panel del afiliado deduce el % dividiendo monto entre base.
+          baseAmountUsd: price,
+          appliedPercent: pct,
           // Mismo motivo que en el branch VENDOR: sin el recibo del cobro que
           // paga esta comisión, un re-anuncio del mismo pago la duplica.
           externalTxId: tenant.hotmartTransactionId ?? null,
@@ -2966,7 +3064,7 @@ export class ReferralsService {
       .catch((e: any) => {
         if (e?.code === 'P2002') {
           this.logger.warn(
-            `awardCommissionForReferral: skip dup direct (useId=${useId}, code=${code.id}, periodKey=${monthKey()})`,
+            `awardCommissionForReferral: skip dup direct (useId=${useId}, code=${code.id}, periodKey=${periodKey})`,
           );
           return null;
         }
@@ -2984,12 +3082,16 @@ export class ReferralsService {
       const indirectPctRow = await this.prisma.setting.findUnique({
         where: { key: 'referrals.indirectPercent' },
       });
-      const indirectPct = indirectPctRow?.value
-        ? Number(indirectPctRow.value)
-        : 5;
+      const parentCodeId = code.parentCode.id;
+      // El influencer también puede tener excepción para este negocio: misma
+      // regla que el webhook y el arqueo.
+      const indirectPct = await this.resolveExceptionPercent(
+        tenantId,
+        parentCodeId,
+        indirectPctRow?.value ? Number(indirectPctRow.value) : 5,
+      );
       const indirect = round2((price * indirectPct) / 100);
       if (indirect > 0) {
-        const parentCodeId = code.parentCode.id;
         await this.prisma.commission
           .create({
             data: {
@@ -2997,13 +3099,17 @@ export class ReferralsService {
               amount: indirect,
               status: 'PENDING',
               recipientCodeId: parentCodeId,
-              periodKey: monthKey(),
+              periodKey,
+              businessDate,
+              availableAt,
+              baseAmountUsd: price,
+              appliedPercent: indirectPct,
             },
           })
           .catch((e: any) => {
             if (e?.code === 'P2002') {
               this.logger.warn(
-                `awardCommissionForReferral: skip dup indirect (useId=${useId}, code=${parentCodeId}, periodKey=${monthKey()})`,
+                `awardCommissionForReferral: skip dup indirect (useId=${useId}, code=${parentCodeId}, periodKey=${periodKey})`,
               );
               return null;
             }
@@ -4897,6 +5003,13 @@ export class ReferralsService {
     tenantId: string;
     paymentAmountUsd: number;
     hotmartTransactionId?: string | null;
+    /**
+     * Fecha del cobro ya validada por quien llama: el backfill de una
+     * asignación la contrasta con el ciclo vigente y, si `lastChargeAt` es de un
+     * ciclo cerrado, pasa hoy. Si no viene, se usa `Tenant.lastChargeAt` tal
+     * cual, como siempre (el webhook la acaba de escribir).
+     */
+    businessDate?: Date | null;
   }): Promise<{ generated: number; skipped: number }> {
     // 2026-07-31: la base de comisión es SIEMPRE el override manual del tenant
     // (subscriptionPriceUsd, si está seteado >0) o el canónico del plan por
@@ -4932,12 +5045,15 @@ export class ReferralsService {
       where: { id: args.tenantId },
       select: { lastChargeAt: true },
     });
-    const availableAt = holdReleaseFrom(tPay?.lastChargeAt);
+    // Si quien llama trae la fecha ya validada, manda ella: el `lastChargeAt`
+    // crudo puede ser de un ciclo cerrado (ver backfillCommissionForAssignment).
+    const fechaDelCobro = args.businessDate ?? tPay?.lastChargeAt ?? null;
+    const availableAt = holdReleaseFrom(fechaDelCobro);
     // FECHA DURABLE (2026-08-14): fecha de negocio CONGELADA por comisión = la
     // fecha del cobro real (lastChargeAt = approved_date de Hotmart). Para la 1ª
     // comisión es la COMPRA; para recompras, la de esa renovación. Se persiste
     // en Commission.businessDate y el panel la lee tal cual (sin heurística).
-    const businessDate = tPay?.lastChargeAt ?? new Date();
+    const businessDate = fechaDelCobro ?? new Date();
 
     const txId = args.hotmartTransactionId ?? null;
 

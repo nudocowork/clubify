@@ -61,6 +61,10 @@ function servicioReferrals(opts: { rolCodigo: 'VENDOR' | 'INFLUENCER'; txDelTena
   svc.recalc = { getCommissionBase: vi.fn(async () => 500) };
   svc.getBrandCommissionMode = vi.fn(async () => 'PERCENT_RECURRING');
   svc.slugForWhiteLabelId = vi.fn(async () => null);
+  // El backfill resuelve el % con la excepción del negocio; aquí no hay ninguna.
+  svc.commissionExceptions = {
+    resolvePercent: vi.fn(async (_t: string, _c: string, fallback: number) => fallback),
+  };
   // Lo que se está observando: con qué se llama al generador de 3 vías.
   svc.generateCommissionsForPayment = vi.fn(async () => ({ generated: 2, skipped: 0 }));
   return svc;

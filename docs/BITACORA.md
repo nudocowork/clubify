@@ -8,6 +8,76 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (25) — La Gloriosa: la comisión del pago del 24-07 para Nicolás Rojas al 20%, y por qué nació con la fecha equivocada
+
+Javier: «La Gloriosa pagó su trimestralidad el 24 de julio de 2026. Las
+comisiones de esta venta van a Nicolás Rojas y serán del 20%. El cobro debe
+ajustarse. Hay una comisión generada, sin embargo no va a la fecha. Revisar y
+corregir de raíz.» Confirmó después: sin vendedor, y la venta es la del 24-07
+con renovaciones cada 3 meses desde ahí.
+
+### Qué había
+
+- Un solo pago manual, registrado el 21-08 con `paidAt` **04-07** (el inicio de
+  actividad del negocio, no el pago: la cuenta ni existía ese día) y ciclo
+  04-07 → 04-10. Ingreso contable del 04-07 como RENOVACION.
+- Afiliado asignado a mano el 31-08 (Nicolás Rojas, código al 25%) → comisión
+  de $37.50 (25%) con `periodKey` 2026-08 y **sin** `businessDate` ni
+  `availableAt`: los paneles la pintaban el 31-08 y el cron de las 3:00 UTC la
+  habría aprobado esta noche y metido en CORTE-2026-09-15 a $37.50.
+
+### Corrección aplicada en producción (con Javier)
+
+`backend/scripts/fix-la-gloriosa-comision-y-ciclo.cjs --aplicar`, en una
+transacción con escrituras condicionales y relectura («las 6 piezas cuadran»):
+- `CommissionException` La Gloriosa × Rojas al **20%** (solo este negocio: su
+  código sigue al 25% para los demás).
+- Comisión a **$30** (20% de $150), `businessDate` 24-07, período 2026-07,
+  desbloqueo 08-08. Sigue PENDING y entra al corte que esté abierto.
+- Ciclo: último cobro 24-07, próximo cobro **24-10**, avisos re-armados.
+- Pago manual 24-07 → 24-10; ingreso con fecha 24-07 y categoría **NUEVA**.
+
+### La causa, y el arreglo de raíz
+
+`backfillCommissionForAssignment` (`referrals.service.ts`, la usan
+`setTenantAssignment`, `registerManualPayment` y `convertToPaying`) creaba la
+comisión con el MES DE HOY, sin fecha de negocio ni desbloqueo, y con el % del
+código ignorando `CommissionException` (el único generador que lo hacía). Ahora:
+`businessDate` = `lastChargeAt`, período del mes de esa fecha, desbloqueo desde
+el cobro, `appliedPercent`/`baseAmountUsd` guardados, % por
+`resolveExceptionPercent`, y candado anti-duplicado anclado al cobro
+(`fechaDelCobro − 25 días`). Si `lastChargeAt` es anterior al ciclo vigente (un
+cobro de hace meses) o el negocio no tiene `currentPeriodEnd` (activación
+«free»), vuelve a lo de antes: fecha de hoy y 15 días de desbloqueo. La rama
+VENDOR recibe la misma fecha validada.
+
+Tres revisiones de Fable. La segunda cazó dos regresiones de la primera versión
+—sin `currentPeriodEnd` y con `force` la comisión se saltaba el desbloqueo, y
+«Marcar pagado» dentro de los 25 días de un cobro ya devengado creaba otra— y el
+hueco de VENDOR; la tercera verificó los arreglos.
+
+Coste que queda (ya existía): un plan mensual pagado 6 o más días antes de
+tiempo se salta, y «Generar comisión ahora» pasa por el mismo candado, así que
+hoy solo se genera con un script.
+
+### Para la otra máquina (comisiones = Jhon)
+
+- La misma ruta dejó mal fechadas otras comisiones, **no tocadas**: PRIMOR ($30,
+  cobró 19-08, quedó en 2026-09), Degodoy ($37.50 + $7.50, cobró 08-08, quedó en
+  2026-09), La Cacerola ($7.50) y Taquería La Adelita ($15, ya en un corte). Hay
+  20 comisiones vivas con `businessDate` null (12 PENDING por $190.50, 8
+  APPROVED por $130.40).
+- **Degodoy** parece devengar dos veces el ciclo de agosto: Juan Camilo ya cobró
+  $37.50 y el 08-09 se crearon además $37.50 para Santiago y $7.50 para Juan
+  Camilo. Revisar.
+- El gemelo en Hotmart sigue: `hotmart.service.ts` (~2738, ~2828, ~2932) usa
+  `periodKey = monthKey()` de hoy; un webhook que llega tarde cae en el mes en
+  que se procesa.
+- `referrals.holdDays` en Settings vale 30 (cambiado el 13-09) pero el código usa
+  la constante de 15 días: el Setting no manda.
+- Las otras comisiones de Rojas salen al 20% porque en esas ventas hubo vendedor
+  (25% − 5%). Si su tarifa general debe ser 20%, es otro cambio.
+
 ## 2026-09-15 (24) — El Lab de una marca blanca es de su admin general y lleva su marca; Clubify modera todos con etiqueta
 
 Javier: «En Sellea, el Lab va en el negocio general, y en Clubify vemos las
