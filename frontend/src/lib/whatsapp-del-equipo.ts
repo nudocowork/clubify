@@ -7,19 +7,20 @@
  */
 
 /**
- * El texto con el que se abre WhatsApp. Admite {{nombre}}, {{closer}} y
- * {{equipo}}. La plantilla la manda el servidor ya resuelta (la del equipo o la
+ * El texto con el que se abre WhatsApp. Admite {{nombre}}, {{closer}},
+ * {{equipo}} y {{sala}} (el enlace de Google Meet de la cita). La plantilla la manda el servidor ya resuelta (la del equipo o la
  * de siempre).
  */
 export function mensajeDeWhatsapp(
   plantilla: string | null | undefined,
-  vars: { nombre?: string | null; closer?: string | null; equipo?: string | null },
+  vars: { nombre?: string | null; closer?: string | null; equipo?: string | null; sala?: string | null },
 ): string {
   const t = (typeof plantilla === 'string' && plantilla.trim()) || '';
   return t
     .replace(/\{\{\s*nombre\s*\}\}/gi, () => (vars.nombre ?? '').trim())
     .replace(/\{\{\s*closer\s*\}\}/gi, () => (vars.closer ?? '').trim())
     .replace(/\{\{\s*equipo\s*\}\}/gi, () => (vars.equipo ?? '').trim())
+    .replace(/\{\{\s*sala\s*\}\}/gi, () => (vars.sala ?? '').trim())
     // Sin nombre, «Hola , ¿cómo estás?» se lee roto.
     .replace(/[ \t]+([,.;:!?])/g, '$1')
     .replace(/[ \t]{2,}/g, ' ')

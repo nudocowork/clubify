@@ -3,7 +3,6 @@ import {
   CAMPOS_DE_AGENDA,
   camposGuardados,
   camposParaElPublico,
-  formularioDeAgendaDe,
   pideDatoDeContacto,
   resumenDeRespuestas,
   MAX_CAMPOS,
@@ -230,14 +229,7 @@ describe('resumenDeRespuestas', () => {
   });
 });
 
-describe('formularioDeAgendaDe y camposGuardados', () => {
-  it('lee el formulario elegido y aguanta JSON raro', () => {
-    expect(formularioDeAgendaDe({ formularioId: 'f1' })).toBe('f1');
-    expect(formularioDeAgendaDe({ formularioId: '' })).toBeNull();
-    expect(formularioDeAgendaDe(null)).toBeNull();
-    expect(formularioDeAgendaDe([1, 2] as never)).toBeNull();
-  });
-
+describe('camposGuardados', () => {
   it('lo guardado roto se lee como un formulario vacío, no como un error', () => {
     expect(camposGuardados('basura')).toEqual([]);
     expect(camposGuardados([{ key: 'a', type: 'short_text', label: 'A' }])).toHaveLength(1);

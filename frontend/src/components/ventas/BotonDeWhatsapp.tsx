@@ -14,6 +14,7 @@ export function BotonDeWhatsapp({
   nombre,
   closer,
   equipo,
+  sala,
   className,
 }: {
   telefono: string | null | undefined;
@@ -21,9 +22,11 @@ export function BotonDeWhatsapp({
   nombre?: string | null;
   closer?: string | null;
   equipo?: string | null;
+  /** Enlace de la sala de la reunión, para {{sala}}. */
+  sala?: string | null;
   className?: string;
 }) {
-  const href = enlaceDeWhatsapp(telefono, mensajeDeWhatsapp(plantilla, { nombre, closer, equipo }) || undefined);
+  const href = enlaceDeWhatsapp(telefono, mensajeDeWhatsapp(plantilla, { nombre, closer, equipo, sala }) || undefined);
   if (!href) return null;
   return (
     <a href={href} target="_blank" rel="noreferrer" title="Escribir por WhatsApp con el mensaje del equipo" className={className}>

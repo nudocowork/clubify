@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { IsArray, IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { FormulariosDeEquipoService } from './formularios-de-equipo.service';
 import { ROLES_DE_EQUIPO } from './team-access';
@@ -7,8 +7,8 @@ import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorat
 
 /**
  * «Formularios» del equipo. Controlador propio en `sales-teams/:teamId/formularios/…`:
- * nada del `SalesLeadsController` empieza por `formularios`. `agenda` es de un
- * solo segmento y va con PUT, así que no choca con `PATCH :id`.
+ * nada del `SalesLeadsController` empieza por `formularios`. Qué formulario pide
+ * cada agenda pública se elige en la agenda (`agendas-de-reserva.controller.ts`).
  */
 
 class FormularioBody {
@@ -27,10 +27,6 @@ class FormularioEditBody {
   @IsOptional() @IsString() @MaxLength(500) redirectMessage?: string | null;
 }
 
-class AgendaBody {
-  @IsOptional() @IsString() formularioId?: string | null;
-}
-
 @Controller('sales-teams/:teamId/formularios')
 @Roles(...ROLES_DE_EQUIPO)
 export class FormulariosDeEquipoController {
@@ -44,11 +40,6 @@ export class FormulariosDeEquipoController {
   @Post()
   crear(@CurrentUser() user: AuthUser, @Param('teamId') teamId: string, @Body() body: FormularioBody) {
     return this.formularios.crear(user, teamId, body);
-  }
-
-  @Put('agenda')
-  usarEnAgenda(@CurrentUser() user: AuthUser, @Param('teamId') teamId: string, @Body() body: AgendaBody) {
-    return this.formularios.usarEnAgenda(user, teamId, body);
   }
 
   @Patch(':id')

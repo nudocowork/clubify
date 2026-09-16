@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { CalendarioDeEquipoService } from './calendario-de-equipo.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { fechaEn, minutosLocalesAUtc } from '../common/franjas-horarias';
 import {
@@ -159,6 +160,8 @@ export class BancoDeEquipoService {
   constructor(
     private prisma: PrismaService,
     private automations: SalesAutomationsService,
+    /** La sala de Google Meet de la cita sigue a la asignación y a la cancelación. */
+    private calendario: CalendarioDeEquipoService,
   ) {}
 
   /**
@@ -355,6 +358,8 @@ export class BancoDeEquipoService {
         respuestas: respuestasPorCita.get(c.id) ?? null,
         puntaje: puntajePorCita.get(c.id) ?? null,
         proximoPaso: paso ? { cuando: paso.dueAt, canal: paso.channel, nota: paso.note } : null,
+        // {{sala}} del mensaje de WhatsApp: el enlace de Google Meet de la cita.
+        sala: c.meetUrl ?? null,
       };
     };
 
@@ -423,6 +428,8 @@ export class BancoDeEquipoService {
     });
     if (r.count === 0) throw new NotFoundException('La cita no existe o ya no se puede asignar');
     await this.anotar(citaId, teamId, user.id, `Cita asignada a ${closer.nombre}`);
+    // Cambia el closer invitado al evento; la sala sigue siendo la misma.
+    void this.calendario.sincronizarCita(citaId);
     return { ok: true };
   }
 
@@ -537,6 +544,7 @@ export class BancoDeEquipoService {
     });
     if (r.count === 0) throw new NotFoundException('La cita no existe o ya estaba cerrada');
     await this.anotar(citaId, teamId, user.id, 'Cita cancelada desde el banco');
+    void this.calendario.sincronizarCita(citaId);
     return { ok: true };
   }
 }

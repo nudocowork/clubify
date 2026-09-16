@@ -4451,9 +4451,9 @@ model SalesTeam {
   /// mismo que `bookingConfig`; se lee con `leerAjustes`.
   settings    Json    @default("{}")
 
-  /// Ajustes de la agenda (duración, margen, zona horaria, título público).
-  /// En JSON y no en columnas: son preferencias de presentación que cambian
-  /// más que el esquema, igual que `WhiteLabel.walletAdvanced`.
+  /// LEGADO. Los ajustes de la agenda única de antes (y `formularioId`). Desde
+  /// que hay varias agendas por equipo viven en `SalesAgenda.settings`; esto
+  /// solo lo leyó la migración que las sembró. No se borra: nunca `db push`.
   bookingConfig Json @default("{}")
 
   members       SalesTeamMember[]
@@ -4468,8 +4468,50 @@ model SalesTeam {
   taskActions     SalesTaskAction[]
   forms           SalesForm[]
   formResponses   SalesFormResponse[]
+  agendas         SalesAgenda[]
+  /// La cuenta de Google de la agenda del equipo («Conexión de Calendario»).
+  calendarConnection SalesCalendarConnection?
   @@index([leadUserId])
   @@index([whiteLabelId])
+}
+
+/// Una agenda de reserva del equipo: un enlace público `/agenda/<slug>` con su
+/// propio horario, formulario y ajustes. Lo que se reserva en cualquiera entra
+/// al Banco del mismo equipo.
+///
+/// Antes cada equipo tenía UNA agenda, guardada en `SalesTeam.bookingConfig` y
+/// con el horario del equipo en `SalesAvailability`. La migración
+/// (`scripts/apply-sales-agendas-migration.cjs`) sembró una por equipo con su
+/// configuración y su MISMO slug, y la página pública cae al slug del equipo
+/// si no hay agenda con ese enlace: los enlaces ya repartidos siguen abriendo.
+///
+/// Sin columna `tenantId`, como el resto de `Sales*`: el middleware de Prisma
+/// filtra por negocio a todo modelo que la tenga, y una agenda es de la marca.
+model SalesAgenda {
+  id              String     @id @default(uuid())
+  salesTeamId     String
+  team            SalesTeam  @relation(fields: [salesTeamId], references: [id], onDelete: Cascade)
+  /// Desnormalizado, como en `SalesForm`.
+  whiteLabelId    String?
+  /// Único entre agendas. Además no puede ser el slug de OTRO equipo: la página
+  /// pública busca primero la agenda y taparía ese enlace (lo comprueba el servicio).
+  slug            String     @unique
+  name            String
+  color           String?
+  isActive        Boolean    @default(true)
+  /// SetNull por si acaso: el servicio ya niega borrar un formulario que pide una agenda.
+  formId          String?
+  form            SalesForm? @relation(fields: [formId], references: [id], onDelete: SetNull)
+  /// Cómo se ve y cuándo se reserva (horario, duración, cupos, fechas…). En JSON
+  /// por lo mismo que `bookingConfig`; se lee con `leerAjustesDeAgenda`.
+  settings        Json       @default("{}")
+  createdByUserId String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @default(now()) @updatedAt
+
+  meetings SalesMeeting[]
+
+  @@index([salesTeamId, createdAt])
 }
 
 // Membresía m2m User ↔ SalesTeam. Un user puede pertenecer a varios
@@ -4652,15 +4694,63 @@ model SalesMeeting {
   conf1hAt    DateTime?
   conf30min   Boolean   @default(false)
   conf30minAt DateTime?
+  /// De qué agenda de reserva vino. Null = agendada desde dentro, o de antes de
+  /// que hubiera varias agendas. SetNull: borrar una agenda no borra sus citas.
+  agendaId    String?
+  agenda      SalesAgenda? @relation(fields: [agendaId], references: [id], onDelete: SetNull)
+  /// Google Calendar («Conexión de Calendario» del equipo). La sala vive en la
+  /// CITA y no en el closer: reasignar cambia el invitado y el enlace sigue. Los
+  /// ids se quedan al cancelar, para que una cita reabierta recupere su sala.
+  /// `gcalError`: por qué no se pudo crear o actualizar (todo es best-effort).
+  meetUrl        String?
+  gcalEventId    String?
+  gcalCalendarId String?
+  gcalError      String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @default(now()) @updatedAt
 
   @@index([salesTeamId, startAt])
   @@index([hostUserId, startAt])
   @@index([salesTeamId, status, startAt])
+  @@index([agendaId])
 }
 
 /// Cuándo atiende el equipo, o una persona concreta. `userId` null = el equipo.
+/// La cuenta de Google de la agenda de UN equipo de ventas: Configuración →
+/// «📆 Conexión de Calendario / Correo». Cada cita del equipo crea su evento y
+/// su sala de Meet en el calendario elegido.
+///
+/// Sin `tenantId`, como el resto de `Sales*`: el middleware la filtraría por
+/// negocio y los equipos son de marca. Los tokens van CIFRADOS (secret-box,
+/// `enc:v1:`) y no salen nunca hacia el panel.
+model SalesCalendarConnection {
+  id                String    @id @default(uuid())
+  salesTeamId       String    @unique
+  team              SalesTeam @relation(fields: [salesTeamId], references: [id], onDelete: Cascade)
+  provider          String    @default("google")
+  /// La cuenta conectada, para enseñarla en el panel.
+  email             String?
+  accessToken       String?
+  /// Solo llega con consentimiento: sin él la conexión se cae a la hora.
+  refreshToken      String?
+  expiresAt         DateTime?
+  scope             String?
+  calendarId        String    @default("primary")
+  /// Color de Google Calendar ("1".."11"). Null = el del calendario.
+  colorId           String?
+  autoMeet          Boolean   @default(true)
+  inviteLead        Boolean   @default(true)
+  inviteCloser      Boolean   @default(true)
+  sendUpdates       Boolean   @default(true)
+  active            Boolean   @default(false)
+  connectedByUserId String?
+  connectedAt       DateTime?
+  lastSyncAt        DateTime?
+  lastError         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @default(now()) @updatedAt
+}
+
 model SalesAvailability {
   id          String    @id @default(uuid())
   salesTeamId String
@@ -4916,6 +5006,7 @@ model SalesForm {
   updatedAt        DateTime  @default(now()) @updatedAt
 
   responses SalesFormResponse[]
+  agendas   SalesAgenda[]
 
   @@index([salesTeamId, createdAt])
 }

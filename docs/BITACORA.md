@@ -8,6 +8,111 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (27) — Google Calendar por equipo en Sellea: construido, a la espera de las credenciales de Google
+
+Javier: «En configuraciones, permitir la conexión con el calendario de Google.»
+
+### Qué hace
+
+- Sección «📆 Conexión de Calendario / Correo» en Configuración, como la de
+  TeamClubify: conectar la cuenta de Google del equipo, elegir el calendario,
+  probar la conexión, generar salas pendientes, y casillas para crear sala de
+  Meet, invitar al cliente, invitar al closer y que Google envíe la invitación.
+- Cada cita del equipo crea su evento con sala de Meet; al reasignar cambia el
+  invitado pero no la sala; al cancelar se cancela el evento. Todo best-effort:
+  si Google falla, la cita se crea igual y queda el error en la cita.
+- `{{sala}}` disponible en los mensajes (vacía fuera de una cita).
+
+### Seguridad
+
+- `state` firmado con HMAC y 10 minutos de vida. El callback de Google **no
+  canjea el código**: lo devuelve al panel de origen, que termina la conexión
+  con su sesión. Un enlace de permiso reenviado no conecta la cuenta de otro.
+- Tokens cifrados en reposo (`secret-box`), nunca devueltos al panel ni en logs.
+  **No rotar `SECRETS_ENC_KEY`** o los tokens guardados dejan de leerse.
+
+### Migración
+
+`backend/scripts/apply-sales-calendar-migration.cjs`: modelo
+`SalesCalendarConnection` y columnas `meetUrl`, `gcalEventId`, `gcalCalendarId`,
+`gcalError` en `SalesMeeting`. Antes del backend, o el Banco y la Agenda dan 500.
+
+### Lo que falta para que funcione (Javier, en Google Cloud)
+
+1. Proyecto con «Google Calendar API» habilitada.
+2. Pantalla de consentimiento Externa, con un nombre que no diga «Clubify»
+   (la ven todas las marcas), dominio `soyclubify.com`, política y términos.
+3. Permisos `openid`, `email`, `calendar.events`,
+   `calendar.calendarlist.readonly`.
+4. Cliente OAuth «Aplicación web» con la URI exacta
+   `https://api.soyclubify.com/api/public/calendario-google/callback`.
+5. En pruebas: añadir las cuentas de las agendas como usuarios de prueba (el
+   permiso vence a los 7 días). Para producción, verificación de Google de los
+   permisos sensibles (días a semanas).
+6. En Railway: `GOOGLE_CALENDAR_CLIENT_ID` y `GOOGLE_CALENDAR_CLIENT_SECRET`.
+
+Sin esas variables la sección dice «Falta configurar la conexión con Google» y
+las citas siguen como siempre. **No se ha probado contra Google real.**
+
+### Revisión de Fable
+
+Sin bloqueantes y el OAuth verificado en código: no se puede fijar la cuenta de
+otro ni hacer CSRF (`iniciar` es POST con sesión; `state` firmado, con
+caducidad y atado a equipo + usuario + origen), sin redirección abierta, tokens
+fuera de respuestas y logs, revocación al desconectar. Arreglado antes de
+desplegar: `lock_timeout` en la migración y «Generar salas» por tandas.
+
+Dos cosas que NO están en el código y hay que mirar en Google Cloud antes de
+anunciarlo: el nombre y el logo del proyecto los ve el líder de CUALQUIER marca
+en la pantalla de consentimiento (si se llama «Clubify», fuga de marca), y con
+la app en «Testing» Google caduca los permisos a los 7 días (cada semana
+«vuelve a conectar»). La descripción del evento lleva el teléfono del cliente y
+su enlace de gestión: quien vea el calendario del equipo puede mover la cita.
+La reserva pública puede tardar hasta 8 s más si Google no responde.
+
+## 2026-09-15 (26) — Varias agendas de reserva por equipo, y la pestaña Agenda igual a la de TeamClubify
+
+Javier: «Esta agenda [TeamClubify] no se parece a la que hiciste [Sellea]…
+¿No lo duplicaste como es?» y «También en agenda permitir crear varias».
+
+### Qué cambia
+
+- **Varias agendas por equipo** (modelo `SalesAgenda`: marca, `slug` único,
+  nombre, color, activa, formulario y ajustes). Cada una es un enlace público
+  con su horario y su formulario; lo que se reserve en cualquiera entra al Banco
+  del equipo. Las citas guardan de qué agenda vinieron (`SalesMeeting.agendaId`).
+- **Configuración → «Agendas de reserva del equipo»**: lista con
+  `/agenda/<slug> · N min · HH:MM–HH:MM`, «Abrir», «Configurar», «+ Nueva
+  agenda» y «Formularios →», como en la referencia.
+- **Pestaña Agenda**: solo la cuadrícula (← → Hoy, Hora × closers, «+
+  Disponible» → «Nueva reunión»). El enlace, el horario, los ajustes y «Próximas
+  citas» salieron de esa pestaña.
+- **Enlaces ya compartidos**: la página pública busca primero la agenda por
+  slug y, si no, el slug del equipo abre su primera agenda activa.
+
+### Migración
+
+`backend/scripts/apply-sales-agendas-migration.cjs` (aditiva, idempotente):
+tabla, columna, índices y FKs, y siembra una agenda por equipo que ya tenía
+enlace, con su MISMO slug y su configuración de entonces.
+
+### API
+
+Nuevas: `GET/POST /sales-teams/:teamId/agendas`, `PATCH/DELETE
+…/agendas/:agendaId`, `PATCH agenda/citas/:id/reagendar`. Quitadas:
+`GET/PUT agenda/ajustes`, `POST agenda/enlace`, `PUT formularios/agenda`
+(«Usar en la agenda» ya no existe: el formulario se elige en cada agenda).
+
+### Diferencias con la referencia que quedan
+
+- «Nueva reunión»: «Servicio de interés» y «Nivel de urgencia» no tienen
+  columna en el lead; van como primeras líneas de las observaciones.
+- «Reunión»: el resultado solo es «Se realizó» o «No asistió»; reasignar no
+  avisa por WhatsApp; no hay amarillo porque no existe «Reagendada».
+- «Configurar agenda»: sin zona horaria ni logo; un tramo por día en pantalla.
+- Columnas de la cuadrícula = closers con rol closer; las citas sin closer
+  siguen en el Banco.
+
 ## 2026-09-15 (25) — La Gloriosa: la comisión del pago del 24-07 para Nicolás Rojas al 20%, y por qué nació con la fecha equivocada
 
 Javier: «La Gloriosa pagó su trimestralidad el 24 de julio de 2026. Las

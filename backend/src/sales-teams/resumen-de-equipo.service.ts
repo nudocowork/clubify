@@ -241,11 +241,14 @@ export class ResumenDeEquipoService {
         texto: 'El equipo no tiene líder asignado',
       });
     }
-    if (!equipo?.slug) {
+    // Sin ninguna agenda de reserva activa, el equipo no tiene por dónde recibir
+    // citas solas: ni el enlace de siempre ni los nuevos abren nada.
+    const agendasActivas = await this.prisma.salesAgenda.count({ where: { salesTeamId: teamId, isActive: true } });
+    if (!agendasActivas) {
       atencion.push({
         tipo: 'agenda',
         n: 1,
-        texto: 'Todavía no hay enlace público de agenda: nadie puede reservar solo',
+        texto: 'No hay ninguna agenda de reserva activa: nadie puede reservar solo',
       });
     }
 

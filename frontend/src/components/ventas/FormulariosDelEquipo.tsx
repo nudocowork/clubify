@@ -54,8 +54,8 @@ type Datos = {
   team: { id: string; name: string; isActive?: boolean };
   puedeEscribir: boolean;
   puedeConfigurar: boolean;
-  enlaceDeAgenda: string | null;
-  formularioDeAgenda: string | null;
+  /** Los nombres de las agendas de reserva que piden cada formulario, por id. */
+  agendasPorFormulario: Record<string, string[]>;
   formularios: Formulario[];
 };
 
@@ -185,7 +185,7 @@ export function FormulariosDelEquipo() {
                   >
                     <span className="block truncate text-sm font-medium text-ink">{f.nombre}</span>
                     <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-mute">
-                      {datos.formularioDeAgenda === f.id && (
+                      {(datos.agendasPorFormulario?.[f.id]?.length ?? 0) > 0 && (
                         <span className="rounded-pill bg-ok-soft px-1.5 py-0.5 font-medium text-ok-ink">Agenda</span>
                       )}
                       {!f.activo && <span className="rounded-pill bg-bg2 px-1.5 py-0.5">Inactivo</span>}
@@ -201,16 +201,11 @@ export function FormulariosDelEquipo() {
           )}
 
           <p className="m-0 mt-1 text-xs text-mute">
-            {datos.enlaceDeAgenda ? (
-              <>
-                Agenda pública:{' '}
-                <a href={datos.enlaceDeAgenda} target="_blank" rel="noreferrer" className="underline">
-                  {datos.enlaceDeAgenda}
-                </a>
-              </>
-            ) : (
-              'El equipo todavía no tiene enlace público de agenda: se crea en «Agenda».'
-            )}
+            Qué formulario pide cada agenda pública se elige en{' '}
+            <Link href={`${rutaEquipos}/${teamId}/configuracion`} className="underline">
+              Configuración
+            </Link>
+            , en sus agendas de reserva.
           </p>
         </aside>
 
@@ -281,10 +276,9 @@ function EditorDeFormulario({
   const [faltanEnPrueba, setFaltanEnPrueba] = useState<Set<string>>(new Set());
   const [cambios, setCambios] = useState(false);
   const [guardando, setGuardando] = useState(false);
-  const esDeAgenda = datos.formularioDeAgenda === formulario.id;
-  // «Usar en la agenda» mira lo GUARDADO, que es lo que la agenda usará; el
-  // aviso mira lo que se está editando.
-  const guardadoConContacto = pideDatoDeContacto(formulario.campos);
+  // Las agendas de reserva que lo piden. Se elige en cada agenda («Configuración»).
+  const agendas = datos.agendasPorFormulario?.[formulario.id] ?? [];
+  const esDeAgenda = agendas.length > 0;
   const conContacto = pideDatoDeContacto(campos);
 
   const tocar = () => setCambios(true);
@@ -370,22 +364,6 @@ function EditorDeFormulario({
     }
   }
 
-  async function usarEnAgenda(usar: boolean) {
-    try {
-      await api(`/sales-teams/${teamId}/formularios/agenda`, {
-        method: 'PUT',
-        body: JSON.stringify({ formularioId: usar ? formulario.id : null }),
-      });
-      toast(
-        usar ? 'La agenda pública ya pide este formulario.' : 'La agenda vuelve a pedir solo nombre y teléfono.',
-        'success',
-      );
-      onGuardado();
-    } catch (e: any) {
-      toast(e?.message || 'No se pudo cambiar la agenda', 'error');
-    }
-  }
-
   async function borrar() {
     if (!confirm(`¿Eliminar el formulario «${formulario.nombre}»? No se puede deshacer.`)) return;
     try {
@@ -438,33 +416,18 @@ function EditorDeFormulario({
                 tocar();
               }}
               disabled={soloLectura || (esDeAgenda && activo)}
-              title={esDeAgenda && activo ? 'Quítalo de la agenda antes de desactivarlo' : undefined}
+              title={esDeAgenda && activo ? 'Lo pide una agenda de reserva: elige otro en esa agenda antes de desactivarlo' : undefined}
               className="accent-brand"
             />
             Activo
           </label>
           {esDeAgenda && (
             <span className="rounded-pill bg-ok-soft px-2 py-0.5 text-xs font-medium text-ok-ink">
-              Lo pide la agenda pública
+              Lo pide {agendas.length === 1 ? 'la agenda' : 'las agendas'} «{agendas.join('», «')}»
             </span>
           )}
           {!soloLectura && (
             <div className="ml-auto flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="btn-ghost text-sm"
-                disabled={cambios || (!esDeAgenda && (!formulario.activo || !guardadoConContacto))}
-                title={
-                  cambios
-                    ? 'Guarda los cambios antes'
-                    : !esDeAgenda && !guardadoConContacto
-                      ? 'Le falta una pregunta obligatoria que pase al lead el nombre, o un WhatsApp o un correo (con ese tipo de pregunta)'
-                      : undefined
-                }
-                onClick={() => void usarEnAgenda(!esDeAgenda)}
-              >
-                {esDeAgenda ? 'Quitar de la agenda' : 'Usar en la agenda'}
-              </button>
               <button type="button" className="text-xs text-bad-ink underline" onClick={() => void borrar()}>
                 Eliminar
               </button>
@@ -482,8 +445,8 @@ function EditorDeFormulario({
         {!soloLectura && !conContacto && (
           <p className={`m-0 text-xs ${esDeAgenda ? 'text-warn-ink' : 'text-mute'}`}>
             {esDeAgenda
-              ? 'La agenda pide este formulario: necesita una pregunta obligatoria, que se vea siempre, que pase al lead el nombre, o un WhatsApp o un correo (con ese tipo de pregunta). Sin ella no se puede guardar.'
-              : 'Para usarlo en la agenda necesita una pregunta obligatoria, que se vea siempre, que pase al lead el nombre, o un WhatsApp o un correo (con ese tipo de pregunta).'}
+              ? 'Una agenda de reserva pide este formulario: necesita una pregunta obligatoria, que se vea siempre, que pase al lead el nombre, o un WhatsApp o un correo (con ese tipo de pregunta). Sin ella no se puede guardar.'
+              : 'Para usarlo en una agenda de reserva necesita una pregunta obligatoria, que se vea siempre, que pase al lead el nombre, o un WhatsApp o un correo (con ese tipo de pregunta).'}
           </p>
         )}
       </section>

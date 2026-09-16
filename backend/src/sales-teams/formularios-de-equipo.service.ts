@@ -10,8 +10,8 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { resolveTeamAccess, type AccesoAlEquipo } from './team-access';
 import {
   CAMPOS_DE_AGENDA,
+  SIN_CONTACTO,
   camposGuardados,
-  formularioDeAgendaDe,
   normalizarCampos,
   pideDatoDeContacto,
 } from './formularios-de-equipo';
@@ -20,8 +20,8 @@ import {
  * «Formularios» del equipo: el constructor de TeamClubify.
  *
  * Un formulario es una lista de preguntas (JSON limpio por `normalizarCampos`).
- * El que el equipo elige para su agenda es lo que rellena quien reserva por el
- * enlace público; sus respuestas se guardan enteras y lo que tiene destino en el
+ * El que elige cada agenda de reserva es lo que rellena quien reserva por su
+ * enlace; sus respuestas se guardan enteras y lo que tiene destino en el
  * lead (nombre, teléfono, correo, empresa, Instagram) pasa a su ficha.
  *
  * Cambiar formularios es del líder o un admin de la marca, como en la
@@ -31,8 +31,14 @@ import {
 
 const texto = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
-const SIN_CONTACTO =
-  'La agenda necesita una pregunta obligatoria, que se vea siempre, que pase al lead el nombre, o un WhatsApp o un correo (con ese tipo de pregunta). Sin ella la cita se queda sin lead.';
+/** «la agenda «Instagram»» o «las agendas «Instagram» y «Referidos»». */
+const nombrarAgendas = (nombres: string[]) =>
+  nombres.length === 1
+    ? `la agenda «${nombres[0]}»`
+    : `las agendas ${nombres
+        .slice(0, -1)
+        .map((n) => `«${n}»`)
+        .join(', ')} y «${nombres[nombres.length - 1]}»`;
 
 @Injectable()
 export class FormulariosDeEquipoService {
@@ -50,20 +56,27 @@ export class FormulariosDeEquipoService {
 
   async listar(user: AuthUser, teamId: string) {
     const acceso = await resolveTeamAccess(this.prisma, user, teamId);
-    const [formularios, equipo] = await Promise.all([
+    const [formularios, agendas] = await Promise.all([
       this.prisma.salesForm.findMany({
         where: { salesTeamId: teamId },
         orderBy: { createdAt: 'asc' },
         include: { _count: { select: { responses: true } } },
       }),
-      this.prisma.salesTeam.findUnique({ where: { id: teamId }, select: { bookingConfig: true, slug: true } }),
+      this.prisma.salesAgenda.findMany({
+        where: { salesTeamId: teamId, formId: { not: null } },
+        orderBy: { createdAt: 'asc' },
+        select: { formId: true, name: true },
+      }),
     ]);
+    // Qué agendas de reserva pide cada formulario: se elige en cada agenda y aquí
+    // solo se enseña, para que nadie desactive o borre uno que está en uso.
+    const agendasPorFormulario: Record<string, string[]> = {};
+    for (const a of agendas) if (a.formId) (agendasPorFormulario[a.formId] ??= []).push(a.name);
     return {
       team: acceso.team,
       puedeEscribir: acceso.puedeEscribir,
       puedeConfigurar: this.puedeConfigurar(acceso),
-      enlaceDeAgenda: equipo?.slug ? `/agenda/${equipo.slug}` : null,
-      formularioDeAgenda: formularioDeAgendaDe(equipo?.bookingConfig),
+      agendasPorFormulario,
       formularios: formularios.map((f) => ({
         id: f.id,
         nombre: f.name,
@@ -121,16 +134,19 @@ export class FormulariosDeEquipoService {
     if (body.campos !== undefined) {
       const c = normalizarCampos(body.campos);
       if (!Array.isArray(c)) throw new BadRequestException(c.error);
-      if (!pideDatoDeContacto(c) && (await this.esElDeLaAgenda(teamId, id))) {
+      if (!pideDatoDeContacto(c) && (await this.agendasQueLoPiden(teamId, id)).length) {
         throw new BadRequestException(SIN_CONTACTO);
       }
       data.fields = c as unknown as Prisma.InputJsonValue;
     }
     if (body.activo !== undefined) {
-      // Desactivar el de la agenda la devolvía en silencio a nombre y teléfono,
+      // Desactivar el de una agenda la devolvía en silencio a nombre y teléfono,
       // con la marca «Agenda» todavía puesta (Fable, 2026-09-15). Como al borrar.
-      if (!body.activo && (await this.esElDeLaAgenda(teamId, id))) {
-        throw new BadRequestException('Es el formulario de la agenda pública. Quítalo de la agenda antes de desactivarlo.');
+      const agendas = body.activo ? [] : await this.agendasQueLoPiden(teamId, id);
+      if (agendas.length) {
+        throw new BadRequestException(
+          `Lo pide ${nombrarAgendas(agendas)}: elige otro formulario en esa agenda («Configuración») antes de desactivarlo.`,
+        );
       }
       data.isActive = !!body.activo;
     }
@@ -151,17 +167,19 @@ export class FormulariosDeEquipoService {
     const acceso = await resolveTeamAccess(this.prisma, user, teamId);
     this.exigirConfigurar(acceso);
     await this.formularioDelEquipo(teamId, id);
-    const [respuestas, equipo] = await Promise.all([
+    const [respuestas, agendas] = await Promise.all([
       this.prisma.salesFormResponse.count({ where: { formId: id, salesTeamId: teamId } }),
-      this.prisma.salesTeam.findUnique({ where: { id: teamId }, select: { bookingConfig: true } }),
+      this.agendasQueLoPiden(teamId, id),
     ]);
     if (respuestas > 0) {
       throw new BadRequestException(
         `Este formulario ya tiene ${respuestas} respuesta(s): desactívalo en vez de borrarlo, así no se pierden.`,
       );
     }
-    if (formularioDeAgendaDe(equipo?.bookingConfig) === id) {
-      throw new BadRequestException('Es el formulario de la agenda pública. Elige otro (o ninguno) antes de borrarlo.');
+    if (agendas.length) {
+      throw new BadRequestException(
+        `Lo pide ${nombrarAgendas(agendas)}: elige otro formulario (o ninguno) en esa agenda («Configuración») antes de borrarlo.`,
+      );
     }
     try {
       await this.prisma.salesForm.deleteMany({ where: { id, salesTeamId: teamId } });
@@ -175,41 +193,19 @@ export class FormulariosDeEquipoService {
     return { ok: true };
   }
 
-  /** Qué formulario pide la agenda pública del equipo. `null` = el de siempre (nombre y teléfono). */
-  async usarEnAgenda(user: AuthUser, teamId: string, body: { formularioId?: string | null }) {
-    const acceso = await resolveTeamAccess(this.prisma, user, teamId);
-    this.exigirConfigurar(acceso);
-    const formularioId = body.formularioId || null;
-    if (formularioId) {
-      const f = await this.formularioDelEquipo(teamId, formularioId);
-      if (!f.isActive) throw new BadRequestException('Activa el formulario antes de usarlo en la agenda');
-      if (!pideDatoDeContacto(camposGuardados(f.fields))) throw new BadRequestException(SIN_CONTACTO);
-    }
-    // En UNA sentencia: `bookingConfig` guarda también los ajustes de la agenda
-    // («Cómo se ve y cuándo se reserva»), y leer-mezclar-escribir pisaba lo que
-    // se guardara a la vez desde esa tarjeta.
-    const filas = await this.prisma.$executeRaw`
-      UPDATE "SalesTeam"
-         SET "bookingConfig" = COALESCE("bookingConfig", '{}'::jsonb) || ${JSON.stringify({ formularioId })}::jsonb,
-             "updatedAt" = NOW()
-       WHERE "id" = ${teamId}
-         AND ("isActive" = true OR ${acceso.esAdminDeMarca}::boolean)`;
-    // Condicional: un equipo desactivado entre la comprobación y la escritura ya
-    // no cambia, igual que en «Configuración» (Fable, 2026-09-15).
-    if (filas === 0) {
-      throw new ForbiddenException('El equipo acaba de desactivarse: ya no se puede cambiar su configuración');
-    }
-    return { ok: true, formularioDeAgenda: formularioId };
-  }
-
   private async formularioDelEquipo(teamId: string, id: string) {
     const f = await this.prisma.salesForm.findFirst({ where: { id, salesTeamId: teamId } });
     if (!f) throw new NotFoundException('Formulario no encontrado');
     return f;
   }
 
-  private async esElDeLaAgenda(teamId: string, id: string): Promise<boolean> {
-    const equipo = await this.prisma.salesTeam.findUnique({ where: { id: teamId }, select: { bookingConfig: true } });
-    return formularioDeAgendaDe(equipo?.bookingConfig) === id;
+  /** Los nombres de las agendas de reserva del equipo que piden este formulario. */
+  private async agendasQueLoPiden(teamId: string, id: string): Promise<string[]> {
+    const agendas = await this.prisma.salesAgenda.findMany({
+      where: { salesTeamId: teamId, formId: id },
+      orderBy: { createdAt: 'asc' },
+      select: { name: true },
+    });
+    return agendas.map((a) => a.name);
   }
 }

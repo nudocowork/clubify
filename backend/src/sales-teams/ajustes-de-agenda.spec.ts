@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   AJUSTES_DE_AGENDA_POR_DEFECTO,
+  MAX_CUPOS_POR_HORARIO,
   MAX_DIAS_HACIA_ADELANTE,
   esFecha,
   hoyEnBogota,
@@ -104,5 +105,55 @@ describe('leerAjustesDeAgenda', () => {
       antelacionMin: 60,
       fechasBloqueadas: ['2026-12-25'],
     });
+  });
+});
+
+describe('el horario, los bloques y las reservas por horario', () => {
+  it('el horario se ordena, y un tramo roto o que pisa a otro se rechaza', () => {
+    expect(
+      normalizarAjustesDeAgenda({
+        franjas: [
+          { weekday: 3, startMin: 540, endMin: 600 },
+          { weekday: 1, startMin: 540, endMin: 1080 },
+        ],
+      }),
+    ).toEqual({
+      franjas: [
+        { weekday: 1, startMin: 540, endMin: 1080 },
+        { weekday: 3, startMin: 540, endMin: 600 },
+      ],
+    });
+    expect(normalizarAjustesDeAgenda({ franjas: [{ weekday: 1, startMin: 600, endMin: 540 }] })).toHaveProperty('error');
+    expect(normalizarAjustesDeAgenda({ franjas: [{ weekday: 7, startMin: 540, endMin: 600 }] })).toHaveProperty('error');
+    expect(
+      normalizarAjustesDeAgenda({
+        franjas: [
+          { weekday: 1, startMin: 540, endMin: 720 },
+          { weekday: 1, startMin: 600, endMin: 780 },
+        ],
+      }),
+    ).toEqual({ error: 'Hay dos tramos que se pisan el mismo día. Únelos en uno.' });
+    expect(normalizarAjustesDeAgenda({ franjas: [] })).toEqual({ franjas: [] });
+  });
+
+  it('bloques y reservas por horario, solo entre lo que se ofrece', () => {
+    expect(normalizarAjustesDeAgenda({ pasoMin: 30, cuposPorHorario: 4 })).toEqual({ pasoMin: 30, cuposPorHorario: 4 });
+    expect(normalizarAjustesDeAgenda({ pasoMin: 25 })).toHaveProperty('error');
+    expect(normalizarAjustesDeAgenda({ cuposPorHorario: 0 })).toHaveProperty('error');
+    expect(normalizarAjustesDeAgenda({ cuposPorHorario: MAX_CUPOS_POR_HORARIO + 1 })).toHaveProperty('error');
+  });
+
+  it('al leer, un tramo roto se descarta él solo, y sin bloques ni cupos vale lo de la agenda única', () => {
+    const a = leerAjustesDeAgenda({
+      franjas: [
+        { weekday: 2, startMin: 540, endMin: 660 },
+        { weekday: 2, startMin: 600, endMin: 700 },
+        'basura',
+        { weekday: 9, startMin: 0, endMin: 60 },
+      ],
+    });
+    expect(a.franjas).toEqual([{ weekday: 2, startMin: 540, endMin: 660 }]);
+    expect(a.pasoMin).toBe(15);
+    expect(a.cuposPorHorario).toBe(1);
   });
 });

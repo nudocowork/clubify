@@ -7,7 +7,6 @@ import {
   Patch,
   Post,
   Query,
-  Put,
 } from '@nestjs/common';
 import {
   IsArray,
@@ -45,17 +44,33 @@ class HorarioBody {
   franjas!: FranjaDto[];
 }
 
+/** «Nueva reunión»: el lead escrito a mano, como en la referencia. */
+class NuevoLeadBody {
+  @IsString() @MaxLength(120) nombre!: string;
+  @IsOptional() @IsString() @MaxLength(40) whatsapp?: string | null;
+  @IsOptional() @IsString() @MaxLength(160) empresa?: string | null;
+  @IsOptional() @IsString() @MaxLength(40) fuente?: string | null;
+}
+
 class CitaBody {
   @IsOptional() @IsString() leadId?: string | null;
   @IsOptional() @IsString() hostUserId?: string | null;
   @IsISO8601() startAt!: string;
   @IsOptional() @IsInt() @Min(5) @Max(480) durationMin?: number;
   @IsOptional() @IsString() @MaxLength(2000) notes?: string | null;
+  /** Sin `leadId`: se reutiliza el lead con ese WhatsApp, o se crea. */
+  @IsOptional() @ValidateNested() @Type(() => NuevoLeadBody) lead?: NuevoLeadBody | null;
 }
 
 class EstadoBody {
   @IsIn(['PENDIENTE', 'CONFIRMADA', 'REALIZADA', 'NO_ASISTIO', 'CANCELADA'])
   status!: string;
+  /** Las observaciones de «Registrar resultado». Van al historial del lead. */
+  @IsOptional() @IsString() @MaxLength(2000) nota?: string | null;
+}
+
+class ReagendarBody {
+  @IsISO8601() startAt!: string;
 }
 
 class ReservaPublicaBody {
@@ -69,18 +84,6 @@ class ReservaPublicaBody {
   @IsOptional() @IsObject() respuestas?: Record<string, unknown> | null;
 }
 
-/** «Cómo se ve y cuándo se reserva». Los valores permitidos los comprueba el servicio. */
-class AjustesDeAgendaBody {
-  @IsOptional() @IsString() @MaxLength(80) titulo?: string | null;
-  @IsOptional() @IsString() @MaxLength(200) subtitulo?: string | null;
-  @IsOptional() @IsInt() duracionMin?: number;
-  @IsOptional() @IsInt() diasHaciaAdelante?: number;
-  @IsOptional() @IsInt() antelacionMin?: number;
-  @IsOptional() @IsArray() @IsString({ each: true }) fechasBloqueadas?: string[];
-  @IsOptional() @IsString() @MaxLength(300) volverAlSitio?: string | null;
-  @IsOptional() @IsInt() redirigirEnSegundos?: number;
-}
-
 /** La agenda vista desde dentro: el vendedor y quien manda en la marca. */
 @Controller('sales-teams/:teamId/agenda')
 @Roles(...ROLES_DE_EQUIPO)
@@ -90,28 +93,6 @@ export class SalesAgendaController {
   @Get('horario')
   verHorario(@CurrentUser() user: AuthUser, @Param('teamId') teamId: string) {
     return this.svc.verHorario(user, teamId);
-  }
-
-  @Get('ajustes')
-  verAjustes(@CurrentUser() user: AuthUser, @Param('teamId') teamId: string) {
-    return this.svc.verAjustes(user, teamId);
-  }
-
-  @Put('ajustes')
-  guardarAjustes(
-    @CurrentUser() user: AuthUser,
-    @Param('teamId') teamId: string,
-    @Body() body: AjustesDeAgendaBody,
-  ) {
-    return this.svc.guardarAjustes(user, teamId, body);
-  }
-
-  @Post('enlace')
-  asegurarEnlace(
-    @CurrentUser() user: AuthUser,
-    @Param('teamId') teamId: string,
-  ) {
-    return this.svc.asegurarEnlace(user, teamId);
   }
 
   @Post('horario')
@@ -179,15 +160,26 @@ export class SalesAgendaController {
     @Param('citaId') citaId: string,
     @Body() body: EstadoBody,
   ) {
-    return this.svc.cambiarEstado(user, teamId, citaId, body.status);
+    return this.svc.cambiarEstado(user, teamId, citaId, body.status, body.nota);
+  }
+
+  @Patch('citas/:citaId/reagendar')
+  reagendar(
+    @CurrentUser() user: AuthUser,
+    @Param('teamId') teamId: string,
+    @Param('citaId') citaId: string,
+    @Body() body: ReagendarBody,
+  ) {
+    return this.svc.reagendar(user, teamId, citaId, body.startAt);
   }
 }
 
 /**
  * La agenda vista desde fuera: el prospecto, sin cuenta de nada.
  *
- * Se entra por el `slug` del equipo para reservar, y por el `manageToken` de la
- * cita para verla o cancelarla. **El id de la cita no aparece en ninguna URL
+ * Se entra por el `slug` de la agenda para reservar —o por el del equipo, el
+ * enlace de cuando había una sola, que abre su primera agenda—, y por el
+ * `manageToken` de la cita para verla o cancelarla. **El id de la cita no aparece en ninguna URL
  * pública**: con el id, cambiar un número cancelaría la cita de otro.
  *
  * Las tres rutas comprueban que la marca tenga el módulo encendido. Sin eso,

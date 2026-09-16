@@ -371,8 +371,8 @@ export default function ResumenDeEquipoPage() {
                   </Link>
                 )}
                 {a.tipo === 'agenda' && (
-                  <Link href={`${rutaEquipos}/${id}/agenda`} className="text-xs font-semibold text-brand hover:underline ml-auto">
-                    Crear el enlace
+                  <Link href={`${rutaEquipos}/${id}/configuracion`} className="text-xs font-semibold text-brand hover:underline ml-auto">
+                    Crear una agenda
                   </Link>
                 )}
               </li>

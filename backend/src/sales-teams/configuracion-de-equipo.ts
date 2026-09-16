@@ -69,12 +69,13 @@ export const MENSAJE_POR_DEFECTO =
 
 /**
  * El texto con el que se abre WhatsApp. Admite {{nombre}} y {{closer}}, como la
- * referencia, y {{equipo}}. Los reemplazos van por función: con un texto, un
+ * referencia, {{equipo}} y {{sala}} (el enlace de Google Meet de la cita, si el
+ * equipo tiene el calendario conectado; vacío fuera de una cita). Los reemplazos van por función: con un texto, un
  * nombre con «$&» dentro se convertiría en otra cosa.
  */
 export function mensajeDeWhatsapp(
   plantilla: string | null | undefined,
-  vars: { nombre?: string | null; closer?: string | null; equipo?: string | null },
+  vars: { nombre?: string | null; closer?: string | null; equipo?: string | null; sala?: string | null },
 ): string {
   const t = (typeof plantilla === 'string' && plantilla.trim()) || MENSAJE_POR_DEFECTO;
   return (
@@ -82,6 +83,7 @@ export function mensajeDeWhatsapp(
       .replace(/\{\{\s*nombre\s*\}\}/gi, () => (vars.nombre ?? '').trim())
       .replace(/\{\{\s*closer\s*\}\}/gi, () => (vars.closer ?? '').trim())
       .replace(/\{\{\s*equipo\s*\}\}/gi, () => (vars.equipo ?? '').trim())
+      .replace(/\{\{\s*sala\s*\}\}/gi, () => (vars.sala ?? '').trim())
       // Sin nombre, «Hola , ¿cómo estás?» se lee roto.
       .replace(/[ \t]+([,.;:!?])/g, '$1')
       .replace(/[ \t]{2,}/g, ' ')

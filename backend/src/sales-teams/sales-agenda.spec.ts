@@ -34,12 +34,28 @@ function baseFalsa(opts: { modulo?: boolean; slug?: string | null } = {}) {
     miembros: [
       { teamId: 't1', userId: 'u-vendedor', isActive: true, roles: ['closer'] },
     ] as Fila[],
+    // La agenda de reserva del equipo, sembrada como la migración: con su MISMO
+    // slug y el horario del equipo (martes de 9 a 11). Con ella, las pruebas de
+    // la agenda pública de antes siguen probando lo mismo.
+    agendas: [
+      {
+        id: 'ag-norte',
+        salesTeamId: 't1',
+        slug: 'norte',
+        name: 'Agenda principal',
+        isActive: true,
+        formId: null,
+        settings: { franjas: [{ weekday: 2, startMin: 540, endMin: 660 }] },
+        createdAt: new Date('2026-08-01T00:00:00Z'),
+      },
+    ] as Fila[],
   };
   let sec = 0;
   const id = (p: string) => `${p}-${++sec}`;
   const casa = (f: Fila, where: Fila = {}) =>
     Object.entries(where).every(([k, v]) => {
       if (v && typeof v === 'object' && !(v instanceof Date)) {
+        if ('not' in v) return f[k] !== v.not;
         if ('in' in v) return v.in.includes(f[k]);
         if ('gte' in v || 'lt' in v) {
           const t = f[k] instanceof Date ? f[k].getTime() : f[k];
@@ -57,9 +73,25 @@ function baseFalsa(opts: { modulo?: boolean; slug?: string | null } = {}) {
     slug: opts.slug === undefined ? 'norte' : opts.slug,
     whiteLabelId: SELLEA,
     isActive: true,
+    status: 'activo',
   };
 
   const enviados: any[] = [];
+  const porAntiguedad = () => [...bd.agendas].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  /** La agenda con su equipo, como la pide `agendaPublica`. */
+  const conEquipo = (a: Fila | undefined) =>
+    a
+      ? {
+          ...a,
+          team: {
+            id: equipo.id,
+            name: equipo.name,
+            whiteLabelId: equipo.whiteLabelId,
+            isActive: equipo.isActive,
+            status: equipo.status,
+          },
+        }
+      : null;
   const prisma: any = {
     salesTeam: {
       findUnique: async () => ({ ...equipo }),
@@ -135,7 +167,17 @@ function baseFalsa(opts: { modulo?: boolean; slug?: string | null } = {}) {
         return { count: tocadas.length };
       },
     },
+    salesAgenda: {
+      findUnique: async ({ where }: any) => conEquipo(bd.agendas.find((a) => a.slug === where.slug)),
+      findFirst: async ({ where }: any) => conEquipo(porAntiguedad().find((a) => casa(a, where))),
+      findMany: async ({ where }: any) => porAntiguedad().filter((a) => casa(a, where)),
+    },
     salesLead: {
+      updateMany: async ({ where, data }: any) => {
+        const tocados = bd.leads.filter((l) => casa(l, where));
+        for (const l of tocados) Object.assign(l, data);
+        return { count: tocados.length };
+      },
       findFirst: async ({ where }: any) => bd.leads.find((l) => casa(l, where)) ?? null,
       create: async ({ data }: any) => {
         const l = { id: id('lead'), ...data };
@@ -748,5 +790,185 @@ describe('los disparadores de la agenda', () => {
     await svc.cambiarEstado(VENDEDOR, 't1', c.id, 'REALIZADA');
     await svc.cambiarEstado(VENDEDOR, 't1', c.id, 'CANCELADA');
     expect(disparos).toHaveLength(antes);
+  });
+});
+
+describe('varias agendas de reserva', () => {
+  /** Martes de 15:00 a 16:00: el horario de una segunda agenda del mismo equipo. */
+  const segunda = (extra: Fila = {}) => ({
+    id: 'ag-ig',
+    salesTeamId: 't1',
+    slug: 'norte-instagram',
+    name: 'Instagram',
+    isActive: true,
+    formId: null,
+    settings: { franjas: [{ weekday: 2, startMin: 900, endMin: 960 }] },
+    createdAt: new Date('2026-09-01T00:00:00Z'),
+    ...extra,
+  });
+
+  it('el enlace de una AGENDA abre esa agenda, con su horario', async () => {
+    bd.agendas.push(segunda());
+    const cal = await svc.calendarioPublico('norte-instagram');
+    expect(cal.dias[0].fecha).toBe('2026-09-08');
+    expect(cal.dias[0].huecos.map((h) => h.label)).toEqual(['15:00', '15:15', '15:30']);
+  });
+
+  it('el enlace del EQUIPO, sin agenda con ese nombre, abre su primera agenda activa', async () => {
+    // El enlace que se repartió cuando había una sola agenda tiene que seguir
+    // abriendo algo aunque esa agenda cambie de enlace o se apague.
+    bd.agendas[0].slug = 'principal-renombrada';
+    bd.agendas.push(segunda());
+    expect((await svc.calendarioPublico('norte')).dias[0].huecos[0].label).toBe('09:00');
+    bd.agendas[0].isActive = false;
+    expect((await svc.calendarioPublico('norte')).dias[0].huecos[0].label).toBe('15:00');
+  });
+
+  it('una agenda apagada NO cae al equipo: apagarla es cerrar ese enlace', async () => {
+    bd.agendas[0].isActive = false;
+    bd.agendas.push(segunda());
+    await expect(svc.calendarioPublico('norte')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      svc.reservarPublico('norte', { startAt: '2026-09-08T14:30:00Z', name: 'Ana Ruiz' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(bd.citas).toHaveLength(0);
+  });
+
+  it('la cita guarda de qué agenda vino; la agendada desde dentro, de ninguna', async () => {
+    bd.agendas.push(segunda());
+    await svc.reservarPublico('norte-instagram', {
+      startAt: '2026-09-08T20:00:00Z', // 15:00 en Bogotá
+      name: 'Ana Ruiz',
+      phone: '3001112233',
+    });
+    expect(bd.citas[0].agendaId).toBe('ag-ig');
+    await svc.agendar(VENDEDOR, 't1', { startAt: '2026-09-08T14:30:00Z', hostUserId: 'u-vendedor' });
+    expect(bd.citas[1].agendaId).toBeNull();
+  });
+
+  it('con dos reservas por horario caben dos personas a la misma hora, y la tercera no', async () => {
+    bd.agendas[0].settings = { ...bd.agendas[0].settings, cuposPorHorario: 2 };
+    const reservar = (phone: string) =>
+      svc.reservarPublico('norte', { startAt: '2026-09-08T14:30:00Z', name: `Persona ${phone}`, phone });
+    await reservar('3001110001');
+    await reservar('3001110002');
+    await expect(reservar('3001110003')).rejects.toBeInstanceOf(BadRequestException);
+    expect(bd.citas).toHaveLength(2);
+    // Y el calendario ya no la ofrece.
+    const cal = await svc.calendarioPublico('norte');
+    expect(cal.dias[0].huecos.map((h) => h.label)).not.toContain('09:30');
+    expect(cal.dias[0].huecos.map((h) => h.label)).toContain('09:00');
+  });
+
+  it('sembrada como la migración, sirve el mismo calendario que la agenda única', async () => {
+    // La migración copia `bookingConfig` tal cual (menos `formularioId`) y le
+    // suma el horario del equipo. Estos eran ajustes de antes: 45 minutos, una
+    // hora de antelación y el martes 15 bloqueado.
+    bd.agendas[0].settings = {
+      titulo: 'Reunión estratégica',
+      duracionMin: 45,
+      antelacionMin: 60,
+      fechasBloqueadas: ['2026-09-15'],
+      franjas: [{ weekday: 2, startMin: 540, endMin: 660 }],
+    };
+    const cal = await svc.calendarioPublico('norte');
+    expect(cal.titulo).toBe('Reunión estratégica');
+    expect(cal.duracionMin).toBe(45);
+    expect(cal.formulario).toBeNull();
+    expect(cal.dias.map((d) => d.fecha)).toEqual(['2026-09-08', '2026-09-22']);
+    // 08:00 + 1 h de antelación = 09:00; cada 15 minutos, citas de 45 que acaban a las 11:00.
+    expect(cal.dias[0].huecos.map((h) => h.label)).toEqual(['09:00', '09:15', '09:30', '09:45', '10:00', '10:15']);
+  });
+});
+
+describe('reagendar', () => {
+  it('mueve la misma cita y le borra las confirmaciones y el recordatorio de la hora vieja', async () => {
+    const c = await svc.agendar(VENDEDOR, 't1', { startAt: '2026-09-08T14:30:00Z', hostUserId: 'u-vendedor' });
+    Object.assign(bd.citas[0], {
+      status: 'CONFIRMADA',
+      confirmedAt: new Date(),
+      conf1h: true,
+      conf30min: true,
+      reminderSentAt: new Date(),
+    });
+    await svc.reagendar(VENDEDOR, 't1', c.id, '2026-09-09T15:00:00Z');
+    expect(bd.citas).toHaveLength(1);
+    expect(bd.citas[0]).toMatchObject({
+      status: 'PENDIENTE',
+      confirmedAt: null,
+      conf1h: false,
+      conf30min: false,
+      reminderSentAt: null,
+    });
+    expect(bd.citas[0].startAt.toISOString()).toBe('2026-09-09T15:00:00.000Z');
+  });
+
+  it('a una hora ocupada del mismo closer se rechaza, y la cita no se mueve', async () => {
+    await svc.agendar(VENDEDOR, 't1', { startAt: '2026-09-08T15:00:00Z', hostUserId: 'u-vendedor' });
+    const c = await svc.agendar(VENDEDOR, 't1', { startAt: '2026-09-08T14:00:00Z', hostUserId: 'u-vendedor' });
+    await expect(svc.reagendar(VENDEDOR, 't1', c.id, '2026-09-08T15:00:00Z')).rejects.toBeInstanceOf(ConflictException);
+    expect(bd.citas.find((x) => x.id === c.id)!.startAt.toISOString()).toBe('2026-09-08T14:00:00.000Z');
+  });
+
+  it('una cita cerrada no se reagenda', async () => {
+    const c = await svc.agendar(VENDEDOR, 't1', { startAt: '2026-09-08T14:30:00Z', hostUserId: 'u-vendedor' });
+    await svc.cambiarEstado(VENDEDOR, 't1', c.id, 'CANCELADA');
+    await expect(svc.reagendar(VENDEDOR, 't1', c.id, '2026-09-09T15:00:00Z')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('sin closer, cabe lo que diga la agenda de la que vino: con 3 cupos se mueve a una hora con otra encima', async () => {
+    bd.agendas[0].settings = { ...bd.agendas[0].settings, cuposPorHorario: 3 };
+    await svc.reservarPublico('norte', { startAt: '2026-09-08T14:30:00Z', name: 'Primera', phone: '3001110001' });
+    await svc.reservarPublico('norte', { startAt: '2026-09-08T15:00:00Z', name: 'Segunda', phone: '3001110002' });
+    const segunda = bd.citas[1];
+    await svc.reagendar(VENDEDOR, 't1', segunda.id, '2026-09-08T14:30:00Z');
+    expect(segunda.startAt.toISOString()).toBe('2026-09-08T14:30:00.000Z');
+  });
+
+  it('sin agenda (agendada desde dentro), una a la vez como siempre', async () => {
+    await svc.agendar(VENDEDOR, 't1', { startAt: '2026-09-08T14:30:00Z' });
+    const c = await svc.agendar(VENDEDOR, 't1', { startAt: '2026-09-08T15:30:00Z' });
+    await expect(svc.reagendar(VENDEDOR, 't1', c.id, '2026-09-08T14:30:00Z')).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+describe('«Nueva reunión» con el lead escrito a mano', () => {
+  it('crea el lead con sus datos, y con el mismo WhatsApp reutiliza la ficha', async () => {
+    await svc.agendar(VENDEDOR, 't1', {
+      startAt: '2026-09-08T14:30:00Z',
+      hostUserId: 'u-vendedor',
+      lead: { nombre: 'Ana Ruiz', whatsapp: '300 111 2233', empresa: 'Café Ana', fuente: 'Instagram' },
+    });
+    expect(bd.leads).toHaveLength(1);
+    expect(bd.leads[0]).toMatchObject({
+      name: 'Ana Ruiz',
+      company: 'Café Ana',
+      source: 'Instagram',
+      createdByUserId: 'u-vendedor',
+    });
+    expect(bd.citas[0].leadId).toBe(bd.leads[0].id);
+
+    await svc.agendar(VENDEDOR, 't1', {
+      startAt: '2026-09-08T16:00:00Z',
+      hostUserId: 'u-vendedor',
+      lead: { nombre: 'Ana', whatsapp: '+57 3001112233' },
+    });
+    expect(bd.leads).toHaveLength(1);
+    expect(bd.citas[1].leadId).toBe(bd.leads[0].id);
+  });
+
+  it('sin nombre no se agenda', async () => {
+    await expect(
+      svc.agendar(VENDEDOR, 't1', { startAt: '2026-09-08T14:30:00Z', hostUserId: 'u-vendedor', lead: { nombre: '  ' } }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(bd.leads).toHaveLength(0);
+  });
+
+  it('en una hora ocupada no deja una ficha suelta', async () => {
+    await svc.agendar(VENDEDOR, 't1', { startAt: '2026-09-08T14:30:00Z', hostUserId: 'u-vendedor' });
+    await expect(
+      svc.agendar(VENDEDOR, 't1', { startAt: '2026-09-08T14:30:00Z', hostUserId: 'u-vendedor', lead: { nombre: 'Luis' } }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(bd.leads).toHaveLength(0);
   });
 });

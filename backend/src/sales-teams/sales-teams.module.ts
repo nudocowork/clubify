@@ -25,6 +25,13 @@ import { FormulariosDeEquipoService } from './formularios-de-equipo.service';
 import { FormulariosDeEquipoController } from './formularios-de-equipo.controller';
 import { ConfiguracionDeEquipoService } from './configuracion-de-equipo.service';
 import { ConfiguracionDeEquipoController } from './configuracion-de-equipo.controller';
+import { CalendarioDeEquipoService } from './calendario-de-equipo.service';
+import {
+  CalendarioDeEquipoController,
+  CallbackDeCalendarioController,
+} from './calendario-de-equipo.controller';
+import { AgendasDeReservaService } from './agendas-de-reserva.service';
+import { AgendasDeReservaController } from './agendas-de-reserva.controller';
 import { SalesLeadsController } from './sales-leads.controller';
 import { SalesAgendaService } from './sales-agenda.service';
 import {
@@ -59,6 +66,8 @@ import { MarketingModule } from '../marketing/marketing.module';
     TareasDeEquipoService,
     FormulariosDeEquipoService,
     ConfiguracionDeEquipoService,
+    CalendarioDeEquipoService,
+    AgendasDeReservaService,
     SalesLeadsService,
     SalesAgendaService,
     SalesChatService,
@@ -78,6 +87,9 @@ import { MarketingModule } from '../marketing/marketing.module';
     TareasDeEquipoController,
     FormulariosDeEquipoController,
     ConfiguracionDeEquipoController,
+    CalendarioDeEquipoController,
+    CallbackDeCalendarioController,
+    AgendasDeReservaController,
     SalesAgendaController,
     PublicSalesAgendaController,
     SalesChatController,

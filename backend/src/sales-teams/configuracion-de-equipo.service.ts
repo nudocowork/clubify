@@ -42,9 +42,8 @@ import {
  * Lo que la referencia tiene aquí y NO está: la comisión del equipo (las
  * comisiones son de Jhon), la línea de WhatsApp propia del equipo (una marca
  * tiene UNA subcuenta de Grow Business y el webhook entrante no dice por qué
- * número llegó el mensaje) y la conexión con Google Calendar (no hay OAuth de
- * Google con permiso de calendario: `GOOGLE_CLIENT_ID` solo verifica el inicio
- * de sesión).
+ * número llegó el mensaje). La conexión con Google Calendar tiene su propio
+ * servicio (`calendario-de-equipo.service.ts`).
  */
 
 const texto = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');

@@ -59,6 +59,8 @@ type Cita = {
   puntaje?: number | null;
   /** El siguiente seguimiento pendiente del lead: «Próxima acción» y «Nota de seguimiento». */
   proximoPaso?: { cuando: string; canal: string | null; nota: string | null } | null;
+  /** Enlace de Google Meet de la cita (calendario del equipo conectado), para {{sala}}. */
+  sala?: string | null;
 };
 
 type LeadDelBanco = {
@@ -532,6 +534,7 @@ function TarjetaDeCita({
             // referencia; si no se sabe su nombre, el closer de la cita.
             closer={banco.yo?.nombre || c.host?.nombre}
             equipo={banco.team.name}
+            sala={c.sala}
             className="rounded-lg border border-line px-2 py-1 text-xs font-medium text-ok-ink hover:bg-ok-soft"
           />
           {banco.puedeEscribir && (

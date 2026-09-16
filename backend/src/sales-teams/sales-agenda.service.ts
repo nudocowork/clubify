@@ -4,7 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ForbiddenException,
+  Optional,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { nanoid } from 'nanoid';
@@ -23,6 +23,7 @@ import { MktProviderService } from '../marketing/provider/mkt-provider.service';
 import { exigirEscritura, resolveTeamAccess } from './team-access';
 import { asegurarColumnas } from './sales-columnas';
 import { SalesAutomationsService } from './sales-automations.service';
+import { CalendarioDeEquipoService } from './calendario-de-equipo.service';
 import { closersActivosDelEquipo } from './closers-del-equipo';
 import { franjaDeHora, franjasDelDia, horaEnZona, semaforoDeCita } from './agenda-del-dia';
 import type { Prisma } from '@prisma/client';
@@ -31,20 +32,12 @@ import {
   camposParaElPublico,
   camposQueFaltan,
   datosDelLead,
-  formularioDeAgendaDe,
   limpiarRespuestas,
   pideDatoDeContacto,
   puntajeDelFormulario,
   resumenDeRespuestas,
 } from './formularios-de-equipo';
-import {
-  ANTELACIONES,
-  DURACIONES,
-  MAX_DIAS_HACIA_ADELANTE,
-  SEGUNDOS_DE_REDIRECCION,
-  leerAjustesDeAgenda,
-  normalizarAjustesDeAgenda,
-} from './ajustes-de-agenda';
+import { leerAjustesDeAgenda, type AjustesDeAgenda } from './ajustes-de-agenda';
 
 /**
  * La agenda del equipo de ventas — fase 4.
@@ -66,6 +59,12 @@ import {
  *    cancelaría la cita de otro.
  *
  * 3. **La zona horaria se mide, no se supone.** Ver `franjas-horarias.ts`.
+ *
+ * 4. **Un equipo tiene varias agendas de reserva** (`SalesAgenda`), cada una
+ *    con su enlace, horario, formulario y cupos; se configuran en
+ *    `agendas-de-reserva.service.ts`. Lo público entra por el slug de la
+ *    AGENDA, y el slug del equipo —el enlace de cuando había una sola— lleva a
+ *    su primera agenda activa.
  *
  * Todo método empieza por `resolveTeamAccess`, menos los tres públicos — que
  * se defienden con el token y con el equipo tener el módulo encendido.
@@ -97,6 +96,11 @@ export class SalesAgendaService {
     private prisma: PrismaService,
     private mkt: MktProviderService,
     private automations: SalesAutomationsService,
+    /**
+     * La sala de Google Meet de cada cita. Opcional: donde no está (las pruebas
+     * que montan el servicio a mano) la agenda funciona igual, sin sala.
+     */
+    @Optional() private calendario?: CalendarioDeEquipoService,
   ) {}
 
   // ── Horario del equipo ──────────────────────────────────────────────────
@@ -121,54 +125,6 @@ export class SalesAgendaService {
       // oficio: un enlace que nadie pidio es una puerta abierta de mas.
       slug: equipo?.slug ?? null,
     };
-  }
-
-  /**
-   * Crea el enlace publico del equipo, si no lo tiene.
-   *
-   * El slug sale del nombre y lleva sufijo hasta que entre: `SalesTeam.slug` es
-   * unico en toda la plataforma, asi que dos equipos «Ventas» de marcas
-   * distintas chocarian y Prisma devolveria un P2002 crudo.
-   *
-   * Idempotente: si ya tiene, devuelve el que tiene. Cambiarlo romperia los
-   * enlaces que el equipo ya haya repartido.
-   */
-  async asegurarEnlace(user: AuthUser, teamId: string) {
-    const acceso = await resolveTeamAccess(this.prisma, user, teamId);
-    exigirEscritura(acceso);
-    const actual = await this.prisma.salesTeam.findUnique({
-      where: { id: teamId },
-      select: { slug: true, name: true },
-    });
-    if (actual?.slug) return { slug: actual.slug, yaTenia: true };
-
-    const base =
-      (actual?.name ?? 'equipo')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 30) || 'equipo';
-
-    const ocupados = new Set(
-      (
-        await this.prisma.salesTeam.findMany({
-          where: { slug: { startsWith: base } },
-          select: { slug: true },
-        })
-      )
-        .map((t) => t.slug)
-        .filter(Boolean) as string[],
-    );
-    let libre = base;
-    for (let i = 2; ocupados.has(libre) && i <= 50; i++) libre = `${base}-${i}`;
-
-    await this.prisma.salesTeam.update({
-      where: { id: teamId },
-      data: { slug: libre },
-    });
-    return { slug: libre, yaTenia: false };
   }
 
   /**
@@ -231,55 +187,6 @@ export class SalesAgendaService {
       }
     });
     return this.verHorario(user, teamId);
-  }
-
-  /**
-   * «Cómo se ve y cuándo se reserva»: los ajustes de la agenda pública. Los ve
-   * cualquiera del equipo; los cambia el líder o un admin de la marca, como la
-   * configuración de la agenda en la referencia.
-   */
-  async verAjustes(user: AuthUser, teamId: string) {
-    const acceso = await resolveTeamAccess(this.prisma, user, teamId);
-    const equipo = await this.prisma.salesTeam.findUnique({
-      where: { id: teamId },
-      select: { bookingConfig: true },
-    });
-    return {
-      puedeConfigurar: acceso.puedeEscribir && (acceso.esAdminDeMarca || acceso.roles.includes('lider')),
-      nombreDelEquipo: acceso.team.name,
-      ajustes: leerAjustesDeAgenda(equipo?.bookingConfig),
-      opciones: {
-        duraciones: DURACIONES,
-        antelaciones: ANTELACIONES,
-        maxDias: MAX_DIAS_HACIA_ADELANTE,
-        redirecciones: SEGUNDOS_DE_REDIRECCION,
-      },
-    };
-  }
-
-  async guardarAjustes(user: AuthUser, teamId: string, body: unknown) {
-    const acceso = await resolveTeamAccess(this.prisma, user, teamId);
-    if (!(acceso.puedeEscribir && (acceso.esAdminDeMarca || acceso.roles.includes('lider')))) {
-      throw new ForbiddenException('Solo el líder del equipo o un admin de la marca pueden cambiar la agenda pública');
-    }
-    const parche = normalizarAjustesDeAgenda(body);
-    if ('error' in parche && typeof parche.error === 'string') throw new BadRequestException(parche.error);
-    // En UNA sentencia: `bookingConfig` guarda también el formulario de la
-    // agenda, y leer-mezclar-escribir pisaba lo que se guardara a la vez desde
-    // «Formularios».
-    const filas = await this.prisma.$executeRaw`
-      UPDATE "SalesTeam"
-         SET "bookingConfig" = COALESCE("bookingConfig", '{}'::jsonb) || ${JSON.stringify(parche)}::jsonb,
-             "updatedAt" = NOW()
-       WHERE "id" = ${teamId}
-         AND ("isActive" = true OR ${acceso.esAdminDeMarca}::boolean)`;
-    // Condicional, como en «Configuración»: si un admin desactivó el equipo entre
-    // la comprobación de permisos y esta escritura, el líder ya no escribe
-    // (Fable, 2026-09-15).
-    if (filas === 0) {
-      throw new ForbiddenException('El equipo acaba de desactivarse: ya no se puede cambiar su configuración');
-    }
-    return this.verAjustes(user, teamId);
   }
 
   private async exigirDelEquipo(teamId: string, userId: string) {
@@ -354,31 +261,31 @@ export class SalesAgendaService {
   }
 
   /**
-   * Los huecos de varios días con DOS consultas —franjas y citas— en vez de dos
-   * o tres por día. El calendario público llega a pedir 60 días desde un enlace
-   * sin sesión: día a día eran hasta 180 consultas por visita (Fable,
-   * 2026-09-15). La regla es la de `huecosDe`: el horario propio del vendedor
-   * si lo tiene ese día, si no el del equipo; con vendedor, solo bloquean sus
-   * citas.
+   * Los huecos de varios días con DOS consultas —horarios propios y citas— en
+   * vez de dos o tres por día. El calendario público llega a pedir 60 días desde
+   * un enlace sin sesión: día a día eran hasta 180 consultas por visita (Fable,
+   * 2026-09-15).
+   *
+   * El horario es el de la AGENDA; con un vendedor concreto, el suyo propio si
+   * lo tiene ese día. Con vendedor solo cuentan sus citas y cabe una a la vez;
+   * sin él cuentan todas las del equipo y caben tantas como cupos tenga la agenda.
    */
   private async huecosDelRango(
     teamId: string,
     fechas: string[],
     hostUserId: string | null,
     zona: string,
-    duracionMin: number,
-    antelacionMin: number,
+    ajustes: Pick<AjustesDeAgenda, 'franjas' | 'duracionMin' | 'antelacionMin' | 'pasoMin' | 'cuposPorHorario'>,
   ): Promise<Map<string, ReturnType<typeof huecosDelDia>>> {
     const porFecha = new Map<string, ReturnType<typeof huecosDelDia>>();
     if (!fechas.length) return porFecha;
-    const [franjas, citas] = await Promise.all([
-      this.prisma.salesAvailability.findMany({
-        where: {
-          salesTeamId: teamId,
-          OR: hostUserId ? [{ userId: null }, { userId: hostUserId }] : [{ userId: null }],
-        },
-        select: { userId: true, weekday: true, startMin: true, endMin: true },
-      }),
+    const [propias, citas] = await Promise.all([
+      hostUserId
+        ? this.prisma.salesAvailability.findMany({
+            where: { salesTeamId: teamId, userId: hostUserId },
+            select: { weekday: true, startMin: true, endMin: true },
+          })
+        : Promise.resolve([] as Array<{ weekday: number; startMin: number; endMin: number }>),
       this.prisma.salesMeeting.findMany({
         where: {
           salesTeamId: teamId,
@@ -392,29 +299,36 @@ export class SalesAgendaService {
         select: { startAt: true, durationMin: true },
       }),
     ]);
+    const cupos = hostUserId ? 1 : ajustes.cuposPorHorario;
+    const ocupado = citas.map((c) => ({
+      desde: c.startAt.getTime(),
+      hasta: c.startAt.getTime() + c.durationMin * 60_000,
+    }));
     for (const fecha of fechas) {
       const weekday = diaDeLaSemanaEn(fecha, zona);
-      const propias = hostUserId ? franjas.filter((f) => f.userId === hostUserId && f.weekday === weekday) : [];
-      const delDia = propias.length ? propias : franjas.filter((f) => f.userId === null && f.weekday === weekday);
+      const suyas = propias.filter((f) => f.weekday === weekday);
+      const delDia = suyas.length ? suyas : ajustes.franjas.filter((f) => f.weekday === weekday);
       if (!delDia.length) {
         porFecha.set(fecha, []);
         continue;
       }
-      const desde = minutosLocalesAUtc(fecha, 0, zona).getTime();
-      const hasta = minutosLocalesAUtc(fecha, 24 * 60, zona).getTime();
-      porFecha.set(
+      // `huecosDelDia` tira un hueco con UNA cita encima. Se le pasan sin citas y
+      // se cuentan aquí: el hueco se ofrece mientras las que coinciden no llenen
+      // los cupos. Con un cupo es exactamente lo de antes.
+      const libres = huecosDelDia({
         fecha,
-        huecosDelDia({
-          fecha,
-          zona,
-          franjas: delDia.map((f) => ({ startMin: f.startMin, endMin: f.endMin })),
-          ocupado: citas
-            .filter((c) => c.startAt.getTime() >= desde && c.startAt.getTime() < hasta)
-            .map((c) => ({ startAt: c.startAt, endAt: new Date(c.startAt.getTime() + c.durationMin * 60_000) })),
-          duracionMin,
-          antelacionMin,
-        }),
-      );
+        zona,
+        franjas: delDia.map((f) => ({ startMin: f.startMin, endMin: f.endMin })),
+        ocupado: [],
+        duracionMin: ajustes.duracionMin,
+        pasoMin: ajustes.pasoMin,
+        antelacionMin: ajustes.antelacionMin,
+      }).filter((h) => {
+        const inicio = h.startAt.getTime();
+        const fin = inicio + ajustes.duracionMin * 60_000;
+        return ocupado.filter((o) => inicio < o.hasta && fin > o.desde).length < cupos;
+      });
+      porFecha.set(fecha, libres);
     }
     return porFecha;
   }
@@ -472,8 +386,9 @@ export class SalesAgendaService {
 
   /**
    * La rejilla de UN día: closers en columnas, franjas en filas y el semáforo de
-   * cada cita. Las franjas salen del horario del equipo para ese día de la
-   * semana, estiradas para que quepa cualquier cita que caiga fuera.
+   * cada cita. Las franjas salen del horario de las agendas activas del equipo
+   * para ese día de la semana, estiradas para que quepa cualquier cita que caiga
+   * fuera.
    *
    * Las canceladas no ocupan celda: liberaron su hora. Un «no asistió» sí, en
    * rojo, porque esa hora se perdió y hay que verlo.
@@ -485,7 +400,7 @@ export class SalesAgendaService {
     const desde = minutosLocalesAUtc(elDia, 0, zona);
     const hasta = minutosLocalesAUtc(elDia, 24 * 60, zona);
 
-    const [closers, citas, horario, ajustesDelEquipo] = await Promise.all([
+    const [closers, citas, agendas] = await Promise.all([
       closersActivosDelEquipo(this.prisma, teamId),
       this.prisma.salesMeeting.findMany({
         where: {
@@ -495,14 +410,18 @@ export class SalesAgendaService {
         },
         orderBy: { startAt: 'asc' },
         take: 500,
-        include: { lead: { select: { id: true, name: true, company: true } } },
+        include: { lead: { select: { id: true, name: true, company: true, phone: true, source: true } } },
       }),
-      this.prisma.salesAvailability.findMany({
-        where: { salesTeamId: teamId, weekday: diaDeLaSemanaEn(elDia, zona) },
-        select: { startMin: true, endMin: true },
+      // El horario vive ahora en cada agenda de reserva, no en el equipo.
+      this.prisma.salesAgenda.findMany({
+        where: { salesTeamId: teamId, isActive: true },
+        orderBy: { createdAt: 'asc' },
+        select: { settings: true },
       }),
-      this.prisma.salesTeam.findUnique({ where: { id: teamId }, select: { bookingConfig: true } }),
     ]);
+    const ajustesDeAgendas = agendas.map((a) => leerAjustesDeAgenda(a.settings));
+    const semana = diaDeLaSemanaEn(elDia, zona);
+    const horario = ajustesDeAgendas.flatMap((a) => a.franjas.filter((f) => f.weekday === semana));
 
     // Una cita cuyo anfitrión no es closer activo —un miembro con otro rol, o un
     // closer dado de baja con citas ya puestas— no caía en ninguna columna: se
@@ -544,9 +463,11 @@ export class SalesAgendaService {
       puedeEscribir: acceso.puedeEscribir,
       fecha: elDia,
       zona,
-      // La duración de «Cómo se ve y cuándo se reserva»: la cita que se agenda
-      // desde aquí arranca con ella, no con 30 fijos (Fable, 2026-09-15).
-      duracionMin: leerAjustesDeAgenda(ajustesDelEquipo?.bookingConfig).duracionMin,
+      // Reasignar reparte el trabajo de otros: como en el Banco, líder o admin.
+      puedeAsignar: acceso.puedeEscribir && (acceso.esAdminDeMarca || acceso.roles.includes('lider')),
+      // La reunión que se agenda desde aquí dura lo que la primera agenda del
+      // equipo, no 30 fijos (Fable, 2026-09-15).
+      duracionMin: ajustesDeAgendas[0]?.duracionMin ?? DURACION_POR_DEFECTO,
       closers: columnas,
       franjas: franjasDelDia(horario, horas),
       citas: citas.map((c, i) => ({
@@ -558,7 +479,18 @@ export class SalesAgendaService {
         durationMin: c.durationMin,
         status: c.status,
         semaforo: semaforoDeCita(c),
-        lead: c.lead ? { id: c.lead.id, nombre: c.lead.name, empresa: c.lead.company } : null,
+        // Para «Confirmar asistencia» o «Quitar confirmación» en el detalle.
+        confirmada: !!c.confirmedAt || c.status === 'CONFIRMADA',
+        notes: c.notes,
+        lead: c.lead
+          ? {
+              id: c.lead.id,
+              nombre: c.lead.name,
+              empresa: c.lead.company,
+              telefono: c.lead.phone,
+              origen: c.lead.source,
+            }
+          : null,
       })),
     };
   }
@@ -588,16 +520,16 @@ export class SalesAgendaService {
   }
 
   /**
-   * Agenda una cita.
+   * Agenda una cita desde dentro («Nueva reunión» de la cuadrícula).
    *
-   * El candado está aquí y no en la pantalla de huecos: entre ver «10:30
-   * libre» y pulsar pasan segundos, y en esos segundos cabe otro. Se comprueba
-   * el solape DENTRO de la transacción, contra las citas que ocupan sitio.
+   * El lead viene por id o por sus datos: la referencia agenda con el nombre y
+   * el WhatsApp escritos a mano, sin buscar antes en el tablero. Con esos datos
+   * se reutiliza el lead con ese teléfono o se crea en la primera columna, como
+   * en la reserva pública.
    *
-   * No hay índice único que lo garantice —las citas no chocan por igualdad,
-   * chocan por rango— así que la transacción es lo que hay. Con dos escrituras
-   * simultáneas exactas todavía podrían colarse las dos; para el volumen de un
-   * equipo de ventas es un riesgo que no paga una tabla de bloqueos.
+   * El choque se mira ANTES de crear el lead: si no, cada intento en una hora
+   * ocupada dejaba otra ficha de la misma persona. La comprobación que manda
+   * sigue siendo la de dentro de `crearCita`.
    */
   async agendar(
     user: AuthUser,
@@ -608,26 +540,38 @@ export class SalesAgendaService {
       startAt: string;
       durationMin?: number;
       notes?: string | null;
+      lead?: { nombre?: string | null; whatsapp?: string | null; empresa?: string | null; fuente?: string | null } | null;
     },
   ) {
     const acceso = await resolveTeamAccess(this.prisma, user, teamId);
     exigirEscritura(acceso);
+    let leadId = body.leadId ?? null;
+    if (!leadId && body.lead) {
+      const nombre = (body.lead.nombre ?? '').trim();
+      if (!nombre) throw new BadRequestException('El nombre del lead es obligatorio.');
+      const { inicio, fin, hostUserId } = await this.validarCita(teamId, body);
+      if ((await this.coincidencias(this.prisma, teamId, inicio, fin, hostUserId)) > 0) {
+        throw new ConflictException('Esa hora ya está ocupada. Elige otra, por favor.');
+      }
+      leadId = await this.leadDeContacto(teamId, acceso.team.whiteLabelId, {
+        name: nombre,
+        phone: body.lead.whatsapp,
+        company: body.lead.empresa,
+        source: body.lead.fuente,
+        creadoPor: user.id,
+      });
+    }
     return this.crearCita(teamId, {
       ...body,
+      leadId,
       creadaPor: user.id,
     });
   }
 
-  private async crearCita(
+  /** Lo que se comprueba de una cita antes de tocar la base: hora, duración y que el closer sea del equipo. */
+  private async validarCita(
     teamId: string,
-    body: {
-      leadId?: string | null;
-      hostUserId?: string | null;
-      startAt: string;
-      durationMin?: number;
-      notes?: string | null;
-      creadaPor?: string | null;
-    },
+    body: { startAt: string; durationMin?: number; hostUserId?: string | null },
   ) {
     const inicio = new Date(body.startAt);
     if (Number.isNaN(inicio.getTime())) {
@@ -642,6 +586,58 @@ export class SalesAgendaService {
     }
     const hostUserId = body.hostUserId ?? null;
     if (hostUserId) await this.exigirDelEquipo(teamId, hostUserId);
+    return { inicio, fin: new Date(inicio.getTime() + duracion * 60_000), duracion, hostUserId };
+  }
+
+  /**
+   * Cuántas citas que ocupan sitio se pisan con [inicio, fin): con closer, solo
+   * las suyas; sin él, las de todo el equipo. Se traen las de ±12 h y se compara
+   * el rango en memoria: Prisma no sabe expresar «solapa» sobre una duración que
+   * vive en otra columna.
+   */
+  private async coincidencias(
+    db: Prisma.TransactionClient,
+    teamId: string,
+    inicio: Date,
+    fin: Date,
+    hostUserId: string | null,
+    sinContar?: string,
+  ): Promise<number> {
+    const cercanas = await db.salesMeeting.findMany({
+      where: {
+        salesTeamId: teamId,
+        status: { in: OCUPAN },
+        startAt: {
+          gte: new Date(inicio.getTime() - 12 * 3600_000),
+          lt: new Date(inicio.getTime() + 12 * 3600_000),
+        },
+        ...(hostUserId ? { hostUserId } : {}),
+        ...(sinContar ? { id: { not: sinContar } } : {}),
+      },
+      select: { startAt: true, durationMin: true },
+    });
+    return cercanas.filter((c) => {
+      const cFin = new Date(c.startAt.getTime() + c.durationMin * 60_000);
+      return inicio < cFin && fin > c.startAt;
+    }).length;
+  }
+
+  private async crearCita(
+    teamId: string,
+    body: {
+      leadId?: string | null;
+      hostUserId?: string | null;
+      startAt: string;
+      durationMin?: number;
+      notes?: string | null;
+      creadaPor?: string | null;
+      /** La agenda de reserva de la que viene, si viene de una. */
+      agendaId?: string | null;
+      /** Cuántas citas pueden coincidir sin closer: los cupos de la agenda. Con closer, siempre una. */
+      cupos?: number;
+    },
+  ) {
+    const { inicio, duracion, fin, hostUserId } = await this.validarCita(teamId, body);
 
     if (body.leadId) {
       const l = await this.prisma.salesLead.findFirst({
@@ -651,30 +647,16 @@ export class SalesAgendaService {
       if (!l) throw new NotFoundException('Lead no encontrado');
     }
 
-    const fin = new Date(inicio.getTime() + duracion * 60_000);
-
+    const cupos = hostUserId ? 1 : Math.max(1, body.cupos ?? 1);
     const cita = await this.prisma.$transaction(async (tx) => {
-      // Se traen las del día y se compara el rango en memoria: Prisma no sabe
-      // expresar «solapa» sobre una duración que vive en otra columna.
-      const delDia = await tx.salesMeeting.findMany({
-        where: {
-          salesTeamId: teamId,
-          status: { in: OCUPAN },
-          startAt: {
-            gte: new Date(inicio.getTime() - 12 * 3600_000),
-            lt: new Date(inicio.getTime() + 12 * 3600_000),
-          },
-          ...(hostUserId ? { hostUserId } : {}),
-        },
-        select: { startAt: true, durationMin: true },
-      });
-      const choca = delDia.some((c) => {
-        const cFin = new Date(c.startAt.getTime() + c.durationMin * 60_000);
-        return inicio < cFin && fin > c.startAt;
-      });
-      if (choca) {
+      // CON CANDADO POR EQUIPO. Sin él, dos reservas a la vez contaban las mismas
+      // citas, cabían las dos y la hora se quedaba con una más de las que admite.
+      // Con cupos ya no es un caso raro: es lo que pasa cuando dos personas abren
+      // el mismo enlace a la vez.
+      await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1))`, `citas:${teamId}`);
+      if ((await this.coincidencias(tx, teamId, inicio, fin, hostUserId)) >= cupos) {
         throw new ConflictException(
-          'Esa hora acaba de ocuparse. Elegí otra, por favor.',
+          'Esa hora acaba de ocuparse. Elige otra, por favor.',
         );
       }
 
@@ -690,12 +672,18 @@ export class SalesAgendaService {
           // 32 caracteres: el enlace es la única llave de esa cita.
           manageToken: nanoid(32),
           notes: body.notes?.trim() || null,
+          agendaId: body.agendaId ?? null,
         },
         include: {
           lead: { select: { id: true, name: true, phone: true, email: true } },
         },
       });
     });
+
+    // El evento y su sala de Meet. Se espera como mucho 8 s para que {{sala}}
+    // entre en el aviso de «cita agendada»; si Google tarda más, la sala se
+    // guarda igual en segundo plano y la cita no espera a nadie.
+    const sala = (await this.calendario?.sincronizarCita(cita.id, { esperarMs: 8000 })) ?? null;
 
     const leadDeLaCita = cita.leadId;
     if (leadDeLaCita) {
@@ -707,23 +695,33 @@ export class SalesAgendaService {
       );
       void this.automations.disparar(leadDeLaCita, 'sales_meeting_booked', {
         cita_fecha: fechaEn(inicio, ZONA_POR_DEFECTO),
+        ...(sala ? { sala } : {}),
       });
     }
     return this.paraElPanel(cita);
   }
 
   /**
-   * El lead de una reserva pública: reutiliza el que haya con ese teléfono, o
-   * lo crea en la primera columna.
+   * El lead de una cita: reutiliza el que haya con ese teléfono, o lo crea en
+   * la primera columna. Lo usan la reserva pública y «Nueva reunión».
    *
    * Reutilizar es lo importante: si no, cada vez que alguien reagenda aparece
    * una tarjeta nueva y el vendedor acaba con la misma persona cuatro veces en
    * el tablero.
    */
-  private async leadDeLaReservaPublica(
+  private async leadDeContacto(
     teamId: string,
     whiteLabelId: string | null,
-    body: { name?: string | null; phone?: string | null; email?: string | null },
+    body: {
+      name?: string | null;
+      phone?: string | null;
+      email?: string | null;
+      /** Desde dentro. La reserva pública la completa después, con lo del formulario. */
+      company?: string | null;
+      /** De dónde llegó. Sin él, «agenda». */
+      source?: string | null;
+      creadoPor?: string | null;
+    },
   ): Promise<string | null> {
     const phone = (body.phone ?? '').trim();
     const phoneKey = phoneKeyOf(phone);
@@ -743,7 +741,17 @@ export class SalesAgendaService {
         where: { salesTeamId: teamId, phoneKey },
         select: { id: true },
       });
-      if (ya) return ya.id;
+      if (ya) {
+        // La empresa escrita entra si la ficha no tenía; lo que ya había no se pisa.
+        const empresa = (body.company ?? '').trim().slice(0, 160);
+        if (empresa) {
+          await this.prisma.salesLead.updateMany({
+            where: { id: ya.id, salesTeamId: teamId, company: null },
+            data: { company: empresa },
+          });
+        }
+        return ya.id;
+      }
     }
 
     // Se SIEMBRAN si el equipo aún no tiene tablero abierto. Rendirse aquí
@@ -764,7 +772,9 @@ export class SalesAgendaService {
         phone: phone || null,
         phoneKey,
         email: emailNormOf(body.email),
-        source: 'agenda',
+        company: (body.company ?? '').trim().slice(0, 160) || null,
+        source: (body.source ?? '').trim().slice(0, 40) || 'agenda',
+        createdByUserId: body.creadoPor ?? null,
       },
       select: { id: true },
     });
@@ -776,6 +786,7 @@ export class SalesAgendaService {
     teamId: string,
     citaId: string,
     estado: string,
+    nota?: string | null,
   ) {
     const acceso = await resolveTeamAccess(this.prisma, user, teamId);
     exigirEscritura(acceso);
@@ -795,11 +806,14 @@ export class SalesAgendaService {
       },
     });
     if (cita.leadId) {
+      // Las observaciones de «Registrar resultado» van con el cambio de estado:
+      // la cita no tiene columna para ellas, y el historial del lead es donde se leen.
+      const observaciones = (nota ?? '').trim().slice(0, 2000);
       await this.anotarEnElLead(
         cita.leadId,
         teamId,
         user.id,
-        `Cita marcada como ${estado.toLowerCase().replace('_', ' ')}`,
+        `Cita marcada como ${estado.toLowerCase().replace('_', ' ')}${observaciones ? `\nObservaciones: ${observaciones}` : ''}`,
       );
       // Solo el plantón tiene disparador propio: es el único estado que pide
       // una reacción automática («¿reagendamos?»). Los demás los ve el
@@ -808,46 +822,144 @@ export class SalesAgendaService {
         void this.automations.disparar(cita.leadId, 'sales_meeting_no_show', {});
       }
     }
+    // Cancelada: cancela el evento. Reabierta: lo recupera con su misma sala.
+    void this.calendario?.sincronizarCita(citaId);
     return this.paraElPanel(actualizada);
+  }
+
+  /**
+   * «Reagendar» desde el detalle de la reunión: la misma cita a otra hora.
+   *
+   * Vuelve a PENDIENTE y se le borran las confirmaciones y el recordatorio
+   * enviado: eran de la hora vieja. Con ellos puestos, la cuadrícula la pintaba
+   * en verde para una hora que el cliente nunca confirmó, y el recordatorio de la
+   * hora nueva no salía porque el candado creía que ya se había mandado.
+   *
+   * Con el mismo candado que agendar, y UPDATE condicional sobre las que siguen
+   * abiertas: una cita que se canceló mientras tanto no se reabre.
+   */
+  async reagendar(user: AuthUser, teamId: string, citaId: string, startAt: string) {
+    const acceso = await resolveTeamAccess(this.prisma, user, teamId);
+    exigirEscritura(acceso);
+    const cita = await this.prisma.salesMeeting.findFirst({
+      where: { id: citaId, salesTeamId: teamId },
+      select: { id: true, leadId: true, hostUserId: true, durationMin: true, status: true, agendaId: true },
+    });
+    if (!cita) throw new NotFoundException('Cita no encontrada');
+    if (!['PENDIENTE', 'CONFIRMADA'].includes(cita.status)) {
+      throw new BadRequestException('Esa reunión ya está cerrada: agenda una nueva.');
+    }
+    // Con closer, una cita suya a la vez. Sin él, los cupos de la agenda de la que
+    // vino, como al reservarla: comparando con uno, mover una cita de una agenda
+    // de 3 cupos a una hora con otra encima se rechazaba (Fable, 2026-09-15).
+    const agenda =
+      !cita.hostUserId && cita.agendaId
+        ? await this.prisma.salesAgenda.findFirst({
+            where: { id: cita.agendaId, salesTeamId: teamId },
+            select: { settings: true },
+          })
+        : null;
+    const cupos = agenda ? leerAjustesDeAgenda(agenda.settings).cuposPorHorario : 1;
+    // Sin volver a exigir que el closer siga en el equipo: si se fue, la cita
+    // igual hay que moverla (y reasignarla).
+    const { inicio, fin } = await this.validarCita(teamId, { startAt, durationMin: cita.durationMin });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1))`, `citas:${teamId}`);
+      if ((await this.coincidencias(tx, teamId, inicio, fin, cita.hostUserId, cita.id)) >= cupos) {
+        throw new ConflictException('Esa hora ya está ocupada. Elige otra, por favor.');
+      }
+      const r = await tx.salesMeeting.updateMany({
+        where: { id: cita.id, salesTeamId: teamId, status: { in: ['PENDIENTE', 'CONFIRMADA'] } },
+        data: {
+          startAt: inicio,
+          status: 'PENDIENTE',
+          reminderSentAt: null,
+          confirmedAt: null,
+          confirmedByUserId: null,
+          conf1h: false,
+          conf1hAt: null,
+          conf30min: false,
+          conf30minAt: null,
+        },
+      });
+      if (r.count === 0) throw new NotFoundException('La reunión ya no se puede reagendar');
+    });
+    if (cita.leadId) {
+      await this.anotarEnElLead(
+        cita.leadId,
+        teamId,
+        user.id,
+        `Cita reagendada para el ${fechaEn(inicio, ZONA_POR_DEFECTO)} a las ${horaEnZona(inicio, ZONA_POR_DEFECTO)}`,
+      );
+    }
+    // Mueve el evento; la sala de Meet sigue siendo la misma.
+    void this.calendario?.sincronizarCita(cita.id);
+    return { ok: true };
   }
 
   // ── Público: el prospecto, sin cuenta ───────────────────────────────────
 
   /**
-   * El formulario que pide la agenda pública del equipo, o null (nombre y teléfono).
+   * El formulario que pide una agenda de reserva, o null (nombre y teléfono).
    *
    * Solo si está activo y asegura un dato de contacto. Las pantallas ya impiden
    * elegir uno sin él, pero una edición a la vez que otro lo elige podía colarlo,
    * y sin ese dato la cita saldría sin lead: mejor el formulario de siempre.
    */
-  private async formularioDeLaAgenda(teamId: string, bookingConfig: Prisma.JsonValue) {
-    const id = formularioDeAgendaDe(bookingConfig);
-    if (!id) return null;
-    const f = await this.prisma.salesForm.findFirst({ where: { id, salesTeamId: teamId, isActive: true } });
+  private async formularioDeLaAgenda(teamId: string, formId: string | null) {
+    if (!formId) return null;
+    const f = await this.prisma.salesForm.findFirst({ where: { id: formId, salesTeamId: teamId, isActive: true } });
     return f && pideDatoDeContacto(camposGuardados(f.fields)) ? f : null;
   }
 
   /**
-   * El calendario que ve el prospecto.
+   * La agenda que abre `/agenda/<slug>`.
    *
-   * Comprueba el módulo igual que el resto: si la marca lo tiene apagado, este
-   * enlace deja de existir. Sin eso, apagar el módulo escondería el menú del
-   * equipo y dejaría el enlace público sirviendo citas.
+   * Primero la AGENDA con ese enlace. Si no hay ninguna, el slug del EQUIPO lleva
+   * a su primera agenda activa: es el enlace que se repartía cuando cada equipo
+   * tenía una sola, y tiene que seguir abriendo algo aunque esa agenda cambie de
+   * enlace o se borre. Una agenda que existe pero está apagada NO cae al equipo:
+   * apagarla es cerrar ese enlace.
    *
-   * Un equipo PAUSADO («Configuración») tampoco la ofrece: pausado es justo «no
-   * recibe citas nuevas». Las ya reservadas se siguen gestionando por su enlace.
+   * Comprueba el módulo igual que el resto: si la marca lo tiene apagado, el
+   * enlace deja de existir. Un equipo PAUSADO («Configuración») tampoco ofrece
+   * nada: pausado es justo «no recibe citas nuevas». Las ya reservadas se siguen
+   * gestionando por su enlace.
    */
-  async calendarioPublico(teamSlug: string, hostUserId?: string | null) {
-    const team = await this.prisma.salesTeam.findFirst({
-      where: { slug: teamSlug, isActive: true, status: { not: 'pausado' } },
-      select: { id: true, name: true, whiteLabelId: true, bookingConfig: true },
-    });
-    if (!team) throw new NotFoundException('Agenda no disponible');
-    await this.exigirModulo(team.whiteLabelId);
+  private async agendaPublica(slug: string) {
+    const campos = {
+      id: true,
+      salesTeamId: true,
+      isActive: true,
+      formId: true,
+      settings: true,
+      team: { select: { id: true, name: true, whiteLabelId: true, isActive: true, status: true } },
+    } as const;
+    let agenda = await this.prisma.salesAgenda.findUnique({ where: { slug }, select: campos });
+    if (!agenda) {
+      const equipo = await this.prisma.salesTeam.findFirst({ where: { slug }, select: { id: true } });
+      if (equipo) {
+        agenda = await this.prisma.salesAgenda.findFirst({
+          where: { salesTeamId: equipo.id, isActive: true },
+          orderBy: { createdAt: 'asc' },
+          select: campos,
+        });
+      }
+    }
+    if (!agenda || !agenda.isActive || !agenda.team.isActive || agenda.team.status === 'pausado') {
+      throw new NotFoundException('Agenda no disponible');
+    }
+    await this.exigirModulo(agenda.team.whiteLabelId);
+    return agenda;
+  }
+
+  /** El calendario que ve el prospecto: los días y las horas libres de ESA agenda. */
+  async calendarioPublico(slug: string, hostUserId?: string | null) {
+    const agenda = await this.agendaPublica(slug);
 
     // «Cómo se ve y cuándo se reserva»: cuántos días se ofrecen, qué duración,
-    // con cuánta antelación y qué fechas no.
-    const ajustes = leerAjustesDeAgenda(team.bookingConfig);
+    // con cuánta antelación, qué fechas no, y el horario y los cupos.
+    const ajustes = leerAjustesDeAgenda(agenda.settings);
     const bloqueadas = new Set(ajustes.fechasBloqueadas);
     const hoy = fechaEn(new Date(), ZONA_POR_DEFECTO);
     const fechas: string[] = [];
@@ -859,23 +971,22 @@ export class SalesAgendaService {
       if (!bloqueadas.has(fecha)) fechas.push(fecha);
     }
     const huecosPorFecha = await this.huecosDelRango(
-      team.id,
+      agenda.salesTeamId,
       fechas,
       hostUserId ?? null,
       ZONA_POR_DEFECTO,
-      ajustes.duracionMin,
-      ajustes.antelacionMin,
+      ajustes,
     );
     const dias: Array<{ fecha: string; huecos: { startAt: Date; label: string }[] }> = [];
     for (const fecha of fechas) {
       const huecos = huecosPorFecha.get(fecha) ?? [];
       if (huecos.length) dias.push({ fecha, huecos });
     }
-    // El formulario que el equipo eligió para su agenda, si está activo. Sin él,
-    // la página pide lo de siempre: nombre y teléfono.
-    const formulario = await this.formularioDeLaAgenda(team.id, team.bookingConfig);
+    // El formulario que eligió esta agenda, si está activo. Sin él, la página
+    // pide lo de siempre: nombre y teléfono.
+    const formulario = await this.formularioDeLaAgenda(agenda.salesTeamId, agenda.formId);
     return {
-      team: { name: team.name },
+      team: { name: agenda.team.name },
       zona: ZONA_POR_DEFECTO,
       titulo: ajustes.titulo,
       subtitulo: ajustes.subtitulo,
@@ -894,7 +1005,7 @@ export class SalesAgendaService {
   }
 
   async reservarPublico(
-    teamSlug: string,
+    slug: string,
     body: {
       startAt: string;
       hostUserId?: string | null;
@@ -905,18 +1016,14 @@ export class SalesAgendaService {
       respuestas?: Record<string, unknown> | null;
     },
   ) {
-    const team = await this.prisma.salesTeam.findFirst({
-      where: { slug: teamSlug, isActive: true, status: { not: 'pausado' } },
-      select: { id: true, whiteLabelId: true, bookingConfig: true },
-    });
-    if (!team) throw new NotFoundException('Agenda no disponible');
-    await this.exigirModulo(team.whiteLabelId);
+    const agenda = await this.agendaPublica(slug);
+    const team = agenda.team;
 
     // EL FORMULARIO, ANTES QUE LA HORA. Si la agenda pide uno, lo que llega se
     // limpia (solo sus preguntas, cada una con su tipo) y se exige lo
     // obligatorio que la persona tuvo delante. Lo que el formulario dice del
     // lead manda sobre los campos sueltos del cuerpo.
-    const formulario = await this.formularioDeLaAgenda(team.id, team.bookingConfig);
+    const formulario = await this.formularioDeLaAgenda(team.id, agenda.formId);
     const campos = formulario ? camposGuardados(formulario.fields) : [];
     const respuestas = formulario ? limpiarRespuestas(campos, body.respuestas) : null;
     if (respuestas) {
@@ -931,7 +1038,7 @@ export class SalesAgendaService {
       phone: delFormulario.phone ?? body.phone,
       email: delFormulario.email ?? body.email,
     };
-    // SIN UN DATO DE CONTACTO NO HAY RESERVA. `leadDeLaReservaPublica` devolvía
+    // SIN UN DATO DE CONTACTO NO HAY RESERVA. `leadDeContacto` devolvía
     // null en silencio y la cita salía sin lead: el closer veía el hueco ocupado
     // sin saber de quién. Lo exigía solo la página; un `curl`, o una página
     // cargada CON formulario cuando el equipo lo quitaba antes de enviar, pasaba
@@ -960,10 +1067,10 @@ export class SalesAgendaService {
     if (Number.isNaN(inicioPedido.getTime())) {
       throw new BadRequestException('La hora de la cita no es válida.');
     }
-    // Lo mismo que ofrece el calendario, con los ajustes del equipo: una fecha
+    // Lo mismo que ofrece el calendario, con los ajustes de la agenda: una fecha
     // bloqueada o más allá de los días que se ofrecen no se reserva escribiendo
-    // la hora a mano.
-    const ajustes = leerAjustesDeAgenda(team.bookingConfig);
+    // la hora a mano, y una hora con los cupos llenos tampoco.
+    const ajustes = leerAjustesDeAgenda(agenda.settings);
     const fechaPedida = fechaEn(inicioPedido, ZONA_POR_DEFECTO);
     const hoyEnLaZona = fechaEn(new Date(), ZONA_POR_DEFECTO);
     const ultimoDia = fechaEn(
@@ -973,18 +1080,13 @@ export class SalesAgendaService {
       ),
       ZONA_POR_DEFECTO,
     );
-    const huecosDelDia =
+    const ofrecidos =
       ajustes.fechasBloqueadas.includes(fechaPedida) || fechaPedida > ultimoDia
         ? []
-        : await this.huecosDe(
-            team.id,
-            fechaPedida,
-            body.hostUserId ?? null,
-            ZONA_POR_DEFECTO,
-            ajustes.duracionMin,
-            ajustes.antelacionMin,
-          );
-    if (!huecosDelDia.some((h) => h.startAt.getTime() === inicioPedido.getTime())) {
+        : ((
+            await this.huecosDelRango(team.id, [fechaPedida], body.hostUserId ?? null, ZONA_POR_DEFECTO, ajustes)
+          ).get(fechaPedida) ?? []);
+    if (!ofrecidos.some((h) => h.startAt.getTime() === inicioPedido.getTime())) {
       throw new BadRequestException(
         'Ese horario ya no está disponible. Elige otro.',
       );
@@ -993,7 +1095,7 @@ export class SalesAgendaService {
     // El prospecto que agenda ENTRA AL TABLERO. Si no, la cita queda huérfana:
     // el vendedor no la ve en su embudo y el recordatorio no tiene a quién
     // avisar, porque el teléfono se habría quedado dentro de una nota.
-    const leadId = await this.leadDeLaReservaPublica(team.id, team.whiteLabelId, datosDeContacto);
+    const leadId = await this.leadDeContacto(team.id, team.whiteLabelId, datosDeContacto);
     // Lo que el formulario sabe del lead y el lead no tenía (empresa, Instagram)
     // se completa, sin pisar lo que ya había.
     if (leadId && delFormulario.company) {
@@ -1014,6 +1116,8 @@ export class SalesAgendaService {
       hostUserId: body.hostUserId ?? null,
       startAt: body.startAt,
       durationMin: ajustes.duracionMin,
+      agendaId: agenda.id,
+      cupos: ajustes.cuposPorHorario,
       // Con formulario, las notas de la cita llevan sus respuestas: el closer
       // las lee sin abrir nada más.
       notes: (body.notes ?? '').trim() || (respuestas ? resumenDeRespuestas(campos, respuestas) : '') || null,
@@ -1094,6 +1198,7 @@ export class SalesAgendaService {
         'El prospecto canceló la cita desde su enlace',
       );
     }
+    void this.calendario?.sincronizarCita(c.id);
     return { ok: true, yaEstaba: false };
   }
 
@@ -1166,7 +1271,7 @@ export class SalesAgendaService {
         .sendSms({
           whiteLabelId: wlId,
           toPhone: telefono,
-          message: `Hola${c.lead?.name ? ` ${c.lead.name.split(' ')[0]}` : ''}, te recordamos tu cita de hoy a las ${hora} con ${c.team.name}.`,
+          message: `Hola${c.lead?.name ? ` ${c.lead.name.split(' ')[0]}` : ''}, te recordamos tu cita de hoy a las ${hora} con ${c.team.name}.${c.meetUrl ? ` Entra aquí: ${c.meetUrl}` : ''}`,
           ctx: {
             feature: 'sales-agenda-recordatorio',
             whiteLabelId: wlId,

@@ -1,25 +1,35 @@
 'use client';
 
 /**
- * La rejilla del día de la Agenda: closers en columnas, franjas en filas.
+ * La pestaña Agenda del equipo: la cuadrícula del día, y nada más.
  *
- * La Agenda del equipo tenía el enlace público, el horario y una lista de
- * próximas citas. Para repartir el día hace falta verlo de un vistazo —quién
- * está libre a las 10:00, qué citas siguen sin confirmar—, y eso es la rejilla
- * de TeamClubify. Se añade encima; lo demás se queda.
+ * Es la agenda de TeamClubify: flechas, fecha y «Hoy»; una columna por closer y
+ * una fila cada 30 minutos; «+ Disponible» en lo libre, que abre «Nueva
+ * reunión»; y cada cita con el color de su confirmación, que abre «Reunión».
+ * Aquí estaban también el enlace público, el horario, los ajustes y la lista de
+ * próximas citas; Javier comparó con la referencia y no van en esta pestaña. El
+ * enlace, el horario y los ajustes son ahora de cada agenda de reserva
+ * («Configuración»).
+ *
+ * Dos cosas que la referencia no hace y se quedan, porque esconderlas es perder
+ * citas: dos citas en la misma celda se apilan, y la cita de alguien que ya no es
+ * closer activo abre su propia columna.
  *
  * El semáforo lo calcula el SERVIDOR (verde = confirmó o ya se hizo, rojo =
- * canceló o no asistió, gris = sin confirmar), igual que el del Banco: si lo
+ * canceló o no asistió, sin punto = sin confirmar), igual que el del Banco: si lo
  * calculara la pantalla, dos personas podrían ver colores distintos.
  *
- * Colores por tokens (ok/bad/bg2): bajo `.brand-panel` la marca pone los suyos.
+ * Colores por tokens. Bajo `.brand-panel` todo lo que lleva `bg-brand` o
+ * `text-brand` en la clase se pinta con el color de la marca aunque vaya detrás
+ * de `hover:`; por eso aquí no hay `hover:text-brand`.
  */
 
 import Link from 'next/link';
-import { useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
+import { CabeceraDeEquipo, type EquipoDeCabecera } from '@/components/ventas/CabeceraDeEquipo';
+import { useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
 
 type Semaforo = 'verde' | 'rojo' | 'gris';
 
@@ -32,82 +42,131 @@ type Cita = {
   durationMin: number;
   status: string;
   semaforo: Semaforo;
-  lead: { id: string; nombre: string | null; empresa: string | null } | null;
+  confirmada: boolean;
+  notes: string | null;
+  lead: {
+    id: string;
+    nombre: string | null;
+    empresa: string | null;
+    telefono: string | null;
+    origen: string | null;
+  } | null;
 };
 
+type Closer = { id: string; nombre: string; activo?: boolean };
+
 type Dia = {
+  team: EquipoDeCabecera;
   fecha: string;
   zona: string;
   puedeEscribir: boolean;
+  /** Reasignar: líder o admin de la marca, como en el Banco. */
+  puedeAsignar: boolean;
   /** Los closers activos y, con `activo: false`, quien tiene cita ese día sin serlo. */
-  closers: { id: string; nombre: string; activo?: boolean }[];
+  closers: Closer[];
   franjas: string[];
   citas: Cita[];
-  /** La duración que el equipo puso a sus citas («Cómo se ve y cuándo se reserva»). */
-  duracionMin?: number;
+  /** La duración de la primera agenda del equipo: con ella nace la reunión. */
+  duracionMin: number;
 };
 
-const PUNTO: Record<Semaforo, string> = { verde: '🟢', rojo: '🔴', gris: '⚪' };
-const CELDA: Record<Semaforo, string> = {
-  verde: 'bg-ok-soft text-ok-ink',
-  rojo: 'bg-bad-soft text-bad-ink',
-  gris: 'bg-bg2 text-ink hover:bg-line2',
+/** El semáforo de la referencia (`APPT_COLOR_META`). Sin amarillo: aquí no hay estado «reagendada». */
+const SEMAFORO: Record<Semaforo, { punto: string; etiqueta: string; celda: string; chip: string }> = {
+  verde: { punto: '🟢', etiqueta: 'Confirmó', celda: 'bg-ok-soft text-ok-ink', chip: 'bg-ok-soft text-ok-ink' },
+  rojo: { punto: '🔴', etiqueta: 'Canceló / no asistió', celda: 'bg-bad-soft text-bad-ink', chip: 'bg-bad-soft text-bad-ink' },
+  gris: { punto: '⚪', etiqueta: 'Sin confirmar', celda: 'bg-brand-soft text-brand', chip: 'bg-bg2 text-mute' },
 };
 
-const ESTADOS = [
-  { valor: 'PENDIENTE', label: 'Pendiente' },
-  { valor: 'CONFIRMADA', label: 'Confirmada' },
-  { valor: 'REALIZADA', label: 'Realizada' },
-  { valor: 'NO_ASISTIO', label: 'No asistió' },
-  { valor: 'CANCELADA', label: 'Cancelada' },
+const ESTADO: Record<string, string> = {
+  PENDIENTE: 'Pendiente',
+  CONFIRMADA: 'Confirmada',
+  REALIZADA: 'Realizada',
+  NO_ASISTIO: 'No asistió',
+  CANCELADA: 'Cancelada',
+};
+
+/** «Resultado» del detalle: lo que ya se registró de esa reunión. */
+const RESULTADO: Record<string, string> = {
+  REALIZADA: 'Se realizó',
+  NO_ASISTIO: 'No asistió',
+};
+
+/** Las de la referencia (`LEAD_SOURCES`). */
+const FUENTES = ['WhatsApp', 'Instagram', 'Facebook', 'TikTok', 'Referido', 'Sitio web', 'Publicidad', 'Otro'];
+
+const URGENCIAS = [
+  { clave: 'alta', etiqueta: 'Alta' },
+  { clave: 'media', etiqueta: 'Media' },
+  { clave: 'baja', etiqueta: 'Baja' },
 ];
 
-/** Suma días a una fecha YYYY-MM-DD sin que la zona del navegador la corra. */
+/** Suma días a una fecha AAAA-MM-DD sin que la zona del navegador la corra. */
 function moverFecha(fecha: string, dias: number): string {
   const d = new Date(`${fecha}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + dias);
   return d.toISOString().slice(0, 10);
 }
 
-/** «09:30» → «9:30 a. m.», como se lee una agenda. */
+/** «09:30» → «9:30 AM», como la referencia. */
 function hora12(hhmm: string): string {
   const [h, m] = hhmm.split(':').map(Number);
-  const sufijo = h < 12 ? 'a. m.' : 'p. m.';
-  const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${String(m).padStart(2, '0')} ${sufijo}`;
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 }
 
-function titulo(fecha: string): string {
-  return new Intl.DateTimeFormat('es-CO', {
-    timeZone: 'UTC',
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  }).format(new Date(`${fecha}T12:00:00Z`));
-}
+/**
+ * La agenda cuenta en hora de Bogotá: la fecha y la hora que se ven se guardan
+ * como ese instante, diga lo que diga el reloj del navegador.
+ */
+const instanteEnBogota = (fecha: string, hhmm: string) => new Date(`${fecha}T${hhmm}:00-05:00`).toISOString();
+
+const mensaje = (e: unknown, porDefecto: string) => (e as { message?: string } | null)?.message || porDefecto;
+
+/** «martes, 15 de septiembre», en hora de Bogotá: la fecha ISO cruda no se lee. */
+const fechaLegible = (iso: string) =>
+  new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', weekday: 'long', day: 'numeric', month: 'long' }).format(
+    new Date(iso),
+  );
 
 export function AgendaDelDia({ teamId }: { teamId: string }) {
   const rutaEquipos = useBaseDeEquipos();
-  const [fecha, setFecha] = useState<string | null>(null);
   const [dia, setDia] = useState<Dia | null>(null);
+  // La fecha del selector cambia al pulsar, antes de que llegue el día: si
+  // esperara a la respuesta, el campo saltaba atrás mientras carga.
+  const [fechaVista, setFechaVista] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(false);
   const [crearEn, setCrearEn] = useState<{ hostUserId: string; hora: string } | null>(null);
   const [detalle, setDetalle] = useState<Cita | null>(null);
+  const [resultado, setResultado] = useState<Cita | null>(null);
   const secuencia = useRef(0);
+  const hayDia = useRef(false);
 
   const cargar = useCallback(
-    async (f: string | null) => {
+    async (fecha: string | null) => {
       if (!teamId) return;
+      // Si se pulsa rápido, solo cuenta la última respuesta: una lenta que llega
+      // después pintaría otro día.
       const esta = ++secuencia.current;
+      if (fecha) setFechaVista(fecha);
+      setCargando(true);
       try {
-        const r = await api<Dia>(`/sales-teams/${teamId}/agenda/dia${f ? `?fecha=${f}` : ''}`);
+        const r = await api<Dia>(`/sales-teams/${teamId}/agenda/dia${fecha ? `?fecha=${fecha}` : ''}`);
         if (esta !== secuencia.current) return;
         setDia(r);
-        setFecha(r.fecha);
+        setFechaVista(r.fecha);
+        hayDia.current = true;
         setError(null);
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (esta !== secuencia.current) return;
-        setError(e?.message || 'No se pudo cargar el día');
+        const texto =
+          (e as { status?: number } | null)?.status === 404
+            ? 'Este equipo no existe, o el módulo «Equipos de ventas» está apagado para esta marca.'
+            : mensaje(e, 'No se pudo cargar la agenda.');
+        // Con un día ya pintado se avisa y se queda: no se tira la pantalla.
+        if (hayDia.current) toast(texto, 'error');
+        else setError(texto);
+      } finally {
+        if (esta === secuencia.current) setCargando(false);
       }
     },
     [teamId],
@@ -117,103 +176,85 @@ export function AgendaDelDia({ teamId }: { teamId: string }) {
     void cargar(null);
   }, [cargar]);
 
-  const ir = (f: string | null) => void cargar(f);
-
-  if (error) {
-    return <section className="card card-pad mb-4 text-sm text-mute">{error}</section>;
+  if (error && !dia) {
+    return (
+      <div className="card card-pad py-12 text-center">
+        <div className="mb-1 font-semibold">No se pudo cargar</div>
+        <div className="mb-4 text-sm text-mute">{error}</div>
+        <Link href={rutaEquipos} className="btn-ghost inline-flex text-sm">
+          Volver a los equipos
+        </Link>
+      </div>
+    );
   }
-  if (!dia || !fecha) {
-    return <section className="card card-pad mb-4 h-40 animate-shimmer bg-bg2" />;
-  }
+  if (!dia) return <div className="h-32 animate-shimmer rounded bg-bg2" />;
 
+  const fecha = dia.fecha;
+  const fechaDelSelector = fechaVista ?? fecha;
   // `filter` y no `find`: en una franja de 30 minutos caben dos citas del mismo
   // closer (10:00 y 10:15 de 15 minutos, o la que no asistió y la reagendada a
   // esa hora), y con `find` la segunda no se pintaba (Fable, 2026-09-14).
   const citasEn = (closerId: string, franja: string) =>
     dia.citas.filter((c) => c.hostUserId === closerId && c.franja === franja);
-  // Red por si el servidor no trajera la columna de algún anfitrión: la cita se
-  // enseña en el aviso en vez de desaparecer.
-  const sinCloser = dia.citas.filter((c) => !c.hostUserId || !dia.closers.some((k) => k.id === c.hostUserId));
+  const closersActivos = dia.closers.filter((c) => c.activo !== false);
   const nombreDe = (id: string | null) => dia.closers.find((c) => c.id === id)?.nombre ?? '—';
+  const recargar = () => void cargar(fecha);
 
   return (
-    <section className="card card-pad mb-4">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="m-0 mr-auto text-sm font-semibold capitalize">{titulo(fecha)}</h2>
-        <button onClick={() => ir(moverFecha(fecha, -1))} className="btn-ghost px-2.5 py-1 text-sm" aria-label="Día anterior">
-          ←
-        </button>
-        <input
-          type="date"
-          value={fecha}
-          onChange={(e) => e.target.value && ir(e.target.value)}
-          className="input h-8 w-auto text-sm"
-          aria-label="Elegir día"
-        />
-        <button onClick={() => ir(moverFecha(fecha, 1))} className="btn-ghost px-2.5 py-1 text-sm" aria-label="Día siguiente">
-          →
-        </button>
-        <button onClick={() => ir(null)} className="btn-ghost px-2.5 py-1 text-xs">
-          Hoy
-        </button>
-      </div>
-
-      <div className="mb-3 flex flex-wrap gap-3 text-[11px] text-mute">
-        <span>🟢 Confirmó o ya se hizo</span>
-        <span>🔴 Canceló o no asistió</span>
-        <span>⚪ Sin confirmar</span>
-      </div>
-
-      {sinCloser.length > 0 && (
-        <div className="mb-3 rounded-lg border border-line bg-warn-soft px-3 py-2 text-xs text-warn-ink">
-          {sinCloser.length} cita(s) de este día sin closer:{' '}
-          {sinCloser.map((c) => `${hora12(c.hora)} ${c.lead?.nombre ?? 'Lead'}`).join(' · ')}.{' '}
-          <Link href={`${rutaEquipos}/${teamId}/banco`} className="font-semibold underline">
-            Asignarlas en el Banco →
-          </Link>
-        </div>
-      )}
+    <div>
+      <CabeceraDeEquipo equipo={{ ...dia.team, id: teamId }} soloLectura={!dia.puedeEscribir} />
 
       {dia.closers.length === 0 ? (
-        <p className="py-6 text-center text-sm text-mute">
-          Este equipo todavía no tiene closers activos. La rejilla se arma con ellos.
-        </p>
+        <div className="rounded-card border border-dashed border-line bg-surface p-8 text-center">
+          <p className="m-0 text-sm font-medium text-ink">Este equipo todavía no tiene closers</p>
+          <p className="mx-auto mb-0 mt-1 max-w-md text-sm text-mute">
+            La agenda se arma con los closers del equipo. Agrega al menos uno para empezar a agendar.
+          </p>
+          <Link href={`${rutaEquipos}/${teamId}/colaboradores`} className="btn-primary mt-4 inline-flex text-sm">
+            Agregar colaboradores
+          </Link>
+        </div>
       ) : (
         <>
-          {/* Móvil: solo las franjas con cita. Ver el día desde el teléfono sí;
-              repartir la semana es trabajo de escritorio. */}
-          <div className="flex flex-col gap-2 md:hidden">
-            {dia.franjas.filter((f) => dia.closers.some((c) => citasEn(c.id, f).length > 0)).length === 0 ? (
-              <p className="py-4 text-center text-sm text-mute">Sin citas este día.</p>
-            ) : (
-              dia.franjas
-                .filter((f) => dia.closers.some((c) => citasEn(c.id, f).length > 0))
-                .map((f) => (
-                  <div key={f} className="rounded-lg border border-line">
-                    <p className="border-b border-line px-3 py-1.5 text-xs font-semibold text-mute">{hora12(f)}</p>
-                    {dia.closers.flatMap((c) =>
-                      citasEn(c.id, f).map((cita) => (
-                        <button
-                          key={cita.id}
-                          onClick={() => setDetalle(cita)}
-                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left"
-                        >
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
-                            {PUNTO[cita.semaforo]} {cita.lead?.nombre ?? 'Lead'}
-                          </span>
-                          <span className="shrink-0 text-xs text-mute">
-                            {hora12(cita.hora)} · {c.nombre.split(' ')[0]}
-                          </span>
-                        </button>
-                      )),
-                    )}
-                  </div>
-                ))
-            )}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void cargar(moverFecha(fechaDelSelector, -1))}
+              className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm text-ink hover:bg-bg2"
+              aria-label="Día anterior"
+            >
+              ←
+            </button>
+            <input
+              type="date"
+              value={fechaDelSelector}
+              onChange={(e) => {
+                if (e.target.value) void cargar(e.target.value);
+              }}
+              className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+              aria-label="Elegir día"
+            />
+            <button
+              type="button"
+              onClick={() => void cargar(moverFecha(fechaDelSelector, 1))}
+              className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm text-ink hover:bg-bg2"
+              aria-label="Día siguiente"
+            >
+              →
+            </button>
+            <button
+              type="button"
+              onClick={() => void cargar(null)}
+              className="rounded-lg bg-bg2 px-2.5 py-1.5 text-xs text-ink hover:bg-line"
+            >
+              Hoy
+            </button>
+            {cargando && <span className="text-xs text-mute">Cargando…</span>}
           </div>
 
-          {/* Escritorio: filas = franjas, columnas = closers. */}
-          <div className="hidden overflow-x-auto rounded-lg border border-line md:block">
+          {/* Filas = horarios, columnas = closers. En el teléfono se desliza de
+              lado dentro de su caja, sin romper la página. */}
+          <div className="overflow-x-auto rounded-2xl border border-line">
             <table className="w-full min-w-[560px] border-collapse text-sm">
               <thead>
                 <tr className="bg-bg2">
@@ -233,7 +274,7 @@ export function AgendaDelDia({ teamId }: { teamId: string }) {
               <tbody>
                 {dia.franjas.map((f) => (
                   <tr key={f}>
-                    <td className="sticky left-0 z-10 border-b border-r border-line bg-white px-2 py-1 text-xs font-medium text-mute whitespace-nowrap">
+                    <td className="sticky left-0 z-10 whitespace-nowrap border-b border-r border-line bg-surface px-2 py-1 text-xs font-medium text-mute">
                       {hora12(f)}
                     </td>
                     {dia.closers.map((c) => {
@@ -245,11 +286,13 @@ export function AgendaDelDia({ teamId }: { teamId: string }) {
                               {citas.map((cita) => (
                                 <button
                                   key={cita.id}
+                                  type="button"
                                   onClick={() => setDetalle(cita)}
-                                  className={`w-full rounded-lg px-2 py-1.5 text-left text-xs transition-colors ${CELDA[cita.semaforo]}`}
+                                  className={`w-full rounded-lg px-2 py-1.5 text-left text-xs transition-opacity hover:opacity-80 ${SEMAFORO[cita.semaforo].celda}`}
                                 >
                                   <span className="block truncate font-medium">
-                                    {PUNTO[cita.semaforo]} {cita.lead?.nombre ?? 'Lead'}
+                                    {cita.semaforo === 'gris' ? '' : `${SEMAFORO[cita.semaforo].punto} `}
+                                    {cita.lead?.nombre ?? 'Lead'}
                                   </span>
                                   {citas.length > 1 && <span className="block opacity-70">{hora12(cita.hora)}</span>}
                                   {cita.lead?.empresa && <span className="block truncate opacity-70">{cita.lead.empresa}</span>}
@@ -258,6 +301,7 @@ export function AgendaDelDia({ teamId }: { teamId: string }) {
                             </div>
                           ) : dia.puedeEscribir && c.activo !== false ? (
                             <button
+                              type="button"
                               onClick={() => setCrearEn({ hostUserId: c.id, hora: f })}
                               className="w-full rounded-lg px-2 py-1.5 text-center text-[11px] text-mute2 transition-colors hover:bg-bg2 hover:text-ink"
                             >
@@ -276,194 +320,262 @@ export function AgendaDelDia({ teamId }: { teamId: string }) {
       )}
 
       {crearEn && (
-        <AgendarCita
+        <NuevaReunion
           teamId={teamId}
           fecha={fecha}
-          closers={dia.closers.filter((c) => c.activo !== false)}
+          closers={closersActivos}
+          franjas={dia.franjas}
           preset={crearEn}
-          duracionInicial={dia.duracionMin ?? 30}
+          duracionMin={dia.duracionMin}
           onCerrar={() => setCrearEn(null)}
           onCreada={() => {
             setCrearEn(null);
-            void cargar(fecha);
+            recargar();
           }}
         />
       )}
-      {detalle && (
-        <DetalleDeCita
+      {detalle && !resultado && (
+        <DetalleDeReunion
           teamId={teamId}
+          fecha={fecha}
           cita={detalle}
           closer={nombreDe(detalle.hostUserId)}
+          closers={closersActivos}
+          franjas={dia.franjas}
           puedeEscribir={dia.puedeEscribir}
+          puedeAsignar={dia.puedeAsignar}
           onCerrar={() => {
             setDetalle(null);
-            void cargar(fecha);
+            recargar();
+          }}
+          onResultado={() => setResultado(detalle)}
+        />
+      )}
+      {resultado && (
+        <ResultadoDeReunion
+          teamId={teamId}
+          cita={resultado}
+          onCerrar={() => {
+            setResultado(null);
+            setDetalle(null);
+            recargar();
           }}
         />
       )}
-    </section>
+    </div>
   );
 }
 
-function Modal({ titulo: t, onCerrar, children }: { titulo: string; onCerrar: () => void; children: React.ReactNode }) {
+function Modal({
+  titulo,
+  onCerrar,
+  ancho = 'max-w-md',
+  children,
+}: {
+  titulo: string;
+  onCerrar: () => void;
+  ancho?: string;
+  children: ReactNode;
+}) {
   // z-50 y no más: los avisos (z-60) tienen que verse encima del modal.
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={t}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={titulo}>
       <div className="absolute inset-0 bg-ink/50" onClick={onCerrar} />
-      <div className="relative w-full max-w-md card card-pad">
-        <h3 className="m-0 mb-3 text-base font-semibold text-ink">{t}</h3>
+      <div className={`card card-pad relative max-h-[90vh] w-full overflow-y-auto ${ancho}`}>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="m-0 text-base font-semibold text-ink">{titulo}</h3>
+          <button type="button" onClick={onCerrar} className="text-mute hover:text-ink" aria-label="Cerrar">
+            ✕
+          </button>
+        </div>
         {children}
       </div>
     </div>
   );
 }
 
-/** Agendar desde una celda: closer y hora vienen puestos; se elige el lead. */
-function AgendarCita({
+function Campo({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
+  return (
+    <div>
+      <span className="label">{etiqueta}</span>
+      {children}
+    </div>
+  );
+}
+
+/** «Nueva reunión»: los campos de la referencia, con el closer y la hora de la celda ya puestos. */
+function NuevaReunion({
   teamId,
   fecha,
   closers,
+  franjas,
   preset,
-  duracionInicial,
+  duracionMin,
   onCerrar,
   onCreada,
 }: {
   teamId: string;
   fecha: string;
-  closers: { id: string; nombre: string }[];
+  closers: Closer[];
+  franjas: string[];
   preset: { hostUserId: string; hora: string };
-  duracionInicial: number;
+  duracionMin: number;
   onCerrar: () => void;
   onCreada: () => void;
 }) {
-  const [buscar, setBuscar] = useState('');
-  const [resultados, setResultados] = useState<{ id: string; nombre: string | null; empresa: string | null; telefono: string | null }[]>([]);
-  const [leadId, setLeadId] = useState<string | null>(null);
-  const [hostUserId, setHostUserId] = useState(preset.hostUserId);
+  const [nombre, setNombre] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
+  const [empresa, setEmpresa] = useState('');
+  const [servicio, setServicio] = useState('');
+  const [fuente, setFuente] = useState('');
+  const [urgencia, setUrgencia] = useState('media');
+  const [closerId, setCloserId] = useState(preset.hostUserId);
   const [hora, setHora] = useState(preset.hora);
-  const [duracion, setDuracion] = useState(duracionInicial);
+  const [elDia, setElDia] = useState(fecha);
   const [notas, setNotas] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const horas = franjas.includes(preset.hora) ? franjas : [...franjas, preset.hora].sort();
 
-  useEffect(() => {
-    const q = buscar.trim();
-    if (q.length < 2) {
-      setResultados([]);
-      return;
-    }
-    // Se espera a que deje de escribir: una consulta por tecla castiga la base.
-    const t = setTimeout(() => {
-      api<{ filas: { id: string; nombre: string | null; empresa: string | null; telefono: string | null }[] }>(
-        `/sales-teams/${teamId}/contactos?q=${encodeURIComponent(q)}`,
-      )
-        .then((r) => setResultados(r.filas.slice(0, 8)))
-        .catch(() => setResultados([]));
-    }, 300);
-    return () => clearTimeout(t);
-  }, [buscar, teamId]);
-
-  async function guardar() {
+  async function agendar() {
+    if (!nombre.trim()) return setError('El nombre del lead es obligatorio.');
+    if (!closerId || !elDia || !hora) return setError('Closer, fecha y hora son obligatorios.');
     setGuardando(true);
+    setError(null);
+    // «Servicio de interés» y «Nivel de urgencia» no tienen columna en el lead:
+    // van al principio de las observaciones, que es lo que el closer lee al abrir
+    // la reunión.
+    const observaciones = [
+      servicio.trim() && `Servicio de interés: ${servicio.trim()}`,
+      `Nivel de urgencia: ${URGENCIAS.find((u) => u.clave === urgencia)?.etiqueta ?? urgencia}`,
+      notas.trim(),
+    ]
+      .filter(Boolean)
+      .join('\n');
     try {
-      // La agenda del equipo es de Bogotá: la fecha y la hora que se ven se
-      // guardan como ese instante, pase lo que pase con el reloj del navegador.
-      const startAt = new Date(`${fecha}T${hora}:00-05:00`).toISOString();
       await api(`/sales-teams/${teamId}/agenda/citas`, {
         method: 'POST',
-        body: JSON.stringify({ leadId, hostUserId, startAt, durationMin: duracion, notes: notas.trim() || null }),
+        body: JSON.stringify({
+          hostUserId: closerId,
+          startAt: instanteEnBogota(elDia, hora),
+          durationMin: duracionMin,
+          notes: observaciones,
+          lead: {
+            nombre: nombre.trim(),
+            whatsapp: whatsapp.trim() || null,
+            empresa: empresa.trim() || null,
+            fuente: fuente || null,
+          },
+        }),
       });
-      toast('Cita agendada.', 'success');
+      toast('Reunión agendada.', 'success');
       onCreada();
-    } catch (e: any) {
-      toast(e?.message || 'No se pudo agendar', 'error');
-    } finally {
+    } catch (e) {
+      setError(mensaje(e, 'No se pudo agendar la reunión.'));
       setGuardando(false);
     }
   }
 
-  const elegido = resultados.find((r) => r.id === leadId);
-
   return (
-    <Modal titulo="Agendar una cita" onCerrar={onCerrar}>
-      <div className="flex flex-col gap-2">
-        <label className="label">Lead</label>
-        {leadId && elegido ? (
-          <div className="flex items-center justify-between rounded-lg bg-bg2 px-3 py-2 text-sm">
-            <span className="truncate">
-              {elegido.nombre ?? 'Sin nombre'}
-              {elegido.empresa ? <span className="text-mute"> · {elegido.empresa}</span> : null}
-            </span>
-            <button onClick={() => setLeadId(null)} className="text-xs text-mute hover:underline">
-              Cambiar
-            </button>
-          </div>
-        ) : (
-          <>
+    <Modal titulo="Nueva reunión" onCerrar={onCerrar} ancho="max-w-lg">
+      <div className="flex flex-col gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Campo etiqueta="Nombre del lead *">
             <input
-              value={buscar}
-              onChange={(e) => setBuscar(e.target.value)}
-              placeholder="Buscar por nombre, empresa o teléfono…"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
               className="input"
+              placeholder="Nombre y apellido"
+              maxLength={120}
               autoFocus
             />
-            {resultados.length > 0 && (
-              <ul className="max-h-40 overflow-auto rounded-lg border border-line">
-                {resultados.map((r) => (
-                  <li key={r.id}>
-                    <button
-                      onClick={() => setLeadId(r.id)}
-                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-bg2"
-                    >
-                      <span className="truncate">{r.nombre ?? 'Sin nombre'}</span>
-                      <span className="shrink-0 text-xs text-mute">{r.telefono ?? r.empresa ?? ''}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p className="text-[11px] text-mute">Opcional: una cita puede agendarse sin lead y enlazarse después.</p>
-          </>
-        )}
-
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="label">Closer</label>
-            <select value={hostUserId} onChange={(e) => setHostUserId(e.target.value)} className="input">
+          </Campo>
+          <Campo etiqueta="WhatsApp">
+            <input
+              value={whatsapp}
+              onChange={(e) => setWhatsapp(e.target.value)}
+              className="input"
+              placeholder="+57…"
+              inputMode="tel"
+              maxLength={40}
+            />
+          </Campo>
+          <Campo etiqueta="Empresa">
+            <input value={empresa} onChange={(e) => setEmpresa(e.target.value)} className="input" maxLength={160} />
+          </Campo>
+          <Campo etiqueta="Servicio de interés">
+            <input
+              value={servicio}
+              onChange={(e) => setServicio(e.target.value)}
+              className="input"
+              placeholder="¿Qué le interesa?"
+              maxLength={120}
+            />
+          </Campo>
+          <Campo etiqueta="Fuente del lead">
+            <select value={fuente} onChange={(e) => setFuente(e.target.value)} className="input">
+              <option value="">—</option>
+              {FUENTES.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </Campo>
+          <Campo etiqueta="Nivel de urgencia">
+            <select value={urgencia} onChange={(e) => setUrgencia(e.target.value)} className="input">
+              {URGENCIAS.map((u) => (
+                <option key={u.clave} value={u.clave}>
+                  {u.etiqueta}
+                </option>
+              ))}
+            </select>
+          </Campo>
+          <Campo etiqueta="Closer asignado *">
+            <select value={closerId} onChange={(e) => setCloserId(e.target.value)} className="input">
               {closers.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.nombre}
                 </option>
               ))}
             </select>
-          </div>
-          <div>
-            <label className="label">Hora</label>
-            <input type="time" value={hora} onChange={(e) => setHora(e.target.value)} className="input" step={300} />
-          </div>
+          </Campo>
+          <Campo etiqueta="Hora *">
+            <select value={hora} onChange={(e) => setHora(e.target.value)} className="input">
+              {horas.map((h) => (
+                <option key={h} value={h}>
+                  {hora12(h)}
+                </option>
+              ))}
+            </select>
+          </Campo>
         </div>
-        <div>
-          <label className="label">Duración</label>
-          <select value={duracion} onChange={(e) => setDuracion(Number(e.target.value))} className="input">
-            {[15, 20, 30, 45, 60, 90, 120].map((m) => (
-              <option key={m} value={m}>
-                {m} min
-              </option>
-            ))}
-          </select>
-        </div>
-        <textarea
-          value={notas}
-          onChange={(e) => setNotas(e.target.value)}
-          placeholder="Notas para el closer (opcional)"
-          className="input min-h-[60px]"
-          maxLength={2000}
-        />
-        <div className="mt-2 flex justify-end gap-2">
-          <button onClick={onCerrar} className="btn-ghost text-sm">
+        <Campo etiqueta="Fecha *">
+          <input type="date" value={elDia} onChange={(e) => setElDia(e.target.value)} className="input" />
+        </Campo>
+        <Campo etiqueta="Observaciones iniciales">
+          <textarea
+            rows={2}
+            value={notas}
+            onChange={(e) => setNotas(e.target.value)}
+            className="input"
+            placeholder="Contexto para el closer…"
+            maxLength={1500}
+          />
+        </Campo>
+
+        {error && <p className="m-0 text-sm text-bad-ink">{error}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onCerrar} className="btn-ghost text-sm">
             Cancelar
           </button>
-          <button onClick={() => void guardar()} disabled={guardando} className="btn-primary text-sm disabled:opacity-50">
-            {guardando ? 'Agendando…' : 'Agendar'}
+          <button
+            type="button"
+            onClick={() => void agendar()}
+            disabled={guardando}
+            className="btn-primary text-sm disabled:opacity-50"
+          >
+            {guardando ? 'Agendando…' : 'Agendar reunión'}
           </button>
         </div>
       </div>
@@ -471,70 +583,308 @@ function AgendarCita({
   );
 }
 
-function DetalleDeCita({
+/** «Reunión»: el detalle de la referencia. Confirmar y reasignar usan las mismas puertas del Banco. */
+function DetalleDeReunion({
   teamId,
+  fecha,
   cita,
   closer,
+  closers,
+  franjas,
   puedeEscribir,
+  puedeAsignar,
+  onCerrar,
+  onResultado,
+}: {
+  teamId: string;
+  fecha: string;
+  cita: Cita;
+  closer: string;
+  closers: Closer[];
+  franjas: string[];
+  puedeEscribir: boolean;
+  puedeAsignar: boolean;
+  onCerrar: () => void;
+  onResultado: () => void;
+}) {
+  const [modo, setModo] = useState<'ver' | 'reagendar' | 'reasignar'>('ver');
+  const [nuevaFecha, setNuevaFecha] = useState(fecha);
+  const [nuevaHora, setNuevaHora] = useState(cita.hora);
+  const [nuevoCloser, setNuevoCloser] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const semaforo = SEMAFORO[cita.semaforo];
+  const horas = franjas.includes(cita.hora) ? franjas : [...franjas, cita.hora].sort();
+  const otros = closers.filter((c) => c.id !== cita.hostUserId);
+
+  async function correr(accion: () => Promise<unknown>, hecho: string) {
+    setOcupado(true);
+    setError(null);
+    try {
+      await accion();
+      toast(hecho, 'success');
+      onCerrar();
+    } catch (e) {
+      setError(mensaje(e, 'No se pudo hacer el cambio.'));
+      setOcupado(false);
+    }
+  }
+
+  const reagendar = () =>
+    correr(
+      () =>
+        api(`/sales-teams/${teamId}/agenda/citas/${cita.id}/reagendar`, {
+          method: 'PATCH',
+          body: JSON.stringify({ startAt: instanteEnBogota(nuevaFecha, nuevaHora) }),
+        }),
+      'Reunión reagendada.',
+    );
+  const reasignar = () =>
+    correr(
+      () =>
+        api(`/sales-teams/${teamId}/banco/citas/${cita.id}/asignar`, {
+          method: 'PATCH',
+          body: JSON.stringify({ hostUserId: nuevoCloser }),
+        }),
+      'Reunión reasignada.',
+    );
+  const confirmar = () =>
+    correr(
+      () =>
+        api(`/sales-teams/${teamId}/banco/citas/${cita.id}/confirmar`, {
+          method: 'PATCH',
+          body: JSON.stringify({ on: !cita.confirmada }),
+        }),
+      cita.confirmada ? 'Se quitó la confirmación.' : 'Asistencia confirmada.',
+    );
+  const volver = () => {
+    setModo('ver');
+    setError(null);
+  };
+
+  return (
+    <Modal titulo="Reunión" onCerrar={onCerrar}>
+      <div className="flex flex-col gap-3 text-sm">
+        <div className="rounded-xl bg-bg2 p-3">
+          <p className="m-0 text-base font-semibold text-ink">{cita.lead?.nombre ?? 'Lead'}</p>
+          {cita.lead?.empresa && <p className="m-0 text-mute">{cita.lead.empresa}</p>}
+          <div className="mt-2 grid grid-cols-2 gap-1 text-xs text-mute">
+            <span>
+              📅 {fechaLegible(cita.startAt)} · {hora12(cita.hora)}
+            </span>
+            <span>👤 {closer}</span>
+            {cita.lead?.telefono && <span>📱 {cita.lead.telefono}</span>}
+            {cita.lead?.origen && <span>🌐 {cita.lead.origen}</span>}
+          </div>
+          <p className="m-0 mt-2 flex flex-wrap items-center gap-1 text-xs">
+            <span className="rounded-pill bg-surface px-2 py-0.5 font-medium text-ink">{ESTADO[cita.status] ?? cita.status}</span>
+            <span className={`rounded-pill px-2 py-0.5 font-medium ${semaforo.chip}`}>
+              {semaforo.punto} {semaforo.etiqueta}
+            </span>
+          </p>
+        </div>
+
+        {cita.notes && (
+          <div>
+            <p className="m-0 text-xs font-medium text-mute">Observaciones</p>
+            <p className="m-0 whitespace-pre-wrap text-sm text-ink">{cita.notes}</p>
+          </div>
+        )}
+        {RESULTADO[cita.status] && (
+          <div>
+            <p className="m-0 text-xs font-medium text-mute">Resultado</p>
+            <p className="m-0 text-sm text-ink">{RESULTADO[cita.status]}</p>
+          </div>
+        )}
+
+        {!puedeEscribir ? null : modo === 'reagendar' ? (
+          <div className="rounded-xl border border-line p-3">
+            <p className="m-0 mb-2 text-xs font-medium text-ink">Reagendar</p>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="date"
+                value={nuevaFecha}
+                onChange={(e) => setNuevaFecha(e.target.value)}
+                className="input"
+                aria-label="Nueva fecha"
+              />
+              <select value={nuevaHora} onChange={(e) => setNuevaHora(e.target.value)} className="input" aria-label="Nueva hora">
+                {horas.map((h) => (
+                  <option key={h} value={h}>
+                    {hora12(h)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {error && <p className="m-0 mt-2 text-xs text-bad-ink">{error}</p>}
+            <div className="mt-2 flex justify-end gap-2">
+              <button type="button" onClick={volver} className="btn-ghost text-sm">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void reagendar()}
+                disabled={ocupado || !nuevaFecha}
+                className="btn-primary text-sm disabled:opacity-50"
+              >
+                {ocupado ? '…' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        ) : modo === 'reasignar' ? (
+          <div className="rounded-xl border border-line p-3">
+            <p className="m-0 mb-1 text-xs font-medium text-ink">Reasignar a otro closer</p>
+            <p className="m-0 mb-2 text-xs text-mute">La reunión pasa a su columna, con el lead y el horario.</p>
+            <select value={nuevoCloser} onChange={(e) => setNuevoCloser(e.target.value)} className="input">
+              <option value="">Elige un closer…</option>
+              {otros.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre}
+                </option>
+              ))}
+            </select>
+            {error && <p className="m-0 mt-2 text-xs text-bad-ink">{error}</p>}
+            <div className="mt-2 flex justify-end gap-2">
+              <button type="button" onClick={volver} className="btn-ghost text-sm">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void reasignar()}
+                disabled={ocupado || !nuevoCloser}
+                className="btn-primary text-sm disabled:opacity-50"
+              >
+                {ocupado ? '…' : 'Reasignar'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {error && <p className="m-0 text-xs text-bad-ink">{error}</p>}
+            <div className="flex flex-wrap justify-end gap-2 pt-1">
+              <button type="button" onClick={() => void confirmar()} disabled={ocupado} className="btn-ghost text-sm">
+                {cita.confirmada ? 'Quitar confirmación' : 'Confirmar asistencia'}
+              </button>
+              {puedeAsignar && otros.length > 0 && (
+                <button type="button" onClick={() => setModo('reasignar')} className="btn-ghost text-sm">
+                  Reasignar
+                </button>
+              )}
+              <button type="button" onClick={() => setModo('reagendar')} className="btn-ghost text-sm">
+                Reagendar
+              </button>
+              <button type="button" onClick={onResultado} className="btn-primary text-sm">
+                Registrar resultado
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * «Resultado de la reunión». De la referencia se trae lo que el modelo de datos
+ * de aquí sostiene: si se realizó o no asistió, y las observaciones. El estado
+ * del lead (venta, perdido, seguimiento) se registra en Seguimientos y en el CRM.
+ */
+function ResultadoDeReunion({
+  teamId,
+  cita,
   onCerrar,
 }: {
   teamId: string;
   cita: Cita;
-  closer: string;
-  puedeEscribir: boolean;
   onCerrar: () => void;
 }) {
-  const rutaEquipos = useBaseDeEquipos();
-  const [estado, setEstado] = useState(cita.status);
+  const [realizada, setRealizada] = useState(true);
+  const [notas, setNotas] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  async function cambiar(nuevo: string) {
-    const antes = estado;
-    setEstado(nuevo);
+  async function finalizar() {
     setGuardando(true);
+    setError(null);
+    const observaciones = notas.trim();
     try {
-      await api(`/sales-teams/${teamId}/agenda/citas/${cita.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: nuevo }),
-      });
-      toast('Estado actualizado.', 'success');
-    } catch (e: any) {
-      setEstado(antes);
-      toast(e?.message || 'No se pudo cambiar el estado', 'error');
-    } finally {
+      if (realizada) {
+        await api(`/sales-teams/${teamId}/agenda/citas/${cita.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'REALIZADA', nota: observaciones || null }),
+        });
+      } else {
+        // La puerta del Banco: además de marcarla deja el seguimiento para
+        // reagendar y dispara el aviso de plantón. Solo acepta citas que ya pasaron.
+        await api(`/sales-teams/${teamId}/banco/citas/${cita.id}/no-asistio`, { method: 'PATCH' });
+        if (observaciones && cita.lead) {
+          // Esa puerta no lleva nota: las observaciones van aparte al historial
+          // del lead. Si esto falla, lo importante ya quedó.
+          await api(`/sales-teams/${teamId}/leads/${cita.lead.id}/notes`, {
+            method: 'POST',
+            body: JSON.stringify({ body: observaciones }),
+          }).catch(() => toast('Se registró, pero no se guardaron las observaciones.', 'error'));
+        }
+      }
+    } catch (e) {
+      setError(mensaje(e, 'No se pudo registrar el resultado.'));
       setGuardando(false);
+      return;
     }
+    toast('Resultado registrado.', 'success');
+    onCerrar();
   }
 
   return (
-    <Modal titulo={cita.lead?.nombre ?? 'Cita sin lead'} onCerrar={onCerrar}>
-      <div className="flex flex-col gap-3 text-sm">
-        <div className="grid grid-cols-2 gap-2 rounded-lg bg-bg2 p-3 text-xs">
-          <Dato etiqueta="Hora" valor={`${hora12(cita.hora)} · ${cita.durationMin} min`} />
-          <Dato etiqueta="Closer" valor={closer} />
-          <Dato etiqueta="Empresa" valor={cita.lead?.empresa} />
-          <Dato etiqueta="Semáforo" valor={`${PUNTO[cita.semaforo]} ${cita.semaforo === 'verde' ? 'Confirmó' : cita.semaforo === 'rojo' ? 'Canceló / no asistió' : 'Sin confirmar'}`} />
+    <Modal titulo="Resultado de la reunión" onCerrar={onCerrar}>
+      <div className="flex flex-col gap-3">
+        <div className="rounded-xl bg-bg2 p-3 text-sm">
+          <p className="m-0 font-medium text-ink">
+            {cita.lead?.nombre ?? 'Lead'}
+            {cita.lead?.empresa ? ` · ${cita.lead.empresa}` : ''}
+          </p>
+          <p className="m-0 text-xs text-mute">
+            {fechaLegible(cita.startAt)} · {hora12(cita.hora)}
+          </p>
         </div>
-        {puedeEscribir && (
-          <div>
-            <label className="label">Estado</label>
-            <select value={estado} onChange={(e) => void cambiar(e.target.value)} disabled={guardando} className="input">
-              {ESTADOS.map((e) => (
-                <option key={e.valor} value={e.valor}>
-                  {e.label}
-                </option>
-              ))}
-            </select>
+
+        <Campo etiqueta="¿La reunión se realizó?">
+          <div className="grid grid-cols-2 gap-2">
+            <Opcion activa={realizada} onClick={() => setRealizada(true)}>
+              ✅ Sí, se realizó
+            </Opcion>
+            <Opcion activa={!realizada} onClick={() => setRealizada(false)}>
+              🚫 No asistió
+            </Opcion>
           </div>
-        )}
-        <div className="flex flex-wrap justify-end gap-2">
-          {cita.lead && (
-            <Link href={`${rutaEquipos}/${teamId}/board?lead=${cita.lead.id}`} className="btn-ghost text-sm">
-              Abrir ficha del lead →
-            </Link>
+          {!realizada && cita.lead && (
+            <p className="m-0 mt-1 text-xs text-warn-ink">Se creará automáticamente un seguimiento para reagendarla.</p>
           )}
-          <button onClick={onCerrar} className="btn-primary text-sm">
-            Listo
+        </Campo>
+
+        <Campo etiqueta="Observaciones (opcional)">
+          <textarea
+            rows={2}
+            value={notas}
+            onChange={(e) => setNotas(e.target.value)}
+            className="input"
+            placeholder="Notas de la reunión"
+            maxLength={2000}
+          />
+        </Campo>
+
+        {error && <p className="m-0 text-sm text-bad-ink">{error}</p>}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onCerrar} className="btn-ghost text-sm">
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void finalizar()}
+            disabled={guardando}
+            className="btn-primary text-sm disabled:opacity-50"
+          >
+            {guardando ? 'Guardando…' : 'Finalizar reporte'}
           </button>
         </div>
       </div>
@@ -542,11 +892,17 @@ function DetalleDeCita({
   );
 }
 
-function Dato({ etiqueta, valor }: { etiqueta: string; valor?: string | null }) {
+function Opcion({ activa, onClick, children }: { activa: boolean; onClick: () => void; children: ReactNode }) {
   return (
-    <div>
-      <p className="text-[10px] uppercase tracking-wide text-mute">{etiqueta}</p>
-      <p className="truncate text-ink">{valor || '—'}</p>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={activa}
+      className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+        activa ? 'border-transparent bg-brand text-white' : 'border-line bg-surface text-mute hover:text-ink'
+      }`}
+    >
+      {children}
+    </button>
   );
 }

@@ -10,9 +10,9 @@
  *
  * Lo que la referencia tiene y aquí NO se pinta, a propósito: la línea de
  * WhatsApp del equipo (una marca tiene una sola subcuenta y lo que entra no dice
- * por qué número llegó), la comisión del equipo (terreno de Jhon) y la conexión
- * con Google Calendar (no hay OAuth de calendario). Pintarlas sin nada detrás
- * sería un formulario que no guarda nada.
+ * por qué número llegó) y la comisión del equipo (terreno de Jhon). Pintarlas
+ * sin nada detrás sería un formulario que no guarda nada. La conexión con Google
+ * Calendar es `CalendarioDelEquipo`, que carga y guarda lo suyo.
  *
  * Cambiarla es del líder o un admin de la marca; el responsable y desactivar el
  * equipo, solo un admin. El resto del equipo la ve en solo lectura.
@@ -26,8 +26,10 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { CabeceraDeEquipo, type EquipoDeCabecera } from '@/components/ventas/CabeceraDeEquipo';
+import { AgendasDeReserva } from '@/components/ventas/AgendasDeReserva';
 import { BASE_AFILIADO, useBaseDeEquipos } from '@/components/ventas/rutas-de-equipos';
 import { mensajeDeWhatsapp } from '@/lib/whatsapp-del-equipo';
+import { CalendarioDelEquipo } from '@/components/ventas/CalendarioDelEquipo';
 
 type Opcion = { clave: string; etiqueta: string; icono?: string; ayuda?: string };
 
@@ -150,6 +152,9 @@ export function ConfiguracionDelEquipo() {
           <MensajeDelCloser key={datos.mensajeWhatsapp} teamId={teamId} datos={datos} ro={ro} alGuardar={releer} />
         </div>
 
+        {/* Carga y guarda lo suyo: guardar otra tarjeta no la vuelve a montar. */}
+        <CalendarioDelEquipo teamId={teamId} />
+
         {comunes.length > 0 && (
           <Tarjeta
             titulo="Todavía común a todos los equipos"
@@ -174,7 +179,7 @@ export function ConfiguracionDelEquipo() {
           </Link>
         </Tarjeta>
 
-        {/* AgendasDeReserva: lo monta el bloque de agendas */}
+        <AgendasDeReserva teamId={teamId} />
 
         <EstadosDelBanco key={JSON.stringify(datos.banco.etiquetas)} teamId={teamId} datos={datos} ro={ro} alGuardar={releer} />
         <CamposDelBanco key={datos.banco.campos.join(',')} teamId={teamId} datos={datos} ro={ro} alGuardar={releer} />
@@ -355,12 +360,13 @@ function MensajeDelCloser({ teamId, datos, ro, alGuardar }: PropsDeTarjeta) {
     nombre: 'Ana',
     closer: 'Luis',
     equipo: datos.team.name,
+    sala: 'https://meet.google.com/abc-defg-hij',
   });
 
   return (
     <Tarjeta
       titulo="Mensaje de WhatsApp del closer"
-      ayuda="El texto que se prellena al escribirle a un contacto. Admite {{nombre}}, {{closer}} y {{equipo}}."
+      ayuda="El texto que se prellena al escribirle a un contacto. Admite {{nombre}}, {{closer}}, {{equipo}} y {{sala}} (el enlace de la reunión, desde el Banco)."
     >
       <div className="flex flex-col gap-2">
         <textarea

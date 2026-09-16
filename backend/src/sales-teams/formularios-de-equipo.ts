@@ -1,5 +1,3 @@
-import type { Prisma } from '@prisma/client';
-
 /**
  * Las reglas de «Formularios» del equipo: qué preguntas admite un formulario,
  * cómo se limpia lo que guarda el constructor, qué preguntas se ven según las
@@ -455,16 +453,12 @@ export function resumenDeRespuestas(campos: CampoDeFormulario[], r: Respuestas, 
   return texto.length > max ? `${texto.slice(0, max - 1)}…` : texto;
 }
 
-/** El objeto de `SalesTeam.bookingConfig`, o `{}` si no es un objeto. */
-export function configDeAgenda(json: Prisma.JsonValue | null | undefined): Record<string, unknown> {
-  return json && typeof json === 'object' && !Array.isArray(json) ? (json as Record<string, unknown>) : {};
-}
-
-/** El formulario que pide la agenda pública del equipo, o null (el de nombre y teléfono). */
-export function formularioDeAgendaDe(json: Prisma.JsonValue | null | undefined): string | null {
-  const id = configDeAgenda(json).formularioId;
-  return typeof id === 'string' && id ? id : null;
-}
+/**
+ * Por qué un formulario no sirve para una agenda de reserva. El mismo texto en
+ * «Formularios» y en «Agendas de reserva».
+ */
+export const SIN_CONTACTO =
+  'La agenda necesita una pregunta obligatoria, que se vea siempre, que pase al lead el nombre, o un WhatsApp o un correo (con ese tipo de pregunta). Sin ella la cita se queda sin lead.';
 
 /** Las preguntas guardadas, re-limpiadas: lo que haya en la base no se da por bueno. */
 export function camposGuardados(json: unknown): CampoDeFormulario[] {
