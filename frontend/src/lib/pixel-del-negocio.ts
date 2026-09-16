@@ -27,6 +27,9 @@
  * id se guarda en el negocio, no en el código.
  */
 import { pixelIdValido } from './meta-pixel';
+// La regla de «qué sede va en el evento» vive aparte y en `.mjs` para poder
+// probarla desde node: este módulo toca `window.fbq` y no se puede importar.
+import { paramsConSede } from './sede-del-pixel.mjs';
 
 /**
  * El cargador de Meta, tal cual lo entrega ellos, hasta justo antes del `init`.
@@ -54,6 +57,31 @@ let pixelDelNegocio: string | null = null;
 let monedaDelNegocio = 'COP';
 /** Ids ya inicializados en esta página, para no llamar `init` dos veces. */
 const iniciados = new Set<string>();
+/**
+ * La sucursal desde la que se está pidiendo. null = el negocio no tiene sedes,
+ * o todavía no se sabe cuál es.
+ *
+ * Va aquí, y no en cada evento, porque `AddToCart` se dispara desde
+ * `lib/cart.ts` —el único sitio por el que entra algo al carrito— y allí no
+ * hay forma de saber en qué sucursal está el cliente.
+ */
+let sedeDelNegocio: { id: string; nombre: string } | null = null;
+
+/**
+ * Dice desde qué sede se está pidiendo. Se llama cuando se sabe: al abrir el
+ * menú con `?sede=`, y otra vez si el cliente elige una en el checkout.
+ *
+ * Sin id no hay sede: un nombre suelto no identifica nada y no se manda.
+ */
+export function configurarSedeDelNegocio(
+  id: string | null | undefined,
+  nombre?: string | null,
+): void {
+  const limpio = (id ?? '').trim();
+  sedeDelNegocio = limpio
+    ? { id: limpio, nombre: (nombre ?? '').trim() }
+    : null;
+}
 
 /**
  * Deja listo el píxel del negocio y manda su `PageView`.
@@ -104,7 +132,16 @@ export function eventoDelNegocio(
   const p = { ...(params ?? {}) };
   // La moneda se pone sola siempre que haya importe: ver `monedaDelNegocio`.
   if (p.value != null && p.currency == null) p.currency = monedaDelNegocio;
-  window.fbq?.('trackSingle', pixelDelNegocio, evento, p);
+  // Y la sede, por la misma razón por la que el píxel es un módulo con estado:
+  // `AddToCart` se dispara desde `lib/cart.ts`, que no tiene forma de saber en
+  // qué sucursal está el cliente. Puesto aquí, los cuatro eventos del embudo
+  // lo llevan sin que nadie tenga que acordarse en cada sitio.
+  window.fbq?.(
+    'trackSingle',
+    pixelDelNegocio,
+    evento,
+    paramsConSede(p, sedeDelNegocio),
+  );
 }
 
 /** Para las pruebas y para saber si hay que pintar el aviso de medición. */

@@ -138,6 +138,10 @@ export const messages = {
     'checkout.office_note': 'Te lo llevamos a esta oficina: no hace falta dirección.',
     'checkout.error_address':
       'Completa departamento, municipio y dirección para entregar a domicilio.',
+    // Cuando la sede ya está resuelta, el checkout no pregunta el estado:
+    // el error no puede exigir un campo que el cliente no ve.
+    'checkout.error_address_city':
+      'Completa ciudad y dirección para entregar a domicilio.',
     'checkout.error_phone':
       'Escribe tu número de WhatsApp para que el negocio pueda confirmarte el pedido.',
 
@@ -373,6 +377,8 @@ export const messages = {
     'checkout.office_note': 'We bring it to this office — no address needed.',
     'checkout.error_address':
       'Fill in state, city and address for delivery.',
+    'checkout.error_address_city':
+      'Fill in city and address for delivery.',
     'checkout.error_phone':
       'Enter your WhatsApp number so the business can confirm your order.',
 
@@ -607,6 +613,8 @@ export const messages = {
     'checkout.office_note': 'Levamos até este escritório: não precisa de endereço.',
     'checkout.error_address':
       'Preencha estado, cidade e endereço para entrega.',
+    'checkout.error_address_city':
+      'Preencha cidade e endereço para entrega.',
     'checkout.error_phone':
       'Escreva seu número de WhatsApp para que o negócio possa confirmar seu pedido.',
 
@@ -841,6 +849,8 @@ export const messages = {
     'checkout.office_note': 'Te lo portiamo in questo ufficio: nessun indirizzo necessario.',
     'checkout.error_address':
       'Compila provincia, città e indirizzo per la consegna a domicilio.',
+    'checkout.error_address_city':
+      'Compila città e indirizzo per la consegna a domicilio.',
     'checkout.error_phone':
       'Scrivi il tuo numero WhatsApp per far confermare l’ordine dal locale.',
 

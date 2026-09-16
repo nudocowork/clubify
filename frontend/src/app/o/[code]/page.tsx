@@ -5,6 +5,10 @@ import Link from 'next/link';
 import { Icon } from '@/components/Icon';
 import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 import { DeliveryChat, type ChatMessage } from '@/components/DeliveryChat';
+import {
+  hayChatDelDomicilio,
+  hayRepartidor,
+} from '@/lib/pedido-en-oficina.mjs';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -31,6 +35,8 @@ type Order = {
   };
   brand?: BrandBadgeBrand;
   customer: { fullName: string; phone: string };
+  /** Se entrega en una oficina del enlace: no hay repartidor que seguir. */
+  enOficina?: boolean;
   delivery?: {
     status: DeliveryStatus;
     courierName: string | null;
@@ -253,7 +259,11 @@ export default function OrderStatus() {
           </div>
         )}
 
-        {!cancelled && order.delivery && order.delivery.status !== 'CANCELLED' && (
+        {/* Seguimiento del domicilio. En un pedido de OFICINA no se pinta: se
+            entrega dentro del coworking y no hay repartidor al que seguir —los
+            pedidos anteriores al arreglo tienen el seguimiento creado igual.
+            Ver `lib/pedido-en-oficina.mjs`. */}
+        {hayRepartidor(order) && (
           <div className="card card-pad mb-4">
             <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">
               🛵 Seguimiento del domicilio
@@ -315,8 +325,9 @@ export default function OrderStatus() {
         {/* El chat del domicilio SOLO aparece si el pedido tiene una EMPRESA de
             domicilios asignada (order.delivery.deliveryCompany) — no basta con
             fulfillment=DELIVERY ni un delivery huérfano sin empresa. Antes salía
-            en negocios (ej. de Sellea) que NO usan domicilios (PDF454). */}
-        {!cancelled && order.delivery && order.delivery.deliveryCompany && order.delivery.status !== 'CANCELLED' && (
+            en negocios (ej. de Sellea) que NO usan domicilios (PDF454). Y nunca
+            en un pedido de oficina: sin repartidor no hay con quién chatear. */}
+        {hayChatDelDomicilio(order) && (
           <div className="card card-pad mb-4">
             <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">
               💬 Chat del domicilio

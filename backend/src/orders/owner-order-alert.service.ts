@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandAppUrl } from '../email/brand-email-creds.util';
+import { lineaDeProductos, origenDelPedido } from './aviso-de-pedido';
+import { oficinaDelPedido } from './pedido-en-oficina';
 import {
   brandGrowCreds,
   BRAND_GROW_SELECT,
@@ -56,6 +58,11 @@ export class OwnerOrderAlertService {
           tableNumber: true,
           tenantId: true,
           locationId: true,
+          // Qué se pidió y desde dónde: es lo que el negocio necesita para
+          // reaccionar sin abrir el panel. Ver `texto()`.
+          items: true,
+          deliveryAddress: true,
+          location: { select: { name: true } },
           customer: { select: { fullName: true, phone: true } },
         },
       });
@@ -211,12 +218,18 @@ export class OwnerOrderAlertService {
   }
 
   /**
-   * Corto a propósito.
+   * Lo justo para reaccionar sin abrir el panel: que entró, de quién, cuánto,
+   * DE DÓNDE VIENE, QUÉ SE PIDIÓ y dónde mirar el resto.
    *
-   * El detalle completo —artículos, dirección, notas— está en el panel, y
-   * desde hoy la dirección también. Meterlo aquí serían cinco o seis segmentos
-   * de SMS por pedido, y el negocio paga cada uno. Lo que hace falta para
-   * reaccionar es: que entró, de quién, cuánto y dónde mirarlo.
+   * El origen y los productos se añadieron el 2026-09-16: el aviso decía el
+   * total pero no qué había que preparar ni a qué puerta llevarlo, y en un
+   * negocio con varias oficinas —Nudo Cowork pide desde «Sala de Juntas»— eso
+   * es justo lo que hace falta.
+   *
+   * Sigue siendo corto a propósito: esto sale por SMS y cada segmento lo paga
+   * el negocio en cada pedido, así que se listan pocos productos y el resto se
+   * resume. El detalle completo —dirección, notas, extras— está en el panel.
+   * Ver `aviso-de-pedido.ts`, donde eso se prueba.
    */
   private texto(
     order: {
@@ -224,6 +237,11 @@ export class OwnerOrderAlertService {
       total: unknown;
       fulfillment: string;
       tableNumber: string | null;
+      // Opcionales a propósito: un pedido viejo —o una llamada que no los
+      // pase— deja el aviso exactamente como era antes, sin huecos raros.
+      items?: unknown;
+      deliveryAddress?: unknown;
+      location?: { name: string | null } | null;
       customer: { fullName: string } | null;
     },
     tenant: {
@@ -256,6 +274,20 @@ export class OwnerOrderAlertService {
     )}/app/orders`;
     // Sin emojis: WhatsApp los convierte en rombos por el camino web, y en SMS
     // fuerzan codificación de 16 bits, que reduce el segmento a 67 caracteres.
-    return `Nuevo pedido ${order.code} - ${cliente} - ${simbolo}${total} - ${tipo}. Detalle y direccion en tu panel: ${url}`;
+    // El origen primero y los productos después: lo primero dice a qué puerta
+    // llevarlo, lo segundo qué preparar.
+    const origen = origenDelPedido({
+      oficina: oficinaDelPedido(order.deliveryAddress),
+      sede: order.location,
+    });
+    const productos = lineaDeProductos(order.items);
+    return [
+      `Nuevo pedido ${order.code} - ${cliente} - ${simbolo}${total} - ${tipo}` +
+        `${origen ? ` - ${origen}` : ''}.`,
+      productos ? `${productos}.` : '',
+      `Detalle y direccion en tu panel: ${url}`,
+    ]
+      .filter(Boolean)
+      .join(' ');
   }
 }

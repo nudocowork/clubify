@@ -8,6 +8,67 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-16 (36) — El menú de domicilio dejaba de preguntar el estado solo si alguien había llenado un campo que casi nadie llena
+
+Tres cosas de Javier, todas del mismo territorio:
+
+1. «Si el menú es de una sede en especial, o el cliente solo tiene una sede, **no debería preguntarme en qué estado quiero hacer el pedido**. El cliente está en el menú de Quipao de la sede de Nueva Esparta y le pide que seleccione el estado.» (Ya lo había reportado antes y seguía pasando.)
+2. «El mensaje que sale de Clubify a NudoCowork solo dice esto; me gustaría que **diga el pedido y de dónde viene**, en este caso se hizo desde el menú de Sala de Juntas.»
+3. «Como son pedidos para oficina, **no debería aparecer** esto» (el seguimiento del domicilio).
+
+### 1. Por qué seguía preguntando el estado
+
+El atajo «si solo hay una región con sede, no preguntes» **existía** desde `a40a73da`, pero colgaba de `Location.state`. En producción ese campo está **vacío en 96 de 172 sedes**: el estado vive dentro de `address` («…, Pampatar 6316, Nueva Esparta, Venezuela»). Con el campo vacío el atajo no se activaba **nunca**, así que se pintaba el selector de los 24 estados, obligatorio. Las tres sedes de Quipao lo tienen nulo.
+
+No era solo Quipao: de **68 negocios con una sola sede, 47** tenían esa sede sin `state` y también preguntaban.
+
+El intento anterior (`8fec96eb`) arregló **el ruteo** —que el pedido cayera en el WhatsApp de la sede del QR— y paró ahí; el formulario no se tocó.
+
+**Qué se decidió.** El estado no sobra: además de deducir la sede, **es parte de la dirección de entrega** y viaja al WhatsApp del negocio y del domiciliario, al SMS, al panel y al enlace de Google Maps. Esconderlo habría roto el pedido. Así que deja de **preguntarse** cuando ya se sabe: con `?sede=` válido o una sola sede, se rellena con el de la sede —deducido de la dirección si el campo está vacío, por trozos entre comas y nunca por «contiene», para que una «Avenida Sucre» no acabe en el estado Sucre—, y se enseña fijo con la salida de siempre para quien pide desde fuera de la zona. En el enlace general de un negocio con tres sedes sí se pregunta, pero **solo entre sus tres estados**, no entre los 24 del país.
+
+### 2. El aviso interno ya dice qué se pidió y de dónde viene
+
+Vivía en `owner-order-alert.service.ts` y **ni siquiera leía los artículos**. Ahora: «Nuevo pedido YD6J7P - Javier Prueba - $20.000 - Domicilio - **Oficina: Sala de Juntas**. 1x Mocca frío (Deslactosada). Detalle y direccion en tu panel: …», con dos artículos y «y otros N», y sin etiqueta de origen cuando el pedido viene del menú general.
+
+Dos detalles que no son cosméticos: se limpian los emojis (las promociones se guardan con un 🎁 delante y **un solo emoji parte el SMS de 160 a 70 caracteres**) y el texto fijo va sin tildes, porque una tilde convierte todo el mensaje a 16 bits y encarece justo los pedidos largos. Los nombres de los productos van tal cual los escribió el negocio.
+
+### 3. Un pedido de oficina ya no genera seguimiento de domicilio
+
+La raíz: `delivery.service.ts` decidía por `fulfillment === 'DELIVERY' || mode === 'DELIVERY'`, y **un pedido de oficina ES DELIVERY** porque sale del menú de domicilio. Se le creaba su `Delivery` con DOMIRED asignada, y de ahí salía todo lo demás.
+
+Se cerraron cuatro salidas, no solo la de la captura: ya no se crea el seguimiento, **DOMIRED ya no recibe aviso de un pedido que nadie va a recoger** (esto no estaba en el reporte y era la misma causa), «Mis pedidos» ya no dice «Buscando repartidor», y la pantalla del cliente y el panel del negocio dejan de pintar seguimiento y chat. El arreglo es **doble** —backend y pantalla— porque los pedidos que ya existen, `YD6J7P` incluido, tienen su `Delivery` creado en la base y aquí no se escribe en producción.
+
+### Revisión de Fable
+
+Confirmó los números (96 de 172 sedes sin `state`, los 47 negocios de una sola sede, las tres de Quipao) y —lo que más importaba— que un domicilio **normal** sigue creando su `Delivery` y avisando a la empresa: el riesgo de este bloque era el contrario del bug. Cuatro cosas más, todas cerradas antes de desplegar:
+
+1. **El aviso podía nombrar la sede de OTRO negocio.** El pedido guardaba el `locationId` que mandaba el cliente **sin validar** —y los ids de sede son públicos—, mientras que el SMS imprime ese nombre por relación. Ahora se guarda el id ya validado contra este negocio. Lo preexistente es peor y conviene saberlo: ese mismo campo decide **a qué teléfono** sale el aviso cuando el negocio no tiene uno propio.
+2. **Lo de las tildes estaba a medias en mi explicación.** é, ñ y ü **sí** están en GSM-7; á, í, ó y ú no. Como los nombres de producto las llevan constantemente, «1x Mocca frío» ya mandaba el aviso a **4 segmentos** por su cuenta, dijera lo que dijera el texto fijo. Ahora se quitan solo las que rompen: «Peñón» conserva la ñ y pierde la ó.
+3. **Los pedidos de oficina anteriores al arreglo seguían avisando a DOMIRED** al marcarlos «listo», porque su `Delivery` ya estaba creado en la base. El candado está ahora también en ese camino, no solo al crear.
+4. **El cliente podía inventarse la oficina**: bastaba mandar `deliveryAddress.oficina` a mano para que el pedido pasara por «de oficina» —sin seguimiento y sin aviso al domiciliario— y con el texto que quisiera en el SMS del negocio. La oficina la pone el **servidor** o no la pone nadie.
+
+Y las pruebas de este bloque, que eran scripts que **no corría nadie**, entran ahora en el CI.
+
+**Segunda pasada, ya con los arreglos escritos** (los terminó otra mano: el agente que empezó el bloque se quedó a medias, así que se volvió a revisar entero). Confirmó contra producción lo que más preocupaba —que guardar la sede **validada** no se la quita a nadie: de **415 pedidos con sede en 60 días, los 415 la conservan**, porque `filasDeSede` solo devuelve nulo cuando la sede no es del negocio, y 170 de las 172 sedes activas no tienen precios por sede y siguen valiendo igual—. Y encontró un agujero nuevo, este del píxel: el efecto del checkout corría **antes** de que llegara la lista de sedes y **borraba** la sede que acababa de poner el enlace `?sede=`, así que si ese fetch fallaba la compra salía sin sucursal aunque «ver producto» y «añadir al carrito» sí la llevaran. Media sucursal en el embudo es peor que ninguna. Arreglado, y con dos cosas más: el candado de «listo para recoger» no tenía prueba (ahora la tiene, comprobada en rojo: al quitarlo cae solo el caso de oficina y el domicilio normal sigue verde), y el ancla del script del píxel pasaba con **una** de las dos llamadas, así que quitar cualquiera de ellas dejaba el embudo a medias sin ponerse en rojo.
+
+### Ojo con los informes de Meta que ya existan
+
+`content_category` pasa de llevar el **id** de la sede a llevar su **nombre**. Cualquier desglose o conversión montado sobre el uuid deja de casar: el id no se pierde, pero ahora viaja en `sede_id`. Dos avisos que vienen con el cambio: el nombre **no es estable** —renombrar una sucursal parte la serie— y puede repetirse (Quipao tiene una sede que se llama igual que el negocio). Y un detalle real: «Sambil ︎Margarita» lleva un carácter invisible en el nombre y viaja tal cual.
+
+### El embudo del píxel por sede
+
+Aprobado por Javier en el mismo bloque. Hasta ahora solo la **compra** llevaba la sucursal, así que en Meta se podían comparar ventas por sede pero no ver que una sede recibe carritos que no se cierran. Ahora la llevan los cuatro eventos, y con el **nombre** («Sambil Margarita») en vez del id, que es lo que se leía antes en los informes; el id sigue viajando aparte.
+
+La sede vive en el estado del módulo del píxel y no en cada llamada, por la misma razón que el id del píxel: `AddToCart` se dispara desde `lib/cart.ts` —el único sitio por el que entra algo al carrito— y allí no hay forma de saber en qué sucursal está el cliente. Se pone al abrir el menú cuando el enlace trae `?sede=`, y se refresca en el checkout si el cliente elige otra: si solo se pusiera al final, «ver producto» y la compra caerían en categorías distintas y el embudo no cuadraría. Un negocio sin sedes manda exactamente lo de siempre.
+
+### Decidido
+
+El resumen dice **«y otros 2»** y no «y 2 más»: la tilde de «más» saca el texto fijo de GSM-7 y encarece justo los pedidos largos que se intentaba resumir. Preguntado a Javier y confirmado por él. Los nombres de los productos conservan las tildes que no rompen el SMS.
+
+### Nota sobre las pruebas
+
+Las de esta parte del frontend son scripts (`npm run pruebas:sede`, `npm run pruebas:oficina`), no vitest: importan la lógica de verdad y comprueban además con anclas que la pantalla la sigue usando, que es lo que evita una prueba verde sobre código muerto.
+
 ## 2026-09-16 (34) — El comprobante de la transferencia se adjunta al marcar comisiones como pagadas
 
 Javier, sobre el modal «Marcar comisiones como pagadas» de `/admin/commissions`: «Permitir adjuntar comprobante como archivo en esta sección». Hasta ahora solo había «Fecha real de la transferencia» y «Referencia / nota», es decir, la prueba del pago era una frase escrita a mano.

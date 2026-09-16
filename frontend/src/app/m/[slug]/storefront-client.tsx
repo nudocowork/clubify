@@ -35,12 +35,18 @@ import { CO_LOCATIONS, OTRO_MUNICIPIO } from '@/lib/co-locations';
 const OTRA_REGION = '__OTRA_REGION__';
 import { regionsForCountry } from '@/lib/regions';
 import {
+  estadoDeLaSede,
+  resolverSedeYEstado,
+  sedesDelEstado,
+} from '@/lib/sede-del-pedido.mjs';
+import {
   type StorefrontPopupItem,
   resolveActiveMenuPopup,
 } from '@/lib/storefront-popups';
 import { useLocale, useT, configureTenantLocale } from '@/lib/i18n';
 import {
   configurarPixelDelNegocio,
+  configurarSedeDelNegocio,
   eventoDelNegocio,
 } from '@/lib/pixel-del-negocio';
 import { SectionCoverPreview } from '@/components/menu/SectionCoverPreview';
@@ -516,6 +522,23 @@ function StorefrontPublicInner() {
             // El píxel del NEGOCIO (si su dueño puso uno): se carga acá, con
             // el menú, y manda su PageView. Sin id no se carga nada de Meta.
             configurarPixelDelNegocio(data?.metaPixelId, data?.currency);
+            // Y la sucursal, cuando el enlace ya la trae (el QR de cada sede).
+            // Va aquí y no en el checkout porque «ver producto» y «añadir al
+            // carrito» se disparan mucho antes de que el cliente abra la hoja
+            // de pedido: si la sede llegara solo al final, en Meta la misma
+            // sucursal aparecería con dos categorías distintas y el embudo no
+            // cuadraría. El nombre se busca en la lista pública de sedes.
+            if (sedeDelQr) {
+              fetch(`${API}/api/public/storefront/locations?slug=${slug}`)
+                .then((r) => (r.ok ? r.json() : []))
+                .then((arr: Array<{ id?: string; name?: string }>) => {
+                  const suya = Array.isArray(arr)
+                    ? arr.find((x) => x?.id === sedeDelQr)
+                    : null;
+                  if (suya?.id) configurarSedeDelNegocio(suya.id, suya.name);
+                })
+                .catch(() => {});
+            }
           }
         })
         .catch((e: Error) => {
@@ -2025,36 +2048,44 @@ function CheckoutSheet({
   // regiones curadas (cae al fallback genérico), se usa input libre.
   const regionsData = regionsForCountry(country);
 
-  // Departamentos donde el negocio TIENE sede. Un negocio local de
-  // Bucaramanga no tiene por que hacer al cliente buscar entre los 32
-  // departamentos del pais: le mostramos Santander y ya. Comparamos
-  // normalizado porque el campo fue texto libre durante mucho tiempo.
   // El cliente pidio ver todos los departamentos (esta fuera de la zona del
   // negocio pero quiere pedir igual).
   const [mostrarTodosDeps, setMostrarTodosDeps] = useState(false);
 
-  const normDep = (x: string | null | undefined) =>
-    (x ?? '')
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .trim()
-      .toLowerCase();
-  const depsDelNegocio = regionsData.regions.filter((r) =>
-    sedes.some((sede) => sede.state && normDep(sede.state) === normDep(r.name)),
+  // QUE SEDE SIRVE ESTE PEDIDO, Y SI HAY QUE PREGUNTARLE EL ESTADO.
+  //
+  // Si el cliente entro por el enlace de una sede (`?sede=`), o el negocio
+  // tiene una sola, la sede esta decidida antes de que escriba nada: el estado
+  // solo servia para deducirla, asi que preguntarlo sobra. Es el reporte de
+  // Quipao (sede de Nueva Esparta), repetido. Lo que NO se pierde es el dato:
+  // se rellena solo con el de la sede, porque viaja dentro de la direccion del
+  // mensaje de WhatsApp.
+  //
+  // La decision vive en `sede-del-pedido.mjs` para poder probarla de verdad:
+  // `node scripts/pruebas-sede-del-pedido.mjs`.
+  const { estadoFijo, preguntarEstado, regionesDelNegocio } = useMemo(
+    () =>
+      resolverSedeYEstado({
+        sedes,
+        sedeDelQr,
+        regiones: regionsData.regions,
+        mostrarTodos: mostrarTodosDeps,
+      }),
+    [sedes, sedeDelQr, regionsData, mostrarTodosDeps],
   );
-  // Sin sedes con departamento cargado caemos a la lista completa: es lo que
-  // pasa hoy en la mayoria de los negocios y no se puede romper su checkout.
-  const depsVisibles = depsDelNegocio.length ? depsDelNegocio : regionsData.regions;
-  // Un solo departamento = no hay nada que elegir. Se muestra fijo.
-  const depFijo = depsDelNegocio.length === 1 ? depsDelNegocio[0].name : null;
-  // Con una sola sede el departamento no se pregunta, pero el formulario
-  // igual tiene que ir relleno: es obligatorio al enviar.
+  // Un negocio local de Bucaramanga no tiene por que hacer al cliente buscar
+  // entre los 32 departamentos del pais: le mostramos los suyos. Sin ninguno
+  // reconocible cae a la lista completa — es lo que pasa en la mayoria de los
+  // negocios y no se puede romper su checkout.
+  const depsVisibles = regionesDelNegocio.length
+    ? regionesDelNegocio
+    : regionsData.regions;
   useEffect(() => {
-    if (depFijo && !mostrarTodosDeps && !form.departamento) {
-      setForm((f) => ({ ...f, departamento: depFijo }));
+    if (estadoFijo && !form.departamento) {
+      setForm((f) => ({ ...f, departamento: estadoFijo }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [depFijo, mostrarTodosDeps]);
+  }, [estadoFijo]);
 
   const munList =
     regionsData.regions.find((r) => r.name === form.departamento)?.cities ?? [];
@@ -2063,13 +2094,23 @@ function CheckoutSheet({
       ? form.municipioOtro.trim()
       : form.municipio;
 
-  // Ruteo por sede: el negocio con ≥2 sedes rutea el pedido a la sede del
-  // estado del cliente (con confirmación). 0/1 sede = comportamiento actual.
-  const normTxt = (x: string | null | undefined) =>
-    (x ?? '').trim().toLowerCase();
-  const matchingSedes = sedes.filter(
-    (s) => s.state && normTxt(s.state) === normTxt(form.departamento),
+  // Ruteo por sede: el negocio con >=2 sedes rutea el pedido a la sede del
+  // estado del cliente (con confirmacion). 0/1 sede = comportamiento actual.
+  //
+  // El estado de una sede puede venir del campo `state` O de su direccion:
+  // 96 de las 172 sedes activas de produccion tienen `state` vacio, asi que
+  // comparando solo ese campo no casaba ninguna y este selector acababa
+  // diciendo siempre «No hay sede en tu estado».
+  const matchingSedes = sedesDelEstado(
+    sedes,
+    form.departamento,
+    regionsData.regions,
   );
+  /** « — Nueva Esparta» detras del nombre de la sede, cuando lo sabemos. */
+  const sufijoEstado = (s: Sede | null) => {
+    const estado = estadoDeLaSede(s, regionsData.regions);
+    return estado ? ` — ${estado}` : '';
+  };
   const routingActive = form.fulfillment === 'DELIVERY' && sedes.length >= 2;
   // Sede auto-asignada cuando es inequívoca (1 sede total, o 1 en el estado).
   const autoSede =
@@ -2086,6 +2127,20 @@ function CheckoutSheet({
     : undefined;
   const effectiveSedeId = sedeDelQrValida || sedeId || autoSede?.id || '';
   const effectiveSede = sedes.find((s) => s.id === effectiveSedeId) ?? null;
+  // La sede que acaba mandando el pedido, para el píxel. El enlace con `?sede=`
+  // ya la dejó puesta arriba; esto cubre al cliente que llega por el enlace
+  // general y la elige aquí (o a quien la cambia), para que «iniciar pedido» y
+  // la compra caigan en la misma sucursal que sus pasos previos.
+  useEffect(() => {
+    // Mientras no haya llegado la lista de sedes no sabemos nada, y este efecto
+    // corre al montar con la lista vacía: sin este corte, borraría la sede que
+    // el enlace `?sede=` acaba de poner, y si el fetch de sedes falla o la sede
+    // está inactiva, la COMPRA saldría sin sucursal aunque «ver producto» y
+    // «añadir al carrito» sí la llevaran. Media sucursal en el embudo es peor
+    // que ninguna: no cuadra con nada.
+    if (!sedes.length) return;
+    configurarSedeDelNegocio(effectiveSedeId, effectiveSede?.name);
+  }, [sedes.length, effectiveSedeId, effectiveSede?.name]);
   // Lista del selector: las sedes del estado del cliente; si no hay ninguna,
   // todas (fallback para que el cliente elija manualmente — nunca se bloquea).
   const sedeOptions = matchingSedes.length ? matchingSedes : sedes;
@@ -2116,8 +2171,21 @@ function CheckoutSheet({
       // La oficina es el destino: ni dirección ni sede que elegir. Sin esta
       // rama caería al `else if` de abajo y, con dos sedes, le exigiría una.
     } else if (form.fulfillment === 'DELIVERY') {
-      if (!form.departamento || !municipioFinal || !form.direccion.trim()) {
-        setErr(tt('checkout.error_address'));
+      // El estado solo es obligatorio si se le pregunto. Con la sede ya
+      // resuelta puede quedar vacio —sede sin estado cargado ni deducible— y
+      // exigirlo seria rechazar el pedido por un campo que no se ensena.
+      if (
+        (preguntarEstado && !form.departamento) ||
+        !municipioFinal ||
+        !form.direccion.trim()
+      ) {
+        setErr(
+          tt(
+            preguntarEstado
+              ? 'checkout.error_address'
+              : 'checkout.error_address_city',
+          ),
+        );
         return;
       }
       // Si hay varias sedes, el cliente debe tener una sede destino resuelta
@@ -2217,9 +2285,10 @@ function CheckoutSheet({
         num_items: items.reduce((n, i) => n + i.qty, 0),
         order_id: order?.code ?? undefined,
         event_id: order?.code ?? undefined,
-        // La sede a la que entró el pedido: es lo único que distingue las tres
-        // sucursales de un negocio que comparte un solo menú.
-        content_category: effectiveSedeId || undefined,
+        // La sede ya no se pone aquí: la añade `eventoDelNegocio` a los cuatro
+        // eventos del embudo, y con el NOMBRE de la sucursal («Sambil
+        // Margarita») en vez del id, que es lo que se lee en los informes de
+        // Meta. El id sigue viajando aparte, en `sede_id`.
       });
 
       clearCart(slug, mode);
@@ -2402,35 +2471,44 @@ function CheckoutSheet({
                 <div className="rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1.5 text-[11px] text-amber-900 leading-snug">
                   {tt('checkout.delivery_note')}
                 </div>
-                {/* Departamento.
-                    Con UNA sola sede no se pregunta: se muestra fijo. Con
-                    varias, solo los departamentos donde el negocio tiene sede.
-                    Siempre queda la salida "otro" para el cliente que esta
-                    fuera y aun asi quiere pedir. */}
-                {depFijo && !mostrarTodosDeps ? (
-                  <div>
-                    <label className="label">{regionsData.regionLabel}</label>
-                    <div className="flex items-center gap-2">
-                      <div className="input flex-1 bg-bg2 text-mute flex items-center">
-                        {depFijo}
+                {/* El estado / departamento.
+                    Solo se PREGUNTA cuando de verdad decide algo: con la sede
+                    ya resuelta —enlace `?sede=` o negocio de una sola sede— no
+                    se pregunta, y con varias se ofrecen solo los estados donde
+                    el negocio tiene sede. Siempre queda la salida "otro" para
+                    el cliente que esta fuera y aun asi quiere pedir. */}
+                {!preguntarEstado ? (
+                  // Sede ya resuelta (enlace `?sede=` o negocio de una sola
+                  // sede): no se pregunta el estado. Si lo sabemos se ensena
+                  // fijo —viaja dentro de la direccion del WhatsApp—; si la
+                  // sede no lo tiene cargado ni se deduce de su direccion, no
+                  // se pinta nada: preguntarlo no cambiaria a donde va el
+                  // pedido, que es lo unico para lo que servia.
+                  estadoFijo ? (
+                    <div>
+                      <label className="label">{regionsData.regionLabel}</label>
+                      <div className="flex items-center gap-2">
+                        <div className="input flex-1 bg-bg2 text-mute flex items-center">
+                          {estadoFijo}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMostrarTodosDeps(true);
+                            setForm({
+                              ...form,
+                              departamento: '',
+                              municipio: '',
+                              municipioOtro: '',
+                            });
+                          }}
+                          className="text-[11px] text-brand font-semibold whitespace-nowrap hover:underline"
+                        >
+                          {tt('checkout.other_region')}
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMostrarTodosDeps(true);
-                          setForm({
-                            ...form,
-                            departamento: '',
-                            municipio: '',
-                            municipioOtro: '',
-                          });
-                        }}
-                        className="text-[11px] text-brand font-semibold whitespace-nowrap hover:underline"
-                      >
-                        {tt('checkout.other_region')}
-                      </button>
                     </div>
-                  </div>
+                  ) : null
                 ) : (
                   <div>
                     <label className="label">{regionsData.regionLabel} *</label>
@@ -2561,7 +2639,7 @@ function CheckoutSheet({
                           <span className="font-semibold">
                             {effectiveSede.name}
                           </span>
-                          {effectiveSede.state ? ` — ${effectiveSede.state}` : ''}
+                          {sufijoEstado(effectiveSede)}
                         </div>
                         <button
                           type="button"
@@ -2591,7 +2669,7 @@ function CheckoutSheet({
                           {sedeOptions.map((s) => (
                             <option key={s.id} value={s.id}>
                               {s.name}
-                              {s.state ? ` — ${s.state}` : ''}
+                              {sufijoEstado(s)}
                             </option>
                           ))}
                         </select>
@@ -2623,7 +2701,7 @@ function CheckoutSheet({
                   {sedes.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
-                      {s.state ? ` — ${s.state}` : ''}
+                      {sufijoEstado(s)}
                     </option>
                   ))}
                 </select>

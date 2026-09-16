@@ -93,6 +93,9 @@ export function addToCart(slug: string, item: CartItem, mode: CartMode = 'mesa')
   // arriba, en los componentes, se olvida en el siguiente que alguien escriba
   // y el evento deja de mandarse sin que nadie se entere. Sin píxel
   // configurado no hace nada.
+  // La sede la pone `eventoDelNegocio` desde el estado del módulo: aquí no hay
+  // forma de saberla, y este es justo el sitio que hacía falta cubrir para que
+  // el embudo por sucursal no se corte entre «añadir al carrito» y la compra.
   eventoDelNegocio('AddToCart', {
     value: Number(item.unitPrice) * item.qty,
     content_type: 'product',

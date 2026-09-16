@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "generate-icons": "node scripts/generate-icons.mjs",
-    "pruebas:lienzo": "node scripts/pruebas-lienzo-workflows.mjs"
+    "pruebas:lienzo": "node scripts/pruebas-lienzo-workflows.mjs",
+    "pruebas:sede": "node scripts/pruebas-sede-del-pedido.mjs",
+    "pruebas:oficina": "node scripts/pruebas-pedido-en-oficina.mjs",
+    "pruebas:pixel": "node scripts/pruebas-pixel-por-sede.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -11,6 +11,7 @@ import { AuditService } from '../audit/audit.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { CustomerOrderSmsService } from '../integrations/customer-order-sms.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { oficinaDelPedido } from '../orders/pedido-en-oficina';
 
 /**
  * Red de Domicilios — Fase 1 (2026-06-29).
@@ -318,6 +319,13 @@ export class DeliveryService {
       const isDelivery =
         order.fulfillment === 'DELIVERY' || order.mode === 'DELIVERY';
       if (!isDelivery) return;
+      // Un pedido a una OFICINA no tiene repartidor: se entrega dentro del
+      // coworking, andando. Es DELIVERY porque sale del menú de domicilio, y
+      // por eso entraba aquí: al cliente le aparecía «Buscando repartidor» con
+      // los cinco pasos y a la empresa de domicilios le entraba un pedido que
+      // nadie iba a recoger. Reportado con el pedido #YD6J7P de Nudo Cowork,
+      // hecho desde el menú de «Sala de Juntas».
+      if (oficinaDelPedido(order.deliveryAddress)) return;
       if (order.delivery) return; // ya existe
 
       // Negocio SIN empresa de domicilios vinculada → NO creamos seguimiento:
@@ -520,6 +528,7 @@ export class DeliveryService {
           fulfillment: true,
           mode: true,
           tenantId: true,
+          deliveryAddress: true,
           tenant: { select: { brandName: true } },
         },
       });
@@ -527,6 +536,9 @@ export class DeliveryService {
       const isDelivery =
         order.fulfillment === 'DELIVERY' || order.mode === 'DELIVERY';
       if (!isDelivery) return;
+      // Y si se entrega en una oficina, no hay a quién avisar: ninguna empresa
+      // de domicilios va a recoger ese pedido.
+      if (oficinaDelPedido(order.deliveryAddress)) return;
 
       const links = await this.prisma.deliveryCompanyTenant.findMany({
         where: { tenantId: order.tenantId, deliveryCompany: { isActive: true } },
@@ -583,6 +595,17 @@ export class DeliveryService {
         select: { deliveryCompanyId: true, tenantId: true },
       });
       if (!d) return;
+      // Un pedido a una OFICINA se entrega dentro del coworking: no hay a
+      // quién avisar. El candado tiene que estar TAMBIÉN aquí, y no solo al
+      // crear el Delivery, porque los pedidos anteriores a este arreglo ya lo
+      // tienen creado en la base: sin esto, al marcarlos «listo» la empresa de
+      // domicilios recibe un «listo para recoger» con dirección «Sala de
+      // Juntas» y el pedido se le queda en el portal.
+      const pedido = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        select: { deliveryAddress: true },
+      });
+      if (pedido && oficinaDelPedido(pedido.deliveryAddress)) return;
       const companyId =
         d.deliveryCompanyId ?? (await this.resolveDefaultCompany(d.tenantId));
       if (companyId) await this.notifyCompanyNewDelivery(companyId, orderId);
@@ -1186,6 +1209,7 @@ export class DeliveryService {
         mode: true,
         total: true,
         createdAt: true,
+        deliveryAddress: true,
         delivery: {
           select: { status: true, etaMinutes: true, courierName: true },
         },
@@ -1198,13 +1222,17 @@ export class DeliveryService {
         isDelivery: o.fulfillment === 'DELIVERY' || o.mode === 'DELIVERY',
         total: o.total == null ? null : Number(o.total),
         createdAt: o.createdAt,
-        delivery: o.delivery
-          ? {
-              status: o.delivery.status,
-              etaMinutes: o.delivery.etaMinutes,
-              courierName: o.delivery.courierName,
-            }
-          : null,
+        // «Mis pedidos» tampoco puede decir «Buscando repartidor» en un
+        // pedido de oficina. No basta con dejar de crear el seguimiento: los
+        // pedidos anteriores al arreglo ya lo tienen creado en la base.
+        delivery:
+          o.delivery && !oficinaDelPedido(o.deliveryAddress)
+            ? {
+                status: o.delivery.status,
+                etaMinutes: o.delivery.etaMinutes,
+                courierName: o.delivery.courierName,
+              }
+            : null,
       })),
     };
   }

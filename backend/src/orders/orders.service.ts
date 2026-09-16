@@ -42,7 +42,11 @@ import {
   resolverEnSede,
   seVendeEn,
 } from '../catalog/producto-en-sede';
-import { direccionDeOficina, type OficinaDelPedido } from './pedido-en-oficina';
+import {
+  direccionDeOficina,
+  oficinaDelPedido,
+  type OficinaDelPedido,
+} from './pedido-en-oficina';
 import {
   orderConfirmedTemplate,
   orderCreatedTemplate,
@@ -596,8 +600,22 @@ export class OrdersService {
     // abajo donde se persisten.
     const cleanTableNumber =
       derivedMode === 'DELIVERY' ? null : dto.tableNumber ?? null;
+    // La oficina la pone el SERVIDOR (`direccionDeOficina`, arriba, cuando el
+    // enlace trae una) o no la pone nadie. Antes se guardaba `deliveryAddress`
+    // tal cual venía del cliente: metiéndole a mano un `oficina: {nombre}` se
+    // colaba un pedido «de oficina» —sin seguimiento y sin aviso a la empresa
+    // de domicilios— con el texto que quisiera en el SMS del negocio.
+    const sinOficinaInventada = (v: unknown) =>
+      v && typeof v === 'object' && !Array.isArray(v)
+        ? (({ oficina: _fuera, ...resto }) => resto)(
+            v as Record<string, unknown>,
+          )
+        : v;
     const cleanDeliveryAddress =
-      derivedMode === 'MESA' ? null : direccionPedida ?? null;
+      derivedMode === 'MESA'
+        ? null
+        : (oficina ? direccionPedida : sinOficinaInventada(direccionPedida)) ??
+          null;
     // PDF1145: el filtro de disponibilidad debe coincidir con el MENÚ que el
     // cliente NAVEGÓ (la RUTA = dto.mode), no con el fulfillment. En la ruta
     // delivery (/d) el cliente pudo elegir Pick Up o Mesa sobre un menú ya
@@ -812,7 +830,11 @@ export class OrdersService {
             tableNumber: cleanTableNumber,
             deliveryAddress: cleanDeliveryAddress,
             customerNote: dto.customerNote,
-            locationId: oficina ? null : dto.locationId,
+            // La sede que se GUARDA es la validada contra ESTE negocio, no la
+            // que mandó el cliente: los ids de sede son públicos, y el aviso
+            // al dueño imprime este nombre por relación, así que un id ajeno
+            // acabaría nombrando la sede de otro negocio en su SMS.
+            locationId: oficina ? null : sede.locationId,
             // Método de pago declarado por el cliente (informativo). Si eligió
             // OTRO guardamos también el texto libre.
             customerPaymentMethod: dto.customerPaymentMethod || null,
@@ -1232,6 +1254,11 @@ export class OrdersService {
     } = o as Record<string, unknown> & typeof o;
     return {
       ...publico,
+      // Se entrega en una OFICINA. Solo el sí o el no: la dirección se queda
+      // fuera de esta respuesta a propósito —es pública por el código del
+      // pedido— y para saber que no hay repartidor no hace falta más. Con esto
+      // la pantalla no pinta el seguimiento del domicilio ni su chat.
+      enOficina: !!oficinaDelPedido(o.deliveryAddress),
       brand: {
         name: b.name,
         slug: b.slug,

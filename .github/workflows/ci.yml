@@ -149,6 +149,14 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # Las pruebas del menú público. El frontend no tiene runner, así que son
+      # scripts sueltos de node — pero cubren dos cosas que ya se rompieron en
+      # producción (preguntar el estado teniendo la sede, y el seguimiento de
+      # domicilio en un pedido de oficina) y hasta hoy no las corría nadie.
+      # Bloquean a propósito: si se ponen en rojo, el fallo vuelve.
+      - name: Pruebas del menú público (sede del enlace, pedidos de oficina y píxel por sede)
+        run: npm run pruebas:sede && npm run pruebas:oficina && npm run pruebas:pixel
+
       - name: Build
         run: npm run build
 

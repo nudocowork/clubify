@@ -67,6 +67,8 @@ type Order = {
     departamento?: string;
     municipio?: string;
     direccion?: string;
+    /** Oficina del enlace (`?oficina=`): el pedido se entrega ahí. */
+    oficina?: { id?: string; nombre?: string } | null;
   } | null;
   events: OrderEvent[];
   location: { id: string; name: string } | null;
@@ -376,7 +378,12 @@ export default function OrderDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
         {/* Items */}
         <div className="space-y-4">
-          {o.delivery && o.delivery.deliveryCompanyId && o.delivery.status !== 'CANCELLED' && (
+          {/* En un pedido de OFICINA no hay repartidor con quien chatear: se
+              entrega dentro del coworking. */}
+          {o.delivery &&
+            o.delivery.deliveryCompanyId &&
+            o.delivery.status !== 'CANCELLED' &&
+            !o.deliveryAddress?.oficina && (
             <div className="card card-pad">
               <h3 className="font-semibold mb-3">💬 Chat del domicilio</h3>
               <DeliveryChat
