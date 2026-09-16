@@ -206,6 +206,31 @@ export class SalesTeamsService {
 
   async remove(id: string, user: AuthUser) {
     await this.exigirMiMarca(id, user);
+
+    // NO se borra un equipo que todavía tiene ventas con negocio vinculado.
+    //
+    // `SalesLead.team` es `onDelete: Cascade`: borrar el equipo se lleva sus
+    // leads, y como `SalesTeamSale.leadId` es `ON DELETE SET NULL`, TODAS sus
+    // ventas se quedarían `estado='vinculada'` y sin lead. Ahí no las ve nadie
+    // —la pantalla de Clientes y `desvincular` las buscan por `leadId`— pero el
+    // índice único parcial sigue dando esos negocios por ocupados: ninguno se
+    // podría volver a vincular nunca, y sin pantalla desde la que soltarlos.
+    //
+    // Se niega en vez de desvincularlas en cascada, por lo mismo que en
+    // `sales-leads.service.ts` (`borrarLead`): esa venta es lo que luego se
+    // cobra, y la atribución de quién cerró no se pierde en silencio por un
+    // borrado hecho desde OTRA pantalla (aquí, /admin/sales-teams).
+    const vinculadas = await this.prisma.salesTeamSale.count({
+      where: { salesTeamId: id, estado: 'vinculada' },
+    });
+    if (vinculadas > 0) {
+      throw new ConflictException(
+        vinculadas === 1
+          ? 'Este equipo tiene 1 venta con un negocio vinculado. Desvincúlala desde su pestaña Clientes antes de borrar el equipo: esa venta es la que se cobra después.'
+          : `Este equipo tiene ${vinculadas} ventas con un negocio vinculado. Desvincúlalas desde su pestaña Clientes antes de borrar el equipo: esas ventas son las que se cobran después.`,
+      );
+    }
+
     // Cascade en SalesTeamMember se encarga de los memberships.
     await this.prisma.salesTeam.delete({ where: { id } });
     return { ok: true };

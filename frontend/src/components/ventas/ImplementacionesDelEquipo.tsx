@@ -23,10 +23,13 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import { CabeceraDeEquipo } from '@/components/ventas/CabeceraDeEquipo';
+import { NegocioDeLaVenta, useVentasDelEquipo } from '@/components/ventas/NegocioDeLaVenta';
 
 type Paso = { id: string; titulo: string; hecho: boolean };
 type Implementacion = {
   id: string;
+  /** El lead ganado del que nació. Con él se vincula el negocio de la marca. */
+  leadId: string | null;
   nombre: string;
   cliente: string | null;
   plan: string | null;
@@ -61,6 +64,9 @@ export function ImplementacionesDelEquipo() {
   const [equipo, setEquipo] = useState<{ id: string; name: string } | null>(null);
   const [filtro, setFiltro] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  // El negocio de cada venta, en UNA petición para toda la pantalla y no una por
+  // tarjeta. Si la ruta no responde, no se pinta esa parte y Clientes sigue igual.
+  const { ventas, recargarVentas } = useVentasDelEquipo(teamId);
 
   const cargar = useCallback(async () => {
     if (!teamId) return;
@@ -267,6 +273,15 @@ export function ImplementacionesDelEquipo() {
                     </label>
                   ))}
                 </div>
+
+                {i.leadId && (
+                  <NegocioDeLaVenta
+                    teamId={teamId}
+                    leadId={i.leadId}
+                    ventas={ventas}
+                    alCambiar={recargarVentas}
+                  />
+                )}
               </div>
             );
           })}

@@ -8,6 +8,64 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-16 (32) — La venta de un equipo queda atada al negocio que la paga, con su closer y su setter
+
+Javier quiere que una venta cerrada por un equipo de Sellea acabe pagando
+comisión al **closer y al setter**, fija según el tipo de afiliado, y que la
+marca pueda elegir si también se paga en las renovaciones. Para eso faltaba lo
+primero: no existía ningún vínculo entre «el lead que se ganó» y **el negocio que
+paga**. Esto construye ese vínculo y nada más: **todavía no se paga nada**.
+
+### Qué cambia
+
+- Tabla nueva `SalesTeamSale`: en la ficha del cliente se elige el negocio de la
+  marca, con quién cerró y quién agendó. Vincular y desvincular es del líder del
+  equipo o de un admin de la marca; buscar en la cartera de la marca, solo del
+  admin.
+- **Sugerencias, no automatismos**: se proponen negocios por teléfono o correo y
+  siempre confirma una persona. Si dos negocios coinciden por la misma señal, se
+  marcan los dos («otro negocio coincide igual»): no se elige por azar.
+- `SalesMeeting.agendadaPorUserId` guarda quién agendó la cita, que es de donde
+  sale el setter. Una reserva pública no lo pone: el cliente no puede inventarse
+  un setter.
+- `quien-cobraria.ts` es un espejo puro de la regla del motor, **no lo llama
+  nadie**: sirve para decidir con datos cuando se conecte el dinero.
+
+### Al desplegar: la migración ANTES que el backend
+
+Prisma pide todas las columnas del modelo, así que sin `agendadaPorUserId`
+cualquier consulta que devuelva una cita entera falla con P2022 —y en la agenda
+lo son casi todas, la reserva pública incluida—. Además `borrarLead` y el borrado
+de un equipo leen ya la tabla nueva. Orden: `apply-sales-team-sales-migration.cjs`
+y después `desplegar.cjs backend`.
+
+### Revisión de Fable
+
+- **Un negocio quedaba bloqueado para siempre.** Al borrar un lead vinculado, la
+  venta se quedaba «vinculada» sin lead: invisible para la pantalla, pero
+  ocupando el índice único del negocio. Nadie podía volver a vincularlo y el
+  error no daba salida. Se cierra **negándose a borrar** (409) con el motivo: la
+  venta es lo que luego se cobra, y borrar puede cualquiera con escritura
+  mientras que desvincular es del líder o del admin.
+- **La misma huérfana entraba por una segunda puerta**: borrar el equipo arrastra
+  sus leads en cascada. También se niega, diciendo cuántas ventas hay que
+  desvincular antes.
+- **Falso positivo por teléfono**: se daban por iguales dos números si uno era
+  sufijo del otro con 7 dígitos, y en Sellea ya hay negocios que comparten los
+  últimos 10. Eso acaba pagándole la comisión de una venta a quien no la cerró.
+  Ahora el lado corto necesita 10 dígitos.
+- **Tests que daban verde sin mirar**: el doble de Prisma ignoraba el `where`, así
+  que quitar las condiciones de carrera seguía pasando. Se arreglaron y se
+  comprobó uno a uno que saben ponerse en rojo.
+
+### Pendiente (no es de este bloque)
+
+- **Jhon** tiene que decidir cómo cuelga la comisión de aquí
+  (`Commission.salesTeamSaleId`): comisiones y afiliados son suyos.
+- «Que también se paguen las renovaciones» **no sale solo con llamar a esta
+  función**: en `FIXED_ONCE` el motor no genera nada en las renovaciones, así que
+  hay que tocar el motor.
+
 ## 2026-09-16 (31) — La fecha de cobro nacía el día del webhook y no el día del pago: 14 corregidas
 
 Javier: «Café Macondo (+56990432569) se le realizó el cobro de la suscripción hoy

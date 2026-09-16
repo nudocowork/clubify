@@ -673,6 +673,11 @@ export class SalesAgendaService {
           manageToken: nanoid(32),
           notes: body.notes?.trim() || null,
           agendaId: body.agendaId ?? null,
+          // Quién la agendó desde dentro: es el «setter» de la venta del equipo
+          // («Negocio de la marca», en Clientes). Una reserva por el enlace
+          // público no trae a nadie y se queda en null, que es lo correcto:
+          // rellenarlo a ojo sería atribuirle a alguien una venta.
+          agendadaPorUserId: body.creadaPor ?? null,
         },
         include: {
           lead: { select: { id: true, name: true, phone: true, email: true } },

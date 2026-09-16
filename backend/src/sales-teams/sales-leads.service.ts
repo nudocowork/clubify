@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -542,10 +543,44 @@ export class SalesLeadsService {
     }
   }
 
+  /**
+   * Borrar un lead NO puede llevarse por delante su venta («Negocio de la
+   * marca»). `SalesTeamSale.leadId` es `ON DELETE SET NULL`: la fila sobrevive
+   * al borrado con `estado = 'vinculada'` y sin lead, donde NADIE la ve ni la
+   * puede soltar —la pantalla y `desvincular` la buscan por `leadId`—, mientras
+   * el índice único parcial sigue dando ese negocio por ocupado. A partir de
+   * ahí, vincularlo a la venta de verdad responde «Ese negocio ya está
+   * vinculado a otra venta» para siempre y sin salida.
+   *
+   * Se NIEGA en vez de desvincular sola, por dos razones: la venta es lo que
+   * luego se paga, y desvincular es del líder o de un admin de la marca
+   * mientras que borrar lo puede cualquiera con escritura —una venta no se
+   * deshace de rebote al borrar una ficha—. El borrado en lote
+   * (`contactos-de-equipo.service.ts`) ya se salta los leads ganados por lo
+   * mismo. La salida está en la tarjeta del cliente: Desvincular y luego borrar.
+   *
+   * Queda una carrera mínima: si alguien vincula ESE lead entre la comprobación
+   * y el `delete`, la fila queda huérfana igual. No se envuelve en una
+   * transacción porque no la cerraría (el `INSERT` de la otra sesión no se ve
+   * desde esta hasta que confirma); se prefiere un candado simple y que el caso
+   * —vincular y borrar el mismo cliente en el mismo segundo— se vea en la
+   * auditoría de `sale_linked`.
+   */
   async borrarLead(user: AuthUser, teamId: string, leadId: string) {
     const acceso = await resolveTeamAccess(this.prisma, user, teamId);
     exigirEscritura(acceso);
     await this.leadDelEquipo(teamId, leadId);
+    const venta = await this.prisma.salesTeamSale.findFirst({
+      where: { leadId, estado: 'vinculada' },
+      select: { id: true },
+    });
+    if (venta) {
+      // 409 y no 400: el cuerpo de la petición está bien, lo que no encaja es
+      // el ESTADO de la venta. Igual que el resto de choques de este módulo.
+      throw new ConflictException(
+        'Este cliente tiene un negocio vinculado. Desvincúlalo antes de borrarlo: esa venta es la que se cobra después.',
+      );
+    }
     await this.prisma.salesLead.delete({ where: { id: leadId } });
     return { ok: true };
   }

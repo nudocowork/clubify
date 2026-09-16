@@ -4614,6 +4614,7 @@ model SalesLead {
   opportunities  SalesOpportunity[]
   tasks          SalesTask[]
   formResponses  SalesFormResponse[]
+  teamSales      SalesTeamSale[]
   @@index([salesTeamId, stageId])
   @@index([salesTeamId, assignedUserId])
   @@index([whiteLabelId, phoneKey])
@@ -4706,6 +4707,12 @@ model SalesMeeting {
   gcalEventId    String?
   gcalCalendarId String?
   gcalError      String?
+  /// Quién agendó la cita desde dentro: el «setter» de la venta del equipo.
+  /// Null en las reservas por el enlace público, y en las citas anteriores a
+  /// esta columna: nadie guardó quién las agendó, y deducirlo sería atribuirle
+  /// una venta a alguien a ojo. Sin relación con `User`, como el resto del
+  /// módulo (añadirla obliga a tocar ese modelo).
+  agendadaPorUserId String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @default(now()) @updatedAt
 
@@ -4713,6 +4720,61 @@ model SalesMeeting {
   @@index([hostUserId, startAt])
   @@index([salesTeamId, status, startAt])
   @@index([agendaId])
+}
+
+/// Una venta cerrada por un equipo: el lead ganado y el NEGOCIO de la marca en
+/// que se convirtió, con quién la cerró (closer) y quién agendó la cita (setter).
+///
+/// Existe para poder enganchar el pago después: un lead ganado no sabía en qué
+/// negocio se había convertido, y sin ese vínculo ninguna venta de un equipo le
+/// puede pagar a nadie. Esta tabla NO paga nada por sí sola.
+///
+/// · `negocioId` es `Tenant.id` SIN clave foránea y —sobre todo— sin llamarse
+///   `tenantId`: `prisma-tenant-middleware.ts` filtra por negocio TODO modelo que
+///   tenga un campo con ese nombre, y una venta de un equipo de marca quedaría
+///   escondida.
+/// · Tampoco hay clave foránea al equipo: borrar un equipo no puede llevarse por
+///   delante el registro de una venta ya cerrada, que es lo que luego se paga.
+/// · Los dos «únicos» son PARCIALES (solo entre las `vinculada`) y viven en
+///   `scripts/apply-sales-team-sales-migration.cjs`, porque Prisma no sabe
+///   expresarlos. Desvincular deja la fila como `desvinculada` —el historial de
+///   quién vinculó y cuándo no se borra— y libera al negocio para otra venta.
+/// · El código de afiliado de cada uno se CONGELA al vincular: es lo que se
+///   cobrará, y no puede cambiar solo porque alguien edite su código después.
+model SalesTeamSale {
+  id           String     @id @default(uuid())
+  salesTeamId  String
+  /// Desnormalizado a propósito, como en el resto del módulo.
+  whiteLabelId String
+  leadId       String?
+  lead         SalesLead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  /// `Tenant.id` del negocio que compró. Ver arriba por qué no se llama `tenantId`.
+  negocioId    String
+
+  closerUserId String?
+  closerCodeId String?
+  setterUserId String?
+  setterCodeId String?
+
+  /// Congelado al vincular, desde el ajuste de la MARCA
+  /// (`salesTeams.commission.renewals.<slug>`): cambiarlo después no reescribe
+  /// las ventas que ya se cerraron.
+  pagaRenovaciones Boolean @default(false)
+
+  /// vinculada · desvinculada
+  estado                String    @default("vinculada")
+  vinculadaPorUserId    String?
+  vinculadaEl           DateTime  @default(now())
+  desvinculadaPorUserId String?
+  desvinculadaEl        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([salesTeamId, estado])
+  @@index([whiteLabelId])
+  @@index([negocioId])
+  @@index([leadId])
 }
 
 /// Cuándo atiende el equipo, o una persona concreta. `userId` null = el equipo.
