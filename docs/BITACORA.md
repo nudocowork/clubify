@@ -8,6 +8,48 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-16 (34) — El comprobante de la transferencia se adjunta al marcar comisiones como pagadas
+
+Javier, sobre el modal «Marcar comisiones como pagadas» de `/admin/commissions`: «Permitir adjuntar comprobante como archivo en esta sección». Hasta ahora solo había «Fecha real de la transferencia» y «Referencia / nota», es decir, la prueba del pago era una frase escrita a mano.
+
+### Qué cambia
+
+- **Se adjunta el comprobante** (JPG, PNG, WebP o **PDF**, que es lo que da un banco) al marcar como pagadas. Sube por `MediaService` al bucket y en la base va **solo la URL**.
+- **Se guarda con el movimiento, no con cada comisión**: vive en `BatchPersonPayment`, que es «el pago a UNA persona dentro de un corte». Las 11 comisiones de una persona pagadas en una sola transferencia quedan como **una fila con un comprobante**, no once repitiendo el enlace.
+- **Se puede abrir después** desde «Historial de cortes». Sin eso, adjuntarlo no serviría de nada.
+- El enlace se valida antes de mover nada: `https` obligatorio, **host exacto** del bucket (no `startsWith`) y tipo dentro de los cuatro. Y cada comprobante queda además en `AuditLog`, que es de solo añadir.
+
+### Sin migración
+
+`BatchPersonPayment` ya existía en producción con `proofUrl`, `proofMimeType`, `reference`, `paidAt` y el único `(batchId, recipientCodeId)`. Hoy tiene **0 filas**: este camino no se había usado nunca, así que no hay nada que reparar hacia atrás.
+
+### Revisión de Fable
+
+Encontró una carrera y cuatro formas de perder o falsear la prueba. Todas arregladas:
+
+1. **Dos admins a la vez inflaban el monto.** El `update` no era condicional: en plata no se pagaba dos veces, pero las dos llamadas incrementaban el movimiento y la persona quedaba con **el doble**. Ahora es `updateMany` con `status: 'APPROVED'` en el `where` y, si no toca exactamente una fila, `ConflictException` que revierte la transacción entera. Conviene saber **por qué el índice único no salvaba**: si la fila ya existe, las dos llamadas entran por la rama UPDATE, no hay violación de unicidad y simplemente dobla. El test lo enseña: con el código viejo la segunda llamada devolvía `{ ok: true, paidCount: 2 }` en vez de fallar.
+2. **Revertir y volver a pagar** dejaba colgado el comprobante de un pago que se había revertido. Ahora la reversión resta y, si la persona queda en 0 en ese corte, borra la fila con su comprobante.
+3. **Pagar el resto desde «Cerrar corte»** borraba el recibo del pago en bloque.
+4. **Una segunda transferencia real pisaba la prueba de la primera**: ahora la anterior queda anotada en la nota.
+5. **Un recibo colgado a varias personas es una prueba falsa.** Se avisa, no se bloquea: si hay adjunto y más de una persona seleccionada, el modal lo dice.
+
+Para que 3 y 4 no puedan volver a divergir, **toda escritura de `BatchPersonPayment` pasa ahora por un único sitio**.
+
+### Segunda revisión: el propio arreglo había abierto otro agujero
+
+Pasar de «escribir el total» a «sumar» arregló la carrera y **rompió la reapertura de cortes**: `reopenBatch` devuelve las comisiones a pendientes pero no tocaba el movimiento, así que pagar $20 con recibo A, cerrar, reabrir por un error de fecha y volver a pagar dejaba **$40 con el recibo A**. Sin carrera ninguna, con dos clics normales. Ahora la reapertura borra los movimientos de ese corte dentro de la misma transacción, y antes de borrarlos los deja escritos en el registro.
+
+Con eso se cerraron otras cuatro:
+
+- Una **reversión parcial** puede dejar visible el comprobante de la transferencia que rebotó; la nota ahora lo advierte en vez de fingir que el enlace vigente es el bueno.
+- Lo que se borra queda en el registro (`bulk_unpaid`, `batch_reopened`), porque cuando el pago entró por «Cerrar corte» esa era **la única copia** de la URL.
+- **La validación del tipo de archivo no se ejecutaba nunca** en el pago por persona: el panel no mandaba el tipo. Se arregló en la pantalla y además en el backend, que ahora lo deduce de la extensión y rechaza si no puede: el candado no puede depender de que el panel diga la verdad.
+- Los dos ayudantes nuevos repetían, por dentro, el mismo patrón de leer-calcular-escribir que acabábamos de quitar. Ahora restan en la base y **es la base la que decide** si la fila se borra, y la nota se pega con SQL para que dos pagos a la vez no se coman una línea.
+
+### Pendiente de decidir
+
+¿El **afiliado** debería ver su comprobante? Hoy se construyó **solo para el admin**, pero en el otro camino de pagos (`/affiliate/payouts/history`) el afiliado **ya ve** un comprobante, así que la experiencia queda dispareja. Es de Javier decidirlo.
+
 ## 2026-09-16 (33) — El filtro de Comisiones escondía filas, y el aviso de «sin afiliado» no miraba el grupo
 
 Javier, dos cosas en `/admin/commissions`: «a la hora de colocar los filtros no me está tomando algunos negocios. Filtro del 16/08 al 31/08 y no aparecen como 3 negocios que deberían… ejemplo Serendipity» y «en Negocios sin afiliado aparece Cevichería Marea Místika; sin embargo esta pertenece a un grupo empresarial, no debería estar aquí».

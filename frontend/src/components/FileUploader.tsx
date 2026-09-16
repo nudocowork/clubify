@@ -8,7 +8,15 @@ import { getToken } from '@/lib/api';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
 
-export type FileKind = 'audio' | 'video' | 'document' | 'image' | 'any';
+export type FileKind =
+  | 'audio'
+  | 'video'
+  | 'document'
+  | 'image'
+  // Comprobantes bancarios: el banco entrega una captura o un PDF, nada más.
+  // Existe para no tener que abrir la puerta a audio y video con `any`.
+  | 'imageOrPdf'
+  | 'any';
 
 type UploadResult = {
   url: string;
@@ -23,6 +31,7 @@ const ACCEPT_BY_KIND: Record<FileKind, string> = {
   video: 'video/mp4,video/quicktime,video/webm,video/x-m4v',
   document: 'application/pdf',
   image: 'image/jpeg,image/png,image/webp,image/gif',
+  imageOrPdf: 'image/jpeg,image/png,image/webp,application/pdf',
   any: 'image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/mp3,audio/wav,audio/m4a,audio/aac,audio/ogg,audio/webm,video/mp4,video/quicktime,video/webm,application/pdf',
 };
 
@@ -31,6 +40,9 @@ const MAX_MB_BY_KIND: Record<FileKind, number> = {
   video: 100,
   document: 30,
   image: 15,
+  // Tope del PDF (30). El backend igual aplica el suyo por categoría: una
+  // imagen de más de 15 MB la rechaza él con su propio mensaje.
+  imageOrPdf: 30,
   any: 100,
 };
 
@@ -280,6 +292,7 @@ export function FileUploader({
               {kind === 'video' && 'mp4, mov, webm'}
               {kind === 'document' && 'pdf'}
               {kind === 'image' && 'jpg, png, webp, gif'}
+              {kind === 'imageOrPdf' && 'jpg, png, webp o pdf'}
               {kind === 'any' && 'imagen, audio, video o pdf'}
               <br />
               max {cap} MB

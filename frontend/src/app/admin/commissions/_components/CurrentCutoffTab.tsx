@@ -700,6 +700,10 @@ function BulkPayModal({
   const [paymentDate, setPaymentDate] = useState(todayInput());
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
+  // Comprobante de la transferencia: se sube a S3/R2 por /media/upload y lo que
+  // viaja al backend es la URL. Opcional — hay pagos viejos sin soporte.
+  const [proofUrl, setProofUrl] = useState<string | null>(null);
+  const [proofMimeType, setProofMimeType] = useState<string | null>(null);
 
   async function submit() {
     if (!paymentDate) {
@@ -716,6 +720,8 @@ function BulkPayModal({
             commissionIds: ids,
             paymentDate,
             note: note.trim() || undefined,
+            proofUrl: proofUrl ?? undefined,
+            proofMimeType: proofMimeType ?? undefined,
           }),
         },
       );
@@ -781,6 +787,32 @@ function BulkPayModal({
             value={note}
             onChange={(e) => setNote(e.target.value)}
           />
+        </div>
+
+        {/* El adjunto es lo que permite comprobar el pago meses después, en vez
+            de fiarse de la nota escrita a mano. */}
+        <div className="mb-4">
+          <label className="label">{t('proofLabel')}</label>
+          <FileUploader
+            value={proofUrl}
+            contentType={proofMimeType}
+            onChange={(u, meta) => {
+              setProofUrl(u);
+              setProofMimeType(meta?.contentType ?? null);
+            }}
+            folder="payout-proofs"
+            kind="imageOrPdf"
+            label={t('proofUpload')}
+          />
+          <div className="text-[11px] text-mute mt-1">{t('proofHint')}</div>
+          {/* Un solo comprobante colgado a varias personas es una prueba falsa
+              para todas menos una. No se bloquea —hay quien gira a varios de
+              una— pero se dice antes de pulsar, no después. */}
+          {proofUrl && people > 1 && (
+            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+              {t('proofManyPeopleWarning', { people })}
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2 justify-end">
@@ -852,9 +884,11 @@ export function CloseBatchModal({
   const [reference, setReference] = useState('');
   const [saving, setSaving] = useState(false);
   const [recvProof, setRecvProof] = useState<string | null>(null);
+  const [recvProofMime, setRecvProofMime] = useState<string | null>(null);
   const [busyRecv, setBusyRecv] = useState(false);
   const [payingCode, setPayingCode] = useState<string | null>(null);
   const [personProof, setPersonProof] = useState<string | null>(null);
+  const [personProofMime, setPersonProofMime] = useState<string | null>(null);
   const [busyPay, setBusyPay] = useState(false);
   const [busyTest, setBusyTest] = useState(false);
 
@@ -897,10 +931,14 @@ export function CloseBatchModal({
     try {
       await api(`/admin/commissions/payout-batches/${batch.id}/mark-received`, {
         method: 'POST',
-        body: JSON.stringify({ proofUrl: recvProof ?? undefined }),
+        body: JSON.stringify({
+          proofUrl: recvProof ?? undefined,
+          proofMimeType: recvProofMime ?? undefined,
+        }),
       });
       toast('Dinero marcado como recibido', 'success');
       setRecvProof(null);
+      setRecvProofMime(null);
       await reload();
     } catch (e: any) {
       toast(e?.message ?? 'Error', 'error');
@@ -917,11 +955,13 @@ export function CloseBatchModal({
         body: JSON.stringify({
           recipientCodeId: codeId,
           proofUrl: personProof ?? undefined,
+          proofMimeType: personProofMime ?? undefined,
         }),
       });
       toast('Pago registrado', 'success');
       setPayingCode(null);
       setPersonProof(null);
+      setPersonProofMime(null);
       await reload();
     } catch (e: any) {
       toast(e?.message ?? 'Error', 'error');
@@ -1005,8 +1045,13 @@ export function CloseBatchModal({
             <div className="space-y-2">
               <FileUploader
                 value={recvProof}
-                onChange={(u) => setRecvProof(u)}
+                contentType={recvProofMime}
+                onChange={(u, meta) => {
+                  setRecvProof(u);
+                  setRecvProofMime(meta?.contentType ?? null);
+                }}
                 folder="payout-proofs"
+                kind="imageOrPdf"
                 label="Comprobante del dinero recibido (opcional)"
               />
               <button
@@ -1084,8 +1129,16 @@ export function CloseBatchModal({
                     <div className="mt-2 space-y-2 border-t border-line2 pt-2">
                       <FileUploader
                         value={personProof}
-                        onChange={(u) => setPersonProof(u)}
+                        contentType={personProofMime}
+                        onChange={(u, meta) => {
+                          setPersonProof(u);
+                          setPersonProofMime(meta?.contentType ?? null);
+                        }}
                         folder="payout-proofs"
+                        // Sin esto el uploader aceptaba audio, video y gif, y el
+                        // `contentType` no viajaba: el filtro del backend no
+                        // tenía qué comparar y un .mp4 entraba como comprobante.
+                        kind="imageOrPdf"
                         label="Comprobante del pago (opcional)"
                       />
                       <div className="flex gap-2">

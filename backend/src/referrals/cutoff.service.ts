@@ -18,6 +18,7 @@ import { AuditService } from '../audit/audit.service';
 import { ReferralsService } from './referrals.service';
 import { batchTotal, recalcBatchTotal } from './payout-batch.util';
 import { nombreDePlan } from './plan-label';
+import { revisarComprobante } from './comprobante-de-pago';
 import {
   addDaysYmd,
   bogotaDayEndUtc,
@@ -850,15 +851,26 @@ export class CutoffService {
     const stamp = bogotaYmd();
     const note = `[${stamp}] Pagado (persona) en ${batch.code}${body.reference ? ` · ref ${body.reference}` : ''}`;
 
+    // Mismo filtro que el pago en bloque: el comprobante se revisa antes de
+    // mover plata (https, bucket propio, imagen o PDF).
+    const revision = revisarComprobante(
+      body.proofUrl,
+      body.proofMimeType,
+      process.env.S3_PUBLIC_URL,
+    );
+    if (!revision.ok) throw new BadRequestException(revision.motivo);
+    const comprobante = revision.comprobante;
+
     const amount = await this.prisma.$transaction(async (tx) => {
       let paid = 0;
       for (const c of comms) {
         const a = Number(c.amount);
         const out = Math.max(0, a - Number(c.amountPaid));
         if (out <= 0) continue;
-        paid += out;
-        await tx.commission.update({
-          where: { id: c.id },
+        // Condicional por lo mismo que en `payBulk`: dos clics simultáneos en
+        // «Marcar pagado» sumarían dos veces el monto de la persona.
+        const escrito = await tx.commission.updateMany({
+          where: { id: c.id, status: CommissionStatus.APPROVED },
           data: {
             amountPaid: a,
             paymentStatus: 'PAID',
@@ -867,29 +879,23 @@ export class CutoffService {
             notes: c.notes ? `${c.notes}\n${note}` : note,
           },
         });
+        if (escrito.count !== 1) {
+          throw new ConflictException(
+            'Otra persona acaba de registrar este pago. Recargá la pantalla para ver cómo quedó antes de volver a intentarlo.',
+          );
+        }
+        paid += out;
       }
-      await tx.batchPersonPayment.upsert({
-        where: { batchId_recipientCodeId: { batchId, recipientCodeId } },
-        update: {
-          amountUsd: round2(paid),
-          proofUrl: body.proofUrl ?? null,
-          proofMimeType: body.proofMimeType ?? null,
-          reference: body.reference ?? null,
-          notes: body.notes ?? null,
-          paidAt,
-          paidByUserId: user.id ?? null,
-        },
-        create: {
-          batchId,
-          recipientCodeId,
-          amountUsd: round2(paid),
-          proofUrl: body.proofUrl ?? null,
-          proofMimeType: body.proofMimeType ?? null,
-          reference: body.reference ?? null,
-          notes: body.notes ?? null,
-          paidAt,
-          paidByUserId: user.id ?? null,
-        },
+      await this.registrarMovimiento(tx, {
+        batchId,
+        recipientCodeId,
+        monto: round2(paid),
+        comprobante,
+        referencia: body.reference?.trim() || null,
+        nota: body.notes?.trim() || null,
+        paidAt,
+        paidByUserId: user.id ?? null,
+        stamp,
       });
       await this.recalcBatchTotal(tx, batchId);
       return round2(paid);
@@ -1037,6 +1043,25 @@ export class CutoffService {
       select: { id: true, amount: true, notes: true },
     });
 
+    // Los MOVIMIENTOS del corte dejan de corresponder a nada: el corte se reabre
+    // entero y sus comisiones vuelven a estar sin pagar. Se leen antes de
+    // borrarlos porque la fila es la única copia de la URL del comprobante
+    // cuando el pago entró por `markPersonPaid` (ese camino no escribe AuditLog).
+    //
+    // REGRESIÓN 2026-09-16: mientras el upsert PISABA el monto daba igual
+    // dejarlos vivos; desde que SUMA, no. Reabrir y volver a pagar mostraba el
+    // doble con el comprobante del pago viejo. Mismo agujero que `unpayBulk`,
+    // por la otra puerta.
+    const movimientos = await this.prisma.batchPersonPayment.findMany({
+      where: { batchId: batch.id },
+      select: {
+        recipientCodeId: true,
+        amountUsd: true,
+        proofUrl: true,
+        reference: true,
+      },
+    });
+
     const stamp = bogotaYmd();
     const noteTxt = `[${stamp}] Cierre REVERTIDO del corte ${batch.code}${
       body?.reason?.trim() ? `: ${body.reason.trim()}` : ''
@@ -1055,6 +1080,9 @@ export class CutoffService {
           },
         });
       }
+      // Borrado por corte, no fila a fila: se reabre entero, así que no hay
+      // nada que calcular y correrlo dos veces da lo mismo.
+      await tx.batchPersonPayment.deleteMany({ where: { batchId: batch.id } });
       const totalUsd = await this.recalcBatchTotal(tx, batch.id);
       await tx.payoutBatch.update({
         where: { id: batch.id },
@@ -1077,6 +1105,14 @@ export class CutoffService {
         reason: body?.reason ?? null,
         revertedCount: paid.length,
         commissionIds: paid.map((c) => c.id),
+        // Con el enlace incluido: el AuditLog es append-only y acá queda la
+        // única copia de los comprobantes que se borraron con el corte.
+        movimientosBorrados: movimientos.map((m) => ({
+          recipientCodeId: m.recipientCodeId,
+          amountUsd: Number(m.amountUsd),
+          proofUrl: m.proofUrl,
+          reference: m.reference,
+        })),
       },
     });
 
@@ -1097,6 +1133,9 @@ export class CutoffService {
       paymentDate: string;
       note?: string;
       reference?: string;
+      /** Comprobante de la transferencia: URL de `/media/upload`, no el archivo. */
+      proofUrl?: string;
+      proofMimeType?: string;
     },
   ) {
     this.assertAdmin(user);
@@ -1110,6 +1149,16 @@ export class CutoffService {
     }
     const paidAt = bogotaNoonUtc(ymd);
 
+    // El comprobante se revisa ANTES de mover plata: si el enlace no sirve, el
+    // pago queda registrado igual y meses después no hay con qué demostrarlo.
+    const revision = revisarComprobante(
+      body.proofUrl,
+      body.proofMimeType,
+      process.env.S3_PUBLIC_URL,
+    );
+    if (!revision.ok) throw new BadRequestException(revision.motivo);
+    const comprobante = revision.comprobante;
+
     const rows = await this.prisma.commission.findMany({
       where: { id: { in: ids } },
       select: {
@@ -1120,6 +1169,9 @@ export class CutoffService {
         paymentStatus: true,
         payoutBatchId: true,
         notes: true,
+        // Quién cobra: es la clave por la que se agrupa el movimiento (el
+        // comprobante es de la transferencia a UNA persona, no de cada comisión).
+        recipientCodeId: true,
         recipientCode: { select: { ownerName: true } },
       },
     });
@@ -1150,27 +1202,93 @@ export class CutoffService {
       ? `[${stamp}] Pago en bloque (${ymd}): ${body.note.trim()}`
       : `[${stamp}] Pago en bloque · transferencia ${ymd}`;
 
-    const touchedBatches = new Set<string>();
-    let totalPaid = 0;
+    // Plan del movimiento, resuelto antes de tocar nada: qué comisión se paga,
+    // en qué corte cae y de quién es.
+    const plan = rows
+      .map((c) => ({
+        id: c.id,
+        amount: Number(c.amount),
+        outstanding: Math.max(0, Number(c.amount) - Number(c.amountPaid)),
+        notes: c.notes,
+        recipientCodeId: c.recipientCodeId,
+        targetBatchId: c.payoutBatchId ?? fallbackBatch?.id ?? null,
+      }))
+      .filter((p) => p.outstanding > 0);
+
+    const totalPaid = plan.reduce((s, p) => s + p.outstanding, 0);
+    const touchedBatches = new Set(
+      plan.map((p) => p.targetBatchId).filter((b): b is string => !!b),
+    );
+
+    // UN movimiento = UN comprobante. Las 11 comisiones de una persona pagadas
+    // con la misma transferencia se agrupan en la fila (corte, persona) que ya
+    // existe para eso — `BatchPersonPayment` — en vez de repetir la URL 11
+    // veces sobre las comisiones.
+    const movimientos = new Map<
+      string,
+      { batchId: string; recipientCodeId: string; monto: number }
+    >();
+    for (const p of plan) {
+      if (!p.targetBatchId || !p.recipientCodeId) continue;
+      const clave = `${p.targetBatchId}|${p.recipientCodeId}`;
+      const acc = movimientos.get(clave);
+      if (acc) acc.monto = round2(acc.monto + p.outstanding);
+      else
+        movimientos.set(clave, {
+          batchId: p.targetBatchId,
+          recipientCodeId: p.recipientCodeId,
+          monto: round2(p.outstanding),
+        });
+    }
+
+    // Si hay comprobante y no hay a quién colgárselo (comisiones sin
+    // destinatario), se para: registrar el pago y perder el comprobante en
+    // silencio deja exactamente el agujero que este campo vino a tapar.
+    if (comprobante && movimientos.size === 0) {
+      throw new BadRequestException(
+        'No se puede guardar el comprobante: ninguna de las comisiones seleccionadas tiene un afiliado destinatario.',
+      );
+    }
+
+    const referencia = body.reference?.trim() || null;
+    const notaDelPago = body.note?.trim() || null;
 
     await this.prisma.$transaction(async (tx) => {
-      for (const c of rows) {
-        const amount = Number(c.amount);
-        const outstanding = Math.max(0, amount - Number(c.amountPaid));
-        if (outstanding <= 0) continue;
-        totalPaid += outstanding;
-        const targetBatchId = c.payoutBatchId ?? fallbackBatch?.id ?? null;
-        if (targetBatchId) touchedBatches.add(targetBatchId);
-        await tx.commission.update({
-          where: { id: c.id },
+      for (const p of plan) {
+        // UPDATE CONDICIONAL, no `update` a secas. Entre la lectura de arriba y
+        // esta escritura otro admin puede haber pagado la misma selección: la
+        // plata no se duplicaría (`amountPaid = amount` es idempotente) pero el
+        // movimiento SÍ —las dos llamadas sumarían— y la persona aparecería con
+        // el DOBLE en «Comprobantes de pago». Es el fallo más repetido de esta
+        // base: leer, decidir y escribir sin atomicidad. Con el `where` sobre
+        // `status` la segunda escritura no encuentra fila, `count` es 0 y se
+        // cae la transacción entera, comprobante incluido.
+        const escrito = await tx.commission.updateMany({
+          where: { id: p.id, status: CommissionStatus.APPROVED },
           data: {
-            amountPaid: amount,
+            amountPaid: p.amount,
             paymentStatus: 'PAID',
             status: CommissionStatus.PAID,
             paidAt,
-            payoutBatchId: targetBatchId,
-            notes: c.notes ? `${c.notes}\n${noteTxt}` : noteTxt,
+            payoutBatchId: p.targetBatchId,
+            notes: p.notes ? `${p.notes}\n${noteTxt}` : noteTxt,
           },
+        });
+        if (escrito.count !== 1) {
+          throw new ConflictException(
+            'Otra persona acaba de registrar este pago. Recargá la pantalla para ver cómo quedó antes de volver a intentarlo.',
+          );
+        }
+      }
+      for (const m of movimientos.values()) {
+        await this.registrarMovimiento(tx, {
+          ...m,
+          comprobante,
+          referencia,
+          nota: notaDelPago,
+          paidAt,
+          paidByUserId: user.id ?? null,
+          stamp,
         });
       }
       for (const bid of touchedBatches) await this.recalcBatchTotal(tx, bid);
@@ -1186,6 +1304,9 @@ export class CutoffService {
         totalPaid: round2(totalPaid),
         note: body.note ?? null,
         reference: body.reference ?? null,
+        // El log es append-only: aunque un pago posterior reemplace el
+        // comprobante de la persona, aquí queda cuál se subió y cuándo.
+        proofUrl: comprobante?.url ?? null,
         batches: Array.from(touchedBatches),
       },
     });
@@ -1213,6 +1334,10 @@ export class CutoffService {
         id: true,
         notes: true,
         payoutBatchId: true,
+        // Lo pagado y a quién: hay que descontarlo del movimiento de la persona,
+        // no solo de la comisión.
+        amountPaid: true,
+        recipientCodeId: true,
         payoutBatch: { select: { status: true, code: true } },
       },
     });
@@ -1236,11 +1361,44 @@ export class CutoffService {
     }`;
     const touched = new Set<string>();
 
+    // Lo revertido tiene que salir TAMBIÉN del movimiento de la persona. Si no,
+    // al volver a pagar se suma encima de lo revertido y —si el segundo pago no
+    // lleva adjunto— queda colgado el comprobante de un pago que se deshizo,
+    // haciéndose pasar por el del pago nuevo.
+    const revertidoPorPersona = new Map<
+      string,
+      { batchId: string; recipientCodeId: string; monto: number }
+    >();
+    for (const c of rows) {
+      if (!c.payoutBatchId || !c.recipientCodeId) continue;
+      const clave = `${c.payoutBatchId}|${c.recipientCodeId}`;
+      const acc = revertidoPorPersona.get(clave);
+      if (acc) acc.monto = round2(acc.monto + Number(c.amountPaid));
+      else
+        revertidoPorPersona.set(clave, {
+          batchId: c.payoutBatchId,
+          recipientCodeId: c.recipientCodeId,
+          monto: round2(Number(c.amountPaid)),
+        });
+    }
+
+    // Lo que se borre se anota en el log: la fila del movimiento es la única
+    // copia del comprobante cuando el pago entró por «Marcar pagado».
+    const movimientosBorrados: Array<{
+      batchId: string;
+      recipientCodeId: string;
+      amountUsd: number;
+      proofUrl: string | null;
+      reference: string | null;
+    }> = [];
+
     await this.prisma.$transaction(async (tx) => {
       for (const c of rows) {
         if (c.payoutBatchId) touched.add(c.payoutBatchId);
-        await tx.commission.update({
-          where: { id: c.id },
+        // Condicional igual que al pagar: si otro admin ya revirtió esta
+        // comisión, restaríamos dos veces del movimiento de la persona.
+        const escrito = await tx.commission.updateMany({
+          where: { id: c.id, status: CommissionStatus.PAID },
           data: {
             amountPaid: 0,
             paymentStatus: 'PENDING',
@@ -1249,6 +1407,19 @@ export class CutoffService {
             notes: c.notes ? `${c.notes}\n${noteTxt}` : noteTxt,
           },
         });
+        if (escrito.count !== 1) {
+          throw new ConflictException(
+            'Otra persona acaba de tocar este pago. Recargá la pantalla para ver cómo quedó antes de volver a intentarlo.',
+          );
+        }
+      }
+      for (const m of revertidoPorPersona.values()) {
+        const borrado = await this.deshacerMovimiento(tx, {
+          ...m,
+          stamp,
+          motivo: body.reason?.trim() || null,
+        });
+        if (borrado) movimientosBorrados.push({ batchId: m.batchId, ...borrado });
       }
       for (const bid of touched) await this.recalcBatchTotal(tx, bid);
     });
@@ -1260,6 +1431,7 @@ export class CutoffService {
       metadata: {
         commissionIds: rows.map((r) => r.id),
         reason: body.reason ?? null,
+        movimientosBorrados,
       },
     });
 
@@ -1328,6 +1500,29 @@ export class CutoffService {
       b.commissions.reduce((s, c) => s + Number(c.amount), 0),
     );
 
+    // COMPROBANTES del corte. Se leen aquí para que el historial pueda abrir el
+    // soporte de una transferencia vieja: sin esto el adjunto no sirve de nada.
+    // Se limitan a los destinatarios visibles para el admin — el aislamiento
+    // por marca vale también para los comprobantes y los datos de quién cobró.
+    const codigosVisibles = new Map(
+      b.commissions
+        .filter((c) => c.recipientCode)
+        .map((c) => [c.recipientCode!.id, c.recipientCode!]),
+    );
+    const pagosPorPersona = await this.prisma.batchPersonPayment.findMany({
+      where: { batchId: b.id, recipientCodeId: { in: [...codigosVisibles.keys()] } },
+      orderBy: { paidAt: 'desc' },
+      select: {
+        recipientCodeId: true,
+        amountUsd: true,
+        proofUrl: true,
+        proofMimeType: true,
+        reference: true,
+        notes: true,
+        paidAt: true,
+      },
+    });
+
     return {
       id: b.id,
       code: b.code,
@@ -1350,6 +1545,17 @@ export class CutoffService {
       daysOpen,
       isStale: b.status === 'OPEN' && daysOpen > STALE_OPEN_BATCH_DAYS,
       commissionsCount: b.commissions.length,
+      personPayments: pagosPorPersona.map((p) => ({
+        codeId: p.recipientCodeId,
+        code: codigosVisibles.get(p.recipientCodeId)?.code ?? '',
+        ownerName: codigosVisibles.get(p.recipientCodeId)?.ownerName ?? '—',
+        amountUsd: Number(p.amountUsd),
+        proofUrl: p.proofUrl,
+        proofMimeType: p.proofMimeType,
+        reference: p.reference,
+        notes: p.notes,
+        paidAt: p.paidAt,
+      })),
       commissions: b.commissions.map((c) => ({
         id: c.id,
         amount: Number(c.amount),
@@ -1383,6 +1589,182 @@ export class CutoffService {
 
   private assertAdmin(user: AuthUser) {
     if (user?.role !== 'SUPER_ADMIN') throw new ForbiddenException();
+  }
+
+  /**
+   * Registra (o suma a) el MOVIMIENTO de pago de una persona dentro de un corte
+   * —`BatchPersonPayment`— con su comprobante.
+   *
+   * Único sitio donde se escribe esa fila, para que los dos caminos de pago (en
+   * bloque y persona por persona) no se pisen:
+   *
+   *  - el monto se SUMA: pagar el resto desde «Cerrar corte» después de un pago
+   *    en bloque tiene que dar el total de la persona, no el último tramo;
+   *  - el comprobante solo se reemplaza si llega uno nuevo, y el anterior se
+   *    anexa a la nota. Si no, la única copia del que se pisó quedaría en el
+   *    JSON crudo del AuditLog, que nadie abre desde el panel.
+   *
+   * `tx` es el TransactionClient (o el PrismaService) — mismo `any` que usa
+   * `recalcBatchTotal`, por el que no hay tipo común entre los dos.
+   */
+  private async registrarMovimiento(
+    tx: any,
+    m: {
+      batchId: string;
+      recipientCodeId: string;
+      monto: number;
+      comprobante: { url: string; mimeType: string | null } | null;
+      referencia: string | null;
+      nota: string | null;
+      paidAt: Date;
+      paidByUserId: string | null;
+      stamp: string;
+    },
+  ) {
+    const clave = {
+      batchId_recipientCodeId: {
+        batchId: m.batchId,
+        recipientCodeId: m.recipientCodeId,
+      },
+    };
+    const previo = await tx.batchPersonPayment.findUnique({
+      where: clave,
+      select: { proofUrl: true, notes: true },
+    });
+
+    const reemplazado =
+      m.comprobante && previo?.proofUrl && previo.proofUrl !== m.comprobante.url
+        ? `[${m.stamp}] Comprobante anterior: ${previo.proofUrl}`
+        : null;
+    // La nota solo se anexa si no estaba ya: pagar dos veces con la misma
+    // referencia no tiene por qué dejarla repetida.
+    const notaNueva =
+      m.nota && !(previo?.notes ?? '').includes(m.nota) ? m.nota : null;
+
+    await tx.batchPersonPayment.upsert({
+      where: clave,
+      update: {
+        amountUsd: { increment: m.monto },
+        paidAt: m.paidAt,
+        paidByUserId: m.paidByUserId,
+        ...(m.comprobante
+          ? { proofUrl: m.comprobante.url, proofMimeType: m.comprobante.mimeType }
+          : {}),
+        ...(m.referencia ? { reference: m.referencia } : {}),
+      },
+      create: {
+        batchId: m.batchId,
+        recipientCodeId: m.recipientCodeId,
+        amountUsd: m.monto,
+        proofUrl: m.comprobante?.url ?? null,
+        proofMimeType: m.comprobante?.mimeType ?? null,
+        reference: m.referencia,
+        notes: m.nota,
+        paidAt: m.paidAt,
+        paidByUserId: m.paidByUserId,
+      },
+    });
+
+    // Las líneas de la nota se ANEXAN en la base, no se rearman desde lo que
+    // leí arriba: dos pagos a la vez sobre la misma persona se comían una línea
+    // —y una de esas líneas es la URL del comprobante que se acaba de pisar—.
+    // En el alta ya van dentro del `create`.
+    if (previo) {
+      for (const linea of [reemplazado, notaNueva].filter(
+        (l): l is string => !!l,
+      )) {
+        await this.anexarNota(tx, m.batchId, m.recipientCodeId, linea);
+      }
+    }
+  }
+
+  /**
+   * Anexa una línea a la nota del movimiento sin releerla: `concat_ws` la pega
+   * del lado de la base (y salta el NULL de la primera vez), así que dos
+   * escrituras simultáneas no se pisan.
+   */
+  private anexarNota(
+    tx: any,
+    batchId: string,
+    recipientCodeId: string,
+    linea: string,
+  ) {
+    return tx.$executeRaw`UPDATE "BatchPersonPayment" SET "notes" = concat_ws(chr(10), "notes", ${linea}) WHERE "batchId" = ${batchId} AND "recipientCodeId" = ${recipientCodeId}`;
+  }
+
+  /**
+   * Saca del movimiento lo que se revirtió. Si a la persona no le queda nada
+   * pagado en ese corte, la fila se BORRA: dejarla en $0 con el comprobante
+   * colgando es peor que no tener comprobante — es la prueba de un pago que se
+   * revirtió, lista para que el siguiente pago la dé por buena.
+   */
+  private async deshacerMovimiento(
+    tx: any,
+    m: {
+      batchId: string;
+      recipientCodeId: string;
+      monto: number;
+      stamp: string;
+      motivo: string | null;
+    },
+  ): Promise<{
+    recipientCodeId: string;
+    amountUsd: number;
+    proofUrl: string | null;
+    reference: string | null;
+  } | null> {
+    const filtro = {
+      batchId: m.batchId,
+      recipientCodeId: m.recipientCodeId,
+    };
+    // Esta lectura es SOLO para el registro de auditoría — no se escribe nada
+    // calculado a partir de ella. Hace falta porque `markPersonPaid` no escribe
+    // AuditLog: si la fila se borra, esta es la última vez que se ve la URL.
+    const previo = await tx.batchPersonPayment.findUnique({
+      where: {
+        batchId_recipientCodeId: {
+          batchId: m.batchId,
+          recipientCodeId: m.recipientCodeId,
+        },
+      },
+      select: { amountUsd: true, proofUrl: true, reference: true },
+    });
+    if (!previo) return null;
+
+    // DECREMENT, no «leo 20, resto 10 y escribo 10»: si otro admin suma un pago
+    // entre la lectura y la escritura, con el cálculo a mano ese pago se perdía.
+    await tx.batchPersonPayment.updateMany({
+      where: filtro,
+      data: { amountUsd: { decrement: m.monto } },
+    });
+
+    // Y si la fila queda en cero lo decide la BASE, no el número que leí: si
+    // mientras tanto entró otro pago, ya no está en cero y no se borra.
+    const borrado = await tx.batchPersonPayment.deleteMany({
+      where: { ...filtro, amountUsd: { lte: 0.009 } },
+    });
+    if (borrado.count > 0) {
+      return {
+        recipientCodeId: m.recipientCodeId,
+        amountUsd: Number(previo.amountUsd),
+        proofUrl: previo.proofUrl,
+        reference: previo.reference,
+      };
+    }
+
+    // Reversión PARCIAL: queda pagado algo de verdad, así que la fila se queda.
+    // Pero solo cabe UNA URL por (corte, persona), y la vigente puede ser justo
+    // la del giro que se revirtió — con la anterior enterrada en la nota. Se
+    // dice explícito para que quien audite no se fíe del enlace de arriba.
+    await this.anexarNota(
+      tx,
+      m.batchId,
+      m.recipientCodeId,
+      `[${m.stamp}] Reversión de $${m.monto.toFixed(2)}${
+        m.motivo ? `: ${m.motivo}` : ''
+      }. OJO: el comprobante que queda visible puede ser el de la transferencia revertida — comprobá contra las líneas anteriores de esta nota antes de darlo por bueno.`,
+    );
+    return null;
   }
 
   /**

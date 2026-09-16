@@ -33,6 +33,20 @@ type BatchRow = {
 
 type BatchDetail = BatchRow & {
   notes: string | null;
+  // Pago a cada persona dentro del corte, con su comprobante. Opcional: el
+  // frontend se despliega por su cuenta y puede hablar con un backend que
+  // todavía no lo devuelve.
+  personPayments?: Array<{
+    codeId: string;
+    code: string;
+    ownerName: string;
+    amountUsd: number;
+    proofUrl: string | null;
+    proofMimeType: string | null;
+    reference: string | null;
+    notes: string | null;
+    paidAt: string | null;
+  }>;
   commissions: Array<{
     id: string;
     amount: number;
@@ -314,6 +328,51 @@ export default function BatchHistoryTab() {
                     </button>
                   )}
                 </div>
+              </div>
+
+              {/* Comprobantes de las transferencias del corte. Para esto se
+                  adjuntan: abrir el soporte del banco meses después sin
+                  depender de una nota escrita a mano. */}
+              <div className="mb-4 rounded-lg border border-line2 p-3">
+                <div className="font-semibold text-sm mb-2">{t('proofsTitle')}</div>
+                {(detail.personPayments ?? []).length === 0 ? (
+                  <div className="text-xs text-mute">{t('proofsEmpty')}</div>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {(detail.personPayments ?? []).map((p) => (
+                      <li
+                        key={p.codeId}
+                        className="flex flex-wrap items-center justify-between gap-2 text-xs"
+                      >
+                        <span>
+                          <span className="font-medium">{p.ownerName}</span>
+                          <span className="text-mute"> · {fmtUsd(p.amountUsd)}</span>
+                          {p.paidAt && (
+                            <span className="text-mute">
+                              {' '}
+                              · {t('proofPaidOn', { date: fmtDate(p.paidAt) })}
+                            </span>
+                          )}
+                          {(p.reference || p.notes) && (
+                            <span className="text-mute"> · {p.reference || p.notes}</span>
+                          )}
+                        </span>
+                        {p.proofUrl ? (
+                          <a
+                            href={p.proofUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-brand underline font-semibold"
+                          >
+                            {t('viewProof')}
+                          </a>
+                        ) : (
+                          <span className="text-mute">{t('noProof')}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
               <div className="overflow-x-auto">

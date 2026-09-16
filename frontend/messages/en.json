@@ -2940,7 +2940,16 @@
     "errorReopeningBatch": "Could not reopen the batch",
     "toastBulkPaid": "{count} commissions marked as paid · {amount}",
     "multipleOpenBatches": "{count} open batches",
-    "closeSpecificBatch": "Close {code} · {amount}"
+    "closeSpecificBatch": "Close {code} · {amount}",
+    "proofLabel": "Transfer receipt (optional)",
+    "proofUpload": "Upload receipt",
+    "proofHint": "Image or PDF of the bank receipt. It is stored with the payment so it can be checked months later.",
+    "proofManyPeopleWarning": "This same receipt will be stored for all {people} selected people. If each one got their own transfer, mark them separately.",
+    "proofsTitle": "Payment receipts",
+    "proofsEmpty": "This batch has no receipts yet.",
+    "proofPaidOn": "paid on {date}",
+    "viewProof": "View receipt",
+    "noProof": "No receipt"
   },
   "app_locations": {
     "title": "Locations",

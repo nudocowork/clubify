@@ -2940,7 +2940,16 @@
     "errorReopeningBatch": "Não foi possível reabrir o corte",
     "toastBulkPaid": "{count} comissões marcadas como pagas · {amount}",
     "multipleOpenBatches": "{count} cortes abertos",
-    "closeSpecificBatch": "Fechar {code} · {amount}"
+    "closeSpecificBatch": "Fechar {code} · {amount}",
+    "proofLabel": "Comprovante da transferência (opcional)",
+    "proofUpload": "Enviar comprovante",
+    "proofHint": "Imagem ou PDF do comprovante do banco. Fica guardado com o pagamento para poder ser conferido meses depois.",
+    "proofManyPeopleWarning": "Este mesmo comprovante será guardado para as {people} pessoas selecionadas. Se cada uma recebeu sua própria transferência, marque-as separadamente.",
+    "proofsTitle": "Comprovantes de pagamento",
+    "proofsEmpty": "Este corte ainda não tem comprovantes carregados.",
+    "proofPaidOn": "pago em {date}",
+    "viewProof": "Ver comprovante",
+    "noProof": "Sem comprovante"
   },
   "app_locations": {
     "title": "Localizações",

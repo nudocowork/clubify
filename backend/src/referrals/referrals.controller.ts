@@ -163,6 +163,11 @@ class PayBulkBody {
   @IsString() paymentDate!: string;
   @IsOptional() @IsString() @MaxLength(500) note?: string;
   @IsOptional() @IsString() @MaxLength(120) reference?: string;
+  // Comprobante de la transferencia. Llega como URL de `/media/upload` (S3/R2),
+  // nunca el archivo: una imagen dentro de la base ya costó que una tabla fuera
+  // el 77% del disco. El contenido se valida en `revisarComprobante`.
+  @IsOptional() @IsString() @MaxLength(1000) proofUrl?: string;
+  @IsOptional() @IsString() @MaxLength(120) proofMimeType?: string;
 }
 
 class UnpayBulkBody {
