@@ -37,6 +37,20 @@ export type EmailTemplateDef = {
   audience: string;
   /** Botón del correo. `urlVar` es el token que trae la URL destino. */
   cta?: { label: string; urlVar: string };
+  /** Repite la URL del botón en texto, por si el botón no abre. Solo en
+   *  correos cuyo único fin es ese enlace. */
+  showCtaLink?: boolean;
+  /**
+   * Antetítulo: la línea corta en mayúsculas sobre el título del correo. Lo
+   * lee el cliente: español correcto y nada de jerga interna.
+   */
+  kicker?: string;
+  /**
+   * Recuadro de datos bajo el cuerpo («Negocio», «Próximo cobro»…). Cada fila
+   * sale de un token de `vars`; si el token llega vacío, la fila no se pinta.
+   * No es editable por la marca: es estructura, no texto.
+   */
+  facts?: { label: string; var: string }[];
 };
 
 /** Carpeta de sistema donde viven los correos en Automatizaciones. */
@@ -62,7 +76,12 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       '2. Personaliza tu tarjeta de fidelización\n' +
       '3. Comparte tu link público con tus clientes\n' +
       '4. Activa tu primera automatización\n\n' +
-      'Tu próxima renovación es el {nextChargeDate}. Cualquier duda, respóndenos este correo.',
+      'Cualquier duda, respóndenos este correo.',
+    kicker: 'Cuenta activa',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+      { label: 'Próxima renovación', var: 'nextChargeDate' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Entrar a mi panel', urlVar: 'panelUrl' },
@@ -80,7 +99,12 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {buyerName}, ¡tu pago llegó bien! 🎉\n\n' +
       'Solo falta un paso: crear tu cuenta en **{platform}** para entrar a tu panel. Toma menos de un minuto.\n\n' +
-      'Importante: regístrate con el mismo correo con el que pagaste ({loginEmail}) para que tu cuenta se active al instante.',
+      'Importante: regístrate con el mismo correo con el que pagaste, el que ves aquí abajo, para que tu cuenta se active al instante.',
+    kicker: 'Pago recibido',
+    facts: [
+      { label: 'Regístrate con', var: 'loginEmail' },
+    ],
+    showCtaLink: true,
     folder: EMAIL_FOLDER.id,
     audience: 'Al comprador',
     cta: { label: 'Crear mi cuenta', urlVar: 'activateUrl' },
@@ -96,6 +120,8 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {ownerName}, te avisamos con tiempo: el {chargeDate} renovamos tu suscripción de **{platform}**.\n\n' +
       'No tienes que hacer nada, el cobro sale solo. Si quieres cambiar el medio de pago o revisar tu plan, entra a tu panel.',
+    kicker: 'Recordatorio de renovación',
+    facts: [{ label: 'Negocio', var: 'brandName' }],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Revisar mi suscripción', urlVar: 'panelUrl' },
@@ -111,6 +137,8 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {ownerName}, en 3 días ({chargeDate}) se renueva tu suscripción de **{platform}**.\n\n' +
       'Si tu tarjeta sigue vigente no tienes que hacer nada. Si cambió o está por vencer, actualízala ahora y evitas que el cobro falle.',
+    kicker: 'Recordatorio de renovación',
+    facts: [{ label: 'Negocio', var: 'brandName' }],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Revisar mi suscripción', urlVar: 'panelUrl' },
@@ -126,6 +154,8 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {ownerName}, mañana ({chargeDate}) se procesa el cobro de tu suscripción de **{platform}**.\n\n' +
       'Si tu tarjeta cambió o está por vencer, actualízala hoy para que la renovación no falle.',
+    kicker: 'Renovación mañana',
+    facts: [{ label: 'Negocio', var: 'brandName' }],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Actualizar mi medio de pago', urlVar: 'panelUrl' },
@@ -141,6 +171,11 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {ownerName}, hoy se procesa la renovación de tu suscripción de **{platform}**.\n\n' +
       'Si todo sale bien no tienes que hacer nada: te llega la confirmación en cuanto se acredite. Si el cobro falla, te avisamos para que lo resuelvas.',
+    kicker: 'Renovación hoy',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+      { label: 'Fecha de cobro', var: 'chargeDate' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Ver mi suscripción', urlVar: 'panelUrl' },
@@ -155,8 +190,13 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     subject: 'Tu prueba de {platform} ya está activa',
     default:
       'Hola {ownerName}, tu prueba de **{platform}** ya quedó activa.\n\n' +
-      'Tienes {trialDays} días para usarlo todo. El primer cobro se hace el {chargeDate}; hasta esa fecha no se te cobra nada.\n\n' +
+      'Puedes usarlo todo desde ya, y hasta el primer cobro no se te cobra nada.\n\n' +
       'Si algo no te cuadra antes de esa fecha, escríbenos y lo revisamos.',
+    kicker: 'Prueba activa',
+    facts: [
+      { label: 'Días de prueba', var: 'trialDays' },
+      { label: 'Primer cobro', var: 'chargeDate' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Ver mi panel', urlVar: 'panelUrl' },
@@ -171,8 +211,13 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     subject: 'Recibimos tu pago de {platform}',
     default:
       'Hola {ownerName}, confirmamos el pago de tu suscripción de **{platform}**.\n\n' +
-      'Tu cuenta sigue activa sin interrupciones. Próximo cobro: {nextChargeDate}.\n\n' +
+      'Tu cuenta sigue activa sin interrupciones.\n\n' +
       'Gracias por seguir con nosotros.',
+    kicker: 'Pago confirmado',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+      { label: 'Próximo cobro', var: 'nextChargeDate' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Ver mi panel', urlVar: 'panelUrl' },
@@ -188,6 +233,10 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {ownerName}, tuvimos un problema al procesar el pago de tu suscripción de **{platform}**.\n\n' +
       'Revisa tu medio de pago para que tu cuenta no se pause. Si ya lo resolviste, ignora este correo — el cobro se reintenta automáticamente.',
+    kicker: 'Pago no procesado',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Revisar mi suscripción', urlVar: 'panelUrl' },
@@ -203,6 +252,8 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {ownerName}, el cobro de tu suscripción de **{platform}** quedó pendiente y tu cuenta sigue activa por ahora.\n\n' +
       'Si no se regulariza antes del {pauseDate}, la cuenta se pausa y tu panel deja de estar disponible. Actualizar el medio de pago toma un minuto.',
+    kicker: 'Pago pendiente',
+    facts: [{ label: 'Negocio', var: 'brandName' }],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Regularizar mi pago', urlVar: 'panelUrl' },
@@ -219,6 +270,10 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {ownerName}, seguimos sin poder procesar el pago de tu suscripción de **{platform}**.\n\n' +
       'Si recargas saldo en tu tarjeta, lo intentamos de nuevo y no tienes que hacer nada más. Si prefieres, escríbenos y lo resolvemos juntos.',
+    kicker: 'Pago pendiente',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Regularizar mi pago', urlVar: 'panelUrl' },
@@ -235,6 +290,10 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       '{ownerName}, mañana se pausa tu cuenta de **{platform}** y tus clientes dejan de recibir sus notificaciones.\n\n' +
       'Recarga saldo en tu tarjeta hoy y el cobro pasa solo en el próximo intento. Tus datos quedan guardados en cualquier caso.',
+    kicker: 'Último aviso',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Regularizar mi pago', urlVar: 'panelUrl' },
@@ -250,6 +309,10 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {ownerName}, seguimos sin poder cobrar tu suscripción de **{platform}**.\n\n' +
       'Si no se regulariza, la cuenta se pausa y tu panel deja de estar disponible para ti y para tus clientes. Tus datos quedan guardados: al pagar, todo vuelve tal como estaba.',
+    kicker: 'Aviso importante',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Regularizar mi pago', urlVar: 'panelUrl' },
@@ -264,6 +327,10 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {ownerName}, pausamos tu cuenta de **{platform}** porque no pudimos completar el cobro.\n\n' +
       'Tu información está intacta. Apenas se procese el pago, tu panel y tu página pública vuelven a funcionar al instante.',
+    kicker: 'Cuenta pausada',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Reactivar mi cuenta', urlVar: 'panelUrl' },
@@ -278,7 +345,12 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     subject: 'Tu cuenta de {platform} está activa de nuevo',
     default:
       '¡Buenas noticias, {ownerName}! Recibimos tu pago y tu cuenta de **{platform}** volvió a estar activa.\n\n' +
-      'Tu panel y tu página pública ya están funcionando otra vez. Próximo cobro: {nextChargeDate}.',
+      'Tu panel y tu página pública ya están funcionando otra vez.',
+    kicker: 'Cuenta reactivada',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+      { label: 'Próximo cobro', var: 'nextChargeDate' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Entrar a mi panel', urlVar: 'panelUrl' },
@@ -294,6 +366,10 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {ownerName}, procesamos el reembolso de tu suscripción de **{platform}** y tu cuenta quedó suspendida.\n\n' +
       'Tus datos siguen guardados por si más adelante quieres volver. Si esto fue un error o necesitas ayuda, respóndenos este correo.',
+    kicker: 'Reembolso procesado',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
   },
@@ -308,6 +384,10 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {ownerName}, el banco registró un contracargo sobre el pago de **{platform}** y tu cuenta quedó suspendida.\n\n' +
       'Escríbenos respondiendo este correo para regularizarlo y reactivar tu servicio.',
+    kicker: 'Contracargo registrado',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
   },
@@ -322,6 +402,10 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     default:
       'Hola {ownerName}, se abrió una disputa sobre el pago de **{platform}**.\n\n' +
       'Mientras se resuelve, tu cuenta sigue funcionando. Si fue un error o no reconoces el cobro, respóndenos este correo y lo aclaramos contigo antes de que escale a contracargo.',
+    kicker: 'Pago en disputa',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
   },
@@ -337,6 +421,10 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
       'Hola {ownerName}, cancelamos la suscripción de **{platform}** como pediste.\n\n' +
       'Guardamos tu información por si quieres retomarla más adelante — puedes reactivarla cuando quieras desde tu panel.\n\n' +
       'Gracias por haber confiado en nosotros. Si nos quieres contar qué falló, respóndenos este correo: nos sirve muchísimo.',
+    kicker: 'Suscripción cancelada',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
   },
@@ -350,7 +438,12 @@ export const EMAIL_TEMPLATES: EmailTemplateDef[] = [
     subject: 'Movimos la fecha de tu próximo cobro de {platform}',
     default:
       'Hola {ownerName}, actualizamos la fecha del próximo cobro de **{platform}**.\n\n' +
-      'Tu nueva fecha es el {nextChargeDate}. Tu plan y tu servicio siguen igual, solo cambia cuándo se procesa el pago.',
+      'Tu plan y tu servicio siguen igual: solo cambia cuándo se procesa el pago.',
+    kicker: 'Nueva fecha de cobro',
+    facts: [
+      { label: 'Negocio', var: 'brandName' },
+      { label: 'Nueva fecha', var: 'nextChargeDate' },
+    ],
     folder: EMAIL_FOLDER.id,
     audience: 'Al negocio',
     cta: { label: 'Ver mi suscripción', urlVar: 'panelUrl' },

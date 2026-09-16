@@ -1,7 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { emailShell } from './templates/templates';
-import { brandBaseUrl, BRAND_EMAIL_SELECT } from './brand-email-creds.util';
+import {
+  brandAppUrl,
+  brandEmailPanelUrl,
+  brandBaseUrl,
+  BRAND_EMAIL_SELECT,
+} from './brand-email-creds.util';
+import { renderCorreoDeCiclo } from './correo-de-ciclo';
+import {
+  identidadDeMarca,
+  maquetarCorreo,
+  type ContenidoDelCorreo,
+  type IdentidadDeCorreo,
+} from './maquetador';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import {
   brandGrowCreds,
@@ -31,13 +42,19 @@ type ResolvedBrand = {
   grow: { locationId: string; apiKey: string } | null;
   /** Correo de contacto de la marca, para el token {supportEmail}. */
   supportEmail: string | null;
-  /** Dominio de la marca — los links del correo apuntan acá. */
+  /** Dominio de la marca (el de marketing, si tiene uno). */
   baseUrl: string;
-  /** Identidad visual — usada por `emailShell` cuando NO hay tenant (ej. correo
-   *  "crea tu cuenta" del comprador que aún no tiene negocio). Sin esto el HTML
-   *  caía al morado por defecto y a la inicial en vez del logo/color de la marca. */
-  logoUrl: string | null;
-  primaryColor: string | null;
+  /** Dominio del PANEL de la marca (`app.selleala.com`): `{panelUrl}` va acá. */
+  appUrl: string;
+  /**
+   * Quién firma el correo: logo, color, nombre y contacto de la MARCA. Null =
+   * no se pudo leer la marca, y entonces no se pinta ningún nombre.
+   *
+   * Sale de la marca y no del negocio: los negocios que nunca tocaron su color
+   * tienen el verde por defecto de Clubify, y con ese verde llegaban los avisos
+   * de Sellea.
+   */
+  identidad: IdentidadDeCorreo | null;
 };
 
 type ResolvedTenant = {
@@ -77,7 +94,7 @@ export type SendBrandEmailResult =
  *     cada marca escribe desde su propio dominio sin configurar nada aparte.
  *     Sin subcuenta no se envía nada.
  *  3. El cuerpo es texto plano editable por la marca; el HTML de marca (logo,
- *     color, pie) lo pone el sistema con `emailShell`.
+ *     color, pie) lo pone el sistema con `maquetarCorreo`.
  *
  * Todo es best-effort: ningún fallo de correo puede tumbar un webhook de pago.
  */
@@ -172,15 +189,24 @@ export class BrandEmailService {
       const subject = interpolateEmail(rawSubject, vars);
       const body = interpolateEmail(rawBody, vars);
 
+      const correo = renderCorreoDeCiclo({
+        def,
+        identidad: brand.identidad,
+        asunto: subject,
+        cuerpo: body,
+        vars,
+      });
       const r = await this.grow.sendEmailWithCreds(
         brand.grow,
         to,
         subject,
-        this.renderHtml({ def, brand, tenant, body, vars }),
+        correo.html,
         // El contexto es lo que hace útil el historial: sin `templateId` no se
         // puede preguntar «¿salieron los recordatorios D-3 de esta marca?».
+        // `text` va sin los `**` del cuerpo: es la versión en texto plano del
+        // correo y el `preview` del historial, donde se leían tal cual.
         {
-          text: body,
+          text: correo.texto,
           ctx: {
             tenantId: tenant?.id ?? opts.tenantId ?? null,
             whiteLabelId: brand.id,
@@ -221,6 +247,12 @@ export class BrandEmailService {
     subject: string;
     html: string;
     text?: string;
+    /**
+     * Contenido sin marco (lo devuelven plantillas como `welcomeOwnerTemplate`).
+     * Si viene, el marco lo pone la marca que transporta —logo, color y
+     * contacto—, igual que en `sendTemplate`, y `html` queda de respaldo.
+     */
+    contenido?: ContenidoDelCorreo;
   }): Promise<SendBrandEmailResult> {
     try {
       const to = (opts.to ?? '').trim();
@@ -235,11 +267,17 @@ export class BrandEmailService {
         );
         return { sent: false, reason: 'no_connection' };
       }
+      // Quien arma la bienvenida solo conoce el NOMBRE de la marca; aquí ya
+      // está resuelta entera, así que el correo sale con su logo y su color.
+      const html =
+        opts.contenido && brand.identidad
+          ? maquetarCorreo({ ...opts.contenido, identidad: brand.identidad })
+          : opts.html;
       const r = await this.grow.sendEmailWithCreds(
         brand.grow,
         to,
         opts.subject,
-        opts.html,
+        html,
         {
           text: opts.text,
           ctx: {
@@ -303,8 +341,8 @@ export class BrandEmailService {
           brandGrowCreds(wl) ?? (await this.platformTransport(tenantId ?? null)),
         supportEmail: wl?.contactEmail ?? null,
         baseUrl: brandBaseUrl(wl, this.appUrl()),
-        logoUrl: wl?.logoUrl ?? wl?.iconUrl ?? null,
-        primaryColor: wl?.primaryColor ?? null,
+        appUrl: brandAppUrl(wl, this.appUrl()),
+        identidad: identidadDeMarca(wl, (wl?.name || '').trim() || 'Clubify'),
       };
     };
     if (!whiteLabelId) return platform(null);
@@ -330,8 +368,8 @@ export class BrandEmailService {
         grow: null,
         supportEmail: null,
         baseUrl: this.appUrl(),
-        logoUrl: null,
-        primaryColor: null,
+        appUrl: this.appUrl(),
+        identidad: null,
       };
     }
     const isPlatform = wl.slug === PLATFORM_SLUG;
@@ -342,16 +380,21 @@ export class BrandEmailService {
     const grow =
       brandGrowCreds(wl) ??
       (isPlatform ? await this.platformTransport(tenantId ?? null) : null);
+    // Sin nombre no se inventa uno: una marca blanca firmada «Clubify» es la
+    // fuga que no puede pasar. (La plataforma sí se llama Clubify.)
+    const name = (wl.name || '').trim() || (isPlatform ? 'Clubify' : '');
     return {
       id: wl.id,
-      name: (wl.name || '').trim() || 'Clubify',
+      name,
       slug: wl.slug,
       isPlatform,
       grow,
       supportEmail: wl.contactEmail ?? null,
       baseUrl: brandBaseUrl(wl, this.appUrl()),
-      logoUrl: wl.logoUrl ?? wl.iconUrl ?? null,
-      primaryColor: wl.primaryColor ?? null,
+      // Sin dominio propio, una marca blanca se queda SIN enlace al panel:
+      // llevar a su cliente a soyclubify.com sería la fuga de siempre.
+      appUrl: brandEmailPanelUrl(wl, { isPlatform, fallbackAppUrl: this.appUrl() }) ?? '',
+      identidad: identidadDeMarca(wl, name),
     };
   }
 
@@ -464,9 +507,9 @@ export class BrandEmailService {
       // Sin nombre del dueño el saludo queda "Hola ," — feo pero honesto.
       // Antes caía a 'hola' y salía "Hola hola,".
       ownerName: ctx.ownerName || '',
-      // Dominio propio de la marca si lo tiene: el dueño entra por SU sitio,
-      // no por soyclubify.com.
-      panelUrl: `${ctx.brand.baseUrl}/app`,
+      // Panel propio de la marca (app.selleala.com): el dueño entra por SU
+      // panel, no por soyclubify.com ni por la web de marketing.
+      panelUrl: ctx.brand.appUrl ? `${ctx.brand.appUrl}/app` : '',
       loginEmail: ctx.to,
       supportEmail: ctx.brand.supportEmail ?? '',
       nextChargeDate: ctx.tenant?.currentPeriodEnd
@@ -481,84 +524,4 @@ export class BrandEmailService {
     void def;
     return base;
   }
-
-  /** Cuerpo plano → HTML de marca. Escapa todo: la marca escribe texto, no HTML. */
-  private renderHtml(args: {
-    def: EmailTemplateDef;
-    brand: ResolvedBrand;
-    tenant: ResolvedTenant | null;
-    body: string;
-    vars: Record<string, string>;
-  }): string {
-    const { def, brand, tenant, body, vars } = args;
-    const ctaHref = def.cta ? vars[def.cta.urlVar]?.trim() : '';
-    return emailShell({
-      tenant: {
-        brandName: tenant?.brandName || brand.name,
-        // Sin tenant (ej. correo "crea tu cuenta" del comprador) usamos el
-        // logo/color de la MARCA → nunca cae al morado por defecto con inicial.
-        logoUrl: tenant?.logoUrl ?? brand.logoUrl ?? null,
-        primaryColor: tenant?.primaryColor ?? brand.primaryColor ?? null,
-        whatsappPhone: tenant?.whatsappPhone ?? null,
-        slug: tenant?.slug ?? brand.slug,
-      },
-      preheader: firstLine(body),
-      body: textToHtml(body),
-      ...(def.cta && ctaHref
-        ? { cta: { label: def.cta.label, href: ctaHref } }
-        : {}),
-      // El pie dice "Hecho con <marca>"; en marca blanca nunca linkea a Clubify.
-      platform: { name: brand.name },
-      footer: `Enviado por ${brand.name}`,
-    });
-  }
-}
-
-// ─────────── Helpers de texto ───────────
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/**
- * Texto plano → párrafos HTML. Soporta `**negrita**` y listas numeradas
- * (líneas que empiezan con "1." / "2." …) porque los defaults las usan.
- * Todo lo demás se escapa: el editor de la marca nunca inyecta HTML.
- */
-function textToHtml(text: string): string {
-  const blocks = text.split(/\n{2,}/).map((b) => b.trim()).filter(Boolean);
-  return blocks
-    .map((block) => {
-      const lines = block.split('\n').map((l) => l.trim());
-      const isList = lines.length > 1 && lines.every((l) => /^\d+[.)]\s/.test(l));
-      if (isList) {
-        const items = lines
-          .map(
-            (l) =>
-              `<li style="margin-bottom:6px">${inline(l.replace(/^\d+[.)]\s*/, ''))}</li>`,
-          )
-          .join('');
-        return `<ol style="margin:0 0 16px;padding-left:20px;color:#374151;line-height:1.8">${items}</ol>`;
-      }
-      return `<p style="margin:0 0 14px;color:#374151;line-height:1.55">${lines
-        .map(inline)
-        .join('<br/>')}</p>`;
-    })
-    .join('');
-}
-
-function inline(line: string): string {
-  return escapeHtml(line).replace(
-    /\*\*(.+?)\*\*/g,
-    '<b style="color:#0F172A">$1</b>',
-  );
-}
-
-function firstLine(text: string): string {
-  const l = text.split('\n').find((x) => x.trim());
-  return (l ?? '').replace(/\*\*/g, '').trim().slice(0, 120);
 }

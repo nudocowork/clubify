@@ -53,6 +53,8 @@ export const BRAND_EMAIL_SELECT = {
   logoUrl: true,
   iconUrl: true,
   primaryColor: true,
+  // Tinta de la marca para los títulos del correo (Sellea: #1A1033).
+  secondaryColor: true,
 } as const;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -214,4 +216,23 @@ export function brandAppUrl(
   const base = (fallbackAppUrl || 'https://soyclubify.com').replace(/\/+$/, '');
   const host = (wl?.appDomain || wl?.domain || '').trim().replace(/\/+$/, '');
   return host ? `https://${host}` : base;
+}
+
+/**
+ * El panel al que lleva un correo, o null si no hay ninguno al que llevar.
+ *
+ * Igual que `brandAppUrl`, salvo en lo que importa: una marca blanca SIN
+ * dominio propio no cae al panel de la plataforma. Mandarle a su cliente un
+ * «Entrar a mi panel» que abre `soyclubify.com` delata la plataforma; sin
+ * enlace, el botón simplemente no se pinta (Fable, 15-09-2026). La plataforma
+ * sí usa `APP_URL`, que es su casa.
+ */
+export function brandEmailPanelUrl(
+  wl: { domain?: string | null; appDomain?: string | null } | null | undefined,
+  opts: { isPlatform: boolean; fallbackAppUrl: string },
+): string | null {
+  const host = (wl?.appDomain || wl?.domain || '').trim().replace(/\/+$/, '');
+  if (host) return `https://${host}`;
+  if (!opts.isPlatform) return null;
+  return (opts.fallbackAppUrl || 'https://soyclubify.com').replace(/\/+$/, '');
 }

@@ -1,3 +1,30 @@
+import {
+  identidadDeMarca,
+  maquetarCorreo,
+  type ContenidoDelCorreo,
+  type IdentidadDeCorreo,
+  type MarcaParaCorreo,
+} from '../maquetador';
+
+/**
+ * Correos con texto propio: los que NO viven en el catálogo de
+ * Automatizaciones (bienvenida, contraseña, afiliados, pedidos, equipo).
+ *
+ * Aquí solo se decide el TEXTO y QUIÉN FIRMA; el HTML lo pone `maquetarCorreo`,
+ * igual que en el resto de los correos. No volver a escribir HTML a mano en
+ * este archivo: así se colaron el verde de Clubify en correos de Sellea, los
+ * recuadros con degradado que Outlook deja en blanco y los nombres de cliente
+ * sin escapar dentro del HTML.
+ *
+ * Quién firma:
+ *  - Lo que un NEGOCIO manda a sus clientes o a su equipo (pedidos, alta de
+ *    personal) lo firma el negocio, con «Hecho con <marca>» si hay marca.
+ *  - Lo que manda la MARCA (bienvenida, contraseña, afiliados, cuenta activa)
+ *    lo firma la marca. Sin marca resuelta no se escribe ningún nombre de
+ *    plataforma: antes caía a «Clubify» también en usuarios de marca blanca.
+ */
+
+/** Negocio que firma el correo. */
 export type Tenant = {
   brandName: string;
   logoUrl: string | null;
@@ -6,6 +33,12 @@ export type Tenant = {
   slug: string;
 };
 
+/**
+ * Marca que firma. Con solo `name` el correo lleva el nombre en texto y colores
+ * neutros; con logo y colores, su identidad completa.
+ */
+export type MarcaDeCorreo = MarcaParaCorreo & { name: string };
+
 const COP = (n: number) =>
   new Intl.NumberFormat('es-CO', {
     style: 'currency',
@@ -13,66 +46,23 @@ const COP = (n: number) =>
     maximumFractionDigits: 0,
   }).format(n);
 
-function shell(opts: {
-  tenant: Tenant;
-  preheader: string;
-  body: string;
-  cta?: { label: string; href: string };
-  footer?: string;
-  // Para emails de marca blanca, ocultamos el crédito "Hecho con Clubify"
-  // (la marca no debe mostrar Clubify). Default: visible.
-  platformCredit?: boolean;
-  // Marca de la PLATAFORMA para el crédito del pie. Si es una marca blanca
-  // (Sellea), el pie dice "Hecho con Sellea" (texto, sin link a soyclubify).
-  // Sin platform → "Hecho con Clubify" (link a soyclubify.com) como default.
-  platform?: { name: string } | null;
-}) {
-  const platformName = opts.platform?.name?.trim() || 'Clubify';
-  const platformCreditHtml =
-    opts.platform && platformName !== 'Clubify'
-      ? `<span style="font-size:11px;color:#9CA3AF">Hecho con ${platformName}</span>`
-      : `<span style="font-size:11px;color:#9CA3AF">Hecho con <a href="https://soyclubify.com" style="color:#6366F1;text-decoration:none;font-weight:600">Clubify</a></span>`;
-  const primary = opts.tenant.primaryColor ?? '#6366F1';
-  const logo = opts.tenant.logoUrl
-    ? `<img src="${opts.tenant.logoUrl}" alt="${opts.tenant.brandName}" style="max-height:40px;border-radius:8px"/>`
-    : `<div style="display:inline-block;width:40px;height:40px;background:${primary};color:#fff;border-radius:8px;font-weight:700;font-size:18px;line-height:40px;text-align:center;font-family:system-ui">${opts.tenant.brandName[0]}</div>`;
-
-  return `<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width"/><title>${opts.tenant.brandName}</title></head>
-<body style="margin:0;padding:0;background:#F4F5F7;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0F172A">
-<span style="display:none;color:transparent;height:0;width:0;overflow:hidden">${opts.preheader}</span>
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F4F5F7;padding:24px 0">
-  <tr><td align="center">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:560px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)">
-      <tr><td style="padding:24px 28px;border-bottom:1px solid #E5E7EB">
-        ${logo}
-        <span style="font-weight:700;font-size:16px;margin-left:10px;vertical-align:middle">${opts.tenant.brandName}</span>
-      </td></tr>
-      <tr><td style="padding:28px">
-        ${opts.body}
-        ${
-          opts.cta
-            ? `<div style="margin-top:24px"><a href="${opts.cta.href}" style="display:inline-block;background:${primary};color:#fff;text-decoration:none;font-weight:600;padding:12px 22px;border-radius:999px;font-size:14px">${opts.cta.label}</a></div>`
-            : ''
-        }
-      </td></tr>
-      <tr><td style="padding:18px 28px;background:#F9FAFB;border-top:1px solid #E5E7EB;font-size:12px;color:#6B7280;text-align:center">
-        ${opts.footer ? `${opts.footer}<br/>` : `Enviado por ${opts.tenant.brandName}<br/>`}
-        ${opts.platformCredit === false ? '' : platformCreditHtml}
-      </td></tr>
-    </table>
-  </td></tr>
-</table>
-</body></html>`;
+function identidadDeNegocio(t: Tenant | null | undefined): IdentidadDeCorreo | null {
+  const nombre = (t?.brandName ?? '').trim();
+  if (!nombre) return null;
+  // El logo de un negocio no tiene proporción garantizada: va como ícono junto
+  // a su nombre. El color sí es suyo: el de su carta y su página pública.
+  return { nombre, iconoUrl: t?.logoUrl ?? null, color: t?.primaryColor ?? null };
 }
 
-/**
- * Mismo marco visual (logo, color, pie) para los correos cuyo CUERPO es
- * editable por la marca desde Automatizaciones. La marca escribe texto plano;
- * el HTML de alrededor lo pone el sistema, así ningún correo se ve roto.
- */
-export const emailShell = shell;
+function creditoDe(brand: { name?: string | null } | null | undefined): string | null {
+  const nombre = (brand?.name ?? '').trim();
+  return nombre ? `Hecho con ${nombre}` : null;
+}
 
-// ─────────── Plantillas ───────────
+const primerNombre = (completo: string | null | undefined): string =>
+  (completo ?? '').trim().split(/\s+/)[0] ?? '';
+
+// ─────────── Pedidos (el negocio a su cliente) ───────────
 
 export function orderCreatedTemplate(args: {
   tenant: Tenant;
@@ -83,28 +73,30 @@ export function orderCreatedTemplate(args: {
   trackingUrl: string;
   brand?: { name: string } | null;
 }) {
-  const itemsRows = args.items
-    .map(
-      (i) =>
-        `<tr><td style="padding:6px 0;color:#0F172A">${i.qty}× ${i.name}</td><td style="padding:6px 0;text-align:right;color:#6B7280">${COP(i.lineTotal)}</td></tr>`,
-    )
-    .join('');
+  const filas = args.items.map((i) => ({
+    etiqueta: `${i.qty}× ${i.name}`,
+    valor: COP(i.lineTotal),
+  }));
   return {
     subject: `Pedido #${args.code} recibido — ${args.tenant.brandName}`,
     text: `Hola ${args.customerName}, recibimos tu pedido #${args.code} por ${COP(args.total)}. Te avisaremos en cuanto esté listo. Síguelo aquí: ${args.trackingUrl}`,
-    html: shell({
-      tenant: args.tenant,
+    html: maquetarCorreo({
+      identidad: identidadDeNegocio(args.tenant),
       preheader: `Tu pedido #${args.code} ya está en cola`,
-      body: `
-        <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">¡Gracias por tu pedido, ${args.customerName}! 🎉</h2>
-        <p style="margin:0 0 16px;color:#374151;line-height:1.55">Recibimos tu pedido <b>#${args.code}</b>. Te avisaremos cuando lo confirmemos y cuando esté listo.</p>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #E5E7EB;border-bottom:1px solid #E5E7EB;margin:18px 0">
-          ${itemsRows}
-          <tr><td style="padding:10px 0 0;font-weight:700">Total</td><td style="padding:10px 0 0;text-align:right;font-weight:700">${COP(args.total)}</td></tr>
-        </table>
-      `,
-      cta: { label: 'Seguir mi pedido →', href: args.trackingUrl },
-      platform: args.brand ?? null,
+      antetitulo: `Pedido #${args.code}`,
+      titulo: `¡Gracias por tu pedido, ${args.customerName}! 🎉`,
+      bloques: [
+        {
+          tipo: 'texto',
+          texto: `Recibimos tu pedido **#${args.code}**. Te avisaremos cuando lo confirmemos y cuando esté listo.`,
+        },
+        {
+          tipo: 'datos',
+          filas: [...filas, { etiqueta: 'Total', valor: COP(args.total), fuerte: true }],
+        },
+      ],
+      boton: { texto: 'Seguir mi pedido →', url: args.trackingUrl },
+      credito: creditoDe(args.brand),
     }),
   };
 }
@@ -119,15 +111,19 @@ export function orderConfirmedTemplate(args: {
   return {
     subject: `Pedido #${args.code} confirmado · estamos preparándolo`,
     text: `Tu pedido #${args.code} fue confirmado. Te avisaremos cuando esté listo.`,
-    html: shell({
-      tenant: args.tenant,
+    html: maquetarCorreo({
+      identidad: identidadDeNegocio(args.tenant),
       preheader: 'Tu pedido fue confirmado',
-      body: `
-        <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">Tu pedido fue confirmado ✅</h2>
-        <p style="margin:0 0 16px;color:#374151;line-height:1.55">Hola ${args.customerName}, ya estamos preparando tu pedido <b>#${args.code}</b>. Te volvemos a escribir cuando esté listo.</p>
-      `,
-      cta: { label: 'Seguir el pedido →', href: args.trackingUrl },
-      platform: args.brand ?? null,
+      antetitulo: `Pedido #${args.code}`,
+      titulo: 'Tu pedido fue confirmado ✅',
+      bloques: [
+        {
+          tipo: 'texto',
+          texto: `Hola ${args.customerName}, ya estamos preparando tu pedido **#${args.code}**. Te volvemos a escribir cuando esté listo.`,
+        },
+      ],
+      boton: { texto: 'Seguir el pedido →', url: args.trackingUrl },
+      credito: creditoDe(args.brand),
     }),
   };
 }
@@ -141,17 +137,23 @@ export function orderReadyTemplate(args: {
   return {
     subject: `Tu pedido #${args.code} está listo 🎉`,
     text: `Tu pedido #${args.code} está listo para retirar.`,
-    html: shell({
-      tenant: args.tenant,
+    html: maquetarCorreo({
+      identidad: identidadDeNegocio(args.tenant),
       preheader: '¡Pedido listo para retirar!',
-      body: `
-        <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">¡Tu pedido está listo! 🎉</h2>
-        <p style="margin:0 0 16px;color:#374151;line-height:1.55">Hola ${args.customerName}, tu pedido <b>#${args.code}</b> ya está esperandote.</p>
-      `,
-      platform: args.brand ?? null,
+      antetitulo: `Pedido #${args.code}`,
+      titulo: '¡Tu pedido está listo! 🎉',
+      bloques: [
+        {
+          tipo: 'texto',
+          texto: `Hola ${args.customerName}, tu pedido **#${args.code}** ya está esperándote.`,
+        },
+      ],
+      credito: creditoDe(args.brand),
     }),
   };
 }
+
+// ─────────── Equipo del negocio ───────────
 
 export function welcomeStaffTemplate(args: {
   tenant: Tenant;
@@ -164,67 +166,78 @@ export function welcomeStaffTemplate(args: {
   return {
     subject: `Bienvenido al equipo de ${args.tenant.brandName}`,
     text: `Tu cuenta de ${args.tenant.brandName}\nEmail: ${args.email}\nContraseña temporal: ${args.tempPassword}\nIngresa en: ${args.loginUrl}`,
-    html: shell({
-      tenant: args.tenant,
+    html: maquetarCorreo({
+      identidad: identidadDeNegocio(args.tenant),
       preheader: `Tu acceso al panel de ${args.tenant.brandName}`,
-      body: `
-        <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">¡Bienvenido, ${args.fullName}!</h2>
-        <p style="margin:0 0 12px;color:#374151;line-height:1.55">Te crearon una cuenta para gestionar pedidos y clientes en <b>${args.tenant.brandName}</b>.</p>
-        <div style="background:#F4F5F7;border-radius:12px;padding:14px 16px;font-family:Menlo,Monaco,monospace;font-size:13px;line-height:1.6;color:#0F172A">
-          <b>Email:</b> ${args.email}<br/>
-          <b>Contraseña temporal:</b> ${args.tempPassword}
-        </div>
-        <p style="margin:16px 0 0;color:#6B7280;font-size:13px">Cambia tu contraseña apenas ingreses. Si recibiste este email por error, ignóralo.</p>
-      `,
-      cta: { label: 'Ingresar al panel →', href: args.loginUrl },
-      platform: args.brand ?? null,
+      antetitulo: 'Acceso al panel',
+      titulo: `¡Bienvenido, ${args.fullName}!`,
+      bloques: [
+        {
+          tipo: 'texto',
+          texto: `Te crearon una cuenta para gestionar pedidos y clientes en **${args.tenant.brandName}**.`,
+        },
+        {
+          tipo: 'datos',
+          filas: [
+            { etiqueta: 'Email', valor: args.email },
+            { etiqueta: 'Contraseña temporal', valor: args.tempPassword, monoespaciado: true },
+          ],
+        },
+      ],
+      boton: { texto: 'Ingresar al panel →', url: args.loginUrl },
+      bloquesFinales: [
+        {
+          tipo: 'nota',
+          texto: 'Cambia tu contraseña apenas ingreses. Si recibiste este email por error, ignóralo.',
+        },
+      ],
+      credito: creditoDe(args.brand),
     }),
   };
 }
+
+// ─────────── La marca a sus usuarios ───────────
 
 export function passwordResetTemplate(args: {
   fullName: string;
   resetUrl: string;
   expiresInMinutes: number;
-  // Marca blanca del usuario (si la tiene): el email hereda su nombre, color y
-  // logo en vez de mostrar Clubify. Sin brand → branding Clubify default.
-  brand?: { name: string; primaryColor?: string | null; logoUrl?: string | null } | null;
+  /** Marca blanca del usuario: el correo hereda su nombre, color y logo. */
+  brand?: MarcaDeCorreo | null;
 }) {
-  const brandName = args.brand?.name ?? 'Clubify';
-  const isBrand = !!args.brand;
-  const tenant: Tenant = {
-    brandName,
-    primaryColor: args.brand?.primaryColor ?? '#6366F1',
-    logoUrl: args.brand?.logoUrl ?? null,
-    whatsappPhone: null,
-    slug: 'clubify',
-  };
+  const identidad = identidadDeMarca(args.brand);
+  const enMarca = identidad ? ` en ${identidad.nombre}` : '';
   return {
-    subject: `Restablece tu contraseña en ${brandName}`,
+    subject: `Restablece tu contraseña${enMarca}`,
     text: `Hola ${args.fullName},\nPara restablecer tu contraseña usa este link (vence en ${args.expiresInMinutes} min):\n${args.resetUrl}\nSi no solicitaste esto, ignora este email.`,
-    html: shell({
-      tenant,
-      platformCredit: !isBrand,
+    html: maquetarCorreo({
+      identidad,
       preheader: `Link válido por ${args.expiresInMinutes} minutos`,
-      body: `
-        <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">Restablece tu contraseña</h2>
-        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          Hola ${args.fullName}, recibimos una solicitud para cambiar la contraseña de tu cuenta en ${brandName}.
-        </p>
-        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          Da clic en el botón de abajo para crear una nueva. El link vence en <b>${args.expiresInMinutes} minutos</b>.
-        </p>
-        <p style="margin:16px 0 0;color:#6B7280;font-size:13px">Si no solicitaste este cambio, simplemente ignora este email — tu contraseña actual sigue siendo válida.</p>
-      `,
-      cta: { label: 'Restablecer mi contraseña →', href: args.resetUrl },
+      antetitulo: 'Seguridad de tu cuenta',
+      titulo: 'Restablece tu contraseña',
+      bloques: [
+        {
+          tipo: 'texto',
+          texto:
+            `Hola ${args.fullName}, recibimos una solicitud para cambiar la contraseña de tu cuenta${enMarca}.\n\n` +
+            `Da clic en el botón de abajo para crear una nueva. El link vence en **${args.expiresInMinutes} minutos**.`,
+        },
+      ],
+      boton: { texto: 'Restablecer mi contraseña →', url: args.resetUrl },
+      enlaceVisible: true,
+      bloquesFinales: [
+        {
+          tipo: 'nota',
+          texto: 'Si no solicitaste este cambio, simplemente ignora este email — tu contraseña actual sigue siendo válida.',
+        },
+      ],
     }),
   };
 }
 
 /**
- * Email de invitación a un afiliado nuevo (influencer/embajador). Se envía
- * cuando el super admin crea su campaña/embajador. El link lleva al flujo
- * de set-password, después logueado se redirige a /affiliate.
+ * Invitación a un afiliado nuevo (influencer/embajador/socio/vendedor). El link
+ * lleva al flujo de set-password y, ya logueado, a /affiliate.
  */
 export function inviteAffiliateTemplate(args: {
   fullName: string;
@@ -238,58 +251,54 @@ export function inviteAffiliateTemplate(args: {
   commissionPercent: number;
   campaignName: string | null;
   parentName: string | null;
-  // Marca blanca del afiliado (resuelta por ReferralCode.whiteLabelId). El
-  // email hereda su nombre/color/logo en vez de Clubify. Sin brand → Clubify.
-  brand?: { name: string; primaryColor?: string | null; logoUrl?: string | null } | null;
+  /** Marca del afiliado (ReferralCode.whiteLabelId). */
+  brand?: MarcaDeCorreo | null;
 }) {
-  const brandName = args.brand?.name ?? 'Clubify';
-  const isBrand = !!args.brand;
-  const tenant: Tenant = {
-    brandName,
-    primaryColor: args.brand?.primaryColor ?? '#6366F1',
-    logoUrl: args.brand?.logoUrl ?? null,
-    whatsappPhone: null,
-    slug: isBrand ? 'brand' : 'clubify',
-  };
+  const identidad = identidadDeMarca(args.brand);
+  const brandName = identidad?.nombre ?? '';
   const isInfluencer = args.role === 'AFFILIATE_INFLUENCER';
   const isSocio = args.role === 'AFFILIATE_SOCIO';
   const isVendor = args.role === 'AFFILIATE_VENDOR';
   const roleLabel = isSocio
     ? 'socio'
     : isInfluencer
-    ? 'influencer'
-    : isVendor
-    ? 'vendedor'
-    : 'embajador';
+      ? 'influencer'
+      : isVendor
+        ? 'vendedor'
+        : 'embajador';
+  // «Eres», no «Sos»: el resto de los correos tutea.
   const greeting = isSocio
-    ? `Sos socio de ${brandName} y recibirás el ${args.commissionPercent}% de TODAS las ventas`
+    ? `Eres socio${brandName ? ` de ${brandName}` : ''} y recibirás el ${args.commissionPercent}% de TODAS las ventas`
     : isInfluencer
-    ? `Te asignamos la campaña ${args.campaignName ?? 'tuya'}`
-    : isVendor
-    ? `Te invitamos a ser vendedor del equipo de ${args.parentName ?? 'tu embajador'}`
-    : `Te invitamos a ser embajador de ${args.parentName ?? 'la campaña'}`;
+      ? `Te asignamos la campaña ${args.campaignName ?? 'tuya'}`
+      : isVendor
+        ? `Te invitamos a ser vendedor del equipo de ${args.parentName ?? 'tu embajador'}`
+        : `Te invitamos a ser embajador de ${args.parentName ?? 'la campaña'}`;
+  const nombre = primerNombre(args.fullName);
 
   return {
-    subject: `Bienvenido a ${brandName} — eres ${roleLabel} 🎉`,
+    subject: brandName
+      ? `Bienvenido a ${brandName} — eres ${roleLabel} 🎉`
+      : `Bienvenido — eres ${roleLabel} 🎉`,
     text: `Hola ${args.fullName},\n${greeting}.\nTu código: ${args.code} (${args.commissionPercent}% de comisión recurrente).\nActiva tu cuenta aquí:\n${args.inviteUrl}\nEl link vence en 7 días.`,
-    html: shell({
-      tenant,
-      platformCredit: !isBrand,
+    html: maquetarCorreo({
+      identidad,
       preheader: `Tu código: ${args.code} · ${args.commissionPercent}% recurrente`,
-      body: `
-        <h2 style="margin:0 0 12px;font-size:22px;font-weight:700">¡Bienvenido a ${brandName}, ${args.fullName.split(' ')[0]}!</h2>
-        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          ${greeting}. Aquí ganas <b>${args.commissionPercent}% recurrente</b> por cada cliente que se registre con tu código.
-        </p>
-        <div style="margin:18px 0;padding:14px 16px;background:#F8FAFC;border:1px solid #E5E7EB;border-radius:10px">
-          <div style="font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:0.08em;font-weight:600">Tu código</div>
-          <div style="font-family:monospace;font-size:24px;font-weight:700;letter-spacing:0.05em">${args.code}</div>
-        </div>
-        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          Para activar tu cuenta y ver tu panel con clientes y comisiones, click en el botón. <b>El link vence en 7 días.</b>
-        </p>
-      `,
-      cta: { label: 'Activar mi cuenta →', href: args.inviteUrl },
+      antetitulo: `Invitación de ${roleLabel}`,
+      titulo: brandName ? `¡Bienvenido a ${brandName}, ${nombre}!` : `¡Bienvenido, ${nombre}!`,
+      bloques: [
+        {
+          tipo: 'texto',
+          texto: `${greeting}. Aquí ganas **${args.commissionPercent}% recurrente** por cada cliente que se registre con tu código.`,
+        },
+        { tipo: 'codigo', etiqueta: 'Tu código', valor: args.code },
+        {
+          tipo: 'texto',
+          texto: 'Para activar tu cuenta y ver tu panel con clientes y comisiones, haz clic en el botón. **El link vence en 7 días.**',
+        },
+      ],
+      boton: { texto: 'Activar mi cuenta →', url: args.inviteUrl },
+      enlaceVisible: true,
     }),
   };
 }
@@ -299,126 +308,128 @@ export function welcomeOwnerTemplate(args: {
   fullName: string;
   trialEndsAt: Date | null;
   appUrl: string;
-  // Marca del negocio (Sellea/Clubify). Sin brand → "Clubify" (default).
-  brand?: { name: string } | null;
-  // Link al panel de la marca (ej https://selleala.com/login). Si no viene,
-  // cae al panel global. Ver [[email/brand-email]].
+  /** Marca del negocio (Sellea/Clubify). */
+  brand?: MarcaDeCorreo | null;
+  /** Link al panel de la marca. Si no viene, cae al panel global. */
   loginUrl?: string;
   /**
-   * La cuenta YA quedo pagada al crearse. Pasa cuando el comprador paga
-   * primero y crea la cuenta despues: los `consumePendingForTenant` del
-   * signup la activan al instante.
-   *
-   * Sin esto el correo le pedia "completa el pago para activarla" a alguien
-   * que acababa de pagar (caso real 2026-08-22, Mr. Pedidos). El texto tiene
-   * que decir lo contrario: ya esta activa, entra.
+   * La cuenta YA quedó pagada al crearse: el comprador pagó primero y creó la
+   * cuenta después. Sin esto el correo le pedía «completa el pago» a alguien
+   * que acababa de pagar (caso real 2026-08-22, Mr. Pedidos).
    */
   yaPago?: boolean;
 }) {
-  const firstName = args.fullName.split(' ')[0];
-  // Sin marca resuelta NO se escribe "Clubify": un negocio de marca blanca
-  // leeria el nombre de otra plataforma en su propio correo de bienvenida.
-  // Ver [[clubify-fugas-de-marca]].
+  const firstName = primerNombre(args.fullName);
+  // Sin marca resuelta NO se escribe «Clubify»: un negocio de marca blanca
+  // leería el nombre de otra plataforma en su propio correo de bienvenida.
   const brandName = args.brand?.name?.trim() || null;
   const enMarca = brandName ? ` en ${brandName}` : '';
   const link = args.loginUrl || `${args.appUrl}/app`;
   const yaPago = args.yaPago === true;
-  // Dos correos distintos con el mismo esqueleto: cambia lo de arriba (el
-  // estado de la cuenta), se mantienen abajo los primeros pasos.
-  const asunto = yaPago
-    ? `Tu cuenta ya está activa, ${firstName}`
-    : brandName
-      ? `Bienvenido a ${brandName}, ${firstName}`
-      : `Bienvenido, ${firstName}`;
-  const resumen = yaPago
-    ? `Tu cuenta de ${args.tenant.brandName} ya está activa. Entra al panel: ${link}`
-    : `Tu cuenta de ${args.tenant.brandName} ya está creada. Completa el pago para activarla y entrar al panel: ${link}`;
-  const cabecera = yaPago
-    ? `
-        <h2 style="margin:0 0 12px;font-size:24px;font-weight:700">¡Listo, ${firstName}!</h2>
-        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          Recibimos tu pago y tu cuenta de <b>${args.tenant.brandName}</b>${enMarca}
-          ya quedó <b>activa</b>. No tienes que hacer nada más: entra y empieza.
-        </p>
-        <div style="background:linear-gradient(135deg,#10B981,#059669);border-radius:14px;padding:18px 20px;color:#fff">
-          <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.85">Pago confirmado</div>
-          <div style="font-size:22px;font-weight:700;margin-top:4px">Tu panel está abierto</div>
-          <div style="font-size:13px;opacity:.85;margin-top:6px">Ya puedes cargar tu menú y empezar a vender</div>
-        </div>`
-    : `
-        <h2 style="margin:0 0 12px;font-size:24px;font-weight:700">¡Bienvenido, ${firstName}!</h2>
-        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          Tu cuenta de <b>${args.tenant.brandName}</b>${enMarca} ya está creada.
-          Solo falta completar el pago seguro para activarla.
-        </p>
-        <div style="background:linear-gradient(135deg,#6366F1,#A855F7);border-radius:14px;padding:18px 20px;color:#fff">
-          <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;opacity:.85">Activa tu cuenta</div>
-          <div style="font-size:22px;font-weight:700;margin-top:4px">Pago seguro · activación inmediata</div>
-          <div style="font-size:13px;opacity:.85;margin-top:6px">Apenas se aprueba entras al panel y empiezas a vender</div>
-        </div>`;
+  const negocio = args.tenant.brandName;
+
+  const contenido: ContenidoDelCorreo = {
+    preheader: yaPago
+      ? `Tu cuenta de ${negocio} ya está activa`
+      : `Completa el pago para activar ${negocio}`,
+    antetitulo: yaPago ? 'Pago confirmado' : 'Activa tu cuenta',
+    titulo: yaPago ? `¡Listo, ${firstName}!` : `¡Bienvenido, ${firstName}!`,
+    bloques: [
+      {
+        tipo: 'texto',
+        texto: yaPago
+          ? `Recibimos tu pago y tu cuenta de **${negocio}**${enMarca} ya quedó **activa**. No tienes que hacer nada más: entra y empieza.`
+          : `Tu cuenta de **${negocio}**${enMarca} ya está creada. Solo falta completar el pago seguro para activarla.`,
+      },
+      yaPago
+        ? { tipo: 'destacado', titulo: 'Tu panel está abierto', texto: 'Ya puedes cargar tu menú y empezar a vender' }
+        : { tipo: 'destacado', titulo: 'Pago seguro · activación inmediata', texto: 'Apenas se aprueba entras al panel y empiezas a vender' },
+    ],
+    boton: { texto: yaPago ? 'Entrar a mi panel →' : 'Ir a mi cuenta →', url: link },
+    bloquesFinales: [
+      {
+        tipo: 'texto',
+        texto:
+          'Lo siguiente:\n' +
+          '1. Sube tu menú (categorías + productos)\n' +
+          '2. Personaliza tu tarjeta de fidelización\n' +
+          '3. Comparte tu link público en Instagram y WhatsApp\n' +
+          '4. Activa la primera automatización (mensaje al cliente)',
+      },
+      { tipo: 'nota', texto: 'Si te trabas en algo, escríbenos por WhatsApp y te ayudamos en vivo.' },
+    ],
+    motivo: 'Recibes este correo porque creaste tu cuenta en {marca}.',
+  };
+
   return {
-    subject: asunto,
-    text: resumen,
-    html: shell({
-      tenant: args.tenant,
-      platform: args.brand ?? null,
-      preheader: yaPago
-        ? `Tu cuenta de ${args.tenant.brandName} ya está activa`
-        : `Completa el pago para activar ${args.tenant.brandName}`,
-      body: `
-        ${cabecera}
-        <p style="margin:18px 0 8px;color:#374151;line-height:1.55">Lo siguiente:</p>
-        <ol style="margin:0;padding-left:20px;color:#374151;line-height:1.8">
-          <li>Sube tu menú (categorías + productos)</li>
-          <li>Personaliza tu tarjeta de fidelización</li>
-          <li>Comparte tu link público en Instagram y WhatsApp</li>
-          <li>Activa la primera automatización (mensaje al cliente)</li>
-        </ol>
-        <p style="margin:16px 0 0;color:#6B7280;font-size:13px">Si te trabas en algo, escríbenos por WhatsApp y te ayudamos en vivo.</p>
-      `,
-      cta: { label: yaPago ? 'Entrar a mi panel →' : 'Ir a mi cuenta →', href: link },
-    }),
+    subject: yaPago
+      ? `Tu cuenta ya está activa, ${firstName}`
+      : brandName
+        ? `Bienvenido a ${brandName}, ${firstName}`
+        : `Bienvenido, ${firstName}`,
+    text: yaPago
+      ? `Tu cuenta de ${negocio} ya está activa. Entra al panel: ${link}`
+      : `Tu cuenta de ${negocio} ya está creada. Completa el pago para activarla y entrar al panel: ${link}`,
+    html: maquetarCorreo({ ...contenido, identidad: identidadDeMarca(args.brand) }),
+    /**
+     * Viaja en el mismo spread hasta `BrandEmailService.sendRaw`, que conoce la
+     * marca completa y le pone su marco (logo, color, contacto). Quien arma
+     * este correo solo sabe el NOMBRE de la marca: sin esto la bienvenida de
+     * Sellea saldría sin su logo.
+     */
+    contenido,
   };
 }
 
 /**
- * Email de CUENTA ACTIVADA (pago/compra confirmada) al dueño del negocio.
- * Incluye datos de acceso (email) + link al panel de la marca (ej
- * selleala.com/login). Se dispara desde emitBusinessActivated en marcas con
- * remitente propio configurado. Ver [[email/brand-email]].
+ * CUENTA ACTIVADA (pago confirmado) al dueño del negocio, con sus datos de
+ * acceso y el link al panel de la marca. Se dispara desde el Onboarding.
  */
 export function accountActivatedTemplate(args: {
   tenant: Tenant;
   fullName?: string;
   loginEmail: string;
   loginUrl: string;
-  brand?: { name: string } | null;
+  brand?: MarcaDeCorreo | null;
 }) {
-  const firstName = (args.fullName || '').split(' ')[0] || '';
-  const brandName = args.brand?.name ?? 'Clubify';
+  const firstName = primerNombre(args.fullName);
+  const identidad = identidadDeMarca(args.brand);
+  const brandName = identidad?.nombre ?? '';
+  const enMarca = brandName ? ` en ${brandName}` : '';
   const hi = firstName ? `¡Listo, ${firstName}!` : '¡Tu cuenta está activa!';
   return {
-    subject: `Tu cuenta de ${brandName} ya está activa 🎉`,
-    text: `${hi} Tu cuenta de ${args.tenant.brandName} en ${brandName} quedó activa. Ingresá con ${args.loginEmail} en ${args.loginUrl}`,
-    html: shell({
-      tenant: args.tenant,
-      platform: args.brand ?? null,
-      preheader: `Tu cuenta de ${args.tenant.brandName} quedó activa — ya podés ingresar`,
-      body: `
-        <h2 style="margin:0 0 12px;font-size:24px;font-weight:700">${hi}</h2>
-        <p style="margin:0 0 14px;color:#374151;line-height:1.55">
-          Confirmamos tu pago y tu cuenta de <b>${args.tenant.brandName}</b> en ${brandName}
-          quedó <b>activa</b>. Ya podés ingresar al panel y empezar.
-        </p>
-        <div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:14px;padding:16px 18px">
-          <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#6B7280">Datos de acceso</div>
-          <div style="margin-top:8px;color:#111827;font-size:14px"><b>Usuario:</b> ${args.loginEmail}</div>
-          <div style="margin-top:4px;color:#111827;font-size:14px"><b>Ingreso:</b> <a href="${args.loginUrl}" style="color:#6366F1;text-decoration:none">${args.loginUrl}</a></div>
-          <div style="margin-top:6px;color:#6B7280;font-size:12.5px">Tu contraseña es la que definiste al registrarte. ¿La olvidaste? Podés recuperarla desde el login.</div>
-        </div>
-        <p style="margin:18px 0 0;color:#374151;line-height:1.55">Primeros pasos: subí tu menú, personalizá tu tarjeta de fidelización y compartí tu link. Cualquier duda, escribinos.</p>
-      `,
-      cta: { label: 'Ingresar al panel →', href: args.loginUrl },
+    subject: `Tu cuenta de ${brandName || args.tenant.brandName} ya está activa 🎉`,
+    text: `${hi} Tu cuenta de ${args.tenant.brandName}${enMarca} quedó activa. Ingresa con ${args.loginEmail} en ${args.loginUrl}`,
+    html: maquetarCorreo({
+      identidad,
+      preheader: `Tu cuenta de ${args.tenant.brandName} quedó activa — ya puedes ingresar`,
+      antetitulo: 'Cuenta activa',
+      titulo: hi,
+      bloques: [
+        {
+          tipo: 'texto',
+          texto: `Confirmamos tu pago y tu cuenta de **${args.tenant.brandName}**${enMarca} quedó **activa**. Ya puedes ingresar al panel y empezar.`,
+        },
+        {
+          tipo: 'datos',
+          filas: [
+            { etiqueta: 'Usuario', valor: args.loginEmail },
+            { etiqueta: 'Ingreso', valor: args.loginUrl.replace(/^https?:\/\//i, '') },
+          ],
+        },
+      ],
+      boton: { texto: 'Ingresar al panel →', url: args.loginUrl },
+      bloquesFinales: [
+        {
+          tipo: 'nota',
+          texto: 'Tu contraseña es la que definiste al registrarte. ¿La olvidaste? Puedes recuperarla desde el login.',
+        },
+        {
+          tipo: 'texto',
+          texto: 'Primeros pasos: sube tu menú, personaliza tu tarjeta de fidelización y comparte tu link. Cualquier duda, escríbenos.',
+        },
+      ],
+      motivo: 'Recibes este correo porque tienes una cuenta en {marca}.',
     }),
   };
 }

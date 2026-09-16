@@ -8,6 +8,65 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-15 (28) — Los correos de las marcas, con presencia: cabecera, botón y firma de la marca
+
+Javier: «Necesito que entres y optimices y/o mejores el estilo de los correos de
+Sellea, porque están muy feos. No tienen buen estilo ni presencia.»
+
+### Qué estaba mal (comprobado en `MessageLog`)
+
+Sellea envía sobre todo: compra sin cuenta, bienvenida, panel creado, pago
+confirmado, recordatorios de cobro (7, 3 y 1 día), cobro de hoy y cancelación.
+
+1. **La cabecera y el botón salían del NEGOCIO, no de la marca.** 3 de los 8
+   negocios de Sellea que recibieron correo tienen el `#22C55E` por defecto —el
+   verde de Clubify— y sin logo: «Pago demorado» con botón verde, bienvenida con
+   una letra en un cuadro verde.
+2. **`**` sin convertir** en el texto plano que viaja a Grow Business y en el
+   historial: 22 filas de Sellea, 138 en total.
+3. **Bienvenida con texto blanco sobre degradado**: Outlook de escritorio no
+   pinta degradados y el texto quedaba invisible; tampoco llevaba el logo.
+4. **`templates.ts`** con valores por defecto de otra marca («Clubify», «Hecho
+   con Clubify», `#6366F1`), el nombre del cliente y de los productos sin
+   escapar en el HTML de pedidos, y voseo.
+
+### Qué cambia
+
+- Un solo maquetador (`backend/src/email/maquetador.ts`) para todas las
+  plantillas de marca: logo y color de la MARCA, tabla de 600 px con estilos en
+  línea, modo oscuro, texto de vista previa, recuadro de datos, botón con enlace
+  visible debajo («¿El botón no abre?») y «Recibes este correo porque…».
+- Texto plano sin Markdown; `{panelUrl}` al dominio del panel de la marca.
+- `sendTemplate` no cambia; `sendRaw` acepta `contenido` opcional, así la
+  bienvenida sale con el logo de la marca sin tocar auth.
+- Sin marca resuelta no se pinta ningún nombre.
+
+### Lo que NO pasa por aquí
+
+- Contraseña, invitación de afiliado, cuenta activada (Onboarding), alta de
+  equipo y pedidos van por `EmailService`, que sin `RESEND_API_KEY` solo escribe
+  en el log: **hoy no se entregan**. Se reestilaron igual, pero sus enlaces los
+  arman auth, orders y staff con `APP_URL`.
+- `auth/trial-otp.service.ts`, el nodo `send_email` de los workflows de marca y
+  Email Marketing tienen su propio HTML.
+- Los correos siguen solo en español (`Tenant.locale` no se usa).
+
+### Revisión de Fable
+
+Sin fuga de marca ni inyección (texto por `escaparHtml`, URLs solo `http(s)`,
+colores solo hex). Arreglado antes de desplegar: el recuadro de datos repetía lo
+que ya decía el cuerpo en cuatro plantillas, una marca blanca sin dominio habría
+mandado el botón a `soyclubify.com/app`, el ícono del negocio salía aplastado en
+Outlook y restos de texto (doble espacio, «da clic»/«haz clic»).
+
+**Alcance real:** 7 de las 8 plantillas de `templates.ts` (pedidos, alta de
+equipo, contraseña, invitación de afiliado, cuenta activada) van por
+`EmailService` y hoy no se entregan; el cambio de verdad está en la bienvenida y
+en los 19 correos del catálogo de ciclo de vida. Ojo el día que se pasen por
+Grow Business: sus enlaces salen con `APP_URL` (`soyclubify.com`) y un negocio
+de marca blanca que nunca cambió su color mandaría pedidos con el verde por
+defecto.
+
 ## 2026-09-15 (27) — Google Calendar por equipo en Sellea: construido, a la espera de las credenciales de Google
 
 Javier: «En configuraciones, permitir la conexión con el calendario de Google.»

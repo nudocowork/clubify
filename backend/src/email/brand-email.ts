@@ -66,6 +66,9 @@ export async function resolveBrandEmail(
 
   const host = (wl.domain || wl.appDomain || '').trim();
   const websiteUrl = host ? `https://${stripTrailingSlash(host)}` : base;
+  // El login vive en el PANEL (app.selleala.com), no en la web de marketing.
+  const appHost = (wl.appDomain || wl.domain || '').trim();
+  const panelUrl = appHost ? `https://${stripTrailingSlash(appHost)}` : base;
   const from = wl.emailFrom?.trim() || undefined;
   return {
     whiteLabelId: wl.id,
@@ -73,7 +76,7 @@ export async function resolveBrandEmail(
     from,
     replyTo: from ? wl.contactEmail?.trim() || undefined : undefined,
     websiteUrl,
-    loginUrl: `${websiteUrl}/login`,
+    loginUrl: `${panelUrl}/login`,
     hasBrandSender: !!from,
   };
 }
