@@ -8,6 +8,67 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-16 (35) — Las push automáticas salían a las 3 y 4 de la madrugada: la hora era la del servidor, no la del negocio
+
+Javier: «Cuando se deja programado las notificaciones push en horas concretas, veo que hasta 2 o 3 veces se repite el envío en lapso de minutos. O incluso a veces en horas que no debería se ha hecho el envío. Hoy llegó una push Android a las 4am, lo cual no tiene sentido, ya que fue enviada en la noche por Konnys. Hay varios clientes así.»
+
+Son **dos síntomas y dos causas distintas**, y conviene no confundirlas: lo de la madrugada estaba pasando todas las noches; lo de la repetición **no venía de donde parecía**.
+
+### La de la madrugada (la que estaba pasando)
+
+Los crons de cumpleaños y de inactividad eran `@Cron('0 8 * * *')` y `@Cron('0 9 * * *')` en **UTC fijo**. El servidor va en UTC (el Dockerfile no fija `TZ`) y `Tenant.timezone` —que existe y está bien puesto— **no se miraba**. En Bogotá eso son **las 3 y las 4 de la madrugada**.
+
+En el mes de datos que se conserva: **1.027 envíos a las 4am y 482 a las 3am**. El caso que trajo Javier es la notificación «Te extrañamos Paola Barrios 💌» de **Konys**, del 16-09 a las **04:03:43** hora de Bogotá; ese mismo lote de las 04:02–04:03 tocó al menos **8 negocios** (Konys, Yeison Montaño, Revent, NudoCowork, Café 1550 de Altitud, SUGAR & KISS, Tubiñez beauty salón y &N COFFEE).
+
+Ahora los dos crons corren **cada hora** y disparan para cada negocio cuando en **su** zona son las 8 o las 9, con un módulo puro (`hora-local.ts`) y un candado por negocio y día local. Esto arregla de paso a los que no están en Colombia: hay 8 negocios en New_York, 5 en Caracas, 5 en Mexico_City, 4 en Lima, 3 en Santiago y uno en Tegucigalpa, Puerto_Rico, La_Paz y Guatemala.
+
+### La repetición: el envío programado se blindó, pero **no era esto**
+
+`notifications.service.ts` hacía `findMany({sentAt:null})` → `update({where:{id}})` → despachar, sin comprobar que la fila siguiera pendiente. Como el cron corre cada 5 minutos y despacha **en serie** esperando el push de cada pase, un negocio grande hace que el tick siguiente arranque con el anterior a medias. Ahora el envío se reclama con `updateMany({ where: { id, sentAt: null } })` y solo sale si tocó exactamente una fila.
+
+**Honestidad sobre la evidencia:** esta ruta **no ha duplicado** en lo observable. Se arregla porque es la que Javier describe y porque es cuestión de tiempo, no porque se haya medido el fallo.
+
+### Lo que de verdad está duplicando (queda para el bloque siguiente)
+
+- **Difusiones manuales**: `dispatchNow` no tiene idempotencia, así que un segundo clic manda otro push. En un mes: **20 copias de más en 8 negocios → 123 entregas repetidas**. Tubiñez beauty salón y Fusion sushi son los feos (unas 60 personas cada uno recibiendo lo mismo dos veces); Fruletto mandó «.» cinco veces en seis minutos y medio.
+- **Automatizaciones individuales**: `emit()` no tiene guarda de «una vez por cliente por evento» y `PASS_CREATED` se emite desde **dos sitios**. **23 push repetidos a 9 clientes** de 5 negocios.
+- **`RecurringNotification.timezone`**: el panel nunca lo manda, así que queda `America/Bogota` para todos — y Empanadas La Parada y Essentrix son de New_York.
+
+### Ojo con los números: solo hay un mes de historia
+
+`retention.service.ts` **borra las notificaciones enviadas a los 30 días**. La fila más vieja es del 16-08. Todo lo de arriba es el ritmo de **un mes**, no de dos, y no hay forma de saber desde cuándo viene el doble clic: lo anterior a agosto ya no existe.
+
+### Revisión de Fable
+
+Se revisó dos veces: la primera sobre el arreglo original, la segunda sobre los arreglos de esa primera. De la primera salieron tres cosas graves —el doble envío al desplegar, la hora local como punto exacto sin recuperación, y los dos procesos con el cron armado durante el despliegue— y de ahí vienen la ventana de cuatro horas y el candado en la base.
+
+La segunda pasada confirmó los números contra producción (482 envíos a las 3am y 1.027 a las 4am, el de Konys a las 04:03:43, y que el cron viejo seguía vivo con 135 disparos a las 08 UTC y 411 a las 09 UTC en siete días) y encontró **dos errores míos**:
+
+1. **La franja de despliegue que yo había calculado estaba mal.** Escribí «después de las 15:00 UTC es seguro» mirando solo el principio de la ventana. Con la ventana de cuatro horas, Bogotá tiene ticks hasta las 16-17 UTC y México, Guatemala y Tegucigalpa hasta las 18: desplegar a las 15:10 habría hecho que el tick de las 16:00 reclamara las filas todavía a NULL y repitiera lo que el cron viejo ya mandó por la mañana. Corregido en el código, en esta bitácora y en la cadena de despliegue, que ahora se niega a correr fuera de **18:01–07:50 UTC**. De paso: un rollback no duplica, **pierde el día**.
+2. **El «ensayo» de la migración no existía.** Los `apply-*.cjs` de este repo ejecutan el ALTER nada más arrancar y no tienen `--aplicar`; yo había escrito la cadena como si lo tuvieran, así que la primera llamada habría migrado producción creyendo que ensayaba. Ahora se mira el estado con un SELECT y se aplica una sola vez, apoyándose en que el script es idempotente.
+
+Lo demás quedó confirmado: el claim atómico cubre el solape de un tick lento con el siguiente, la ventana no cruza medianoche, el DST de América cae fuera de las horas en juego, y el tope de reintentos no deja una fila reintentándose para siempre. **Lo que sigue abierto y no se vende como cerrado:** si el proceso muere a mitad del recorrido, los negocios que faltaban pierden ese día —el turno se reclama antes de trabajar—. Se cierra con la idempotencia por cliente del bloque siguiente, no con este.
+
+### Migración: dos columnas para el candado
+
+El candado del día local **no podía quedarse en memoria**. Durante un despliegue conviven dos procesos —Railway mantiene el viejo hasta que el nuevo pasa el healthcheck— y cada uno tendría el suyo, así que un solape a la hora justa duplicaba; y el día que el backend pase de una réplica, duplicaría siempre.
+
+Ahora son `Tenant.ultimoCronCumpleanos` y `Tenant.ultimoCronInactividad`, que se reclaman con un `updateMany` condicional mirando el `count`, igual que las programadas. Script `backend/scripts/apply-cron-diario-claim-migration.cjs`, aditivo e idempotente.
+
+**La migración va ANTES del backend**: el código nuevo lee y escribe esas columnas. Al revés —columnas sin código— no rompe nada.
+
+### Cuidado con la hora del despliegue
+
+Esto **no tiene arreglo en código**: el candado nuevo coordina procesos que corren el código nuevo, pero no puede ver al cron viejo de hora UTC fija. El cron viejo ya disparó hoy a las 08/09 UTC; si el build entra mientras aún quedan ticks de la ventana nueva por delante, esos negocios reciben **el cumpleaños y el «te extrañamos» dos veces**.
+
+La franja segura **no es «después de las 15:00 UTC»**, que fue mi primera cuenta y estaba mal: Bogotá tiene ticks hasta las 16-17 UTC y México y Guatemala (UTC-6) hasta las 18. Segura de verdad: **de las 18:01 a las 07:50 UTC**, contando que el contenedor viejo sigue vivo hasta 600 s después del healthcheck. Un **rollback** no duplica: **pierde el día** si se hace entre las 08:00 UTC y el primer tick nuevo. La cadena de despliegue se niega a correr fuera de esa franja, y queda escrito encima de los dos crons.
+
+### La hora local ya no es un punto exacto
+
+Era `=== hora`: si el proceso no estaba vivo en ese minuto —un despliegue con healthcheck de hasta 600 s, un crash—, esos negocios perdían el día entero. Antes daba igual porque pasaba a las 3am; ahora cae a las 8, que es justo cuando se despliega. Ahora es una ventana de cuatro horas, así que un tick perdido lo recoge el siguiente.
+
+**Lo que sigue abierto, dicho sin adornos:** el turno se reclama *antes* de trabajar, así que si el proceso muere **a mitad del recorrido** los clientes que faltaban pierden ese día. Eso lo cierra la idempotencia por cliente del bloque siguiente, no este.
+
 ## 2026-09-16 (36) — El menú de domicilio dejaba de preguntar el estado solo si alguien había llenado un campo que casi nadie llena
 
 Tres cosas de Javier, todas del mismo territorio:

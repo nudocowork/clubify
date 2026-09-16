@@ -670,6 +670,21 @@ model Tenant {
   /// defaults locale-aware.
   country                     String                     @default("CO")
   timezone                    String                     @default("America/Bogota")
+  /// Día local ya despachado (YYYY-MM-DD) de cada cron diario de
+  /// automatizaciones. Es el CANDADO que garantiza «una vez por día del
+  /// negocio»: los crons corren cada hora dentro de una ventana (para poder
+  /// acertar la hora local de cada zona y para recuperarse si el proceso
+  /// estaba caído a la hora exacta), así que hacen falta estas marcas para
+  /// descartar las pasadas siguientes.
+  ///
+  /// Vive en la BASE y no en memoria a propósito: durante un despliegue
+  /// Railway mantiene el contenedor viejo hasta que el nuevo pasa el
+  /// healthcheck, así que hay DOS procesos con el cron armado; y el día que
+  /// `numReplicas` pase de 1 habría uno por réplica. Un candado en memoria no
+  /// los ve y el saludo saldría doble. Se reclama con un updateMany
+  /// condicional mirando el `count`, igual que `Notification.sentAt`.
+  ultimoCronCumpleanos        String?
+  ultimoCronInactividad       String?
   /// Idioma del NEGOCIO (PDF 1254): maneja el panel y el default del
   /// storefront/clientes. Cada negocio es independiente. Valores: es|en|pt|it
   /// (o variantes en-GB/en-US/pt-BR). Default 'es'.

@@ -16,6 +16,7 @@ import {
   BRAND_GROW_SELECT,
 } from '../integrations/brand-sms-creds.util';
 import { plantillaEnIdioma } from './plantillas-en-ingles';
+import { fechaLocal, horaLocal, restarDias } from './hora-local';
 
 export type AutomationEvent =
   | 'STAMP_ADDED'
@@ -683,79 +684,204 @@ export class AutomationsService {
   // ========== Crons diarios ==========
 
   /**
-   * Cron BIRTHDAY — todos los días a las 8am UTC.
-   * Encuentra customers cuyo cumpleaños es HOY (mes/día) y emite el
-   * evento. Si el tenant tiene una regla activa con trigger=BIRTHDAY,
-   * dispara el saludo (push/SMS/WA según action).
+   * A qué hora LOCAL del negocio sale cada cron diario, y cuántas horas se
+   * sigue intentando después.
+   *
+   * La VENTANA no es un lujo: comparar `=== hora` es un punto exacto y sin
+   * recuperación. Si el proceso no está vivo en el minuto 0 de esa hora —un
+   * despliegue (el healthcheck admite hasta 600 s), un crash, un OOM— esos
+   * negocios pierden el día entero. Ese agujero ya existía antes, pero caía a
+   * las 3am, cuando nadie despliega; ahora cae a las 8 de la mañana, que es
+   * justo cuando se despliega. Con la ventana, el tick de las 9 recoge lo que
+   * no salió a las 8.
+   *
+   * La ventana NO puede cruzar la medianoche con esta comparación (8+4=12 y
+   * 9+4=13 se quedan dentro del día). Si alguien mueve estas horas cerca de
+   * las 20:00, hay que pasar a aritmética modular.
    */
-  @Cron('0 8 * * *')
-  async cronBirthday() {
-    const today = new Date();
-    const month = today.getMonth() + 1;
-    const day = today.getDate();
-    // Postgres date_part para extraer mes/día sin importar el año
-    const customers = await this.prisma.$queryRaw<
-      Array<{ id: string; tenantId: string; fullName: string }>
-    >`
-      SELECT id, "tenantId", "fullName" FROM "Customer"
-      WHERE "birthday" IS NOT NULL
-        AND EXTRACT(MONTH FROM "birthday") = ${month}
-        AND EXTRACT(DAY FROM "birthday") = ${day}
-    `;
-    this.logger.log(`cronBirthday: ${customers.length} cumpleañeros hoy`);
+  private static readonly HORA_CUMPLEANOS = 8;
+  private static readonly HORA_INACTIVIDAD = 9;
+  private static readonly VENTANA_HORAS = 4;
 
-    // Cache businessName por tenant para evitar N queries
-    const brandCache = new Map<string, string>();
-    for (const c of customers) {
-      let brand = brandCache.get(c.tenantId);
-      if (brand === undefined) {
-        const t = await this.prisma.tenant.findUnique({
-          where: { id: c.tenantId },
-          select: { brandName: true },
-        });
-        brand = t?.brandName ?? 'nuestro local';
-        brandCache.set(c.tenantId, brand);
+  /**
+   * Negocios que AHORA MISMO están dentro de la ventana en SU zona horaria.
+   *
+   * Antes esto no existía: los crons estaban clavados a una hora UTC y el
+   * servidor va en UTC, así que a Bogotá le salían a las 3am y a las 4am. Ver
+   * `hora-local.ts` para el detalle y los números de producción.
+   */
+  private async negociosEnSuVentana(horaObjetivo: number, ahora: Date) {
+    const negocios = await this.prisma.tenant.findMany({
+      select: { id: true, brandName: true, timezone: true },
+    });
+    const fin = horaObjetivo + AutomationsService.VENTANA_HORAS;
+    return negocios.filter((t) => {
+      const h = horaLocal(ahora, t.timezone);
+      return h >= horaObjetivo && h < fin;
+    });
+  }
+
+  /**
+   * Reclama el día local de un negocio para un cron diario. Devuelve true solo
+   * si ES ESTA corrida la que se lo lleva.
+   *
+   * UPDATE condicional mirando el `count`, igual que con las notificaciones
+   * programadas. El candado vive en la BASE y no en memoria porque en memoria
+   * no sobrevive a lo que de verdad pasa en producción:
+   *
+   *  - En cada DESPLIEGUE hay dos procesos a la vez. Railway mantiene el
+   *    contenedor viejo hasta que el nuevo pasa el healthcheck, y durante ese
+   *    solape los dos tienen el cron armado, cada uno con su propia memoria.
+   *    Si el solape cruza el minuto 0 de la hora local de un negocio, con un
+   *    candado en memoria el saludo sale DOBLE.
+   *  - El día que `numReplicas` pase de 1 (hoy no está fijado, o sea 1 por
+   *    defecto), saldría doble todos los días.
+   *
+   * El `OR` con null es explícito a propósito: `{ not: valor }` sobre una
+   * columna nullable no siempre casa las filas a NULL, y son justo las de
+   * todos los negocios el primer día tras aplicar la migración.
+   */
+  private async reclamarDiaLocal(
+    campo: 'ultimoCronCumpleanos' | 'ultimoCronInactividad',
+    tenantId: string,
+    diaLocal: string,
+  ): Promise<boolean> {
+    // `any` acotado: Prisma no tipa un nombre de columna dinámico.
+    const where: any = {
+      id: tenantId,
+      OR: [{ [campo]: null }, { [campo]: { not: diaLocal } }],
+    };
+    const claim = await this.prisma.tenant.updateMany({
+      where,
+      data: { [campo]: diaLocal } as any,
+    });
+    return claim.count === 1;
+  }
+
+  /**
+   * AL DESPLEGAR O HACER ROLLBACK DE ESTOS DOS CRONS — LEER ANTES.
+   *
+   * El candado de arriba solo coordina procesos que corren ESTE código. No
+   * puede ver al cron viejo, que disparaba a hora UTC fija (`0 8 * * *` y
+   * `0 9 * * *`). Si en un mismo día natural corren el viejo Y el nuevo, todo
+   * sale DOS veces: el viejo a las 08/09 UTC y el nuevo a las 8/9 locales.
+   * `emit()` no tiene dedup por cliente y día, así que se duplicarían TODOS
+   * los cumpleaños y todos los «te extrañamos» de todos los negocios.
+   *
+   * La franja segura NO es «después de las 15:00 UTC» — esa cuenta salía de
+   * mirar solo el principio de la ventana. Con la ventana de 4 horas, Colombia
+   * (UTC-5) tiene ticks hasta las 16-17 UTC, y México, Guatemala y Tegucigalpa
+   * (UTC-6) hasta las 18. Desplegar a las 15:10 hace que el tick de las 16:00
+   * reclame las filas que siguen a NULL y vuelva a mandar lo que el viejo ya
+   * mandó a las 08/09 UTC.
+   *
+   * SEGURO: entre las 18:01 y las 07:50 UTC. (El margen del final es porque el
+   * contenedor viejo sigue vivo hasta 600 s después del healthcheck.)
+   *
+   * Un ROLLBACK no duplica: PIERDE el día. Volver al código viejo entre las
+   * 08:00 UTC y el primer tick nuevo deja a esos negocios sin cumpleaños y sin
+   * «te extrañamos», porque el viejo ya pasó de largo esa mañana.
+   */
+
+  /**
+   * Cron BIRTHDAY — a las 8 de la mañana DE CADA NEGOCIO.
+   * Encuentra customers cuyo cumpleaños es HOY (mes/día en la zona del
+   * negocio) y emite el evento. Si el tenant tiene una regla activa con
+   * trigger=BIRTHDAY, dispara el saludo (push/SMS/WA según action).
+   *
+   * Corre cada hora dentro de una ventana y filtra por hora local: antes era
+   * `0 8 * * *` (UTC), que en Bogotá son las 3 de la madrugada.
+   */
+  // `ahora` es parámetro para poder probar la ventana y el candado con un
+  // instante fijo. @Cron lo llama sin argumentos, así que en producción es la
+  // hora real. Un test que dependa del reloj de quien lo corre da verde o rojo
+  // según la hora del día, y eso no es un candado.
+  @Cron('0 * * * *')
+  async cronBirthday(ahora: Date = new Date()) {
+    const negocios = await this.negociosEnSuVentana(
+      AutomationsService.HORA_CUMPLEANOS,
+      ahora,
+    );
+    for (const negocio of negocios) {
+      const diaLocal = fechaLocal(ahora, negocio.timezone);
+      const mio = await this.reclamarDiaLocal(
+        'ultimoCronCumpleanos',
+        negocio.id,
+        diaLocal,
+      );
+      if (!mio) continue;
+
+      const [, mes, dia] = diaLocal.split('-').map(Number);
+      // Postgres date_part para extraer mes/día sin importar el año
+      const customers = await this.prisma.$queryRaw<
+        Array<{ id: string; fullName: string }>
+      >`
+        SELECT id, "fullName" FROM "Customer"
+        WHERE "tenantId" = ${negocio.id}
+          AND "birthday" IS NOT NULL
+          AND EXTRACT(MONTH FROM "birthday") = ${mes}
+          AND EXTRACT(DAY FROM "birthday") = ${dia}
+      `;
+      if (customers.length === 0) continue;
+      this.logger.log(
+        `cronBirthday: ${customers.length} cumpleañeros hoy en ${negocio.brandName ?? negocio.id} (${diaLocal} ${negocio.timezone})`,
+      );
+      for (const c of customers) {
+        await this.emit('BIRTHDAY', {
+          tenantId: negocio.id,
+          customerId: c.id,
+          customerName: c.fullName,
+          businessName: negocio.brandName ?? 'nuestro local',
+        }).catch(() => null);
       }
-      await this.emit('BIRTHDAY', {
-        tenantId: c.tenantId,
-        customerId: c.id,
-        customerName: c.fullName,
-        businessName: brand,
-      }).catch(() => null);
     }
   }
 
   /**
-   * Cron INACTIVITY — todos los días a las 9am UTC.
-   * Encuentra customers que no tuvieron actividad en > 30 días (lastVisitDay
-   * más viejo o null). Idempotente: solo dispara si lastVisitDay es
-   * EXACTAMENTE el día 31 (o sea, ayer cayeron al umbral) — así un cliente
-   * recibe el mensaje 1 vez, no todos los días después.
+   * Cron INACTIVITY — a las 9 de la mañana DE CADA NEGOCIO.
+   * Encuentra customers que no tuvieron actividad en > 30 días. Idempotente:
+   * solo dispara si lastVisitDay es EXACTAMENTE el día 31 (o sea, ayer cayeron
+   * al umbral) — así un cliente recibe el mensaje 1 vez, no todos los días.
+   *
+   * Corre cada hora dentro de una ventana y filtra por hora local: antes era
+   * `0 9 * * *` (UTC), que en Bogotá son las 4 de la madrugada. Es el «Te
+   * extrañamos …💌» que llegó a las 4:03am a los clientes de Konys.
    */
-  @Cron('0 9 * * *')
-  async cronInactivity() {
-    // Fecha de hace 30 días en formato YYYY-MM-DD
-    const t = new Date();
-    t.setDate(t.getDate() - 30);
-    const targetDay = t.toISOString().slice(0, 10);
+  // `ahora` es parámetro por lo mismo que en `cronBirthday`: poder fijar el
+  // instante en los tests. @Cron lo llama sin argumentos.
+  @Cron('0 * * * *')
+  async cronInactivity(ahora: Date = new Date()) {
+    const negocios = await this.negociosEnSuVentana(
+      AutomationsService.HORA_INACTIVIDAD,
+      ahora,
+    );
+    for (const negocio of negocios) {
+      const diaLocal = fechaLocal(ahora, negocio.timezone);
+      const mio = await this.reclamarDiaLocal(
+        'ultimoCronInactividad',
+        negocio.id,
+        diaLocal,
+      );
+      if (!mio) continue;
 
-    const customers = await this.prisma.customer.findMany({
-      where: { lastVisitDay: targetDay },
-      select: {
-        id: true,
-        tenantId: true,
-        fullName: true,
-        lastVisitDay: true,
-      },
-    });
-    this.logger.log(`cronInactivity: ${customers.length} customers cruzaron el umbral 30d`);
-    for (const c of customers) {
-      await this.emit('INACTIVITY', {
-        tenantId: c.tenantId,
-        customerId: c.id,
-        customerName: c.fullName,
-        daysSinceLastVisit: 30,
-      }).catch(() => null);
+      // Hace 30 días, contados sobre el calendario DEL NEGOCIO.
+      const targetDay = restarDias(diaLocal, 30);
+      const customers = await this.prisma.customer.findMany({
+        where: { tenantId: negocio.id, lastVisitDay: targetDay },
+        select: { id: true, fullName: true },
+      });
+      if (customers.length === 0) continue;
+      this.logger.log(
+        `cronInactivity: ${customers.length} customers cruzaron el umbral 30d en ${negocio.brandName ?? negocio.id} (${diaLocal} ${negocio.timezone})`,
+      );
+      for (const c of customers) {
+        await this.emit('INACTIVITY', {
+          tenantId: negocio.id,
+          customerId: c.id,
+          customerName: c.fullName,
+          daysSinceLastVisit: 30,
+        }).catch(() => null);
+      }
     }
   }
 

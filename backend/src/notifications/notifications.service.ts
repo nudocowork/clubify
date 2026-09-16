@@ -22,6 +22,23 @@ export type NotificationDto = {
   scheduledAt?: string;
 };
 
+/**
+ * Error de despacho que además dice a cuántos pases se llegó a empujar.
+ *
+ * Hace falta para decidir si una programada fallida se puede reintentar: con 0
+ * pases empujados no la recibió nadie y se puede devolver a pendiente; a
+ * medias, reintentarla se la duplicaría a quien ya la tiene.
+ */
+class DespachoFallido extends Error {
+  constructor(
+    readonly causa: Error,
+    readonly pushesHechos: number,
+  ) {
+    super(causa.message);
+    this.name = 'DespachoFallido';
+  }
+}
+
 @Injectable()
 export class NotificationsService {
   private logger = new Logger(NotificationsService.name);
@@ -239,56 +256,65 @@ export class NotificationsService {
     title: string;
     body: string;
   }) {
-    const passes = await this.pasesDestino(n);
-    const targeted = passes.reduce((acc, p) => acc + this.alcanzables(p), 0);
-
-    // `lastActivityAt` de todos de una vez: era una escritura por pase dentro
-    // del bucle, y no aportaba nada al push.
-    await this.prisma.pass
-      .updateMany({
-        where: { id: { in: passes.map((p) => p.id) } },
-        data: { lastActivityAt: new Date() },
-      })
-      .catch(() => null);
-
+    // Fuera del try: el catch necesita saber a cuántos pases se llegó a
+    // empujar para decidir si la fila se puede reintentar o no.
     let delivered = 0;
     let hechos = 0;
-    await this.enTandas(passes, async (p) => {
-      try {
-        // Pasamos el texto real → Apple (lastMessage) + Google (addMessage) lo
-        // muestran, en vez del genérico de sellos.
-        const r = await this.wallet.pushPassUpdate(p.id, {
-          message: { header: n.title, body: n.body },
-        });
-        // `sent` son los de Apple; Google va aparte y solo cuenta si de verdad
-        // salió (`ok`), no si simplemente se intentó.
-        delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
-      } catch (e) {
-        this.logger.warn(
-          `Push pass ${p.id} (${n.id}) falló: ${(e as Error).message}`,
-        );
-      }
-      hechos += 1;
-      // Progreso cada varias tandas: el panel enseña por dónde va un envío
-      // largo, en vez de un cero hasta el final.
-      if (hechos % 40 === 0) {
-        await this.prisma.notification
-          .update({
-            where: { id: n.id },
-            data: { stats: { targeted, delivered, opened: 0, enCurso: true } },
-          })
-          .catch(() => null);
-      }
-    });
+    try {
+      const passes = await this.pasesDestino(n);
+      const targeted = passes.reduce((acc, p) => acc + this.alcanzables(p), 0);
 
-    this.logger.log(
-      `Notification "${n.title}" → ${targeted} devices targeted, ${delivered} delivered`,
-    );
+      // `lastActivityAt` de todos de una vez: era una escritura por pase dentro
+      // del bucle, y no aportaba nada al push.
+      await this.prisma.pass
+        .updateMany({
+          where: { id: { in: passes.map((p) => p.id) } },
+          data: { lastActivityAt: new Date() },
+        })
+        .catch(() => null);
 
-    return this.prisma.notification.update({
-      where: { id: n.id },
-      data: { stats: { targeted, delivered, opened: 0 } },
-    });
+      await this.enTandas(passes, async (p) => {
+        try {
+          // Pasamos el texto real → Apple (lastMessage) + Google (addMessage) lo
+          // muestran, en vez del genérico de sellos.
+          const r = await this.wallet.pushPassUpdate(p.id, {
+            message: { header: n.title, body: n.body },
+          });
+          // `sent` son los de Apple; Google va aparte y solo cuenta si de verdad
+          // salió (`ok`), no si simplemente se intentó.
+          delivered += (r?.sent ?? 0) + (r?.google?.ok ? 1 : 0);
+        } catch (e) {
+          this.logger.warn(
+            `Push pass ${p.id} (${n.id}) falló: ${(e as Error).message}`,
+          );
+        }
+        hechos += 1;
+        // Progreso cada varias tandas: el panel enseña por dónde va un envío
+        // largo, en vez de un cero hasta el final.
+        if (hechos % 40 === 0) {
+          await this.prisma.notification
+            .update({
+              where: { id: n.id },
+              data: { stats: { targeted, delivered, opened: 0, enCurso: true } },
+            })
+            .catch(() => null);
+        }
+      });
+
+      this.logger.log(
+        `Notification "${n.title}" → ${targeted} devices targeted, ${delivered} delivered`,
+      );
+
+      return await this.prisma.notification.update({
+        where: { id: n.id },
+        data: { stats: { targeted, delivered, opened: 0 } },
+      });
+    } catch (e) {
+      // Se envuelve para que quien llamó sepa si ALGUIEN llegó a recibirlo: con
+      // 0 pases empujados la fila se puede devolver a pendiente y reintentar;
+      // a medias, reintentarla se la duplicaría a quien ya la tiene.
+      throw new DespachoFallido(e as Error, hechos);
+    }
   }
 
   /**
@@ -348,10 +374,88 @@ export class NotificationsService {
 
   /**
    * Cron cada 5 min: busca notifications con scheduledAt vencido y sin
-   * sentAt, las despacha. Idempotente — actualiza sentAt para no re-enviar.
+   * sentAt, y las despacha UNA sola vez.
+   *
+   * EL BUG (reportado por varios negocios): «se deja programado el envío a una
+   * hora y se repite 2 o 3 veces en lapso de minutos».
+   *
+   * La causa era leer-decidir-escribir sin atomicidad. Esto de abajo *parece*
+   * idempotente y no lo es:
+   *
+   *     const due = await findMany({ sentAt: null, ... });   // (1) lee
+   *     for (const n of due) {
+   *       await update({ where: { id: n.id }, data: { sentAt } });  // (2) escribe
+   *       await this.despachar(n);
+   *     }
+   *
+   * `update` por id NO comprueba que la fila siguiera pendiente: pisa `sentAt`
+   * y no dice si alguien se le adelantó. Y adelantarse es fácil sin necesidad
+   * de dos servidores: el cron corre cada 5 minutos, se lleva hasta 50 filas y
+   * las despacha **en serie**, esperando el push de cada pase. Un negocio de
+   * 400 pases tarda minutos, así que el tick de las 10:05 arranca con el de
+   * las 10:00 todavía a mitad de la lista; las filas que el primero aún no ha
+   * tocado siguen con `sentAt: null`, el segundo tick las ve, las marca y las
+   * envía, y cuando el primero llega a ellas las envía **otra vez**. De ahí el
+   * «2 o 3 veces en pocos minutos», con exactamente 5 minutos entre copias.
+   *
+   * El arreglo es el de la casa: UPDATE condicional y mirar el `count`. Marcar
+   * sentAt SOLO si seguía en null; si tocó 0 filas es que otra corrida ya se la
+   * llevó, y entonces no se envía. Ante la duda, no enviar: un push repetido le
+   * llega a clientes reales.
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async dispatchScheduled() {
+    // Cerrojo en memoria: además de la carrera por fila, evita que dos ticks
+    // del mismo proceso se pisen recorriendo la misma lista. No sustituye al
+    // claim atómico de abajo (eso sería volver al check-then-act), lo acompaña.
+    //
+    // CADUCA a propósito. Guardaba un booleano y `pushPassUpdate` no tiene
+    // timeout: si un push a Apple o Google se queda colgado, `enTandas` no
+    // resuelve nunca, el `finally` no llega y el cerrojo se queda cerrado para
+    // siempre. Eso apagaba TODAS las programadas de TODOS los negocios hasta
+    // el siguiente reinicio, con un warn cada 5 minutos que no mira nadie.
+    // Antes de este cerrojo, un tick colgado perdía sus filas pero el
+    // siguiente seguía trabajando; hay que conservar esa propiedad. Pasados 15
+    // minutos se da por muerto y se sigue: el claim atómico por fila es quien
+    // impide el doble envío, el cerrojo solo evita trabajo repetido.
+    const ahora = Date.now();
+    const arrancado = this.despachoProgramadasArrancadoEn;
+    if (
+      arrancado !== null &&
+      ahora - arrancado < NotificationsService.CERROJO_CADUCA_MS
+    ) {
+      this.logger.warn(
+        'Cron de programadas: el tick anterior sigue en curso, se salta este',
+      );
+      return;
+    }
+    if (arrancado !== null) {
+      this.logger.error(
+        `Cron de programadas: el tick anterior lleva ${Math.round(
+          (ahora - arrancado) / 60000,
+        )} min sin terminar (¿push colgado?). Se ignora el cerrojo y se sigue.`,
+      );
+    }
+    this.despachoProgramadasArrancadoEn = ahora;
+    try {
+      await this.recorrerProgramadasVencidas();
+    } finally {
+      // Solo lo suelta quien lo cogió: si un tick zombi termina tarde, no debe
+      // abrirle el cerrojo al que está trabajando ahora.
+      if (this.despachoProgramadasArrancadoEn === ahora) {
+        this.despachoProgramadasArrancadoEn = null;
+      }
+    }
+  }
+
+  /** Cuándo arrancó el tick en curso, o null. Ver `dispatchScheduled`. */
+  private despachoProgramadasArrancadoEn: number | null = null;
+  /** Pasado esto, un tick se da por muerto y no bloquea a los siguientes. */
+  private static readonly CERROJO_CADUCA_MS = 15 * 60 * 1000;
+  /** Cuántas veces se reintenta una programada que falló sin enviar a nadie. */
+  private static readonly MAX_INTENTOS = 3;
+
+  private async recorrerProgramadasVencidas() {
     const now = new Date();
     const due = await this.prisma.notification.findMany({
       where: {
@@ -366,17 +470,90 @@ export class NotificationsService {
     this.logger.log(`Cron: ${due.length} notificaciones programadas vencidas`);
     for (const n of due) {
       try {
-        // Marcar sentAt PRIMERO para evitar doble despacho si el cron tarda
-        await this.prisma.notification.update({
-          where: { id: n.id },
+        // CLAIM ATÓMICO. `sentAt: null` en el WHERE es lo que hace que esto sea
+        // una carrera con un solo ganador: Postgres resuelve el UPDATE fila a
+        // fila, así que de dos corridas simultáneas una obtiene count=1 y la
+        // otra count=0. Solo la que gana envía.
+        const claim = await this.prisma.notification.updateMany({
+          where: { id: n.id, sentAt: null },
           data: { sentAt: now },
         });
+        if (claim.count !== 1) {
+          // Otra corrida del cron ya se llevó este envío. No es un error.
+          this.logger.log(
+            `Programada ${n.id} ya la despachó otra corrida — no se reenvía`,
+          );
+          continue;
+        }
         await this.despachar(n);
       } catch (e) {
-        this.logger.warn(
-          `Despacho programado ${n.id} falló: ${(e as Error).message}`,
-        );
+        await this.recuperarProgramadaFallida(n, e as Error);
       }
     }
+  }
+
+  /**
+   * Una programada que se marcó como enviada y después falló.
+   *
+   * `sentAt` se pone ANTES de despachar —es el claim que evita el doble
+   * envío—, así que si `despachar` revienta la fila se queda marcada y nadie
+   * la reintenta: el negocio la ve como «enviada» y al cliente no le llegó
+   * nada. En 31 días de datos no ha pasado ninguna vez, pero el modo existe.
+   *
+   * - Si NO se empujó ningún pase, no la recibió nadie: vuelve a pendiente y
+   *   el próximo tick la reintenta. Con tope, para que una fila rota no se
+   *   reintente cada 5 minutos para siempre.
+   * - Si se envió A MEDIAS no se reintenta, porque se la duplicaría a quien ya
+   *   la recibió. Se deja el error en `stats` para que se vea en el panel.
+   */
+  private async recuperarProgramadaFallida(
+    n: { id: string; stats?: unknown },
+    e: Error,
+  ) {
+    const hechos = e instanceof DespachoFallido ? e.pushesHechos : 0;
+    const previos = Number((n.stats as { intentos?: number })?.intentos ?? 0);
+    const intento = previos + 1;
+
+    if (hechos > 0) {
+      this.logger.error(
+        `Programada ${n.id} se envió a medias (${hechos} pases) y falló: ${e.message}. No se reintenta.`,
+      );
+      await this.prisma.notification
+        .update({
+          where: { id: n.id },
+          data: {
+            stats: { incompleto: true, pushesHechos: hechos, error: e.message },
+          },
+        })
+        .catch(() => null);
+      return;
+    }
+
+    if (intento >= NotificationsService.MAX_INTENTOS) {
+      this.logger.error(
+        `Programada ${n.id} falló ${intento} veces sin enviar a nadie: ${e.message}. Se abandona.`,
+      );
+      await this.prisma.notification
+        .update({
+          where: { id: n.id },
+          data: { stats: { error: e.message, intentos: intento, abandonada: true } },
+        })
+        .catch(() => null);
+      return;
+    }
+
+    // Condicional: si otra corrida ya la despachó de verdad, no la resucitamos.
+    const vuelta = await this.prisma.notification
+      .updateMany({
+        where: { id: n.id, sentAt: { not: null } },
+        data: { sentAt: null, stats: { error: e.message, intentos: intento } },
+      })
+      .catch(() => ({ count: 0 }));
+    this.logger.warn(
+      `Programada ${n.id} falló sin enviar a nadie (${e.message}) — ` +
+        (vuelta.count === 1
+          ? `vuelve a pendiente, intento ${intento}`
+          : 'no se pudo devolver a pendiente'),
+    );
   }
 }
