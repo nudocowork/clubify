@@ -31,7 +31,12 @@ export function ConfirmDeleteModal({
 }) {
   const [busy, setBusy] = useState(false);
   const [confirmText, setConfirmText] = useState('');
-  const matches = !requireText || confirmText === requireText;
+  // NFC en los dos lados: un nombre con acentos descompuestos —lo que pega
+  // macOS desde algunos sitios— es otra cadena aunque en pantalla se vea
+  // idéntica, y sin esto el botón no se habilitaba nunca. El backend compara
+  // igual, así que lo que la interfaz deja pulsar es lo que el backend acepta.
+  const matches =
+    !requireText || confirmText.normalize('NFC') === requireText.normalize('NFC');
 
   async function handleConfirm() {
     if (busy || !matches) return;

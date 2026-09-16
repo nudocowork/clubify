@@ -9,6 +9,7 @@ import { Icon } from '@/components/Icon';
 import { ImageUploader } from '@/components/ImageUploader';
 import { SortableList, DragHandle } from '@/components/Sortable';
 import { toast } from '@/components/Toast';
+import { ConfirmDeleteModal } from '@/components/ConfirmDeleteModal';
 import { ResizableHeader } from '@/components/ResizableHeader';
 import { useColumnResize } from '@/lib/useColumnResize';
 import { SectionCoverEditor } from '@/components/menu/SectionCoverEditor';
@@ -142,6 +143,29 @@ type MenusResp = {
   cupoLibre?: number | null;
   menus: MenuResumen[];
 };
+/**
+ * Lo que se pierde al borrar una carta, contado por el backend justo antes de
+ * enseñar el aviso. Los números NO se sacan de lo que la pantalla tenga
+ * cargado: entre que se abrió el panel y se pulsa «Eliminar» pueden haber
+ * cambiado, y el aviso tiene que decir lo que de verdad se va a borrar.
+ */
+type ResumenDeBorrado = {
+  id: string;
+  nombre: string;
+  /** Carta sin sede: tiene enlace propio (`?oficina=`) y QR repartidos. */
+  esOficina: boolean;
+  productos: number;
+  categorias: number;
+  pedidos: number;
+  /**
+   * Productos de OTRAS cartas que siguen a los de esta. No se borran, pero se
+   * quedan sin origen y dejan de recibir precios. Se lee en el aviso.
+   */
+  copiasQueLaSiguen: number;
+  sede: string | null;
+  /** Las líneas del aviso, ya redactadas por quien contó. */
+  avisos: string[];
+};
 
 export default function MenuEditor() {
   // Carta que se esta editando. null = menu principal.
@@ -159,6 +183,12 @@ export default function MenuEditor() {
     { id: string; name: string; address?: string | null; isActive?: boolean }[]
   >([]);
   const [creandoCarta, setCreandoCarta] = useState(false);
+  // Renombrar y eliminar la carta que está seleccionada. `borrando` guarda el
+  // resumen que devolvió el backend —cuántos productos se pierden, si es una
+  // oficina, cuántos pedidos salieron de su enlace— para que el aviso enseñe
+  // números contados y no los de la pantalla.
+  const [renombrando, setRenombrando] = useState<MenuResumen | null>(null);
+  const [borrando, setBorrando] = useState<ResumenDeBorrado | null>(null);
   const t = useTranslations('app_menu');
   const [cats, setCats] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -786,6 +816,53 @@ export default function MenuEditor() {
               )}
             </div>
           )}
+
+          {/* Renombrar y eliminar van AQUÍ, colgando de la carta que está
+              seleccionada, y no arriba junto a «+ Nueva carta»: un botón de
+              borrar suelto al lado del de crear se pulsa por error, y lo que
+              se lleva son los productos de esa carta.
+
+              El menú principal no los ve nunca — no es una carta, es el
+              catálogo de siempre del negocio— y el backend también los niega
+              para él: el candado no es esconder el botón. */}
+          {cartaActual && !cartaActual.esPrincipal && (
+            <div className="mt-3 pt-3 border-t border-line2 flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                className="btn-ghost text-xs"
+                onClick={() => setRenombrando(cartaActual)}
+              >
+                Renombrar
+              </button>
+              <button
+                type="button"
+                className="btn-ghost text-xs text-bad"
+                onClick={async () => {
+                  // Se piden los números ANTES de abrir el aviso: si la carta
+                  // ya no está, o el negocio perdió el permiso, se entera aquí
+                  // y no después de haber escrito el nombre para confirmar.
+                  try {
+                    const r = await api<ResumenDeBorrado>(
+                      `/catalog/menus/${cartaActual.id}/borrado`,
+                    );
+                    setBorrando(r);
+                  } catch (err: any) {
+                    toast(
+                      err?.message || 'No se pudo consultar esta carta',
+                      'error',
+                    );
+                  }
+                }}
+              >
+                Eliminar carta
+              </button>
+              <span className="text-[11px] text-mute">
+                Al eliminarla se pierden sus {cartaActual.productos} producto
+                {cartaActual.productos === 1 ? '' : 's'}. El menú principal no
+                se toca.
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -798,6 +875,52 @@ export default function MenuEditor() {
             await loadMenus();
             setMenuActivo(id);
           }}
+        />
+      )}
+
+      {renombrando && renombrando.id && (
+        <RenombrarCartaModal
+          carta={renombrando}
+          onClose={() => setRenombrando(null)}
+          onGuardada={async () => {
+            setRenombrando(null);
+            await loadMenus();
+          }}
+        />
+      )}
+
+      {/* El aviso de borrado. Pide escribir el nombre exacto de la carta, que
+          es lo mismo que exige el backend: sin eso, un clic de más se lleva el
+          catálogo de una sede y no hay deshacer. */}
+      {borrando && (
+        <ConfirmDeleteModal
+          title={`Eliminar «${borrando.nombre}»`}
+          confirmLabel="Eliminar carta"
+          requireText={borrando.nombre}
+          description={
+            <ul className="list-disc pl-4 space-y-1.5">
+              {borrando.avisos.map((aviso) => (
+                <li key={aviso}>{aviso}</li>
+              ))}
+            </ul>
+          }
+          onConfirm={async () => {
+            try {
+              await api(`/catalog/menus/${borrando.id}`, {
+                method: 'DELETE',
+                body: JSON.stringify({ confirmacion: borrando.nombre }),
+              });
+              toast(`Carta «${borrando.nombre}» eliminada`, 'success');
+              setBorrando(null);
+              // Vuelta al menú principal: la carta que se estaba editando ya no
+              // existe, y dejarla seleccionada pediría un catálogo muerto.
+              setMenuActivo(null);
+              await loadMenus();
+            } catch (err: any) {
+              toast(err?.message || 'No se pudo eliminar la carta', 'error');
+            }
+          }}
+          onClose={() => setBorrando(null)}
         />
       )}
 
@@ -3698,6 +3821,116 @@ function NuevaCartaModal({
             disabled={guardando}
           >
             {guardando ? 'Creando…' : 'Crear carta'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Renombrar una carta.
+ *
+ * El nombre no se queda en el panel: si la carta es una oficina, es lo que el
+ * cliente ve como destino al pedir y lo que llega al WhatsApp del negocio
+ * («▸ Oficina: Sala de Juntas»). Por eso se avisa de qué cambia.
+ *
+ * Lo que NO cambia son los pedidos ya hechos: cada uno guardó una copia del
+ * nombre con el que se pidió, así que quien audite un pedido de ayer sigue
+ * viendo lo que vio el cliente. El enlace y el QR tampoco cambian — van por el
+ * id de la carta, no por su nombre.
+ */
+function RenombrarCartaModal({
+  carta,
+  onClose,
+  onGuardada,
+}: {
+  carta: MenuResumen;
+  onClose: () => void;
+  onGuardada: () => void | Promise<void>;
+}) {
+  const [nombre, setNombre] = useState(carta.name);
+  const [guardando, setGuardando] = useState(false);
+  const esOficina = !carta.locationId;
+
+  async function guardar() {
+    const limpio = nombre.trim();
+    if (limpio.length < 2) {
+      toast('Ponle un nombre a la carta.', 'error');
+      return;
+    }
+    if (limpio === carta.name) {
+      onClose();
+      return;
+    }
+    setGuardando(true);
+    try {
+      await api(`/catalog/menus/${carta.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: limpio }),
+      });
+      toast('Carta renombrada', 'success');
+      await onGuardada();
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo renombrar la carta', 'error');
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.5)' }}
+      onClick={() => !guardando && onClose()}
+    >
+      <div
+        className="bg-bg rounded-2xl p-4 w-full max-w-sm shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="font-semibold text-sm mb-3">Renombrar carta</div>
+
+        <label className="block text-xs text-mute mb-1">Nombre</label>
+        <input
+          className="input w-full mb-2"
+          value={nombre}
+          onChange={(e) => setNombre(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !guardando) void guardar();
+          }}
+          autoFocus
+        />
+
+        <div className="text-[11px] text-mute mb-3 leading-snug">
+          {esOficina ? (
+            <>
+              Esta carta es una <b>oficina</b>: su nombre es lo que el cliente
+              ve como destino al pedir y lo que le llega al negocio con el
+              pedido. Los pedidos que ya se hicieron <b>no cambian</b>, y su
+              enlace y su QR siguen funcionando igual.
+            </>
+          ) : (
+            <>
+              Es el nombre con el que verás esta carta en el panel. Su enlace y
+              su QR no cambian.
+            </>
+          )}
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            className="btn-ghost flex-1 text-sm justify-center"
+            onClick={onClose}
+            disabled={guardando}
+          >
+            Cancelar
+          </button>
+          <button
+            className="btn flex-1 text-sm justify-center"
+            onClick={guardar}
+            disabled={guardando}
+          >
+            {guardando ? 'Guardando…' : 'Guardar'}
           </button>
         </div>
       </div>

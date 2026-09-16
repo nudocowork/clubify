@@ -8,6 +8,55 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-16 (37) — Renombrar y eliminar una carta, con un aviso que dice de verdad qué se lleva por delante
+
+Javier: «Cuando creo un menú, no me da la opción de eliminarlo o de modificar su nombre.» La tarjeta CARTAS del Panel → Menú dejaba crear cartas y asignarles sede, y nada más.
+
+### Lo que se comprobó ANTES de escribir el botón
+
+Un borrado que se lleva un catálogo entero no se escribe a ciegas. Cuatro preguntas, con la respuesta mirada en el código y en producción:
+
+1. **Qué se borra.** Los productos y las categorías de esa carta (`Category.menu` y `Product.menu` son `onDelete: Cascade`) y, colgando de cada producto, variantes, extras y precios por sede. **Los pedidos no se tocan, y no es una opinión**: `Order.items` es una columna **Json** —no hay `OrderItem` ni clave foránea a `Product`— y `Order` no tiene ninguna columna hacia `Menu`; la oficina se guardó **copiada** dentro de `Order.deliveryAddress`. El histórico sobrevive entero. En producción hay **10 cartas** en 4 negocios: NudoCowork con «Nudo Estudio» y «Sala de Juntas (1)» a 77 productos cada una, Serendipity con «Corporativos» (98 productos y **0 categorías**) y Fusion sushi con una de 188. Hay **3 pedidos** hechos desde enlaces de oficina (Nudo Estudio, Sala de Juntas y Marketing) y **0 pedidos huérfanos**. Ninguno de los 389 carteles QR guarda el id de una carta, así que no hay nada que reparar en la base.
+
+**Y una que solo se ve mirando los datos de verdad:** «Sala de Juntas (1)» **sigue a «Nudo Estudio»**, no al menú principal, porque se duplicó desde ella. Como `Product.sourceProductId` es `SET NULL`, borrar «Nudo Estudio» dejaría esos 77 productos independientes con el interruptor de sincronizar puesto: dejarían de recibir precios **en silencio**, y el panel ni siquiera enseñaría el interruptor que lo explica. Por eso el aviso ahora también cuenta las copias que siguen a la carta que se va.
+2. **Los enlaces y los QR ya repartidos.** El `/d/<slug>?oficina=<id>` de una carta borrada cae al **menú principal**, que es la regla de la casa para un QR con una sede que ya no existe; el checkout pide dirección como en cualquier pedido, y un `oficinaId` viejo mandado desde una pestaña abierta responde 400 con un texto claro en vez de aceptar un pedido sin destino. Ningún `QrPoster` guarda el id, así que no hay nada que reparar en la base. **Dos matices honestos**: el cartel impreso deja de ser «el de esa oficina» aunque siga funcionando, y el borde cachea 180 s, así que hasta tres minutos después puede servirse todavía la carta borrada.
+3. **El cupo** se libera solo: el tope se cuenta en vivo, no hay contador guardado que pueda dejar al negocio sin poder recrear lo que acaba de borrar.
+4. **Renombrar no reescribe pedidos viejos**: el nombre se copia dentro del pedido al crearlo, así que quien audita ve el mismo nombre que vio el cliente. El enlace y el QR tampoco cambian, porque van por el id.
+
+### Qué cambia
+
+- **Renombrar** y **eliminar** cuelgan de la carta seleccionada, separados del resto, nunca sueltos al lado de «+ Nueva carta».
+- Al eliminar, los números se le piden al backend **en ese momento** —no se usan los de la pantalla, que pueden estar viejos— y el aviso dice lo que aplique: «se eliminarán 77 productos y 9 categorías», que es una oficina y su enlace dejará de abrirla, que el pedido ya hecho se conserva, qué sede pasará a servir el menú principal, y que el menú principal no se toca. Hay que **escribir el nombre exacto** para confirmar.
+- **El menú principal no se puede renombrar ni borrar**: no tiene botones, y el backend rechaza su id en las dos rutas. El candado no es esconder la interfaz.
+
+### Dos bugs que aparecieron de paso
+
+`update` guardaba `dto.name.trim()` sin validar, así que un nombre vacío dejaba la carta sin nombre y mandaba «▸ Oficina: » en blanco al WhatsApp del negocio. Y el aviso decía «y 0 categorías» justo en el caso real de Serendipity.
+
+### Revisión de Fable
+
+Nada que obligara a parar. Comprobado de verdad: el candado del menú principal aguanta en las **tres** rutas y **antes** de tocar la base (`'null'`, `'NULL'`, cadena vacía, espacios, `undefined`), una carta de otro negocio da 404, la confirmación la exige el backend y no solo el modal, las claves foráneas de producción coinciden con el esquema, el borrado es **un solo DELETE** con sus cascadas —atómico, no deja una carta a medias—, la sede que usaba la carta pasa a servir el menú principal conservando sus precios y agotados, y el QR de sede sobrevive porque lleva el id de la **sede**, no el de la carta.
+
+Lo que sí salió, y está arreglado:
+
+1. **El aviso callaba lo único que de verdad rompe un borrado.** `Product.sourceProductId` es `SET NULL`: de las 11 relaciones de copia que hay en producción, diez siguen al menú principal y **una no** —«Sala de Juntas (1)» sigue a «Nudo Estudio», con 77 productos enganchados—. Borrar «Nudo Estudio» es hoy **el único borrado del sistema que congela otra carta**: esos 77 quedarían independientes con el interruptor de sincronizar puesto, sin recibir precios y sin que el panel enseñe siquiera el interruptor. Ahora se cuentan y se avisan. Se cuentan **solo los enganchados**, no todas las copias: los que ya estaban sueltos no pierden nada, y meterlos en el número haría falsa la frase «dejarán de actualizarse solos».
+2. **El aviso prometía de más en los primeros minutos**: el menú público se cachea 180 s, así que quien ya tenga abierto el enlace de la oficina no ve el menú principal todavía, sino el aviso de que esa oficina ya no recibe pedidos. Ahora lo dice.
+3. **Una fuga entre negocios, preexistente pero en la función que se tocaba**: `update` no comprobaba que la sede fuera de ese negocio (`create` sí), así que con un id adivinado la lista acababa enseñando el nombre de una sede ajena.
+4. **Acentos descompuestos**: un nombre con la «ñ» en NFD no se podía confirmar desde la pantalla. Se normaliza **en los dos lados** —hacerlo en uno solo deja el botón habilitado para que el backend lo rechace, o al revés—, así que lo que la interfaz deja pulsar es exactamente lo que el backend acepta. Ojo: ese modal de confirmación es **compartido** con afiliados y equipos.
+
+Dato para el que venga: NudoCowork pasó de 2 cartas a **6** en el mismo día (Marketing, Nudo Finance, Sala de consultoría, Sala de Juntas (2)). Esto se va a usar.
+
+### Sin migración
+
+Ningún cambio de esquema.
+
+### Lo que queda suelto
+
+- Las filas de `MenuTranslation` (la caché de traducción del menú) guardan `entityId` como texto libre, sin clave foránea, así que al borrar quedan huérfanas. Ya pasa hoy al borrar un producto suelto: es caché muerta e invisible, y arreglarlo es otro bloque.
+- **Nada ata el número del aviso con el del borrado**: se cuenta al abrir el modal, así que si alguien añade productos entre la confirmación y el DELETE, esos se van sin haberse nombrado. Se cierra mandando el número esperado y respondiendo 409 si no cuadra. Se deja fuera a propósito para no estirar el bloque.
+- **`products.service.ts` crea con `menuId` sin comprobar que la carta exista o sea del negocio**: guardar un producto justo mientras otro borra esa carta da un 500 en vez de un mensaje. Preexistente, y de otro archivo.
+- Durante los **180 s** de caché del borde, quien ya tenga abierto el enlace de una oficina recién borrada no ve el menú principal todavía: al pedir le sale el aviso de que esa oficina ya no recibe pedidos. El texto lo dice, pero conviene saberlo al probar.
+
 ## 2026-09-16 (35) — Las push automáticas salían a las 3 y 4 de la madrugada: la hora era la del servidor, no la del negocio
 
 Javier: «Cuando se deja programado las notificaciones push en horas concretas, veo que hasta 2 o 3 veces se repite el envío en lapso de minutos. O incluso a veces en horas que no debería se ha hecho el envío. Hoy llegó una push Android a las 4am, lo cual no tiene sentido, ya que fue enviada en la noche por Konnys. Hay varios clientes así.»

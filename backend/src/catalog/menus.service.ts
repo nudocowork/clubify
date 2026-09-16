@@ -6,6 +6,12 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  avisosDeBorrado,
+  confirmacionCoincide,
+  esElMenuPrincipal,
+  revisarNombreDeCarta,
+} from './editar-carta';
 
 /**
  * Cartas del negocio. Casi todos tienen una sola; los multi-sede pueden tener
@@ -161,10 +167,9 @@ export class MenusService {
     const tenantId = this.tid(user, override);
     await this.assertHabilitado(tenantId, true);
 
-    const name = (dto.name ?? '').trim();
-    if (name.length < 2) {
-      throw new BadRequestException('Ponle un nombre a la carta.');
-    }
+    const revisado = revisarNombreDeCarta(dto.name);
+    if (!revisado.ok) throw new BadRequestException(revisado.error);
+    const name = revisado.nombre;
 
     if (dto.locationId) {
       const sede = await this.prisma.location.findFirst({
@@ -325,13 +330,39 @@ export class MenusService {
     override?: string,
   ) {
     const tenantId = this.tid(user, override);
+    // El menú principal no es una carta: es todo lo que tiene `menuId = null`.
+    // Sin este candado, que `PATCH /catalog/menus/null` no renombrara el
+    // catálogo de siempre dependía de que ninguna fila tuviera ese id.
+    if (esElMenuPrincipal(id)) {
+      throw new BadRequestException(
+        'El menú principal no se puede renombrar: es el catálogo de siempre del negocio.',
+      );
+    }
     const menu = await this.prisma.menu.findFirst({
       where: { id, tenantId },
       select: { id: true },
     });
     if (!menu) throw new NotFoundException('Carta no encontrada');
 
+    // Antes se guardaba `dto.name.trim()` tal cual: un nombre vacío dejaba la
+    // carta sin nombre en el selector y, si era una oficina, mandaba un
+    // «▸ Oficina: » en blanco al WhatsApp del negocio.
+    let nombre: string | undefined;
+    if (dto.name !== undefined) {
+      const revisado = revisarNombreDeCarta(dto.name);
+      if (!revisado.ok) throw new BadRequestException(revisado.error);
+      nombre = revisado.nombre;
+    }
+
     if (dto.locationId) {
+      // La sede tiene que ser DE ESTE negocio. `create` ya lo comprobaba y
+      // `update` no: con un id ajeno la carta quedaba apuntando a la sede de
+      // otro negocio, y `list` llegaba a enseñar su nombre dentro de este.
+      const sede = await this.prisma.location.findFirst({
+        where: { id: dto.locationId, tenantId },
+        select: { id: true },
+      });
+      if (!sede) throw new BadRequestException('Esa sede no es de este negocio.');
       const ocupada = await this.prisma.menu.findFirst({
         where: { tenantId, locationId: dto.locationId, id: { not: id } },
         select: { name: true },
@@ -343,10 +374,14 @@ export class MenusService {
       }
     }
 
+    // Renombrar cambia lo que se ve de aquí en adelante y nada más: el nombre
+    // de la oficina viajó COPIADO dentro de `Order.deliveryAddress` cuando se
+    // hizo cada pedido, así que un pedido de ayer conserva el nombre con el
+    // que se pidió y quien lo audita ve lo mismo que vio el cliente.
     return this.prisma.menu.update({
       where: { id },
       data: {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(nombre !== undefined ? { name: nombre } : {}),
         ...(dto.locationId !== undefined ? { locationId: dto.locationId } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
@@ -354,7 +389,88 @@ export class MenusService {
   }
 
   /**
-   * Borra una carta Y su catálogo (cascada por FK).
+   * Qué se lleva por delante borrar esta carta. Solo cuenta: no toca nada.
+   *
+   * El panel lo pide justo antes de enseñar el aviso para que el número que
+   * lee el negocio sea el que se va a borrar, y no el que tuviera la pantalla
+   * cargado desde hace media hora.
+   */
+  async resumenDeBorrado(user: AuthUser, id: string, override?: string) {
+    const tenantId = this.tid(user, override);
+    if (esElMenuPrincipal(id)) {
+      throw new BadRequestException(
+        'El menú principal no se puede eliminar: ahí vive el catálogo del negocio.',
+      );
+    }
+    const menu = await this.prisma.menu.findFirst({
+      where: { id, tenantId },
+      select: {
+        id: true,
+        name: true,
+        locationId: true,
+        location: { select: { name: true } },
+      },
+    });
+    if (!menu) throw new NotFoundException('Carta no encontrada');
+
+    // Sin sede = oficina: tiene enlace propio (`/d/<slug>?oficina=<id>`) y QR
+    // repartidos, y eso cambia lo que hay que avisar antes de borrar.
+    const esOficina = !menu.locationId;
+    const [productos, categorias, pedidos, copiasQueLaSiguen] =
+      await Promise.all([
+      this.prisma.product.count({ where: { tenantId, menuId: id } }),
+      this.prisma.category.count({ where: { tenantId, menuId: id } }),
+      // Pedidos que salieron del enlace de esta oficina. El id quedó COPIADO
+      // dentro de `deliveryAddress` (`{ oficina: { id, nombre } }`), que es el
+      // destino del pedido; no hay columna ni clave foránea de `Order` hacia
+      // `Menu`, y por eso borrar la carta no toca el histórico.
+      esOficina
+        ? this.prisma.order.count({
+            where: {
+              tenantId,
+              deliveryAddress: { path: ['oficina', 'id'], equals: id },
+            },
+          })
+        : Promise.resolve(0),
+      // Productos de OTRAS cartas que siguen a los de esta. No se borran
+      // (`sourceProductId` es `SetNull`), se quedan sin origen: siguen con
+      // `syncWithSource = true` y ya no reciben nada, y el panel deja de
+      // pintarles el interruptor que lo explicaba porque ese interruptor solo
+      // existe cuando hay origen. Se cuentan solo los ENGANCHADOS: los que ya
+      // estaban sueltos no pierden nada.
+      //
+      // No hace falta excluir esta carta: duplicar siempre escribe en una
+      // carta recién creada, así que ningún producto sigue a otro del mismo
+      // menú.
+      this.prisma.product.count({
+        where: { tenantId, syncWithSource: true, sourceProduct: { menuId: id } },
+      }),
+    ]);
+
+    const resumen = {
+      nombre: menu.name,
+      esOficina,
+      productos,
+      categorias,
+      pedidos,
+      copiasQueLaSiguen,
+      sede: menu.location?.name ?? null,
+    };
+    return { id: menu.id, ...resumen, avisos: avisosDeBorrado(resumen) };
+  }
+
+  /**
+   * Borra una carta Y su catálogo.
+   *
+   * Se lo lleva por cascada de claves foráneas: `Category.menu` y
+   * `Product.menu` son `onDelete: Cascade`, y de cada producto cuelgan sus
+   * variantes, sus extras y sus precios por sede. En las cartas que hay hoy en
+   * producción eso son entre 77 y 188 productos.
+   *
+   * Lo que NO se lleva: los pedidos. `Order.items` es un JSON con el nombre y
+   * el precio de lo que se pidió —no hay clave foránea a `Product`— y la
+   * oficina se guardó copiada dentro de `deliveryAddress`. Un pedido de ayer
+   * se sigue leyendo igual después de borrar la carta de la que salió.
    *
    * Pide el nombre exacto como confirmación: son productos reales con sus
    * fotos y precios, y no hay deshacer.
@@ -366,22 +482,35 @@ export class MenusService {
     override?: string,
   ) {
     const tenantId = this.tid(user, override);
+    if (esElMenuPrincipal(id)) {
+      throw new BadRequestException(
+        'El menú principal no se puede eliminar: ahí vive el catálogo del negocio.',
+      );
+    }
     const menu = await this.prisma.menu.findFirst({
       where: { id, tenantId },
       select: { id: true, name: true },
     });
     if (!menu) throw new NotFoundException('Carta no encontrada');
 
-    if ((confirmacion ?? '').trim() !== menu.name) {
+    if (!confirmacionCoincide(confirmacion, menu.name)) {
       throw new BadRequestException(
         `Para borrarla, escribe su nombre exacto: "${menu.name}".`,
       );
     }
 
-    const productos = await this.prisma.product.count({
-      where: { tenantId, menuId: id },
-    });
+    const [productos, categorias] = await Promise.all([
+      this.prisma.product.count({ where: { tenantId, menuId: id } }),
+      this.prisma.category.count({ where: { tenantId, menuId: id } }),
+    ]);
     await this.prisma.menu.delete({ where: { id } });
-    return { ok: true, productosBorrados: productos };
+    // El hueco de `maxExtraMenus` se libera solo: el cupo se cuenta con un
+    // `menu.count` cada vez, no con un contador guardado que pudiera quedarse
+    // alto y dejar al negocio sin poder crear la carta que acaba de borrar.
+    return {
+      ok: true,
+      productosBorrados: productos,
+      categoriasBorradas: categorias,
+    };
   }
 }

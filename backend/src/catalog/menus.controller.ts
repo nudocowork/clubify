@@ -82,6 +82,22 @@ export class MenusController {
     return this.svc.create(user, body, tenantId);
   }
 
+  /**
+   * Qué se lleva por delante borrar esta carta, contado de verdad.
+   *
+   * Existe para que el aviso del panel no pueda enseñar un número distinto del
+   * que se va a borrar: los cuenta quien borra, no el navegador con lo que
+   * tenía cargado de antes.
+   */
+  @Get(':id/borrado')
+  resumenDeBorrado(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Query('tenantId') tenantId?: string,
+  ) {
+    return this.svc.resumenDeBorrado(user, id, tenantId);
+  }
+
   @Patch(':id')
   update(
     @CurrentUser() user: AuthUser,
