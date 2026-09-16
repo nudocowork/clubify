@@ -17,6 +17,18 @@ import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
 import { recalcBatchTotal } from './payout-batch.util';
 import { bogotaYmd, daysBetweenYmd } from './cutoff-calendar';
+import {
+  DIAS_DE_HOLD,
+  dentroDelRango,
+  fechaDeCompraCalculada,
+  fechaQuePintaElPanel,
+  necesitaRecorteEnMemoria,
+  rangoBogota,
+  whereSupersetDeFecha,
+  type RangoDeFechas,
+  type TipoDeFecha,
+} from './rango-de-fechas';
+import { quedaSinAfiliado } from './sin-afiliado';
 import { cambiarSlugConAlias } from './slug-alias';
 import { brandBaseUrl, BRAND_DOMAIN_SELECT } from '../email/brand-email-creds.util';
 
@@ -27,7 +39,21 @@ const codeGen = customAlphabet('ABCDEFGHJKMNPQRSTUVWXYZ23456789', 8);
 // cliente dentro de la ventana. Single source of truth: lo usa el cron de
 // promoción y el cálculo de "disponible el" en el listado admin.
 // 2026-06-15: 30 → 15 días (spec bloqueo/desbloqueo de comisiones).
-const COMMISSION_HOLD_DAYS = 15;
+//
+// Vive en `rango-de-fechas.ts` porque el filtro del panel también lo necesita:
+// una comisión legacy sin `availableAt` se pinta a createdAt + estos días, y si
+// los dos sitios no usaran el mismo número, filtro y columna discreparían.
+//
+// CUIDADO: aunque ese módulo se llame "del panel", este número NO es cosmético.
+// De él sale `availableAt` (`holdReleaseFrom`), o sea CUÁNDO se desbloquea de
+// verdad una comisión para poder pagarla. Tocarlo "para que cuadre el filtro"
+// mueve la fecha de desbloqueo real de todo el mundo.
+const COMMISSION_HOLD_DAYS = DIAS_DE_HOLD;
+
+// Tope de filas que puede traer el recorte de fechas en una sola pasada.
+// No es una optimización: es el punto donde preferimos avisar a devolver un
+// panel incompleto que parece correcto. Ver `idsConFechaExactaEnRango`.
+const TOPE_DE_CANDIDATOS = 20_000;
 
 // Redondeo a 2 decimales para montos monetarios (nivel módulo: lo usa el
 // cron recurrente; algunas funciones definen su propio `round2` local).
@@ -6072,6 +6098,21 @@ export class ReferralsService {
         createdAt: true,
         hotmartSubscriberCode: true,
         planPeriodicity: true,
+        // El grupo empresarial decide si alguien cobra por este negocio: la
+        // comisión de un grupo se genera UNA vez sobre su bruto
+        // (`generateGroupCommission`), así que sus miembros no tienen
+        // `ReferralUse` propio y sin esto parecían huérfanos.
+        businessGroup: {
+          select: {
+            id: true,
+            name: true,
+            referralCodeId: true,
+            // `isActive` es imprescindible: un código desactivado NO devenga
+            // (`generateGroupCommission` corta con 'code-inactivo'), así que el
+            // grupo deja de cubrir a sus negocios y hay que volver a avisar.
+            referralCode: { select: { isActive: true } },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -6080,19 +6121,42 @@ export class ReferralsService {
     const attributed = await this.prisma.referralUse.findMany({
       where: {
         tenantId: { in: paying.map((t) => t.id) },
-        referralCode: { role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] } },
+        referralCode: {
+          role: { in: ['INFLUENCER', 'AMBASSADOR', 'VENDOR'] },
+          // Mismo motivo que en el grupo: un código DESACTIVADO no devenga
+          // comisiones nuevas —el cron de recurrentes filtra por
+          // `referralCode: { isActive: true }` (ver :452)— así que ese negocio
+          // sigue estando sin nadie que cobre y debe seguir en el aviso.
+          isActive: true,
+        },
       },
       select: { tenantId: true },
     });
     const attrSet = new Set(attributed.map((a) => a.tenantId));
     return paying
-      .filter((t) => !attrSet.has(t.id))
+      .filter((t) =>
+        // FIX 2026-09-16 (reportado por Javier con Cevichería Marea Místika):
+        // antes esto era `!attrSet.has(t.id)` a secas y listaba como huérfanos
+        // a los miembros de un grupo empresarial que SÍ tiene afiliado. El
+        // candado es que el GRUPO tenga recipiente, no que pertenezca a un
+        // grupo — ver `sin-afiliado.ts`.
+        quedaSinAfiliado({
+          atribuidoDirecto: attrSet.has(t.id),
+          grupo: t.businessGroup,
+        }),
+      )
       .map((t) => ({
         tenantId: t.id,
         brandName: t.brandName,
         status: t.status,
         createdAt: t.createdAt,
         planPeriodicity: t.planPeriodicity,
+        // Si llega aquí perteneciendo a un grupo, es que el GRUPO no tiene
+        // afiliado: el panel lo dice para que se asigne en el grupo y no se
+        // cree una atribución por negocio que pelee con la del grupo.
+        businessGroup: t.businessGroup
+          ? { id: t.businessGroup.id, name: t.businessGroup.name }
+          : null,
       }));
   }
 
@@ -6263,33 +6327,28 @@ export class ReferralsService {
     // reutilizan para el desglose por bucket (los KPIs muestran los 4
     // buckets sin importar cuál esté seleccionado en el filtro).
     const baseWhere: any = {};
-    // Filtro por fecha/lote (brief PASO 2 + PASO 5). El filtro opera sobre el
-    // MISMO campo que muestra la columna FECHA según el tipo activo, para que
-    // filtro y columna nunca se contradigan:
-    //   purchase → businessDate (fecha de compra, congelada)
+    // Filtro por fecha/lote (brief PASO 2 + PASO 5). El filtro opera sobre la
+    // MISMA fecha que muestra la columna según el tipo activo:
+    //   purchase → fecha de compra (businessDate congelada, o la calculada)
     //   payment  → paidAt       (fecha real de la transferencia)
+    //   available→ desbloqueo (availableAt, o createdAt + hold)
     //   batch    → payoutBatch.code (lote de corte)
-    // BOUNDARY (PASO 2): "hasta" es INCLUSIVO del día completo y se ancla a
-    // America/Bogota (UTC-5, sin DST): fecha < (hasta + 1 día) en hora Bogotá.
-    // (Antes: lte new Date('YYYY-MM-DD') = medianoche UTC → excluía el día.)
-    const dateType = opts.dateType ?? 'purchase';
-    const bogotaDayStartUtc = (ymd: string) => new Date(`${ymd}T05:00:00.000Z`);
+    // "hasta" es INCLUSIVO del día completo y se ancla a America/Bogota
+    // (UTC-5, sin DST): fecha < (hasta + 1 día) en hora Bogotá.
+    //
+    // FIX 2026-09-16 (reportado por Javier con Serendipity): esto filtraba
+    // directamente por la COLUMNA (`businessDate`), pero la columna que se
+    // pinta no siempre sale de ahí — con `businessDate` NULL se CALCULA al
+    // leer. Como NULL no entra en ningún rango, filtrar 16/08–31/08 hacía
+    // desaparecer 10 comisiones ($158.90) de 10 negocios que sin filtro se
+    // veían perfectamente y con fecha dentro del rango. Ahora el rango y la
+    // columna salen del mismo sitio (`rango-de-fechas.ts`), así que no pueden
+    // contradecirse.
+    const dateType = (opts.dateType ?? 'purchase') as TipoDeFecha;
+    const rangoFechas: RangoDeFechas | null =
+      dateType === 'batch' ? null : rangoBogota(opts.dateFrom, opts.dateTo);
     if (dateType === 'batch') {
       if (opts.batchCode) baseWhere.payoutBatch = { code: opts.batchCode };
-    } else if (opts.dateFrom || opts.dateTo) {
-      const field =
-        dateType === 'payment'
-          ? 'paidAt'
-          : dateType === 'available'
-            ? 'availableAt'
-            : 'businessDate';
-      const range: any = {};
-      if (opts.dateFrom) range.gte = bogotaDayStartUtc(opts.dateFrom);
-      if (opts.dateTo)
-        range.lt = new Date(
-          bogotaDayStartUtc(opts.dateTo).getTime() + 86_400_000,
-        );
-      baseWhere[field] = range;
     }
     if (opts.codeId) baseWhere.recipientCodeId = opts.codeId;
     if (opts.tenantId) baseWhere.referralUse = { tenantId: opts.tenantId };
@@ -6305,6 +6364,32 @@ export class ReferralsService {
     if (opts.role) recipientFiltro.role = opts.role;
     if (Object.keys(recipientFiltro).length) {
       baseWhere.recipientCode = recipientFiltro;
+    }
+
+    // Aquí se aplica el rango de fechas, ya con el resto de filtros puestos.
+    //
+    // Para 'purchase' y 'available' la fecha que ve el usuario puede ser
+    // CALCULADA, y SQL no puede evaluarla: se pide un superconjunto a la base
+    // y se recorta en memoria a la fecha exacta que pinta la columna. El
+    // resultado se fija como `id IN (...)`, de modo que TODO lo que viene
+    // después —la tabla, los totales y el desglose por bucket— queda ya
+    // filtrado con precisión y sin que ninguno pueda desviarse del otro.
+    if (rangoFechas) {
+      const supersetDeFecha = whereSupersetDeFecha(dateType, rangoFechas);
+      if (necesitaRecorteEnMemoria(dateType)) {
+        // `AND` en vez de esparcir las claves: el superconjunto de 'purchase'
+        // usa `referralUse.tenant.purchasedAt` y el filtro de negocio también
+        // usa `referralUse` — fusionarlos a pelo borraría uno de los dos.
+        const ids = await this.idsConFechaExactaEnRango(
+          { AND: [{ ...baseWhere }, supersetDeFecha] },
+          rangoFechas,
+          dateType,
+        );
+        baseWhere.id = { in: ids };
+      } else {
+        // 'payment': la columna es `paidAt` tal cual, el rango ya es exacto.
+        Object.assign(baseWhere, supersetDeFecha);
+      }
     }
 
     const BUCKET_STATUS: Record<string, CommissionStatus> = {
@@ -6362,6 +6447,11 @@ export class ReferralsService {
         vendorCode: {
           select: { id: true, code: true, ownerName: true },
         },
+        // Las comisiones de GRUPO no cuelgan de ningún negocio
+        // (`referralUseId` null), así que la columna NEGOCIO las pintaba "—" y
+        // parecían huérfanas. En producción son las dos de "Aldehir - Grupo
+        // Mistika". Con esto el panel puede decir de qué grupo son.
+        businessGroup: { select: { id: true, name: true } },
         payoutBatch: {
           select: {
             code: true,
@@ -6428,42 +6518,25 @@ export class ReferralsService {
         if (cur === undefined || ms < cur) firstChargeMsByTenant.set(tid, ms);
       }
     }
-    const commissionBusinessDate = (c: (typeof rows)[number]): Date => {
-      const tenant = c.referralUse?.tenant;
-      const chargeMs = effectiveAvailableAt(c).getTime();
-      const firstMs = tenant?.id
-        ? firstChargeMsByTenant.get(tenant.id)
-        : undefined;
-      // 1ª comisión (primer cobro del negocio) CON fecha de compra real
-      // conocida (Tenant.purchasedAt, PDF Soft 10) → esa. Es lo más preciso.
-      //   GUARD R1 (Fable 2026-08-14): solo si purchasedAt NO es muy posterior a
-      //   la 1ª comisión (<= createdAt+1d). Bug B (ya corregido) pudo estampar
-      //   una fecha de RENOVACIÓN en purchasedAt de negocios legacy; en ese caso
-      //   caemos a createdAt (la fecha del cobro real). Paridad con el backfill.
-      if (
-        tenant?.purchasedAt &&
-        firstMs !== undefined &&
-        chargeMs === firstMs &&
-        new Date(tenant.purchasedAt).getTime() <=
-          new Date(c.createdAt).getTime() + 86400000
-      ) {
-        return new Date(tenant.purchasedAt);
-      }
-      // Resto (recompras, y 1ª comisión SIN purchasedAt) → fecha del cobro real
-      // de ESTA comisión ≈ createdAt (webhook de Hotmart = pago).
-      //   FIX 2026-08-14 (R1/Fable): antes la 1ª comisión sin purchasedAt caía a
-      //   `tenant.createdAt` = fecha de REGISTRO de la cuenta, NO la de compra.
-      //   (a) Negocios que registraron en trial y pagaron después mostraban la
-      //       fecha equivocada (LICORES 26-jun en vez de 16-jul).
-      //   (b) Como "cuál es la 1ª" se recalcula por lectura, al anular una
-      //       comisión la fecha saltaba entre registro y webhook (Top Man
-      //       23↔27-jun). Usar SIEMPRE c.createdAt cuando no hay purchasedAt
-      //       elimina ambos: la fecha del cobro es estable por fila y ≈ compra.
-      //   Verificado en prod (dry-run 2026-08-14): los 48 negocios sin
-      //   purchasedAt NO matchean ningún PendingHotmartPayment → el backfill no
-      //   los recupera; su fecha de cobro real (createdAt) es la mejor fuente.
-      return new Date(c.createdAt);
-    };
+    // Fecha de compra CALCULADA (para las filas sin `businessDate` congelado).
+    //
+    // La lógica vive en `rango-de-fechas.ts` — el MISMO sitio del que sale el
+    // filtro por rango. Antes estaba escrita sólo aquí y el `where` miraba la
+    // columna a secas: por eso la columna enseñaba "26 ago" y el filtro de
+    // agosto no encontraba la fila (bug Serendipity, 16-09-2026). Mientras
+    // compartan función no pueden volver a discrepar.
+    const commissionBusinessDate = (c: (typeof rows)[number]): Date =>
+      fechaDeCompraCalculada(
+        {
+          businessDate: c.businessDate,
+          createdAt: c.createdAt,
+          availableAt: c.availableAt,
+          tenantPurchasedAt: c.referralUse?.tenant?.purchasedAt ?? null,
+        },
+        c.referralUse?.tenant?.id
+          ? firstChargeMsByTenant.get(c.referralUse.tenant.id)
+          : undefined,
+      );
 
     const items = rows.map((c) => {
       const amount = Number(c.amount);
@@ -6536,6 +6609,11 @@ export class ReferralsService {
               planPeriodicity: c.referralUse.tenant.planPeriodicity ?? null,
               currentPeriodEnd: c.referralUse.tenant.currentPeriodEnd,
             }
+          : null,
+        // Comisión de GRUPO empresarial (sin negocio propio): para que el panel
+        // diga de qué grupo es en vez de un guion.
+        businessGroup: c.businessGroup
+          ? { id: c.businessGroup.id, name: c.businessGroup.name }
           : null,
         recipient: c.recipientCode
           ? {
@@ -6615,6 +6693,103 @@ export class ReferralsService {
       truncated,
       shown: items.length,
     };
+  }
+
+  /**
+   * Ids de las comisiones cuya fecha —LA QUE PINTA EL PANEL— cae de verdad
+   * dentro del rango.
+   *
+   * Hace falta porque esa fecha no siempre es una columna: con `businessDate`
+   * NULL (19 comisiones activas en producción a 16-09-2026) se calcula al
+   * leer, y ningún `WHERE` de SQL puede evaluarla. Así que la base devuelve un
+   * superconjunto barato y el recorte fino se hace aquí, con la misma función
+   * que pinta la columna.
+   */
+  private async idsConFechaExactaEnRango(
+    whereCandidatos: any,
+    rango: RangoDeFechas,
+    tipo: TipoDeFecha,
+  ): Promise<string[]> {
+    const candidatos = await this.prisma.commission.findMany({
+      where: whereCandidatos,
+      select: {
+        id: true,
+        businessDate: true,
+        createdAt: true,
+        availableAt: true,
+        paidAt: true,
+        referralUse: {
+          select: { tenant: { select: { id: true, purchasedAt: true } } },
+        },
+      },
+      // Orden determinista. Sin `orderBy`, al chocar con el tope Postgres
+      // devuelve un subconjunto ARBITRARIO: el recorte de abajo perdería filas
+      // y nadie se enteraría (y `truncated` no lo reflejaría, porque se mide
+      // después). Con orden fijo, lo que entra es siempre lo mismo.
+      orderBy: { id: 'asc' },
+      // Una de más que el tope, para poder distinguir "cabe justo" de "hay más".
+      take: TOPE_DE_CANDIDATOS + 1,
+    });
+    if (candidatos.length > TOPE_DE_CANDIDATOS) {
+      // FALLA A LA VISTA, no en silencio. Devolver el tope en filas arbitrarias
+      // daría un panel incompleto con pinta de correcto — exactamente la clase
+      // de fallo que este módulo existe para evitar.
+      throw new BadRequestException(
+        `El rango de fechas abarca más de ${TOPE_DE_CANDIDATOS} comisiones y no se puede filtrar de una vez. Acorta el rango.`,
+      );
+    }
+
+    // La fecha calculada necesita saber si la comisión es la PRIMERA de su
+    // negocio (venta inicial) o una recompra. Sólo importa para las filas sin
+    // fecha congelada, así que el mínimo se consulta nada más para esos
+    // negocios — en el caso normal, ninguno.
+    const negociosSinFecha = Array.from(
+      new Set(
+        candidatos
+          .filter((c) => !c.businessDate)
+          .map((c) => c.referralUse?.tenant?.id)
+          .filter((x): x is string => !!x),
+      ),
+    );
+    const primerCobroMs = new Map<string, number>();
+    if (negociosSinFecha.length) {
+      const minimos = await this.prisma.commission.findMany({
+        where: {
+          status: { not: CommissionStatus.REJECTED },
+          referralUse: { tenantId: { in: negociosSinFecha } },
+        },
+        select: {
+          availableAt: true,
+          createdAt: true,
+          referralUse: { select: { tenantId: true } },
+        },
+      });
+      for (const m of minimos) {
+        const tid = m.referralUse?.tenantId;
+        if (!tid) continue;
+        const ms = effectiveAvailableAt(m).getTime();
+        const actual = primerCobroMs.get(tid);
+        if (actual === undefined || ms < actual) primerCobroMs.set(tid, ms);
+      }
+    }
+
+    return candidatos
+      .filter((c) => {
+        const tenant = c.referralUse?.tenant;
+        const fecha = fechaQuePintaElPanel(
+          {
+            businessDate: c.businessDate,
+            createdAt: c.createdAt,
+            availableAt: c.availableAt,
+            paidAt: c.paidAt,
+            tenantPurchasedAt: tenant?.purchasedAt ?? null,
+          },
+          tipo,
+          tenant?.id ? primerCobroMs.get(tenant.id) : undefined,
+        );
+        return dentroDelRango(fecha, rango);
+      })
+      .map((c) => c.id);
   }
 
   /**

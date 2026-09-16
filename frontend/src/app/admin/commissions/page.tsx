@@ -39,6 +39,9 @@ type CommissionRow = {
   paidAt: string | null;
   // Respaldo del paidAt anterior al corte (auditoría).
   paidAtLegacy?: string | null;
+  // Grupo empresarial dueño de la comisión. Las comisiones de GRUPO no cuelgan
+  // de ningún negocio, así que sin esto la columna NEGOCIO las pintaba "—".
+  businessGroup?: { id: string; name: string } | null;
   // Lote de corte que liquidó esta comisión (brief PASO 5).
   payoutBatch?: {
     code: string;
@@ -147,12 +150,18 @@ function fmtUsd(n: number) {
   return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// El día se pinta SIEMPRE en hora de Bogotá, no en la del computador que abra
+// el panel. El backend filtra los rangos anclado a Bogotá (UTC-5); si la
+// columna se pintara en la zona del navegador, una comisión del 24/08 a las
+// 19:23 de Bogotá (25/08 00:23 UTC) se vería como "25 ago" desde Europa y el
+// filtro "hasta 24/08" la dejaría fuera sin explicación aparente.
 function fmtDate(d: string | null | undefined) {
   if (!d) return '—';
   return new Date(d).toLocaleDateString('es-CO', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    timeZone: 'America/Bogota',
   });
 }
 
@@ -163,12 +172,23 @@ function toDateInputValue(d: string | null | undefined): string {
   return new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 }
 
+// Un negocio del aviso "sin afiliado". Si viene con `businessGroup` es que
+// pertenece a un grupo empresarial que TAMPOCO tiene afiliado: ahí la
+// asignación va en el grupo, porque la comisión de un grupo se genera una sola
+// vez sobre su bruto y una atribución por negocio pelearía con la del grupo.
+type NegocioSinAfiliado = {
+  tenantId: string;
+  brandName: string;
+  createdAt: string;
+  businessGroup?: { id: string; name: string } | null;
+};
+
 // PDF Soft(9): fila de un negocio SIN afiliado → asignar manualmente.
 function UnattributedRow({
   row,
   onDone,
 }: {
-  row: { tenantId: string; brandName: string; createdAt: string };
+  row: NegocioSinAfiliado;
   onDone: () => void;
 }) {
   const [codeId, setCodeId] = useState('');
@@ -197,32 +217,42 @@ function UnattributedRow({
       <div className="min-w-[140px] flex-1">
         <div className="text-sm font-medium">{row.brandName}</div>
         <div className="text-[10px] text-mute">{fmtDate(row.createdAt)}</div>
+        {row.businessGroup && (
+          <div className="text-[10px] text-amber-700">
+            Pertenece al grupo «{row.businessGroup.name}»: asigna el afiliado en
+            el grupo, no en este negocio.
+          </div>
+        )}
       </div>
-      <div className="min-w-[220px] flex-1">
-        <AffiliatePickerSearch value={codeId} onChange={setCodeId} />
-      </div>
-      <button
-        onClick={assign}
-        disabled={saving || !codeId}
-        className="text-sm px-3 py-1.5 rounded-md bg-brand text-white disabled:opacity-50"
-      >
-        {saving ? '…' : 'Asignar'}
-      </button>
+      {/* Con grupo empresarial NO se ofrece asignar aquí: la comisión de un
+          grupo se genera una sola vez sobre su bruto, así que una atribución
+          por negocio crearía dos recipientes para el mismo cobro. Dejar el
+          selector activo sería invitar justo a eso. */}
+      {!row.businessGroup && (
+        <>
+          <div className="min-w-[220px] flex-1">
+            <AffiliatePickerSearch value={codeId} onChange={setCodeId} />
+          </div>
+          <button
+            onClick={assign}
+            disabled={saving || !codeId}
+            className="text-sm px-3 py-1.5 rounded-md bg-brand text-white disabled:opacity-50"
+          >
+            {saving ? '…' : 'Asignar'}
+          </button>
+        </>
+      )}
     </div>
   );
 }
 
 // PDF Soft(9): negocios que pagan Hotmart pero SIN afiliado → asignación manual.
 function UnattributedPanel() {
-  const [rows, setRows] = useState<
-    Array<{ tenantId: string; brandName: string; createdAt: string }>
-  >([]);
+  const [rows, setRows] = useState<NegocioSinAfiliado[]>([]);
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    api<Array<{ tenantId: string; brandName: string; createdAt: string }>>(
-      '/admin/commissions/unattributed',
-    )
+    api<NegocioSinAfiliado[]>('/admin/commissions/unattributed')
       .then((r) => setRows(r ?? []))
       .catch(() => setRows([]))
       .finally(() => setLoaded(true));
@@ -544,7 +574,8 @@ function AdvancedCommissionsView() {
     ];
     const rows = itemsOrdenados.map((c) => [
       fmtDate(c.commissionDate ?? c.createdAt),
-      c.tenant?.brandName ?? '',
+      c.tenant?.brandName ??
+        (c.businessGroup ? `${c.businessGroup.name} (grupo)` : ''),
       c.tenant?.planName ?? '',
       c.tenant?.planPeriodicity ?? '',
       fmtDate(c.tenant?.currentPeriodEnd ?? null),
@@ -979,7 +1010,14 @@ function AdvancedCommissionsView() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium flex items-center gap-1.5 flex-wrap">
-                          <span>{c.tenant?.brandName ?? '—'}</span>
+                          {/* Una comisión de GRUPO no tiene negocio propio:
+                              se nombra el grupo en vez de dejar un guion. */}
+                          <span>
+                            {c.tenant?.brandName ??
+                              (c.businessGroup
+                                ? `${c.businessGroup.name} (grupo)`
+                                : '—')}
+                          </span>
                           {/* Distingue de un vistazo lo que se gana cada mes de
                               lo que entró por una venta nueva. Solo se marca la
                               renovación: la venta inicial es el caso normal y
@@ -1162,7 +1200,12 @@ function PayCommissionModal({
           </div>
           <div className="flex justify-between mb-1">
             <span className="text-mute">{t('modalBusiness')}</span>
-            <span className="font-medium">{item.tenant?.brandName ?? '—'}</span>
+            <span className="font-medium">
+              {item.tenant?.brandName ??
+                (item.businessGroup
+                  ? `${item.businessGroup.name} (grupo)`
+                  : '—')}
+            </span>
           </div>
           <div className="flex justify-between mb-1">
             <span className="text-mute">{t('modalTotalAmount')}</span>

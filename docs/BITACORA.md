@@ -8,6 +8,46 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-16 (33) — El filtro de Comisiones escondía filas, y el aviso de «sin afiliado» no miraba el grupo
+
+Javier, dos cosas en `/admin/commissions`: «a la hora de colocar los filtros no me está tomando algunos negocios. Filtro del 16/08 al 31/08 y no aparecen como 3 negocios que deberían… ejemplo Serendipity» y «en Negocios sin afiliado aparece Cevichería Marea Místika; sin embargo esta pertenece a un grupo empresarial, no debería estar aquí».
+
+### 1. El filtro: dos fuentes para la misma fecha
+
+La columna «FECHA DE COMPRA» se pinta con `c.businessDate ?? commissionBusinessDate(c)` —cuando no hay fecha guardada, **se calcula al leer** desde `tenant.purchasedAt` o `createdAt`—, pero el `where` filtraba **solo por la columna** `businessDate`. En SQL, NULL no entra en ningún rango: la fila se veía perfectamente sin filtro, con su fecha, y desaparecía en cuanto se ponía uno.
+
+En producción hay **19 comisiones activas con `businessDate = NULL`** (de 119). Con el rango 16/08–31/08 salían **7 filas de 4 negocios** cuando debían salir **17 de 14**: se caían **10 comisiones, $158,90**, de Serendipity, El Arrayán, Taquería La Adelita, Mr. Pedidos, Oasispty_, ATHOS, Restaurante el Establo, Café 1550 de Altitud, HABEMUS PIZZA y la comisión del grupo «Aldehir - Grupo Mistika». Javier dijo «como 3»; eran diez.
+
+(Esa última no es una comisión huérfana, como se dijo en un primer momento: es una comisión **de grupo**, con `businessGroupId` y sin atribución directa, y el panel la pinta «(sin negocio)» porque solo lee `referralUse.tenant`.)
+
+**El arreglo** es un módulo nuevo, `rango-de-fechas.ts`, que es el **único sitio** donde se decide qué fecha representa una comisión, y lo usan a la vez la consulta que filtra y el mapeo que pinta: ya no pueden discrepar. SQL pide un superconjunto (con la rama `businessDate: null` y sus dos fuentes), se recorta en memoria con esa misma función y el resultado se fija como `id IN (…)`, para que tabla, totales y KPIs no se desvíen entre sí. Cubre también el tipo de fecha «disponible», que tenía el mismo fallo latente.
+
+De paso, el panel pintaba las fechas con `toLocaleDateString('es-CO')` **sin zona horaria**, así que las mostraba en la del computador de quien miraba: desde Europa, un cobro del 24/08 a las 19:23 de Bogotá se leía «25 ago».
+
+### 2. «Negocios sin afiliado»: el grupo no contaba
+
+El aviso miraba solo el `ReferralUse` del negocio suelto y nunca `businessGroupId` ni `BusinessGroup.referralCodeId`. **Cevichería Marea Místika** pertenece a «Aldehir - Grupo Mistika», que **sí** tiene afiliado (`TAFMPWK5`, Nicolás Quintero, INFLUENCER) y por el que ya se pagaron comisiones ($15 pagada en 07-2026, $15 aprobada en 08-2026): la comisión de grupo se genera una vez sobre el bruto, así que sus miembros no tienen atribución propia y parecían huérfanos.
+
+No era cosmético: el aviso invita a «asignar manualmente», y hacerlo habría creado una atribución por negocio **peleando con la del grupo** — dos destinatarios para el mismo cobro.
+
+El candado es **«el grupo ya tiene afiliado»**, no «pertenece a un grupo»: en producción hay 3 grupos vacíos y sin afiliado, y si mañana cae ahí un negocio que paga, nadie cobra por él y el aviso tiene que seguir avisando. Si un negocio de grupo llega igualmente al aviso, la fila dice dónde asignar («asigna el afiliado en el grupo, no en este negocio»). El aviso pasa de 2 a 1: **El Tiros Club** sí está bien listado.
+
+### Revisión de Fable
+
+Confirmó el arreglo y cuadró los números contra producción (las 10 comisiones y los $158,90, el aviso de 2 a 1, y que tabla, totales, KPIs y CSV salen del mismo conjunto: no hay descuadre). Encontró cuatro cosas, todas cerradas antes de desplegar:
+
+1. **El candado nuevo escondía negocios por los que nadie cobra.** Miraba que el grupo **tuviera** código, no que el código estuviera **activo**, y un código desactivado deja de generar comisión (`generateGroupCommission` aborta con `code-inactivo`). Desactivar TAFMPWK5 habría hecho desaparecer del aviso a los 3 negocios de Mistika sin que nadie cobrara por ellos. Se cerró también el mismo hueco en la atribución directa: en producción hay **2 `ReferralUse` apuntando a códigos inactivos** (`PJYRJR4P` y `CB2026`), hoy inalcanzables desde el aviso, pero el agujero estaba abierto de verdad.
+2. **`take: 20_000` sin orden** podía devolver 20.000 filas arbitrarias y perder el resto **en silencio**. Ahora hay orden determinista y, al pasarse, un error en español que pide acortar el rango: mejor que fallar callando, y mejor que quitar el tope y traerse la tabla entera a memoria.
+3. **El botón «Asignar» seguía activo** en las filas de grupo, justo la acción que crea la atribución que pelea con la del grupo. Ya no se pinta.
+4. **El hueco de pruebas que explica cómo llegó esto a producción:** los tests cubrían el módulo, pero no el **cableado**. Con el bug original puesto a mano, los 16 tests del módulo **seguían en verde**; hace falta una prueba que construya el servicio de verdad y mire qué `where` acaba pidiendo. Ahora existe, y con el bug puesto se pone roja.
+
+De paso, la comisión de grupo deja de pintarse «—» y sale como «Aldehir - Grupo Mistika (grupo)»: eran 2 filas, y ahora no queda ninguna sin negocio ni grupo.
+
+### Lo que NO se hizo
+
+- **No se tocó el cálculo** (porcentajes, splits, cortes): es de Jhon. Solo a quién se lista y por qué.
+- **No se rellenó `businessDate`** en las 19 comisiones que lo tienen NULL. Sería escritura en producción y el camino que las crea vive en `billing/`; el arreglo de lectura cubre esas 19 y las que vengan, así que no corre prisa.
+
 ## 2026-09-16 (32) — La venta de un equipo queda atada al negocio que la paga, con su closer y su setter
 
 Javier quiere que una venta cerrada por un equipo de Sellea acabe pagando
