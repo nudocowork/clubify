@@ -18,8 +18,15 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { MenuBookViewer } from '@/components/menu/MenuBookViewer';
+import { firmaDelLibro } from '@/lib/menu/firma-del-libro.mjs';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+
+// Compartida por las dos formas del pie (enlace cuando la marca tiene web,
+// texto cuando no): el aspecto es el mismo, lo que cambia es si se puede
+// pinchar.
+const CLASE_FIRMA =
+  'fixed bottom-2 right-2 z-10 text-[9px] text-mute/70 hover:text-mute font-medium tracking-tight select-none px-1.5 py-0.5 rounded bg-white/60 backdrop-blur-sm';
 
 type Storefront = {
   brandName: string;
@@ -127,6 +134,10 @@ export default function BookClient() {
 
   const pageBg = s.pageBackgroundColor || '#FAFBFC';
   const primary = s.primaryColor || '#6366F1';
+  // Sin marca resuelta el pie no se pinta. Esta carta la ve el cliente final
+  // de un negocio que puede ser de marca blanca: firmarla con la plataforma
+  // la delata. Ver `firma-del-libro.mjs`.
+  const firma = firmaDelLibro(s.brand);
 
   return (
     <div className="min-h-screen relative" style={{ background: pageBg }}>
@@ -136,14 +147,21 @@ export default function BookClient() {
         initialSectionSlug={initialSectionSlug}
         urlPrefix="/book"
       />
-      <a
-        href={s.brand?.websiteUrl || 'https://soyclubify.com'}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="fixed bottom-2 right-2 z-10 text-[9px] text-mute/70 hover:text-mute font-medium tracking-tight select-none px-1.5 py-0.5 rounded bg-white/60 backdrop-blur-sm"
-      >
-        {s.brand?.name || 'Clubify'}
-      </a>
+      {firma &&
+        (firma.enlace ? (
+          <a
+            href={firma.enlace}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={CLASE_FIRMA}
+          >
+            {firma.nombre}
+          </a>
+        ) : (
+          // Marca sin web usable: la atribución se conserva como texto. No se
+          // enlaza a la plataforma, que es la otra mitad de la misma fuga.
+          <span className={CLASE_FIRMA}>{firma.nombre}</span>
+        ))}
     </div>
   );
 }

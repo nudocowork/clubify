@@ -8,6 +8,148 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-16 (39) — El menú libro: el zoom no faltaba, estaba apagado; y las páginas nunca pasaron por el optimizador
+
+Javier: «**Optimización del menú libro (que se pueda hacer zoom).** Los clientes piden que se pueda hacer **zoom** en el menú libro. **Optimiza también la carga de las imágenes** en ese estilo de menú.»
+
+Dos encargos distintos, y se resolvieron por separado a propósito: cada uno tiene su módulo y su prueba.
+
+### Lo que hay ahí fuera, medido antes de tocar nada
+
+El menú libro es el modo de menú independiente del digital: `/book/<slug>`, páginas-imagen agrupadas en secciones (`MenuBookSection` / `MenuBookPage`), encendido con `Storefront.bookMenuEnabled`.
+
+**16 negocios lo tienen encendido. 206 páginas activas. 111,7 MB de imágenes.** Todas en R2, **ninguna en base64**, y las 206 con `public, max-age=31536000, immutable` — o sea que la visita repetida ya era gratis y el problema era siempre la primera.
+
+| negocio | páginas | peso |
+|---|---|---|
+| **degodoy-sas** | **105** | **48,5 MB** ← el peor caso real |
+| fusion-sushi | 26 | 11,2 MB |
+| delizzibo | 20 | 13,6 MB |
+| motilart | 16 | 8,0 MB |
+| oasispty | 14 | 3,2 MB |
+| extreme-house | 4 | 14,2 MB (una sola página de 5 MB) |
+
+### Qué estaba mal de verdad
+
+Tres cosas, y ninguna era «pesan mucho» a secas.
+
+**1. El zoom no faltaba: estaba desactivado.** El slider lleva `touch-action: pan-x` (`touch-pan-x`), y eso le quita al navegador **su propio pellizco** sobre las imágenes. El cliente que pellizcaba la carta no obtenía nada, ni siquiera el zoom nativo del móvil. No había que añadir un botón: había que devolver el gesto.
+
+**2. El visor del libro es la única superficie pública que nunca pasó por el optimizador de Next.** Un `<img src={page.imageUrl}>` crudo contra el bucket. El menú digital hermano (`/m/<slug>`) ya lo hace desde hace tiempo con `next/image`. Resultado: el cliente se bajaba el **original** —1.275 a 2.560 px, hasta 5 MB— para pintarlo en una ranura de ~390 px de teléfono.
+
+**3. Saltar de sección arrastraba la ventana por todo el libro.** `goTo()` usaba siempre `behavior: 'smooth'`. En degodoy, tocar el chip de la última sección arrastra el scroll por ~100 páginas, y **cada una que asoma dispara su imagen**. Ahí sí se bajaba la carta entera de golpe. Esto explica el síntoma mucho mejor que el peso por página.
+
+**Y aquí la trampa que casi se cuela, que es lo más aprovechable de esta entrada.** El primer arreglo pasaba `behavior: 'auto'` al `scrollTo`, dando por hecho que «auto» significa «sin animación». **Significa lo contrario de lo que parece**: según la spec, `'auto'` quiere decir «usa el `scroll-behavior` computado del elemento», y el scroller lleva la clase `scroll-smooth`. O sea que seguía animando y el bug seguía vivo, solo que doliendo 10× menos porque las imágenes ya iban optimizadas. Lo que **no** se puede ignorar de esto es que **la prueba consagraba el bug**: exigía `'auto'` y daba verde mientras el fallo seguía ahí. Ahora exige `'instant'` —que no anima diga lo que diga el CSS— y hay una prueba dedicada a que `'auto'` no cuente como «no animar», más un ancla que prohíbe `behavior: 'auto'` en todo el visor. **El mismo defecto estaba en un segundo sitio** que nadie había mirado: el salto del enlace directo a una sección (`/book/<slug>/<sección>`), que también animaba desde la página 0.
+
+Moraleja para el que venga: una prueba que fija la constante que escribiste, en vez del comportamiento que quieres, no protege nada.
+
+De propina: la página que se está viendo era `loading="lazy"` y sin prioridad —justo la única imagen que importa para el primer pintado—, y el precargador (`new window.Image()`) pedía la **URL original**, así que habría anulado el ahorro aunque el resto se optimizara. Por eso se quitó.
+
+### Lo que se gana
+
+Medido sobre **las 206 páginas reales**, con la calidad que se desplegó (q=85) y al ancho que de verdad pide un móvil — no al más pequeño del srcset, que es lo que infla la cifra:
+
+| ancho | mediana antes | mediana después | ahorro mediano |
+|---|---|---|---|
+| **828** (móvil típico) | 420 KB | 113 KB | **74 %** |
+| 1080 (móvil grande) | 420 KB | 158 KB | **62 %** |
+
+Y desglosado por formato a w=828, que es donde se ve la verdad:
+
+| formato | páginas | mediana antes → después | ahorro mediano | el peor |
+|---|---|---|---|---|
+| png | 9 | 1.987 → 79 KB | 95 % | 94 % |
+| jpeg | 97 | 502 → 76 KB | 87 % | 43 % |
+| **webp** | **100** | 390 → 126 KB | **64 %** | **46 %** |
+
+**La mitad de las páginas ya eran webp**, y ahí el margen es mucho menor: el pipeline de subida ya las había reducido. Quien lea «90 %» y lo repita se va a equivocar — el número honesto es **~74 % mediano**, y en las cartas que ya estaban en webp bastante menos.
+
+Donde el ahorro es enorme de verdad es en los PNG sin tocar: extreme-house baja de 1.987 KB a 79 KB la página mediana.
+
+Y en peticiones, que es la otra mitad: saltar de sección en degodoy pasa de arrastrar ~100 imágenes a **1**.
+
+**Tres avisos para quien venga, que importan más que los números:**
+
+- El ahorro está medido **sobre los objetos reales del bucket y el optimizador de producción**, no sobre una carga cronometrada en el navegador (la extensión de Chrome no estaba conectada). Es un antes/después de bytes, no de segundos.
+- **El borde cachea 180 s.** La primera prueba después de desplegar **no es representativa**: se puede estar sirviendo todavía la versión anterior. Si parece que no cambió nada, esperar tres minutos antes de sospechar del código.
+- **Cada variante nueva es un MISS en Vercel: 0,5-1,0 s la primera vez.** El optimizador genera cada combinación de imagen y ancho bajo demanda. O sea que en una página que ya era ligera **la primera visita puede salir neutra o incluso peor**, y el ahorro se nota de la segunda en adelante (y ahí sí, cacheado un año). No sirve medir esto abriendo la carta una vez.
+
+Un detalle que ahorra un susto: el optimizador **rechaza con 400 cualquier ancho que no esté en su lista** (`w=900` → 400, comprobado), y un 400 ahí es una página en blanco, no un degradado elegante. Por eso los anchos se ajustan siempre al permitido más cercano y hay una prueba que lo fija.
+
+Sobre «¿no será que las suben enormes desde el panel?»: en parte sí —se aceptan 25 MB y `sharp` solo reescribe si pasa de 1 MB o de 2.560 px, así que un escaneo de ~1 MB entra intacto—, pero **el arreglo correcto es de entrega, no de subida**: así no hay que volver a tocar las 206 páginas ya cargadas.
+
+### Qué hace cada gesto ahora
+
+- **Pellizco** (dos dedos): amplía, centrado en el punto medio de los dedos.
+- **Doble toque**: 250 %. Otro doble toque: vuelve a la página entera.
+- **Un dedo, ampliado**: mueve la imagen. **Nunca pasa página** — es el fallo clásico de este tipo de visor y es lo que más se cuidó.
+- **Un dedo, al 100 %**: pasa página como siempre.
+- **Rueda + Ctrl/⌘**: amplía siempre. **Rueda sola**: solo amplía si ya está ampliado; al 100 % la rueda sigue siendo de la página, así que nadie se queda atrapado sin poder seguir bajando.
+- **Doble clic** (escritorio): igual que el doble toque.
+- **Botones**: al 100 % aparece `[+]`; ampliado la barra pasa a `[−] [NNN %] [+]`, y **el porcentaje es el botón de volver**. Los de pasar página siguen visibles siempre.
+- Al **cambiar de página** el zoom vuelve al 100 % sin desplazamiento.
+- Límite 1×–4×, y la imagen ampliada **no se puede sacar de la pantalla**: el arrastre se recorta contra su propio borde.
+- El popup de la página se abre igual con un toque, pero espera 320 ms por si ese toque es el primero de un doble toque.
+
+### La fuga de marca del pie, que estaba ahí al lado
+
+`book-client.tsx` firmaba la carta así:
+
+```tsx
+href={s.brand?.websiteUrl || 'https://soyclubify.com'}
+{s.brand?.name || 'Clubify'}
+```
+
+Las dos mitades de la misma fuga. **En operación normal no se notaba**, y por eso llevaba ahí tanto tiempo: `resolveByWhiteLabelId` nunca devuelve null —cae al WhiteLabel `clubify` y `normalize()` rellena el nombre—, así que `brand` siempre llega con algo. La fuga salta cuando la respuesta llega **sin** `brand`: backend caído, una respuesta vieja cacheada o un cambio de shape. Es exactamente el escenario del 2026-08-14, pero peor sitio: es la carta que un negocio de marca blanca enseña a **sus** clientes, y firmarla con el nombre y el dominio de la plataforma delata que hay otra empresa detrás.
+
+Ahora, sin marca resuelta **no se pinta nada**. Con nombre pero sin web usable se pinta el nombre como texto, sin enlace: la atribución se conserva y no se inventa un destino. Un pie vacío no delata a nadie; uno inventado sí.
+
+### Otras tres que salieron de la revisión
+
+- **En escritorio, el doble clic sobre una página con popup ampliaba Y abría el popup**, dejándolo encima de una página al 250 %; al cerrarlo seguía ampliada. El primer clic del doble ya armaba el temporizador de 320 ms y nadie lo cancelaba. Ahora el doble clic lo cancela.
+- **Un host fuera de `remotePatterns` habría dejado las cartas EN BLANCO**, no simplemente pesadas: el optimizador responde 400, y cuando la candidata de un `srcset` falla el navegador **no cae al `src`**. Si mañana `S3_PUBLIC_URL` apunta a un CDN nuevo, ahora la imagen se sirve cruda en vez de desaparecer — y hay una prueba que lee `next.config.js` para que las dos listas no se separen en silencio.
+- **El deslizamiento lateral del trackpad encogía la página.** Manda `deltaY = 0`, y eso se estaba tratando como «hacia abajo».
+
+### Pruebas
+
+Tres suites nuevas, en el estilo de las de aquí: imágenes (**17** casos), zoom (**15**) y firma (**8**). Las cuentas viven en `.mjs` aparte para poder probarlas sin montar React, y cada suite comprueba además que el componente **siga usándolas** — sin eso, se puede desmontar el arreglo y dejar las pruebas en verde. **Y ya están en el CI** (`ci.yml`), junto a las de sede, oficina y píxel: hasta ahora no las corría nadie.
+
+Diez comprobadas en rojo, rompiendo a propósito lo arreglado y deshaciéndolo después (`diff` final idéntico en las tres rondas):
+
+- `desplazamientoDelSalto` devolviendo `'auto'` → caen 2, incluida la dedicada a que `'auto'` no vale como «no animar».
+- El visor volviendo a `behavior: 'auto'` en el salto del enlace directo → cae el ancla que lo prohíbe en todo el archivo.
+- `desplazamientoDelSalto` siempre `'smooth'` → cae «saltar de sección NO arrastra la ventana por el libro entero».
+- `limiteDeArrastre` devolviendo un número grande → caen 4, entre ellas «a escala 1 la imagen NO se mueve».
+- El visor volviendo a `src={page.imageUrl}` → cae el ancla del optimizador.
+- `pasoDeLaRueda` volviendo a tratar `deltaY = 0` como reducir → cae «deslizar de LADO con el trackpad no encoge la página».
+- El `onDoubleClick` sin el `clearTimeout` → cae el ancla que lo busca dentro del propio manejador.
+- `hostOptimizable` devolviendo siempre `true` → cae «un host que el optimizador rechazaría se sirve CRUDO, no en blanco».
+- La firma inventando «Clubify» cuando no resuelve → caen 3, incluida «nunca aparece Clubify ni soyclubify por respaldo».
+- El `|| 'Clubify'` devuelto al pie → cae el ancla con «VOLVIÓ LA FUGA».
+
+Dos pruebas me cazaron a mí: la del recorte del arrastre tenía el signo cambiado (el código estaba bien, la prueba mal), y la del salto **fijaba la constante que yo había escrito en vez del comportamiento que quería**, que es cómo el bug del `'auto'` sobrevivió a su propia prueba.
+
+### Lo que queda anotado y no se hizo
+
+**Cuatro negocios tienen el libro encendido y 0 páginas**: `smart-solutions`, `amor-espresso-cafe-nn`, `licores-el-amanecer` y `sugar-kiss`. Sus clientes ven «La carta todavía se está preparando». No es un fallo del código —el visor hace lo correcto— pero son cuatro negocios con un QR repartido que no enseña nada. Es una llamada, no un commit.
+
+Quedan otros `|| 'Clubify'` en pantallas del panel (activar, términos, TrialBanner, OnboardingFlow), que ahí son legítimos porque quien mira es el operador. Pero **dos sí son de cara al cliente final** y merecen la misma revisión que este: `pagar/[slug]/page.tsx:170` y `cita/[slug]/page.tsx:390`.
+
+No se tocó nada del backend, no hay cambios de esquema y no se escribió en producción: solo SELECT.
+
+### Revisión de Fable
+
+Nada que obligara a parar: con los 206 objetos reales de producción la carta no se rompe —los hosts están en `remotePatterns`, los anchos que se piden están en la lista que acepta el optimizador, y la imagen más pesada (5,15 MB) se procesa sin problema—, no hay trampas de gesto (ampliado siempre quedan a la vista `−`, el porcentaje y las flechas), el menú digital hermano no se toca y la fuga de marca quedó cerrada por los dos lados.
+
+Pero encontró cuatro cosas, y la primera duele:
+
+1. **Una de las tres optimizaciones no existía.** El salto de sección seguía animado: se pasó `behavior: 'auto'`, que significa «usa el `scroll-behavior` computado», y el contenedor lleva `scroll-smooth`. Así que el chip de la última sección seguía arrastrando la ventana por las 105 páginas de degodoy y cargándolas todas. **Y la prueba que debía protegerlo consagraba el bug**, porque exigía exactamente `'auto'`. Al arreglarlo apareció **un segundo sitio con el mismo defecto** que la revisión no había visto: el salto del enlace directo a una sección, o sea entrar por el QR de una sección del final. Ahora el ancla prohíbe `behavior: 'auto'` en todo el visor, así que cubre los dos y cualquier tercero.
+2. **La cifra del ahorro estaba inflada** (se midió al ancho más pequeño y con menos calidad de la que se despliega). Rehecha a calidad 85 y al ancho que pide un móvil real: la tabla de arriba es la buena.
+3. **En escritorio, el doble clic sobre una página con popup abría el popup y además ampliaba**, dejando la página al 250 % por detrás.
+4. Tres menores: si mañana el bucket cambiara a un host no listado, esa página quedaría **en blanco** en vez de servirse sin optimizar; deslizar de lado con el trackpad encogía la página; y los tres scripts de prueba no los corría nadie — ahora bloquean en el CI.
+
+**La moraleja, que es lo más aprovechable de este bloque:** una prueba que fija *la constante que escribiste* en vez de *el comportamiento que quieres* no protege nada. Así sobrevivió el `'auto'` a su propia prueba.
+
 ## 2026-09-16 (38) — El aviso de pedido, en líneas y sin decir «Domicilio» cuando es para una oficina
 
 Javier, viendo el mensaje real que le llegó de Nudo Cowork: «No me gusta el orden con el que sale el mensaje de pedidos de las oficinas. **1)** Dice domicilio, y se sobreentiende que es para llevar a una oficina. **2)** No tiene un buen orden y es difícil de leer. **3)** No tiene espacios para que tenga una buena identificación.»

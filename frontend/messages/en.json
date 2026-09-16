@@ -7057,7 +7057,10 @@
     "comeBack": "Check back in a moment.",
     "loadError": "We couldn't load the menu",
     "loading": "Loading the menu…",
-    "preparing": "The menu is still being prepared"
+    "preparing": "The menu is still being prepared",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "zoomReset": "Fit the whole page"
   },
   "quick_create": {
     "newPromo": "New promotion"

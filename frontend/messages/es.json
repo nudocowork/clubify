@@ -7057,7 +7057,10 @@
     "comeBack": "Vuelve a mirar en un momento.",
     "loadError": "No pudimos cargar la carta",
     "loading": "Cargando la carta…",
-    "preparing": "La carta todavía se está preparando"
+    "preparing": "La carta todavía se está preparando",
+    "zoomIn": "Ampliar",
+    "zoomOut": "Reducir",
+    "zoomReset": "Ver la página entera"
   },
   "quick_create": {
     "newPromo": "Nueva promoción"

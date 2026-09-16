@@ -157,6 +157,14 @@ jobs:
       - name: Pruebas del menú público (sede del enlace, pedidos de oficina y píxel por sede)
         run: npm run pruebas:sede && npm run pruebas:oficina && npm run pruebas:pixel
 
+      # El menú libro (/book/<slug>). Tres cosas que ya se rompieron o casi:
+      # que el salto de sección NO se anime (animado arrastra la ventana por
+      # las 105 páginas de una carta real y las carga todas), que el zoom no
+      # acabe pasando página, y que el pie no firme «Clubify» cuando la marca
+      # no resuelve. Bloquean a propósito.
+      - name: Pruebas del menú libro (carga de imágenes, zoom y firma de marca)
+        run: npm run pruebas:libro-imagenes && npm run pruebas:libro-zoom && npm run pruebas:libro-firma
+
       - name: Build
         run: npm run build
 
