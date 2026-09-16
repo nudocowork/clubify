@@ -37,6 +37,13 @@ export default {
           active: '#22C55E',
         },
 
+        // Naranja de «esto llegó de una marca blanca», solo en la moderación
+        // del Lab de Clubify. Es un color FIJO de la plataforma, no el de la
+        // marca: sirve para reconocer de un vistazo lo que hay que atender, y
+        // con el color de cada marca eso cambiaría con cada marca nueva. Aparte
+        // de `warn`, que ya usan los estados «En evaluación» y «Aprobada».
+        'marca-blanca': { DEFAULT: '#EA580C', soft: '#FFEDD5', ink: '#9A3412' },
+
         ok: { DEFAULT: '#16A34A', soft: '#DCFCE7', ink: '#166534' },
         bad: { DEFAULT: '#DC2626', soft: '#FEE2E2', ink: '#991B1B' },
         warn: { DEFAULT: '#D97706', soft: '#FEF3C7', ink: '#92400E' },

@@ -14,6 +14,7 @@ import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import {
   CATEGORY_META,
+  NARANJA_MARCA,
   PRIORITY_META,
   STATUS_META,
   VOTE_META,
@@ -21,6 +22,7 @@ import {
   type LabVoteKind,
   type ProposalDetail,
 } from './_shared';
+import { AdjuntoLab } from './AdjuntoLab';
 import { MarcaEtiqueta } from './MarcaEtiqueta';
 
 export function LabDetalle({
@@ -104,7 +106,11 @@ export function LabDetalle({
 
       <div className="grid lg:grid-cols-[1fr,300px] gap-6">
         <div>
-          <div className="card card-pad mb-4">
+          {/* El naranja solo aparece con `brand`, y el backend solo lo manda al
+              equipo de la plataforma: la marca no ve cómo la etiquetamos. */}
+          <div
+            className={`card card-pad mb-4 ${data.brand ? NARANJA_MARCA.fila : ''}`}
+          >
             <div className="flex flex-wrap gap-2 mb-3">
               <MarcaEtiqueta marca={data.brand} />
               <span className={`badge ${meta.badge}`}>
@@ -138,18 +144,7 @@ export function LabDetalle({
                 </p>
               </div>
             )}
-            {data.attachmentUrl && (
-              <div className="mt-4">
-                <a
-                  href={data.attachmentUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-brand text-sm hover:underline"
-                >
-                  📎 Ver adjunto
-                </a>
-              </div>
-            )}
+            <AdjuntoLab url={data.attachmentUrl} kind={data.attachmentKind} />
             {data.rejectionReason && data.status === 'REJECTED' && (
               <div className="mt-4 p-3 bg-bad-soft text-bad-ink rounded-lg text-sm">
                 <b>Motivo de rechazo:</b> {data.rejectionReason}

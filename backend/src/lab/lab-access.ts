@@ -78,6 +78,10 @@ export const LAB_MODERACION_SOLO_PLATAFORMA =
   'La moderación del Lab es solo para el equipo de la plataforma.';
 export const LAB_SUPLANTACION_SOLO_LECTURA =
   'Entraste a esta marca desde el panel maestro: puedes ver su Lab, pero no proponer, votar ni comentar en nombre de su administrador.';
+// No nombra a nadie a propósito: lo lee un negocio de Clubify, y el motivo de
+// verdad («es para las marcas») no le dice nada útil.
+export const LAB_ADJUNTAR_SOLO_MARCAS =
+  'Adjuntar archivos no está disponible en tu Lab. Puedes pegar el enlace de una imagen o un video.';
 
 /** Valor del filtro de marca de la moderación para Clubify + las históricas sin marca. */
 export const FILTRO_PLATAFORMA = 'plataforma';
@@ -199,6 +203,36 @@ export function puedeParticipar(
 export function exigirParticipacion(visor: LabVisor): void {
   if (visor.soloLectura) {
     throw new ForbiddenException(LAB_SUPLANTACION_SOLO_LECTURA);
+  }
+}
+
+/**
+ * Quién puede SUBIR una imagen o un video a una propuesta.
+ *
+ * Javier lo decidió así (2026-09-16): «Sellea y marcas blancas nos permitirán
+ * ayudarles a las marcas a optimizar». El adjunto es la herramienta con la que
+ * el administrador de una marca enseña lo que quiere cambiar, y por eso no lo
+ * tienen «los demás negocios»: `PLATAFORMA_MIEMBRO` son los negocios y los
+ * afiliados de Clubify, que son miles y subirían 100 MB al bucket cada uno.
+ *
+ * El equipo de la plataforma sí: son de casa, unos pocos, y ya suben archivos
+ * por todo el producto.
+ *
+ * Ojo con lo que este candado NO es: pegar el ENLACE de un archivo lo sigue
+ * pudiendo hacer todo el mundo, igual que hasta hoy. Lo que se cierra es la
+ * subida al bucket, que es lo que cuesta dinero y espacio.
+ */
+export function puedeAdjuntar(visor: LabVisor): boolean {
+  // Una sesión suplantada no sube nada a nombre del administrador real.
+  if (visor.soloLectura) return false;
+  return (
+    visor.alcance === 'MARCA_ADMIN' || visor.alcance === 'PLATAFORMA_EQUIPO'
+  );
+}
+
+export function exigirAdjuntar(visor: LabVisor): void {
+  if (!puedeAdjuntar(visor)) {
+    throw new ForbiddenException(LAB_ADJUNTAR_SOLO_MARCAS);
   }
 }
 

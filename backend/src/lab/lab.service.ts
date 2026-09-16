@@ -15,6 +15,7 @@ import {
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { EmailService } from '../email/email.service';
+import { MediaService } from '../media/media.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { resolveBrandScope } from '../common/white-label/brand-scope.util';
 import {
@@ -22,6 +23,7 @@ import {
   LabVisor,
   conEtiquetaDeMarca,
   esDeLaPlataforma,
+  exigirAdjuntar,
   exigirModeracion,
   exigirParticipacion,
   filtroAdminPorMarca,
@@ -31,6 +33,21 @@ import {
   puedeVerPropuesta,
   resolverVisorLab,
 } from './lab-access';
+import {
+  LAB_CARPETA_ADJUNTOS,
+  normalizarAdjunto,
+  validarAdjuntoLab,
+} from './lab-adjuntos';
+import {
+  type HechoLab,
+  MemoriaDeAvisos,
+  TELEFONO_EQUIPO_LAB,
+  claveDeComentario,
+  claveDePropuesta,
+  debeAvisarAlEquipo,
+  enlaceDeModeracion,
+  textoAvisoLab,
+} from './lab-aviso';
 
 // Pesos del voting widget. NEED/HIGH_PRIORITY pesan más que un LIKE normal
 // para que "lo necesito YA" mueva la aguja del ranking más que un like
@@ -133,7 +150,15 @@ export class LabService {
     private prisma: PrismaService,
     private alerts: PreregAlertsService,
     private email: EmailService,
+    private media: MediaService,
   ) {}
+
+  /**
+   * Avisos ya enviados, para no repetir el SMS por el mismo hecho. Vive en el
+   * servicio (singleton de Nest) y no en el módulo: así cada test arranca con
+   * la memoria limpia.
+   */
+  private avisos = new MemoriaDeAvisos();
 
   // =============================================================
   //                     QUIÉN MIRA
@@ -226,21 +251,62 @@ export class LabService {
     if (!['CLIENTS', 'AFFILIATES'].includes(dto.category)) {
       throw new BadRequestException('Categoría inválida.');
     }
-    return this.prisma.labProposal.create({
+    const adjunto = normalizarAdjunto(dto);
+    const creada = await this.prisma.labProposal.create({
       data: {
         title,
         description,
         category: dto.category,
         priority: dto.priority ?? 'MEDIUM',
         expectedBenefit: dto.expectedBenefit?.trim() || null,
-        attachmentUrl: dto.attachmentUrl || null,
-        attachmentKind: dto.attachmentKind || null,
+        ...adjunto,
         authorId: user.id,
         // La propuesta nace con la marca de quien la escribe: así sale en el
         // Lab de esa marca y, en la moderación, con su etiqueta.
         whiteLabelId: visor.whiteLabelId,
       },
     });
+    // Best-effort: el SMS al equipo NUNCA puede tumbar la creación. Si falla,
+    // la propuesta ya está guardada y se ve en la moderación igual.
+    void this.avisarAlEquipo({
+      clave: claveDePropuesta(user.id, creada.title),
+      proposalId: creada.id,
+      titulo: creada.title,
+      whiteLabelId: visor.whiteLabelId,
+      autorId: user.id,
+      hecho: 'propuesta',
+    });
+    return creada;
+  }
+
+  /**
+   * Sube una imagen o un video y devuelve su URL, para adjuntarla a una
+   * propuesta. Pasa por la misma puerta que crearla —una sesión suplantada no
+   * sube nada a nombre del administrador de la marca— y por eso vive aquí y no
+   * en `/media/upload`, que además no admite al rol AFFILIATE_VENDOR.
+   *
+   * En la propuesta se guarda SOLO la URL: el archivo vive en el bucket.
+   */
+  async subirAdjunto(user: AuthUser, file: Express.Multer.File) {
+    const visor = await this.visorDe(user);
+    exigirParticipacion(visor);
+    // El candado de verdad, en el backend: esconder el botón en el front no
+    // impide un POST a mano. Va ANTES de mirar el archivo — a quien no le toca
+    // no se le lee ni el tipo ni el tamaño.
+    exigirAdjuntar(visor);
+    const kind = validarAdjuntoLab(file);
+    const subido = await this.media.upload({
+      folder: LAB_CARPETA_ADJUNTOS,
+      file,
+    });
+    return {
+      url: subido.url,
+      // El tipo validado, no el que deduzca el bucket: es el que decide cómo
+      // se pinta el adjunto en la propuesta.
+      kind,
+      contentType: subido.contentType,
+      size: subido.size,
+    };
   }
 
   async listPublic(
@@ -379,7 +445,13 @@ export class LabService {
     const visor = await this.visorDe(user);
     const proposal = await this.prisma.labProposal.findUnique({
       where: { id: proposalId },
-      select: { id: true, status: true, authorId: true, whiteLabelId: true },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        authorId: true,
+        whiteLabelId: true,
+      },
     });
     if (!proposal || !puedeVerPropuesta(visor, proposal.whiteLabelId)) {
       throw new NotFoundException(NO_ENCONTRADA);
@@ -447,6 +519,16 @@ export class LabService {
     await this.prisma.labProposal.update({
       where: { id: proposalId },
       data: { commentsCount: { increment: 1 } },
+    });
+    // Javier pidió enterarse también de lo que COMENTA el administrador de la
+    // marca: ahí es donde acaba precisándose lo que pide. Best-effort.
+    void this.avisarAlEquipo({
+      clave: claveDeComentario(user.id, proposalId),
+      proposalId,
+      titulo: proposal.title,
+      whiteLabelId: proposal.whiteLabelId,
+      autorId: user.id,
+      hecho: 'comentario',
     });
     return comment;
   }
@@ -790,6 +872,77 @@ export class LabService {
       select: { name: true },
     });
     return wl?.name ?? null;
+  }
+
+  /**
+   * SMS a la línea del equipo de Clubify cuando el administrador de una MARCA
+   * BLANCA crea una propuesta o comenta. Reglas y texto en `lab-aviso.ts`.
+   *
+   * Tres cosas que no se pueden romper:
+   *  - No avisa por lo de la plataforma (Clubify y las históricas sin marca):
+   *    son muchas más y el aviso dejaría de mirarse.
+   *  - No avisa dos veces por lo mismo, porque `sendInternalAlert` no trae
+   *    anti-repetición propia.
+   *  - No lanza nunca: el llamador la dispara con `void` y la propuesta o el
+   *    comentario ya están guardados.
+   */
+  private async avisarAlEquipo(p: {
+    /** Qué se considera «lo mismo»: ver `claveDePropuesta`/`claveDeComentario`. */
+    clave: string;
+    proposalId: string;
+    titulo: string;
+    whiteLabelId: string | null;
+    autorId: string;
+    hecho: HechoLab;
+  }) {
+    try {
+      // Sin marca es de la plataforma: no hay aviso, y se sale antes de tocar
+      // la memoria para no llenarla con lo de Clubify, que es la mayoría.
+      if (!p.whiteLabelId) return;
+      // El corte va ANTES del primer `await`. Comprobándolo después, dos
+      // comentarios seguidos pasaban los dos por el hueco y salían dos SMS:
+      // leer-decidir-escribir sin atomicidad, el de siempre.
+      if (this.avisos.esRepetido(p.clave)) return;
+
+      const { clubifyId } = await resolveBrandScope(this.prisma, null);
+      if (!debeAvisarAlEquipo(p.whiteLabelId, clubifyId)) return;
+
+      const [marca, autor] = await Promise.all([
+        this.nombreDeMarca(p.whiteLabelId),
+        this.prisma.user.findUnique({
+          where: { id: p.autorId },
+          select: { fullName: true },
+        }),
+      ]);
+      // El enlace es el de la moderación de la plataforma, que es donde el
+      // equipo la trabaja. Va solo a un teléfono de casa: no es fuga de marca.
+      const enlace = enlaceDeModeracion(
+        process.env.APP_URL ?? 'https://app.soyclubify.com',
+        p.proposalId,
+      );
+      const r = await this.alerts.sendInternalAlert(
+        TELEFONO_EQUIPO_LAB,
+        textoAvisoLab({
+          marca,
+          autor: autor?.fullName ?? null,
+          titulo: p.titulo,
+          enlace,
+          hecho: p.hecho,
+        }),
+      );
+      // `sendInternalAlert` NO lanza: captura sus errores y devuelve ok:false
+      // (sin subcuenta de Grow Business, por ejemplo). Sin este warn, un SMS
+      // que no sale no deja rastro en ningún sitio y nadie se entera.
+      if (!r?.ok) {
+        this.logger.warn(
+          `Lab aviso al equipo no salió (${p.clave}): sendInternalAlert devolvió ok:false`,
+        );
+      }
+    } catch (e) {
+      this.logger.warn(
+        `Lab aviso al equipo falló (${p.clave}): ${(e as Error)?.message ?? e}`,
+      );
+    }
   }
 
   private async recalcVotes(proposalId: string) {

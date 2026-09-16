@@ -8,6 +8,7 @@ import { toast } from '@/components/Toast';
 import { marcaDeLaRuta } from '@/lib/brand-from-path';
 import {
   CATEGORY_META,
+  NARANJA_MARCA,
   STATUS_META,
   formatRelative,
   type EtiquetaMarca,
@@ -15,6 +16,7 @@ import {
   type LabStatus,
   type Proposal,
 } from '../../lab/_shared';
+import { AdjuntoLab } from '../../lab/AdjuntoLab';
 import { LabFeed } from '../../lab/LabFeed';
 import { MarcaEtiqueta } from '../../lab/MarcaEtiqueta';
 import { useLabContexto } from '../../lab/useLabContexto';
@@ -314,8 +316,12 @@ function ProposalRow({
   const t = useTranslations('admin_lab');
   const meta = STATUS_META[proposal.status];
   const cat = CATEGORY_META[proposal.category];
+  // Naranja = llegó de una marca blanca (Sellea). Javier lo pidió así para
+  // reconocerlas de un vistazo entre las de Clubify, que son muchas más.
+  // `brand` solo llega al equipo de la plataforma: nadie más ve este color.
+  const deMarcaBlanca = !!proposal.brand;
   return (
-    <div className="card card-pad">
+    <div className={`card card-pad ${deMarcaBlanca ? NARANJA_MARCA.fila : ''}`}>
       <div className="flex items-start gap-3 flex-wrap">
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap gap-1.5 items-center mb-1.5">
@@ -355,6 +361,13 @@ function ProposalRow({
             </div>
           )}
         </div>
+        {/* La captura o el video que adjuntaron, a mano: es lo que dice de
+            verdad qué hay que cambiar. */}
+        <AdjuntoLab
+          url={proposal.attachmentUrl}
+          kind={proposal.attachmentKind}
+          compacto
+        />
         <div className="flex flex-wrap gap-1.5">{actions}</div>
       </div>
     </div>
@@ -636,7 +649,9 @@ function TopVotedTab({
         {items?.map((p, i) => (
           <li
             key={p.id}
-            className="card card-pad flex items-center gap-3"
+            className={`card card-pad flex items-center gap-3 ${
+              p.brand ? NARANJA_MARCA.fila : ''
+            }`}
           >
             <div className="text-2xl font-bold text-brand min-w-[36px] text-center">
               #{i + 1}

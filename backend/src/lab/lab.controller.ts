@@ -6,7 +6,10 @@ import {
   Param,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   IsEnum,
   IsInt,
@@ -19,6 +22,7 @@ import {
 import { Type } from 'class-transformer';
 import { LabCategory, LabPriority, LabStatus, LabVoteKind } from '@prisma/client';
 import { LabService } from './lab.service';
+import { LAB_LIMITE_MULTER_BYTES } from './lab-adjuntos';
 import {
   AuthUser,
   CurrentUser,
@@ -139,6 +143,26 @@ export class LabController {
   @Post('proposals')
   create(@CurrentUser() user: AuthUser, @Body() body: CreateProposalDto) {
     return this.svc.createProposal(user, body);
+  }
+
+  /**
+   * Sube la imagen o el video de una propuesta y devuelve su URL, que después
+   * viaja en `attachmentUrl`. Se sube primero y se crea la propuesta después,
+   * para poder ver el adjunto antes de enviarla.
+   *
+   * El `limits` explícito es necesario: sin él multer trunca los archivos
+   * grandes en silencio y el video llega cortado al bucket. El tipo y el tope
+   * fino los valida el servicio, que devuelve el motivo en español.
+   */
+  @Post('adjuntos')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: LAB_LIMITE_MULTER_BYTES } }),
+  )
+  subirAdjunto(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.svc.subirAdjunto(user, file);
   }
 
   @Post('proposals/:id/vote')

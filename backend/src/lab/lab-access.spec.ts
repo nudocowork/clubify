@@ -12,12 +12,15 @@ import { describe, it, expect } from 'vitest';
 import { ForbiddenException } from '@nestjs/common';
 import {
   FILTRO_PLATAFORMA,
+  LAB_ADJUNTAR_SOLO_MARCAS,
   LAB_MODERACION_SOLO_PLATAFORMA,
   LAB_SOLO_ADMIN_DE_MARCA,
   LAB_SUPLANTACION_SOLO_LECTURA,
   conEtiquetaDeMarca,
+  exigirAdjuntar,
   exigirModeracion,
   exigirParticipacion,
+  puedeAdjuntar,
   filtroAdminPorMarca,
   filtroDeMarca,
   mismaMarca,
@@ -177,6 +180,43 @@ describe('qué propuestas ve y toca cada uno', () => {
     expect(mismaMarca(SELLEA, SELLEA, CLUBIFY)).toBe(true);
     expect(mismaMarca(SELLEA, null, CLUBIFY)).toBe(false);
     expect(mismaMarca(SELLEA, OTRA, CLUBIFY)).toBe(false);
+  });
+});
+
+describe('quién puede adjuntar una imagen o un video', () => {
+  it('el administrador de una marca blanca sí: es para lo que se hizo', () => {
+    expect(puedeAdjuntar(visor({ role: 'SUPER_ADMIN', sesionWhiteLabelId: SELLEA }))).toBe(
+      true,
+    );
+  });
+
+  it('el equipo de la plataforma también: es de casa y ya sube archivos en todo el producto', () => {
+    expect(puedeAdjuntar(visor({ role: 'SUPER_ADMIN' }))).toBe(true);
+    expect(puedeAdjuntar(visor({ role: 'MARKETING' }))).toBe(true);
+  });
+
+  it('un negocio o un afiliado de Clubify NO: son miles y cada uno subiría 100 MB', () => {
+    const dueno = visor({ role: 'TENANT_OWNER', negocioWhiteLabelId: CLUBIFY });
+    const afiliado = visor({ role: 'AFFILIATE_AMBASSADOR', codigoWhiteLabelId: CLUBIFY });
+    expect(puedeAdjuntar(dueno)).toBe(false);
+    expect(puedeAdjuntar(afiliado)).toBe(false);
+    prohibido(() => exigirAdjuntar(dueno), LAB_ADJUNTAR_SOLO_MARCAS);
+    prohibido(() => exigirAdjuntar(afiliado), LAB_ADJUNTAR_SOLO_MARCAS);
+  });
+
+  it('una sesión suplantada tampoco, aunque sea la de una marca', () => {
+    const suplantado = visor({
+      role: 'SUPER_ADMIN',
+      sesionWhiteLabelId: SELLEA,
+      suplantadoPor: 'u-javier',
+    });
+    expect(puedeAdjuntar(suplantado)).toBe(false);
+  });
+
+  it('pero pegar el ENLACE lo sigue pudiendo todo el mundo: se cierra la subida, no el adjunto', () => {
+    // Lo que decide crear la propuesta (con su enlace dentro) es `puedeParticipar`.
+    const afiliado = visor({ role: 'AFFILIATE_AMBASSADOR', codigoWhiteLabelId: CLUBIFY });
+    expect(puedeParticipar(afiliado, CLUBIFY)).toBe(true);
   });
 });
 

@@ -25,14 +25,28 @@ const MARCAS = [
 ];
 
 const USUARIOS: Record<string, any> = {
-  'u-humberto': { whiteLabelId: SELLEA, tenantId: null, referralCodes: [] },
-  'u-equipo': { whiteLabelId: null, tenantId: null, referralCodes: [] },
-  'u-afiliado-sellea': { whiteLabelId: null, tenantId: null, referralCodes: [{ whiteLabelId: SELLEA }] },
-  'u-afiliado-clubify': { whiteLabelId: null, tenantId: null, referralCodes: [{ whiteLabelId: CLUBIFY }] },
-  'u-dueno-sellea': { whiteLabelId: null, tenantId: 't-sellea', referralCodes: [] },
+  'u-humberto': { fullName: 'Humberto Ruiz', whiteLabelId: SELLEA, tenantId: null, referralCodes: [] },
+  'u-equipo': { fullName: 'Equipo Clubify', whiteLabelId: null, tenantId: null, referralCodes: [] },
+  'u-afiliado-sellea': { fullName: 'Afiliado Sellea', whiteLabelId: null, tenantId: null, referralCodes: [{ whiteLabelId: SELLEA }] },
+  'u-afiliado-clubify': { fullName: 'Afiliado Clubify', whiteLabelId: null, tenantId: null, referralCodes: [{ whiteLabelId: CLUBIFY }] },
+  'u-dueno-sellea': { fullName: 'Dueño Sellea', whiteLabelId: null, tenantId: 't-sellea', referralCodes: [] },
+  'u-dueno-clubify': { fullName: 'Dueño Clubify', whiteLabelId: null, tenantId: 't-clubify', referralCodes: [] },
 };
 
-const NEGOCIOS: Record<string, any> = { 't-sellea': { whiteLabelId: SELLEA } };
+/**
+ * Los avisos salen con `void` (best-effort: un SMS caído no puede tumbar la
+ * creación), así que hay que dejar correr los microtasks antes de mirarlos.
+ */
+const esperarAvisos = () => new Promise((r) => setTimeout(r, 0));
+
+/** Lo que multer deja en `file`: solo se miran el tipo y el tamaño. */
+const archivo = (mimetype: string, size: number) =>
+  ({ mimetype, size, originalname: 'adjunto', buffer: Buffer.alloc(0) }) as any;
+
+const NEGOCIOS: Record<string, any> = {
+  't-sellea': { whiteLabelId: SELLEA },
+  't-clubify': { whiteLabelId: CLUBIFY },
+};
 
 const sesion: Record<string, any> = {
   humberto: { id: 'u-humberto', email: 'humberto@sellea.test', role: 'SUPER_ADMIN', tenantId: null, whiteLabelId: SELLEA },
@@ -43,6 +57,7 @@ const sesion: Record<string, any> = {
   afiliadoSellea: { id: 'u-afiliado-sellea', email: 'a@sellea.test', role: 'AFFILIATE_AMBASSADOR', tenantId: null, whiteLabelId: null },
   afiliadoClubify: { id: 'u-afiliado-clubify', email: 'a@clubify.test', role: 'AFFILIATE_INFLUENCER', tenantId: null, whiteLabelId: null },
   duenoSellea: { id: 'u-dueno-sellea', email: 'd@sellea.test', role: 'TENANT_OWNER', tenantId: 't-sellea', whiteLabelId: null },
+  duenoClubify: { id: 'u-dueno-clubify', email: 'd@clubify.test', role: 'TENANT_OWNER', tenantId: 't-clubify', whiteLabelId: null },
 };
 
 const PROPUESTA_NUEVA = {
@@ -69,6 +84,11 @@ function cumple(fila: any, where: any): boolean {
 }
 
 function montar() {
+  // Id distinto en cada alta, como la base de verdad. Con un id FIJO, un test
+  // de «no repitas el aviso» pasa aunque la clave esté mal —el doble clic
+  // devolvía dos veces el mismo id—: fue justo lo que escondió el bug de la
+  // anti-repetición, así que el mock no puede mentir en esto.
+  let secuencia = 0;
   const base = {
     category: 'CLIENTS',
     priority: 'MEDIUM',
@@ -108,7 +128,7 @@ function montar() {
           _count: { _all: 1 },
         })),
       ),
-      create: vi.fn(async ({ data }: any) => ({ id: 'p-nueva', ...data })),
+      create: vi.fn(async ({ data }: any) => ({ id: `p-${++secuencia}`, ...data })),
       update: vi.fn(async ({ where, data }: any) => ({
         ...propuestas.find((p) => p.id === where.id),
         ...data,
@@ -124,14 +144,30 @@ function montar() {
     },
     labComment: {
       findMany: vi.fn(async () => []),
-      create: vi.fn(async ({ data }: any) => data),
+      create: vi.fn(async ({ data }: any) => ({ id: `c-${++secuencia}`, ...data })),
       count: vi.fn(async () => 0),
     },
   };
-  const alerts = { sendTeamAlert: vi.fn(async () => ({ ok: true, sent: 1, total: 1 })) };
+  const alerts = {
+    sendTeamAlert: vi.fn(async () => ({ ok: true, sent: 1, total: 1 })),
+    // Tipado con sus dos argumentos a propósito: así `mock.calls[0]` es
+    // [teléfono, texto] y las pruebas leen el SMS sin castear a `any`.
+    sendInternalAlert: vi.fn(async (_telefono: string, _texto: string) => ({ ok: true })),
+  };
   const email = { send: vi.fn(async () => null) };
-  const svc = new LabService(prisma as any, alerts as any, email as any);
-  return { svc, prisma, alerts, email };
+  const media = {
+    // Tipado con su argumento: así `mock.calls[0][0]` es el objeto de la subida
+    // y se puede mirar la carpeta sin castear a `any`.
+    upload: vi.fn(async (_opts: { folder?: string; file: unknown }) => ({
+      url: 'https://cdn.test/lab/abc.webp',
+      key: 'lab/abc.webp',
+      size: 1234,
+      contentType: 'image/webp',
+      category: 'image',
+    })),
+  };
+  const svc = new LabService(prisma as any, alerts as any, email as any, media as any);
+  return { svc, prisma, alerts, email, media };
 }
 
 describe('la moderación de la plataforma', () => {
@@ -317,6 +353,223 @@ describe('el administrador general de Sellea', () => {
   });
 });
 
+describe('el aviso a Clubify cuando escribe una marca blanca', () => {
+  it('Humberto crea una propuesta: SMS a la línea del equipo con marca, autor, título y enlace', async () => {
+    const { svc, alerts } = montar();
+    await svc.createProposal(sesion.humberto, PROPUESTA_NUEVA);
+    await esperarAvisos();
+
+    expect(alerts.sendInternalAlert).toHaveBeenCalledTimes(1);
+    const [telefono, texto] = alerts.sendInternalAlert.mock.calls[0];
+    expect(telefono).toBe('+573248088401');
+    expect(texto).toContain('Lab de Sellea');
+    expect(texto).toContain('Humberto Ruiz');
+    expect(texto).toContain('«Agenda por sede»');
+    // El enlace lleva a la MODERACIÓN, que es donde Javier la trabaja.
+    expect(texto).toContain('/admin/lab/p-1');
+  });
+
+  it('Humberto comenta: también avisa, que es donde acaba de precisar lo que pide', async () => {
+    const { svc, alerts } = montar();
+    await svc.comment('p-sellea', sesion.humberto, 'Mejor por sede y por día.');
+    await esperarAvisos();
+
+    expect(alerts.sendInternalAlert).toHaveBeenCalledTimes(1);
+    const [, texto] = alerts.sendInternalAlert.mock.calls[0];
+    expect(texto).toContain('Lab de Sellea: Humberto Ruiz comentó en «Idea de Sellea»');
+  });
+
+  it('NO avisa por lo de la plataforma: ni propuestas ni comentarios de Clubify', async () => {
+    const { svc, alerts } = montar();
+    await svc.createProposal(sesion.afiliadoClubify, PROPUESTA_NUEVA);
+    await svc.comment('p-clubify', sesion.afiliadoClubify, 'Me sirve mucho.');
+    await svc.comment('p-historica', sesion.afiliadoClubify, 'Y a mí también.');
+    await esperarAvisos();
+
+    expect(alerts.sendInternalAlert).not.toHaveBeenCalled();
+  });
+
+  it('el doble clic en «Crear» deja dos filas, pero un solo SMS', async () => {
+    const { svc, alerts, prisma } = montar();
+    await svc.createProposal(sesion.humberto, PROPUESTA_NUEVA);
+    await svc.createProposal(sesion.humberto, PROPUESTA_NUEVA);
+    await esperarAvisos();
+
+    expect(prisma.labProposal.create).toHaveBeenCalledTimes(2);
+    expect(alerts.sendInternalAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it('dos propuestas DISTINTAS avisan las dos: cada una es algo que revisar', async () => {
+    const { svc, alerts } = montar();
+    await svc.createProposal(sesion.humberto, PROPUESTA_NUEVA);
+    await svc.createProposal(sesion.humberto, {
+      ...PROPUESTA_NUEVA,
+      title: 'Otra idea muy distinta',
+    });
+    await esperarAvisos();
+
+    expect(alerts.sendInternalAlert).toHaveBeenCalledTimes(2);
+  });
+
+  it('cinco comentarios seguidos en la misma propuesta son UN solo SMS', async () => {
+    // La clave era el id del comentario —nuevo en cada uno—, así que no cortaba
+    // nada: quince comentarios en cinco minutos eran quince SMS a Javier.
+    const { svc, alerts, prisma } = montar();
+    for (let i = 0; i < 5; i++) {
+      await svc.comment('p-sellea', sesion.humberto, `Comentario número ${i}.`);
+    }
+    await esperarAvisos();
+
+    expect(prisma.labComment.create).toHaveBeenCalledTimes(5);
+    expect(alerts.sendInternalAlert).toHaveBeenCalledTimes(1);
+  });
+
+  it('comentar en OTRA propuesta sí vuelve a avisar: es otra conversación', async () => {
+    const { svc, alerts } = montar();
+    await svc.comment('p-sellea', sesion.humberto, 'Un comentario.');
+    await svc.comment('p-sellea-pendiente', sesion.humberto, 'Otro comentario.');
+    await esperarAvisos();
+
+    expect(alerts.sendInternalAlert).toHaveBeenCalledTimes(2);
+  });
+
+  it('un SMS que no sale deja aviso en el log y no tumba la propuesta', async () => {
+    // `sendInternalAlert` NO lanza: captura sus errores y devuelve ok:false
+    // (sin subcuenta de Grow Business, por ejemplo). Sin el warn, un SMS que no
+    // sale no deja rastro en ningún sitio y nadie se entera.
+    const { svc, alerts, prisma } = montar();
+    alerts.sendInternalAlert.mockResolvedValue({ ok: false });
+    const avisado = vi
+      .spyOn((svc as any).logger, 'warn')
+      .mockImplementation(() => undefined);
+
+    const creada = await svc.createProposal(sesion.humberto, PROPUESTA_NUEVA);
+    await esperarAvisos();
+
+    expect(creada.id).toBe('p-1');
+    expect(prisma.labProposal.create).toHaveBeenCalledTimes(1);
+    expect(avisado).toHaveBeenCalledTimes(1);
+    expect(String(avisado.mock.calls[0][0])).toContain('no salió');
+  });
+
+  it('si algo revienta dentro del aviso, la propuesta y el comentario quedan guardados', async () => {
+    // `whiteLabel.findUnique` solo se usa DENTRO del aviso (al resolver el
+    // nombre de la marca): así se prueba que el try/catch protege de verdad la
+    // escritura, y no un camino que en producción no ocurre.
+    const { svc, prisma } = montar();
+    prisma.whiteLabel.findUnique.mockRejectedValue(new Error('base caída'));
+    vi.spyOn((svc as any).logger, 'warn').mockImplementation(() => undefined);
+
+    const creada = await svc.createProposal(sesion.humberto, PROPUESTA_NUEVA);
+    const comentario = await svc.comment('p-sellea', sesion.humberto, 'Un comentario.');
+    await esperarAvisos();
+
+    expect(creada.id).toBe('p-1');
+    expect(comentario.id).toBeTruthy();
+    expect(prisma.labProposal.create).toHaveBeenCalledTimes(1);
+    expect(prisma.labComment.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('adjuntar una imagen o un video a la propuesta', () => {
+  it('sube al bucket, en la carpeta del Lab, y devuelve la URL', async () => {
+    const { svc, media } = montar();
+    const r = await svc.subirAdjunto(sesion.humberto, archivo('image/png', 2 * 1024 * 1024));
+
+    expect(media.upload).toHaveBeenCalledTimes(1);
+    expect(media.upload.mock.calls[0][0].folder).toBe('lab');
+    expect(r).toMatchObject({ url: 'https://cdn.test/lab/abc.webp', kind: 'image' });
+  });
+
+  it('un tipo o un tamaño que no toca ni llega al bucket', async () => {
+    const { svc, media } = montar();
+    // PDF y audio no: el Lab acepta menos que `/media/upload`.
+    await expect(
+      svc.subirAdjunto(sesion.humberto, archivo('application/pdf', 1024)),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      svc.subirAdjunto(sesion.humberto, archivo('image/png', 40 * 1024 * 1024)),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(media.upload).not.toHaveBeenCalled();
+  });
+
+  it('un video corto sí pasa: es lo que pidió Javier para enseñar la pantalla', async () => {
+    const { svc, media } = montar();
+    await svc.subirAdjunto(sesion.humberto, archivo('video/mp4', 40 * 1024 * 1024));
+    expect(media.upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('un negocio de Clubify NO sube archivos: 403 y nada llega al bucket', async () => {
+    // Javier (2026-09-16): el adjunto es para las marcas blancas. Lo que no
+    // puede pasar es que cualquiera de los negocios de Clubify meta 100 MB.
+    const { svc, media } = montar();
+    await expect(
+      svc.subirAdjunto(sesion.duenoClubify, archivo('image/png', 1024)),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      svc.subirAdjunto(sesion.afiliadoClubify, archivo('video/mp4', 90 * 1024 * 1024)),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(media.upload).not.toHaveBeenCalled();
+  });
+
+  it('pero ese mismo negocio sigue creando su propuesta con un enlace, como hasta hoy', async () => {
+    // El candado es la SUBIDA, no el adjunto: quitarle también el enlace sería
+    // quitarle algo que ya tenía.
+    const { svc, prisma } = montar();
+    await svc.createProposal(sesion.afiliadoClubify, {
+      ...PROPUESTA_NUEVA,
+      attachmentUrl: 'https://cdn.test/captura.png',
+    });
+    expect(prisma.labProposal.create.mock.calls[0][0].data.attachmentUrl).toBe(
+      'https://cdn.test/captura.png',
+    );
+  });
+
+  it('el equipo de la plataforma sí puede: es de casa', async () => {
+    const { svc, media } = montar();
+    await svc.subirAdjunto(sesion.equipoClubify, archivo('image/png', 1024));
+    expect(media.upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('una sesión suplantada no sube nada a nombre del administrador de la marca', async () => {
+    const { svc, media } = montar();
+    await expect(
+      svc.subirAdjunto(sesion.javierEnSellea, archivo('image/png', 1024)),
+    ).rejects.toThrow(LAB_SUPLANTACION_SOLO_LECTURA);
+    expect(media.upload).not.toHaveBeenCalled();
+  });
+
+  it('un afiliado de Sellea tampoco: el Lab de su marca no es suyo', async () => {
+    const { svc, media } = montar();
+    await expect(
+      svc.subirAdjunto(sesion.afiliadoSellea, archivo('image/png', 1024)),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(media.upload).not.toHaveBeenCalled();
+  });
+
+  it('en la propuesta se guarda la URL y el tipo, nunca el archivo', async () => {
+    const { svc, prisma } = montar();
+    await svc.createProposal(sesion.humberto, {
+      ...PROPUESTA_NUEVA,
+      attachmentUrl: 'https://cdn.test/lab/abc.mp4',
+    });
+    const data = prisma.labProposal.create.mock.calls[0][0].data;
+    expect(data.attachmentUrl).toBe('https://cdn.test/lab/abc.mp4');
+    expect(data.attachmentKind).toBe('video');
+  });
+
+  it('un enlace que no es http(s) no se guarda: se pinta como <img> y sería un XSS', async () => {
+    const { svc, prisma } = montar();
+    await expect(
+      svc.createProposal(sesion.humberto, {
+        ...PROPUESTA_NUEVA,
+        attachmentUrl: 'javascript:alert(1)',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.labProposal.create).not.toHaveBeenCalled();
+  });
+});
+
 describe('afiliados y negocios', () => {
   it('un afiliado de Sellea no entra al Lab por ninguna puerta', async () => {
     const { svc, prisma } = montar();
@@ -333,6 +586,19 @@ describe('afiliados y negocios', () => {
     const { svc } = montar();
     await expect(svc.listPublic(sesion.duenoSellea, 'CLIENTS')).rejects.toBeInstanceOf(ForbiddenException);
     await expect(svc.createProposal(sesion.duenoSellea, PROPUESTA_NUEVA)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('la etiqueta de marca no se filtra a quien no es la plataforma', async () => {
+    // El naranja de la moderación se pinta desde `brand`: si viajara en el feed
+    // de una marca, su administrador vería cómo lo etiqueta Clubify.
+    const { svc } = montar();
+    for (const quien of [sesion.humberto, sesion.afiliadoClubify]) {
+      const feed = await svc.listPublic(quien, 'CLIENTS');
+      expect(feed.items.length).toBeGreaterThan(0);
+      for (const p of feed.items) expect('brand' in p).toBe(false);
+    }
+    expect((await svc.getById('p-sellea', sesion.humberto)).brand).toBeNull();
+    expect((await svc.getById('p-clubify', sesion.afiliadoClubify)).brand).toBeNull();
   });
 
   it('un afiliado de Clubify sigue con el Lab de Clubify (históricas incluidas) y sin ver el de Sellea', async () => {

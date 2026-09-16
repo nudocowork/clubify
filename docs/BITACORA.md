@@ -8,6 +8,72 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-16 (30) — Adjuntos en el Lab, aviso al móvil de Javier y la etiqueta naranja en Clubify
+
+Javier: «Aquí permitir adjuntar imágenes o vídeos a SELLEA. Y cuando Humberto
+cree algo o comunique algo, que nos aparezca en Clubify y notifique al
++573248088401. Javier se encarga de revisar y realizar la modificación que
+solicita. Esto no lo tendrán los demás negocios. La idea es que en la parte de
+Clubify salga como NARANJA y así sepamos que es de Sellea. Esto no lo ve ningún
+otro negocio.»
+
+### Qué cambia
+
+- **Adjuntar de verdad, no pegar una URL.** Ruta nueva `POST /lab/adjuntos`:
+  imagen (JPG, PNG, WebP, GIF) hasta 15 MB y video (MP4, MOV, WebM, M4V) hasta
+  100 MB —el techo que ya tenía la plataforma—, a la carpeta `lab/` del bucket;
+  en la propuesta se guarda solo la URL. En «Nueva propuesta» el botón de
+  adjuntar es lo principal y pegar un enlace queda como alternativa.
+- **Solo las marcas blancas y el equipo de casa suben archivos**, que es lo que
+  pidió Javier: «esto no lo tendrán los demás negocios». Un dueño o un afiliado
+  de Clubify sigue viendo el Lab, comentando y pegando un enlace como hasta hoy.
+  El candado está en el backend, antes de leer el fichero.
+- **No se reusó `/media/upload`** a propósito: sus roles dejan fuera al vendedor
+  afiliado, que sí usa el Lab, y no conoce la regla de suplantación. La ruta
+  nueva usa los permisos del Lab, así que una sesión suplantada sigue en **solo
+  lectura**.
+- **Aviso al equipo.** Cuando alguien de una marca blanca crea una propuesta o
+  comenta, sale un SMS al **+573248088401** con la marca, quién fue, el título y
+  el enlace a la moderación. Clubify y las propuestas históricas sin marca no
+  avisan. Si el SMS falla, la propuesta se crea igual y queda el aviso en el log.
+- **Naranja en Clubify.** En la moderación, las propuestas de marca blanca llevan
+  borde y fondo naranja y la etiqueta pasa a chip naranja **manteniendo el nombre
+  real de la marca**, con un punto del color propio de cada una. El campo de
+  marca solo viaja al equipo de la plataforma: un negocio o un afiliado no
+  recibe nada.
+
+### Sin migración
+
+`LabProposal.attachmentUrl` y `attachmentKind` ya existían.
+
+### Revisión de Fable
+
+- **La anti-repetición no frenaba nada**: la clave era el id de la fila recién
+  creada, que es nueva cada vez, así que quince comentarios de Humberto eran
+  quince SMS al móvil de Javier. Ahora agrupa por autor y propuesta (y por autor
+  y título, para el doble clic en «Crear»), y el corte va **antes del primer
+  `await`**: dos comentarios seguidos se colaban los dos por el hueco. Dos
+  propuestas distintas sí avisan las dos: eso es señal, no ráfaga.
+- **Un SMS que no salía era mudo**: el servicio devuelve `{ok:false}` en vez de
+  lanzar, y nadie miraba el retorno. El test probaba una excepción que en
+  producción no ocurre.
+- **Adjuntar estaba abierto a todo Clubify**, no solo a las marcas blancas.
+- «vídeo» → «video» (así se escribe en el resto del producto) y el naranja pasa
+  a un token de marca en vez de colores sueltos de Tailwind.
+
+### Ojo al comprobarlo
+
+Si Javier entra a Sellea **desde el panel maestro** no verá el botón de
+adjuntar, ni «Crear propuesta»: las sesiones suplantadas son de solo lectura en
+el Lab desde el bloque anterior, porque una propuesta saldría firmada por
+Humberto. Para verlo hay que mirarlo como equipo de Clubify, o pedírselo a él.
+
+### Lo que queda fuera
+
+- Falta la prueba de humo con un video grande de verdad: el proxy de delante
+  puede cortar por tamaño o por tiempo antes de que llegue al bucket.
+- El correo al autor cuando cambia el estado sigue como estaba.
+
 ## 2026-09-16 (29) — El logo desde el propio InfoLink, y la Configuración sin lo que un InfoLink no tiene
 
 Javier: «En el bloque de los InfoLinks gratuitos y de pagos debemos tener la

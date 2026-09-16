@@ -117,6 +117,44 @@ export const VOTE_META: Record<
 };
 
 /**
+ * El naranja de «esto es de una marca blanca» en la moderación de Clubify.
+ *
+ * Javier lo pidió literal (2026-09-16): «que en la parte de Clubify salga como
+ * NARANJA y así sepamos que es de Sellea». Es un color FIJO de Clubify y no el
+ * de la marca a propósito: sirve para reconocer de un vistazo lo que hay que
+ * atender, y con el color de cada marca eso cambiaría con cada marca nueva. El
+ * nombre sigue en la etiqueta, y el color propio de la marca queda en el punto.
+ *
+ * El naranja sale del token `marca-blanca` de `tailwind.config.ts`, no de la
+ * paleta suelta de Tailwind: así se cambia en un sitio y no en cinco clases.
+ *
+ * Solo se pinta donde hay `brand`, que el backend rellena únicamente para el
+ * equipo de la plataforma: un negocio o un afiliado nunca ve nada de esto.
+ */
+export const NARANJA_MARCA = {
+  /** Etiqueta con el nombre de la marca. */
+  chip: 'bg-marca-blanca-soft text-marca-blanca-ink border border-marca-blanca/40',
+  /** Fila o tarjeta de una propuesta de marca blanca en la moderación. */
+  fila: 'border-l-4 border-marca-blanca bg-marca-blanca-soft/50',
+} as const;
+
+/**
+ * Si se pinta el botón de adjuntar. ESPEJO de `puedeAdjuntar` en el backend
+ * (`lab-access.ts`), que es el candado de verdad: aquí solo se decide qué se
+ * enseña, y un POST a mano se topa igual con el 403.
+ *
+ * Subir es para las marcas blancas (y el equipo de la plataforma). Un negocio
+ * de Clubify sigue viendo el campo de siempre para pegar un enlace: el candado
+ * cierra la subida al bucket, no el adjunto.
+ */
+export function puedeAdjuntarEnLab(contexto: LabContexto): boolean {
+  if (contexto.soloLectura) return false;
+  return (
+    contexto.alcance === 'MARCA_ADMIN' || contexto.alcance === 'PLATAFORMA_EQUIPO'
+  );
+}
+
+/**
  * El color de una marca, solo si es un hex válido. Viene de la base y se pinta
  * en `style`: un valor raro no debe colarse en el CSS.
  */

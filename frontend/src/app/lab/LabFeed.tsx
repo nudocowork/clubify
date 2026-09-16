@@ -19,11 +19,13 @@ import {
   PRIORITY_META,
   colorDeMarca,
   formatRelative,
+  puedeAdjuntarEnLab,
   type LabCategory,
   type LabPriority,
   type LabStatus,
   type Proposal,
 } from './_shared';
+import { SubirAdjunto } from './SubirAdjunto';
 import { useLabContexto } from './useLabContexto';
 
 type SortBy = 'top' | 'newest' | 'topMonth';
@@ -215,6 +217,7 @@ export function LabFeed({
 
       {showCreate && (
         <CreateModal
+          puedeAdjuntar={puedeAdjuntarEnLab(lab.contexto)}
           defaultCategory={category}
           onClose={() => setShowCreate(false)}
           onCreated={() => {
@@ -271,6 +274,7 @@ function ProposalCard({ proposal, href }: { proposal: Proposal; href: string }) 
             <span>{formatRelative(proposal.createdAt)}</span>
             <span>💬 {proposal.commentsCount}</span>
             <span>🗳 {proposal.votesCount}</span>
+            {proposal.attachmentUrl && <span>📎 Adjunto</span>}
           </div>
         </div>
       </div>
@@ -280,10 +284,13 @@ function ProposalCard({ proposal, href }: { proposal: Proposal; href: string }) 
 
 function CreateModal({
   defaultCategory,
+  puedeAdjuntar,
   onClose,
   onCreated,
 }: {
   defaultCategory: LabCategory;
+  /** Subir archivos es de las marcas blancas; el resto pega un enlace. */
+  puedeAdjuntar: boolean;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -293,6 +300,7 @@ function CreateModal({
   const [category, setCategory] = useState<LabCategory>(defaultCategory);
   const [priority, setPriority] = useState<LabPriority>('MEDIUM');
   const [attachmentUrl, setAttachmentUrl] = useState('');
+  const [attachmentKind, setAttachmentKind] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function submit(e: React.FormEvent) {
@@ -309,7 +317,9 @@ function CreateModal({
           priority,
           expectedBenefit: expectedBenefit || undefined,
           attachmentUrl: attachmentUrl || undefined,
-          attachmentKind: attachmentUrl ? guessKind(attachmentUrl) : undefined,
+          // Vacío al pegar una URL a mano: el backend deduce el tipo de la
+          // extensión, que es lo único que se puede saber sin descargarla.
+          attachmentKind: attachmentKind || undefined,
         }),
       });
       onCreated();
@@ -390,18 +400,42 @@ function CreateModal({
               <option value="CRITICAL">Crítica</option>
             </select>
           </label>
-          <label className="grid gap-1.5">
-            <span className="text-sm font-medium text-ink">
-              URL de adjunto (opcional)
-            </span>
-            <input
-              className="input"
-              type="url"
-              placeholder="https://... (imagen, PDF, video)"
-              value={attachmentUrl}
-              onChange={(e) => setAttachmentUrl(e.target.value)}
-            />
-          </label>
+          {puedeAdjuntar ? (
+            <div className="grid gap-1.5">
+              <span className="text-sm font-medium text-ink">
+                Imagen o video (opcional)
+              </span>
+              <span className="text-xs text-mute2">
+                Una captura o un video corto explica en un vistazo lo que quieres
+                cambiar.
+              </span>
+              <SubirAdjunto
+                url={attachmentUrl}
+                kind={attachmentKind}
+                disabled={busy}
+                onChange={(url, kind) => {
+                  setAttachmentUrl(url);
+                  setAttachmentKind(kind);
+                }}
+              />
+            </div>
+          ) : (
+            // Sin subida (negocios y afiliados de Clubify) queda el campo de
+            // siempre: pegar el enlace. Quitárselo sería quitarles algo que ya
+            // tenían.
+            <label className="grid gap-1.5">
+              <span className="text-sm font-medium text-ink">
+                URL de adjunto (opcional)
+              </span>
+              <input
+                className="input"
+                type="url"
+                placeholder="https://... (imagen, video, PDF)"
+                value={attachmentUrl}
+                onChange={(e) => setAttachmentUrl(e.target.value)}
+              />
+            </label>
+          )}
           <div className="flex gap-2 justify-end mt-2">
             <button
               type="button"
@@ -419,12 +453,4 @@ function CreateModal({
       </div>
     </div>
   );
-}
-
-function guessKind(url: string): string {
-  const low = url.toLowerCase();
-  if (/\.(png|jpe?g|webp|gif|svg)$/.test(low)) return 'image';
-  if (/\.pdf$/.test(low)) return 'pdf';
-  if (/\.(mp4|webm|mov)$/.test(low)) return 'video';
-  return 'document';
 }
