@@ -18,6 +18,7 @@ import {
   deriveRenewalState,
   type RenewalStateResult,
 } from './dunning';
+import { diasDeFechaTardia } from './fecha-de-cobro';
 
 // Fase 3 (2026-08-31): alertas internas de cobro al equipo. Se envían por la
 // subcuenta GB del equipo (sendInternalAlert) — la misma probada con el SMS de
@@ -754,9 +755,13 @@ export class BillingService {
     const reminderTodayCount = await this.sendPreChargeReminderToday(now); // día del cobro
     // Secuencia de mora D+1/D+2/D+3 (recordatorio → "no procesado" → suspensión).
     const dunning = await this.processOverdueAccounts(now);
+    // Solo deja constancia (no toca datos): fechas de cobro que van por delante
+    // del ciclo real y que, calladas, dejan al negocio sin un solo aviso previo.
+    const fechasTardias = await this.avisarFechasDeCobroTardias();
 
     return {
       suspendedCount: trialSuspendedCount,
+      fechasTardiasCount: fechasTardias,
       // Los que cancelaron y se les acabó el período que pagaron.
       canceledEndedCount: canceladosVencidos,
       reminderCount:
@@ -777,6 +782,10 @@ export class BillingService {
    *     cobro exitoso → Hotmart cobró pero no avanzó la fecha (margen 2 días
    *     por drift de fechas de la pasarela).
    * En ambos casos el pago YA entró: no hay que recordar ni mandar mora.
+   *
+   * OJO, es DELIBERADAMENTE ASIMÉTRICO: solo mira el desfase hacia ATRÁS. Una
+   * fecha que va por DELANTE del ciclo real no entra acá ni debe entrar — ver
+   * `avisarFechasDeCobroTardias`, que explica por qué sanarla haría daño.
    */
   private paidButStale(t: {
     lastChargeAt: Date | null;
@@ -788,6 +797,68 @@ export class BillingService {
     const dayMs = 24 * 60 * 60 * 1000;
     const expectedNext = addPlanPeriod(t.lastChargeAt, t.planPeriodicity);
     return t.currentPeriodEnd.getTime() < expectedNext.getTime() - 2 * dayMs;
+  }
+
+  /**
+   * El caso SIMÉTRICO de `paidButStale`: negocios cuya fecha de cobro apunta
+   * DESPUÉS del ciclo real. Solo AVISA; no toca un solo dato. Esa es la
+   * decisión importante de este método.
+   *
+   * Sanarlo por el camino de `paidButStale` habría hecho daño: `healStaleCharge`
+   * limpia `failedPaymentCount` y `firstFailedAt`, así que a Café Macondo —que
+   * tiene DOS cobros fallidos de verdad— le habría borrado la mora y lo habría
+   * dejado figurando al día. Es exactamente el fallo de MYKOZ que documenta
+   * `esMoraFantasma` en dunning.ts. Y `nextChargeAfterPayment` tampoco lo
+   * arreglaría: parte de `currentPeriodEnd`, que acá es justo el dato malo.
+   *
+   * Corregir la fecha se decide negocio por negocio (moverla al pasado los
+   * vuelve morosos de golpe y el cron los suspendería pagando bien), y para eso
+   * está `scripts/corregir-fecha-de-cobro.cjs`. El cron solo deja constancia:
+   * sin esto el desfase no aparece en ningún sitio hasta que el cobro ya falló,
+   * que es como se descubrió el caso Macondo.
+   */
+  private async avisarFechasDeCobroTardias() {
+    const candidatos = await this.prisma.tenant.findMany({
+      where: {
+        status: 'ACTIVE',
+        canceledAt: null,
+        deletedAt: null,
+        isCampaignHost: false,
+        currentPeriodEnd: { not: null },
+        lastChargeAt: { not: null },
+        // El mismo universo que los avisos de pre-cobro: Clubify (legacy con
+        // whiteLabelId null) + marcas que cobran directo por Stripe.
+        OR: [
+          { whiteLabelId: null },
+          { whiteLabel: { slug: 'clubify' } },
+          { whiteLabel: { paymentGateway: 'STRIPE' } },
+        ],
+      },
+      select: {
+        id: true,
+        brandName: true,
+        currentPeriodEnd: true,
+        lastChargeAt: true,
+        planPeriodicity: true,
+      },
+    });
+    // UNA línea al día, no una por negocio: esto corre a diario y los que
+    // quedan sin corregir (Birria León necesita decisión manual) sonarían para
+    // siempre. Un resumen se lee; 18 líneas repetidas se aprenden a ignorar.
+    const tardias: string[] = [];
+    for (const t of candidatos) {
+      const dias = diasDeFechaTardia(t);
+      if (dias == null) continue;
+      tardias.push(`${t.brandName} (+${dias}d)`);
+    }
+    if (tardias.length) {
+      this.logger.warn(
+        `[FECHA-DE-COBRO] ${tardias.length} negocio(s) con el cobro apuntado DESPUÉS ` +
+          `del ciclo real: los avisos previos saldrían tarde o no saldrían. ` +
+          `Corregir con scripts/corregir-fecha-de-cobro.cjs → ${tardias.join(', ')}`,
+      );
+    }
+    return tardias.length;
   }
 
   /**

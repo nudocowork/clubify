@@ -8,6 +8,77 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-16 (31) — La fecha de cobro nacía el día del webhook y no el día del pago: 14 corregidas
+
+Javier: «Café Macondo (+56990432569) se le realizó el cobro de la suscripción hoy
+y falló. Sin embargo, viendo su historial del chat, veo que no se le enviaron los
+mensajes de 7 días de seguimiento indicando que se le cobraría. Revisa por qué no
+se enviaron.»
+
+### Por qué no le llegó ningún aviso
+
+Macondo compró el **16-06**; el webhook de Hotmart llegó el **24-06**, al cerrar
+la garantía. Cuando el payload no trae `date_next_charge`, el primer cobro se
+calculaba con `addPlanPeriod(new Date(), período)` —es decir, anclado en **el día
+que se procesa el webhook**—, así que la fecha nació 8 días tarde y se quedó así
+para siempre. Los avisos de 7, 3 y 1 día se calculan sobre esa fecha: caían
+**después** del cobro real. No es que fallara el envío; es que estaban apuntados
+tarde.
+
+### Lo aplicado en producción (ensayo antes, escritura condicional)
+
+**14 fechas corregidas**, 0 saltadas. Las tres que cobraban ya: La comilona
+oficial (17-09, cobraba al día siguiente), Danlu caffe (18-09) y Top Man (23-09).
+El resto: Amor Espresso, Cafetería Piedra Negra, Degodoy, Fruletto, Haus Art
+Cafe, Orion FisioSpa, Pipe Gomitas, Pócimas mágicas, SUGAR & KISS, Surticolor y
+TABÚ CLUB.
+
+**4 quedan a mano**, a propósito:
+
+- **Birria León** (195 d), **Café Macondo** (8 d, 2 cobros fallidos) y **la
+  burguesía** (4 d, 1 fallo): su fecha recalculada cae en el **pasado** y
+  moverla los dejaría vencidos de golpe. Decisión de Javier: dejarlos.
+- **Fusion sushi**: código sintético `wl-…`, cero webhooks de Hotmart y su fecha
+  la había sanado `healStaleCharge`, no un cobro real. Recalcular sobre eso sería
+  inventarse la fecha.
+
+Los 15 tenían los seis campos de deduplicación en null, así que al mover la fecha
+el cron manda **un** aviso por negocio y corrida, sin repetir ni disparar en
+ráfaga.
+
+### Lo honesto sobre «la raíz»
+
+La raíz de verdad se arregló el **18-08** (`f8b067df`): desde entonces
+`nextChargeFromPayload` lee `purchase.date_next_charge`, y en producción los 46
+payloads de compra lo traen. Los 18 desalineados se procesaron entre el 24-06 y
+el 16-08, todos anteriores. Lo que se toca ahora es el **cinturón** para payloads
+sin esa fecha (compra única, pendientes raros): anclar en `approved_date` en vez
+de en hoy.
+
+### Revisión de Fable
+
+Confirmó lo que importaba: el gate de «primer pago» es real (una renovación no
+cambia de camino), `approved_date` viene en milisegundos en los 46 payloads de
+producción, y al mover la fecha cada negocio recibe **un** aviso por corrida, sin
+repetir. Encontró dos cosas que se arreglaron antes de desplegar:
+
+1. **El cambio abría un hueco que antes no existía**: una fecha de cobro que
+   **nace en el pasado** —un pendiente consumido meses después, o un
+   `approved_date` que llegue en segundos y dé 1970— habría mandado a mora, y a
+   suspensión, a alguien que acababa de pagar. Ahora la función avanza por ciclos
+   completos hasta el futuro y rechaza el epoch en segundos o en texto. De paso
+   corta que un 1970 acabe en `lastChargeAt` y en la primera comisión.
+2. **Fusion sushi no debía corregirse en automático**, y la narrativa de «aquí
+   estaba la raíz» era falsa.
+
+### Lo que NO se hizo
+
+- No se metió el caso simétrico dentro de `paidButStale`: habría disparado
+  `healStaleCharge`, que limpia `failedPaymentCount` y `firstFailedAt`, y a
+  Macondo —con 2 cobros fallidos reales— lo habría dejado figurando al día. El
+  caso simétrico **solo avisa en el log**, una línea al día con la lista.
+- Birria León sonará en ese log a diario hasta que se resuelva a mano.
+
 ## 2026-09-16 (30) — Adjuntos en el Lab, aviso al móvil de Javier y la etiqueta naranja en Clubify
 
 Javier: «Aquí permitir adjuntar imágenes o vídeos a SELLEA. Y cuando Humberto

@@ -10,7 +10,7 @@ import { PreregAlertsService } from '../auth/prereg-alerts.service';
 import { CommissionExceptionsService } from '../admin/commission-exceptions.service';
 import { monthKey } from '../common/period-key';
 import { COMMISSION_DEFAULTS } from '../common/commission-defaults';
-import { addPlanPeriod, parsePlanPeriodLabel } from '../common/plan-period';
+import { parsePlanPeriodLabel } from '../common/plan-period';
 import { getCanonicalBundlePrice } from '../common/plan-pricing';
 import { SmsTemplatesService } from './sms-templates.service';
 import { BrandEmailService } from '../email/brand-email.service';
@@ -18,6 +18,10 @@ import { fmtEmailDate } from '../email/brand-email-templates';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
 import { parseWlIdFromSrc, parseAffiliateRawFromSrc } from './hotmart-src';
 import { precioDePackUsd } from './precio-de-pack';
+import {
+  primerCobroSinFechaDeLaPasarela,
+  fechaDePagoAprobado,
+} from './fecha-de-cobro';
 import { ModuleRef } from '@nestjs/core';
 import { MembershipBillingService } from '../cuponera/membership-billing.service';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
@@ -1635,22 +1639,47 @@ export class HotmartService {
         `activatePurchase tenant=${tenant.id}: planPeriodicity ausente — derivada de Hotmart ("${payload.data?.subscription?.plan?.name}") = ${periodFromHotmart}`,
       );
     }
+    // lastChargeAt — timestamp del pago aprobado real (no calculado). Se calcula
+    // ANTES que `nextCharge` a propósito: es su ancla. Ver el fallback de abajo.
+    // `fechaDePagoAprobado` descarta el epoch en SEGUNDOS (daría 1970) y el
+    // número en STRING (daría Invalid Date, y el toISOString() del log de abajo
+    // reventaría): los dos acabarían escritos en lastChargeAt y purchasedAt.
+    const pagoAprobado = fechaDePagoAprobado(
+      payload.data?.purchase?.approved_date,
+    );
+    const lastChargeAt = pagoAprobado ?? new Date();
     let nextCharge = nextChargeFromPayload(payload);
     if (!nextCharge && !tenant.currentPeriodEnd) {
-      // Bug #1: el fallback debe respetar la periodicidad real del plan
-      // (Trimestral = +3 meses, no +30 días fijos). Antes siempre sumaba 30d.
-      nextCharge = addPlanPeriod(new Date(), effectivePeriod);
+      // Esto es el CINTURÓN, no la raíz. La raíz del desfase de Macondo se
+      // arregló el 2026-08-18 (f8b067df): desde entonces `nextChargeFromPayload`
+      // lee `purchase.date_next_charge`, que viene en los 46/46 payloads de
+      // compra de producción, así que este fallback casi nunca entra. Los 18
+      // negocios desalineados medidos el 16-09 se procesaron entre el 24-06 y el
+      // 16-08, todos anteriores a aquel arreglo, y se reparan con
+      // `scripts/corregir-fecha-de-cobro.cjs`.
+      //
+      // Cuando SÍ entra, dos reglas que costaron un cliente:
+      //  1. Respetar la periodicidad real (Trimestral = +3 meses, no 30 días).
+      //  2. Contar desde el PAGO, no desde el día del webhook. Hotmart manda
+      //     PURCHASE_COMPLETE al cerrar la garantía, días después de la compra:
+      //     Macondo compró el 16-06, el webhook llegó el 24-06 y «hoy + 3
+      //     meses» dejó el cobro escrito el 24-09 cuando Hotmart cobraba el
+      //     16-09. De esa fecha cuelgan los avisos, así que el D-7, el D-3 y el
+      //     D-0 quedaron DESPUÉS del cobro real y no recibió ninguno.
+      const primer = primerCobroSinFechaDeLaPasarela(
+        pagoAprobado,
+        new Date(),
+        effectivePeriod,
+      );
+      nextCharge = primer.fecha;
       this.logger.warn(
-        `activatePurchase tenant=${tenant.id}: primer pago sin date_next_charge — fallback por periodicidad ${effectivePeriod ?? 'MENSUAL'}=${nextCharge.toISOString()}`,
+        `activatePurchase tenant=${tenant.id}: primer pago sin date_next_charge — fallback por periodicidad ${effectivePeriod ?? 'MENSUAL'} anclado en ${primer.ancla === 'pago' ? `el pago aprobado (${lastChargeAt.toISOString()})` : 'HOY (approved_date ausente o no fiable)'}${primer.ciclosAdelantados > 0 ? `, adelantado ${primer.ciclosAdelantados} ciclo(s) para que no naciera vencido` : ''} = ${nextCharge.toISOString()}`,
       );
     } else if (!nextCharge) {
       this.logger.warn(
         `activatePurchase tenant=${tenant.id}: Hotmart no envió date_next_charge en renovación — preservamos currentPeriodEnd=${tenant.currentPeriodEnd?.toISOString()}`,
       );
     }
-    // lastChargeAt — timestamp del pago aprobado real (no calculado).
-    const approvedDate = payload.data?.purchase?.approved_date;
-    const lastChargeAt = approvedDate ? new Date(approvedDate) : new Date();
     // Ancla canónica para validar el monto. Usa `effectivePeriod`, NO
     // planForBase.planPeriodicity: cuando la DB tiene la periodicidad en null
     // (caso El Arrayán) esa variable ya trae la derivada de Hotmart. Con null,
