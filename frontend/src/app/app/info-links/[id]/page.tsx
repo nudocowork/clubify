@@ -13,6 +13,7 @@ import { InfoLinkSocialCard } from '@/components/InfoLinkSocialCard';
 import type { SocialConfig } from '@/lib/info-link-social';
 import { errorDeTelefono, telLegible } from '@/lib/tel-link';
 import { ImageUploader } from '@/components/ImageUploader';
+import { toast } from '@/components/Toast';
 import {
   INFO_LINK_TEMPLATES,
   resolveTemplate,
@@ -214,6 +215,9 @@ export default function InfoLinkEditor() {
   const [tenant, setTenant] = useState<any>(null);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [busy, setBusy] = useState(false);
+  // El logo del negocio se guarda solo al subirlo (PATCH /tenants/me), aparte
+  // del botón «Guardar», que manda únicamente campos del InfoLink.
+  const [guardandoLogo, setGuardandoLogo] = useState(false);
   const [stats, setStats] = useState<any>(null);
   const [locations, setLocations] = useState<Array<{ id: string; name: string; address?: string | null }>>([]);
   // Tarjetas de fidelización del tenant — pobladas async para el
@@ -241,6 +245,35 @@ export default function InfoLinkEditor() {
   useEffect(() => {
     load();
   }, [id]);
+
+  /**
+   * Logo del negocio. Vive en `Tenant.logoUrl` — el MISMO campo que edita la
+   * pantalla del menú, para que no haya dos logos distintos conviviendo. Se
+   * edita desde aquí porque un negocio de solo InfoLink no puede abrir esa
+   * pantalla: sin esto no tenía por dónde poner su logo y el InfoLink salía
+   * sin marca. No depende de que exista un menú creado: `/tenants/me` no toca
+   * la tabla del storefront.
+   */
+  async function guardarLogo(url: string | null) {
+    setGuardandoLogo(true);
+    try {
+      // Cadena vacía, no null: el DTO de PATCH /tenants/me valida @IsString y
+      // un null se cae con 400. Es lo mismo que manda la pantalla del menú.
+      const actualizado = await api<{ logoUrl?: string | null }>('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ logoUrl: url ?? '' }),
+      });
+      setTenant((prev: any) => ({
+        ...(prev ?? {}),
+        logoUrl: actualizado?.logoUrl || null,
+      }));
+      toast(url ? t('businessLogoSaved') : t('businessLogoRemoved'), 'success');
+    } catch (e: any) {
+      toast(e?.message || t('businessLogoFailed'), 'error');
+    } finally {
+      setGuardandoLogo(false);
+    }
+  }
 
   async function save() {
     if (!link) return;
@@ -662,6 +695,28 @@ export default function InfoLinkEditor() {
                 </select>
               </div>
             </div>
+          </div>
+
+          {/* Logo del negocio — es el campo del negocio (Tenant.logoUrl), el
+              mismo que edita la pantalla del menú. Está aquí porque quien solo
+              tiene InfoLink no entra al menú y se quedaba sin poder ponerlo. */}
+          <div className="card card-pad">
+            <h3 className="font-semibold m-0 mb-1">{t('businessLogo')}</h3>
+            <p className="text-xs text-mute mb-3 leading-relaxed">
+              {t('businessLogoDesc')}
+            </p>
+            <ImageUploader
+              value={tenant?.logoUrl ?? null}
+              onChange={(url) => guardarLogo(url)}
+              folder="logos"
+              // Sin recorte ni aviso de resolución: un logo es chico y con
+              // transparencia a propósito — pasarlo por el cropper lo estropea.
+              crop={false}
+              minDimensionWarn={false}
+            />
+            {guardandoLogo && (
+              <div className="text-xs text-mute mt-2">{t('saving')}</div>
+            )}
           </div>
 
           {/* Personalización visual — looks completos + paneles fine */}

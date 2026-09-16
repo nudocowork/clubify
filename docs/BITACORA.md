@@ -8,6 +8,54 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-16 (29) — El logo desde el propio InfoLink, y la Configuración sin lo que un InfoLink no tiene
+
+Javier: «En el bloque de los InfoLinks gratuitos y de pagos debemos tener la
+opción de colocar el logo desde ahí… que el que tenga InfoLink no más pueda
+colocar el logo desde ese apartado. También quitar las demás configuraciones que
+no tienen nada que ver con INFOLINK: "Documento de políticas de datos",
+"Número receptor de reservas", "Alerta de pagos por WhatsApp", "país y moneda",
+sellos por día y nombre de sección principal.»
+
+### Qué cambia
+
+- **El logo se sube desde el editor del InfoLink**, sin ir a Configuración. Es
+  el mismo campo del negocio (`logoUrl`), así que un negocio Completo que lo
+  cambie ahí lo cambia también en su menú y en su tarjeta: el texto lo dice.
+- **Seis secciones dejan de pintarse** para un negocio de solo InfoLink. La
+  regla vive en `backend/src/common/solo-infolink.ts` con su espejo en
+  `frontend/src/lib/solo-infolink.ts`, y el backend ya bloqueaba esas rutas por
+  prefijo (`InfoLinkOnlyGuard`).
+- Un negocio Completo no pierde nada: la función devuelve `true` para todo lo
+  que no sea `INFOLINK`, incluidos los tipos desconocidos.
+
+### Revisión de Fable
+
+Sin bloqueantes; lo corregido antes de desplegar:
+
+1. **Si `/tenants/me` fallaba, un Completo perdía las seis secciones en
+   silencio** y parecía que se las habían quitado. Ahora sale un aviso de que no
+   se pudo cargar y que recargue.
+2. El comentario decía que el InfoLink recibe igual las alertas de pago «por
+   correo y en el panel». Es impreciso: el aviso de un cobro fallido es **solo
+   SMS**, y sigue saliendo al teléfono del dueño de «Datos personales»; lo que
+   se esconde es el interruptor y el teléfono alterno.
+3. El texto del logo no decía que también cambia el menú y la tarjeta.
+4. Un test comparaba la función consigo misma: verde pasara lo que pasara. Ahora
+   comprueba que el nivel (gratuito o de pago) **no** viaja en `businessType`.
+
+### Lo que queda fuera
+
+- **El país nunca se guarda en el alta de InfoLink**, así que queda `CO` por
+  defecto y los botones de teléfono del editor salen con esa bandera (se puede
+  cambiar a mano en el selector). Moneda y zona horaria no las usa el InfoLink.
+  Si se quiere a cero, hay que capturar el país en el alta.
+- `PATCH /tenants/me` **sigue aceptando** esos campos para un InfoLink: esconder
+  la pantalla no cierra la API. Es inofensivo porque los módulos que leen esos
+  campos están bloqueados, pero conviene saberlo.
+- `ImageUploader` tiene textos fijos en español que salen igual en los paneles
+  en inglés y portugués. Es de antes; el menú ya lo sufría.
+
 ## 2026-09-15 (28) — Los correos de las marcas, con presencia: cabecera, botón y firma de la marca
 
 Javier: «Necesito que entres y optimices y/o mejores el estilo de los correos de

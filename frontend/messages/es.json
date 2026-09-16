@@ -635,6 +635,11 @@
     "blocks": "Bloques",
     "blur": "Blur",
     "borderRadius": "Radio del borde",
+    "businessLogo": "Logo del negocio",
+    "businessLogoDesc": "Es el logo que se ve arriba en tu InfoLink. Es el logo del negocio: si lo cambias aquí, cambia en tu menú, tu tarjeta y todos tus enlaces. Se guarda al subirlo, sin pulsar «Guardar».",
+    "businessLogoFailed": "No se pudo guardar el logo",
+    "businessLogoRemoved": "Logo quitado",
+    "businessLogoSaved": "Logo actualizado",
     "businessName": "Nombre del negocio",
     "button": "Botón",
     "buttonColor": "Color del botón",
@@ -836,7 +841,7 @@
     "upgradeInfoLink": "Mejora tu InfoLink a PRO",
     "uploadHeroForPreview": "Sube una imagen de portada arriba para ver el preview.",
     "uploadImageFirst": "Sube una imagen primero",
-    "uploadLogoHint": "Sube un logo en Configuración → Marca para ver el preview",
+    "uploadLogoHint": "Sube el logo del negocio aquí arriba para ver la vista previa",
     "useDefaultColor": "Usar el color por defecto",
     "view5Styles": "🎨 Ver 5 estilos",
     "view5StylesArrow": "Ver los 5 estilos →",
@@ -1258,6 +1263,7 @@
     "yourColor": "Tu color"
   },
   "app_settings": {
+    "loadFailed": "No se pudo cargar la configuración de tu negocio. Recarga la página: puede que falten secciones.",
     "loading": "Cargando…",
     "myAccount": "Mi cuenta",
     "saving": "Guardando…",

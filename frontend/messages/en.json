@@ -635,6 +635,11 @@
     "blocks": "Blocks",
     "blur": "Blur",
     "borderRadius": "Border radius",
+    "businessLogo": "Business logo",
+    "businessLogoDesc": "It's the logo shown at the top of your InfoLink. It's your business logo: change it here and it changes in your menu, your card and every link. It saves as soon as you upload it — no need to press Save.",
+    "businessLogoFailed": "Couldn't save the logo",
+    "businessLogoRemoved": "Logo removed",
+    "businessLogoSaved": "Logo updated",
     "businessName": "Business name",
     "button": "Button",
     "buttonColor": "Button color",
@@ -836,7 +841,7 @@
     "upgradeInfoLink": "Upgrade your InfoLink to PRO",
     "uploadHeroForPreview": "Upload a cover image above to see the preview.",
     "uploadImageFirst": "Upload an image first",
-    "uploadLogoHint": "Upload a logo in Settings → Brand to see the preview",
+    "uploadLogoHint": "Upload your business logo above to see the preview",
     "useDefaultColor": "Use the default color",
     "view5Styles": "🎨 View 5 styles",
     "view5StylesArrow": "View the 5 styles →",
@@ -1258,6 +1263,7 @@
     "yourColor": "Your color"
   },
   "app_settings": {
+    "loadFailed": "We couldn't load your business settings. Reload the page — some sections may be missing.",
     "loading": "Loading…",
     "myAccount": "My account",
     "saving": "Saving…",

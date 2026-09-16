@@ -11,6 +11,10 @@ import { LanguageSwitcherIntl } from '@/components/LanguageSwitcherIntl';
 import { PhoneInput } from '@/components/PhoneInput';
 import { FileUploader } from '@/components/FileUploader';
 import { useTenantCountry } from '@/lib/useTenantCountry';
+import {
+  seVeEnConfiguracion,
+  type SeccionDeConfiguracion,
+} from '@/lib/solo-infolink';
 
 type Profile = {
   id: string;
@@ -41,6 +45,9 @@ type TenantMe = {
   deliveryAlertsEnabled?: boolean;
   deliveryAlertsPhones?: string[] | null;
   deliveryAlertsEvents?: string[] | null;
+  // Línea de producto del negocio ('INFOLINK' = solo InfoLink). Decide qué
+  // secciones de esta pantalla se pintan — ver @/lib/solo-infolink.
+  businessType?: string | null;
   plan?: { name: string } | null;
 };
 
@@ -174,6 +181,9 @@ export default function SettingsPage() {
   const [pwdMsg, setPwdMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [tenant, setTenant] = useState<TenantMe | null>(null);
+  // Si no sabemos el tipo de negocio no pintamos las secciones que dependen de
+  // él; hay que decirlo, o un Completo cree que se las han quitado.
+  const [errorCarga, setErrorCarga] = useState(false);
 
   // Bloque 3 (2026-06-12): edición del nombre del negocio. Persiste en
   // Tenant.brandName via PATCH /tenants/me. NO toca slug ni subdomain
@@ -234,7 +244,7 @@ export default function SettingsPage() {
         setTimezone(t.timezone ?? 'America/Bogota');
         setMaxStampsPerDay(Math.max(1, t.maxStampsPerDay ?? 1));
       })
-      .catch(() => null);
+      .catch(() => setErrorCarga(true));
   }, []);
 
   async function saveSectionLabel(e: React.FormEvent) {
@@ -509,6 +519,18 @@ export default function SettingsPage() {
 
   if (!me) return <div className="text-mute">{t('loading')}</div>;
 
+  /**
+   * ¿Se pinta esta sección? Un negocio de solo InfoLink no ve las que
+   * configuran módulos que no tiene (tarjeta, reservas, menú, cobros por
+   * WhatsApp). La regla vive en @/lib/solo-infolink, espejo de la del backend.
+   *
+   * Mientras `/tenants/me` no responde no sabemos de qué tipo es el negocio, y
+   * no pintamos: enseñar una sección y quitarla medio segundo después es peor
+   * que esperar a saberlo.
+   */
+  const verSeccion = (seccion: SeccionDeConfiguracion) =>
+    tenant !== null && seVeEnConfiguracion(seccion, tenant.businessType);
+
   return (
     <div className="max-w-2xl mx-auto">
       <div className="page-head">
@@ -603,100 +625,113 @@ export default function SettingsPage() {
       {/* Documento de políticas de datos (PDF Software 8). Debajo del nombre
           del negocio. Se muestra como enlace en la casilla de consentimiento
           del registro público de tarjeta. Vacío → default /legal/privacy. */}
-      <form onSubmit={saveDataPolicy} className="card card-pad mb-4">
-        <h2 className="text-base font-semibold m-0">{t('dataPolicyTitle')}</h2>
-        <p className="text-xs text-mute mt-1">{t('dataPolicyDesc')}</p>
-
-        <div className="mt-4">
-          <FileUploader
-            value={dataPolicyUrl || null}
-            kind="document"
-            folder="data-policy"
-            onChange={(url) => setDataPolicyUrl(url ?? '')}
-          />
+      {/* El documento solo se enseña al registrar una TARJETA: un negocio de
+          solo InfoLink no emite tarjetas, así que no ve esta sección. */}
+      {errorCarga && (
+        <div className="card card-pad mb-4">
+          <p className="text-sm text-mute m-0">{t('loadFailed')}</p>
         </div>
+      )}
 
-        <div className="mt-4">
-          <label className="label">{t('dataPolicyUrlLabel')}</label>
-          <input
-            className="input"
-            type="url"
-            value={dataPolicyUrl}
-            onChange={(e) => setDataPolicyUrl(e.target.value)}
-            placeholder={t('dataPolicyUrlPlaceholder')}
-          />
-        </div>
+      {verSeccion('politicaDeDatos') && (
+        <form onSubmit={saveDataPolicy} className="card card-pad mb-4">
+          <h2 className="text-base font-semibold m-0">{t('dataPolicyTitle')}</h2>
+          <p className="text-xs text-mute mt-1">{t('dataPolicyDesc')}</p>
 
-        <p className="text-xs text-mute mt-3">
-          {t('dataPolicyDefaultNote')}{' '}
-          <a
-            href="/legal/tratamiento-datos"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline"
-          >
-            {t('dataPolicyViewDefault')}
-          </a>
-        </p>
-
-        {dataPolicyMsg && (
-          <div
-            className={`mt-3 text-sm rounded-lg px-3 py-2 ${
-              dataPolicyMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
-            }`}
-          >
-            {dataPolicyMsg.text}
+          <div className="mt-4">
+            <FileUploader
+              value={dataPolicyUrl || null}
+              kind="document"
+              folder="data-policy"
+              onChange={(url) => setDataPolicyUrl(url ?? '')}
+            />
           </div>
-        )}
-        <div className="mt-4 flex justify-end">
-          <button type="submit" className="btn-primary" disabled={savingDataPolicy}>
-            {savingDataPolicy ? t('saving') : t('dataPolicySave')}
-          </button>
-        </div>
-      </form>
+
+          <div className="mt-4">
+            <label className="label">{t('dataPolicyUrlLabel')}</label>
+            <input
+              className="input"
+              type="url"
+              value={dataPolicyUrl}
+              onChange={(e) => setDataPolicyUrl(e.target.value)}
+              placeholder={t('dataPolicyUrlPlaceholder')}
+            />
+          </div>
+
+          <p className="text-xs text-mute mt-3">
+            {t('dataPolicyDefaultNote')}{' '}
+            <a
+              href="/legal/tratamiento-datos"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              {t('dataPolicyViewDefault')}
+            </a>
+          </p>
+
+          {dataPolicyMsg && (
+            <div
+              className={`mt-3 text-sm rounded-lg px-3 py-2 ${
+                dataPolicyMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+              }`}
+            >
+              {dataPolicyMsg.text}
+            </div>
+          )}
+          <div className="mt-4 flex justify-end">
+            <button type="submit" className="btn-primary" disabled={savingDataPolicy}>
+              {savingDataPolicy ? t('saving') : t('dataPolicySave')}
+            </button>
+          </div>
+        </form>
+      )}
 
       {/* #1 (PDF Software 2026-06-29): número receptor de avisos de reservas.
           El botón "Configurar número receptor" del módulo de reservas ancla
           aquí (/app/settings#reservas). */}
-      <form
-        id="reservas"
-        onSubmit={saveReservationsPhone}
-        className="card card-pad mb-4 scroll-mt-20"
-      >
-        <h2 className="text-base font-semibold m-0">{t('resvReceiverTitle')}</h2>
-        <p className="text-xs text-mute mt-1">{t('resvReceiverDesc')}</p>
-        <div className="mt-4">
-          <label className="label">{t('resvReceiverLabel')}</label>
-          <PhoneInput
-            value={resvPhone}
-            onChange={(v) => setResvPhone(v)}
-            defaultCountry={country}
-          />
-          <p className="text-[11px] text-mute mt-1">{t('resvReceiverHint')}</p>
-        </div>
-        {resvMsg && (
-          <div
-            className={`mt-3 text-sm rounded-lg px-3 py-2 ${
-              resvMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
-            }`}
-          >
-            {resvMsg.text}
+      {/* Módulo Reservas — un negocio de solo InfoLink no lo tiene. */}
+      {verSeccion('telefonoDeReservas') && (
+        <form
+          id="reservas"
+          onSubmit={saveReservationsPhone}
+          className="card card-pad mb-4 scroll-mt-20"
+        >
+          <h2 className="text-base font-semibold m-0">{t('resvReceiverTitle')}</h2>
+          <p className="text-xs text-mute mt-1">{t('resvReceiverDesc')}</p>
+          <div className="mt-4">
+            <label className="label">{t('resvReceiverLabel')}</label>
+            <PhoneInput
+              value={resvPhone}
+              onChange={(v) => setResvPhone(v)}
+              defaultCountry={country}
+            />
+            <p className="text-[11px] text-mute mt-1">{t('resvReceiverHint')}</p>
           </div>
-        )}
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            className="btn-ghost"
-            disabled={testingResv || savingResv}
-            onClick={sendTestReservation}
-          >
-            {testingResv ? 'Enviando…' : 'Enviar prueba'}
-          </button>
-          <button type="submit" className="btn-primary" disabled={savingResv}>
-            {savingResv ? t('saving') : t('save')}
-          </button>
-        </div>
-      </form>
+          {resvMsg && (
+            <div
+              className={`mt-3 text-sm rounded-lg px-3 py-2 ${
+                resvMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+              }`}
+            >
+              {resvMsg.text}
+            </div>
+          )}
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              className="btn-ghost"
+              disabled={testingResv || savingResv}
+              onClick={sendTestReservation}
+            >
+              {testingResv ? 'Enviando…' : 'Enviar prueba'}
+            </button>
+            <button type="submit" className="btn-primary" disabled={savingResv}>
+              {savingResv ? t('saving') : t('save')}
+            </button>
+          </div>
+        </form>
+      )}
 
       {/* Idioma — i18n foundation 2026-06-12. El switcher persiste la
           elección en cookie + User.preferredLocale (al estar logueado)
@@ -775,7 +810,7 @@ export default function SettingsPage() {
       {/* Alertas SMS de pago — solo TENANT_OWNER. Staff no debe ver
           esta configuración: contiene teléfonos administrativos y toggles
           de cobranza que no le competen. */}
-      {me?.role === 'TENANT_OWNER' && (
+      {me?.role === 'TENANT_OWNER' && verSeccion('alertasDePago') && (
         <BillingAlertsCard tenant={tenant} onSaved={(t) => setTenant(t)} />
       )}
 
@@ -787,301 +822,311 @@ export default function SettingsPage() {
           desde super-admin (/admin/tenants/[id]), no desde la vista del dueño. */}
 
       {/* País + Moneda del menú público */}
-      <form onSubmit={saveCurrency} className="card card-pad mb-4">
-        <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-          🌎 {t('countryAndCurrency')}
-        </h2>
-        <p className="text-xs text-mute mt-1 leading-relaxed">
-          {t('countryAndCurrencyDesc')}
-        </p>
+      {/* La moneda pinta precios del MENÚ y la zona horaria manda
+          recordatorios de reservas: nada de eso existe en un InfoLink. */}
+      {verSeccion('paisYMoneda') && (
+        <form onSubmit={saveCurrency} className="card card-pad mb-4">
+          <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+            🌎 {t('countryAndCurrency')}
+          </h2>
+          <p className="text-xs text-mute mt-1 leading-relaxed">
+            {t('countryAndCurrencyDesc')}
+          </p>
 
-        <div className="mt-4">
-          <label className="label">{t('businessCountry')}</label>
-          <select
-            className="input"
-            value={country}
-            onChange={(e) => {
-              const c = e.target.value;
-              setCountry(c);
-              // Sugerimos la moneda del país elegido (el negocio puede
-              // cambiarla después). No tocamos el símbolo personalizado.
-              const suggested = COUNTRY_DEFAULT_CURRENCY[c];
-              if (suggested) setCurrency(suggested);
-            }}
-          >
-            <option value="CO">🇨🇴 {t('countryCO')}</option>
-            <option value="MX">🇲🇽 {t('countryMX')}</option>
-            <option value="AR">🇦🇷 {t('countryAR')}</option>
-            <option value="CL">🇨🇱 {t('countryCL')}</option>
-            <option value="PE">🇵🇪 {t('countryPE')}</option>
-            <option value="EC">🇪🇨 {t('countryEC')}</option>
-            <option value="VE">🇻🇪 {t('countryVE')}</option>
-            <option value="UY">🇺🇾 {t('countryUY')}</option>
-            <option value="PY">🇵🇾 {t('countryPY')}</option>
-            <option value="BO">🇧🇴 {t('countryBO')}</option>
-            <option value="CR">🇨🇷 {t('countryCR')}</option>
-            <option value="PA">🇵🇦 {t('countryPA')}</option>
-            <option value="GT">🇬🇹 {t('countryGT')}</option>
-            <option value="HN">🇭🇳 {t('countryHN')}</option>
-            <option value="SV">🇸🇻 {t('countrySV')}</option>
-            <option value="NI">🇳🇮 {t('countryNI')}</option>
-            <option value="BZ">🇧🇿 {t('countryBZ')}</option>
-            <option value="DO">🇩🇴 {t('countryDO')}</option>
-            <option value="ES">🇪🇸 {t('countryES')}</option>
-            <option value="US">🇺🇸 {t('countryUS')}</option>
-            <option value="BR">🇧🇷 {t('countryBR')}</option>
-          </select>
-        </div>
+          <div className="mt-4">
+            <label className="label">{t('businessCountry')}</label>
+            <select
+              className="input"
+              value={country}
+              onChange={(e) => {
+                const c = e.target.value;
+                setCountry(c);
+                // Sugerimos la moneda del país elegido (el negocio puede
+                // cambiarla después). No tocamos el símbolo personalizado.
+                const suggested = COUNTRY_DEFAULT_CURRENCY[c];
+                if (suggested) setCurrency(suggested);
+              }}
+            >
+              <option value="CO">🇨🇴 {t('countryCO')}</option>
+              <option value="MX">🇲🇽 {t('countryMX')}</option>
+              <option value="AR">🇦🇷 {t('countryAR')}</option>
+              <option value="CL">🇨🇱 {t('countryCL')}</option>
+              <option value="PE">🇵🇪 {t('countryPE')}</option>
+              <option value="EC">🇪🇨 {t('countryEC')}</option>
+              <option value="VE">🇻🇪 {t('countryVE')}</option>
+              <option value="UY">🇺🇾 {t('countryUY')}</option>
+              <option value="PY">🇵🇾 {t('countryPY')}</option>
+              <option value="BO">🇧🇴 {t('countryBO')}</option>
+              <option value="CR">🇨🇷 {t('countryCR')}</option>
+              <option value="PA">🇵🇦 {t('countryPA')}</option>
+              <option value="GT">🇬🇹 {t('countryGT')}</option>
+              <option value="HN">🇭🇳 {t('countryHN')}</option>
+              <option value="SV">🇸🇻 {t('countrySV')}</option>
+              <option value="NI">🇳🇮 {t('countryNI')}</option>
+              <option value="BZ">🇧🇿 {t('countryBZ')}</option>
+              <option value="DO">🇩🇴 {t('countryDO')}</option>
+              <option value="ES">🇪🇸 {t('countryES')}</option>
+              <option value="US">🇺🇸 {t('countryUS')}</option>
+              <option value="BR">🇧🇷 {t('countryBR')}</option>
+            </select>
+          </div>
 
-        <div className="mt-4">
-          <label className="label">{t('timezone')}</label>
-          <select
-            className="input"
-            value={COMMON_TIMEZONES.some((tz) => tz.value === timezone) ? timezone : '__other__'}
-            onChange={(e) => {
-              if (e.target.value === '__other__') {
-                // mantenemos el valor actual; el input libre debajo permite editarlo
-                return;
-              }
-              setTimezone(e.target.value);
-            }}
-          >
-            {COMMON_TIMEZONES.map((tz) => (
-              <option key={tz.value} value={tz.value}>
-                {tz.label}
-              </option>
-            ))}
-            <option value="__other__">{t('timezoneOther')}</option>
-          </select>
-          {!COMMON_TIMEZONES.some((tz) => tz.value === timezone) && (
+          <div className="mt-4">
+            <label className="label">{t('timezone')}</label>
+            <select
+              className="input"
+              value={COMMON_TIMEZONES.some((tz) => tz.value === timezone) ? timezone : '__other__'}
+              onChange={(e) => {
+                if (e.target.value === '__other__') {
+                  // mantenemos el valor actual; el input libre debajo permite editarlo
+                  return;
+                }
+                setTimezone(e.target.value);
+              }}
+            >
+              {COMMON_TIMEZONES.map((tz) => (
+                <option key={tz.value} value={tz.value}>
+                  {tz.label}
+                </option>
+              ))}
+              <option value="__other__">{t('timezoneOther')}</option>
+            </select>
+            {!COMMON_TIMEZONES.some((tz) => tz.value === timezone) && (
+              <input
+                type="text"
+                className="input mt-2"
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value.slice(0, 64))}
+                placeholder={t('timezonePlaceholder')}
+              />
+            )}
+            <p className="text-[11px] text-mute mt-1.5">
+              {t('timezoneHint')}
+            </p>
+          </div>
+
+          <div className="mt-4">
+            <label className="label">{t('currency')}</label>
+            <select
+              className="input"
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+            >
+              {LATAM_CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.flag} {c.code} — {nombreDeMoneda(c.code, locale)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="mt-4">
+            <label className="label">
+              {t('customSymbol')}{' '}
+              <span className="text-mute font-normal">{t('customSymbolHint')}</span>
+            </label>
             <input
               type="text"
-              className="input mt-2"
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value.slice(0, 64))}
-              placeholder={t('timezonePlaceholder')}
+              className="input max-w-[160px]"
+              value={currencySymbol}
+              onChange={(e) => setCurrencySymbol(e.target.value.slice(0, 8))}
+              placeholder={t('customSymbolPlaceholder')}
+              maxLength={8}
             />
-          )}
-          <p className="text-[11px] text-mute mt-1.5">
-            {t('timezoneHint')}
-          </p>
-        </div>
-
-        <div className="mt-4">
-          <label className="label">{t('currency')}</label>
-          <select
-            className="input"
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value)}
-          >
-            {LATAM_CURRENCIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.flag} {c.code} — {nombreDeMoneda(c.code, locale)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="mt-4">
-          <label className="label">
-            {t('customSymbol')}{' '}
-            <span className="text-mute font-normal">{t('customSymbolHint')}</span>
-          </label>
-          <input
-            type="text"
-            className="input max-w-[160px]"
-            value={currencySymbol}
-            onChange={(e) => setCurrencySymbol(e.target.value.slice(0, 8))}
-            placeholder={t('customSymbolPlaceholder')}
-            maxLength={8}
-          />
-          <p className="text-[11px] text-mute mt-1.5">
-            {t('preview')}{' '}
-            <span className="font-mono text-ink">
-              {(() => {
-                try {
-                  const parts = new Intl.NumberFormat('es-CO', {
-                    style: 'currency',
-                    currency,
-                    maximumFractionDigits: 0,
-                  }).formatToParts(15000);
-                  const symbol = currencySymbol.trim();
-                  if (symbol) {
-                    return parts
-                      .map((p) => (p.type === 'currency' ? symbol : p.value))
-                      .join('');
+            <p className="text-[11px] text-mute mt-1.5">
+              {t('preview')}{' '}
+              <span className="font-mono text-ink">
+                {(() => {
+                  try {
+                    const parts = new Intl.NumberFormat('es-CO', {
+                      style: 'currency',
+                      currency,
+                      maximumFractionDigits: 0,
+                    }).formatToParts(15000);
+                    const symbol = currencySymbol.trim();
+                    if (symbol) {
+                      return parts
+                        .map((p) => (p.type === 'currency' ? symbol : p.value))
+                        .join('');
+                    }
+                    return parts.map((p) => p.value).join('');
+                  } catch {
+                    return `${currencySymbol.trim() || currency} 15000`;
                   }
-                  return parts.map((p) => p.value).join('');
-                } catch {
-                  return `${currencySymbol.trim() || currency} 15000`;
-                }
-              })()}
-            </span>
-          </p>
-        </div>
-        {currencyMsg && (
-          <div
-            className={`text-sm rounded-lg px-3 py-2 mt-3 ${
-              currencyMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
-            }`}
-          >
-            {currencyMsg.text}
+                })()}
+              </span>
+            </p>
           </div>
-        )}
-        <div className="mt-4 flex justify-end">
-          <button
-            type="submit"
-            className="btn-primary"
-            disabled={
-              savingCurrency ||
-              (currency === (tenant?.currency ?? 'COP') &&
-                currencySymbol === (tenant?.currencySymbol ?? '') &&
-                country === (tenant?.country ?? 'CO') &&
-                timezone === (tenant?.timezone ?? 'America/Bogota'))
-            }
-          >
-            {savingCurrency ? t('saving') : t('saveCurrency')}
-          </button>
-        </div>
-      </form>
+          {currencyMsg && (
+            <div
+              className={`text-sm rounded-lg px-3 py-2 mt-3 ${
+                currencyMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+              }`}
+            >
+              {currencyMsg.text}
+            </div>
+          )}
+          <div className="mt-4 flex justify-end">
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={
+                savingCurrency ||
+                (currency === (tenant?.currency ?? 'COP') &&
+                  currencySymbol === (tenant?.currencySymbol ?? '') &&
+                  country === (tenant?.country ?? 'CO') &&
+                  timezone === (tenant?.timezone ?? 'America/Bogota'))
+              }
+            >
+              {savingCurrency ? t('saving') : t('saveCurrency')}
+            </button>
+          </div>
+        </form>
+      )}
 
       {/* M4: máximo de sellos por día */}
-      <form onSubmit={saveStamps} className="card card-pad mb-4">
-        <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-          🎯 {t('stampsPerDay')}
-        </h2>
-        <p className="text-xs text-mute mt-1 leading-relaxed">
-          {t('stampsPerDayDesc')}
-        </p>
-        <div className="mt-4 grid sm:grid-cols-4 gap-3 items-end">
-          <div className="sm:col-span-1">
-            <label className="label">{t('maxPerDay')}</label>
-            <input
-              className="input"
-              type="number"
-              min={1}
-              max={20}
-              value={maxStampsPerDay}
-              onChange={(e) =>
-                setMaxStampsPerDay(
-                  Math.max(1, Math.min(20, Number(e.target.value) || 1)),
-                )
+      {/* Tope de sellos de la tarjeta wallet — no aplica al InfoLink. */}
+      {verSeccion('sellosPorDia') && (
+        <form onSubmit={saveStamps} className="card card-pad mb-4">
+          <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+            🎯 {t('stampsPerDay')}
+          </h2>
+          <p className="text-xs text-mute mt-1 leading-relaxed">
+            {t('stampsPerDayDesc')}
+          </p>
+          <div className="mt-4 grid sm:grid-cols-4 gap-3 items-end">
+            <div className="sm:col-span-1">
+              <label className="label">{t('maxPerDay')}</label>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                max={20}
+                value={maxStampsPerDay}
+                onChange={(e) =>
+                  setMaxStampsPerDay(
+                    Math.max(1, Math.min(20, Number(e.target.value) || 1)),
+                  )
+                }
+              />
+            </div>
+            <div className="sm:col-span-3 text-[11px] text-mute leading-relaxed">
+              {maxStampsPerDay === 1
+                ? t('stampsStandard')
+                : t('stampsMultiple', { count: maxStampsPerDay })}
+              <br />
+              {t('stampsSuperAdminBypass')}
+            </div>
+          </div>
+          {stampsMsg && (
+            <div
+              className={`text-sm rounded-lg px-3 py-2 mt-3 ${
+                stampsMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+              }`}
+            >
+              {stampsMsg.text}
+            </div>
+          )}
+          <div className="mt-4 flex justify-end">
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={
+                savingStamps ||
+                maxStampsPerDay === Math.max(1, tenant?.maxStampsPerDay ?? 1)
               }
-            />
+            >
+              {savingStamps ? t('saving') : t('saveMax')}
+            </button>
           </div>
-          <div className="sm:col-span-3 text-[11px] text-mute leading-relaxed">
-            {maxStampsPerDay === 1
-              ? t('stampsStandard')
-              : t('stampsMultiple', { count: maxStampsPerDay })}
-            <br />
-            {t('stampsSuperAdminBypass')}
-          </div>
-        </div>
-        {stampsMsg && (
-          <div
-            className={`text-sm rounded-lg px-3 py-2 mt-3 ${
-              stampsMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
-            }`}
-          >
-            {stampsMsg.text}
-          </div>
-        )}
-        <div className="mt-4 flex justify-end">
-          <button
-            type="submit"
-            className="btn-primary"
-            disabled={
-              savingStamps ||
-              maxStampsPerDay === Math.max(1, tenant?.maxStampsPerDay ?? 1)
-            }
-          >
-            {savingStamps ? t('saving') : t('saveMax')}
-          </button>
-        </div>
-      </form>
+        </form>
+      )}
 
       {/* Mensajería de WhatsApp: movido a /admin/tenants/[id] (Bloque 8
           2026-06-12). El cliente final ya no la edita — solo SUPER_ADMIN
           desde el panel de administración del negocio. */}
 
       {/* Nombre de sección principal */}
-      <div className="card card-pad mb-4">
-        <h2 className="text-base font-semibold m-0 flex items-center gap-2">
-          🏷 {t('mainSectionName')}
-        </h2>
-        <p className="text-xs text-mute mt-1 leading-relaxed">
-          {t('mainSectionNameDesc')}
-        </p>
-        <form onSubmit={saveSectionLabel} className="mt-4 grid gap-3">
-          <div>
-            <label className="label">{t('option')}</label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {(
-                [
-                  { v: 'menu', emoji: '🍽', label: t('optMenu'), hint: t('optMenuHint') },
-                  { v: 'services', emoji: '🛠', label: t('optServices'), hint: t('optServicesHint') },
-                  { v: 'catalog', emoji: '🛍', label: t('optCatalog'), hint: t('optCatalogHint') },
-                  { v: 'custom', emoji: '✏️', label: t('optCustom'), hint: t('optCustomHint') },
-                ] as const
-              ).map((opt) => {
-                const active = sectionMode === opt.v;
-                return (
-                  <button
-                    type="button"
-                    key={opt.v}
-                    onClick={() => setSectionMode(opt.v)}
-                    className={`text-left rounded-input border-2 p-2.5 transition ${
-                      active
-                        ? 'border-brand bg-brand-soft'
-                        : 'border-line bg-white hover:border-brand/40'
-                    }`}
-                  >
-                    <div className="text-lg mb-0.5">{opt.emoji}</div>
-                    <div className="text-sm font-semibold">{opt.label}</div>
-                    <div className="text-[11px] text-mute">{opt.hint}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {sectionMode === 'custom' && (
+      {/* Renombra «Menú» en el panel y en la vista pública del menú. */}
+      {verSeccion('nombreDeSeccionPrincipal') && (
+        <div className="card card-pad mb-4">
+          <h2 className="text-base font-semibold m-0 flex items-center gap-2">
+            🏷 {t('mainSectionName')}
+          </h2>
+          <p className="text-xs text-mute mt-1 leading-relaxed">
+            {t('mainSectionNameDesc')}
+          </p>
+          <form onSubmit={saveSectionLabel} className="mt-4 grid gap-3">
             <div>
-              <label className="label">{t('customName')}</label>
-              <input
-                className="input max-w-xs"
-                placeholder={t('customNamePlaceholder')}
-                value={sectionCustom}
-                onChange={(e) => setSectionCustom(e.target.value.slice(0, 24))}
-                maxLength={24}
-              />
-              <p className="text-[11px] text-mute mt-1">
-                {t('customNameHint')}
-              </p>
+              <label className="label">{t('option')}</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {(
+                  [
+                    { v: 'menu', emoji: '🍽', label: t('optMenu'), hint: t('optMenuHint') },
+                    { v: 'services', emoji: '🛠', label: t('optServices'), hint: t('optServicesHint') },
+                    { v: 'catalog', emoji: '🛍', label: t('optCatalog'), hint: t('optCatalogHint') },
+                    { v: 'custom', emoji: '✏️', label: t('optCustom'), hint: t('optCustomHint') },
+                  ] as const
+                ).map((opt) => {
+                  const active = sectionMode === opt.v;
+                  return (
+                    <button
+                      type="button"
+                      key={opt.v}
+                      onClick={() => setSectionMode(opt.v)}
+                      className={`text-left rounded-input border-2 p-2.5 transition ${
+                        active
+                          ? 'border-brand bg-brand-soft'
+                          : 'border-line bg-white hover:border-brand/40'
+                      }`}
+                    >
+                      <div className="text-lg mb-0.5">{opt.emoji}</div>
+                      <div className="text-sm font-semibold">{opt.label}</div>
+                      <div className="text-[11px] text-mute">{opt.hint}</div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          )}
 
-          {sectionMsg && (
-            <div
-              className={`text-sm rounded-lg px-3 py-2 ${
-                sectionMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
-              }`}
-            >
-              {sectionMsg.text}
+            {sectionMode === 'custom' && (
+              <div>
+                <label className="label">{t('customName')}</label>
+                <input
+                  className="input max-w-xs"
+                  placeholder={t('customNamePlaceholder')}
+                  value={sectionCustom}
+                  onChange={(e) => setSectionCustom(e.target.value.slice(0, 24))}
+                  maxLength={24}
+                />
+                <p className="text-[11px] text-mute mt-1">
+                  {t('customNameHint')}
+                </p>
+              </div>
+            )}
+
+            {sectionMsg && (
+              <div
+                className={`text-sm rounded-lg px-3 py-2 ${
+                  sectionMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+                }`}
+              >
+                {sectionMsg.text}
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={savingSection}
+                className="btn-primary text-sm"
+              >
+                {savingSection ? t('saving') : t('saveName')}
+              </button>
             </div>
-          )}
-
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={savingSection}
-              className="btn-primary text-sm"
-            >
-              {savingSection ? t('saving') : t('saveName')}
-            </button>
-          </div>
-        </form>
-      </div>
+          </form>
+        </div>
+      )}
 
       {/* Export */}
       <div className="card card-pad mb-4">

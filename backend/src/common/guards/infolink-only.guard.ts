@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { esSoloInfolink } from '../solo-infolink';
 
 // Cache module-level de businessType por tenant. El TenantsService invalida la
 // entrada cuando el super admin cambia el tipo de negocio, para que el bloqueo
@@ -99,7 +100,10 @@ export class InfoLinkOnlyGuard implements CanActivate {
     }
 
     const type = await this.getBusinessType(user.tenantId);
-    if (type !== 'INFOLINK') return true; // negocio completo → sin restricción
+    // La pregunta «¿es de solo InfoLink?» la responde una sola función
+    // (common/solo-infolink), la misma que decide qué esconde el panel. Así el
+    // bloqueo del backend y lo que ve el dueño no pueden discrepar.
+    if (!esSoloInfolink(type)) return true; // negocio completo → sin restricción
 
     throw new ForbiddenException({
       statusCode: 403,
