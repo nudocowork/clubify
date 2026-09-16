@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandAppUrl } from '../email/brand-email-creds.util';
-import { lineaDeProductos, origenDelPedido } from './aviso-de-pedido';
+import { lineaDeProductos, origenDelPedido, paraSms } from './aviso-de-pedido';
 import { oficinaDelPedido } from './pedido-en-oficina';
 import {
   brandGrowCreds,
@@ -257,7 +257,10 @@ export class OwnerOrderAlertService {
         : order.fulfillment === 'PICKUP'
           ? 'Para llevar'
           : `Mesa ${order.tableNumber ?? ''}`.trim();
-    const cliente = order.customer?.fullName?.trim() || 'Cliente';
+    // El nombre pasa por `paraSms` como el resto: «María José» lleva tildes
+    // que NO están en GSM-7, y una sola saca el mensaje entero a 16 bits —de
+    // 1 segmento a 3—. Pasa en el 9 % de los pedidos reales.
+    const cliente = paraSms(order.customer?.fullName?.trim() || 'Cliente');
     // EL ENLACE ES DEL PANEL DE SU MARCA, NUNCA EL DE CLUBIFY.
     //
     // Estaba fijo a `app.soyclubify.com`. WhatsApp pinta la vista previa del
@@ -276,18 +279,39 @@ export class OwnerOrderAlertService {
     // fuerzan codificación de 16 bits, que reduce el segmento a 67 caracteres.
     // El origen primero y los productos después: lo primero dice a qué puerta
     // llevarlo, lo segundo qué preparar.
-    const origen = origenDelPedido({
-      oficina: oficinaDelPedido(order.deliveryAddress),
-      sede: order.location,
-    });
+    const oficina = oficinaDelPedido(order.deliveryAddress);
+    const origen = origenDelPedido({ oficina, sede: order.location });
     const productos = lineaDeProductos(order.items);
-    return [
-      `Nuevo pedido ${order.code} - ${cliente} - ${simbolo}${total} - ${tipo}` +
-        `${origen ? ` - ${origen}` : ''}.`,
-      productos ? `${productos}.` : '',
-      `Detalle y direccion en tu panel: ${url}`,
-    ]
+    // EN UN PEDIDO DE OFICINA NO SE DICE «Domicilio».
+    //
+    // Se entrega andando, dentro del coworking: la palabra no aporta y encima
+    // despista, porque quien lo lee ya sabe a qué puerta llevarlo en cuanto ve
+    // la oficina. Pedido de Javier el 16-09 al ver el mensaje en Nudo. En un
+    // domicilio de verdad, en mesa y para llevar sí se queda: ahí distingue.
+    // La OFICINA sustituye al tipo; la SEDE no. Una oficina se entrega andando
+    // dentro del coworking y «Domicilio» sobra. Pero el 96 % de los pedidos
+    // llevan sede —la carta pública la manda aunque el negocio tenga una
+    // sola—, y ahí el tipo es lo ÚNICO que distingue si hay que llevarlo o si
+    // lo recogen. Poner `origen || tipo` se lo comía en casi todos los pedidos,
+    // y encima muchas sedes se llaman por su dirección, así que la línea se
+    // leía como la dirección de entrega.
+    const segundaLinea = oficina
+      ? origen
+      : [tipo, origen].filter(Boolean).join('\n');
+    const cabecera = [`Nuevo pedido ${order.code}`, segundaLinea]
       .filter(Boolean)
-      .join(' ');
+      .join('\n');
+    // EN LÍNEAS Y NO TODO SEGUIDO CON GUIONES.
+    //
+    // El mensaje se leía de un tirón («… - Javier Prueba - $19.000 - Domicilio
+    // - Oficina: Marketing.») y había que buscar cada dato dentro de la frase.
+    // Los saltos de línea son GSM-7, así que cuestan un carácter cada uno y no
+    // cambian la codificación: es la mejora más barata que se podía hacer aquí.
+    const cuerpo = [cliente, `${simbolo}${total}`, productos]
+      .filter(Boolean)
+      .join('\n');
+    return [cabecera, cuerpo, `Ver en tu panel:\n${url}`]
+      .filter(Boolean)
+      .join('\n\n');
   }
 }

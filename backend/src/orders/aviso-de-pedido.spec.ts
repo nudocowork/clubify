@@ -80,6 +80,75 @@ describe('el aviso interno de pedido nuevo', () => {
     expect(t).toContain('/app/orders');
   });
 
+  it('un pedido de OFICINA no dice «Domicilio»: se entrega andando', () => {
+    // Javier, 16-09, viendo el mensaje real de Nudo: «dice domicilio, y se
+    // sobreentiende que es para llevar a una oficina». La palabra no aporta y
+    // despista, porque la oficina ya dice a qué puerta llevarlo.
+    const t = texto({
+      items: [MOCCA],
+      deliveryAddress: { oficina: SALA_DE_JUNTAS, direccion: 'Sala de Juntas' },
+    });
+    expect(t).toContain('Oficina: Sala de Juntas');
+    expect(t).not.toContain('Domicilio');
+  });
+
+  it('con SEDE sigue diciendo el tipo: la sede no sustituye a «Domicilio»', () => {
+    // El error que se coló al reordenar: se puso `origen || tipo`, y como el
+    // 96 % de los pedidos llevan sede —la carta pública la manda aunque el
+    // negocio tenga una sola—, el tipo desaparecía en casi todos. Y el tipo es
+    // lo único que distingue llevarlo de que lo recojan. Encima muchas sedes
+    // se llaman por su dirección, así que la línea se leía como la dirección.
+    const t = texto({ items: [MOCCA], location: { name: 'Cl. 49 #38 - 09' } });
+    expect(t).toContain('Domicilio');
+    expect(t).toContain('Sede: Cl. 49 #38 - 09');
+  });
+
+  it('con sede y PARA LLEVAR dice «Para llevar», no «Domicilio»', () => {
+    const t = texto({
+      items: [MOCCA],
+      fulfillment: 'PICKUP',
+      location: { name: 'Konys pizza kono' },
+    });
+    expect(t).toContain('Para llevar');
+    expect(t).not.toContain('Domicilio');
+  });
+
+  it('solo la OFICINA sustituye al tipo, y aun con sede asignada', () => {
+    const t = texto({
+      items: [MOCCA],
+      location: { name: 'Cl. 49 #38 - 09' },
+      deliveryAddress: { oficina: SALA_DE_JUNTAS, direccion: 'Sala de Juntas' },
+    });
+    expect(t).toContain('Oficina: Sala de Juntas');
+    expect(t).not.toContain('Domicilio');
+    expect(t).not.toContain('Sede:');
+  });
+
+  it('un domicilio de verdad SÍ dice «Domicilio»', () => {
+    // El otro lado del candado: quitar la palabra donde sí distingue sería
+    // cambiar un problema por otro.
+    const t = texto({
+      items: [MOCCA],
+      deliveryAddress: { direccion: 'Cra 1 #23-45' },
+    });
+    expect(t).toContain('Domicilio');
+  });
+
+  it('viene en líneas, no en una frase con guiones', () => {
+    // Se leía de un tirón y había que buscar cada dato dentro de la frase.
+    // Los saltos de línea son GSM-7: cuestan un carácter y no encarecen el
+    // mensaje. Si alguien lo devuelve a los guiones, esto se pone en rojo.
+    const t = texto({
+      items: [MOCCA],
+      deliveryAddress: { oficina: SALA_DE_JUNTAS, direccion: 'Sala de Juntas' },
+    });
+    const lineas = t.split('\n').filter(Boolean);
+    expect(lineas[0]).toBe('Nuevo pedido YD6J7P');
+    expect(lineas[1]).toBe('Oficina: Sala de Juntas');
+    expect(t).toContain('\n\n'); // hay bloques separados, no un párrafo
+    expect(t).not.toMatch(/Nuevo pedido .* - .* - /);
+  });
+
   it('un pedido sin artículos (payload viejo) no ensucia el mensaje', () => {
     const t = texto({});
     expect(t).not.toContain('undefined');

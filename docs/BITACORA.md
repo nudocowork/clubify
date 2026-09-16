@@ -8,6 +8,70 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-16 (38) — El aviso de pedido, en líneas y sin decir «Domicilio» cuando es para una oficina
+
+Javier, viendo el mensaje real que le llegó de Nudo Cowork: «No me gusta el orden con el que sale el mensaje de pedidos de las oficinas. **1)** Dice domicilio, y se sobreentiende que es para llevar a una oficina. **2)** No tiene un buen orden y es difícil de leer. **3)** No tiene espacios para que tenga una buena identificación.»
+
+### Cómo salía y cómo sale
+
+Antes, todo seguido y con guiones, había que buscar cada dato dentro de la frase:
+
+> Nuevo pedido 2G7DRH - Javier Prueba - $19.000 - Domicilio - Oficina: Marketing. 1x Mocca frio (Deslactosada). Detalle y direccion en tu panel: …
+
+Ahora:
+
+```
+Nuevo pedido 2G7DRH
+Oficina: Marketing
+
+Javier Prueba
+$19.000
+1x Mocca frio (Deslactosada)
+
+Ver en tu panel:
+https://…/app/orders
+```
+
+**«Domicilio» desaparece solo cuando hay oficina.** Se entrega andando, dentro del coworking: la palabra no aporta y encima despista, porque quien lo lee ya sabe a qué puerta llevarlo en cuanto ve la oficina. En un domicilio de verdad, en mesa y para llevar se queda, que ahí sí distingue.
+
+### Lo que cuesta
+
+Medido, no supuesto: el caso típico pasa de 129 a **141 caracteres y sigue siendo 1 segmento**; un pedido largo de cuatro productos son 2, igual que antes del cambio. Los saltos de línea están en GSM-7, así que cuestan un carácter y **no** cambian la codificación — que es justo por lo que este mensaje ya iba sin emojis y sin las tildes que rompen (á, í, ó, ú; é, ñ y ü sí están).
+
+### Revisión de Fable
+
+**Frenó el despliegue por un fallo grave, y era mío.** La primera versión ponía `origen || tipo`, o sea: si había origen, desaparecía el tipo. Javier pidió quitar «Domicilio» **en las oficinas**, pero eso lo quitaba en todas partes — y en producción el **96 % de los pedidos (286 de 298 en 30 días) llevan sede**, porque la carta pública manda la sede aunque el negocio tenga una sola (15 de 21 negocios). O sea que en casi todos los pedidos desaparecía lo único que distingue si hay que llevarlo o si lo recogen. Encima muchas sedes se llaman por su dirección («Cl. 49 #38 - 09»), así que esa línea se leía como la dirección de entrega.
+
+Ahora la **oficina** sustituye al tipo —que es lo que se pidió— y la **sede** va en su propia línea sin comerse nada:
+
+```
+Nuevo pedido BPXQAM
+Domicilio
+Sede: Cl. 49 #38 - 09
+```
+
+Las pruebas no lo veían: comprobaban que saliera `Sede:`, pero no que siguiera saliendo «Domicilio». Ahora hay tres que sí (sede con domicilio, sede con «Para llevar», y que solo la oficina sustituye al tipo), y se comprobaron en rojo: al devolver la cabecera al `origen || tipo` caen exactamente esas dos de sede y ninguna otra.
+
+**Y una de propina, preexistente:** el nombre del cliente no pasaba por el limpiador de tildes, así que un «María José Gómez» —el 9 % de los pedidos reales— sacaba el mensaje a 16 bits y lo convertía en **3 segmentos**. Una línea.
+
+**Coste medido sobre los 298 pedidos reales de 30 días:** lo que había hoy en producción son **629 segmentos**; esto son **527**, un 20 % menos pese a leerse mejor.
+
+### Lo que queda anotado y no se hizo
+
+La línea «Sede: …» sale siempre que el pedido tenga sede, aunque el negocio tenga una sola —y entonces es ruido («Sede: Konys pizza kono»)—. Enseñarla solo cuando hay más de una sede activa ahorraría unos 26 segmentos al mes, pero cuesta una consulta más **por cada pedido**, así que no compensa hoy. Si algún día molesta, ahí está la salida.
+
+### De paso: los pagos manuales en «Próximos cobros» ya funcionaban
+
+Javier: «en Contabilidad, en próximos cobros, se debe poder ver también los pagos manuales… como para este mes no hay renovaciones manuales, no puedo verificar que esto funcione».
+
+Se comprobó contra producción y **ya funciona, sin tocar nada**: la consulta no filtra por forma de pago por ningún lado —ni `manualPayment`, ni pasarela, ni código de Hotmart—, y el pago manual entra por el mismo camino, etiquetado «Pago por fuera» en la columna Método. De los 126 negocios, 11 son manuales, los 11 están activos y los 11 caen dentro del universo de la consulta.
+
+**Y la premisa era falsa: este mes SÍ hay dos renovaciones manuales** —Empanadas La Parada (23-09) y Farmacia FarCentro (28-09)—, y ya aparecen hoy. En la ventana por defecto de 30 días salen 37 cobros, 5 de ellos manuales. No había nada que arreglar, así que **no se cambió código de producción**: solo queda una prueba que fija el comportamiento para que nadie lo rompa sin enterarse.
+
+### Lo que sí está mal ahí, y queda pendiente de decisión
+
+La tarjeta **«Por cobrar»** y la tabla **no cuentan la misma ventana**: la tabla usa la que elija el usuario, pero el resumen está fijo en 7 días. Con la vista por defecto de 30, la tarjeta dice **7 cobros / $868** mientras la tabla lista **37 / $3.574**. No tiene que ver con los pagos manuales, pero es exactamente lo que hace pensar «esto no me está mostrando todo» — probablemente lo que motivó la pregunta. Son dos salidas: que la tarjeta siga la ventana elegida, o dejarla fija y etiquetarla «próximos 7 días». Es de Javier decidirlo.
+
 ## 2026-09-16 (37) — Renombrar y eliminar una carta, con un aviso que dice de verdad qué se lleva por delante
 
 Javier: «Cuando creo un menú, no me da la opción de eliminarlo o de modificar su nombre.» La tarjeta CARTAS del Panel → Menú dejaba crear cartas y asignarles sede, y nada más.
