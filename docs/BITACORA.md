@@ -8,6 +8,112 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-17 (49) — Las comisiones de Contabilidad salen del módulo, el socio sale de la utilidad y la nómina admite al que faltó
+
+**Qué:** el segundo documento de Sara. Tres cosas, más un arreglo en producción.
+Backend y frontend, **sin migración**.
+
+### 1. Nómina: el corte duplicado y el que faltó
+
+Sara generó el corte del 1-15, vio que le faltaba un colaborador, lo dio de alta
+y **volvió a generar**: quedaron dos cortes con la misma fecha. Pidió borrar el
+pendiente y quedarse con el que ya marcó como pagado.
+
+- **Hecho en producción** con `borrar-corte-duplicado.cjs` (dry-run primero):
+  borrado `8e027f43` (PENDING, $816, 3 personas). Queda `697511ea` (PAID,
+  $1.008, 4 personas). El script borra **por id y solo si no tiene abonos**, así
+  que un corte pagado no se cae ni por error ni por una carrera.
+- **`POST /admin/contabilidad/nomina/cortes/:id/items`** + «Agregar a alguien que
+  faltó» en el detalle del corte. Con abonos **se niega** (`ya-pagado`) y la
+  pantalla dice que ahí sí toca un corte aparte: cambiarle el total a un corte ya
+  transferido descuadra el mes contra el banco.
+- Candado de duplicados: la misma persona **no entra dos veces** en un corte, ni
+  por id ni por nombre. Hacía falta porque el panel lista a los que faltan por
+  NOMBRE y a un colaborador se le puede corregir el nombre — entonces vuelve a
+  aparecer como faltante y el corte se infla en silencio.
+- Al generar un corte que **termina el mismo día que otro** sale un aviso, con
+  todos los cortes a la vista (no solo los del período que se esté mirando).
+
+### 2. Las comisiones de Contabilidad, tomadas del módulo de Comisiones
+
+Sara: «para este corte estas son las comisiones que se van a pagar y **no
+coinciden** con lo que hay en contabilidad», y faltaba Nicolas Rojas en
+septiembre.
+
+**Por qué no cuadraban, y no era un error de cuentas:** Contabilidad agrupaba por
+la **fecha de la comisión** y el módulo por el **CORTE** al que entra, que es
+cuando queda disponible (15 días después). Las 3 comisiones de Nicolas Rojas
+($160) son de negocios de **agosto** y entran al corte del **15-09**:
+Contabilidad no las enseñaba y el corte sí las paga.
+
+- **`GET /admin/contabilidad/comisiones/cortes`** (`cortesDeComisiones`): lee
+  `PayoutBatch` con sus comisiones. Mismos cortes, misma gente, mismos montos que
+  el módulo — contrastado contra producción, los 6 cortes dan igual.
+- La pestaña **Comisiones** enseña los cortes **primero**, con total, pagado y
+  pendiente, y al abrir cada uno el detalle por persona. Lo generado en el mes
+  que **aún no entra a ningún corte** se informa aparte, sin sumarse. Los cortes
+  históricos caen cada uno en su mes.
+- Las 4 tarjetas del mes siguen, renombradas a «**Generadas en el período**».
+
+### 3. El socio sale de la UTILIDAD
+
+Sara: «el % del socio sale del monto de la utilidad». Estaba desplegado por la
+mañana como % del **neto** (así se había entendido). Ahora
+`parteDelSocio(utilidadAntesDelSocio, %)`: neto − egresos − nómina − comisiones
+pagadas. **Septiembre pasa de $262,64 a $161,84.** Un mes en pérdida no le genera
+deuda.
+
+### Revisión de Fable
+
+**DESPLEGAR CON CAMBIOS**, todos aplicados. Los números ya estaban bien
+(contrastados contra producción); lo que encontró fueron **textos que le mentían
+a Sara** y un candado que faltaba:
+
+- **ALTO:** la cascada del Resumen seguía diciendo «Socio (10 % **del neto**)»
+  calculando sobre la utilidad — el número de al lado no daba esa cuenta y
+  parecía un error de la pantalla. Etiqueta y comentario corregidos
+  (`PanoramaPeriodo.tsx`).
+- **ALTO:** el titular «**lo que se paga** en septiembre» era falso: la tabla
+  agrupa por fecha de corte, y un corte del 31-08 se transfiere el 2-09. Ahora
+  dice «con fecha de corte en…» y debajo va la **conciliación** con lo que
+  restó la cascada ($309,30 en septiembre, del corte de agosto).
+- **ALTO:** el párrafo de las tarjetas se contradecía solo («no son las que se
+  pagan» + «es la misma línea − Comisiones afiliados»). La equivalencia real es
+  con la nota «Comisiones generadas en el mes», y así lo dice.
+- **MEDIO:** `addRunItem` dejaba meter dos veces a la misma persona (ver arriba).
+- **MEDIO:** la **gráfica** mes a mes calculaba el socio con los egresos y la
+  nómina de **todas las marcas** sobre un neto que ya era solo el de Clubify. Hoy
+  no cambia ningún número (Sellea no tiene egresos ni nómina), pero el primero
+  habría enseñado dos socios distintos para el mismo mes. Repartido por marca en
+  memoria, sin consultas nuevas.
+- **MEDIO:** el aviso del modal llamaba «pendiente» a un corte PARCIAL y mandaba
+  a un callejón sin salida. Ahora mira los **abonos**, que es el criterio del
+  backend.
+- **MEDIO — tests que daban verde sin mirar:** los dobles de `payoutBatch` y
+  `payrollItem` ignoraban el `where`, así que ni el rango del mes, ni la
+  exclusión de las rechazadas y las del socio, ni el candado de duplicados
+  estaban probados. Los dobles ahora aplican el `where`. Comprobado a mano que
+  los tests nuevos **saben ponerse en rojo**: rompiendo el guard y el reparto por
+  marca caen 5, y quitando el filtro del mes cae 1.
+
+`npx vitest run src/finance` → **80 en verde** (eran 74). `tsc` de backend y
+frontend en 0, eslint limpio.
+
+### Lo que le toca a Sara
+
+1. Poner los montos de los colaboradores **en dólares** (están en pesos:
+   800.000, 875.000…).
+2. Generar la nómina de septiembre.
+3. **Reabrir y volver a cerrar septiembre**: el cierre que hay se congeló el
+   1-sep con la fórmula vieja del socio.
+
+### Ojo para la otra máquina
+
+En el árbol de trabajo hay cambios **que no son míos** y que dejé intactos:
+`backend/src/auth/auth.service.ts`, `backend/src/auth/reset-sms.spec.ts` y el
+archivo nuevo `backend/src/marketing/meta-capi.ts` (Meta CAPI para los cobros de
+Stripe de Sellea). No entraron en este commit.
+
 ## 2026-09-17 (48) — Los enlaces de venta se configuran, y cada afiliado los tiene con su código
 
 **Qué:** Javier: «hay que hacer la sincronización de los nuevos planes con los

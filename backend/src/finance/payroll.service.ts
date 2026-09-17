@@ -195,6 +195,65 @@ export class PayrollService {
   }
 
   /**
+   * Agregar a alguien a un corte que todavía no se ha pagado.
+   *
+   * Sara (2026-09-17) generó el corte del 1 al 15, vio que le faltaba un
+   * colaborador, lo dio de alta y volvió a generar: quedaron DOS cortes con la
+   * misma fecha. Lo que pedía: «si el período sigue como pendiente, poder
+   * agregar el colaborador a ese corte; si ya está pagado, crear un corte nuevo
+   * con la misma fecha de corte pero con ese solo colaborador».
+   *
+   * Con abonos NO se toca: ese corte ya es dinero que salió, y cambiarle el
+   * total descuadraría el mes contra el banco. En ese caso el panel ofrece el
+   * corte aparte.
+   */
+  async addRunItem(runId: string, input: RunItemInput) {
+    return this.prisma.$transaction(async (tx) => {
+      const run = await tx.payrollRun.findUnique({
+        where: { id: runId },
+        select: { amountPaidUsd: true },
+      });
+      if (!run) return { ok: false as const, motivo: 'no-existe' as const };
+      if (Number(run.amountPaidUsd) > 0) {
+        return { ok: false as const, motivo: 'ya-pagado' as const };
+      }
+      // Ya está en el corte: agregarlo otra vez le sumaría su sueldo dos veces
+      // y el corte saldría inflado sin que se vea de dónde. El panel filtra a
+      // los que faltan, pero por NOMBRE, y a un colaborador se le puede
+      // corregir el nombre («Nicolas» → «Nicolás Rojas»): entonces vuelve a
+      // aparecer como faltante. Por id Y por nombre, que es como lo guarda la
+      // línea.
+      const yaEsta = await tx.payrollItem.findFirst({
+        where: {
+          runId,
+          OR: [
+            ...(input.employeeId ? [{ employeeId: input.employeeId }] : []),
+            { employeeName: input.employeeName },
+          ],
+        },
+        select: { id: true },
+      });
+      if (yaEsta) return { ok: false as const, motivo: 'ya-esta' as const };
+      const base = Number(input.baseUsd) || 0;
+      const bonus = Number(input.bonusUsd ?? 0) || 0;
+      const ded = Number(input.deductionUsd ?? 0) || 0;
+      await tx.payrollItem.create({
+        data: {
+          runId,
+          employeeId: input.employeeId ?? null,
+          employeeName: input.employeeName,
+          role: input.role ?? null,
+          baseUsd: base,
+          bonusUsd: bonus,
+          deductionUsd: ded,
+          totalUsd: round2(base + bonus - ded),
+        },
+      });
+      return { ok: true as const, ...(await this.recalcularCorte(tx, runId)) };
+    });
+  }
+
+  /**
    * Cambiar el monto de un colaborador DENTRO de un corte: el mes en que cobró
    * 100.000 y el siguiente 300.000 (Sara). Recalcula el total del corte y su
    * estado contra lo que ya se abonó, en una transacción para que el total nunca

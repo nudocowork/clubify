@@ -366,10 +366,12 @@ export function PanoramaPeriodo({
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Egresos</span><span className="tabular-nums text-red-600">−{money(r.egresosUsd)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Nómina</span><span className="tabular-nums text-red-600">−{money(r.nominaUsd)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Comisiones pagadas</span><span className="tabular-nums text-red-600">−{money(r.comisionesUsd)}</span></div>
-              {/* El socio va sobre el NETO de las ventas (venta menos la comisión
-                  de la pasarela), no sobre la utilidad: se actualiza con cada
-                  cobro nuevo aunque cambien egresos, nómina o comisiones. */}
-              <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Socio ({r.socioPorcentaje ?? 10}% del neto)</span><span className="tabular-nums text-red-600">−{money(socio)}</span></div>
+              {/* Su base es la UTILIDAD, no el neto (Sara, 2026-09-17): todo lo
+                  que está encima —egresos, nómina, comisiones— le baja la
+                  parte. La etiqueta lo dice porque con la anterior («% del
+                  neto») el número de al lado no daba esa cuenta y parecía un
+                  error de la pantalla. */}
+              <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Socio ({r.socioPorcentaje ?? 10}% de lo que queda arriba)</span><span className="tabular-nums text-red-600">−{money(socio)}</span></div>
               <div className="flex justify-between py-2.5 mt-1 border-t-2 border-line2"><span className="font-bold">= UTILIDAD</span><span className={`tabular-nums font-bold text-lg ${r.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}`}>{money(r.utilidadUsd)}</span></div>
               {/* La nómina entra por los PAGOS generados del mes, no por la
                   ficha de cada colaborador: el monto cambia de un mes a otro.

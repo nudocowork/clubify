@@ -24,6 +24,14 @@ class EmployeePatchBody {
   @IsOptional() @IsBoolean() active?: boolean;
   @IsOptional() @IsString() note?: string;
 }
+class RunItemBody {
+  @IsOptional() @IsString() employeeId?: string;
+  @IsString() employeeName!: string;
+  @IsOptional() @IsString() role?: string;
+  @IsNumber() @Min(0) baseUsd!: number;
+  @IsOptional() @IsNumber() @Min(0) bonusUsd?: number;
+  @IsOptional() @IsNumber() @Min(0) deductionUsd?: number;
+}
 class RunItemPatchBody {
   @IsOptional() @IsNumber() @Min(0) baseUsd?: number;
   @IsOptional() @IsNumber() @Min(0) bonusUsd?: number;
@@ -90,6 +98,11 @@ export class PayrollController {
   @Post('cortes')
   generarCorte(@Body() body: RunBody, @CurrentUser() user: AuthUser) {
     return this.payroll.generateRun({ ...body, actorId: user?.id ?? null });
+  }
+
+  @Post('cortes/:id/items')
+  agregarItem(@Param('id') id: string, @Body() body: RunItemBody) {
+    return this.payroll.addRunItem(id, body);
   }
 
   @Patch('cortes/:id/items/:itemId')

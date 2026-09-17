@@ -129,6 +129,14 @@ export class FinanceController {
     return this.report.comisionesDelPeriodo(period || 'todo');
   }
 
+  /** Las mismas comisiones, repartidas por CORTE (lo que de verdad se paga cada
+   *  15 días). Ver `cortesDeComisiones`. */
+  @Get('comisiones/cortes')
+  @Roles('SUPER_ADMIN')
+  comisionesPorCorte(@Query('period') period?: string) {
+    return this.report.cortesDeComisiones(period || 'todo');
+  }
+
   /**
    * ── Fase 3 — Próximos cobros ──────────────────────────────────────────────
    * Lo que se espera cobrar de aquí a `dias`. NO es del período contable: es

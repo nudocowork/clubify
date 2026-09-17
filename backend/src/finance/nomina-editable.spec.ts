@@ -29,8 +29,9 @@ function base() {
     { id: 'i2', runId: 'c1', employeeId: 'samu', employeeName: 'Samuel', baseUsd: 200, bonusUsd: 0, deductionUsd: 0, totalUsd: 200 },
     { id: 'i3', runId: 'c2', employeeId: 'samu', employeeName: 'Samuel', baseUsd: 300, bonusUsd: 0, deductionUsd: 0, totalUsd: 300 },
   ];
-  const coincide = (fila: any, where: any = {}) =>
+  const coincide = (fila: any, where: any = {}): boolean =>
     Object.entries(where).every(([k, v]: [string, any]) => {
+      if (k === 'OR') return (v as any[]).some((w) => coincide(fila, w));
       if (v && typeof v === 'object' && 'lte' in v) return Number(fila[k]) <= v.lte;
       return fila[k] === v;
     });
@@ -48,6 +49,11 @@ function base() {
       },
     },
     payrollItem: {
+      create: async ({ data }: any) => {
+        const nuevo = { id: `i${items.length + 1}`, ...data };
+        items.push(nuevo);
+        return nuevo;
+      },
       findFirst: async ({ where }: any) => items.find((it) => coincide(it, where)) ?? null,
       findMany: async ({ where }: any) => items.filter((it) => coincide(it, where)),
       update: async ({ where, data }: any) => Object.assign(items.find((it) => it.id === where.id), data),
@@ -104,6 +110,61 @@ describe('colaboradores', () => {
     const r = await svc.summary(true);
     // 800.000 × 2 (quincenal) + 875.000 (mensual).
     expect(r.nominaProximaUsd).toBe(2475000);
+  });
+});
+
+describe('agregar a alguien a un corte ya generado', () => {
+  it('si el corte está pendiente, entra ahí y el total sube', async () => {
+    // Sara generó el corte del 1-15, le faltaba un colaborador y volvió a
+    // generar: quedaron dos cortes iguales.
+    const { svc, cortes, items } = base();
+    const r = await svc.addRunItem('c2', { employeeName: 'Nicolas', baseUsd: 200 });
+    expect(r.ok).toBe(true);
+    expect(cortes[1].totalUsd).toBe(500);
+    expect(items.filter((it) => it.runId === 'c2')).toHaveLength(2);
+  });
+
+  it('si el corte ya tiene abonos, NO se toca: va un corte aparte', async () => {
+    const { svc, cortes, items } = base();
+    const r = await svc.addRunItem('c1', { employeeName: 'Nicolas', baseUsd: 200 });
+    expect(r).toMatchObject({ ok: false, motivo: 'ya-pagado' });
+    expect(cortes[0].totalUsd).toBe(500);
+    expect(items.filter((it) => it.runId === 'c1')).toHaveLength(2);
+  });
+
+  it('a la misma persona no se le mete dos veces en el mismo corte', async () => {
+    // Samuel ya está en c2: agregarlo otra vez le pagaría el sueldo doble y el
+    // corte saldría inflado sin que se vea de dónde.
+    const { svc, cortes, items } = base();
+    const r = await svc.addRunItem('c2', { employeeId: 'samu', employeeName: 'Samuel', baseUsd: 300 });
+    expect(r).toMatchObject({ ok: false, motivo: 'ya-esta' });
+    expect(cortes[1].totalUsd).toBe(300);
+    expect(items.filter((it) => it.runId === 'c2')).toHaveLength(1);
+  });
+
+  it('tampoco si le corrigieron el nombre después de generar el corte', async () => {
+    // El panel filtra a los que faltan por NOMBRE: renombrado, Samuel vuelve a
+    // aparecer como faltante. El candado va por id, que es lo que no cambia.
+    const { svc, cortes } = base();
+    await svc.updateEmployee('samu', { name: 'Samuel Pérez' });
+    const r = await svc.addRunItem('c2', { employeeId: 'samu', employeeName: 'Samuel Pérez', baseUsd: 300 });
+    expect(r).toMatchObject({ ok: false, motivo: 'ya-esta' });
+    expect(cortes[1].totalUsd).toBe(300);
+  });
+
+  it('a alguien que de verdad falta sí lo deja entrar', async () => {
+    // El candado no puede pasarse de frenada: Sara no está en c2.
+    const { svc, cortes } = base();
+    const r = await svc.addRunItem('c2', { employeeId: 'sara', employeeName: 'Sara', baseUsd: 200 });
+    expect(r.ok).toBe(true);
+    expect(cortes[1].totalUsd).toBe(500);
+  });
+
+  it('un corte que no existe no crea nada', async () => {
+    const { svc, items } = base();
+    const antes = items.length;
+    expect(await svc.addRunItem('no-existe', { employeeName: 'X', baseUsd: 1 })).toMatchObject({ ok: false });
+    expect(items).toHaveLength(antes);
   });
 });
 

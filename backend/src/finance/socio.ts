@@ -1,15 +1,19 @@
 /**
  * La parte del SOCIO en la cascada de utilidad.
  *
- * Dentro de Clubify hay un socio directo que se lleva un porcentaje de cada
- * venta (Sara, 2026-09-17). La base la fijó Javier: «se calcula sobre la venta
- * menos la comisión de Hotmart». O sea, el NETO de las ventas —bruto menos fee
- * de pasarela e impuestos—, y NO la utilidad: egresos, nómina y comisiones de
- * afiliados no le bajan su parte. Por eso se suma venta a venta y se actualiza
- * sola con cada cobro nuevo.
+ * Dentro de Clubify hay un socio directo que se lleva un porcentaje. La base la
+ * fijó Sara el 2026-09-17: **«el % del socio sale del monto de la utilidad»** —
+ * lo que queda tras fee e impuestos, egresos, nómina y comisiones pagadas—. La
+ * primera versión (misma mañana) lo calculaba sobre el neto de las ventas, que
+ * era lo entendido entonces: con nómina o comisiones de por medio daba bastante
+ * más, así que la diferencia importa.
  *
- * Es del socio de CLUBIFY: con «todas las marcas» sigue saliendo solo del neto
- * de Clubify. Las ventas de una marca blanca no son ventas de Clubify.
+ * Un mes en pérdida no le genera deuda: su parte es cero, no negativa.
+ *
+ * Es del socio de CLUBIFY: con «todas las marcas» sigue saliendo solo de la
+ * utilidad de Clubify —su neto, sus egresos y su nómina—. Ni las ventas ni los
+ * costos de una marca blanca son suyos. (Las comisiones de afiliados todavía no
+ * se separan por marca: son el costo de la plataforma entera, decisión v1.)
  */
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -56,9 +60,9 @@ export async function porcentajeDelSocio(prisma: {
 }
 
 /**
- * Lo que le toca del neto. Un mes con más devoluciones que ventas (neto
- * negativo) no le genera deuda al socio: su parte es cero, no negativa.
+ * Lo que le toca de la utilidad (antes de su propia parte). Con la utilidad en
+ * negativo, cero: un mes malo no le genera deuda al socio.
  */
-export function parteDelSocio(netoUsd: number, porcentaje: number): number {
-  return round2((Math.max(netoUsd, 0) * porcentaje) / 100);
+export function parteDelSocio(utilidadUsd: number, porcentaje: number): number {
+  return round2((Math.max(utilidadUsd, 0) * porcentaje) / 100);
 }

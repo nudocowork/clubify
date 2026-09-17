@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/components/Toast';
 import {
@@ -45,9 +45,9 @@ type Exp = { id: string; concept: string; categoryId: string | null; supplier: s
 type ExpResumen = { count: number; totalUsd: number; paidUsd: number; outstandingUsd: number; pending: number };
 type Rec = { id: string; concept: string; categoryId: string | null; supplier: string | null; amountUsd: number; periodicity: string; active: boolean; nextDueDate: string | null };
 type PEmp = { id: string; name: string; role: string | null; payType: string | null; amountUsd: number; periodicity: string; active: boolean };
-type PRun = { id: string; periodLabel: string; totalUsd: number; amountPaidUsd: number; outstandingUsd: number; status: string; itemCount: number; createdAt: string; paidAt: string | null };
+type PRun = { id: string; periodLabel: string; totalUsd: number; amountPaidUsd: number; outstandingUsd: number; status: string; itemCount: number; createdAt: string; paidAt: string | null; periodStart?: string | null; periodEnd?: string | null };
 type PResumen = { colaboradores: number; nominaProximaUsd: number; pendienteUsd: number; pagadaUsd: number };
-type PItem = { id: string; employeeName: string; role: string | null; baseUsd: number; bonusUsd: number; deductionUsd: number; totalUsd: number };
+type PItem = { id: string; employeeId?: string | null; employeeName: string; role: string | null; baseUsd: number; bonusUsd: number; deductionUsd: number; totalUsd: number };
 type Mov = { date: string; kind: 'INGRESO' | 'EGRESO'; category: string; concept: string; party: string | null; grossUsd: number | null; debitUsd: number; creditUsd: number; balanceUsd: number; status: string; reference: string | null; hasReceipt: boolean };
 type MovResp = { movements: Mov[]; summary: { ingresosUsd: number; egresosUsd: number; saldoUsd: number; count: number } };
 
@@ -74,6 +74,17 @@ type Tab = 'resumen' | 'ingresos' | 'conciliacion' | 'egresos' | 'gastos' | 'nom
 type Comisiones = {
   period: string; totalUsd: number; pagadoUsd: number; pendienteUsd: number; count: number;
   porBeneficiario: Array<{ code: string; nombre: string; rol: string; totalUsd: number; pagadoUsd: number; pendienteUsd: number; count: number }>;
+};
+/** Las comisiones repartidas por CORTE, que es como se pagan (cada 15 días). */
+type CorteComisiones = {
+  code: string; cutoffDate: string; periodStart: string | null; periodEnd: string | null;
+  status: string; paymentDate: string | null; receivedAt: string | null;
+  count: number; totalUsd: number; pagadoUsd: number; pendienteUsd: number;
+  personas: Array<{ code: string; nombre: string; rol: string; count: number; totalUsd: number; pagadoUsd: number; pendienteUsd: number }>;
+};
+type CortesDeComisiones = {
+  period: string; cortes: CorteComisiones[]; totalCortesUsd: number; pagadoCortesUsd: number;
+  sinCorte: { count: number; totalUsd: number };
 };
 type CobroProximo = { tenantId: string | null; groupId: string | null; negocio: string; esGrupo: boolean; fechaCobro: string | null; plan: string; periodicidad: string; montoUsd: number; metodo: string; ultimoPago: string | null; estado: string };
 type Cobros = { dias: number; resumen: { proximos: { count: number; amountUsd: number }; procesados: { count: number; amountUsd: number }; noProcesados: { count: number; amountUsd: number } }; filas: CobroProximo[] };
@@ -158,6 +169,8 @@ export default function ContabilidadPage() {
   const [movKind, setMovKind] = useState<'' | 'INGRESO' | 'EGRESO'>('');
   const [panorama, setPanorama] = useState<Panorama | null>(null);
   const [comisiones, setComisiones] = useState<Comisiones | null>(null);
+  const [cortesCom, setCortesCom] = useState<CortesDeComisiones | null>(null);
+  const [corteAbierto, setCorteAbierto] = useState<string | null>(null);
   const [cobros, setCobros] = useState<Cobros | null>(null);
   // Ventana de los próximos cobros: días hacia adelante, no un período contable.
   const [diasCobros, setDiasCobros] = useState(30);
@@ -189,7 +202,7 @@ export default function ContabilidadPage() {
       // gastos recurrentes (plantillas) y los colaboradores (las personas que
       // hay hoy) — y los cierres, que son la lista de meses ya cerrados.
       const q = `scope=${scope}&period=${encodeURIComponent(periodo)}`;
-      const [r, list, c, e, er, rc, em, ru, pr, mv, rep, ci, global, com, cob] = await Promise.all([
+      const [r, list, c, e, er, rc, em, ru, pr, mv, rep, ci, global, com, cob, cortesC] = await Promise.all([
         api<Resumen>(`/admin/contabilidad/ingresos/resumen?${q}`).catch(() => null),
         api<Row[]>(`/admin/contabilidad/ingresos?${q}`).catch(() => []),
         api<Cat[]>(`/admin/contabilidad/categorias`).catch(() => []),
@@ -205,12 +218,14 @@ export default function ContabilidadPage() {
         api<Resumen>(`/admin/contabilidad/ingresos/resumen?scope=${scope}&period=todo`).catch(() => null),
         api<Comisiones>(`/admin/contabilidad/comisiones?period=${encodeURIComponent(periodo)}`).catch(() => null),
         api<Cobros>(`/admin/contabilidad/proximos-cobros?dias=${diasCobros}`).catch(() => null),
+        // Las mismas comisiones, pero por corte: es lo que de verdad se paga.
+        api<CortesDeComisiones>(`/admin/contabilidad/comisiones/cortes?period=${encodeURIComponent(periodo)}`).catch(() => null),
       ]);
       // Una respuesta que llega después de haber cambiado de mes NO se pinta:
       // dejaría las cifras de un período bajo el título de otro, que es el
       // mismo error de fondo que el parpadeo de arriba.
       if (mia !== ultimaPeticion.current) return;
-      setPendienteGlobal(global); setComisiones(com); setCobros(cob);
+      setPendienteGlobal(global); setComisiones(com); setCobros(cob); setCortesCom(cortesC);
       setResumen(r); setRows((list ?? []) as Row[]); setCats((c ?? []) as Cat[]);
       setExps((e ?? []) as Exp[]); setExpResumen(er); setRecs((rc ?? []) as Rec[]);
       setEmps((em ?? []) as PEmp[]); setRuns((ru ?? []) as PRun[]); setPRes(pr);
@@ -748,14 +763,112 @@ export default function ContabilidadPage() {
           {tab === 'comisiones' && (
             !comisiones ? <div className="card card-pad text-center text-mute">Sin datos.</div> : (
               <>
+                {/* LOS CORTES PRIMERO: las comisiones se pagan cada 15 días y
+                    entran al corte en el que quedan disponibles, no en el mes en
+                    que se generaron. Contabilidad agrupaba por fecha de la
+                    comisión y por eso no cuadraba con el módulo de Comisiones
+                    (Sara, 2026-09-17: las 3 de Nicolas Rojas, de negocios de
+                    agosto, entran al corte del 15-09). */}
+                {cortesCom && (cortesCom.cortes.length > 0 || cortesCom.sinCorte.count > 0) && (
+                  <div className="mb-5">
+                    <div className="flex items-baseline justify-between gap-2 flex-wrap mb-2">
+                      <h2 className="text-base font-semibold m-0">Cortes de comisiones</h2>
+                      {/* «Lo que se paga en septiembre» era mentira: un corte se
+                          cierra el 15 y puede transferirse en el mes siguiente.
+                          El titular dice lo que la tabla agrupa —la fecha de
+                          corte— y debajo va la conciliación con la cascada. */}
+                      <span className="text-[11px] text-mute">
+                        Con fecha de corte en <span className="capitalize">{nombreDePeriodo(periodo)}</span>:{' '}
+                        <strong className="text-ink">{money(cortesCom.totalCortesUsd)}</strong> en {cortesCom.cortes.length}{' '}
+                        {cortesCom.cortes.length === 1 ? 'corte' : 'cortes'}
+                      </span>
+                    </div>
+                    {cortesCom.cortes.length === 0 ? (
+                      <div className="card card-pad text-sm text-mute">
+                        Este período todavía no tiene ningún corte cerrado con esta fecha.
+                      </div>
+                    ) : (
+                    <div className="card overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[780px]">
+                      <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
+                        {['Corte', 'Período', 'Estado', 'Comisiones', 'Total', 'Pagado', 'Pendiente'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}
+                      </tr></thead>
+                      <tbody>{cortesCom.cortes.map((c) => (
+                        <Fragment key={c.code}>
+                          <tr className="border-t border-line2 hover:bg-bg2/40">
+                            <td className="px-4 py-3 font-semibold">
+                              <button className="hover:underline text-left" onClick={() => setCorteAbierto(corteAbierto === c.code ? null : c.code)}>
+                                {c.code} {corteAbierto === c.code ? '▾' : '▸'}
+                              </button>
+                            </td>
+                            <td className="px-4 py-3 text-mute text-xs whitespace-nowrap">
+                              {c.periodStart && c.periodEnd
+                                ? `${fmtDate(c.periodStart)} → ${fmtDate(c.periodEnd)}`
+                                : `corte ${fmtDate(c.cutoffDate)}`}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${c.status === 'CLOSED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {c.status === 'CLOSED' ? 'Cerrado' : 'Abierto'}
+                              </span>
+                              {c.paymentDate && <span className="text-[10px] text-mute ml-2">transf. {fmtDate(c.paymentDate)}</span>}
+                            </td>
+                            <td className="px-4 py-3 text-mute tabular-nums">{c.count}</td>
+                            <td className="px-4 py-3 tabular-nums font-medium">{money(c.totalUsd)}</td>
+                            <td className="px-4 py-3 tabular-nums text-ok">{money(c.pagadoUsd)}</td>
+                            <td className={`px-4 py-3 tabular-nums font-semibold ${c.pendienteUsd > 0 ? 'text-red-600' : 'text-mute'}`}>{money(c.pendienteUsd)}</td>
+                          </tr>
+                          {corteAbierto === c.code && c.personas.map((p) => (
+                            <tr key={`${c.code}-${p.code}`} className="border-t border-line2 bg-bg2/30 text-xs">
+                              <td className="px-4 py-2 pl-8">
+                                {p.nombre}
+                                <span className="text-mute ml-1.5">{p.code}</span>
+                              </td>
+                              <td className="px-4 py-2 text-mute">{p.rol}</td>
+                              <td className="px-4 py-2" />
+                              <td className="px-4 py-2 text-mute tabular-nums">{p.count}</td>
+                              <td className="px-4 py-2 tabular-nums">{money(p.totalUsd)}</td>
+                              <td className="px-4 py-2 tabular-nums text-ok">{money(p.pagadoUsd)}</td>
+                              <td className={`px-4 py-2 tabular-nums ${p.pendienteUsd > 0 ? 'text-red-600' : 'text-mute'}`}>{money(p.pendienteUsd)}</td>
+                            </tr>
+                          ))}
+                        </Fragment>
+                      ))}</tbody>
+                    </table></div></div>
+                    )}
+                    <p className="text-[11px] text-mute mt-2">
+                      Salen del módulo de Comisiones: los mismos cortes, las mismas personas y los mismos montos.
+                      Cuando ahí se marcan como pagadas con su comprobante, acá aparece en «Pagado» del corte.
+                      {cortesCom.sinCorte.count > 0 && (
+                        <> Además, <strong className="text-ink">{money(cortesCom.sinCorte.totalUsd)}</strong> en{' '}
+                        {cortesCom.sinCorte.count} {cortesCom.sinCorte.count === 1 ? 'comisión generada' : 'comisiones generadas'} este período
+                        que todavía no entran a ningún corte (se liberan 15 días después de la venta).</>
+                      )}
+                    </p>
+                    {/* Sin esta línea hay dos cifras distintas para «septiembre»
+                        en dos pestañas y ninguna explica a la otra: la tabla
+                        agrupa por fecha de corte y la cascada por la fecha en
+                        que salió el dinero. */}
+                    {panorama && (
+                      <p className="text-[11px] text-mute mt-1">
+                        Salido del banco dentro de <span className="capitalize">{nombreDePeriodo(periodo)}</span>,
+                        que es lo que resta la cascada del Resumen:{' '}
+                        <strong className="text-ink">{money(panorama.resumen.comisionesUsd)}</strong>.
+                        Puede ser un corte de otro mes: se cierra el 15 o el 30 y la transferencia sale días después.
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                  <Kpi lbl="Comisiones del período" dot="#eda100" val={money(comisiones.totalUsd)} sub={`${comisiones.count} ${comisiones.count === 1 ? 'comisión' : 'comisiones'}`} />
+                  <Kpi lbl="Generadas en el período" dot="#eda100" val={money(comisiones.totalUsd)} sub={`${comisiones.count} ${comisiones.count === 1 ? 'comisión' : 'comisiones'}`} />
                   <Kpi lbl="Pagadas" dot="#16A34A" val={money(comisiones.pagadoUsd)} sub="ya liquidadas" />
                   <Kpi lbl="Pendientes" dot="#DC2626" val={money(comisiones.pendienteUsd)} sub="por pagar" />
                   <Kpi lbl="Beneficiarios" dot="#2563EB" val={String(comisiones.porBeneficiario.length)} sub="con comisión en el período" />
                 </div>
                 <p className="text-xs text-mute mb-3">
-                  Este total es <strong className="text-ink">la misma línea</strong> «− Comisiones afiliados» de la cascada del Resumen: sale de la misma consulta, no de una parecida.
+                  Ojo con estas cuatro tarjetas: son las comisiones <strong className="text-ink">generadas</strong> en el período,
+                  que no son las que se pagan en él — para eso están los cortes de arriba.
+                  Este total es el de la nota «Comisiones <strong className="text-ink">generadas</strong> en el mes» de la cascada del Resumen;
+                  la línea «− Comisiones afiliados» de esa cascada es otra cosa: lo que salió del banco dentro del mes.
                   Todavía no se separan por marca — son el costo de afiliados de la plataforma entera.{' '}
                   {/* El libro de asientos NO es otra versión de estas cifras: su
                       ingreso es el precio de la suscripción atribuida, no el
@@ -888,9 +1001,9 @@ export default function ContabilidadPage() {
       {showRec && <RecurrenteModal cats={cats} onClose={() => setShowRec(false)} onSaved={() => { setShowRec(false); void load(); }} />}
       {payFor && <PagoModal exp={payFor} onClose={() => setPayFor(null)} onSaved={() => { setPayFor(null); void load(); }} />}
       {(showEmp || editEmp) && <EmpModal emp={editEmp} onClose={() => { setShowEmp(false); setEditEmp(null); }} onSaved={() => { setShowEmp(false); setEditEmp(null); void load(); }} />}
-      {showGen && <GenModal emps={emps.filter((e) => e.active)} onClose={() => setShowGen(false)} onSaved={() => { setShowGen(false); void load(); }} />}
+      {showGen && <GenModal emps={emps.filter((e) => e.active)} runs={runs} scope={scope} onClose={() => setShowGen(false)} onSaved={() => { setShowGen(false); void load(); }} />}
       {payRun && <PayRunModal run={payRun} onClose={() => setPayRun(null)} onSaved={() => { setPayRun(null); void load(); }} />}
-      {detailRun && <RunDetailModal id={detailRun} onClose={() => setDetailRun(null)} onChanged={() => void load()} />}
+      {detailRun && <RunDetailModal id={detailRun} emps={emps.filter((e) => e.active)} onClose={() => setDetailRun(null)} onChanged={() => void load()} />}
       {traza && <TrazaModal t={traza} onClose={() => setTraza(null)} />}
       {cargandoTraza && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/20">
@@ -1187,7 +1300,16 @@ function mesEnCurso(): { desde: string; hasta: string } {
   };
 }
 
-function GenModal({ emps, onClose, onSaved }: { emps: PEmp[]; onClose: () => void; onSaved: () => void }) {
+function GenModal({ emps, runs, scope, onClose, onSaved }: { emps: PEmp[]; runs: PRun[]; scope: string; onClose: () => void; onSaved: () => void }) {
+  // `runs` son los del período que se está mirando: si Sara está en agosto y
+  // genera el 1-15 de septiembre, el duplicado no estaría en esa lista y el
+  // aviso no saldría. Se piden todos, una vez, al abrir.
+  const [todosLosCortes, setTodosLosCortes] = useState<PRun[]>(runs);
+  useEffect(() => {
+    void api<PRun[]>(`/admin/contabilidad/nomina/cortes?scope=${scope}&period=todo`)
+      .then((r) => { if (Array.isArray(r)) setTodosLosCortes(r); })
+      .catch(() => {});
+  }, [scope]);
   const [period, setPeriod] = useState('');
   const [rango, setRango] = useState(mesEnCurso);
   // La BASE también se edita aquí: el monto de un colaborador no es el mismo
@@ -1223,8 +1345,24 @@ function GenModal({ emps, onClose, onSaved }: { emps: PEmp[]; onClose: () => voi
     setBusy(false);
     if (r) { toast('Corte de nómina generado'); onSaved(); } else toast('No se pudo generar');
   }
+  // Ya existe un corte que termina ese mismo día: casi siempre es que falta
+  // alguien, no que haya que generar otro igual (Sara generó dos del 1-15).
+  const yaHay = todosLosCortes.find((r) => (r.periodEnd ?? '').slice(0, 10) === rango.hasta);
+  // Con ABONOS, no con el estado: un corte PARCIAL no está «pagado» pero el
+  // detalle tampoco deja agregarle a nadie, así que mandarla ahí sería un
+  // callejón sin salida. Es el mismo criterio que usa el backend.
+  const yaHayConAbonos = !!yaHay && Number(yaHay.amountPaidUsd) > 0;
   return (
     <Modal title="Generar pago de nómina" onClose={onClose}>
+      {yaHay && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs mb-3">
+          Ya hay un corte que termina el {rango.hasta}: <strong>{yaHay.periodLabel}</strong> ({money(yaHay.totalUsd)},{' '}
+          {yaHayConAbonos ? `con ${money(yaHay.amountPaidUsd)} ya pagados` : 'sin pagos todavía'}).
+          {yaHayConAbonos
+            ? ' Como ya tiene pagos, un corte nuevo con la misma fecha es lo correcto: deja marcados solo a los que falten y desmarca a los que ya cobraron.'
+            : ' Si solo falta un colaborador, cierra esto y agrégalo desde el detalle de ese corte en vez de generar otro.'}
+        </div>
+      )}
       <button className="btn-ghost rounded-pill text-xs mb-3" onClick={mesCompleto}>Mes completo (quincenas × 2)</button>
       <div className="mb-3"><label className="label">Período</label><input className="input w-full" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="Quincena 1–15 sep 2026" /></div>
       <div className="grid grid-cols-2 gap-3 mb-3">
@@ -1280,7 +1418,7 @@ function PayRunModal({ run, onClose, onSaved }: { run: PRun; onClose: () => void
   );
 }
 
-function RunDetailModal({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
+function RunDetailModal({ id, emps, onClose, onChanged }: { id: string; emps: PEmp[]; onClose: () => void; onChanged: () => void }) {
   const [items, setItems] = useState<PItem[] | null>(null);
   const [label, setLabel] = useState('');
   const [pagado, setPagado] = useState(0);
@@ -1323,6 +1461,36 @@ function RunDetailModal({ id, onClose, onChanged }: { id: string; onClose: () =>
     const r = await api<{ ok: boolean }>(`/admin/contabilidad/nomina/cortes/${id}`, { method: 'DELETE' }).catch(() => null);
     if (r?.ok) { toast('Pago borrado'); onChanged(); onClose(); } else toast('Solo se puede borrar un pago sin abonos');
   }
+  // Agregar a alguien que faltó, sin generar otro corte igual.
+  const [nuevoId, setNuevoId] = useState('');
+  const [nuevaBase, setNuevaBase] = useState('');
+  // Por id Y por nombre, el mismo criterio que el candado del backend: si a
+  // alguien le corrigieron el nombre, por nombre volvería a salir como faltante.
+  const faltantes = emps.filter(
+    (e) => !(items ?? []).some((it) => it.employeeId === e.id || it.employeeName === e.name),
+  );
+  async function agregar() {
+    const emp = emps.find((e) => e.id === nuevoId);
+    if (!emp) { toast('Elige a quién agregar'); return; }
+    setBusy(true);
+    const r = await api<{ ok: boolean; motivo?: string }>(`/admin/contabilidad/nomina/cortes/${id}/items`, {
+      method: 'POST',
+      body: JSON.stringify({
+        employeeId: emp.id,
+        employeeName: emp.name,
+        role: emp.role ?? undefined,
+        baseUsd: nuevaBase ? num(nuevaBase) : emp.amountUsd,
+      }),
+    }).catch((err: Error) => { toast(err?.message || 'No se pudo agregar'); return undefined; });
+    setBusy(false);
+    if (r?.ok) { toast(`${emp.name} agregado al pago`); setNuevoId(''); setNuevaBase(''); cargar(); onChanged(); }
+    else if (r && !r.ok) toast(
+      r.motivo === 'ya-pagado' ? 'Este pago ya tiene abonos: genera un corte aparte'
+        : r.motivo === 'ya-esta' ? 'Esa persona ya está en este pago'
+        : 'No se pudo agregar',
+    );
+  }
+
   const cambiado = (it: PItem) => {
     const e = edit[it.id];
     return !!e && (num(e.base) !== it.baseUsd || num(e.bonus) !== it.bonusUsd || num(e.ded) !== it.deductionUsd);
@@ -1351,7 +1519,36 @@ function RunDetailModal({ id, onClose, onChanged }: { id: string; onClose: () =>
         </>
       )}
       {items != null && pagado <= 0 && (
-        <div className="flex justify-end mt-4"><button className="text-xs text-red-600 hover:underline" onClick={() => void borrarCorte()}>Borrar este pago</button></div>
+        <>
+          <div className="border-t border-line2 mt-4 pt-3">
+            <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-1.5">Agregar a alguien que faltó</div>
+            {faltantes.length === 0 ? (
+              <p className="text-xs text-mute">Ya están todos los colaboradores activos en este pago.</p>
+            ) : (
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <label className="label">Colaborador</label>
+                  <select className="input w-full" value={nuevoId} onChange={(e) => setNuevoId(e.target.value)}>
+                    <option value="">Elegir…</option>
+                    {faltantes.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  </select>
+                </div>
+                <div className="w-28">
+                  <label className="label">Base</label>
+                  <input className="input w-full text-right" inputMode="decimal" placeholder={nuevoId ? String(emps.find((e) => e.id === nuevoId)?.amountUsd ?? '') : '0'} value={nuevaBase} onChange={(e) => setNuevaBase(e.target.value)} />
+                </div>
+                <button className="btn-primary rounded-pill text-sm" disabled={busy} onClick={() => void agregar()}>Agregar</button>
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end mt-4"><button className="text-xs text-red-600 hover:underline" onClick={() => void borrarCorte()}>Borrar este pago</button></div>
+        </>
+      )}
+      {items != null && pagado > 0 && (
+        <p className="text-[11px] text-mute mt-4">
+          Este pago ya tiene abonos, así que no se le puede agregar gente ni bajarlo por debajo de lo pagado.
+          Si faltó alguien, genera un corte nuevo con la misma fecha solo para esa persona.
+        </p>
       )}
     </Modal>
   );
