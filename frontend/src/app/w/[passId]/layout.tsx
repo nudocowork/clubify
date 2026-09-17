@@ -1,12 +1,15 @@
 import type { Metadata } from 'next';
+import { hostDeLaPeticion } from '@/lib/host-de-la-peticion';
+import {
+  baseDeLaVistaPrevia,
+  colorDelTema,
+  iconosDelPase,
+} from '@/lib/vista-previa-del-negocio.mjs';
 
 const API =
   process.env.BACKEND_INTERNAL_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
   'http://localhost:4949';
-
-const SITE_URL =
-  process.env.NEXT_PUBLIC_APP_URL ?? 'https://soyclubify.com';
 
 /**
  * Metadata para la vista pública del pase wallet.
@@ -38,27 +41,29 @@ export async function generateMetadata({
     const description = brand
       ? `Tu tarjeta wallet en ${brand}. Suma sellos y reclama tu premio.`
       : 'Tu tarjeta wallet. Suma sellos y reclama tu premio.';
+    // Color, favicon y dominio: del negocio, luego de SU marca, y si no hay,
+    // nada. Antes un negocio sin logo se quedaba con el verde, los iconos de
+    // /public y el `og:url` de Clubify, aunque la tarjeta fuera de Sellea.
+    const color = colorDelTema(data?.tenant?.primaryColor, data?.brand?.primaryColor);
+    const icons = iconosDelPase({
+      logoDelNegocio: data?.tenant?.logoUrl,
+      marca: data?.brand,
+    });
+    const base = baseDeLaVistaPrevia({
+      host: hostDeLaPeticion(),
+      websiteUrl: data?.brand?.websiteUrl,
+    });
     return {
       title,
       description,
       robots: { index: false, follow: false }, // privado por usuario
-      themeColor: data?.tenant?.primaryColor || '#22C55E',
-      icons: data?.tenant?.logoUrl
-        ? { icon: data.tenant.logoUrl, apple: data.tenant.logoUrl }
-        : {
-            icon: [
-              { url: '/icons/icon.svg', type: 'image/svg+xml' },
-              { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
-              { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-              { url: '/favicon.ico', sizes: 'any' },
-            ],
-            apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
-          },
+      ...(color ? { themeColor: color } : {}),
+      ...(icons ? { icons } : {}),
       openGraph: {
         title,
         description,
         siteName: brand,
-        url: `${SITE_URL}/w/${params.passId}`,
+        ...(base ? { url: `${base}/w/${params.passId}` } : {}),
         type: 'website',
       },
     };

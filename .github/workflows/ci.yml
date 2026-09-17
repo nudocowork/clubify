@@ -165,6 +165,14 @@ jobs:
       - name: Pruebas del menú libro (carga de imágenes, zoom y firma de marca)
         run: npm run pruebas:libro-imagenes && npm run pruebas:libro-zoom && npm run pruebas:libro-firma
 
+      # El menú público, rápido y con su marca. Que los GET cacheables vayan por
+      # `/api` del propio dominio (directo a la API no hay caché) sin mover la
+      # clave de caché, que las portadas y logos pasen por el optimizador, que
+      # Sentry no viaje sin DSN, y que la vista previa de un negocio de marca
+      # blanca no anuncie `soyclubify.com`. Bloquean a propósito.
+      - name: Pruebas del menú público (caché, imágenes, Sentry y vista previa de marca)
+        run: npm run pruebas:api-publica && npm run pruebas:imagenes-del-menu && npm run pruebas:sentry-sin-dsn && npm run pruebas:vista-previa-marca
+
       - name: Build
         run: npm run build
 

@@ -1,12 +1,11 @@
 import type { Metadata } from 'next';
+import { hostDeLaPeticion } from '@/lib/host-de-la-peticion';
+import { baseDeLaVistaPrevia } from '@/lib/vista-previa-del-negocio.mjs';
 
 const API =
   process.env.BACKEND_INTERNAL_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
   'http://localhost:4949';
-
-const SITE_URL =
-  process.env.NEXT_PUBLIC_APP_URL ?? 'https://soyclubify.com';
 
 /**
  * Metadata para la página pública de seguimiento de pedido.
@@ -35,6 +34,12 @@ export async function generateMetadata({
     const description = brand
       ? `Sigue el estado de tu pedido en ${brand}.`
       : 'Sigue el estado de tu pedido.';
+    // El enlace del pedido le llega al cliente del negocio: con el dominio de
+    // su marca o el propio del negocio, nunca el de Clubify por defecto.
+    const base = baseDeLaVistaPrevia({
+      host: hostDeLaPeticion(),
+      websiteUrl: o?.brand?.websiteUrl,
+    });
     return {
       title,
       description,
@@ -43,7 +48,7 @@ export async function generateMetadata({
         title,
         description,
         siteName: brand,
-        url: `${SITE_URL}/o/${params.code}`,
+        ...(base ? { url: `${base}/o/${params.code}` } : {}),
         type: 'website',
       },
     };

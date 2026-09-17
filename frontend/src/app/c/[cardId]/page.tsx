@@ -13,7 +13,10 @@ import { BrandBadge, type BrandBadgeBrand } from '@/components/BrandBadge';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useLocale, useT, type MessageKey } from '@/lib/i18n';
 import { DAY_OPTIONS, monthOptionsFor } from '@/lib/opciones-cumple';
+import { urlDeLaTarjeta } from '@/lib/api-publica.mjs';
 
+// Para el alta (POST) y la métrica: no se cachean y van directos a la API. El
+// GET de la tarjeta va por la ruta relativa (ver `api-publica.mjs`).
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 type Card = {
@@ -626,11 +629,13 @@ export default function EnrollPage() {
     // Solo mostramos el indicador "verificando" si no hay cache;
     // visitas repetidas no parpadean.
     if (!card) setVerifying(true);
-    fetch(`${API}/api/passes/enroll/${cardId}?locale=${locale}`, {
+    fetch(urlDeLaTarjeta(cardId as string, { locale }), {
       signal: ctrl.signal,
       // No "no-store" — queremos que el browser/CDN sirvan cache si está
       // dentro del max-age del backend (60s). El stale-while-revalidate
-      // hace que sea instantáneo.
+      // hace que sea instantáneo. El CDN solo existe si la petición entra
+      // por el dominio de la página: directo a la API (Railway) no hay
+      // caché delante, y el `s-maxage=300` del backend no servía de nada.
     })
       .then((r) => r.json())
       .then((data) => {

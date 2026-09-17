@@ -19,8 +19,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { MenuBookViewer } from '@/components/menu/MenuBookViewer';
 import { firmaDelLibro } from '@/lib/menu/firma-del-libro.mjs';
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+import { urlDelNegocio } from '@/lib/api-publica.mjs';
 
 // Compartida por las dos formas del pie (enlace cuando la marca tiene web,
 // texto cuando no): el aspecto es el mismo, lo que cambia es si se puede
@@ -59,7 +58,8 @@ export default function BookClient() {
     if (!slug) return;
     let cancelled = false;
     const ctrl = new AbortController();
-    fetch(`${API}/api/public/m/${slug}`, { signal: ctrl.signal })
+    // Ruta relativa: pasa por la caché del borde (ver `api-publica.mjs`).
+    fetch(urlDelNegocio(slug), { signal: ctrl.signal })
       .then(async (r) => {
         if (cancelled) return;
         if (!r.ok) {

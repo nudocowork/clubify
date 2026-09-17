@@ -56,7 +56,17 @@ import {
   CategoryPopupBadge,
 } from '@/components/menu/CategoryPopupController';
 import { CategoryUrlSync } from '@/components/menu/CategoryUrlSync';
+import { urlDelMenu, urlDelNegocio } from '@/lib/api-publica.mjs';
+import {
+  IMAGEN_DEL_AVISO,
+  IMAGEN_DEL_LOGO,
+  IMAGEN_DE_PORTADA,
+  imagenDelMenu,
+} from '@/lib/menu/imagen-del-menu.mjs';
 
+// Solo para lo que NO se puede cachear en el borde (pedidos, búsqueda por
+// teléfono, sedes). Los GET del negocio y de la carta van por la ruta
+// relativa: ver `api-publica.mjs`.
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 type MenuLayout =
@@ -437,6 +447,9 @@ function StorefrontPublicInner() {
    * pidiendo dirección como siempre.
    */
   const oficinaDelQr = (searchParams?.get('oficina') ?? '').trim();
+  // Lo pone la vista previa del panel al publicar: pide lo recién guardado y no
+  // la copia de la caché del borde. Ver `urlDelMenu` en api-publica.mjs.
+  const frescoDelPanel = (searchParams?.get('fresco') ?? '').trim();
   const [s, setS] = useState<Storefront | null>(null);
   const [menu, setMenu] = useState<Category[]>([]);
   const [tab, setTab] = useState<'menu' | 'promos'>('menu');
@@ -501,10 +514,9 @@ function StorefrontPublicInner() {
     };
 
     Promise.all([
-      fetch(
-        `${API}/api/public/m/${slug}?locale=${locale}` +
-          (oficinaDelQr ? `&oficina=${encodeURIComponent(oficinaDelQr)}` : ''),
-      )
+      // Ruta relativa, no `${API}`: así pasa por la caché del borde de Vercel
+      // en vez de ir directo a Railway (ver `api-publica.mjs`).
+      fetch(urlDelNegocio(slug, { locale, oficina: oficinaDelQr, fresco: frescoDelPanel }))
         .then(async (r) => {
           if (!r.ok) {
             const j = await r.json().catch(() => ({}));
@@ -544,14 +556,9 @@ function StorefrontPublicInner() {
         .catch((e: Error) => {
           if (!cancelled) setLoadError(e.message || 'No disponible');
         }),
-      fetch(
-        `${API}/api/public/m/${slug}/menu?locale=${locale}&mode=${mode}` +
-          // La carta de la oficina se sirve por el mismo `sede`, que ya acepta
-          // el id de una carta. Si llegaran los dos, manda la sede.
-          (sedeDelQr || oficinaDelQr
-            ? `&sede=${encodeURIComponent(sedeDelQr || oficinaDelQr)}`
-            : ''),
-      )
+      // La carta de la oficina se sirve por el mismo `sede`, que ya acepta el
+      // id de una carta. Si llegaran los dos, manda la sede.
+      fetch(urlDelMenu(slug, { locale, mode, sede: sedeDelQr, oficina: oficinaDelQr, fresco: frescoDelPanel }))
         .then(async (r) => (r.ok ? r.json() : []))
         .then((data) => {
           if (!cancelled) setMenu(data);
@@ -565,7 +572,7 @@ function StorefrontPublicInner() {
       cancelled = true;
       if (debounceId) clearTimeout(debounceId);
     };
-  }, [slug, locale, mode]);
+  }, [slug, locale, mode, frescoDelPanel]);
 
   // Capturar ?promo=CODE del QR Descuento. Se persiste en localStorage
   // para que el banner sobreviva navegaciones. El código se PRESENTA al
@@ -768,8 +775,12 @@ function StorefrontPublicInner() {
                     }`}
                     style={{ background: logoBg }}
                   >
+                    {/* Por el optimizador y con UN solo ancho: había logos de
+                        más de 3 MB pintados en esta caja de 260×140. Sin
+                        srcset a propósito, o el logo se encoge (ver
+                        IMAGEN_DEL_LOGO en imagen-del-menu.mjs). */}
                     <img
-                      src={s.logoUrl}
+                      {...imagenDelMenu(s.logoUrl, IMAGEN_DEL_LOGO)}
                       alt={s.brandName}
                       className="max-w-[260px] w-auto h-auto max-h-[140px] object-contain block"
                     />
@@ -3932,19 +3943,44 @@ function SectionBanner({
       />
     );
   }
-  // Fallback legacy
+  // Fallback legacy. La foto era un `background-image` con la URL cruda del
+  // bucket; ahora es un `<img>` por el optimizador (perezoso, con srcset) y el
+  // degradado oscuro va encima en su propia capa, como antes iba en el fondo.
+  const imagen = cat.imageUrl
+    ? imagenDelMenu(cat.imageUrl, IMAGEN_DE_PORTADA)
+    : null;
   return (
     <div
       className="relative h-44 rounded-2xl overflow-hidden flex items-end p-5"
-      style={{
-        backgroundImage: cat.imageUrl
-          ? `linear-gradient(180deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.7) 100%), url(${cat.imageUrl})`
-          : `linear-gradient(135deg, ${primary}, ${primary}aa)`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-      }}
+      style={
+        imagen?.src
+          ? undefined
+          : { backgroundImage: `linear-gradient(135deg, ${primary}, ${primary}aa)` }
+      }
     >
-      <div className="text-white">
+      {imagen?.src && (
+        <>
+          <img
+            {...imagen}
+            alt=""
+            aria-hidden
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            className="absolute inset-0 w-full h-full object-cover object-center pointer-events-none select-none"
+          />
+          <div
+            aria-hidden
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage:
+                'linear-gradient(180deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.7) 100%)',
+            }}
+          />
+        </>
+      )}
+      {/* `relative` para quedar por encima de las dos capas absolutas. */}
+      <div className="relative text-white">
         <h2 className="text-2xl font-bold leading-tight m-0">{cat.name}</h2>
         {cat.tagline && (
           <p className="text-sm opacity-90 mt-1 m-0">{cat.tagline}</p>
@@ -4140,8 +4176,10 @@ function StorefrontPopup({
           {...props}
           className="block rounded-2xl overflow-hidden shadow-2xl bg-white"
         >
+          {/* Por el optimizador con srcset: el ancho lo manda la caja
+              (`w-full`), así que el tamaño en pantalla no cambia. */}
           <img
-            src={active.imageUrl}
+            {...imagenDelMenu(active.imageUrl, IMAGEN_DEL_AVISO)}
             alt=""
             className="w-full h-auto block"
             draggable={false}

@@ -807,10 +807,18 @@ function StorefrontPreview({
     tenantSlug ? 'live' : 'sim',
   );
   const [iframeKey, setIframeKey] = useState(0);
+  // Un valor NUEVO en cada publicación. El menú lo pasa a sus peticiones y así
+  // la vista previa no sale de la caché del borde, que tardaría hasta 3 minutos
+  // en enseñar el cambio. La hora y no un contador: un contador empieza en 1 en
+  // cada sesión y volvería a dar con una entrada vieja de la caché.
+  const [fresco, setFresco] = useState(() => Date.now());
 
   // Recarga el iframe cada vez que se publica (savedAt cambia).
   useEffect(() => {
-    if (mode === 'live' && savedAt) setIframeKey((k) => k + 1);
+    if (mode === 'live' && savedAt) {
+      setFresco(Date.now());
+      setIframeKey((k) => k + 1);
+    }
   }, [savedAt, mode]);
 
   // Si el layout activo no es CLASSIC, la simulación no lo refleja.
@@ -922,7 +930,7 @@ function StorefrontPreview({
               ) : tenantSlug ? (
                 <iframe
                   key={iframeKey}
-                  src={publicHref}
+                  src={`${publicHref}?fresco=${fresco}`}
                   title={t('sitePreviewTitle')}
                   className="w-full border-0 block"
                   style={{ height: 'calc(640px - 34px - 20px)' }}

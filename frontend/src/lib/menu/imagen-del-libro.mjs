@@ -21,13 +21,18 @@
  *   node scripts/pruebas-libro-imagenes.mjs
  */
 
-/**
- * Anchos que el optimizador de Next acepta por defecto (`deviceSizes`).
- * Pedirle uno que no esté en la lista responde 400 y la página se queda en
- * BLANCO — no es un degradado elegante, es una carta rota. Comprobado
- * contra producción antes de fijar la lista.
- */
-const ANCHOS_PERMITIDOS = [640, 750, 828, 1080, 1200, 1920, 2048, 3840];
+import {
+  anchoPermitido,
+  hostOptimizable,
+  srcSetOptimizado,
+  urlOptimizada as urlDelOptimizador,
+} from '../imagen-optimizada.mjs';
+
+// Lo que decide CUÁNDO se puede usar el optimizador (anchos que acepta, hosts,
+// protocolo, rutas, SVG) vive desde el 2026-09-17 en `../imagen-optimizada.mjs`,
+// compartido con las portadas, el logo y el aviso del menú digital. Aquí queda
+// solo lo propio del libro. Se reexportan para no romper a quien ya los usa.
+export { anchoPermitido, hostOptimizable };
 
 /**
  * Los que de verdad sirven para una página de carta a ancho completo:
@@ -48,80 +53,12 @@ export const CALIDAD_DEL_LIBRO = 85;
 export const TAMANOS_DEL_LIBRO = '100vw';
 
 /**
- * Hosts que `next.config.js` declara en `images.remotePatterns`.
- *
- * El optimizador responde **400 a cualquier host que no esté ahí**, y un 400
- * dentro de un `srcset` deja la página EN BLANCO: cuando la candidata del
- * srcset falla, el navegador NO cae al `src`. O sea que un CDN nuevo en
- * `S3_PUBLIC_URL` no degradaría la calidad, dejaría las cartas sin imágenes.
- *
- * Por eso, si el host no está en la lista servimos la imagen **cruda**: pesa
- * más, pero se ve. Y hay una prueba que lee `next.config.js` para que las dos
- * listas no se separen en silencio.
- */
-const HOSTS_OPTIMIZABLES = [
-  /(^|\.)r2\.dev$/i,
-  /(^|\.)r2\.cloudflarestorage\.com$/i,
-  /^cdn\.soyclubify\.com$/i,
-  /^lh3\.googleusercontent\.com$/i,
-  /^static-media\.hotmart\.com$/i,
-  /^ugbqfcogmqkuhhepecfq\.supabase\.co$/i,
-  /^localhost$/i,
-];
-
-/** Si el optimizador acepta ese host (o es una ruta del propio sitio). */
-export function hostOptimizable(url) {
-  const u = typeof url === 'string' ? url.trim() : '';
-  if (!u) return false;
-  // Ruta del propio sitio: la sirve Next, no hace falta whitelist.
-  if (u.startsWith('/')) return true;
-  let host;
-  try {
-    host = new URL(u).hostname;
-  } catch {
-    return false;
-  }
-  return HOSTS_OPTIMIZABLES.some((re) => re.test(host));
-}
-
-/** Una URL que no podemos —o no debemos— mandar al optimizador. */
-function noOptimizable(url) {
-  if (typeof url !== 'string') return true;
-  const u = url.trim();
-  if (!u) return true;
-  // Una imagen incrustada en la base (base64) no se optimiza: hay que
-  // sacarla al bucket, y eso no se arregla desde el visor.
-  if (u.startsWith('data:') || u.startsWith('blob:')) return true;
-  // Ya viene envuelta: volver a envolverla da una URL anidada que responde 400.
-  if (u.startsWith('/_next/image')) return true;
-  // Host que el optimizador rechazaría: mejor cruda que en blanco.
-  if (!hostOptimizable(u)) return true;
-  return false;
-}
-
-/** El ancho permitido más cercano al pedido (nunca inventamos uno). */
-export function anchoPermitido(ancho) {
-  const n = Number(ancho);
-  if (!Number.isFinite(n)) return ANCHOS_PERMITIDOS[0];
-  return ANCHOS_PERMITIDOS.reduce((mejor, a) =>
-    Math.abs(a - n) < Math.abs(mejor - n) ? a : mejor,
-  );
-}
-
-/**
- * URL de una página pasada por el optimizador de Next.
- *
- * RELATIVA a propósito: el libro también se sirve desde el dominio propio
- * del negocio y desde el de una marca blanca. Un host escrito a mano metería
- * `soyclubify.com` dentro de la carta de otra marca.
- *
- * Devuelve la URL original cuando no se puede optimizar, para que la página
- * se siga viendo.
+ * URL de una página pasada por el optimizador de Next, con la calidad del
+ * libro. Relativa, y cruda cuando no se puede optimizar (ver
+ * `../imagen-optimizada.mjs`): un 400 dejaría la página EN BLANCO.
  */
 export function urlOptimizada(url, ancho) {
-  if (noOptimizable(url)) return typeof url === 'string' ? url : '';
-  const w = anchoPermitido(ancho);
-  return `/_next/image?url=${encodeURIComponent(url.trim())}&w=${w}&q=${CALIDAD_DEL_LIBRO}`;
+  return urlDelOptimizador(url, ancho, CALIDAD_DEL_LIBRO);
 }
 
 /**
@@ -130,8 +67,7 @@ export function urlOptimizada(url, ancho) {
  * deja el `<img>` como estaba y no escribe un srcset roto.
  */
 export function srcSetDelLibro(url) {
-  if (noOptimizable(url)) return null;
-  return ANCHOS_DEL_LIBRO.map((w) => `${urlOptimizada(url, w)} ${w}w`).join(', ');
+  return srcSetOptimizado(url, ANCHOS_DEL_LIBRO, CALIDAD_DEL_LIBRO);
 }
 
 /**

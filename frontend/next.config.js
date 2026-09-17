@@ -1,5 +1,6 @@
 const { withSentryConfig } = require('@sentry/nextjs');
 const createNextIntlPlugin = require('next-intl/plugin');
+const { sentryActivo } = require('./src/lib/sentry-activo.cjs');
 
 // Apunta al request config en src/i18n/request.ts — provee el locale
 // detectado (cookie/header/IP) y las messages al SSR.
@@ -69,4 +70,11 @@ const sentryConfig = {
   disableLogger: true,
 };
 
-module.exports = withSentryConfig(withNextIntl(nextConfig), sentryConfig);
+// Solo con DSN. `withSentryConfig` inyecta `sentry.client.config.ts` en TODAS
+// las páginas, y aunque sin DSN no inicializa nada, el SDK y Replay viajaban
+// igual al navegador: en producción no había DSN y cada página cargaba 119 KB
+// de Replay para nada (medido el 2026-09-17). Con DSN, todo como antes. Ver
+// src/lib/sentry-activo.cjs y scripts/pruebas-sentry-sin-dsn.mjs.
+module.exports = sentryActivo(process.env)
+  ? withSentryConfig(withNextIntl(nextConfig), sentryConfig)
+  : withNextIntl(nextConfig);

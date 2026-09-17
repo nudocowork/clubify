@@ -49,8 +49,7 @@ import {
   zoomHaciaUnPunto,
   zoomInicial,
 } from '@/lib/menu/zoom-del-libro.mjs';
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4949';
+import { urlDelLibro } from '@/lib/api-publica.mjs';
 
 // Ancho de partida del `src` mientras el navegador elige del srcset. 1080
 // cubre un teléfono grande sin bajarse el original.
@@ -171,7 +170,9 @@ export function MenuBookViewer({
   // ── Fetch
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API}/api/public/m/${slug}/menu-book`)
+    // Ruta relativa y no `${API}`: el backend cachea el libro 180 s en el
+    // borde, y directo a la API esa caché no existe (ver `api-publica.mjs`).
+    fetch(urlDelLibro(slug))
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();

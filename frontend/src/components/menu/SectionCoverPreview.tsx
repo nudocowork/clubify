@@ -6,6 +6,12 @@ import {
   type SectionCoverConfig,
   type CoverTextStyle,
 } from '@/lib/menu/section-cover-config';
+import {
+  IMAGEN_DE_PORTADA,
+  ajusteDeLaPortada,
+  imagenDelMenu,
+  posicionDeLaPortada,
+} from '@/lib/menu/imagen-del-menu.mjs';
 
 /**
  * Render visual de la portada de una sección. Mismo componente para:
@@ -63,14 +69,26 @@ export function SectionCoverPreview({
     width: '100%',
   };
 
-  const bgImageStyle: React.CSSProperties | null = cfg.bgImageUrl
+  // La portada era un `background-image` con la URL cruda del bucket: el
+  // cliente se bajaba la original (las 15 de Konys, 5 MB) y TODAS a la vez,
+  // también las que quedaban muy por debajo en la lista de secciones. Como
+  // `<img>` pasa por el optimizador con `srcset` —el navegador elige el ancho—
+  // y es perezosa. `object-fit`/`object-position` la pintan igual que el fondo.
+  const imagen = cfg.bgImageUrl
+    ? imagenDelMenu(cfg.bgImageUrl, IMAGEN_DE_PORTADA)
+    : null;
+  const bgImageStyle: React.CSSProperties | null = imagen?.src
     ? {
         position: 'absolute',
         inset: 0,
-        backgroundImage: `url(${escapeUrl(cfg.bgImageUrl)})`,
-        backgroundSize: cfg.bgFit,
-        backgroundPosition: cfg.bgPosition,
-        backgroundRepeat: 'no-repeat',
+        width: '100%',
+        height: '100%',
+        objectFit: ajusteDeLaPortada(cfg.bgFit),
+        objectPosition: posicionDeLaPortada(cfg.bgPosition),
+        // Un fondo no se arrastra ni abre el menú de «guardar imagen» al
+        // mantener pulsado; el `<img>` tampoco debe.
+        pointerEvents: 'none',
+        userSelect: 'none',
       }
     : null;
 
@@ -104,7 +122,21 @@ export function SectionCoverPreview({
 
   return (
     <div style={containerStyle} className={className}>
-      {bgImageStyle && <div style={bgImageStyle} aria-hidden />}
+      {imagen && bgImageStyle && (
+        // `<img>` y no `next/image`: `next/image` exige que el host esté en
+        // `remotePatterns`, y hay portadas reales de Unsplash que no lo están.
+        // `imagenDelMenu` decide cuándo optimizar y, si no se puede, la deja
+        // cruda en vez de en blanco.
+        <img
+          {...imagen}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          style={bgImageStyle}
+        />
+      )}
       {overlayStyle && <div style={overlayStyle} aria-hidden />}
       <div style={contentStyle}>
         {effectiveBadge && cfg.badge && (
@@ -138,12 +170,6 @@ function textStyleToCss(s: CoverTextStyle, scale: number): React.CSSProperties {
       ? `0 ${s.shadow.offsetY * scale}px ${s.shadow.blur * scale}px ${s.shadow.color}`
       : undefined,
   };
-}
-
-function escapeUrl(url: string): string {
-  // Escape parens/quotes para CSS url(...). Las URLs http normales no
-  // necesitan, pero data URLs sí pueden tener chars problemáticos.
-  return url.replace(/(["'\\])/g, '\\$1');
 }
 
 /** Helper para renderizar el SectionCoverPreview con scale automático

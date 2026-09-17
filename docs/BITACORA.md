@@ -8,6 +8,53 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-17 (43) — Menú público: la caché del borde por fin se usa, portadas de 6 MB a kilobytes, sin Sentry de relleno y sin «soyclubify.com» en las vistas previas de Sellea
+
+**Qué:** velocidad de carga y fugas de marca del menú público, del arqueo de esta
+madrugada. **Solo frontend.**
+
+1. **Los GET públicos iban directo a `api.soyclubify.com`**, que está en Railway
+   sin caché delante: el `s-maxage=180` del backend no servía de nada. Ahora el
+   negocio, la carta, el menú libro y la tarjeta del registro van por `/api/...`
+   del propio dominio (`src/lib/api-publica.mjs`), que la reescritura lleva al
+   backend pasando por la caché de Vercel. Medido: 1,35–1,49 s directo; 0,35–0,41
+   s con `HIT`, también en `app.selleala.com` y en dominios propios. El backend no
+   varía esas respuestas por dominio, así que compartir la entrada es seguro. No
+   van por aquí el InfoLink (cuenta visitas), los POST ni nada con sesión.
+2. **La vista previa del panel** (`/app/storefront`) recarga el menú al publicar
+   y, por la caché, habría enseñado lo de antes hasta 3 minutos. Ahora pide
+   `?fresco=<hora de publicar>` y el menú lo pasa a sus peticiones: entrada nueva
+   en cada publicación, sin tocar la dirección de los clientes. (Lo detectó Fable.)
+3. **Portadas, logo, popup y banner sin optimizar** (Konys: 15 portadas = 5 MB;
+   Chanfle 6,5 MB; logos de hasta 3,3 MB): por `/_next/image` con el ancho que se
+   muestra. Comprobado: 11 imágenes reales dan 200 por el optimizador en tres
+   dominios; lo que no es optimizable (SVG, data:, hosts no admitidos) sigue crudo.
+4. **Sentry con Replay (~119 KB) en todas las páginas y sin DSN:** `withSentryConfig`
+   solo si hay DSN; con DSN, igual que antes.
+5. **Vistas previas con marca de Clubify en marcas blancas:** `og:url` de
+   `/d`, `/m`, `/w` y `/o` con el dominio de la marca; sin logo ni portada, sin
+   `og:image` (antes la tarjeta verde de Clubify); `/w` sin favicon ni color
+   verde de respaldo.
+
+### Pruebas
+
+Cuatro scripts nuevos, con la lógica en módulos puros y anclados al código de
+los componentes: `pruebas:api-publica`, `pruebas:imagenes-del-menu`,
+`pruebas:sentry-sin-dsn`, `pruebas:vista-previa-marca`, en el CI. Los once
+`pruebas:*` en verde; `tsc` limpio.
+
+### Revisión de Fable
+
+**DESPLEGAR.** Aplicado su hallazgo MEDIO (punto 2). Anotado sin arreglar:
+- `themeColor` de los layouts hijos no hace nada en Next 14.2; el color real sale
+  del `layout.tsx` raíz, que en dominios propios de negocio sigue dando el verde
+  de Clubify (`birrialeon.com`). Preexistente.
+- `brand.websiteUrl` nunca llega vacío del backend (cae a `soyclubify.com`): una
+  marca futura SIN dominio anunciaría `og:url` de Clubify. Hoy Sellea y Fideliso
+  tienen dominio.
+- `/c/<cardId>` (s-maxage 300) puede enseñar una tarjeta recién editada hasta 5
+  minutos vieja.
+
 ## 2026-09-17 (42) — Fugas: tarjetas ajenas por teléfono, la llave de Grow Business de Clubify y memoria que crecía sin tope
 
 **Qué:** fugas de datos y de memoria del arqueo de esta madrugada. **Solo

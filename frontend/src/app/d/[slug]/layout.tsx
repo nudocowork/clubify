@@ -1,12 +1,15 @@
 import type { Metadata } from 'next';
+import { hostDeLaPeticion } from '@/lib/host-de-la-peticion';
+import {
+  baseDeLaVistaPrevia,
+  colorDelTema,
+  imagenDeLaVistaPrevia,
+} from '@/lib/vista-previa-del-negocio.mjs';
 
 const API =
   process.env.BACKEND_INTERNAL_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
   'http://localhost:4949';
-
-const SITE_URL =
-  process.env.NEXT_PUBLIC_APP_URL ?? 'https://soyclubify.com';
 
 export async function generateMetadata({
   params,
@@ -28,8 +31,17 @@ export async function generateMetadata({
     const description =
       t.description ||
       `Pide a domicilio en ${t.brandName} desde el menú digital.`;
-    const image = t.heroImageUrl || t.logoUrl || `${SITE_URL}/og-image.png`;
-    const url = `${SITE_URL}/d/${params.slug}`;
+    // La vista previa es lo que pinta WhatsApp al compartir el enlace. Antes
+    // salía `og:url` de soyclubify.com en los negocios de Sellea, y los que no
+    // tenían imagen llevaban la tarjeta verde de Clubify (`/og-image.png`).
+    // Sin dominio de marca ni imagen propia, no se pone nada.
+    const image = imagenDeLaVistaPrevia(t.heroImageUrl, t.logoUrl);
+    const base = baseDeLaVistaPrevia({
+      host: hostDeLaPeticion(),
+      websiteUrl: t.brand?.websiteUrl,
+    });
+    const url = base ? `${base}/d/${params.slug}` : null;
+    const color = colorDelTema(t.primaryColor, t.brand?.primaryColor);
     // Iconos del negocio por el generador (favicon 32/48/192 + apple 180 opaco).
     const ICON_API =
       process.env.NEXT_PUBLIC_API_URL ?? 'https://api.soyclubify.com';
@@ -49,17 +61,19 @@ export async function generateMetadata({
       openGraph: {
         title,
         description,
-        url,
+        ...(url ? { url } : {}),
         siteName: t.brandName,
-        images: [{ url: image, width: 1200, height: 630, alt: t.brandName }],
+        ...(image
+          ? { images: [{ url: image, width: 1200, height: 630, alt: t.brandName }] }
+          : {}),
         locale: 'es_CO',
         type: 'website',
       },
       twitter: {
-        card: 'summary_large_image',
+        card: image ? 'summary_large_image' : 'summary',
         title,
         description,
-        images: [image],
+        ...(image ? { images: [image] } : {}),
       },
       icons: {
         icon: [
@@ -70,8 +84,8 @@ export async function generateMetadata({
         shortcut: [{ url: tIcon(48, 'any') }],
         apple: [{ url: tIcon(180, 'apple'), sizes: '180x180', type: 'image/png' }],
       },
-      themeColor: t.primaryColor || '#22C55E',
-      alternates: { canonical: url },
+      ...(color ? { themeColor: color } : {}),
+      ...(url ? { alternates: { canonical: url } } : {}),
     };
   } catch {
     return {

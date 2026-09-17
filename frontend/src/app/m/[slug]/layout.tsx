@@ -1,12 +1,15 @@
 import type { Metadata } from 'next';
+import { hostDeLaPeticion } from '@/lib/host-de-la-peticion';
+import {
+  baseDeLaVistaPrevia,
+  colorDelTema,
+  imagenDeLaVistaPrevia,
+} from '@/lib/vista-previa-del-negocio.mjs';
 
 const API =
   process.env.BACKEND_INTERNAL_URL ??
   process.env.NEXT_PUBLIC_API_URL ??
   'http://localhost:4949';
-
-const SITE_URL =
-  process.env.NEXT_PUBLIC_APP_URL ?? 'https://soyclubify.com';
 
 /**
  * Genera metadata server-side por tenant — para que cuando alguien comparta
@@ -47,10 +50,19 @@ export async function generateMetadata({
     const description =
       t.description ||
       `Menú digital de ${t.brandName}. Ordena por WhatsApp y suma sellos en tu tarjeta wallet.`;
-    // Base de URL = web de la marca blanca del negocio (no Clubify por defecto).
-    const siteBase = t.brand?.websiteUrl || SITE_URL;
-    const image = t.heroImageUrl || t.logoUrl || `${siteBase}/og-image.png`;
-    const url = `${siteBase}/m/${params.slug}`;
+    // Base de URL: el dominio desde el que se comparte (marca o dominio propio
+    // del negocio) o, desde un dominio de la plataforma, la web de SU marca.
+    // Antes caía a `SITE_URL` (Clubify) si la marca no tenía web, y un negocio
+    // sin portada ni logo llevaba de imagen `/og-image.png` —la tarjeta verde
+    // de Clubify, que es el mismo archivo en todos los dominios—. Sin marca ni
+    // imagen propia, no se pone nada.
+    const base = baseDeLaVistaPrevia({
+      host: hostDeLaPeticion(),
+      websiteUrl: t.brand?.websiteUrl,
+    });
+    const image = imagenDeLaVistaPrevia(t.heroImageUrl, t.logoUrl);
+    const url = base ? `${base}/m/${params.slug}` : null;
+    const color = colorDelTema(t.primaryColor, t.brand?.primaryColor);
 
     return {
       title,
@@ -58,24 +70,28 @@ export async function generateMetadata({
       openGraph: {
         title,
         description,
-        url,
+        ...(url ? { url } : {}),
         siteName: t.brandName,
-        images: [
-          {
-            url: image,
-            width: 1200,
-            height: 630,
-            alt: t.brandName,
-          },
-        ],
+        ...(image
+          ? {
+              images: [
+                {
+                  url: image,
+                  width: 1200,
+                  height: 630,
+                  alt: t.brandName,
+                },
+              ],
+            }
+          : {}),
         locale: 'es_CO',
         type: 'website',
       },
       twitter: {
-        card: 'summary_large_image',
+        card: image ? 'summary_large_image' : 'summary',
         title,
         description,
-        images: [image],
+        ...(image ? { images: [image] } : {}),
       },
       // Iconos del negocio SIEMPRE por el generador: favicon 32/48/192 cuadrado
       // + apple-touch 180 opaco, desde el logo del negocio (→ su marca → inicial
@@ -89,8 +105,8 @@ export async function generateMetadata({
         shortcut: [{ url: tIcon(48, 'any') }],
         apple: [{ url: tIcon(180, 'apple'), sizes: '180x180', type: 'image/png' }],
       },
-      themeColor: t.primaryColor || t.brand?.primaryColor || '#22C55E',
-      alternates: { canonical: url },
+      ...(color ? { themeColor: color } : {}),
+      ...(url ? { alternates: { canonical: url } } : {}),
     };
   } catch {
     return {
