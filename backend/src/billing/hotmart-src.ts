@@ -42,3 +42,74 @@ export function parseAffiliateRawFromSrc(raw?: string | null): string | null {
   const stripped = s.replace(WL_STRIP_RE, '').trim();
   return stripped || null;
 }
+
+/**
+ * El código de origen (afiliado y/o marca) que el checkout le pasó a Hotmart y
+ * que Hotmart devuelve en el aviso del pago. null si el pago no trae ninguno.
+ *
+ * POR QUÉ TANTAS RUTAS. Hasta el 2026-09-17 solo se miraba
+ * `purchase.tracking.{source,source_sck,sck,external_code}`, y en producción
+ * 0 de 353 avisos traían `tracking`: la atribución por Hotmart no había
+ * funcionado nunca. En un checkout (`pay.hotmart.com`) Hotmart rastrea el
+ * origen con `sck` (su ayuda: «SCK para checkout, SRC para páginas de venta») y
+ * el webhook 2.0.0 lo devuelve en `purchase.origin`. Como no hay forma de probar
+ * sin una compra real, se leen las rutas conocidas y, si Hotmart lo mueve, se
+ * busca por nombre de clave dentro de `data`. Quien llama valida el valor contra
+ * la base (un código o slug de afiliado, o un `wl_<uuid>`), así que un texto
+ * cualquiera no atribuye nada.
+ */
+const CLAVES_DE_ORIGEN = ['sckPaymentLink', 'sck', 'src', 'source_sck', 'xcod', 'xcode'];
+
+/**
+ * TODOS los códigos de origen del pago, sin repetir y en orden de confianza.
+ *
+ * Una lista y no «el primero»: Hotmart puede rellenar `xcod`/`xcode` con SU
+ * tracking (afiliados del marketplace, UTMify…) y dejar el nuestro en
+ * `sckPaymentLink`; quedarse con el primero probaba el ajeno y el nuestro nunca
+ * (revisión de Fable, 2026-09-17). Quien llama prueba cada uno contra la base
+ * hasta que uno resuelva. Primero lo que ponemos nosotros (`sck`), `xcod` al
+ * final.
+ */
+export function codigosDeOrigenDelPago(payload: unknown): string[] {
+  const data = (payload as { data?: Record<string, any> } | null)?.data;
+  const compra = data?.purchase;
+  const conocidos: unknown[] = [
+    compra?.sckPaymentLink,
+    compra?.origin?.sck,
+    compra?.origin?.src,
+    compra?.tracking?.source_sck,
+    compra?.tracking?.sck,
+    compra?.tracking?.source,
+    compra?.tracking?.external_code,
+    compra?.origin?.xcod,
+    compra?.origin?.xcode,
+  ];
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  const meter = (v: unknown) => {
+    if (typeof v !== 'string') return;
+    const t = v.trim();
+    if (t && !vistos.has(t)) {
+      vistos.add(t);
+      out.push(t);
+    }
+  };
+  conocidos.forEach(meter);
+  recogerClavesDeOrigen(data, 0, meter);
+  return out;
+}
+
+/** El primero de `codigosDeOrigenDelPago`, o null. */
+export function codigoDeOrigenDelPago(payload: unknown): string | null {
+  return codigosDeOrigenDelPago(payload)[0] ?? null;
+}
+
+function recogerClavesDeOrigen(nodo: unknown, profundidad: number, meter: (v: unknown) => void) {
+  if (!nodo || typeof nodo !== 'object' || profundidad > 5) return;
+  for (const [clave, valor] of Object.entries(nodo as Record<string, unknown>)) {
+    if (CLAVES_DE_ORIGEN.includes(clave)) meter(valor);
+  }
+  for (const valor of Object.values(nodo as Record<string, unknown>)) {
+    recogerClavesDeOrigen(valor, profundidad + 1, meter);
+  }
+}

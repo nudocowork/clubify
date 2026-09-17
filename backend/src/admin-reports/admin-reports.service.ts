@@ -17,24 +17,31 @@ import { WhiteLabelNotificationsService } from '../white-label-notifications/whi
 import { CobrosService } from './cobros.service';
 
 /**
- * Agrega el token de ruteo `src=wl_<whiteLabelId>` a un link de compra Hotmart.
- * El checkout Hotmart lo propaga como `tracking.source` en el webhook, y
- * hotmart.service lo usa como 1ª prioridad para acreditar los créditos a la
- * marca correcta (sin depender del correo del comprador). Reemplaza un `src`
- * previo si existiera. Devuelve la URL igual si está vacía o es inválida.
+ * Agrega el token de ruteo `wl_<whiteLabelId>` a un link de compra Hotmart, en
+ * `sck` Y en `src`. hotmart.service lo usa como 1ª prioridad para acreditar los
+ * créditos a la marca correcta (sin depender del correo del comprador).
+ *
+ * `sck` es el que cuenta: en un checkout (`pay.hotmart.com`) Hotmart rastrea el
+ * origen con `sck`. Con solo `src`, 6 compras de créditos se quedaron sin marca
+ * desde el 27-08 (el aviso nunca traía el token). `src` se conserva por las
+ * páginas de venta (`go.hotmart.com`), donde sí vale. Reemplaza los previos.
  */
 function withWlToken(rawUrl: string | null | undefined, wlId: string): string {
   const url = (rawUrl ?? '').trim();
   if (!url) return url;
   try {
     const u = new URL(url);
+    u.searchParams.set('sck', `wl_${wlId}`);
     u.searchParams.set('src', `wl_${wlId}`);
     return u.toString();
   } catch {
     // URL relativa/no parseable → fallback manual conservando query previa.
-    const base = url.replace(/([?&])src=[^&]*/i, '$1').replace(/[?&]$/, '');
+    const base = url
+      .replace(/([?&])(src|sck)=[^&]*/gi, '$1')
+      .replace(/[?&]+$/, '')
+      .replace(/&&+/g, '&');
     const sep = base.includes('?') ? '&' : '?';
-    return `${base}${sep}src=wl_${wlId}`;
+    return `${base}${sep}sck=wl_${wlId}&src=wl_${wlId}`;
   }
 }
 

@@ -16,7 +16,11 @@ import { SmsTemplatesService } from './sms-templates.service';
 import { BrandEmailService } from '../email/brand-email.service';
 import { fmtEmailDate } from '../email/brand-email-templates';
 import { isBrandTemplateSendEnabled } from '../integrations/brand-message-templates';
-import { parseWlIdFromSrc, parseAffiliateRawFromSrc } from './hotmart-src';
+import {
+  codigosDeOrigenDelPago,
+  parseWlIdFromSrc,
+  parseAffiliateRawFromSrc,
+} from './hotmart-src';
 import { precioDePackUsd } from './precio-de-pack';
 import {
   primerCobroSinFechaDeLaPasarela,
@@ -129,11 +133,13 @@ export type HotmartWebhookPayload = {
       // Oferta específica del checkout. Varias ofertas pueden compartir el mismo
       // productId (ej. packs de 1/10/20 créditos) → el offer.code distingue cuál.
       offer?: { code?: string; description?: string };
-      // Tracking del checkout: Hotmart devuelve aquí el `src`/`sck` que se pasó
-      // en la URL de compra (viene ausente si el checkout no llevó ninguno).
-      // Modelo B de créditos: metemos `src=wl_<whiteLabelId>` para identificar la
-      // marca compradora sin depender del correo. Confirmado contra payloads
-      // reales: la ubicación es data.purchase.tracking.
+      // Origen del checkout. OJO: el comentario que había aquí decía «confirmado
+      // contra payloads reales: la ubicación es data.purchase.tracking», y era
+      // falso: 0 de 353 avisos de producción traían `tracking`. En un checkout
+      // Hotmart rastrea con `sck` y lo devuelve en `origin`. Para leerlo, usar
+      // SIEMPRE `codigoDeOrigenDelPago` (hotmart-src.ts), que mira todas las rutas.
+      origin?: { sck?: string; src?: string; xcod?: string };
+      sckPaymentLink?: string;
       tracking?: {
         source?: string;
         source_sck?: string;
@@ -783,37 +789,38 @@ export class HotmartService {
     });
     if (existing) return; // ya atribuido — no tocar
 
-    const tracking = payload.data?.purchase?.tracking;
-    const rawSrc = (
-      tracking?.source ||
-      tracking?.source_sck ||
-      tracking?.sck ||
-      tracking?.external_code ||
-      ''
-    ).trim();
-    // FIX 2026-08-18: el `src` puede traer AFILIADO Y MARCA combinados
-    // (`<CODE>-wl_<uuid>`). Extraemos SOLO la parte de afiliado (quitando el
-    // token de marca). Antes cortábamos ante cualquier `wl_` → las compras de
-    // marca blanca por link de afiliado quedaban SIN atribuir (bug Taquería).
-    // Si el src era solo marca (wl_<uuid>) → affRaw null → no hay afiliado.
-    const affRaw = parseAffiliateRawFromSrc(rawSrc);
-    if (!affRaw) return;
-
-    // El src del afiliado es su CODE (ej "CB2026"). Fallback: resolver por slug.
-    const code = affRaw.toUpperCase();
-    let ref = /^[A-Z0-9]{4,20}$/.test(code)
-      ? await this.prisma.referralCode.findUnique({
-          where: { code },
+    // De TODAS las rutas donde Hotmart puede devolverlo (solo mirar `tracking`
+    // dejó esta red de seguridad sin atribuir una sola venta en su vida), y
+    // probando CADA candidato: uno ajeno (el `xcod` de Hotmart) no puede tapar
+    // el nuestro.
+    let rawSrc = '';
+    let ref: { id: string; isActive: boolean; ownerName: string; role: string } | null = null;
+    for (const candidato of codigosDeOrigenDelPago(payload)) {
+      // FIX 2026-08-18: el `src` puede traer AFILIADO Y MARCA combinados
+      // (`<CODE>-wl_<uuid>`). Extraemos SOLO la parte de afiliado. Si era solo
+      // marca (wl_<uuid>) → affRaw null → este candidato no es de afiliado.
+      const affRaw = parseAffiliateRawFromSrc(candidato);
+      if (!affRaw) continue;
+      // El src del afiliado es su CODE (ej "CB2026"). Fallback: resolver por slug.
+      const code = affRaw.toUpperCase();
+      ref = /^[A-Z0-9]{4,20}$/.test(code)
+        ? await this.prisma.referralCode.findUnique({
+            where: { code },
+            select: { id: true, isActive: true, ownerName: true, role: true },
+          })
+        : null;
+      if (!ref) {
+        ref = await this.prisma.referralCode.findFirst({
+          where: { slug: affRaw.toLowerCase() },
           select: { id: true, isActive: true, ownerName: true, role: true },
-        })
-      : null;
-    if (!ref) {
-      ref = await this.prisma.referralCode.findFirst({
-        where: { slug: affRaw.toLowerCase() },
-        select: { id: true, isActive: true, ownerName: true, role: true },
-      });
+        });
+      }
+      if (ref) {
+        rawSrc = candidato;
+        break;
+      }
     }
-    if (!ref) return; // src no matchea ningún afiliado → queda sin atribuir
+    if (!ref) return; // ningún candidato es un afiliado → queda sin atribuir
 
     try {
       await this.prisma.referralUse.create({
@@ -973,19 +980,19 @@ export class HotmartService {
     //   2) relación directa del link (ofertas PROPIAS de una marca, Modelo A).
     //   3) correo del comprador = adminEmail de una marca (último recurso).
     //   4) sin match → UNASSIGNED (NUNCA acreditar a la marca equivocada).
-    const tracking = payload.data?.purchase?.tracking;
-    const rawToken = (
-      tracking?.source ||
-      tracking?.source_sck ||
-      tracking?.sck ||
-      tracking?.external_code ||
-      ''
-    ).trim();
+    // Mismo arreglo que la atribución de afiliados: el token de marca viaja por
+    // `sck` en el checkout, Hotmart no lo devuelve en `tracking`, y se prueba
+    // cada candidato hasta que uno sea una marca que existe.
     let whiteLabelId: string | null = null;
     let resolvedBy: 'token' | 'link' | 'email' | 'none' = 'none';
+    // El token que resolvió (o el último probado): los logs y el simulador lo
+    // enseñan para poder reconstruir por qué una compra cayó donde cayó.
+    let rawToken = '';
 
-    const tokenWlId = this.parseWlToken(rawToken);
-    if (tokenWlId) {
+    for (const candidato of codigosDeOrigenDelPago(payload)) {
+      rawToken = candidato;
+      const tokenWlId = this.parseWlToken(candidato);
+      if (!tokenWlId) continue;
       const wl = await this.prisma.whiteLabel.findUnique({
         where: { id: tokenWlId },
         select: { id: true },
@@ -993,11 +1000,11 @@ export class HotmartService {
       if (wl) {
         whiteLabelId = wl.id;
         resolvedBy = 'token';
-      } else {
-        this.logger.warn(
-          `[CREDITOS] token src="${rawToken}" no matchea ninguna marca — sigo con fallbacks`,
-        );
+        break;
       }
+      this.logger.warn(
+        `[CREDITOS] token src="${candidato}" no matchea ninguna marca — pruebo el siguiente`,
+      );
     }
     if (!whiteLabelId && creditLink.whiteLabelId) {
       whiteLabelId = creditLink.whiteLabelId;

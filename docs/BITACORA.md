@@ -8,6 +8,95 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-17 (46) — La venta por enlace de afiliado: el código iba en `src` y Hotmart solo rastrea `sck`
+
+**Qué:** Javier reportó que Habibi Bar Cantina y Master Sushi La Ligua compraron
+con el enlace de **Nicolas ¡TeamClosers!** (`BGXM2QWQ`) y no quedaron atribuidas
+(la segunda se asignó a mano). Backend y frontend. Sin migración.
+
+### La causa, y es de fondo
+
+Había dos caminos de atribución y los dos fallaron:
+
+1. **Al registrarse:** `/activar` manda el `ref` del navegador. Ninguno de los dos
+   compradores pasó por `/ref/nicolas-teamclosers` (su enlace tiene **3 visitas en
+   toda su historia**, todas posteriores a la compra de Habibi). Master Sushi pagó
+   desde Chile un enlace que se compartió desde Colombia.
+2. **Desde el pago (la red de seguridad):** `ensureAffiliateAttributionFromSrc`
+   leía el código en `data.purchase.tracking.*`. **De los 353 avisos de Hotmart
+   que hay en producción, CERO traen `tracking`, `origin` o `sck`** y hay **0
+   `ReferralUse` con `utmSource='hotmart-src'`: nunca atribuyó una sola venta.**
+
+El motivo: los enlaces llevaban `src=<CÓDIGO>`, y la ayuda de Hotmart dice que en
+un **checkout** (`pay.hotmart.com`) el origen se rastrea con **`sck`**; `src` es
+para páginas de venta (`go.hotmart.com`). El webhook 2.0.0 lo devuelve en
+`purchase.origin` (y existe `purchase.sckPaymentLink`).
+
+**Alcance:** de 37 primeras compras en 60 días, 14 se atribuyeron solas (todas por
+`/ref/` en el mismo navegador) y **19 se asignaron a mano o tarde**. Los 5 negocios
+de Nicolas están todos asignados a mano. Y el mismo fallo dejó **6 compras de
+créditos UNASSIGNED** desde el 27-08 (su token `wl_<uuid>` también iba en `src`).
+
+### Qué se hizo
+
+- **Enlaces de pago con `sck`** (y `src`, por las páginas de venta):
+  `frontend/src/lib/enlace-de-pago.mjs`, usado en la landing, en la prueba con
+  tarjeta y en los links de créditos de marca del Master Admin.
+- **El backend lee el código de TODAS las rutas** (`codigosDeOrigenDelPago` en
+  `hotmart-src.ts`: `sckPaymentLink`, `origin.sck/src/xcod/xcode`, `tracking.*`, y
+  por nombre de clave dentro de `data`) y **prueba cada candidato** contra la base
+  hasta que uno sea un afiliado (o una marca, para los créditos): un `xcod` de
+  Hotmart ya no puede tapar al nuestro.
+- **Enlaces de pago directo en el panel del afiliado.** Quien vende por llamada
+  manda el enlace de Hotmart a pelo, sin código: ahora tiene el suyo por plan, con
+  su código dentro. Solo para afiliados de Clubify (marca resuelta).
+
+### Pruebas
+
+- `backend/src/billing/atribucion-por-sck.spec.ts` (10): dónde viene el código, el
+  orden de los candidatos, que un código ajeno por delante no tapa al del afiliado,
+  y que un pago sin código no atribuye a nadie. Vistas en rojo.
+- `frontend/scripts/pruebas-enlace-de-pago.mjs` (9), en el CI.
+
+### Revisión de Fable
+
+**DESPLEGAR CON CAMBIOS**, aplicados: probar todos los candidatos (antes se
+quedaba con el primero), no pintar los enlaces si la marca no resuelve, y llevar
+`sck` también a la prueba con tarjeta y a los links de créditos de marca.
+Verificó además que en los 353 payloads reales la única clave «de origen» es
+`data.commissions[].source` (MARKETPLACE/PRODUCER), que no está en la lista: la
+búsqueda no puede atribuir a nadie por error.
+
+### Lo que falta comprobar (no se puede antes de desplegar)
+
+Que Hotmart devuelva NUESTRO `sck`. Receta:
+
+1. Copiar un enlace del panel del afiliado y ver que lleva `sck=<CÓDIGO>`.
+2. Abrir el checkout, escribir un correo y abandonarlo: Hotmart emite
+   `PURCHASE_OUT_OF_SHOPPING_CART`. Después:
+   ```sql
+   SELECT "processedAt","eventType",
+          payload->'data'->'purchase'->'origin'          AS origin,
+          payload->'data'->'purchase'->>'sckPaymentLink' AS sck
+   FROM "HotmartWebhookEvent"
+   WHERE "processedAt" > now() - interval '1 hour' ORDER BY 1 DESC;
+   ```
+   Si no trae nada NO es prueba en contra: el evento de carrito puede no llevarlo.
+3. En la primera compra real: `railway logs --service backend | grep "\[ATTR\]"`
+   debe enseñar «atribución server-side desde src=…», y
+   `SELECT count(*) FROM "ReferralUse" WHERE "utmSource"='hotmart-src'` pasar de 0.
+   Si el payload sigue sin `origin` ni `sckPaymentLink`, el plan B es conciliar
+   contra la Sales API de Hotmart (`/payments/api/v1/sales/history`, que sí
+   devuelve `tracking.source_sck`).
+
+### Pendiente
+
+- **Habibi Bar Cantina sigue sin afiliado.** Esto no lo arregla hacia atrás: hay
+  que asignarlo a mano desde su ficha si Nicolas confirma que la venta es suya (se
+  genera sola su comisión, $3,40, sin duplicar). Master Sushi ya quedó asignado y
+  con su comisión de $7,50.
+- Un aviso de «primera compra sin afiliado» ahorraría las asignaciones tardías.
+
 ## 2026-09-17 (45) — Contabilidad: la nómina se edita, el socio tiene su línea en la cascada y «venta bruta» pasa a «ventas realizadas»
 
 **Qué:** las modificaciones de Sara al módulo de Contabilidad. Backend y frontend,

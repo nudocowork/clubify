@@ -1,6 +1,7 @@
 'use client';
 import { useState, type ReactNode } from 'react';
 import { useHidesPurchases } from '@/lib/native';
+import { conCodigoDelAfiliado } from '@/lib/enlace-de-pago.mjs';
 
 /**
  * Selector de planes tipo checkout en la landing pública (Preview 5).
@@ -103,14 +104,12 @@ export function LandingPricingCheckout({
   // recupere post-pago y abrimos el checkout de Hotmart directo. La
   // atribución del referido (ref/via/utm) ya está en localStorage (RefCapture).
   //
-  // ATRIBUCIÓN ROBUSTA (2026-08-15): además del localStorage (que se pierde si
-  // paga otra persona / otro dispositivo / incógnito), inyectamos el código del
-  // afiliado como `?src=<code>` en la URL de Hotmart. Hotmart lo devuelve en el
-  // webhook como `purchase.tracking.source` y el backend
-  // (ensureAffiliateAttributionFromSrc) atribuye server-side aunque el
-  // localStorage no sobreviva el ida-y-vuelta del pago. Sin esto, una compra por
-  // el link del afiliado llegaba a Hotmart con tracking vacío → negocio sin
-  // afiliado (caso Monet, comprador ≠ dueño de la cuenta).
+  // ATRIBUCIÓN ROBUSTA: además del localStorage (que se pierde si paga otra
+  // persona / otro dispositivo / incógnito), el código del afiliado viaja en la
+  // URL de Hotmart y el backend (ensureAffiliateAttributionFromSrc) atribuye
+  // desde el aviso del pago. Desde el 2026-09-17 va en `sck`: con solo `src`
+  // Hotmart no lo devolvía nunca en un checkout (0 de 353 avisos) y esta red de
+  // seguridad no atribuyó una sola venta. Ver `lib/enlace-de-pago.mjs`.
   function goToCheckout() {
     if (!plan.checkoutUrl) return;
     try {
@@ -118,27 +117,11 @@ export function LandingPricingCheckout({
     } catch {}
     let url = plan.checkoutUrl;
     try {
-      const ref = localStorage.getItem('clubify:ref');
-      if (ref) {
-        const u = new URL(url, window.location.origin);
-        const existing = u.searchParams.get('src');
-        // FIX 2026-08-18: si el checkout ya trae el token de MARCA (src=wl_<uuid>,
-        // que inyecta el Master Admin para rutear créditos), COMBINAMOS en vez de
-        // descartar el afiliado: `<CODE>-wl_<uuid>` lleva afiliado Y marca. El
-        // backend parsea ambos por separado. Antes se perdía el afiliado en toda
-        // compra de marca blanca por link de referido (caso Taquería).
-        if (!existing) {
-          u.searchParams.set('src', ref);
-        } else if (
-          /wl[_-]/i.test(existing) &&
-          !existing.toUpperCase().includes(ref.toUpperCase())
-        ) {
-          u.searchParams.set('src', `${ref}-${existing}`);
-        }
-        url = u.toString();
-      }
+      // Con el token de MARCA ya puesto (`wl_<uuid>`) se combinan: el afiliado
+      // no se pierde en las compras de marca blanca (caso Taquería, 2026-08-18).
+      url = conCodigoDelAfiliado(url, localStorage.getItem('clubify:ref'));
     } catch {
-      // URL inválida o sin acceso a storage → seguimos con la URL cruda.
+      // Sin acceso a storage → seguimos con la URL cruda.
     }
     window.location.href = url;
   }

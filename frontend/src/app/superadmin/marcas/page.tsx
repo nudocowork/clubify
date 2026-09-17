@@ -1842,14 +1842,19 @@ function HotmartCreditConfig({
           </div>
           <div className="text-[11px] mb-2" style={{ color: '#9aa4af' }}>
             Comparte estos links con el dueño de la marca. El token{' '}
-            <code>?src=wl_…</code> hace que los créditos se acrediten a ESTA marca
+            <code>sck=wl_…</code> hace que los créditos se acrediten a ESTA marca
             sin importar con qué correo pague.
           </div>
           <div className="space-y-1.5">
             {sharedLinks.map((l) => {
               const base = String(l.url);
+              // `sck` es lo que Hotmart rastrea en un checkout; con solo `src`
+              // el token nunca volvía en el aviso y los créditos quedaban sin
+              // marca (6 compras UNASSIGNED). `src` se conserva por las páginas
+              // de venta (go.hotmart.com).
+              const token = 'wl_' + whiteLabelId;
               const link =
-                base + (base.includes('?') ? '&' : '?') + 'src=wl_' + whiteLabelId;
+                base + (base.includes('?') ? '&' : '?') + 'sck=' + token + '&src=' + token;
               return (
                 <div
                   key={l.id}

@@ -173,6 +173,11 @@ jobs:
       - name: Pruebas del menú público (caché, imágenes, Sentry y vista previa de marca)
         run: npm run pruebas:api-publica && npm run pruebas:imagenes-del-menu && npm run pruebas:sentry-sin-dsn && npm run pruebas:vista-previa-marca
 
+      # El código del afiliado va en `sck` en los enlaces de pago de Hotmart: con
+      # solo `src` Hotmart no lo devolvía nunca y la venta quedaba sin afiliado.
+      - name: Pruebas del enlace de pago con código de afiliado
+        run: npm run pruebas:enlace-de-pago
+
       - name: Build
         run: npm run build
 

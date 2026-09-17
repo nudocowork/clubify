@@ -8,6 +8,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { planDisplayName, type PlanPeriodicity } from '@/lib/plan-format';
+import { conCodigoDelAfiliado } from '@/lib/enlace-de-pago.mjs';
 import { api, clearSession, getImpersonationBackup, stopImpersonation } from '@/lib/api';
 import { Logo } from '@/components/Logo';
 import { toast } from '@/components/Toast';
@@ -373,6 +374,7 @@ export default function AffiliatePanel() {
                 >
                   ✂️ Acortar mi link
                 </button>
+                {me.myCode && <EnlacesDePagoDirecto codigo={me.myCode.code} marcaSlug={me.brand?.slug ?? null} />}
               </div>
             )}
           </div>
@@ -3348,6 +3350,69 @@ function ScriptPreviewModal({
             📋 Copiar todo
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Enlaces de pago de Hotmart con el código del afiliado incrustado.
+ *
+ * Quien vende por llamada o por chat no manda `/ref/...`: manda el enlace de
+ * pago. Sin código dentro, esa venta no la puede atribuir ningún sistema y hay
+ * que asignarla a mano (Habibi Bar Cantina y Master Sushi La Ligua, de Nicolas
+ * ¡TeamClosers!, 2026-09-17). Estos llevan su código en `sck`, que es lo que
+ * Hotmart devuelve en el aviso del pago.
+ *
+ * Solo para Clubify: los planes de `landing-plans` son los suyos. Una marca
+ * blanca cobra con sus propios enlaces (o por Stripe) y ahí no aplican.
+ */
+function EnlacesDePagoDirecto({ codigo, marcaSlug }: { codigo: string; marcaSlug: string | null }) {
+  // Solo con la marca RESUELTA como Clubify: sin marca no se pinta nada
+  // (clubify-fugas-de-marca), y a un afiliado de otra marca no le toca.
+  const esClubify = marcaSlug === 'clubify';
+  const [planes, setPlanes] = useState<Array<{ id: string; precio: number; url: string }>>([]);
+  useEffect(() => {
+    if (!esClubify) return;
+    api<Record<string, { price: number; checkoutUrl: string | null }>>('/landing-plans')
+      .then((d) => {
+        const orden = ['mensual', 'trimestral', 'semestral', 'anual'];
+        setPlanes(
+          orden
+            .map((id) => ({ id, precio: d?.[id]?.price ?? 0, url: d?.[id]?.checkoutUrl ?? '' }))
+            .filter((p) => p.url),
+        );
+      })
+      .catch(() => setPlanes([]));
+  }, [esClubify]);
+  if (!esClubify || planes.length === 0) return null;
+  const nombre: Record<string, string> = { mensual: 'Mensual', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual' };
+  return (
+    <div className="mt-3">
+      <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">Enlaces de pago directo</div>
+      <p className="text-[11px] text-mute mt-0.5 leading-relaxed">
+        Si le mandas al cliente el pago de Hotmart, usa uno de estos: llevan tu código y la venta queda a tu nombre aunque no pase por tu link.
+      </p>
+      <div className="flex flex-col gap-1.5 mt-1.5">
+        {planes.map((p) => {
+          const enlace = conCodigoDelAfiliado(p.url, codigo);
+          return (
+            <div key={p.id} className="flex items-center gap-2">
+              <span className="text-xs flex-1">
+                {nombre[p.id] ?? p.id} <span className="text-mute">· ${p.precio} USD</span>
+              </span>
+              <button
+                onClick={async () => {
+                  await navigator.clipboard.writeText(enlace);
+                  toast(`Enlace de pago ${nombre[p.id] ?? p.id} copiado`, 'success');
+                }}
+                className="btn-ghost text-[11px] min-h-[36px]"
+              >
+                📋 Copiar
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

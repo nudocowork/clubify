@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { setSession } from '@/lib/api';
 import { useAuthBrand, BrandMark } from '@/components/AuthBrand';
+import { conCodigoDelAfiliado } from '@/lib/enlace-de-pago.mjs';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -140,23 +141,11 @@ function TrialInner() {
   function goToCheckout() {
     if (!effectiveTrialUrl) return;
     // El ref sobrevive el ida-y-vuelta a Hotmart en localStorage (mismo origen) →
-    // /activar lo lee tras el pago y atribuye la venta al referido. Además va como
-    // ?src=<ref> en la URL para el tracking propio de Hotmart.
+    // /activar lo lee tras el pago y atribuye la venta al referido. Además viaja
+    // en la URL, en `sck`: con solo `src` Hotmart no lo devolvía nunca en un
+    // checkout (ver lib/enlace-de-pago.mjs).
     try { if (refCode) localStorage.setItem('clubify:ref', refCode); } catch {}
-    let url = effectiveTrialUrl;
-    if (refCode) {
-      try {
-        // URL API: agrega src como query REAL (antes del fragmento #) sin duplicar.
-        const u = new URL(effectiveTrialUrl);
-        if (!u.searchParams.has('src')) u.searchParams.set('src', refCode);
-        url = u.toString();
-      } catch {
-        // URL relativa/inválida: fallback respetando el fragmento.
-        const [base, hash = ''] = effectiveTrialUrl.split('#');
-        const sep = base.includes('?') ? '&' : '?';
-        url = `${base}${sep}src=${encodeURIComponent(refCode)}${hash ? '#' + hash : ''}`;
-      }
-    }
+    const url = conCodigoDelAfiliado(effectiveTrialUrl, refCode);
     window.location.href = url;
   }
 
