@@ -1,5 +1,19 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsArray, IsBoolean, IsEnum, IsHexColor, IsIn, IsInt, IsOptional, IsString, Min, ValidateIf } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsHexColor,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  ValidateBy,
+  ValidateIf,
+} from 'class-validator';
 import { CardType } from '@prisma/client';
 import { CardsService } from './cards.service';
 import { WalletService } from '../wallet/wallet.service';
@@ -8,6 +22,45 @@ import { Roles } from '../common/decorators/roles.decorator';
 
 /** Formas admitidas del logo. null = ROUNDED, el de siempre. */
 const LOGO_SHAPES = ['SQUARE', 'ROUNDED', 'CIRCLE', 'RECTANGLE'];
+
+/**
+ * Topes de lo que llega a la generación del cartón.
+ *
+ * El ícono y el emoji de cada premio son la CLAVE de la caché de iconos y un
+ * trozo de la URL que se le pide a Twemoji; la URL del icono propio también es
+ * clave de caché. Sin tope, un texto de megas entraba entero en memoria. El
+ * emoji más largo del estándar mide 15 unidades UTF-16 (ver `stamp-icons.ts`).
+ */
+const MAX_LARGO_EMOJI = 32;
+const MAX_LARGO_URL = 2048;
+/** Premios Free: el cartón dibuja como mucho 20 sellos (`previewStampStrips`). */
+const MAX_PREMIOS = 50;
+
+/**
+ * Cada premio con `emoji` y `text` de largo razonable. Se valida a mano y no
+ * con `@ValidateNested`: con `forbidNonWhitelisted`, una clase anidada
+ * rechazaría cualquier campo que el editor mande y no esté declarado, y la
+ * vista previa dejaría de pintarse.
+ */
+function PremiosAcotados() {
+  return ValidateBy({
+    name: 'premiosAcotados',
+    validator: {
+      validate: (valor: unknown) =>
+        !Array.isArray(valor) ||
+        valor.every((p) => {
+          if (!p || typeof p !== 'object') return true;
+          const { emoji, text } = p as { emoji?: unknown; text?: unknown };
+          const emojiOk =
+            emoji == null || (typeof emoji === 'string' && emoji.length <= MAX_LARGO_EMOJI);
+          const textoOk = text == null || (typeof text === 'string' && text.length <= 200);
+          return emojiOk && textoOk;
+        }),
+      defaultMessage: () =>
+        `Cada premio admite un emoji de hasta ${MAX_LARGO_EMOJI} caracteres y un texto de hasta 200.`,
+    },
+  });
+}
 
 class CardBody {
   @IsEnum(CardType) type!: CardType;
@@ -110,8 +163,8 @@ class PreviewStripsBody {
   @IsOptional() @IsString() primaryColor?: string;
   @IsOptional() @IsString() secondaryColor?: string;
   @IsOptional() @IsInt() @Min(1) stampsRequired?: number;
-  @IsOptional() @IsString() stampIcon?: string;
-  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampIconImageUrl?: string | null;
+  @IsOptional() @IsString() @MaxLength(MAX_LARGO_EMOJI) stampIcon?: string;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() @MaxLength(MAX_LARGO_URL) stampIconImageUrl?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampActiveColor?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampInactiveColor?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampContourColor?: string | null;
@@ -121,7 +174,7 @@ class PreviewStripsBody {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() heroImageUrl?: string | null;
   @IsOptional() @IsIn(['GRADIENT', 'SOLID', 'IMAGE']) stampBgType?: 'GRADIENT' | 'SOLID' | 'IMAGE';
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsString() stampBgImageUrl?: string | null;
-  @IsOptional() @IsArray() freeRewards?: Array<{
+  @IsOptional() @IsArray() @ArrayMaxSize(MAX_PREMIOS) @PremiosAcotados() freeRewards?: Array<{
     pos: number;
     text?: string;
     emoji?: string;

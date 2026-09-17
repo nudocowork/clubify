@@ -30,6 +30,7 @@ import { PrismaService } from './common/prisma/prisma.service';
 // eslint-disable-next-line no-console
 console.log('[Boot] main.ts after AppModule import');
 import { SentryExceptionFilter } from './common/sentry/sentry.filter';
+import { prepararCierreYLimites } from './arranque';
 
 /**
  * CORS:
@@ -209,6 +210,10 @@ async function bootstrap() {
       credentials: true,
     },
   });
+  // Ganchos de cierre (onModuleDestroy en cada redespliegue) y tope de cuerpo
+  // pequeño para las rutas públicas que solo reciben bytes. Tiene que ir ANTES
+  // del parser global de 15 MB de abajo. Ver `arranque.ts`.
+  prepararCierreYLimites(app);
   // verify stashea el RAW body en req.rawBody (Buffer) — Stripe lo necesita
   // para validar la firma del webhook (/webhooks/stripe/:slug). El parseo JSON
   // sigue normal para el resto de las rutas.

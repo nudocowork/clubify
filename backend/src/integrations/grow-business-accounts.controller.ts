@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -17,6 +18,9 @@ import {
 } from 'class-validator';
 import { GrowBusinessAccountsService } from './grow-business-accounts.service';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
+import { PrismaService } from '../common/prisma/prisma.service';
+import { resolveBrandScope } from '../common/white-label/brand-scope.util';
 
 class CreateAccountDto {
   @IsString() @MinLength(2) name!: string;
@@ -36,33 +40,74 @@ class UpdateAccountDto {
   @IsOptional() @IsString() purpose?: string;
 }
 
+/**
+ * Subcuentas GLOBALES de Grow Business: son de la plataforma (Clubify) y la
+ * tabla no tiene marca.
+ *
+ * `@Roles('SUPER_ADMIN', …)` no bastaba: un admin de marca blanca ES un
+ * SUPER_ADMIN con `whiteLabelId`, así que el de Sellea podía listar, editar y
+ * probar las subcuentas de Clubify. Ahora solo entra la plataforma: sesión sin
+ * marca, o sesión DENTRO de Clubify — que es como trabaja hoy el operador:
+ * «entra» a Clubify desde /superadmin y recibe un SUPER_ADMIN con el
+ * `whiteLabelId` de Clubify (mismo criterio que `resolveBrandScope`).
+ */
 @Controller('admin/integrations/grow-business-accounts')
 @Roles('SUPER_ADMIN', 'MARKETING')
 export class GrowBusinessAccountsController {
-  constructor(private svc: GrowBusinessAccountsService) {}
+  constructor(
+    private svc: GrowBusinessAccountsService,
+    private prisma: PrismaService,
+  ) {}
 
+  private async esPlataforma(user: AuthUser): Promise<boolean> {
+    if (!user?.whiteLabelId) return true;
+    const scope = await resolveBrandScope(this.prisma, user.whiteLabelId);
+    return scope.isClubify;
+  }
+
+  private async soloPlataforma(user: AuthUser): Promise<void> {
+    if (!(await this.esPlataforma(user))) {
+      throw new ForbiddenException('Las subcuentas de Grow Business son de la plataforma.');
+    }
+  }
+
+  /**
+   * A una marca blanca se le responde con la lista VACÍA y no con un 403: la
+   * ficha del negocio (`/admin/tenants/[id]`) carga este listado para elegir
+   * subcuenta de alertas y con un 403 le saltaba un error en pantalla. Vacía
+   * es además la verdad para ella: no tiene subcuentas globales aquí.
+   */
   @Get()
-  list() {
+  async list(@CurrentUser() user: AuthUser) {
+    if (!(await this.esPlataforma(user))) return [];
     return this.svc.list();
   }
 
   @Post()
-  create(@Body() body: CreateAccountDto) {
+  async create(@CurrentUser() user: AuthUser, @Body() body: CreateAccountDto) {
+    await this.soloPlataforma(user);
     return this.svc.create(body);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: UpdateAccountDto) {
+  async update(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() body: UpdateAccountDto,
+  ) {
+    await this.soloPlataforma(user);
     return this.svc.update(id, body);
   }
 
   @Post(':id/test')
-  test(@Param('id') id: string) {
+  async test(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    await this.soloPlataforma(user);
     return this.svc.test(id);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
+  async remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    await this.soloPlataforma(user);
     return this.svc.remove(id);
   }
 }

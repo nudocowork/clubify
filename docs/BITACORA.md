@@ -8,6 +8,85 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-17 (42) — Fugas: tarjetas ajenas por teléfono, la llave de Grow Business de Clubify y memoria que crecía sin tope
+
+**Qué:** fugas de datos y de memoria del arqueo de esta madrugada. **Solo
+backend.** Sin migración.
+
+### Datos
+
+1. **Con un teléfono se sacaban tarjetas de otros clientes.** «Mi tarjeta» de la
+   tienda (`GET /passes/lookup/by-phone`) y de la Cuponera buscaban
+   `phone CONTAINS últimos10` con solo 7 dígitos y devolvían `passId`, serial,
+   nombre y sellos de TODO el que casara: 12 pares reales de personas distintas.
+   Ahora la base pre-filtra por las 8 últimas cifras y decide
+   `mismoNumeroDeCliente`: iguales, o uno acaba en el otro con al menos 8
+   dígitos. 8 y no 10 por los clientes de Chile, Perú, Ecuador (9) y Panamá,
+   Bolivia (8). Lo que cierra la fuga es devolver solo ESE número, no el umbral.
+   Y el alta pública (`POST /passes/enroll/:cardId`, `cardId` impreso en el QR)
+   ya no le cambia el nombre ni el idioma a una ficha que ya existía: solo
+   rellena huecos.
+2. **Un admin de marca blanca podía sacar la llave de Grow Business de Clubify.**
+   Las subcuentas globales pedían `@Roles('SUPER_ADMIN', …)` y un admin de marca
+   ES un SUPER_ADMIN con `whiteLabelId`; `create`/`update` devolvían la fila con
+   `apiKey` en claro. Ahora solo entra la plataforma (sin marca, o dentro de
+   Clubify vía `resolveBrandScope`), las marcas blancas reciben la lista vacía y
+   las tres respuestas van saneadas.
+3. **`Tenant.growBusinessApiKey` salía en claro** en `GET/PATCH /tenants/me`
+   (hasta el rol «Solo pedidos»), `GET /tenants`, `/tenants/:id` y
+   `GET /passes/:id`. Ahora enmascarada (`••••1234`): el panel de reseñas solo
+   mira que exista, y ningún formulario la edita, así que la máscara no puede
+   pisar la clave real. Al crear un negocio, el dueño ya no vuelve con
+   `passwordHash` ni `totpSecret`.
+4. **Logs:** fuera el trozo del `authToken` del pase y el token completo del
+   dispositivo en los fallos de APNs; `POST wallet/apple/v1/log` (público) acota
+   entradas y longitud.
+
+### Memoria y recursos
+
+5. **Cachés de iconos sin tope** con la clave que manda el cliente
+   (`POST /cards/preview-strips`): una cuenta de prueba podía tumbar el
+   contenedor. Además un fallo pasajero se cacheaba para siempre y la tarjeta
+   salía con el ✓ hasta el siguiente despliegue, y se descargaba cualquier URL.
+   Ahora `CacheAcotada` (LRU), fallos con TTL corto, `MaxLength` en el DTO,
+   descarga con tiempo y tamaño máximos, y solo el host de `S3_PUBLIC_URL` (los
+   25 iconos propios de producción están ahí, comprobado) y el del Onboarding.
+6. **Icono de marca** (público): timeout, tope de bytes y caché acotada.
+7. **Track del InfoLink** (público): solo los tipos que manda la página y
+   `metadata` acotada; y esa ruta y `v1/log` con un parser de 16 KB en vez de 15 MB.
+8. **`enableShutdownHooks`:** en cada redespliegue no corría ningún
+   `onModuleDestroy`, así que Prisma, las colas y APNs no cerraban en orden.
+
+### Pruebas
+
+Specs nuevos por punto sobre los servicios y controladores reales
+(`busqueda-por-telefono` en passes y cuponera, `grow-business-accounts`,
+`sin-secretos`, `stamp-icons-cache`, `preview-strips-dto`, `brand-icon`,
+`track`, `arranque` con Express real 413/200, `cache-acotada`,
+`logs-sin-secretos`).
+
+### Revisión de Fable
+
+**DESPLEGAR CON CAMBIOS**, aplicados:
+- **ALTA:** `wallet.controller.ts` llevaba los bytes 0x00, 0x1F y 0x7F
+  **literales** dentro de una expresión regular: compilaba, pero git lo trataba
+  como binario (sin diff, sin normalizar finales de línea, sin merge posible con
+  la otra máquina). Reescrito como `[\x00-\x1f\x7f]`; revisados todos los
+  archivos del árbol: ninguno más.
+- **MEDIA:** el umbral de 10 dígitos (tomado de Equipos de Ventas) dejaba sin su
+  tarjeta a los móviles de 8 y 9 dígitos, y el pre-filtro por las 10 últimas
+  cifras ni siquiera los traía. Emparejador propio con 8 y pre-filtro por 8;
+  pruebas de Chile y Panamá vistas en rojo.
+Nota: con `enableShutdownHooks` Nest cierra Prisma y las colas antes que el
+servidor HTTP; una petición en vuelo durante el drenaje reconecta (latencia, no
+error). Comportamiento estándar.
+
+### Fuera de alcance, sin tocar
+
+`GET /referrals/codes/:code` (público, devuelve datos y comisiones del afiliado)
+es terreno de Jhon. `GET /auth/check-pending` está en `auth.service.ts`, con
+cambios sin commitear de la otra máquina.
+
 ## 2026-09-17 (41) — Tarjetas: canjear el premio ya no deja la tarjeta «completada» para siempre, y convertir un cupón no borra la de sellos
 
 **Qué:** tres fallos de las tarjetas de sellos, verificados en producción en el

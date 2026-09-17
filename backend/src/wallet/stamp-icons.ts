@@ -19,7 +19,74 @@
  * Para emojis sin mapping → fallback a check ✓ blanco con drop shadow.
  */
 
+import { CacheAcotada } from '../common/cache-acotada';
+import { descargarAcotado, esEstadoPasajero } from '../common/descarga-acotada';
+
 type IconRenderer = (cx: number, cy: number, size: number, id: string) => string;
+
+/**
+ * Topes de las cachés de iconos.
+ *
+ * Eran `Map` sin límite, con la clave elegida por quien llama: el emoji y la
+ * URL llegan del panel (`POST /cards/preview-strips`) y de lo guardado en cada
+ * tarjeta. Y guardaban un fallo PASAJERO como `null` para siempre: un CDN lento
+ * dejaba la tarjeta con el ✓ de respaldo hasta el próximo despliegue.
+ */
+const MAX_ENTRADAS_CACHE_ICONOS = 200;
+/** Un fallo de red, 5xx o 429: se reintenta pronto. */
+const TTL_FALLO_PASAJERO_MS = 30_000;
+/** Un 404 o una imagen que no se deja procesar: no cambia en segundos. */
+const TTL_FALLO_DEFINITIVO_MS = 10 * 60_000;
+/**
+ * El emoji más largo del estándar (pareja con tonos de piel) mide 15 unidades
+ * UTF-16. Más de 32 no es un emoji: es texto metido en la URL de Twemoji.
+ */
+export const MAX_LARGO_EMOJI = 32;
+/** Igual que el tope de subida de imágenes del panel (`media.service`). */
+const MAX_BYTES_ICONO_PROPIO = 15 * 1024 * 1024;
+/** Un PNG 72×72 de Twemoji pesa ~3 KB; el tope solo corta respuestas absurdas. */
+const MAX_BYTES_TWEMOJI = 256 * 1024;
+
+/**
+ * Bucket del Onboarding (Supabase): las imágenes sincronizadas desde allí viven
+ * en su almacenamiento público. Mismo criterio que el proxy de `media`.
+ */
+const HOST_BUCKET_ONBOARDING = 'ugbqfcogmqkuhhepecfq.supabase.co';
+
+/**
+ * ¿Se puede descargar esta URL como icono de sello propio?
+ *
+ * El servidor descargaba CUALQUIER URL que mandara el cliente, incluidas las
+ * internas (metadatos de la nube, `localhost`). Los iconos propios se suben
+ * desde el panel a NUESTRO almacenamiento (en producción, las 25 tarjetas con
+ * icono propio apuntan al host de `S3_PUBLIC_URL`), así que solo se admite ese
+ * host —comparado exacto, no por prefijo: `<bucket>.atacante.com` empieza
+ * igual— y el bucket público del Onboarding.
+ */
+export function urlDeIconoPermitida(url: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.username || u.password) return false;
+  // Misma base que usa `media.service` para construir las URLs que devuelve.
+  const base =
+    process.env.S3_PUBLIC_URL ??
+    `${process.env.S3_ENDPOINT ?? 'http://localhost:9000'}/${process.env.S3_BUCKET ?? 'clubify-media'}`;
+  try {
+    const b = new URL(base);
+    if (u.protocol === b.protocol && u.host === b.host) return true;
+  } catch {
+    /* base mal configurada: solo queda el bucket del Onboarding */
+  }
+  return (
+    u.protocol === 'https:' &&
+    u.host === HOST_BUCKET_ONBOARDING &&
+    u.pathname.startsWith('/storage/v1/object/public/')
+  );
+}
 
 function clampDefs(): string {
   // No-op: cada renderer define sus propios <linearGradient> / <radialGradient>
@@ -260,8 +327,13 @@ function twemojiCodepoints(emoji: string): string {
 }
 
 // Cache en memoria emoji → PNG (o null si no existe en Twemoji). Evita
-// re-descargar el mismo emoji en cada generación de strip.
-const twemojiCache = new Map<string, Buffer | null>();
+// re-descargar el mismo emoji en cada generación de strip. Con tope: ver
+// MAX_ENTRADAS_CACHE_ICONOS.
+const twemojiCache = new CacheAcotada<Buffer | null>({
+  maxEntradas: MAX_ENTRADAS_CACHE_ICONOS,
+  maxBytes: 8 * 1024 * 1024,
+  pesar: (b) => b?.length ?? 0,
+});
 
 /**
  * Descarga el PNG color del emoji desde el CDN de Twemoji (jsdelivr). Devuelve
@@ -270,10 +342,12 @@ const twemojiCache = new Map<string, Buffer | null>();
  * solo ~9 tenían dibujo propio y el resto caía a un check — bug 2026-06-15).
  */
 export async function fetchTwemojiPng(emoji: string): Promise<Buffer | null> {
+  // Ni se cachea: cada texto distinto sería una entrada más.
+  if (!emoji || emoji.length > MAX_LARGO_EMOJI) return null;
   if (twemojiCache.has(emoji)) return twemojiCache.get(emoji) ?? null;
   const code = twemojiCodepoints(emoji);
   if (!code) {
-    twemojiCache.set(emoji, null);
+    twemojiCache.set(emoji, null, TTL_FALLO_DEFINITIVO_MS);
     return null;
   }
   const url = `https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/${code}.png`;
@@ -281,16 +355,22 @@ export async function fetchTwemojiPng(emoji: string): Promise<Buffer | null> {
     // Timeout de 2.5s: este fetch corre DENTRO de la generación del .pkpass
     // (request del cliente). Si el CDN cuelga, degradamos al check fallback en
     // vez de bloquear la descarga del pase.
-    const res = await fetch(url, { signal: AbortSignal.timeout(2500) });
-    if (!res.ok) {
-      twemojiCache.set(emoji, null);
+    const r = await descargarAcotado(url, { timeoutMs: 2500, maxBytes: MAX_BYTES_TWEMOJI });
+    if (!r.ok) {
+      // 404 = ese emoji no existe en Twemoji (no va a aparecer en un minuto);
+      // un 5xx es el CDN con un mal rato y se vuelve a intentar pronto.
+      twemojiCache.set(
+        emoji,
+        null,
+        esEstadoPasajero(r.status) ? TTL_FALLO_PASAJERO_MS : TTL_FALLO_DEFINITIVO_MS,
+      );
       return null;
     }
-    const buf = Buffer.from(await res.arrayBuffer());
-    twemojiCache.set(emoji, buf);
-    return buf;
+    twemojiCache.set(emoji, r.buffer);
+    return r.buffer;
   } catch {
-    twemojiCache.set(emoji, null);
+    // Red caída o timeout: pasajero. Antes esto quedaba en `null` para siempre.
+    twemojiCache.set(emoji, null, TTL_FALLO_PASAJERO_MS);
     return null;
   }
 }
@@ -320,22 +400,41 @@ export async function resolveStampIconRenderer(
 }
 
 // Cache url → PNG data URI (o null si no se pudo cargar). Las versiones "llena"
-// y "atenuada" del mismo ícono reusan la misma descarga.
-const customIconCache = new Map<string, string | null>();
+// y "atenuada" del mismo ícono reusan la misma descarga. Con tope de entradas y
+// de bytes: cada data URI de 256×256 pesa decenas de KB.
+const customIconCache = new CacheAcotada<string | null>({
+  maxEntradas: MAX_ENTRADAS_CACHE_ICONOS,
+  maxBytes: 32 * 1024 * 1024,
+  pesar: (s) => s?.length ?? 0,
+});
+
+/** Largo máximo de URL que se acepta; igual que el DTO del panel. */
+export const MAX_LARGO_URL_ICONO = 2048;
 
 async function fetchCustomIconDataUri(url: string): Promise<string | null> {
+  // Una URL que no es de nuestro almacenamiento no se descarga NI se cachea.
+  if (!url || url.length > MAX_LARGO_URL_ICONO || !urlDeIconoPermitida(url)) {
+    return null;
+  }
   if (customIconCache.has(url)) return customIconCache.get(url) ?? null;
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
-    if (!res.ok) {
-      customIconCache.set(url, null);
+    const r = await descargarAcotado(url, {
+      timeoutMs: 4000,
+      maxBytes: MAX_BYTES_ICONO_PROPIO,
+    });
+    if (!r.ok) {
+      customIconCache.set(
+        url,
+        null,
+        esEstadoPasajero(r.status) ? TTL_FALLO_PASAJERO_MS : TTL_FALLO_DEFINITIVO_MS,
+      );
       return null;
     }
-    const raw = Buffer.from(await res.arrayBuffer());
+    const raw = r.buffer;
     // Detecta SVG (por content-type o por el propio contenido) para rasterizar
     // con densidad alta; PNG/JPG entran directo.
     const isSvg =
-      /svg/i.test(res.headers.get('content-type') || '') ||
+      /svg/i.test(r.contentType) ||
       raw.slice(0, 300).toString('utf8').trimStart().startsWith('<');
     const sharp = (await import('sharp')).default;
     const base = sharp(raw, isSvg ? { density: 384 } : undefined);
@@ -356,7 +455,10 @@ async function fetchCustomIconDataUri(url: string): Promise<string | null> {
     customIconCache.set(url, uri);
     return uri;
   } catch {
-    customIconCache.set(url, null);
+    // Red, timeout, demasiado grande o imagen corrupta: no se distingue bien
+    // aquí, así que se trata como pasajero. Treinta segundos sin reintentar
+    // bastan para no martillar R2; para siempre dejaba el ✓ de respaldo.
+    customIconCache.set(url, null, TTL_FALLO_PASAJERO_MS);
     return null;
   }
 }

@@ -2046,8 +2046,12 @@ export class WalletService implements OnModuleDestroy {
         const dumpFailed = (label: string) => {
           if (r.failed.length === 0) return;
           const f = r.failed[0];
+          // La respuesta de APNs lleva `device`: el token COMPLETO del
+          // dispositivo, que se volcaba entero en los logs. Se quita antes de
+          // escribirla; para reconocer el dispositivo bastan los 12 primeros.
+          const sinToken = JSON.stringify(f, (k, v) => (k === 'device' ? undefined : v));
           this.logger.warn(
-            `[${label}] APNs FAIL device=${d.pushToken.slice(0, 12)}… status=${(f as any)?.status ?? 'n/a'} reason=${(f as any)?.response?.reason ?? 'n/a'} full=${JSON.stringify(f).slice(0, 400)}`,
+            `[${label}] APNs FAIL device=${d.pushToken.slice(0, 12)}… status=${(f as any)?.status ?? 'n/a'} reason=${(f as any)?.response?.reason ?? 'n/a'} full=${(sinToken ?? '').slice(0, 400)}`,
           );
         };
         dumpFailed(startProd ? 'prod' : 'sandbox');

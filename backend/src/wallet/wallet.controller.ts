@@ -17,6 +17,23 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { Public } from '../common/decorators/public.decorator';
 import { WalletService } from './wallet.service';
 
+/** Tope de líneas que escribe una sola llamada a `v1/log`. */
+const MAX_LINEAS_LOG_APPLE = 20;
+/** Tope de caracteres por línea de `v1/log`. */
+const MAX_LARGO_LINEA_LOG_APPLE = 1000;
+
+/** Una entrada de `v1/log` en UNA línea y con tope de largo. */
+function lineaDeLog(entrada: unknown): string {
+  let texto: string;
+  try {
+    texto = typeof entrada === 'string' ? entrada : JSON.stringify(entrada) ?? String(entrada);
+  } catch {
+    texto = String(entrada);
+  }
+  // Sin controles ni saltos: una entrada no puede fingir ser otra línea del log.
+  return texto.replace(/[\x00-\x1f\x7f]+/g, ' ').slice(0, MAX_LARGO_LINEA_LOG_APPLE);
+}
+
 /**
  * Endpoints que Apple Wallet llama desde el dispositivo del usuario.
  * Spec: https://developer.apple.com/library/archive/documentation/PassKit/Reference/PassKit_WebService/WebService.html
@@ -58,8 +75,11 @@ export class WalletController {
       throw new UnauthorizedException('unauthorized');
     }
     if (pass.authToken !== token) {
+      // Ni un carácter de los tokens: el `authToken` es la llave con la que
+      // Apple pide el pase actualizado, y se escribían sus 8 primeros (y los
+      // del recibido). Para diagnosticar basta saber si llegó y cuánto mide.
       this.logger.warn(
-        `REGISTER rejected: authToken mismatch for ${serial} (got ${token.slice(0, 8)}…, expected ${pass.authToken.slice(0, 8)}…)`,
+        `REGISTER rejected: authToken mismatch for ${serial} (recibido ${token ? `${token.length} caracteres` : 'vacío'})`,
       );
       throw new UnauthorizedException('unauthorized');
     }
@@ -110,13 +130,23 @@ export class WalletController {
   log(@Body() body: any) {
     // Apple Wallet manda errores aquí cuando algo falla en el iPhone
     // (cert inválido, webServiceURL mal, pass.json mal armado, etc.)
+    //
+    // Es PÚBLICO y escribía una línea por entrada, sin tope de entradas ni de
+    // longitud, con los saltos de línea tal cual: cualquiera llenaba los logs
+    // o colaba líneas que parecían de otro servicio. Apple manda unas pocas
+    // líneas cortas; el resto se resume en una.
     const logs = body?.logs;
     if (Array.isArray(logs) && logs.length > 0) {
-      for (const entry of logs) {
-        this.logger.warn(`Apple Wallet log: ${entry}`);
+      for (const entry of logs.slice(0, MAX_LINEAS_LOG_APPLE)) {
+        this.logger.warn(`Apple Wallet log: ${lineaDeLog(entry)}`);
+      }
+      if (logs.length > MAX_LINEAS_LOG_APPLE) {
+        this.logger.warn(
+          `Apple Wallet log: ${logs.length - MAX_LINEAS_LOG_APPLE} líneas más descartadas`,
+        );
       }
     } else if (body) {
-      this.logger.warn(`Apple Wallet log payload: ${JSON.stringify(body).slice(0, 800)}`);
+      this.logger.warn(`Apple Wallet log payload: ${lineaDeLog(body)}`);
     }
     return { ok: true };
   }

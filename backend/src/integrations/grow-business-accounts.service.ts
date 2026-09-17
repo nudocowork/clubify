@@ -18,6 +18,57 @@ function normalizePurpose(p?: string | null): string {
   return VALID_PURPOSES.has(upper) ? upper : 'GENERAL';
 }
 
+const CONTEOS = {
+  _count: {
+    select: {
+      reviewTenants: true,
+      billingTenants: true,
+      deliveryTenants: true,
+    },
+  },
+} as const;
+
+type CuentaConConteos = {
+  id: string;
+  name: string;
+  purpose: string;
+  locationId: string;
+  apiKey: string;
+  switchNumber: number | null;
+  isDefault: boolean;
+  lastTestAt: Date | null;
+  lastTestOk: boolean | null;
+  createdAt: Date;
+  _count: { reviewTenants: number; billingTenants: number; deliveryTenants: number };
+};
+
+/**
+ * La forma pública de una subcuenta: NUNCA con `apiKey`, solo un vistazo.
+ *
+ * `create()` y `update()` devolvían la fila de Prisma tal cual, con la clave
+ * en claro: editar el nombre de la subcuenta de Clubify bastaba para llevarse
+ * la llave con la que sale todo su SMS. Las tres respuestas pasan por aquí.
+ */
+function sanear(a: CuentaConConteos) {
+  return {
+    id: a.id,
+    name: a.name,
+    purpose: a.purpose,
+    locationId: a.locationId,
+    apiKeyPreview: a.apiKey ? a.apiKey.slice(0, 4) + '…' + a.apiKey.slice(-4) : null,
+    switchNumber: a.switchNumber,
+    isDefault: a.isDefault,
+    lastTestAt: a.lastTestAt,
+    lastTestOk: a.lastTestOk,
+    tenantsCount:
+      a._count.reviewTenants + a._count.billingTenants + a._count.deliveryTenants,
+    reviewTenantsCount: a._count.reviewTenants,
+    billingTenantsCount: a._count.billingTenants,
+    deliveryTenantsCount: a._count.deliveryTenants,
+    createdAt: a.createdAt,
+  };
+}
+
 /**
  * CRUD de subcuentas globales de Grow Business compartidas entre
  * múltiples tenants. La diferencia con `GrowBusinessService` (que
@@ -40,38 +91,9 @@ export class GrowBusinessAccountsService {
     const accounts = await this.prisma.growBusinessAccount.findMany({
       where: { deletedAt: null },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
-      include: {
-        _count: {
-          select: {
-            reviewTenants: true,
-            billingTenants: true,
-            deliveryTenants: true,
-          },
-        },
-      },
+      include: CONTEOS,
     });
-    // Sanitizar: no devolver apiKey completa en la lista (solo prefijo).
-    return accounts.map((a) => ({
-      id: a.id,
-      name: a.name,
-      purpose: a.purpose,
-      locationId: a.locationId,
-      apiKeyPreview: a.apiKey
-        ? a.apiKey.slice(0, 4) + '…' + a.apiKey.slice(-4)
-        : null,
-      switchNumber: a.switchNumber,
-      isDefault: a.isDefault,
-      lastTestAt: a.lastTestAt,
-      lastTestOk: a.lastTestOk,
-      tenantsCount:
-        a._count.reviewTenants +
-        a._count.billingTenants +
-        a._count.deliveryTenants,
-      reviewTenantsCount: a._count.reviewTenants,
-      billingTenantsCount: a._count.billingTenants,
-      deliveryTenantsCount: a._count.deliveryTenants,
-      createdAt: a.createdAt,
-    }));
+    return accounts.map(sanear);
   }
 
   async create(input: {
@@ -96,7 +118,7 @@ export class GrowBusinessAccountsService {
       });
     }
 
-    return this.prisma.growBusinessAccount.create({
+    const creada = await this.prisma.growBusinessAccount.create({
       data: {
         name: input.name.trim(),
         locationId: input.locationId.trim(),
@@ -105,7 +127,9 @@ export class GrowBusinessAccountsService {
         isDefault: !!input.isDefault,
         purpose: normalizePurpose(input.purpose),
       },
+      include: CONTEOS,
     });
+    return sanear(creada);
   }
 
   async update(
@@ -132,7 +156,7 @@ export class GrowBusinessAccountsService {
       });
     }
 
-    return this.prisma.growBusinessAccount.update({
+    const editada = await this.prisma.growBusinessAccount.update({
       where: { id },
       data: {
         name: input.name?.trim() ?? undefined,
@@ -145,7 +169,9 @@ export class GrowBusinessAccountsService {
         purpose:
           input.purpose === undefined ? undefined : normalizePurpose(input.purpose),
       },
+      include: CONTEOS,
     });
+    return sanear(editada);
   }
 
   /** Soft delete: SET deletedAt y rompe asignaciones de los tenants

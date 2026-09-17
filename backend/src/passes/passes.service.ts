@@ -14,6 +14,69 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { AutomationsService } from '../automations/automations.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { normalizePassLocale } from '../wallet/pass-labels';
+import { sinSecretosDelNegocio } from '../tenants/sin-secretos';
+
+/**
+ * De los clientes que Postgres encontró por un trozo del número, los que
+ * tienen DE VERDAD el teléfono tecleado.
+ *
+ * Existe porque las búsquedas públicas por teléfono («Mi tarjeta» de la
+ * tienda y de la Cuponera) pedían `phone CONTAINS últimos10` con solo 7
+ * dígitos y devolvían el `passId` de todo el que casara. Con siete cifras
+ * cualquiera sacaba tarjetas ajenas; con el número exacto de un cliente salían
+ * también las de quien lo llevara dentro (otro prefijo de país).
+ *
+ * `CONTAINS` (con `colaParaBuscar`) se queda como filtro barato en la base; la
+ * decisión la toma `mismoNumeroDeCliente`: dígitos idénticos, o uno terminado
+ * en el otro con al menos 8 dígitos — la ficha guardada sin `+57` sigue
+ * apareciendo al buscar con el prefijo que pone el selector de país.
+ *
+ * 8 y no 10 (el umbral de Equipos de Ventas): hay clientes de Chile, Perú y
+ * Ecuador (móvil de 9) y de Panamá y Bolivia (8), y con 10 una ficha suya
+ * guardada sin indicativo dejaba de encontrar su tarjeta. Lo que cierra la
+ * fuga no es el umbral —conocer 8 de 10 cifras son 100 intentos— sino dejar de
+ * devolver a TODO el que contenga las cifras: ahora sale solo ese número.
+ *
+ * Lo que esto NO separa: dos fichas con el MISMO número (en producción hay
+ * familias y números duplicados con otro formato). Con el teléfono como única
+ * prueba no hay forma de saber cuál es quién.
+ */
+export function soloElMismoTelefono<T extends { phone: string | null }>(
+  tecleado: string,
+  candidatos: T[],
+): T[] {
+  if (!telefonoBuscable(tecleado)) return [];
+  return candidatos.filter((c) => mismoNumeroDeCliente(tecleado, c.phone));
+}
+
+/** Mínimo de dígitos para buscar a un cliente por su teléfono. Ver arriba. */
+const MIN_DIGITOS_CLIENTE = 8;
+
+const soloDigitos = (v?: string | null) => (v || '').replace(/\D/g, '');
+
+/** ¿El mismo número? Iguales, o uno acaba en el otro con ≥ 8 dígitos. */
+export function mismoNumeroDeCliente(a?: string | null, b?: string | null): boolean {
+  const da = soloDigitos(a);
+  const db = soloDigitos(b);
+  if (!da || !db) return false;
+  if (da === db) return true;
+  const [corto, largo] = da.length <= db.length ? [da, db] : [db, da];
+  return corto.length >= MIN_DIGITOS_CLIENTE && largo.endsWith(corto);
+}
+
+/** ¿Hay dígitos suficientes para buscar? Por debajo, ni se consulta la base. */
+export function telefonoBuscable(tecleado: string): boolean {
+  return soloDigitos(tecleado).length >= MIN_DIGITOS_CLIENTE;
+}
+
+/**
+ * El trozo con el que se pre-filtra en la base: las 8 últimas cifras. Con las
+ * 10 últimas, un `912345678` guardado sin indicativo no CONTIENE
+ * `6912345678` (lo que sale de `+56 912345678`) y ni llegaba a candidato.
+ */
+export function colaParaBuscar(tecleado: string): string {
+  return soloDigitos(tecleado).slice(-MIN_DIGITOS_CLIENTE);
+}
 
 /**
  * Token que va dentro del barcode (PDF417) del pase de wallet.
@@ -118,7 +181,9 @@ export class PassesService {
     if (user.role !== 'SUPER_ADMIN' && pass.tenantId !== user.tenantId) {
       throw new ForbiddenException();
     }
-    return pass;
+    // El negocio viene entero (`tenant: true`): sin esto la respuesta llevaba
+    // su llave de Grow Business en claro.
+    return { ...pass, tenant: sinSecretosDelNegocio(pass.tenant) };
   }
 
   async getPublic(id: string) {
@@ -209,26 +274,26 @@ export class PassesService {
   /**
    * Búsqueda pública desde el storefront: dado un slug de tenant y un teléfono,
    * devuelve los pases activos del cliente. Usado por el tab "Mi tarjeta".
-   * Normaliza el teléfono a últimos dígitos para tolerar variaciones de formato.
+   * Es PÚBLICA: ver `soloElMismoTelefono` para qué se considera el mismo número.
    */
   async findByPhonePublic(slug: string, phoneRaw: string) {
     const tenant = await this.prisma.tenant.findUnique({ where: { slug } });
     if (!tenant) throw new NotFoundException('Tenant');
 
-    const digits = (phoneRaw || '').replace(/\D/g, '');
-    if (digits.length < 7) {
+    if (!telefonoBuscable(phoneRaw)) {
       return { passes: [] };
     }
 
-    const tail = digits.slice(-10);
+    const tail = colaParaBuscar(phoneRaw);
 
-    const customers = await this.prisma.customer.findMany({
+    const candidatos = await this.prisma.customer.findMany({
       where: {
         tenantId: tenant.id,
         phone: { contains: tail },
       },
-      select: { id: true, fullName: true },
+      select: { id: true, fullName: true, phone: true },
     });
+    const customers = soloElMismoTelefono(phoneRaw, candidatos);
 
     if (customers.length === 0) return { passes: [] };
 
@@ -452,11 +517,16 @@ export class PassesService {
       })
       .catch(() => null);
     if (!customer && last10.length >= 8) {
-      customer = await this.prisma.customer
-        .findFirst({
+      // `endsWith últimos10` solo trae candidatos: `+13001112233` y
+      // `+573001112233` acaban igual y son dos personas. Tomar el primero le
+      // devolvía a quien se registraba el pase (y los sellos) del otro.
+      const parecidos = await this.prisma.customer
+        .findMany({
           where: { tenantId: card.tenantId, phone: { endsWith: last10 } },
+          take: 20,
         })
-        .catch(() => null);
+        .catch(() => []);
+      customer = parecidos.find((c) => mismoNumeroDeCliente(phoneNorm, c.phone)) ?? null;
     }
     // Birthday: aceptamos YYYY-MM-DD. El año es ficticio (2000), solo
     // usamos día/mes para el cron BIRTHDAY que filtra por extract().
@@ -494,24 +564,28 @@ export class PassesService {
           throw e;
         }
       }
-    } else if (
-      customer.fullName !== dto.fullName.trim() ||
-      (email && !customer.email) ||
-      (validBday && !customer.birthday) ||
-      (customer as { locale?: string }).locale !== localeNorm
-    ) {
-      // Actualizar nombre si cambió, email si lo deja por primera vez,
-      // birthday si lo deja por primera vez (no sobreescribe si ya estaba),
-      // y el idioma al que el cliente eligió ahora (para localizar el pase).
-      customer = await this.prisma.customer.update({
-        where: { id: customer.id },
-        data: {
-          fullName: dto.fullName.trim(),
-          email: email ?? customer.email,
-          birthday: validBday ?? customer.birthday,
-          locale: localeNorm,
-        },
-      });
+    } else {
+      // La ficha YA existía. Esta ruta es pública y el `cardId` va impreso en
+      // el QR del mostrador: con el teléfono de otro, cualquiera le cambiaba
+      // el nombre y el idioma del pase. Aquí solo se RELLENAN huecos, igual
+      // que en `completarRegistro`:
+      //  · el nombre, solo si el que había no tiene ni una letra (el alta
+      //    rápida deja el teléfono como nombre);
+      //  · correo y cumpleaños, solo si faltaban.
+      // El idioma NO se toca: el de una ficha existente lo cambia el negocio.
+      const nombre = dto.fullName.trim();
+      const data: { fullName?: string; email?: string; birthday?: Date } = {};
+      if ((!customer.fullName || !/\p{L}/u.test(customer.fullName)) && /\p{L}/u.test(nombre)) {
+        data.fullName = nombre;
+      }
+      if (email && !customer.email) data.email = email;
+      if (validBday && !customer.birthday) data.birthday = validBday;
+      if (Object.keys(data).length) {
+        customer = await this.prisma.customer.update({
+          where: { id: customer.id },
+          data,
+        });
+      }
     }
 
     // Si ya tiene pase para esta tarjeta, devolverlo (no duplicar)

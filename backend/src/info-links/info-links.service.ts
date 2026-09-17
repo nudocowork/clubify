@@ -71,6 +71,33 @@ function normalizeRootSlug(input: string): string {
   return clean;
 }
 
+/** Tipos que la página pública puede registrar. Ver `trackEvent`. */
+const TIPOS_DE_EVENTO_PUBLICOS = new Set(['click_button', 'qr_scan']);
+/** Tope de la metadata guardada: lo real mide ≤ 70 bytes. */
+const MAX_BYTES_METADATA = 2048;
+
+/**
+ * Solo las claves que leen las estadísticas (`label`, `buttonType`), como
+ * texto y recortadas. Cualquier otra clave o forma se descarta: nadie la lee
+ * y era la vía para meter megas en la tabla.
+ */
+function metadataAcotada(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const { label, buttonType } = raw as { label?: unknown; buttonType?: unknown };
+  const out: Record<string, string> = {};
+  if (typeof label === 'string') out.label = label.slice(0, 200);
+  if (typeof buttonType === 'string') out.buttonType = buttonType.slice(0, 40);
+  // Por construcción cabe (200 + 40 caracteres), pero el tope es en BYTES y
+  // un emoji ocupa cuatro: se comprueba y, si no, se recorta la etiqueta.
+  while (
+    out.label &&
+    Buffer.byteLength(JSON.stringify(out)) > MAX_BYTES_METADATA
+  ) {
+    out.label = out.label.slice(0, Math.floor(out.label.length / 2));
+  }
+  return out;
+}
+
 export type InfoLinkDto = {
   title: string;
   subtitle?: string;
@@ -551,10 +578,26 @@ export class InfoLinksService {
     };
   }
 
-  trackEvent(linkId: string, type: string, metadata: any = {}) {
+  /**
+   * Evento que manda la página PÚBLICA del InfoLink (`POST /public/i/:id/track`).
+   *
+   * Aceptaba cualquier `type` y cualquier `metadata` hasta el tope global de
+   * 15 MB, y lo guardaba tal cual. `stats` y `tenantOverview` leen esos eventos
+   * en memoria: unos pocos inflados tumbaban el panel del negocio, y un tipo
+   * inventado salía como métrica.
+   *
+   * Solo entra lo que la página manda de verdad (en producción, 90 días:
+   * `click_button` con `{label, buttonType}` de ≤ 70 bytes, y `qr_scan`).
+   * `view` NO: lo cuenta el servidor en `getPublic`, y aceptarlo aquí dejaba
+   * inflar las visitas desde fuera.
+   */
+  trackEvent(linkId: string, type: unknown, metadata: unknown = {}) {
+    if (typeof type !== 'string' || !TIPOS_DE_EVENTO_PUBLICOS.has(type)) {
+      return Promise.resolve(null);
+    }
     return this.prisma.infoLinkEvent
       .create({
-        data: { infoLinkId: linkId, type, metadata },
+        data: { infoLinkId: linkId, type, metadata: metadataAcotada(metadata) },
       })
       .catch(() => null);
   }

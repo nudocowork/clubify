@@ -32,6 +32,9 @@ import { cycleCreditCostForTenant, normalizeBusinessType, BusinessType } from '.
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { QueueService } from '../jobs/queue.service';
 import { GrowBusinessService } from '../integrations/grow-business.service';
+// Toda respuesta de este servicio que lleve la fila del negocio pasa por aquí:
+// la llave de Grow Business salía en claro hasta al rol «Solo pedidos».
+import { sinSecretosDelNegocio, USUARIO_SIN_SECRETOS } from './sin-secretos';
 import { nanoid } from 'nanoid';
 import {
   isValidCategorySlug,
@@ -754,7 +757,7 @@ export class TenantsService {
         ? Math.max(0, Math.ceil((t.trialEndsAt.getTime() - now) / (24 * 60 * 60 * 1000)))
         : null;
       return {
-        ...t,
+        ...sinSecretosDelNegocio(t),
         whiteLabelSlug: t.whiteLabel?.slug ?? null,
         orders30: stat.count,
         revenue30: stat.total,
@@ -876,7 +879,7 @@ export class TenantsService {
     // "Hotmart" a alguien que paga con Stripe. Es null para Clubify/sin marca,
     // y el frontend cae a un genérico ("la pasarela de pagos").
     return {
-      ...tenant,
+      ...sinSecretosDelNegocio(tenant),
       enabledModules,
       brandPlans,
       brandCredits,
@@ -1075,7 +1078,8 @@ export class TenantsService {
           },
         },
       },
-      include: { users: true, plan: true },
+      // `users: true` devolvía al dueño con `passwordHash` y `totpSecret`.
+      include: { users: { select: USUARIO_SIN_SECRETOS }, plan: true },
     });
 
     if (dto.referredByCode) {
@@ -1104,7 +1108,7 @@ export class TenantsService {
     void this.onboardingWebhook.crearClienteEnOnboarding(tenant.id);
 
     return {
-      tenant,
+      tenant: sinSecretosDelNegocio(tenant),
       ownerTempPassword: dto.ownerPassword ? undefined : tempPassword,
       // El front muestra el popup obligatorio de créditos cuando esto es true
       // (negocio creado por marca blanca con créditos no-ilimitados → bloqueado).
@@ -1210,7 +1214,7 @@ export class TenantsService {
     ) {
       invalidateBusinessTypeCache(id);
     }
-    return updated;
+    return sinSecretosDelNegocio(updated);
   }
 
   /**
@@ -1357,7 +1361,7 @@ export class TenantsService {
         gracePeriodDays: dto.gracePeriodDays ?? null,
       },
     });
-    return updated;
+    return sinSecretosDelNegocio(updated);
   }
 
   /**
@@ -1496,7 +1500,7 @@ export class TenantsService {
         to: status,
       },
     });
-    return updated;
+    return sinSecretosDelNegocio(updated);
   }
 
   /**
@@ -1597,7 +1601,7 @@ export class TenantsService {
       .backfillCommissionForCurrentAssignment(id, false)
       .catch(() => null);
 
-    return updated;
+    return sinSecretosDelNegocio(updated);
   }
 
   // ──────────── Pagos manuales (Nequi / efectivo / transferencia) ────────────
@@ -2232,7 +2236,7 @@ export class TenantsService {
     });
 
     invalidateTenantStatusCache(id);
-    return updated;
+    return sinSecretosDelNegocio(updated);
   }
 
   /** Extiende el trial agregando `days` al trialEndsAt actual (o desde hoy si no hay). */
@@ -2305,7 +2309,7 @@ export class TenantsService {
         previousStatus: t.status,
       },
     });
-    return updated;
+    return sinSecretosDelNegocio(updated);
   }
 
   /**
@@ -2404,7 +2408,7 @@ export class TenantsService {
     });
 
     invalidateTenantStatusCache(id);
-    return updated;
+    return sinSecretosDelNegocio(updated);
   }
 
   /**
@@ -2510,7 +2514,7 @@ export class TenantsService {
     const communityModule = mods.find((m) => m.module === 'COMMUNITY');
     const referralsModule = mods.find((m) => m.module === 'REFERRALS');
     return {
-      ...t,
+      ...sinSecretosDelNegocio(t),
       whiteLabelCreditsUnlimited: t.whiteLabel?.creditsUnlimited ?? false,
       reviewsEnabled: reviewsModule ? reviewsModule.enabled : true,
       // Módulo REFERRALS de la marca. Un negocio de una marca blanca NO debe
@@ -2632,7 +2636,7 @@ export class TenantsService {
       });
     }
 
-    return updated;
+    return sinSecretosDelNegocio(updated);
   }
 
   /**

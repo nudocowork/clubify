@@ -15,7 +15,12 @@ import * as argon2 from 'argon2';
 import { nanoid } from 'nanoid';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CardsService, CardDto } from '../cards/cards.service';
-import { PassesService } from '../passes/passes.service';
+import {
+  colaParaBuscar,
+  PassesService,
+  soloElMismoTelefono,
+  telefonoBuscable,
+} from '../passes/passes.service';
 import { LocationsService } from '../locations/locations.service';
 import { actorOf, diffBenefit } from './benefit-history';
 import {
@@ -1721,15 +1726,17 @@ export class CuponeraService {
   /** "Mi tarjeta": busca los pases activos del miembro por teléfono (mismo
    *  patrón que passes.findByPhonePublic, pero por el tenant de sistema). */
   async findCardByPhone(phoneRaw: string) {
+    // Pública: con 7 dígitos y `CONTAINS` devolvía el passId de cualquiera
+    // cuyo número llevara esas cifras. Ver `soloElMismoTelefono`.
+    if (!telefonoBuscable(phoneRaw)) return { passes: [] };
     const campaign = await this.ensureLivingCampaign();
-    const digits = (phoneRaw || '').replace(/\D/g, '');
-    if (digits.length < 7) return { passes: [] };
-    const tail = digits.slice(-10);
+    const tail = colaParaBuscar(phoneRaw);
 
-    const customers = await this.prisma.customer.findMany({
+    const candidatos = await this.prisma.customer.findMany({
       where: { tenantId: campaign.tenantId, phone: { contains: tail } },
-      select: { id: true, fullName: true },
+      select: { id: true, fullName: true, phone: true },
     });
+    const customers = soloElMismoTelefono(phoneRaw, candidatos);
     if (!customers.length) return { passes: [] };
 
     const passes = await this.prisma.pass.findMany({
@@ -3072,14 +3079,16 @@ export class CuponeraService {
 
   /** Progreso de sellos del miembro por teléfono (vista pública "Mis sellos"). */
   async stampsByPhone(phoneRaw: string) {
+    // Pública, mismo arreglo que `findCardByPhone`: sin él enseñaba los sellos
+    // de quien tuviera un número que CONTENÍA el tecleado.
+    if (!telefonoBuscable(phoneRaw)) return { programs: [] };
     const campaign = await this.ensureLivingCampaign();
-    const digits = (phoneRaw || '').replace(/\D/g, '');
-    if (digits.length < 7) return { programs: [] };
-    const tail = digits.slice(-10);
-    const customers = await this.prisma.customer.findMany({
+    const tail = colaParaBuscar(phoneRaw);
+    const candidatos = await this.prisma.customer.findMany({
       where: { tenantId: campaign.tenantId, phone: { contains: tail } },
-      select: { id: true },
+      select: { id: true, phone: true },
     });
+    const customers = soloElMismoTelefono(phoneRaw, candidatos);
     if (!customers.length) return { programs: [] };
     const programs = await this.prisma.stampProgram.findMany({
       where: { campaignId: campaign.id, status: 'ACTIVE' },

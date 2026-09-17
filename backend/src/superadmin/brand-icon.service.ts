@@ -2,8 +2,29 @@ import { Injectable, Logger } from '@nestjs/common';
 import sharp from 'sharp';
 import { SuperAdminService } from './superadmin.service';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { CacheAcotada } from '../common/cache-acotada';
+import { descargarAcotado } from '../common/descarga-acotada';
 
 export type IconPurpose = 'any' | 'maskable' | 'apple';
+
+/**
+ * Topes del generador. La ruta es PÚBLICA (la pide el `<head>` de cada menú,
+ * InfoLink y panel) y descargaba el logo con `fetch` a pelo —sin tiempo
+ * máximo ni tope de tamaño— y lo pasaba por `sharp` en CADA petición.
+ */
+const TIMEOUT_LOGO_MS = 5000;
+/** Igual que el tope de subida de imágenes del panel (`media.service`). */
+const MAX_BYTES_LOGO = 15 * 1024 * 1024;
+/**
+ * Diez minutos: la clave lleva la URL del logo y los colores, así que un
+ * cambio de branding (subida nueva = URL nueva) no espera a que caduque. El
+ * plazo solo cubre re-subir DISTINTO contenido a la misma URL.
+ */
+const TTL_ICONO_MS = 10 * 60_000;
+/** Si el logo no bajó, el mosaico de respaldo se recuerda poco: puede ser un mal rato de R2. */
+const TTL_TRAS_FALLO_MS = 30_000;
+
+type IconoGenerado = { buffer: Buffer; contentType: string };
 
 /** Sujeto del icono ya resuelto: la imagen de origen + identidad para el
  *  fallback (inicial sobre color). Lo produce una marca o un negocio. */
@@ -34,6 +55,21 @@ type IconSubject = {
 export class BrandIconService {
   private logger = new Logger(BrandIconService.name);
 
+  /** Iconos ya generados, por (logo, colores, tamaño, propósito). */
+  private readonly iconos = new CacheAcotada<IconoGenerado>({
+    maxEntradas: 200,
+    maxBytes: 16 * 1024 * 1024,
+    pesar: (v) => v.buffer.length,
+    ttlMs: TTL_ICONO_MS,
+  });
+  /** Logos descargados: un mismo logo sirve para todos los tamaños. */
+  private readonly logos = new CacheAcotada<Buffer | null>({
+    maxEntradas: 50,
+    maxBytes: 32 * 1024 * 1024,
+    pesar: (b) => b?.length ?? 0,
+    ttlMs: TTL_ICONO_MS,
+  });
+
   constructor(
     private svc: SuperAdminService,
     private prisma: PrismaService,
@@ -45,13 +81,36 @@ export class BrandIconService {
     tenantSlug?: string;
     size: number;
     purpose: IconPurpose;
-  }): Promise<{ buffer: Buffer; contentType: string } | null> {
+  }): Promise<IconoGenerado | null> {
     const size = Math.max(16, Math.min(1024, Math.round(opts.size || 192)));
     const purpose: IconPurpose = opts.purpose ?? 'any';
 
     const subject = await this.resolveSubject(opts);
     if (!subject) return null;
 
+    // La clave es lo que DIBUJA el icono, no lo que se pidió: `?v=` no llega
+    // aquí, y con la clave por slug un cambio de logo seguiría sirviendo el
+    // viejo — que el navegador guardaría como `immutable` para siempre.
+    const clave = JSON.stringify([
+      subject.source,
+      subject.name,
+      subject.primaryColor,
+      subject.backgroundColor,
+      size,
+      purpose,
+    ]);
+    const hecho = this.iconos.get(clave);
+    if (hecho) return hecho;
+    const out = await this.dibujar(subject, size, purpose);
+    this.iconos.set(clave, out.icono, out.logoFallo ? TTL_TRAS_FALLO_MS : undefined);
+    return out.icono;
+  }
+
+  private async dibujar(
+    subject: IconSubject,
+    size: number,
+    purpose: IconPurpose,
+  ): Promise<{ icono: IconoGenerado; logoFallo: boolean }> {
     const source = subject.source;
     // Fondo: transparente para `any`; sólido (background o blanco) para los
     // propósitos opacos (apple/maskable).
@@ -65,13 +124,18 @@ export class BrandIconService {
     const logoBuf = source ? await this.fetchImage(source) : null;
     if (!logoBuf) {
       return {
-        buffer: await this.initialTile(
-          subject.name,
-          subject.primaryColor,
-          size,
-          purpose,
-        ),
-        contentType: 'image/png',
+        icono: {
+          buffer: await this.initialTile(
+            subject.name,
+            subject.primaryColor,
+            size,
+            purpose,
+          ),
+          contentType: 'image/png',
+        },
+        // Sin logo configurado el mosaico ES el icono; con logo que no bajó,
+        // es un respaldo que no conviene recordar mucho.
+        logoFallo: !!source,
       };
     }
 
@@ -96,19 +160,22 @@ export class BrandIconService {
         .composite([{ input: resized, gravity: 'centre' }])
         .png({ compressionLevel: 9 })
         .toBuffer();
-      return { buffer: out, contentType: 'image/png' };
+      return { icono: { buffer: out, contentType: 'image/png' }, logoFallo: false };
     } catch (e: any) {
       this.logger.warn(
         `brand-icon generate failed (${e?.message ?? e}) — mosaico inicial`,
       );
       return {
-        buffer: await this.initialTile(
-          subject.name,
-          subject.primaryColor,
-          size,
-          purpose,
-        ),
-        contentType: 'image/png',
+        icono: {
+          buffer: await this.initialTile(
+            subject.name,
+            subject.primaryColor,
+            size,
+            purpose,
+          ),
+          contentType: 'image/png',
+        },
+        logoFallo: true,
       };
     }
   }
@@ -175,12 +242,21 @@ export class BrandIconService {
   }
 
   private async fetchImage(url: string): Promise<Buffer | null> {
+    if (this.logos.has(url)) return this.logos.get(url) ?? null;
     try {
-      const r = await fetch(url);
-      if (!r.ok) return null;
-      const ab = await r.arrayBuffer();
-      return Buffer.from(ab);
-    } catch {
+      // Con tiempo máximo y tope de bytes: un servidor lento colgaba la
+      // petición pública, y uno que mandaba cientos de megas los metía
+      // enteros en memoria antes de que `sharp` los rechazara.
+      const r = await descargarAcotado(url, {
+        timeoutMs: TIMEOUT_LOGO_MS,
+        maxBytes: MAX_BYTES_LOGO,
+      });
+      const buf = r.ok ? r.buffer : null;
+      this.logos.set(url, buf, buf ? undefined : TTL_TRAS_FALLO_MS);
+      return buf;
+    } catch (e: any) {
+      this.logger.warn(`brand-icon: el logo no bajó (${e?.message ?? e})`);
+      this.logos.set(url, null, TTL_TRAS_FALLO_MS);
       return null;
     }
   }
