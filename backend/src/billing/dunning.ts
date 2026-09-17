@@ -67,8 +67,6 @@ export interface DunningDecision {
   action: DunningAction;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 /**
  * ¿Ese `failedPaymentCount` es un fantasma o una mora de verdad?
  *
@@ -104,9 +102,23 @@ export function esMoraFantasma(t: DunningState, ahora: Date): boolean {
   return !!t.lastChargeAt && t.lastChargeAt.getTime() > t.firstFailedAt.getTime();
 }
 
-/** Fecha en que se suspenderá = día (graceDays + 1) desde `dueSince`. */
-export function pauseDateFor(dueSince: Date, graceDays: number): Date {
-  return new Date(dueSince.getTime() + (graceDays + 1) * DAY_MS);
+/**
+ * Fecha en que se suspenderá: el día (graceDays + 1) de la mora, contado en
+ * días de Bogotá con la MISMA regla que `decideDunning`.
+ *
+ * Antes sumaba (graceDays + 1) × 24 h a `dueSince`. Eso solo cuadra con la mora
+ * por fecha vencida, que empieza el día siguiente al fin del período; en la
+ * mora por cobro fallido el día del fallo YA es el día 1, así que anunciaba la
+ * pausa un día tarde. Café Macondo leyó «22 de sept» y se suspende el 21
+ * (2026-09-16).
+ *
+ * Devuelve el MEDIODÍA de Bogotá de ese día (17:00 UTC): `fmtSmsDate` formatea
+ * con la zona del servidor, y a mediodía la fecha es la misma en UTC que en
+ * Bogotá — a medianoche se iría al día anterior.
+ */
+export function pauseDateFor(dueSince: Date, graceDays: number, byFailure: boolean): Date {
+  const diaUno = byFailure ? bogotaYmd(dueSince) : addDaysYmd(bogotaYmd(dueSince), 1);
+  return new Date(`${addDaysYmd(diaUno, graceDays)}T17:00:00.000Z`);
 }
 
 export function decideDunning(
@@ -267,7 +279,7 @@ export function deriveRenewalState(
       daysOverdue: d.daysOverdue,
       graceDaysLeft: left,
       graceLabel: `Día ${Math.min(d.daysOverdue, cfg.graceDays)} de ${cfg.graceDays}`,
-      pauseDate: pauseDateFor(d.dueSince, cfg.graceDays),
+      pauseDate: pauseDateFor(d.dueSince, cfg.graceDays, d.byFailure),
     };
   }
 

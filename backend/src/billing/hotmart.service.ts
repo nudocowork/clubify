@@ -25,7 +25,16 @@ import {
 import { ModuleRef } from '@nestjs/core';
 import { MembershipBillingService } from '../cuponera/membership-billing.service';
 import { WhiteLabelNotificationsService } from '../white-label-notifications/white-label-notifications.service';
-import { BusinessGroupsService } from '../business-groups/business-groups.service';
+import {
+  BusinessGroupsService,
+  type GrupoDelEvento,
+} from '../business-groups/business-groups.service';
+import {
+  abreEpisodio,
+  condicionDelAvisoDeFallo,
+  etiquetaDelGrupo,
+  inicioDelEpisodio,
+} from './avisos-de-fallo';
 import { OnboardingWebhookService } from '../onboarding-sync/onboarding-webhook.service';
 import { fmtSmsDate } from './sms-templates';
 import { IncomeRecordService } from '../finance/income-record.service';
@@ -579,6 +588,23 @@ export class HotmartService {
     // Grupo Empresarial: si el subscriberCode (o el email del responsable en el
     // primer pago) matchea un grupo, el cobro es del GRUPO → activamos/suspendemos
     // el grupo y cascadea a TODOS sus negocios. No hay un tenant único.
+    // Foto del grupo ANTES del evento: después de aplicarlo ya no se sabe quién
+    // estaba pausado ni si el período cambió, y eso decide qué aviso toca.
+    const grupoAntes =
+      event === 'PURCHASE_APPROVED' ||
+      event === 'PURCHASE_DELAYED' ||
+      event === 'PURCHASE_PROTEST'
+        ? await this.businessGroups
+            .buscarGrupoDelEvento(subscriberCode, buyerEmail)
+            .catch((e) => {
+              // El cobro se aplica igual; lo que se pierde son los avisos del
+              // grupo, y eso tiene que quedar escrito en algún sitio.
+              this.logger.error(
+                `foto del grupo para ${event} falló — sin avisos de grupo: ${(e as Error)?.message}`,
+              );
+              return null;
+            })
+        : null;
     const groupAction = await this.businessGroups
       .tryHandleHotmartEvent({
         event,
@@ -605,6 +631,9 @@ export class HotmartService {
             this.logger.error(`group commission falló: ${(e as Error)?.message}`),
           );
       }
+      await this.avisosDelCobroDeGrupo(event, groupAction, grupoAntes).catch((e) =>
+        this.logger.error(`avisos del cobro de grupo fallaron: ${(e as Error)?.message}`),
+      );
       return { ok: true, action: groupAction };
     }
 
@@ -1329,6 +1358,194 @@ export class HotmartService {
 
   /** Switch principal — extraído para que handleEvent pueda
    *  wrappear con el markEventProcessed. */
+  /**
+   * Un cobro fallido de un negocio: lo pone en mora y avisa al dueño UNA vez por
+   * episodio (ver `avisos-de-fallo.ts`).
+   *
+   * Vive aparte porque la ruta de GRUPO lo reutiliza para cada negocio del
+   * grupo. Hasta el 2026-09-17 esa ruta solo marcaba el grupo como PAST_DUE: ni
+   * SMS ni correo a nadie, y sus negocios se suspendían al día 6 sin haber
+   * sabido nunca que el cobro falló (Grupo Aldehir, cobro del 17-09).
+   */
+  private async registrarFalloDeCobro(
+    tenant: {
+      id: string;
+      brandName: string;
+      failedPaymentCount: number | null;
+      firstFailedAt: Date | null;
+    },
+    event: 'PURCHASE_DELAYED' | 'PURCHASE_PROTEST',
+    opts: { avisarEquipo: boolean; avisarCadena: boolean },
+  ): Promise<{ episodioNuevo: boolean; avisado: boolean }> {
+    // No tocamos `status` (el enum solo tiene ACTIVE/TRIAL/SUSPENDED).
+    // El derivado PAST_DUE lo calcula billing.service.getStatus()
+    // basándose en failedPaymentCount > 0.
+    const now = new Date();
+    const episodioNuevo = abreEpisodio(tenant);
+    const episodio = inicioDelEpisodio(tenant, now);
+    await this.prisma.tenant.update({
+      where: { id: tenant.id },
+      data: {
+        failedPaymentCount: { increment: 1 },
+        lastPaymentAttemptAt: now,
+        // Ancla INMUTABLE de la gracia dentro del episodio. Antes el reloj se
+        // anclaba en lastPaymentAttemptAt, que esta misma línea pisa a `now` en
+        // CADA reintento de Hotmart → la mora volvía a 0 días y nunca llegaba al
+        // día 6. Y un `firstFailedAt` que sobrevivió a un pago NO se hereda: con
+        // él, la gracia se contaría desde un fallo ya resuelto.
+        firstFailedAt: episodio,
+      },
+    });
+    await this.billing
+      .auditLifecycle('subscription.payment_failed', tenant.id, { gateway: 'HOTMART', event })
+      .catch(() => null);
+    // Alerta interna al equipo SOLO al abrir el episodio, no en cada reintento.
+    if (episodioNuevo && opts.avisarEquipo) {
+      await this.billing
+        .notifyBillingTeam('renovacion_fallida', tenant.brandName)
+        .catch(() => null);
+    }
+
+    const reclamo = await this.prisma.tenant.updateMany({
+      where: condicionDelAvisoDeFallo(tenant.id, episodio),
+      data: { paymentFailureNoticeSentAt: now },
+    });
+    if (reclamo.count === 0) {
+      this.logger.log(
+        `Cobro fallido de ${tenant.brandName}: ya se avisó en este episodio o la cuenta está pausada — no se repite el aviso.`,
+      );
+      return { episodioNuevo, avisado: false };
+    }
+
+    // SMS aviso de falla (best-effort). Si es PROTEST y la marca activó
+    // "Pago en disputa" (admin_protest), se envía ese texto en su lugar.
+    const sentProtest =
+      event === 'PURCHASE_PROTEST'
+        ? await this.maybeSendAdminNotice(tenant, 'admin_protest')
+        : false;
+    if (!sentProtest) {
+      this.smsTemplates
+        .render('payment_failed', { brandName: tenant.brandName }, tenant.id)
+        .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
+        .catch(() => null);
+    }
+    // Correo del evento. Una disputa NO es un cobro fallido: el dinero se
+    // cobró y el banco lo está discutiendo, así que va su propio texto.
+    this.brandEmail
+      .sendTemplate({
+        templateId:
+          event === 'PURCHASE_PROTEST' ? 'email_dispute' : 'email_payment_failed',
+        tenantId: tenant.id,
+      })
+      .catch(() => null);
+    // Aviso a la cadena de atribución (embajador → influencer → admin)
+    // si el dueño activó las notificaciones de pago fallido.
+    if (opts.avisarCadena) {
+      this.notifyReferralChain(tenant.id, tenant.brandName, 'PAYMENT_FAILED').catch(
+        () => null,
+      );
+    }
+    return { episodioNuevo, avisado: true };
+  }
+
+  /**
+   * Avisos de un cobro de GRUPO. `BusinessGroupsService` cambia los estados pero
+   * no manda nada: no tiene plantillas, ni SMS, ni correo.
+   *
+   * - Fallo: cada negocio queda en mora y su dueño recibe su aviso, igual que un
+   *   negocio suelto. Cada negocio del grupo tiene su propio administrador y a
+   *   cada uno le toca enterarse. Al equipo, UN aviso por el grupo, no uno por
+   *   negocio.
+   * - Aprobado: cada dueño recibe «pago recibido» (o «cuenta reactivada» si
+   *   estaba pausado), y el equipo un «pago procesado». Solo en
+   *   `PURCHASE_APPROVED`: `PURCHASE_COMPLETE` es Hotmart cerrando la garantía
+   *   de ese mismo pago, no un pago nuevo. Y solo si el período avanzó (o había
+   *   alguien pausado), que es lo que distingue un cobro nuevo de un reenvío.
+   */
+  private async avisosDelCobroDeGrupo(
+    event: string,
+    action: string,
+    grupo: GrupoDelEvento | null,
+  ) {
+    if (!grupo) return;
+
+    if (
+      action.startsWith('group_past_due:') &&
+      (event === 'PURCHASE_DELAYED' || event === 'PURCHASE_PROTEST')
+    ) {
+      let abreEpisodioEnAlguno = false;
+      for (const negocio of grupo.negocios) {
+        if (negocio.status === 'SUSPENDED') continue;
+        const r = await this.registrarFalloDeCobro(negocio, event, {
+          avisarEquipo: false,
+          avisarCadena: false,
+        }).catch((e) => {
+          this.logger.error(
+            `fallo de grupo ${grupo.name} → ${negocio.brandName}: ${(e as Error)?.message}`,
+          );
+          return null;
+        });
+        if (r?.episodioNuevo) abreEpisodioEnAlguno = true;
+      }
+      if (abreEpisodioEnAlguno) {
+        await this.billing
+          .notifyBillingTeam('renovacion_fallida', etiquetaDelGrupo(grupo))
+          .catch(() => null);
+      }
+      return;
+    }
+
+    if (action.startsWith('group_activated:') && event === 'PURCHASE_APPROVED') {
+      const despues = await this.prisma.businessGroup.findUnique({
+        where: { id: grupo.id },
+        select: { currentPeriodEnd: true },
+      });
+      const nextCharge = despues?.currentPeriodEnd ?? null;
+      const avanzo =
+        !grupo.currentPeriodEnd ||
+        !nextCharge ||
+        nextCharge.getTime() !== grupo.currentPeriodEnd.getTime();
+      const algunoPausado = grupo.negocios.some((n) => n.status === 'SUSPENDED');
+      // Un pago de recuperación puede llegar sin `date_next_charge` y dejar la
+      // misma fecha: sin esto la mora quedaba limpia y nadie se enteraba. Un
+      // reenvío posterior ya no entra, porque `applyStatus` puso el contador a 0.
+      const algunoEnMora = grupo.negocios.some((n) => (n.failedPaymentCount ?? 0) > 0);
+      if (!avanzo && !algunoPausado && !algunoEnMora) {
+        this.logger.log(
+          `Cobro de grupo ${grupo.name}: el período no cambió — reenvío del mismo pago, sin avisos.`,
+        );
+        return;
+      }
+      const nextChargeInfo = nextCharge ? ` Próximo cobro: ${fmtSmsDate(nextCharge)}.` : '';
+      for (const negocio of grupo.negocios) {
+        const estabaPausado = negocio.status === 'SUSPENDED';
+        this.smsTemplates
+          .render(
+            estabaPausado ? 'account_reactivated' : 'payment_confirmed',
+            { brandName: negocio.brandName, nextChargeInfo },
+            negocio.id,
+          )
+          .then((msg) => this.notifyOwner(negocio.id, negocio.brandName, msg))
+          .catch(() => null);
+        this.brandEmail
+          .sendTemplate({
+            templateId: estabaPausado
+              ? 'email_account_reactivated'
+              : 'email_payment_confirmed',
+            tenantId: negocio.id,
+            vars: { nextChargeDate: nextCharge ? fmtEmailDate(nextCharge) : '' },
+          })
+          .catch(() => null);
+      }
+      await this.billing
+        .notifyBillingTeam('pago_procesado', etiquetaDelGrupo(grupo), {
+          amountUsd: grupo.priceUsd,
+          renewal: true,
+        })
+        .catch(() => null);
+    }
+  }
+
   private async runEventLogic(
     event: HotmartEventType,
     tenant: Awaited<ReturnType<typeof this.findTenant>>,
@@ -1355,63 +1572,10 @@ export class HotmartService {
 
       case 'PURCHASE_DELAYED':
       case 'PURCHASE_PROTEST': {
-        // No tocamos `status` (el enum solo tiene ACTIVE/TRIAL/SUSPENDED).
-        // El derivado PAST_DUE lo calcula billing.service.getStatus()
-        // basándose en failedPaymentCount > 0.
-        const now = new Date();
-        const wasFirstFailure = !tenant.firstFailedAt;
-        await this.prisma.tenant.update({
-          where: { id: tenant.id },
-          data: {
-            failedPaymentCount: { increment: 1 },
-            lastPaymentAttemptAt: now,
-            // Ancla INMUTABLE de la gracia: se fija solo en el 1er fallo. Antes
-            // el reloj de gracia se anclaba en lastPaymentAttemptAt, que esta
-            // misma línea pisa a `now` en CADA reintento de Hotmart → la mora
-            // volvía a 0 días y nunca llegaba al día 6 (causa raíz de que no
-            // suspendiera). Con `?? now` solo se estampa la primera vez.
-            firstFailedAt: tenant.firstFailedAt ?? now,
-            paymentFailureNoticeSentAt: now,
-          },
+        await this.registrarFalloDeCobro(tenant, event, {
+          avisarEquipo: true,
+          avisarCadena: true,
         });
-        await this.billing
-          .auditLifecycle('subscription.payment_failed', tenant.id, { gateway: 'HOTMART', event })
-          .catch(() => null);
-        // Fase 3: alerta interna al equipo SOLO en el 1er fallo (no en cada
-        // reintento de Hotmart) para no spamear.
-        if (wasFirstFailure) {
-          await this.billing
-            .notifyBillingTeam('renovacion_fallida', tenant.brandName)
-            .catch(() => null);
-        }
-        // SMS aviso de falla (best-effort). Si es PROTEST y la marca activó
-        // "Pago en disputa" (admin_protest), se envía ese texto en su lugar.
-        const sentProtest =
-          event === 'PURCHASE_PROTEST'
-            ? await this.maybeSendAdminNotice(tenant, 'admin_protest')
-            : false;
-        if (!sentProtest) {
-          this.smsTemplates
-            .render('payment_failed', { brandName: tenant.brandName }, tenant.id)
-            .then((msg) => this.notifyOwner(tenant.id, tenant.brandName, msg))
-            .catch(() => null);
-        }
-        // Correo del evento. Una disputa NO es un cobro fallido: el dinero se
-        // cobró y el banco lo está discutiendo, así que va su propio texto.
-        this.brandEmail
-          .sendTemplate({
-            templateId:
-              event === 'PURCHASE_PROTEST'
-                ? 'email_dispute'
-                : 'email_payment_failed',
-            tenantId: tenant.id,
-          })
-          .catch(() => null);
-        // Aviso a la cadena de atribución (embajador → influencer → admin)
-        // si el dueño activó las notificaciones de pago fallido.
-        this.notifyReferralChain(tenant.id, tenant.brandName, 'PAYMENT_FAILED').catch(
-          () => null,
-        );
         return { ok: true, action: 'past_due' };
       }
 

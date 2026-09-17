@@ -299,12 +299,15 @@ export class BillingService {
       select: { phone: true },
       orderBy: { createdAt: 'asc' },
     });
-    if (owner?.phone) return owner.phone;
+    if (owner?.phone?.trim()) return owner.phone;
     const t = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       select: { whatsappPhone: true, phone: true },
     });
-    return t?.whatsappPhone ?? t?.phone ?? null;
+    // `||` y no `??`: el panel guardaba el campo vacío como '' y `'' ?? phone`
+    // es ''. Así Hydor, Dolce vita, Cocoa Beauty y La Gloriosa se quedaban sin
+    // un solo SMS de cobro teniendo un número bueno justo al lado.
+    return t?.whatsappPhone?.trim() || t?.phone?.trim() || null;
   }
 
   /**
@@ -960,6 +963,10 @@ export class BillingService {
         // que recordárselo solo hace ruido y parece que no nos enteramos.
         canceledAt: null,
         isCampaignHost: false,
+        // Quien ya está en mora recibe los avisos de mora, no «pronto renovamos».
+        // Mezclarlos le contaba a La burguesía que el cobro era «mañana» dos
+        // días después de decirle que había fallado (septiembre de 2026).
+        failedPaymentCount: 0,
         currentPeriodEnd: { gte: from, lt: to },
         // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
         // marcas que cobran directo por Stripe (antes solo Clubify).
@@ -1075,6 +1082,10 @@ export class BillingService {
         // que recordárselo solo hace ruido y parece que no nos enteramos.
         canceledAt: null,
         isCampaignHost: false,
+        // Quien ya está en mora recibe los avisos de mora, no «pronto renovamos».
+        // Mezclarlos le contaba a La burguesía que el cobro era «mañana» dos
+        // días después de decirle que había fallado (septiembre de 2026).
+        failedPaymentCount: 0,
         currentPeriodEnd: { gte: from, lt: to },
         OR: [
           { whiteLabelId: null },
@@ -1164,6 +1175,10 @@ export class BillingService {
         // que recordárselo solo hace ruido y parece que no nos enteramos.
         canceledAt: null,
         isCampaignHost: false,
+        // Quien ya está en mora recibe los avisos de mora, no «pronto renovamos».
+        // Mezclarlos le contaba a La burguesía que el cobro era «mañana» dos
+        // días después de decirle que había fallado (septiembre de 2026).
+        failedPaymentCount: 0,
         currentPeriodEnd: { gte: desde, lt: to },
         // PDF 1256 §4: los recordatorios de próximo cobro llegan a Clubify +
         // marcas que cobran directo por Stripe (antes solo Clubify).
@@ -1251,6 +1266,10 @@ export class BillingService {
         // que recordárselo solo hace ruido y parece que no nos enteramos.
         canceledAt: null,
         isCampaignHost: false,
+        // Quien ya está en mora recibe los avisos de mora, no «pronto renovamos».
+        // Mezclarlos le contaba a La burguesía que el cobro era «mañana» dos
+        // días después de decirle que había fallado (septiembre de 2026).
+        failedPaymentCount: 0,
         currentPeriodEnd: { gte: inOneDay, lt: inTwoDays },
         // El recordatorio "revisa tu tarjeta en Hotmart" solo aplica a
         // negocios que pagan DIRECTO a la pasarela (Clubify). Las marcas
@@ -1441,7 +1460,7 @@ export class BillingService {
       }
 
       // El día en que se suspenderá = día (graceDays + 1); la gracia cubre 1..N.
-      const pauseDate = pauseDateFor(dueSince, graceDays);
+      const pauseDate = pauseDateFor(dueSince, graceDays, byFailure);
 
       if (action === 'suspend') {
         // 2026-08-31 (decisión del dueño): el pago POR FUERA (manualPayment) YA

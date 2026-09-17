@@ -8,6 +8,116 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-17 (40) — Avisos de cobro: el grupo que no avisaba, «tu pago falló» cuatro veces y la pausa anunciada un día tarde
+
+**Qué:** cinco fallos de los avisos de cobro a los negocios, todos verificados en
+producción en el arqueo de esta madrugada. **Solo backend.** Sin migración.
+
+### 1. Un cobro fallido de un GRUPO no avisaba a nadie
+
+El webhook de Hotmart mira `BusinessGroup.hotmartSubscriberCode` **antes** que el
+negocio. Cuando el cobro era de un grupo, `tryHandleHotmartEvent` marcaba el grupo
+como PAST_DUE y se acababa ahí: ni SMS ni correo a ningún dueño, ni aviso al
+equipo. Los negocios entraban en mora por fecha y se suspendían al día 6 sin haber
+sabido nunca que el cobro falló. El arreglo del 24-08 (`propagarCicloAlGrupo`)
+nunca corre para estos grupos: está en la ruta del negocio suelto.
+
+Caso: **Grupo Aldehir** (Cevichería Marea Místika, Jamarea y Hacienda Don Antonio,
+`GER6TVIT`), cobro el 17-09 hacia las 09:00 de Bogotá.
+
+Ahora (`HotmartService.avisosDelCobroDeGrupo`):
+- **Fallo:** cada negocio del grupo queda en mora como uno suelto y **cada dueño
+  recibe su aviso** (decisión del negocio: cada negocio tiene su administrador y
+  a cada uno le toca enterarse). Al equipo, **un** aviso con el nombre del grupo y
+  sus negocios. Los negocios ya pausados no reciben nada.
+- **Aprobado:** cada dueño recibe «pago recibido» (o «cuenta reactivada» si estaba
+  pausado) y el equipo «pago procesado». Solo en `PURCHASE_APPROVED` y solo si el
+  período avanzó: `PURCHASE_COMPLETE` es el cierre de la garantía del mismo pago.
+- `applyStatus(ACTIVE, bumpCharge)` limpia la mora y las marcas de aviso de cada
+  negocio: sin eso seguirían «en mora» con el grupo ya pagado.
+
+**A propósito NO se toca `Tenant.lastChargeAt`** de los negocios del grupo: lo leen
+Contabilidad, el conciliador nocturno de ingresos y las comisiones, y rellenarlo
+podía fabricar ingresos o comisiones por triplicado. Queda como estaba.
+
+### 2. «Tu pago falló» en cada reintento, y a cuentas ya pausadas
+
+Hotmart reintenta el cobro y cada reintento es un `PURCHASE_DELAYED` nuevo.
+Delizzibo recibió el aviso 4 veces (3 en tres horas), Café Macondo 2 en 40 minutos,
+AutoTech —pausada desde julio— 4 veces en septiembre.
+
+Ahora el aviso se **reclama** con un `updateMany` condicional sobre
+`paymentFailureNoticeSentAt`: una vez por **episodio** (del primer fallo al
+siguiente pago) y nunca a SUSPENDED. Reglas en `billing/avisos-de-fallo.ts`.
+Además, un `firstFailedAt` que sobrevivió a un pago ya no se hereda: con él la
+gracia se contaba desde el fallo viejo (suspensión inmediata y sin aviso).
+
+### 3. A quien ya estaba en mora le llegaba «pronto renovamos»
+
+Los 4 recordatorios previos (7 días, 3 días, hoy y mañana) no miraban
+`failedPaymentCount`. La burguesía: el cobro falló el 12-09 y recibió «en 3 días»,
+«mañana» y «hoy se procesa» intercalados con «tu cuenta se pausa el 18». Ahora
+excluyen `failedPaymentCount > 0`.
+
+### 4. La fecha de pausa anunciada, un día tarde
+
+`pauseDateFor` sumaba 6 × 24 h. En la mora por cobro fallido el día del fallo YA es
+el día 1, así que la suspensión real (corrida de las 03:00 UTC = 22:00 de Bogotá)
+llega un día antes de lo anunciado. **Café Macondo leyó «22 de sept» y se suspende
+el 21.** Ahora cuenta en días de Bogotá con la misma regla que `decideDunning` y
+una prueba compara las dos.
+
+### 5. `whatsappPhone = ''` tapaba el número bueno
+
+`'' ?? phone` es `''`: Hydor Coffee House, Dolce vita y Cocoa Beauty Studio no
+recibían ni un SMS de cobro. Ahora se saltan los vacíos. (La Gloriosa también,
+pero su `phone` es el de Jhon: queda pendiente el número de la sede, ver abajo.)
+
+### Pruebas
+
+- `src/billing/avisos-de-cobro-fallido.spec.ts` (16): sobre el `HotmartService`
+  real con una base falsa que evalúa `not`/`lt`/`OR`/`increment`. **Contra el
+  código anterior: 13 en rojo.** Las 3 que pasaban en los dos son las que deben.
+- `src/billing/recordatorios-en-mora.spec.ts` (8): 7 en rojo antes.
+- `test/dunning.test.ts`: 2 casos nuevos en rojo antes (Macondo 22 → 21).
+- `vitest run src/billing src/business-groups test/dunning.test.ts
+  test/avisos-cobro-silenciosos.test.ts`: todo verde. `tsc` sin errores en estos
+  archivos.
+
+### Revisión de Fable
+
+Veredicto **DESPLEGAR** (163 pruebas en verde en su pasada). Verificó sin fuga de
+marca (todo sale por negocio), sin import circular nuevo, que nadie queda sin un
+aviso que hoy recibe (revisó los 9 caminos que ponen el contador a 0) y que nadie
+se suspende antes de tiempo.
+
+Aplicado antes de desplegar:
+- **BAJO-1:** un `PURCHASE_APPROVED` de grupo que resuelve un fallo sin mover la
+  fecha (sin `date_next_charge`) dejaba la mora limpia y a nadie avisado. Ahora
+  también avisa si algún negocio estaba en mora. Prueba nueva, vista en rojo.
+- Si falla la foto del grupo, queda escrito en el log (antes se tragaba).
+
+Queda para otro bloque:
+- **MEDIO-1:** el cron de grupos (`superadmin/renewals.service.ts`, 02:00 UTC)
+  suspende grupo y negocios en silencio una hora antes que la mora por negocio
+  (03:00 UTC), así que el «cuenta pausada» no les sale. Preexistente.
+- **BAJO-2:** los recordatorios corren antes del barrido de moras fantasma: un
+  negocio con contador fantasma pierde el recordatorio de ese día.
+- **BAJO-3:** dos `PURCHASE_DELAYED` distintos que lleguen a la vez con el contador
+  a 0 pueden avisar dos veces (llegan con horas de diferencia en la práctica).
+- **BAJO-4:** una disputa dentro del mismo episodio que un fallo no manda su texto
+  propio.
+- Stripe tiene el mismo «avisa en cada intento» (`stripe.service.ts:523-545`).
+
+### Pendiente
+
+- **Hoy después de las 09:30 de Bogotá:** mirar el `HotmartWebhookEvent` de
+  `GER6TVIT`. Si falló, los tres dueños ya deberían tener su aviso.
+- **La Gloriosa, sede UNICO Outlet:** falta el número de pedidos (se le pidió a Javi).
+- **Base de datos por la red interna de Railway:** el backend va a Postgres por el
+  proxy público (141–145 ms por consulta medidos en `/api/health/ready`). Cambiar
+  `DATABASE_URL` a `${{Postgres-Nq8w.DATABASE_URL}}` está pendiente de aprobación.
+
 ## 2026-09-16 (39) — El menú libro: el zoom no faltaba, estaba apagado; y las páginas nunca pasaron por el optimizador
 
 Javier: «**Optimización del menú libro (que se pueda hacer zoom).** Los clientes piden que se pueda hacer **zoom** en el menú libro. **Optimiza también la carga de las imágenes** en ese estilo de menú.»

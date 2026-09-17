@@ -8,6 +8,7 @@ import {
   type RenewalInput,
   type RenewalConfig,
 } from '../src/billing/dunning';
+import { bogotaYmd } from '../src/referrals/cutoff-calendar';
 
 /**
  * Regla de mora — dos comportamientos que se fijan acá:
@@ -162,8 +163,62 @@ describe('decideDunning — pago por fuera / fecha vencida', () => {
 });
 
 describe('pauseDateFor', () => {
-  it('con 5 días de gracia, la fecha de pausa es el día 6', () => {
-    expect(pauseDateFor(DAY0, 5)).toEqual(day(6));
+  it('con 5 días de gracia y mora por fecha, la pausa cae el día 6 de Bogotá', () => {
+    expect(bogotaYmd(pauseDateFor(DAY0, 5, false))).toBe(bogotaYmd(day(6)));
+  });
+});
+
+/**
+ * La fecha que se ANUNCIA tiene que ser el día en que de verdad se suspende.
+ *
+ * Café Macondo (2026-09-16): el cobro falló el 16 y se le escribió «tu cuenta se
+ * pausa el 22 de sept». Pero con la mora por cobro fallido el día del fallo YA
+ * es el día 1, así que el día 6 es el 21, y la corrida de las 03:00 UTC (22:00
+ * de Bogotá) lo suspende esa noche. VALMONT leyó «20» y se habría pausado el 19;
+ * La burguesía leyó «18» y era el 17. `pauseDateFor` sumaba 6×24 h al fallo, que
+ * solo cuadra con la mora por fecha vencida (que empieza el día siguiente).
+ */
+describe('pauseDateFor anuncia el mismo día en que decideDunning suspende', () => {
+  /** Primer día de Bogotá en que la corrida diaria (03:00 UTC) suspende. */
+  function diaDeSuspensionReal(t: DunningState): string {
+    const primera = new Date(t.firstFailedAt ?? t.currentPeriodEnd!);
+    primera.setUTCHours(3, 0, 0, 0);
+    for (let i = 0; i < 20; i++) {
+      const corrida = new Date(primera.getTime() + i * 24 * 60 * 60 * 1000);
+      if (decideDunning(t, corrida, CFG).action === 'suspend') return bogotaYmd(corrida);
+    }
+    throw new Error('no suspendió en 20 días');
+  }
+
+  it('cobro fallido (Macondo, 16-09 a las 09:30 de Bogotá) → se pausa el 21, no el 22', () => {
+    const fallo = new Date('2026-09-16T14:30:00.000Z');
+    const t = state({ failedPaymentCount: 1, firstFailedAt: fallo });
+    const d = decideDunning(t, new Date('2026-09-17T03:00:00.000Z'), CFG);
+    expect(d.byFailure).toBe(true);
+    const anunciada = bogotaYmd(pauseDateFor(d.dueSince!, CFG.graceDays, d.byFailure));
+    expect(anunciada).toBe('2026-09-21');
+    expect(anunciada).toBe(diaDeSuspensionReal(t));
+  });
+
+  it('cobro fallido de noche en Bogotá (23:30 del 15, ya 16 en UTC) → cuenta desde el 15', () => {
+    const fallo = new Date('2026-09-16T04:30:00.000Z');
+    const t = state({ failedPaymentCount: 1, firstFailedAt: fallo });
+    const anunciada = bogotaYmd(pauseDateFor(fallo, CFG.graceDays, true));
+    expect(anunciada).toBe('2026-09-20');
+    expect(anunciada).toBe(diaDeSuspensionReal(t));
+  });
+
+  it('mora por fecha vencida → también coincide', () => {
+    const fin = new Date('2026-09-10T15:00:00.000Z');
+    const t = state({ currentPeriodEnd: fin });
+    const anunciada = bogotaYmd(pauseDateFor(fin, CFG.graceDays, false));
+    expect(anunciada).toBe(diaDeSuspensionReal(t));
+  });
+
+  it('la fecha se pinta igual en un servidor en UTC que en Bogotá', () => {
+    const p = pauseDateFor(new Date('2026-09-16T14:30:00.000Z'), 5, true);
+    const utc = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC' }).format(p);
+    expect(utc).toBe(bogotaYmd(p));
   });
 });
 

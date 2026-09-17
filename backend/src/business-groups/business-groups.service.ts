@@ -29,6 +29,26 @@ export type CreateGroupDto = {
 
 export type UpdateGroupDto = Partial<CreateGroupDto>;
 
+/**
+ * Foto del grupo y sus negocios ANTES de aplicar un evento de Hotmart. El
+ * webhook la necesita para avisar: después de `applyStatus` ya no se sabe quién
+ * estaba pausado (y le toca «cuenta reactivada», no «pago recibido») ni si el
+ * período cambió.
+ */
+export type GrupoDelEvento = {
+  id: string;
+  name: string;
+  currentPeriodEnd: Date | null;
+  priceUsd: number | null;
+  negocios: {
+    id: string;
+    brandName: string;
+    status: string;
+    failedPaymentCount: number | null;
+    firstFailedAt: Date | null;
+  }[];
+};
+
 @Injectable()
 export class BusinessGroupsService {
   private readonly logger = new Logger(BusinessGroupsService.name);
@@ -320,6 +340,23 @@ export class BusinessGroupsService {
             ...(opts.currentPeriodEnd
               ? { currentPeriodEnd: opts.currentPeriodEnd }
               : {}),
+            // Un cobro CONFIRMADO cierra la mora de cada negocio. Desde el
+            // 2026-09-17 un fallo del grupo marca a cada negocio como moroso
+            // (así le llega su aviso y no le llegan los «pronto renovamos»);
+            // sin esto seguirían en mora con el grupo ya pagado y el cron los
+            // suspendería al día 6. Mismo reset que `propagarCicloAlGrupo`.
+            ...(opts.bumpCharge
+              ? {
+                  failedPaymentCount: 0,
+                  firstFailedAt: null,
+                  paymentReminderSentFor: null,
+                  paymentFailureNoticeSentAt: null,
+                  pausePendingNoticeSentAt: null,
+                  preReminder7dSentFor: null,
+                  preReminder3dSentFor: null,
+                  preReminderTodaySentFor: null,
+                }
+              : {}),
           },
         }),
       );
@@ -400,6 +437,32 @@ export class BusinessGroupsService {
         // Otros eventos no aplican al grupo → que siga el flujo por tenant.
         return null;
     }
+  }
+
+  /** Ver `GrupoDelEvento`. null si el evento no es de un grupo. */
+  async buscarGrupoDelEvento(
+    subscriberCode?: string,
+    buyerEmail?: string,
+  ): Promise<GrupoDelEvento | null> {
+    const g = await this.findGroupForEvent(subscriberCode, buyerEmail);
+    if (!g) return null;
+    const negocios = await this.prisma.tenant.findMany({
+      where: { businessGroupId: g.id, deletedAt: null },
+      select: {
+        id: true,
+        brandName: true,
+        status: true,
+        failedPaymentCount: true,
+        firstFailedAt: true,
+      },
+    });
+    return {
+      id: g.id,
+      name: g.name,
+      currentPeriodEnd: g.currentPeriodEnd,
+      priceUsd: g.priceUsd == null ? null : Number(g.priceUsd),
+      negocios,
+    };
   }
 
   private async findGroupForEvent(subscriberCode?: string, buyerEmail?: string) {
