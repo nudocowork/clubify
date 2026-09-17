@@ -10,6 +10,12 @@ import { AutomationsService } from '../automations/automations.service';
 import { PassesService } from '../passes/passes.service';
 import { WhitelabelBrandService } from '../whitelabel/whitelabel-brand.service';
 import { resolveWalletAdvanced } from '../common/white-label/wallet-advanced.util';
+import {
+  qrHeredados,
+  sincronizarEstado,
+  type TarjetaConTope,
+  type Transicion,
+} from './pase-de-sellos';
 
 export type StampDto = {
   passId: string;
@@ -52,6 +58,21 @@ export type StampDto = {
 // y el operador con PIN puede usar amount > 1 si necesita batch
 // excepcional (cumpleaños, evento, etc).
 const MIN_SECONDS_BETWEEN_STAMPS = 24 * 60 * 60; // 24h
+
+/**
+ * Lo que se trae de la tarjeta de sellos en la que acaba un cupón. El tope y
+ * el tipo hacen falta para decidir el estado del pase transformado: si hereda
+ * un cartón lleno de la tarjeta que el cliente ya tenía, queda COMPLETED.
+ */
+const SELECT_TARJETA_DESTINO = {
+  id: true,
+  type: true,
+  stampsRequired: true,
+  visitsRequired: true,
+  clubPlanId: true,
+  convenioId: true,
+} satisfies Prisma.CardSelect;
+type TarjetaDestino = TarjetaConTope & { id: string };
 
 @Injectable()
 export class StampsService {
@@ -163,58 +184,10 @@ export class StampsService {
     // El bypass ya no es por rol sino por decisión explícita: SUPER_ADMIN
     // puede saltarse el tope, pero mandando `override` — no por existir.
     const saltaTope = user.role === 'SUPER_ADMIN' && dto.override === true;
-    if (
-      (dto.action === 'STAMP' || dto.action === 'VISIT') &&
-      !saltaTope
-    ) {
-      const tenantConfig = await this.prisma.tenant.findUnique({
-        where: { id: pass.tenantId },
-        select: { maxStampsPerDay: true },
-      });
-      const maxPerDay = Math.max(1, tenantConfig?.maxStampsPerDay ?? 1);
-      const sinceWindow = new Date(
-        Date.now() - MIN_SECONDS_BETWEEN_STAMPS * 1000,
-      );
-      const recentCount = await this.prisma.stamp.count({
-        where: {
-          passId: pass.id,
-          action: { in: ['STAMP', 'VISIT'] },
-          createdAt: { gte: sinceWindow },
-        },
-      });
-      if (recentCount >= maxPerDay) {
-        // Calcular cuándo expira el sello más viejo del batch para
-        // darle al staff un ETA preciso del próximo sello disponible.
-        const oldest = await this.prisma.stamp.findFirst({
-          where: {
-            passId: pass.id,
-            action: { in: ['STAMP', 'VISIT'] },
-            createdAt: { gte: sinceWindow },
-          },
-          orderBy: { createdAt: 'asc' },
-          select: { createdAt: true },
-        });
-        const remainingHours = oldest
-          ? Math.max(
-              1,
-              Math.ceil(
-                (MIN_SECONDS_BETWEEN_STAMPS -
-                  (Date.now() - oldest.createdAt.getTime()) / 1000) /
-                  3600,
-              ),
-            )
-          : 24;
-        const base =
-          maxPerDay === 1
-            ? `Este cliente ya recibió un sello hoy. Próximo sello disponible en ~${remainingHours}h.`
-            : `Este cliente ya recibió el máximo de ${maxPerDay} sellos del día. Próximo disponible en ~${remainingHours}h.`;
-        throw new BadRequestException(
-          user.role === 'SUPER_ADMIN'
-            ? `${base} Como administrador podés sellar igual para corregir un error.`
-            : base,
-        );
-      }
-    }
+    // La comprobación en sí (`exigirTopeDiario`) corre DENTRO de la
+    // transacción, después del candado del pase: ver allí por qué.
+    const aplicaTopeDiario =
+      (dto.action === 'STAMP' || dto.action === 'VISIT') && !saltaTope;
 
     // Para STAMP/VISIT en cards de fidelización, el frontend exige
     // monto de compra (regla de negocio). Validamos que esté presente
@@ -370,25 +343,19 @@ export class StampsService {
       if (matched) newCurrentTier = matched.name;
     }
 
-    const required = pass.card.stampsRequired ?? Number.MAX_SAFE_INTEGER;
-    const visitsReq = pass.card.visitsRequired ?? Number.MAX_SAFE_INTEGER;
     const isCouponRedeem =
       (pass.card.type === 'COUPON' ||
         pass.card.type === 'DISCOUNT' ||
         pass.card.type === 'GIFT') &&
       dto.action === 'REDEEM';
 
-    // HOTFIX 2026-06-05 (bug E): `completed` ahora excluye explícitamente
-    // isCouponRedeem para que el evento PASS_COMPLETED NO se dispare
-    // cuando un COUPON/DISCOUNT/GIFT se canjea. Antes la flag se calculaba
-    // por type==='STAMPS' (false durante el redeem porque el type es
-    // COUPON), pero si una STAMPS card tuviera stampsRequired=0 quedaba
-    // verdadera y la línea 449 emit `PASS_COMPLETED` igual. Defensa
-    // explícita.
-    const completed =
-      !isCouponRedeem &&
-      ((pass.card.type === 'STAMPS' && newStamps >= required) ||
-        (pass.card.type === 'VISITS' && newVisits >= visitsReq));
+    // ACTIVE/COMPLETED ya NO se decide aquí con la foto leída antes de la
+    // transacción: lo decide `sincronizarEstado` dentro de ella, contra el
+    // contador que quedó en la fila (ver `pase-de-sellos.ts`). Así fue como
+    // canjear el premio dejaba el pase COMPLETED para siempre.
+    //
+    // HOTFIX 2026-06-05 (bug E) sigue en pie: un canje de cupón NUNCA anuncia
+    // PASS_COMPLETED, aunque la tarjeta de sellos en la que acaba esté llena.
     // COUPON/DISCOUNT/GIFT al REDEEM ya no quedan COMPLETED — se
     // transforman al toque en una tarjeta de sellos in-place (mismo
     // passId / serial / wallet pass). El cliente NO recibe link nuevo:
@@ -412,7 +379,7 @@ export class StampsService {
       isCouponRedeem &&
       ((pass.card as any).transformOnRedeem === false || indefinido);
 
-    let stampsCardForTransform: { id: string } | null = null;
+    let stampsCardForTransform: TarjetaDestino | null = null;
     if (isCouponRedeem && !noTransformar) {
       stampsCardForTransform = await this.resolveOrCreateStampsCard(
         pass.tenantId,
@@ -440,7 +407,8 @@ export class StampsService {
       currentTier: newCurrentTier,
       tierProgress: newTierProgress,
       lastActivityAt: new Date(),
-      status: completed ? 'COMPLETED' : pass.status,
+      // Sin `status`: reescribir el leído antes de la transacción pisaba el
+      // cambio de cualquier otro escaneo. Lo pone `sincronizarEstado`.
     };
     if (isCouponRedeem && stampsCardForTransform) {
       // Transformación in-place: el coupon "evoluciona" a stamps card.
@@ -464,7 +432,7 @@ export class StampsService {
     // ya estaba borrado sin posibilidad de rollback (data loss). Ahora
     // todo es atómico: o se borra el huérfano + crea stamp + update pass,
     // o ninguna de las 3.
-    const [stamp, updatedPass] = await this.prisma.$transaction(async (tx) => {
+    const resultado = await this.prisma.$transaction(async (tx) => {
       // FIX 2026-06-16 (review #11): advisory lock por pass → serializa los
       // escaneos concurrentes del mismo pase. Con el lock tomado, releemos el
       // saldo FRESCO y, si esta operación CONSUME saldo (redención de premio,
@@ -483,21 +451,32 @@ export class StampsService {
           cashbackBalance: true,
           status: true,
           cardId: true,
+          qrToken: true,
+          legacyQrTokens: true,
         },
       });
-      if (fresh) {
-        const stampsConsumed = isCouponRedeem ? 0 : Math.max(0, -stampsDelta);
-        const pointsConsumed = Math.max(0, -pointsDelta);
-        const cashbackConsumed = Math.max(0, -cashbackDelta);
-        if (
-          stampsConsumed > fresh.stampsCount ||
-          pointsConsumed > Number(fresh.pointsBalance) + 0.001 ||
-          cashbackConsumed > Number(fresh.cashbackBalance) + 0.001
-        ) {
-          throw new ConflictException(
-            'El saldo cambió (otra operación lo usó). Volvé a escanear.',
+      // El pase desapareció mientras esperábamos el candado. Pasa, sobre todo,
+      // cuando otro canje del MISMO cupón lo fundió en la tarjeta de sellos del
+      // cliente (ver más abajo). Sin esto, seguía hasta un P2025 → un 500.
+      if (!fresh) {
+        if (isCouponRedeem) {
+          throw new BadRequestException(
+            'Este cupón ya fue redimido. No se puede usar de nuevo.',
           );
         }
+        throw new NotFoundException('Pass');
+      }
+      const stampsConsumed = isCouponRedeem ? 0 : Math.max(0, -stampsDelta);
+      const pointsConsumed = Math.max(0, -pointsDelta);
+      const cashbackConsumed = Math.max(0, -cashbackDelta);
+      if (
+        stampsConsumed > fresh.stampsCount ||
+        pointsConsumed > Number(fresh.pointsBalance) + 0.001 ||
+        cashbackConsumed > Number(fresh.cashbackBalance) + 0.001
+      ) {
+        throw new ConflictException(
+          'El saldo cambió (otra operación lo usó). Volvé a escanear.',
+        );
       }
       // PDF1145 (review): revalidar DENTRO del lock que el cupón no fue ya
       // redimido/transformado por un REDEEM concurrente (el guard de línea ~248
@@ -506,39 +485,115 @@ export class StampsService {
       // este segundo REDEEM aborta.
       if (
         isCouponRedeem &&
-        fresh &&
         (fresh.status === 'COMPLETED' || fresh.cardId !== pass.cardId)
       ) {
         throw new BadRequestException(
           'Este cupón ya fue redimido. No se puede usar de nuevo.',
         );
       }
+      // Tope de sellos del día, DESPUÉS del candado. Antes se contaba fuera de
+      // la transacción: dos escaneos simultáneos del mismo pase leían los dos
+      // «0 sellos hoy», pasaban los dos y el cliente se llevaba dos sellos con
+      // un tope de uno. Con el candado tomado, el escaneo que llega segundo
+      // espera al primero y ya ve su sello. Si se rechaza, se lanza y la
+      // transacción no deja nada escrito.
+      if (aplicaTopeDiario) {
+        await this.exigirTopeDiario(tx, pass.id, pass.tenantId, user.role);
+      }
       // 2026-08-01 (ABSORBER cupón→sellos): el cupón SIEMPRE se transforma en la
       // tarjeta de sellos destino (pedido del negocio, reemplaza PDF1145). Si el
-      // cliente YA tiene un pase en esa card, lo ABSORBEMOS: preservamos su
-      // conteo de sellos, borramos ese pase (libera la unique key
-      // [cardId, customerId]) y el pase del cupón (pass.id) ocupa su lugar con el
-      // conteo preservado. Así el cliente queda con UN solo pase — el cupón
-      // transformado in-place (mismo serial/qrToken/wallet) — y no queda cupón
-      // "usado" colgando. El delete cascada borra Stamp/WalletDevice del pase
-      // absorbido (onDelete: Cascade); el conteo se conserva copiándolo abajo.
+      // cliente YA tiene un pase en esa tarjeta, los dos se funden en UNO, que
+      // es lo que pidió el negocio: no queda un cupón «usado» colgando.
+      //
+      // 2026-09-17: antes siempre sobrevivía el cupón y el pase de sellos se
+      // BORRABA. El conteo se copiaba, pero la cascada se llevaba el historial
+      // de `Stamp` (con los montos de compra) y los registros de Apple, y su QR
+      // no se guardaba: la tarjeta que el cliente llevaba en el teléfono quedaba
+      // muerta y el escáner decía «Pase no encontrado» (15 casos en 7
+      // negocios). Ahora, pase lo que pase, el que se va deja su historial y
+      // sus QR en el que queda. Y cuál queda depende de cuál está INSTALADO:
+      //
+      //  · Tarjeta de sellos instalada (Apple con dispositivo registrado, o
+      //    `walletInstalledAt`, que se sella también en Google) → sobrevive
+      //    ELLA. Es la que el cliente conserva meses, con su progreso a la
+      //    vista y sus registros de push; el cupón es de un solo uso. Lo que
+      //    se pierde en el teléfono es un cupón ya canjeado, y su QR sigue
+      //    escaneando y lleva a la tarjeta de sellos. `googleObjectId` NO
+      //    cuenta: se escribe al abrir la página, no al guardar.
+      //  · Sin instalar → sobrevive el cupón, transformado in-place como
+      //    siempre: si alguno está en el teléfono, es ese.
+      //
+      // Medido en producción antes del cambio: de 47 cupones pendientes cuyo
+      // cliente ya tiene tarjeta de sellos, 30 tienen las dos instaladas, 8
+      // solo la de sellos, 8 solo el cupón y 1 ninguna.
       skipCouponTransform = noTransformar;
+      let passIdFinal = pass.id;
+      let datosDelFinal: Prisma.PassUncheckedUpdateInput = passUpdateData;
+      let habiaTarjetaDeSellos = false;
+      let absorbidoEnSellos = false;
       if (isCouponRedeem && stampsCardForTransform && pass.customerId) {
-        const existing = await tx.pass.findUnique({
+        const previo = await tx.pass.findUnique({
           where: {
             cardId_customerId: {
               cardId: stampsCardForTransform.id,
               customerId: pass.customerId,
             },
           },
-          select: { id: true, stampsCount: true },
+          select: { id: true },
         });
-        if (existing && existing.id !== pass.id) {
-          // Preserva los sellos que el cliente ya tenía y absorbe el pase
-          // existente (su Stamp/WalletDevice caen por cascada). El pase del
-          // cupón toma su lugar como tarjeta de sellos con el conteo intacto.
-          passUpdateData.stampsCount = existing.stampsCount;
-          await tx.pass.delete({ where: { id: existing.id } });
+        if (previo && previo.id !== pass.id) {
+          // Su propio candado: un sello a esa tarjeta en este mismo instante
+          // no puede quedar entre la lectura del conteo y el borrado.
+          await tx.$executeRawUnsafe(
+            `SELECT pg_advisory_xact_lock(hashtext($1))`,
+            previo.id,
+          );
+          const existing = await tx.pass.findUnique({
+            where: { id: previo.id },
+            select: {
+              id: true,
+              stampsCount: true,
+              qrToken: true,
+              legacyQrTokens: true,
+              walletInstalledAt: true,
+            },
+          });
+          if (existing) {
+            habiaTarjetaDeSellos = true;
+            const dispositivos = await tx.walletDevice.count({
+              where: { passId: existing.id },
+            });
+            const instalada =
+              existing.walletInstalledAt !== null || dispositivos > 0;
+            if (instalada) {
+              // Sobrevive la tarjeta de sellos: queda INTACTA (id, serial,
+              // conteo, estado, dispositivos). Hereda el historial y los QR del
+              // cupón, y el canje de abajo se apunta en ella.
+              await tx.stamp.updateMany({
+                where: { passId: pass.id },
+                data: { passId: existing.id },
+              });
+              await tx.pass.delete({ where: { id: pass.id } });
+              passIdFinal = existing.id;
+              absorbidoEnSellos = true;
+              datosDelFinal = {
+                legacyQrTokens: qrHeredados(existing, fresh),
+                lastActivityAt: new Date(),
+              };
+            } else {
+              // Sobrevive el cupón. El historial se MUEVE antes de borrar (si
+              // no, se lo lleva la cascada) y el QR de la tarjeta de sellos
+              // queda como heredado. Borrar primero libera el
+              // @@unique([cardId, customerId]) para el update del cupón.
+              await tx.stamp.updateMany({
+                where: { passId: existing.id },
+                data: { passId: pass.id },
+              });
+              passUpdateData.stampsCount = existing.stampsCount;
+              passUpdateData.legacyQrTokens = qrHeredados(fresh, existing);
+              await tx.pass.delete({ where: { id: existing.id } });
+            }
+          }
         }
       }
       // Rastro auditable: un sello puesto por encima del tope tiene que poder
@@ -552,7 +607,7 @@ export class StampsService {
       const newStampRow = await tx.stamp.create({
         data: {
           tenantId: pass.tenantId,
-          passId: pass.id,
+          passId: passIdFinal,
           customerId: pass.customerId,
           locationId: dto.locationId,
           operatorId: user.id,
@@ -580,7 +635,9 @@ export class StampsService {
             ? (dto.note ??
               (skipCouponTransform
                 ? 'Cupón redimido — sin convertir a tarjeta de sellos'
-                : 'Cupón redimido — transformado a tarjeta de sellos'))
+                : absorbidoEnSellos
+                  ? 'Cupón redimido — sumado a la tarjeta de sellos que el cliente ya tenía'
+                  : 'Cupón redimido — transformado a tarjeta de sellos'))
             : notaFinal,
           // Wallet V3 — auditoría de ajustes manuales (ip + navegador/dispositivo).
           ip: meta?.ip ?? null,
@@ -588,11 +645,47 @@ export class StampsService {
         },
       });
       const updated = await tx.pass.update({
-        where: { id: pass.id },
-        data: passUpdateData,
+        where: { id: passIdFinal },
+        data: datosDelFinal,
       });
-      return [newStampRow, updated] as const;
+
+      // ACTIVE ⇄ COMPLETED contra el contador que acaba de quedar. En un canje
+      // de cupón, la tarjeta que manda es la de sellos en la que acaba; si no
+      // se convierte, no hay nada que decidir (su COMPLETED significa usado).
+      let transicion: Transicion = null;
+      const tarjetaFinal: TarjetaConTope | null = isCouponRedeem
+        ? stampsCardForTransform
+        : pass.card;
+      if (tarjetaFinal) {
+        transicion = await sincronizarEstado(
+          tx,
+          passIdFinal,
+          updated.cardId,
+          tarjetaFinal,
+        );
+      }
+      // La respuesta tiene que decir el estado que quedó: el escáner pinta con
+      // ella. Se deduce de la transición en vez de releer la fila.
+      const passFinal =
+        transicion === null
+          ? updated
+          : {
+              ...updated,
+              status:
+                transicion === 'REABIERTO'
+                  ? ('ACTIVE' as const)
+                  : ('COMPLETED' as const),
+            };
+      return {
+        stamp: newStampRow,
+        updatedPass: passFinal,
+        passIdFinal,
+        transicion,
+        habiaTarjetaDeSellos,
+        absorbidoEnSellos,
+      };
     });
+    const { stamp, updatedPass, passIdFinal, transicion } = resultado;
 
     // #7/#8: cada sello de COMPRA (STAMP/VISIT con monto) cuenta como un pedido
     // (para recibir el sello necesariamente hubo una compra) → alimenta
@@ -650,7 +743,11 @@ export class StampsService {
     const mensajeDeConversion = convertido
       ? {
           header: '¡Cupón canjeado!',
-          body: 'Ya tienes tu tarjeta de sellos. Empieza a sumar para tu premio.',
+          // Si ya tenía tarjeta de sellos, «empieza a sumar» sería falso: sus
+          // sellos siguen ahí.
+          body: resultado.habiaTarjetaDeSellos
+            ? 'Tus sellos se conservan. Sigue sumando para tu premio.'
+            : 'Ya tienes tu tarjeta de sellos. Empieza a sumar para tu premio.',
         }
       : // El canje del PREMIO cae en la misma trampa, y es el momento que más
         // importa de toda la tarjeta: el cliente completa el cartón, se lleva
@@ -667,14 +764,16 @@ export class StampsService {
 
     this.jobs
       .enqueue('wallet.push', {
-        passId: pass.id,
+        // El pase que QUEDA: si el cupón se fundió en la tarjeta de sellos
+        // instalada, `pass.id` ya no existe.
+        passId: passIdFinal,
         reason: dto.action,
         message: mensajeDeConversion,
       })
       .catch(() => {
         // Fallback: queue no disponible, push directo in-process
         this.wallet
-          .pushPassUpdate(pass.id, { message: mensajeDeConversion })
+          .pushPassUpdate(passIdFinal, { message: mensajeDeConversion })
           .catch(() => null);
       });
 
@@ -780,7 +879,10 @@ export class StampsService {
           .catch(() => null);
       }
     }
-    if (completed && pass.status !== 'COMPLETED') {
+    // Solo quien PRODUJO la transición la anuncia (el `count` del updateMany):
+    // dos escaneos simultáneos ya no la disparan dos veces. Un canje de cupón
+    // nunca la anuncia (HOTFIX bug E), aunque acabe en un cartón lleno.
+    if (transicion === 'COMPLETADO' && !isCouponRedeem) {
       this.automations
         .emit('PASS_COMPLETED', {
           tenantId: pass.tenantId,
@@ -797,7 +899,7 @@ export class StampsService {
           tenantId: pass.tenantId,
           customerId: pass.customerId,
           cardId: pass.cardId,
-          passId: pass.id,
+          passId: passIdFinal,
         })
         .catch(() => null);
     }
@@ -828,9 +930,13 @@ export class StampsService {
           stampsCardId: skipCouponTransform
             ? null
             : stampsCardForTransform?.id ?? null,
-          stampsPassId: pass.id,
-          stampsPassUrl: `${brand.websiteUrl}/w/${pass.id}`,
-          transformedInPlace: !skipCouponTransform,
+          // Si el cupón se fundió en la tarjeta de sellos instalada, el pase
+          // que queda es ESE y el del cupón ya no existe: el enlace tiene que
+          // llevar al que sí.
+          stampsPassId: passIdFinal,
+          stampsPassUrl: `${brand.websiteUrl}/w/${passIdFinal}`,
+          transformedInPlace:
+            !skipCouponTransform && !resultado.absorbidoEnSellos,
         })
         .catch(() => null);
     }
@@ -842,7 +948,7 @@ export class StampsService {
     // el escáner NO muestre el banner "se convirtió en tarjeta de sellos".
     if (isCouponRedeem) {
       const fullPass = await this.prisma.pass.findUnique({
-        where: { id: pass.id },
+        where: { id: passIdFinal },
         include: { card: true, customer: true },
       });
       return {
@@ -855,15 +961,79 @@ export class StampsService {
   }
 
   /**
+   * Tope de sellos/visitas por día (`Tenant.maxStampsPerDay`, por defecto 1 en
+   * 24 h). Lanza si ya se alcanzó.
+   *
+   * Recibe la TRANSACCIÓN y se llama después del candado del pase: contado
+   * fuera, dos escaneos simultáneos veían los dos «0 hoy» y pasaban los dos.
+   * Mismo criterio que el ritmo de la Tarjeta de Club (`club.service`), que
+   * comprueba su tope después del reclamo de la membresía.
+   */
+  private async exigirTopeDiario(
+    tx: Prisma.TransactionClient,
+    passId: string,
+    tenantId: string,
+    role: AuthUser['role'],
+  ): Promise<void> {
+    const tenantConfig = await tx.tenant.findUnique({
+      where: { id: tenantId },
+      select: { maxStampsPerDay: true },
+    });
+    const maxPerDay = Math.max(1, tenantConfig?.maxStampsPerDay ?? 1);
+    const sinceWindow = new Date(Date.now() - MIN_SECONDS_BETWEEN_STAMPS * 1000);
+    const recentCount = await tx.stamp.count({
+      where: {
+        passId,
+        action: { in: ['STAMP', 'VISIT'] },
+        createdAt: { gte: sinceWindow },
+      },
+    });
+    if (recentCount < maxPerDay) return;
+    // Calcular cuándo expira el sello más viejo del batch para
+    // darle al staff un ETA preciso del próximo sello disponible.
+    const oldest = await tx.stamp.findFirst({
+      where: {
+        passId,
+        action: { in: ['STAMP', 'VISIT'] },
+        createdAt: { gte: sinceWindow },
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { createdAt: true },
+    });
+    const remainingHours = oldest
+      ? Math.max(
+          1,
+          Math.ceil(
+            (MIN_SECONDS_BETWEEN_STAMPS -
+              (Date.now() - oldest.createdAt.getTime()) / 1000) /
+              3600,
+          ),
+        )
+      : 24;
+    const base =
+      maxPerDay === 1
+        ? `Este cliente ya recibió un sello hoy. Próximo sello disponible en ~${remainingHours}h.`
+        : `Este cliente ya recibió el máximo de ${maxPerDay} sellos del día. Próximo disponible en ~${remainingHours}h.`;
+    throw new BadRequestException(
+      role === 'SUPER_ADMIN'
+        ? `${base} Como administrador podés sellar igual para corregir un error.`
+        : base,
+    );
+  }
+
+  /**
    * Devuelve el stamps card "principal" del tenant. Si no existe uno
    * activo, lo auto-crea con defaults sensatos. Esto garantiza que la
    * transformación cupón→sellos siempre tenga un destino válido.
    * El dueño puede editar el diseño de la card luego desde /app/cards.
+   *
+   * Trae también el tope y el tipo: con ellos se decide el estado del pase en
+   * el que acaba el cupón (`sincronizarEstado`).
    */
   private async resolveOrCreateStampsCard(
     tenantId: string,
     sourceCouponCardId: string,
-  ): Promise<{ id: string }> {
+  ): Promise<TarjetaDestino> {
     // Prioridad 1: el dueño eligió explícitamente la stamps card destino
     // al crear el cupón (Card.transformIntoCardId). Si la card destino
     // todavía existe + es STAMPS activa + del mismo tenant, usarla.
@@ -887,7 +1057,7 @@ export class StampsService {
           clubPlanId: null,
           convenioId: null,
         },
-        select: { id: true },
+        select: SELECT_TARJETA_DESTINO,
       });
       if (explicit) return explicit;
       // Si fue seteada pero ya no califica (eliminada/desactivada/tipo
@@ -911,7 +1081,7 @@ export class StampsService {
         convenioId: null,
       },
       orderBy: { createdAt: 'asc' },
-      select: { id: true },
+      select: SELECT_TARJETA_DESTINO,
     });
     if (existing) return existing;
 
@@ -933,7 +1103,7 @@ export class StampsService {
         logoUrl: tenant?.logoUrl ?? null,
         isActive: true,
       },
-      select: { id: true },
+      select: SELECT_TARJETA_DESTINO,
     });
     this.logger.log(
       `Auto-created STAMPS card ${created.id} for tenant ${tenantId} (triggered by transform of coupon ${sourceCouponCardId})`,

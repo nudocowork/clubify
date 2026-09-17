@@ -8,6 +8,80 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-17 (41) — Tarjetas: canjear el premio ya no deja la tarjeta «completada» para siempre, y convertir un cupón no borra la de sellos
+
+**Qué:** tres fallos de las tarjetas de sellos, verificados en producción en el
+arqueo de esta madrugada. **Solo backend.** Sin migración (hay un script aparte,
+sin ejecutar).
+
+### 1. El canje dejaba el pase en COMPLETED para siempre
+
+`stamps.service.ts` escribía `status: completed ? 'COMPLETED' : pass.status`: al
+canjear bajaba el contador pero el estado se quedaba en COMPLETED. Todo lo que
+filtra `status: 'ACTIVE'` —envíos masivos, recurrentes, cumpleaños, refresco del
+diseño, búsqueda por teléfono— dejaba fuera justo a los mejores clientes. En
+producción: **56 pases de 11 negocios** (54 instalados, 42 siguen sellando).
+
+Ahora `sincronizarEstado` (`stamps/pase-de-sellos.ts`) ajusta el estado con dos
+`updateMany` condicionales DENTRO de la transacción, sobre el contador que quedó
+en la fila: por debajo del tope → ACTIVE; en el tope → COMPLETED. Solo STAMPS y
+VISITS con tope; nunca cupón, club ni alianza. `PASS_COMPLETED` solo sale si el
+`count` confirma la transición (ya no se duplica con dos escaneos a la vez). Un
+pase atascado se cura en su siguiente escaneo.
+
+**Script** `backend/scripts/reabrir-pases-canjeados.cjs`: sin argumentos simula
+(sesión READ ONLY comprobada); con `--aplicar` reabre con `updateMany`
+condicional e idempotente. Simulación contra producción: **56 pases en 11
+negocios**. **No se ha ejecutado con `--aplicar`**: va DESPUÉS de desplegar este
+arreglo (antes, los canjes nuevos volverían a atascar pases).
+
+### 2. Convertir un cupón borraba la tarjeta de sellos que el cliente ya tenía
+
+`tx.pass.delete` sobre la tarjeta de sellos: la cascada se llevaba su historial
+de `Stamp` (con montos) y sus registros de Apple, y su QR no quedaba en
+`legacyQrTokens`. La tarjeta moría en el teléfono y el escáner decía «Pase no
+encontrado». Al menos 15 casos en 7 negocios (ese historial ya no se recupera).
+
+Ahora, si la tarjeta de sellos está **instalada**, sobrevive ella (id, serial,
+contador, dispositivos) y se borra el cupón tras mover sus `Stamp`, guardar su
+QR en `legacyQrTokens` y anotar el canje. Si no está instalada sobrevive el
+cupón, pero también se mueven los `Stamp` y se guarda el QR. El escáner toma el
+id nuevo de `res.pass` (`scan/page.tsx:690`).
+
+### 3. `maxStampsPerDay` se leía fuera del candado
+
+Dos escaneos simultáneos pasaban los dos. Ahora se comprueba dentro de la
+transacción, después del candado.
+
+### Pruebas
+
+40 en `src/stamps` sobre el `StampsService` real con un Prisma falso que modela
+`updateMany` con `count`, cascada, P2002, candado y rollback. Vistas en rojo
+contra el código viejo: sellos 10/10 → canje → ACTIVE, visitas, REFUND, pase
+atascado que se cura; 5 de 6 de la absorción del cupón; el tope diario
+concurrente. El script tiene su prueba que carga el `.cjs` real.
+
+### Revisión de Fable
+
+**DESPLEGAR.** Verificó en el esquema que ningún `pass.delete` choca con una FK
+(`Stamp` y `WalletDevice` en cascada, `ClubMembresia` SetNull, el resto sin FK),
+que los `Stamp` se mueven antes del borrado en las dos ramas, que el escáner usa
+el pase superviviente y que no hay ciclo de candados. Notas, sin bloquear:
+- El enlace `/w/<id del cupón>` muere tras fundirse en la tarjeta instalada (el QR
+  sí sigue escaneando). Antes moría el de la tarjeta de sellos: el neto es mejor.
+- El objeto de Google Wallet del cupón absorbido queda huérfano (igual que antes
+  con la tarjeta borrada).
+
+### Pendiente
+
+- Tras desplegar: `node scripts/reabrir-pases-canjeados.cjs` (simulación) y, si
+  cuadra, `--aplicar`.
+- Fuera de este bloque: el sello automático por pedido y por reserva repite
+  `status: completed ? 'COMPLETED' : pass.status` (no atasca, pero no cura);
+  `automations` ADD_STAMP nunca completa el pase; subir `stampsRequired` no
+  reabre los COMPLETED (se curan al siguiente escaneo o con el script).
+- Las métricas de «pases completados» bajarán al reabrir: es lo correcto.
+
 ## 2026-09-17 (40) — Avisos de cobro: el grupo que no avisaba, «tu pago falló» cuatro veces y la pausa anunciada un día tarde
 
 **Qué:** cinco fallos de los avisos de cobro a los negocios, todos verificados en
