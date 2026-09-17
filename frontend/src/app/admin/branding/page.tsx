@@ -8,6 +8,17 @@ import { toast } from '@/components/Toast';
 
 type PlanId = 'mensual' | 'trimestral' | 'semestral' | 'anual';
 type LandingPlan = { price: number; checkoutUrl: string | null };
+/** Enlaces de venta AÑADIDOS a mano: pagos parciales y los de prueba por
+ *  periodicidad. Los 4 planes siguen arriba, en su propio bloque. */
+type EnlaceDeVenta = {
+  id: string;
+  nombre: string;
+  tipo: 'NORMAL' | 'PARCIAL' | 'PRUEBA';
+  periodicidad: string | null;
+  precioUsd: number | null;
+  url: string;
+  activo: boolean;
+};
 type LandingPlans = Record<PlanId, LandingPlan>;
 
 const PLAN_LABEL_KEY: Record<PlanId, { label: string; sub: string }> = {
@@ -91,19 +102,28 @@ export default function AdminBrandingPage() {
     trialCheckoutUrl: null,
   });
   const [plans, setPlans] = useState<LandingPlans>(DEFAULT_PLANS);
+  const [enlaces, setEnlaces] = useState<EnlaceDeVenta[]>([]);
+  // Si la carga falla, el formulario queda con TODO vacío y Guardar borraría de
+  // verdad: los logos, los 4 enlaces de la landing y esta lista (revisión de
+  // Fable, 2026-09-17). Sin carga buena no se guarda.
+  const [cargaOk, setCargaOk] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   async function load() {
     setLoading(true);
+    setCargaOk(false);
     try {
       // Endpoint admin que SÍ devuelve scannerStaffPin (el público no, por seguridad)
-      const [data, plansData] = await Promise.all([
+      const [data, plansData, enlacesData] = await Promise.all([
         api<Branding>('/admin/branding'),
         api<LandingPlans>('/landing-plans'),
+        api<EnlaceDeVenta[]>('/admin/enlaces-de-venta'),
       ]);
       setB(data);
       setPlans(plansData);
+      setEnlaces(Array.isArray(enlacesData) ? enlacesData : []);
+      setCargaOk(true);
     } catch (e: any) {
       toast(e.message || t('errorLoading'), 'error');
     } finally {
@@ -127,6 +147,15 @@ export default function AdminBrandingPage() {
           method: 'PATCH',
           body: JSON.stringify(plans),
         }),
+        // La respuesta trae la lista ya saneada (sin filas a medias y sin
+        // `sck`): se pinta esa, no la que se mandó, para que lo que se ve sea
+        // lo que quedó guardado.
+        api<EnlaceDeVenta[]>('/admin/enlaces-de-venta', {
+          method: 'PATCH',
+          body: JSON.stringify({ enlaces }),
+        }).then((guardados) => {
+          if (Array.isArray(guardados)) setEnlaces(guardados);
+        }),
       ]);
       toast(t('savedSuccess'), 'success');
     } catch (e: any) {
@@ -142,7 +171,7 @@ export default function AdminBrandingPage() {
         <h1 className="page-title">
           {t('pageTitle')} <span className="page-crumb">{t('pageCrumb')}</span>
         </h1>
-        <button className="btn-primary" onClick={save} disabled={saving || loading}>
+        <button className="btn-primary" onClick={save} disabled={saving || loading || !cargaOk}>
           <Icon name="check" /> {saving ? t('saving') : t('saveChanges')}
         </button>
       </div>
@@ -346,6 +375,94 @@ export default function AdminBrandingPage() {
             );
           })}
         </div>
+        {/* Enlaces de venta añadidos: pagos parciales y ofertas con prueba (una
+            por periodicidad). Antes solo cabían los 4 planes de arriba, así que
+            cada oferta nueva había que meterla en el código y los afiliados no
+            la tenían en su panel (Javier, 2026-09-17). */}
+        <div className="mt-4 border border-line2 rounded-lg p-3">
+          <div className="font-semibold text-sm">Otros enlaces de venta</div>
+          <div className="text-[11px] text-mute mb-2 leading-relaxed">
+            Pagos parciales y ofertas con prueba (por ejemplo, «Anual con 7 días gratis»).
+            Aparecen en el panel de cada afiliado con su código dentro, junto a los 4 planes.
+          </div>
+          <div className="flex flex-col gap-2">
+            {enlaces.map((e, i) => (
+              <div key={i} className="grid grid-cols-12 gap-2 items-end border border-line2 rounded-lg p-2">
+                <div className="col-span-12 sm:col-span-4">
+                  <label className="label">Nombre</label>
+                  <input
+                    className="input"
+                    placeholder="Anual con 7 días gratis"
+                    value={e.nombre}
+                    onChange={(ev) => setEnlaces(enlaces.map((x, k) => (k === i ? { ...x, nombre: ev.target.value } : x)))}
+                  />
+                </div>
+                <div className="col-span-6 sm:col-span-2">
+                  <label className="label">Tipo</label>
+                  <select
+                    className="input"
+                    value={e.tipo}
+                    onChange={(ev) => setEnlaces(enlaces.map((x, k) => (k === i ? { ...x, tipo: ev.target.value as EnlaceDeVenta['tipo'] } : x)))}
+                  >
+                    <option value="NORMAL">Normal</option>
+                    <option value="PARCIAL">Pago parcial</option>
+                    <option value="PRUEBA">Con prueba</option>
+                  </select>
+                </div>
+                <div className="col-span-6 sm:col-span-2">
+                  <label className="label">Precio USD</label>
+                  <input
+                    type="number"
+                    min={0}
+                    className="input"
+                    value={e.precioUsd ?? ''}
+                    onChange={(ev) => setEnlaces(enlaces.map((x, k) => (k === i ? { ...x, precioUsd: ev.target.value ? Number(ev.target.value) : null } : x)))}
+                  />
+                </div>
+                <div className="col-span-12 sm:col-span-4">
+                  <label className="label">Enlace de pago</label>
+                  <input
+                    type="url"
+                    className="input"
+                    placeholder="https://pay.hotmart.com/..."
+                    value={e.url}
+                    onChange={(ev) => setEnlaces(enlaces.map((x, k) => (k === i ? { ...x, url: ev.target.value } : x)))}
+                  />
+                </div>
+                <div className="col-span-12 flex items-center justify-between">
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={e.activo}
+                      onChange={(ev) => setEnlaces(enlaces.map((x, k) => (k === i ? { ...x, activo: ev.target.checked } : x)))}
+                    />
+                    Activo (se comparte)
+                  </label>
+                  <button
+                    type="button"
+                    className="text-xs text-red-600 hover:underline"
+                    onClick={() => setEnlaces(enlaces.filter((_, k) => k !== i))}
+                  >
+                    Quitar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="btn-ghost text-xs mt-2"
+            onClick={() =>
+              setEnlaces([
+                ...enlaces,
+                { id: `enlace-${Date.now()}`, nombre: '', tipo: 'PRUEBA', periodicidad: null, precioUsd: null, url: '', activo: true },
+              ])
+            }
+          >
+            + Agregar enlace
+          </button>
+        </div>
+
         <div className="mt-4 border border-line2 rounded-lg p-3">
           <div className="font-semibold text-sm">Prueba con tarjeta (trial 5 días)</div>
           <div className="text-[11px] text-mute mb-2 leading-relaxed">

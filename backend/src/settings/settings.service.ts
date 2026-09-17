@@ -4,6 +4,12 @@ import {
   resolveBrandScope,
   brandWhiteLabelWhere,
 } from '../common/white-label/brand-scope.util';
+import {
+  CLAVE_ENLACES_DE_VENTA,
+  componerEnlaces,
+  normalizarEnlaces,
+  type EnlaceDeVenta,
+} from './enlaces-de-venta';
 
 /** Pricing global de los planes Clubify usado por el módulo Cotizaciones
  * (SuperAdmin). Editables sin redeploy. Las cotizaciones congelan el
@@ -392,6 +398,52 @@ export class SettingsService {
       if (names.length >= 40) break;
     }
     return { names };
+  }
+
+  // ── Enlaces de venta (planes + pago parcial + prueba) ────────────────────
+
+  /** Los enlaces AÑADIDOS a mano (pago parcial, prueba del anual…). */
+  async getEnlacesExtra(): Promise<EnlaceDeVenta[]> {
+    const fila = await this.prisma.setting.findUnique({
+      where: { key: CLAVE_ENLACES_DE_VENTA },
+    });
+    return normalizarEnlaces(fila?.value ?? null);
+  }
+
+  /** Guarda la lista ya saneada: lo que no tiene nombre o URL válida no entra. */
+  async setEnlacesExtra(lista: unknown): Promise<EnlaceDeVenta[]> {
+    const limpia = normalizarEnlaces(lista);
+    await this.upsert(CLAVE_ENLACES_DE_VENTA, JSON.stringify(limpia));
+    return limpia;
+  }
+
+  /**
+   * TODOS los enlaces que se pueden compartir: los 4 planes, el de la prueba y
+   * los añadidos. Es lo que pinta el panel del afiliado (con su código dentro) y
+   * lo que evita que una oferta nueva tarde un despliegue en llegarle.
+   */
+  async getEnlacesDeVenta(): Promise<EnlaceDeVenta[]> {
+    const [planes, extras, ajustes] = await Promise.all([
+      this.getLandingPlans(),
+      this.getEnlacesExtra(),
+      // Los días de la prueba se guardan por marca (`…days.<slug>`, lo escribe
+      // /superadmin); para Clubify puede no existir la fila, y entonces el
+      // enlace se llama «Prueba con tarjeta» a secas en vez de mentir con un
+      // número.
+      this.prisma.setting.findMany({
+        where: {
+          key: { in: [KEYS.trialCheckoutUrl, 'landing.trial.days.clubify', 'landing.trial.days'] },
+        },
+      }),
+    ]);
+    const mapa = new Map(ajustes.map((a) => [a.key, a.value]));
+    const dias = Number(mapa.get('landing.trial.days.clubify') ?? mapa.get('landing.trial.days'));
+    return componerEnlaces({
+      planes,
+      urlDePrueba: mapa.get(KEYS.trialCheckoutUrl) ?? null,
+      diasDePrueba: Number.isFinite(dias) && dias > 0 ? dias : null,
+      extras,
+    });
   }
 
   /** Update parcial de los planes. Permite mandar solo los planes que

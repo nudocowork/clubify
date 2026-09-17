@@ -3371,40 +3371,50 @@ function EnlacesDePagoDirecto({ codigo, marcaSlug }: { codigo: string; marcaSlug
   // Solo con la marca RESUELTA como Clubify: sin marca no se pinta nada
   // (clubify-fugas-de-marca), y a un afiliado de otra marca no le toca.
   const esClubify = marcaSlug === 'clubify';
-  const [planes, setPlanes] = useState<Array<{ id: string; precio: number; url: string }>>([]);
+  type Enlace = {
+    id: string;
+    nombre: string;
+    tipo: 'NORMAL' | 'PARCIAL' | 'PRUEBA';
+    periodicidad: string | null;
+    precioUsd: number | null;
+    url: string;
+  };
+  const [enlaces, setEnlaces] = useState<Enlace[]>([]);
   useEffect(() => {
     if (!esClubify) return;
-    api<Record<string, { price: number; checkoutUrl: string | null }>>('/landing-plans')
-      .then((d) => {
-        const orden = ['mensual', 'trimestral', 'semestral', 'anual'];
-        setPlanes(
-          orden
-            .map((id) => ({ id, precio: d?.[id]?.price ?? 0, url: d?.[id]?.checkoutUrl ?? '' }))
-            .filter((p) => p.url),
-        );
-      })
-      .catch(() => setPlanes([]));
+    // Del listado ÚNICO de enlaces de venta: planes, pagos parciales y los que
+    // llevan prueba. Así, una oferta nueva le aparece al afiliado en cuanto se
+    // configura, sin esperar a un despliegue (Javier, 2026-09-17).
+    api<Enlace[]>('/enlaces-de-venta')
+      .then((d) => setEnlaces(Array.isArray(d) ? d : []))
+      .catch(() => setEnlaces([]));
   }, [esClubify]);
-  if (!esClubify || planes.length === 0) return null;
-  const nombre: Record<string, string> = { mensual: 'Mensual', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual' };
+  if (!esClubify || enlaces.length === 0) return null;
+  const ETIQUETA: Record<string, string> = { PARCIAL: 'Pago parcial', PRUEBA: 'Con prueba' };
   return (
     <div className="mt-3">
       <div className="text-[10px] uppercase tracking-wider text-mute font-semibold">Enlaces de pago directo</div>
       <p className="text-[11px] text-mute mt-0.5 leading-relaxed">
-        Si le mandas al cliente el pago de Hotmart, usa uno de estos: llevan tu código y la venta queda a tu nombre aunque no pase por tu link.
+        Si le mandas al cliente el pago directo, usa uno de estos: llevan tu código y la venta queda a tu nombre aunque no pase por tu link.
       </p>
       <div className="flex flex-col gap-1.5 mt-1.5">
-        {planes.map((p) => {
-          const enlace = conCodigoDelAfiliado(p.url, codigo);
+        {enlaces.map((e) => {
+          const enlace = conCodigoDelAfiliado(e.url, codigo);
           return (
-            <div key={p.id} className="flex items-center gap-2">
-              <span className="text-xs flex-1">
-                {nombre[p.id] ?? p.id} <span className="text-mute">· ${p.precio} USD</span>
+            <div key={e.id} className="flex items-center gap-2">
+              <span className="text-xs flex-1 truncate">
+                {e.nombre}
+                {e.precioUsd ? <span className="text-mute"> · ${e.precioUsd} USD</span> : null}
+                {ETIQUETA[e.tipo] ? (
+                  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-bg2 text-[9px] uppercase tracking-wide text-mute">
+                    {ETIQUETA[e.tipo]}
+                  </span>
+                ) : null}
               </span>
               <button
                 onClick={async () => {
                   await navigator.clipboard.writeText(enlace);
-                  toast(`Enlace de pago ${nombre[p.id] ?? p.id} copiado`, 'success');
+                  toast(`Enlace ${e.nombre} copiado`, 'success');
                 }}
                 className="btn-ghost text-[11px] min-h-[36px]"
               >

@@ -69,7 +69,7 @@ prueba('la landing usa el ayudante (no una copia con src)', () => {
 prueba('el panel del afiliado ofrece sus enlaces de pago directo con su código', () => {
   const s = readFileSync(new URL('../src/app/affiliate/page.tsx', import.meta.url), 'utf8');
   if (!/conCodigoDelAfiliado\(/.test(s)) throw new Error('el panel del afiliado no arma enlaces de pago con su código');
-  if (!/landing-plans/.test(s)) throw new Error('el panel no carga los planes');
+  if (!/enlaces-de-venta/.test(s)) throw new Error('el panel no carga la lista de enlaces de venta');
 });
 
 prueba('la prueba con tarjeta y los links de créditos de marca también llevan sck', () => {
@@ -81,6 +81,10 @@ prueba('la prueba con tarjeta y los links de créditos de marca también llevan 
 
 prueba('el bloque de enlaces directos solo se pinta con la marca resuelta como Clubify', () => {
   const s = readFileSync(new URL('../src/app/affiliate/page.tsx', import.meta.url), 'utf8');
+  // Por lo que SÍ está, no por la ausencia de una forma de escribirlo mal.
+  if (!/const esClubify = marcaSlug === 'clubify';/.test(s)) {
+    throw new Error('el candado de marca no es una comparación estricta con clubify');
+  }
   if (/!marcaSlug \|\|/.test(s)) throw new Error('sin marca resuelta se pintan enlaces de Clubify');
 });
 

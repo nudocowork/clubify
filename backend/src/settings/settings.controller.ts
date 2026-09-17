@@ -127,6 +127,33 @@ export class SettingsController {
     return this.svc.getLandingPlans();
   }
 
+  /**
+   * Todos los enlaces de venta (planes + pago parcial + prueba), ya listos para
+   * compartir. Lectura pública: la usa el panel del afiliado, que les mete su
+   * código. Ver `enlaces-de-venta.ts`.
+   */
+  @Public()
+  @Get('enlaces-de-venta')
+  getEnlacesDeVenta() {
+    return this.svc.getEnlacesDeVenta();
+  }
+
+  /** Los enlaces AÑADIDOS a mano, para editarlos desde /admin/branding. */
+  @Get('admin/enlaces-de-venta')
+  @Roles('SUPER_ADMIN', 'MARKETING')
+  getEnlacesExtra() {
+    return this.svc.getEnlacesExtra();
+  }
+
+  /** Reemplaza la lista entera. El saneado (nombre, URL http(s), tope, ids
+   *  repetidos) vive en `normalizarEnlaces`, no en un DTO: la lista llega del
+   *  panel como viene y lo que no sirve se descarta en vez de romper el guardado. */
+  @Patch('admin/enlaces-de-venta')
+  @Roles('SUPER_ADMIN', 'MARKETING')
+  setEnlacesExtra(@Body() body: { enlaces?: unknown }) {
+    return this.svc.setEnlacesExtra(body?.enlaces ?? []);
+  }
+
   @Patch('admin/landing-plans')
   @Roles('SUPER_ADMIN', 'MARKETING')
   setLandingPlans(@Body() body: LandingPlansDto) {

@@ -8,6 +8,61 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-17 (48) — Los enlaces de venta se configuran, y cada afiliado los tiene con su código
+
+**Qué:** Javier: «hay que hacer la sincronización de los nuevos planes con los
+influencers, vendedores, embajadores… y que lo tengan también cada uno de los
+referidos en sus paneles, con enlaces correspondientes». Además de los 4 planes
+hay enlaces de **pago parcial** y de **pago con prueba de 7 días**, uno por
+periodicidad (el del anual es nuevo). Backend y frontend, sin migración.
+
+**El problema:** solo cabían CUATRO enlaces fijos (`landing.plans.*`) más el de
+la prueba. Cada oferta nueva de Hotmart había que meterla en el código, y
+mientras tanto no existía en el panel de ningún afiliado.
+
+### Cómo queda
+
+- **`backend/src/settings/enlaces-de-venta.ts`:** lista configurable con nombre,
+  tipo (NORMAL / PARCIAL / PRUEBA), periodicidad, precio y URL. Se guarda en el
+  ajuste `landing.enlacesDeVenta` (texto JSON, sin migración). Saneado: solo
+  http(s), tope de 30, ids únicos, y **se le quitan `sck` y `src` a la URL** —ahí
+  va el código del afiliado, y un enlace copiado de una campaña con `?sck=…`
+  dejaba sus ventas sin atribuir en silencio—.
+- **`GET /enlaces-de-venta`** (público): los 4 planes + el de prueba + los
+  añadidos, en ese orden. Es lo que pinta el panel del afiliado.
+- **`/admin/branding` → «Otros enlaces de venta»:** agregar, editar, apagar y
+  quitar. Los 4 planes siguen en su bloque de siempre.
+- **Panel del afiliado:** todos los enlaces con su código dentro (`sck` y `src`),
+  con etiqueta de «Pago parcial» o «Con prueba» y el precio. Solo con la marca
+  resuelta como Clubify (72 de los 77 códigos).
+
+### Revisión de Fable
+
+**DESPLEGAR CON CAMBIOS**, aplicados:
+- **ALTO:** desplegar el frontend antes que el backend dejaba `/admin/branding`
+  armado para BORRAR: si la carga fallaba (404 del endpoint nuevo), el formulario
+  quedaba vacío y Guardar seguía habilitado → se llevaba por delante logos, los 4
+  enlaces de la landing y el de la prueba. Ahora **Guardar se deshabilita si la
+  carga falló**, y el orden de despliegue es backend primero, comprobando
+  `/api/enlaces-de-venta` antes de tocar Vercel.
+- El PATCH devuelve la lista saneada y el editor pinta ESA, para que no parezca
+  guardada una fila que se descartó.
+- Los días de la prueba se leen de donde se escriben de verdad
+  (`landing.trial.days.<marca>`); antes se leía una clave que nadie escribe.
+- La prueba del candado de marca ahora comprueba lo que SÍ está, no la ausencia
+  de una forma de escribirlo mal.
+
+**Deuda preexistente anotada (no bloquea):** `/admin/branding`,
+`/admin/landing-plans` y `/admin/enlaces-de-venta` solo miran el rol, y un
+SUPER_ADMIN o MARKETING de marca blanca (hay 4 en Sellea) podría escribirlos por
+API. La solución es el mismo guard de plataforma que ya tiene Contabilidad, en un
+cambio aparte para las tres rutas.
+
+### Pendiente
+
+Cargar los enlaces nuevos (anual con 7 días gratis, prueba del trimestral y los
+de pago parcial): se agregan desde `/admin/branding` en cuanto esto esté arriba.
+
 ## 2026-09-17 (47) — Los dos números de un pedido, por fin en el panel
 
 **Qué:** Javier: «estoy buscando dónde colocar a dónde llega la notificación
