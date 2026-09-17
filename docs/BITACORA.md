@@ -8,6 +8,99 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-17 (45) — Contabilidad: la nómina se edita, el socio tiene su línea en la cascada y «venta bruta» pasa a «ventas realizadas»
+
+**Qué:** las modificaciones de Sara al módulo de Contabilidad. Backend y frontend,
+con **migración aditiva** (`FinancialClose.socioUsd`), aplicada antes del backend.
+
+### 1. La nómina no era editable, y por eso no entraba en la cascada
+
+Sara: «los pagos de nómina no se pueden estandarizar… a un colaborador este mes
+su base pudo haber sido 100.000 y el próximo 300.000… se debe poder editar el
+monto o eliminar ese colaborador de por vida». Y: «no se está tomando el monto de
+la nómina… ¿no se registró porque puse el monto en pesos?».
+
+Lo que había en producción: los **3 colaboradores con el monto en PESOS** en un
+campo de dólares (800.000 quincenal, 875.000 mensual ×2) y **0 cortes de nómina**.
+La cascada resta los cortes (pagos generados), no las fichas: por eso $0. Y no
+había forma de corregir nada: solo se podía crear.
+
+Ahora:
+- **Colaboradores:** editar (nombre, cargo, tipo, monto, periodicidad, activo) y
+  eliminar de por vida. Lo que ya se le pagó se queda en sus cortes.
+  El campo dice «Monto por período (USD)» y avisa «¿Está en pesos?» por encima
+  de 20.000.
+- **Generar pago:** la base de cada colaborador se edita para ese mes, y hay un
+  atajo «Mes completo (quincenas × 2)».
+- **Detalle del pago:** base, bono y deducción editables por persona, quitar a
+  alguien, y borrar el pago si no tiene abonos. Un pago abonado no puede quedar
+  por debajo de lo pagado.
+- «Nómina próxima» cuenta dos quincenas por mes (sumaba una).
+- La cascada avisa cuando un mes con ventas no tiene nómina registrada.
+
+**Pendiente de Sara (no es código):** corregir los montos de los 3 colaboradores
+a dólares y generar el pago de septiembre.
+
+### 2. «Venta bruta» → «Ventas realizadas»
+
+En las tarjetas, la cascada, la gráfica, Ingresos, Conciliación, Cierres y
+Trazabilidad.
+
+### 3. La línea «Socio» en la cascada
+
+Un socio directo de Clubify se lleva un porcentaje de cada venta. Javier fijó la
+base: **«sobre la venta menos la comisión de Hotmart»**, es decir, el **NETO** de
+las ventas (bruto − fee − impuestos), no la utilidad: egresos, nómina y
+comisiones no le bajan su parte. Se actualiza sola con cada venta.
+
+```
+Neto − Egresos − Nómina − Comisiones pagadas − Socio = UTILIDAD
+```
+
+- `backend/src/finance/socio.ts`. Porcentaje: `contabilidad.socio.porcentaje` si
+  existe; si no, `referrals.socioPercent` (el de Referidos); si no, 10 %.
+- Es de Clubify: con «todas las marcas» sale solo del neto de Clubify.
+- En `summary`, en la serie mes a mes y en el cierre. `FinancialClose.socioUsd`
+  lo congela (migración `scripts/apply-socio-cierre-migration.cjs`, default 0).
+- Septiembre, al desplegar: neto de Clubify $2.626,44 → socio **$262,64**.
+
+**⚠️ No encender el socio de Referidos** (`referrals.socioCodeId`) mientras la
+cascada tenga esta línea: crearía comisiones del rol SOCIO. Las comisiones de la
+cascada ya las excluyen, pero el panel de Comisiones y los pagos a afiliados sí
+las verían. Y el «libro de comisiones» (`accounting.service.ts`) calcula OTRO
+«gasto socio» sobre el precio del plan: no va a coincidir con esta línea.
+
+**El cierre de septiembre (`2026-09`, todas las marcas) es una foto vieja** del 2
+de septiembre (utilidad −5 con el módulo vacío): hay que reabrirlo y volver a
+cerrarlo para que lleve la línea del socio.
+
+### Pruebas
+
+- `contabilidad.spec.ts`: 11 casos del socio (base = neto y no utilidad, se
+  actualiza con cada venta, % propio y de Referidos, neto negativo, solo Clubify
+  con todas las marcas, cierre, serie con una y con todas las marcas, sin doble
+  conteo del SOCIO de comisiones) y las esperas de utilidad ajustadas. Vistos en
+  rojo antes.
+- `nomina-editable.spec.ts` (13): editar, eliminar sin perder lo pagado, quincenas
+  ×2, recalcular el corte, no bajar de lo abonado, fecha al pasar a pagado. Contra
+  el servicio viejo: todos en rojo.
+- `solo-plataforma.guard.spec.ts` (3).
+
+### Revisión de Fable
+
+**DESPLEGAR CON CAMBIOS**, aplicados:
+- **MEDIO:** editar o quitar un ítem de un pago ya abonado lo dejaba con saldo
+  negativo, que le restaba «pendiente» a los demás pagos del mes. Ahora se rechaza
+  con el motivo y la transacción se deshace.
+- **MEDIO (seguridad):** los endpoints de Contabilidad solo miraban el rol, y un
+  admin de marca blanca ES SUPER_ADMIN con `whiteLabelId`: por la API podía leer
+  los ingresos de Clubify y ahora borrar nómina. `SoloPlataformaGuard` en los
+  cuatro controladores (sesión sin marca o dentro de Clubify).
+- **MEDIO:** doble conteo latente del socio si se encendía el de Referidos.
+  Excluido en las cuatro consultas de comisiones.
+- **BAJO:** % desde `referrals.socioPercent`; renombrado completo; un pago que
+  pasaba a «Pagado» sin fecha; `@Min(0)` en los montos.
+
 ## 2026-09-17 (43) — Menú público: la caché del borde por fin se usa, portadas de 6 MB a kilobytes, sin Sentry de relleno y sin «soyclubify.com» en las vistas previas de Sellea
 
 **Qué:** velocidad de carga y fugas de marca del menú público, del arqueo de esta

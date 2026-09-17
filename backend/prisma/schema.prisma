@@ -8005,6 +8005,10 @@ model FinancialClose {
   egresosUsd     Decimal  @db.Decimal(12, 2)
   nominaUsd      Decimal  @db.Decimal(12, 2)
   comisionesUsd  Decimal  @db.Decimal(12, 2)
+  /// Parte del socio (su % del neto de las ventas de Clubify), congelada al
+  /// cerrar. Default 0: los cierres anteriores al 2026-09-17 no la restaban.
+  /// Migración: scripts/apply-socio-cierre-migration.cjs
+  socioUsd       Decimal  @default(0) @db.Decimal(12, 2)
   utilidadUsd    Decimal  @db.Decimal(12, 2)
   note           String?  @db.Text
   closedByUserId String?

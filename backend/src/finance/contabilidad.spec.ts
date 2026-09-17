@@ -316,8 +316,8 @@ describe('comisiones en la cascada', () => {
     expect(r.comisionesGeneradasUsd).toBe(200);
     expect(r.comisionesPendientesUsd).toBe(200);
     expect(r.comisionesUsd).toBe(0);
-    // 1000 de neto, nada pagado todavía.
-    expect(r.utilidadUsd).toBe(1000);
+    // 1000 de neto, nada pagado todavía; el socio se lleva su 10 % del neto.
+    expect(r.utilidadUsd).toBe(900);
   });
 
   it('una comisión pagada sí es egreso, y del mes en que se pagó', async () => {
@@ -327,7 +327,7 @@ describe('comisiones en la cascada', () => {
     ).summary(true);
     expect(r.comisionesUsd).toBe(200);
     expect(r.comisionesPendientesUsd).toBe(0);
-    expect(r.utilidadUsd).toBe(800);
+    expect(r.utilidadUsd).toBe(700);
   });
 
   it('una comisión de agosto pagada en septiembre pesa en SEPTIEMBRE', async () => {
@@ -335,7 +335,7 @@ describe('comisiones en la cascada', () => {
     const r = await reporte([], [{ amountPaid: 135 }]).summary(true);
     expect(r.comisionesGeneradasUsd).toBe(0);
     expect(r.comisionesUsd).toBe(135);
-    expect(r.utilidadUsd).toBe(865);
+    expect(r.utilidadUsd).toBe(765);
   });
 
   it('el mes que la GENERÓ la sigue informando aunque se pagara después', async () => {
@@ -358,6 +358,142 @@ describe('comisiones en la cascada', () => {
     expect(r.comisionesGeneradasUsd).toBe(23.5);
     expect(r.comisionesPendientesUsd).toBe(0);
     expect(r.comisionesUsd).toBe(0);
+  });
+});
+
+// ── 4b. El socio ─────────────────────────────────────────────────────────────
+
+/**
+ * Sara (2026-09-17): «dentro de Clubify hay un socio directo que comisiona el
+ * 10 % de la utilidad en cada venta … que se agregue en la cascada de utilidad
+ * como "Socio" … y que cuando entre una nueva venta se actualice el monto». Y
+ * Javier precisó la base: «se calcula sobre la venta menos la comisión de
+ * Hotmart». Es decir, el 10 % del NETO de las ventas (bruto − fee − impuestos),
+ * no de lo que queda tras egresos, nómina y comisiones.
+ */
+describe('el socio en la cascada', () => {
+  function reporte(opts: {
+    netoClubify?: number;
+    netoTodas?: number;
+    pagadas?: any[];
+    ajustes?: Record<string, string>;
+  } = {}) {
+    const { prisma } = prismaFalso({ ajustes: opts.ajustes });
+    let llamada = 0;
+    prisma.commission.findMany = async () => (llamada++ === 0 ? [] : opts.pagadas ?? []);
+    const income: any = {
+      summary: async ({ onlyClubify }: { onlyClubify?: boolean }) => {
+        const neto = onlyClubify ? opts.netoClubify ?? 1000 : opts.netoTodas ?? opts.netoClubify ?? 1000;
+        return {
+          count: 1, grossUsd: neto, gatewayFeeUsd: 0, taxUsd: 0,
+          netExpectedUsd: neto, netReceivedUsd: 0, pendingRecon: 0, inReview: 0,
+          refundedUsd: 0, refundedCount: 0, porCategoria: {},
+        };
+      },
+    };
+    const expense: any = { summary: async () => ({ totalUsd: 0 }) };
+    return { svc: new FinanceReportService(prisma, income, expense), prisma };
+  }
+
+  it('se lleva el 10 % del neto de las ventas y se resta antes de la utilidad', async () => {
+    const r = await reporte({ netoClubify: 1428.69 }).svc.summary(true);
+    expect(r.socioPorcentaje).toBe(10);
+    expect(r.socioUsd).toBe(142.87);
+    expect(r.utilidadUsd).toBe(1285.82);
+  });
+
+  it('la base es la venta menos la comisión de la pasarela, NO la utilidad', async () => {
+    // Con 200 de comisiones pagadas la utilidad baja, pero el socio no.
+    const r = await reporte({ netoClubify: 1000, pagadas: [{ amountPaid: 200 }] }).svc.summary(true);
+    expect(r.socioUsd).toBe(100);
+    expect(r.utilidadUsd).toBe(700);
+  });
+
+  it('cuando entra una venta nueva, el monto del socio se actualiza', async () => {
+    const antes = await reporte({ netoClubify: 1000 }).svc.summary(true);
+    const despues = await reporte({ netoClubify: 1150 }).svc.summary(true);
+    expect(antes.socioUsd).toBe(100);
+    expect(despues.socioUsd).toBe(115);
+  });
+
+  it('el porcentaje se puede ajustar y uno inválido vuelve al 10 %', async () => {
+    const quince = await reporte({ ajustes: { 'contabilidad.socio.porcentaje': '15' } }).svc.summary(true);
+    expect(quince.socioUsd).toBe(150);
+    const roto = await reporte({ ajustes: { 'contabilidad.socio.porcentaje': 'abc' } }).svc.summary(true);
+    expect(roto.socioUsd).toBe(100);
+  });
+
+  it('un mes con más devoluciones que ventas no le debe nada al socio', async () => {
+    const r = await reporte({ netoClubify: -50 }).svc.summary(true);
+    expect(r.socioUsd).toBe(0);
+  });
+
+  it('con todas las marcas, el socio sale solo del neto de Clubify', async () => {
+    const r = await reporte({ netoClubify: 1000, netoTodas: 3000 }).svc.summary(false);
+    expect(r.socioUsd).toBe(100);
+    expect(r.utilidadUsd).toBe(2900);
+  });
+
+  it('el cierre de mes congela la línea del socio', async () => {
+    const { svc, prisma } = reporte({ netoClubify: 1000 });
+    let guardado: any = null;
+    prisma.financialClose = { upsert: async (a: any) => (guardado = a.create) };
+    await svc.closePeriod(null, '2026-09', 'clubify');
+    expect(guardado.socioUsd).toBe(100);
+    expect(guardado.utilidadUsd).toBe(900);
+  });
+
+  it('sin ajuste propio, usa el % del socio que ya se configura en Referidos', async () => {
+    const r = await reporte({ ajustes: { 'referrals.socioPercent': '12' } }).svc.summary(true);
+    expect(r.socioUsd).toBe(120);
+  });
+
+  it('las comisiones del rol SOCIO no se restan otra vez como comisiones', async () => {
+    const { svc, prisma } = reporte({ netoClubify: 1000 });
+    const pagadas = [
+      { amountPaid: 50, rol: 'INFLUENCER' },
+      { amountPaid: 100, rol: 'SOCIO' },
+    ];
+    let llamada = 0;
+    prisma.commission.findMany = async ({ where }: any) => {
+      const sinSocio = where?.NOT?.recipientCode?.is?.role === 'SOCIO';
+      const filas = llamada++ === 0 ? [] : pagadas;
+      return sinSocio ? filas.filter((c) => c.rol !== 'SOCIO') : filas;
+    };
+    const r = await svc.summary(true);
+    expect(r.comisionesUsd).toBe(50);
+    expect(r.socioUsd).toBe(100);
+    expect(r.utilidadUsd).toBe(850);
+  });
+
+  it('con todas las marcas, la serie toma el neto de Clubify una sola vez', async () => {
+    const { svc, prisma } = reporte();
+    let consultas = 0;
+    prisma.incomeRecord.findMany = async ({ select }: any) => {
+      consultas++;
+      // La segunda consulta (solo Clubify) pide únicamente fecha y neto.
+      if (select && !('grossUsd' in select)) {
+        return [{ saleDate: new Date('2026-09-10T15:00:00Z'), netExpectedUsd: 300 }];
+      }
+      return [
+        { saleDate: new Date('2026-09-10T15:00:00Z'), grossUsd: 300, gatewayFeeUsd: 0, taxUsd: 0, netExpectedUsd: 300 },
+        { saleDate: new Date('2026-09-11T15:00:00Z'), grossUsd: 700, gatewayFeeUsd: 0, taxUsd: 0, netExpectedUsd: 700 },
+      ];
+    };
+    const [sep] = await svc.serieDeMeses(false, ['2026-09']);
+    expect(consultas).toBe(2);
+    expect(sep.socioUsd).toBe(30);
+    expect(sep.utilidadUsd).toBe(970);
+  });
+
+  it('la serie mes a mes también descuenta al socio', async () => {
+    const { svc, prisma } = reporte();
+    prisma.incomeRecord.findMany = async () => [
+      { saleDate: new Date('2026-09-10T15:00:00Z'), grossUsd: 500, gatewayFeeUsd: 0, taxUsd: 0, netExpectedUsd: 500 },
+    ];
+    const [sep] = await svc.serieDeMeses(true, ['2026-09']);
+    expect(sep.socioUsd).toBe(50);
+    expect(sep.utilidadUsd).toBe(450);
   });
 });
 

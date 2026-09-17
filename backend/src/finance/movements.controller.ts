@@ -1,10 +1,12 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { SoloPlataformaGuard } from './solo-plataforma.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { MovementsService } from './movements.service';
 import { rangoDe } from './where-periodo';
 
 /** CONTABILIDAD — Fase 4. Movimientos (libro de caja unificado, solo lectura). */
 @Roles('SUPER_ADMIN')
+@UseGuards(SoloPlataformaGuard)
 @Controller('admin/contabilidad/movimientos')
 export class MovementsController {
   constructor(private movements: MovementsService) {}

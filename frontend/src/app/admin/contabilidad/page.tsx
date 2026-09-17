@@ -77,7 +77,7 @@ type Comisiones = {
 };
 type CobroProximo = { tenantId: string | null; groupId: string | null; negocio: string; esGrupo: boolean; fechaCobro: string | null; plan: string; periodicidad: string; montoUsd: number; metodo: string; ultimoPago: string | null; estado: string };
 type Cobros = { dias: number; resumen: { proximos: { count: number; amountUsd: number }; procesados: { count: number; amountUsd: number }; noProcesados: { count: number; amountUsd: number } }; filas: CobroProximo[] };
-type Cierre = { id: string; period: string; scope: string; grossUsd: string | number; feeTaxUsd: string | number; netUsd: string | number; egresosUsd: string | number; nominaUsd: string | number; comisionesUsd: string | number; utilidadUsd: string | number; note: string | null; closedAt: string };
+type Cierre = { id: string; period: string; scope: string; grossUsd: string | number; feeTaxUsd: string | number; netUsd: string | number; egresosUsd: string | number; nominaUsd: string | number; comisionesUsd: string | number; socioUsd?: string | number; utilidadUsd: string | number; note: string | null; closedAt: string };
 const EXP_STATUS_LABEL: Record<string, string> = { PAID: 'Pagado', PARTIAL: 'Parcial', PENDING: 'Pendiente' };
 /** Lo que devuelve la conciliación: qué falta, qué se devolvió y qué no cuadra. */
 type InformeConciliacion = {
@@ -149,6 +149,7 @@ export default function ContabilidadPage() {
   const [runs, setRuns] = useState<PRun[]>([]);
   const [pRes, setPRes] = useState<PResumen | null>(null);
   const [showEmp, setShowEmp] = useState(false);
+  const [editEmp, setEditEmp] = useState<PEmp | null>(null);
   const [showGen, setShowGen] = useState(false);
   const [payRun, setPayRun] = useState<PRun | null>(null);
   const [detailRun, setDetailRun] = useState<string | null>(null);
@@ -224,6 +225,14 @@ export default function ContabilidadPage() {
   // Si el período es el mes que está corriendo, hay que decirlo: comparado con
   // el mes anterior COMPLETO siempre va a salir hundido, y sin este aviso la
   // caída se lee como que el negocio se cayó y no como que el mes va por el día 4.
+  // «Eliminar de por vida» (Sara): la ficha desaparece y ya no entra en los
+  // pagos nuevos; lo que ya se le pagó se queda en sus cortes.
+  async function eliminarColaborador(e: PEmp) {
+    if (!window.confirm(`¿Eliminar a ${e.name}? Deja de aparecer y no entra en los próximos pagos. Lo que ya se le pagó se conserva.`)) return;
+    const r = await api<{ ok: boolean }>(`/admin/contabilidad/nomina/colaboradores/${e.id}`, { method: 'DELETE' }).catch(() => null);
+    if (r?.ok) { toast('Colaborador eliminado'); void load(); } else toast('No se pudo eliminar');
+  }
+
   const mesEnCurso = useMemo(() => {
     if (periodo !== periodoActual()) return null;
     const h = new Date();
@@ -345,7 +354,7 @@ export default function ContabilidadPage() {
           {/* ===== INGRESOS / CONCILIACIÓN ===== */}
           {(tab === 'ingresos' || tab === 'conciliacion') && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-              <Kpi lbl="Ventas brutas" dot="#22C55E" val={money(resumen?.grossUsd ?? 0)} sub={`${resumen?.count ?? 0} cobros`} />
+              <Kpi lbl="Ventas realizadas" dot="#22C55E" val={money(resumen?.grossUsd ?? 0)} sub={`${resumen?.count ?? 0} cobros`} />
               <Kpi lbl="Fee + impuestos" dot="#DC2626" val={money((resumen?.gatewayFeeUsd ?? 0) + (resumen?.taxUsd ?? 0))} sub={`fee ${money(resumen?.gatewayFeeUsd ?? 0)} · imp ${money(resumen?.taxUsd ?? 0)}`} />
               <Kpi lbl="Neto esperado" dot="#2563EB" val={money(resumen?.netExpectedUsd ?? 0)} sub="después de deducciones" />
               <Kpi lbl="Neto recibido" dot="#16A34A" val={money(resumen?.netReceivedUsd ?? 0)} sub={`${resumen?.pendingRecon ?? 0} sin conciliar · ${resumen?.inReview ?? 0} a revisar`} />
@@ -378,7 +387,7 @@ export default function ContabilidadPage() {
             <div className="card overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[1250px]">
               <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
                 {['Fecha', 'Negocio', 'Clase', 'Periodicidad', 'Pasarela', 'Referencia'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}
-                {['V. bruta', 'Fee', 'Impuesto', 'Neto esp.', 'Neto recib.', 'Dif.'].map((h) => <th key={h} className="px-4 py-3 font-semibold text-right">{h}</th>)}
+                {['Venta realizada', 'Fee', 'Impuesto', 'Neto esp.', 'Neto recib.', 'Dif.'].map((h) => <th key={h} className="px-4 py-3 font-semibold text-right">{h}</th>)}
                 <th className="px-4 py-3 font-semibold">Estado</th>
                 <th className="px-4 py-3 font-semibold">Conciliación</th>
                 <th className="px-4 py-3" />
@@ -549,7 +558,7 @@ export default function ContabilidadPage() {
               <div key={r.id} className={`card card-pad ${r.reconStatus === 'REVIEW' ? 'border-amber-300' : ''}`}>
                 <div className="flex justify-between items-center mb-2"><b>{r.brandName ?? '—'}</b><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${RECON_BDG[r.reconStatus].cls}`}>{RECON_BDG[r.reconStatus].label}</span></div>
                 <div className="text-xs text-mute mb-3">{r.gateway} · {r.externalTxId} · {fmtDate(r.saleDate)}</div>
-                <div className="flex justify-between py-1 text-sm border-b border-dashed border-line"><span>Venta bruta</span><b>{money(r.grossUsd)}</b></div>
+                <div className="flex justify-between py-1 text-sm border-b border-dashed border-line"><span>Venta realizada</span><b>{money(r.grossUsd)}</b></div>
                 <div className="flex justify-between py-1 text-sm border-b border-dashed border-line"><span>− Fee pasarela</span><span className="text-bad">{money(-r.gatewayFeeUsd)}</span></div>
                 <div className="flex justify-between py-1 text-sm border-b border-dashed border-line"><span>− Impuesto</span><span className="text-bad">{money(-r.taxUsd)}</span></div>
                 <div className="flex justify-between py-1.5 text-sm font-bold border-b-2 border-ink"><span>Neto esperado</span><span>{money(r.netExpectedUsd)}</span></div>
@@ -635,9 +644,9 @@ export default function ContabilidadPage() {
               </div>
               <div className="card overflow-hidden p-0 mb-5"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[700px]">
                 <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
-                  <th className="px-4 py-3 font-semibold">Colaborador</th><th className="px-4 py-3 font-semibold">Cargo</th><th className="px-4 py-3 font-semibold">Tipo</th><th className="px-4 py-3 font-semibold text-right">Monto</th><th className="px-4 py-3 font-semibold">Periodicidad</th><th className="px-4 py-3 font-semibold">Estado</th>
+                  <th className="px-4 py-3 font-semibold">Colaborador</th><th className="px-4 py-3 font-semibold">Cargo</th><th className="px-4 py-3 font-semibold">Tipo</th><th className="px-4 py-3 font-semibold text-right">Monto</th><th className="px-4 py-3 font-semibold">Periodicidad</th><th className="px-4 py-3 font-semibold">Estado</th><th className="px-4 py-3"></th>
                 </tr></thead>
-                <tbody>{emps.length === 0 ? <tr><td colSpan={6} className="px-4 py-6 text-center text-mute">Sin colaboradores — agregá el primero.</td></tr> : emps.map((e) => (
+                <tbody>{emps.length === 0 ? <tr><td colSpan={7} className="px-4 py-6 text-center text-mute">Sin colaboradores — agregá el primero.</td></tr> : emps.map((e) => (
                   <tr key={e.id} className="border-t border-line2 hover:bg-bg2/40">
                     <td className="px-4 py-3 font-semibold">{e.name}</td>
                     <td className="px-4 py-3">{e.role ?? '—'}</td>
@@ -645,6 +654,10 @@ export default function ContabilidadPage() {
                     <td className="px-4 py-3 text-right tabular-nums">{money(e.amountUsd)}</td>
                     <td className="px-4 py-3">{e.periodicity}</td>
                     <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${e.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{e.active ? 'Activo' : 'Inactivo'}</span></td>
+                    <td className="px-4 py-3 whitespace-nowrap text-right">
+                      <button className="text-xs font-semibold text-brand hover:underline mr-3" onClick={() => setEditEmp(e)}>Editar</button>
+                      <button className="text-xs font-semibold text-red-600 hover:underline" onClick={() => void eliminarColaborador(e)}>Eliminar</button>
+                    </td>
                   </tr>
                 ))}</tbody>
               </table></div></div>
@@ -838,11 +851,12 @@ export default function ContabilidadPage() {
                 <div className="card overflow-hidden p-0"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[820px]">
                   <thead className="bg-bg2 text-left text-mute text-[11px] uppercase tracking-wider"><tr>
                     <th className="px-4 py-3 font-semibold">Mes</th>
-                    <th className="px-4 py-3 font-semibold text-right">Bruto</th>
+                    <th className="px-4 py-3 font-semibold text-right">Ventas realizadas</th>
                     <th className="px-4 py-3 font-semibold text-right">Neto</th>
                     <th className="px-4 py-3 font-semibold text-right">Egresos</th>
                     <th className="px-4 py-3 font-semibold text-right">Nómina</th>
                     <th className="px-4 py-3 font-semibold text-right">Comisiones</th>
+                    <th className="px-4 py-3 font-semibold text-right">Socio</th>
                     <th className="px-4 py-3 font-semibold text-right">Utilidad</th>
                     <th className="px-4 py-3 font-semibold">Cerrado</th>
                     <th className="px-4 py-3 font-semibold"></th>
@@ -856,6 +870,7 @@ export default function ContabilidadPage() {
                         <td className="px-4 py-3 text-right tabular-nums text-red-600">{money(Number(c.egresosUsd))}</td>
                         <td className="px-4 py-3 text-right tabular-nums text-red-600">{money(Number(c.nominaUsd))}</td>
                         <td className="px-4 py-3 text-right tabular-nums text-red-600">{money(Number(c.comisionesUsd))}</td>
+                        <td className="px-4 py-3 text-right tabular-nums text-red-600">{money(Number(c.socioUsd ?? 0))}</td>
                         <td className={`px-4 py-3 text-right tabular-nums font-semibold ${Number(c.utilidadUsd) >= 0 ? 'text-ok' : 'text-red-600'}`}>{money(Number(c.utilidadUsd))}</td>
                         <td className="px-4 py-3 text-mute text-xs whitespace-nowrap">{new Date(c.closedAt).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: '2-digit' })}</td>
                         <td className="px-4 py-3"><button onClick={() => reabrirMes(c.id, c.period)} className="text-xs text-red-600 hover:underline">Reabrir</button></td>
@@ -872,10 +887,10 @@ export default function ContabilidadPage() {
       {showEgreso && <EgresoModal cats={cats} onClose={() => setShowEgreso(false)} onSaved={() => { setShowEgreso(false); void load(); }} />}
       {showRec && <RecurrenteModal cats={cats} onClose={() => setShowRec(false)} onSaved={() => { setShowRec(false); void load(); }} />}
       {payFor && <PagoModal exp={payFor} onClose={() => setPayFor(null)} onSaved={() => { setPayFor(null); void load(); }} />}
-      {showEmp && <EmpModal onClose={() => setShowEmp(false)} onSaved={() => { setShowEmp(false); void load(); }} />}
+      {(showEmp || editEmp) && <EmpModal emp={editEmp} onClose={() => { setShowEmp(false); setEditEmp(null); }} onSaved={() => { setShowEmp(false); setEditEmp(null); void load(); }} />}
       {showGen && <GenModal emps={emps.filter((e) => e.active)} onClose={() => setShowGen(false)} onSaved={() => { setShowGen(false); void load(); }} />}
       {payRun && <PayRunModal run={payRun} onClose={() => setPayRun(null)} onSaved={() => { setPayRun(null); void load(); }} />}
-      {detailRun && <RunDetailModal id={detailRun} onClose={() => setDetailRun(null)} />}
+      {detailRun && <RunDetailModal id={detailRun} onClose={() => setDetailRun(null)} onChanged={() => void load()} />}
       {traza && <TrazaModal t={traza} onClose={() => setTraza(null)} />}
       {cargandoTraza && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/20">
@@ -943,7 +958,7 @@ function TrazaModal({ t, onClose }: { t: Traza; onClose: () => void }) {
           <li className="border-l-2 border-line2 pl-3">
             <div className="text-[11px] uppercase tracking-wider text-mute font-semibold">3 · El desglose</div>
             <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-              <span className="text-mute">Bruto</span><span className="tabular-nums text-right">{money(t.ingreso.bruto)}</span>
+              <span className="text-mute">Venta realizada</span><span className="tabular-nums text-right">{money(t.ingreso.bruto)}</span>
               <span className="text-mute">− Fee de pasarela</span><span className="tabular-nums text-right text-red-600">−{money(t.ingreso.feePasarela)}</span>
               <span className="text-mute">− Impuesto</span><span className="tabular-nums text-right text-red-600">−{money(t.ingreso.impuesto)}</span>
               <span className="font-semibold">= Neto esperado</span><span className="tabular-nums text-right font-semibold">{money(t.ingreso.netoEsperado)}</span>
@@ -1113,27 +1128,48 @@ function PagoModal({ exp, onClose, onSaved }: { exp: Exp; onClose: () => void; o
   );
 }
 
-function EmpModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState({ name: '', role: '', payType: 'Fijo', amountUsd: '', periodicity: 'QUINCENAL' });
+function EmpModal({ emp, onClose, onSaved }: { emp?: PEmp | null; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({
+    name: emp?.name ?? '',
+    role: emp?.role ?? '',
+    payType: emp?.payType ?? 'Fijo',
+    amountUsd: emp ? String(emp.amountUsd) : '',
+    periodicity: emp?.periodicity ?? 'QUINCENAL',
+    active: emp?.active ?? true,
+  });
   const [busy, setBusy] = useState(false);
+  const monto = Number(f.amountUsd.replace(',', '.'));
   async function save() {
-    if (!f.name.trim() || !f.amountUsd) { toast('Nombre y monto'); return; }
+    if (!f.name.trim() || !f.amountUsd || !Number.isFinite(monto)) { toast('Nombre y monto'); return; }
     setBusy(true);
-    const r = await api(`/admin/contabilidad/nomina/colaboradores`, { method: 'POST', body: JSON.stringify({ name: f.name, role: f.role || undefined, payType: f.payType, amountUsd: Number(f.amountUsd.replace(',', '.')), periodicity: f.periodicity }) }).catch(() => null);
+    const body = JSON.stringify({ name: f.name, role: f.role || undefined, payType: f.payType, amountUsd: monto, periodicity: f.periodicity, ...(emp ? { active: f.active } : {}) });
+    const r = await api(
+      emp ? `/admin/contabilidad/nomina/colaboradores/${emp.id}` : `/admin/contabilidad/nomina/colaboradores`,
+      { method: emp ? 'PATCH' : 'POST', body },
+    ).catch(() => null);
     setBusy(false);
-    if (r) { toast('Colaborador guardado'); onSaved(); } else toast('No se pudo guardar');
+    if (r) { toast(emp ? 'Colaborador actualizado' : 'Colaborador guardado'); onSaved(); } else toast('No se pudo guardar');
   }
   return (
-    <Modal title="Nuevo colaborador" onClose={onClose}>
+    <Modal title={emp ? `Editar a ${emp.name}` : 'Nuevo colaborador'} onClose={onClose}>
       <div className="mb-3"><label className="label">Nombre</label><input className="input w-full" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></div>
       <div className="grid grid-cols-2 gap-3 mb-3">
         <div><label className="label">Cargo</label><input className="input w-full" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} placeholder="Marketing, Soporte…" /></div>
         <div><label className="label">Tipo de pago</label><select className="input w-full" value={f.payType} onChange={(e) => setF({ ...f, payType: e.target.value })}><option>Fijo</option><option>Por proyecto</option></select></div>
       </div>
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        <div><label className="label">Monto</label><input className="input w-full" value={f.amountUsd} onChange={(e) => setF({ ...f, amountUsd: e.target.value })} placeholder="$0,00" /></div>
+      <div className="grid grid-cols-2 gap-3 mb-2">
+        <div><label className="label">Monto por período (USD)</label><input className="input w-full" inputMode="decimal" value={f.amountUsd} onChange={(e) => setF({ ...f, amountUsd: e.target.value })} placeholder="0,00" /></div>
         <div><label className="label">Periodicidad</label><select className="input w-full" value={f.periodicity} onChange={(e) => setF({ ...f, periodicity: e.target.value })}><option>QUINCENAL</option><option>MENSUAL</option><option>PERSONALIZADO</option></select></div>
       </div>
+      {/* Los tres primeros colaboradores se guardaron en PESOS (800.000…) en este
+          campo, que es de dólares: la cascada habría restado 800 mil dólares. */}
+      {Number.isFinite(monto) && monto > 20000 && (
+        <p className="text-xs text-amber-700 mb-3">¿Está en pesos? La contabilidad va en <strong>dólares</strong>: {money(monto)} por {f.periodicity === 'QUINCENAL' ? 'quincena' : 'período'}.</p>
+      )}
+      <p className="text-xs text-mute mb-4">Es el monto de referencia: al generar el pago de cada mes puedes cambiarlo solo para ese mes.</p>
+      {emp && (
+        <label className="flex items-center gap-2 text-sm mb-4"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Activo (entra en los pagos nuevos)</label>
+      )}
       <div className="flex gap-2 justify-end"><button className="btn-ghost rounded-pill" onClick={onClose}>Cancelar</button><button className="btn-primary rounded-pill" disabled={busy} onClick={save}>Guardar</button></div>
     </Modal>
   );
@@ -1154,12 +1190,26 @@ function mesEnCurso(): { desde: string; hasta: string } {
 function GenModal({ emps, onClose, onSaved }: { emps: PEmp[]; onClose: () => void; onSaved: () => void }) {
   const [period, setPeriod] = useState('');
   const [rango, setRango] = useState(mesEnCurso);
-  const [sel, setSel] = useState<Record<string, { on: boolean; bonus: string; ded: string }>>(() => Object.fromEntries(emps.map((e) => [e.id, { on: true, bonus: '', ded: '' }])));
+  // La BASE también se edita aquí: el monto de un colaborador no es el mismo
+  // todos los meses (Sara: «este mes 100.000 y el próximo 300.000»). La ficha
+  // solo da el valor de partida.
+  const [sel, setSel] = useState<Record<string, { on: boolean; base: string; bonus: string; ded: string }>>(() => Object.fromEntries(emps.map((e) => [e.id, { on: true, base: String(e.amountUsd), bonus: '', ded: '' }])));
   const [busy, setBusy] = useState(false);
-  const rowTotal = (e: PEmp) => { const s = sel[e.id]; return e.amountUsd + (Number((s?.bonus || '0').replace(',', '.')) || 0) - (Number((s?.ded || '0').replace(',', '.')) || 0); };
+  const num = (v: string | undefined) => Number((v || '0').replace(',', '.')) || 0;
+  const rowTotal = (e: PEmp) => { const s = sel[e.id]; return num(s?.base) + num(s?.bonus) - num(s?.ded); };
   const total = emps.filter((e) => sel[e.id]?.on).reduce((a, e) => a + rowTotal(e), 0);
+  const cambiar = (id: string, campo: 'on' | 'base' | 'bonus' | 'ded', valor: string | boolean) =>
+    setSel((prev) => ({ ...prev, [id]: { ...(prev[id] ?? { on: true, base: '', bonus: '', ded: '' }), [campo]: valor } }));
+  // Atajo para el caso de siempre: el mes entero, con la quincena contada dos veces.
+  function mesCompleto() {
+    const m = mesEnCurso();
+    const nombre = new Date(`${m.desde}T12:00:00Z`).toLocaleDateString('es-CO', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    setPeriod(`Nómina ${nombre}`);
+    setRango(m);
+    setSel(Object.fromEntries(emps.map((e) => [e.id, { on: true, base: String(e.periodicity === 'QUINCENAL' ? e.amountUsd * 2 : e.amountUsd), bonus: '', ded: '' }])));
+  }
   async function save() {
-    const items = emps.filter((e) => sel[e.id]?.on).map((e) => ({ employeeId: e.id, employeeName: e.name, role: e.role, baseUsd: e.amountUsd, bonusUsd: Number((sel[e.id].bonus || '0').replace(',', '.')) || 0, deductionUsd: Number((sel[e.id].ded || '0').replace(',', '.')) || 0 }));
+    const items = emps.filter((e) => sel[e.id]?.on).map((e) => ({ employeeId: e.id, employeeName: e.name, role: e.role, baseUsd: num(sel[e.id].base), bonusUsd: num(sel[e.id].bonus), deductionUsd: num(sel[e.id].ded) }));
     if (!period.trim() || items.length === 0) { toast('Período y al menos un colaborador'); return; }
     if (!rango.desde || !rango.hasta) { toast('Indica desde y hasta qué día cubre el corte'); return; }
     if (rango.hasta < rango.desde) { toast('El corte no puede terminar antes de empezar'); return; }
@@ -1175,6 +1225,7 @@ function GenModal({ emps, onClose, onSaved }: { emps: PEmp[]; onClose: () => voi
   }
   return (
     <Modal title="Generar pago de nómina" onClose={onClose}>
+      <button className="btn-ghost rounded-pill text-xs mb-3" onClick={mesCompleto}>Mes completo (quincenas × 2)</button>
       <div className="mb-3"><label className="label">Período</label><input className="input w-full" value={period} onChange={(e) => setPeriod(e.target.value)} placeholder="Quincena 1–15 sep 2026" /></div>
       <div className="grid grid-cols-2 gap-3 mb-3">
         <div><label className="label">Desde</label><input type="date" className="input w-full" value={rango.desde} onChange={(e) => setRango({ ...rango, desde: e.target.value })} /></div>
@@ -1182,17 +1233,21 @@ function GenModal({ emps, onClose, onSaved }: { emps: PEmp[]; onClose: () => voi
       </div>
       <p className="text-xs text-mute -mt-2 mb-3">Estas fechas deciden en qué mes contable entra el corte.</p>
       <div className="mb-3">
-        <label className="label">Colaboradores</label>
+        <label className="label">Colaboradores (USD)</label>
         {emps.length === 0 ? <p className="text-mute text-sm">No hay colaboradores activos. Agrega uno primero.</p> : (
-          <div className="flex flex-col gap-2">{emps.map((e) => (
-            <div key={e.id} className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={sel[e.id]?.on ?? false} onChange={(ev) => setSel({ ...sel, [e.id]: { ...(sel[e.id] ?? { bonus: '', ded: '' }), on: ev.target.checked } })} />
-              <span className="flex-1 truncate">{e.name} <span className="text-mute">· {money(e.amountUsd)}</span></span>
-              <input className="input w-20 text-right py-1" placeholder="+bono" value={sel[e.id]?.bonus ?? ''} onChange={(ev) => setSel({ ...sel, [e.id]: { ...(sel[e.id] ?? { on: true, ded: '' }), bonus: ev.target.value } })} />
-              <input className="input w-20 text-right py-1" placeholder="−deduc" value={sel[e.id]?.ded ?? ''} onChange={(ev) => setSel({ ...sel, [e.id]: { ...(sel[e.id] ?? { on: true, bonus: '' }), ded: ev.target.value } })} />
-              <span className="w-20 text-right tabular-nums font-medium">{money(rowTotal(e))}</span>
-            </div>
-          ))}</div>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-mute"><span className="w-4" /><span className="flex-1">Colaborador</span><span className="w-24 text-right">Base</span><span className="w-16 text-right">Bono</span><span className="w-16 text-right">Deduc.</span><span className="w-20 text-right">Total</span></div>
+            {emps.map((e) => (
+              <div key={e.id} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={sel[e.id]?.on ?? false} onChange={(ev) => cambiar(e.id, 'on', ev.target.checked)} />
+                <span className="flex-1 truncate">{e.name}</span>
+                <input className="input w-24 text-right py-1" inputMode="decimal" value={sel[e.id]?.base ?? ''} onChange={(ev) => cambiar(e.id, 'base', ev.target.value)} />
+                <input className="input w-16 text-right py-1" inputMode="decimal" placeholder="+" value={sel[e.id]?.bonus ?? ''} onChange={(ev) => cambiar(e.id, 'bonus', ev.target.value)} />
+                <input className="input w-16 text-right py-1" inputMode="decimal" placeholder="−" value={sel[e.id]?.ded ?? ''} onChange={(ev) => cambiar(e.id, 'ded', ev.target.value)} />
+                <span className="w-20 text-right tabular-nums font-medium">{money(rowTotal(e))}</span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
       <div className="bg-bg2 rounded-lg px-4 py-3 mb-4 flex justify-between font-bold"><span>Total a pagar</span><span>{money(total)}</span></div>
@@ -1225,21 +1280,78 @@ function PayRunModal({ run, onClose, onSaved }: { run: PRun; onClose: () => void
   );
 }
 
-function RunDetailModal({ id, onClose }: { id: string; onClose: () => void }) {
+function RunDetailModal({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
   const [items, setItems] = useState<PItem[] | null>(null);
   const [label, setLabel] = useState('');
-  useEffect(() => {
-    api<{ periodLabel: string; items: PItem[] }>(`/admin/contabilidad/nomina/cortes/${id}`).then((d) => { if (d) { setItems(d.items); setLabel(d.periodLabel); } }).catch(() => setItems([]));
+  const [pagado, setPagado] = useState(0);
+  const [edit, setEdit] = useState<Record<string, { base: string; bonus: string; ded: string }>>({});
+  const [busy, setBusy] = useState(false);
+  const cargar = useCallback(() => {
+    api<{ periodLabel: string; amountPaidUsd: number; items: PItem[] }>(`/admin/contabilidad/nomina/cortes/${id}`)
+      .then((d) => {
+        if (!d) return;
+        setItems(d.items);
+        setLabel(d.periodLabel);
+        setPagado(Number(d.amountPaidUsd) || 0);
+        setEdit(Object.fromEntries(d.items.map((it) => [it.id, { base: String(it.baseUsd), bonus: String(it.bonusUsd), ded: String(it.deductionUsd) }])));
+      })
+      .catch(() => setItems([]));
   }, [id]);
+  useEffect(() => { cargar(); }, [cargar]);
+  const num = (v: string | undefined) => Number((v || '0').replace(',', '.')) || 0;
+  async function guardar(it: PItem) {
+    const e = edit[it.id];
+    setBusy(true);
+    const r = await api<{ ok: boolean }>(`/admin/contabilidad/nomina/cortes/${id}/items/${it.id}`, { method: 'PATCH', body: JSON.stringify({ baseUsd: num(e?.base), bonusUsd: num(e?.bonus), deductionUsd: num(e?.ded) }) }).catch((err: Error) => {
+      // El backend explica por qué (p. ej. un pago ya abonado no puede bajar de lo pagado).
+      toast(err?.message || 'No se pudo guardar');
+      return undefined;
+    });
+    setBusy(false);
+    if (r?.ok) { toast('Monto actualizado'); cargar(); onChanged(); } else if (r !== undefined) toast('No se pudo guardar');
+  }
+  async function quitar(it: PItem) {
+    if (!window.confirm(`¿Quitar a ${it.employeeName} de este pago?`)) return;
+    const r = await api<{ ok: boolean }>(`/admin/contabilidad/nomina/cortes/${id}/items/${it.id}`, { method: 'DELETE' }).catch((err: Error) => {
+      toast(err?.message || 'No se pudo quitar');
+      return undefined;
+    });
+    if (r?.ok) { toast('Quitado del pago'); cargar(); onChanged(); } else if (r !== undefined) toast('No se pudo quitar');
+  }
+  async function borrarCorte() {
+    if (!window.confirm(`¿Borrar el pago «${label}»? Sale de la nómina y de la cascada de ese mes.`)) return;
+    const r = await api<{ ok: boolean }>(`/admin/contabilidad/nomina/cortes/${id}`, { method: 'DELETE' }).catch(() => null);
+    if (r?.ok) { toast('Pago borrado'); onChanged(); onClose(); } else toast('Solo se puede borrar un pago sin abonos');
+  }
+  const cambiado = (it: PItem) => {
+    const e = edit[it.id];
+    return !!e && (num(e.base) !== it.baseUsd || num(e.bonus) !== it.bonusUsd || num(e.ded) !== it.deductionUsd);
+  };
   return (
     <Modal title={`Detalle — ${label || 'corte'}`} onClose={onClose}>
       {items == null ? <p className="text-mute">Cargando…</p> : items.length === 0 ? <p className="text-mute">Sin ítems.</p> : (
-        <table className="w-full text-sm">
-          <thead className="text-mute text-[11px] uppercase"><tr><th className="text-left py-1">Colaborador</th><th className="text-right py-1">Base</th><th className="text-right py-1">Bono</th><th className="text-right py-1">Deduc</th><th className="text-right py-1">Total</th></tr></thead>
-          <tbody>{items.map((it) => (
-            <tr key={it.id} className="border-t border-line2"><td className="py-2">{it.employeeName}{it.role ? <span className="text-mute"> · {it.role}</span> : null}</td><td className="text-right tabular-nums">{money(it.baseUsd)}</td><td className="text-right tabular-nums">{money(it.bonusUsd)}</td><td className="text-right tabular-nums text-bad">{money(it.deductionUsd)}</td><td className="text-right tabular-nums font-medium">{money(it.totalUsd)}</td></tr>
-          ))}</tbody>
-        </table>
+        <>
+          <p className="text-xs text-mute mb-3">Los montos de este pago se pueden corregir: cambian el total del corte y la nómina de su mes, no la ficha del colaborador.</p>
+          <div className="overflow-x-auto"><table className="w-full text-sm min-w-[460px]">
+            <thead className="text-mute text-[11px] uppercase"><tr><th className="text-left py-1">Colaborador</th><th className="text-right py-1">Base</th><th className="text-right py-1">Bono</th><th className="text-right py-1">Deduc</th><th className="text-right py-1">Total</th><th /></tr></thead>
+            <tbody>{items.map((it) => (
+              <tr key={it.id} className="border-t border-line2">
+                <td className="py-2 pr-2">{it.employeeName}{it.role ? <span className="text-mute"> · {it.role}</span> : null}</td>
+                <td className="text-right"><input className="input w-20 text-right py-1" inputMode="decimal" value={edit[it.id]?.base ?? ''} onChange={(ev) => setEdit({ ...edit, [it.id]: { ...edit[it.id], base: ev.target.value } })} /></td>
+                <td className="text-right"><input className="input w-16 text-right py-1" inputMode="decimal" value={edit[it.id]?.bonus ?? ''} onChange={(ev) => setEdit({ ...edit, [it.id]: { ...edit[it.id], bonus: ev.target.value } })} /></td>
+                <td className="text-right"><input className="input w-16 text-right py-1" inputMode="decimal" value={edit[it.id]?.ded ?? ''} onChange={(ev) => setEdit({ ...edit, [it.id]: { ...edit[it.id], ded: ev.target.value } })} /></td>
+                <td className="text-right tabular-nums font-medium">{money(it.totalUsd)}</td>
+                <td className="text-right whitespace-nowrap pl-2">
+                  {cambiado(it) && <button className="text-xs font-semibold text-brand hover:underline mr-2" disabled={busy} onClick={() => void guardar(it)}>Guardar</button>}
+                  <button className="text-xs text-red-600 hover:underline" onClick={() => void quitar(it)}>Quitar</button>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </>
+      )}
+      {items != null && pagado <= 0 && (
+        <div className="flex justify-end mt-4"><button className="text-xs text-red-600 hover:underline" onClick={() => void borrarCorte()}>Borrar este pago</button></div>
       )}
     </Modal>
   );

@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { SoloPlataformaGuard } from './solo-plataforma.guard';
 import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -52,6 +53,7 @@ class RecurringBody {
  * Solo Clubify por defecto (whiteLabelId null); `scope=all` incluye marcas.
  */
 @Roles('SUPER_ADMIN')
+@UseGuards(SoloPlataformaGuard)
 @Controller('admin/contabilidad')
 export class ExpensesController {
   constructor(private expenses: ExpenseService) {}

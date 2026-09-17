@@ -51,6 +51,9 @@ export type Cascada = {
   comisionesPendientesUsd?: number;
   /** Generadas en el período, pagadas o no. */
   comisionesGeneradasUsd?: number;
+  /** Parte del socio: su % del NETO de las ventas de Clubify (no de la utilidad). */
+  socioUsd?: number;
+  socioPorcentaje?: number;
   utilidadUsd: number;
   ingresosCount: number;
   /** Cobros devueltos en el período. No restan: ya no suman. */
@@ -72,6 +75,7 @@ export type Panorama = {
     egresosUsd: number;
     nominaUsd: number;
     comisionesUsd: number;
+    socioUsd?: number;
     utilidadUsd: number;
   }>;
   porPasarela: Array<{ gateway: string; grossUsd: number; count: number }>;
@@ -82,6 +86,7 @@ const COSTO = [
   { k: 'egresosUsd', label: 'Egresos', color: '#eb6834' },
   { k: 'nominaUsd', label: 'Nómina', color: '#1baf7a' },
   { k: 'comisionesUsd', label: 'Comisiones pagadas', color: '#eda100' },
+  { k: 'socioUsd', label: 'Socio', color: '#8b6fd6' },
 ] as const;
 
 /**
@@ -200,7 +205,8 @@ export function PanoramaPeriodo({
   const prev = datos.anterior?.resumen ?? null;
   const contra = nombreAnterior ?? '';
   const feeImp = r.gatewayFeeUsd + r.taxUsd;
-  const costos = feeImp + r.egresosUsd + r.nominaUsd + r.comisionesUsd;
+  const socio = r.socioUsd ?? 0;
+  const costos = feeImp + r.egresosUsd + r.nominaUsd + r.comisionesUsd + socio;
   const margen = r.grossUsd > 0 ? Math.round((r.utilidadUsd / r.grossUsd) * 100) : null;
 
   const partes = [
@@ -208,6 +214,7 @@ export function PanoramaPeriodo({
     { label: COSTO[1].label, color: COSTO[1].color, valor: r.egresosUsd },
     { label: COSTO[2].label, color: COSTO[2].color, valor: r.nominaUsd },
     { label: COSTO[3].label, color: COSTO[3].color, valor: r.comisionesUsd },
+    { label: COSTO[4].label, color: COSTO[4].color, valor: socio },
     {
       label: 'Utilidad',
       color: r.utilidadUsd >= 0 ? '#16A34A' : '#DC2626',
@@ -274,7 +281,7 @@ export function PanoramaPeriodo({
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
         <Tarjeta
-          label="Ventas brutas"
+          label="Ventas realizadas"
           valor={money(r.grossUsd)}
           sub={`${r.ingresosCount} ${r.ingresosCount === 1 ? 'cobro' : 'cobros'}`}
         >
@@ -283,14 +290,14 @@ export function PanoramaPeriodo({
         <Tarjeta label="Neto esperado" valor={money(r.netUsd)} sub="después de fee e impuestos">
           <Variacion actual={r.netUsd} previo={prev?.netUsd} contra={contra} />
         </Tarjeta>
-        <Tarjeta label="Costos del período" valor={money(costos)} sub="fee, impuestos, egresos, nómina y comisiones pagadas">
-          <Variacion actual={costos} previo={prev ? prev.gatewayFeeUsd + prev.taxUsd + prev.egresosUsd + prev.nominaUsd + prev.comisionesUsd : null} contra={contra} masEsMejor={false} />
+        <Tarjeta label="Costos del período" valor={money(costos)} sub="fee, impuestos, egresos, nómina, comisiones pagadas y socio">
+          <Variacion actual={costos} previo={prev ? prev.gatewayFeeUsd + prev.taxUsd + prev.egresosUsd + prev.nominaUsd + prev.comisionesUsd + (prev.socioUsd ?? 0) : null} contra={contra} masEsMejor={false} />
         </Tarjeta>
         <Tarjeta
           destacada
           label="Utilidad"
           valor={money(r.utilidadUsd)}
-          sub={margen == null ? 'sin ventas en el período' : `margen ${margen}% de lo bruto`}
+          sub={margen == null ? 'sin ventas en el período' : `margen ${margen}% de las ventas`}
         >
           <Variacion actual={r.utilidadUsd} previo={prev?.utilidadUsd} contra={contra} />
         </Tarjeta>
@@ -309,7 +316,7 @@ export function PanoramaPeriodo({
                 En qué se va lo que entra
               </div>
               <p className="text-[11px] text-mute mb-3">
-                De <strong className="text-ink">{money(r.grossUsd)}</strong> brutos en{' '}
+                De <strong className="text-ink">{money(r.grossUsd)}</strong> en ventas realizadas en{' '}
                 <span className="capitalize">{nombrePeriodo}</span>.
               </p>
               {totalBarra === 0 ? (
@@ -353,13 +360,26 @@ export function PanoramaPeriodo({
               <div className="text-xs uppercase tracking-wider text-mute font-semibold mb-3">
                 Cascada de utilidad · <span className="capitalize">{nombrePeriodo}</span>
               </div>
-              <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">Ingresos brutos</span><span className="tabular-nums font-medium">{money(r.grossUsd)}</span></div>
+              <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">Ventas realizadas</span><span className="tabular-nums font-medium">{money(r.grossUsd)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Fee pasarela + impuestos</span><span className="tabular-nums text-red-600">−{money(feeImp)}</span></div>
               <div className="flex justify-between py-1.5 text-sm border-t border-line2"><span className="font-semibold">= Neto</span><span className="tabular-nums font-semibold">{money(r.netUsd)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Egresos</span><span className="tabular-nums text-red-600">−{money(r.egresosUsd)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Nómina</span><span className="tabular-nums text-red-600">−{money(r.nominaUsd)}</span></div>
               <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Comisiones pagadas</span><span className="tabular-nums text-red-600">−{money(r.comisionesUsd)}</span></div>
+              {/* El socio va sobre el NETO de las ventas (venta menos la comisión
+                  de la pasarela), no sobre la utilidad: se actualiza con cada
+                  cobro nuevo aunque cambien egresos, nómina o comisiones. */}
+              <div className="flex justify-between py-1.5 text-sm"><span className="text-mute">− Socio ({r.socioPorcentaje ?? 10}% del neto)</span><span className="tabular-nums text-red-600">−{money(socio)}</span></div>
               <div className="flex justify-between py-2.5 mt-1 border-t-2 border-line2"><span className="font-bold">= UTILIDAD</span><span className={`tabular-nums font-bold text-lg ${r.utilidadUsd >= 0 ? 'text-ok' : 'text-red-600'}`}>{money(r.utilidadUsd)}</span></div>
+              {/* La nómina entra por los PAGOS generados del mes, no por la
+                  ficha de cada colaborador: el monto cambia de un mes a otro.
+                  Un mes con ventas y sin pago generado restaba $0 en silencio
+                  y la utilidad salía inflada. */}
+              {r.nominaUsd === 0 && r.grossUsd > 0 && (
+                <p className="text-[11px] text-amber-700 mt-2">
+                  Este mes todavía no tiene nómina: se resta cuando generas su pago en la pestaña <strong>Nómina</strong>.
+                </p>
+              )}
               <p className="text-[11px] text-mute mt-2">
                 Neto recibido y conciliado: <strong className="text-ink">{money(r.netReceivedUsd)}</strong>.
               </p>
@@ -427,7 +447,7 @@ export function PanoramaPeriodo({
                   />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
                   <Bar
-                    name="Ingresos brutos"
+                    name="Ventas realizadas"
                     dataKey="grossUsd"
                     fill="#2a78d6"
                     radius={[4, 4, 0, 0]}

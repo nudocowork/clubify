@@ -14,6 +14,7 @@ import { ExpenseService } from './expense.service';
 import { enRango, enRangoConRespaldo } from './where-periodo';
 import { SOLO_LO_COBRADO } from './categorias-de-ingreso';
 import { alcanceDeMarca, combinar } from './alcance-de-marca';
+import { NO_ES_COMISION_DEL_SOCIO, parteDelSocio, porcentajeDelSocio } from './socio';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -22,7 +23,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * (Cierres). Cascada de utilidad, DERIVADA en lectura (no persiste nada):
  *
  *   Bruto − (Fee pasarela + Impuestos) = Neto
- *   Neto − Egresos − Nómina − Comisiones PAGADAS = UTILIDAD
+ *   Neto − Egresos − Nómina − Comisiones PAGADAS − Socio = UTILIDAD
+ *
+ * El socio se lleva un porcentaje del NETO de las ventas, no de la utilidad
+ * (ver `socio.ts`).
  *
  * Las comisiones entran por lo PAGADO (fecha de pago), no por lo generado:
  * una comisión aprobada y sin pagar es deuda, no un egreso ya realizado, y
@@ -47,6 +51,9 @@ export interface FinancialSummary {
   comisionesPendientesUsd: number;
   /** Comisiones generadas en el período, pagadas o no. */
   comisionesGeneradasUsd: number;
+  /** Parte del socio: `socioPorcentaje` % del neto de las ventas de Clubify. */
+  socioUsd: number;
+  socioPorcentaje: number;
   utilidadUsd: number;
   ingresosCount: number;
   /** Cobros devueltos en el período (no restan; se informan aparte). */
@@ -72,7 +79,7 @@ export class FinanceReportService {
   ): Promise<FinancialSummary> {
     const wl = await alcanceDeMarca(this.prisma, onlyClubify);
     const rango = { from, to };
-    const [inc, exp, runs, comms, pagadas] = await Promise.all([
+    const [inc, exp, runs, comms, pagadas, socioPorcentaje, ventasClubify] = await Promise.all([
       this.income.summary({ from, to, onlyClubify }),
       this.expense.summary({ from, to, onlyClubify }),
       this.prisma.payrollRun.findMany({
@@ -82,6 +89,7 @@ export class FinanceReportService {
       this.prisma.commission.findMany({
         where: {
           status: { not: 'REJECTED' },
+          ...NO_ES_COMISION_DEL_SOCIO,
           ...enRangoConRespaldo('businessDate', rango),
         },
         select: { amount: true, amountPaid: true, paymentStatus: true },
@@ -94,11 +102,22 @@ export class FinanceReportService {
         where: {
           status: { not: 'REJECTED' },
           paymentStatus: 'PAID',
+          ...NO_ES_COMISION_DEL_SOCIO,
           ...enRango('paidAt', rango),
         },
         select: { amountPaid: true },
       }),
+      porcentajeDelSocio(this.prisma),
+      // El socio es de Clubify: con «todas las marcas» su base sigue siendo el
+      // neto de Clubify, no el de las marcas blancas.
+      onlyClubify
+        ? Promise.resolve(null)
+        : this.income.summary({ from, to, onlyClubify: true }),
     ]);
+    const socioUsd = parteDelSocio(
+      (ventasClubify ?? inc).netExpectedUsd,
+      socioPorcentaje,
+    );
     const nominaUsd = round2(
       runs.reduce((a, r) => a + Number(r.totalUsd), 0),
     );
@@ -118,7 +137,7 @@ export class FinanceReportService {
       pagadas.reduce((a, c) => a + Number(c.amountPaid), 0),
     );
     const utilidadUsd = round2(
-      inc.netExpectedUsd - exp.totalUsd - nominaUsd - comisionesUsd,
+      inc.netExpectedUsd - exp.totalUsd - nominaUsd - comisionesUsd - socioUsd,
     );
     return {
       grossUsd: inc.grossUsd,
@@ -131,6 +150,8 @@ export class FinanceReportService {
       comisionesUsd,
       comisionesPendientesUsd,
       comisionesGeneradasUsd,
+      socioUsd,
+      socioPorcentaje,
       utilidadUsd,
       ingresosCount: inc.count,
       refundedUsd: inc.refundedUsd,
@@ -155,6 +176,7 @@ export class FinanceReportService {
       egresosUsd: number;
       nominaUsd: number;
       comisionesUsd: number;
+      socioUsd: number;
       utilidadUsd: number;
     }>
   > {
@@ -170,6 +192,7 @@ export class FinanceReportService {
         egresosUsd: s.egresosUsd,
         nominaUsd: s.nominaUsd,
         comisionesUsd: s.comisionesUsd,
+        socioUsd: s.socioUsd,
         utilidadUsd: s.utilidadUsd,
       });
     }
@@ -223,7 +246,7 @@ export class FinanceReportService {
     const rango = { from: desde, to: hasta };
     const wl = await alcanceDeMarca(this.prisma, onlyClubify);
 
-    const [ingresos, egresos, cortes, comisiones] = await Promise.all([
+    const [ingresos, egresos, cortes, comisiones, socioPorcentaje, ventasClubify] = await Promise.all([
       this.prisma.incomeRecord.findMany({
         where: combinar(wl, SOLO_LO_COBRADO, enRango('saleDate', rango)),
         select: {
@@ -248,15 +271,27 @@ export class FinanceReportService {
         where: {
           status: { not: 'REJECTED' },
           paymentStatus: 'PAID',
+          ...NO_ES_COMISION_DEL_SOCIO,
           ...enRango('paidAt', rango),
         },
         select: { paidAt: true, amountPaid: true },
       }),
+      porcentajeDelSocio(this.prisma),
+      // Base del socio con «todas las marcas»: solo las ventas de Clubify. Con
+      // el alcance Clubify ya son las mismas filas de `ingresos`.
+      onlyClubify
+        ? Promise.resolve(null)
+        : alcanceDeMarca(this.prisma, true).then((clubify) =>
+            this.prisma.incomeRecord.findMany({
+              where: combinar(clubify, SOLO_LO_COBRADO, enRango('saleDate', rango)),
+              select: { saleDate: true, netExpectedUsd: true },
+            }),
+          ),
     ]);
 
     const vacio = () => ({
       grossUsd: 0, gatewayFeeUsd: 0, taxUsd: 0, netUsd: 0,
-      egresosUsd: 0, nominaUsd: 0, comisionesUsd: 0,
+      egresosUsd: 0, nominaUsd: 0, comisionesUsd: 0, netoClubifyUsd: 0,
     });
     const cubos = new Map(meses.map((m) => [m, vacio()]));
     const cubo = (fecha: Date) => cubos.get(mesContable(fecha));
@@ -268,6 +303,11 @@ export class FinanceReportService {
       c.gatewayFeeUsd += Number(i.gatewayFeeUsd);
       c.taxUsd += Number(i.taxUsd);
       c.netUsd += Number(i.netExpectedUsd);
+      if (!ventasClubify) c.netoClubifyUsd += Number(i.netExpectedUsd);
+    }
+    for (const v of ventasClubify ?? []) {
+      const c = cubo(v.saleDate);
+      if (c) c.netoClubifyUsd += Number(v.netExpectedUsd);
     }
     for (const e of egresos) {
       const c = cubo(e.expenseDate);
@@ -285,8 +325,9 @@ export class FinanceReportService {
 
     return meses.map((period) => {
       const c = cubos.get(period)!;
+      const socioUsd = parteDelSocio(c.netoClubifyUsd, socioPorcentaje);
       const utilidadUsd = round2(
-        c.netUsd - c.egresosUsd - c.nominaUsd - c.comisionesUsd,
+        c.netUsd - c.egresosUsd - c.nominaUsd - c.comisionesUsd - socioUsd,
       );
       return {
         period,
@@ -297,6 +338,7 @@ export class FinanceReportService {
         egresosUsd: round2(c.egresosUsd),
         nominaUsd: round2(c.nominaUsd),
         comisionesUsd: round2(c.comisionesUsd),
+        socioUsd,
         utilidadUsd,
       };
     });
@@ -345,6 +387,7 @@ export class FinanceReportService {
     const filas = await this.prisma.commission.findMany({
       where: {
         status: { not: 'REJECTED' },
+        ...NO_ES_COMISION_DEL_SOCIO,
         ...enRangoConRespaldo('businessDate', rango),
       },
       select: {
@@ -433,6 +476,7 @@ export class FinanceReportService {
       egresosUsd: s.egresosUsd,
       nominaUsd: s.nominaUsd,
       comisionesUsd: s.comisionesUsd,
+      socioUsd: s.socioUsd,
       utilidadUsd: s.utilidadUsd,
       note: note ?? null,
       closedByUserId: userId,

@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { IsArray, IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { SoloPlataformaGuard } from './solo-plataforma.guard';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PayrollService, RunItemInput } from './payroll.service';
@@ -13,8 +14,20 @@ class EmployeeBody {
   @IsString() periodicity!: string;
   @IsOptional() @IsString() note?: string;
 }
-class EmployeeActiveBody {
-  @IsBoolean() active!: boolean;
+/** Todo opcional: sirve para activar/desactivar Y para editar la ficha. */
+class EmployeePatchBody {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() role?: string;
+  @IsOptional() @IsString() payType?: string;
+  @IsOptional() @IsNumber() @Min(0) amountUsd?: number;
+  @IsOptional() @IsString() periodicity?: string;
+  @IsOptional() @IsBoolean() active?: boolean;
+  @IsOptional() @IsString() note?: string;
+}
+class RunItemPatchBody {
+  @IsOptional() @IsNumber() @Min(0) baseUsd?: number;
+  @IsOptional() @IsNumber() @Min(0) bonusUsd?: number;
+  @IsOptional() @IsNumber() @Min(0) deductionUsd?: number;
 }
 class RunBody {
   @IsString() periodLabel!: string;
@@ -32,6 +45,7 @@ class PayRunBody {
 
 /** CONTABILIDAD — Fase 3. Nómina: colaboradores + cortes + pagos parciales. */
 @Roles('SUPER_ADMIN')
+@UseGuards(SoloPlataformaGuard)
 @Controller('admin/contabilidad/nomina')
 export class PayrollController {
   constructor(private payroll: PayrollService) {}
@@ -53,8 +67,13 @@ export class PayrollController {
   }
 
   @Patch('colaboradores/:id')
-  empleadoActivo(@Param('id') id: string, @Body() body: EmployeeActiveBody) {
-    return this.payroll.setEmployeeActive(id, body.active);
+  editarEmpleado(@Param('id') id: string, @Body() body: EmployeePatchBody) {
+    return this.payroll.updateEmployee(id, body);
+  }
+
+  @Delete('colaboradores/:id')
+  eliminarEmpleado(@Param('id') id: string) {
+    return this.payroll.deleteEmployee(id);
   }
 
   // ── Cortes ──
@@ -71,6 +90,25 @@ export class PayrollController {
   @Post('cortes')
   generarCorte(@Body() body: RunBody, @CurrentUser() user: AuthUser) {
     return this.payroll.generateRun({ ...body, actorId: user?.id ?? null });
+  }
+
+  @Patch('cortes/:id/items/:itemId')
+  editarItem(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() body: RunItemPatchBody,
+  ) {
+    return this.payroll.updateRunItem(id, itemId, body);
+  }
+
+  @Delete('cortes/:id/items/:itemId')
+  quitarItem(@Param('id') id: string, @Param('itemId') itemId: string) {
+    return this.payroll.deleteRunItem(id, itemId);
+  }
+
+  @Delete('cortes/:id')
+  borrarCorte(@Param('id') id: string) {
+    return this.payroll.deleteRun(id);
   }
 
   @Patch('cortes/:id/pago')

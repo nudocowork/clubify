@@ -6,8 +6,9 @@ import {
   Param,
   Patch,
   Post,
-  Query,
+  Query, UseGuards,
 } from '@nestjs/common';
+import { SoloPlataformaGuard } from './solo-plataforma.guard';
 import { IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { PaymentGateway } from '@prisma/client';
 import { IncomeRecordService } from './income-record.service';
@@ -43,6 +44,7 @@ class CerrarMesBody {
  *
  * Todo es SUPER_ADMIN: son datos financieros de la empresa.
  */
+@UseGuards(SoloPlataformaGuard)
 @Controller('admin/contabilidad')
 export class FinanceController {
   constructor(
