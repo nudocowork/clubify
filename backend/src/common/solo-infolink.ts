@@ -28,6 +28,7 @@ export type SeccionDeConfiguracion =
   | 'nombreDelNegocio'
   | 'politicaDeDatos'
   | 'telefonoDeReservas'
+  | 'telefonosDePedidos'
   | 'idioma'
   | 'contrasena'
   | 'alertasDePago'
@@ -45,6 +46,9 @@ export type SeccionDeConfiguracion =
  *   politicaDeDatos          → el PDF de tratamiento de datos solo se enseña en
  *                              el registro de la TARJETA de fidelización.
  *   telefonoDeReservas       → módulo Reservas.
+ *   telefonosDePedidos       → a quién avisa el sistema de un pedido y a qué
+ *                              WhatsApp escribe el cliente: un negocio de solo
+ *                              InfoLink no tiene menú ni pedidos.
  *   alertasDePago            → solo se esconde el interruptor y el teléfono
  *                              alterno. El aviso de un cobro fallido sigue
  *                              saliendo por SMS al teléfono del dueño, que
@@ -63,6 +67,7 @@ export const SECCIONES_CONFIG_OCULTAS_SOLO_INFOLINK: readonly SeccionDeConfigura
   [
     'politicaDeDatos',
     'telefonoDeReservas',
+    'telefonosDePedidos',
     'alertasDePago',
     'paisYMoneda',
     'sellosPorDia',

@@ -1409,7 +1409,16 @@
     "onbRevoked": "Token revocado",
     "testSmsSent": "WhatsApp de prueba enviado a {phone}",
     "testSmsFailed": "Falló: {detail}",
-    "noDetail": "sin detalle"
+    "noDetail": "sin detalle",
+    "ordersPhonesTitle": "Números de los pedidos",
+    "ordersPhonesDesc": "A quién le avisa el sistema cuando entra un pedido, y a qué WhatsApp escribe el cliente al terminarlo.",
+    "orderAlertPhoneLabel": "Número que recibe el aviso del pedido",
+    "orderAlertPhoneHint": "Con código de país (ej. +57). Ahí llega el SMS con el pedido, el total y la sede. OJO: si pones uno, recibe los avisos de TODAS las sedes, también las que tienen número propio. Déjalo vacío para que cada sede reciba los suyos.",
+    "orderAlertEnabled": "Avisarme por SMS de cada pedido nuevo",
+    "ordersWaPhoneLabel": "WhatsApp al que escribe el cliente",
+    "ordersWaPhoneHint": "Al terminar su pedido, el cliente abre WhatsApp con este número y el detalle ya escrito. Si la sede tiene el suyo en Sedes, manda el de la sede.",
+    "ordersPhonesSedeHint": "Cada sede puede tener sus propios números en Sedes. El WhatsApp del cliente sale primero del de la sede; el aviso por SMS sale del de arriba si lo pones, y si no, del de la sede.",
+    "ordersPhonesSaved": "Números de pedidos guardados"
   },
   "app_reviews": {
     "pageTitle": "Reseña de Google",

@@ -1409,7 +1409,16 @@
     "onbRevoked": "Token revoked",
     "testSmsSent": "Test WhatsApp sent to {phone}",
     "testSmsFailed": "Failed: {detail}",
-    "noDetail": "no detail"
+    "noDetail": "no detail",
+    "ordersPhonesTitle": "Order phone numbers",
+    "ordersPhonesDesc": "Who gets the alert when an order comes in, and which WhatsApp the customer writes to when they finish it.",
+    "orderAlertPhoneLabel": "Number that receives the order alert",
+    "orderAlertPhoneHint": "With country code (e.g. +57). The SMS with the order, the total and the location arrives there. Careful: if you set one, it gets the alerts for EVERY location, including those with their own number. Leave it empty so each location gets its own.",
+    "orderAlertEnabled": "Text me about every new order",
+    "ordersWaPhoneLabel": "WhatsApp the customer writes to",
+    "ordersWaPhoneHint": "When they finish, the customer opens WhatsApp with this number and the order already written. If the location has its own under Locations, that one wins.",
+    "ordersPhonesSedeHint": "Each location can have its own numbers under Locations. The customer WhatsApp comes from the location first; the SMS alert comes from the number above if you set one, otherwise from the location.",
+    "ordersPhonesSaved": "Order numbers saved"
   },
   "app_reviews": {
     "pageTitle": "Google Reviews",

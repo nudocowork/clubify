@@ -8,6 +8,45 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-17 (47) — Los dos números de un pedido, por fin en el panel
+
+**Qué:** Javier: «estoy buscando dónde colocar a dónde llega la notificación
+para que llegue al negocio cuando se hace un pedido y no lo veo. Es necesario
+poder colocar número de notificación y número al cual quiero que redirija el
+sistema para que el cliente también envíe el mensaje». Backend y frontend, sin
+migración.
+
+**Por qué no lo encontraba:** no existía. `Tenant.ownerOrderAlertsPhone` y
+`ownerOrderAlertsEnabled` estaban en la base y los usaba el SMS del pedido desde
+siempre, pero **no había pantalla ni DTO**: solo se podían poner escribiendo en
+la base. Y `whatsappOrdersPhone` —a qué WhatsApp escribe el cliente— solo se
+podía editar desde el panel de ADMIN de Clubify: el negocio únicamente lo tenía
+por sede. En producción: 0 negocios con número de aviso puesto, 5 con WhatsApp
+de pedidos.
+
+**Ahora,** en Ajustes → «Números de los pedidos» (sección `telefonosDePedidos`,
+escondida en negocios de solo InfoLink, con su espejo en el backend):
+
+- **Número que recibe el aviso del pedido** + interruptor.
+- **WhatsApp al que escribe el cliente.**
+
+Esto también cierra de raíz lo de **UNICO Outlet** (La Gloriosa): pueden poner el
+número de esa sede sin depender de nosotros.
+
+### Revisión de Fable
+
+**DESPLEGAR CON CAMBIOS**, aplicado: el texto de ayuda decía que la sede manda
+sobre el número del aviso, y es al revés. La cascada del SMS es
+`ownerOrderAlertsPhone → sede → whatsappOrdersPhone → whatsappPhone → phone →
+dueño`: **si el negocio pone el número del aviso, recibe los pedidos de TODAS las
+sedes** y las que tienen número propio dejan de recibirlos. Para el WhatsApp del
+cliente sí manda la sede. Los textos (es/en/pt) ahora lo dicen así, por campo.
+
+Verificado por Fable: `updateMine` persiste los tres campos, `getMine` los
+devuelve, los dos espejos de `solo-infolink` quedaron idénticos, y el SMS sí
+lleva cliente, total y sede. Nota preexistente: el personal (TENANT_STAFF) puede
+cambiar estos números, igual que los demás de Ajustes; «Solo pedidos» no.
+
 ## 2026-09-17 (44) — Pedidos: los que no le llegaban a nadie, «¿Sumas sello?» que no sumaba desde agosto y «Mis pedidos» que no encontraba a uno de cada cuatro
 
 **Qué:** doce fallos de pedidos del arqueo de esta madrugada. **Solo backend.**

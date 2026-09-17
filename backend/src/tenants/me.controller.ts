@@ -27,7 +27,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { TenantsService } from './tenants.service';
+import { TenantsService, type UpdateMyTenantDto } from './tenants.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -105,6 +105,52 @@ class UpdateMyBody {
   // M4: máximo de sellos/visitas que un mismo pass puede recibir en 24h.
   // null = 1 (default histórico). Rango razonable 1-10 para evitar abuso.
   @IsOptional() @IsInt() @Min(1) @Max(20) maxStampsPerDay?: number;
+  // Aviso de PEDIDO al negocio. Existía en la base y lo usaba el SMS, pero no
+  // había forma de ponerlo desde ninguna pantalla: el negocio no sabía a qué
+  // número le llegaba el aviso ni podía cambiarlo (Javier, 2026-09-17).
+  @IsOptional() @IsBoolean() ownerOrderAlertsEnabled?: boolean;
+  @IsOptional() @IsString() ownerOrderAlertsPhone?: string;
+}
+
+/**
+ * Los campos de teléfono del negocio que se editan desde Ajustes.
+ *
+ * Todos son destinos que alguien lee en cascada («si no hay este, el
+ * siguiente»). Ver `telefonosVaciosANull`.
+ */
+const CAMPOS_DE_TELEFONO = [
+  'phone',
+  'ownerOrderAlertsPhone',
+  'whatsappPhone',
+  'whatsappOrdersPhone',
+  'whatsappDeliveryPhone',
+  'whatsappReservationsPhone',
+  'reviewAlertsPhone',
+  'billingAlertsPhone',
+  'whatsappFeedbackNumber',
+] as const;
+
+/**
+ * Un teléfono vaciado en Ajustes se guarda como NULL, no como `''`.
+ *
+ * El formulario manda `''` al borrar un campo. Guardado tal cual, rompía toda
+ * cascada armada con `??` —que no salta `''`—: La Gloriosa tenía
+ * `whatsappPhone = ''` y los pedidos de su sede sin número no le llegaban a
+ * nadie (9 negocios así en producción el 2026-09-17). Las cadenas de pedidos
+ * ya no dependen de esto, pero hay más cascadas en el código (reseñas,
+ * reservas, cobros): que el dato nazca bien es lo que las protege a todas.
+ *
+ * Solo toca los campos que LLEGAN: uno ausente sigue ausente, para no borrar
+ * un número guardado por no haberlo mandado.
+ */
+export function telefonosVaciosANull<T extends object>(body: T): T {
+  const limpio = { ...body } as Record<string, unknown>;
+  for (const campo of CAMPOS_DE_TELEFONO) {
+    if (!(campo in limpio)) continue;
+    const v = limpio[campo];
+    if (typeof v === 'string') limpio[campo] = v.trim() || null;
+  }
+  return limpio as T;
 }
 
 // Body opcional del test de alertas de domicilio: permite probar los teléfonos
@@ -417,7 +463,13 @@ export class TenantMeController {
   @Patch()
   update(@CurrentUser() user: AuthUser, @Body() body: UpdateMyBody) {
     if (!user.tenantId) throw new ForbiddenException();
-    return this.svc.updateMine(user.tenantId, body);
+    // El cast es porque `UpdateMyTenantDto` (tenants.service) tipa los
+    // teléfonos como `string` sin null; la columna sí es nullable y Prisma
+    // acepta null. Ver `telefonosVaciosANull`.
+    return this.svc.updateMine(
+      user.tenantId,
+      telefonosVaciosANull(body) as UpdateMyTenantDto,
+    );
   }
 
   /**

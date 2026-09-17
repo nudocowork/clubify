@@ -31,6 +31,8 @@ type TenantMe = {
   dataPolicyUrl?: string | null;
   whatsappPhone: string | null;
   whatsappOrdersPhone: string | null;
+  ownerOrderAlertsEnabled?: boolean;
+  ownerOrderAlertsPhone?: string | null;
   whatsappDeliveryPhone: string | null;
   whatsappReservationsPhone: string | null;
   mainSectionLabelOverride: string | null;
@@ -200,6 +202,11 @@ export default function SettingsPage() {
 
   // #1 (PDF Software 2026-06-29): número receptor de avisos de reservas.
   const [resvPhone, setResvPhone] = useState<string>('');
+  const [ordAlertPhone, setOrdAlertPhone] = useState('');
+  const [ordWaPhone, setOrdWaPhone] = useState('');
+  const [ordAlerts, setOrdAlerts] = useState(true);
+  const [savingOrd, setSavingOrd] = useState(false);
+  const [ordMsg, setOrdMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [savingResv, setSavingResv] = useState(false);
   const [resvMsg, setResvMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [testingResv, setTestingResv] = useState(false);
@@ -235,6 +242,9 @@ export default function SettingsPage() {
         setBrandNameDraft(t.brandName ?? '');
         setDataPolicyUrl(t.dataPolicyUrl ?? '');
         setResvPhone(t.whatsappReservationsPhone ?? '');
+        setOrdAlertPhone(t.ownerOrderAlertsPhone ?? '');
+        setOrdWaPhone(t.whatsappOrdersPhone ?? '');
+        setOrdAlerts(t.ownerOrderAlertsEnabled !== false);
         const { mode, custom } = detectMainMode(t.mainSectionLabelOverride);
         setSectionMode(mode);
         setSectionCustom(custom);
@@ -378,6 +388,38 @@ export default function SettingsPage() {
       setProfileMsg({ ok: false, text: e.message || t('couldNotUpdate') });
     } finally {
       setSavingProfile(false);
+    }
+  }
+
+  /**
+   * Los dos números de un pedido, que son distintos y se confundían:
+   *  · a quién le AVISA el sistema por SMS cuando entra un pedido;
+   *  · a qué WhatsApp escribe el CLIENTE al terminar su pedido.
+   * El del aviso no se podía poner desde ninguna pantalla (Javier, 2026-09-17).
+   * Cada sede puede tener el suyo; esto es el del negocio, que es al que se cae
+   * cuando la sede no tiene.
+   */
+  async function saveOrderPhones(e: React.FormEvent) {
+    e.preventDefault();
+    setOrdMsg(null);
+    setSavingOrd(true);
+    try {
+      const updated = await api<TenantMe>('/tenants/me', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          ownerOrderAlertsEnabled: ordAlerts,
+          ownerOrderAlertsPhone: ordAlertPhone.trim(),
+          whatsappOrdersPhone: ordWaPhone.trim(),
+        }),
+      });
+      setTenant(updated);
+      setOrdAlertPhone(updated.ownerOrderAlertsPhone ?? '');
+      setOrdWaPhone(updated.whatsappOrdersPhone ?? '');
+      setOrdMsg({ ok: true, text: t('ordersPhonesSaved') });
+    } catch (err: any) {
+      setOrdMsg({ ok: false, text: err?.message || t('couldNotSave') });
+    } finally {
+      setSavingOrd(false);
     }
   }
 
@@ -682,6 +724,63 @@ export default function SettingsPage() {
           <div className="mt-4 flex justify-end">
             <button type="submit" className="btn-primary" disabled={savingDataPolicy}>
               {savingDataPolicy ? t('saving') : t('dataPolicySave')}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Los dos números de un pedido. El del AVISO no estaba en ninguna
+          pantalla: solo se podía poner en la base, y el negocio no sabía
+          adónde le llegaba (Javier, 2026-09-17). */}
+      {verSeccion('telefonosDePedidos') && (
+        <form
+          id="pedidos"
+          onSubmit={saveOrderPhones}
+          className="card card-pad mb-4 scroll-mt-20"
+        >
+          <h2 className="text-base font-semibold m-0">{t('ordersPhonesTitle')}</h2>
+          <p className="text-xs text-mute mt-1">{t('ordersPhonesDesc')}</p>
+          <div className="mt-4 grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="label">{t('orderAlertPhoneLabel')}</label>
+              <PhoneInput
+                value={ordAlertPhone}
+                onChange={(v) => setOrdAlertPhone(v)}
+                defaultCountry={country}
+              />
+              <p className="text-[11px] text-mute mt-1">{t('orderAlertPhoneHint')}</p>
+              <label className="flex items-center gap-2 text-sm mt-2">
+                <input
+                  type="checkbox"
+                  checked={ordAlerts}
+                  onChange={(e) => setOrdAlerts(e.target.checked)}
+                />
+                {t('orderAlertEnabled')}
+              </label>
+            </div>
+            <div>
+              <label className="label">{t('ordersWaPhoneLabel')}</label>
+              <PhoneInput
+                value={ordWaPhone}
+                onChange={(v) => setOrdWaPhone(v)}
+                defaultCountry={country}
+              />
+              <p className="text-[11px] text-mute mt-1">{t('ordersWaPhoneHint')}</p>
+            </div>
+          </div>
+          <p className="text-[11px] text-mute mt-3">{t('ordersPhonesSedeHint')}</p>
+          {ordMsg && (
+            <div
+              className={`mt-3 text-sm rounded-lg px-3 py-2 ${
+                ordMsg.ok ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad-ink'
+              }`}
+            >
+              {ordMsg.text}
+            </div>
+          )}
+          <div className="mt-4 flex justify-end">
+            <button type="submit" className="btn-primary" disabled={savingOrd}>
+              {savingOrd ? t('saving') : t('save')}
             </button>
           </div>
         </form>

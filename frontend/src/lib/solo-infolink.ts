@@ -18,6 +18,7 @@ export type SeccionDeConfiguracion =
   | 'nombreDelNegocio'
   | 'politicaDeDatos'
   | 'telefonoDeReservas'
+  | 'telefonosDePedidos'
   | 'idioma'
   | 'contrasena'
   | 'alertasDePago'
@@ -37,6 +38,7 @@ export const SECCIONES_CONFIG_OCULTAS_SOLO_INFOLINK: readonly SeccionDeConfigura
   [
     'politicaDeDatos',
     'telefonoDeReservas',
+    'telefonosDePedidos',
     'alertasDePago',
     'paisYMoneda',
     'sellosPorDia',
