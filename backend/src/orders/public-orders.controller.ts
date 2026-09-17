@@ -53,6 +53,12 @@ class PublicCustomer {
 class PublicOrderItem {
   @IsString() productId!: string;
   @IsOptional() @IsString() variantId?: string;
+  // Multi-selección de variantes (productos con maxVariantsTotal >= 2). El
+  // storefront las manda y el servicio sabe cobrarlas, pero sin declararlas
+  // aquí el ValidationPipe (forbidNonWhitelisted) tumbaba el pedido entero con
+  // «property variantIds should not exist» al pulsar «Pedir». Mismos
+  // validadores que en el pedido manual del panel (`ManualOrderItem`).
+  @IsOptional() @IsArray() @IsString({ each: true }) variantIds?: string[];
   @IsOptional() @IsArray() extraIds?: string[];
   @IsInt() @Min(1) qty!: number;
   @IsOptional() @IsString() note?: string;

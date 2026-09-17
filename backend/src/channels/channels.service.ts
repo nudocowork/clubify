@@ -4,6 +4,66 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { customerPaymentLabel } from '../common/customer-payment';
 import { oficinaDelPedido } from '../orders/pedido-en-oficina';
+import { primerTelefono } from '../orders/primer-telefono';
+import { brandEmailPanelUrl } from '../email/brand-email-creds.util';
+
+/**
+ * El negocio con su marca, para el mensaje del pedido. La marca es opcional en
+ * el TIPO porque no todos los llamadores la cargan, pero sin ella el enlace
+ * «Ver pedido» se omite: ver `enlaceDelPedido`.
+ */
+export type TenantConMarca = Tenant & {
+  whiteLabel?: {
+    slug?: string | null;
+    domain?: string | null;
+    appDomain?: string | null;
+  } | null;
+};
+
+/**
+ * Lo único del negocio que necesita el mensaje al domiciliario.
+ *
+ * Es un tipo acotado a propósito: `accept-delivery-payment` cargaba la fila
+ * ENTERA del negocio para armar este mensaje y la devolvía en la respuesta,
+ * con `growBusinessApiKey` en claro. Pidiendo solo esto, no hay fila entera
+ * que se pueda colar.
+ */
+export const NEGOCIO_PARA_EL_DOMICILIARIO = {
+  brandName: true,
+  currency: true,
+  currencySymbol: true,
+  whatsappDeliveryPhone: true,
+} as const;
+export type NegocioParaElDomiciliario = Pick<
+  Tenant,
+  'brandName' | 'currency' | 'currencySymbol' | 'whatsappDeliveryPhone'
+>;
+
+/** Slug de la marca de la plataforma: la única que puede caer a `APP_URL`. */
+const MARCA_PLATAFORMA = 'clubify';
+
+/**
+ * `https://<panel de su marca>/o/<código>`, o null si no hay a dónde llevar.
+ *
+ * - Marca con dominio propio → su dominio.
+ * - Negocio de la plataforma (sin marca, o la marca `clubify`) → `APP_URL`,
+ *   que es su casa.
+ * - Marca blanca SIN dominio, o marca que no se cargó → null. Nunca se cae a
+ *   `soyclubify.com`: un enlace de Clubify en el pedido de un negocio de otra
+ *   marca delata la plataforma. Sin enlace, el mensaje sigue siendo útil.
+ */
+export function enlaceDelPedido(tenant: TenantConMarca, code: string): string | null {
+  const marca = tenant.whiteLabel ?? null;
+  // Tiene marca pero no vino cargada: no hay forma de saber cuál es, y adivinar
+  // «plataforma» es exactamente la fuga.
+  if (tenant.whiteLabelId && !marca) return null;
+  const esPlataforma = !tenant.whiteLabelId || marca?.slug === MARCA_PLATAFORMA;
+  const base = brandEmailPanelUrl(marca, {
+    isPlatform: esPlataforma,
+    fallbackAppUrl: process.env.APP_URL ?? 'https://app.soyclubify.com',
+  });
+  return base ? `${base}/o/${code}` : null;
+}
 
 /**
  * Adapter de canales. En MVP soporta:
@@ -22,20 +82,25 @@ export class ChannelsService {
    *  número de pedidos de esa sede (cae a su adminPhone, luego al número del
    *  negocio). Nunca se pierde el pedido: siempre hay un fallback. */
   generateWaMeOwner(
-    tenant: Tenant,
+    tenant: TenantConMarca,
     order: Order,
     customer: Customer,
     location?: Location | null,
   ): string {
     // Prioridad: número de pedidos de la SEDE → adminPhone de la sede →
     // número de pedidos del negocio → whatsappPhone → phone.
+    //
+    // Con `primerTelefono` y no con `??`: un campo guardado como `''` paraba
+    // la cadena y el enlace salía vacío. Le pasaba a La Gloriosa
+    // (`whatsappPhone = ''`) en la sede sin número propio.
     const phone = (
-      location?.ordersWhatsappPhone ??
-      location?.adminPhone ??
-      tenant.whatsappOrdersPhone ??
-      tenant.whatsappPhone ??
-      tenant.phone ??
-      ''
+      primerTelefono(
+        location?.ordersWhatsappPhone,
+        location?.adminPhone,
+        tenant.whatsappOrdersPhone,
+        tenant.whatsappPhone,
+        tenant.phone,
+      ) ?? ''
     ).replace(/\D/g, '');
     if (!phone) return '';
 
@@ -118,6 +183,14 @@ export class ChannelsService {
       order.customerPaymentOther,
     );
 
+    // EL ENLACE ES DEL DOMINIO DE SU MARCA, O NO HAY ENLACE.
+    //
+    // Era `${APP_URL}/o/<código>` para todos: el negocio de Sellea recibía su
+    // pedido con un enlace de `soyclubify.com`, y WhatsApp le pintaba la vista
+    // previa de Clubify. Es la fuga que ya se cerró en el aviso por SMS
+    // (8fdca586); este mensaje se quedó fuera.
+    const urlDelPedido = enlaceDelPedido(tenant, order.code);
+
     const lines = [
       `★ *Pedido #${order.code}*`,
       sedeLine,
@@ -137,7 +210,7 @@ export class ChannelsService {
       ...addressBlock,
       order.customerNote ? `✎ ${order.customerNote}` : '',
       '',
-      `Ver pedido: ${process.env.APP_URL ?? 'http://localhost:3000'}/o/${order.code}`,
+      urlDelPedido ? `Ver pedido: ${urlDelPedido}` : '',
     ].filter(Boolean);
 
     const text = encodeURIComponent(lines.join('\n'));
@@ -150,7 +223,11 @@ export class ChannelsService {
    * pedido DELIVERY y necesita despachar al motociclista.
    * Devuelve string vacío si no hay número de courier configurado.
    */
-  generateWaMeCourier(tenant: Tenant, order: Order, customer: Customer): string {
+  generateWaMeCourier(
+    tenant: NegocioParaElDomiciliario,
+    order: Order,
+    customer: Customer,
+  ): string {
     const phone = (tenant.whatsappDeliveryPhone ?? '').replace(/\D/g, '');
     if (!phone) return '';
 
@@ -302,7 +379,10 @@ export class ChannelsService {
 // bajo el producto. FIX 2026-06-15: antes los extras se sumaban al total pero
 // NO aparecían en el mensaje — el negocio no veía qué pidió el cliente (ej.
 // "adicional de papas"). Muestra "+ Nombre" con su precio si > 0.
-function renderExtras(i: any, tenant: Tenant): string {
+function renderExtras(
+  i: any,
+  tenant: Pick<Tenant, 'currency' | 'currencySymbol'>,
+): string {
   const extras = Array.isArray(i?.extras) ? i.extras : [];
   if (extras.length === 0) return '';
   return extras

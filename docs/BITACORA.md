@@ -8,6 +8,68 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-17 (44) — Pedidos: los que no le llegaban a nadie, «¿Sumas sello?» que no sumaba desde agosto y «Mis pedidos» que no encontraba a uno de cada cuatro
+
+**Qué:** doce fallos de pedidos del arqueo de esta madrugada. **Solo backend.**
+Sin migración.
+
+### Lo que más duele
+
+1. **Pedidos que no le llegaban a nadie.** Las cadenas de teléfono del aviso
+   (SMS al negocio y enlace de WhatsApp) usaban `??`, que no salta `''`. La
+   Gloriosa tiene `whatsappPhone = ''`: los pedidos de su sede sin número (UNICO
+   Outlet) no llegaban ni por SMS ni por WhatsApp; 17 en 60 días, 10 cancelados.
+   Ahora `primerTelefono` salta vacíos y valores sin dígitos, y un aviso que no
+   sale queda registrado (`order.owner_alert_skipped`, tipo distinto del dedup
+   para no dar el pedido por avisado). Que Ajustes guarde los teléfonos vaciados
+   como `null`, y la pantalla para ponerlos, van en la entrada (47).
+   **Comprobado en producción antes de desplegar:** de todas las sedes con
+   pedidos en 90 días, **solo UNICO Outlet cambia de destino**: de nadie a
+   `+57 318…999`, el `phone` del negocio, que es el de Jhon. Falta el número de
+   esa sede (se le pidió a Javi).
+2. **«¿Sumas sello?» no sumaba nunca desde el 27-08.** Buscaba tarjetas con
+   `autoStampOnOrder: true`, casilla que se apagó en todas el 26-08 (3b7f1293)
+   precisamente para que el sello lo diera este botón: 137 domicilios sin sello
+   en 9 negocios. Filtro fuera; el doble clic se cierra con un `Event` de id
+   determinista (la clave primaria hace de candado).
+3. **«Mis pedidos» no encontraba al 27 % de los clientes:** comparaba dígitos con
+   el teléfono guardado con espacios (`+56 912345678`). Ahora dígito contra
+   dígito en SQL, acotado al negocio (probado contra la base real).
+
+### El resto
+
+4. Un empleado «Solo pedidos» veía los pedidos de todas las sedes en cuanto
+   buscaba (La Gloriosa: de 13 a 160), también en el CSV: sede y búsqueda en `AND`.
+5. El filtro de fechas del Historial cortaba a las 19:00 de Colombia (el 40 % de
+   los pedidos es de noche): los días se cuentan en la zona del negocio.
+6. Cambio de estado leer-decidir-escribir (6 pedidos cambiados dos veces en
+   menos de 1,3 s): `updateMany` condicional y ningún efecto si otro se adelantó.
+7. El «Ver pedido» del WhatsApp llevaba `soyclubify.com` en marcas blancas (6 de
+   9 pedidos de Sellea): dominio de su marca, o sin enlace.
+8. `accept-delivery-payment` devolvía la fila del negocio con
+   `growBusinessApiKey`: ahora solo lo que usa el mensaje al domiciliario.
+9. La alerta de domicilio del negocio salía también para pedidos de oficina.
+10. Un pedido público con 2 variantes daba 400 (`variantIds` sin declarar).
+11. Stock con UPDATE atómico `GREATEST(stock - n, 0)` (validado con `EXPLAIN`
+    contra Postgres).
+
+### Pruebas
+
+Specs nuevos por punto sobre los servicios reales: `telefono-vacio`,
+`sello-manual`, `mis-pedidos-telefono`, `historial-filtros`,
+`estado-sin-carrera`, `wa-enlace-marca` (orders y channels),
+`pago-domicilio-sin-secretos`, `aviso-domicilio-oficina`,
+`pedido-publico-variantes`, `stock-atomico`, `me-telefonos-vacios`.
+
+### Revisión de Fable
+
+**DESPLEGAR CON CAMBIOS:** pidió comprobar en producción a quién irían los
+pedidos en los negocios con `''` en la cadena. Hecho (ver punto 1): solo cambia
+UNICO Outlet. Notas: los specs de stock y de «Mis pedidos» falsean el SQL (el de
+stock se validó con `EXPLAIN`; el de «Mis pedidos», contra la base); si el
+proceso muere entre el candado del sello y el sello, el pedido quedaría «ya
+sellado» sin sello (muy improbable).
+
 ## 2026-09-17 (46) — La venta por enlace de afiliado: el código iba en `src` y Hotmart solo rastrea `sck`
 
 **Qué:** Javier reportó que Habibi Bar Cantina y Master Sushi La Ligua compraron

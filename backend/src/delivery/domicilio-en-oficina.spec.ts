@@ -125,6 +125,8 @@ describe('«Mis pedidos» (la lista por teléfono)', () => {
     const svc = Object.create(DeliveryService.prototype) as any;
     svc.prisma = {
       tenant: { findUnique: vi.fn(async () => ({ id: 't1', status: 'ACTIVE' })) },
+      // Los clientes que casan por teléfono (dígito a dígito, en la base).
+      $queryRaw: vi.fn(async () => [{ id: 'c1' }]),
       order: { findMany: vi.fn(async () => rows) },
     };
     return svc;

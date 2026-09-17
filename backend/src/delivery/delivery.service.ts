@@ -14,6 +14,22 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { oficinaDelPedido } from '../orders/pedido-en-oficina';
 
 /**
+ * La cola de dígitos con la que se busca a un cliente por su teléfono, o null
+ * si lo escrito no basta.
+ *
+ * Una sola regla para «Mis pedidos» y para el chat del pedido, para que no
+ * vuelvan a divergir: al menos 8 dígitos (con 7 cualquiera listaba pedidos
+ * ajenos conociendo parte del número) y, si hay más de 10, los 10 últimos —el
+ * móvil sin prefijo de país—. 8 y no 10 porque no todos los países tienen
+ * móvil de 10 dígitos.
+ */
+export function colaDelTelefono(phoneRaw: string | null | undefined): string | null {
+  const digits = (phoneRaw || '').replace(/\D/g, '');
+  if (digits.length < 8) return null;
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+/**
  * Red de Domicilios — Fase 1 (2026-06-29).
  *
  * Gestiona las EMPRESAS de domicilios (las crea el Master Admin) y el
@@ -1191,14 +1207,38 @@ export class DeliveryService {
     //
     // 8 y no 10 porque no todos los paises tienen movil de 10 digitos y
     // dejar sin sus pedidos a un cliente legitimo seria peor.
-    const digits = (phoneRaw || '').replace(/\D/g, '');
-    if (digits.length < 8) return { orders: [] };
-    const last = digits.length > 10 ? digits.slice(-10) : digits;
+    const cola = colaDelTelefono(phoneRaw);
+    if (!cola) return { orders: [] };
+
+    // DÍGITO CONTRA DÍGITO, EN LA BASE.
+    //
+    // Antes era `customer: { phone: { endsWith: cola } }` sobre el teléfono
+    // GUARDADO TAL CUAL. El checkout lo guarda con el prefijo separado
+    // («+57 3150621706», «+56 912345678») y una cola de dígitos no casa con
+    // una cadena que lleva un espacio en medio: «Mis pedidos» salía vacío para
+    // el 27 % de los clientes. 344 de 454 clientes con pedidos tienen
+    // separadores (medido el 2026-09-17).
+    //
+    // Misma regla que `telefonoDelPedidoCoincide`: la cola tiene al menos 8
+    // dígitos y el número guardado tiene que TERMINAR en ella, así que un
+    // número guardado corto no abre coincidencias. `cola` son solo dígitos: no
+    // puede meter comodines en el LIKE. Acotado al negocio, que es lo que
+    // impide listar pedidos de otro con el mismo teléfono.
+    //
+    // `[^0-9]` y NO `\D`: en la plantilla de Prisma la barra se pierde por el
+    // camino y llega `'D'` a Postgres, que entonces no quita nada. Comprobado
+    // contra la base real el 2026-09-17: con `\\D` no encontraba a nadie.
+    const clientes = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM "Customer"
+      WHERE "tenantId" = ${tenant.id}
+        AND regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') LIKE ${`%${cola}`}
+    `;
+    if (!clientes.length) return { orders: [] };
 
     const orders = await this.prisma.order.findMany({
       where: {
         tenantId: tenant.id,
-        customer: { phone: { endsWith: last } },
+        customerId: { in: clientes.map((c) => c.id) },
       },
       orderBy: { createdAt: 'desc' },
       take: 20,
@@ -1305,11 +1345,10 @@ export class DeliveryService {
    * países tienen móvil de 10 dígitos.
    */
   private telefonoDelPedidoCoincide(phoneRaw: string, phoneGuardado?: string | null): boolean {
-    const digits = (phoneRaw || '').replace(/\D/g, '');
-    if (digits.length < 8) return false;
+    const cola = colaDelTelefono(phoneRaw);
+    if (!cola) return false;
     const guardado = (phoneGuardado || '').replace(/\D/g, '');
     if (!guardado) return false;
-    const cola = digits.length > 10 ? digits.slice(-10) : digits;
     return guardado.endsWith(cola);
   }
 

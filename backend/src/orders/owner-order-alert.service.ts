@@ -4,6 +4,7 @@ import { GrowBusinessService } from '../integrations/grow-business.service';
 import { brandAppUrl } from '../email/brand-email-creds.util';
 import { lineaDeProductos, origenDelPedido, paraSms } from './aviso-de-pedido';
 import { oficinaDelPedido } from './pedido-en-oficina';
+import { primerTelefono } from './primer-telefono';
 import {
   brandGrowCreds,
   BRAND_GROW_SELECT,
@@ -111,19 +112,23 @@ export class OwnerOrderAlertService {
       // DUENO: hay negocios dados de alta sin ningun telefono propio, y sin
       // esto se quedaban sin aviso teniendo a una persona detras perfectamente
       // localizable.
-      const telefono = (
-        tenant.ownerOrderAlertsPhone ??
-        (await this.telefonoDeLaSede(order.locationId)) ??
-        tenant.whatsappOrdersPhone ??
-        tenant.whatsappPhone ??
-        tenant.phone ??
-        (await this.telefonoDelDueno(order.tenantId)) ??
-        ''
-      ).trim();
+      //
+      // Con `primerTelefono` y no con `??`: un campo guardado como `''` paraba
+      // la cadena. La Gloriosa (`whatsappPhone = ''`) no recibía los pedidos
+      // de su sede sin número aunque su `phone` estuviera bien puesto.
+      const telefono =
+        primerTelefono(
+          tenant.ownerOrderAlertsPhone,
+          await this.telefonoDeLaSede(order.locationId),
+          tenant.whatsappOrdersPhone,
+          tenant.whatsappPhone,
+          tenant.phone,
+        ) ?? (await this.telefonoDelDueno(order.tenantId));
       if (!telefono) {
         this.logger.warn(
           `aviso de pedido ${order.code}: el negocio no tiene teléfono`,
         );
+        await this.registrarOmitido(order, 'sin_telefono');
         return;
       }
 
@@ -132,6 +137,7 @@ export class OwnerOrderAlertService {
         this.logger.warn(
           `aviso de pedido ${order.code}: sin credenciales de Grow Business`,
         );
+        await this.registrarOmitido(order, 'sin_credenciales');
         return;
       }
 
@@ -164,6 +170,33 @@ export class OwnerOrderAlertService {
   }
 
   /**
+   * Deja constancia de un aviso que NO salió, y por qué.
+   *
+   * Antes esos casos hacían `return` sin registrar nada: al negocio que dice
+   * «no me llegó el aviso» no había qué contestarle.
+   *
+   * Va con un tipo PROPIO (`order.owner_alert_skipped`) y no con el del dedup
+   * (`order.owner_alert_sent`) a propósito: el dedup busca ese tipo, así que
+   * registrar aquí el intento fallido marcaría el pedido como «ya avisado» sin
+   * que nadie hubiera recibido nada, y un reintento —con el número ya puesto
+   * en Ajustes— no volvería a intentarlo. Un aviso omitido no cuenta como dado.
+   */
+  private async registrarOmitido(
+    order: { id: string; code: string; tenantId: string },
+    motivo: 'sin_telefono' | 'sin_credenciales',
+  ) {
+    await this.prisma.event
+      .create({
+        data: {
+          tenantId: order.tenantId,
+          type: 'order.owner_alert_skipped',
+          payload: { orderId: order.id, code: order.code, motivo },
+        },
+      })
+      .catch(() => undefined);
+  }
+
+  /**
    * El móvil del dueño del negocio.
    *
    * Último recurso, y por eso va el último: el aviso es operativo —lo atiende
@@ -176,7 +209,7 @@ export class OwnerOrderAlertService {
       select: { phone: true },
       orderBy: { createdAt: 'asc' },
     });
-    return dueno?.phone?.trim() || null;
+    return primerTelefono(dueno?.phone);
   }
 
   /** El número de pedidos de la SEDE, si el pedido tiene una asignada. */
@@ -186,7 +219,8 @@ export class OwnerOrderAlertService {
       where: { id: locationId },
       select: { ordersWhatsappPhone: true, adminPhone: true },
     });
-    return l?.ordersWhatsappPhone ?? l?.adminPhone ?? null;
+    // Un `ordersWhatsappPhone = ''` no puede tapar el `adminPhone`.
+    return primerTelefono(l?.ordersWhatsappPhone, l?.adminPhone);
   }
 
   /**

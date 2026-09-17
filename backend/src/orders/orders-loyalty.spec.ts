@@ -76,6 +76,9 @@ function makePrisma(order: ReturnType<typeof baseOrder>) {
         args?.where?.code ? null : order,
       ),
       update: vi.fn(async (args: any) => ({ ...order, ...args.data })),
+      // setStatus escribe condicionado al estado leído (sin carrera): aquí
+      // nadie se adelanta, así que siempre escribe.
+      updateMany: vi.fn(async (_args: any) => ({ count: 1 })),
       create: vi.fn(async () => ({ ...order })),
     },
     orderEvent: { create: vi.fn(async (_args: any) => ({})) },

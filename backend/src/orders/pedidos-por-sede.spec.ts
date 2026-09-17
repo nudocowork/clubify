@@ -54,6 +54,16 @@ function servicio(prisma: any) {
   );
 }
 
+/**
+ * El `OR` de la sede dentro del `AND` del listado. Va en `AND` y no en
+ * `where.OR` para que la búsqueda —que trae su propio `OR`— no lo pise (ver
+ * `historial-filtros.spec.ts`).
+ */
+const sedeForzada = (where: any) =>
+  (where.AND ?? []).find((c: any) =>
+    c.OR?.some((x: any) => 'locationId' in x),
+  )?.OR ?? [];
+
 const usuario = (role: string): AuthUser =>
   ({ id: 'u1', email: 'e@e.com', role, tenantId: 't1' }) as AuthUser;
 
@@ -61,7 +71,7 @@ describe('pedidos que ve cada empleado', () => {
   it('«solo pedidos» con sede: se le fuerza SU sede', async () => {
     const f = prismaFalso({ sedeDelUsuario: 'sede-a' });
     await servicio(f.prisma).list(usuario('TENANT_ORDERS'), undefined);
-    expect(f.llamadas[0].where.OR).toContainEqual({ locationId: 'sede-a' });
+    expect(sedeForzada(f.llamadas[0].where)).toContainEqual({ locationId: 'sede-a' });
   });
 
   it('«solo pedidos» no puede pedir OTRA sede por la URL', async () => {
@@ -71,7 +81,7 @@ describe('pedidos que ve cada empleado', () => {
     await servicio(f.prisma).list(usuario('TENANT_ORDERS'), undefined, {
       locationId: 'sede-b',
     });
-    expect(f.llamadas[0].where.OR).toContainEqual({ locationId: 'sede-a' });
+    expect(sedeForzada(f.llamadas[0].where)).toContainEqual({ locationId: 'sede-a' });
     expect(f.llamadas[0].where.locationId).toBeUndefined();
   });
 
@@ -81,7 +91,7 @@ describe('pedidos que ve cada empleado', () => {
     // dejó a los empleados sin poder confirmar los pedidos del día anterior.
     const f = prismaFalso({ sedeDelUsuario: 'sede-a' });
     await servicio(f.prisma).list(usuario('TENANT_ORDERS'), undefined);
-    expect(f.llamadas[0].where.OR).toEqual([
+    expect(sedeForzada(f.llamadas[0].where)).toEqual([
       { locationId: 'sede-a' },
       { locationId: null },
     ]);

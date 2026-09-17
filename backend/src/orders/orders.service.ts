@@ -52,6 +52,8 @@ import {
   orderCreatedTemplate,
   orderReadyTemplate,
 } from '../email/templates/templates';
+import { fechaValida, minutosLocalesAUtc } from '../common/franjas-horarias';
+import { NEGOCIO_PARA_EL_DOMICILIARIO } from '../channels/channels.service';
 
 /**
  * Código del pedido. Seis caracteres desde el 2026-09-08, antes cuatro.
@@ -145,6 +147,42 @@ function courierPayLine(
   return '';
 }
 
+/** A lo que cae un negocio sin zona horaria, o con una que Intl no entiende. */
+const ZONA_POR_DEFECTO = 'America/Bogota';
+
+/**
+ * Una zona horaria que `Intl` sepa usar. Un valor corrupto en la base no puede
+ * tumbar el Historial de pedidos: se cae a Bogotá, donde están casi todos.
+ */
+function zonaUtilizable(zona: string | null | undefined): string {
+  if (!zona) return ZONA_POR_DEFECTO;
+  try {
+    new Intl.DateTimeFormat('en-CA', { timeZone: zona });
+    return zona;
+  } catch {
+    return ZONA_POR_DEFECTO;
+  }
+}
+
+/**
+ * El instante UTC en que EMPIEZA el día `YYYY-MM-DD` (+ `sumarDias`) en esa
+ * zona, o null si la fecha no es válida.
+ *
+ * Para los filtros «desde / hasta» del Historial, que llegan de un
+ * `<input type="date">`. Ver `list()` para el bug que esto arregla. El desfase
+ * se mide en ese día concreto (`minutosLocalesAUtc`), así que vale también en
+ * zonas con horario de verano, como Santiago.
+ */
+function inicioDelDiaEn(fecha: string, zona: string, sumarDias = 0): Date | null {
+  const dia = String(fecha ?? '').trim().slice(0, 10);
+  if (!fechaValida(dia)) return null;
+  const [y, m, d] = dia.split('-').map(Number);
+  const objetivo = new Date(Date.UTC(y, m - 1, d + sumarDias))
+    .toISOString()
+    .slice(0, 10);
+  return minutosLocalesAUtc(objetivo, 0, zona);
+}
+
 function hasValidDeliveryAddress(addr: unknown): boolean {
   if (addr == null) return false;
   if (typeof addr === 'string') return addr.trim().length > 0;
@@ -161,7 +199,14 @@ function hasValidDeliveryAddress(addr: unknown): boolean {
 export type CreateOrderDto = {
   tenantSlug: string;
   customer: { fullName: string; phone: string; email?: string };
-  items: { productId: string; variantId?: string; extraIds?: string[]; qty: number; note?: string }[];
+  items: {
+    productId: string;
+    variantId?: string;
+    variantIds?: string[];
+    extraIds?: string[];
+    qty: number;
+    note?: string;
+  }[];
   fulfillment: Fulfillment;
   tableNumber?: string;
   deliveryAddress?: any;
@@ -336,6 +381,13 @@ export class OrdersService {
         include: { customer: { select: { fullName: true, phone: true } } },
       });
       if (!order || order.fulfillment !== 'DELIVERY') return;
+      // Un pedido a una OFICINA es DELIVERY porque sale del menú de domicilio,
+      // pero se entrega andando dentro del coworking: ninguna empresa de
+      // domicilios lo va a recoger. `delivery.service` ya no crea su
+      // seguimiento ni avisa «listo para recoger»; este SMS se quedó fuera y
+      // seguía mandando «NUEVO PEDIDO DELIVERY — Dirección: Sala de Juntas», que
+      // además paga el negocio.
+      if (oficinaDelPedido(order.deliveryAddress)) return;
 
       // Resolver teléfonos destino. Si nadie configuró el array nuevo,
       // fallback al whatsappDeliveryPhone histórico.
@@ -503,6 +555,10 @@ export class OrdersService {
         // validación: un POST directo podría declarar «TARJETA» a un negocio
         // sin datáfono.
         storefront: { select: { theme: true } },
+        // La marca, para que el «Ver pedido» del WhatsApp al negocio lleve el
+        // dominio de SU marca y no el de Clubify. Sin cargarla, el enlace se
+        // omite (ver `enlaceDelPedido` en channels.service).
+        whiteLabel: { select: { slug: true, domain: true, appDomain: true } },
       },
     });
     if (!tenant || tenant.status === 'SUSPENDED')
@@ -1375,6 +1431,12 @@ export class OrdersService {
   ) {
     const tid = this.tid(user, override);
     const where: any = { tenantId: tid };
+    // Cada grupo de «o» va en su propio elemento de AND, igual que en
+    // `board()`. Antes la sede y la búsqueda escribían los dos `where.OR` y la
+    // búsqueda pisaba a la sede: un empleado de La Gloriosa veía 13 pedidos
+    // sin buscar y 160 —los de las cuatro sedes— buscando «a». El CSV sale de
+    // esta misma consulta, así que filtraba igual.
+    const y: any[] = [];
     if (filters?.status) where.status = filters.status;
     // La sede del EMPLEADO manda sobre lo que llegue por la URL.
     //
@@ -1388,32 +1450,35 @@ export class OrdersService {
       // antes de que el negocio tuviera sedes, o de un negocio que no las usa.
       // Filtrarlos fuera dejo a un empleado sin poder tocar los 89 pedidos
       // historicos que no la tienen — incidencia del 2026-09-06.
-      where.OR = [{ locationId: suSede }, { locationId: null }];
+      y.push({ OR: [{ locationId: suSede }, { locationId: null }] });
     } else if (filters?.locationId) {
       where.locationId = filters.locationId;
     }
     if (filters?.from || filters?.to) {
-      where.createdAt = {};
-      if (filters.from) {
-        const d = new Date(filters.from);
-        if (!Number.isNaN(d.getTime())) where.createdAt.gte = d;
-      }
-      if (filters.to) {
-        const d = new Date(filters.to);
-        if (!Number.isNaN(d.getTime())) {
-          d.setHours(23, 59, 59, 999);
-          where.createdAt.lte = d;
-        }
-      }
+      // Los días son del NEGOCIO, no de UTC. `new Date('2026-09-16')` es la
+      // medianoche UTC —las 19:00 del 15 en Bogotá— y `setHours(23, 59)` usa la
+      // zona del servidor: «hoy» se perdía los pedidos de 19:00 a 23:59 (el
+      // 40 % del total) y se traía los de la noche anterior.
+      const zona = await this.zonaDelNegocio(tid);
+      const createdAt: Record<string, Date> = {};
+      const desde = filters.from ? inicioDelDiaEn(filters.from, zona) : null;
+      if (desde) createdAt.gte = desde;
+      // «Hasta el 16» incluye el 16 entero: hasta ANTES de que empiece el 17.
+      const hasta = filters.to ? inicioDelDiaEn(filters.to, zona, 1) : null;
+      if (hasta) createdAt.lt = hasta;
+      if (desde || hasta) where.createdAt = createdAt;
     }
     const s = filters?.search?.trim();
     if (s) {
-      where.OR = [
-        { code: { contains: s, mode: 'insensitive' } },
-        { customer: { is: { fullName: { contains: s, mode: 'insensitive' } } } },
-        { customer: { is: { phone: { contains: s } } } },
-      ];
+      y.push({
+        OR: [
+          { code: { contains: s, mode: 'insensitive' } },
+          { customer: { is: { fullName: { contains: s, mode: 'insensitive' } } } },
+          { customer: { is: { phone: { contains: s } } } },
+        ],
+      });
     }
+    if (y.length) where.AND = y;
     // `items` es Json scalar — Prisma lo devuelve siempre sin necesidad de
     // include/select. El frontend lee o.items.length (orders/page.tsx).
     return this.prisma.order.findMany({
@@ -1542,6 +1607,14 @@ export class OrdersService {
       select: { id: true, name: true },
     });
     return carta ? { id: carta.id, nombre: carta.name } : null;
+  }
+
+  /** La zona horaria del negocio, utilizable. Ver `zonaUtilizable`. */
+  private async zonaDelNegocio(tenantId: string): Promise<string> {
+    const t = await this.prisma.tenant
+      .findUnique({ where: { id: tenantId }, select: { timezone: true } })
+      .catch(() => null);
+    return zonaUtilizable(t?.timezone);
   }
 
   private async sedeDeSoloPedidos(user: AuthUser): Promise<string | null> {
@@ -1742,10 +1815,37 @@ export class OrdersService {
     if (next === 'DELIVERED') stamp.deliveredAt = new Date();
     if (next === 'CANCELLED') stamp.cancelledAt = new Date();
 
-    const updated = await this.prisma.order.update({
-      where: { id },
+    // ESCRITURA CONDICIONAL: solo si el pedido SIGUE en el estado que leímos.
+    //
+    // Antes era leer → decidir → `update` a secas. Dos peticiones casi
+    // simultáneas (doble clic, dos pantallas en la caja, un reintento de red)
+    // leían las dos el mismo estado y escribían las dos, y TODO lo de abajo
+    // salía dos veces: automatizaciones, SMS al cliente, aviso a la empresa de
+    // domicilios y, al entregar, el sello. En producción, 6 pedidos cambiaron
+    // dos veces al mismo estado en menos de 1,3 s.
+    const { count } = await this.prisma.order.updateMany({
+      where: { id, status: o.status },
       data: { status: next, ...stamp },
     });
+    if (count === 0) {
+      // Otra petición se nos adelantó. NINGÚN efecto desde aquí: ya los
+      // disparó quien sí escribió.
+      const actual = await this.prisma.order.findUnique({ where: { id } });
+      if (actual?.status === next) return actual;
+      const comoQuedo: Record<OrderStatus, string> = {
+        PENDING: 'pendiente',
+        CONFIRMED: 'confirmado',
+        READY: 'listo',
+        DELIVERED: 'entregado',
+        CANCELLED: 'cancelado',
+      };
+      throw new BadRequestException(
+        actual
+          ? `El pedido cambió de estado mientras tanto: ahora está ${comoQuedo[actual.status]}. Recarga para ver cómo quedó.`
+          : 'El pedido cambió mientras tanto. Recarga para ver cómo quedó.',
+      );
+    }
+    const updated = (await this.prisma.order.findUnique({ where: { id } }))!;
 
     await this.prisma.orderEvent.create({
       data: {
@@ -1894,18 +1994,28 @@ export class OrdersService {
         'No se puede aceptar pago de un pedido cancelado.',
       );
     }
+    // DEL NEGOCIO, SOLO LO QUE USA EL MENSAJE AL DOMICILIARIO.
+    //
+    // Antes se cargaba con `tenant: true` y la fila entera viajaba en la
+    // respuesta —con `growBusinessApiKey` en claro— a cualquier empleado que
+    // pulsara «Aceptar pago», incluidos los de «solo pedidos». La pantalla
+    // solo usa `courierLink` y `courierConfigured`.
     if (o.paymentStatus === 'PAID') {
       // Idempotencia: si ya está pagado, devolvemos el courier link sin
       // re-marcar ni crear evento duplicado.
-      const courierLink = this.channels.generateWaMeCourier(
-        (o as any).tenant ?? (await this.prisma.tenant.findUnique({ where: { id: o.tenantId } }))!,
-        o as any,
-        (o as any).customer,
-      );
+      const negocio = await this.prisma.tenant.findUnique({
+        where: { id: o.tenantId },
+        select: NEGOCIO_PARA_EL_DOMICILIARIO,
+      });
+      const courierLink = negocio
+        ? this.channels.generateWaMeCourier(negocio, o as any, (o as any).customer)
+        : '';
       return {
         order: o,
         courierLink,
-        courierConfigured: !!((o as any).tenant?.whatsappDeliveryPhone),
+        // Del negocio recién leído: `get()` no carga `tenant`, y mirar
+        // `o.tenant` decía «sin domiciliario» aunque el enlace saliera bien.
+        courierConfigured: !!negocio?.whatsappDeliveryPhone,
       };
     }
 
@@ -1915,7 +2025,7 @@ export class OrdersService {
         paymentStatus: 'PAID',
         paidAt: o.paidAt ?? new Date(),
       },
-      include: { customer: true, tenant: true },
+      include: { customer: true, tenant: { select: NEGOCIO_PARA_EL_DOMICILIARIO } },
     });
 
     await this.prisma.orderEvent.create({
@@ -2083,7 +2193,9 @@ export class OrdersService {
     }
 
     // Idempotente: si este pedido ya generó un sello vivo, no se dobla. Evita
-    // que un doble clic o un reintento regale fidelidad.
+    // que un doble clic o un reintento regale fidelidad. Este conteo cubre el
+    // sello que dejó el AUTOMÁTICO (quien lo tenga encendido); la carrera entre
+    // dos clics la cierra el candado de abajo.
     const yaTiene = await this.prisma.stamp.count({
       where: { orderId, action: { in: ['STAMP', 'POINTS_ADD'] } },
     });
@@ -2094,11 +2206,15 @@ export class OrdersService {
       return { stamped: false, reason: 'Este pedido ya tenía su sello.', cards: 0 };
     }
 
+    // SIN filtrar por `autoStampOnOrder`. Esa casilla es del sello AUTOMÁTICO
+    // y se apagó en todas las tarjetas el 26-08 (3b7f1293) justamente para que
+    // el sello lo diera el negocio con ESTE botón. Filtrar aquí por ella dejó
+    // «¿Sumas sello?» respondiendo «no tiene tarjeta de sellos» en todos los
+    // negocios desde el 27-08.
     const cards = await this.prisma.card.findMany({
       where: {
         tenantId,
         isActive: true,
-        autoStampOnOrder: true,
         type: { in: ['STAMPS', 'POINTS'] },
         // Mismo filtro que en autoStampOnDelivered: el sello manual del
         // negocio tampoco debe caer en una tarjeta de club ni de alianza.
@@ -2108,6 +2224,34 @@ export class OrdersService {
     });
     if (!cards.length) {
       return { stamped: false, reason: 'El negocio no tiene tarjeta de sellos activa.', cards: 0 };
+    }
+
+    // CANDADO ATÓMICO contra el doble clic.
+    //
+    // El conteo de arriba es leer-decidir-escribir: dos clics seguidos leían
+    // «0 sellos» a la vez y sellaban los dos. El candado es un Event con id
+    // DETERMINISTA: la clave primaria garantiza que solo un insert gana, y el
+    // otro recibe P2002 sin haber escrito nada. No hace falta columna nueva.
+    //
+    // El id lleva cuántos reversos tiene el pedido: si soporte reabre un pedido
+    // cancelado (su sello se revirtió) se puede volver a sellar UNA vez más,
+    // igual que permitía el conteo.
+    const candado = `sello-manual:${orderId}:${revertidos}`;
+    try {
+      await this.prisma.event.create({
+        data: {
+          id: candado,
+          tenantId,
+          customerId: order.customerId,
+          type: 'order.stamp_manual',
+          payload: { orderId },
+        },
+      });
+    } catch (e) {
+      if ((e as { code?: string })?.code === 'P2002') {
+        return { stamped: false, reason: 'Este pedido ya tenía su sello.', cards: 0 };
+      }
+      throw e;
     }
 
     const total = Number(order.total ?? 0);
@@ -2121,6 +2265,13 @@ export class OrdersService {
           `sello manual falló para card ${card.id}: ${(e as Error).message}`,
         );
       }
+    }
+    if (!ok) {
+      // No se selló nada: se suelta el candado para que «Inténtalo de nuevo»
+      // sea verdad. Sin esto el pedido quedaría «ya sellado» sin sello.
+      await this.prisma.event
+        .deleteMany({ where: { id: candado } })
+        .catch(() => undefined);
     }
     return ok
       ? { stamped: true, cards: ok }
@@ -2378,19 +2529,24 @@ export class OrdersService {
     }
     for (const [productId, qty] of totals) {
       try {
-        const p = await this.prisma.product.findUnique({
-          where: { id: productId },
-          select: { id: true, stock: true },
-        });
-        if (!p || p.stock === null || p.stock === undefined) continue;
-        const next = Math.max(0, p.stock - qty);
-        await this.prisma.product.update({
-          where: { id: productId },
-          data: {
-            stock: next,
-            isAvailable: next > 0 ? undefined : false,
-          },
-        });
+        // UNA SOLA SENTENCIA QUE RESTA EN LA BASE.
+        //
+        // Antes: leer el stock, restar en memoria y escribir el resultado. Dos
+        // pedidos simultáneos del mismo producto con 5 unidades leían los dos
+        // «5» y escribían los dos «4»: se vendían dos y el inventario bajaba
+        // una, y con la última unidad entraban los dos pedidos.
+        //
+        // En Postgres las expresiones del SET ven la fila de ANTES del UPDATE,
+        // así que `stock - qty` es el mismo valor en las dos columnas; y el
+        // bloqueo de fila hace que el segundo UPDATE reste sobre lo que dejó el
+        // primero. `stock IS NOT NULL` = solo productos con inventario activo,
+        // como antes. Los ids `promo:<id>` no casan con ninguna fila.
+        await this.prisma.$executeRaw`
+          UPDATE "Product"
+          SET stock = GREATEST(stock - ${qty}, 0),
+              "isAvailable" = CASE WHEN stock - ${qty} > 0 THEN "isAvailable" ELSE false END
+          WHERE id = ${productId} AND stock IS NOT NULL
+        `;
       } catch {
         /* noop */
       }
