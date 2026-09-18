@@ -12,21 +12,31 @@ import {
   Put,
   Query,
   Redirect,
+  Res,
+  BadRequestException,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { QrPosterType } from '@prisma/client';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { QrPostersService } from './qr-posters.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
+import { construirPdfDeImprenta } from './pdf-de-imprenta';
 
 class UpsertDto {
   @IsOptional() @IsString() @MaxLength(120) name?: string;
@@ -48,6 +58,33 @@ class UpdateDto {
   @ValidateIf((_, v) => v !== null) @IsOptional() @IsString() @MaxLength(500)
   targetUrl?: string | null;
   @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+class MedidasDto {
+  // De una tarjeta de visita a un cartel grande. Fuera de eso es un error de
+  // quien llama, no un cartel.
+  @IsNumber() @Min(10) @Max(1200) w!: number;
+  @IsNumber() @Min(10) @Max(1200) h!: number;
+}
+
+class QrImprentaDto {
+  @IsString() @MaxLength(2000) url!: string;
+  // Fracciones del lienzo: ver `pdf-de-imprenta.ts`.
+  @IsNumber() @Min(0) @Max(1) x!: number;
+  @IsNumber() @Min(0) @Max(1) y!: number;
+  @IsNumber() @Min(0.01) @Max(1) lado!: number;
+  @IsOptional() @IsNumber() @Min(0) @Max(8) margenEnModulos?: number;
+}
+
+class PdfImprentaDto {
+  /** El cartel rasterizado SIN el QR, como dataURL (JPEG o PNG). El QR va
+   *  aparte y vectorial: es la pieza que no se puede rasterizar. */
+  @IsString() @MaxLength(14_000_000) cartel!: string;
+  @ValidateNested() @Type(() => MedidasDto) mm!: MedidasDto;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @ValidateNested() @Type(() => QrImprentaDto)
+  qr?: QrImprentaDto | null;
+  @IsOptional() @IsIn(['cmyk', 'rgb']) colores?: 'cmyk' | 'rgb';
+  @IsOptional() @IsBoolean() marcasDeCorte?: boolean;
 }
 
 class LogExportDto {
@@ -139,6 +176,35 @@ export class QrPostersController {
   /** El frontend dispara esto cuando el dueño descarga el cartel
    *  (PNG/PDF/SVG). Loguea el evento para mostrar "descargado N veces"
    *  en el card del poster. */
+  /**
+   * El PDF para imprenta: CMYK, con el QR vectorial en negro puro, sangrado y
+   * marcas de corte. Ver `pdf-de-imprenta.ts` para el porqué de cada cosa.
+   *
+   * No depende de un cartel guardado: recibe el render tal cual lo ve el
+   * negocio, así sale exactamente lo que diseñó, con sus fuentes y sus emojis,
+   * sin un segundo motor de dibujo que mantener idéntico al del editor.
+   */
+  @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN', 'MARKETING')
+  @Post('pdf-imprenta')
+  async pdfImprenta(@Body() body: PdfImprentaDto, @Res() res: Response) {
+    const m = /^data:image\/(png|jpeg|jpg);base64,(.+)$/.exec(body.cartel);
+    if (!m) {
+      throw new BadRequestException('El cartel tiene que llegar como imagen PNG o JPEG.');
+    }
+    const cartel = Buffer.from(m[2], 'base64');
+    const pdf = await construirPdfDeImprenta({
+      mm: body.mm,
+      cartel,
+      qr: body.qr ?? null,
+      colores: body.colores ?? 'cmyk',
+      marcasDeCorte: body.marcasDeCorte ?? true,
+    });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="cartel-imprenta.pdf"');
+    res.setHeader('Content-Length', String(pdf.length));
+    res.end(pdf);
+  }
+
   @Roles('TENANT_OWNER', 'TENANT_STAFF', 'SUPER_ADMIN', 'MARKETING')
   @Post(':id/export-log')
   logExport(

@@ -37,7 +37,7 @@ import {
 } from 'react-konva';
 import QRCode from 'qrcode';
 import jsPDF from 'jspdf';
-import { api } from '@/lib/api';
+import { api, downloadFilePost } from '@/lib/api';
 import {
   type QrPosterConfig,
   type QrPosterType,
@@ -619,7 +619,8 @@ export default function QrPosterEditor({
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [editorLoadError, setEditorLoadError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState<null | 'png' | 'jpg' | 'pdf'>(null);
+  const [exporting, setExporting] = useState<null | 'png' | 'jpg' | 'pdf' | 'imprenta'>(null);
+  const [errorImprenta, setErrorImprenta] = useState<string | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
@@ -1095,6 +1096,88 @@ export default function QrPosterEditor({
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autosaveState]);
+
+  /**
+   * El PDF para IMPRENTA: CMYK, con el QR vectorial en negro puro, sangrado y
+   * marcas de corte (Javier, 2026-09-18: «no está la posibilidad de exportar
+   * los diseños en formato CMYK»).
+   *
+   * El navegador no puede hacer CMYK —un canvas solo sabe RGB—, así que el
+   * cartel se rasteriza aquí SIN la imagen del QR y el backend lo convierte y
+   * redibuja el código en vectores. Se oculta solo la imagen (`qrCodigo`): el
+   * marco, el fondo redondeado y la sombra que el negocio le puso siguen en el
+   * cartel. Ver `backend/src/qr-posters/pdf-de-imprenta.ts`.
+   *
+   * JPEG y no PNG: el cartel va a CMYK de todos modos, y un PNG de A4 a 300 DPI
+   * en base64 puede pasar del límite de 15 MB del backend. La pieza que sí
+   * necesita bordes perfectos —el QR— no viaja como imagen.
+   */
+  async function exportarImprenta() {
+    const stage = stageRef.current;
+    if (!stage) return;
+    setExporting('imprenta');
+    setErrorImprenta(null);
+    const codigo = stage.findOne('.qrCodigo') as any;
+    try {
+      try {
+        await document.fonts?.ready;
+      } catch {
+        // Sin FontFaceSet se exporta igual.
+      }
+      if (codigo) codigo.visible(false);
+      stage.batchDraw();
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+
+      const { x, y, width, height, pixelRatio } = geometriaDeExport(cfg.canvas, scale);
+      const cartel = stage.toDataURL({
+        mimeType: 'image/jpeg',
+        quality: 0.95,
+        x,
+        y,
+        width,
+        height,
+        pixelRatio,
+      });
+      if (!cartel || cartel.length < 1024) {
+        throw new Error(
+          'Tu navegador no pudo generar el cartel a este tamaño. Prueba con menos DPI, o desde un ordenador.',
+        );
+      }
+
+      // La posición del código en FRACCIONES del lienzo: el backend agranda el
+      // cartel para el sangrado y el QR tiene que agrandarse con él.
+      const pad = cfg.qr.padding ?? 0;
+      const qr = codigo
+        ? {
+            url: effectiveUrl,
+            x: (cfg.qr.x + pad) / cfg.canvas.w,
+            y: (cfg.qr.y + pad) / cfg.canvas.h,
+            lado: cfg.qr.size / cfg.canvas.w,
+            // El editor genera el QR con `margin: 1`: mismo margen, mismo
+            // tamaño de módulo, mismo aspecto.
+            margenEnModulos: 1,
+          }
+        : null;
+
+      await downloadFilePost(
+        '/qr-posters/pdf-imprenta',
+        {
+          cartel,
+          mm: cfg.canvas.mm ?? { w: 210, h: 297 },
+          qr,
+          colores: 'cmyk',
+          marcasDeCorte: true,
+        },
+        `imprenta-${type.toLowerCase()}-${Date.now()}.pdf`,
+      );
+    } catch (e: any) {
+      setErrorImprenta(e?.message ?? 'No se pudo generar el PDF para imprenta.');
+    } finally {
+      if (codigo) codigo.visible(true);
+      stage.batchDraw();
+      setExporting(null);
+    }
+  }
 
   async function doExport(kind: 'png' | 'jpg' | 'pdf') {
     const stage = stageRef.current;
@@ -1782,6 +1865,8 @@ export default function QrPosterEditor({
         <ExportPanel
           exporting={exporting}
           onExport={doExport}
+          onImprenta={() => void exportarImprenta()}
+          errorImprenta={errorImprenta}
           mm={cfg.canvas.mm}
           dpi={cfg.canvas.dpi ?? 300}
           canvas={cfg.canvas}
@@ -2497,6 +2582,10 @@ export default function QrPosterEditor({
                               Sin un child hittable, el Group queda sin
                               hit area y el drag no funciona. */}
                           <KonvaImage
+                            // Para el PDF de imprenta: se oculta SOLO esto y
+                            // se redibuja vectorial. El marco, el fondo
+                            // redondeado y la sombra siguen en el cartel.
+                            name="qrCodigo"
                             image={qrImage}
                             x={pad}
                             y={pad}
@@ -3537,12 +3626,16 @@ function ExportButton({
 function ExportPanel({
   exporting,
   onExport,
+  onImprenta,
+  errorImprenta,
   mm,
   dpi,
   canvas,
 }: {
-  exporting: 'png' | 'jpg' | 'pdf' | null;
+  exporting: 'png' | 'jpg' | 'pdf' | 'imprenta' | null;
   onExport: (k: 'png' | 'jpg' | 'pdf') => void;
+  onImprenta: () => void;
+  errorImprenta: string | null;
   mm?: { w: number; h: number };
   dpi: number;
   canvas: QrPosterConfig['canvas'];
@@ -3570,12 +3663,31 @@ function ExportPanel({
         />
         <ExportButton
           label="PDF"
-          hint="Imprenta"
+          hint="Pantalla"
           busy={exporting === 'pdf'}
           disabled={!!exporting}
           onClick={() => onExport('pdf')}
         />
       </div>
+      {/* El que se le manda a la imprenta. Va aparte y destacado porque es
+          otro archivo, no «el PDF de siempre con otro nombre»: CMYK, QR en
+          negro puro, sangrado de 3 mm y marcas de corte. */}
+      <button
+        className="w-full rounded-[10px] border-2 border-ink/80 px-3 py-2.5 text-left hover:bg-bg2 disabled:opacity-50"
+        disabled={!!exporting}
+        onClick={onImprenta}
+      >
+        <div className="text-sm font-bold">
+          {exporting === 'imprenta' ? 'Preparando…' : 'PDF para imprenta · CMYK'}
+        </div>
+        <div className="text-[11px] text-mute leading-snug mt-0.5">
+          Con sangrado de 3 mm y marcas de corte. El QR sale en negro puro para
+          que escanee bien impreso.
+        </div>
+      </button>
+      {errorImprenta && (
+        <div className="text-[11px] text-red-600 leading-relaxed">{errorImprenta}</div>
+      )}
       <div className="text-[11px] text-mute leading-relaxed">
         {px.dpiReal} DPI sobre {mm?.w ?? 210}×{mm?.h ?? 297} mm ·{' '}
         <span className="tabular-nums">

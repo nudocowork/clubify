@@ -385,6 +385,43 @@ async function apiWithRefresh<T>(
   }
 }
 
+/**
+ * Como `downloadFile`, pero mandando un cuerpo por POST.
+ *
+ * Existe por el PDF de imprenta: el cartel viaja en el cuerpo (el render tal
+ * cual lo ve el negocio) y el PDF vuelve en la respuesta. Si falla, lanza con
+ * el mensaje del backend para que el panel pueda decir POR QUÉ.
+ */
+export async function downloadFilePost(path: string, body: unknown, filename: string) {
+  const token = getToken();
+  const res = await fetch(`${API}/api${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    let msg = `No se pudo generar el archivo (${res.status})`;
+    try {
+      const j = JSON.parse(txt);
+      if (j?.message) msg = Array.isArray(j.message) ? j.message.join(', ') : j.message;
+    } catch {}
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /** Descarga un archivo desde un endpoint protegido por JWT y lo guarda con `filename`. */
 export async function downloadFile(path: string, filename: string) {
   const token = getToken();

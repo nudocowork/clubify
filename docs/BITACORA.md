@@ -8,6 +8,99 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-18 (52) — PDF para imprenta en CMYK, el Lab de las marcas y preguntar antes de cambiar todas las cartas
+
+Cuatro entregas seguidas, cada una con su commit y ya desplegadas. **Sin
+migración.** Dependencia nueva en el backend: `pdfkit` (MIT).
+
+### 1. PDF para imprenta en CMYK (`pdf-de-imprenta.ts`)
+
+Javier: «no está la posibilidad de exportar los diseños en formato CMYK… para
+que se puedan enviar a la imprenta». Un canvas del navegador solo sabe RGB —no
+existe un canvas CMYK, es la especificación—, así que el editor no podía.
+
+**La trampa que decidió todo, medida aquí y no supuesta:** `sharp` convierte el
+negro puro en **C97 M99 Y98 K97 = 391 % de tinta**. Una prensa admite 300-340 %.
+No es solo el QR: son todos los textos negros. Un QR así se empasta y **puede
+dejar de escanear**.
+
+Cómo queda:
+
+- **El QR va vectorial, módulo a módulo, en K 100 %.** El navegador rasteriza el
+  cartel ocultando SOLO la imagen del código (`name="qrCodigo"`): el marco, el
+  fondo redondeado y la sombra que el negocio le puso se quedan.
+- **El resto del cartel se convierte con GCR máximo propio** (`rgbACmyk`), no con
+  sharp: todo gris y todo negro sale solo en tinta negra, y por construcción
+  ningún color pasa del 300 % (el canal que coincide con el máximo da 0, así que
+  como mucho hay dos de CMY). Se incrusta como XObject DeviceCMYK a mano, porque
+  PDFKit solo inserta JPEG/PNG en RGB.
+- **Sangrado de 3 mm y marcas de corte**, estas también en K 100 %.
+
+**Ghostscript quedó descartado:** es AGPL y Artifex prohíbe expresamente usarlo
+en un SaaS sin abrir todo el código.
+
+**Lo que NO es:** una conversión con perfil ICC. Los colores vivos no van
+calibrados a una prensa concreta. Para un cartel con QR lo que importa —el negro
+y los textos— sale perfecto; si una imprenta exige su perfil, el backend acepta
+`colores: 'rgb'` y la imprenta lo convierte ella.
+
+**Verificado de punta a punta, no solo con pruebas:** se generó un PDF de muestra,
+se renderizó con pdf.js en el navegador, y **el QR se decodificó** desde el render
+y devolvió la URL correcta. Mirarlo encontró un defecto que las pruebas no veían:
+cada módulo con su propio `fill` dejaba **costuras** —una rejilla de hilos claros
+sobre el código—. Ahora todo el QR es un solo relleno con las rachas de cada fila
+unidas.
+
+**Y otro que salió al medir el rendimiento:** la conversión son varios segundos
+de cálculo síncrono (6,5 s en el peor caso, A4 a 300 DPI con ruido), y durante
+ese tiempo **el proceso no atiende a nadie** — ni un sello, ni un pedido, de
+ningún negocio. Ahora cede el control cada 250.000 píxeles y comprime fuera del
+hilo principal: el peor bloqueo medido bajó a **0,3 s**.
+
+El cartel sube en JPEG q0,95: un PNG de A4 a 300 DPI en base64 puede pasar del
+límite de 15 MB del backend. Peor caso medido: 10,3 MB. El QR, que es lo que
+necesita bordes perfectos, no viaja como imagen.
+
+`pdf-de-imprenta.spec.ts`: 15 pruebas que leen el PDF que sale de verdad.
+Comprobado que saben ponerse en rojo: con el QR en cuatro tintas cae 1, y
+quitando el GCR caen 3.
+
+### 2. Lab: aprobar directo a desarrollo, y los tickets de las marcas
+
+- Atajos nuevos en la tabla de transiciones: PENDING → APPROVED / IN_DEVELOPMENT
+  y IN_DEVELOPMENT → IMPLEMENTED. La escalera larga sirve para las ideas de la
+  comunidad, que se votan; un ticket de Humberto es trabajo pedido.
+- **El modal de estados ofrecía los 7 sin mirar desde cuál se venía**: elegir uno
+  no permitido daba un 400 sin explicación, y abría en el estado ACTUAL, que casi
+  nunca es un destino válido — pulsar Guardar sin tocar nada fallaba. Ahora la
+  lista la manda el backend (`siguientesEstados`).
+- **Pestaña «Tickets de marcas»** en `/admin/lab`. Javier buscó dos veces una
+  propuesta aprobada de Sellea en el Lab PÚBLICO de Clubify, donde por diseño no
+  puede salir. La separación por marca se queda; lo que faltaba era la vista.
+
+**Avisar a Humberto sigue bloqueado, y no por código:** su usuario no tiene
+teléfono y Sellea no tiene subcuenta propia (en todo el sistema hay UNA, la de
+Clubify). Un correo firmado por Sellea desde un remitente de Clubify delataría la
+marca blanca. Decisión pendiente de Javier.
+
+### 3. Menú: preguntar antes de cambiar todas las cartas
+
+«Cuando se hace un cambio en el menú principal, que aparezca una notificación
+que indique si se quiere el cambio para solo ese menú o para todos los submenús».
+Hasta hoy **propagaba siempre y en silencio**, en una línea sin condición
+(`products.service.ts`). Ahora, si el producto tiene copias enganchadas, el panel
+pregunta. El número lo cuenta el backend en ese momento
+(`GET /catalog/products/:id/copias-enganchadas`), no el panel. Sin `alcance` se
+propaga como antes: un cliente viejo no puede cambiar de comportamiento por no
+conocer el campo.
+
+Ojo: hay cartas que siguen a OTRA carta, no al principal (en Nudo Cowork, «Sala
+de Juntas (1)» sigue a «Nudo Estudio»). El aviso hoy solo sale en el principal.
+
+### 4. La hora de los avisos, desde el panel
+
+`/superadmin/cobros`, debajo del período de gracia. Era la otra mitad de la 51.
+
 ## 2026-09-18 (51) — Los avisos de cobro salían a las 10 de la noche sin poder cambiarlo, y el sello automático no funcionó NUNCA
 
 Dos fallos que llevaban meses, los dos encontrados tirando del hilo de una queja
