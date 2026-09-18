@@ -25,6 +25,11 @@ import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorat
 import { Roles } from '../common/decorators/roles.decorator';
 
 class ProductBody {
+  /** Hasta dónde llega el cambio: solo esta carta, o también las enganchadas.
+   *  Ausente = «todas», que es como se comportaba antes de que se pudiera
+   *  elegir. El PATCH no se valida (es `Partial<...>`), así que quien decide
+   *  de verdad es `ProductsService.update`. */
+  @IsOptional() @IsIn(['solo-esta', 'todas']) alcance?: 'solo-esta' | 'todas';
   // 2026-06-12: nullable para permitir productos sin categoría
   // (Bloque 2 spec). ValidateIf deja pasar null explícito sin pedirle
   // UUID. Cuando es null el producto se renderiza en una sección
@@ -137,6 +142,16 @@ export class ProductsController {
   @Patch('reorder')
   reorder(@CurrentUser() user: AuthUser, @Body() body: { ids: string[] }) {
     return this.svc.reorder(user, body.ids);
+  }
+
+  /**
+   * Cuántas cartas siguen a este producto. Lo pide el panel ANTES de guardar un
+   * cambio del menú principal, para preguntar si el cambio va solo a esa carta
+   * o también a las demás, y para poder decir cuántas son de verdad.
+   */
+  @Get(':id/copias-enganchadas')
+  copiasEnganchadas(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.svc.copiasEnganchadas(user, id);
   }
 
   @Patch(':id')

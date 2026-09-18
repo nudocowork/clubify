@@ -605,6 +605,42 @@ export default function MenuEditor() {
     });
   }
 
+  /**
+   * Pregunta pendiente de alcance: qué guardar y a cuántas cartas afecta.
+   *
+   * Hasta hoy, cambiar un producto del menú principal cambiaba el producto en
+   * TODAS las cartas del negocio, en silencio (Javier, 2026-09-18). Quien
+   * corregía una errata le movía el precio a las 10 oficinas sin enterarse.
+   */
+  const [preguntaAlcance, setPreguntaAlcance] = useState<{
+    payload: any;
+    id: string;
+    cartas: string[];
+  } | null>(null);
+
+  /** Guarda de verdad, ya con el alcance decidido. */
+  async function guardarProducto(payload: any, id: string | undefined, alcance?: 'solo-esta' | 'todas') {
+    try {
+      if (id) {
+        await api(`/catalog/products/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify(alcance ? { ...payload, alcance } : payload),
+        });
+      } else {
+        await api('/catalog/products', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+      }
+      setEditing(null);
+      setPreguntaAlcance(null);
+      load();
+      toast(id ? t('productUpdated') : t('productCreated'), 'success');
+    } catch (e: any) {
+      toast(e.message || t('couldNotSave'), 'error');
+    }
+  }
+
   async function saveProduct(p: Partial<Product>) {
     // Validar rango antes de mandar: si máximo <= mínimo, fmtProductPrice
     // cae silencioso a FIXED en el storefront (condición `priceMax > basePrice`).
@@ -680,24 +716,19 @@ export default function MenuEditor() {
           }
         : {}),
     };
-    try {
-      if (p.id) {
-        await api(`/catalog/products/${p.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify(payload),
-        });
-      } else {
-        await api('/catalog/products', {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        });
+    // Editando en el MENÚ PRINCIPAL y con cartas que siguen a este producto:
+    // se pregunta antes. El número lo da el backend justo ahora, no lo que
+    // tuviéramos cargado: otra pestaña pudo enganchar o desenganchar una copia.
+    if (p.id && menuActivo === null) {
+      const copias = await api<{ count: number; cartas: string[] }>(
+        `/catalog/products/${p.id}/copias-enganchadas`,
+      ).catch(() => null);
+      if (copias && copias.count > 0) {
+        setPreguntaAlcance({ payload, id: p.id, cartas: copias.cartas });
+        return;
       }
-      setEditing(null);
-      load();
-      toast(p.id ? t('productUpdated') : t('productCreated'), 'success');
-    } catch (e: any) {
-      toast(e.message || t('couldNotSave'), 'error');
     }
+    await guardarProducto(payload, p.id);
   }
 
   // Bloque 2 (2026-06-12): si no hay categorías, mostramos TODOS los
@@ -1610,6 +1641,56 @@ export default function MenuEditor() {
          </div>
         </div>
       </div>
+
+      {/* A cuántas cartas va el cambio. Sale solo al editar en el MENÚ
+          PRINCIPAL y solo si de verdad hay cartas enganchadas: si el negocio
+          tiene una sola carta, o el producto está desenganchado, no molesta. */}
+      {preguntaAlcance && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+            <div className="p-5 border-b border-line">
+              <h2 className="font-bold text-lg m-0">
+                {t('scopeTitle', { n: preguntaAlcance.cartas.length })}
+              </h2>
+              <p className="text-xs text-mute mt-1 mb-0 leading-relaxed">
+                {t('scopeHelp')}
+              </p>
+            </div>
+            <div className="p-5">
+              <div className="text-[11px] uppercase tracking-wider text-mute font-semibold mb-1.5">
+                {t('scopeCardsLabel')}
+              </div>
+              <div className="text-xs text-ink leading-relaxed max-h-28 overflow-auto">
+                {preguntaAlcance.cartas.join(' · ')}
+              </div>
+            </div>
+            <div className="p-5 pt-0 grid gap-2">
+              <button
+                className="btn-primary"
+                onClick={() =>
+                  void guardarProducto(preguntaAlcance.payload, preguntaAlcance.id, 'todas')
+                }
+              >
+                {t('scopeAll', { n: preguntaAlcance.cartas.length })}
+              </button>
+              <button
+                className="btn-ghost"
+                onClick={() =>
+                  void guardarProducto(preguntaAlcance.payload, preguntaAlcance.id, 'solo-esta')
+                }
+              >
+                {t('scopeOnlyThis')}
+              </button>
+              <button
+                className="text-xs text-mute hover:underline mt-1"
+                onClick={() => setPreguntaAlcance(null)}
+              >
+                {t('cancel')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editing && (
         <ProductDrawer

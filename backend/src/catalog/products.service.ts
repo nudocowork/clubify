@@ -20,7 +20,13 @@ export type ExtraDto = {
   isAvailable?: boolean;
 };
 
+/** Hasta dónde llega un cambio: solo la carta que se está editando, o también
+ *  las copias enganchadas de las demás. Ver `update`. */
+export type AlcanceDelCambio = 'solo-esta' | 'todas';
+
 export type ProductDto = {
+  /** Lo eligió quien edita. Ausente = «todas», que es como se comportaba antes. */
+  alcance?: AlcanceDelCambio;
   // null/undefined → producto sin categoría (Bloque 2 2026-06-12).
   categoryId?: string | null;
   name: string;
@@ -323,6 +329,29 @@ export class ProductsService {
     });
   }
 
+  /**
+   * Cuántas cartas siguen a este producto, y cuáles.
+   *
+   * Se cuenta en el BACKEND justo antes de enseñar el aviso, igual que se hace
+   * al borrar una carta (`menus.service.ts`): así el panel no puede enseñar un
+   * número distinto del que se va a cambiar. Calcularlo en el frontend con lo
+   * que ya tiene cargado daría un número viejo en cuanto otra pestaña
+   * enganchara o desenganchara una copia.
+   */
+  async copiasEnganchadas(user: AuthUser, id: string) {
+    // `get` ya comprueba que el producto es del negocio de quien pregunta.
+    await this.get(user, id);
+    const copias = await this.prisma.product.findMany({
+      where: { sourceProductId: id, syncWithSource: true },
+      select: { menu: { select: { name: true } } },
+    });
+    return {
+      count: copias.length,
+      // `null` es el menú principal: no tiene fila en `Menu`.
+      cartas: copias.map((c) => c.menu?.name ?? 'Menú principal'),
+    };
+  }
+
   async update(user: AuthUser, id: string, dto: Partial<ProductDto>) {
     const existing = await this.get(user, id);
     return this.prisma.$transaction(async (tx) => {
@@ -415,7 +444,20 @@ export class ProductsService {
       // consulta mas caliente del producto y resolver el original en cada
       // lectura la encarecia para todos, incluidos los negocios de una sola
       // carta, que son la inmensa mayoria.
-      await this.propagarASincronizados(tx, id, dto);
+      //
+      // EL ALCANCE LO DECIDE QUIEN EDITA (Javier, 2026-09-18): «cuando se hace
+      // un cambio en el menú principal, que aparezca una notificación que
+      // indique si se quiere el cambio para solo ese menú o para todos los
+      // submenús también». Hasta hoy propagaba SIEMPRE y sin preguntar: quien
+      // corregía una errata en el principal le cambiaba el producto a las 10
+      // cartas de sus oficinas sin enterarse.
+      //
+      // Sin `alcance` se propaga, que es lo que hacía antes: un cliente viejo
+      // —o una importación, o el editor rápido de precios— no puede cambiar de
+      // comportamiento por no mandar un campo que no conoce.
+      if (dto.alcance !== 'solo-esta') {
+        await this.propagarASincronizados(tx, id, dto);
+      }
 
       // Solo si el guardado trae sedes. Una pantalla que no las conoce —el
       // editor rápido de precios, una importación— no puede borrarle al
