@@ -4088,10 +4088,16 @@ function SectionProductCard({
 // Popup de inscripción a tarjeta de fidelización
 // =====================================================
 //
-// Aparece a los 10s de cargar el menú. Se muestra una sola vez por
-// sesión (localStorage por slug) — no molesta al cliente que lo cierra.
+// Aparece a los N segundos (10 por defecto) de cargar el menú. Se muestra una
+// vez al día por cliente (ver `popup-visto`) — no molesta al que lo cierra.
 // Click en la imagen → /c/{cardId} (página de inscripción).
 // X para cerrar y seguir viendo el menú.
+//
+// La imagen se PRECARGA durante la espera y el aviso solo se abre cuando ya
+// está descargada. Antes el `<img>` no existía hasta abrir: la descarga
+// empezaba en ese momento y, como la imagen no tiene alto hasta llegar, el
+// cliente veía el fondo oscuro con una «×» flotando y nada más (medido
+// 2026-09-18: 0,5–3 s por el optimizador en frío, más en datos móviles).
 function StorefrontPopup({
   menuPopups,
   legacy,
@@ -4105,13 +4111,15 @@ function StorefrontPopup({
   slug: string;
 }) {
   const [open, setOpen] = useState(false);
-  // Popup resuelto (el activo según schedule, o el legacy). Se fija una vez al
-  // montar usando la hora local del cliente.
+  // Popup resuelto (el activo según schedule, o el legacy), elegido al montar
+  // con la hora local del cliente. Se fija al abrir, con la imagen ya cargada.
   const [active, setActive] = useState<{
     imageUrl: string;
     cardId: string | null;
     delaySeconds?: number;
     key: string;
+    /** El optimizador falló y se enseña la original del bucket. */
+    crudo?: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -4133,21 +4141,65 @@ function StorefrontPopup({
           }
         : null;
     if (!chosen) return;
-    setActive(chosen);
-
     if (avisoYaVisto(chosen.key)) return;
-    // #6 (2026-06-16): delaySeconds=0 = aparición INMEDIATA.
-    const delayMs = Math.max(0, chosen.delaySeconds ?? 10) * 1000;
-    if (delayMs === 0) {
+
+    let cancelado = false;
+    // Se abre cuando se cumplen LAS DOS: pasó la espera y la imagen ya está.
+    let esperaCumplida = false;
+    let imagenLista: 'optimizada' | 'cruda' | null = null;
+    const abrir = () => {
+      if (cancelado || !esperaCumplida || !imagenLista) return;
+      setActive({ ...chosen, crudo: imagenLista === 'cruda' });
       setOpen(true);
       marcarAvisoVisto(chosen.key);
-      return;
-    }
+    };
+
+    // Mismos `srcset` y `sizes` que el `<img>` del render: el navegador elige
+    // la misma candidata y al abrir la sirve de su caché, sin volver a pedirla.
+    const precargar = (
+      attrs: { src: string; srcSet?: string; sizes?: string },
+      cual: 'optimizada' | 'cruda',
+      siFalla: () => void,
+    ) => {
+      const img = new window.Image();
+      img.onload = () => {
+        imagenLista = cual;
+        abrir();
+      };
+      img.onerror = siFalla;
+      if (attrs.sizes) img.sizes = attrs.sizes;
+      if (attrs.srcSet) img.srcset = attrs.srcSet;
+      img.src = attrs.src;
+    };
+    const optimizada = imagenDelMenu(chosen.imageUrl, IMAGEN_DEL_AVISO);
+    precargar(optimizada, 'optimizada', () => {
+      // Un error del optimizador (un 400, p. ej.) dejaba el aviso EN BLANCO:
+      // en un `srcset` el navegador no cae al `src`. Se reintenta con la
+      // original; si tampoco carga, no se abre: un recuadro vacío es peor
+      // que no enseñarlo.
+      if (cancelado) return; // ya se fue del menú: no pedir nada más
+      if (!optimizada.src.startsWith('/_next/image')) return; // ya era la original
+      precargar({ src: chosen.imageUrl.trim() }, 'cruda', () => {});
+    });
+
+    // #6 (2026-06-16): delaySeconds=0 = aparición INMEDIATA (en cuanto la
+    // imagen está lista).
+    //
+    // La espera cuenta desde que se ABRIÓ la página —`performance.now()` son
+    // los ms desde la navegación—, que es lo que promete el panel («a los N
+    // segundos»). Este efecto corre cuando ya llegaron los datos del negocio,
+    // y con el backend en frío eso son varios segundos: un aviso de 3 s salía a
+    // los 13,8 s (medido 2026-09-18). Si se llega navegando dentro de la web,
+    // ya pasó de sobra y se abre en cuanto la imagen está.
+    const delayMs = Math.max(0, Math.max(0, chosen.delaySeconds ?? 10) * 1000 - performance.now());
     const t = window.setTimeout(() => {
-      setOpen(true);
-      marcarAvisoVisto(chosen.key);
+      esperaCumplida = true;
+      abrir();
     }, delayMs);
-    return () => window.clearTimeout(t);
+    return () => {
+      cancelado = true;
+      window.clearTimeout(t);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
@@ -4177,9 +4229,13 @@ function StorefrontPopup({
           className="block rounded-2xl overflow-hidden shadow-2xl bg-white"
         >
           {/* Por el optimizador con srcset: el ancho lo manda la caja
-              (`w-full`), así que el tamaño en pantalla no cambia. */}
+              (`w-full`), así que el tamaño en pantalla no cambia. Llega ya
+              precargada (ver el efecto de arriba); `crudo` solo si el
+              optimizador falló al precargar. */}
           <img
-            {...imagenDelMenu(active.imageUrl, IMAGEN_DEL_AVISO)}
+            {...(active.crudo
+              ? { src: active.imageUrl.trim() }
+              : imagenDelMenu(active.imageUrl, IMAGEN_DEL_AVISO))}
             alt=""
             className="w-full h-auto block"
             draggable={false}

@@ -8,6 +8,35 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-18 (56) — El pop-up del menú ya no sale vacío ni tarde
+
+Reporte: «bug en la carga del pop-up de los menús». Medido en producción:
+
+- **Salía vacío.** El `<img>` del aviso (`StorefrontPopup`, menú `/m` y `/d`) no
+  existía hasta abrirse: la descarga empezaba en ese momento y la tarjeta medía
+  0 px de alto mientras bajaba. El cliente veía el fondo oscuro y una «×» sola
+  de 0,5 a 3 s (optimizador en frío; más con datos móviles).
+- **Salía tarde.** La espera contaba desde que llegaban los datos del negocio,
+  no desde que se abría el menú. Con el backend en frío un aviso de 3 s salió a
+  los 13,8 s.
+- **El aviso por categoría bajaba la original**: 522 KB en konys donde el
+  optimizador da 94.
+
+**Arreglo:** el aviso se precarga durante la espera, con el mismo
+`srcset`/`sizes` que el `<img>`, y solo se abre cuando pasó la espera Y la
+imagen está descargada. Si el optimizador falla, reintenta con la original; si
+nada carga, no se abre. La espera cuenta desde la navegación
+(`performance.now()`), que es lo que promete el panel. El de categoría pasa por
+el optimizador, se precarga cuando el navegador está libre y reintenta con la
+original si falla. `pruebas-imagenes-del-menu.mjs` vigila los dos (comprobado en
+rojo).
+
+**Sin tocar (decisión aparte):** el menú libro también usa imágenes crudas en
+sus avisos; la vista previa del panel respeta la regla de «una vez al día»
+(el dueño cree que no sale); cada HTML de `/m/<slug>` lleva ~350 KB de
+traducciones de todo el panel; y la conexión del backend a la base por el
+proxy público (lo que hace lento el primer acceso a un menú frío).
+
 ## 2026-09-18 (55) — La barra de scroll del sidebar del panel, fina y sin flechas
 
 La nativa salía sin estilo (track blanco con flechas) sobre el fondo oscuro y le

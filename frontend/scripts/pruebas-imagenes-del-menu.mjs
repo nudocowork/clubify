@@ -238,6 +238,19 @@ const componentes = [
       ['src={s.logoUrl}', false],
       ['src={active.imageUrl}', false],
       ['url(${cat.imageUrl})', false],
+      // El aviso se PRECARGA y solo se abre con la imagen ya descargada: sin
+      // esto salía vacío —fondo oscuro y una «×»— mientras bajaba (2026-09-18).
+      ['precargar(optimizada', true],
+      ['performance.now()', true],
+    ],
+  ],
+  [
+    'src/components/menu/CategoryPopupController.tsx',
+    [
+      ["from '@/lib/menu/imagen-del-menu.mjs'", true],
+      ['imagenDelMenu(cfg.imageUrl, IMAGEN_DEL_AVISO_DE_CATEGORIA)', true],
+      // La original del bucket: 522 KB en konys donde el optimizador da 94.
+      ['src={cfg.imageUrl}', false],
     ],
   ],
 ];

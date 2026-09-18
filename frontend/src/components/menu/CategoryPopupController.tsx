@@ -21,6 +21,19 @@
 // los encuentra sin tocar cada layout individualmente.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { IMAGEN_DEL_AVISO, imagenDelMenu } from '@/lib/menu/imagen-del-menu.mjs';
+
+/**
+ * La imagen del aviso de categoría, por el optimizador. Antes iba la original
+ * del bucket: en konys, 522 KB donde por el optimizador son 94 (medido a
+ * w=1080, 2026-09-18). La caja es `max-w-md` (448 px) dentro de un `p-4`; el
+ * resto —anchos y calidad 85, porque suele ser un flyer con texto— es el del
+ * aviso del menú.
+ */
+const IMAGEN_DEL_AVISO_DE_CATEGORIA = {
+  ...IMAGEN_DEL_AVISO,
+  tamanos: '(max-width: 480px) calc(100vw - 32px), 448px',
+};
 
 export type PopupConfig = {
   enabled: boolean;
@@ -85,6 +98,37 @@ export function CategoryPopupController({
     }
     return m;
   }, [categories]);
+
+  // PRECARGA de las imágenes de los avisos, cuando el navegador está libre.
+  // Antes la imagen se pedía al abrir el aviso y aparecía de golpe, segundos
+  // después del texto. Con los mismos `srcset`/`sizes` que el `<img>`, al
+  // abrirlo la sirve de su caché. Son pocas: un aviso por categoría como mucho.
+  useEffect(() => {
+    if (typeof window === 'undefined' || byId.size === 0) return;
+    const precargar = () => {
+      for (const cfg of byId.values()) {
+        if (!cfg.imageUrl) continue;
+        const a = imagenDelMenu(cfg.imageUrl, IMAGEN_DEL_AVISO_DE_CATEGORIA);
+        if (!a.src) continue;
+        const img = new window.Image();
+        if (a.sizes) img.sizes = a.sizes;
+        if (a.srcSet) img.srcset = a.srcSet;
+        img.src = a.src;
+      }
+    };
+    // Sin `requestIdleCallback` (Safari), un respiro para no competir con el
+    // menú, que es lo que el cliente vino a ver.
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(precargar, { timeout: 2000 });
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(precargar, 800);
+    return () => window.clearTimeout(t);
+  }, [byId]);
 
   // Auto trigger via IntersectionObserver. Se re-instala cuando cambia
   // el set de categorías con popup.
@@ -166,7 +210,7 @@ export function CategoryPopupController({
   const activeCfg = openCatId ? byId.get(openCatId) : null;
   if (!activeCfg) return null;
 
-  return <CategoryPopupOverlay cfg={activeCfg} onClose={close} />;
+  return <CategoryPopupOverlay key={openCatId} cfg={activeCfg} onClose={close} />;
 }
 
 /** Badge pulsante para trigger=click. Lo monta cada layout en el header
@@ -217,6 +261,10 @@ function CategoryPopupOverlay({
     };
   }, [onClose]);
 
+  // Si el optimizador falla (un 400, p. ej.), en un `srcset` el navegador NO
+  // cae al `src`: la imagen se quedaba rota. Se reintenta una vez con la original.
+  const [crudo, setCrudo] = useState(false);
+
   return (
     <div
       onClick={onClose}
@@ -228,7 +276,12 @@ function CategoryPopupOverlay({
       >
         {cfg.imageUrl && (
           <img
-            src={cfg.imageUrl}
+            {...(crudo
+              ? { src: cfg.imageUrl.trim() }
+              : imagenDelMenu(cfg.imageUrl, IMAGEN_DEL_AVISO_DE_CATEGORIA))}
+            onError={() => {
+              if (!crudo) setCrudo(true);
+            }}
             alt=""
             className="w-full max-h-[45vh] object-cover rounded-t-2xl"
           />
