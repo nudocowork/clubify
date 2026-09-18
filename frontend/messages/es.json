@@ -4577,6 +4577,8 @@
     "labelActions": "Acciones",
     "actionSendPush": "Enviar push a Wallet",
     "actionAddStamps": "Sumar sellos",
+    "labelStampCard": "Tarjeta a la que va el sello",
+    "stampCardAuto": "Automático · la primera tarjeta de sellos activa",
     "placeholderTitle": "Título",
     "placeholderBody": "Cuerpo",
     "placeholderStampCount": "Cantidad de sellos",

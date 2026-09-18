@@ -540,6 +540,18 @@ export class AutomationsService {
       case 'ADD_STAMPS': {
         // Añade sellos al pase del customer (de la tarjeta indicada o la primera del tenant)
         if (!customerId) break;
+        /**
+         * CUÁNTOS SELLOS. Sin esto, `increment: undefined`.
+         *
+         * EL FALLO (Chillin Sports & Wings, 2026-09-18): «no se le está dando
+         * el sello automático al cliente». El panel guardaba la acción sin
+         * `amount` al cambiarle el tipo, y en producción quedó
+         * `{"body":"","type":"ADD_STAMPS","title":""}`. El panel ya no puede
+         * guardar eso, pero las reglas que YA están guardadas así siguen ahí:
+         * sin este respaldo, seguirían sin dar un sello hasta que alguien
+         * vuelva a abrir y guardar cada una.
+         */
+        const cuantos = Math.max(1, Math.round(Number(action.amount) || 1));
         // clubPlanId/convenioId: null en el fallback — las tarjetas de CLUB y de
         // ALIANZA también son type STAMPS; sin el filtro, una automatización sin
         // cardId explícito le sumaría "sellos" al saldo de la membresía de club
@@ -569,11 +581,24 @@ export class AutomationsService {
               convenioId: null,
             },
           }));
-        if (!card) break;
+        // Los `break` de aquí abajo eran mudos: la regla se marcaba SUCCESS
+        // igual, así que el panel le decía al negocio que su automatización
+        // funcionaba mientras no daba un solo sello. Ahora dicen por qué.
+        if (!card) {
+          this.logger.warn(
+            `ADD_STAMPS sin tarjeta de sellos (tenant ${tenantId}): el negocio no tiene ninguna activa, o la elegida es de club/alianza.`,
+          );
+          break;
+        }
         const pass = await this.prisma.pass.findUnique({
           where: { cardId_customerId: { cardId: card.id, customerId } },
         });
-        if (!pass) break;
+        if (!pass) {
+          this.logger.warn(
+            `ADD_STAMPS sin pase (tenant ${tenantId}, tarjeta ${card.id}): el cliente se inscribió en otra tarjeta. Elige la tarjeta en la automatización.`,
+          );
+          break;
+        }
         await this.prisma.$transaction([
           this.prisma.stamp.create({
             data: {
@@ -581,15 +606,20 @@ export class AutomationsService {
               passId: pass.id,
               customerId,
               action: 'STAMP',
-              amount: action.amount,
+              amount: cuantos,
               note: 'Por automation',
             },
           }),
           this.prisma.pass.update({
             where: { id: pass.id },
-            data: { stampsCount: { increment: action.amount } },
+            data: { stampsCount: { increment: cuantos } },
           }),
         ]);
+        // EL PASE HAY QUE REFRESCARLO. El sellado normal lo hace
+        // (`stamps.service.ts`); esto no, así que el sello entraba en la base y
+        // el cliente seguía viendo su tarjeta en cero — que para él es
+        // exactamente lo mismo que si no se le hubiera dado.
+        this.wallet.pushPassUpdate(pass.id).catch(() => null);
         break;
       }
       case 'APPLY_PROMO':

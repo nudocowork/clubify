@@ -19,6 +19,15 @@ import {
   type RenewalStateResult,
 } from './dunning';
 import { diasDeFechaTardia } from './fecha-de-cobro';
+import { horaLocal, fechaLocal } from '../automations/hora-local';
+import {
+  CLAVE_ULTIMA_PASADA,
+  CLAVE_VENTANA,
+  dentroDeLaVentana,
+  leerVentana,
+  normalizarVentana,
+  type VentanaDeEnvio,
+} from './ventana-de-envio';
 
 // Fase 3 (2026-08-31): alertas internas de cobro al equipo. Se envían por la
 // subcuenta GB del equipo (sendInternalAlert) — la misma probada con el SMS de
@@ -642,15 +651,92 @@ export class BillingService {
     };
   }
 
-  /** Corre todos los días a las 03:00 AM (zona del server). */
-  @Cron(CronExpression.EVERY_DAY_AT_3AM)
-  async dailyCron() {
+  /**
+   * El ciclo de cobro: UNA pasada al día, dentro de la ventana configurada.
+   *
+   * ANTES: `@Cron(CronExpression.EVERY_DAY_AT_3AM)`. El servidor va en UTC, así
+   * que «las 3 de la mañana» eran **las 22:00 de Bogotá**: a los dueños de
+   * negocio les llegaban los recordatorios de cobro a las 10 de la noche, y la
+   * pasada se estiraba hasta cerca de las 11. Verificado en los envíos reales,
+   * no solo en el código. Ver `ventana-de-envio.ts`.
+   *
+   * AHORA corre cada hora y solo actúa dentro de la ventana, una vez al día.
+   *
+   * ⚠ AL DESPLEGAR ESTE CAMBIO — LEER. El candado de abajo solo coordina
+   * procesos que corran ESTE código; no ve al cron viejo. Si en un mismo día
+   * natural corren el viejo (03:00 UTC) y el nuevo (la ventana), los avisos
+   * salen DOS veces a todo el mundo. Con la ventana por defecto (9-13 Bogotá =
+   * 14:00-18:00 UTC), la franja segura para desplegar es **entre las 18:01 y
+   * las 02:50 UTC**: después de que el nuevo ya pasó y antes de que el viejo
+   * dispare. Un rollback no duplica, PIERDE el día.
+   */
+  @Cron('0 * * * *')
+  async dailyCron(ahora: Date = new Date()) {
+    const ventana = await this.getVentanaDeEnvio();
+    const hora = horaLocal(ahora, ventana.zona);
+    if (!dentroDeLaVentana(hora, ventana)) return;
+
+    // El día se reclama ANTES de trabajar: si dos procesos coinciden (durante
+    // un despliegue Railway mantiene vivo el viejo hasta que el nuevo pasa el
+    // healthcheck), solo uno se lo lleva. `count` es lo que lo decide, no una
+    // lectura previa — leer y luego escribir es justo la carrera que queremos
+    // evitar.
+    if (!(await this.reclamarElDia(fechaLocal(ahora, ventana.zona)))) return;
+
     const r = await this.runDailyCheck();
     if (r.suspendedCount > 0 || r.autoPausedCount > 0 || r.overdueReminderCount > 0) {
       this.logger.log(
         `Daily cron: trial-suspended=${r.suspendedCount} auto-paused=${r.autoPausedCount} reminders-precharge=${r.reminderCount} overdue-reminders=${r.overdueReminderCount} pause-notices=${r.pauseNoticeCount}`,
       );
     }
+  }
+
+  /** La ventana configurada, o la de fábrica si no hay nada guardado. */
+  async getVentanaDeEnvio(): Promise<VentanaDeEnvio> {
+    const row = await this.prisma.setting
+      .findUnique({ where: { key: CLAVE_VENTANA } })
+      .catch(() => null);
+    return leerVentana(row?.value);
+  }
+
+  /** Guarda la ventana ya saneada y devuelve lo que quedó guardado. */
+  async setVentanaDeEnvio(entrada: unknown): Promise<VentanaDeEnvio> {
+    const v = normalizarVentana(entrada);
+    const value = JSON.stringify(v);
+    await this.prisma.setting.upsert({
+      where: { key: CLAVE_VENTANA },
+      update: { value },
+      create: { key: CLAVE_VENTANA, value },
+    });
+    return v;
+  }
+
+  /**
+   * Reclama el día para esta pasada. Devuelve true solo si ES ESTA corrida la
+   * que se lo lleva.
+   *
+   * El candado vive en la BASE y no en memoria porque en memoria no sobrevive
+   * a lo que de verdad pasa: durante cada despliegue hay dos procesos con el
+   * cron armado, cada uno con su propia memoria, y si el solape cruza un tick
+   * de la ventana el ciclo entero sale doble —recordatorios, avisos de mora y
+   * de pausa a todos los negocios—.
+   *
+   * El `upsert` previo es necesario porque `updateMany` no crea filas: sin él,
+   * el primer día después de desplegar no correría nunca.
+   */
+  private async reclamarElDia(diaLocal: string): Promise<boolean> {
+    await this.prisma.setting
+      .upsert({
+        where: { key: CLAVE_ULTIMA_PASADA },
+        update: {},
+        create: { key: CLAVE_ULTIMA_PASADA, value: '' },
+      })
+      .catch(() => null);
+    const claim = await this.prisma.setting.updateMany({
+      where: { key: CLAVE_ULTIMA_PASADA, value: { not: diaLocal } },
+      data: { value: diaLocal },
+    });
+    return claim.count === 1;
   }
 
   /**

@@ -343,6 +343,21 @@ function RuleDrawer({
 }) {
   const t = useTranslations('app_automations');
   const [form, setForm] = useState<Partial<Rule>>(value);
+  // Las tarjetas de SELLOS del negocio: hacen falta para saber a cuál va el
+  // sello de bienvenida. Si falla la carga se queda vacío y el selector no se
+  // pinta: el backend sigue eligiendo como antes, no se rompe nada.
+  const [cardsDeSellos, setCardsDeSellos] = useState<Array<{ id: string; name: string }>>([]);
+  useEffect(() => {
+    api<Array<{ id: string; name: string; type: string; isActive: boolean }>>('/cards')
+      .then((todas) =>
+        setCardsDeSellos(
+          (todas ?? [])
+            .filter((c) => c.type === 'STAMPS' && c.isActive)
+            .map((c) => ({ id: c.id, name: c.name })),
+        ),
+      )
+      .catch(() => setCardsDeSellos([]));
+  }, []);
 
   function update<K extends keyof Rule>(k: K, v: any) {
     setForm({ ...form, [k]: v });
@@ -355,6 +370,40 @@ function RuleDrawer({
   function updateAction(i: number, patch: any) {
     const arr = [...(form.actions ?? [])];
     arr[i] = { ...arr[i], ...patch };
+    update('actions', arr);
+  }
+
+  /**
+   * Los campos con los que NACE cada tipo de acción.
+   *
+   * EL FALLO (Chillin Sports & Wings, 2026-09-18): al cambiar el tipo de acción
+   * se hacía `{...vieja, type: nuevo}`, así que la acción se guardaba con los
+   * campos de la anterior y SIN los suyos. En producción quedó guardado
+   * `{"body":"","type":"ADD_STAMPS","title":""}` — sin `amount`, o sea sin
+   * decir cuántos sellos dar. El input enseñaba «1» (`value={a.amount ?? 1}`)
+   * pero eso es solo lo que se pinta: si el negocio no tocaba el número, nunca
+   * se escribía. El negocio veía su automatización encendida y bien puesta, y
+   * no daba un solo sello. En toda la plataforma había CERO sellos por
+   * automatización: no falló para uno, no funcionó para nadie.
+   */
+  function accionNueva(type: string, cardsDeSellos: Array<{ id: string }>): any {
+    if (type === 'ADD_STAMPS') {
+      return {
+        type,
+        amount: 1,
+        // Si solo hay una tarjeta de sellos, se deja fijada: sin esto el
+        // backend elige «la primera activa» sin ningún orden, y con dos
+        // tarjetas el sello podía caer en la que el cliente NO instaló.
+        cardId: cardsDeSellos.length === 1 ? cardsDeSellos[0].id : undefined,
+      };
+    }
+    if (type === 'SEND_PUSH') return { type, title: '', body: '' };
+    return { type };
+  }
+
+  function cambiarTipoDeAccion(i: number, type: string) {
+    const arr = [...(form.actions ?? [])];
+    arr[i] = accionNueva(type, cardsDeSellos);
     update('actions', arr);
   }
 
@@ -425,7 +474,7 @@ function RuleDrawer({
                 <select
                   className="input mb-2"
                   value={a.type}
-                  onChange={(e) => updateAction(i, { type: e.target.value })}
+                  onChange={(e) => cambiarTipoDeAccion(i, e.target.value)}
                 >
                   {/* Solo push y sello de gracia. SMS y WhatsApp se quitaron a
                       propósito (decisión de Javier, 2026-09-10): salen por la
@@ -481,15 +530,42 @@ function RuleDrawer({
                   </>
                 )}
                 {a.type === 'ADD_STAMPS' && (
-                  <input
-                    type="number"
-                    className="input"
-                    placeholder={t('placeholderStampCount')}
-                    value={a.amount ?? 1}
-                    onChange={(e) =>
-                      updateAction(i, { amount: Number(e.target.value) })
-                    }
-                  />
+                  <>
+                    <input
+                      type="number"
+                      min={1}
+                      className="input"
+                      placeholder={t('placeholderStampCount')}
+                      value={a.amount ?? 1}
+                      onChange={(e) =>
+                        updateAction(i, { amount: Math.max(1, Number(e.target.value) || 1) })
+                      }
+                    />
+                    {/* A QUÉ tarjeta. Sin esto el backend cogía «la primera
+                        tarjeta de sellos activa» sin ordenar, así que un
+                        negocio con dos (Chillin tiene Express y la normal)
+                        podía sellar la que el cliente no instaló — y entonces
+                        no encuentra el pase y no hace nada, en silencio. */}
+                    {cardsDeSellos.length > 1 && (
+                      <>
+                        <label className="label mt-2">{t('labelStampCard')}</label>
+                        <select
+                          className="input"
+                          value={a.cardId ?? ''}
+                          onChange={(e) =>
+                            updateAction(i, { cardId: e.target.value || undefined })
+                          }
+                        >
+                          <option value="">{t('stampCardAuto')}</option>
+                          {cardsDeSellos.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    )}
+                  </>
                 )}
               </div>
             ))}

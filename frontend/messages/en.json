@@ -4577,6 +4577,8 @@
     "labelActions": "Actions",
     "actionSendPush": "Send Wallet push",
     "actionAddStamps": "Add stamps",
+    "labelStampCard": "Card the stamp goes to",
+    "stampCardAuto": "Automatic · the first active stamps card",
     "placeholderTitle": "Title",
     "placeholderBody": "Body",
     "placeholderStampCount": "Number of stamps",

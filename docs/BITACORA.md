@@ -8,6 +8,106 @@
 > haz push. Aunque no hayas terminado.** Una entrada corta hoy vale más que una
 > completa dentro de tres días.
 
+## 2026-09-18 (51) — Los avisos de cobro salían a las 10 de la noche sin poder cambiarlo, y el sello automático no funcionó NUNCA
+
+Dos fallos que llevaban meses, los dos encontrados tirando del hilo de una queja
+de Javier. **Sin migración.**
+
+### 1. El ciclo de cobro salía a las 22:00 de Bogotá
+
+Javier: «envía mensajes SÚPER TARDE, 11 de la noche, y no tengo cómo arreglar
+eso». Verificado en los envíos reales de producción, no solo en el código: los 4
+recordatorios de cobro, los avisos de mora y los de pausa salieron **todos a las
+22:00**, todos los días.
+
+**La causa, de una línea:** el cron decía `@Cron(CronExpression.EVERY_DAY_AT_3AM)`
+pero el servidor va en **UTC** (el Dockerfile no fija `TZ`, `ScheduleModule` se
+registra sin zona y ningún `@Cron` del repo pasa `timeZone`). Las 03:00 UTC son
+las **22:00 de Bogotá**. Y como la pasada recorre los negocios uno a uno llamando
+a WhatsApp por cada uno, se estira hacia las 23:00 — de ahí «las 11».
+
+No había forma de cambiarlo: la hora era una constante del decorador, sin ajuste
+por negocio ni por marca, y **sin ninguna franja de silencio**. Lo llamativo es
+que el sistema SÍ sabe hacerlo: `automations/hora-local.ts` existe desde el 16-09
+por el bug gemelo («llegó una push a las 4am») y respeta la zona de cada negocio.
+Billing no lo importaba.
+
+**Cómo queda:** `ventana-de-envio.ts` + cron cada hora. La pasada se hace una vez
+al día, en el primer tick dentro de la ventana configurable
+(`billing.ventanaDeEnvio`, por defecto **9-13 hora de Bogotá**), con
+`GET/PATCH /billing/ventana-de-envio`. Ventana y no hora exacta: si el tick justo
+cae en un despliegue, el siguiente lo recoge.
+
+**El candado del día vive en la BASE** (`billing.ultimaPasada`, `updateMany`
+condicional mirando el `count`), no en memoria: en cada despliegue Railway
+mantiene vivo el contenedor viejo hasta que el nuevo pasa el healthcheck, y con
+dos procesos el ciclo entero saldría doble.
+
+⚠️ **Al desplegar esto**: el candado no puede ver al cron VIEJO. Como el viejo ya
+había corrido hoy y estábamos dentro de la ventana nueva, se sembró
+`billing.ultimaPasada = 2026-09-18` a mano antes de subir
+(`scratchpad/arreglos/sembrar-candado-del-dia.cjs`, con simulación). Sin eso,
+todos los avisos habrían salido dos veces hoy. Para futuros despliegues la franja
+segura es **entre las 18:01 y las 02:50 UTC**.
+
+**Lo que NO se tocó, a propósito:** el interruptor de los avisos es **por marca**,
+y así se queda (Javier, explícito: «si se apagan en el panel de Sellea es para que
+no los envíe Sellea, y si se apagan de Clubify es para que no los envíe Clubify;
+no mezclar eso»). Lo que confundía era otra cosa: apagó el aviso en **Sellea** y
+los 11 correos que siguieron saliendo eran de negocios de **Clubify**. Y no es un
+recordatorio sino CUATRO (7 días, 3 días, 1 día y el mismo día), cada uno con su
+interruptor.
+
+### 2. El sello automático al inscribirse no funcionó nunca
+
+«Chillin Sports & Wings no le da el sello automático al cliente… me dice que lo
+tiene habilitado». Lo tenía. Lo que estaba mal era lo guardado:
+
+```
+regla "Bienvenida al inscribirse"  activa=true
+acción: {"body":"","type":"ADD_STAMPS","title":""}
+```
+
+**Sin `amount`.** Al cambiarle el tipo a una acción, el panel hacía
+`{...vieja, type: nuevo}`: conservaba `title`/`body` del push anterior y no ponía
+los campos del nuevo. El input enseñaba «1» (`value={a.amount ?? 1}`) pero eso es
+solo lo pintado — si el negocio no tocaba el número, nunca se escribía. Con
+`amount` en `undefined`, el `increment` no sumaba.
+
+**El dato que cerró el diagnóstico: en TODA la plataforma había 0 sellos con la
+nota «Por automation».** No falló en un negocio: no funcionó nunca, para nadie. Y
+el panel marcaba la regla como correcta, porque los `break` del backend eran
+mudos y `emit` registraba SUCCESS igual.
+
+Cuatro arreglos:
+
+- **El panel ya no puede guardar una acción a medias**: al cambiar de tipo se
+  construye limpia, con `amount: 1`.
+- **Se puede elegir a QUÉ tarjeta va el sello**. Hacía falta: Chillin tiene dos de
+  sellos (Express y la principal) y el backend cogía «la primera activa» sin
+  ningún `orderBy`; si acertaba con la que el cliente no instaló, no encontraba
+  pase y no hacía nada.
+- **Respaldo en el backend** para las reglas ya guardadas rotas: sin él seguirían
+  sin sellar hasta que alguien abriera y guardara cada una.
+- **El pase se REFRESCA** (`wallet.pushPassUpdate`). El sellado normal lo hace;
+  este no, así que el sello entraba en la base y el cliente seguía viendo su
+  tarjeta en cero — que para él es lo mismo que no habérselo dado. Y los `break`
+  mudos ahora dejan un aviso en el log diciendo por qué no se pudo.
+
+### Pruebas
+
+`ventana-de-envio.spec.ts` (16) y `sello-de-bienvenida.spec.ts` (5), donde no
+había ninguna. Comprobado a mano que **saben ponerse en rojo**: rompiendo la
+ventana caen 2, y rompiendo el respaldo del `amount` y el refresco del pase caen
+4. `src/billing` 154 en verde, `src/automations` 52.
+
+### Pendiente
+
+- La ventana es global y en una zona fija. Lo siguiente sería por negocio con su
+  `Tenant.timezone`, como ya hace automatizaciones.
+- No hay control en el panel para la ventana todavía: por ahora se cambia por API.
+- El Lab de Humberto y el CMYK del editor siguen sin empezar.
+
 ## 2026-09-18 (50) — El cupón que no se gasta, InfoLink al menú lateral, Sellea sin editor de cartel, y los carteles salían a la MITAD de los DPI
 
 Cuatro cosas de una tarde. **Sin migración**: todo lo que se toca ya existía en

@@ -3,6 +3,7 @@ import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validato
 import { BillingService } from './billing.service';
 import { CurrentUser, AuthUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { describirVentana } from './ventana-de-envio';
 
 class CancelDto {
   @IsOptional() @IsString() @MaxLength(500) reason?: string;
@@ -10,6 +11,12 @@ class CancelDto {
 
 class GraceDto {
   @IsInt() @Min(1) @Max(30) graceDays!: number;
+}
+
+class VentanaDto {
+  @IsOptional() @IsInt() @Min(0) @Max(23) desde?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(24) hasta?: number;
+  @IsOptional() @IsString() zona?: string;
 }
 
 @Controller('billing')
@@ -57,6 +64,29 @@ export class BillingController {
   @Patch('grace-days')
   async setGrace(@Body() dto: GraceDto) {
     return { graceDays: await this.svc.setGraceDays(dto.graceDays) };
+  }
+
+  /**
+   * La franja horaria en la que sale el ciclo de cobro.
+   *
+   * Existe porque hasta el 2026-09-18 la hora era una constante del decorador
+   * del cron —en UTC— y a los negocios les llegaban los recordatorios a las
+   * 10 de la noche sin forma de cambiarlo. Ver `ventana-de-envio.ts`.
+   */
+  @Roles('SUPER_ADMIN', 'PLATFORM_OWNER')
+  @Get('ventana-de-envio')
+  async getVentana() {
+    const ventana = await this.svc.getVentanaDeEnvio();
+    return { ventana, descripcion: describirVentana(ventana) };
+  }
+
+  @Roles('SUPER_ADMIN', 'PLATFORM_OWNER')
+  @Patch('ventana-de-envio')
+  async setVentana(@Body() dto: VentanaDto) {
+    // Devuelve lo que QUEDÓ guardado, no lo que se mandó: el saneado puede
+    // corregirlo, y el panel tiene que pintar lo de verdad y no lo pedido.
+    const ventana = await this.svc.setVentanaDeEnvio(dto);
+    return { ventana, descripcion: describirVentana(ventana) };
   }
 
   /** Fase 3 — envío de PRUEBA de las alertas de cobro a los 3 números. */
